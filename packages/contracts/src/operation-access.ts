@@ -12,6 +12,9 @@ export const LIVE_READ_OPERATIONS: ReadonlySet<string> = new Set([
   'GET /api/v1/projects/{name}/google/properties',
   'GET /api/v1/projects/{name}/google/gsc/sitemaps',
   'GET /api/v1/projects/{name}/gbp/accounts',
+  'GET /api/v1/projects/{name}/gbp/local-posts',
+  'GET /api/v1/projects/{name}/gbp/local-post',
+  'GET /api/v1/projects/{name}/gbp/reviews/live',
   'GET /api/v1/projects/{name}/ga/properties',
   'GET /api/v1/projects/{name}/bing/sites',
   // Performance reads query Bing directly rather than the local snapshot.
@@ -67,6 +70,7 @@ export const WRITE_OPERATIONS: ReadonlySet<string> = new Set([
 
 /** Stored reads and pure previews that retain write-scope authorization. */
 export const STORED_READ_OPERATIONS: ReadonlySet<string> = new Set([
+  'GET /api/v1/projects/{name}/gbp/local-post-attempt',
   'GET /api/v1/openapi.json',
   'GET /api/v1/screenshots/{snapshotId}',
   'GET /api/v1/projects/{name}/technical-aeo/runs/{runId}/page-health-preview',

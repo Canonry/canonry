@@ -91,14 +91,14 @@ export interface AuditEntry {
 }
 
 /** Accepts both the main DatabaseClient and a Drizzle transaction context */
-export function writeAuditLog(db: Pick<DatabaseClient, 'insert'>, entry: AuditEntry) {
+function auditValues(entry: AuditEntry, id: string): typeof auditLog.$inferInsert {
   const context = getRequestContext()
   // `api` has always meant an ordinary HTTP caller. Keep explicit business
   // actors (scheduler, system, paid-workflow actors, etc.) exactly as named.
   const actor = entry.actor === 'api' ? context?.actor ?? entry.actor : entry.actor
   const now = new Date().toISOString()
-  db.insert(auditLog).values({
-    id: crypto.randomUUID(),
+  return {
+    id,
     projectId: entry.projectId ?? null,
     actor,
     action: entry.action,
@@ -110,7 +110,17 @@ export function writeAuditLog(db: Pick<DatabaseClient, 'insert'>, entry: AuditEn
     requestId: entry.requestId ?? context?.requestId ?? null,
     credentialId: entry.credentialId ?? context?.credentialId ?? null,
     createdAt: now,
-  }).run()
+  }
+}
+
+export function writeAuditLog(db: Pick<DatabaseClient, 'insert'>, entry: AuditEntry) {
+  db.insert(auditLog).values(auditValues(entry, crypto.randomUUID())).run()
+}
+
+/** Atomic immutable audit identity for a send-once claim/result. Never overwrites. */
+export function claimAuditLog(db: Pick<DatabaseClient, 'insert'>, id: string, entry: AuditEntry): boolean {
+  return db.insert(auditLog).values(auditValues(entry, id)).onConflictDoNothing()
+    .returning({id:auditLog.id}).get() !== undefined
 }
 
 /**

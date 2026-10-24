@@ -29,6 +29,7 @@ erDiagram
   measurement_plan_versions ||--o{ runs : "optionally pins"
   projects ||--o| schedules : "has (1:1)"
   projects ||--o{ notifications : has
+  notifications ||--o{ review_webhook_deliveries : delivers
   projects ||--o{ audit_log : has
   projects ||--o{ insights : has
   projects ||--o{ health_snapshots : has
@@ -139,6 +140,7 @@ erDiagram
 | **research_run_queries** | One persisted answer/evidence result per research batch query. | FK: researchRunId → research_runs, unique `(researchRunId, position)` |
 | **schedules** | Cron schedules (1:1 with project) | Unique: projectId |
 | **notifications** | Alert configurations per project | FK: projectId → projects |
+| **review_webhook_deliveries** | One durable delivery per negative-review event and destination (v189), empty on upgrade. `state` is `pending`, `attempting`, `sent`, `uncertain` (a chat send that got no answer, never resent), `failed` (refused, or out of retries) or `canceled`; `retry_at` is when a pending delivery is next due. An engine timer drains due rows every minute. | FK: projectId → projects, notificationId → notifications; unique (project_id, notification_id, event_id) |
 | **audit_log** | Change tracking. Authenticated actor plus nullable `credentialId` and `requestId`; client/session hints are not identity. Credential IDs remain after key deletion. | FK: projectId → projects (optional) |
 
 `research_runs` and `research_run_queries` are the durable ad-hoc research

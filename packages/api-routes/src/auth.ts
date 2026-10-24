@@ -340,16 +340,14 @@ export function requireOperator(request: FastifyRequest): void {
  * list. "Read-only" is a statement about Canonry's own data; it was never a
  * licence to spend, and now neither is silence.
  */
-export function requirePaidReadScope(request: FastifyRequest): void {
+export function requirePaidReadScope(request: FastifyRequest, allowedScopes: readonly string[] = [ADS_WRITE_SCOPE, ADS_APPROVE_SCOPE, ADS_ACTIVATE_SCOPE], denialMessage = 'This API key was not granted access to OpenAI Ads paid reads.'): void {
   const principal = request.principal
   if (!principal || principal.kind !== 'api-key') return
   const grantsAdsAccess = principal.scopes.some(scope =>
     scope === WILDCARD_SCOPE
-    || scope === ADS_WRITE_SCOPE
-    || scope === ADS_APPROVE_SCOPE
-    || scope === ADS_ACTIVATE_SCOPE)
+    || allowedScopes.includes(scope))
   if (!grantsAdsAccess) {
-    throw forbidden('This API key was not granted access to OpenAI Ads paid reads.')
+    throw forbidden(denialMessage)
   }
 }
 

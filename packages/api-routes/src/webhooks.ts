@@ -85,11 +85,34 @@ export async function resolveWebhookTarget(
   }
 }
 
+/**
+ * What one delivery attempt established. `requestSent` is false when the
+ * request never fully reached the network (DNS, connect or TLS failure, or a
+ * timeout before the body was written), so the receiver cannot have acted on
+ * it and a retry cannot duplicate it.
+ */
+export interface WebhookDeliveryResult {
+  status: number
+  error: string | null
+  timedOut?: true
+  requestSent: boolean
+  /** How long the receiver asked us to wait (`Retry-After`), in seconds. */
+  retryAfterSeconds?: number
+}
+
+/** `Retry-After` as seconds from now: delta seconds or an HTTP date, at most a day. */
+function retryAfterSeconds(header: string | string[] | undefined, now = Date.now()): number | null {
+  const value = (Array.isArray(header) ? header[0] : header)?.trim()
+  if (!value) return null
+  const seconds = /^\d+$/u.test(value) ? Number(value) : (Date.parse(value) - now) / 1000
+  return Number.isFinite(seconds) && seconds >= 0 ? Math.min(Math.ceil(seconds), 86_400) : null
+}
+
 export async function deliverWebhook(
   target: SafeWebhookTarget,
   payload: unknown,
   webhookSecret: string | null,
-): Promise<{ status: number; error: string | null; timedOut?: true }> {
+): Promise<WebhookDeliveryResult> {
   const body = JSON.stringify(payload)
   const isHttps = target.url.protocol === 'https:'
   const port = target.url.port ? Number(target.url.port) : (isHttps ? 443 : 80)
@@ -103,6 +126,18 @@ export async function deliverWebhook(
 
   if (webhookSecret) {
     headers['X-Canonry-Signature'] = 'sha256=' + crypto.createHmac('sha256', webhookSecret).update(body).digest('hex')
+  }
+  // A stable event identity lets a receiver deduplicate retries; the v2
+  // signature binds a timestamp so a captured request cannot be replayed later.
+  const eventId = payload && typeof payload === 'object' ? (payload as { eventId?: unknown }).eventId : undefined
+  if (typeof eventId === 'string' && /^evt_[a-f0-9]{64}$/u.test(eventId)) {
+    headers['X-Canonry-Event-Id'] = eventId
+    headers['Idempotency-Key'] = eventId
+    if (webhookSecret) {
+      const timestamp = String(Math.floor(Date.now() / 1000))
+      headers['X-Canonry-Timestamp'] = timestamp
+      headers['X-Canonry-Signature-V2'] = 'sha256=' + crypto.createHmac('sha256', webhookSecret).update(`${timestamp}.${body}`).digest('hex')
+    }
   }
 
   return await new Promise((resolve) => {
@@ -131,9 +166,20 @@ export async function deliverWebhook(
     const request = (isHttps ? https.request : http.request)(requestOptions, (response) => {
       response.resume()
       response.on('end', () => {
-        resolve({ status: response.statusCode ?? 0, error: null })
+        const retryAfter = retryAfterSeconds(response.headers['retry-after'])
+        resolve({
+          status: response.statusCode ?? 0,
+          error: null,
+          requestSent: true,
+          ...(retryAfter !== null ? { retryAfterSeconds: retryAfter } : {}),
+        })
       })
     })
+
+    // 'finish' fires once the whole request is handed to the network. Before
+    // that the receiver cannot have the complete body.
+    let requestSent = false
+    request.on('finish', () => { requestSent = true })
 
     let timedOut = false
     request.on('timeout', () => {
@@ -142,7 +188,7 @@ export async function deliverWebhook(
     })
 
     request.on('error', (error) => {
-      resolve({ status: 0, error: error.message, ...(timedOut ? { timedOut: true as const } : {}) })
+      resolve({ status: 0, error: error.message, ...(timedOut ? { timedOut: true as const } : {}), requestSent })
     })
 
     request.end(body)
@@ -218,4 +264,28 @@ async function resolveHostAddresses(
 
 function isBlockedAddress(address: string, options: ResolveWebhookTargetOptions): boolean {
   return blockedAddressReason(address, { allowLoopback: options.allowLoopback }) !== null
+}
+
+/** Verify before parsing/side effects, then atomically deduplicate the event ID at the receiver. */
+export function verifyCanonryWebhook(
+  body: string,
+  secret: string,
+  headers: { timestamp?: string; signature?: string; eventId?: string },
+  now = Date.now(),
+): boolean {
+  if (
+    !secret
+    || Buffer.byteLength(body) > 512 * 1024
+    || !/^\d{10}$/u.test(headers.timestamp ?? '')
+    || !/^sha256=[a-f0-9]{64}$/u.test(headers.signature ?? '')
+    || !/^evt_[a-f0-9]{64}$/u.test(headers.eventId ?? '')
+  ) return false
+  if (Math.abs(now - Number(headers.timestamp) * 1000) > 300_000) return false
+  const expected = 'sha256=' + crypto.createHmac('sha256', secret).update(`${headers.timestamp}.${body}`).digest('hex')
+  if (!crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(headers.signature!))) return false
+  try {
+    return (JSON.parse(body) as { eventId?: unknown }).eventId === headers.eventId
+  } catch {
+    return false
+  }
 }

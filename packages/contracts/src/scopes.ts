@@ -1,3 +1,4 @@
+import { GBP_POSTS_WRITE_SCOPE } from './gbp-local-posts.js'
 /**
  * API-key scope tokens and the read-only classifier.
  *
@@ -57,7 +58,7 @@ function grantsWrite(scope: string): boolean {
 /** Named mutation grants constrained to explicit routes; null means legacy broad access. */
 export function restrictedWriteScopes(scopes: readonly string[]): readonly string[] | null {
   const writes = scopes.filter(grantsWrite)
-  const restricted = new Set([ADS_WRITE_SCOPE, ADS_APPROVE_SCOPE, ADS_ACTIVATE_SCOPE, RESEARCH_RUN_SCOPE])
+  const restricted = new Set([ADS_WRITE_SCOPE, ADS_APPROVE_SCOPE, ADS_ACTIVATE_SCOPE, RESEARCH_RUN_SCOPE, GBP_POSTS_WRITE_SCOPE])
   return writes.length > 0 && writes.every(scope => restricted.has(scope)) ? writes : null
 }
 
