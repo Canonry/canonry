@@ -584,6 +584,49 @@ describe('Cloudflare Queue pull lifecycle', () => {
     await h.app.close()
   })
 
+  it('keeps draining through partial batches while a backlog remains, up to the batch cap', async () => {
+    const pullSizes = [37, 52, 100, 8, 61]
+    let pulls = 0
+    const messages = (count: number, prefix: string) => Array.from({ length: count }, (_, index) => ({
+      id: `${prefix}-${index}`, timestampMs: 1_700_000_000_000, attempts: 1, leaseId: `${prefix}-lease-${index}`,
+      metadata: {}, contentType: 'json' as const,
+      body: { schemaVersion: 1, workerVersion: '1.0.0', events: [] },
+    }))
+    const h = await harness({
+      queueMaxBatches: 4,
+      queuePull: async () => {
+        const size = pullSizes[pulls]!
+        pulls += 1
+        return { messageBacklogCount: 60_000, messages: messages(size, `pull-${pulls}`), skippedUnleasedMessageCount: 0 }
+      },
+      queueAck: async (_client, options) => ({ acknowledgedLeaseIds: options.acks, retriedLeaseIds: [], warningCount: 0 }),
+    })
+    const connected = await h.app.inject({ method: 'POST', url: '/api/v1/projects/test-project/traffic/connect/cloudflare', payload: queuePayload })
+    const sourceId = JSON.parse(connected.payload).sourceId as string
+    const synced = await h.app.inject({ method: 'POST', url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`, payload: {} })
+    expect(synced.statusCode).toBe(200)
+    // Partial batches (37, 52, 8) no longer end the drain; the cap of 4 does.
+    expect(pulls).toBe(4)
+    expect(JSON.parse(synced.payload)).toMatchObject({ remainingBacklogCount: 60_000 })
+    await h.app.close()
+  })
+
+  it('stops the drain on an empty pull even when a backlog is reported', async () => {
+    let pulls = 0
+    const h = await harness({
+      queuePull: async () => {
+        pulls += 1
+        return { messageBacklogCount: 500, messages: [], skippedUnleasedMessageCount: 0 }
+      },
+    })
+    const connected = await h.app.inject({ method: 'POST', url: '/api/v1/projects/test-project/traffic/connect/cloudflare', payload: queuePayload })
+    const sourceId = JSON.parse(connected.payload).sourceId as string
+    const synced = await h.app.inject({ method: 'POST', url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`, payload: {} })
+    expect(synced.statusCode).toBe(200)
+    expect(pulls).toBe(1)
+    await h.app.close()
+  })
+
   it('uses a visibility timeout beyond the ACK retry budget and persists residual backlog', async () => {
     let visibilityTimeoutMs: number | undefined
     const messages = Array.from({ length: 100 }, (_, index) => ({

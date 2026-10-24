@@ -925,7 +925,9 @@ value, receipts keep Cloudflare's 14-day maximum plus the margin, so a stale
 locally recorded retention can never shorten the redelivery window.
 
 Each default Queue sync drains at most 10 batches of 100 messages: **1,000
-messages per tick**. Doctor reports a residual of 1–1,000 messages as within
+messages per tick**. Cloudflare can return a partial batch while a backlog
+waits, so the drain keeps pulling until Cloudflare reports no backlog, a pull
+comes back empty, or the 10-batch cap is reached. Doctor reports a residual of 1–1,000 messages as within
 that budget. If no new messages arrive, the next scheduled sync can clear it.
 Doctor warns when more than 1,000 messages remain because one default tick
 cannot drain the residual. Run a manual sync to accelerate the drain. If the

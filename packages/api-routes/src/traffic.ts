@@ -2960,8 +2960,12 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
           aiUserFetchBucketRows += writeResult.aiUserFetchBucketRows
           aiReferralBucketRows += writeResult.aiReferralBucketRows
           sampleRows += writeResult.sampleRows
+          // A short-poll pull can return a partial batch while a large backlog
+          // waits, so a partial batch does not end the drain. Stop when
+          // Cloudflare reports nothing left or a pull comes back empty (the
+          // rest is leased or not yet visible); the batch cap bounds the sync.
           const pulledEnvelopeCount = pulled.messages.length + pulled.skippedUnleasedMessageCount
-          if (pulledEnvelopeCount < CLOUDFLARE_QUEUE_BATCH_SIZE || remainingBacklogCount === 0) break
+          if (pulledEnvelopeCount === 0 || remainingBacklogCount === 0) break
         }
         app.db.update(runs).set({ status: RunStatuses.completed, finishedAt: committedAt })
           .where(eq(runs.id, runId)).run()
