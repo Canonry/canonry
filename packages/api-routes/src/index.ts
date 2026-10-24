@@ -45,6 +45,7 @@ import { measurementPortfolioReadRoutes } from './measurement-portfolio-reads.js
 import { measurementQuestionReadRoutes } from './measurement-question-reads.js'
 import { visibilityReportRoutes } from './visibility-report.js'
 import { queryTrackingRoutes } from './query-tracking.js'
+import { queryTrackingResultsRoutes } from './query-tracking-results.js'
 import { applyRoutes } from './apply.js'
 import type { ApplyRoutesOptions } from './apply.js'
 import { historyRoutes } from './history.js'
@@ -726,6 +727,13 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     await api.register(measurementQuestionReadRoutes)
     await api.register(visibilityReportRoutes)
     await api.register(queryTrackingRoutes, {
+      getRunnableProviderNames: opts.getRunnableProviderNames,
+      providerRouteFamilies,
+      providerSummary: opts.providerSummary,
+    })
+    // The results read compares a simple sweep with what the project dispatches
+    // now, through the workspace's own signature, so it takes the same options.
+    await api.register(queryTrackingResultsRoutes, {
       getRunnableProviderNames: opts.getRunnableProviderNames,
       providerRouteFamilies,
       providerSummary: opts.providerSummary,

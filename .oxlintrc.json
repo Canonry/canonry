@@ -514,12 +514,12 @@
         "canonry-vocabulary/no-question-ui-copy": "error"
       }
     },
-    // Permanent exclusions: DiscoverySection is discovery's GENERATIVE framing
+    // Permanent exclusions: queries/FindQueriesSection is discovery's GENERATIVE framing
     // ("questions your customers might ask") — a genuinely different noun, and no
     // regex separates it from query copy, so the boundary is the file. mock-data.ts
     // is a test fixture with no production consumer.
     {
-      "files": ["apps/web/src/components/project/DiscoverySection.tsx","apps/web/src/mock-data.ts"],
+      "files": ["apps/web/src/components/project/queries/FindQueriesSection.tsx","apps/web/src/mock-data.ts"],
       "rules": {
         "canonry-vocabulary/no-question-ui-copy": "off"
       }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { AppError, describeError, describeFetchError, isFetchTransportError, notFound, queryTrackingPreviewStale, researchDailyLimitExceeded, validationError } from '../src/errors.js'
+import { AppError, describeError, describeFetchError, isFetchTransportError, notFound, queryTrackingPreviewStale, researchDailyLimitExceeded, runInProgress, sweepInProgress, validationError } from '../src/errors.js'
 
 describe('describeError', () => {
   it('returns the message of an Error', () => {
@@ -197,6 +197,33 @@ describe('query tracking errors', () => {
       details: { expectedWorkspaceVersion: 'qtw_expected', actualWorkspaceVersion: 'qtw_actual' },
     })
     expect(error.details).toEqual({ expectedWorkspaceVersion: 'qtw_expected', actualWorkspaceVersion: 'qtw_actual' })
+  })
+
+  it('reuses RUN_IN_PROGRESS for a sweep refusal, telling it apart by reason and naming the cancel command', () => {
+    const error = sweepInProgress('northwind', 'run-7', 'queued')
+    expect(error.toJSON()).toEqual({
+      error: {
+        code: 'RUN_IN_PROGRESS',
+        message: "Sweep run run-7 is queued for 'northwind'. Publish tracked query and setup changes after it finishes, or cancel it first: canonry run cancel northwind run-7",
+        details: { projectName: 'northwind', kind: 'answer-visibility', activeRunId: 'run-7', reason: 'sweep-in-progress' },
+      },
+    })
+    expect(error.statusCode).toBe(409)
+    expect(error.code).toBe(runInProgress('northwind').code)
+    expect(runInProgress('northwind', 'answer-visibility', 'run-7').details).not.toHaveProperty('reason')
+  })
+
+  it('counts and lists every active sweep run, since cancelling one sibling does not lift the refusal', () => {
+    expect(sweepInProgress('northwind', 'run-7', 'running', ['run-8', 'run-9']).toJSON()).toEqual({
+      error: {
+        code: 'RUN_IN_PROGRESS',
+        message: "3 sweep runs are queued or running for 'northwind'. Publish tracked query and setup changes after they all finish, or cancel each one first: canonry run cancel northwind <run-id>",
+        details: {
+          projectName: 'northwind', kind: 'answer-visibility', activeRunId: 'run-7', reason: 'sweep-in-progress',
+          activeRunIds: ['run-7', 'run-8', 'run-9'],
+        },
+      },
+    })
   })
 })
 

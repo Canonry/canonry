@@ -11,10 +11,17 @@ import { REPORT_TREND_UNCHECKED_NOTE, UNCHECKED_SOURCES_COPY, VisibilityOverview
 import { formatObservedInstantLabel, observedInstant } from '../src/components/shared/ChartPrimitives.js'
 import { ANSWER_SOURCES_LABEL } from '../src/components/shared/AnswerMarkdown.js'
 import { jsonResponse, mockFetch } from './mock-fetch.js'
+import { expectCautionNote } from './caution-note.js'
 import { createQueryClient } from '../src/queries/query-client.js'
 import { SENTIMENT_COPY, SentimentScopeProvider } from '../src/components/project/SentimentSection.js'
 
 afterEach(cleanup)
+
+/** One engine row of Query results as it reads under Mentioned and under Cited, without the labels a phone adds. */
+function engineResult(table: Element, provider: string): Array<string | null | undefined> {
+  const row = within(table as HTMLElement).getByRole('button', { name: new RegExp(` · ${provider}$`) }).closest('tr')!
+  return [...row.querySelectorAll('.measurement-result-mobile-label')].map(label => label.nextElementSibling?.textContent)
+}
 
 export function reportFixture(): VisibilityReportResponse {
   const rate = { numerator: 1, denominator: 3, rate: 0.43 }
@@ -123,9 +130,23 @@ describe('shared production visibility view', () => {
     }
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     render(<QueryClientProvider client={client}><Workspace /></QueryClientProvider>)
-    const recovery = await screen.findByRole('button', { name: VISIBILITY_SCOPE_RECOVERY_COPY.showWholeSite })
-    expect(screen.getByRole('alert').textContent).not.toContain('VALIDATION_ERROR')
-    expect(screen.getByRole('alert').textContent).toContain(VISIBILITY_SCOPE_RECOVERY_COPY.retiredScope)
+    // The wording itself, once: every other recovery assertion reads it back from the constant.
+    expect(VISIBILITY_SCOPE_RECOVERY_COPY).toMatchObject({
+      retiredScope: 'Place unavailable', retiredMarket: 'Market unavailable', showWholeSite: 'Show all', showAllMarkets: 'Show all markets',
+      retiredMarketHelp: 'This saved market is not in this measurement. Show all markets to pick another.',
+    })
+    expect(VISIBILITY_SCOPE_RECOVERY_COPY.retiredScopeHelp('All of Acme')).toBe('This saved place is not in this measurement. Show all of Acme to pick another.')
+    expect(VISIBILITY_SCOPE_RECOVERY_COPY.showRoot('All of Acme')).toBe('Show all of Acme')
+    // The button reads "Show all" and its name says all of what. No caller named a root here, so it is all locations.
+    const recovery = await screen.findByRole('button', { name: VISIBILITY_SCOPE_RECOVERY_COPY.showRoot('All locations') })
+    expect(recovery.textContent).toBe(VISIBILITY_SCOPE_RECOVERY_COPY.showWholeSite)
+    const alert = screen.getByRole('alert')
+    // A heading, a caution icon with a two-word label, one action. The sentence is the tooltip.
+    expect(alert.textContent).toBe('AI visibility unavailablePlace unavailableShow all')
+    const note = within(alert).getByText(VISIBILITY_SCOPE_RECOVERY_COPY.retiredScope)
+    expect(note.firstElementChild?.tagName.toLowerCase()).toBe('svg')
+    expect(note.firstElementChild?.getAttribute('aria-hidden')).toBe('true')
+    expect(within(note).getByRole('button', { name: VISIBILITY_SCOPE_RECOVERY_COPY.retiredScopeHelp('All locations') })).toBeTruthy()
     expect(screen.queryByRole('button', { name: VISIBILITY_SCOPE_RECOVERY_COPY.showAllMarkets })).toBeNull()
     fireEvent.click(recovery)
     await screen.findByRole('region', { name: 'Non-brand queries', exact: true })
@@ -149,8 +170,10 @@ describe('shared production visibility view', () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     render(<QueryClientProvider client={client}><Workspace /></QueryClientProvider>)
     const recovery = await screen.findByRole('button', { name: VISIBILITY_SCOPE_RECOVERY_COPY.showAllMarkets })
-    expect(screen.getByRole('alert').textContent).toContain(VISIBILITY_SCOPE_RECOVERY_COPY.retiredMarket)
-    expect(screen.queryByRole('button', { name: VISIBILITY_SCOPE_RECOVERY_COPY.showWholeSite })).toBeNull()
+    const alert = screen.getByRole('alert')
+    expect(alert.textContent).toBe('AI visibility unavailableMarket unavailableShow all markets')
+    expect(within(alert).getByRole('button', { name: VISIBILITY_SCOPE_RECOVERY_COPY.retiredMarketHelp })).toBeTruthy()
+    expect(screen.queryByText(VISIBILITY_SCOPE_RECOVERY_COPY.showWholeSite)).toBeNull()
     fireEvent.click(recovery)
     await screen.findByRole('region', { name: 'Non-brand queries', exact: true })
     expect(currentSearch).toMatchObject({ measurementScope: 'group', measurementScopeKey: 'metro-alpha', queryClass: 'non-brand', measurementProvider: 'gemini', tab: 'overview' })
@@ -163,8 +186,8 @@ describe('shared production visibility view', () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     render(<QueryClientProvider client={client}><VisibilityWorkspace projectName="demo" selection={parseVisibilitySelection({ measurementScope: 'group', measurementScopeKey: 'removed', queryClass: 'non-brand' })} onSelectionChange={() => {}} /></QueryClientProvider>)
     expect(await screen.findByRole('button', { name: 'Retry' })).toBeTruthy()
-    expect(screen.queryByRole('button', { name: VISIBILITY_SCOPE_RECOVERY_COPY.showWholeSite })).toBeNull()
-    expect(screen.queryByRole('button', { name: VISIBILITY_SCOPE_RECOVERY_COPY.showAllMarkets })).toBeNull()
+    // Retry is the only button: no scope recovery, and no caution note with a tooltip.
+    expect(within(screen.getByRole('alert')).getAllByRole('button').map(button => button.textContent)).toEqual(['Retry'])
   })
 
   it('normalizes a clean URL to the served class without adding a history entry', async () => {
@@ -314,10 +337,11 @@ describe('shared production visibility view', () => {
     const table = screen.getByRole('table', { name: 'Non-brand queries trend data' })
     expect(table.parentElement!.classList.contains('sr-only')).toBe(false)
     expect(within(table).getAllByRole('row')).toHaveLength(3)
-    for (const point of population.trend) {
-      expect(within(table).getByText(new Date(point.createdAt).toLocaleDateString())).toBeTruthy()
-    }
-    expect(within(table).getByText('model changed')).toBeTruthy()
+    // A sweep's day reads as it does in the header, and its comparison in the headline's words, never the wire value.
+    expect(within(table).getAllByRole('row').slice(1).map(row => [row.cells[0]!.textContent, row.cells[3]!.textContent])).toEqual([
+      [formatObservedInstantLabel(observedInstant('2026-09-03T12:00:00Z')), 'No earlier sweep'],
+      [formatObservedInstantLabel(observedInstant('2026-09-04T12:00:00Z')), 'Not compared: engines or models changed'],
+    ])
     expect(within(table).getAllByText('Not measured')).toHaveLength(4)
     expect(screen.queryByRole('img', { name: /mention and citation trend/ })).toBeNull()
     expect(screen.getByText('No measured trend for this selection.')).toBeTruthy()
@@ -351,6 +375,31 @@ describe('shared production visibility view', () => {
     expect(screen.getByText(`1 result · Metro Beta · ${kindLabel}`)).toBeTruthy()
   })
 
+  it('calls a group that holds a market of its own name Locations in that name, in By place and in the results line', () => {
+    // Harbor Point is a market and the group that holds it. The market's numbers are its own queries; the group
+    // rolls up every query its locations are asked, so the two never read as one place with two numbers.
+    const report = reportFixture()
+    const group = { id: 'harbor-point', label: 'Harbor Point', kind: 'group' as const, targetCount: 4 }
+    report.scopeOptions.push(group, { id: 'harbor-point-market', label: 'Harbor Point', kind: 'market', targetCount: 4, parentGroupIds: ['harbor-point'] })
+    report.populations[0]!.breakdown.groups.push({ ...report.populations[0]!.breakdown.groups[0]!, id: 'harbor-point', label: 'Harbor Point' })
+    const select = vi.fn()
+    const view = render(<VisibilityReportView report={report} onSelectionChange={select} />)
+    const breakdown = within(screen.getByRole('region', { name: 'By place' }))
+
+    // A group with no market of its name keeps it.
+    expect(breakdown.getAllByRole('row').slice(1).map(row => row.cells[0]!.textContent)).toEqual(['Metro Alpha', 'Locations in Harbor Point'])
+    // The row is still the group: it opens the group's own numbers. Search reads its own label.
+    fireEvent.click(breakdown.getByRole('button', { name: 'Locations in Harbor Point' }))
+    expect(select).toHaveBeenCalledExactlyOnceWith({ measurementScope: 'group', measurementScopeKey: 'harbor-point', measurementMarketKey: undefined })
+    fireEvent.change(breakdown.getByRole('searchbox', { name: 'Search breakdown' }), { target: { value: 'harbor' } })
+    expect(breakdown.getAllByRole('row').slice(1).map(row => row.cells[0]!.textContent)).toEqual(['Locations in Harbor Point'])
+
+    // Selected, the results line names it as the place picker does.
+    report.selection.scope = group
+    view.rerender(<VisibilityReportView report={report} onSelectionChange={select} />)
+    expect(screen.getByText('1 result · Locations in Harbor Point · Group')).toBeTruthy()
+  })
+
   it('leaves the scope control to the project context row', () => {
     const report = reportFixture()
     expect(report.scopeOptions).toHaveLength(2)
@@ -360,12 +409,12 @@ describe('shared production visibility view', () => {
     </>)
     fireEvent.click(screen.getByRole('button', { name: 'Filters' }))
     expect(container.querySelector('.visibility-scope-trigger')).toBeNull()
-    expect(screen.queryByRole('searchbox', { name: 'Search scopes' })).toBeNull()
+    expect(screen.queryByRole('searchbox', { name: 'Search places' })).toBeNull()
     const toolbar = container.querySelector<HTMLElement>('.visibility-results-toolbar')!
     expect(within(toolbar).getAllByRole('combobox').map(control => control.getAttribute('aria-label'))).toEqual(['Query type'])
     const filters = screen.getByRole('group', { name: 'Visibility filters' })
     expect(filters.hasAttribute('data-has-scope')).toBe(false)
-    expect(within(filters).getAllByRole('combobox').map(control => (control as HTMLSelectElement).labels[0]?.textContent)).toEqual(['Answer engine', 'Requested search location', 'AI model', 'Results from'])
+    expect(within(filters).getAllByRole('combobox').map(control => (control as HTMLSelectElement).labels[0]?.textContent)).toEqual(['Answer engine', 'Search location', 'AI model', 'Results from'])
     expect(within(screen.getByRole('region', { name: 'AI visibility results' })).queryAllByRole('combobox')).toEqual([])
   })
 
@@ -375,8 +424,15 @@ describe('shared production visibility view', () => {
     population.breakdown.properties = Array.from({ length: 225 }, (_, index) => ({ ...population.breakdown.groups[0]!, id: `property-${index}`, label: `Property ${index}` }))
     population.breakdown.groups = []
     render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
-    const breakdown = screen.getByRole('region', { name: 'Scope breakdown' })
+    const breakdown = screen.getByRole('region', { name: 'By place' })
+    // The region is named by its visible title.
+    expect(within(breakdown).getByRole('heading', { name: 'By place' })).toBeTruthy()
     expect(within(breakdown).getAllByRole('row')).toHaveLength(26)
+    expect(within(breakdown).getAllByRole('columnheader').map(header => header.textContent)).toEqual(['Location', 'Queries', 'Mentioned', 'Cited'])
+    expect(within(breakdown).getByText('1 to 25 of 225 locations')).toBeTruthy()
+    // No groups here, so the table opens on Locations and says so.
+    expect(within(breakdown).getByRole('button', { name: 'Locations' }).getAttribute('aria-pressed')).toBe('true')
+    expect(within(breakdown).getByRole('button', { name: 'Groups' }).getAttribute('aria-pressed')).toBe('false')
     expect(within(breakdown).queryByRole('button', { name: 'Property 25', exact: true })).toBeNull()
     fireEvent.click(within(breakdown).getByRole('button', { name: 'Next', exact: true }))
     expect(within(breakdown).getByRole('button', { name: 'Property 25', exact: true })).toBeTruthy()
@@ -385,6 +441,11 @@ describe('shared production visibility view', () => {
     expect(within(breakdown).getAllByRole('row')).toHaveLength(2)
     expect(screen.getAllByText('43.0%').length).toBeGreaterThan(0)
     expect(screen.getByText('1 query · 3 answers')).toBeTruthy()
+    // A search with no hits reads as the place picker's does.
+    fireEvent.change(within(breakdown).getByRole('searchbox', { name: 'Search breakdown' }), { target: { value: 'No such place' } })
+    expect(within(breakdown).getAllByRole('row')).toHaveLength(1)
+    expect(within(breakdown).getByText('No matches')).toBeTruthy()
+    expect(breakdown.textContent).not.toMatch(/propert/i)
   })
 
   it('requests a bounded page of query results while retaining server cursor paging', async () => {
@@ -402,6 +463,28 @@ describe('shared production visibility view', () => {
     await waitFor(() => expect(requests.at(-1)!.searchParams.get('cursor')).toBe('next-result-page'))
     expect(requests.at(-1)!.searchParams.get('limit')).toBe('25')
   })
+  it('groups the digits of every count it prints, and changes no number', () => {
+    const report = reportFixture()
+    report.selection.mode = 'advanced'
+    const population = report.populations[0]!
+    const rate = { numerator: 1234, denominator: 5678, rate: 0.2173 }
+    population.summary = { ...population.summary, queryCount: 1893, answerCount: 5678, mentionCoverage: rate, citationCoverage: { numerator: 2001, denominator: 5600, rate: 0.3573 } }
+    population.summary.outcomes = { ...population.summary.outcomes, neither: 1234, total: 5678 }
+    population.queries.total = 5678
+    population.breakdown.groups = [{ ...population.breakdown.groups[0]!, queryCount: 1893, mentionCoverage: rate }]
+    render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
+
+    // The caption, a headline tile and a table row: the server's counts, written as the Queries tab writes them.
+    expect(screen.getByText('1,893 queries · 5,678 answers')).toBeTruthy()
+    expect(screen.getByText('1,234 of 5,678 answers')).toBeTruthy()
+    expect(screen.getByText('2,001 of 5,600 answers')).toBeTruthy()
+    expect([...within(screen.getByRole('region', { name: 'By place' })).getAllByRole('row')[1]!.cells].slice(1, 3).map(cell => cell.textContent)).toEqual(['1,893', '21.7%1,234 of 5,678'])
+    // The closed rows under them say how many there are the same way.
+    expect(screen.getByText('5,678 locations')).toBeTruthy()
+    expect(screen.getByText('5,678 results · All locations')).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/\b(1234|5678|1893)\b/)
+  })
+
   it('renders server rates without dividing counts and keeps unavailable values explicit', () => {
     const html = renderToStaticMarkup(<VisibilityReportView report={reportFixture()} onSelectionChange={() => {}} />)
     expect(html).toContain('43.0%')
@@ -446,7 +529,7 @@ describe('shared production visibility view', () => {
     expect(within(table).getByRole('button', { name: 'View answers for apartments near transit · gemini' })).toBeTruthy()
     expect(within(table).getByRole('button', { name: 'View answers for apartments near transit · openai' })).toBeTruthy()
     expect(within(table).getByText('gpt-5.6')).toBeTruthy()
-    expect(within(table).getByText('Requested search location: Detroit')).toBeTruthy()
+    expect(within(table).getByText('Search location: Detroit')).toBeTruthy()
     if (showsProperties) {
       expect(within(table).getByText('Northstar Alpha 01')).toBeTruthy()
       expect(within(table).getByText('Harbor House')).toBeTruthy()
@@ -454,8 +537,9 @@ describe('shared production visibility view', () => {
       expect(within(table).queryByRole('columnheader', { name: 'Properties' })).toBeNull()
     }
     expect(within(table).getByText('1 of 3')).toBeTruthy()
-    expect(within(table).getByText('No')).toBeTruthy()
-    expect(within(table).getByText('Yes')).toBeTruthy()
+    // One answer reads as its result in a word, each signal in its own: never a Yes or a No under either column.
+    expect(engineResult(table, 'openai')).toEqual(['Not mentioned', 'Cited'])
+    expect(within(table).queryByText(/^(Yes|No)$/)).toBeNull()
     expect(container.textContent).toContain('1 query · 2 engine results shown of 2 results')
   })
 
@@ -502,7 +586,7 @@ describe('shared production visibility view', () => {
       for (const group of [harbor, marina]) expect(within(group).getByRole('button', { name }).textContent).not.toContain('%')
       for (const [group, location] of [[harbor, 'Harbor'], [marina, 'Marina']] as const) {
         fireEvent.click(within(group).getByRole('button', { name }))
-        await screen.findByText('No stored sentiment evidence for this query and scope.')
+        await screen.findByText('No stored evidence')
         expect(evidenceReads.at(-1)!.searchParams.get('location')).toBe(location)
         expect(evidenceReads.at(-1)!.searchParams.get('runId')).toBe('run-2')
         expect(evidenceReads.at(-1)!.searchParams.get('queryId')).toBe(first.queryId)
@@ -623,17 +707,17 @@ describe('shared production visibility view', () => {
     fireEvent.click(screen.getByText('Query results', { selector: 'span' }).closest('summary')!)
     const table = screen.getByRole('table', { name: 'Non-brand queries engine results' })
     expect(within(table).getAllByText('apartments near transit')).toHaveLength(1)
-    expect(within(table).getAllByText('No location requested')).toHaveLength(1)
-    expect(within(table).getAllByText('No')).toHaveLength(2)
-    expect(within(table).getByText('Yes')).toBeTruthy()
-    expect(within(table).getByText('Not measured')).toBeTruthy()
+    expect(within(table).getAllByText('No search location')).toHaveLength(1)
+    expect(engineResult(table, 'gemini')).toEqual(['Not mentioned', 'Not measured'])
+    expect(engineResult(table, 'openai')).toEqual(['Mentioned', 'Not cited'])
+    expect(within(table).queryByText(/^(Yes|No)$/)).toBeNull()
     expect(within(table).queryByText('0%')).toBeNull()
     expect(within(table).getByRole('button', { name: /The saved evidence is incomplete/ })).toBeTruthy()
     if (mode === 'advanced') {
-      expect(within(table).getAllByText('2 properties')).toHaveLength(1)
+      expect(within(table).getAllByText('2 locations')).toHaveLength(1)
       expect(within(table).getByText('Park House')).toBeTruthy()
       expect(within(table).getByText('Lake House')).toBeTruthy()
-    } else expect(within(table).queryByText('2 properties')).toBeNull()
+    } else expect(within(table).queryByText('2 locations')).toBeNull()
     fireEvent.click(within(table).getByRole('button', { name: 'View answers for apartments near transit · openai' }))
     expect(JSON.parse(select.mock.lastCall![0].measurementAnswer)).toMatchObject({ queryKey: 'query-context', provider: 'openai', model: 'gpt-test', location: null, runId: 'run-2', revision: 2 })
   })
@@ -688,7 +772,7 @@ describe('shared production visibility view', () => {
     expect(html).not.toContain('Branded queries')
     expect(html).toContain('Non-brand queries')
     expect(html).not.toContain('Unclassified queries')
-    expect(html).not.toContain('Search scopes')
+    expect(html).not.toContain('Search places')
     expect(html).not.toContain('Pooled')
   })
 
@@ -765,7 +849,7 @@ describe('shared production visibility view', () => {
     ])
   })
 
-  it('states the answers whose sources could not be checked under each Cited query and competitor result, never under Mentioned', () => {
+  it('keeps the answers whose sources could not be checked behind a caution icon beside each Cited query and competitor count, never beside Mentioned', () => {
     const report = reportFixture()
     const population = report.populations[0]!
     // Three saved answers, one with incomplete source capture: Cited reads 1 of the 2 checked.
@@ -778,13 +862,17 @@ describe('shared production visibility view', () => {
     const engine = within(screen.getByRole('table', { name: 'Non-brand queries engine results' })).getByRole('button', { name: 'View answers for apartments near transit · gemini' }).closest('tr')!
     const [, mentioned, cited] = [...engine.querySelectorAll('td')]
     expect(mentioned!.textContent).toBe('Mentioned33.3%1 of 3')
-    expect(cited!.textContent).toBe(`Cited50.0%1 of 2${line}`)
+    expect(mentioned!.querySelector('.info-tooltip-trigger-caution')).toBeNull()
+    expect(cited!.textContent).toBe('Cited50.0%1 of 2')
+    expectCautionNote(cited!, line, '1 of 2')
 
     const competitors = screen.getByRole('group', { name: 'Non-brand queries competitors' })
     fireEvent.click(within(competitors).getByText('Competitors', { selector: 'span' }).closest('summary')!)
     const [, competitorMentioned, competitorCited] = [...within(competitors).getByText('rival.example').closest('tr')!.querySelectorAll('td')]
     expect(competitorMentioned!.textContent).toBe('66.7%2 of 3')
-    expect(competitorCited!.textContent).toBe(`0%0 of 2${line}`)
+    expect(competitorMentioned!.querySelector('.info-tooltip-trigger-caution')).toBeNull()
+    expect(competitorCited!.textContent).toBe('0%0 of 2')
+    expectCautionNote(competitorCited!, line, '0 of 2')
   })
 
   it('shows what a partly saved answer cited on its engine row and explains why it is out of Cited', () => {
@@ -798,8 +886,10 @@ describe('shared production visibility view', () => {
       { ...base, provider: 'gemini', targetKeys: ['p1', 'p2'], citationCoverage: unavailable, uncheckedSources: { answers: 1, citedAnswers: 1, citedTargetKeys: ['p1'] } },
       // One answer, sources partly saved, nothing for Lake House among the saved links.
       { ...base, provider: 'openai', targetKeys: ['p2'], citationCoverage: unavailable, uncheckedSources: { answers: 1, citedAnswers: 0, citedTargetKeys: [] } },
-      // Three answers, one partly saved: the rate's own line counts it, so it is not repeated.
+      // Three answers, one partly saved: the rate's own caution note counts it, so it is not repeated.
       { ...base, provider: 'claude', answerCount: 3, targetKeys: ['p1'], citationCoverage: { numerator: 1, denominator: 2, rate: 0.5, unchecked: 1 }, uncheckedSources: { answers: 1, citedAnswers: 1, citedTargetKeys: ['p1'] } },
+      // One answer for two locations, sources partly saved, and the saved links cite neither.
+      { ...base, provider: 'perplexity', targetKeys: ['p1', 'p2'], citationCoverage: unavailable, uncheckedSources: { answers: 1, citedAnswers: 0, citedTargetKeys: [] } },
     ]
     population.summary = { ...population.summary, notMeasuredUnchecked: 2 }
     render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
@@ -809,15 +899,20 @@ describe('shared production visibility view', () => {
     const cited = (provider: string) => [...within(table).getByRole('button', { name: `View answers for apartments near transit · ${provider}` }).closest('tr')!.querySelectorAll('td')][2]!
     expect(cited('gemini').textContent).toBe(`CitedNot measured${UNCHECKED_SOURCES_COPY.partlySaved(1)}Saved links cite Park House`)
     expect(cited('openai').textContent).toBe(`CitedNot measured${UNCHECKED_SOURCES_COPY.partlySaved(1)}No saved link cites Lake House`)
-    expect(cited('claude').textContent).toBe('Cited50.0%1 of 21 of 3 answers had sources that could not be checkedSaved links cite Park House')
+    expect(cited('claude').textContent).toBe('Cited50.0%1 of 2Saved links cite Park House')
+    expect(cited('perplexity').textContent).toBe(`CitedNot measured${UNCHECKED_SOURCES_COPY.partlySaved(1)}Saved links cite none`)
+    expectCautionNote(cited('claude'), '1 of 3 answers had sources that could not be checked', '1 of 2')
     // "Unchecked" is explained in plain words instead of the missing-evidence note.
-    for (const provider of ['gemini', 'openai', 'claude']) {
+    for (const provider of ['gemini', 'openai', 'claude', 'perplexity']) {
       expect(within(cited(provider)).getByRole('button', { name: UNCHECKED_SOURCES_COPY.help })).toBeTruthy()
       expect(within(cited(provider)).queryByRole('button', { name: /The saved evidence is incomplete/ })).toBeNull()
     }
 
-    // Property outcomes says why two of its properties read not measured.
-    const outcomes = screen.getByRole('group', { name: 'Non-brand queries property outcomes' })
+    // The panel's help names the search location apart from the query's own locations.
+    expect(within(screen.getByRole('group', { name: 'Non-brand queries query results' })).getByRole('button', { name: "Each tracked query is grouped once on this page. Its engine rows retain the recorded model, search location, the query's locations, and answer counts. Mentioned and Cited count answers matching any of those locations, not the percentage of locations found." })).toBeTruthy()
+
+    // Location outcomes says why two of its locations read not measured.
+    const outcomes = screen.getByRole('group', { name: 'Non-brand queries location outcomes' })
     expect(within(outcomes).getByText(UNCHECKED_SOURCES_COPY.outcomes(2))).toBeTruthy()
     expect(UNCHECKED_SOURCES_COPY.outcomes(2)).toBe("2 not measured only because an answer's sources were partly saved. Query results shows which answer.")
   })
@@ -834,7 +929,7 @@ describe('shared production visibility view', () => {
     expect(screen.queryByText(/only because an answer's sources were partly saved/)).toBeNull()
   })
 
-  it('notes under the trend that Cited counts only checked answers when a plotted point left some out, and only then', () => {
+  it('notes beside the Cited legend entry that Cited counts only checked answers when a plotted point left some out, and only then', () => {
     const report = reportFixture()
     const population = report.populations[0]!
     const point = (index: number, citationCoverage: typeof population.summary.citationCoverage) => ({
@@ -846,11 +941,31 @@ describe('shared production visibility view', () => {
     population.trend = [point(0, { numerator: 1, denominator: 3, rate: 1 / 3 }), point(1, { numerator: 1, denominator: 2, rate: 0.5, unchecked: 1 })]
     const view = render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
     expect(REPORT_TREND_UNCHECKED_NOTE).toBe('Cited counts only answers whose sources could be checked.')
-    expect(screen.getByText(REPORT_TREND_UNCHECKED_NOTE, { exact: false })).toBeTruthy()
+    expectCautionNote(screen.getByRole('group', { name: 'Trend legend' }), REPORT_TREND_UNCHECKED_NOTE, '')
     view.unmount()
     population.trend = [point(0, { numerator: 1, denominator: 3, rate: 1 / 3 }), point(1, { numerator: 2, denominator: 3, rate: 2 / 3 })]
     render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
-    expect(screen.queryByText(REPORT_TREND_UNCHECKED_NOTE, { exact: false })).toBeNull()
+    expect(screen.queryByRole('button', { name: REPORT_TREND_UNCHECKED_NOTE })).toBeNull()
+    expect(document.body.textContent).not.toContain(REPORT_TREND_UNCHECKED_NOTE)
+  })
+
+  it('names each trend point\'s comparison in words, for every state the server sends', () => {
+    const report = reportFixture()
+    const population = report.populations[0]!
+    const states = ['first', 'comparable', 'definition-changed', 'model-changed', 'legacy-unknown'] as const
+    population.trend = states.map((state, index) => ({
+      runId: `run-${index}`, createdAt: `2026-09-0${index + 1}T12:00:00Z`, revision: report.selection.revision,
+      provenance: report.selection.provenance, queryCount: 1, answerCount: 3,
+      mentionCoverage: population.summary.mentionCoverage, citationCoverage: population.summary.citationCoverage,
+      continuity: { state, comparedRunId: index === 0 ? null : `run-${index - 1}` },
+    }))
+    render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
+
+    const table = screen.getByRole('table', { name: 'Non-brand queries trend data' })
+    expect(within(table).getAllByRole('row').slice(1).map(row => row.cells[3]!.textContent)).toEqual([
+      'No earlier sweep', 'Compared', 'Not compared: setup changed', 'Not compared: engines or models changed', 'Not compared: older sweep',
+    ])
+    expect(within(table).getAllByRole('row')[1]!.cells[0]!.textContent).toBe(formatObservedInstantLabel(observedInstant('2026-09-01T12:00:00Z')))
   })
 
   it.each(['definition-changed', 'model-changed', 'legacy-unknown'] as const)('explains %s trend gaps beside the chart', state => {
@@ -976,10 +1091,12 @@ describe('shared production visibility view', () => {
     const report = reportFixture()
     report.populations[0]!.queries.total = 12
     const select = vi.fn()
-    render(<VisibilityReportView report={report} onSelectionChange={select} />)
+    const view = render(<VisibilityReportView report={report} onSelectionChange={select} />)
     const summary = screen.getByText('Query results', { selector: 'span' }).closest('summary')!
-    expect(summary.textContent).toContain('12 results')
-    expect(summary.textContent).toContain('Whole site')
+    expect(summary.textContent).toBe('Query results12 results · All locations')
+    // The page names the whole project as its place picker does.
+    view.rerender(<VisibilityReportView report={report} rootLabel="All of Citypoint" onSelectionChange={select} />)
+    expect(summary.textContent).toBe('Query results12 results · All of Citypoint')
     expect(summary.closest('details')!.open).toBe(false)
     // jsdom does not implement native details clipping. The open attribute
     // owns visibility and keyboard access in the browser.
@@ -1002,12 +1119,20 @@ describe('shared production visibility view', () => {
     report.populations[0]!.queries.items[0]!.targetKeys = ['p1', 'p2']
     render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
     fireEvent.click(screen.getByText('Query results', { selector: 'span' }).closest('summary')!)
-    expect(screen.getByRole('table', { name: 'Non-brand queries engine results' }).querySelector('[data-query-key="query-context"]')?.textContent).toContain('2 properties')
-    const targets = screen.getByText('2 properties', { selector: 'summary' })
+    expect(screen.getByRole('table', { name: 'Non-brand queries engine results' }).querySelector('[data-query-key="query-context"]')?.textContent).toContain('2 locations')
+    const targets = screen.getByText('2 locations', { selector: 'summary' })
     expect(targets.closest('details')!.open).toBe(false)
     fireEvent.click(targets)
     expect(targets.closest('details')!.textContent).toContain('Harbor House')
     expect(targets.closest('details')!.textContent).toContain('Lake House')
+  })
+
+  it('says No locations for a result that names none', () => {
+    const report = reportFixture()
+    for (const row of report.populations[0]!.queries.items) row.targetKeys = []
+    render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
+    fireEvent.click(screen.getByText('Query results', { selector: 'span' }).closest('summary')!)
+    expect(within(screen.getByRole('table', { name: 'Non-brand queries engine results' })).getByText('No locations')).toBeTruthy()
   })
 
   it('keeps query management in the results toolbar without an agent copy action', async () => {
@@ -1130,12 +1255,12 @@ describe('shared production visibility view', () => {
     fireEvent.click(await screen.findByRole('button', { name: /^Filters/ }))
     fireEvent.click((await screen.findByText('Query results', { selector: 'span' })).closest('summary')!)
     fireEvent.click(screen.getByRole('button', { name: 'View answers for apartments near transit · gemini' }))
-    expect((await screen.findByText('Stored negative evidence for this exact context.')).closest('article')?.textContent).toContain('Requested search location: Detroit')
+    expect((await screen.findByText('Stored negative evidence for this exact context.')).closest('article')?.textContent).toContain('Search location: Detroit')
     expect(screen.getByText('Not mentioned')).toBeTruthy()
     expect(screen.getByText('Not cited')).toBeTruthy()
     expect(screen.getByRole('combobox', { name: 'Query type' })).toHaveProperty('value', 'non-brand')
     expect(screen.getByRole('combobox', { name: 'Answer engine' })).toHaveProperty('value', '')
-    expect(screen.getByRole('combobox', { name: 'Requested search location' })).toHaveProperty('value', '')
+    expect(screen.getByRole('combobox', { name: 'Search location' })).toHaveProperty('value', '')
     expect(screen.queryByText('0%')).toBeNull()
     expect(screen.getByRole('button', { name: 'View answers for apartments near transit · openai' })).toBeTruthy()
     expect(currentSearch.queryClass).toBe('non-brand')
@@ -1182,7 +1307,7 @@ describe('shared production visibility view', () => {
     expect(await screen.findByText('No matching answers on this page. Continue to the next answers.')).toBeTruthy()
     expect(screen.queryByText('Answer from a different disclosed model.')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Next answers' }))
-    expect((await screen.findByText('Answer with no disclosed model or location.')).closest('article')?.textContent).toContain('No location requested')
+    expect((await screen.findByText('Answer with no disclosed model or location.')).closest('article')?.textContent).toContain('No search location')
     expect(screen.getByRole('button', { name: 'View answers for apartments near transit · gemini' })).toBeTruthy()
     expect(requests.filter(request => !request.searchParams.has('queryKey'))).toHaveLength(1)
     expect(Object.fromEntries(requests.at(-1)!.searchParams)).toMatchObject({ provider: 'gemini', location: 'none', runId: 'run-2', revision: '2', cursor: 'null-model-page-2' })
@@ -1287,10 +1412,10 @@ describe('shared production visibility view', () => {
     report.populations[0]!.breakdown.groups.push({ ...groupRow, id: 'subgroup', label: 'Central District' })
     report.populations[0]!.breakdown.properties = [{ ...groupRow, id: 'property', label: 'Harbor House' }]
     const view = render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
-    expect(within(screen.getByRole('region', { name: 'Scope breakdown' })).queryByRole('button', { name: 'Central District' })).toBeNull()
+    expect(within(screen.getByRole('region', { name: 'By place' })).queryByRole('button', { name: 'Central District' })).toBeNull()
     report.selection.scope = root
     view.rerender(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
-    const breakdown = within(screen.getByRole('region', { name: 'Scope breakdown' }))
+    const breakdown = within(screen.getByRole('region', { name: 'By place' }))
     expect(breakdown.getByRole('button', { name: 'Harbor House' })).toBeTruthy()
     fireEvent.click(breakdown.getByRole('button', { name: 'Groups', exact: true }))
     expect(breakdown.getByRole('button', { name: 'Central District' })).toBeTruthy()

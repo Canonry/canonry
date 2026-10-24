@@ -60,6 +60,7 @@ describe('page and tab normalization', () => {
   it('maps router patterns to pages without ever carrying a real name', () => {
     expect(uiPageFromRoutePath('/projects/$projectName/')).toBe('/projects/:projectName')
     expect(uiPageFromRoutePath('/projects/$projectName/search-console')).toBe('/projects/:projectName/search-console')
+    expect(uiPageFromRoutePath('/projects/$projectName/queries/add')).toBe('/projects/:projectName/queries/add')
     expect(uiPageFromRoutePath('/traffic/$projectName/$sourceId')).toBe('/traffic/:projectName/:sourceId')
     expect(uiPageFromRoutePath('/')).toBe('/')
     expect(uiPageFromRoutePath('*')).toBe('not-found')
@@ -72,6 +73,7 @@ describe('page and tab normalization', () => {
   it('derives the project tab', () => {
     expect(uiProjectTabFromPage('/projects/:projectName')).toBe('overview')
     expect(uiProjectTabFromPage('/projects/:projectName/properties/:targetKey')).toBe('properties')
+    expect(uiProjectTabFromPage('/projects/:projectName/queries/add')).toBe('queries')
     expect(uiProjectTabFromPage('/runs')).toBeUndefined()
   })
 

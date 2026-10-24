@@ -1,0 +1,305 @@
+import { useEffect, useId, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
+import { AlertTriangle, ArrowLeft, CornerDownRight, Info, MapPinOff } from 'lucide-react'
+import { normalizeIdentityText, QUERY_TRACKING_TEXT_MAX_LENGTH } from '@canonry/canonry-contracts'
+import type {
+  QueryTrackingCommitResponse,
+  QueryTrackingContextInput,
+  QueryTrackingMutation,
+  QueryTrackingWorkspaceResponse,
+} from '@canonry/canonry-contracts'
+
+import { providerDisplayName } from '../../lib/visibility-trend-helpers.js'
+import { useQueryTrackingPublish } from '../../queries/use-query-tracking-publish.js'
+import { WriteButton } from '../shared/AccessControls.js'
+import { InfoTooltip } from '../shared/InfoTooltip.js'
+import { SegmentedRadioGroup, type SegmentedRadioOption } from '../shared/SegmentedRadioGroup.js'
+import { StatusNote } from '../shared/StatusNote.js'
+import { Button } from '../ui/button.js'
+import { useSheetDiscardGuard } from '../ui/sheet.js'
+import { expectedSubject, SearchLocationText, TYPE_FOLLOWS_SUBJECT, type TrackingReviewState } from './TrackingReview.js'
+import { VisibilityScopePicker } from './VisibilityScopePicker.js'
+
+type Subject = 'market' | 'location' | 'company'
+
+const SUBJECTS: readonly SegmentedRadioOption<Subject>[] = [
+  { value: 'market', label: 'Market' },
+  { value: 'location', label: 'Location' },
+  { value: 'company', label: 'Company', description: 'Not available yet', disabled: true },
+]
+/** The wire calls a location a property; this form never does. */
+const LOCATION_NOUN = ['location', 'locations'] as const
+const PLACES = {
+  market: { kind: 'market', label: 'Market', placeholder: 'Choose a market', none: 'No markets yet' },
+  location: { kind: 'property', label: 'Location', placeholder: 'Choose a location', none: 'No locations yet' },
+} as const
+const FIELD_LABEL_TEXT = 'text-sm font-medium text-heading'
+const FIELD_LABEL = `mb-1 block ${FIELD_LABEL_TEXT}`
+const FIELD_HINT = 'mt-2 text-[13px] leading-5 text-secondary'
+const FIELD_CONTROL = 'block w-full rounded-md border border-default bg-surface px-3 py-2 text-sm text-strong focus:border-mono-500 focus:outline-none focus:ring-1 focus:ring-mono-500'
+
+/** One query per line. Blank lines go, and so does a line the server would match to an earlier one. */
+function queryLines(text: string): string[] {
+  const seen = new Set<string>()
+  return text.split('\n').map(line => line.trim()).filter(line => {
+    const identity = normalizeIdentityText(line)
+    if (!identity || seen.has(identity)) return false
+    seen.add(identity)
+    return true
+  })
+}
+
+/** Places of one kind, and only the groups that lead to one, so browsing a group never ends in an empty list. */
+export function placesOf(options: NonNullable<QueryTrackingWorkspaceResponse['scopeOptions']>, kind: 'market' | 'property') {
+  const groups = new Map(options.filter(option => option.kind === 'group').map(group => [group.id, group]))
+  const leading = new Set<string>()
+  const pending = options.filter(option => option.kind === kind).flatMap(place => place.parentGroupIds ?? [])
+  while (pending.length) {
+    const key = pending.pop()!
+    if (leading.has(key)) continue
+    leading.add(key)
+    pending.push(...(groups.get(key)?.parentGroupIds ?? []))
+  }
+  return options.filter(option => option.kind === kind || (option.kind === 'group' && leading.has(option.id)))
+}
+
+/**
+ * Add several queries to one market or one location, one addition per line.
+ * A market addition names only that market and no contexts, so the server
+ * gives it the market's engines and search locations, exactly as the Add
+ * query form does for a market. A location addition names the location and
+ * every market that already holds it (a market with a usage edge for it),
+ * again with no contexts, so the query is asked where those markets are asked
+ * and counts in their numbers. A location in no market has nothing to take
+ * them from: it names the location alone and one of `contextChoices`, which
+ * the server requires for a new assignment outside a market. A query has one
+ * subject, so a Subject change drops the place chosen for the other one.
+ * Hand-picked, pattern and saved-research adds stay in the Add query form,
+ * which `onOpenComposer` opens. The form holds one query, so a hand-off takes
+ * the first line with it and says so when there are more. The chosen place
+ * stays behind: a market checked in the form would narrow hand-picked
+ * locations to that market. The route also offers the full form for hand-picked locations, patterns and saved research.
+ */
+export function AddQueriesForm({ projectName, workspace, contextChoices, defaultMarketKey, defaultLocationKey, defaultText, onOpenComposer, onPublished, onClose, renderReview, backLabel = 'Back to queries' }: {
+  backLabel?: string
+  projectName: string
+  workspace: QueryTrackingWorkspaceResponse
+  /** The search location and engines choices the Add query form offers, so a location in no market gets the same ones. */
+  contextChoices: readonly { label: string; input: QueryTrackingContextInput }[]
+  /** The market the Tracked view is filtered to, chosen to start with. */
+  defaultMarketKey?: string
+  /** The location the Tracked view is filtered to, or the location page the form opened from. Subject starts on Location with it chosen. */
+  defaultLocationKey?: string
+  /** The query lines the form opens with, one per line. */
+  defaultText?: string
+  /** `text` is the first query line, or empty when nothing is typed yet. */
+  onOpenComposer?: (carried: { text: string }) => void
+  /** Runs once a publish succeeds, just before the form closes, with what the server published. */
+  onPublished?: (result: QueryTrackingCommitResponse) => void
+  onClose: () => void
+  /**
+   * The caller draws the review, so this form shows the same one as every other advanced tracking change.
+   * `actions` (publish or review again, Back and the sweep pause) go in the footer, in reach however long the list is.
+   */
+  renderReview: (review: TrackingReviewState) => { changes: ReactNode; actions: ReactNode }
+}) {
+  const publish = useQueryTrackingPublish(projectName, { onCommitted: result => { onPublished?.(result); onClose() } })
+  const [subject, setSubject] = useState<Subject>(defaultLocationKey ? 'location' : 'market')
+  const [placeKey, setPlaceKey] = useState(defaultLocationKey ?? defaultMarketKey)
+  const [contextLabel, setContextLabel] = useState('')
+  const [text, setText] = useState(defaultText ?? '')
+  const [reviewed, setReviewed] = useState<QueryTrackingMutation | null>(null)
+  const heading = useRef<HTMLHeadingElement>(null)
+  useEffect(() => { heading.current?.focus() }, [])
+  const id = useId()
+
+  const placing = PLACES[subject === 'location' ? 'location' : 'market']
+  const places = placesOf(workspace.scopeOptions ?? [], placing.kind)
+  const place = places.find(option => option.kind === placing.kind && option.id === placeKey)
+  // The markets a location's queries already count in: those with a usage edge for it.
+  const locationMarkets = subject === 'location' && place ? workspace.markets.filter(market => market.usageEdges.some(edge => edge.targetKey === place.id)) : []
+  const marketNames = locationMarkets.map(market => market.label).join(' · ')
+  // A project with one search location and engines choice needs no pick.
+  const context = contextChoices.length === 1 ? contextChoices[0] : contextChoices.find(choice => choice.label === contextLabel)
+  // What every line is added with, or null until the place (and, outside a market, its context) is chosen.
+  const placement = !place ? null
+    : subject !== 'location' ? { audience: { marketKeys: [place.id] } }
+      : locationMarkets.length > 0 ? { audience: { targetKeys: [place.id], marketKeys: locationMarkets.map(market => market.stableKey) } }
+        : context ? { audience: { targetKeys: [place.id] }, contexts: [context.input] } : null
+  const lines = queryLines(text)
+  const tooLong = lines.filter(line => line.length > QUERY_TRACKING_TEXT_MAX_LENGTH).length
+  const guard = useSheetDiscardGuard({
+    dirty: text.trim() !== (defaultText ?? '').trim() || contextLabel !== '' || subject !== (defaultLocationKey ? 'location' : 'market') || placeKey !== (defaultLocationKey ?? defaultMarketKey),
+    busy: publish.isCommitting,
+    label: lines.length > 0 ? `Discard ${lines.length} ${lines.length === 1 ? 'query' : 'queries'}?` : 'Discard this change?',
+    onClose,
+  })
+  const preview = reviewed ? publish.preview : null
+  const canReview = placement !== null && lines.length > 0 && tooLong === 0 && !publish.isPreviewing
+  // Keep a refused review in place so it offers recovery. Back keeps the refusal
+  // beside the draft until the next request.
+  const reviewStep = reviewed && (preview || publish.error) ? renderReview({
+    preview,
+    error: publish.error,
+    isCommitting: publish.isCommitting,
+    // Every line was added for the one place chosen, so the review checks each lands there and nowhere else.
+    expectedSubjects: place ? lines.map(line => expectedSubject(line, { kind: subject === 'location' ? 'location' : 'market', key: place.id }, workspace)) : undefined,
+    onPublish: () => {
+      if (preview) publish.commit({
+        ...reviewed,
+        expectedWorkspaceVersion: preview.workspaceVersion,
+        previewToken: preview.previewToken,
+        reviewedAt: preview.reviewedAt,
+      })
+    },
+    // A draft that still resolves is rebuilt from the refreshed workspace. One whose place is gone
+    // goes again as it was reviewed, so the server says why.
+    onReviewAgain: () => {
+      if (canReview) review()
+      else publish.requestPreview({ ...reviewed, expectedWorkspaceVersion: workspace.workspaceVersion })
+    },
+    onBack: () => setReviewed(null),
+  }) : null
+  const refusal = publish.error ? <p role="alert" className="mt-4 text-sm leading-5 text-negative"><span className="font-medium">{publish.error.title}.</span> {publish.error.detail}</p> : null
+
+  /** A change to the draft drops a review still in flight, so the form never shows a review of an older draft. */
+  function edit<T>(set: (value: T) => void) {
+    return (value: T) => {
+      set(value)
+      setReviewed(null)
+    }
+  }
+
+  // The control reports a click on the current choice too, which must keep the place.
+  function changeSubject(next: Subject) {
+    if (next === subject) return
+    setSubject(next)
+    edit(setPlaceKey)(undefined)
+  }
+
+  function openComposer() {
+    onOpenComposer?.({ text: lines[0] ?? '' })
+  }
+
+  function review() {
+    if (!canReview) return
+    const mutation: QueryTrackingMutation = {
+      additions: lines.map(line => ({
+        input: { source: 'manual', text: line },
+        ...placement,
+        ...(subject === 'location' ? { queryClass: 'branded' as const } : {}),
+      })),
+      removals: [],
+    }
+    setReviewed(mutation)
+    publish.requestPreview({ ...mutation, expectedWorkspaceVersion: workspace.workspaceVersion })
+  }
+
+  const content = <>
+        {reviewStep ? <>
+          <div className="mt-6">{reviewStep.changes}</div>
+          {/* The review's buttons are 44px on a phone. */}
+          <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-default pt-4 max-md:[&>button]:h-11">{reviewStep.actions}</div>
+        </> : <>
+          <div className="-mx-1 mt-6 max-w-2xl space-y-5 px-1">
+            <div>
+              <span aria-hidden="true" className={FIELD_LABEL}>Subject</span>
+              {/* A hover title shows on neither a tap nor keyboard focus, so the help says why Company is off. After the control, so the form opens with focus on the Subject, not on the help. */}
+              <div className="flex items-center">
+                <SegmentedRadioGroup label="Subject" options={SUBJECTS} value={subject} onChange={changeSubject} />
+                <InfoTooltip text="Company is not available yet." placement="bottom" />
+              </div>
+            </div>
+            <div>
+              {places.some(option => option.kind === placing.kind)
+                ? <VisibilityScopePicker key={subject} label={placing.label} placeholder={placing.placeholder} options={places} selected={place} allowGroupSelect={false} propertyNoun={LOCATION_NOUN} onSelect={scope => edit(setPlaceKey)(scope.id)} />
+                : <>
+                  <span className={FIELD_LABEL}>{placing.label}</span>
+                  {/* With the Add query form one link away, the note says where hand-picked locations are. */}
+                  <StatusNote icon={MapPinOff} label={placing.none} detail={subject !== 'location' && onOpenComposer ? 'Use More ways to add for hand-picked locations.' : undefined} />
+                </>}
+              {subject !== 'location' || !place ? null : locationMarkets.length > 0 ? (
+                <div className={`${FIELD_HINT} flex items-center`}>
+                  <p>Counts in: {marketNames}</p>
+                  <InfoTooltip text="Asked with these markets' engines and search locations." placement="bottom" />
+                </div>
+              ) : (
+                <div className="mt-2">
+                  <StatusNote icon={AlertTriangle} tone="caution" label="In no market" detail="A query for a location in no market needs its own search location and engines." />
+                  {contextChoices.length === 0 ? <div><StatusNote icon={AlertTriangle} tone="caution" label="No search location" detail="No search location and engines are set up for this project, so this location cannot take the query." /></div>
+                    : contextChoices.length === 1 ? (
+                      // The one choice, as the review names it: engines by display name, with the form's own label, model ids included, behind the value.
+                      <dl className={`${FIELD_HINT} flex flex-wrap items-center gap-x-2`}>
+                        <dt className="shrink-0">Search location and engines</dt>
+                        <dd className="min-w-0 text-strong">
+                          <SearchLocationText
+                            label={`${contextChoices[0]!.input.location ?? 'No search location'} · ${contextChoices[0]!.input.providers.map(name => providerDisplayName(name)).join(', ')}`}
+                            detail={contextChoices[0]!.label}
+                          />
+                        </dd>
+                      </dl>
+                    )
+                      : <>
+                        <label className={`${FIELD_LABEL} mt-3`} htmlFor={`${id}-context`}>Search location and engines</label>
+                        <select id={`${id}-context`} required className={`${FIELD_CONTROL} min-h-11`} value={context?.label ?? ''} onChange={event => edit(setContextLabel)(event.target.value)}>
+                          <option value="">Choose a search location and engines</option>
+                          {contextChoices.map(choice => <option key={choice.label} value={choice.label}>{choice.label}</option>)}
+                        </select>
+                      </>}
+                </div>
+              )}
+            </div>
+            <div>
+              {/* The help is a sibling of the label, so its text stays out of the field's name. */}
+              <div className="mb-1 flex items-center">
+                <label className={FIELD_LABEL_TEXT} htmlFor={`${id}-queries`}>Queries</label>
+                <InfoTooltip text="Blank and repeated lines are skipped." placement="bottom" />
+              </div>
+              <textarea
+                id={`${id}-queries`}
+                aria-describedby={lines.length > 0 ? `${id}-queries-count` : undefined}
+                placeholder="One query per line"
+                className={`${FIELD_CONTROL} min-h-40 placeholder-mono-500`}
+                value={text}
+                onChange={event => edit(setText)(event.target.value)}
+              />
+              {/* Stays in place, empty until there are lines, so the first line typed does not push the form down. */}
+              <p id={`${id}-queries-count`} className={`${FIELD_HINT} min-h-5`}>{lines.length > 0 ? `${lines.length.toLocaleString('en-US')} ${lines.length === 1 ? 'query' : 'queries'}${workspace.limits?.queries.left ? ` · ${workspace.limits.queries.left.current.toLocaleString('en-US')} left` : ''}` : null}</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-strong">
+              <span>Type: {subject === 'location' ? 'Branded' : 'Non-brand'}</span>
+              <StatusNote icon={Info} label="Type follows Subject" detail={TYPE_FOLLOWS_SUBJECT} />
+            </div>
+            {tooLong > 0 ? <StatusNote icon={AlertTriangle} tone="negative" label={`${tooLong} ${tooLong === 1 ? 'line' : 'lines'} too long`} detail="A query holds at most 4,000 characters. Shorten the long lines to review." /> : null}
+            {onOpenComposer ? <div className="flex flex-wrap items-center gap-x-5">
+              {/* The help is a sibling of the link, so its text stays out of the link's name. */}
+              <span className="inline-flex items-center">
+                <button type="button" className="min-h-11 text-left text-sm text-link hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400" onClick={openComposer}>
+                  More ways to add
+                </button>
+                <InfoTooltip text="Hand-picked locations, patterns or saved research, in the Add query form." />
+              </span>
+              {/* Not the info glyph: the help beside the link is one, and two a few pixels apart read as one control. */}
+              {lines.length > 1 ? <StatusNote icon={CornerDownRight} label="First line only" detail="The Add query form adds one query at a time. It opens with your first line only." /> : null}
+            </div> : null}
+          </div>
+          {refusal}
+          <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-default pt-4">
+            <WriteButton type="button" size="sm" disabled={!canReview} onClick={review}>
+              {publish.isPreviewing ? 'Reviewing…' : 'Review'}
+            </WriteButton>
+            <Button type="button" variant="ghost" size="sm" onClick={guard.requestClose}>Cancel</Button>
+          </div>
+        </>}
+        {guard.prompt}
+  </>
+  return (
+    <section aria-label="Add queries" className="mx-auto w-full max-w-5xl pb-8">
+      <Button type="button" variant="ghost" size="sm" className="mb-4 -ml-2" disabled={publish.isCommitting} onClick={guard.requestClose}>
+        <ArrowLeft aria-hidden="true" size={16} /> {backLabel}
+      </Button>
+      <h2 ref={heading} tabIndex={-1} className="text-xl font-medium text-heading outline-none">Add queries</h2>
+      {content}
+    </section>
+  )
+}

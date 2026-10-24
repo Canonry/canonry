@@ -26,7 +26,7 @@ function settings(configure = false): SentimentSettings {
 function SentimentSection(props: Omit<ComponentProps<typeof SentimentScopeProvider>, 'children'>) {
   return <SentimentScopeProvider {...props}><SentimentControls /><SentimentHeadlines /></SentimentScopeProvider>
 }
-function renderScope(children: ReactNode, options: { enabled?: boolean; configure?: boolean; branded?: SentimentSummary; nonBrand?: SentimentSummary; evidence?: SentimentEvidenceItem[]; evaluatorProvider?: 'typesafe' | 'openrouter' } = {}) {
+function renderScope(children: ReactNode, options: { enabled?: boolean; configure?: boolean; branded?: SentimentSummary; nonBrand?: SentimentSummary; evidence?: SentimentEvidenceItem[]; selection?: ComponentProps<typeof SentimentScopeProvider>['selection']; evaluatorProvider?: 'typesafe' | 'openrouter' } = {}) {
   const branded = options.branded ?? summary()
   const nonBrand = options.nonBrand ?? { ...summary(), selection: { ...summary().selection, queryClass: 'non-brand' as const }, score: { ...summary().score, favorableRate: 0.25, favorableDisplay: '25%' } }
   const requests: URL[] = []
@@ -38,7 +38,7 @@ function renderScope(children: ReactNode, options: { enabled?: boolean; configur
     return jsonResponse(request.searchParams.get('queryClass') === 'non-brand' ? nonBrand : branded)
   })
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
-  const view = render(<QueryClientProvider client={client}><SentimentScopeProvider projectName="project" selection={{ mode: 'advanced', queryClass: 'branded', scope: 'property', scopeKey: 'north', marketKey: 'chicago', provider: 'openai', model: 'source-model', runId: 'run', revision: 3 }}>{children}</SentimentScopeProvider></QueryClientProvider>)
+  const view = render(<QueryClientProvider client={client}><SentimentScopeProvider projectName="project" selection={options.selection ?? { mode: 'advanced', queryClass: 'branded', scope: 'property', scopeKey: 'north', marketKey: 'chicago', provider: 'openai', model: 'source-model', runId: 'run', revision: 3 }}>{children}</SentimentScopeProvider></QueryClientProvider>)
   return { requests, client, view, close: () => { cleanup(); client.clear(); restore() } }
 }
 /** Both class summaries have loaded: non-brand is read even where it draws no line of its own. */
@@ -60,8 +60,8 @@ const EMPTY_VALUE = '\u2014'
  * pinned here, once.
  */
 const OUTCOME_COPY = {
-  factual: 'Named, no opinion',
-  'subject-not-mentioned': 'Not named in the answer',
+  factual: 'Mentioned, no opinion',
+  'subject-not-mentioned': 'Not mentioned in the answer',
   'ambiguous-subject': 'Unclear which one was meant',
   'unsupported-language': 'Not in English',
   pending: 'Waiting to be rated',
@@ -478,7 +478,7 @@ describe('sentiment presentation', () => {
       expect(button.textContent).toContain('Provisional')
       expect(screen.getAllByText('Unavailable')).toHaveLength(2)
       fireEvent.click(button)
-      await screen.findByText('No stored sentiment evidence for this query and scope.')
+      await screen.findByText('No stored evidence')
       expect(page.requests.filter(url => url.pathname.endsWith('/sentiment'))).toHaveLength(2)
       const requested = page.requests.find(url => url.pathname.endsWith('/evidence'))!
       expect(Object.fromEntries(requested.searchParams)).toMatchObject({ queryId: 'deleted-query', queryClass: 'branded', location: 'Chicago', runId: 'run', revision: '3', scope: 'property', scopeKey: 'north', marketKey: 'chicago', provider: 'openai', model: 'source-model', evaluationDefinitionId: 'definition-a' })
@@ -494,7 +494,7 @@ describe('sentiment presentation', () => {
       const button = await screen.findByRole('button', { name: 'View Branded sentiment evidence for Is North Hall good?' })
       expect(button.textContent).toContain('0%')
       fireEvent.click(button)
-      await screen.findByText('No stored sentiment evidence for this query and scope.')
+      await screen.findByText('No stored evidence')
       const requested = page.requests.find(url => url.pathname.endsWith('/evidence'))!
       expect(Object.fromEntries(requested.searchParams)).toMatchObject({ queryId: 'q', executionNodeKey: 'node-b' })
     } finally { page.close() }
@@ -530,6 +530,53 @@ describe('sentiment presentation', () => {
       expect(Object.fromEntries(requests[0]!.searchParams)).toEqual({ mode: 'advanced', queryClass: 'branded', scope: 'property', scopeKey: 'north', marketKey: 'chicago', runId: 'run', revision: '3', location: 'Chicago', evaluationDefinitionId: 'definition-a', queryId: 'q', assessmentId: 'a', provider: 'openai', model: 'source-model', limit: '50' })
     } finally { page.close() }
   })
+  // The page decides the words, never the item: an Advanced project also shows answers that name no Property (a Market query) and
+  // answers from a sweep with no published setup, which carry no Property and no revision, exactly as a Simple answer does.
+  it('calls a Property "Location" and the engine\'s place "search location" in every evidence item of an Advanced page, and keeps a Simple page\'s labels', async () => {
+    const context = evidenceItem().context
+    const edge = { queryId: 'q', executionNodeKey: null, targetId: 'north', propertyId: 'north', groupId: null, marketId: 'chicago', queryClass: 'branded' as const, location: null }
+    // One edge with no Property and no plan revision: a Simple answer, and an Advanced answer from a sweep with no published setup.
+    const unplanned = evidenceItem({ assessmentId: 'c', context: { ...context, location: null, revision: null, usageEdges: [{ ...edge, targetId: 'project-1', propertyId: null, marketId: null }] } })
+    const evidence = [
+      evidenceItem({ context: { ...context, location: null, usageEdges: [edge] } }),
+      // A Market query on a published setup: a revision, and no Property.
+      evidenceItem({ assessmentId: 'b', context: { ...context, location: null, revision: 3, usageEdges: [{ ...edge, targetId: 'chicago', propertyId: null }] } }),
+      unplanned,
+    ]
+    const terms = (article: HTMLElement) => [...article.querySelectorAll('dt')].map(term => term.textContent)
+    const open = async () => {
+      fireEvent.click(await screen.findByRole('button', { name: 'View openai sentiment evidence for North Hall: Favorable' }))
+      const dialog = await screen.findByRole('dialog', { name: 'Sentiment evidence: Is North Hall good? · openai · North Hall' })
+      await within(dialog).findAllByText('definition-a')
+      return dialog
+    }
+    const outcome = <SentimentAnswerOutcome queryId="q" sourceSnapshotIds={['snapshot']} queryClass="branded" provider="openai" location="Chicago" />
+    const branded = summaryWithAssessments([assessment({ assessmentId: 'a', sourceSnapshotId: 'snapshot' })])
+    const page = renderScope(outcome, { branded, evidence })
+    try {
+      const dialog = await open()
+      const [named, market, bare] = [...dialog.querySelectorAll('article')] as HTMLElement[]
+      expect(within(named!).getByText('Target north; Location north; market chicago; branded')).toBeTruthy()
+      expect(within(market!).getByText('Target chicago; market chicago; branded')).toBeTruthy()
+      expect(within(bare!).getByText('Target project-1; market None; branded')).toBeTruthy()
+      for (const article of [named!, market!, bare!]) {
+        expect(within(article).getByText('No search location')).toBeTruthy()
+        expect(terms(article)).toEqual(['Query', 'Subject', 'Run', 'Setup version', 'Evaluator', 'Evaluation definition', 'Source snapshot', 'Source hash', 'Pair'])
+      }
+      expect(within(dialog).getByText('Stored judgments and exact quotations for the selected query and place.')).toBeTruthy()
+      expect(dialog.textContent).not.toMatch(/propert|revision|assignment|scope/i)
+    } finally { page.close() }
+
+    const simple = renderScope(outcome, { branded, evidence: [unplanned], selection: { mode: 'simple', queryClass: 'branded', scope: 'project', runId: 'run' } })
+    try {
+      const dialog = await open()
+      const article = dialog.querySelector('article') as HTMLElement
+      expect(within(article).getByText('No location')).toBeTruthy()
+      expect(within(article).getByText('Target project-1; market None; branded')).toBeTruthy()
+      expect(terms(article)).toEqual(['Query', 'Subject', 'Run', 'Revision', 'Evaluator', 'Evaluation definition', 'Source snapshot', 'Source hash', 'Assignment'])
+      expect(within(dialog).getByText('Stored judgments and exact quotations for the selected query and scope.')).toBeTruthy()
+    } finally { simple.close() }
+  })
 })
 describe('per-engine sentiment', () => {
   it('shows opposite stored engine outcomes in expanded rows and opens only the chosen assessment', async () => {
@@ -547,7 +594,7 @@ describe('per-engine sentiment', () => {
       expect(page.requests.filter(url => url.pathname.endsWith('/sentiment'))).toHaveLength(2)
       expect(page.requests.filter(url => url.pathname.endsWith('/evidence'))).toHaveLength(0)
       fireEvent.click(unfavorable)
-      await screen.findByText('No stored sentiment evidence for this query and scope.')
+      await screen.findByText('No stored evidence')
       const evidence = page.requests.filter(url => url.pathname.endsWith('/evidence'))
       expect(evidence).toHaveLength(1)
       expect(evidence[0]!.searchParams.get('assessmentId')).toBe('assessment-gemini')
@@ -1178,7 +1225,7 @@ describe('most criticized properties', () => {
   }
 
   it('lists the server\'s criticized Properties in its order, each with its counts and a bar of them, and "N of total" when more exist', async () => {
-    expect(SENTIMENT_COPY.properties).toEqual({ title: 'Most criticized properties', evidence: 'unfavorable and mixed', viewAll: 'View all unfavorable and mixed answers', allEvidence: 'Branded queries, unfavorable and mixed' })
+    expect(SENTIMENT_COPY.properties).toEqual({ title: 'Most criticized locations', evidence: 'unfavorable and mixed', viewAll: 'View all unfavorable and mixed answers', allEvidence: 'Branded queries, unfavorable and mixed' })
     const page = renderScope(<SentimentHeadlines />, { branded: withProperties({ total: 7, keys: ['prop-c', 'prop-a', 'prop-b'] }) })
     try {
       const panel = await openBrandedDetails()
@@ -1244,7 +1291,7 @@ describe('most criticized properties', () => {
       const panel = await openBrandedDetails()
       fireEvent.click(within(panel).getByRole('button', { name: 'View unfavorable and mixed answers for Property A' }))
       expect(await screen.findByRole('dialog', { name: `Sentiment evidence: Property A, ${SENTIMENT_COPY.properties.evidence}` })).toBeTruthy()
-      await screen.findByText('No stored sentiment evidence for this query and scope.')
+      await screen.findByText('No stored evidence')
       expect(evidenceParams(page)).toMatchObject({ queryClass: 'branded', scope: 'property', scopeKey: 'prop-a', marketKey: 'chicago', runId: 'run', revision: '3', provider: 'openai', model: 'source-model', evaluationDefinitionId: 'definition-a', outcome: ['mixed', 'unfavorable'] })
     } finally { page.close() }
   })
@@ -1254,7 +1301,7 @@ describe('most criticized properties', () => {
     try {
       const panel = await openBrandedDetails()
       fireEvent.click(within(panel).getByRole('button', { name: 'View unfavorable and mixed answers for Property C' }))
-      await screen.findByText('No stored sentiment evidence for this query and scope.')
+      await screen.findByText('No stored evidence')
       const params = evidenceParams(page)
       expect(params).toMatchObject({ queryClass: 'branded', scope: 'property', scopeKey: 'prop-c', marketKey: 'denver', outcome: ['mixed', 'unfavorable'] })
       expect(params.marketKey).not.toBe('chicago')
@@ -1267,7 +1314,7 @@ describe('most criticized properties', () => {
       const panel = await openBrandedDetails()
       fireEvent.click(within(panel).getByRole('button', { name: SENTIMENT_COPY.properties.viewAll }))
       expect(await screen.findByRole('dialog', { name: `Sentiment evidence: ${SENTIMENT_COPY.properties.allEvidence}` })).toBeTruthy()
-      await screen.findByText('No stored sentiment evidence for this query and scope.')
+      await screen.findByText('No stored evidence')
       // The view's own scope, never narrowed to a Property.
       expect(evidenceParams(page)).toMatchObject({ queryClass: 'branded', scope: 'group', scopeKey: 'north-group', marketKey: 'chicago', runId: 'run', outcome: ['mixed', 'unfavorable'] })
     } finally { page.close() }
@@ -1304,7 +1351,7 @@ describe('non-brand unfavorable and mixed answers', () => {
       expect(within(group).getByRole('button', { name: SENTIMENT_COPY.nonBrand.help })).toBeTruthy()
       fireEvent.click(within(group).getByRole('button', { name: SENTIMENT_COPY.nonBrand.view }))
       expect(await screen.findByRole('dialog', { name: `Sentiment evidence: ${SENTIMENT_COPY.nonBrand.evidence}` })).toBeTruthy()
-      await screen.findByText('No stored sentiment evidence for this query and scope.')
+      await screen.findByText('No stored evidence')
       const request = page.requests.filter(url => url.pathname.endsWith('/evidence')).at(-1)!
       expect(Object.fromEntries(request.searchParams)).toMatchObject({ queryClass: 'non-brand', scope: 'property', scopeKey: 'north', marketKey: 'chicago', runId: 'run', revision: '3', provider: 'openai', model: 'source-model', evaluationDefinitionId: 'definition-a' })
       expect(request.searchParams.getAll('outcome')).toEqual(['mixed', 'unfavorable'])
@@ -1495,7 +1542,7 @@ describe('non-brand query rows', () => {
       expect(button.textContent).not.toContain('judged')
       fireEvent.click(button)
       expect(await screen.findByRole('dialog', { name: 'Sentiment evidence: apartments near transit, unfavorable and mixed' })).toBeTruthy()
-      await screen.findByText('No stored sentiment evidence for this query and scope.')
+      await screen.findByText('No stored evidence')
       const request = page.requests.filter(url => url.pathname.endsWith('/evidence')).at(-1)!
       expect(Object.fromEntries(request.searchParams)).toMatchObject({ queryClass: 'non-brand', queryId: 'q', runId: 'run', revision: '3', scope: 'property', scopeKey: 'north', marketKey: 'chicago' })
       expect(request.searchParams.getAll('outcome')).toEqual(['mixed', 'unfavorable'])
@@ -1564,7 +1611,7 @@ describe('non-brand query rows', () => {
       const button = await screen.findByRole('button', { name: 'View unfavorable and mixed answers for apartments near transit' })
       expect([...button.children].map(child => child.textContent)).toEqual(['1 unfavorable'])
       fireEvent.click(button)
-      await screen.findByText('No stored sentiment evidence for this query and scope.')
+      await screen.findByText('No stored evidence')
       const request = page.requests.filter(url => url.pathname.endsWith('/evidence')).at(-1)!
       expect(request.searchParams.get('location')).toBe('Chicago')
       expect(request.searchParams.getAll('outcome')).toEqual(['mixed', 'unfavorable'])
@@ -1579,7 +1626,7 @@ describe('non-brand query rows', () => {
       const button = await screen.findByRole('button', { name: 'View Branded sentiment evidence for Is North Hall good?' })
       expect(button.textContent).toBe('60.1%10 judged')
       fireEvent.click(button)
-      await screen.findByText('No stored sentiment evidence for this query and scope.')
+      await screen.findByText('No stored evidence')
       // A branded row opens every judged answer, not only the criticism.
       expect(page.requests.filter(url => url.pathname.endsWith('/evidence')).at(-1)!.searchParams.has('outcome')).toBe(false)
     } finally { page.close() }
@@ -1996,7 +2043,7 @@ describe('sentiment generated SDK and administrator flow', () => {
       const view = render(tree('run-a', 7))
       fireEvent.click(await screen.findByRole('button', { name: 'View openai sentiment evidence for North Hall: Favorable' }))
       await screen.findByRole('dialog', { name: 'Sentiment evidence: Is North Hall good? · openai · North Hall' })
-      await screen.findByText('No stored sentiment evidence for this query and scope.')
+      await screen.findByText('No stored evidence')
       expect(requests.find(url => url.pathname.endsWith('/evidence'))?.searchParams.get('runId')).toBe('run-a')
       // Re-rendering an unchanged source must not dismiss the selected evidence.
       view.rerender(tree('run-a', 7))
@@ -2064,20 +2111,82 @@ describe('sentiment generated SDK and administrator flow', () => {
       fireEvent.click(await screen.findByRole('button', { name: 'Manage sentiment' }))
       const limit = screen.getByRole('checkbox', { name: /Limit to the current view/ }) as HTMLInputElement
       expect(limit.checked).toBe(false)
-      expect(limit.closest('label')!.textContent).toContain('engine openai · model source-model · location Chicago · property north · market chicago · revision 3')
+      expect(limit.closest('label')!.textContent).toContain('engine openai · model source-model · search location Chicago · location north · market chicago · setup version 3')
+      // An Advanced view says Type, and the sentence about what a backfill covers sits behind a short note.
+      expect(screen.getByRole('combobox', { name: 'Type' })).toBeTruthy()
+      expect(screen.queryByRole('combobox', { name: 'Query class' })).toBeNull()
+      expect(screen.getByRole('button', { name: 'Covers the whole check. The backfill covers every engine, search location and query of the chosen check for this type.' }).textContent).toBe('Covers the whole check')
+      expect(screen.queryByText(/of the chosen check for this/)).toBeNull()
       fireEvent.click(screen.getByRole('button', { name: 'Preview sentiment backfill' }))
       await screen.findByText('Branded queries · whole check')
       expect(Object.fromEntries(previews[0]!.searchParams)).toEqual({ mode: 'auto', scope: 'project', queryClass: 'branded', runId: 'run' })
       const skipped = screen.getByRole('list', { name: 'Skipped assessments' })
-      expect([...skipped.querySelectorAll('li')].map(item => item.textContent)).toEqual(['Incomplete check: 1', 'Non-brand answers (backfill that class separately): 4', 'A newer reason: 2'])
+      // The select reads "Type" here, so the skipped line says "type" too.
+      expect([...skipped.querySelectorAll('li')].map(item => item.textContent)).toEqual(['Incomplete check: 1', 'Non-brand answers (backfill that type separately): 4', 'A newer reason: 2'])
       expect((screen.getByRole('button', { name: 'Confirm sentiment backfill' }) as HTMLButtonElement).disabled).toBe(false)
 
       fireEvent.click(limit)
+      // The note never says "whole check" beside a ticked "Limit to the current view".
+      expect(screen.getByRole('button', { name: 'Limited to this view. The backfill covers only the answers of the chosen check that match the view below, for this type.' }).textContent).toBe('Limited to this view')
+      expect(screen.queryByRole('button', { name: /Covers the whole check/ })).toBeNull()
       fireEvent.click(screen.getByRole('button', { name: 'Preview sentiment backfill' }))
-      await screen.findByText('Branded queries · engine openai · model source-model · location Chicago · property north · market chicago · revision 3')
+      await screen.findByText('Branded queries · engine openai · model source-model · search location Chicago · location north · market chicago · setup version 3')
       expect(Object.fromEntries(previews[1]!.searchParams)).toMatchObject({ mode: 'advanced', queryClass: 'branded', runId: 'run', provider: 'openai', model: 'source-model', location: 'Chicago', scope: 'property', scopeKey: 'north', marketKey: 'chicago', revision: '3' })
       expect(screen.getByText('No saved answers in this selection can be classified.')).toBeTruthy()
       expect((screen.getByRole('button', { name: 'Confirm sentiment backfill' }) as HTMLButtonElement).disabled).toBe(true)
+    } finally { cleanup(); client.clear(); restore() }
+  })
+  // The page's own mode picks the words. The server echoes the mode of the resolved sweep, which reads `simple` on an Advanced page
+  // whose sweep has no published setup behind it, and that echo must never bring "Query class" or a bare "location" back.
+  const unplanned = { mode: 'simple' as const, revision: null }
+  it.each([
+    { name: 'keeps "location" and "Query class" in a Simple view, which has no Property to tell the engine\'s place from',
+      view: { mode: 'simple' as const, queryClass: 'branded' as const, scope: 'project' as const, provider: 'openai', location: 'Chicago', runId: 'run' },
+      echo: unplanned, filters: 'engine openai · location Chicago', advanced: false },
+    { name: 'says "search location" and "Type" beside a Property when the server echoes a sweep with no setup',
+      view: { mode: 'advanced' as const, queryClass: 'branded' as const, scope: 'property' as const, scopeKey: 'north', provider: 'openai', location: 'Chicago', runId: 'run' },
+      echo: unplanned, filters: 'engine openai · search location Chicago · location north', advanced: true },
+    { name: 'says "search location" and "Type" for all of an Advanced project when the server echoes a sweep with no setup',
+      view: { mode: 'advanced' as const, queryClass: 'branded' as const, scope: 'project' as const, provider: 'openai', location: 'Chicago', runId: 'run' },
+      echo: unplanned, filters: 'engine openai · search location Chicago', advanced: true },
+    { name: 'says "search location" and "Type" for a group of an Advanced project when the server echoes a sweep with no setup',
+      view: { mode: 'advanced' as const, queryClass: 'branded' as const, scope: 'group' as const, scopeKey: 'north-group', provider: 'openai', location: 'Chicago', runId: 'run' },
+      echo: unplanned, filters: 'engine openai · search location Chicago · group north-group', advanced: true },
+    { name: 'says "search location" and "Type" for a market of an Advanced project when the server echoes a sweep with no setup',
+      view: { mode: 'advanced' as const, queryClass: 'branded' as const, scope: 'market' as const, scopeKey: 'chicago', provider: 'openai', location: 'Chicago', runId: 'run' },
+      echo: unplanned, filters: 'engine openai · search location Chicago · market chicago', advanced: true },
+    { name: 'reads a page that names a Property as Advanced even when it leaves the mode to the server',
+      view: { mode: 'auto' as const, queryClass: 'branded' as const, scope: 'property' as const, scopeKey: 'north', provider: 'openai', location: 'Chicago', runId: 'run' },
+      echo: unplanned, filters: 'engine openai · search location Chicago · location north', advanced: true },
+    { name: 'says "no search location" in an Advanced view of answers asked from no place',
+      view: { mode: 'advanced' as const, queryClass: 'branded' as const, scope: 'project' as const, provider: 'openai', location: 'none', runId: 'run' },
+      echo: { mode: 'advanced' as const, revision: 3 },
+      filters: 'engine openai · no search location · setup version 3', advanced: true },
+  ])('$name', async ({ view, echo, filters, advanced }) => {
+    const dto = summary(); dto.selection = { ...view, ...echo, evaluationDefinitionId: 'definition-a' }
+    const restore = mockFetch(url => {
+      const request = new URL(url)
+      if (request.pathname.endsWith('/sentiment/settings')) return jsonResponse(settings(true))
+      if (request.pathname.endsWith('/sentiment/jobs')) return jsonResponse({ jobs: [] })
+      if (request.pathname.endsWith('/sentiment/backfill-preview')) return jsonResponse({ previewToken: 'frozen-preview', expiresAt: null, selection: { ...view, mode: echo.mode, ...(echo.revision === null ? {} : { revision: echo.revision }) }, evaluationDefinitionId: 'definition-a', eligibleAssessments: 3, alreadyClassified: 0, skipped: [{ runId: 'run', reason: 'excluded-non-brand', count: 4 }], estimatedInputTokens: 10, estimatedCostUsd: null, estimateMethod: 'fixture' })
+      return jsonResponse(dto)
+    })
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    try {
+      render(<QueryClientProvider client={client}><SentimentSection projectName="project" selection={view} /></QueryClientProvider>)
+      fireEvent.click(await screen.findByRole('button', { name: 'Manage sentiment' }))
+      expect(screen.getByRole('checkbox', { name: /Limit to the current view/ }).closest('label')!.textContent).toBe(`Limit to the current view${filters}`)
+      // A Simple view reads as it always did: "Query class" and the sentence. An Advanced view says Type, with the sentence behind a note.
+      const sentence = screen.queryByText('The backfill covers every engine, location and query of the chosen check for this query class.')
+      const note = screen.queryByRole('button', { name: 'Covers the whole check. The backfill covers every engine, search location and query of the chosen check for this type.' })
+      expect([sentence !== null, note !== null]).toEqual([!advanced, advanced])
+      expect(screen.getByRole('combobox', { name: advanced ? 'Type' : 'Query class' })).toBeTruthy()
+      expect(screen.queryByRole('combobox', { name: advanced ? 'Query class' : 'Type' })).toBeNull()
+      // The preview speaks the page's words too, whatever mode the server echoes on it.
+      fireEvent.click(screen.getByRole('checkbox', { name: /Limit to the current view/ }))
+      fireEvent.click(screen.getByRole('button', { name: 'Preview sentiment backfill' }))
+      expect((await screen.findByText('Selection')).nextElementSibling!.textContent).toBe(`Branded queries · ${filters}`)
+      expect(screen.getByRole('list', { name: 'Skipped assessments' }).textContent).toBe(`Non-brand answers (backfill that ${advanced ? 'type' : 'class'} separately): 4`)
     } finally { cleanup(); client.clear(); restore() }
   })
   it('previews without admission and reuses the request key after an uncertain response', async () => {

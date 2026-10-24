@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react'
-import { ChevronLeft, ChevronRight, Search, X } from 'lucide-react'
+import { ChevronDown, ChevronLeft, ChevronRight, Search, X } from 'lucide-react'
 import { trackUiSearchInput } from '../../lib/ui-telemetry.js'
 
 export const DEFAULT_TABLE_PAGE_SIZE = 25
@@ -115,18 +115,26 @@ export function useClientTable<T>({
   }
 }
 
+// `sm` is the 32px height of a toolbar's filters; where a finger is the pointer it is a 44px target.
+const SEARCH_SIZE = {
+  default: 'h-9',
+  sm: 'h-8 pointer-coarse:h-11 max-md:h-11',
+} as const
+
 export function DataTableSearch({
   value,
   onChange,
   label,
   placeholder = 'Filter rows',
   className,
+  size = 'default',
 }: {
   value: string
   onChange: (value: string) => void
   label: string
   placeholder?: string
   className?: string
+  size?: keyof typeof SEARCH_SIZE
 }) {
   return (
     <div className={`relative ${className ?? ''}`}>
@@ -148,7 +156,7 @@ export function DataTableSearch({
         placeholder={placeholder}
         autoComplete="off"
         spellCheck={false}
-        className="h-9 w-full rounded-md border border-default bg-surface/50 pl-9 pr-9 text-sm text-strong placeholder:text-muted outline-none transition focus:border-mono-500 focus:ring-1 focus:ring-mono-500 [&::-webkit-search-cancel-button]:appearance-none"
+        className={`${SEARCH_SIZE[size]} w-full rounded-md border border-default bg-surface/50 pl-9 pr-9 text-sm text-strong placeholder:text-muted outline-none transition focus:border-mono-500 focus:ring-1 focus:ring-mono-500 [&::-webkit-search-cancel-button]:appearance-none`}
       />
       {value.trim().length > 0 ? (
         <button
@@ -164,6 +172,9 @@ export function DataTableSearch({
   )
 }
 
+// With the Rows select the row is a set of controls, each a 44px target where a finger is the pointer.
+const PAGE_CONTROL_TOUCH = ' pointer-coarse:min-h-11 max-md:min-h-11'
+
 export function DataTablePagination({
   page,
   pageSize = DEFAULT_TABLE_PAGE_SIZE,
@@ -174,6 +185,8 @@ export function DataTablePagination({
   itemLabel = 'rows',
   className,
   disabled = false,
+  pageSizeOptions,
+  onPageSizeChange,
 }: {
   page: number
   pageSize?: number
@@ -184,6 +197,9 @@ export function DataTablePagination({
   itemLabel?: string
   className?: string
   disabled?: boolean
+  /** With `onPageSizeChange`, adds a "Rows" select of these page sizes. */
+  pageSizeOptions?: readonly number[]
+  onPageSizeChange?: (pageSize: number) => void
 }) {
   if (visibleRows === 0) return null
 
@@ -192,6 +208,7 @@ export function DataTablePagination({
   const totalPages = totalRows === undefined ? undefined : Math.max(1, Math.ceil(totalRows / pageSize))
   const canGoNext = hasNextPage ?? (totalPages !== undefined && page < totalPages)
   const showPageControls = page > 1 || canGoNext
+  const pageSizeControl = pageSizeOptions !== undefined && onPageSizeChange !== undefined
 
   return (
     <div className={`mt-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 text-xs text-secondary ${className ?? ''}`}>
@@ -201,13 +218,31 @@ export function DataTablePagination({
           ? `${canGoNext ? '+' : ''} ${itemLabel}`
           : ` of ${totalRows.toLocaleString('en-US')} ${itemLabel}`}
       </p>
+      {pageSizeControl ? (
+        <label className="ml-auto flex items-center gap-2">
+          Rows
+          {/* Drawn as the page buttons are: their height, and a chevron in place of the browser's arrow. */}
+          <span className="relative inline-flex">
+            <select
+              value={pageSize}
+              onChange={event => onPageSizeChange(Number(event.target.value))}
+              disabled={disabled}
+              className={`appearance-none rounded-md border border-base bg-bg py-1.5 pl-2.5 pr-7 tabular-nums text-strong transition hover:border-strong focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-mono-500 disabled:cursor-not-allowed disabled:opacity-40${PAGE_CONTROL_TOUCH}`}
+            >
+              {/* A size that is not one of the choices still shows as the current one. */}
+              {[...new Set([...pageSizeOptions, pageSize])].sort((a, b) => a - b).map(option => <option key={option} value={option}>{option}</option>)}
+            </select>
+            <ChevronDown aria-hidden="true" className="pointer-events-none absolute right-2 top-1/2 size-3.5 -translate-y-1/2 text-muted" />
+          </span>
+        </label>
+      ) : null}
       {showPageControls ? (
         <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={() => onPageChange(page - 1)}
             disabled={disabled || page <= 1}
-            className="inline-flex items-center gap-1 rounded-md border border-base bg-bg px-2.5 py-1.5 text-strong transition hover:border-strong hover:text-primary disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-base disabled:hover:text-strong"
+            className={`inline-flex items-center gap-1 rounded-md border border-base bg-bg px-2.5 py-1.5 text-strong transition hover:border-strong hover:text-primary disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-base disabled:hover:text-strong${pageSizeControl ? PAGE_CONTROL_TOUCH : ''}`}
           >
             <ChevronLeft aria-hidden="true" className="size-3.5" />
             Previous
@@ -219,7 +254,7 @@ export function DataTablePagination({
             type="button"
             onClick={() => onPageChange(page + 1)}
             disabled={disabled || !canGoNext}
-            className="inline-flex items-center gap-1 rounded-md border border-base bg-bg px-2.5 py-1.5 text-strong transition hover:border-strong hover:text-primary disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-base disabled:hover:text-strong"
+            className={`inline-flex items-center gap-1 rounded-md border border-base bg-bg px-2.5 py-1.5 text-strong transition hover:border-strong hover:text-primary disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-base disabled:hover:text-strong${pageSizeControl ? PAGE_CONTROL_TOUCH : ''}`}
           >
             Next
             <ChevronRight aria-hidden="true" className="size-3.5" />

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { queryTrackingResultsRequestSchema } from './query-tracking-results.js'
 import { visibilityReportRequestSchema, type VisibilityReportResponse } from './visibility-report.js'
 
 /** A turn's displayed selection, never an authorization grant. */
@@ -8,6 +9,13 @@ export const agentViewContextSchema = z.object({
   seoRunId: z.string().trim().min(1).max(128).optional(),
   unavailableReason: z.string().trim().min(1).max(512).optional(),
   selection: visibilityReportRequestSchema.optional(),
+  /** On the Queries page: the results read the screen shows (signal, grouping, sort, filters, comparison). */
+  results: queryTrackingResultsRequestSchema.optional(),
+  /** What is opened in that read: one market, one group of markets, or one query. */
+  opened: z.object({
+    kind: z.enum(['market', 'group', 'query']),
+    key: z.string().trim().min(1).max(2048),
+  }).strict().optional(),
   page: z.object({
     runId: z.string().trim().min(1).max(256).optional(),
     nodeKey: z.string().trim().min(1).max(2048).optional(),
@@ -17,6 +25,8 @@ export const agentViewContextSchema = z.object({
   if (value.seoRunId && value.view !== 'seo') ctx.addIssue({ code: 'custom', message: 'SEO run context requires the SEO view.' })
   if (value.page && value.view !== 'site-health') ctx.addIssue({ code: 'custom', message: 'Page context requires Site Health.' })
   if (value.selection && !['visibility', 'property', 'queries'].includes(value.view)) ctx.addIssue({ code: 'custom', message: 'Measurement selection requires a measurement view.' })
+  if ((value.results || value.opened) && value.view !== 'queries') ctx.addIssue({ code: 'custom', message: 'A results read requires the Queries view.' })
+  if (value.opened && !value.results) ctx.addIssue({ code: 'custom', message: 'An opened market or query requires its results read.' })
 })
 export type AgentViewContext = z.infer<typeof agentViewContextSchema>
 

@@ -432,6 +432,16 @@ describe('openapi contract', () => {
     expect(JSON.stringify(body.components?.schemas?.ProjectSearchResponseDto)).toContain('citedUrls')
   })
 
+  it('describes optional per-context classes and markets in the query workspace', () => {
+    type Schema = { properties?: Record<string, Schema>; items?: Schema; required?: string[]; enum?: string[] }
+    const schemas = buildOpenApiDocument().components?.schemas as Record<string, Schema>
+    const assignment = schemas.QueryTrackingWorkspaceResponse!.properties!.tracked!.items!.properties!.assignments!.items!
+    const context = assignment.properties!.classifiedContexts!.items!
+    expect(assignment.required).not.toContain('classifiedContexts')
+    expect(context.required).toEqual(expect.arrayContaining(['providers', 'models', 'location', 'queryClass', 'marketKeys']))
+    expect(context.properties!.queryClass!.enum).toEqual(['branded', 'non-brand'])
+  })
+
   it('publishes typed measurement discovery and revision-pinned report operations', async () => {
     const ctx = buildObservedApp()
     contexts.push(ctx)

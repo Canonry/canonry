@@ -1,6 +1,8 @@
 import type { CliCommandSpec } from '../cli-dispatch.js'
+import { queryTrackingResultsRequestSchema } from '@canonry/canonry-contracts'
 import {
   getBoolean,
+  getString,
   parseIntegerOption,
   requirePositional,
   requireProject,
@@ -9,6 +11,17 @@ import {
   unknownSubcommand,
 } from '../cli-command-helpers.js'
 import { usageError } from '../cli-error.js'
+
+const QUERY_RESULTS_USAGE = 'canonry query results <project> [--scope <project|group|market|property>] [--scope-key <key>] [--run <id>] [--query <id>]'
+  + ' [--signal <mentioned|cited>] [--sort <losing|winning>] [--group <market|group>] [--compare previous]'
+  + ' [--engine <name>] [--result <mentioned|not-mentioned|cited|not-cited>] [--change <won|lost>] [--format json]'
+
+/** Each field of the read by the flag that sets it, so an error names the flag. */
+const QUERY_RESULTS_FLAGS = {
+  scope: 'scope', scopeKey: 'scope-key', runId: 'run', queryId: 'query', signal: 'signal', sort: 'sort',
+  group: 'group', compare: 'compare', engine: 'engine', result: 'result', change: 'change',
+} as const
+type QueryResultsField = keyof typeof QUERY_RESULTS_FLAGS
 
 export const QUERY_CLI_COMMANDS: readonly CliCommandSpec[] = [
   ...(['workspace', 'preview', 'commit'] as const).map(action => ({
@@ -24,6 +37,42 @@ export const QUERY_CLI_COMMANDS: readonly CliCommandSpec[] = [
       await runAdvancedMeasurementOperation(project, `query-${action}`, source, input.format)
     },
   } satisfies CliCommandSpec)),
+  {
+    path: ['query', 'results'],
+    usage: QUERY_RESULTS_USAGE,
+    options: Object.fromEntries(Object.values(QUERY_RESULTS_FLAGS).map(flag => [flag, stringOption()])),
+    run: async (input) => {
+      const { showQueryTrackingResults } = await import('../commands/measurement-plan.js')
+      const project = requireProject(input, 'query.results', QUERY_RESULTS_USAGE)
+      // The endpoint's own selection rules, checked before any request is sent.
+      const request = queryTrackingResultsRequestSchema.safeParse(Object.fromEntries(
+        (Object.entries(QUERY_RESULTS_FLAGS) as Array<[QueryResultsField, string]>).flatMap(([field, flag]) => {
+          const value = getString(input.values, flag)
+          return value === undefined ? [] : [[field, value]]
+        }),
+      ))
+      if (!request.success) {
+        // A failed parse always carries at least one issue, on one of the fields above.
+        const issue = request.error.issues[0]
+        const flag = `--${QUERY_RESULTS_FLAGS[issue.path[0] as QueryResultsField]}`
+        // The contract words its own rules by field name; here they name the flag.
+        // Any other issue is a blank value, as an unset shell variable leaves.
+        const message = issue.code === 'invalid_value'
+          ? issue.values.length === 1
+            ? `${flag} must be ${String(issue.values[0])}`
+            : `${flag} must be one of ${issue.values.map(String).join(', ')}`
+          : issue.code === 'custom'
+            ? issue.message.replace(/^\w+/, flag).replace('queryId', '--query').replace('compare=previous', '--compare previous')
+              .replace('engine, result or change', '--engine, --result or --change')
+            : `${flag} needs a value`
+        throw usageError(`Error: ${message}\nUsage: ${QUERY_RESULTS_USAGE}`, {
+          message,
+          details: { command: 'query.results', usage: QUERY_RESULTS_USAGE },
+        })
+      }
+      await showQueryTrackingResults(project, { ...request.data, format: input.format })
+    },
+  },
   {
     path: ['query', 'add'],
     usage: 'canonry query add <project> <query...> [--format json]',
@@ -157,12 +206,12 @@ export const QUERY_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['query'],
-    usage: 'canonry query <add|replace|remove|delete|list|import|generate|workspace|preview|commit> <project> [args]',
+    usage: 'canonry query <add|replace|remove|delete|list|import|generate|workspace|preview|commit|results> <project> [args]',
     run: async (input) => {
       unknownSubcommand(input.positionals[0], {
         command: 'query',
-        usage: 'canonry query <add|replace|remove|delete|list|import|generate|workspace|preview|commit> <project> [args]',
-        available: ['add', 'replace', 'remove', 'delete', 'list', 'import', 'generate', 'workspace', 'preview', 'commit'],
+        usage: 'canonry query <add|replace|remove|delete|list|import|generate|workspace|preview|commit|results> <project> [args]',
+        available: ['add', 'replace', 'remove', 'delete', 'list', 'import', 'generate', 'workspace', 'preview', 'commit', 'results'],
       })
     },
   },

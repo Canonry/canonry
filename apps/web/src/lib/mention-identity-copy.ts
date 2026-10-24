@@ -6,5 +6,5 @@
 export const DIFFERENT_SUBJECT_COPY = {
   label: 'Different subject',
   project: 'The answer uses your name, but sentiment found it is about something else, so it does not count as a mention.',
-  property: 'The answer uses this Property’s name, but sentiment found it is about something else, so it does not count as a mention.',
+  property: 'The answer uses this location’s name, but sentiment found it is about something else, so it does not count as a mention.',
 } as const

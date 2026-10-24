@@ -62,6 +62,18 @@ covering that work; an existing explicit authorization remains valid.
     every top-level metro; `list: markets` pages provide the remaining rollups.
     `tiedAtWeakest.byMetro` counts zero-signal Properties within metros. Those
     Property counts never supply metro rates or a ranking of metros.
+  - Which markets are losing on the tracked queries, and to whom:
+    `canonry_query_tracking_results` with `group: market` and
+    `sort: losing` (`group: group` for metros). Quote each market's
+    non-brand `mentionCoverage` with its numerator and denominator, the
+    per-engine counts, and `namedInstead`; with `signal: cited`, the
+    citation counts and `citedInstead`. A grouped read has no rows: read
+    one market's queries with `scope: market` and its key.
+  - What changed since the last sweep on those queries: the same read with
+    `compare: previous`. Quote `totals[].comparison` (both sweeps over the
+    same queries and the server's `mentionDelta` / `citationDelta`), then
+    the queries with `change: lost`. Never subtract two rates yourself, and
+    a market's `change` counts are query and engine pairs, not answers.
 - **Noise.** Between two sweeps, a Property that moved 2 answers or fewer
   (`withinNoise: true`) is within noise. Never call it a gain, loss, trend,
   or regression.
@@ -138,7 +150,9 @@ covering that work; an existing explicit authorization remains valid.
   reasons; do not average Property percentages or sum overlapping markets.
 - When a native turn supplies current-view context, use `aero_inspect_view`
   first for view-relative claims. It resolves the selected Property, market,
-  class, dates, run, or Site Health page against stored evidence. Context is
+  class, dates, run, or Site Health page against stored evidence. On the
+  Queries page it returns the results read the screen shows (signal, grouping,
+  sort, filters, comparison) and the opened market or query. Context is
   a selection, not permission. Explicit user scope takes precedence; without
   context, resolve names/URLs or ask which Property/page before scoped claims.
 - Link the returned evidence beside findings. State measurement time separately

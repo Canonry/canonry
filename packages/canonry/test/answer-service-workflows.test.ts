@@ -7,6 +7,7 @@ import {
   IncompleteAnswerError,
   measurementPlanV2ChecksumJson,
   parseMeasurementRunManifestV1,
+  queryTrackingResultsResponseSchema,
   queryTrackingWorkspaceResponseSchema,
   routeFamiliesOf,
   RunStatuses,
@@ -167,6 +168,15 @@ test.each(['Simple', 'Advanced'] as const)('%s sweeps run an explicitly chosen p
     expect(response.statusCode).toBe(200)
     const workspace = queryTrackingWorkspaceResponseSchema.parse(response.json())
     expect(workspace.tracked.find(row => row.queryId === queryId)).toMatchObject({ state: 'tracked', lastMeasuredAt: outcome.finishedAt })
+    // The results read compares the sweep with what the project dispatches now, as the
+    // workspace does, so the chosen profile's sweep is the one tracked now and keeps its row.
+    const resultsResponse = await app.inject(`/api/v1/projects/p-${projectId.slice(0, 6)}/query-tracking/results`)
+    expect(resultsResponse.statusCode).toBe(200)
+    const results = queryTrackingResultsResponseSchema.parse(resultsResponse.json())
+    expect(results.run).toMatchObject({ id: runId, matchesCurrentTracking: true })
+    expect(results.engines).toEqual([CITED, 'gemini'])
+    expect(results.pendingRows).toBe(0)
+    expect(results.rows.map(row => [row.queryId, row.queryClass])).toEqual([[queryId, 'non-brand']])
   } finally { await app.close(); db.$client.close() }
 })
 

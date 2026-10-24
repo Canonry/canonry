@@ -2085,12 +2085,40 @@ export type QueryTrackingWorkspaceResponse = {
     targets: Array<{
         stableKey: string;
         label: string;
+        marketKeys?: Array<string>;
+        counts?: {
+            queries?: number;
+            byClass?: {
+                branded: number;
+                nonBrand: number;
+                mixed: number;
+                unknown: number;
+            };
+            propertyQueries: number;
+            marketQueries: number;
+            customQueries: number;
+            answersPerSweep: number;
+        };
     }>;
     groups: Array<{
         stableKey: string;
         parentGroupKey?: string;
         label: string;
         targetKeys: Array<string>;
+        counts?: {
+            queries: number;
+            byClass?: {
+                branded: number;
+                nonBrand: number;
+                mixed: number;
+                unknown: number;
+            };
+            marketQueries?: number;
+            propertyQueries?: number;
+            customQueries?: number;
+            markets: number;
+            answersPerSweep: number;
+        };
     }>;
     markets: Array<{
         stableKey: string;
@@ -2101,6 +2129,19 @@ export type QueryTrackingWorkspaceResponse = {
             targetKey: string;
             queryId: string;
         }>;
+        targetKeys?: Array<string>;
+        counts?: {
+            queries?: number;
+            byClass?: {
+                branded: number;
+                nonBrand: number;
+                mixed: number;
+                unknown: number;
+            };
+            marketQueries: number;
+            propertyQueries: number;
+            answersPerSweep: number;
+        };
     }>;
     scopeOptions?: Array<{
         id: string;
@@ -2149,7 +2190,36 @@ export type QueryTrackingWorkspaceResponse = {
                     timezone?: string;
                 } | null;
             }>;
+            classifiedContexts?: Array<{
+                providers: Array<string>;
+                models: {
+                    [key: string]: string;
+                };
+                location: {
+                    label: string;
+                    city: string;
+                    region: string;
+                    country: string;
+                    timezone?: string;
+                } | null;
+                queryClass: 'branded' | 'non-brand';
+                marketKeys: Array<string>;
+            }>;
         }>;
+        focus?: {
+            kind: 'market';
+            key: string;
+        } | {
+            kind: 'property';
+            key: string;
+        } | {
+            kind: 'company';
+        } | {
+            kind: 'custom';
+        } | {
+            kind: 'not-asked';
+        };
+        queryClasses?: Array<'branded' | 'non-brand'>;
     }>;
     savedSources: {
         research: Array<{
@@ -2164,6 +2234,74 @@ export type QueryTrackingWorkspaceResponse = {
             queryText: string;
             createdAt: string;
         }>;
+    };
+    summary?: {
+        asked: number;
+        notAsked: number;
+        byClass: {
+            branded: number;
+            nonBrand: number;
+            mixed: number;
+            unknown: number;
+        };
+        byFocus: {
+            market: number;
+            property: number;
+            company: number;
+            custom: number;
+        };
+        assignments: {
+            total: number;
+            branded: number;
+            nonBrand: number;
+            unknown: number;
+        };
+        answersPerSweep: number;
+        structure: {
+            targets: number;
+            markets: number;
+            groups: number;
+            topLevelGroups: number;
+            competitors: number;
+        };
+    };
+    limits?: {
+        queries: {
+            current: number;
+            next: number;
+            max: number;
+            left?: {
+                current: number;
+                next: number;
+            };
+            over?: {
+                current: number;
+                next: number;
+            };
+            exceeded?: boolean;
+        };
+    };
+    views?: {
+        noPropertyQueries: {
+            count: number;
+            targetKeys: Array<string>;
+        };
+        thinMarkets: {
+            count: number;
+            floor: number;
+            marketKeys: Array<string>;
+        };
+        patternGaps: {
+            count: number;
+            compared?: number;
+            patterns: Array<{
+                templateId: string;
+                name: string | null;
+                pattern: string;
+                usedMarketKeys: Array<string>;
+                missingMarketKeys: Array<string>;
+            }>;
+        };
     };
 };
 
@@ -2268,7 +2406,36 @@ export type QueryTrackingPreviewResponse = {
                     timezone?: string;
                 } | null;
             }>;
+            classifiedContexts?: Array<{
+                providers: Array<string>;
+                models: {
+                    [key: string]: string;
+                };
+                location: {
+                    label: string;
+                    city: string;
+                    region: string;
+                    country: string;
+                    timezone?: string;
+                } | null;
+                queryClass: 'branded' | 'non-brand';
+                marketKeys: Array<string>;
+            }>;
         }>;
+        focus?: {
+            kind: 'market';
+            key: string;
+        } | {
+            kind: 'property';
+            key: string;
+        } | {
+            kind: 'company';
+        } | {
+            kind: 'custom';
+        } | {
+            kind: 'not-asked';
+        };
+        queryClasses?: Array<'branded' | 'non-brand'>;
     }>;
     diff: {
         added: Array<{
@@ -2293,6 +2460,61 @@ export type QueryTrackingPreviewResponse = {
         }>;
         noOp: boolean;
     };
+    changes?: Array<{
+        queryId: string;
+        queryText: string;
+        change: 'added' | 'reused' | 'removed';
+        before: {
+            targetKeys: Array<string>;
+            marketKeys: Array<string>;
+        };
+        after: {
+            targetKeys: Array<string>;
+            marketKeys: Array<string>;
+        };
+        altered?: boolean;
+        rewordedFrom?: string;
+    }>;
+    marketChanges?: Array<{
+        marketKey: string;
+        before: {
+            targetKeys: Array<string>;
+        };
+        after: {
+            targetKeys: Array<string>;
+        };
+        removedTargetKeys: Array<string>;
+        emptied: boolean;
+    }>;
+    marketQueryChanges?: Array<{
+        marketKey: string;
+        before: {
+            marketQueries: number;
+        };
+        after: {
+            marketQueries: number;
+        };
+    }>;
+    typeMismatches?: Array<{
+        queryId: string;
+        queryText: string;
+        focus: {
+            kind: 'market';
+            key: string;
+        } | {
+            kind: 'property';
+            key: string;
+        } | {
+            kind: 'company';
+        } | {
+            kind: 'custom';
+        } | {
+            kind: 'not-asked';
+        };
+        expectedQueryClass: 'branded' | 'non-brand';
+        queryClasses: Array<'branded' | 'non-brand'>;
+        brandedWording: boolean;
+    }>;
     workload: {
         existingNodes: number;
         existingProviderCalls: number;
@@ -2302,6 +2524,22 @@ export type QueryTrackingPreviewResponse = {
         addedProviderCalls: number;
         removedNodes: number;
         removedProviderCalls: number;
+    };
+    limits?: {
+        queries: {
+            current: number;
+            next: number;
+            max: number;
+            left?: {
+                current: number;
+                next: number;
+            };
+            over?: {
+                current: number;
+                next: number;
+            };
+            exceeded?: boolean;
+        };
     };
 };
 
@@ -2404,6 +2642,213 @@ export type QueryTrackingCommitResponse = {
     };
 };
 
+export type QueryTrackingResultsResponse = {
+    mode: 'simple' | 'advanced';
+    scope: {
+        kind: 'project' | 'group' | 'market' | 'property';
+        key: string | null;
+    };
+    run: {
+        id: string;
+        createdAt: string;
+        completedAt: string | null;
+        status: 'completed' | 'partial';
+        revision: number | null;
+        matchesCurrentTracking: boolean;
+    } | null;
+    engines: Array<string>;
+    rows: Array<{
+        queryId: string;
+        queryText: string;
+        queryClass: 'branded' | 'non-brand' | 'unknown';
+        engines: Array<{
+            provider: string;
+            expectedAnswers: number;
+            answers: number;
+            mentionedAnswers: number;
+            citedAnswers: number;
+            uncheckedSourceAnswers: number;
+            mentioned: boolean | null;
+            cited: boolean | null;
+            unattributedMentionAnswers?: number;
+            mentionedTargetKeys?: Array<string>;
+            citedTargetKeys?: Array<string>;
+            otherLocationMentionedAnswers?: number;
+            otherLocationMentionedTargetKeys?: Array<string>;
+            otherLocationCitedAnswers?: number;
+            otherLocationCitedTargetKeys?: Array<string>;
+            answerRows?: Array<{
+                resultId: string | null;
+                searchLocation: string | null;
+                targetKeys: Array<string>;
+                mentioned: boolean | null;
+                cited: boolean | null;
+                mentionedTargetKeys: Array<string>;
+                citedTargetKeys: Array<string>;
+                namedInstead: Array<string>;
+                alsoNamed?: Array<string>;
+                citedSources?: Array<{
+                    url: string;
+                    host: string;
+                    ours: boolean;
+                    competitor: string | null;
+                }>;
+            }>;
+            mentionChange?: 'won' | 'lost';
+            citationChange?: 'won' | 'lost';
+        }>;
+        engineCounts?: {
+            mentioned: number;
+            mentionChecked: number;
+            cited: number;
+            citationChecked: number;
+            change?: {
+                mentionsWon: number;
+                mentionsLost: number;
+                citationsWon: number;
+                citationsLost: number;
+            };
+        };
+    }>;
+    pendingRows: number;
+    totals?: Array<{
+        queryClass: 'branded' | 'non-brand' | 'unknown';
+        queries: number;
+        answers: number;
+        mentionCoverage: {
+            numerator: number | null;
+            denominator: number | null;
+            rate: number | null;
+            reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+            unattributed?: number;
+            unchecked?: number;
+        };
+        citationCoverage: {
+            numerator: number | null;
+            denominator: number | null;
+            rate: number | null;
+            reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+            unattributed?: number;
+            unchecked?: number;
+        };
+        comparison?: {
+            queries: number;
+            mentionCoverage: {
+                numerator: number | null;
+                denominator: number | null;
+                rate: number | null;
+                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+                unattributed?: number;
+                unchecked?: number;
+            };
+            citationCoverage: {
+                numerator: number | null;
+                denominator: number | null;
+                rate: number | null;
+                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+                unattributed?: number;
+                unchecked?: number;
+            };
+            previousMentionCoverage: {
+                numerator: number | null;
+                denominator: number | null;
+                rate: number | null;
+                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+                unattributed?: number;
+                unchecked?: number;
+            };
+            previousCitationCoverage: {
+                numerator: number | null;
+                denominator: number | null;
+                rate: number | null;
+                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+                unattributed?: number;
+                unchecked?: number;
+            };
+            mentionDelta: number | null;
+            citationDelta: number | null;
+        };
+    }>;
+    weakMarkets?: {
+        rule: 'no-mention-latest-sweep';
+        queryClass: 'non-brand';
+        count: number;
+        marketKeys: Array<string>;
+        markets?: Array<{
+            marketKey: string;
+            queries: number;
+            mentionCheckedAnswers: number;
+            mentionedAnswers: number;
+            otherLocationMentionedAnswers: number;
+            citationCheckedAnswers: number;
+            citedAnswers: number;
+        }>;
+    };
+    compareRun?: {
+        id: string;
+        createdAt: string;
+        completedAt: string | null;
+        status: 'completed' | 'partial';
+        revision: number | null;
+        matchesCurrentTracking: boolean;
+    } | null;
+    groups?: Array<{
+        kind: 'market' | 'group';
+        key: string;
+        label: string;
+        parentKey: string | null;
+        locations: number;
+        marketKeys?: Array<string>;
+        types: Array<{
+            queryClass: 'branded' | 'non-brand' | 'unknown';
+            queries: number;
+            answers: number;
+            mentionCoverage: {
+                numerator: number | null;
+                denominator: number | null;
+                rate: number | null;
+                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+                unattributed?: number;
+                unchecked?: number;
+            };
+            citationCoverage: {
+                numerator: number | null;
+                denominator: number | null;
+                rate: number | null;
+                reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
+                unattributed?: number;
+                unchecked?: number;
+            };
+            otherLocationMentionedAnswers: number;
+            engines: Array<{
+                provider: string;
+                answers: number;
+                mentionedAnswers: number;
+                citedAnswers: number;
+            }>;
+            change?: {
+                mentionsWon: number;
+                mentionsLost: number;
+                citationsWon: number;
+                citationsLost: number;
+            };
+        }>;
+        namedInstead: Array<{
+            name: string;
+            answers: number;
+        }>;
+        citedInstead: Array<{
+            host: string;
+            answers: number;
+        }>;
+        competitors: Array<{
+            domain: string;
+            mentionedAnswers: number;
+            citedAnswers: number;
+        }>;
+    }>;
+};
+
 export type AgentPromptRequest = {
     prompt: string;
     conversationId?: string | null;
@@ -2434,6 +2879,23 @@ export type AgentPromptRequest = {
             search?: string;
             cursor?: string;
             limit: number;
+        };
+        results?: {
+            scope: 'project' | 'group' | 'market' | 'property';
+            scopeKey?: string;
+            runId?: string;
+            queryId?: string;
+            signal?: 'mentioned' | 'cited';
+            sort?: 'losing' | 'winning';
+            group?: 'market' | 'group';
+            compare?: 'previous';
+            engine?: string;
+            result?: 'mentioned' | 'not-mentioned' | 'cited' | 'not-cited';
+            change?: 'won' | 'lost';
+        };
+        opened?: {
+            kind: 'market' | 'group' | 'query';
+            key: string;
         };
         page?: {
             runId?: string;
@@ -9761,6 +10223,10 @@ export type MeasurementChangesResponse = {
         displayedRunId: string | null;
         planRevision: number;
         completedAt: string | null;
+        activeRevision?: number;
+        measuredRevision?: number | null;
+        awaitingSweep?: boolean;
+        trackingChangedAt?: string;
         executionIdentity: string | null;
         measurementScope: 'full' | 'spot_check' | null;
     };
@@ -10125,6 +10591,10 @@ export type MeasurementDataQualityResponse = {
         displayedRunId: string | null;
         planRevision: number;
         completedAt: string | null;
+        activeRevision?: number;
+        measuredRevision?: number | null;
+        awaitingSweep?: boolean;
+        trackingChangedAt?: string;
         executionIdentity: string | null;
         measurementScope: 'full' | 'spot_check' | null;
     };
@@ -10417,6 +10887,10 @@ export type MeasurementOverviewResponse = {
         expected: number;
         completedAt?: string;
         includesHistoricalData?: boolean;
+        activeRevision?: number;
+        measuredRevision?: number | null;
+        awaitingSweep?: boolean;
+        trackingChangedAt?: string;
     };
     nextAction: {
         kind: 'run_measurement' | 'review_flags' | 'complete_setup' | 'republish_setup' | 'none';
@@ -10582,6 +11056,10 @@ export type MeasurementPortfolioSummaryResponse = {
         displayedRunId: string | null;
         planRevision: number;
         completedAt: string | null;
+        activeRevision?: number;
+        measuredRevision?: number | null;
+        awaitingSweep?: boolean;
+        trackingChangedAt?: string;
     };
     queryClass: 'all' | 'branded' | 'non-brand';
     engines: Array<string>;
@@ -12071,6 +12549,10 @@ export type MeasurementPropertyCompetitorsResponse = {
         displayedRunId: string | null;
         planRevision: number;
         completedAt: string | null;
+        activeRevision?: number;
+        measuredRevision?: number | null;
+        awaitingSweep?: boolean;
+        trackingChangedAt?: string;
     };
     queryClass: 'all' | 'branded' | 'non-brand';
     basis: {
@@ -12112,6 +12594,10 @@ export type MeasurementPropertyEvidenceResponse = {
         state: 'not_measured' | 'queued' | 'running' | 'complete' | 'partial' | 'failed';
         displayedRunId?: string;
         completedAt?: string;
+        activeRevision?: number;
+        measuredRevision?: number | null;
+        awaitingSweep?: boolean;
+        trackingChangedAt?: string;
     };
     evidence?: {
         items: Array<{
@@ -12199,6 +12685,10 @@ export type MeasurementPropertyQuestionsResponse = {
         displayedRunId: string | null;
         planRevision: number;
         completedAt: string | null;
+        activeRevision?: number;
+        measuredRevision?: number | null;
+        awaitingSweep?: boolean;
+        trackingChangedAt?: string;
     };
     queryClass: 'all' | 'branded' | 'non-brand';
     questions: Array<{
@@ -12244,6 +12734,10 @@ export type MeasurementQuestionResultResponse = {
         displayedRunId: string | null;
         planRevision: number;
         completedAt: string | null;
+        activeRevision?: number;
+        measuredRevision?: number | null;
+        awaitingSweep?: boolean;
+        trackingChangedAt?: string;
     };
     question: {
         resultId: string;
@@ -12629,13 +13123,13 @@ export type OnboardingTelemetryEvent = {
 export type UiTelemetryEvent = {
     eventId: string;
     uiSessionId: string;
-    page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/seo-data' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/agent-setup' | '/backlinks' | '/traffic' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
+    page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/seo-data' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/queries/add' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/agent-setup' | '/backlinks' | '/traffic' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
     event: 'ui.page_viewed';
     tab?: 'overview' | 'portfolio' | 'search-console' | 'seo-data' | 'conversions' | 'local' | 'discovery' | 'queries' | 'properties' | 'report' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings' | 'other';
 } | {
     eventId: string;
     uiSessionId: string;
-    page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/seo-data' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/agent-setup' | '/backlinks' | '/traffic' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
+    page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/seo-data' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/queries/add' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/agent-setup' | '/backlinks' | '/traffic' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
     event: 'ui.action';
     action: 'sweep.launch' | 'sweep.cancel' | 'site_audit.launch' | 'project.create' | 'project.update' | 'project.delete' | 'query.add' | 'query.delete' | 'query.generate' | 'competitor.save' | 'competitor.delete' | 'schedule.save' | 'schedule.delete' | 'provider.save' | 'settings.save' | 'integration.connect_started' | 'integration.connect' | 'integration.disconnect' | 'traffic.sync' | 'seo.refresh' | 'seo.profile.save' | 'seo.cancel' | 'notification.save' | 'notification.test' | 'measurement_plan.publish' | 'property_names.save' | 'discovery.run' | 'api_key.create' | 'api_key.revoke' | 'export.download' | 'report.download' | 'aero.open' | 'aero.send' | 'agent_setup.copy' | 'agent_setup.verify_copy' | 'filter.change' | 'search.submit';
     tab?: 'overview' | 'portfolio' | 'search-console' | 'seo-data' | 'conversions' | 'local' | 'discovery' | 'queries' | 'properties' | 'report' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings' | 'other';
@@ -12645,7 +13139,7 @@ export type UiTelemetryEvent = {
 } | {
     eventId: string;
     uiSessionId: string;
-    page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/seo-data' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/agent-setup' | '/backlinks' | '/traffic' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
+    page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/seo-data' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/queries/add' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/agent-setup' | '/backlinks' | '/traffic' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
     event: 'ui.error';
     kind: 'render' | 'unhandled' | 'api';
     tab?: 'overview' | 'portfolio' | 'search-console' | 'seo-data' | 'conversions' | 'local' | 'discovery' | 'queries' | 'properties' | 'report' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings' | 'other';
@@ -12658,7 +13152,7 @@ export type UiTelemetryEvent = {
 } | {
     eventId: string;
     uiSessionId: string;
-    page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/seo-data' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/agent-setup' | '/backlinks' | '/traffic' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
+    page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/seo-data' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/queries/add' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/agent-setup' | '/backlinks' | '/traffic' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
     event: 'ui.vitals';
     metric: 'LCP' | 'INP' | 'CLS' | 'FCP' | 'TTFB';
     rating: 'good' | 'needs-improvement' | 'poor';
@@ -20822,7 +21316,7 @@ export type PostApiV1ProjectsByNameMeasurementPlanDraftActionsPublishErrors = {
      */
     404: ErrorEnvelope;
     /**
-     * The idempotency key was already used with a different request body.
+     * The idempotency key was already used with a different request body, or a sweep is queued or running.
      */
     409: ErrorEnvelope;
     /**
@@ -21003,6 +21497,10 @@ export type GetApiV1ProjectsByNameMeasurementOverviewData = {
          * Display this run. It must be pinned to the active revision. This is also the only way to display a scoped spot check.
          */
         runId?: string;
+        /**
+         * Omit it and the read needs a completed sweep of the active plan: after a tracking change it answers not measured until one exists, and answer text refuses a result of an older sweep (422). last-sweep reads the newest completed whole-project sweep instead, under the plan that sweep ran with, when the active plan has no completed sweep yet. With it, runId may name that sweep; any other run of an older plan is still refused. The response measurement then carries activeRevision, measuredRevision, awaitingSweep and trackingChangedAt. When awaitingSweep is true and measuredRevision is not null, the numbers are from the completedAt sweep, before the tracking change on trackingChangedAt. With measuredRevision null there is no sweep yet. A place the last sweep did not hold reads no_population on the overview and on measurement-property-competitors, never zero. On measurement-property-evidence and measurement-property-questions it is an empty page with no reason, so with awaitingSweep true an empty page can mean the location was not in that sweep. On the overview the param is refused (400) together with from or to.
+         */
+        fallback?: 'last-sweep';
         /**
          * Case-insensitive filter over the returned rows. It never changes a metric denominator.
          */
@@ -21773,6 +22271,10 @@ export type GetApiV1ProjectsByNameMeasurementPropertyEvidenceData = {
          */
         runId?: string;
         /**
+         * Omit it and the read needs a completed sweep of the active plan: after a tracking change it answers not measured until one exists, and answer text refuses a result of an older sweep (422). last-sweep reads the newest completed whole-project sweep instead, under the plan that sweep ran with, when the active plan has no completed sweep yet. With it, runId may name that sweep; any other run of an older plan is still refused. The response measurement then carries activeRevision, measuredRevision, awaitingSweep and trackingChangedAt. When awaitingSweep is true and measuredRevision is not null, the numbers are from the completedAt sweep, before the tracking change on trackingChangedAt. With measuredRevision null there is no sweep yet. A place the last sweep did not hold reads no_population on the overview and on measurement-property-competitors, never zero. On measurement-property-evidence and measurement-property-questions it is an empty page with no reason, so with awaitingSweep true an empty page can mean the location was not in that sweep. On the overview the param is refused (400) together with from or to.
+         */
+        fallback?: 'last-sweep';
+        /**
          * What one row is. sources (the default) returns one row per cited URL under evidence, which is what a caller written before this parameter existed reads. answers returns one row per measured answer under answers, with the cited URLs nested inside it, so the answers that cited nothing at all are present rather than missing. other-queries returns, under otherQueries, one row per answer to a query NOT assigned to this Property that cited one of its own pages, per assignment class; those answers are outside its rates. Exactly one of the keys is returned; the others are absent, not empty.
          */
         shape?: 'sources' | 'answers' | 'other-queries';
@@ -21927,6 +22429,10 @@ export type GetApiV1ProjectsByNameMeasurementPropertyQuestionsData = {
          */
         runId?: string;
         /**
+         * Omit it and the read needs a completed sweep of the active plan: after a tracking change it answers not measured until one exists, and answer text refuses a result of an older sweep (422). last-sweep reads the newest completed whole-project sweep instead, under the plan that sweep ran with, when the active plan has no completed sweep yet. With it, runId may name that sweep; any other run of an older plan is still refused. The response measurement then carries activeRevision, measuredRevision, awaitingSweep and trackingChangedAt. When awaitingSweep is true and measuredRevision is not null, the numbers are from the completedAt sweep, before the tracking change on trackingChangedAt. With measuredRevision null there is no sweep yet. A place the last sweep did not hold reads no_population on the overview and on measurement-property-competitors, never zero. On measurement-property-evidence and measurement-property-questions it is an empty page with no reason, so with awaitingSweep true an empty page can mean the location was not in that sweep. On the overview the param is refused (400) together with from or to.
+         */
+        fallback?: 'last-sweep';
+        /**
          * Zero-based row offset for paging through the full question population.
          */
         offset?: number;
@@ -21981,6 +22487,10 @@ export type GetApiV1ProjectsByNameMeasurementQuestionResultData = {
          * Stored result ID returned by measurement-property-questions.
          */
         resultId: string;
+        /**
+         * Omit it and the read needs a completed sweep of the active plan: after a tracking change it answers not measured until one exists, and answer text refuses a result of an older sweep (422). last-sweep reads the newest completed whole-project sweep instead, under the plan that sweep ran with, when the active plan has no completed sweep yet. With it, runId may name that sweep; any other run of an older plan is still refused. The response measurement then carries activeRevision, measuredRevision, awaitingSweep and trackingChangedAt. When awaitingSweep is true and measuredRevision is not null, the numbers are from the completedAt sweep, before the tracking change on trackingChangedAt. With measuredRevision null there is no sweep yet. A place the last sweep did not hold reads no_population on the overview and on measurement-property-competitors, never zero. On measurement-property-evidence and measurement-property-questions it is an empty page with no reason, so with awaitingSweep true an empty page can mean the location was not in that sweep. On the overview the param is refused (400) together with from or to.
+         */
+        fallback?: 'last-sweep';
     };
     url: '/api/v1/projects/{name}/measurement-question-result';
 };
@@ -22040,6 +22550,10 @@ export type GetApiV1ProjectsByNameMeasurementPropertyCompetitorsData = {
          * Read this completed or partial active-revision run, including a named spot check.
          */
         runId?: string;
+        /**
+         * Omit it and the read needs a completed sweep of the active plan: after a tracking change it answers not measured until one exists, and answer text refuses a result of an older sweep (422). last-sweep reads the newest completed whole-project sweep instead, under the plan that sweep ran with, when the active plan has no completed sweep yet. With it, runId may name that sweep; any other run of an older plan is still refused. The response measurement then carries activeRevision, measuredRevision, awaitingSweep and trackingChangedAt. When awaitingSweep is true and measuredRevision is not null, the numbers are from the completedAt sweep, before the tracking change on trackingChangedAt. With measuredRevision null there is no sweep yet. A place the last sweep did not hold reads no_population on the overview and on measurement-property-competitors, never zero. On measurement-property-evidence and measurement-property-questions it is an empty page with no reason, so with awaitingSweep true an empty page can mean the location was not in that sweep. On the overview the param is refused (400) together with from or to.
+         */
+        fallback?: 'last-sweep';
         /**
          * Maximum competitor rows. Defaults to 10, maximum 50.
          */
@@ -22771,7 +23285,7 @@ export type PostApiV1ProjectsByNameQueryTrackingCommitData = {
 
 export type PostApiV1ProjectsByNameQueryTrackingCommitErrors = {
     /**
-     * Invalid mutation or review token.
+     * Invalid mutation or review token, or the change exceeds the query limit.
      */
     400: ErrorEnvelope;
     /**
@@ -22783,7 +23297,7 @@ export type PostApiV1ProjectsByNameQueryTrackingCommitErrors = {
      */
     404: ErrorEnvelope;
     /**
-     * Workspace changed or a sweep is using the live query catalog.
+     * Workspace changed, or a sweep is queued or running.
      */
     409: ErrorEnvelope;
 };
@@ -22798,6 +23312,85 @@ export type PostApiV1ProjectsByNameQueryTrackingCommitResponses = {
 };
 
 export type PostApiV1ProjectsByNameQueryTrackingCommitResponse = PostApiV1ProjectsByNameQueryTrackingCommitResponses[keyof PostApiV1ProjectsByNameQueryTrackingCommitResponses];
+
+export type GetApiV1ProjectsByNameQueryTrackingResultsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * The place whose pairings are read, resolved against the active plan. Read-selection identity.
+         */
+        scope?: 'project' | 'group' | 'market' | 'property';
+        /**
+         * Stable key of the group, market or property. Required for non-project scopes. A key the active plan holds and the sweep never measured returns no rows.
+         */
+        scopeKey?: string;
+        /**
+         * One completed or partial whole-project sweep. Omit for the default sweep.
+         */
+        runId?: string;
+        /**
+         * One tracked query. Returns only its rows, with `answerRows` per engine and no `totals` or `weakMarkets`. A query the place does not ask returns no rows. Read-selection identity.
+         */
+        queryId?: string;
+        /**
+         * The signal `sort`, `groups` and the "who won" lists read: answer text (`mentioned`) or sources (`cited`). Default `mentioned`. Read-selection identity.
+         */
+        signal?: 'mentioned' | 'cited';
+        /**
+         * Orders `rows` by the share of engines that checked the signal and show it (`engineCounts`), then by its share of checked answers, and `groups` by the signal's share of checked answers: `losing` lowest first, `winning` highest first. Omit for query-id order. Read-selection identity.
+         */
+        sort?: 'losing' | 'winning';
+        /**
+         * An advanced portfolio's roll-ups in `groups`: one per `market`, or one per `group` of markets, and no `rows` (a market's queries are a read of that market). Project or group scope only; not with `queryId`, `engine`, `result` or `change`. Read-selection identity.
+         */
+        group?: 'market' | 'group';
+        /**
+         * `previous`: compare with the sweep before the one read on the same queries. Each engine gains `mentionChange` / `citationChange`, each total a `comparison`, and the response a `compareRun`. Read-selection identity.
+         */
+        compare?: 'previous';
+        /**
+         * The engine `result` and `change` are read on; without it, across the row's engines. Read-selection identity.
+         */
+        engine?: string;
+        /**
+         * Keep only rows with this result: `mentioned` (`cited`) when an engine shows it, `not-mentioned` (`not-cited`) when an engine checked and none shows it. Not checked is never a no. Totals then cover the rows returned. Read-selection identity.
+         */
+        result?: 'mentioned' | 'not-mentioned' | 'cited' | 'not-cited';
+        /**
+         * Keep only rows where an engine `won` or `lost` the signal since the previous sweep. Needs `compare=previous`. Read-selection identity.
+         */
+        change?: 'won' | 'lost';
+    };
+    url: '/api/v1/projects/{name}/query-tracking/results';
+};
+
+export type GetApiV1ProjectsByNameQueryTrackingResultsErrors = {
+    /**
+     * Invalid selection, a place the active plan does not hold, or a run that is not a whole-project sweep.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameQueryTrackingResultsError = GetApiV1ProjectsByNameQueryTrackingResultsErrors[keyof GetApiV1ProjectsByNameQueryTrackingResultsErrors];
+
+export type GetApiV1ProjectsByNameQueryTrackingResultsResponses = {
+    /**
+     * Per-query engine results for one sweep, or an empty list with no sweep.
+     */
+    200: QueryTrackingResultsResponse;
+};
+
+export type GetApiV1ProjectsByNameQueryTrackingResultsResponse = GetApiV1ProjectsByNameQueryTrackingResultsResponses[keyof GetApiV1ProjectsByNameQueryTrackingResultsResponses];
 
 export type PostApiV1ProjectsByNameResultsClearData = {
     body: ResultsClearRequest;
@@ -24657,7 +25250,7 @@ export type GetApiV1ProjectsByNameAnalyticsSourcesData = {
          */
         limit?: number;
         /**
-         * Read one stored answer-visibility run instead of pooling every run in the window. An unknown id is 404; a probe, unfinished, partially measured, or out-of-window run is 400. Pass latest to read the latest sweep: with an active measurement plan, the run the measurement reads display; otherwise the newest completed or partial sweep, every location included. A latest sweep older than the window is 400.
+         * Read one stored answer-visibility run instead of pooling every run in the window. An unknown id is 404; a probe, unfinished, partially measured, or out-of-window run is 400. Pass latest to read the latest sweep: with an active measurement plan, the run the measurement reads display by default; otherwise the newest completed or partial sweep, every location included. A latest sweep older than the window is 400.
          */
         runId?: string;
         /**

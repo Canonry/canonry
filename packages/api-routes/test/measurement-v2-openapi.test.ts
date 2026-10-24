@@ -212,6 +212,43 @@ describe('advanced measurement v2 openapi surface', () => {
       .toBe('#/components/schemas/MeasurementOverviewResponse')
   })
 
+  it('documents the last-sweep fallback on the five location reads, and on no other measurement read', async () => {
+    const document = await spec()
+    const fallbackOf = (route: string) => document.paths[`/api/v1/projects/{name}/${route}`]?.get?.parameters
+      ?.find(parameter => parameter.name === 'fallback')
+    const locationReads = [
+      'measurement-overview',
+      'measurement-property-evidence',
+      'measurement-property-questions',
+      'measurement-question-result',
+      'measurement-property-competitors',
+    ]
+    for (const route of locationReads) {
+      const fallback = fallbackOf(route)
+      expect(fallback, route).toMatchObject({ in: 'query', schema: { type: 'string', enum: ['last-sweep'] } })
+      // Optional, and the default is stated: omitted, a read still needs a sweep of the active plan.
+      expect(fallback?.required, route).not.toBe(true)
+      expect(fallback?.description, route).toMatch(/Omit it and the read needs a completed sweep of the active plan/)
+      expect(fallback?.description, route).toMatch(/awaitingSweep/)
+      expect(document.paths[`/api/v1/projects/{name}/${route}`]?.get?.description, route).toMatch(/fallback=last-sweep/)
+    }
+    for (const route of ['measurement-portfolio-summary', 'measurement-changes', 'measurement-data-quality', 'measurement-report']) {
+      expect(fallbackOf(route), route).toBeUndefined()
+    }
+
+    // The four fields are optional on every response that can carry them.
+    for (const schemaName of ['MeasurementOverviewResponse', 'MeasurementPropertyEvidenceResponse', 'MeasurementPropertyQuestionsResponse']) {
+      const measurement = document.components?.schemas?.[schemaName]?.properties?.measurement as {
+        properties?: Record<string, unknown>
+        required?: string[]
+      } | undefined
+      for (const field of ['activeRevision', 'measuredRevision', 'awaitingSweep', 'trackingChangedAt']) {
+        expect(measurement?.properties, `${schemaName}.${field}`).toHaveProperty(field)
+        expect(measurement?.required ?? [], `${schemaName}.${field}`).not.toContain(field)
+      }
+    }
+  })
+
   it('exposes sort-aware snapshot ranking without implying a trend', async () => {
     const document = await spec()
     const overview = document.paths[OVERVIEW]?.get

@@ -1,57 +1,39 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import type { RefObject } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Pencil, Play, Plus, RefreshCw, Trash2 } from 'lucide-react'
-import type {
-  DiscoveryBucket,
-  DiscoverySessionDto,
-  QueryTrackingCommitRequest,
-  QueryTrackingContextInput,
-  QueryTrackingMutation,
-  QueryTrackingPreviewResponse,
-  QueryTrackingTrackedRow,
-  QueryTrackingWorkspaceResponse,
-  MeasurementQueryTemplate,
-  VisibilityReportScopeOption,
-  ResearchRunScope,
-} from '@canonry/canonry-contracts'
+import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { useQuery } from '@tanstack/react-query'
+import { AlertTriangle } from 'lucide-react'
+import type { MeasurementQueryTemplate, QueryTrackingMode, ResearchRunScope } from '@canonry/canonry-contracts'
 
+import { getViewerResearchConfig, heyClient, isEmbed } from '../../api.js'
 import {
-  getViewerResearchConfig,
-  triggerDiscoveryRun,
-  heyClient,
-  isEmbed,
-} from '../../api.js'
-import type { ViewerResearchConfig } from '../../api.js'
-import {
-  getApiV1ProjectsByNameDiscoverSessionsByIdOptions,
-  getApiV1ProjectsByNameDiscoverSessionsOptions,
   getApiV1ProjectsByNameMeasurementQueryTemplatesOptions,
   getApiV1ProjectsByNameQueryTrackingOptions,
-  getApiV1ProjectsByNameQueryTrackingQueryKey,
-  getApiV1RunsQueryKey,
-  postApiV1ProjectsByNameQueryTrackingCommitMutation,
-  postApiV1ProjectsByNameQueryTrackingPreviewMutation,
 } from '@canonry/canonry-api-client/react-query'
-import { addToast } from '../../lib/toast-store.js'
-import { invalidateProjectQueryDomain, invalidateQueryTrackingPublication } from '../../queries/query-invalidation.js'
+import { useQueryTrackingPublish } from '../../queries/use-query-tracking-publish.js'
+import { StatusNote } from '../shared/StatusNote.js'
 import { Button } from '../ui/button.js'
-import { WriteButton } from '../shared/AccessControls.js'
-import { Card } from '../ui/card.js'
-import { ToneBadge } from '../shared/ToneBadge.js'
-import { ResearchQueriesSection, type ResearchTemplateOption } from './ResearchQueriesSection.js'
-import { DataTablePagination, DataTableSearch, useClientTable } from '../shared/DataTableControls.js'
-import { canUseResearchWorkspace, effectiveQueryWorkspace, unavailableTrackingScope, type QueryWorkspace } from '../../lib/project-scope.js'
+import { QueryResearchWorkspace } from './queries/QueryResearchWorkspace.js'
+import { SimpleTrackedQueries } from './queries/SimpleTrackedQueries.js'
+import { AdvancedTrackedPage } from './queries/advanced/AdvancedTrackedPage.js'
+import { trackedPlaceView } from './queries/advanced/TrackedSavedViews.js'
+import { TrackedSummaryGridSkeleton } from './queries/advanced/TrackedSummaryGrid.js'
+import { TrackedTableSkeleton } from './queries/advanced/TrackedTable.js'
+import { DEFAULT_TRACKED_FILTERS } from './queries/advanced/tracked-filters.js'
+import type { TrackedFilters } from './queries/advanced/tracked-types.js'
+import { useTrackingComposer, type TrackedQueriesPageProps } from './queries/use-tracking-composer.js'
+import { canUseResearchWorkspace, effectiveQueryWorkspace, type QueryWorkspace } from '../../lib/project-scope.js'
+import { useAddQueriesNavigation } from './queries/AddQueriesEntry.js'
 import { useAccount } from '../../contexts/account-context.js'
 
-const ACTIVE_DISCOVERY_STATUSES = new Set<DiscoverySessionDto['status']>(['queued', 'seeding', 'probing'])
+export { AddLocationQueryButton } from './queries/AddQueriesEntry.js'
+export { DiscoverySection } from './queries/FindQueriesSection.js'
 
 export type { QueryWorkspace }
-export type ResearchWorkspaceMode = 'find' | 'test'
-type SavedTrackingSource =
+export type ResearchWorkspaceMode = 'write' | 'pattern' | 'find'
+export type SavedTrackingSource =
   | { source: 'research'; researchRunQueryId: string }
   | { source: 'discovery'; discoveryProbeId: string }
-type PendingTrackingSource = SavedTrackingSource & { trackingSelection?: NonNullable<QueriesSectionProps['selection']> }
+export type PendingTrackingSource = SavedTrackingSource & { trackingSelection?: NonNullable<QueriesSectionProps['selection']> }
 
 /**
  * The project page owns the URL. This section owns only the interaction state
@@ -61,8 +43,10 @@ type PendingTrackingSource = SavedTrackingSource & { trackingSelection?: NonNull
  */
 export interface QueriesSectionProps {
   projectName: string
+  addQueriesPage?: boolean
   queryWorkspace?: QueryWorkspace
   onQueryWorkspaceChange?: (workspace: QueryWorkspace) => void
+  /** Left out when the URL names none: the research page picks where that lands. */
   researchMode?: ResearchWorkspaceMode
   onResearchModeChange?: (mode: ResearchWorkspaceMode) => void
   selection?: {
@@ -71,11 +55,33 @@ export interface QueriesSectionProps {
     queryClass: 'all' | 'branded' | 'non-brand' | 'unknown'
     measurementRunId?: string
   }
-  onSelectionChange?: (patch: Record<string, unknown>) => void
+  /** The host's URL patch. Each one is a new history entry, unless it is told to replace the entry it is on. */
+  onSelectionChange?: (patch: Record<string, unknown>, options?: { replace?: boolean }) => void
   trackingQueryId?: string
   onTrackingQueryIdChange?: (queryId: string | undefined) => void
   /** Read-only state that pauses Confirm; the server does not refuse these commits yet. */
   publishGuard?: TrackingPublishGuard
+  /** The Tracked filters as the URL holds them. Left out, the section keeps them itself. */
+  trackedFilters?: TrackedFilters
+  onTrackedFiltersChange?: (patch: Partial<TrackedFilters>) => void
+  /** The saved view the URL names (`trackedView`). The Tracked page sets it through `onSelectionChange`, the host's URL patch. */
+  trackedView?: string
+  /** When tracking last changed, for results that come from an older sweep. */
+  trackingChangedAt?: string
+  /** The next scheduled sweep as shown ("Oct 21"). Left out when no date should be named. */
+  nextSweepDate?: string
+  /** What the place picker calls the whole project ("All of Acme"), so the page's own way back to it reads the same. */
+  rootLabel?: string
+  /** The project's mode where the host already knows it, so the loading state has the page's shape. Left out until then. */
+  trackedMode?: QueryTrackingMode
+}
+
+/** What the Tracked page gets from this host beside the composer's props. */
+export type TrackedPageHostProps = Pick<QueriesSectionProps, 'addQueriesPage' | 'trackedView' | 'trackingChangedAt' | 'nextSweepDate' | 'rootLabel'> & {
+  trackedFilters: TrackedFilters
+  onTrackedFiltersChange: (patch: Partial<TrackedFilters>) => void
+  /** Where the page portals its actions: the right of the Tracked | Research row, or the line under it in a narrow frame. Null until the row has mounted. */
+  actionsSlot: HTMLElement | null
 }
 
 export type TrackingPublishGuard = {
@@ -85,6 +91,7 @@ export type TrackingPublishGuard = {
 
 export function QueriesSection({
   projectName,
+  addQueriesPage = false,
   queryWorkspace: controlledWorkspace,
   onQueryWorkspaceChange,
   researchMode: controlledResearchMode,
@@ -94,16 +101,31 @@ export function QueriesSection({
   trackingQueryId,
   onTrackingQueryIdChange,
   publishGuard,
+  trackedFilters: controlledTrackedFilters,
+  onTrackedFiltersChange,
+  trackedView,
+  trackingChangedAt,
+  nextSweepDate,
+  rootLabel,
+  trackedMode,
 }: QueriesSectionProps) {
   const { account } = useAccount()
   const [uncontrolledWorkspace, setUncontrolledWorkspace] = useState<QueryWorkspace>('tracked')
-  const [uncontrolledResearchMode, setUncontrolledResearchMode] = useState<ResearchWorkspaceMode>('find')
+  const [uncontrolledResearchMode, setUncontrolledResearchMode] = useState<ResearchWorkspaceMode>()
+  const [uncontrolledTrackedFilters, setUncontrolledTrackedFilters] = useState(DEFAULT_TRACKED_FILTERS)
+  const [actionsSlot, setActionsSlot] = useState<HTMLElement | null>(null)
   const [pendingTrackingSource, setPendingTrackingSource] = useState<PendingTrackingSource | null>(null)
   const viewerResearchConfig = account?.role === 'viewer' ? getViewerResearchConfig() : null
   const showResearchWorkspace = canUseResearchWorkspace(account?.role, viewerResearchConfig)
   const requestedWorkspace = controlledWorkspace ?? uncontrolledWorkspace
-  const queryWorkspace = effectiveQueryWorkspace(requestedWorkspace, showResearchWorkspace)
+  const queryWorkspace = addQueriesPage ? 'tracked' : effectiveQueryWorkspace(requestedWorkspace, showResearchWorkspace)
   const researchMode = controlledResearchMode ?? uncontrolledResearchMode
+  const trackedFilters = controlledTrackedFilters ?? uncontrolledTrackedFilters
+
+  // Once the host names a mode, a choice kept here is spent: back on a URL with none, the default shows again.
+  useEffect(() => {
+    if (controlledResearchMode !== undefined) setUncontrolledResearchMode(undefined)
+  }, [controlledResearchMode])
 
   const selectWorkspace = (workspace: QueryWorkspace) => {
     if (controlledWorkspace === undefined) setUncontrolledWorkspace(workspace)
@@ -113,6 +135,11 @@ export function QueriesSection({
     if (controlledResearchMode === undefined) setUncontrolledResearchMode(mode)
     onResearchModeChange?.(mode)
   }
+  const changeTrackedFilters = (patch: Partial<TrackedFilters>) => {
+    if (controlledTrackedFilters === undefined) setUncontrolledTrackedFilters(previous => ({ ...previous, ...patch }))
+    onTrackedFiltersChange?.(patch)
+  }
+  // A Simple project's way from Research into tracking. An Advanced one tracks from the Research page itself, and comes this way only from Find ideas while its mode is not known.
   const reviewSavedSource = (source: SavedTrackingSource, scope?: ResearchRunScope | null) => {
     // Only a research run's own market or property preselects a destination.
     // A Find result starts at project scope and leaves the Tracked filter alone.
@@ -127,17 +154,23 @@ export function QueriesSection({
   }
 
   return (
-    <section className="page-section-divider" aria-labelledby="queries-heading">
-      <div className="section-head">
-        <h2 id="queries-heading">Queries</h2>
+    <section aria-labelledby="queries-heading">
+      <h2 id="queries-heading" className="sr-only">Queries</h2>
+      {/* The tab row keeps one height with or without actions, so the tabs never move. In a row too narrow for both, the actions take the first line under the rule. */}
+      {!addQueriesPage ? <div className="@container">
+        <div className="grid @xl:grid-cols-[1fr_auto]">
+          <div className="flex min-h-12 items-end border-b border-default" role="tablist" aria-label="Query workspace">
+            <WorkspaceTab active={queryWorkspace === 'tracked'} label="Tracked" onClick={() => selectWorkspace('tracked')} />
+            {showResearchWorkspace ? <WorkspaceTab active={queryWorkspace === 'research'} label="Research" onClick={() => selectWorkspace('research')} /> : null}
+          </div>
+          <div ref={setActionsSlot} className="flex flex-wrap items-center justify-end gap-2 pt-3 empty:hidden @xl:border-b @xl:border-default @xl:pt-0 @xl:pl-3" />
+        </div>
       </div>
-      <div className="mt-3 flex border-b border-default" role="tablist" aria-label="Query workspace">
-        <WorkspaceTab active={queryWorkspace === 'tracked'} label="Tracked" onClick={() => selectWorkspace('tracked')} />
-        {showResearchWorkspace ? <WorkspaceTab active={queryWorkspace === 'research'} label="Research" onClick={() => selectWorkspace('research')} /> : null}
-      </div>
+      : null}
       <div className="mt-4">
         {queryWorkspace === 'tracked' ? (
           <TrackedQueriesSection
+            addQueriesPage={addQueriesPage}
             projectName={projectName}
             selection={selection}
             onSelectionChange={onSelectionChange}
@@ -146,6 +179,14 @@ export function QueriesSection({
             pendingTrackingSource={pendingTrackingSource}
             onPendingTrackingSourceHandled={() => setPendingTrackingSource(null)}
             publishGuard={publishGuard}
+            trackedFilters={trackedFilters}
+            onTrackedFiltersChange={changeTrackedFilters}
+            trackedView={trackedView}
+            trackingChangedAt={trackingChangedAt}
+            nextSweepDate={nextSweepDate}
+            rootLabel={rootLabel}
+            trackedMode={trackedMode}
+            actionsSlot={actionsSlot}
           />
         ) : (
           <QueryResearchWorkspace
@@ -156,6 +197,9 @@ export function QueriesSection({
             onReviewSavedSource={reviewSavedSource}
             onSelectionChange={onSelectionChange}
             viewerResearchConfig={viewerResearchConfig}
+            trackedMode={trackedMode}
+            sweepActive={publishGuard?.sweepActive}
+            nextSweepDate={nextSweepDate}
           />
         )}
       </div>
@@ -163,1241 +207,18 @@ export function QueriesSection({
   )
 }
 
-function WorkspaceTab({ active, label, onClick }: { active: boolean; label: string; onClick: () => void }) {
+export function WorkspaceTab({ active, label, onClick }: { active: boolean; label: string; onClick: () => void }) {
   return (
     <button
       type="button"
       role="tab"
       aria-selected={active}
-      className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-500 focus-visible:ring-inset ${active ? 'border-mono-400 text-heading' : 'border-transparent text-muted hover:border-strong hover:text-strong'}`}
+      className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors pointer-coarse:min-h-11 max-md:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-500 focus-visible:ring-inset ${active ? 'border-mono-400 text-heading' : 'border-transparent text-muted hover:border-strong hover:text-strong'}`}
       onClick={onClick}
     >
       {label}
     </button>
   )
-}
-
-function QueryResearchWorkspace({
-  projectName,
-  selection,
-  mode,
-  onModeChange,
-  onReviewSavedSource,
-  viewerResearchConfig,
-}: {
-  projectName: string
-  selection: NonNullable<QueriesSectionProps['selection']>
-  mode: ResearchWorkspaceMode
-  onModeChange: (mode: ResearchWorkspaceMode) => void
-  onSelectionChange?: QueriesSectionProps['onSelectionChange']
-  onReviewSavedSource: (source: SavedTrackingSource, scope?: ResearchRunScope | null) => void
-  viewerResearchConfig: ViewerResearchConfig | null
-}) {
-  const { canWrite } = useAccount()
-  const researchWorkspaceEnabled = !canWrite || mode === 'test'
-  const workspaceQuery = useQuery({
-    ...getApiV1ProjectsByNameQueryTrackingOptions({ client: heyClient, path: { name: projectName } }),
-    enabled: researchWorkspaceEnabled,
-    staleTime: 60_000,
-  })
-  const researchTemplatesQuery = useQuery({
-    ...getApiV1ProjectsByNameMeasurementQueryTemplatesOptions({ client: heyClient, path: { name: projectName } }),
-    enabled: researchWorkspaceEnabled,
-    staleTime: 60_000,
-  })
-  const researchScopeOptions = useMemo<VisibilityReportScopeOption[]>(() => {
-    const workspace = workspaceQuery.data
-    if (!workspace) return [{ id: 'project', label: 'Whole site', kind: 'project', targetCount: 0 }]
-    const groupIdsByTarget = new Map(workspace.targets.map(target => [target.stableKey, [] as string[]]))
-    for (const group of workspace.groups) for (const targetKey of group.targetKeys) groupIdsByTarget.get(targetKey)?.push(group.stableKey)
-    const groupIdsByMarket = new Map(workspace.markets.map(market => [market.stableKey, new Set<string>()]))
-    for (const market of workspace.markets) {
-      for (const edge of market.usageEdges) for (const groupId of groupIdsByTarget.get(edge.targetKey) ?? []) groupIdsByMarket.get(market.stableKey)?.add(groupId)
-    }
-    return [
-      { id: 'project', label: 'Whole site', kind: 'project', targetCount: workspace.targets.length },
-      ...workspace.groups.map(group => ({ id: group.stableKey, label: group.label, kind: 'group' as const, targetCount: group.targetKeys.length, ...(group.parentGroupKey ? { parentGroupIds: [group.parentGroupKey] } : {}) })),
-      ...workspace.markets.map(market => {
-        const parentGroupIds = [...(groupIdsByMarket.get(market.stableKey) ?? [])]
-        return { id: market.stableKey, label: market.label, kind: 'market' as const, targetCount: 0, ...(parentGroupIds.length ? { parentGroupIds } : {}) }
-      }),
-      ...workspace.targets.map(target => ({ id: target.stableKey, label: target.label, kind: 'property' as const, targetCount: 1, ...(groupIdsByTarget.get(target.stableKey)?.length ? { parentGroupIds: groupIdsByTarget.get(target.stableKey) } : {}) })),
-    ]
-  }, [workspaceQuery.data])
-  const researchTemplates = useMemo<ResearchTemplateOption[]>(() => (researchTemplatesQuery.data?.templates ?? []).map(template => ({
-    id: template.id,
-    version: template.updatedAt,
-    label: template.name,
-    pattern: template.pattern,
-    variables: template.variables,
-  })), [researchTemplatesQuery.data])
-  const researchProps = {
-    projectName,
-    scopeOptions: researchScopeOptions,
-    planRevision: workspaceQuery.data?.active?.revision ?? null,
-    selectedScope: (() => {
-      const option = researchScopeOptions.find(item => item.kind === selection.measurementScope && item.id === selection.measurementScopeKey)
-      const revision = workspaceQuery.data?.active?.revision
-      return option && revision && (option.kind === 'market' || option.kind === 'property')
-        ? { kind: option.kind, key: option.id, label: option.label, planRevision: revision, expectedPlanRevision: revision }
-        : (selection.measurementScope === 'market' || selection.measurementScope === 'property') && selection.measurementScopeKey
-          ? { kind: selection.measurementScope, key: selection.measurementScopeKey, label: selection.measurementScopeKey, planRevision: revision ?? 0, expectedPlanRevision: revision ?? 0 }
-        : null
-    })(),
-    scopePending: workspaceQuery.isPending || workspaceQuery.isFetching,
-    scopeError: workspaceQuery.isError,
-    onRetryScope: () => { void workspaceQuery.refetch() },
-    templates: researchTemplates,
-  }
-  if (!canWrite) {
-    return (
-      <ResearchQueriesSection
-        {...researchProps}
-        viewerResearchConfig={viewerResearchConfig}
-      />
-    )
-  }
-  return (
-    <div>
-      <div className="flex border-b border-default" role="tablist" aria-label="Research workspace">
-        <WorkspaceTab active={mode === 'find'} label="Find queries" onClick={() => onModeChange('find')} />
-        <WorkspaceTab active={mode === 'test'} label="Test queries" onClick={() => onModeChange('test')} />
-      </div>
-      <div className="mt-4">
-        {mode === 'find' ? (
-          <FindQueriesSection
-            projectName={projectName}
-            onReviewDiscoveryProbe={(discoveryProbeId) => onReviewSavedSource({ source: 'discovery', discoveryProbeId })}
-          />
-        ) : (
-          <ResearchQueriesSection
-            {...researchProps}
-            onReviewForTracking={({ researchRunQueryId, scope }) => onReviewSavedSource({ source: 'research', researchRunQueryId }, scope ?? null)}
-          />
-        )}
-      </div>
-    </div>
-  )
-}
-
-/**
- * The generated SDK transport is attached in `TrackedQueriesSection`. Keeping
- * the presentation below transport-free makes the review boundary explicit:
- * the browser builds a requested mutation, but the server resolves duplicates,
- * class, exact diff, and next-sweep workload.
- */
-function TrackedQueriesWorkspace({
-  workspace,
-  selection,
-  onSelectionChange,
-  trackingQueryId,
-  onTrackingQueryIdChange,
-  pendingTrackingSource,
-  onPendingTrackingSourceHandled,
-  templates,
-  preview,
-  isPreviewing,
-  isCommitting,
-  onPreview,
-  onCommit,
-  publishGuard,
-}: {
-  workspace: QueryTrackingWorkspaceResponse
-  selection: NonNullable<QueriesSectionProps['selection']>
-  onSelectionChange?: QueriesSectionProps['onSelectionChange']
-  trackingQueryId?: string
-  onTrackingQueryIdChange?: QueriesSectionProps['onTrackingQueryIdChange']
-  pendingTrackingSource: PendingTrackingSource | null
-  onPendingTrackingSourceHandled: () => void
-  templates: readonly MeasurementQueryTemplate[]
-  preview: QueryTrackingPreviewResponse | null
-  isPreviewing: boolean
-  isCommitting: boolean
-  onPreview: (mutation: QueryTrackingMutation) => void
-  onCommit: (request: QueryTrackingCommitRequest) => void
-  publishGuard?: TrackingPublishGuard
-}) {
-  const [action, setAction] = useState<TrackingAction | null>(null)
-  const [draft, setDraft] = useState<TrackingDraft>(() => defaultTrackingDraft(selection))
-  const [reviewedMutation, setReviewedMutation] = useState<QueryTrackingMutation | null>(null)
-  const editorHeadingRef = useRef<HTMLHeadingElement>(null)
-  const handledRouteAction = useRef<string | null>(null)
-  const unavailableScope = unavailableTrackingScope(workspace, selection)
-  const rowsInScope = useMemo(() => filterTrackedRows(workspace.tracked, selection, workspace.mode), [selection, workspace.mode, workspace.tracked])
-  const table = useClientTable({
-    rows: rowsInScope,
-    getSearchText: (row) => `${row.queryText} ${row.provenance?.source ?? 'legacy'} ${row.assignments.map(assignment => assignment.queryClass ?? 'unknown').join(' ')}`,
-  })
-
-  useEffect(() => {
-    if (unavailableScope) return
-    if (!trackingQueryId) {
-      handledRouteAction.current = null
-      return
-    }
-    const routeAction = `${trackingQueryId}:${scopeValue(selection)}`
-    if (handledRouteAction.current === routeAction) return
-    const row = workspace.tracked.find(candidate => candidate.queryId === trackingQueryId)
-    if (!row) return
-    handledRouteAction.current = routeAction
-    setAction({ kind: 'edit', row, audience: workspace.mode === 'advanced' ? audienceForSelection(selection) : undefined, scopeLabel: selectionScopeLabel(selection, workspace) })
-    setDraft(draftForRow(row, selection))
-    setReviewedMutation(null)
-  }, [selection, trackingQueryId, unavailableScope, workspace])
-
-  useEffect(() => {
-    if (unavailableScope) return
-    if (!pendingTrackingSource) return
-    const next = defaultTrackingDraft(pendingTrackingSource.trackingSelection ?? selection)
-    setAction({ kind: 'add' })
-    setDraft(pendingTrackingSource.source === 'research'
-      ? { ...next, source: 'research', researchRunQueryId: pendingTrackingSource.researchRunQueryId }
-      : { ...next, source: 'discovery', discoveryProbeId: pendingTrackingSource.discoveryProbeId })
-    setReviewedMutation(null)
-    onPendingTrackingSourceHandled()
-  }, [onPendingTrackingSourceHandled, pendingTrackingSource, selection, unavailableScope])
-
-  useEffect(() => {
-    if (!unavailableScope) return
-    setAction(null)
-    setReviewedMutation(null)
-    if (trackingQueryId !== undefined) onTrackingQueryIdChange?.(undefined)
-  }, [onTrackingQueryIdChange, trackingQueryId, unavailableScope])
-
-  useEffect(() => {
-    if (!action || action.kind === 'remove') return
-    const heading = editorHeadingRef.current
-    if (!heading) return
-    heading.scrollIntoView?.({ block: 'start' })
-    heading.focus({ preventScroll: true })
-  }, [action])
-
-  function openAdd(source: TrackingDraft['source'] = 'manual') {
-    setAction({ kind: 'add' })
-    setDraft({ ...defaultTrackingDraft(selection), source })
-    setReviewedMutation(null)
-    onTrackingQueryIdChange?.(undefined)
-  }
-
-  function openEdit(row: QueryTrackingTrackedRow) {
-    handledRouteAction.current = `${row.queryId}:${scopeValue(selection)}`
-    setAction({ kind: 'edit', row, audience: workspace.mode === 'advanced' ? audienceForSelection(selection) : undefined, scopeLabel: selectionScopeLabel(selection, workspace) })
-    setDraft(draftForRow(row, selection))
-    setReviewedMutation(null)
-    onTrackingQueryIdChange?.(row.queryId)
-  }
-
-  function openRemoval(row: QueryTrackingTrackedRow) {
-    handledRouteAction.current = `${row.queryId}:${scopeValue(selection)}`
-    setAction({ kind: 'remove', row, audience: workspace.mode === 'advanced' ? audienceForSelection(selection) : undefined, scopeLabel: selectionScopeLabel(selection, workspace) })
-    setReviewedMutation(null)
-    onTrackingQueryIdChange?.(row.queryId)
-  }
-
-  function closeAction() {
-    setAction(null)
-    setReviewedMutation(null)
-    onTrackingQueryIdChange?.(undefined)
-  }
-
-  const mutation = action ? mutationForAction(action, draft, workspace) : null
-  const needsExplicitContext = action !== null
-    && action.kind === 'add'
-    && workspace.mode === 'advanced'
-    && !hasMarketOnlyAudience(draft)
-  const canReview = mutation !== null && (!needsExplicitContext || draft.contexts.length > 0) && !isPreviewing
-
-  if (unavailableScope) {
-    return <div className="query-tracking-workspace space-y-4"><section aria-label="Tracked queries" className="py-4 text-sm text-secondary">
-      <p>This saved {selection.measurementScope} filter is unavailable in the current measurement.</p>
-      <Button type="button" variant="outline" className="mt-3" onClick={() => onSelectionChange?.({ measurementScope: 'project', measurementScopeKey: undefined })}>Show whole site</Button>
-    </section></div>
-  }
-
-  return (
-    <div className="query-tracking-workspace space-y-4">
-      <section aria-label="Tracked queries">
-        <div className="flex flex-wrap items-end gap-3">
-          {workspace.mode === 'advanced' ? <TrackingQueryTypeFilter selection={selection} onSelectionChange={onSelectionChange} /> : null}
-          <DataTableSearch
-            value={table.query}
-            onChange={table.setQuery}
-            label="Filter tracked queries"
-            placeholder="Search tracked queries"
-            className="min-w-64 flex-[2]"
-          />
-          {!isEmbed() && (
-            <WriteButton type="button" size="sm" onClick={() => openAdd()}>
-              <Plus aria-hidden="true" size={14} />
-              Add query
-            </WriteButton>
-          )}
-        </div>
-        <p className="mt-2 text-xs leading-5 text-secondary">
-          {table.totalRows.toLocaleString('en-US')} saved query {table.totalRows === 1 ? 'record' : 'records'} in this view. Each record can have more than one property, group, or market assignment.
-        </p>
-        {selection.measurementScope === 'group' ? <p className="mt-1 text-xs leading-5 text-secondary">Queries belong to properties, so a shared query can also cover other groups.</p> : null}
-
-        {!workspace.active ? <p className="mt-3 text-sm text-caution">No published measurement yet.</p> : null}
-
-        {table.rows.length === 0 ? (
-          <p className="mt-5 text-sm text-muted">
-            {table.hasQuery ? 'No tracked queries match that search.' : 'No tracked queries in this scope yet.'}
-          </p>
-        ) : (
-          <div className="mt-5 overflow-x-auto">
-            <table className="evidence-table measurement-responsive-table min-w-[760px] table-auto">
-              <thead>
-                <tr><th>Query</th><th>Scope</th>{workspace.mode === 'advanced' ? <th>Class</th> : null}<th>Source</th><th>Measurement</th><th className="measurement-table-actions"><span className="sr-only">Actions</span></th></tr>
-              </thead>
-              <tbody>
-                {table.rows.map(row => (
-                  <tr key={row.queryId}>
-                    <td className="tracking-query-cell break-words font-medium text-heading">{row.queryText}</td>
-                    <td className="tracking-scope-cell text-secondary"><AssignmentScopeDisclosure row={row} workspace={workspace} selection={selection} /></td>
-                    {workspace.mode === 'advanced' ? <td className="whitespace-nowrap"><AssignmentClassBadge row={row} /></td> : null}
-                    <td className="whitespace-nowrap text-secondary">{provenanceLabel(row)}</td>
-                    <td className="whitespace-nowrap"><MeasurementStateBadge row={row} outsidePlan={workspace.mode === 'advanced' && row.assignments.length === 0} /></td>
-                    <td className="measurement-table-actions whitespace-nowrap text-right">
-                      {!isEmbed() && <div className="tracking-row-actions flex min-w-max justify-end gap-2">
-                        <WriteButton type="button" variant="ghost" size="sm" aria-label={`Edit ${row.queryText}`} onClick={() => openEdit(row)}>
-                          <Pencil aria-hidden="true" size={13} /> Edit
-                        </WriteButton>
-                        <WriteButton type="button" variant="ghost" size="sm" aria-label={`Remove ${row.queryText}`} onClick={() => openRemoval(row)}>
-                          <Trash2 aria-hidden="true" size={13} /> Remove
-                        </WriteButton>
-                      </div>}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-        <DataTablePagination
-          page={table.page}
-          pageSize={table.pageSize}
-          visibleRows={table.rows.length}
-          totalRows={table.totalRows}
-          itemLabel="queries"
-          onPageChange={table.setPage}
-        />
-      </section>
-
-      {action && !isEmbed() && (
-        <TrackingComposer
-          workspace={workspace}
-          templates={templates}
-          action={action}
-          draft={draft}
-          onDraftChange={(next) => { setDraft(next); setReviewedMutation(null) }}
-          onClose={closeAction}
-          canReview={canReview}
-          isPreviewing={isPreviewing}
-          editorHeadingRef={editorHeadingRef}
-          onReview={() => {
-            if (!mutation) return
-            setReviewedMutation(mutation)
-            onPreview(mutation)
-          }}
-        />
-      )}
-
-      {preview && reviewedMutation && action && (
-        <TrackingPreview
-          preview={preview}
-          workspace={workspace}
-          isCommitting={isCommitting}
-          sweepActive={publishGuard?.sweepActive ?? false}
-          onConfirm={() => {
-            onCommit({
-              ...reviewedMutation,
-              expectedWorkspaceVersion: preview.workspaceVersion,
-              previewToken: preview.previewToken,
-              reviewedAt: preview.reviewedAt,
-            })
-          }}
-        />
-      )}
-    </div>
-  )
-}
-
-type TrackingAction =
-  | { kind: 'add' }
-  | { kind: 'edit'; row: QueryTrackingTrackedRow; audience?: QueryTrackingMutation['removals'][number]['audience']; scopeLabel: string }
-  | { kind: 'remove'; row: QueryTrackingTrackedRow; audience?: QueryTrackingMutation['removals'][number]['audience']; scopeLabel: string }
-
-type TrackingDraft = {
-  source: 'manual' | 'template' | 'research' | 'discovery'
-  text: string
-  templateId: string
-  templateVersion: string
-  template: string
-  researchRunQueryId: string
-  discoveryProbeId: string
-  wholeSite: boolean
-  targetKeys: string[]
-  groupKeys: string[]
-  marketKeys: string[]
-  contexts: QueryTrackingContextInput[]
-  queryClass: 'keep' | 'auto' | 'branded' | 'non-brand'
-}
-
-function defaultTrackingDraft(selection: NonNullable<QueriesSectionProps['selection']>): TrackingDraft {
-  return {
-    source: 'manual', text: '', templateId: '', templateVersion: '', template: '', researchRunQueryId: '', discoveryProbeId: '',
-    wholeSite: false,
-    targetKeys: selection.measurementScope === 'property' && selection.measurementScopeKey ? [selection.measurementScopeKey] : [],
-    groupKeys: selection.measurementScope === 'group' && selection.measurementScopeKey ? [selection.measurementScopeKey] : [],
-    marketKeys: selection.measurementScope === 'market' && selection.measurementScopeKey ? [selection.measurementScopeKey] : [],
-    contexts: [],
-    queryClass: 'auto',
-  }
-}
-
-function draftForRow(
-  row: QueryTrackingTrackedRow,
-  selection: NonNullable<QueriesSectionProps['selection']>,
-): TrackingDraft {
-  return {
-    ...defaultTrackingDraft(selection),
-    text: row.queryText,
-    queryClass: 'keep',
-  }
-}
-
-function mutationForAction(
-  action: TrackingAction,
-  draft: TrackingDraft,
-  workspace: QueryTrackingWorkspaceResponse,
-): QueryTrackingMutation | null {
-  const advanced = workspace.mode === 'advanced'
-  if (action.kind === 'remove') return { additions: [], removals: [{ queryId: action.row.queryId, ...(action.audience ? { audience: action.audience } : {}) }] }
-  if (action.kind === 'edit') {
-    if (!draft.text.trim()) return null
-    return {
-      additions: [],
-      removals: [],
-      edits: [{
-        queryId: action.row.queryId,
-        text: draft.text.trim(),
-        ...(action.audience ? { audience: action.audience } : {}),
-        ...(advanced && draft.queryClass !== 'keep' ? { queryClass: draft.queryClass === 'auto' ? null : draft.queryClass } : {}),
-      }],
-    }
-  }
-  const input = sourceInputForDraft(draft)
-  if (!input || needsTemplateMarket(draft) || (advanced && !draft.wholeSite && draft.targetKeys.length + draft.groupKeys.length + draft.marketKeys.length === 0)) return null
-  // Simple projects take no audience. Advanced ones always name it, because
-  // the server reads an omitted addition audience as every location.
-  const audience = advanced ? audienceForDraft(draft, workspace) : undefined
-  return {
-    additions: [{
-      input,
-      ...(audience ? { audience } : {}),
-      ...(advanced && !hasMarketOnlyAudience(draft) && draft.contexts.length > 0 ? { contexts: draft.contexts } : {}),
-      ...(advanced && draft.queryClass !== 'auto' && draft.queryClass !== 'keep' ? { queryClass: draft.queryClass } : {}),
-    }],
-    removals: [],
-  }
-}
-
-function sourceInputForDraft(draft: TrackingDraft): QueryTrackingMutation['additions'][number]['input'] | null {
-  if (draft.source === 'manual') return draft.text.trim() ? { source: 'manual', text: draft.text.trim() } : null
-  if (draft.source === 'template') return draft.templateId && draft.templateVersion && draft.template
-    ? { source: 'template', templateId: draft.templateId, templateVersion: draft.templateVersion, template: draft.template }
-    : null
-  if (draft.source === 'research') return draft.researchRunQueryId ? { source: 'research', researchRunQueryId: draft.researchRunQueryId } : null
-  return draft.discoveryProbeId ? { source: 'discovery', discoveryProbeId: draft.discoveryProbeId } : null
-}
-
-function audienceForDraft(draft: TrackingDraft, workspace: QueryTrackingWorkspaceResponse): QueryTrackingMutation['additions'][number]['audience'] | undefined {
-  if (draft.wholeSite) return { targetKeys: workspace.targets.map(target => target.stableKey) }
-  const audience = {
-    ...(draft.targetKeys.length > 0 ? { targetKeys: draft.targetKeys } : {}),
-    ...(draft.groupKeys.length > 0 ? { groupKeys: draft.groupKeys } : {}),
-    ...(draft.marketKeys.length > 0 ? { marketKeys: draft.marketKeys } : {}),
-  }
-  return Object.keys(audience).length > 0 ? audience : undefined
-}
-
-function hasMarketOnlyAudience(draft: TrackingDraft): boolean {
-  return draft.marketKeys.length > 0 && draft.targetKeys.length === 0 && draft.groupKeys.length === 0
-}
-
-function needsTemplateMarket(draft: TrackingDraft): boolean {
-  return draft.source === 'template' && draft.template.includes('{market}') && (draft.wholeSite || draft.marketKeys.length === 0)
-}
-
-function audienceForSelection(selection: NonNullable<QueriesSectionProps['selection']>): QueryTrackingMutation['removals'][number]['audience'] {
-  if (!selection.measurementScopeKey) return undefined
-  if (selection.measurementScope === 'property') return { targetKeys: [selection.measurementScopeKey] }
-  if (selection.measurementScope === 'group') return { groupKeys: [selection.measurementScopeKey] }
-  if (selection.measurementScope === 'market') return { marketKeys: [selection.measurementScopeKey] }
-  return undefined
-}
-
-function selectionScopeLabel(selection: NonNullable<QueriesSectionProps['selection']>, workspace: QueryTrackingWorkspaceResponse): string {
-  const collection = selection.measurementScope === 'property' ? workspace.targets : selection.measurementScope === 'group' ? workspace.groups : selection.measurementScope === 'market' ? workspace.markets : []
-  const label = collection.find(scope => scope.stableKey === selection.measurementScopeKey)?.label
-  if (!label) return 'Whole site'
-  return selection.measurementScope === 'group' ? `${label} · Group` : selection.measurementScope === 'market' ? `${label} · Market` : label
-}
-
-function assignmentMatchesSelection(
-  assignment: QueryTrackingTrackedRow['assignments'][number],
-  selection: NonNullable<QueriesSectionProps['selection']>,
-): boolean {
-  if (selection.queryClass !== 'all' && (assignment.queryClass ?? 'unknown') !== selection.queryClass) return false
-  if (selection.measurementScope === 'project' || !selection.measurementScopeKey) return true
-  if (selection.measurementScope === 'property') return assignment.targetKey === selection.measurementScopeKey
-  if (selection.measurementScope === 'group') return assignment.groupKeys.includes(selection.measurementScopeKey)
-  return assignment.marketKeys.includes(selection.measurementScopeKey)
-}
-
-function filterTrackedRows(
-  rows: readonly QueryTrackingTrackedRow[],
-  selection: NonNullable<QueriesSectionProps['selection']>,
-  mode: QueryTrackingWorkspaceResponse['mode'],
-): QueryTrackingTrackedRow[] {
-  // Simple workspaces do not store per-row class assignments. The shared
-  // report URL can retain its class filter, but it cannot classify this list.
-  if (mode === 'simple') return [...rows]
-  return rows.filter(row => {
-    // Legacy project-wide records have no assignment to inspect. They remain
-    // reachable through Unclassified, rather than silently becoming non-brand.
-    if (row.assignments.length === 0) {
-      return selection.measurementScope === 'project' && (selection.queryClass === 'all' || selection.queryClass === 'unknown')
-    }
-    return row.assignments.some(assignment => assignmentMatchesSelection(assignment, selection))
-  })
-}
-
-function TrackingQueryTypeFilter({
-  selection,
-  onSelectionChange,
-}: {
-  selection: NonNullable<QueriesSectionProps['selection']>
-  onSelectionChange?: QueriesSectionProps['onSelectionChange']
-}) {
-  return (
-    <label className="min-w-40 flex-1">
-      <span className="mb-1 block text-xs font-medium text-secondary">Query type</span>
-      <select
-        aria-label="Query type"
-        className="h-11 w-full rounded-md border border-default bg-surface px-3 text-sm text-strong focus:border-mono-500 focus:outline-none focus:ring-1 focus:ring-mono-500"
-        value={selection.queryClass}
-        onChange={event => onSelectionChange?.({ queryClass: event.target.value })}
-      >
-        <option value="all">All query types</option>
-        <option value="non-brand">Non-brand</option>
-        <option value="branded">Branded</option>
-        <option value="unknown">Unclassified</option>
-      </select>
-    </label>
-  )
-}
-
-function scopeValue(selection: NonNullable<QueriesSectionProps['selection']>): string {
-  return selection.measurementScopeKey && selection.measurementScope !== 'project'
-    ? `${selection.measurementScope}:${selection.measurementScopeKey}`
-    : 'project'
-}
-
-function provenanceLabel(row: QueryTrackingTrackedRow): string {
-  switch (row.provenance?.source) {
-    case 'manual': return 'Manual'
-    case 'template': return 'Template'
-    case 'research': return 'Saved research'
-    case 'discovery': return 'Discovery'
-    default: return 'Legacy'
-  }
-}
-
-function assignmentScopeLabel(
-  row: QueryTrackingTrackedRow,
-  workspace: QueryTrackingWorkspaceResponse,
-  selection?: NonNullable<QueriesSectionProps['selection']>,
-): string {
-  const targetLabels = new Map(workspace.targets.map(target => [target.stableKey, target.label]))
-  const groupLabels = new Map(workspace.groups.map(group => [group.stableKey, group.label]))
-  const marketLabels = new Map(workspace.markets.map(market => [market.stableKey, market.label]))
-  const allTargetKeys = new Set(row.assignments.map(assignment => assignment.targetKey))
-  if (allTargetKeys.size === 0) return 'Whole site'
-  const relevantAssignments = selection
-    ? row.assignments.filter(assignment => assignmentMatchesSelection(assignment, selection))
-    : row.assignments
-  const relevantTargetKeys = new Set(relevantAssignments.map(assignment => assignment.targetKey))
-
-  if (selection?.measurementScope === 'group') {
-    const inGroup = relevantTargetKeys.size
-    const shared = Math.max(0, allTargetKeys.size - inGroup)
-    return [
-      `${inGroup} ${inGroup === 1 ? 'property' : 'properties'} in this group`,
-      ...(shared ? [`Shared with ${shared} other ${shared === 1 ? 'property' : 'properties'}`] : []),
-    ].join(' · ')
-  }
-
-  const groupKeys = new Set<string>()
-  const marketKeys = new Set<string>()
-  for (const assignment of relevantAssignments) {
-    assignment.groupKeys.forEach(key => groupKeys.add(key))
-    assignment.marketKeys.forEach(key => marketKeys.add(key))
-  }
-  const propertyScope = selection?.measurementScope === 'property' && allTargetKeys.has(selection.measurementScopeKey ?? '')
-  const parts = propertyScope
-    ? allTargetKeys.size === 1 ? ['This property only'] : ['This property', `Shared with ${allTargetKeys.size - 1} other ${allTargetKeys.size === 2 ? 'property' : 'properties'}`]
-    : relevantTargetKeys.size === 1 ? [targetLabels.get([...relevantTargetKeys][0]!) ?? [...relevantTargetKeys][0]!] : [`${relevantTargetKeys.size} properties`]
-  const group = groupKeys.size === 1 ? groupLabels.get([...groupKeys][0]!) ?? [...groupKeys][0]! : null
-  const market = marketKeys.size === 1 ? marketLabels.get([...marketKeys][0]!) ?? [...marketKeys][0]! : null
-  if (group && market && group === market) parts.push(`${group} (group and market)`)
-  else {
-    if (group) parts.push(`Group: ${group}`)
-    else if (groupKeys.size > 1) parts.push(`${groupKeys.size} groups`)
-    if (market) parts.push(`Market: ${market}`)
-    else if (marketKeys.size > 1) parts.push(`${marketKeys.size} markets`)
-  }
-  return parts.join(' · ')
-}
-
-function AssignmentScopeDisclosure({
-  row,
-  workspace,
-  selection,
-}: {
-  row: QueryTrackingTrackedRow
-  workspace: QueryTrackingWorkspaceResponse
-  selection: NonNullable<QueriesSectionProps['selection']>
-}) {
-  const relationships = assignmentRelationships(row, workspace, selection)
-  return (
-    <details className="group min-w-48">
-      <summary className="cursor-pointer rounded px-1 py-1 text-secondary hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-500">
-        {assignmentScopeLabel(row, workspace, selection)}
-      </summary>
-      <div className="mt-2 rounded border border-default bg-surface p-2 text-xs leading-5 text-secondary">
-        <p className="font-medium text-strong">Assigned relationships</p>
-        <ul className="mt-1 list-disc space-y-1 pl-4">
-          {relationships.map(relationship => <li key={relationship}>{relationship}</li>)}
-        </ul>
-      </div>
-    </details>
-  )
-}
-
-function assignmentRelationships(
-  row: QueryTrackingTrackedRow,
-  workspace: QueryTrackingWorkspaceResponse,
-  selection: NonNullable<QueriesSectionProps['selection']>,
-): string[] {
-  const targetLabels = new Map(workspace.targets.map(target => [target.stableKey, target.label]))
-  const groupLabels = new Map(workspace.groups.map(group => [group.stableKey, group.label]))
-  const marketLabels = new Map(workspace.markets.map(market => [market.stableKey, market.label]))
-  const relevantAssignments = row.assignments.filter(assignment => assignmentMatchesSelection(assignment, selection))
-  const relationships = relevantAssignments.map(assignment => {
-    const target = targetLabels.get(assignment.targetKey) ?? assignment.targetKey ?? 'Whole site'
-    const groups = selection.measurementScope === 'group' && selection.measurementScopeKey
-      ? assignment.groupKeys.filter(key => key === selection.measurementScopeKey).map(key => groupLabels.get(key) ?? key)
-      : assignment.groupKeys.map(key => groupLabels.get(key) ?? key)
-    const markets = selection.measurementScope === 'market' && selection.measurementScopeKey
-      ? assignment.marketKeys.filter(key => key === selection.measurementScopeKey).map(key => marketLabels.get(key) ?? key)
-      : assignment.marketKeys.map(key => marketLabels.get(key) ?? key)
-    return [
-      target,
-      groups.length ? `Groups: ${groups.join(', ')}` : null,
-      markets.length ? `Markets: ${markets.join(', ')}` : null,
-    ].filter((part): part is string => part !== null).join(' · ')
-  })
-  return [...new Set(relationships)].length ? [...new Set(relationships)] : ['Whole site']
-}
-
-function AssignmentClassBadge({ row }: { row: QueryTrackingTrackedRow }) {
-  const classes = [...new Set(row.assignments.map(assignment => assignment.queryClass ?? 'unknown'))]
-  const value = classes.join(', ')
-  return <ToneBadge tone={classes.includes('unknown') ? 'caution' : 'neutral'}>{value || 'Unknown'}</ToneBadge>
-}
-
-function MeasurementStateBadge({ row, outsidePlan = false }: { row: QueryTrackingTrackedRow; outsidePlan?: boolean }) {
-  if (outsidePlan) return <ToneBadge tone="neutral">Not in current plan</ToneBadge>
-  return row.state === 'tracked'
-    ? <ToneBadge tone="positive">Measured</ToneBadge>
-    : <ToneBadge tone="caution">Awaiting check</ToneBadge>
-}
-
-function TrackingComposer({
-  workspace,
-  templates,
-  action,
-  draft,
-  onDraftChange,
-  onClose,
-  canReview,
-  isPreviewing,
-  editorHeadingRef,
-  onReview,
-}: {
-  workspace: QueryTrackingWorkspaceResponse
-  templates: readonly MeasurementQueryTemplate[]
-  action: TrackingAction
-  draft: TrackingDraft
-  onDraftChange: (draft: TrackingDraft) => void
-  onClose: () => void
-  canReview: boolean
-  isPreviewing: boolean
-  editorHeadingRef: RefObject<HTMLHeadingElement | null>
-  onReview: () => void
-}) {
-  const hasSavedTemplates = templates.length > 0
-  if (action.kind === 'remove') {
-    return (
-      <Card className="surface-card">
-        <div className="section-head">
-          <div>
-            <h3>Remove query</h3>
-            <p className="mt-1 text-sm leading-6 text-secondary">Remove “{action.row.queryText}” from future tracking?</p>
-            <p className="mt-1 text-sm leading-5 text-secondary">{action.audience ? `Only assignments in ${action.scopeLabel} will be removed.` : 'All assignments will be removed.'} Earlier results stay unchanged.</p>
-          </div>
-        </div>
-        <ComposerActions canReview={canReview} isPreviewing={isPreviewing} onCancel={onClose} onReview={onReview} />
-      </Card>
-    )
-  }
-
-  if (action.kind === 'edit') {
-    return (
-      <Card className="surface-card">
-        <div className="section-head section-head-inline gap-4">
-          <h3 ref={editorHeadingRef} tabIndex={-1}>Edit query</h3>
-          <Button type="button" variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
-        </div>
-        <p className="mt-3 text-sm leading-6 text-secondary">
-          {action.audience ? `Changes apply only to assignments in ${action.scopeLabel}.` : 'Changes apply to every assignment of this query.'} Earlier results stay unchanged.
-        </p>
-        <div className="mt-4 max-w-2xl space-y-4">
-          <label className="block" htmlFor="tracking-query-text">
-            <span className="text-xs font-medium text-secondary">Query text</span>
-            <textarea
-              id="tracking-query-text"
-              className="mt-1 min-h-28 w-full rounded-md border border-default bg-surface px-3 py-2 text-sm text-strong focus:border-mono-500 focus:outline-none focus:ring-1 focus:ring-mono-500"
-              value={draft.text}
-              onChange={event => onDraftChange({ ...draft, text: event.target.value })}
-            />
-          </label>
-          {workspace.mode === 'advanced' && (
-            <label className="block" htmlFor="tracking-query-class">
-              <span className="text-xs font-medium text-secondary">Classification</span>
-              <select
-                id="tracking-query-class"
-                className="mt-1 h-9 w-full rounded-md border border-default bg-surface px-3 py-2 text-sm text-strong focus:border-mono-500 focus:outline-none focus:ring-1 focus:ring-mono-500"
-                value={draft.queryClass}
-                onChange={event => onDraftChange({ ...draft, queryClass: event.target.value as TrackingDraft['queryClass'] })}
-              >
-                <option value="keep">Keep existing classifications</option>
-                <option value="auto">Automatic</option>
-                <option value="branded">Branded</option>
-                <option value="non-brand">Non-brand</option>
-              </select>
-            </label>
-          )}
-          <p className="text-sm leading-6 text-secondary">Existing locations and engines are preserved. Use Add query to create assignments in another scope.</p>
-        </div>
-        <ComposerActions canReview={canReview} isPreviewing={isPreviewing} onCancel={onClose} onReview={onReview} />
-      </Card>
-    )
-  }
-
-  return (
-    <Card className="surface-card">
-      <div className="section-head section-head-inline gap-4">
-        <h3 ref={editorHeadingRef} tabIndex={-1}>Add query</h3>
-        <Button type="button" variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
-      </div>
-
-      <div className={`mt-4 grid gap-4 ${workspace.mode === 'advanced' ? 'lg:grid-cols-[minmax(250px,0.8fr)_minmax(0,1.2fr)]' : 'max-w-2xl'}`}>
-        <div className="space-y-4">
-          {draft.source === 'manual' ? (
-            <label className="block" htmlFor="tracking-query-text">
-              <span className="text-sm font-medium text-secondary">Question</span>
-              <textarea
-                id="tracking-query-text"
-                className="mt-1 min-h-28 w-full rounded-md border border-default bg-surface px-3 py-2 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none focus:ring-1 focus:ring-mono-500"
-                placeholder="e.g. How do teams compare AEO platforms?"
-                value={draft.text}
-                onChange={(event) => onDraftChange({ ...draft, text: event.target.value })}
-              />
-            </label>
-          ) : null}
-
-          {draft.source === 'template' ? (
-            <TemplateSourceField templates={templates} advanced={workspace.mode === 'advanced'} draft={draft} onDraftChange={onDraftChange} />
-          ) : null}
-
-          {draft.source === 'research' ? (
-            <SavedSourceField
-              id="tracking-research-source"
-              label="Saved research query"
-              value={draft.researchRunQueryId}
-              options={workspace.savedSources.research.map(candidate => ({ id: candidate.researchRunQueryId, label: candidate.queryText, detail: candidate.researchRunId }))}
-              onChange={(researchRunQueryId) => onDraftChange({ ...draft, researchRunQueryId })}
-            />
-          ) : null}
-
-          {draft.source === 'discovery' ? (
-            <SavedSourceField
-              id="tracking-discovery-source"
-              label="Discovery query"
-              value={draft.discoveryProbeId}
-              options={workspace.savedSources.discovery.map(candidate => ({ id: candidate.discoveryProbeId, label: candidate.queryText, detail: candidate.discoverySessionId }))}
-              onChange={(discoveryProbeId) => onDraftChange({ ...draft, discoveryProbeId })}
-            />
-          ) : null}
-
-          <label className="block" htmlFor="tracking-query-source">
-            <span className="text-sm font-medium text-secondary">Query source</span>
-            <select
-              id="tracking-query-source"
-              aria-describedby={hasSavedTemplates ? undefined : 'tracking-query-source-no-templates'}
-              className="mt-1 h-9 w-full rounded-md border border-default bg-surface px-3 text-sm text-strong focus:border-mono-500 focus:outline-none focus:ring-1 focus:ring-mono-500"
-              value={draft.source}
-              onChange={(event) => onDraftChange({ ...draft, source: event.target.value as TrackingDraft['source'] })}
-            >
-              <option value="manual">Write a question</option>
-              {hasSavedTemplates ? <option value="template">Saved template</option> : null}
-              <option value="research" disabled={workspace.savedSources.research.length === 0}>Saved research{workspace.savedSources.research.length === 0 ? ' (none available)' : ''}</option>
-              <option value="discovery" disabled={workspace.savedSources.discovery.length === 0}>Discovery result{workspace.savedSources.discovery.length === 0 ? ' (none available)' : ''}</option>
-            </select>
-          </label>
-          {!hasSavedTemplates ? <p id="tracking-query-source-no-templates" className="text-sm leading-6 text-secondary">No saved templates are set up for this portfolio. Write a question, or use saved research or a discovery result.</p> : null}
-        </div>
-
-        {workspace.mode === 'advanced' ? <AssignmentSelector workspace={workspace} draft={draft} onDraftChange={onDraftChange} /> : null}
-      </div>
-
-      {workspace.mode === 'advanced' && !hasMarketOnlyAudience(draft) ? (
-        <div className="mt-4">
-          <TrackingContextSelector workspace={workspace} draft={draft} onDraftChange={onDraftChange} />
-        </div>
-      ) : null}
-      <details className="mt-4 border-t border-default text-sm text-secondary">
-        <summary className="min-h-11 cursor-pointer py-3">Measurement options</summary>
-        <div className="grid gap-4 pb-3 sm:grid-cols-2">
-          {workspace.mode === 'advanced' ? (
-            <div className="block">
-              <label className="text-xs font-medium text-secondary" htmlFor="tracking-query-class">Classification</label>
-              <select
-                id="tracking-query-class"
-                className="mt-1 h-9 w-full rounded-md border border-default bg-surface px-3 text-sm text-strong focus:border-mono-500 focus:outline-none focus:ring-1 focus:ring-mono-500"
-                value={draft.queryClass}
-                onChange={(event) => onDraftChange({ ...draft, queryClass: event.target.value as TrackingDraft['queryClass'] })}
-              >
-                <option value="auto">Automatic</option>
-                <option value="branded">Branded</option>
-                <option value="non-brand">Non-brand</option>
-              </select>
-            </div>
-          ) : (
-            <div className="rounded-md border border-default bg-surface-subtle px-3 py-2">
-              <p className="text-xs font-medium text-secondary">Classification</p>
-              <p className="mt-1 text-sm text-strong">Automatic</p>
-            </div>
-          )}
-        </div>
-      </details>
-
-      {draft.source === 'research' && (
-        <p className="mt-4 rounded-md border border-default bg-surface-subtle px-3 py-2 text-sm text-secondary">
-          Only the saved query is added.
-        </p>
-      )}
-      <ComposerActions canReview={canReview} isPreviewing={isPreviewing} onCancel={onClose} onReview={onReview} />
-    </Card>
-  )
-}
-
-function TemplateSourceField({
-  templates,
-  advanced,
-  draft,
-  onDraftChange,
-}: {
-  templates: readonly MeasurementQueryTemplate[]
-  advanced: boolean
-  draft: TrackingDraft
-  onDraftChange: (draft: TrackingDraft) => void
-}) {
-  return (
-    <div>
-      <label className="block" htmlFor="tracking-template-source">
-        <span className="text-xs font-medium text-secondary">Saved template</span>
-        <select
-          id="tracking-template-source"
-          aria-describedby={needsTemplateMarket(draft) ? 'tracking-template-market-required' : undefined}
-          className="mt-1 h-9 w-full rounded-md border border-default bg-surface px-3 text-sm text-strong focus:border-mono-500 focus:outline-none focus:ring-1 focus:ring-mono-500"
-          value={draft.templateId}
-          onChange={(event) => {
-            const template = templates.find(candidate => candidate.id === event.target.value)
-            onDraftChange({
-              ...draft,
-              templateId: template?.id ?? '',
-              templateVersion: template?.updatedAt ?? '',
-              template: template?.pattern ?? '',
-            })
-          }}
-        >
-          <option value="">Choose a template</option>
-          {templates.map(template => <option key={template.id} value={template.id}>{template.name}</option>)}
-        </select>
-        {draft.template ? <span className="mt-1 block text-xs leading-5 text-muted">{draft.template}</span> : null}
-      </label>
-      {needsTemplateMarket(draft) ? (
-        <p id="tracking-template-market-required" role="status" className="mt-2 text-sm leading-5 text-caution">
-          {advanced
-            ? 'Choose a Market under Apply to for this template. A location alone does not select a market.'
-            : 'This template needs a market, and this project has no markets. Write a question instead.'}
-        </p>
-      ) : null}
-    </div>
-  )
-}
-
-function SavedSourceField({
-  id,
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  id: string
-  label: string
-  value: string
-  options: readonly { id: string; label: string; detail: string }[]
-  onChange: (value: string) => void
-}) {
-  return (
-    <label className="block" htmlFor={id}>
-      <span className="text-xs font-medium text-secondary">{label}</span>
-      <select
-        id={id}
-        className="mt-1 h-9 w-full rounded-md border border-default bg-surface px-3 text-sm text-strong focus:border-mono-500 focus:outline-none focus:ring-1 focus:ring-mono-500"
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-      >
-        <option value="">Choose a saved query</option>
-        {options.map(option => <option key={option.id} value={option.id}>{option.label} · {option.detail}</option>)}
-      </select>
-    </label>
-  )
-}
-
-function contextInput(context: QueryTrackingWorkspaceResponse['defaultContexts'][number]): QueryTrackingContextInput {
-  return {
-    providers: [...context.providers],
-    models: { ...context.models },
-    location: context.location?.label ?? null,
-  }
-}
-
-function contextKey(context: QueryTrackingContextInput): string {
-  return JSON.stringify({
-    providers: [...context.providers].sort(),
-    models: Object.fromEntries(Object.entries(context.models).sort(([left], [right]) => left.localeCompare(right))),
-    location: context.location,
-  })
-}
-
-function uniqueContextInputs(contexts: readonly QueryTrackingContextInput[]): QueryTrackingContextInput[] {
-  return [...new Map(contexts.map(context => [contextKey(context), context])).values()]
-}
-
-function contextLabel(context: QueryTrackingContextInput): string {
-  const engines = context.providers.map(provider => {
-    const model = context.models[provider]
-    return model ? `${provider} (${model})` : provider
-  }).join(', ')
-  return `${context.location ?? 'No location'} · ${engines}`
-}
-
-function TrackingContextSelector({
-  workspace,
-  draft,
-  onDraftChange,
-}: {
-  workspace: QueryTrackingWorkspaceResponse
-  draft: TrackingDraft
-  onDraftChange: (draft: TrackingDraft) => void
-}) {
-  const options = useMemo(
-    () => uniqueContextInputs([...workspace.defaultContexts.map(contextInput), ...draft.contexts]),
-    [draft.contexts, workspace.defaultContexts],
-  )
-  const selected = draft.contexts.length === 1 ? contextKey(draft.contexts[0]!) : draft.contexts.length > 1 ? '__existing__' : ''
-
-  return (
-    <label className="block" htmlFor="tracking-query-context">
-      <span className="text-xs font-medium text-secondary">Location and engines</span>
-      <select
-        id="tracking-query-context"
-        aria-label="Location and engines"
-        className="mt-1 h-9 w-full rounded-md border border-default bg-surface px-3 text-sm text-strong focus:border-mono-500 focus:outline-none focus:ring-1 focus:ring-mono-500"
-        value={selected}
-        onChange={event => {
-          const selectedContext = options.find(context => contextKey(context) === event.target.value)
-          const next = event.target.value === '__existing__'
-            ? draft.contexts
-            : selectedContext ? [selectedContext] : []
-          onDraftChange({ ...draft, contexts: next })
-        }}
-      >
-        <option value="">Choose a location and engines</option>
-        {draft.contexts.length > 1 ? <option value="__existing__">Keep {draft.contexts.length} existing contexts</option> : null}
-        {options.map(context => <option key={contextKey(context)} value={contextKey(context)}>{contextLabel(context)}</option>)}
-      </select>
-      <span className="mt-1 block text-xs leading-5 text-secondary">
-        {options.length === 0 ? 'No configured measurement context is available.' : 'Choose where this query will be measured.'}
-      </span>
-    </label>
-  )
-}
-
-function AssignmentSelector({
-  workspace,
-  draft,
-  onDraftChange,
-}: {
-  workspace: QueryTrackingWorkspaceResponse
-  draft: TrackingDraft
-  onDraftChange: (draft: TrackingDraft) => void
-}) {
-  const { canWrite } = useAccount()
-  const [filter, setFilter] = useState('')
-  const [changingDestination, setChangingDestination] = useState(() => draft.wholeSite || draft.targetKeys.length !== 1 || draft.groupKeys.length > 0 || draft.marketKeys.length > 0)
-  const options = useMemo(() => [
-    ...workspace.targets.map(target => ({ kind: 'target' as const, key: target.stableKey, label: target.label, detail: 'Property' })),
-    ...workspace.groups.map(group => ({ kind: 'group' as const, key: group.stableKey, label: group.label, detail: 'Group' })),
-    ...workspace.markets.map(market => ({ kind: 'market' as const, key: market.stableKey, label: market.label, detail: 'Market' })),
-  ], [workspace.groups, workspace.markets, workspace.targets])
-  const normalizedFilter = filter.trim().toLocaleLowerCase()
-  const visible = normalizedFilter ? options.filter(option => `${option.label} ${option.detail}`.toLocaleLowerCase().includes(normalizedFilter)) : options
-  const hasAudience = draft.targetKeys.length + draft.groupKeys.length + draft.marketKeys.length > 0
-
-  function toggle(kind: 'target' | 'group' | 'market', key: string, checked: boolean) {
-    const field = kind === 'target' ? 'targetKeys' : kind === 'group' ? 'groupKeys' : 'marketKeys'
-    const values = draft[field]
-    onDraftChange({ ...draft, wholeSite: false, [field]: checked ? [...values, key] : values.filter(value => value !== key) })
-  }
-
-  function isChecked(kind: 'target' | 'group' | 'market', key: string): boolean {
-    return (kind === 'target' ? draft.targetKeys : kind === 'group' ? draft.groupKeys : draft.marketKeys).includes(key)
-  }
-
-  if (!changingDestination) {
-    const target = workspace.targets.find(candidate => candidate.stableKey === draft.targetKeys[0])
-    return (
-      <fieldset className="self-start rounded-md border border-default bg-surface-subtle p-3">
-        <legend className="px-1 text-xs font-medium text-secondary">Apply to</legend>
-        <div className="flex items-center justify-between gap-3">
-          <p className="text-sm text-strong">Property: {target?.label ?? draft.targetKeys[0]}</p>
-          <Button type="button" variant="ghost" size="sm" aria-label="Change tracking destination" onClick={() => setChangingDestination(true)}>Change</Button>
-        </div>
-      </fieldset>
-    )
-  }
-
-  return (
-    <fieldset className="rounded-md border border-default bg-surface-subtle p-3">
-      <legend className="px-1 text-xs font-medium text-secondary">Apply to</legend>
-      <p className="text-sm leading-6 text-secondary">Choose where this question should be tracked.</p>
-      {canWrite ? (
-        <label className="mt-3 flex min-h-9 items-center gap-2 rounded px-1 text-sm text-strong">
-          <input
-            type="checkbox"
-            checked={draft.wholeSite}
-            onChange={(event) => {
-              onDraftChange({ ...draft, wholeSite: event.target.checked, targetKeys: [], groupKeys: [], marketKeys: [] })
-            }}
-          />
-          Every location ({workspace.targets.length})
-        </label>
-      ) : null}
-      {!draft.wholeSite && !hasAudience ? <p role="status" className="mt-2 text-sm text-caution">Choose at least one location, group, or market.</p> : null}
-      <p className="mt-2 text-sm leading-5 text-secondary">Group: properties grouped together. Market: search context.</p>
-      <DataTableSearch value={filter} onChange={setFilter} label="Filter assignments" placeholder="Search Properties, Groups, Markets" className="mt-3" />
-      <div className="mt-3 max-h-64 space-y-1 overflow-y-auto pr-1">
-        {visible.length === 0 ? <p className="px-1 py-2 text-sm text-muted">No assignment matches that search.</p> : visible.map(option => (
-          <label key={`${option.kind}:${option.key}`} className="flex min-h-9 items-center gap-2 rounded px-1 py-1 text-sm text-strong hover:bg-surface-hover">
-            <input
-              type="checkbox"
-              aria-label={`${option.label}, ${option.detail}`}
-              checked={isChecked(option.kind, option.key)}
-              onChange={(event) => toggle(option.kind, option.key, event.target.checked)}
-            />
-            <span className="min-w-0 flex-1 truncate">{option.label}</span>
-            <span className="text-xs text-muted">{option.detail}</span>
-          </label>
-        ))}
-      </div>
-    </fieldset>
-  )
-}
-
-function ComposerActions({
-  canReview,
-  isPreviewing,
-  onCancel,
-  onReview,
-}: {
-  canReview: boolean
-  isPreviewing: boolean
-  onCancel: () => void
-  onReview: () => void
-}) {
-  return (
-    <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-default pt-4">
-      <WriteButton type="button" size="sm" disabled={!canReview} onClick={onReview}>
-        {isPreviewing ? 'Reviewing…' : 'Review changes'}
-      </WriteButton>
-      <Button type="button" variant="ghost" size="sm" onClick={onCancel}>Cancel</Button>
-      <p className="text-sm leading-5 text-secondary">Publishing does not run a check.</p>
-    </div>
-  )
-}
-
-function TrackingPreview({
-  preview,
-  workspace,
-  isCommitting,
-  sweepActive,
-  onConfirm,
-}: {
-  preview: QueryTrackingPreviewResponse
-  workspace: QueryTrackingWorkspaceResponse
-  isCommitting: boolean
-  sweepActive: boolean
-  onConfirm: () => void
-}) {
-  const headingRef = useRef<HTMLHeadingElement>(null)
-  useEffect(() => {
-    const heading = headingRef.current
-    if (!heading) return
-    if (typeof heading.scrollIntoView === 'function') heading.scrollIntoView({ block: 'start' })
-    heading.focus({ preventScroll: true })
-  }, [preview])
-  const hasChanges = !preview.diff.noOp
-  // An advanced commit writes a new revision with no continuity link, so
-  // location and competitor reads blank while AI Visibility falls back.
-  const subcopy = !hasChanges
-    ? 'This request leaves tracking unchanged.'
-    : preview.mode === 'advanced'
-      ? 'After you publish, AI Visibility keeps showing the last check until the next check. Location pages and competitor results show no numbers until then. Past answers are kept.'
-      : 'Changes apply to future checks. Earlier results stay unchanged.'
-  const changed = [
-    { label: 'Added', rows: preview.diff.added },
-    { label: 'Removed', rows: preview.diff.removed },
-    { label: 'Reused', rows: preview.diff.reused },
-  ].filter(group => group.rows.length > 0)
-  return (
-    <Card className="surface-card">
-      <div className="section-head section-head-inline gap-4">
-        <div>
-          <h3 ref={headingRef} tabIndex={-1}>{hasChanges ? 'Confirm tracked query changes' : 'No tracking changes'}</h3>
-          <p className="mt-1 text-sm font-medium text-strong">{previewWorkloadLine(preview)}</p>
-          <p className="mt-1 text-sm leading-6 text-secondary">{subcopy}</p>
-        </div>
-        <ToneBadge tone={hasChanges ? 'caution' : 'neutral'}>{hasChanges ? 'Ready to confirm' : 'No-op'}</ToneBadge>
-      </div>
-      {changed.length > 0 ? <div className="mt-4 space-y-4">
-        {changed.map(group => <PreviewChangeList key={group.label} label={group.label} rows={group.rows} workspace={workspace} tracked={preview.tracked} />)}
-      </div> : null}
-      {preview.diff.unchanged.length > 0 ? <details className="mt-4 border-t border-default pt-2 text-sm text-secondary">
-        <summary className="min-h-11 cursor-pointer py-3">{preview.diff.unchanged.length} unchanged {preview.diff.unchanged.length === 1 ? 'query' : 'queries'}</summary>
-        <PreviewChangeList label="Unchanged" rows={preview.diff.unchanged} workspace={workspace} tracked={preview.tracked} />
-      </details> : null}
-      <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-default pt-4">
-        <WriteButton type="button" size="sm" disabled={!hasChanges || isCommitting || sweepActive} onClick={onConfirm}>
-          {isCommitting ? 'Confirming…' : 'Confirm changes'}
-        </WriteButton>
-        {hasChanges && sweepActive ? <p role="status" className="text-sm leading-5 text-caution">A check is queued or running. Publish after it finishes.</p> : null}
-      </div>
-    </Card>
-  )
-}
-
-/** One provider call is one answer; added and removed answers stay separate. */
-function previewWorkloadLine(preview: QueryTrackingPreviewResponse): string {
-  const { added } = preview.diff
-  // A scoped removal lists a query that stays tracked elsewhere; only rows gone
-  // from the post-change `tracked` leave tracking. Answers still count the rest.
-  const stillTracked = new Set(preview.tracked.map(row => row.queryId))
-  const removed = preview.diff.removed.filter(row => !stillTracked.has(row.queryId))
-  const { addedProviderCalls, removedProviderCalls, nextSweepProviderCalls } = preview.workload
-  const count = (value: number) => value.toLocaleString('en-US')
-  return [
-    added.length > 0 ? `+${count(added.length)} ${added.length === 1 ? 'query' : 'queries'}` : null,
-    removed.length > 0 ? `−${count(removed.length)} ${removed.length === 1 ? 'query' : 'queries'}` : null,
-    `+${count(addedProviderCalls)} / −${count(removedProviderCalls)} answers per check`,
-    `next check asks ${count(nextSweepProviderCalls)}`,
-  ].filter((part): part is string => part !== null).join(' · ')
-}
-
-function PreviewChangeList({
-  label,
-  rows,
-  workspace,
-  tracked,
-}: {
-  label: string
-  rows: QueryTrackingPreviewResponse['diff']['added']
-  workspace: QueryTrackingWorkspaceResponse
-  tracked: readonly QueryTrackingTrackedRow[]
-}) {
-  return (
-    <section aria-label={`${label} queries`}>
-      <p className="text-xs font-medium text-secondary">{rows.length} {label.toLocaleLowerCase()}{rows.length === 1 ? '' : 's'}</p>
-      <ul className="mt-2 divide-y divide-default">
-        {rows.map(row => <li key={`${label}:${row.queryId}`} className="py-2 text-sm">
-          <p className="font-medium text-strong">{row.queryText}</p>
-          <p className="mt-1 text-secondary">{label === 'Removed'
-            // `tracked` is the post-change state, so its scopes describe what survives.
-            ? `${row.assignmentCount} ${row.assignmentCount === 1 ? 'assignment' : 'assignments'} removed`
-            : previewRowDetail(row, tracked, workspace)}</p>
-          {label === 'Added' || label === 'Reused' ? <PreviewClassifications row={tracked.find(candidate => candidate.queryId === row.queryId)} workspace={workspace} /> : null}
-        </li>)}
-      </ul>
-    </section>
-  )
-}
-
-function PreviewClassifications({ row, workspace }: { row?: QueryTrackingTrackedRow; workspace: QueryTrackingWorkspaceResponse }) {
-  if (!row?.assignments.length) return null
-  const propertyCount = new Set(row.assignments.map(assignment => assignment.targetKey)).size
-  return (
-    <details className="mt-2 text-secondary">
-      <summary className="min-h-11 cursor-pointer py-3 font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-500">Classifications · {propertyCount} {propertyCount === 1 ? 'property' : 'properties'}</summary>
-      <ul className="mt-1 max-h-40 space-y-1 overflow-y-auto">
-        {row.assignments.map((assignment, index) => {
-          const target = workspace.targets.find(candidate => candidate.stableKey === assignment.targetKey)?.label ?? assignment.targetKey
-          const queryClass = assignment.queryClass === 'branded' ? 'Branded' : assignment.queryClass === 'non-brand' ? 'Non-brand' : 'Unknown'
-          const contexts = assignment.contexts.map(context => contextLabel(contextInput(context))).join('; ')
-          return <li key={`${assignment.targetKey}:${index}`}>{[target, queryClass, contexts].filter(Boolean).join(' · ')}</li>
-        })}
-      </ul>
-    </details>
-  )
-}
-
-function previewRowDetail(
-  row: QueryTrackingPreviewResponse['diff']['added'][number],
-  tracked: readonly QueryTrackingTrackedRow[],
-  workspace: QueryTrackingWorkspaceResponse,
-): string {
-  const resolved = tracked.find(candidate => candidate.queryId === row.queryId)
-  if (!resolved) return `${row.assignmentCount} ${row.assignmentCount === 1 ? 'assignment' : 'assignments'}`
-  const contexts = uniqueContextInputs(resolved.assignments.flatMap(assignment => assignment.contexts).map(contextInput))
-  const context = contexts.length === 1
-    ? contextLabel(contexts[0]!)
-    : contexts.length > 1 ? `${contexts.length} contexts` : null
-  return [assignmentScopeLabel(resolved, workspace), context].filter((value): value is string => value !== null).join(' · ')
 }
 
 function TrackedQueriesSection({
@@ -1409,12 +230,18 @@ function TrackedQueriesSection({
   pendingTrackingSource,
   onPendingTrackingSourceHandled,
   publishGuard,
-}: Pick<QueriesSectionProps, 'projectName' | 'selection' | 'onSelectionChange' | 'trackingQueryId' | 'onTrackingQueryIdChange' | 'publishGuard'> & {
+  trackedMode,
+  ...host
+}: Pick<QueriesSectionProps, 'projectName' | 'selection' | 'onSelectionChange' | 'trackingQueryId' | 'onTrackingQueryIdChange' | 'publishGuard' | 'trackedMode'> & TrackedPageHostProps & {
   pendingTrackingSource: PendingTrackingSource | null
   onPendingTrackingSourceHandled: () => void
 }) {
-  const queryClient = useQueryClient()
-  const [preview, setPreview] = useState<QueryTrackingPreviewResponse | null>(null)
+  const { canWrite } = useAccount()
+  const { returnToQueries } = useAddQueriesNavigation(projectName)
+  const publish = useQueryTrackingPublish(projectName, { onCommitted: () => {
+    if (host.addQueriesPage) returnToQueries(true)
+    else onTrackingQueryIdChange?.(undefined)
+  } })
   const workspaceQuery = useQuery({
     ...getApiV1ProjectsByNameQueryTrackingOptions({ client: heyClient, path: { name: projectName } }),
   })
@@ -1422,524 +249,102 @@ function TrackedQueriesSection({
     ...getApiV1ProjectsByNameMeasurementQueryTemplatesOptions({ client: heyClient, path: { name: projectName } }),
     staleTime: 60_000,
   })
-  const previewMutation = useMutation({
-    ...postApiV1ProjectsByNameQueryTrackingPreviewMutation(),
-    onSuccess: (result) => setPreview(result),
-    onError: async (error) => {
-      setPreview(null)
-      // Refresh the optimistic version while keeping the user's draft intact.
-      await queryClient.invalidateQueries({
-        queryKey: getApiV1ProjectsByNameQueryTrackingQueryKey({ client: heyClient, path: { name: projectName } }),
-      })
-      addToast({
-        title: 'Could not review tracking changes',
-        detail: error instanceof Error ? error.message : 'Update the draft and review it again.',
-        tone: 'negative',
-      })
-    },
-  })
-  const commitMutation = useMutation({
-    ...postApiV1ProjectsByNameQueryTrackingCommitMutation(),
-    onSuccess: async (result) => {
-      setPreview(null)
-      onTrackingQueryIdChange?.(undefined)
-      await invalidateQueryTrackingPublication(queryClient, projectName)
-      addToast({
-        title: result.committed ? 'Tracked queries updated' : 'No tracked-query change',
-        detail: result.committed && result.mode === 'advanced' ? 'New numbers after the next check.' : undefined,
-        tone: result.committed ? 'positive' : 'neutral',
-        dedupeKey: `query-tracking:commit:${projectName}`,
-        dedupeMode: 'replace',
-      })
-    },
-    onError: async (error) => {
-      setPreview(null)
-      // A concurrent publication can make both the review and the report stale.
-      await invalidateQueryTrackingPublication(queryClient, projectName)
-      addToast({
-        title: 'Could not confirm tracking changes',
-        detail: error instanceof Error ? error.message : 'The review may be stale. Review the changes again.',
-        tone: 'negative',
-      })
-    },
-  })
 
   if (workspaceQuery.isLoading) {
-    return <Card className="surface-card"><p className="text-sm text-muted">Loading tracked queries…</p></Card>
-  }
-  if (workspaceQuery.isError || !workspaceQuery.data) {
+    if (host.addQueriesPage) return <div role="status" aria-label="Loading Add queries" className="mx-auto max-w-3xl py-6">
+      <div aria-hidden="true" className="space-y-6">
+        <div className="skeleton-text h-7 w-36" />
+        <div className="skeleton-text h-11 w-full" />
+        <div className="skeleton-text h-48 w-full" />
+      </div>
+    </div>
+    // Hold the compact summary and toolbar while the advanced workspace loads.
+    const action = <div aria-hidden="true" className="skeleton-text h-8 w-28 pointer-coarse:h-11 max-md:h-11" />
+    const wholeProject = selection.measurementScope === 'project'
+    // A view's list draws no Export CSV, so a link that opens on one holds no room for it. A link to a row opens the queries.
+    const opensOnView = wholeProject && trackedPlaceView(host.trackedView) !== undefined && trackingQueryId === undefined
     return (
-      <Card className="surface-card">
-        <p className="text-sm text-negative">Could not load tracked queries.</p>
-        <Button type="button" variant="outline" size="sm" className="mt-3" onClick={() => void workspaceQuery.refetch()}>
-          Try again
-        </Button>
-      </Card>
+      <div className="query-tracking-workspace">
+        {trackedMode === 'advanced' ? <>
+          {/* The page's actions take a line of their own in a narrow frame, so that line is held too: Export CSV for every role, and Add for a writer. */}
+          {host.actionsSlot && !isEmbed() ? createPortal(<>{opensOnView ? null : action}{canWrite ? action : null}</>, host.actionsSlot) : null}
+          <TrackedSummaryGridSkeleton cells={wholeProject ? 5 : 4} />
+          <div aria-hidden="true" className="py-3">
+            <div className="flex items-center gap-2">
+              <div className="skeleton-text h-8 min-w-0 flex-1 pointer-coarse:h-11 max-md:h-11" />
+              <div className="skeleton-text h-8 w-20 shrink-0 pointer-coarse:h-11 max-md:h-11" />
+              {wholeProject ? <div className="skeleton-text h-8 w-20 shrink-0 pointer-coarse:h-11 max-md:h-11" /> : null}
+            </div>
+            <div className="mt-2 flex h-5 items-center"><div className="skeleton-text w-24" /></div>
+          </div>
+        </> : null}
+        <TrackedTableSkeleton />
+      </div>
+    )
+  }
+  // Only a read that left nothing to show: a refresh that failed keeps the page, with its search, selection and open sheet, on the last read.
+  if (!workspaceQuery.data) {
+    return (
+      // Centred, as the page's empty states are.
+      <div role="alert" className="py-8 text-center">
+        <StatusNote
+          icon={AlertTriangle}
+          tone="negative"
+          label="Could not load"
+          action={<Button type="button" variant="outline" size="sm" className="pointer-coarse:min-h-11 max-md:min-h-11" aria-label="Retry tracked queries" onClick={() => void workspaceQuery.refetch()}>Retry</Button>}
+        />
+      </div>
     )
   }
 
-  return (
-    <TrackedQueriesWorkspace
+  return <>
+    {workspaceQuery.isRefetchError ? (
+      <div role="status" className="pb-3">
+        <StatusNote
+          icon={AlertTriangle}
+          tone="caution"
+          label="Could not refresh"
+          detail="The latest tracked queries did not load, so this list may be out of date."
+          action={<Button type="button" variant="outline" size="sm" className="pointer-coarse:min-h-11 max-md:min-h-11" aria-label="Retry tracked queries" onClick={() => void workspaceQuery.refetch()}>Retry</Button>}
+        />
+      </div>
+    ) : null}
+    <TrackedQueriesGate
+      {...host}
+      projectName={projectName}
       workspace={workspaceQuery.data}
       selection={selection}
       onSelectionChange={onSelectionChange}
-      trackingQueryId={trackingQueryId}
-      onTrackingQueryIdChange={onTrackingQueryIdChange}
+      trackingQueryId={host.addQueriesPage ? undefined : trackingQueryId}
+      onTrackingQueryIdChange={host.addQueriesPage ? undefined : onTrackingQueryIdChange}
       pendingTrackingSource={pendingTrackingSource}
       onPendingTrackingSourceHandled={onPendingTrackingSourceHandled}
       publishGuard={publishGuard}
-      templates={templatesQuery.data?.templates ?? []}
-      preview={preview}
-      isPreviewing={previewMutation.isPending}
-      isCommitting={commitMutation.isPending}
-      onPreview={(mutation) => {
-        setPreview(null)
-        previewMutation.mutate({
-          client: heyClient,
-          path: { name: projectName },
-          body: { ...mutation, expectedWorkspaceVersion: workspaceQuery.data.workspaceVersion },
-        })
-      }}
-      onCommit={(request) => commitMutation.mutate({
-        client: heyClient,
-        path: { name: projectName },
-        body: request,
-      })}
+      templates={templatesQuery.data?.templates ?? NO_TEMPLATES}
+      preview={publish.preview}
+      publishError={publish.error}
+      isPreviewing={publish.isPreviewing}
+      isCommitting={publish.isCommitting}
+      onPreview={(mutation) => publish.requestPreview({ ...mutation, expectedWorkspaceVersion: workspaceQuery.data.workspaceVersion })}
+      onCommit={publish.commit}
     />
-  )
+  </>
 }
 
-export function DiscoverySection({ projectName }: { projectName: string }) {
-  const [workflow, setWorkflow] = useState<'find' | 'research'>('find')
+/** One list while the saved patterns load, so a page can key its rows on it. */
+const NO_TEMPLATES: readonly MeasurementQueryTemplate[] = []
 
-  return (
-    <section className="page-section-divider">
-      <div className="section-head section-head-inline">
-        <div>
-          <p className="eyebrow eyebrow-soft">Query discovery</p>
-          <h2>Discover or research queries</h2>
-        </div>
-      </div>
-      <div className="inline-flex rounded-md border border-default bg-surface p-1" role="tablist" aria-label="Query discovery workflow">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={workflow === 'find'}
-          className={`rounded px-3 py-1.5 text-sm font-medium transition-colors ${workflow === 'find' ? 'bg-bg-elevated text-heading shadow-sm' : 'text-muted hover:text-strong'}`}
-          onClick={() => setWorkflow('find')}
-        >
-          Find queries
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={workflow === 'research'}
-          className={`rounded px-3 py-1.5 text-sm font-medium transition-colors ${workflow === 'research' ? 'bg-bg-elevated text-heading shadow-sm' : 'text-muted hover:text-strong'}`}
-          onClick={() => setWorkflow('research')}
-        >
-          Research queries
-        </button>
-      </div>
-      <div className="mt-4">
-        {workflow === 'find' ? <FindQueriesSection projectName={projectName} /> : <ResearchQueriesSection projectName={projectName} />}
-      </div>
+/** The mode gate: each mode has its own page. One composer sits above both, so a mode change keeps the open form, its draft and the search. */
+function TrackedQueriesGate(props: TrackedQueriesPageProps & TrackedPageHostProps) {
+  const composer = useTrackingComposer(props)
+  const { returnToQueries } = useAddQueriesNavigation(props.projectName)
+  const { canWrite } = useAccount()
+  if (props.addQueriesPage && (!canWrite || isEmbed() || props.workspace.mode !== 'advanced')) return (
+    <section aria-label="Add queries" className="py-8 text-center">
+      <StatusNote icon={AlertTriangle} label={canWrite && !isEmbed() ? 'Open Queries to add a query' : 'View only'} />
+      <div className="mt-4"><Button type="button" variant="outline" onClick={() => returnToQueries()}>Back to queries</Button></div>
     </section>
   )
+  const TrackedPage = props.workspace.mode === 'advanced' ? AdvancedTrackedPage : SimpleTrackedQueries
+  return <TrackedPage {...props} composer={composer} />
 }
-
-function FindQueriesSection({
-  projectName,
-  onReviewDiscoveryProbe,
-}: {
-  projectName: string
-  onReviewDiscoveryProbe?: (discoveryProbeId: string) => void
-}) {
-  const queryClient = useQueryClient()
-  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
-  const [icpDescription, setIcpDescription] = useState('')
-  const [maxProbes, setMaxProbes] = useState('100')
-
-  const sessionsQuery = useQuery({
-    ...getApiV1ProjectsByNameDiscoverSessionsOptions({
-      client: heyClient,
-      path: { name: projectName },
-      query: { limit: '10' },
-    }),
-    refetchInterval: (query) => {
-      const sessions = query.state.data
-      return sessions?.some(session => ACTIVE_DISCOVERY_STATUSES.has(session.status)) ? 3000 : false
-    },
-  })
-
-  const sessions = sessionsQuery.data ?? []
-
-  useEffect(() => {
-    if (!selectedSessionId && sessions[0]) {
-      setSelectedSessionId(sessions[0].id)
-    }
-  }, [selectedSessionId, sessions])
-
-  const selectedSession = sessions.find(session => session.id === selectedSessionId) ?? null
-
-  const detailQuery = useQuery({
-    ...getApiV1ProjectsByNameDiscoverSessionsByIdOptions({
-      client: heyClient,
-      path: { name: projectName, id: selectedSessionId ?? '' },
-    }),
-    enabled: Boolean(selectedSessionId),
-    refetchInterval: selectedSession && ACTIVE_DISCOVERY_STATUSES.has(selectedSession.status) ? 3000 : false,
-  })
-
-  const detail = detailQuery.data ?? null
-
-  const startMutation = useMutation({
-    mutationFn: () => {
-      const body: { icpDescription?: string; maxProbes?: number } = {}
-      const trimmedIcp = icpDescription.trim()
-      if (trimmedIcp) body.icpDescription = trimmedIcp
-      const parsedMax = Number.parseInt(maxProbes, 10)
-      if (Number.isFinite(parsedMax) && parsedMax > 0) body.maxProbes = parsedMax
-      return triggerDiscoveryRun(projectName, body)
-    },
-    onSuccess: async (result) => {
-      setSelectedSessionId(result.sessionId)
-      setIcpDescription('')
-      await refreshDiscovery(queryClient, projectName, result.sessionId)
-      addToast({
-        title: 'Discovery started',
-        detail: `Run ${shortId(result.sessionId)} is testing questions your customers might ask.`,
-        tone: 'neutral',
-        dedupeKey: `discovery:start:${result.sessionId}`,
-        dedupeMode: 'replace',
-      })
-    },
-    onError: (error) => {
-      addToast({
-        title: 'Discovery failed to start',
-        detail: error instanceof Error ? error.message : 'Could not start discovery.',
-        tone: 'negative',
-      })
-    },
-  })
-
-  const activeSession = detail ?? selectedSession
-  const probeRows = useMemo(() => (detail?.probes ?? []).slice(0, 30), [detail?.probes])
-
-  async function handleRefreshSessions() {
-    try {
-      const result = await sessionsQuery.refetch()
-      if (result.error) throw result.error
-      const count = result.data?.length ?? 0
-      addToast({
-        title: 'Discovery sessions refreshed',
-        detail: `${count} recent session${count === 1 ? '' : 's'} loaded.`,
-        tone: 'positive',
-        dedupeKey: `discovery:refresh:${projectName}`,
-        dedupeMode: 'replace',
-      })
-    } catch (error) {
-      addToast({
-        title: 'Discovery refresh failed',
-        detail: error instanceof Error ? error.message : 'Could not reload discovery sessions.',
-        tone: 'negative',
-        dedupeKey: `discovery:refresh:${projectName}`,
-        dedupeMode: 'replace',
-      })
-    }
-  }
-
-  return (
-    <>
-      <div className="section-head section-head-inline">
-        <div>
-          <p className="eyebrow eyebrow-soft">Step 1</p>
-          <h2>Generate and check questions</h2>
-          <p className="mt-1 max-w-3xl text-sm leading-6 text-secondary">
-            {isEmbed()
-              ? 'Generate customer questions and check whether your site is already visible.'
-              : 'Generate customer questions, check current visibility, then choose what to track.'}
-          </p>
-        </div>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={sessionsQuery.isFetching}
-          onClick={() => void handleRefreshSessions()}
-        >
-          <RefreshCw className={`size-3.5 ${sessionsQuery.isFetching ? 'animate-spin' : ''}`} aria-hidden="true" />
-          Refresh
-        </Button>
-      </div>
-
-      <div className="grid gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
-        <div className="space-y-4">
-          <Card className="surface-card">
-            <div className="section-head section-head-inline">
-              <div>
-                <p className="eyebrow eyebrow-soft">Step 1</p>
-                <h3>Describe your customer</h3>
-              </div>
-              <ToneBadge tone="neutral">Runs on Gemini</ToneBadge>
-            </div>
-            <div className="space-y-3">
-              <label className="block">
-                <span className="text-sm text-secondary">Who is your ideal customer?</span>
-                <textarea
-                  className="mt-1 min-h-24 w-full rounded border border-strong bg-transparent px-3 py-2 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
-                  placeholder="e.g. Small e-commerce stores that want AI-powered customer support. Leave blank to use the customer profile saved on this project."
-                  value={icpDescription}
-                  onChange={(event) => setIcpDescription(event.target.value)}
-                />
-              </label>
-              <label className="block">
-                <span className="text-sm text-secondary">How many questions to test</span>
-                <input
-                  className="mt-1 w-full rounded border border-strong bg-transparent px-3 py-2 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
-                  inputMode="numeric"
-                  value={maxProbes}
-                  onChange={(event) => setMaxProbes(event.target.value)}
-                />
-                <span className="mt-1 block text-sm text-secondary">
-                  More questions means broader coverage but a longer run. 100 is a good default.
-                </span>
-              </label>
-              {!isEmbed() && (
-                <WriteButton
-                  type="button"
-                  size="sm"
-                  disabled={startMutation.isPending}
-                  onClick={() => startMutation.mutate()}
-                >
-                  <Play size={14} />
-                  {startMutation.isPending ? 'Starting…' : 'Find queries'}
-                </WriteButton>
-              )}
-            </div>
-          </Card>
-
-          <Card className="surface-card">
-            <div className="section-head section-head-inline">
-              <div>
-                <p className="eyebrow eyebrow-soft">History</p>
-                <h3>Recent runs</h3>
-              </div>
-              {sessionsQuery.isFetching && <ToneBadge tone="neutral">Loading</ToneBadge>}
-            </div>
-            {sessions.length === 0 ? (
-              <p className="text-sm text-secondary">No discovery runs yet. Describe your customer above to start your first one.</p>
-            ) : (
-              <div className="space-y-2">
-                {sessions.map(session => (
-                  <button
-                    key={session.id}
-                    type="button"
-                    className={`w-full rounded-md border px-3 py-2 text-left transition-colors ${
-                      selectedSessionId === session.id
-                        ? 'border-mono-600 bg-bg-elevated/70'
-                        : 'border-default bg-bg/40 hover:border-strong hover:bg-bg-elevated/40'
-                    }`}
-                    onClick={() => setSelectedSessionId(session.id)}
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-sm font-medium text-heading">{shortId(session.id)}</span>
-                      <ToneBadge tone={toneForSession(session.status)}>{session.status}</ToneBadge>
-                    </div>
-                    <div className="mt-2 grid grid-cols-3 gap-2 text-sm text-secondary">
-                      <span>Cited queries {session.citedCount ?? 0}</span>
-                      <span>Worth tracking {session.aspirationalCount ?? 0}</span>
-                      <span>Skip {session.wastedCount ?? 0}</span>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            )}
-          </Card>
-        </div>
-
-        <div className="space-y-4">
-          <Card className="surface-card">
-            <div className="section-head section-head-inline">
-              <div>
-                <p className="eyebrow eyebrow-soft">Run detail</p>
-                <h3>{activeSession ? shortId(activeSession.id) : 'No run selected'}</h3>
-              </div>
-              {activeSession && <ToneBadge tone={toneForSession(activeSession.status)}>{activeSession.status}</ToneBadge>}
-            </div>
-
-            {!activeSession ? (
-              <p className="text-sm text-secondary">Start a run above, or pick one from Recent runs to see its progress.</p>
-            ) : (
-              <div className="space-y-4">
-                <div className="grid gap-3 sm:grid-cols-4">
-                  <DiscoveryMetric label="Questions tested" value={activeSession.probeCount ?? 0} />
-                  <DiscoveryMetric label="Cited queries" value={activeSession.citedCount ?? 0} tone="positive" />
-                  <DiscoveryMetric label="Worth tracking" value={activeSession.aspirationalCount ?? 0} tone="caution" />
-                  <DiscoveryMetric label="Skip" value={activeSession.wastedCount ?? 0} tone="negative" />
-                </div>
-
-                {activeSession.error && (
-                  <div className="rounded-md border border-negative-800/40 bg-negative-950/20 px-3 py-2 text-sm text-negative">
-                    {activeSession.error}
-                  </div>
-                )}
-
-                {activeSession.warning && (
-                  <div className="rounded-md border border-caution-800/40 bg-caution-950/20 px-3 py-2 text-sm text-caution">
-                    {activeSession.warning}
-                  </div>
-                )}
-
-                {activeSession.icpDescription && (
-                  <div className="rounded-md border border-default bg-surface px-3 py-2">
-                    <p className="text-[10px] uppercase tracking-wide text-muted">Customer profile</p>
-                    <p className="mt-1 text-sm text-neutral">{activeSession.icpDescription}</p>
-                  </div>
-                )}
-
-                {activeSession.competitorMap.length > 0 && (
-                  <div>
-                    <p className="mb-2 text-sm font-medium text-secondary">Sites that keep getting cited</p>
-                    <div className="flex flex-wrap gap-2">
-                      {activeSession.competitorMap.slice(0, 8).map(entry => (
-                        <span key={entry.domain} className="rounded-md border border-default bg-bg px-2 py-1 text-xs text-neutral">
-                          {entry.domain} <span className="text-muted">{entry.hits}</span>
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </Card>
-
-          {activeSession?.status === 'completed' && (
-            <Card className="surface-card">
-              <div className="section-head">
-                <div>
-                  <p className="eyebrow eyebrow-soft">Step 2</p>
-                  <h3>Review a discovery question for tracking</h3>
-                  <p className="mt-1 max-w-3xl text-sm leading-6 text-secondary">
-                    Choose a Cited query or Worth tracking result below. Tracking opens with the saved discovery source, where you choose its scope and review the exact next-check change.
-                  </p>
-                </div>
-              </div>
-              <p className="mt-3 text-xs leading-5 text-muted">Discovery remains research. This review does not add competitors or start a check.</p>
-            </Card>
-          )}
-
-          <Card className="surface-card">
-            <div className="section-head section-head-inline">
-              <div>
-                <p className="eyebrow eyebrow-soft">All results</p>
-                <h3>Every question we tested</h3>
-              </div>
-              {detailQuery.isFetching && <ToneBadge tone="neutral">Loading</ToneBadge>}
-            </div>
-            {probeRows.length === 0 ? (
-              <p className="text-sm text-muted">Results show up here once the run starts testing questions.</p>
-            ) : (
-              <div className="evidence-table-wrap">
-                <table className="evidence-table">
-                  <thead>
-                    <tr>
-                      <th>Question</th>
-                      <th>Result</th>
-                      <th>Sites cited</th>
-                      <th><span className="sr-only">Tracking review</span></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {probeRows.map(probe => (
-                      <tr key={probe.id}>
-                        <td className="font-medium text-heading">{probe.query}</td>
-                        <td>
-                          <ToneBadge tone={toneForBucket(probe.bucket)}>{bucketLabel(probe.bucket)}</ToneBadge>
-                        </td>
-                        <td className="text-secondary">
-                          {probe.citedDomains.length > 0 ? probe.citedDomains.slice(0, 3).join(', ') : '-'}
-                        </td>
-                        <td className="whitespace-nowrap text-right">
-                          {!isEmbed() && onReviewDiscoveryProbe && (probe.bucket === 'cited' || probe.bucket === 'aspirational') && (
-                            <WriteButton type="button" variant="ghost" size="sm" onClick={() => onReviewDiscoveryProbe(probe.id)}>
-                              Review for tracking
-                            </WriteButton>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </Card>
-        </div>
-      </div>
-    </>
-  )
-}
-
-function DiscoveryMetric({
-  label,
-  value,
-  tone = 'neutral',
-}: {
-  label: string
-  value: number
-  tone?: 'positive' | 'caution' | 'negative' | 'neutral'
-}) {
-  const valueClass =
-    tone === 'positive' ? 'text-positive' : tone === 'caution' ? 'text-caution' : tone === 'negative' ? 'text-negative' : 'text-heading'
-  return (
-    <div className="rounded-md border border-default bg-surface px-4 py-3">
-      <p className="text-[10px] uppercase tracking-wide text-muted">{label}</p>
-      <p className={`mt-1 text-2xl font-semibold tabular-nums ${valueClass}`}>{value}</p>
-    </div>
-  )
-}
-
-function toneForSession(status: DiscoverySessionDto['status']) {
-  if (status === 'completed') return 'positive'
-  if (status === 'failed') return 'negative'
-  if (ACTIVE_DISCOVERY_STATUSES.has(status)) return 'caution'
-  return 'neutral'
-}
-
-function toneForBucket(bucket: DiscoveryBucket | null) {
-  if (bucket === 'cited') return 'positive'
-  if (bucket === 'aspirational') return 'caution'
-  if (bucket === 'wasted-surface') return 'negative'
-  return 'neutral'
-}
-
-const BUCKET_LABELS: Record<DiscoveryBucket, string> = {
-  cited: 'Cited queries',
-  aspirational: 'Worth tracking',
-  'wasted-surface': 'Skip',
-}
-
-function bucketLabel(bucket: DiscoveryBucket | null): string {
-  return bucket ? BUCKET_LABELS[bucket] : 'Not classified'
-}
-
-function shortId(id: string): string {
-  return id.length > 8 ? id.slice(0, 8) : id
-}
-
-async function refreshDiscovery(
-  queryClient: QueryClientLike,
-  _projectName: string,
-  _sessionId: string,
-) {
-  // Generated `<op>QueryKey` helpers produce flat keys with no shared
-  // hierarchical prefix, so match every discovery op by name pattern —
-  // catches the list, detail, promote-preview, and any future discovery
-  // variant. Runs list uses the exact key to avoid invalidating
-  // run-detail caches unnecessarily.
-  await Promise.all([
-    invalidateProjectQueryDomain(queryClient, 'discovery'),
-    queryClient.invalidateQueries({ queryKey: getApiV1RunsQueryKey({ client: heyClient }) }),
-  ])
-}
-
-type QueryClientLike = Pick<ReturnType<typeof useQueryClient>, 'invalidateQueries'>

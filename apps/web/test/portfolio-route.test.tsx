@@ -4,8 +4,8 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { act, cleanup, fireEvent, render, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider, focusManager } from '@tanstack/react-query'
 import { RouterProvider } from '@tanstack/react-router'
-import type { CompetitorLandscapeResponse, EmbedClientConfig, MeasurementPlanResponse, MeasurementPlanV2, VisibilityReportResponse } from '@canonry/canonry-contracts'
-import { aggregateSentiment, emptyCitationVisibility, queryTrackingWorkspaceResponseSchema, sentimentSettingsSchema, sentimentSummarySchema, visibilityReportResponseSchema } from '@canonry/canonry-contracts'
+import type { CompetitorLandscapeResponse, EmbedClientConfig, MeasurementPlanResponse, MeasurementPlanV2, UiTelemetryEvent, VisibilityReportResponse } from '@canonry/canonry-contracts'
+import { aggregateSentiment, emptyCitationVisibility, queryTrackingResultsResponseSchema, queryTrackingWorkspaceResponseSchema, sentimentSettingsSchema, sentimentSummarySchema, visibilityReportResponseSchema } from '@canonry/canonry-contracts'
 
 import { createDashboardFixture } from '../src/mock-data.js'
 import { createAppRouter } from '../src/router/router.js'
@@ -15,7 +15,8 @@ import { preloadAllLazyRoutes } from '../src/router/routes.js'
 import { heyClient } from '../src/api.js'
 import { createQueryClient } from '../src/queries/query-client.js'
 import { MANAGED_SWEEPS_COPY, MANAGED_SWEEPS_UNAVAILABLE_COPY, MANAGED_SWEEPS_RUNNING_COPY, MANAGED_SWEEPS_NEXT_LABEL } from '../src/components/project/ManagedSweepStatus.js'
-import { VISIBILITY_SCOPE_RECOVERY_COPY } from '../src/components/project/VisibilityTrendSection.js'
+import { VISIBILITY_SCOPE_RECOVERY_COPY, VISIBILITY_TOOLBAR_COPY } from '../src/components/project/VisibilityTrendSection.js'
+import { formatObservedInstantMonthDay, observedInstant } from '../src/components/shared/ChartPrimitives.js'
 import { MARKET_SCOPE_COPY } from '../src/components/project/VisibilityScopePicker.js'
 import { parseVisibilitySelection, visibilityReportFirstPageQuery } from '../src/lib/measurement-view-url.js'
 import { PROJECT_SCOPE_COPY } from '../src/lib/project-scope.js'
@@ -24,6 +25,10 @@ import { AINYC_LATEST_RUN, ainycCitationVisibility, ainycComparison, ainycEviden
 import { toRunListItem } from '../src/build-dashboard.js'
 import { mapInsightDtosToVms } from '../src/mappers/insight-mapper.js'
 import { AdvancedMeasurementSection } from '../src/components/project/advanced-measurement/AdvancedMeasurementSection.js'
+import { QueriesSection } from '../src/components/project/DiscoverySection.js'
+import { parseTrackedFilters, TRACKED_FILTER_KEYS } from '../src/components/project/queries/advanced/tracked-filters.js'
+import { LOCATIONS_MARKETS_COPY } from '../src/components/project/settings/LocationsMarketsSection.js'
+import { configureUiTelemetry, recordUiSearchParamsChange, resetUiTelemetryForTests, UI_FILTER_DEBOUNCE_MS } from '../src/lib/ui-telemetry.js'
 import {
   getApiV1CdpStatusQueryKey,
   getApiV1ProjectsByNameTechnicalAeoRunsByRunIdProgressQueryKey,
@@ -33,6 +38,7 @@ import {
   getApiV1ProjectsByNameMeasurementSetupQueryKey,
   getApiV1ProjectsByNameMeasurementReportQueryKey,
   getApiV1ProjectsByNameQueriesQueryKey,
+  getApiV1ProjectsByNameQueryTrackingQueryKey,
   getApiV1ProjectsByNameAnalyticsCompetitorsQueryKey,
   getApiV1ProjectsByNameCitationsVisibilityQueryKey,
   getApiV1ProjectsByNameSchedulesQueryKey,
@@ -50,6 +56,16 @@ vi.mock('../src/components/project/advanced-measurement/AdvancedMeasurementSecti
   const actual = await importOriginal<typeof import('../src/components/project/advanced-measurement/AdvancedMeasurementSection.js')>()
   return { ...actual, AdvancedMeasurementSection: vi.fn(actual.AdvancedMeasurementSection) }
 })
+
+// Pass-through spy: the route test reads what ProjectPage hands the Queries section from the URL,
+// whatever the section's pages draw.
+vi.mock('../src/components/project/DiscoverySection.js', async importOriginal => {
+  const actual = await importOriginal<typeof import('../src/components/project/DiscoverySection.js')>()
+  return { ...actual, QueriesSection: vi.fn(actual.QueriesSection) }
+})
+
+/** The place picker's project option for the fixture project. */
+const ALL_OF_CITYPOINT = PROJECT_SCOPE_COPY.allOf('Citypoint Dental NYC')
 
 /** The Simple overview opens on the trend chart: no Visibility card or table above it. */
 function expectTrendChartFirst(html: string) {
@@ -88,6 +104,8 @@ async function renderAt(
       scope?: 'all-markets'
     }
     visibilityReport?: VisibilityReportResponse
+    /** GET /query-tracking, which Settings reads for a published setup's locations and markets. */
+    tracking?: ReturnType<typeof queryTrackingWorkspaceResponse>
   },
   /**
    * `seedPlan: false` leaves the measurement-plan query unseeded, which is the
@@ -216,6 +234,9 @@ async function renderAt(
       getApiV1ProjectsByNameMeasurementSetupQueryKey({ client: heyClient, path: { name: projectName } }),
       settledSetup,
     )
+  }
+  if (measurement?.tracking) {
+    queryClient.setQueryData(getApiV1ProjectsByNameQueryTrackingQueryKey({ client: heyClient, path: { name: projectName } }), measurement.tracking)
   }
   if (measurement?.report && measurement.plan.active) {
     queryClient.setQueryData(
@@ -496,6 +517,48 @@ function queryTrackingWorkspaceResponse(overrides: Record<string, unknown> = {})
     }],
     savedSources: { research: [], discovery: [] },
     ...overrides,
+  })
+}
+
+/** Workspace totals as the server counts them. No number here is the length of a list in a response of this file. */
+const STRUCTURE_SUMMARY = {
+  asked: 12, notAsked: 1,
+  byClass: { branded: 5, nonBrand: 6, mixed: 1, unknown: 0 },
+  byFocus: { market: 6, property: 5, company: 0, custom: 1 },
+  assignments: { total: 30, branded: 12, nonBrand: 18, unknown: 0 },
+  answersPerSweep: 90,
+  structure: { targets: 192, markets: 137, groups: 157, topLevelGroups: 20, competitors: 4 },
+}
+
+/** The published setup of `measurementPlanV2Response` as the workspace read lists it, with one market over its location. */
+function settingsWorkspaceResponse() {
+  return queryTrackingWorkspaceResponse({
+    targets: [{ stableKey: 'harbor-house', label: 'Harbor House', marketKeys: ['north-market'], counts: { propertyQueries: 3, marketQueries: 5, customQueries: 0, answersPerSweep: 8 } }],
+    groups: [{ stableKey: 'north', label: 'North', targetKeys: ['harbor-house'], counts: { queries: 8, markets: 1, answersPerSweep: 8 } }],
+    markets: [{ stableKey: 'north-market', label: 'North Market', groupKey: 'north', usageEdges: [], targetKeys: ['harbor-house'], counts: { marketQueries: 5, propertyQueries: 3, answersPerSweep: 8 } }],
+    scopeOptions: [
+      { id: 'project', label: 'Project', kind: 'project', targetCount: 1 },
+      { id: 'north', label: 'North', kind: 'group', targetCount: 1 },
+      { id: 'north-market', label: 'North Market', kind: 'market', targetCount: 1, parentGroupIds: ['north'] },
+      { id: 'harbor-house', label: 'Harbor House', kind: 'property', targetCount: 1, parentGroupIds: ['north'] },
+    ],
+    tracked: [],
+    summary: STRUCTURE_SUMMARY,
+  })
+}
+
+/** The last sweep's results for the tracked workspace above. `changed` is a sweep from before the last tracking change. */
+function queryTrackingResultsResponse({ changed = false } = {}) {
+  return queryTrackingResultsResponseSchema.parse({
+    mode: 'advanced',
+    scope: { kind: 'project', key: null },
+    run: { id: 'run-sweep', createdAt: '2026-07-28T12:00:00.000Z', completedAt: '2026-07-28T12:10:00.000Z', status: 'completed', revision: changed ? 3 : 4, matchesCurrentTracking: !changed },
+    engines: ['openai'],
+    rows: changed ? [] : [{
+      queryId: 'query-citypoint', queryText: 'Citypoint dentist', queryClass: 'branded',
+      engines: [{ provider: 'openai', expectedAnswers: 1, answers: 1, mentionedAnswers: 1, citedAnswers: 1, uncheckedSourceAnswers: 0, mentioned: true, cited: true }],
+    }],
+    pendingRows: changed ? 1 : 0,
   })
 }
 
@@ -792,8 +855,8 @@ test('the Portfolio route is an explicit non-embed project workspace', async () 
   const html = await renderAt('/projects/project_citypoint/portfolio')
 
   expect(html).not.toMatch(/href="\/projects\/[^"/]+\/portfolio" class="project-subnav-link/)
-  expect(html).toContain('Advanced measurement setup')
-  expect(html).toContain('Loading advanced measurement setup')
+  expect(html).toContain('Bulk setup')
+  expect(html).toContain('Loading bulk setup')
   expect(html).toContain('AI Visibility check running')
   expect(html).not.toContain('Portfolio setup')
   expect(html).not.toContain('Coverage and performance')
@@ -945,7 +1008,7 @@ test('an active setup uses the unified report without flashing legacy metrics', 
   })
 
   expect(html).toContain('Non-brand queries')
-  expect(html).toContain('Properties mentioned')
+  expect(html).toContain('Locations mentioned')
   expect(html).toContain('Harbor House')
   expect(html).toContain('AI Visibility check running')
   // Competitor history remains available on the legacy Advanced Measurement
@@ -1080,8 +1143,8 @@ test('the unified visibility report owns scope, class, paging, search, and answe
   expect(observed.some(path => path.includes('cursor=cursor-2'))).toBe(true)
   expect(observed.some(path => path.includes('cursor=cursor-2') && path.includes('runId=drawer-run'))).toBe(false)
 
-  const scopePicker = page.getByText('Whole site', { selector: 'summary, summary > span' }).closest('details')!
-  fireEvent.click(page.getByText('Whole site', { selector: 'summary, summary > span' }))
+  const scopePicker = page.getByText(ALL_OF_CITYPOINT, { selector: 'summary, summary > span' }).closest('details')!
+  fireEvent.click(page.getByText(ALL_OF_CITYPOINT, { selector: 'summary, summary > span' }))
   fireEvent.click(within(scopePicker).getByRole('button', { name: 'Select North' }))
   expect(await page.findByText('North Property')).toBeTruthy()
   expect(observed.some(path => path.includes('scope=group') && path.includes('scopeKey=north'))).toBe(true)
@@ -1335,8 +1398,16 @@ test('embedded Queries and legacy Discovery URLs fall back before reading unpubl
   expect(observed.some(path => path.includes('/query-tracking') || path.includes('/research') || path.includes('/discover'))).toBe(false)
 })
 
-test('the Queries route reads the workspace and keeps scoped removal active after its URL update', async () => {
+test('the Queries route reads the workspace and the results once, lists every type whatever queryClass the URL carries, and a row action writes no URL', async () => {
   const observed: string[] = []
+  const base = queryTrackingWorkspaceResponse()
+  // One branded and one non-brand query for the same location, which sits in the North group.
+  const workspace = queryTrackingWorkspaceResponse({
+    tracked: [base.tracked[0]!, {
+      ...base.tracked[0]!, queryId: 'query-category', queryText: 'Best dentist nearby', normalizedText: 'best dentist nearby',
+      assignments: [{ ...base.tracked[0]!.assignments[0]!, queryClass: 'non-brand' }],
+    }],
+  })
   const realFetch = globalThis.fetch
   globalThis.fetch = (async (input: RequestInfo | URL) => {
     const raw = input instanceof Request ? input.url : String(input)
@@ -1346,7 +1417,8 @@ test('the Queries route reads the workspace and keeps scoped removal active afte
     if (path.endsWith('/runs?kind=answer-visibility')) return jsonResponse([])
     if (url.pathname.endsWith('/measurement-plan')) return jsonResponse({ active: null })
     if (url.pathname.endsWith('/measurement-setup')) return jsonResponse({ state: 'unconfigured', nextAction: 'configure', mode: 'none', activeRevision: null, activeSchemaVersion: null, draft: null })
-    if (url.pathname.endsWith('/query-tracking')) return jsonResponse(queryTrackingWorkspaceResponse())
+    if (url.pathname.endsWith('/query-tracking')) return jsonResponse(workspace)
+    if (url.pathname.endsWith('/query-tracking/results')) return jsonResponse(queryTrackingResultsResponse())
     if (url.pathname.endsWith('/measurement-query-templates')) return jsonResponse({ templates: [] })
     return jsonResponse({ code: 'NOT_FOUND', message: 'not found' }, 404)
   }) as typeof fetch
@@ -1354,7 +1426,8 @@ test('the Queries route reads the workspace and keeps scoped removal active afte
 
   const fixture = createDashboardFixture({})
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  const router = createAppRouter(queryClient, { initialEntries: ['/projects/project_citypoint/queries?measurementScope=group&measurementScopeKey=north'] })
+  // `queryClass` is AI Visibility's key: alone, it narrows nothing on Tracked, which has its own Type filter.
+  const router = createAppRouter(queryClient, { initialEntries: ['/projects/project_citypoint/queries?measurementScope=group&measurementScopeKey=north&queryClass=branded'] })
   await router.load()
   const page = render(
     <QueryClientProvider client={queryClient}>
@@ -1366,17 +1439,76 @@ test('the Queries route reads the workspace and keeps scoped removal active afte
 
   expect(await page.findByRole('heading', { name: 'Queries' })).toBeTruthy()
   expect(await page.findByText('Citypoint dentist')).toBeTruthy()
+  expect(page.getByText('Best dentist nearby')).toBeTruthy()
+  fireEvent.click(page.getByRole('button', { name: /^Filters/ }))
+  expect((page.getByRole('combobox', { name: 'Type' }) as HTMLSelectElement).value).toBe('all')
   expect(page.getByRole('tab', { name: 'Tracked' }).getAttribute('aria-selected')).toBe('true')
-  await waitFor(() => expect(observed.some(path => path.endsWith('/query-tracking'))).toBe(true))
+  // One workspace read and one results read, for the Place in the URL.
+  await waitFor(() => expect(observed.filter(path => path.includes('/query-tracking')).map(path => path.slice(path.indexOf('/query-tracking')))).toEqual([
+    '/query-tracking',
+    '/query-tracking/results?scope=group&scopeKey=north&sort=winning&compare=previous',
+  ]))
   expect(observed.some(path => path.includes('/discover') || path.includes('/research'))).toBe(false)
 
-  fireEvent.click(page.getByRole('button', { name: 'Remove Citypoint dentist' }))
-  await waitFor(() => expect(router.state.location.search.trackingQueryId).toBe('query-citypoint'))
+  // A row changes through its menu and a sheet. Nothing is written to the URL, so the Place stays.
+  fireEvent.click(page.getByRole('button', { name: 'Actions for Citypoint dentist' }))
+  fireEvent.click(page.getByRole('menuitem', { name: 'Stop tracking' }))
+  expect(within(await page.findByRole('dialog', { name: 'Stop tracking' })).getByText('Citypoint dentist')).toBeTruthy()
+  expect(router.state.location.search.trackingQueryId).toBeUndefined()
   expect(router.state.location.search.measurementScope).toBe('group')
   expect(router.state.location.search.measurementScopeKey).toBe('north')
-  expect(page.getByRole('heading', { name: 'Remove query' })).toBeTruthy()
-  expect(page.queryByRole('heading', { name: 'Edit query' })).toBeNull()
-  expect(page.getByText('Only assignments in North · Group will be removed. Earlier results stay unchanged.')).toBeTruthy()
+  expect(router.state.location.search.queryClass).toBe('branded')
+  expect(page.queryByRole('heading', { name: /^(Edit|Remove) query$/ })).toBeNull()
+})
+
+test('a row link whose query the URL\'s place and filters leave out lands on the row: the URL is widened once and keeps the link', async () => {
+  const base = queryTrackingWorkspaceResponse()
+  // The linked query was stopped after its link was copied: it is asked nowhere, so it is in no place and under no clean Status.
+  const workspace = queryTrackingWorkspaceResponse({
+    tracked: [base.tracked[0]!, { ...base.tracked[0]!, queryId: 'query-stopped', queryText: 'Dentist open late', normalizedText: 'dentist open late', state: 'awaiting-sweep', lastMeasuredAt: null, assignments: [] }],
+  })
+  const realFetch = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = new URL(input instanceof Request ? input.url : String(input), window.location.origin)
+    if (url.pathname.endsWith('/runs')) return jsonResponse([])
+    if (url.pathname.endsWith('/measurement-plan')) return jsonResponse({ active: null })
+    if (url.pathname.endsWith('/measurement-setup')) return jsonResponse({ state: 'unconfigured', nextAction: 'configure', mode: 'none', activeRevision: null, activeSchemaVersion: null, draft: null })
+    if (url.pathname.endsWith('/query-tracking')) return jsonResponse(workspace)
+    if (url.pathname.endsWith('/query-tracking/results')) return jsonResponse(queryTrackingResultsResponse())
+    if (url.pathname.endsWith('/measurement-query-templates')) return jsonResponse({ templates: [] })
+    return jsonResponse({ code: 'NOT_FOUND', message: 'not found' }, 404)
+  }) as typeof fetch
+  onTestFinished(() => { globalThis.fetch = realFetch })
+
+  const fixture = createDashboardFixture({})
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const router = createAppRouter(queryClient, { initialEntries: ['/projects/project_citypoint/queries?measurementScope=group&measurementScopeKey=north&trackedSubject=location&trackingQueryId=query-stopped'] })
+  await router.load()
+  const page = render(
+    <QueryClientProvider client={queryClient}>
+      <DashboardProvider value={{ dashboard: fixture.dashboard, health: fixture.health }}>
+        <RouterProvider router={router} />
+      </DashboardProvider>
+    </QueryClientProvider>,
+  )
+
+  const linked = (await page.findByRole('button', { name: 'Actions for Dentist open late' })).closest('tr')!
+  expect(linked.hasAttribute('data-highlighted')).toBe(true)
+  expect(within(linked).getByRole('button', { name: 'Dentist open late' }).getAttribute('aria-expanded')).toBe('true')
+  // Both changes land: the filters and the place are two writes to one URL.
+  expect(router.state.location.search).toMatchObject({ trackingQueryId: 'query-stopped', trackedStatus: 'all', measurementScope: 'project' })
+  expect(router.state.location.search.trackedSubject).toBeUndefined()
+  expect(router.state.location.search.measurementScopeKey).toBeUndefined()
+  fireEvent.click(page.getByRole('button', { name: /^Filters/ }))
+  expect((page.getByRole('combobox', { name: 'Status' }) as HTMLSelectElement).value).toBe('all')
+  expect(page.getByText('Citypoint dentist')).toBeTruthy()
+  expect(page.queryByRole('dialog')).toBeNull()
+
+  // After that the filters are the reader's: hiding the row again is not undone.
+  fireEvent.change(page.getByRole('combobox', { name: 'Status' }), { target: { value: 'asked' } })
+  await waitFor(() => expect(page.queryByText('Dentist open late')).toBeNull())
+  expect(router.state.location.search.trackedStatus).toBeUndefined()
+  expect(router.state.location.search.trackingQueryId).toBe('query-stopped')
 })
 
 // The fixture's Citypoint project has a queued AI sweep; dropping it leaves only the completed one.
@@ -1388,7 +1520,7 @@ function dashboardFixture(sweepActive: boolean) {
   return fixture
 }
 
-test.each([true, false])('the Queries route pauses Confirm while a sweep is queued (queued: %s)', async sweepActive => {
+test.each([true, false])('the Queries route pauses publishing while a sweep is queued (queued: %s)', async sweepActive => {
   const realFetch = globalThis.fetch
   globalThis.fetch = (async (input: RequestInfo | URL) => {
     const raw = input instanceof Request ? input.url : String(input)
@@ -1397,6 +1529,7 @@ test.each([true, false])('the Queries route pauses Confirm while a sweep is queu
     if (url.pathname.endsWith('/measurement-plan')) return jsonResponse({ active: null })
     if (url.pathname.endsWith('/measurement-setup')) return jsonResponse({ state: 'unconfigured', nextAction: 'configure', mode: 'none', activeRevision: null, activeSchemaVersion: null, draft: null })
     if (url.pathname.endsWith('/query-tracking')) return jsonResponse(queryTrackingWorkspaceResponse())
+    if (url.pathname.endsWith('/query-tracking/results')) return jsonResponse(queryTrackingResultsResponse())
     if (url.pathname.endsWith('/query-tracking/preview')) {
       const { workspaceVersion, active } = queryTrackingWorkspaceResponse()
       return jsonResponse({
@@ -1422,12 +1555,13 @@ test.each([true, false])('the Queries route pauses Confirm while a sweep is queu
     </QueryClientProvider>,
   )
 
-  fireEvent.click(await page.findByRole('button', { name: 'Remove Citypoint dentist' }))
-  fireEvent.click(page.getByRole('button', { name: 'Review changes' }))
-  const confirm = await page.findByRole('button', { name: 'Confirm changes' }) as HTMLButtonElement
-  expect(confirm.disabled).toBe(sweepActive)
-  const message = page.queryByText('A check is queued or running. Publish after it finishes.')
-  expect(message?.getAttribute('role') ?? null).toBe(sweepActive ? 'status' : null)
+  fireEvent.click(await page.findByRole('button', { name: 'Actions for Citypoint dentist' }))
+  fireEvent.click(page.getByRole('menuitem', { name: 'Stop tracking' }))
+  fireEvent.click(within(await page.findByRole('dialog', { name: 'Stop tracking' })).getByRole('button', { name: 'Review' }))
+  const publish = await page.findByRole('button', { name: 'Publish 1 change' }) as HTMLButtonElement
+  expect(publish.disabled).toBe(sweepActive)
+  const message = page.queryByRole('button', { name: 'Check running. A check is queued or running. Publish after it finishes.' })
+  expect(message?.parentElement?.parentElement?.getAttribute('role') ?? null).toBe(sweepActive ? 'status' : null)
 })
 
 test.each([true, false])('the Portfolio route passes a queued sweep to setup Publish (queued: %s)', async sweepActive => {
@@ -1471,7 +1605,7 @@ test('the legacy Discovery route opens the separate research workspace without t
 
   const fixture = createDashboardFixture({})
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  const router = createAppRouter(queryClient, { initialEntries: ['/projects/project_citypoint/discovery'] })
+  const router = createAppRouter(queryClient, { initialEntries: ['/projects/project_citypoint/discovery?researchMode=find'] })
   await router.load()
   const page = render(
     <QueryClientProvider client={queryClient}>
@@ -1482,9 +1616,7 @@ test('the legacy Discovery route opens the separate research workspace without t
   )
 
   expect(await page.findByRole('heading', { name: 'Queries' })).toBeTruthy()
-  expect(await page.findByRole('heading', { name: 'Generate and check questions' })).toBeTruthy()
   expect(page.getByRole('tab', { name: 'Research' }).getAttribute('aria-selected')).toBe('true')
-  expect(page.getByRole('tab', { name: 'Find queries' }).getAttribute('aria-selected')).toBe('true')
   await waitFor(() => expect(observed.some(path => path.includes('/discover/sessions'))).toBe(true))
   expect(observed.some(path => path.includes('/query-tracking'))).toBe(false)
 })
@@ -1568,8 +1700,9 @@ test('a failed setup read blocks setup instead of looking planless', async () =>
   )
 
   await waitFor(() => {
-    expect(screen.getByText('Could not load advanced measurement setup.')).toBeTruthy()
+    expect(screen.getByText('Could not load setup.')).toBeTruthy()
   })
+  expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy()
   expect(screen.queryByRole('button', { name: 'Review sitemap' })).toBeNull()
   expect(screen.queryByRole('button', { name: 'Publish setup' })).toBeNull()
 })
@@ -1649,7 +1782,7 @@ test('cached setup and queries remain usable when their background refresh fails
     expect(queryClient.getQueryState(planKey)?.status).toBe('error')
     expect(queryClient.getQueryState(queriesKey)?.status).toBe('error')
   })
-  expect(screen.getByRole('heading', { name: 'Properties' })).toBeTruthy()
+  expect(screen.getByRole('heading', { name: 'Locations' })).toBeTruthy()
   expect(screen.queryByText('Could not load the active measurement setup.')).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
   await waitFor(() => expect(screen.getByRole('heading', { name: 'Groups' })).toBeTruthy())
@@ -2091,11 +2224,11 @@ test('By engine, Past sweeps and Competitors over time read ainyc as the approve
   // The tiles, engine counts, per-model rates and competitor gap rows of the
   // old diagnostics are Details lines; the per-model rates come from /overview.
   expect([...byEngine.querySelectorAll('.av-details-list li')].map(item => item.textContent)).toEqual([
-    'Cited and named: 4 of 11 queries',
-    'Cited but not named: 0 of 11 queries',
-    'Named but not cited: 0 of 11 queries',
-    'Not cited or named: 7 of 11 queries',
-    'All queries: cited by 4 of 4 engines, named by 4 of 4',
+    'Cited and mentioned: 4 of 11 queries',
+    'Cited but not mentioned: 0 of 11 queries',
+    'Mentioned but not cited: 0 of 11 queries',
+    'Not cited or mentioned: 7 of 11 queries',
+    'All queries: cited by 4 of 4 engines, mentioned by 4 of 4',
     'Claude (claude-sonnet-5) citation rate: 28.6%, 4 of 14 answers, all queries',
     'Gemini (gemini-3.5-flash) citation rate: 42.9%, 6 of 14 answers, all queries',
     'OpenAI (chat-latest) citation rate: 14.3%, 2 of 14 answers, all queries',
@@ -2224,12 +2357,12 @@ test('fresh project settings use the empty collection instead of a noisy schedul
     </AccountProvider>,
   )
 
-  expect(await page.findByRole('heading', { name: 'Scheduled runs' })).toBeTruthy()
+  expect(await page.findByRole('heading', { name: 'Scheduled checks' })).toBeTruthy()
   // Awaited, not synchronous: this copy appears only once the schedules query
   // settles, and nothing before it waits on that query. The heading above can
   // resolve first, so a synchronous read here is a race that only passed while
   // an unrelated component happened to keep the tree re-rendering.
-  expect(await page.findByText('No schedule configured. Set one to automatically trigger AI Visibility checks.')).toBeTruthy()
+  expect(await page.findByText('No schedule')).toBeTruthy()
   await new Promise(resolve => setTimeout(resolve, 50))
   expect(observed.some(path => path.endsWith('/schedules'))).toBe(true)
   expect(observed.some(path => path.endsWith('/schedule'))).toBe(false)
@@ -2546,7 +2679,8 @@ test('saving the project provider allowlist refreshes server-owned sweep readine
     </QueryClientProvider>,
   )
 
-  expect(await page.findByRole('button', { name: 'Set up AI Visibility' })).toBeTruthy()
+  // The project has a tracked query, so it is set up: what it lacks is an engine it can use.
+  expect(await page.findByRole('button', { name: 'Connect an engine' })).toBeTruthy()
   fireEvent.click(await page.findByLabelText('All connected engines'))
   fireEvent.click(page.getByRole('button', { name: 'Save engines' }))
 
@@ -2601,7 +2735,7 @@ test('window focus refreshes server-owned sweep readiness on a mounted project',
     </QueryClientProvider>,
   )
 
-  expect(await page.findByRole('button', { name: 'Set up AI Visibility' })).toBeTruthy()
+  expect(await page.findByRole('button', { name: 'Connect an engine' })).toBeTruthy()
   ready = true
   await act(async () => {
     focusManager.setFocused(false)
@@ -2669,7 +2803,8 @@ test('AI Visibility honors the project provider allowlist instead of any configu
     readiness: false,
   })
 
-  expect(html).toContain('Set up AI Visibility')
+  expect(html).toContain('Connect an engine')
+  expect(html).not.toContain('Set up AI Visibility')
   expect(html).not.toContain('Run AI Visibility check')
   }
 })
@@ -2709,7 +2844,7 @@ test('an established schedule stays visible when run prerequisites need repair',
   })
 
   expect(html).toContain('Next AI Visibility check')
-  expect(html).toContain('Set up AI Visibility')
+  expect(html).toContain('Connect an engine')
   expect(html).not.toContain('Run AI Visibility check')
 })
 
@@ -2732,15 +2867,24 @@ test('deleting the project is still offered, at the end of the Settings tab', as
   expect(html).toContain('Permanently deletes this project and all its queries, competitors, runs, and snapshots.')
 })
 
+/** The "Locations & markets" section of a rendered Settings page. */
+function locationsMarketsSection(html: string) {
+  return within(renderedPage(html)).getByRole('heading', { level: 2, name: LOCATIONS_MARKETS_COPY.heading }).closest('section')!
+}
+
 test('Settings is the only discoverable entry to advanced measurement for a Simple project', async () => {
   const html = await renderAt('/projects/project_citypoint/settings', undefined, {
     plan: { active: null },
     setup: simpleMeasurementSetupResponse(),
   })
 
-  expect(html).toContain('Advanced measurement')
-  expect(html).toContain('Measure individual properties, locations, or site sections with separate query sets.')
-  expect(html).toContain('Set up advanced measurement')
+  // Was the "Advanced measurement" block: a title, a sentence and "Set up advanced measurement".
+  // Now the title, one button, and the sentence behind the info icon beside the title.
+  const section = locationsMarketsSection(html)
+  expect(section.textContent).toBe('Locations & marketsAdd locations')
+  expect(within(section).getByRole('button', { name: 'Measure individual locations or site sections with separate query sets.' })).toBeTruthy()
+  expect(html).not.toContain('Set up advanced measurement')
+  expect(within(renderedPage(html)).queryByRole('heading', { name: 'Advanced measurement' })).toBeNull()
 })
 
 test('Settings resumes an unfinished advanced measurement draft', async () => {
@@ -2749,27 +2893,239 @@ test('Settings resumes an unfinished advanced measurement draft', async () => {
     setup: measurementSetupResponse(),
   })
 
-  expect(html).toContain('Continue setup')
-  expect(html).not.toContain('Set up advanced measurement')
+  expect(locationsMarketsSection(html).textContent).toBe('Locations & marketsContinue setup')
+  expect(html).not.toContain('Add locations')
 })
 
-test('Settings edits a published advanced measurement setup', async () => {
+test('Settings opens the wizard for a published advanced measurement setup', async () => {
   const html = await renderAt('/projects/project_citypoint/settings', undefined, {
     plan: measurementPlanV2Response(4),
     setup: activeMeasurementSetupResponse(4),
+    tracking: queryTrackingWorkspaceResponse(),
   })
 
-  expect(html).toContain('Edit setup')
+  // Was "Edit setup". The structure is read on the page now, and the wizard is the bulk way to change it.
+  const section = locationsMarketsSection(html)
+  expect(within(section).getByRole('button', { name: 'Bulk setup' })).toBeTruthy()
+  expect(within(section).getByRole('table', { name: 'Locations' })).toBeTruthy()
+  expect(html).not.toContain('Edit setup')
 })
 
 test('Settings resumes an unpublished draft over an active advanced setup', async () => {
   const html = await renderAt('/projects/project_citypoint/settings', undefined, {
     plan: measurementPlanV2Response(4),
     setup: measurementSetupResponse(4),
+    tracking: queryTrackingWorkspaceResponse({ summary: STRUCTURE_SUMMARY }),
   })
 
-  expect(html).toContain('Continue setup')
+  // Was "Continue setup" in place of "Edit setup". The draft is one of the section's numbers, with its own way in.
+  const section = locationsMarketsSection(html)
+  expect(within(section).getByText('Open drafts').closest('div')!.querySelector('dd')!.textContent).toBe('1Open draft')
+  expect(within(section).getByRole('button', { name: 'Open draft' })).toBeTruthy()
+  expect(within(section).getByRole('button', { name: 'Bulk setup' })).toBeTruthy()
   expect(html).not.toContain('Edit setup')
+  expect(html).not.toContain('Continue setup')
+})
+
+// Settings is one stacked page with a jump list beside it. The list is built from the sections the
+// page renders, so an entry never points at a section the account does not have.
+const SETTINGS_ENTRIES = {
+  general: ['General', 'settings-general'],
+  engines: ['Engines', 'settings-engines'],
+  siteHealth: ['Site Health scans', 'settings-site-health'],
+  locationsMarkets: ['Locations & markets', 'settings-locations-markets'],
+  schedule: ['Schedule', 'settings-schedule'],
+  notifications: ['Notifications', 'settings-notifications'],
+  remove: ['Delete project', 'settings-delete'],
+} as const
+
+function settingsMeasurement(mode: 'simple' | 'advanced') {
+  return mode === 'advanced'
+    ? { plan: measurementPlanV2Response(4), setup: activeMeasurementSetupResponse(4), tracking: settingsWorkspaceResponse() }
+    : { plan: { active: null }, setup: simpleMeasurementSetupResponse() }
+}
+
+/** The jump list's entries as links and as the select's options, and each anchor on the page with its headings. */
+function settingsJumpList(html: string) {
+  const page = renderedPage(html)
+  const nav = within(page).getByRole('navigation', { name: 'Settings sections' })
+  return {
+    page,
+    links: within(nav).getAllByRole('link').map(link => [link.textContent, link.getAttribute('href')]),
+    options: [...within(nav).getByRole<HTMLSelectElement>('combobox', { name: 'Settings section' }).options].map(option => [option.textContent, option.value]),
+    anchors: [...page.querySelectorAll('[id^="settings-"]')].map(anchor => [anchor.id, [...anchor.querySelectorAll('h2')].map(heading => heading.textContent)]),
+  }
+}
+
+test.each(['simple', 'advanced'] as const)('%s Settings names every section on the page in its jump list, in the page\'s order', async mode => {
+  const html = await renderAt('/projects/project_citypoint/settings', undefined, settingsMeasurement(mode), { accountRole: 'admin' })
+  const { page, links, options, anchors } = settingsJumpList(html)
+  const entries = Object.values(SETTINGS_ENTRIES)
+
+  expect(links).toEqual(entries.map(([label, id]) => [label, `/projects/project_citypoint/settings#${id}`]))
+  expect(options).toEqual(entries.map(([label, id]) => [label, id]))
+  // Today's sections in today's order, one anchor each. The answer engines draw their heading once their settings load.
+  expect(anchors).toEqual([
+    ['settings-general', ['Project settings', 'Tracking results']],
+    ['settings-engines', []],
+    ['settings-site-health', ['Site Health scans']],
+    ['settings-locations-markets', ['Locations & markets']],
+    ['settings-schedule', ['Scheduled checks']],
+    ['settings-notifications', ['Notifications']],
+    ['settings-delete', ['Delete project']],
+  ])
+  expect(page.querySelector('#settings-engines > .project-engine-settings')).not.toBeNull()
+  // No section stands outside the list.
+  expect([...page.querySelectorAll('h2')].filter(heading => heading.closest('[id^="settings-"]') === null).map(heading => heading.textContent)).toEqual([])
+  // General keeps its "Search locations" row, the engines' locations. The structure tables' search box is plain "Search".
+  expect(within(page.querySelector<HTMLElement>('#settings-general')!).getByText('Search locations')).toBeTruthy()
+  expect(within(page).queryAllByRole('searchbox').map(box => box.getAttribute('aria-label'))).toEqual(mode === 'advanced' ? ['Search'] : [])
+})
+
+test.each(['simple', 'advanced'] as const)('%s Settings leaves the sections a viewer does not have out of the jump list', async mode => {
+  const html = await renderAt('/projects/project_citypoint/settings', undefined, settingsMeasurement(mode), { accountRole: 'viewer' })
+  const { page, links, anchors } = settingsJumpList(html)
+  const { general, siteHealth, locationsMarkets, schedule, notifications } = SETTINGS_ENTRIES
+
+  expect(links.map(([label]) => label)).toEqual([general, siteHealth, locationsMarkets, schedule, notifications].map(([label]) => label))
+  expect(anchors.map(([id]) => id)).toEqual([general, siteHealth, locationsMarkets, schedule, notifications].map(([, id]) => id))
+  expect(page.querySelector('.project-engine-settings h2')?.textContent).toBe('Site Health scans')
+  expect(html).not.toContain('Delete project')
+  // The section is a viewer's to read: no way into the wizard, and the label that says so.
+  const section = locationsMarketsSection(html)
+  expect(within(section).queryByRole('button', { name: /^(Bulk setup|Open draft|Add locations|Continue setup)$/ })).toBeNull()
+  expect(within(section).getByRole('button', { name: 'View only. Your account cannot change this.' })).toBeTruthy()
+  if (mode === 'advanced') expect(within(section).getByRole('table', { name: 'Locations' })).toBeTruthy()
+})
+
+// A key for this one project writes and is no administrator: the one account where the two gates differ.
+test.each(['simple', 'advanced'] as const)('%s Settings lists Delete project and no Engines for a writer who is not an administrator', async mode => {
+  const html = await renderAt('/projects/project_citypoint/settings', undefined, settingsMeasurement(mode), {
+    apiKey: { id: 'key-project-writer', scopes: ['*'], projectId: 'project_citypoint', readOnly: false },
+  })
+  const { page, links, options, anchors } = settingsJumpList(html)
+  const { general, siteHealth, locationsMarkets, schedule, notifications, remove } = SETTINGS_ENTRIES
+  const entries = [general, siteHealth, locationsMarkets, schedule, notifications, remove]
+
+  expect(links.map(([label]) => label)).toEqual(entries.map(([label]) => label))
+  expect(options).toEqual(entries.map(([label, id]) => [label, id]))
+  // Every entry has its section on the page, with a heading in it. Engines draws nothing for this account, so it has no entry.
+  expect(anchors).toEqual([
+    ['settings-general', ['Project settings', 'Tracking results']],
+    ['settings-site-health', ['Site Health scans']],
+    ['settings-locations-markets', ['Locations & markets']],
+    ['settings-schedule', ['Scheduled checks']],
+    ['settings-notifications', ['Notifications']],
+    ['settings-delete', ['Delete project']],
+  ])
+  expect(page.querySelector('.project-engine-settings h2')?.textContent).toBe('Site Health scans')
+  // A writer gets the way into the wizard.
+  expect(within(locationsMarketsSection(html)).getByRole('button', { name: mode === 'advanced' ? 'Bulk setup' : 'Add locations' })).toBeTruthy()
+})
+
+test.each(['simple', 'advanced'] as const)('an embedded %s Settings has no jump list and no Locations & markets section', async mode => {
+  const html = await renderAt('/projects/project_citypoint/settings', { enabled: true, projectTabs: ['settings'] }, settingsMeasurement(mode))
+  const page = renderedPage(html)
+
+  expect(within(page).queryByRole('navigation', { name: 'Settings sections' })).toBeNull()
+  expect(page.querySelector('[id^="settings-"]')).toBeNull()
+  expect(html).not.toContain('Locations &amp; markets')
+  // The sections an embed had are the ones it has, as siblings on one stacked page.
+  const headings = [...page.querySelectorAll('h2')].map(heading => heading.textContent)
+  expect(headings).toEqual(expect.arrayContaining(['Project settings', 'Site Health scans', 'Scheduled checks', 'Notifications']))
+  expect(within(page).getByText('Search locations')).toBeTruthy()
+})
+
+test('a published setup is read on Settings: its numbers, its rows and the ways on from them', async () => {
+  const structure = trackingRoute(settingsWorkspaceResponse())
+  const { page, router, observed, projectName } = await renderScopeRoute(
+    '/projects/project_citypoint/settings',
+    // A project with no schedule and no webhook yet, as the onboarding tiles find it.
+    url => url.pathname.endsWith('/schedules') || url.pathname.endsWith('/notifications') ? jsonResponse([]) : structure(url),
+    { accountRole: 'admin' },
+  )
+  const section = (await page.findByRole('table', { name: 'Locations' })).closest('section')!
+  const number = (label: string) => within(section).getByText(label, { selector: 'dt' }).closest('div')!.querySelector('dd')!.textContent
+
+  // The server's totals, though the page lists one location, one market and one group.
+  expect([number('Locations'), number('Markets'), number('Groups'), number('Competitors'), number('Open drafts')]).toEqual(['192', '137', '15720 top-level', '4', '0'])
+  // A location's names and site pages come from the published plan, its counts from the workspace read.
+  const row = within(section).getByRole('link', { name: 'Harbor House' }).closest('tr')!
+  expect([...row.querySelectorAll('td')].map(cell => cell.textContent)).toEqual(['Harbor House', 'North Market', '1', '1', '3', '5'])
+  // Rows link by the project's name, the canonical form of a project URL.
+  expect(within(section).getByRole('link', { name: 'Harbor House' }).getAttribute('href')).toBe(`/projects/${encodeURIComponent(projectName)}/properties/harbor-house`)
+  // One workspace read, on the key the Queries tab reads.
+  expect(observed.filter(url => url.pathname.endsWith('/query-tracking'))).toHaveLength(1)
+
+  // The onboarding tiles "Set a schedule" and "Add a notification" link here: both controls are on this page.
+  expect(await within(page.container.querySelector<HTMLElement>('#settings-schedule')!).findByRole('button', { name: '+ Set schedule' })).toBeTruthy()
+  expect(within(page.container.querySelector<HTMLElement>('#settings-notifications')!).getByRole('button', { name: '+ Add webhook' })).toBeTruthy()
+
+  // Bulk setup opens the wizard the old button opened.
+  fireEvent.click(within(section).getByRole('button', { name: 'Bulk setup' }))
+  await waitFor(() => expect(router.state.location.pathname).toBe(`/projects/${projectName}/portfolio`))
+})
+
+test('a market row on Settings opens Queries on that market', async () => {
+  vi.mocked(QueriesSection).mockClear()
+  const { page, router, projectName } = await renderScopeRoute('/projects/project_citypoint/settings?measurementProvider=openai', trackingRoute(settingsWorkspaceResponse()), { accountRole: 'viewer' })
+  await page.findByRole('table', { name: 'Locations' })
+  fireEvent.click(page.getByRole('tab', { name: 'Markets' }))
+  fireEvent.click(within(await page.findByRole('table', { name: 'Markets' })).getByRole('link', { name: 'North Market' }))
+
+  await waitFor(() => expect(router.state.location.pathname).toBe(`/projects/${projectName}/queries`))
+  expect(router.state.location.search).toMatchObject({ measurementScope: 'market', measurementScopeKey: 'north-market', queryWorkspace: 'tracked', measurementProvider: 'openai' })
+  // The Queries tab opens on Tracked with that market as its Place.
+  await waitFor(() => expect(queriesSectionProps().selection).toMatchObject({ measurementScope: 'market', measurementScopeKey: 'north-market' }))
+  expect(queriesSectionProps().queryWorkspace).toBe('tracked')
+})
+
+// The section's setup and plan reads are the page's: a failed one shows in the section, and its Retry is the page's.
+const settingsReadFailure = () => jsonResponse({ error: { code: 'INTERNAL_ERROR', message: 'unavailable' } }, 500)
+
+test.each([
+  ['setup', '/measurement-setup'],
+  ['plan', '/measurement-plan'],
+] as const)('a failed %s read on Settings says so in Locations & markets, and Retry reads the setup and the plan again', async (_read, failingPath) => {
+  let failing = true
+  const structure = trackingRoute(settingsWorkspaceResponse())
+  const { page, observed } = await renderScopeRoute(
+    '/projects/project_citypoint/settings',
+    url => failing && decodeURIComponent(url.pathname).endsWith(failingPath) ? settingsReadFailure() : structure(url),
+    { accountRole: 'admin' },
+  )
+  const section = page.container.querySelector<HTMLElement>('#settings-locations-markets')!
+  const alert = await within(section).findByRole('alert')
+  expect(alert.textContent).toBe('Could not loadRetry')
+  expect(within(section).queryByRole('table')).toBeNull()
+  const reads = (path: string) => observed.filter(url => decodeURIComponent(url.pathname).endsWith(path)).length
+  const before = { setup: reads('/measurement-setup'), plan: reads('/measurement-plan') }
+
+  failing = false
+  fireEvent.click(within(alert).getByRole('button', { name: 'Retry' }))
+  expect(await within(section).findByRole('table', { name: 'Locations' })).toBeTruthy()
+  expect(within(section).queryByRole('alert')).toBeNull()
+  expect({ setup: reads('/measurement-setup'), plan: reads('/measurement-plan') }).toEqual({ setup: before.setup + 1, plan: before.plan + 1 })
+})
+
+test('a failed plan read leaves a Simple project its setup button: the section reads no plan there', async () => {
+  const { page, router, queryClient, projectName } = await renderScopeRoute(
+    '/projects/project_citypoint/settings',
+    url => {
+      const path = decodeURIComponent(url.pathname)
+      if (path.endsWith('/measurement-plan')) return settingsReadFailure()
+      if (path.endsWith('/measurement-setup')) return jsonResponse(simpleMeasurementSetupResponse())
+      return undefined
+    },
+    { accountRole: 'admin' },
+  )
+  const section = page.container.querySelector<HTMLElement>('#settings-locations-markets')!
+  const button = await within(section).findByRole('button', { name: 'Add locations' })
+  // The plan read has failed by now, and the button is still the section's one action.
+  await waitFor(() => expect(queryClient.getQueryState(getApiV1ProjectsByNameMeasurementPlanQueryKey({ client: heyClient, path: { name: projectName } }))?.status).toBe('error'))
+  expect(within(section).queryByRole('alert')).toBeNull()
+  fireEvent.click(button)
+  await waitFor(() => expect(router.state.location.pathname).toBe(`/projects/${projectName}/portfolio`))
 })
 
 // Restored: these two shipped in #953 and were dropped when a later branch's
@@ -2817,7 +3173,7 @@ test('a scope in the URL selects that group on first paint, with no interaction'
 
   // The server-resolved scope reflects the URL rather than defaulting to site.
   const doc = new DOMParser().parseFromString(html, 'text/html')
-  expect(doc.querySelector('.visibility-scope-trigger')?.textContent).toBe('North · 1 property')
+  expect(doc.querySelector('.visibility-scope-trigger')?.textContent).toBe('North · 1 location')
 })
 
 test('a market scope reads that group\'s stored competitor landscape', async () => {
@@ -3025,7 +3381,7 @@ test('a stale group key fails closed instead of silently broadening to the whole
   // A failure without retired-scope details is the workspace alert's to retry;
   // the context row adds nothing.
   expect(page.getByRole('button', { name: 'Retry' })).toBeTruthy()
-  expect(page.queryByRole('button', { name: VISIBILITY_SCOPE_RECOVERY_COPY.showWholeSite })).toBeNull()
+  expect(page.queryByText(VISIBILITY_SCOPE_RECOVERY_COPY.showWholeSite)).toBeNull()
   expect(page.container.querySelector('.project-context-row')).not.toBeNull()
   expect(page.container.querySelector('.project-context-row .project-context-scope')).toBeNull()
   const staleRequest = observed.find(path => path.includes('/visibility-report?'))
@@ -3089,12 +3445,14 @@ async function renderScopeRoute(
 function trackingRoute(
   workspace = queryTrackingWorkspaceResponse(),
   measurement: { plan: unknown; setup: unknown } = { plan: measurementPlanV2Response(4), setup: activeMeasurementSetupResponse(4) },
+  results = queryTrackingResultsResponse(),
 ) {
   return (url: URL) => {
     const path = decodeURIComponent(url.pathname)
     if (path.endsWith('/measurement-plan')) return jsonResponse(measurement.plan)
     if (path.endsWith('/measurement-setup')) return jsonResponse(measurement.setup)
     if (path.endsWith('/query-tracking')) return jsonResponse(workspace)
+    if (path.endsWith('/query-tracking/results')) return jsonResponse(results)
     if (path.endsWith('/measurement-query-templates')) return jsonResponse({ templates: [] })
     if (path.endsWith('/discover/sessions')) return jsonResponse([])
     return undefined
@@ -3111,6 +3469,57 @@ function overviewRoute(respond: (url: URL) => Response | Promise<Response>) {
   }
 }
 
+test.each(['tracked queries', 'a published setup'] as const)('a project with %s and no engine it can use is sent to connect one, not through first-run setup', async has => {
+  const { page, router } = await renderScopeRoute('/projects/project_citypoint', url => {
+    const path = decodeURIComponent(url.pathname)
+    if (path.endsWith('/measurement-setup')) return jsonResponse({ ...(has === 'a published setup' ? activeMeasurementSetupResponse(4) : simpleMeasurementSetupResponse()), answerVisibilityProviderReady: false })
+    if (path.endsWith('/measurement-plan')) return jsonResponse(has === 'a published setup' ? measurementPlanV2Response(4) : { active: null })
+    if (path.endsWith('/visibility-report')) return jsonResponse(visibilityReportResponse({ mode: 'advanced' }))
+    if (path.endsWith('/queries') || path.endsWith('/schedules')) return jsonResponse([])
+    return undefined
+  }, {
+    configureFixture(dashboard) {
+      const project = dashboard.projects.find(entry => entry.project.id === 'project_citypoint')!
+      // A published setup with an empty basket: the setup alone is what makes the project set up.
+      if (has === 'a published setup') {
+        project.visibilityEvidence = []
+        project.queryCounts = { cited: 0, total: 0 }
+      }
+      project.recentRuns = []
+      dashboard.runs = []
+      dashboard.settings.providerStatuses = []
+    },
+  })
+
+  const connect = await page.findByRole('button', { name: 'Connect an engine' })
+  expect(connect.closest('[data-project-actions]')).not.toBeNull()
+  expect(page.queryByRole('button', { name: 'Set up AI Visibility' })).toBeNull()
+  expect(page.queryByRole('button', { name: 'Run AI sweep' })).toBeNull()
+  // Engine keys are added on the global Settings page.
+  fireEvent.click(connect)
+  await waitFor(() => expect(router.state.location.pathname).toBe('/settings'))
+})
+
+test.each([
+  { queryClass: 'non-brand', type: 'non-brand' },
+  { queryClass: 'branded', type: 'branded' },
+  // Results saved before queries had a type are neither: Tracked opens unfiltered, with no key in its URL.
+  { queryClass: 'unknown', type: 'all' },
+] as const)('Manage queries from AI Visibility showing $queryClass results opens Tracked with Type $type', async ({ queryClass, type }) => {
+  // The report answers for the type asked for, as the server does: the page keeps the type its report names.
+  const overview = overviewRoute(() => jsonResponse(visibilityReportResponse({ mode: 'advanced', queryClass })))
+  const tracking = trackingRoute()
+  const { page, router, projectName } = await renderScopeRoute(`/projects/project_citypoint?queryClass=${queryClass}`, url => overview(url) ?? tracking(url))
+
+  fireEvent.click(await page.findByRole('button', { name: 'Manage queries' }))
+  await waitFor(() => expect(router.state.location.pathname).toBe(`/projects/${projectName}/queries`))
+  const search = router.state.location.search as Record<string, unknown>
+  expect(search.queryWorkspace).toBe('tracked')
+  // The filter Tracked itself reads from this URL.
+  expect(parseTrackedFilters(search).type).toBe(type)
+  expect(search[TRACKED_FILTER_KEYS.type]).toBe(type === 'all' ? undefined : type)
+})
+
 test('AI Visibility v2 renders one scope trigger, in the project context row, with its label kept for assistive tech', async () => {
   const doc = new DOMParser().parseFromString(await renderAt('/projects/project_citypoint', undefined, {
     plan: measurementPlanV2Response(4),
@@ -3120,9 +3529,9 @@ test('AI Visibility v2 renders one scope trigger, in the project context row, wi
   expect(triggers).toHaveLength(1)
   const trigger = triggers[0]!
   expect(trigger.closest('.project-context-scope')?.parentElement).toBe(contextRow(doc))
-  expect(trigger.textContent).toBe('Whole site')
+  expect(trigger.textContent).toBe(ALL_OF_CITYPOINT)
   const label = doc.getElementById(trigger.getAttribute('aria-labelledby')!.split(' ')[0]!)!
-  expect(label.textContent).toBe('Measurement scope')
+  expect(label.textContent).toBe(PROJECT_SCOPE_COPY.place)
   const rules = parseCompiledCss(await compileAppStyles([...label.classList]))
   expect(compiledElementProperty(rules, label, 'position')).toBe('absolute')
   expect(cssLengthPx(compiledElementProperty(rules, label, 'width')!, rules)).toBe(1)
@@ -3140,14 +3549,84 @@ test('AI Visibility v2 renders one scope trigger, in the project context row, wi
   }
 })
 
+/** The slot's parts as a sighted reader meets them: the label, the trigger, then the counts, or `null` when the row prints none. */
+function placeSlotParts(root: ParentNode): Array<string | null> {
+  const [label, picker, counts] = contextRow(root).querySelector('.project-context-scope')!.firstElementChild!.children
+  return [label!.textContent, picker!.querySelector('.visibility-scope-trigger')!.textContent, counts?.textContent ?? null]
+}
+
+test('AI Visibility reads Place, All of the project, then the location and market options the report listed', async () => {
+  const report = visibilityReportResponse({ mode: 'advanced' })
+  // The project option claims nine targets. The row counts the options the server listed.
+  report.scopeOptions = [
+    { id: 'project', label: 'Project', kind: 'project', targetCount: 9 },
+    { id: 'north', label: 'North', kind: 'group', targetCount: 2 },
+    { id: 'harbor', label: 'Harbor House', kind: 'property', targetCount: 1, parentGroupIds: ['north'] },
+    { id: 'pier', label: 'Pier Inn', kind: 'property', targetCount: 1, parentGroupIds: ['north'] },
+    { id: 'coast', label: 'Coast', kind: 'market', targetCount: 2, parentGroupIds: ['north'] },
+  ]
+  const doc = new DOMParser().parseFromString(await renderAt('/projects/project_citypoint', undefined, { plan: measurementPlanV2Response(4), visibilityReport: report }, {
+    // The root reads the display name, which is not the project name here.
+    configureFixture(dashboard) { dashboard.projects.find(entry => entry.project.id === 'project_citypoint')!.project.displayName = 'Citypoint Dental Group' },
+  }), 'text/html')
+  expect(placeSlotParts(doc)).toEqual([PROJECT_SCOPE_COPY.place, 'All of Citypoint Dental Group', '2 locations · 1 market'])
+  // The trigger is already named Place by the picker's own label, so the visible word is not read twice.
+  const visibleLabel = contextRow(doc).querySelector('.project-context-scope')!.firstElementChild!.firstElementChild!
+  expect(visibleLabel.getAttribute('aria-hidden')).toBe('true')
+  // The report names the whole project as the picker does.
+  expect(doc.querySelector('details[data-query-results] .visibility-disclosure-meta')?.textContent).toBe('1 result · All of Citypoint Dental Group')
+  expect(doc.body.textContent).not.toContain(ALL_OF_CITYPOINT)
+  expect(doc.body.textContent).not.toMatch(/Whole site|Measurement scope/)
+})
+
+test('tracked Queries reads Place, All of the project, then the lengths of the workspace location and market lists', async () => {
+  const base = queryTrackingWorkspaceResponse()
+  // Three locations and two markets, with one location among the picker's options.
+  const workspace = queryTrackingWorkspaceResponse({
+    targets: [...base.targets, { stableKey: 'harbor', label: 'Harbor House' }, { stableKey: 'pier', label: 'Pier Inn' }],
+    markets: ['new-york', 'boston'].map(stableKey => ({ stableKey, label: stableKey, groupKey: 'north', usageEdges: [] })),
+  })
+  const { page } = await renderScopeRoute('/projects/project_citypoint/queries', trackingRoute(workspace), { accountRole: 'viewer' })
+  await rowTrigger(page.container)
+  expect(placeSlotParts(page.container)).toEqual([PROJECT_SCOPE_COPY.place, ALL_OF_CITYPOINT, '3 locations · 2 markets'])
+})
+
+test('a place narrower than the whole project shows no counts, and a project with no markets names none', async () => {
+  // The counts are the project's totals, so beside a group they would read as the group's own.
+  const report = visibilityReportResponse({ mode: 'advanced', scope: 'group', scopeKey: 'north' })
+  report.scopeOptions = [...report.scopeOptions, { id: 'harbor', label: 'Harbor House', kind: 'property', targetCount: 1, parentGroupIds: ['north'] }, { id: 'coast', label: 'Coast', kind: 'market', targetCount: 1, parentGroupIds: ['north'] }]
+  const doc = new DOMParser().parseFromString(await renderAt('/projects/project_citypoint?measurementScope=group&measurementScopeKey=north', undefined, { plan: measurementPlanV2Response(4), visibilityReport: report }), 'text/html')
+  expect(placeSlotParts(doc)).toEqual([PROJECT_SCOPE_COPY.place, 'North · 1 location', null])
+
+  // A location shows no counts either. That room holds the link to its own page.
+  const scoped = await renderScopeRoute('/projects/project_citypoint/queries?measurementScope=property&measurementScopeKey=citypoint', trackingRoute(), { accountRole: 'viewer' })
+  await rowTrigger(scoped.page.container)
+  expect(placeSlotParts(scoped.page.container)).toEqual([PROJECT_SCOPE_COPY.place, 'Citypoint Dental · Location', 'Location details'])
+  scoped.page.unmount()
+
+  // One location and no markets: the empty list is left out, never printed as "0 markets".
+  const root = await renderScopeRoute('/projects/project_citypoint/queries', trackingRoute(), { accountRole: 'viewer' })
+  await rowTrigger(root.page.container)
+  expect(placeSlotParts(root.page.container)).toEqual([PROJECT_SCOPE_COPY.place, ALL_OF_CITYPOINT, '1 location'])
+})
+
 test('the row holds a 44px placeholder only while the AI Visibility report loads', async () => {
   const loading = new DOMParser().parseFromString(await renderAt('/projects/project_citypoint', undefined, { plan: measurementPlanV2Response(4) }, { seedVisibilityReport: false }), 'text/html')
   const slot = contextRow(loading).querySelector('.project-context-scope')!
   const placeholder = slot.querySelector('[role="status"]')!
-  expect(placeholder.getAttribute('aria-label')).toBe('Loading measurement scope')
+  expect(placeholder.getAttribute('aria-label')).toBe(PROJECT_SCOPE_COPY.loadingPlaces)
   const rules = parseCompiledCss(await compileAppStyles([...placeholder.classList]))
   expect(cssLengthPx(compiledElementProperty(rules, placeholder, 'height')!, rules)).toBe(44)
   expect(slot.querySelector('.visibility-scope-trigger')).toBeNull()
+  // Place is there from the start, and the counts' room is held, so nothing moves when the report lands.
+  const [label, picker, counts] = slot.firstElementChild!.children
+  expect(label!.textContent).toBe(PROJECT_SCOPE_COPY.place)
+  expect(picker!.firstElementChild).toBe(placeholder)
+  expect(counts!.textContent).toBe('')
+  expect(counts!.getAttribute('aria-hidden')).toBe('true')
+  // A narrower place prints no counts, so its placeholder holds no room for them.
+  const scoped = new DOMParser().parseFromString(await renderAt('/projects/project_citypoint?measurementScope=group&measurementScopeKey=north', undefined, { plan: measurementPlanV2Response(4) }, { seedVisibilityReport: false }), 'text/html')
+  expect([...contextRow(scoped).querySelector('.project-context-scope')!.firstElementChild!.children].map(part => part.textContent)).toEqual([PROJECT_SCOPE_COPY.place, ''])
 
   // Before either plan read lands, the overview's mode is unknown and the row reserves nothing.
   const unresolved = new DOMParser().parseFromString(await renderAt('/projects/project_citypoint', undefined, undefined, { seedPlan: false }), 'text/html')
@@ -3164,13 +3643,35 @@ test('a long Group label wraps in the row trigger instead of being clipped', asy
     { plan: measurementPlanV2Response(4), visibilityReport: report },
   ), 'text/html')
   const trigger = contextRow(doc).querySelector('.visibility-scope-trigger')!
-  expect(trigger.textContent).toBe(`${longLabel} · 1 property`)
+  expect(trigger.textContent).toBe(`${longLabel} · 1 location`)
   const slot = trigger.closest('.project-context-scope')!
   const rules = parseCompiledCss(await compileAppStyles([...trigger.classList, ...slot.classList]))
   expect(compiledElementProperty(rules, trigger, 'white-space') ?? 'normal').toBe('normal')
   expect(compiledElementProperty(rules, trigger, 'overflow') ?? 'visible').toBe('visible')
   expect(compiledElementProperty(rules, trigger, 'text-overflow') ?? 'clip').toBe('clip')
   expect(cssLengthPx(compiledElementProperty(rules, slot, 'min-width')!, rules)).toBe(0)
+  // From md the slot holds Place, the trigger and the counts on one line, so it is capped at 42rem.
+  expect(compiledElementProperty(rules, slot, 'max-width', '@media (width >= 48rem)')).toBe('var(--container-2xl)')
+  expect(rules.flatMap(rule => rule.declarations).find(([key]) => key === '--container-2xl')?.[1]).toBe('42rem')
+  // Below md Place takes its own line, so the open menu starts at the page gutter.
+  const label = slot.firstElementChild!.firstElementChild!
+  const labelRules = parseCompiledCss(await compileAppStyles([...label.classList]))
+  expect(compiledElementProperty(labelRules, label, 'flex-basis')).toBe('100%')
+  expect(compiledElementProperty(labelRules, label, 'flex-basis', '@media (width >= 48rem)')).toBe('auto')
+})
+
+test('below md the counts and their loading placeholder take the same line under the picker', async () => {
+  const report = visibilityReportResponse({ mode: 'advanced' })
+  report.scopeOptions = [...report.scopeOptions, { id: 'harbor', label: 'Harbor House', kind: 'property', targetCount: 1, parentGroupIds: ['north'] }]
+  const loaded = new DOMParser().parseFromString(await renderAt('/projects/project_citypoint', undefined, { plan: measurementPlanV2Response(4), visibilityReport: report }), 'text/html')
+  const loading = new DOMParser().parseFromString(await renderAt('/projects/project_citypoint', undefined, { plan: measurementPlanV2Response(4) }, { seedVisibilityReport: false }), 'text/html')
+  const counts = (doc: Document) => contextRow(doc).querySelector('.project-context-scope')!.firstElementChild!.children[2]!
+  expect(counts(loaded).textContent).toBe('1 location')
+  for (const part of [counts(loaded), counts(loading)]) {
+    const rules = parseCompiledCss(await compileAppStyles([...part.classList]))
+    expect(compiledElementProperty(rules, part, 'flex-basis')).toBe('100%')
+    expect(compiledElementProperty(rules, part, 'flex-basis', '@media (width >= 48rem)')).toBe('auto')
+  }
 })
 
 test('a scoped Advanced Site Health tab says Project-wide, while unscoped and Simple tabs say nothing', async () => {
@@ -3178,7 +3679,7 @@ test('a scoped Advanced Site Health tab says Project-wide, while unscoped and Si
   const scoped = parse(await renderAt('/projects/project_citypoint/technical-aeo?measurementScope=group&measurementScopeKey=north', undefined, { plan: measurementPlanV2Response(4) }))
   const slot = contextRow(scoped).querySelector('.project-context-scope')!
   expect(slot.textContent).toBe('Project-wide')
-  expect([...slot.querySelectorAll('button')].map(button => button.getAttribute('aria-label'))).toEqual(['This tab covers the whole project. Your measurement scope stays selected for AI Visibility and Queries.'])
+  expect([...slot.querySelectorAll('button')].map(button => button.getAttribute('aria-label'))).toEqual(['This tab covers the whole project. Your place stays selected for AI Visibility and Queries.'])
 
   const unscoped = parse(await renderAt('/projects/project_citypoint/technical-aeo', undefined, { plan: measurementPlanV2Response(4) }))
   const simple = parse(await renderAt('/projects/project_citypoint/technical-aeo?measurementScope=group&measurementScopeKey=north'))
@@ -3207,7 +3708,7 @@ test('a viewer reads setup on a scope-blind tab only when the URL is scoped', as
 test('a public demo visitor on a scope-blind tab reads the plan once for the Advanced tag, and no setup', async () => {
   window.__CANONRY_CONFIG__ = { demo: { enabled: true, readOnly: true, sampleData: true } }
   const { observed, page } = await renderScopeRoute('/projects/project_citypoint/technical-aeo', trackingRoute(), { accountRole: 'viewer' })
-  await waitFor(() => expect(contextRow(page.container).querySelector('.project-mode-tag')?.textContent).toBe('Advanced1 property · 1 market'))
+  await waitFor(() => expect(contextRow(page.container).querySelector('.project-mode-tag')?.textContent).toBe('Advanced1 location · 1 group'))
   expect(observed.filter(url => url.pathname.endsWith('/measurement-plan'))).toHaveLength(1)
   expect(observed.some(url => url.pathname.endsWith('/measurement-setup'))).toBe(false)
   expect(contextRow(page.container).querySelector('.project-context-scope')).toBeNull()
@@ -3221,11 +3722,12 @@ test('a viewer on Advanced tracked Queries gets exactly one scope trigger, in th
 
   expect(await page.findByText('Citypoint dentist')).toBeTruthy()
   const trigger = await rowTrigger(page.container)
-  expect(trigger.textContent).toBe('Whole site')
+  expect(trigger.textContent).toBe(ALL_OF_CITYPOINT)
   expect(page.container.querySelectorAll('.visibility-scope-trigger')).toHaveLength(1)
   expect(page.getByRole('region', { name: 'Tracked queries' }).querySelector('.visibility-scope-trigger')).toBeNull()
-  // The row reads the body's own workspace key, so it adds no request.
+  // The row reads the body's own workspace key, so it adds no request. The body reads the last sweep's results once.
   expect(observed.filter(url => url.pathname.endsWith('/query-tracking'))).toHaveLength(1)
+  expect(observed.filter(url => url.pathname.endsWith('/query-tracking/results'))).toHaveLength(1)
   expect(observed.some(url => url.pathname.endsWith('/measurement-setup') || url.pathname.endsWith('/measurement-plan'))).toBe(false)
   const nav = page.getByRole('navigation', { name: 'Project sections' })
   fireEvent.click(within(nav).getByRole('button', { name: 'More' }))
@@ -3236,22 +3738,26 @@ test('a viewer without research access who opens Research gets the tracked table
   const { observed, page } = await renderScopeRoute('/projects/project_citypoint/queries?queryWorkspace=research', trackingRoute(), { accountRole: 'viewer' })
   expect(await page.findByText('Citypoint dentist')).toBeTruthy()
   expect(page.queryByRole('tab', { name: 'Research' })).toBeNull()
-  expect((await rowTrigger(page.container)).textContent).toBe('Whole site')
+  expect((await rowTrigger(page.container)).textContent).toBe(ALL_OF_CITYPOINT)
   expect(page.container.querySelectorAll('.visibility-scope-trigger')).toHaveLength(1)
   expect(observed.some(url => url.pathname.includes('/research'))).toBe(false)
 })
 
 test('a retired tracking scope is named in the row while the body keeps the recovery action', async () => {
   const { page, router } = await renderScopeRoute('/projects/project_citypoint/queries?measurementScope=group&measurementScopeKey=retired-group', trackingRoute())
-  expect(await page.findByText('This saved group filter is unavailable in the current measurement.')).toBeTruthy()
+  // The body says it in two words, with the sentence behind them, and its button names the project as the picker does.
+  const showAll = await page.findByRole('button', { name: VISIBILITY_SCOPE_RECOVERY_COPY.showRoot(ALL_OF_CITYPOINT) })
+  expect(showAll.textContent).toBe('Show all')
+  expect(page.getByText('Place unavailable')).toBeTruthy()
   const row = contextRow(page.container)
   await waitFor(() => expect(row.querySelector('.project-context-scope')?.textContent).toBe(PROJECT_SCOPE_COPY.savedScopeUnavailable))
   expect(page.container.querySelector('.visibility-scope-trigger')).toBeNull()
-  expect(within(row).queryByRole('button', { name: 'Show whole site' })).toBeNull()
+  expect(row.contains(showAll)).toBe(false)
+  expect(page.container.textContent).not.toMatch(/Show whole site|filter is unavailable/)
 
-  fireEvent.click(page.getByRole('button', { name: 'Show whole site' }))
+  fireEvent.click(showAll)
   await waitFor(() => expect(router.state.location.search.measurementScope).toBe('project'))
-  expect((await rowTrigger(page.container)).textContent).toBe('Whole site')
+  expect((await rowTrigger(page.container)).textContent).toBe(ALL_OF_CITYPOINT)
   expect(row.textContent).not.toContain(PROJECT_SCOPE_COPY.savedScopeUnavailable)
 })
 
@@ -3272,14 +3778,171 @@ test('Simple tracked Queries have no scope trigger', async () => {
 })
 
 test.each([
-  ['the Research workspace', '/projects/project_citypoint/queries?queryWorkspace=research'],
-  ['the legacy Discovery route', '/projects/project_citypoint/discovery'],
+  ['the Research workspace', '/projects/project_citypoint/queries?queryWorkspace=research&researchMode=find'],
+  ['the legacy Discovery route', '/projects/project_citypoint/discovery?researchMode=find'],
 ])('%s has no scope trigger and no tracking read', async (_name, entry) => {
   const { observed, page } = await renderScopeRoute(entry, trackingRoute())
-  expect(await page.findByRole('heading', { name: 'Generate and check questions' })).toBeTruthy()
+  expect((await page.findByRole('tab', { name: 'Research' })).getAttribute('aria-selected')).toBe('true')
+  await waitFor(() => expect(observed.some(url => url.pathname.endsWith('/discover/sessions'))).toBe(true))
   expect(page.container.querySelector('.visibility-scope-trigger')).toBeNull()
   expect(contextRow(page.container).querySelector('.project-context-scope')).toBeNull()
   expect(observed.some(url => url.pathname.endsWith('/query-tracking'))).toBe(false)
+})
+
+/** What ProjectPage last handed the Queries section. */
+function queriesSectionProps() {
+  return vi.mocked(QueriesSection).mock.lastCall![0]
+}
+
+test.each([
+  ['no researchMode hands the Queries section no mode', undefined, undefined],
+  ['researchMode=write reaches the Queries section', 'write', 'write'],
+  ['researchMode=pattern reaches the Queries section', 'pattern', 'pattern'],
+  ['researchMode=find reaches the Queries section', 'find', 'find'],
+  ['the older researchMode=test reads as write', 'test', 'write'],
+  ['a researchMode no page has hands the Queries section no mode', 'other', undefined],
+] as const)('%s', async (_label, inUrl, mode) => {
+  vi.mocked(QueriesSection).mockClear()
+  const { page, router } = await renderScopeRoute(`/projects/project_citypoint/queries?queryWorkspace=research${inUrl ? `&researchMode=${inUrl}` : ''}`, trackingRoute())
+  expect((await page.findByRole('tab', { name: 'Research' })).getAttribute('aria-selected')).toBe('true')
+  expect(queriesSectionProps().researchMode).toBe(mode)
+  // Reading the mode never rewrites the URL, so a link keeps the mode it was shared with.
+  expect(router.state.location.search.researchMode).toBe(inUrl)
+})
+
+test('the Tracked filter keys survive a reload and reach the Queries section, and the Type filter ignores the shared queryClass key', async () => {
+  vi.mocked(QueriesSection).mockClear()
+  const opened = {
+    trackedSubject: 'market', trackedType: 'non-brand', trackedStatus: 'not-asked', trackedSource: 'manual', trackedResult: 'not-cited',
+    trackedEngine: 'gemini', trackedChange: 'lost', trackedSignal: 'cited', trackedGroup: 'none', trackedView: 'thin-markets',
+  }
+  const READ = { engine: 'gemini', change: 'lost', signal: 'cited', group: 'none' }
+  expect(Object.keys(opened)).toEqual([...Object.values(TRACKED_FILTER_KEYS), 'trackedView'])
+  const { router } = await renderScopeRoute(`/projects/project_citypoint/queries?${new URLSearchParams({ ...opened, queryClass: 'branded' })}`, trackingRoute())
+  expect(router.state.location.search).toMatchObject({ ...opened, queryClass: 'branded' })
+  expect(queriesSectionProps().trackedFilters).toEqual({ subject: 'market', type: 'non-brand', status: 'not-asked', source: 'manual', result: 'not-cited', ...READ })
+  // The saved view reaches the section too, and the section's own URL patch changes it.
+  expect(queriesSectionProps().trackedView).toBe('thin-markets')
+  act(() => queriesSectionProps().onSelectionChange!({ trackedView: 'pattern-gaps' }))
+  await waitFor(() => expect(queriesSectionProps().trackedView).toBe('pattern-gaps'))
+  act(() => queriesSectionProps().onSelectionChange!({ trackedView: 'thin-markets' }))
+  await waitFor(() => expect(queriesSectionProps().trackedView).toBe('thin-markets'))
+
+  // A filter back on its default leaves the URL; every other key stays, the shared query type included.
+  act(() => queriesSectionProps().onTrackedFiltersChange!({ type: 'mixed', status: 'asked' }))
+  await waitFor(() => expect(queriesSectionProps().trackedFilters).toEqual({ subject: 'market', type: 'mixed', status: 'asked', source: 'manual', result: 'not-cited', ...READ }))
+  const href = router.state.location.href
+  expect(Object.fromEntries(new URL(href, window.location.origin).searchParams)).toEqual({
+    trackedSubject: 'market', trackedType: 'mixed', trackedSource: 'manual', trackedResult: 'not-cited',
+    trackedEngine: 'gemini', trackedChange: 'lost', trackedSignal: 'cited', trackedGroup: 'none', trackedView: 'thin-markets', queryClass: 'branded',
+  })
+
+  const reloaded = createAppRouter(new QueryClient(), { initialEntries: [href] })
+  await reloaded.load()
+  expect(reloaded.state.location.search).toEqual(router.state.location.search)
+
+  // The route holds each key as text, like every other Queries key: a number or a flag is dropped.
+  const untyped = createAppRouter(new QueryClient(), { initialEntries: ['/projects/project_citypoint/queries?trackedSubject=7&trackedType=true&trackedStatus=7&trackedSource=false&trackedResult=7&trackedEngine=7&trackedChange=true&trackedSignal=7&trackedGroup=false&trackedView=7'] })
+  await untyped.load()
+  const held = untyped.state.matches.at(-1)!.search as Record<string, unknown>
+  expect(Object.keys(opened).filter(key => held[key] !== undefined)).toEqual([])
+
+  // With no key of its own, the Type filter is All whatever AI Visibility is filtered to. Only the new filter: the
+  // selection handed beside it still carries the shared key, which the page's older Query type control reads.
+  vi.mocked(QueriesSection).mockClear()
+  const shared = await renderScopeRoute('/projects/project_citypoint/queries?queryClass=branded', trackingRoute())
+  expect(queriesSectionProps().trackedFilters).toEqual({ subject: 'any', type: 'all', status: 'asked', source: 'any', result: 'any', engine: 'any', change: 'any', signal: 'mentioned', group: 'auto' })
+  expect(shared.router.state.location.search.queryClass).toBe('branded')
+})
+
+test('each Tracked URL key reports a filter change by its dimension, never by its value', () => {
+  vi.useFakeTimers()
+  const sent: UiTelemetryEvent[] = []
+  configureUiTelemetry({ send: async event => { sent.push(event); return { accepted: true } } })
+  onTestFinished(() => {
+    resetUiTelemetryForTests()
+    vi.useRealTimers()
+  })
+  const reported = [...Object.values(TRACKED_FILTER_KEYS), 'trackedView'].map(key => {
+    const before = sent.length
+    recordUiSearchParamsChange({ runId: 'run-1' }, { runId: 'run-2', [key]: 'value-kept-out' })
+    vi.advanceTimersByTime(UI_FILTER_DEBOUNCE_MS)
+    return [key, sent.slice(before).map(event => event.event === 'ui.action' ? [event.action, event.filter] : [event.event])]
+  })
+  expect(Object.fromEntries(reported)).toEqual({
+    trackedSubject: [['filter.change', 'other']],
+    trackedType: [['filter.change', 'query_class']],
+    trackedStatus: [['filter.change', 'other']],
+    trackedSource: [['filter.change', 'other']],
+    trackedResult: [['filter.change', 'other']],
+    // The engine a Result is read on is a provider filter; the switch and the grouping are other.
+    trackedEngine: [['filter.change', 'provider']],
+    trackedChange: [['filter.change', 'other']],
+    trackedSignal: [['filter.change', 'other']],
+    trackedGroup: [['filter.change', 'other']],
+    trackedView: [['filter.change', 'other']],
+  })
+  expect(JSON.stringify(sent)).not.toContain('value-kept-out')
+})
+
+test.each([
+  ['with no sweep under way', { sweepActive: false, managed: false }, { trackingChangedAt: '2026-08-01T12:00:00.000Z', nextSweepDate: 'Aug 7' }],
+  ['while a sweep is queued', { sweepActive: true, managed: false }, { trackingChangedAt: '2026-08-01T12:00:00.000Z', nextSweepDate: undefined }],
+  ['on managed sweeps', { sweepActive: false, managed: true }, { trackingChangedAt: undefined, nextSweepDate: undefined }],
+] as const)('the Queries section is handed the dates AI Visibility names %s', async (_label, state, dates) => {
+  if (state.managed) window.__CANONRY_CONFIG__ = { dashboard: { managedSweeps: true } }
+  vi.mocked(QueriesSection).mockClear()
+  const tracking = trackingRoute()
+  const { observed, queryClient } = await renderScopeRoute(
+    '/projects/project_citypoint/queries',
+    url => url.pathname.endsWith('/schedules') ? jsonResponse([schedule()]) : tracking(url),
+    {
+      configureFixture(dashboard) {
+        const project = dashboard.projects.find(entry => entry.project.id === 'project_citypoint')!
+        if (!state.sweepActive) project.recentRuns = project.recentRuns.filter(run => run.status !== 'queued' && run.status !== 'running')
+        expect(project.recentRuns.some(run => run.kind === 'answer-visibility' && run.status === 'queued')).toBe(state.sweepActive)
+      },
+    },
+  )
+  // The plan gives the tracking change and the schedule gives the next sweep, so both reads settle first.
+  await waitFor(() => expect(observed.some(url => url.pathname.endsWith('/measurement-plan'))).toBe(true))
+  if (!state.managed) await waitFor(() => expect(observed.some(url => url.pathname.endsWith('/schedules'))).toBe(true))
+  await waitFor(() => expect(queryClient.isFetching()).toBe(0))
+  await waitFor(() => {
+    const { trackingChangedAt, nextSweepDate } = queriesSectionProps()
+    expect({ trackingChangedAt, nextSweepDate }).toEqual(dates)
+  })
+  // The page names the whole project as the picker does, and the published plan says the page is the advanced one before the workspace lands.
+  expect(queriesSectionProps().rootLabel).toBe(ALL_OF_CITYPOINT)
+  expect(queriesSectionProps().trackedMode).toBe('advanced')
+})
+
+test('a viewer who opens Queries first is handed the next sweep and no tracking-change date, and still reads that tracking changed', async () => {
+  vi.mocked(QueriesSection).mockClear()
+  // The last sweep ran before the last tracking change: the results read says so, to every role.
+  const tracking = trackingRoute(undefined, undefined, queryTrackingResultsResponse({ changed: true }))
+  const { observed, page, queryClient } = await renderScopeRoute(
+    '/projects/project_citypoint/queries',
+    url => url.pathname.endsWith('/schedules') ? jsonResponse([schedule()]) : tracking(url),
+    {
+      accountRole: 'viewer',
+      configureFixture(dashboard) {
+        const project = dashboard.projects.find(entry => entry.project.id === 'project_citypoint')!
+        project.recentRuns = project.recentRuns.filter(run => run.status !== 'queued' && run.status !== 'running')
+      },
+    },
+  )
+  await waitFor(() => expect(observed.some(url => url.pathname.endsWith('/schedules'))).toBe(true))
+  await waitFor(() => expect(queryClient.isFetching()).toBe(0))
+  await waitFor(() => expect(queriesSectionProps().nextSweepDate).toBe('Aug 7'))
+  // The plan holds the date of the tracking change, and a viewer reads no plan on Queries: the page's note goes undated.
+  expect(observed.some(url => url.pathname.endsWith('/measurement-plan'))).toBe(false)
+  expect(queriesSectionProps().trackingChangedAt).toBeUndefined()
+  // With no plan or setup read, the host does not know the mode either, and says nothing rather than guess.
+  expect(queriesSectionProps().trackedMode).toBeUndefined()
+  // The note itself comes from the results read, so the viewer still sees it, in the words AI Visibility uses.
+  const note = await page.findByRole('button', { name: `Tracking changed. ${VISIBILITY_TOOLBAR_COPY.trackingChangedDetail(formatObservedInstantMonthDay(observedInstant('2026-07-28T12:10:00.000Z')), 'Aug 7')}` })
+  expect(note.textContent).toBe('Tracking changed')
 })
 
 test('the tracked Queries row picker floats over the table, closes on Escape or outside interaction, and keeps focus after a search selection', async () => {
@@ -3288,13 +3951,14 @@ test('the tracked Queries row picker floats over the table, closes on Escape or 
     markets: [{ stableKey: 'new-york', label: 'New York', groupKey: 'north', usageEdges: [{ executionNodeKey: 'node-citypoint', targetKey: 'citypoint', queryId: 'query-citypoint' }] }],
     scopeOptions: [...base.scopeOptions!.slice(0, 2), { id: 'new-york', label: 'New York', kind: 'market', targetCount: 1, parentGroupIds: ['north'] }, base.scopeOptions![2]!],
   })
-  const { page, router } = await renderScopeRoute('/projects/project_citypoint/queries', trackingRoute(workspace))
+  // The query list: a portfolio with markets opens on them otherwise.
+  const { page, router } = await renderScopeRoute('/projects/project_citypoint/queries?trackedGroup=none', trackingRoute(workspace))
   expect(await page.findByText('Citypoint dentist')).toBeTruthy()
   const trigger = await rowTrigger(page.container)
   const details = trigger.closest('details')!
   fireEvent.click(trigger)
   expect(details.open).toBe(true)
-  const search = within(details).getByRole('searchbox', { name: 'Search scopes' })
+  const search = within(details).getByRole('searchbox', { name: 'Search places' })
   const menu = search.closest('.visibility-scope-menu')!
   expect(details.contains(menu)).toBe(true)
   const rules = parseCompiledCss(await compileAppStyles([...details.classList, ...menu.classList]))
@@ -3313,14 +3977,14 @@ test('the tracked Queries row picker floats over the table, closes on Escape or 
   expect(details.open).toBe(true)
   fireEvent.pointerDown(search)
   expect(details.open).toBe(true)
-  const querySearch = page.getByRole('searchbox', { name: 'Filter tracked queries' })
+  const querySearch = page.getByRole('searchbox', { name: 'Search queries' })
   querySearch.focus()
   fireEvent.pointerDown(querySearch)
   expect(details.open).toBe(false)
   expect(document.activeElement).toBe(querySearch)
 
   fireEvent.click(trigger)
-  fireEvent.change(within(details).getByRole('searchbox', { name: 'Search scopes' }), { target: { value: 'New York' } })
+  fireEvent.change(within(details).getByRole('searchbox', { name: 'Search places' }), { target: { value: 'New York' } })
   expect(within(details).queryByRole('button', { name: 'Select North' })).toBeNull()
   const option = within(details).getByRole('button', { name: 'Select New York' })
   option.focus()
@@ -3354,11 +4018,11 @@ test('the tracked Queries row picker searches a large property list and browses 
   const details = trigger.closest('details')!
 
   fireEvent.click(trigger)
-  fireEvent.change(within(details).getByRole('searchbox', { name: 'Search scopes' }), { target: { value: 'Property 224' } })
+  fireEvent.change(within(details).getByRole('searchbox', { name: 'Search places' }), { target: { value: 'Property 224' } })
   expect(within(details).queryByRole('button', { name: 'Select Property 223' })).toBeNull()
   fireEvent.click(within(details).getByRole('button', { name: 'Select Property 224' }))
   await waitFor(() => expect(router.state.location.search).toMatchObject({ measurementScope: 'property', measurementScopeKey: 'property-224' }))
-  await waitFor(() => expect(trigger.textContent).toBe('Property 224 · Property'))
+  await waitFor(() => expect(trigger.textContent).toBe('Property 224 · Location'))
 
   fireEvent.click(trigger)
   fireEvent.click(within(details).getByRole('button', { name: 'Back to all groups' }))
@@ -3366,12 +4030,12 @@ test('the tracked Queries row picker searches a large property list and browses 
   expect(within(details).queryByRole('button', { name: 'Select North East' })).toBeNull()
   expect(within(details).queryByRole('button', { name: 'Select Citypoint Dental' })).toBeNull()
   fireEvent.click(within(details).getByRole('button', { name: 'Browse Metro' }))
-  expect(within(details).getByText('All properties in this group')).toBeTruthy()
-  expect(within(details).getByText('Subgroups (1)', { selector: 'summary, summary > span' }).closest('details')!.open).toBe(true)
-  expect(within(details).getByText('All properties (1)', { selector: 'summary, summary > span' }).closest('details')!.open).toBe(false)
+  expect(within(details).getByText('All in this group')).toBeTruthy()
+  expect(within(details).getByText('Groups (1)', { selector: 'summary, summary > span' }).closest('details')!.open).toBe(true)
+  expect(within(details).getByText('All locations (1)', { selector: 'summary, summary > span' }).closest('details')!.open).toBe(false)
   fireEvent.click(within(details).getByRole('button', { name: 'Select North East' }))
   await waitFor(() => expect(router.state.location.search).toMatchObject({ measurementScope: 'group', measurementScopeKey: 'north-east' }))
-  await waitFor(() => expect(trigger.textContent).toBe('North East · 1 property'))
+  await waitFor(() => expect(trigger.textContent).toBe('North East · 1 location'))
 }, 15_000)
 
 test('AI Visibility makes one first-page request, normalizes without a history entry, and shows a new scope while it loads', async () => {
@@ -3390,7 +4054,7 @@ test('AI Visibility makes one first-page request, normalizes without a history e
   await waitFor(() => expect(router.state.location.search.queryClass).toBe('non-brand'))
   expect(router.history.length).toBe(historyLength)
   const trigger = await rowTrigger(page.container)
-  expect(trigger.textContent).toBe('Whole site')
+  expect(trigger.textContent).toBe(ALL_OF_CITYPOINT)
   const firstPages = observed.filter(url => url.pathname.endsWith('/visibility-report')
     && url.searchParams.get('limit') === '25' && !url.searchParams.has('cursor') && !url.searchParams.has('search') && !url.searchParams.has('queryKey'))
   expect(firstPages.map(url => url.searchParams.get('queryClass'))).toEqual(['all'])
@@ -3399,13 +4063,13 @@ test('AI Visibility makes one first-page request, normalizes without a history e
   fireEvent.click(within(trigger.closest('details')!).getByRole('button', { name: 'Select North' }))
   await waitFor(() => expect(router.state.location.search).toMatchObject({ measurementScope: 'group', measurementScopeKey: 'north', queryClass: 'non-brand' }))
   // The URL owns the trigger, so it does not snap back while the report loads.
-  await waitFor(() => expect(trigger.textContent).toBe('North · 1 property'))
+  await waitFor(() => expect(trigger.textContent).toBe('North · 1 location'))
   expect(page.getByRole('status', { name: 'Loading AI visibility' })).toBeTruthy()
   expect(router.history.length).toBe(historyLength + 1)
 
   releaseNorth!()
   expect(await page.findByText('North Property')).toBeTruthy()
-  expect(trigger.textContent).toBe('North · 1 property')
+  expect(trigger.textContent).toBe('North · 1 location')
   expect(observed.filter(url => url.pathname.endsWith('/visibility-report') && url.searchParams.get('scopeKey') === 'north')).toHaveLength(1)
 })
 
@@ -3415,18 +4079,23 @@ test.each([
     search: '?measurementScope=group&measurementScopeKey=north&measurementMarketKey=gone-market&queryClass=non-brand',
     details: { reason: 'retired-market', kind: 'market', key: 'gone-market' },
     recovery: VISIBILITY_SCOPE_RECOVERY_COPY.showAllMarkets,
+    label: VISIBILITY_SCOPE_RECOVERY_COPY.showAllMarkets,
+    help: VISIBILITY_SCOPE_RECOVERY_COPY.retiredMarketHelp,
     recovered: { measurementScope: 'group', measurementScopeKey: 'north', queryClass: 'non-brand' },
-    trigger: 'North · 1 property',
+    trigger: 'North · 1 location',
   },
   {
     kind: 'group',
     search: '?measurementScope=group&measurementScopeKey=gone-group&queryClass=non-brand',
     details: { reason: 'retired-scope', kind: 'group', key: 'gone-group' },
-    recovery: VISIBILITY_SCOPE_RECOVERY_COPY.showWholeSite,
+    // The button reads "Show all"; its name and the note's tooltip say all of which project.
+    recovery: 'Show all of Citypoint Dental NYC',
+    label: VISIBILITY_SCOPE_RECOVERY_COPY.showWholeSite,
+    help: 'This saved place is not in this measurement. Show all of Citypoint Dental NYC to pick another.',
     recovered: { measurementScope: 'project', queryClass: 'non-brand' },
-    trigger: 'Whole site',
+    trigger: ALL_OF_CITYPOINT,
   },
-] as const)('a retired $kind from the real error envelope is named in the row and recovered in the body', async ({ search, details, recovery, recovered, trigger }) => {
+] as const)('a retired $kind from the real error envelope is named in the row and recovered in the body', async ({ search, details, recovery, label, help, recovered, trigger }) => {
   const { page, router } = await renderScopeRoute(`/projects/project_citypoint${search}`, overviewRoute(url => {
     const retiredKey = url.searchParams.get(details.kind === 'market' ? 'marketKey' : 'scopeKey')
     if (retiredKey === details.key) {
@@ -3441,6 +4110,8 @@ test.each([
   await waitFor(() => expect(row.querySelector('.project-context-scope')?.textContent).toBe(PROJECT_SCOPE_COPY.savedScopeUnavailable))
   expect(page.container.querySelector('.visibility-scope-trigger')).toBeNull()
   expect(page.queryByRole('button', { name: 'Retry' })).toBeNull()
+  expect(page.getByRole('button', { name: help })).toBeTruthy()
+  expect(page.getByRole('button', { name: recovery }).textContent).toBe(label)
 
   fireEvent.click(page.getByRole('button', { name: recovery }))
   await waitFor(() => expect(router.state.location.search).toMatchObject(recovered))
@@ -3548,7 +4219,7 @@ test('the AI Visibility row picker writes a single-market Group\'s market for a 
     return jsonResponse(withMarketLinks(visibilityReportResponse({ mode: 'advanced' })))
   }))
   const trigger = await rowTrigger(page.container)
-  await waitFor(() => expect(trigger.textContent).toBe('Whole site'))
+  await waitFor(() => expect(trigger.textContent).toBe(ALL_OF_CITYPOINT))
   const details = trigger.closest('details')!
 
   fireEvent.click(trigger)
@@ -3566,21 +4237,21 @@ test('the AI Visibility row picker writes a single-market Group\'s market for a 
   fireEvent.click(within(details).getByRole('button', { name: MARKET_SCOPE_COPY.select('North') }))
   await waitFor(() => expect(router.state.location.search).toMatchObject({ measurementScope: 'group', measurementScopeKey: 'north', queryClass: 'non-brand' }))
   expect(router.state.location.search.measurementMarketKey).toBeUndefined()
-  await waitFor(() => expect(trigger.textContent).toBe('North · 1 property'))
+  await waitFor(() => expect(trigger.textContent).toBe('North · 1 location'))
 }, 15_000)
 
 test('the tracked Queries row picker drops a carried market when it changes scope', async () => {
   const { page, router } = await renderScopeRoute('/projects/project_citypoint/queries?measurementScope=group&measurementScopeKey=north&measurementMarketKey=new-york', trackingRoute())
   const trigger = await rowTrigger(page.container)
-  await waitFor(() => expect(trigger.textContent).toBe('North · 1 property'))
+  await waitFor(() => expect(trigger.textContent).toBe('North · 1 location'))
   const details = trigger.closest('details')!
 
   fireEvent.click(trigger)
-  fireEvent.change(within(details).getByRole('searchbox', { name: 'Search scopes' }), { target: { value: 'Citypoint' } })
+  fireEvent.change(within(details).getByRole('searchbox', { name: 'Search places' }), { target: { value: 'Citypoint' } })
   fireEvent.click(within(details).getByRole('button', { name: MARKET_SCOPE_COPY.select('Citypoint Dental') }))
   await waitFor(() => expect(router.state.location.search).toMatchObject({ measurementScope: 'property', measurementScopeKey: 'citypoint' }))
   expect(router.state.location.search.measurementMarketKey).toBeUndefined()
-  await waitFor(() => expect(trigger.textContent).toBe('Citypoint Dental · Property'))
+  await waitFor(() => expect(trigger.textContent).toBe('Citypoint Dental · Location'))
 })
 
 test('a published Property scope opens the Property page, and every return keeps the report selection', async () => {
@@ -3596,7 +4267,8 @@ test('a published Property scope opens the Property page, and every return keeps
 
   // ProjectPage links by project name, not by the id this entry resolved.
   const projectPath = `/projects/${encodeURIComponent('Citypoint Dental NYC')}`
-  const details = await page.findByRole('link', { name: 'Property details for Harbor House' })
+  const details = await page.findByRole('link', { name: 'Location details for Harbor House' })
+  expect(details.textContent).toBe('Location details')
   expect(hrefOf(details).pathname).toBe(`${projectPath}/properties/harbor-house`)
   expect(Object.fromEntries(hrefOf(details).searchParams)).toEqual(Object.fromEntries(reportSearch))
 
@@ -3607,11 +4279,11 @@ test('a published Property scope opens the Property page, and every return keeps
   expect(page.getByText(/Filters not applied/)).toBeTruthy()
   expect(page.getByRole('button', { name: `AI Visibility is filtered to ${PROPERTY_MARKET.label}, a saved check. This page shows the latest measurement for all markets and answer engines.` })).toBeTruthy()
   expect((page.getByLabelText('Query type') as HTMLSelectElement).value).toBe('branded')
-  const back = page.getByRole('link', { name: 'Back to AI Visibility' })
-  expect(hrefOf(back).pathname).toBe(projectPath)
-  expect(Object.fromEntries(hrefOf(back).searchParams)).toEqual(Object.fromEntries(reportSearch))
+  // The reader came from the report, so the way back is Back: it returns there, not to a fixed page.
+  const back = page.getByRole('button', { name: 'Back' })
+  expect(page.queryByRole('link', { name: 'AI Visibility' })).toBeNull()
   // The market section compares markets, so its overview link returns to the whole site.
-  const marketOverview = hrefOf(page.getByRole('link', { name: 'Open measurement overview' }))
+  const marketOverview = hrefOf(page.getByRole('link', { name: 'View in AI Visibility' }))
   expect(marketOverview.pathname).toBe(projectPath)
   expect(Object.fromEntries(marketOverview.searchParams)).toEqual({ measurementScope: 'project', queryClass: 'branded', measurementRunId: 'run-synthetic' })
 
@@ -3620,11 +4292,18 @@ test('a published Property scope opens the Property page, and every return keeps
   expect(router.state.location.search).toMatchObject({ ...Object.fromEntries(reportSearch), queryClass: 'non-brand' })
   expect(router.state.location.search.runId).toBeUndefined()
 
-  fireEvent.click(page.getByRole('link', { name: 'Back to AI Visibility' }))
-  expect(await page.findByRole('link', { name: 'Property details for Harbor House' })).toBeTruthy()
+  // The type switch replaced the page's own history entry, so one Back leaves it. In a browser the router's
+  // history is the window's; here it is in memory, so the button's call is handed to it.
+  const pop = vi.spyOn(window.history, 'back').mockImplementation(() => router.history.back())
+  onTestFinished(() => pop.mockRestore())
+  fireEvent.click(back)
+  expect(await page.findByRole('link', { name: 'Location details for Harbor House' })).toBeTruthy()
+  // The report is as the reader left it: every filter, and the type it was on.
+  expect(router.state.location.pathname).toBe('/projects/project_citypoint')
+  expect(router.state.location.search).toMatchObject(Object.fromEntries(reportSearch))
   const returned = observed.filter(url => url.pathname.endsWith('/visibility-report')).at(-1)!
   expect(Object.fromEntries(returned.searchParams)).toMatchObject({
-    scope: 'property', scopeKey: 'harbor-house', marketKey: PROPERTY_MARKET.id, queryClass: 'non-brand', runId: 'run-synthetic',
+    scope: 'property', scopeKey: 'harbor-house', marketKey: PROPERTY_MARKET.id, queryClass: 'branded', runId: 'run-synthetic',
   })
 }, 15_000)
 
@@ -3639,20 +4318,21 @@ test.each([
   await waitFor(() => {
     expect(router.state.location.search.queryClass).toBe(assignedClass)
     expect((page.getByLabelText('Query type') as HTMLSelectElement).value).toBe(assignedClass)
-    expect(page.getByRole('link', { name: 'Back to AI Visibility' }).getAttribute('href')).toBe(`/projects/project_citypoint?queryClass=${assignedClass}`)
+    // Opened directly, with nowhere to go back to: a link to AI Visibility, carrying the type.
+    expect(page.getByRole('link', { name: 'AI Visibility' }).getAttribute('href')).toBe(`/projects/project_citypoint?queryClass=${assignedClass}`)
   })
   expect(page.queryByText(/Filters not applied/)).toBeNull()
 })
 
-test('Property details is offered only for a published Advanced Property scope outside embeds', async () => {
+test('Location details is offered only for a published Advanced Property scope outside embeds', async () => {
   const propertyPath = '/projects/project_citypoint?measurementScope=property&measurementScopeKey=harbor-house'
 
   const published = await renderAt(propertyPath, undefined, { plan: measurementPlanV2Response(4), visibilityReport: propertyScopeReport() })
-  expect(published).toContain('aria-label="Property details for Harbor House"')
+  expect(published).toContain('aria-label="Location details for Harbor House"')
   expect(published).toContain(`/projects/${encodeURIComponent('Citypoint Dental NYC')}/properties/harbor-house?measurementScope=property&amp;measurementScopeKey=harbor-house`)
 
   const wholeSite = await renderAt('/projects/project_citypoint', undefined, { plan: measurementPlanV2Response(4), visibilityReport: visibilityReportResponse({ mode: 'advanced' }) })
-  expect(wholeSite).toContain('Properties mentioned')
+  expect(wholeSite).toContain('Locations mentioned')
   expect(wholeSite).not.toContain('/properties/')
 
   const embedded = await renderAt(propertyPath, { enabled: true, projectTabs: ['overview'] }, { plan: measurementPlanV2Response(4), visibilityReport: propertyScopeReport() })
@@ -3663,6 +4343,102 @@ test('Property details is offered only for a published Advanced Property scope o
   const simple = await renderAt(propertyPath)
   expect(simple).not.toContain('aria-label="AI visibility results"')
   expect(simple).not.toContain('/properties/')
+})
+
+test.each(['admin', 'viewer'] as const)('Queries links a location chosen as the Place to its page for %s, and no other place', async accountRole => {
+  const queries = (search: string) => renderScopeRoute(`/projects/project_citypoint/queries${search}`, trackingRoute(), { accountRole })
+  const projectPath = `/projects/${encodeURIComponent('Citypoint Dental NYC')}`
+
+  const location = await queries('?measurementScope=property&measurementScopeKey=citypoint&trackedType=branded')
+  await waitFor(async () => expect((await rowTrigger(location.page.container)).textContent).toBe('Citypoint Dental · Location'))
+  const link = within(contextRow(location.page.container)).getByRole('link', { name: 'Location details for Citypoint Dental' })
+  expect(link.textContent).toBe('Location details')
+  const href = new URL(link.getAttribute('href')!, window.location.origin)
+  expect(href.pathname).toBe(`${projectPath}/properties/citypoint`)
+  // The selection travels with it, as it does from AI Visibility.
+  expect(Object.fromEntries(href.searchParams)).toMatchObject({ measurementScope: 'property', measurementScopeKey: 'citypoint' })
+  location.page.unmount()
+
+  // A group and the whole project have no page of their own. The project keeps its counts in that place.
+  const group = await queries('?measurementScope=group&measurementScopeKey=north')
+  await waitFor(async () => expect((await rowTrigger(group.page.container)).textContent).toBe('North · 1 location'))
+  expect(group.page.container.querySelector('a[href*="/properties/"]')).toBeNull()
+  group.page.unmount()
+
+  const project = await queries('')
+  await waitFor(() => expect(placeSlotParts(project.page.container).at(-1)).toBe('1 location'))
+  expect(project.page.container.querySelector('a[href*="/properties/"]')).toBeNull()
+})
+
+test.each([
+  { trackedType: 'branded', priorClass: 'non-brand', expected: 'branded' },
+  { trackedType: 'non-brand', priorClass: 'branded', expected: 'non-brand' },
+  { trackedType: 'all', priorClass: 'branded', expected: 'all' },
+])('Queries location details carries $trackedType instead of the previous report type', async ({ trackedType, priorClass, expected }) => {
+  const { page } = await renderScopeRoute(`/projects/project_citypoint/queries?measurementScope=property&measurementScopeKey=citypoint&trackedType=${trackedType}&queryClass=${priorClass}&measurementQueryKey=old-query`, trackingRoute(), { accountRole: 'viewer' })
+  await rowTrigger(page.container)
+  const link = within(contextRow(page.container)).getByRole('link', { name: 'Location details for Citypoint Dental' })
+  const search = Object.fromEntries(new URL(link.getAttribute('href')!, window.location.origin).searchParams)
+  expect(parseVisibilitySelection(search).queryClass).toBe(expected)
+  expect(search).toMatchObject({ measurementScope: 'property', measurementScopeKey: 'citypoint' })
+  expect(search.measurementQueryKey).toBeUndefined()
+})
+
+/** Bulk setup on a draft over the published setup of revision 7, opened at `entry`. */
+async function renderSetupRoute(entry: string, draft = measurementDraftResponse()) {
+  const realFetch = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = new URL(input instanceof Request ? input.url : String(input), window.location.origin)
+    const path = `${decodeURIComponent(url.pathname)}${url.search}`
+    if (path.endsWith('/runs?kind=answer-visibility')) return jsonResponse([])
+    if (path.endsWith('/measurement-setup')) return jsonResponse(measurementSetupResponse(7))
+    if (path.endsWith('/measurement-plan/draft')) return jsonResponse(draft)
+    if (path.endsWith('/measurement-plan')) return jsonResponse(measurementPlanResponse(7, true))
+    if (path.endsWith('/queries')) return jsonResponse([{ id: 'query-old', query: 'old service query', createdAt: '2026-08-01T11:00:00.000Z' }])
+    return jsonResponse({ code: 'NOT_FOUND', message: 'not found' }, 404)
+  }) as typeof fetch
+  onTestFinished(() => { globalThis.fetch = realFetch })
+  const fixture = createDashboardFixture({})
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const router = createAppRouter(queryClient, { initialEntries: [entry] })
+  await router.load()
+  const page = render(
+    <QueryClientProvider client={queryClient}>
+      <DashboardProvider value={{ dashboard: fixture.dashboard, health: fixture.health }}>
+        <RouterProvider router={router} />
+      </DashboardProvider>
+    </QueryClientProvider>,
+  )
+  /** The step the wizard is on, as its step list marks it. */
+  const step = async () => (await waitFor(() => {
+    const current = page.container.querySelector('[aria-current="step"]')
+    expect(current).not.toBeNull()
+    return current!
+  })).textContent
+  return { page, step }
+}
+
+test('Bulk setup opens on Review and publish when a link asks for it, and where it always did without', async () => {
+  // A finished draft over a published setup: the names editor's "Review and publish" link asks for the last step.
+  const asked = await renderSetupRoute('/projects/project_citypoint/portfolio?setupStep=review')
+  expect(await asked.step()).toBe('Review and publish')
+  asked.page.unmount()
+
+  const plain = await renderSetupRoute('/projects/project_citypoint/portfolio')
+  expect(await plain.step()).toBe('Locations')
+  plain.page.unmount()
+
+  // Any other value asks for nothing.
+  const other = await renderSetupRoute('/projects/project_citypoint/portfolio?setupStep=groups')
+  expect(await other.step()).toBe('Locations')
+})
+
+test('Bulk setup opens on the step a draft still needs, whatever step a link asks for', async () => {
+  // A location still to be decided on: the draft cannot be reviewed yet.
+  const draft = measurementDraftResponse()
+  draft.draft.authoring.targets.push({ ...draft.draft.authoring.targets[0]!, stableKey: 'pier-house', label: 'Pier House', status: 'proposed' as never, discoveryIdentity: 'sitemap:pier-house' })
+  const { step } = await renderSetupRoute('/projects/project_citypoint/portfolio?setupStep=review', draft)
+  expect(await step()).toBe('Locations')
 })
 
 const managedSchedule = {
@@ -3714,7 +4490,7 @@ test.each(['simple', 'advanced'] as const)('managed sweeps replaces the %s heade
       expect(renderedPage(html).querySelector('.project-context-meta')).toBeNull()
       expect(actions.querySelectorAll('p:not([role="status"])')).toHaveLength(0)
     }
-    expect(html).not.toMatch(/Run AI Visibility check|Run measurement|Checking AI readiness|Set up AI Visibility/)
+    expect(html).not.toMatch(/Run AI Visibility check|Run measurement|Checking AI readiness|Set up AI Visibility|Connect an engine/)
   }
 })
 
@@ -3734,10 +4510,10 @@ test('an Advanced explicit historical range is a results filter token, not conte
 })
 
 test.each([
-  { label: 'names when tracking changed and the next scheduled check', managedSweeps: false, running: false, copy: 'Tracking changed Aug 1. Showing the Jul 30 results, from before the change. New numbers after the Sep 8 check.' },
-  { label: 'names no next check date while a check is under way', managedSweeps: false, running: true, copy: 'Tracking changed Aug 1. Showing the Jul 30 results, from before the change. New numbers after the next check.' },
-  { label: 'names neither date on a managed dashboard', managedSweeps: true, running: false, copy: 'Tracking changed. Showing the Jul 30 results, from before the change. New numbers after the next check.' },
-])('the Advanced tracking-changed strip $label', async ({ managedSweeps, running, copy }) => {
+  { label: 'names when tracking changed and the next scheduled check', managedSweeps: false, running: false, visible: 'Tracking changed Aug 1', detail: 'Showing the Jul 30 results, from before the change. New numbers after the Sep 8 check.' },
+  { label: 'names no next check date while a check is under way', managedSweeps: false, running: true, visible: 'Tracking changed Aug 1', detail: 'Showing the Jul 30 results, from before the change. New numbers after the next check.' },
+  { label: 'names neither date on a managed dashboard', managedSweeps: true, running: false, visible: 'Tracking changed', detail: 'Showing the Jul 30 results, from before the change. New numbers after the next check.' },
+])('the Advanced tracking-changed strip $label', async ({ managedSweeps, running, visible, detail }) => {
   const report = visibilityReportResponse({ mode: 'advanced', queryClass: parseVisibilitySelection({}).queryClass })
   report.selection.measurement = { ...report.selection.measurement, activeRevision: 5, awaitingSweep: true, pendingAssignmentCount: 1, completedAt: '2026-07-30T12:05:00.000Z' }
   // The plan (published Aug 1) and the schedule are cached in every case, so only the page's own rules keep a date out.
@@ -3749,7 +4525,8 @@ test.each([
     } },
   )
   const strips = [...renderedPage(html).querySelectorAll('[role="status"]')].filter(status => status.textContent?.startsWith('Tracking changed'))
-  expect(strips.map(strip => strip.textContent)).toEqual([copy])
+  // Only the short label shows; the rest of the sentence is the name of the caution icon the strip holds.
+  expect(strips.map(strip => [strip.textContent, [...strip.querySelectorAll('button')].map(button => button.getAttribute('aria-label'))])).toEqual([[visible, [detail]]])
 })
 
 test('managed sweeps without a schedule replaces the header action without inventing a date', async () => {
@@ -3787,7 +4564,7 @@ test.each(['simple', 'advanced'] as const)('managed %s settings exposes schedule
   )
   const container = document.createElement('div')
   container.innerHTML = html
-  const section = within(container).getByRole('heading', { name: 'Scheduled runs' }).closest('section')!
+  const section = within(container).getByRole('heading', { name: 'Scheduled checks' }).closest('section')!
   expect(section.textContent).toContain(MANAGED_SWEEPS_COPY)
   expect(section.textContent).toContain('0 6 * * *')
   expect(within(section).queryByRole('button', { name: /Set schedule|Edit schedule|Pause|Resume|Remove|Save schedule/ })).toBeNull()
@@ -3874,12 +4651,12 @@ test.each(['', '/technical-aeo', '/settings', '/history'])('unset managed run ki
       expect(within(doc).getByRole('heading', { level: 1, name: 'Citypoint Dental NYC' })).toBeTruthy()
       expect(html).not.toContain('Scans are run by your Canonry team')
       expect(html).not.toContain('Checks are run by your Canonry team')
-      expect(within(projectActions(html)).getByRole('button', { name: /AI Visibility check running|Checking AI readiness|Set up AI Visibility|Run AI Visibility check/ }).hasAttribute('disabled')).toBe(true)
+      expect(within(projectActions(html)).getByRole('button', { name: /AI Visibility check running|Checking AI readiness|Set up AI Visibility|Connect an engine|Run AI Visibility check/ }).hasAttribute('disabled')).toBe(true)
       if (suffix === '/technical-aeo') expect(within(doc).getByRole('heading', { name: 'Site Health' })).toBeTruthy()
       if (suffix === '/settings') expect(within(doc).getByRole('heading', { name: 'Project settings' })).toBeTruthy()
       if (suffix === '/history') expect(within(within(doc).getByRole('tablist', { name: 'Project history views' })).getByRole('tab', { name: 'Changes' }).getAttribute('aria-selected')).toBe('true')
       if (suffix === '' && mode === 'simple') expectTrendChartFirst(html)
-      if (suffix === '' && mode === 'advanced') expect(doc.querySelector('.visibility-scope-trigger')?.textContent).toBe('Whole site')
+      if (suffix === '' && mode === 'advanced') expect(doc.querySelector('.visibility-scope-trigger')?.textContent).toBe(ALL_OF_CITYPOINT)
     }
   }
 })
@@ -3911,10 +4688,13 @@ test.each(['simple', 'advanced'] as const)('%s Settings shows the saved Site Hea
     expect(select.value, String(saved)).toBe(choice)
     expect((within(section).queryByRole('spinbutton', { name: 'Custom page budget' }) as HTMLInputElement | null)?.value ?? null, String(saved)).toBe(custom)
     expect(within(section).getByRole('button', { name: 'Save page budget' }).hasAttribute('disabled')).toBe(true)
-    // It sits right after the answer engine settings.
-    const engines = section.parentElement!.querySelector('.project-engine-settings')!
+    // It sits right after the answer engine settings. Each Settings section now has an anchor of its own
+    // for the jump list, so the two sections are the only content of two neighbouring anchors.
+    const engines = section.parentElement!.previousElementSibling!.querySelector('.project-engine-settings')!
     expect(engines).not.toBe(section)
-    expect(engines.nextElementSibling).toBe(section)
+    expect([engines.parentElement!.id, engines.parentElement!.children.length]).toEqual(['settings-engines', 1])
+    expect([section.parentElement!.id, section.parentElement!.children.length]).toEqual(['settings-site-health', 1])
+    expect(engines.parentElement!.nextElementSibling).toBe(section.parentElement)
   }
 })
 

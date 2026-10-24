@@ -120,7 +120,7 @@ Every (query × provider) snapshot carries two independent signals — a model c
 3. Never compute one signal from the other. A "cited" label reads `citationState`; a "mentioned" label reads `answerMentioned`. A metric named for one and computed from the other is a bug — fix it.
 4. When you mean both, say "citation + mention coverage" or "visibility (cited or mentioned)" and disambiguate immediately.
 5. Public API field names use this vocabulary from the start; a rename needs a version bump.
-6. Render both signals in CLI/UI snapshot output: a two-glyph cell (`C/c` cited or not, `M/m` mentioned or not, `–` missing) with the legend above the table, as `canonry citations` and `canonry run` do.
+6. Render both signals in CLI/UI snapshot output: a two-glyph cell (`C/c` cited or not, `M/m` mentioned or not, `–` missing) with the legend above the table, as `canonry citations` and `canonry run` do. A dashboard list may show one signal at a time behind a Mentioned | Cited switch that names the signal shown (default Mentioned), while the summary above it and each opened row keep both; CLI tables keep both glyphs.
 7. `canonry-vocabulary/no-banned-metric-literal` bans conflating literals (`'answerRate'`, `'visibility run'`, `'paid mentions'`, …) in the CLI, api-routes, and web trees; the list is in `eslint-rules/canonry-vocabulary.js`. Bare `'visible'` stays legal (DOM, legacy enum) — review owns it.
 
 ### Branded vs non-brand (Critical)
@@ -142,7 +142,7 @@ The tracked thing (`canonry query add`, the `queries` / `query_snapshots` tables
 1. Human-facing copy says `query`: UI labels, headings, tooltips, `aria-label`, placeholders, CLI output, and exported output — with correct agreement ("Assign at least one query", "3 query assignments").
 2. The frozen wire names stay: routes `/measurement-property-questions` and `/measurement-question-result`, MCP tools `canonry_measurement_property_questions` and `canonry_measurement_question_result`, and every SDK symbol, field, prop, and file built on them. The copy/wire mismatch is deliberate.
 3. Discovery's generative framing ("questions your customers might ask") is a real-world noun; once a candidate is promoted into the basket it is a query.
-4. `canonry-vocabulary/no-question-ui-copy` enforces this in `apps/web/src`. Machine tokens (no whitespace, e.g. `property-questions`) and `className` / `id` / `aria-labelledby` values are exempt; only two files are excluded, permanently: `DiscoverySection.tsx` (rule 3's framing can't be separated by regex) and `mock-data.ts` (test fixture).
+4. `canonry-vocabulary/no-question-ui-copy` enforces this in `apps/web/src`. Machine tokens (no whitespace, e.g. `property-questions`) and `className` / `id` / `aria-labelledby` values are exempt; only two files are excluded, permanently: `components/project/queries/FindQueriesSection.tsx` (rule 3's framing can't be separated by regex) and `mock-data.ts` (test fixture).
 
 ## Enum Constants (Critical)
 

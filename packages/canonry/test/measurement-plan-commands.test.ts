@@ -625,7 +625,7 @@ describe('measurement-plan CLI commands', () => {
     })
 
     log.mockRestore()
-    expect(text).toContain('Mentioned  9 of 11 (81.8%) · 1 of 12 answers could not be tied to one property')
+    expect(text).toContain('Mentioned  9 of 11 (81.8%) · 1 of 12 answers could not be tied to one location')
     // Citation reads its own denominator; the note belongs to the mention rate only.
     expect(text).toMatch(/^Cited {6}3 of 12 \(25\.0%\)$/m)
     expect(JSON.parse(logged.join('\n')).properties.items[0].mentionCoverage).toEqual(partial)
@@ -657,13 +657,13 @@ describe('measurement-plan CLI commands', () => {
 
     log.mockRestore()
     const lines = logged.join('\n').split('\n')
-    expect(lines).toContain('Mentioned  1 of 1 (100%) · 9 of 10 answers could not be tied to one property')
+    expect(lines).toContain('Mentioned  1 of 1 (100%) · 9 of 10 answers could not be tied to one location')
     const gemini = lines.findIndex(line => line.startsWith('gemini'))
     expect(lines[gemini]).toBe(`${'gemini'.padEnd(14)}${'1 of 1 (100%)'.padEnd(34)}0 of 5 (0%)`)
     // The note continues under the Mentioned column so the table stays aligned.
-    expect(lines[gemini + 1]).toBe(`${''.padEnd(14)}4 of 5 answers could not be tied to one property`)
+    expect(lines[gemini + 1]).toBe(`${''.padEnd(14)}4 of 5 answers could not be tied to one location`)
     const openai = lines.findIndex(line => line.startsWith('openai'))
-    expect(lines[openai]).toBe(`${'openai'.padEnd(14)}${'not measured (no answer could be tied to one property)'.padEnd(34)}0 of 5 (0%)`)
+    expect(lines[openai]).toBe(`${'openai'.padEnd(14)}${'not measured (no answer could be tied to one location)'.padEnd(34)}0 of 5 (0%)`)
     expect(lines[openai + 1]).toBeUndefined()
   })
 
@@ -702,13 +702,13 @@ describe('measurement-plan CLI commands', () => {
 
     log.mockRestore()
     const lines = logged.join('\n').split('\n')
-    expect(lines).toContain('Mentioned  2 of 3 (66.7%) · 1 of 4 answers could not be tied to one property')
+    expect(lines).toContain('Mentioned  2 of 3 (66.7%) · 1 of 4 answers could not be tied to one location')
     expect(lines).toContain('Cited      1 of 2 (50.0%) · 2 of 4 answers had sources that could not be checked')
     const gemini = lines.findIndex(line => line.startsWith('gemini'))
     expect(lines.slice(gemini)).toEqual([
       `${'gemini'.padEnd(14)}${'1 of 1 (100%)'.padEnd(34)}0 of 1 (0%)`,
       // Each note continues under its own column: mention under Mentioned, citation under Cited.
-      `${''.padEnd(14)}1 of 2 answers could not be tied to one property`,
+      `${''.padEnd(14)}1 of 2 answers could not be tied to one location`,
       `${''.padEnd(48)}1 of 2 answers had sources that could not be checked`,
       `${'openai'.padEnd(14)}${'1 of 2 (50.0%)'.padEnd(34)}1 of 1 (100%)`,
       `${''.padEnd(48)}1 of 2 answers had sources that could not be checked`,
@@ -729,7 +729,7 @@ describe('measurement-plan CLI commands', () => {
     })
 
     log.mockRestore()
-    expect(logged.join('\n')).toContain('Mentioned  not measured (no answer could be tied to one property)')
+    expect(logged.join('\n')).toContain('Mentioned  not measured (no answer could be tied to one location)')
   })
 
   it.each([
@@ -753,6 +753,134 @@ describe('measurement-plan CLI commands', () => {
     expect(() => command('measurement-plan property').run({
       positionals: ['acme'], values: { 'target-key': 'harbor-view', 'query-class': 'brand' }, format: 'json', dryRun: false,
     })).toThrow('--query-class must be one of all, branded, non-brand')
+  })
+
+  it('sends --fallback last-sweep on both per-Property reads, and refuses any other value', async () => {
+    expect(command('measurement-plan property').usage).toContain('[--fallback last-sweep]')
+    expect(command('measurement-plan property-evidence').usage).toContain('[--fallback last-sweep]')
+
+    await command('measurement-plan property').run({
+      positionals: ['acme'], values: { 'target-key': 'harbor-view', fallback: 'last-sweep' }, format: 'json', dryRun: false,
+    })
+    expect(getMeasurementOverview).toHaveBeenLastCalledWith('acme', {
+      scope: 'property', targetKey: 'harbor-view', fallback: 'last-sweep',
+    })
+    await command('measurement-plan property-evidence').run({
+      positionals: ['acme'], values: { 'target-key': 'harbor-view', shape: 'answers', fallback: 'last-sweep' }, format: 'json', dryRun: false,
+    })
+    expect(getMeasurementPropertyEvidence).toHaveBeenLastCalledWith('acme', {
+      targetKey: 'harbor-view', shape: 'answers', fallback: 'last-sweep',
+    })
+
+    // Never sent unless asked for: the default read is unchanged.
+    await command('measurement-plan property').run({
+      positionals: ['acme'], values: { 'target-key': 'harbor-view' }, format: 'json', dryRun: false,
+    })
+    expect(getMeasurementOverview).toHaveBeenLastCalledWith('acme', { scope: 'property', targetKey: 'harbor-view' })
+
+    for (const name of ['measurement-plan property', 'measurement-plan property-evidence']) {
+      expect(() => command(name).run({
+        positionals: ['acme'], values: { 'target-key': 'harbor-view', fallback: 'newest' }, format: 'json', dryRun: false,
+      }), name).toThrow('--fallback must be last-sweep')
+    }
+  })
+
+  it('passes the fallback through the advanced overview operation', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    const inputPath = path.join(tmpDir, 'overview.json')
+    fs.writeFileSync(inputPath, JSON.stringify({ scope: 'property', targetKey: 'harbor-view', fallback: 'last-sweep' }))
+
+    await command('measurement-plan advanced').run({
+      positionals: ['acme', 'overview', inputPath], values: {}, format: 'json', dryRun: false,
+    })
+    expect(getMeasurementOverview).toHaveBeenLastCalledWith('acme', {
+      scope: 'property', targetKey: 'harbor-view', fallback: 'last-sweep', compact: true,
+    })
+  })
+
+  it('prints one line when the numbers are from before a tracking change, and only then', async () => {
+    const awaiting = {
+      activeRevision: 2, measuredRevision: 1, awaitingSweep: true,
+      trackingChangedAt: '2026-10-09T15:00:00.000Z', completedAt: '2026-10-07T12:00:00.000Z',
+    }
+    const line = 'Tracking changed 2026-10-09. Showing the 2026-10-07 sweep. New numbers after the next sweep.'
+    const printed = async (name: string, format: string) => {
+      const logged: string[] = []
+      const log = vi.spyOn(console, 'log').mockImplementation(text => { logged.push(String(text)) })
+      await command(name).run({
+        positionals: ['acme'], values: { 'target-key': 'harbor-view', fallback: 'last-sweep' }, format, dryRun: false,
+      })
+      log.mockRestore()
+      return logged.join('\n')
+    }
+
+    const lastSweep = { ...OVERVIEW, measurement: { ...OVERVIEW.measurement, ...awaiting } }
+    getMeasurementOverview.mockResolvedValueOnce(lastSweep)
+    expect((await printed('measurement-plan property', 'text')).split('\n').slice(0, 3)).toEqual([
+      'Harbor View · branded queries',
+      'Measurement: complete · run run-7',
+      line,
+    ])
+    // The JSON is the endpoint body, with no line added to it.
+    getMeasurementOverview.mockResolvedValueOnce(lastSweep)
+    expect(JSON.parse(await printed('measurement-plan property', 'json'))).toEqual(lastSweep)
+
+    getMeasurementPropertyEvidence.mockResolvedValueOnce({ ...PROPERTY_ANSWERS, measurement: { ...PROPERTY_ANSWERS.measurement, ...awaiting } })
+    expect((await printed('measurement-plan property-evidence', 'text')).split('\n')[2]).toBe(line)
+
+    // A sweep of the active plan, a read with no sweep to show, and a read that never asked: no line.
+    const current = { activeRevision: 2, measuredRevision: 2, awaitingSweep: false, trackingChangedAt: awaiting.trackingChangedAt }
+    const never = { activeRevision: 2, measuredRevision: null, awaitingSweep: true, trackingChangedAt: awaiting.trackingChangedAt }
+    for (const fields of [current, never, {}]) {
+      getMeasurementOverview.mockResolvedValueOnce({ ...OVERVIEW, measurement: { ...OVERVIEW.measurement, ...fields } })
+      expect(await printed('measurement-plan property', 'text'), JSON.stringify(fields)).not.toContain('Tracking changed')
+      getMeasurementPropertyEvidence.mockResolvedValueOnce({ ...PROPERTY_ANSWERS, measurement: { ...PROPERTY_ANSWERS.measurement, ...fields } })
+      expect(await printed('measurement-plan property-evidence', 'text'), JSON.stringify(fields)).not.toContain('Tracking changed')
+    }
+  })
+
+  it('says a location the last sweep did not ask was not in it, never that it has no queries', async () => {
+    const noPopulation = { state: 'unavailable', reason: 'no_population' }
+    const row = { ...OVERVIEW.properties.items[0]!, providers: [{ provider: 'openai', mentionCoverage: noPopulation, citationCoverage: noPopulation }] }
+    const printed = async (fields: Record<string, unknown>) => {
+      getMeasurementOverview.mockResolvedValueOnce({
+        ...OVERVIEW,
+        measurement: { ...OVERVIEW.measurement, ...fields },
+        properties: { ...OVERVIEW.properties, items: [row] },
+      })
+      const logged: string[] = []
+      const log = vi.spyOn(console, 'log').mockImplementation(text => { logged.push(String(text)) })
+      await command('measurement-plan property').run({
+        positionals: ['acme'], values: { 'target-key': 'harbor-view', fallback: 'last-sweep' }, format: 'text', dryRun: false,
+      })
+      log.mockRestore()
+      return logged.join('\n').split('\n')
+    }
+
+    // The location was added after the sweep shown, so it may well have queries of this type now.
+    expect(await printed({
+      activeRevision: 2, measuredRevision: 1, awaitingSweep: true,
+      trackingChangedAt: '2026-10-09T15:00:00.000Z', completedAt: '2026-10-07T12:00:00.000Z',
+    })).toEqual([
+      'Harbor View · branded queries',
+      'Measurement: complete · run run-7',
+      'Tracking changed 2026-10-09. Showing the 2026-10-07 sweep. New numbers after the next sweep.',
+      '',
+      'Mentioned  not measured (not in last sweep)',
+      'Cited      not measured (not in last sweep)',
+      '',
+      'Engine        Mentioned                         Cited',
+      'openai        not measured (not in last sweep)  not measured (not in last sweep)',
+    ])
+
+    // A sweep of the plan in effect now: the plan itself asks nothing of this type.
+    const current = await printed({ activeRevision: 2, measuredRevision: 2, awaitingSweep: false, trackingChangedAt: '2026-10-09T15:00:00.000Z' })
+    expect(current.slice(2, 5)).toEqual([
+      '',
+      'Mentioned  not measured (no questions of this type)',
+      'Cited      not measured (no questions of this type)',
+    ])
+    expect(current.join('\n')).not.toContain('not in last sweep')
   })
 
   it('pages one Property\'s evidence with the same filters as the overview read', async () => {

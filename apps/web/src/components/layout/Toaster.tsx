@@ -30,6 +30,8 @@ export function Toaster() {
 
     if (toast.cta.intent === 'open-run-drawer') {
       void openRun(toast.cta.runId)
+    } else if (toast.cta.intent === 'view-tracked-queries') {
+      void navigate({ to: '/projects/$projectName/queries', params: { projectName: toast.cta.projectName }, search: { queryWorkspace: 'tracked', ...(toast.cta.queryId ? { trackingQueryId: toast.cta.queryId } : {}), ...(toast.cta.status ? { trackedStatus: toast.cta.status } : {}) } })
     } else {
       void navigate({ to: '/runs' })
     }

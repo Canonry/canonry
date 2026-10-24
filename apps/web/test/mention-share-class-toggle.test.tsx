@@ -188,7 +188,7 @@ describe('MentionShare class control', () => {
     expect(block().textContent).not.toContain('%')
     expect(block().querySelector('.mention-share-rows')).toBeNull()
     expect(block().querySelector('.mention-share-value-text')?.textContent).toBe('Add competitors')
-    expect(block().textContent).toContain('you were named in 1 of 32 answers')
+    expect(block().textContent).toContain('you were mentioned in 1 of 32 answers')
   })
 
   it('arrow keys move the selection across the two classes and wrap', () => {
@@ -240,7 +240,7 @@ describe('MentionShare class control', () => {
       branded: breakdown(),
     })
     expect(block().querySelector('.mention-share-value-text')?.textContent).toBe('No mentions')
-    expect(block().textContent).toContain('no brand named in 24 answers')
+    expect(block().textContent).toContain('no brand mentioned in 24 answers')
     expect(block().querySelector('.mention-share-rows')).toBeNull()
   })
 })

@@ -103,7 +103,22 @@ type SearchParams = {
   class?: string
   queryWorkspace?: string
   researchMode?: string
+  addLocation?: string
+  addMarket?: string
+  addQueryIds?: string
+  returnLocation?: string
   trackingQueryId?: string
+  /** The Tracked page's own filters. `trackedView` is held for its saved views. */
+  trackedSubject?: string
+  trackedType?: string
+  trackedStatus?: string
+  trackedSource?: string
+  trackedResult?: string
+  trackedEngine?: string
+  trackedChange?: string
+  trackedSignal?: string
+  trackedGroup?: string
+  trackedView?: string
   measurementScope?: string
   measurementScopeKey?: string
   measurementMarketKey?: string
@@ -153,7 +168,8 @@ export const rootRoute = createRootRouteWithContext<RouterContext>()({
     scope: typeof search.scope === 'string' ? search.scope : undefined,
     class: typeof search.class === 'string' ? search.class : undefined,
     ...Object.fromEntries([
-      'queryWorkspace', 'researchMode', 'trackingQueryId', 'measurementScope', 'measurementScopeKey', 'measurementMarketKey', 'queryClass',
+      'addLocation', 'addMarket', 'addQueryIds', 'returnLocation', 'queryWorkspace', 'researchMode', 'trackingQueryId', 'measurementScope', 'measurementScopeKey', 'measurementMarketKey', 'queryClass',
+      'trackedSubject', 'trackedType', 'trackedStatus', 'trackedSource', 'trackedResult', 'trackedEngine', 'trackedChange', 'trackedSignal', 'trackedGroup', 'trackedView',
       'measurementProvider', 'measurementModel', 'measurementLocation', 'measurementFrom', 'measurementTo',
       'measurementRevision', 'measurementRunId', 'measurementQueryKey', 'measurementAnswer',
     ].map(key => [key, typeof search[key] === 'string' ? search[key] : undefined])),
@@ -289,6 +305,12 @@ export const projectQueriesRoute = createRoute({
   component: () => <LazyProjectPage tab="queries" />,
 })
 
+export const projectAddQueriesRoute = createRoute({
+  getParentRoute: () => projectLayoutRoute,
+  path: '/queries/add',
+  component: () => <LazyProjectPage tab="queries" addQueriesPage />,
+})
+
 // One Property has its own page rather than an inline row expansion: it is a
 // destination an operator links to and comes back to, and the row cannot hold
 // the class comparison, the per-engine split, and paged evidence at once.
@@ -405,6 +427,7 @@ export const routeTree = rootRoute.addChildren([
     projectLocalRoute,
     projectDiscoveryRoute,
     projectQueriesRoute,
+    projectAddQueriesRoute,
     projectMeasurementPropertyRoute,
     projectReportRoute,
     projectActivityRoute,

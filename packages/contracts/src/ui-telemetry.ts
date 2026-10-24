@@ -24,6 +24,7 @@ export const UI_PAGES = [
   '/projects/:projectName/local',
   '/projects/:projectName/discovery',
   '/projects/:projectName/queries',
+  '/projects/:projectName/queries/add',
   '/projects/:projectName/properties/:targetKey',
   '/projects/:projectName/report',
   '/projects/:projectName/activity',

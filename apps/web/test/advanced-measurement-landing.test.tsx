@@ -202,8 +202,8 @@ describe('advanced measurement landing', () => {
 
     expect(screen.getByText('Loaded Property')).toBeTruthy()
     expect(screen.queryByText('Could not load the advanced measurement report.')).toBeNull()
-    expect(screen.getByRole('alert').textContent).toContain('Could not load more properties.')
-    fireEvent.click(screen.getByRole('button', { name: 'Retry loading more properties' }))
+    expect(screen.getByRole('alert').textContent).toContain('Could not load more locations.')
+    fireEvent.click(screen.getByRole('button', { name: 'Retry loading more locations' }))
     expect(onLoadMore).toHaveBeenCalledWith('next-page')
   })
 })

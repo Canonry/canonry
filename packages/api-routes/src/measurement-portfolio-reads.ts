@@ -67,6 +67,8 @@ import { resolveProject } from './helpers.js'
 import {
   activeMeasurementPlan,
   displayedState,
+  lastSweepFields,
+  measurementReading,
   propertyLocations,
   type ActiveMeasurementPlan,
   type PropertyLocation,
@@ -1248,19 +1250,26 @@ function weakestAnswerSources(
 function propertyCompetitorsResponse(
   db: DatabaseClient,
   active: ActiveMeasurementPlan,
-  plan: MeasurementPlanV2,
+  activePlan: MeasurementPlanV2,
   query: MeasurementPropertyCompetitorsQuery,
 ): MeasurementPropertyCompetitorsResponse {
-  const target = requireTarget(plan, query.targetKey)
-  const run = selectMeasurementQuestionRun(db, active.version.projectId, active, query.runId)
+  const activeTarget = requireTarget(activePlan, query.targetKey)
+  const reading = measurementReading(db, active.version.projectId, active, { fallback: query.fallback, runId: query.runId })
+  const run = reading.lastSweepRun ?? selectMeasurementQuestionRun(db, active.version.projectId, active, query.runId)
+  // The last sweep is read under the plan it ran with, which may not hold a
+  // location added since.
+  const plan = reading.lastSweepRun ? reading.plan : activePlan
+  const target = reading.lastSweepRun
+    ? plan.targets.find(candidate => candidate.stableKey === query.targetKey)
+    : activeTarget
   const queryClass = query.queryClass ?? 'all'
-  const measurement = measurementDto(active, run)
-  if (!run) {
+  const measurement = { ...measurementDto(active, run), ...lastSweepFields(reading, query.fallback, run) }
+  if (!run || !target) {
     return measurementPropertyCompetitorsResponseSchema.parse({
-      property: propertyDto(target),
+      property: propertyDto(activeTarget),
       measurement,
       queryClass,
-      basis: { state: 'unavailable', reason: 'no_completed_run' },
+      basis: { state: 'unavailable', reason: run ? 'no_population' : 'no_completed_run' },
       competitors: [],
       total: 0,
       truncated: false,
@@ -1272,7 +1281,7 @@ function propertyCompetitorsResponse(
     .filter(assignment => assignment.targetKey === target.stableKey)
     .filter(assignment => queryClass === 'all' || assignment.queryClass === queryClass)
     .map(assignment => assignment.executionNodeKey))]
-  const materialized = materializeMeasurementQuestionRun(db, active, plan, run, {
+  const materialized = materializeMeasurementQuestionRun(db, reading, plan, run, {
     executionIds,
     provider: query.provider,
     location: query.location,

@@ -42,6 +42,8 @@ describe('a control that changes something', () => {
     expect(button.getAttribute('title')).toBe(VIEW_ONLY_LABEL)
     // The label says what the account can't do, not what the server returned.
     expect(VIEW_ONLY_LABEL).not.toMatch(/403|forbidden|scope/i)
+    // Two short sentences, with no dash between them.
+    expect(VIEW_ONLY_LABEL).toBe('View only. Your account cannot change this.')
   })
 
   test('stays off for a viewer even when the caller would have enabled it', () => {

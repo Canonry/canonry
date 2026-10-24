@@ -86,4 +86,4 @@ export function useAccount(): AccountState {
 }
 
 /** The label a view-only person is shown in place of a control they cannot use. */
-export const VIEW_ONLY_LABEL = 'View only — your account cannot change this.'
+export const VIEW_ONLY_LABEL = 'View only. Your account cannot change this.'

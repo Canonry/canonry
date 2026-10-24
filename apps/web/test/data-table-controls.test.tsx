@@ -2,6 +2,7 @@ import React from 'react'
 import { act, cleanup, fireEvent, render, renderHook, screen } from '@testing-library/react'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 
+import { compileAppStyles, compiledElementProperty, cssLengthPx, parseCompiledCss } from './compiled-app-css.js'
 import {
   DataTablePagination,
   DataTableSearch,
@@ -89,6 +90,93 @@ describe('DataTablePagination', () => {
     expect(screen.getByText('1 to 1 of 1 rows')).not.toBeNull()
     expect(screen.queryByRole('button', { name: 'Next' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Previous' })).toBeNull()
+  })
+
+  test('offers no page-size choice unless the caller asks for one', () => {
+    render(<DataTablePagination page={2} visibleRows={25} totalRows={932} itemLabel="queries" onPageChange={() => undefined} />)
+
+    expect(screen.getByText('26 to 50 of 932 queries')).not.toBeNull()
+    expect(screen.queryByRole('combobox')).toBeNull()
+    expect(screen.queryByText('Rows')).toBeNull()
+  })
+
+  test('a Rows select reports the chosen page size as a number', () => {
+    const onPageSizeChange = vi.fn()
+    const { rerender } = render(
+      <DataTablePagination page={1} pageSize={25} visibleRows={25} totalRows={932} onPageChange={() => undefined} pageSizeOptions={[25, 50, 100]} onPageSizeChange={onPageSizeChange} />,
+    )
+
+    const rows = screen.getByRole<HTMLSelectElement>('combobox', { name: 'Rows' })
+    expect([rows.value, [...rows.options].map(option => option.textContent)]).toEqual(['25', ['25', '50', '100']])
+    fireEvent.change(rows, { target: { value: '100' } })
+    expect(onPageSizeChange).toHaveBeenCalledWith(100)
+
+    // One page of rows has no Previous or Next, and can still be made shorter.
+    rerender(<DataTablePagination page={1} pageSize={50} visibleRows={12} totalRows={12} onPageChange={() => undefined} pageSizeOptions={[25, 50, 100]} onPageSizeChange={onPageSizeChange} />)
+    expect(screen.getByRole<HTMLSelectElement>('combobox', { name: 'Rows' }).value).toBe('50')
+    expect(screen.queryByRole('button', { name: 'Next' })).toBeNull()
+
+    // A page size that is not one of the choices still shows as the current one, in order.
+    rerender(<DataTablePagination page={1} pageSize={40} visibleRows={40} totalRows={932} onPageChange={() => undefined} pageSizeOptions={[25, 50, 100]} onPageSizeChange={onPageSizeChange} />)
+    const odd = screen.getByRole<HTMLSelectElement>('combobox', { name: 'Rows' })
+    expect([odd.value, [...odd.options].map(option => option.textContent)]).toEqual(['40', ['25', '40', '50', '100']])
+  })
+
+  test('the Rows select needs its handler, and is off while the table is busy', () => {
+    const { rerender } = render(<DataTablePagination page={1} visibleRows={25} totalRows={932} onPageChange={() => undefined} pageSizeOptions={[25, 50, 100]} />)
+    // Choices with nothing to tell: no select that would do nothing.
+    expect(screen.queryByRole('combobox')).toBeNull()
+
+    rerender(<DataTablePagination page={2} visibleRows={25} totalRows={932} onPageChange={() => undefined} pageSizeOptions={[25, 50, 100]} onPageSizeChange={() => undefined} disabled />)
+    expect(screen.getByRole<HTMLSelectElement>('combobox', { name: 'Rows' }).disabled).toBe(true)
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Previous' }).disabled).toBe(true)
+    rerender(<DataTablePagination page={2} visibleRows={25} totalRows={932} onPageChange={() => undefined} pageSizeOptions={[25, 50, 100]} onPageSizeChange={() => undefined} />)
+    expect(screen.getByRole<HTMLSelectElement>('combobox', { name: 'Rows' }).disabled).toBe(false)
+  })
+
+  test('with the Rows select every control of the row is drawn alike and is a 44px target under a finger; other callers keep their buttons', async () => {
+    const TOUCH = ['@media (pointer: coarse)', '@media (width < 48rem)']
+    const pager = () => [screen.getByRole('button', { name: 'Previous' }), screen.getByRole('button', { name: 'Next' })]
+    const rulesFor = async (container: HTMLElement) => parseCompiledCss(await compileAppStyles([...container.querySelectorAll('*')].flatMap(element => [...element.classList])))
+    const touchHeights = (rules: Awaited<ReturnType<typeof rulesFor>>, control: Element) => TOUCH.map(context => {
+      const height = compiledElementProperty(rules, control, 'min-height', context)
+      return height === undefined ? undefined : cssLengthPx(height, rules)
+    })
+
+    const { container, rerender } = render(<DataTablePagination page={2} visibleRows={25} totalRows={932} onPageChange={() => undefined} pageSizeOptions={[25, 50, 100]} onPageSizeChange={() => undefined} />)
+    const rules = await rulesFor(container)
+    const rows = screen.getByRole('combobox', { name: 'Rows' })
+    for (const control of [rows, ...pager()]) expect(touchHeights(rules, control), control.textContent!).toEqual([44, 44])
+    // The select is as tall as the buttons beside it: the same padding around the same line, with the browser's own box and arrow off.
+    expect([rows, ...pager()].map(control => cssLengthPx(compiledElementProperty(rules, control, 'padding-block')!, rules))).toEqual([6, 6, 6])
+    expect(compiledElementProperty(rules, rows, 'appearance')).toBe('none')
+    // A drawn chevron stands in for the arrow, and a click on it still reaches the select.
+    const chevron = rows.parentElement!.querySelector('svg')!
+    expect([chevron.getAttribute('aria-hidden'), compiledElementProperty(rules, chevron, 'pointer-events'), compiledElementProperty(rules, chevron, 'position')]).toEqual(['true', 'none', 'absolute'])
+    // Keyboard focus shows on the select itself.
+    expect(rows.className).toContain('focus-visible:ring-1')
+
+    rerender(<DataTablePagination page={2} visibleRows={25} totalRows={932} onPageChange={() => undefined} />)
+    const plain = await rulesFor(container)
+    for (const control of pager()) expect(touchHeights(plain, control), control.textContent!).toEqual([undefined, undefined])
+  })
+})
+
+describe('DataTableSearch size', () => {
+  const heights = async (input: HTMLElement) => {
+    const rules = parseCompiledCss(await compileAppStyles([...input.classList]))
+    return [undefined, '@media (pointer: coarse)', '@media (width < 48rem)'].map(context => {
+      const height = compiledElementProperty(rules, input, 'height', context)
+      return height === undefined ? undefined : cssLengthPx(height, rules)
+    })
+  }
+
+  test('the default stays 36px everywhere, and sm is 32px with a 44px target under a finger', async () => {
+    const { rerender } = render(<DataTableSearch value="" onChange={() => undefined} label="Filter URLs" />)
+    expect(await heights(screen.getByRole('searchbox'))).toEqual([36, undefined, undefined])
+
+    rerender(<DataTableSearch value="" onChange={() => undefined} label="Filter URLs" size="sm" />)
+    expect(await heights(screen.getByRole('searchbox'))).toEqual([32, 44, 44])
   })
 })
 

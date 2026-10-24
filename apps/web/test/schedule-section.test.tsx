@@ -126,7 +126,7 @@ test('refreshes a stale cached absence before schedule editing is available', as
 
   expect(screen.getByText('Loading...')).toBeTruthy()
   expect(screen.queryByRole('button', { name: '+ Set schedule' })).toBeNull()
-  expect(screen.queryByText(/No schedule configured/)).toBeNull()
+  expect(screen.queryByText('No schedule')).toBeNull()
 
   await act(async () => {
     resolveScheduleRead(jsonResponse([{
@@ -148,7 +148,7 @@ test('refreshes a stale cached absence before schedule editing is available', as
 
   expect(await screen.findByText('0 9 * * 1-5')).toBeTruthy()
   expect(screen.getByRole('button', { name: 'Edit schedule' })).toBeTruthy()
-  expect(screen.queryByText(/No schedule configured/)).toBeNull()
+  expect(screen.queryByText('No schedule')).toBeNull()
 })
 
 test('renders no schedule from an empty collection without a 404 path', async () => {
@@ -165,7 +165,7 @@ test('renders no schedule from an empty collection without a 404 path', async ()
     </QueryClientProvider>,
   )
 
-  expect(await screen.findByText(/No schedule configured/)).toBeTruthy()
+  expect(await screen.findByText('No schedule')).toBeTruthy()
 })
 
 test('does not report schedule absence when the authoritative read fails', async () => {
@@ -187,10 +187,10 @@ test('does not report schedule absence when the authoritative read fails', async
   )
 
   expect(await screen.findByText('Canonry could not verify this schedule.')).toBeTruthy()
-  expect(screen.queryByText(/No schedule configured/)).toBeNull()
+  expect(screen.queryByText('No schedule')).toBeNull()
 
   fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
-  expect(await screen.findByText(/No schedule configured/)).toBeTruthy()
+  expect(await screen.findByText('No schedule')).toBeTruthy()
   expect(attempts).toBe(2)
 })
 
@@ -457,7 +457,7 @@ test('sends the displayed version when toggling and deleting a schedule', async 
   fireEvent.click(screen.getByRole('button', { name: 'Pause' }))
   expect(await screen.findByText('Paused')).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: 'Remove' }))
-  expect(await screen.findByText(/No schedule configured/)).toBeTruthy()
+  expect(await screen.findByText('No schedule')).toBeTruthy()
 
   expect(scheduleReads).toBe(2)
   expect(scheduleWrites).toBe(1)
@@ -485,7 +485,7 @@ test('creates a native calendar schedule with its local-day anchor and time', as
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   render(<QueryClientProvider client={queryClient}><ScheduleSection projectName="citypoint" /></QueryClientProvider>)
 
-  expect(await screen.findByText(/No schedule configured/)).toBeTruthy()
+  expect(await screen.findByText('No schedule')).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: '+ Set schedule' }))
   fireEvent.change(screen.getByRole('combobox', { name: 'Frequency' }), { target: { value: 'calendar' } })
   expect(screen.getAllByRole('combobox')).toHaveLength(2)

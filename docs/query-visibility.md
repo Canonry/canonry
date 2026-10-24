@@ -5,14 +5,46 @@ Both surfaces use the same API contracts as the CLI and MCP.
 
 ## Assign queries
 
+An advanced project adds market and location queries on a dedicated **Add queries** page:
+
+1. Open the project's **Queries** tab and select **Add queries**.
+2. Set **Subject** to **Market** or **Location** and choose one market or one location. A group row opens the group. Changing **Subject** clears the choice.
+3. Enter the queries, one per line. Blank and repeated lines are skipped. Type follows the selected Subject.
+4. Select **Review**, then check the numbers before and after, the Subject, and the table of changes.
+5. Select **Publish N changes**. **Back** returns to the draft without discarding it.
+
+Each market line becomes one addition for that market with no contexts, so it takes the market's frozen engines, models, and search locations.
+Each location line becomes one addition for that location and every market the location already has queries in, again with no contexts. The query is asked with those markets' engines and search locations and counts in those markets' numbers. **Counts in** lists the markets under the picker; its info button explains the inherited engines and search locations.
+A location in no market needs an explicit search location and engines: the project's only choice, or a required selection when it has several. With none available, **No search location** appears and **Review** stays off.
+A refused review or publish keeps the draft and shows the reason with **Review again**. A review that would change the chosen Subject or exceed the assigned-query cap cannot publish.
+**More ways to add** opens the single-query form on the same page for hand-picked locations, saved patterns, or saved research. It carries only the first line and shows **First line only** when there are more. **Company** is not available yet.
+Opening Add queries from a market or location preselects that place. **Add query about this location** on a location page opens the same dedicated page with that location chosen. A successful publish returns to the originating page and refreshes its data.
+Leaving an unfinished draft asks for confirmation. Navigation is blocked while publishing; the confirmed discard or successful publish may leave. View-only accounts cannot open the editor.
+A simple site keeps its existing **Add query** form.
+
+The Add query form assigns one query at a time:
+
 1. Open the project's **Queries** tab.
-2. Select **Add query** or open an existing query's assignments.
-3. Enter a query, select a template, or select a saved research result.
-4. Select the properties, groups, or markets for the query.
-5. For new group or property assignments, select a search location and engines. A market uses its frozen context.
+2. Open the Add query form or an existing query's assignments.
+3. Enter a query, select a saved pattern, or select a saved research result.
+4. Select the locations, groups, or markets for the query.
+5. For new group or location assignments, select a search location and engines. A market uses its frozen context.
 6. Select **Review changes**.
 7. Check the resolved queries, assignments, and next-sweep workload.
-8. Select **Confirm changes**.
+8. Select **Publish N changes** (**Confirm changes** on a simple site).
+
+An advanced project's review shows the same thing for every change, from the Add queries page, the single-query form, or a row's menu or the bar for ticked rows on the Tracked table:
+
+- **Queries** and **Answers per sweep**, each as the count now and the count after publishing, with **Answers added** and **Answers removed** kept separate. **Queries** counts the queries the project asks, so a query that loses its last location leaves the count.
+- One row per added, reused, and removed query: its Subject, its type, and its location links. A query has one link per location and search location, so the count can be higher than the number of locations. A removed row shows how many links it removes, with the Subject and type it has now. A query asked as Branded for some locations and as Non-brand for others reads **Mixed**. **N locations** under the query lists each location with its own type.
+- **Search location and engines**, once above the table when every query is asked the same way, or as a column when queries differ (the type then sits under the Subject). Engines read by name, and the value opens the model ids. Two that differ only by model show their model ids.
+- Unchanged queries, behind **N unchanged queries**, each with its own list of locations.
+- **New numbers next sweep**, under the counts. Its help says what stays on screen until then: AI Visibility and location pages keep showing the last sweep, marked **Tracking changed**, past answers are kept, and publishing does not run a sweep. A review with no changes shows no such note.
+- **Market changes**, when the publish takes a location out of a market: each market with its locations now and after, and **Loses N locations** or **Market emptied**. **Publish** stays off until **Confirm market changes** is ticked. This check is the dashboard's: the CLI, MCP and the API report the same `marketChanges` and publish without it.
+- **First answers** with the next scheduled sweep date, beside **Publish**, when the publish adds answers and the page passes that date to the review. While a sweep is queued or running, **Sweep running** shows there and **Publish** is off.
+
+Every figure comes from the preview response, the same one `canonry query preview` returns. A simple site keeps its shorter review.
+If the server refuses the review or the publish, the review shows its message and **Review again**.
 
 Publication starts no provider calls. New assignments await the next project-wide sweep.
 An unchanged preview cannot publish another revision.
@@ -24,19 +56,28 @@ Advanced assignments can carry an explicit operator classification.
 
 ## Edit or remove a query
 
-1. Select Whole site, a property, a group, or a market.
-2. Select **Edit** or **Remove** beside the query.
-3. Review the selected scope and the proposed changes.
-4. Select **Confirm changes**.
+An advanced project's Tracked table lists each query with its Subject, its type, Mentioned and Cited per engine from the last sweep, and its status. Each row has a menu:
 
-Whole site changes every assignment of that query. Other scopes change only their existing assignments.
+1. In **Place**, select All of {project}, a location, a group, or a market.
+2. Open the row's menu and select **Edit wording**, **Change Subject**, **Move to another location**, **Change type** or **Stop tracking**. A query that is asked nowhere offers **Track** and **Remove query** instead.
+3. Under a place, check **Applies to**. It starts on **Only {place}**; **Everywhere** changes the whole query. A query asked nowhere else has no such choice.
+4. Select **Review**, check the proposed changes, then select **Publish N changes**.
+
+Ticking rows opens a bar with the actions every ticked row can take: **Change type** and **Stop tracking**, or **Track** and **Remove query** for queries that are asked nowhere. One change takes at most 50 rows. By keyboard, **Selected actions** just before the table jumps to the bar.
+**Copy link** in the menu copies a link that opens the table on that row, marked and open. A link never opens a form. Where the link's place or filters would leave the row out, such as a query stopped since the link was copied, the table clears them once so the row is listed.
+A view-only account sees the table, each row's locations and **Copy link**, and no way to change tracking.
+The chips come from `GET /query-tracking/results` (see "Results per query and engine"). A query changed or added since the last sweep reads **Not checked** until the next one, and **Tracking changed** shows beside the legend. Engine eligibility under a selected place comes from the workspace's `assignments[].classifiedContexts`: each context carries its class and exact market membership. A location can ask one query under both classes; the table keeps both and shows only the engines that class is asked on. Older servers can omit this additive field.
+
+A simple site keeps **Edit** and **Remove** beside each query, then **Review changes** and **Confirm changes**.
+
+All of {project} changes every assignment of that query. Other places change only their existing assignments.
 An edit preserves the stored engines, models, locations, and unrelated market assignments.
 A scoped text edit creates or reuses the new question. Other properties keep the original question and its measured history.
 An unchanged edit publishes no revision. Editing a resolved template question does not expand the template again.
 
 The editor preserves existing classifications by default. **Automatic** asks the server to classify the selected assignments again.
 An exact assignment can belong to several markets. The API refuses a classification change that also changes an unselected market.
-New assignments use **Add query**, not **Edit**.
+New assignments use **Add queries** (**Add query** on a simple site), not **Edit**.
 
 ## Scope definitions
 
@@ -61,10 +102,103 @@ A simple site returns only the project choice.
 A report scope or market that is not in the frozen definition returns `400 VALIDATION_ERROR` with typed `details`.
 The `reason` is `retired-scope` for a group, market, or property scope, and `retired-market` for a market refinement. `kind` and `key` name the missing selection.
 
+## Query subject
+
+Each tracked row in the workspace and preview responses carries `focus`, its Subject.
+The server derives it from the active plan's pairings on every read. Nothing stores it, and no request can set it.
+
+| `focus.kind` | Shown as | When |
+| --- | --- | --- |
+| `market` (with `key`) | Market | The query sits in exactly one market and covers every location in it, with no pairing outside it. |
+| `property` (with `key`) | Location | The query has exactly one location and sits in every market that location belongs to. A location in no market counts. |
+| `company` | Company | Every query on a simple site. |
+| `custom` | Hand-picked | Any other advanced placement. |
+| `not-asked` | Not asked | The query has no pairings. |
+
+Both rules can hold only for a market with one location. Then Type decides: a query that is Branded at every assignment is the Location, otherwise the Market. Type decides nothing else, so a Branded query that covers a market is that Market.
+A pairing sits in a market when any of its search locations does.
+The Subject can change when a market's locations change. After a location joins a market, that market's existing queries stop being the Market until they cover it.
+A location-only add at a location that belongs to a market is Hand-picked until the query joins that location's markets.
+
 Templates expand before publication. Each result retains its template version, bindings, and resolved query text.
 Duplicate matching prefers the query ID that the active plan already uses.
 Otherwise, matching uses normalized query text.
 Shared execution contexts reuse one provider request across multiple property assignments.
+
+## Workspace numbers
+
+The Tracked header shows a compact query count with separate branded and non-brand counts. **Details** holds workload and assignment totals. **Views** opens the saved views, **Filters** opens Subject, Type, Status, Source, and Result, and **About results** explains the marks. Active filter counts and tracking-change or failure notices remain visible when their panels are closed.
+
+The 1,000-query maximum is a hardcoded advanced-plan compiler cap, not a subscription allowance. It counts distinct assigned query IDs once regardless of locations or engines; stopped and otherwise unassigned catalog queries do not count. Remaining capacity appears in the change review rather than the Tracked summary.
+
+The workspace read returns its own counts, so a client prints them without recounting rows.
+Each field in this section is optional on the wire, so a client still reads a server that predates it.
+
+Each tracked row carries `queryClasses`, its Type: the distinct classes across every plan assignment of the query (one per location and search location), sorted. Two classes mean Mixed, none means Not set.
+A row's per-location `assignments[].queryClass` shows one class per location, so it can list fewer classes than `queryClasses`.
+A simple site's row carries the one Type the project classifier gives it, or none when the project has no usable brand name.
+
+`summary` counts the tracked rows:
+
+| Field | Counts |
+| --- | --- |
+| `asked`, `notAsked` | Rows with and without a pairing. Together they are the row count. Every row on a simple site is asked. |
+| `byClass` | Asked rows by Type: `branded`, `nonBrand`, `mixed`, `unknown` (shown as Not set). A mixed row counts under neither Branded nor Non-brand. |
+| `byFocus` | Asked rows by Subject: `market`, `property`, `company`, `custom`. |
+| `assignments` | Query-location pairs: plan assignments (`total`, `branded`, `nonBrand`, `unknown`), the unit of a preview row's `assignmentCount`. One query at one location with two search locations is two. All zero on a simple site. |
+| `answersPerSweep` | Provider answers one sweep asks for. A preview that changes nothing reports the same number as `workload.existingProviderCalls`. |
+| `structure` | `targets`, `markets`, `groups`, `topLevelGroups`, and `competitors` (distinct domains across groups). |
+
+`byClass` and `byFocus` each add up to `asked`.
+An advanced portfolio's read also returns `limits.queries`, with `next` equal to `current` because a read changes nothing.
+`current` is the compiler's count of assigned queries, and equals `summary.asked` for every plan the compiler published.
+`limits.queries.left` is the room under `max`, 0 when the plan is over it.
+`limits.queries.over` is the excess above `max`, 0 when the plan is under it.
+`limits.queries.exceeded` is always false on a read. A preview sets it (see "CLI and MCP").
+
+Each place carries its own counts:
+
+| Place | Fields |
+| --- | --- |
+| `targets[]` | `marketKeys` (on `targets[]`; `scopeOptions` location choices still carry none): markets holding an edge for the location. `counts.queries`: distinct queries paired with it. `counts.propertyQueries`: rows whose Subject is this location. `counts.marketQueries`: rows whose Subject is a market holding it. `counts.customQueries`: hand-picked rows paired with it. |
+| `markets[]` | `targetKeys`: the distinct locations its edges name. `counts.queries`: distinct queries with a pairing inside the market. `counts.marketQueries`: rows whose Subject is this market. `counts.propertyQueries`: rows whose Subject is one of its locations. |
+| `groups[]` | `counts.queries`: distinct queries paired with a member location. `counts.marketQueries`, `counts.propertyQueries`, `counts.customQueries`: those queries by Subject. `counts.markets`: distinct markets holding a member location. |
+
+`counts.queries` is the number of rows a list under the place shows.
+For a location and for a group, the three Subject counts add up to it.
+A market has no hand-picked count, and a hand-picked query paired inside it still counts, so a market's `counts.queries` can exceed `marketQueries` plus `propertyQueries`.
+
+Every place also has `counts.byClass`: its `counts.queries` by Type, as `branded`, `nonBrand`, `mixed` and `unknown`. The four add up to `counts.queries`.
+The Type is read at that place, from every plan assignment the query has there (a pairing counts for its location, that location's groups, and each market holding its exact edge).
+A query asked as Branded for one location and as Non-brand for another is `mixed` for a group or market holding both, and one class at each location.
+A query asked under both types at two search locations of one location is `mixed` there.
+
+`counts.markets` on a group is the markets its locations are in, the same rule as a location's `marketKeys`. A market attached to the group that holds no location counts for no group.
+
+Every place also has `counts.answersPerSweep`: the answers of the distinct executions the place has a usage edge on.
+An execution shared by two locations counts once in each, so place values do not add up to `summary.answersPerSweep`.
+`markets[].counts.marketQueries` add up to `byFocus.market`, and `targets[].counts.propertyQueries` add up to `byFocus.property`.
+
+An advanced portfolio's read also returns `views`: locations, markets and patterns worth a look, found from the same rows and counts.
+Each view has a `count` and the sorted list it counts, so `count` is always the list's length.
+
+| View | Lists |
+| --- | --- |
+| `noPropertyQueries` | `targetKeys`: locations no row has as its Subject (`counts.propertyQueries` is 0). A market query or a hand-picked query at the location does not count as its own. |
+| `thinMarkets` | `marketKeys`: markets whose `counts.marketQueries` is under `floor`. The floor is 4. A market with no query, or with no location left, is thin. |
+| `patternGaps` | `patterns[]`: each is a saved pattern asked as a market's own query in at least one market and not in another market that holds a location. Each has `templateId`, `name`, `pattern`, `usedMarketKeys` and `missingMarketKeys`. `count` is the number of patterns. `compared` is the number of patterns the rule could read. |
+
+Only a pattern whose one variable is a market name, `{market}` or `{submarket}`, is read: it makes one query per market, the market's own.
+A pattern with no variable makes one query for every place, and one with a location name such as `{property}` makes a query per location, so neither can fill another market and neither is listed.
+`compared` counts the saved patterns the rule reads, plus any pattern a market row froze that was deleted since. When it is 0 nothing was compared, which is not the same as no gap found. `count` never exceeds it.
+A market asks a pattern when a row whose Subject is that market froze the pattern's record when it was added, or has the text the pattern makes for the market's label (compared as query identity, so case and spacing do not matter).
+The text match covers a query added in setup or typed by hand, which froze no record, and every wording the pattern has had counts.
+A location's own query and a hand-picked query made from the pattern are not the market's use of it.
+A market with no location left takes no addition, so it is never in `missingMarketKeys`.
+`name` and `pattern` are the saved pattern's as it stands now. Once the saved pattern is deleted, `name` is null and `pattern` is the newest wording a row froze.
+
+A plan published before query control froze pattern records keeps only the source. Such a row reads `provenance.source: template` with no `template` record.
+Adding the query to another place keeps that source.
 
 ## Read results
 
@@ -86,6 +220,30 @@ Unknown or incomplete evidence is not a measured zero.
 The Advanced Measurement overview (`GET /measurement-overview`, `canonry measurement-plan property`, `canonry_measurement_overview`), measurement changes (`GET /measurement-changes`) and the revision report (`GET /measurement-report`) also read one query class: non-brand when the request names none. Branded is a separate read. `queryClass=all` pools both classes into one rate and is served only when requested; the response echoes `queryClass: all` and the CLI heading says the queries were pooled. A schema v1 revision records no class, so its report covers every answer and echoes `queryClass: null`.
 The overview reads a market with `scope=market&marketKey=<key>`: only that market's queries, the same population this page shows for the market. A `marketKey` sent with any other scope is refused (400), never ignored. A group with the same name reads every query its Properties carry, so its figure is not the market's. The response `scope` names the kind and label it read.
 
+After a tracking change, a sweep of the new plan has to complete before these five reads show it. That is the default, so a script can start a sweep on it:
+
+- The overview and three location reads (`GET /measurement-property-evidence`, `/measurement-property-competitors` and `/measurement-property-questions`) answer `not_measured`.
+- Answer text (`GET /measurement-question-result`) refuses a result of the older sweep (422 `MEASUREMENT_RUN_REVISION_MISMATCH`).
+
+Send `fallback=last-sweep` to read the last completed sweep instead: `--fallback last-sweep` on `canonry measurement-plan property` and `property-evidence`, `"fallback":"last-sweep"` in a `measurement-plan advanced` input, or `fallback` on the five MCP tools.
+The sweep is read under the plan it ran with, so its numbers are the ones it had before the change. On aggregate and location-list reads, `runId` may name that sweep; any other run of an older plan is still refused. Answer text selects an exact `resultId`: with the param, it opens that answer's own completed or partial whole-project sweep under its frozen plan, including older results and after a newer sweep completes. Historical probes and spot checks remain unavailable through this fallback. The response `measurement` then carries four more fields:
+
+| Field | Meaning |
+| --- | --- |
+| `activeRevision` | The plan in effect now. |
+| `measuredRevision` | The plan the shown sweep ran with (the active plan after a label-only change). Null when no sweep is shown. |
+| `awaitingSweep` | True when the two differ, or no sweep is shown. |
+| `trackingChangedAt` | When the plan in effect now was published. |
+
+When `awaitingSweep` is true and `measuredRevision` is not null, the numbers are from the `completedAt` sweep. With `measuredRevision` null there is no sweep yet. Queries removed since still count and queries added since do not. The human CLI output adds one line with both dates.
+A location or type that sweep did not ask has no numbers, never a zero. Two reads say why and two do not:
+
+- The overview and `/measurement-property-competitors` answer `no_population` (`not measured (not in last sweep)` in the CLI).
+- `/measurement-property-evidence` and `/measurement-property-questions` return an empty page with no reason. With `awaitingSweep` true, check the overview before reading an empty page as "nothing found".
+
+The labels of an older sweep are the sweep-time ones too. A label-only publish made between the sweep and the tracking change is not carried: a location it renamed reads under its older name, and a market it added reads `no_population`. Take current names from `GET /measurement-plan`.
+The param is refused (400) with `from` or `to`. Probe runs, spot checks and partial sweeps are never the last sweep. Portfolio summary, measurement changes and data quality do not take the param and still answer not measured after a tracking change; `runId=latest` still reads no sweep.
+
 Each population also carries `comparison`, its change since the previous eligible sweep.
 That sweep is the whole-project sweep immediately before the selected run. Spot checks and probe runs never qualify.
 The date window and a selected run do not limit it, so the previous sweep can predate the date window.
@@ -93,6 +251,109 @@ A change requires both sweeps to be complete, with a comparable definition and t
 Otherwise `comparison.reason` names the cause, such as `partial-run` or `model-changed`.
 Each available `delta` is the current rate minus the previous rate. An unavailable change is not a zero change.
 When the previous sweep cannot be read, `comparison` is absent and the rest of the report still loads.
+
+## Results per query and engine
+
+`GET /query-tracking/results` (`canonry query results <project>`, `canonry_query_tracking_results`) returns Mentioned and Cited for every tracked query per engine, from one stored sweep, in one call.
+It reads stored evidence only and never starts a sweep.
+
+| Input | Meaning |
+| --- | --- |
+| `scope`, `scopeKey` | The place: `project` (the default), or a `group`, `market` or `property` key. The key is resolved against the active plan. A key the active plan does not hold is a 400. A key it holds that the sweep never measured returns no rows. |
+| `runId` | One completed or partial whole-project sweep. Omit it for the default sweep. A probe or a scoped run is refused. |
+| `queryId` | One tracked query. The read returns only that query's rows, with its answers, and neither `totals` nor `weakMarkets`. See "One query and its answers". |
+
+The default sweep is the newest completed or partial whole-project sweep comparable to the active plan, else the newest of any plan. This is the sweep AI Visibility shows by default.
+A simple project has no plan. Its default sweep is the newest of its last 100 sweeps that was sent with the engines, models, search location, country and language the project uses now, else the newest.
+So a newer run of one engine, at another search location or with none never hides the full sweep before it. Among the sweeps sent that way, a sweep of the whole query list is preferred over a newer run of only some queries (`canonry run --query`). An all-locations run is one run per search location, and only the one at the project's default search location counts as sent that way. AI Visibility still opens on the newest sweep of a simple project.
+`run` names it: `id`, `createdAt`, `completedAt`, `status`, `revision` (null on a simple project) and `matchesCurrentTracking`.
+`matchesCurrentTracking` is false when tracking changed after that sweep. A label-only republish keeps it true.
+On a simple project, tracking is the tracked queries and the project's names, sites, engines, models, search location, country and language. An older sweep that recorded none of them is never a match.
+`run` is null and `rows` is empty until a sweep finishes. `engines` lists every engine the sweep asked.
+
+Each row is one query under one class: `queryId`, `queryText`, `queryClass` and `engines[]`.
+`queryClass` is a class the workspace row carries in `queryClasses`, or `unknown` when it carries none. A query asked as Branded for one location and Non-brand for another has two rows. The two are never combined.
+A row is returned only when the sweep asked every pairing of that query and class in the place exactly as it is asked now: same location, class, text, engines, models and search location.
+A query that was moved, re-typed or reworded since has no row until the next sweep, and neither has one whose engines, models or search location changed. `pendingRows` counts those query and class pairs.
+On a simple project the engines, models, search location, country and language are project settings. Changing one withholds every row until a sweep is sent that way, and the workspace marks every query `awaiting-sweep` until then. A run named by `runId` that was sent another way returns no rows either. A new name or site keeps the rows and sets `matchesCurrentTracking` to false.
+The project read returns every tracked query, about 0.6 MB per 1,000 queries on three engines. Pass `scope` and `scopeKey` to read one place.
+
+Each `engines[]` entry reads only the answers of that row's own executions:
+
+| Field | Counts |
+| --- | --- |
+| `expectedAnswers` | Answers the sweep asked this engine for: one per search location the row is asked at. |
+| `answers` | Answers saved. |
+| `mentionedAnswers` | Saved answers whose text names a location the row covers in the place. |
+| `citedAnswers` | Saved answers with fully saved sources that cite a location the row covers in the place. |
+| `uncheckedSourceAnswers` | Saved answers whose sources were only partly saved. They are in neither side of the cited count. |
+| `mentioned`, `cited` | True when any answer shows it. False only when every expected answer was checked and none did. Null is not checked, never no. |
+
+`mentioned` reads answer text and `cited` reads sources. Neither is computed from the other.
+In a place, a row covers only the locations it is paired with there, so a market query read for one location counts an answer only when it names or cites that location.
+A simple project is read at project scope only: one row per tracked query, measured when the sweep asked that query with the same text under the same class.
+
+An entry also carries optional fields. Each is left out when it has nothing to report, so an entry with none of them is the eight fields above. None of them changes `mentioned`, `cited` or a count.
+
+| Field | Says |
+| --- | --- |
+| `unattributedMentionAnswers` | Saved answers whose mention was left unchecked because a name in the text could not be tied to one location. |
+| `mentionedTargetKeys`, `citedTargetKeys` | On a row that covers more than one location in the place: the covered locations an answer names, and the ones an answer with fully saved sources cites. |
+| `otherLocationMentionedAnswers`, `otherLocationMentionedTargetKeys` | Saved answers whose text names no location the row covers in the place and does name another location of the plan, and those locations. The two are sent together. |
+| `otherLocationCitedAnswers`, `otherLocationCitedTargetKeys` | The same over fully saved sources: answers that cite no location the row covers in the place and do cite another location's page. |
+
+An answer that names another location is still a miss for the row: the signal stays false and it is one of the answers `mentionedAnswers` does not count.
+What counts as another location depends on the place. Under a location, the other members of its market are other locations, which is why a market query can read mentioned for the whole project and not mentioned there.
+A name the reader could not tie to one location is never reported as a mention of it, and partly saved sources are never read for another location's page.
+A simple project has one subject, so it carries none of the location fields.
+
+`totals` has one entry per class that has a row, sorted by class and never pooled: `queryClass`, `queries` (the returned rows of that class, one per query), `answers` (answers saved for them), `mentionCoverage` and `citationCoverage`.
+The two rates are the visibility report's own, built with the same function, so the Tracked figures and AI Visibility agree for a sweep read whole: `numerator`, `denominator` and `rate`, plus `unattributed` or `unchecked` for the answers left out of both sides.
+The unit is answers. A query asked at two search locations is one query and two answers per engine.
+A missing answer withholds that class's rate with `reason` `evidence-incomplete`, as the report does. It is never counted as a no.
+The totals cover the returned rows only. After a tracking change a query counted in `pendingRows` is in no total, so the totals can be smaller than the report's figures for the same sweep.
+`totals` is absent before the first sweep and on a read of one query.
+
+### One query and its answers
+
+With `queryId` the read returns only that query's rows: one per class it carries in the place, never combined.
+It loads only that query's answers from the sweep, so it stays fast on a large plan.
+Each engine entry gains `answerRows`, one per expected answer:
+
+| Field | Meaning |
+| --- | --- |
+| `resultId` | The saved answer, for `GET /measurement-question-result` with one of `targetKeys`. Null when no answer text was saved. |
+| `searchLocation` | The search location the answer was asked at, or null. |
+| `targetKeys` | The locations the row covers in the place through this answer. |
+| `mentioned`, `cited` | That one answer, by the rule the entry's counts use. The answers with `mentioned` true add up to `mentionedAnswers`, and the same for `cited`. An answer with partly saved sources has `cited` null. |
+| `mentionedTargetKeys`, `citedTargetKeys` | The locations in `targetKeys` the answer names, and the ones its fully saved sources cite. |
+| `namedInstead` | Names the answer wrote that are no location of the sweep's plan. Another of the project's locations is never listed here. |
+
+A query the place does not ask returns no rows. A query changed since the sweep returns no rows and is counted in `pendingRows`.
+`run`, `engines` and `matchesCurrentTracking` are the same as on the read of every query.
+
+The project read of an advanced portfolio with a sweep also returns `weakMarkets`: `rule` (`no-mention-latest-sweep`), `queryClass` (`non-brand`), `count` and `marketKeys`.
+A market is listed when, in the sweep `run` names, at least one answer to its own non-brand queries had its text read and none named a location of the market.
+The rule name is fixed: with `runId` the rule reads that named sweep, and `run` always says which sweep was read.
+`marketKeys` are in key order, not ranked: every listed market has no mention.
+`markets` lists the same markets with their counts, weakest first: fewest `citedAnswers`, then fewest `otherLocationMentionedAnswers`, then most `mentionCheckedAnswers`, then key.
+Each entry counts the market's own non-brand rows only: `marketKey`, `queries`, `mentionCheckedAnswers` (answers whose text was read), `mentionedAnswers` (0 under this rule), `otherLocationMentionedAnswers`, `citationCheckedAnswers` (saved answers with fully saved sources) and `citedAnswers`.
+Only the returned non-brand rows whose query has the market as its Subject are read. A market's branded rows never count, so a market named only for its branded queries is still listed. A location's own query, a hand-picked query and a citation do not count either.
+A market with no such answer read is left out, never listed: its queries were not asked or were not answered.
+A market is also left out while any of its own non-brand queries has no row: a query added, moved, re-typed or reworded since the sweep. The sweep did not measure every such query as it is asked now, and may hold a mention for one as it was asked then, so the market is not called weak until the next sweep.
+`weakMarkets` is absent for a group, market or location read, for a simple project, before the first sweep, and on a read of one query.
+
+The CLI prints one line per class under the sweep line, the category first, then a table of two glyphs per engine, the mention first, under this legend:
+
+```text
+Non-brand: mentioned 120 of 300 · cited 45 of 299 (1 of 300 answers had sources that could not be checked)
+M mentioned · m not mentioned · C cited · c not cited · - not checked
+```
+
+A withheld rate prints its reason in place of the two numbers.
+A trailing `Another location` column names the engines whose answers miss the row and name another of the project's locations. It is printed only when a row has one.
+`--query <id>` adds an `Answers` block: one line per engine answer with its two glyphs, its search location, the locations it names when the row covers more than one, the names written instead, and the answer id or `No answer saved`.
+The table does not print `weakMarkets`; `--format json` returns it.
 
 ## Revision continuity
 
@@ -108,34 +369,63 @@ Historical evidence without enough provenance does not claim comparability.
 The measurement run selection uses `measurementRunId` in the browser URL.
 It does not open the global `runId` drawer.
 
+### Out-of-date setup draft
+
+A setup draft is a copy of the revision that was active when the draft was started, so a tracking publish made after that is not in it.
+Publishing such a draft returns `409 MEASUREMENT_PLAN_REVISION_CONFLICT` with `details.check: draft-out-of-date`.
+`details.draftBase` is the draft's `baseActiveRevision`, the revision it was started from, and is `null` for a draft started when no plan was active.
+`details.active` is the active revision number, the same value as `details.actualActiveRevision`, and is `null` after a deactivation.
+The API, `canonry measurement-plan advanced <project> draft-action` and the MCP tool `canonry_measurement_draft_action` all return it, whichever `expectedActiveRevision` the request names.
+To publish, run the `discard` action, run `create` with the active revision, make the edits again, then run `publish`. The dashboard already asks for this.
+After a deactivation no plan is active, so the new draft starts empty.
+Every other draft action, a competitor pin included, still works on an out-of-date draft, but that draft cannot be published.
+`canonry apply` and the legacy `canonry measurement-plan publish <project> <yaml|json>` use no draft and are not refused.
+A legacy publish is accepted only when no plan or a schema v1 plan is active. It moves the active revision, so it also puts an open draft out of date.
+
 ## Research and operator controls
 
-**Research → Find queries** uses the existing ICP discovery process.
-**Research → Test queries** starts with direct query entry.
-An optional pattern repeats a query across explicit markets, properties, or configured locations.
+**Research** is one page. **Start from** picks its form: **Write**, **Pattern**, or **Find ideas**.
+It opens on **Write**, direct query entry that runs once. The choice is kept in the URL as `researchMode` (`write`, `pattern`, `find`).
+Moving between the three keeps what each form holds: a draft, a preview and the last batch's runs.
+**Find ideas** uses the existing ICP discovery process and needs write access; other Research accounts get Write and Pattern.
+It runs on Gemini. In the dashboard its button stays off until Gemini is configured, and names the most it may test ("Run up to 100").
+A **Pattern** repeats a query across explicit markets, properties, or configured locations.
 Groups are not research destinations.
 Neither process adds queries to official tracking automatically.
-**Review for tracking** sends selected results through the same assignment preview.
+On an Advanced project, tick results and choose **Track**. Results ticked in several runs go in one review, at most 50.
+Each is added for the market or location its run was saved under. A result with none, such as a Find ideas result, takes the Subject chosen in the sheet.
+A result tracked for a location also counts in every market that holds the location, as the Add queries page does.
+A query is tracked by its text, for one Subject. The same text ticked twice under one Subject is added once. Ticked under two, both rows are marked and the review waits until one Subject is left.
+Any row can be removed in the sheet, so a location in no market on a project with several search locations does not hold the rest back.
+A query that is already tracked shows its Subject under **Tracked** and cannot be ticked.
+On a Simple project **Review for tracking** sends one result through the same preview. Find ideas offers the same on any project until the page knows the project is Advanced.
+An embed has no Tracked column and nothing to tick.
 
 ### Repeat research across destinations
 
-1. Select the repeat mode.
-2. Select each destination explicitly.
-3. Enter one query pattern per line, such as `Best apartments in {market}`.
-4. Select the answer engine and model.
+The dashboard names a run's market or property its **Subject**, shows a property as a Location, and calls the engine's location the **Search location**.
+The API, CLI, and MCP keep `scope`, `property`, and `location`.
+
+1. Start from **Pattern**, then choose what it repeats **For each**: **Market**, **Location**, or **Search location**. A project with no plan has Search location only, named with no choice to make.
+2. Select each market, location, or search location yourself.
+3. Enter one **Pattern** per line, such as `Best apartments in {market}`.
+4. Select the **Engine** and **Model**.
 5. Open the preview.
-6. Check each destination, resolved query, and location context.
-7. Edit individual queries or location contexts as required.
+6. Check each Subject, resolved query, and **Search location**.
+7. Edit individual queries or search locations as required.
 8. Start the reviewed queries.
 
 A pattern substitutes text. For Atlanta, `Best apartments in {market}` becomes `Best apartments in Atlanta`.
-`{market}` and `{submarket}` use the market label. `{property}` and `{propertyBrand}` use the property label.
-`{location}` uses the selected location label.
-Unknown variables block the preview.
+`{market}` and `{submarket}` use the market label. `{locationName}`, `{property}` and `{propertyBrand}` use the location's label.
+`{searchLocation}` and `{location}` use the search location's label, never the Subject's.
+The names in each set are aliases: a saved pattern keeps the name it was written with, and no name changes meaning.
+A pattern added to tracking (a `template` addition) takes the market names and the location names. It has no search location to bind, so it refuses `{searchLocation}` and `{location}`.
+When a pattern repeated across locations holds `{location}`, the form marks it **Uses search location**.
+A name the pattern does not recognize blocks the preview.
 
-The destination does not set the answer engine's location context.
-Each preview shows a configured location or **No location context** separately.
-Location repetition uses the selected configured locations.
+The Subject does not set the search location.
+Each preview row shows a configured search location or **No search location** separately. The CLI prints that state as `No location context`.
+Repeating across search locations uses the selected configured locations.
 Advanced portfolios can select explicit published markets or properties.
 Simple portfolios can repeat across configured locations without a measurement plan.
 
@@ -151,7 +441,9 @@ The API saves all destination runs together or saves none.
 The existing runner processes each saved run independently, so individual results can fail.
 Every destination run counts toward the viewer's daily limit.
 Retries with the unchanged request and key return the same saved runs, even after provider, location, or template defaults change.
-Research history loads older runs on demand. API and MCP list responses include an opaque `nextCursor`; pass it as `cursor` to continue.
+**Results** lists each query of the run in view with two chips under the engine's name: **N** for an answer that names the company, **C** for one that cites the project's domain.
+A dashed chip was not checked; it is never a No. After a batch that saved more than one run, a select over the results switches between its runs. It stays for the visit: over a run from outside the batch it reads **Last batch**.
+**Past research** sits under the results, closed until opened, and loads older runs on demand. Picking a run there shows it in **Results**. API and MCP list responses include an opaque `nextCursor`; pass it as `cursor` to continue.
 The CLI accepts `research list --cursor <cursor>`. Its JSON output preserves the full response, including engine choices, access limits, and pagination.
 
 The operator's project-wide **Run AI sweep** remains admin-gated.
@@ -163,6 +455,7 @@ Embeds expose measured results, not query publication or saved research administ
 | Action | CLI | MCP |
 | --- | --- | --- |
 | Read assignments | `canonry query workspace <project>` | `canonry_query_tracking_workspace` |
+| Read results per query and engine | `canonry query results <project> [--scope <kind> --scope-key <key>] [--run <id>] [--query <id>]` | `canonry_query_tracking_results` |
 | Preview changes | `canonry query preview <project> <json\|->` | `canonry_query_tracking_preview` |
 | Publish changes | `canonry query commit <project> <json\|->` | `canonry_query_tracking_commit` |
 | Read visibility | `canonry measurement-plan visibility <project> [<json\|->]` | `canonry_visibility_report` |
@@ -173,15 +466,50 @@ Preview input contains `expectedWorkspaceVersion`, `additions`, and `removals`, 
 Each edit contains `queryId`, an optional audience, and resolved `text` or `queryClass`.
 An omitted `queryClass` preserves classification. A `null` value requests automatic classification.
 The server retains the exact execution contexts. An edit cannot replace those contexts.
+The **Add queries** page works out a location's markets in the browser, so a CLI, MCP or Aero add states them itself.
+To count a location query in its markets as the page does, send `audience: { "targetKeys": [<location>], "marketKeys": [<its markets>] }` with no `contexts`. Its markets are every market in the workspace whose `usageEdges` name that location.
+A location in no market has none to take engines from: send `audience: { "targetKeys": [<location>] }` with explicit `contexts` (the page sends one). Sent for a location that is in a market, that request counts on the location alone.
+
+Preview output adds `changes`, one row per added, reused, or removed query.
+Each row lists the query's locations (`targetKeys`) and markets (`marketKeys`) `before` in the active plan and `after` in the reviewed change.
+A scoped removal or move keeps its remaining placement in `after`. Simple projects list no locations or markets, and a no-op returns an empty `changes`.
+`reused` is every existing query the change names, whether or not it moves, so each row also carries `altered`.
+`altered` is false when the change leaves the query exactly as the active plan has it: the same pairings (location, search location and engines, type and where the type came from) and the same markets for each. It is true for every added and removed row.
+A wording edit is reviewed as a new query plus the old one removed, because the new wording starts a new trend. The row the new wording lands on carries `rewordedFrom`, the old query's id, so a caller can show the two rows as one change. It is set only when the same review lists the old query as removed. When the new wording was already tracked in every pairing the edit moves, the row is `reused` with `altered: false`; when it gains a pairing, it is `reused` with `altered: true`.
+An advanced preview also returns `marketChanges`, one row per market whose locations change: `marketKey`, its locations `before` and `after` (each a `targetKeys` list), `removedTargetKeys`, and `emptied`.
+A market has no stored list of locations. It holds only the locations that still have a query in it, so stopping a query, or moving it to another Subject or location, can remove a location from a market or empty it.
+An emptied market stays in the plan with no location and takes no later addition, so read `marketChanges` before you commit.
+An addition that names the emptied market alone is refused with `Select at least one location, group or market.`
+One that names it with a location or a group, or beside another market through a pattern that uses `{market}`, is refused with `Market "<key>" has no selected location.`
+Any other addition that names it beside another market is accepted and placed in the other market only, so compare `changes[].after.marketKeys` with the markets you sent.
+The server reports the change and refuses nothing for it: a commit from the CLI, MCP or the API publishes as before. A preview that changes no market returns an empty list, and a simple project returns no `marketChanges`.
+An advanced preview also returns `marketQueryChanges`, one row per market whose own-query count changes: `marketKey`, `before.marketQueries` and `after.marketQueries`. The count is the workspace read's `markets[].counts.marketQueries`: the queries whose Subject is the market.
+A market can lose every market query and keep all its locations through their own queries. `marketChanges` is then empty, and `marketQueryChanges` shows the count going to 0.
+An advanced preview also returns `typeMismatches`. On an advanced portfolio the type follows the Subject: a market query is Non-brand, a location query is Branded, and a hand-picked query takes either.
+Each row is an added or reused query the change would leave against that rule: `queryId`, `queryText`, `focus`, `expectedQueryClass`, `queryClasses` (the type the query would get) and `brandedWording`.
+`brandedWording` is true for a market query whose wording the server classifier reads as Branded for one of its locations, because it names the company or that location. Such a query is listed even when its type is Non-brand.
+A query the change leaves with the Subject and type it already had is not listed, so an older query that breaks the rule shows up only when a change touches it.
+Both lists are reports, like `marketChanges`: the server refuses nothing for them and a commit publishes as before. Both are empty when there is nothing to report, and a simple project returns neither.
 Commit input adds the returned `previewToken` and `reviewedAt` to that exact request.
 The server binds the review time to the token and refuses expired reviews.
 The API returns the actual active revision after publication.
-A catalog change returns `409 RUN_IN_PROGRESS` while a queued or running sweep still uses the live query catalog.
-Retry the reviewed change after that sweep finishes. No-op confirmations and plan-only edits remain available.
-Preview and commit require write access. Stored workspace and visibility reads do not.
+On an advanced portfolio, a commit that changes anything returns `409 RUN_IN_PROGRESS` with `details.reason: sweep-in-progress` while a sweep is queued or running, including a long provider-batch sweep.
+A simple basket returns the same code only when a catalog change meets a planless sweep.
+The message names the run. Preview and commit the change again after it finishes (a review expires after 15 minutes), or stop it with `canonry run cancel <project> <run-id>`.
+An all-locations sweep is several runs: the message then gives their count, `details.activeRunIds` lists them, and each one must finish or be cancelled.
+Previews and no-op confirmations remain available during a sweep.
+A setup publish (`draft-action` with `publish`) is refused the same way, unless it is identical to the active revision.
+It is also refused with `409 MEASUREMENT_PLAN_REVISION_CONFLICT` (`details.check: draft-out-of-date`) when the active revision moved after the draft was started: see [Out-of-date setup draft](#out-of-date-setup-draft).
+An advanced preview also returns `limits.queries`: distinct assigned queries now (`current`), after the change (`next`), and the limit (`max`, 1,000).
+`limits.queries.left` is the room under the limit now and after the change (`max` minus each count), and is 0, never negative, for a plan over the limit.
+`limits.queries.over` is the excess above the limit now and after the change (each count minus `max`), and is 0 for a plan under the limit.
+`limits.queries.exceeded` is true when a commit of this change would be refused for the limit. The preview still returns `200` with the counts, so read `exceeded` before you commit.
+A commit that grows the plan past the limit returns `400` with `details.check: query-limit-exceeded`. A plan already over the limit may still shrink: `over.next` is then above 0 and `exceeded` is false.
+A wording edit onto a wording that is already tracked there with a different type is refused on preview with `400` and `details.check: edit-destination-type-differs`. One with the same type set a different way (by the server there and by an operator here, or the reverse) is refused with `details.check: edit-destination-type-source-differs`.
+Preview and commit require write access. Stored workspace, results and visibility reads do not.
 
 The project API prefix is `/api/v1/projects/:name`.
-Its four endpoint suffixes are `/query-tracking`, `/query-tracking/preview`, `/query-tracking/commit`, and `/visibility-report`.
+Its five endpoint suffixes are `/query-tracking`, `/query-tracking/results`, `/query-tracking/preview`, `/query-tracking/commit`, and `/visibility-report`.
 
 Research uses `POST /research/runs` for one run and `POST /research/batches` for reviewed destinations.
 The batch request contains a required `idempotencyKey` and a `runs` array.
@@ -223,9 +551,9 @@ Mentions read the answer's prose. Before any project, Property, or competitor al
 
 Advanced Property identities may include `identityAliases`: explicit qualified phrases containing the Property alias plus identifying context. They survive draft edits and publication; changing them creates a material comparison boundary. They are not a Simple project's `qualifiedAliases`, which are bare project aliases the operator marks as the brand's own names for sentiment only and which never narrow or widen a mention. The reader keeps unresolved identity as unknown for that Property. A multi-entity answer ("Harbor Point can refer to several places") can establish a mention through a qualified phrase or a source URL belonging to that Property. A clarifying question ("Which Harbor Point do you mean?") names the Property in two cases only: the answer cites one of the Property's own pages (a source link its URL rule matches), or the Property's branded query names it, as "is Harbor Point a good place to live" does. A non-brand query that contains the name, such as "best apartments near Harbor Point", uses it as a place and settles nothing, and a schema v1 revision records no query class, so only the Property's own page settles it there. The query is read with the same longest-name rule as the answer, so a query naming "Harbor Point East" does not name "Harbor Point". Otherwise the clarifying answer stays unverified. A Property with qualified phrases still needs one of them, or its own page, in the answer. The raw answer and its citation evidence remain available.
 
-An answer is unattributable for a rate when it verifies a mention of none of that rate's Properties and leaves at least one of them unresolved. Mention coverage leaves it out of both the numerator and the denominator and reports how many answers it left out as `unattributed` beside the denominator (absent means none). The answer's own `mentioned` stays `null` with `mentionUnavailableReason: identity-ambiguous`; it is never counted as not mentioned. The rate is unavailable with reason `identity-ambiguous` only when no attributable answer remains. The visibility report, the Advanced Measurement overview and portfolio summary (as `unattributed` on the metric value), the revision report, the CLI apply the same rule. Every surface that shows the rate states the count beside it, including the Property page, the overview table and its engine rows, and the CLI engine rows: "12 of 1152 answers could not be tied to one property". A Property with left-out answers and no verified mention has an unknown mention outcome: Property outcomes count it as not measured, never as cited only or neither, matching Properties mentioned.
+An answer is unattributable for a rate when it verifies a mention of none of that rate's Properties and leaves at least one of them unresolved. Mention coverage leaves it out of both the numerator and the denominator and reports how many answers it left out as `unattributed` beside the denominator (absent means none). The answer's own `mentioned` stays `null` with `mentionUnavailableReason: identity-ambiguous`; it is never counted as not mentioned. The rate is unavailable with reason `identity-ambiguous` only when no attributable answer remains. The visibility report, the Advanced Measurement overview and portfolio summary (as `unattributed` on the metric value), the revision report, the CLI apply the same rule. Every surface that shows the rate states the count beside it, including the Property page, the overview table and its engine rows, and the CLI engine rows: "12 of 1152 answers could not be tied to one location". The CLI prints that sentence; the dashboard keeps it behind a caution icon beside the rate's count, as the icon's tooltip and accessible name. A Property with left-out answers and no verified mention has an unknown mention outcome: Location outcomes count it as not measured, never as cited only or neither, matching Locations mentioned.
 
-An answer is unchecked for a citation rate when it was saved but its source-link capture was incomplete. Citation coverage leaves it out of both the numerator and the denominator, even when it captured a link to the Property, and reports the count as `unchecked` beside the denominator (absent means none). Among saved answers, the rate is unavailable with reason `evidence-incomplete` only when every one is unchecked; a missing answer (no saved observation) still withholds the rate, as below. The trend chart notes that Cited counts only checked answers whenever a plotted point left some out. The visibility report (summary, Property, group and query rows, trend points, competitor citation coverage), the Advanced Measurement overview, portfolio summary, rankings and changes, and the revision report apply the same rule. Every surface that shows the rate states the count beside it, including the CLI Property line and engine rows: "2 of 1152 answers had sources that could not be checked". A Property with unchecked answers and no captured citation counts as not measured in Property outcomes, never as mentioned only or neither. Simple projects never report `unchecked`: their citation state comes from stored cited domains, not URL capture, so the rule does not apply.
+An answer is unchecked for a citation rate when it was saved but its source-link capture was incomplete. Citation coverage leaves it out of both the numerator and the denominator, even when it captured a link to the Property, and reports the count as `unchecked` beside the denominator (absent means none). Among saved answers, the rate is unavailable with reason `evidence-incomplete` only when every one is unchecked; a missing answer (no saved observation) still withholds the rate, as below. The trend chart notes that Cited counts only checked answers whenever a plotted point left some out, behind a caution icon after the Cited legend entry. The visibility report (summary, Property, group and query rows, trend points, competitor citation coverage), the Advanced Measurement overview, portfolio summary, rankings and changes, and the revision report apply the same rule. Every surface that shows the rate states the count beside it, including the CLI Property line and engine rows: "2 of 1152 answers had sources that could not be checked". The dashboard keeps that sentence behind the same caution icon beside the rate's count. A Property with unchecked answers and no captured citation counts as not measured in Location outcomes, never as mentioned only or neither. Simple projects never report `unchecked`: their citation state comes from stored cited domains, not URL capture, so the rule does not apply.
 
 `GET /projects/:name/visibility-report` exposes frozen coverage with separate query-class populations for Simple and Advanced Measurement. Its history window preserves comparison boundaries, and the latest summary retains its measurement date. The dedicated client and HTML Report surfaces are retired in [Canonry 7](report-retirement.md).
 

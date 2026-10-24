@@ -46,7 +46,8 @@ import { CitationVisibilitySection } from '../components/project/CitationVisibil
 import { PastSweeps } from '../components/project/PastSweeps.js'
 import { useVisibilityReportFirstPage, VisibilityOverview, VisibilityTrendSection } from '../components/project/VisibilityTrendSection.js'
 import { VisibilityScopePicker } from '../components/project/VisibilityScopePicker.js'
-import { QueriesSection } from '../components/project/DiscoverySection.js'
+import { QueriesSection, type ResearchWorkspaceMode } from '../components/project/DiscoverySection.js'
+import { parseTrackedFilters, trackedFiltersPatch } from '../components/project/queries/advanced/tracked-filters.js'
 import { SiteHealthSection } from '../components/project/SiteHealthSection.js'
 import { ProjectHistorySection } from '../components/project/ProjectHistorySection.js'
 import { ConversionIntegrityWorkspace } from '../components/project/ConversionIntegrityWorkspace.js'
@@ -54,7 +55,6 @@ import { GoogleAdsPerformanceSection } from '../components/project/GoogleAdsPerf
 import { AdvancedMeasurementSection } from '../components/project/advanced-measurement/AdvancedMeasurementSection.js'
 import { AdvancedMeasurementLanding } from '../components/project/advanced-measurement/AdvancedMeasurementLanding.js'
 import {
-  advancedMeasurementSetupActionLabel,
   advancedProjectTagDetail,
   resolveAdvancedMeasurementMode,
 } from '../components/project/advanced-measurement/model.js'
@@ -75,6 +75,8 @@ import { RunAdmissionNoticeView, useRunAdmission } from '../components/project/R
 import { providerDisplayName } from '../lib/visibility-trend-helpers.js'
 import { ScheduleSection } from '../components/project/ScheduleSection.js'
 import { NotificationsSection } from '../components/project/NotificationsSection.js'
+import { LOCATIONS_MARKETS_COPY, LocationsMarketsSection } from '../components/project/settings/LocationsMarketsSection.js'
+import { ProjectSettingsLayout } from '../components/project/settings/ProjectSettingsNav.js'
 import {
   fetchTimeline,
   deleteProject as apiDeleteProject,
@@ -177,6 +179,12 @@ export function ProjectSweepConfirmation({ open, projectLabel, onOpenChange, onC
 }
 
 type SearchConsoleWorkspace = 'google' | 'bing'
+
+/** The Research mode a URL names. `test` is the old word for write; anything else names none. */
+function researchModeFromSearch(value: unknown): ResearchWorkspaceMode | undefined {
+  if (value === 'test') return 'write'
+  return value === 'write' || value === 'pattern' || value === 'find' ? value : undefined
+}
 
 /**
  * Patch the cached `useProjectDashboard` detail entries for a single project
@@ -934,7 +942,7 @@ function SearchConsoleSection({
         // panels below reloaded pre-sync numbers — indistinguishable from "the
         // button did nothing". Say what is actually true instead: the sync is
         // still running and its data will appear on its own.
-        notices.push('Google sync is still running — search data will appear shortly')
+        notices.push('Google sync is still running. Search data will appear shortly.')
       }
 
       // --- Bing: trigger the server-side sweep and poll, like syncGoogle ---
@@ -1302,7 +1310,7 @@ function OverviewSignals({
  * render that follows. See PR #592 for the matching fix on the
  * pre-refactor code path.
  */
-export function ProjectPage(props: { tab: ProjectPageTab }) {
+export function ProjectPage(props: { tab: ProjectPageTab; addQueriesPage?: boolean }) {
   const { projectName: routeIdentifier } = useParams({ from: '/projects/$projectName' })
   // The URL carries the project name (the canonical identifier). Match by name
   // first; fall back to matching by id so a legacy UUID-shaped URL that wasn't
@@ -1627,6 +1635,7 @@ const SENTIMENT_BACKFILL_SWEEP_OPTIONS = 5
 
 function ProjectPageContent({
   tab: requestedTab,
+  addQueriesPage = false,
   model,
   refetch,
   latestVisibilityRevision,
@@ -1637,6 +1646,7 @@ function ProjectPageContent({
   onRequestOverview,
 }: {
   tab: ProjectPageTab
+  addQueriesPage?: boolean
   model: ProjectCommandCenterVm
   refetch: () => Promise<void>
   latestVisibilityRevision: string
@@ -1662,6 +1672,8 @@ function ProjectPageContent({
     class?: string
   }
   const visibilitySelection = parseVisibilitySelection(projectSearchParams)
+  // The Tracked filters have their own URL keys, so its Type is not the query type AI Visibility is set to.
+  const trackedFilters = useMemo(() => parseTrackedFilters(projectSearchParams), [projectSearchParams])
   const measurementScoped = isMeasurementScoped(visibilitySelection)
   const measurementSetupQuery = useQuery({
     ...getApiV1ProjectsByNameMeasurementSetupOptions({ client: heyClient, path: { name: projectName } }),
@@ -2122,11 +2134,6 @@ function ProjectPageContent({
     ...postApiV1ProjectsByNameMeasurementPlanDraftActionsPinCompetitorMutation({ client: heyClient }),
     meta: { skipGlobalErrorToast: true },
   })
-  const measurementSetupDisplayState = measurementSetupQuery.data !== undefined
-    ? 'success' as const
-    : measurementSetupQuery.isError
-      ? 'error' as const
-      : 'pending' as const
   const advancedMeasurementOverviewPagesInconsistent = useMemo(() => {
     const pages = advancedMeasurementOverviewQuery.data?.pages
     return pages ? !areV2OverviewPagesCompatible(pages) : false
@@ -2246,6 +2253,9 @@ function ProjectPageContent({
     && hasVisibilityInputs
     && providerReady === true
   const sweepSetupRequired = canWrite && !sweepReadinessPending && !sweepPrerequisitesReady
+  // A project that has queries or a published setup is set up: all it lacks is a connected engine, and engine
+  // keys are added on the global Settings page. Only a project with neither is sent to first-run setup.
+  const engineMissing = sweepSetupRequired && hasVisibilityInputs && !providerReadinessFailed
   // "Map site" invites the operator to do something that has not been done yet,
   // so it needs the one fact the sweep-readiness flags never carry: whether
   // this project already has a Site Health scan.
@@ -2599,6 +2609,23 @@ function ProjectPageContent({
     ? { key: 'settings' as const, label: 'Settings', href: `${projectTabBase}/settings` }
     : null
 
+  // What the place picker and the report call the whole project.
+  const placeRootLabel = PROJECT_SCOPE_COPY.allOf(model.project.displayName || model.project.name)
+  // AI Visibility and Tracked name the same two dates. Embeds and managed dashboards name
+  // neither. A sweep already under way brings new numbers before the scheduled one, so it
+  // names no date either.
+  const shownTrackingChangedAt = isEmbed() || isDashboardManagedSweeps() ? undefined : activeMeasurementPlan?.createdAt
+  const shownNextSweepDate = isEmbed() || isDashboardManagedSweeps() || hasActiveVisibilitySweep ? undefined : nextSweepDate ?? undefined
+
+  // The way from a location chosen as the Place to its own page, on AI Visibility and on Queries.
+  const locationDetailsLink = ({ id, label }: { id: string; label: string }, fromTracked = false) => (
+    <Link to="/projects/$projectName/properties/$targetKey" params={{ projectName, targetKey: id }} search={previous => fromTracked
+      ? patchVisibilitySelection(carryVisibilitySearch(previous), { queryClass: trackedFilters.type === 'branded' || trackedFilters.type === 'non-brand' ? trackedFilters.type : 'all' })
+      : carryVisibilitySearch(previous)} aria-label={`Location details for ${label}`} className="inline-flex min-h-11 items-center whitespace-nowrap text-sm text-link hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400">
+      Location details
+    </Link>
+  )
+
   function renderVisibilityOverview(overview: React.ReactNode) {
     // Simple keeps its own layout even when a unified report is available.
     // Advanced retains the report workspace and its existing legacy fallback.
@@ -2614,16 +2641,12 @@ function ProjectPageContent({
           && !visibilitySelection.from && !visibilitySelection.to && !visibilitySelection.revision
           && !visibilitySelection.measurementRunId && !visibilitySelection.queryKey && !visibilitySelection.marketKey}
         onSelectionChange={updateVisibilitySearch}
-        onManageQueries={!isEmbed() ? () => { void navigate({ to: '/projects/$projectName/queries', params: { projectName }, search: previous => ({ ...previous, queryWorkspace: 'tracked', trackingQueryId: undefined, measurementMarketKey: undefined }) }) } : undefined}
-        renderPropertyLink={!isEmbed() ? ({ id, label }) => (
-          <Link to="/projects/$projectName/properties/$targetKey" params={{ projectName, targetKey: id }} search={carryVisibilitySearch} aria-label={`Property details for ${label}`} className="inline-flex min-h-11 items-center text-sm text-link hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400">
-            Property details
-          </Link>
-        ) : undefined}
-        // Embeds and managed dashboards name neither date. A sweep already under way brings
-        // new numbers before the scheduled one, so it names no date either.
-        trackingChangedAt={isEmbed() || isDashboardManagedSweeps() ? undefined : activeMeasurementPlan?.createdAt}
-        nextSweepDate={isEmbed() || isDashboardManagedSweeps() || hasActiveVisibilitySweep ? undefined : nextSweepDate ?? undefined}
+        // Tracked filters Type by its own key, so the type in view here is handed over as that filter.
+        onManageQueries={!isEmbed() ? () => { void navigate({ to: '/projects/$projectName/queries', params: { projectName }, search: previous => ({ ...previous, queryWorkspace: 'tracked', trackingQueryId: undefined, measurementMarketKey: undefined, ...trackedFiltersPatch({ type: visibilitySelection.queryClass === 'branded' || visibilitySelection.queryClass === 'non-brand' ? visibilitySelection.queryClass : 'all' }) }) }) } : undefined}
+        renderPropertyLink={!isEmbed() ? locationDetailsLink : undefined}
+        trackingChangedAt={shownTrackingChangedAt}
+        nextSweepDate={shownNextSweepDate}
+        rootLabel={placeRootLabel}
         fallback={overview}
       />
     )
@@ -2634,6 +2657,24 @@ function ProjectPageContent({
       sentimentSelection = sentimentSelectionForSimpleEvidence(sentimentSelection, filteredEvidence, evidenceProvider)
     }
     return <SentimentScopeProvider hasSourceEvidence={!isSimpleOverview || Boolean(sentimentSelection.runId || sentimentSelection.runIds?.length)} evidenceReady={!isSimpleOverview || !(evidenceDashboard.isLoading || evidenceDashboard.evidenceLoading || evidenceDashboard.evidenceError)} waitForResolvedRun={!isSimpleOverview} projectName={projectName} runOptions={model.visibilitySweeps.slice(0, SENTIMENT_BACKFILL_SWEEP_OPTIONS).map(run => ({ id: run.id, label: formatTimestamp(run.finishedAt ?? run.createdAt) }))} selection={sentimentSelection}>{content}</SentimentScopeProvider>
+  }
+
+  // Both pickers read alike: Place, the picker, then, while the whole project
+  // is selected, how many locations and markets the server listed. A narrower
+  // place shows no counts: the trigger names it, and the totals are not its own.
+  // The picker's own label stays for assistive tech. Below md Place sits above
+  // the picker, so the open menu starts at the page gutter, and the counts
+  // always take the line under it, which is the room the placeholder holds.
+  const placeSlot = (picker: React.ReactNode, meta?: React.ReactNode) => (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 md:flex-nowrap">
+      <span aria-hidden="true" className="basis-full text-[13px] text-secondary md:basis-auto">{PROJECT_SCOPE_COPY.place}</span>
+      <div className="min-w-0 flex-1 basis-56 md:basis-auto">{picker}</div>
+      {meta}
+    </div>
+  )
+  const placeCounts = (selected: { kind: string }, locations: number, markets: number) => {
+    const text = selected.kind === 'project' ? PROJECT_SCOPE_COPY.placeCounts(locations, markets) : ''
+    return text ? <span className="basis-full whitespace-nowrap text-[13px] tabular-nums text-secondary md:basis-auto">{text}</span> : null
   }
 
   // The context row's measurement scope slot. Each tab owns recovery for a
@@ -2648,32 +2689,46 @@ function ProjectPageContent({
             : null
         }
         const report = reportScopeQuery.data
-        if (!report) return <div className="skeleton-text h-11 w-56" role="status" aria-label="Loading measurement scope" />
+        // The placeholder holds the room the counts will take, so the tabs below stay put.
+        if (!report) return placeSlot(
+          <div className="skeleton-text h-11 w-56" role="status" aria-label={PROJECT_SCOPE_COPY.loadingPlaces} />,
+          visibilitySelection.measurementScope === 'project' ? <div className="basis-full md:basis-auto" aria-hidden="true"><div className="skeleton-text my-1 w-40" /></div> : null,
+        )
         if (report.selection.availability.state !== 'available' || report.scopeOptions.length <= 1) return null
         // The URL owns the choice, so the trigger never snaps back while the
         // next report loads over the previous one.
         const selected = selectedScopeOption(report.scopeOptions, visibilitySelection) ?? report.selection.scope
-        return (
+        return placeSlot(
           <VisibilityScopePicker
             labelVisibility="sr-only"
+            rootLabel={placeRootLabel}
             options={report.scopeOptions}
             selected={selected}
             marketKey={visibilitySelection.marketKey}
             onSelect={(scope, marketKey) => updateVisibilitySearch({ measurementScope: scope.kind, measurementScopeKey: scope.kind === 'project' ? undefined : scope.id, measurementMarketKey: marketKey })}
-          />
+          />,
+          placeCounts(
+            selected,
+            report.scopeOptions.filter(option => option.kind === 'property').length,
+            report.scopeOptions.filter(option => option.kind === 'market').length,
+          ),
         )
       }
       case 'tracking-picker': {
-        const options = trackingWorkspaceQuery.data?.scopeOptions ?? []
+        const workspace = trackingWorkspaceQuery.data
+        const options = workspace?.scopeOptions ?? []
         const selected = selectedScopeOption(options, visibilitySelection)
         // Tracked assignments have no market intersection, so a new scope drops the market.
-        return selected ? (
+        return workspace && selected ? placeSlot(
           <VisibilityScopePicker
             labelVisibility="sr-only"
+            rootLabel={placeRootLabel}
             options={options}
             selected={selected}
             onSelect={scope => updateVisibilitySearch({ measurementScope: scope.kind, measurementScopeKey: scope.kind === 'project' ? undefined : scope.id })}
-          />
+          />,
+          // A location links to its own page from here. The counts are the whole project's, and show only for it.
+          selected.kind === 'property' && !isEmbed() ? locationDetailsLink(selected, true) : placeCounts(selected, workspace.targets.length, workspace.markets.length),
         ) : null
       }
       case 'scope-unavailable':
@@ -2839,6 +2894,8 @@ function ProjectPageContent({
                   disabled={triggerRunMutation.isPending || hasActiveVisibilitySweep || sweepReadinessPending || (sweepsOnHold && !providerReadinessFailed && !sweepSetupRequired)}
                   onClick={providerReadinessFailed
                     ? () => { void Promise.all([measurementSetupQuery.refetch(), ...(needsHeaderQueries ? [headerQueriesQuery.refetch()] : [])]) }
+                    : engineMissing
+                      ? () => { void navigate({ to: '/settings' }) }
                     : sweepSetupRequired
                       ? openAiVisibilitySetup
                       : event => { sweepOpener.current = event.currentTarget; setSweepConfirmationProject(projectName) }}
@@ -2851,6 +2908,8 @@ function ProjectPageContent({
                         ? 'Checking AI readiness…'
                         : providerReadinessFailed
                           ? 'Retry AI readiness'
+                        : engineMissing
+                          ? 'Connect an engine'
                         : sweepSetupRequired
                           ? 'Set up AI Visibility'
                           : sweepsOnHold
@@ -2889,7 +2948,10 @@ function ProjectPageContent({
           isQueryError={isPortfolioQueriesError}
           onRetryQueries={() => { void portfolioQueriesQuery.refetch() }}
           publishedPlan={activeMeasurementPlan}
+          isPublishedPlanError={isActiveMeasurementPlanError}
+          onRetryPublishedPlan={() => { void activeMeasurementPlanQuery.refetch() }}
           sweepActive={hasActiveVisibilitySweep}
+          openStep={projectSearchParams.setupStep === 'review' ? 'review' : undefined}
           executionProviders={model.project.providers}
           executionProviderModels={model.project.providerModels}
           onCreateQueries={async texts => {
@@ -3157,90 +3219,110 @@ function ProjectPageContent({
         )}
         </>
       ) : tab === 'settings' ? (
-        <>
-          <ProjectSettingsSection project={{ ...model.project, displayName: model.project.displayName ?? model.project.name, defaultLocation: model.project.defaultLocation ?? null }} onUpdateProject={async (name, updates) => { await handleUpdateProject(name, updates) }} />
-          <ProjectEngineSettingsSection project={model.project} onSave={async next => { await handleUpdateProject(model.project.name, next) }} />
-          <SiteHealthScanSettingsSection key={model.project.id} project={model.project} onSave={async siteAuditMaxPages => { await handleUpdateProject(model.project.name, { siteAuditMaxPages }) }} />
-          {canWrite && !isEmbed() ? (
-            <section className="page-section-divider">
-              <h2 className="text-lg font-semibold text-heading">Advanced measurement</h2>
-              <p className="supporting-copy mt-1 mb-3">
-                Measure individual properties, locations, or site sections with separate query sets.
-              </p>
-              {measurementSetupDisplayState === 'pending' ? (
-                <p role="status" className="text-sm text-secondary">Loading setup…</p>
-              ) : measurementSetupDisplayState === 'error' ? (
-                <div role="alert" className="flex flex-wrap items-center gap-3 text-sm text-negative">
-                  <span>Could not load advanced measurement setup.</span>
-                  <Button type="button" size="sm" variant="outline" onClick={() => { void measurementSetupQuery.refetch() }}>
-                    Retry
-                  </Button>
-                </div>
-              ) : (
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => { void navigate({ to: '/projects/$projectName/portfolio', params: { projectName } }) }}
-                >
-                  {advancedMeasurementSetupActionLabel(advancedMeasurementMode.setupAction)}
-                </Button>
-              )}
-            </section>
-          ) : null}
-          <ScheduleSection projectName={model.project.name} />
-          <NotificationsSection projectName={model.project.name} />
-          {/* Deleting the project lives here, at the far end of Settings, rather
-              than as an icon in the page header where it sat one misclick from
-              "Run AI Visibility check". It destroys every query, run and snapshot, and a
-              confirm dialog was the only thing standing between the two. */}
-          {canWrite && !isEmbed() ? (
-            <section className="page-section-divider">
-              <h2 className="text-lg font-semibold text-negative-400">Delete project</h2>
-              <p className="supporting-copy mt-1 mb-3">
-                Permanently deletes this project and all its queries, competitors, runs, and snapshots.
-              </p>
-              {showDeleteConfirm ? (
-                <Card className="surface-card p-6 border-negative-800/60">
-                  <h3 className="text-base font-semibold text-negative-400 mb-2">Delete project?</h3>
-                  <p className="text-sm text-secondary mb-4">
-                    This will permanently delete <strong className="text-strong">{model.project.displayName || model.project.name}</strong> and
-                    all its queries, competitors, runs, and snapshots. This cannot be undone.
+        <ProjectSettingsLayout
+          // An embed keeps the plain stacked page, with no jump list.
+          nav={!isEmbed()}
+          // In page order. A section with nothing to render is left out, so the jump list names what is on the page.
+          sections={[
+            {
+              id: 'settings-general',
+              label: 'General',
+              content: <ProjectSettingsSection project={{ ...model.project, displayName: model.project.displayName ?? model.project.name, defaultLocation: model.project.defaultLocation ?? null }} onUpdateProject={async (name, updates) => { await handleUpdateProject(name, updates) }} />,
+            },
+            // The section renders for an administrator outside an embed, and for no one else.
+            ...(isAdmin && !isEmbed() ? [{
+              id: 'settings-engines',
+              label: 'Engines',
+              content: <ProjectEngineSettingsSection project={model.project} onSave={async next => { await handleUpdateProject(model.project.name, next) }} />,
+            }] : []),
+            {
+              id: 'settings-site-health',
+              label: 'Site Health scans',
+              content: <SiteHealthScanSettingsSection key={model.project.id} project={model.project} onSave={async siteAuditMaxPages => { await handleUpdateProject(model.project.name, { siteAuditMaxPages }) }} />,
+            },
+            ...(!isEmbed() ? [{
+              id: 'settings-locations-markets',
+              label: LOCATIONS_MARKETS_COPY.heading,
+              content: (
+                <LocationsMarketsSection
+                  projectName={projectName}
+                  setup={measurementSetupQuery.data}
+                  plan={activeMeasurementPlanQuery.data}
+                  setupFailed={measurementSetupQuery.isError && measurementSetupQuery.data === undefined}
+                  planFailed={isActiveMeasurementPlanError}
+                  onRetryReads={() => { void Promise.all([measurementSetupQuery.refetch(), activeMeasurementPlanQuery.refetch()]) }}
+                  onOpenSetup={() => { void navigate({ to: '/projects/$projectName/portfolio', params: { projectName } }) }}
+                />
+              ),
+            }] : []),
+            { id: 'settings-schedule', label: 'Schedule', content: <ScheduleSection projectName={model.project.name} /> },
+            { id: 'settings-notifications', label: 'Notifications', content: <NotificationsSection projectName={model.project.name} /> },
+            // Deleting the project lives here, at the far end of Settings, rather
+            // than as an icon in the page header where it sat one misclick from
+            // "Run AI Visibility check". It destroys every query, run and snapshot, and a
+            // confirm dialog was the only thing standing between the two.
+            ...(canWrite && !isEmbed() ? [{
+              id: 'settings-delete',
+              label: 'Delete project',
+              content: (
+                <section className="page-section-divider">
+                  <h2 className="text-lg font-semibold text-negative-400">Delete project</h2>
+                  <p className="supporting-copy mt-1 mb-3">
+                    Permanently deletes this project and all its queries, competitors, runs, and snapshots.
                   </p>
-                  <div className="flex items-center gap-3">
-                    <Button
-                      type="button"
-                      variant="destructive"
-                      disabled={deleting}
-                      onClick={asyncHandler(handleDeleteProject)}
-                    >
-                      {deleting ? 'Deleting...' : 'Yes, delete project'}
-                    </Button>
-                    <Button type="button" variant="outline" disabled={deleting} onClick={() => setShowDeleteConfirm(false)}>
-                      Cancel
-                    </Button>
-                  </div>
-                </Card>
-              ) : (
-                <WriteButton type="button" variant="outline" onClick={() => setShowDeleteConfirm(true)}>
-                  <Trash2 className="h-4 w-4 text-secondary" />
-                  Delete project
-                </WriteButton>
-              )}
-            </section>
-          ) : null}
-        </>
+                  {showDeleteConfirm ? (
+                    <Card className="surface-card p-6 border-negative-800/60">
+                      <h3 className="text-base font-semibold text-negative-400 mb-2">Delete project?</h3>
+                      <p className="text-sm text-secondary mb-4">
+                        This will permanently delete <strong className="text-strong">{model.project.displayName || model.project.name}</strong> and
+                        all its queries, competitors, runs, and snapshots. This cannot be undone.
+                      </p>
+                      <div className="flex items-center gap-3">
+                        <Button
+                          type="button"
+                          variant="destructive"
+                          disabled={deleting}
+                          onClick={asyncHandler(handleDeleteProject)}
+                        >
+                          {deleting ? 'Deleting...' : 'Yes, delete project'}
+                        </Button>
+                        <Button type="button" variant="outline" disabled={deleting} onClick={() => setShowDeleteConfirm(false)}>
+                          Cancel
+                        </Button>
+                      </div>
+                    </Card>
+                  ) : (
+                    <WriteButton type="button" variant="outline" onClick={() => setShowDeleteConfirm(true)}>
+                      <Trash2 className="h-4 w-4 text-secondary" />
+                      Delete project
+                    </WriteButton>
+                  )}
+                </section>
+              ),
+            }] : []),
+          ]}
+        />
       ) : tab === 'queries' || tab === 'discovery' ? (
         <QueriesSection
+          addQueriesPage={addQueriesPage}
           projectName={projectName}
           queryWorkspace={requestedQueryWorkspace}
           onQueryWorkspaceChange={value => updateVisibilitySearch({ queryWorkspace: value, trackingQueryId: undefined })}
-          researchMode={projectSearchParams.researchMode === 'test' ? 'test' : 'find'}
+          researchMode={researchModeFromSearch(projectSearchParams.researchMode)}
           onResearchModeChange={value => updateVisibilitySearch({ researchMode: value })}
           selection={visibilitySelection}
           onSelectionChange={updateVisibilitySearch}
           trackingQueryId={typeof projectSearchParams.trackingQueryId === 'string' ? projectSearchParams.trackingQueryId : undefined}
           onTrackingQueryIdChange={value => updateVisibilitySearch({ trackingQueryId: value })}
           publishGuard={{ sweepActive: hasActiveVisibilitySweep }}
+          trackedFilters={trackedFilters}
+          onTrackedFiltersChange={patch => updateVisibilitySearch(trackedFiltersPatch(patch))}
+          trackedView={typeof projectSearchParams.trackedView === 'string' ? projectSearchParams.trackedView : undefined}
+          trackingChangedAt={shownTrackingChangedAt}
+          nextSweepDate={shownNextSweepDate}
+          rootLabel={placeRootLabel}
+          // A published plan is an advanced workspace. Known from the reads this page already made, never from a new one.
+          trackedMode={(measurementSetupQuery.data?.activeSchemaVersion ?? activeMeasurementPlanSchemaVersion) === 2 ? 'advanced' : undefined}
         />
       ) : tab === 'technical-aeo' ? (
         <SiteHealthSection

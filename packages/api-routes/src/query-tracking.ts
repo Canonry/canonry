@@ -7,7 +7,7 @@
  */
 
 import crypto from 'node:crypto'
-import { and, desc, eq, inArray, isNotNull, isNull, ne } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNotNull, isNull, ne, sql } from 'drizzle-orm'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import {
   canonicalMeasurementPlanV2Json,
@@ -26,6 +26,7 @@ import {
   queryTrackingPreviewStale,
   queryTrackingProvenanceSchema,
   queryTrackingWorkspaceResponseSchema,
+  queryTemplateVariableKind,
   resolveProviderModel,
   resolveProviderRoute,
   RunKinds,
@@ -40,19 +41,28 @@ import {
   type MeasurementV2UsageEdge,
   type QueryClass,
   type QueryTrackingAddition,
+  type QueryTrackingAssignment,
   type QueryTrackingAudience,
   type QueryTrackingChangeRow,
+  type QueryTrackingClassifiedContext,
   type QueryTrackingDiff,
   type QueryTrackingEdit,
+  type QueryTrackingFocus,
+  type QueryTrackingLimits,
+  type QueryTrackingMarketChange,
+  type QueryTrackingMarketQueryChange,
   type QueryTrackingMode,
   type QueryTrackingMutation,
+  type QueryTrackingPlacement,
   type QueryTrackingProvenance,
-  type QueryTrackingTrackedRow,
+  type QueryTrackingQueryChange,
+  type QueryTrackingTypeMismatch,
   type QueryTrackingWorkload,
   type QueryTrackingWorkspaceResponse,
   type SimpleMeasurementDefinition,
   compareText,
   normalizeIdentityText as normalizeText,
+  sortedUnique,
   type ProviderRouteFamily,
 } from '@canonry/canonry-contracts'
 import {
@@ -73,6 +83,7 @@ import {
 import { requireScope } from './auth.js'
 import {
   compileMeasurementDraftAssignmentExecution,
+  MEASUREMENT_DRAFT_MAX_QUERIES,
   plansAreLabelOnlyVariants,
   proposeQueryClassForTarget,
 } from './measurement-draft-compile.js'
@@ -93,7 +104,17 @@ import {
 } from './measurement-report-adapter.js'
 import { MEASUREMENT_PLAN_WRITE_SCOPE } from './measurement-plan.js'
 import { planScopeOptions, simpleScopeOptions } from './measurement-scope-options.js'
-import { assertNoActivePlanlessSweep, preserveSnapshotQueryText, replaceProjectQueries } from './query-replace.js'
+import { planQueryFocus, subjectQueryClass } from './query-focus.js'
+import {
+  distinctQueryClasses,
+  planPlaceCounts,
+  queryLimitCounts,
+  trackingSummary,
+  trackingViews,
+  type SavedPatterns,
+  type SummarizedRow,
+} from './query-tracking-summary.js'
+import { assertNoActivePlanlessSweep, assertNoActiveSweep, preserveSnapshotQueryText, replaceProjectQueries } from './query-replace.js'
 import { resolveRunProviderSelection } from './run-queue.js'
 import type { ProviderSummaryEntry } from './settings.js'
 import { auditFromRequest, resolveProject, writeAuditLog } from './helpers.js'
@@ -101,11 +122,15 @@ import { auditFromRequest, resolveProject, writeAuditLog } from './helpers.js'
 const SOURCE_LIMIT = 100
 const MAX_REVIEW_AGE_MS = 15 * 60 * 1_000
 const MAX_REVIEW_FUTURE_SKEW_MS = 60 * 1_000
+/** SQLite binds every id of an `IN` list, so a long list is read in parts. */
+const QUERY_ID_READ_SIZE = 500
+/** Query texts one audit entry lists per kind of change. Its counts stay exact. */
+const AUDIT_QUERY_TEXT_LIMIT = 50
 
 type ProjectRow = typeof projects.$inferSelect
 type QueryRow = typeof queries.$inferSelect
 type DbLike = Pick<DatabaseClient, 'select' | 'insert' | 'update' | 'delete'>
-/** The readiness check needs frozen slot provenance, never raw provider payloads. */
+/** The readiness check needs frozen slot provenance, never an answer's text, sources or raw payload. */
 type ReadinessSnapshot = Pick<typeof querySnapshots.$inferSelect,
   | 'id'
   | 'runId'
@@ -113,9 +138,6 @@ type ReadinessSnapshot = Pick<typeof querySnapshots.$inferSelect,
   | 'queryText'
   | 'provider'
   | 'model'
-  | 'answerText'
-  | 'citedUrls'
-  | 'captureStatus'
   | 'location'
   | 'measurementExecutionId'
   | 'requestedContext'
@@ -161,6 +183,9 @@ interface Candidate {
   reusedQueryIds: Set<string>
   mutatedQueryIds: Set<string>
   diff: QueryTrackingDiff
+  changes: QueryTrackingQueryChange[]
+  /** Advanced portfolios only; a simple basket has no market. */
+  marketChanges?: QueryTrackingMarketChange[]
   workload: QueryTrackingWorkload
 }
 
@@ -247,6 +272,17 @@ function uniqueContexts(contexts: readonly MeasurementV2ExecutionContext[]): Mea
   const byKey = new Map<string, MeasurementV2ExecutionContext>()
   for (const context of contexts) byKey.set(contextKey(context), context)
   return [...byKey.values()].sort((left, right) => compareText(contextKey(left), contextKey(right)))
+}
+
+function uniqueClassifiedContexts(contexts: readonly QueryTrackingClassifiedContext[]): QueryTrackingClassifiedContext[] {
+  const byKey = new Map<string, QueryTrackingClassifiedContext>()
+  const keyOf = (context: QueryTrackingClassifiedContext) => `${contextKey(context)}\u0000${context.queryClass}`
+  for (const context of contexts) {
+    const key = keyOf(context)
+    const existing = byKey.get(key)
+    byKey.set(key, { ...context, marketKeys: sortedUnique([...(existing?.marketKeys ?? []), ...context.marketKeys]) })
+  }
+  return [...byKey.values()].sort((left, right) => compareText(keyOf(left), keyOf(right)))
 }
 
 function defaultContexts(project: ProjectRow, opts: QueryTrackingRoutesOptions, mode: QueryTrackingMode): MeasurementV2ExecutionContext[] {
@@ -350,7 +386,8 @@ function simpleExecutionSignature(input: {
   })
 }
 
-function currentSimpleExecutionSignature(project: ProjectRow, opts: QueryTrackingRoutesOptions): string {
+/** What a planless sweep of this project would ask now. Also read by the query-tracking results route. */
+export function currentSimpleExecutionSignature(project: ProjectRow, opts: QueryTrackingRoutesOptions): string {
   return simpleExecutionSignature({
     identity: {
       displayName: project.displayName,
@@ -365,7 +402,8 @@ function currentSimpleExecutionSignature(project: ProjectRow, opts: QueryTrackin
   })
 }
 
-function frozenSimpleExecutionSignature(definition: SimpleMeasurementDefinition): string {
+/** What a stored planless sweep asked. Equal to the current signature when nothing it dispatches changed since. */
+export function frozenSimpleExecutionSignature(definition: SimpleMeasurementDefinition): string {
   return simpleExecutionSignature(definition)
 }
 
@@ -481,48 +519,58 @@ function simpleMeasuredAtByQuery(
   return measured
 }
 
-function frozenAssignmentSignature(
-  plan: MeasurementPlanV2,
-  assignment: MeasurementPlanV2['assignments'][number],
-): string {
-  const node = plan.executionNodes.find(candidate => candidate.stableKey === assignment.executionNodeKey)
-  const target = plan.targets.find(candidate => candidate.stableKey === assignment.targetKey)
-  if (!node || !target) throw validationError('A frozen measurement assignment is missing its execution or target identity.')
-  // This is comparison only: no current aliases/classes/contexts are applied to
-  // an old snapshot. A material target, query, class, or context edit yields a
-  // different signature and therefore awaits a fresh sweep.
-  return canonicalJson({
-    target: {
+/**
+ * Signs the frozen assignments of one plan. A target's identity and an
+ * execution's text and context are serialized once per plan, not once per
+ * assignment: a large plan pairs each of them many times.
+ */
+function frozenAssignmentSigner(plan: MeasurementPlanV2): (assignment: MeasurementPlanV2['assignments'][number]) => string {
+  const targets = new Map<string, string>()
+  for (const target of plan.targets) {
+    if (targets.has(target.stableKey)) continue
+    targets.set(target.stableKey, canonicalJson({
       stableKey: target.stableKey,
       aliases: target.aliases,
       ...(target.identityAliases === undefined ? {} : { identityAliases: target.identityAliases }),
       urlMatchers: target.urlMatchers,
       mentionNotApplicable: target.mentionNotApplicable,
       discoveryIdentity: target.discoveryIdentity,
-    },
-    queryId: assignment.queryId,
-    queryText: node.queryText,
-    queryClass: assignment.queryClass,
-    classificationSource: assignment.classificationSource,
-    context: node.context,
-  })
+    }))
+  }
+  const nodes = new Map<string, string>()
+  for (const node of plan.executionNodes) {
+    if (!nodes.has(node.stableKey)) nodes.set(node.stableKey, canonicalJson({ queryText: node.queryText, context: node.context }))
+  }
+  return assignment => {
+    const node = nodes.get(assignment.executionNodeKey)
+    const target = targets.get(assignment.targetKey)
+    if (node === undefined || target === undefined) throw validationError('A frozen measurement assignment is missing its execution or target identity.')
+    // This is comparison only: no current aliases/classes/contexts are applied to
+    // an old snapshot. A material target, query, class, or context edit yields a
+    // different signature and therefore awaits a fresh sweep. Who set the class
+    // is not signed, as in the results read's `assignmentSigner`: the same class
+    // was measured alike whether the server or an operator chose it.
+    return JSON.stringify([target, assignment.queryId, node, assignment.queryClass])
+  }
 }
 
 function assignmentSignaturesByQuery(plan: MeasurementPlanV2): Map<string, Set<string>> {
+  const sign = frozenAssignmentSigner(plan)
   const result = new Map<string, Set<string>>()
   for (const assignment of plan.assignments) {
     const signatures = result.get(assignment.queryId) ?? new Set<string>()
-    signatures.add(frozenAssignmentSignature(plan, assignment))
+    signatures.add(sign(assignment))
     result.set(assignment.queryId, signatures)
   }
   return result
 }
 
 function assignmentSignaturesByExecution(plan: MeasurementPlanV2): Map<string, Array<{ queryId: string; signature: string }>> {
+  const sign = frozenAssignmentSigner(plan)
   const result = new Map<string, Array<{ queryId: string; signature: string }>>()
   for (const assignment of plan.assignments) {
     const entries = result.get(assignment.executionNodeKey) ?? []
-    entries.push({ queryId: assignment.queryId, signature: frozenAssignmentSignature(plan, assignment) })
+    entries.push({ queryId: assignment.queryId, signature: sign(assignment) })
     result.set(assignment.executionNodeKey, entries)
   }
   return result
@@ -556,18 +604,45 @@ function manifestMatchesFrozenV2Execution(plan: MeasurementPlanV2, manifest: Ret
   return slotsByExecution.size === plan.executionNodes.length
 }
 
-/** The report adapter only consults the selected fields below; disable its historical raw fallback for readiness. */
-function readinessAdapterSnapshots(snapshots: readonly ReadinessSnapshot[]): readonly (typeof querySnapshots.$inferSelect)[] {
-  return snapshots.map(snapshot => ({ ...snapshot, rawResponse: null }) as unknown as typeof querySnapshots.$inferSelect)
+/** One plan a stored sweep ran with, signed for comparison with the active plan. */
+interface SweptPlan {
+  revision: number
+  plan: MeasurementPlanV2
+  signaturesByExecution: Map<string, Array<{ queryId: string; signature: string }>>
 }
 
+/**
+ * Readiness counts which expected slots were answered. It never reads an
+ * answer's text or sources, so they are not loaded and the report adapter sees
+ * them as absent, with its historical raw fallback off.
+ */
+function readinessAdapterSnapshots(snapshots: readonly ReadinessSnapshot[]): readonly (typeof querySnapshots.$inferSelect)[] {
+  return snapshots.map(snapshot => ({
+    ...snapshot, answerText: null, citedUrls: null, rawResponse: null,
+  }) as unknown as typeof querySnapshots.$inferSelect)
+}
+
+/**
+ * When each tracked query was last measured as the active plan asks it.
+ *
+ * Sweeps are walked newest-finished first, so the first sweep that measured a
+ * pairing holds its latest time. A sweep's manifest and snapshots are loaded
+ * only when the plan it ran with holds a pairing that is still unmeasured,
+ * which the stored plans alone decide, and the walk ends once none is left.
+ */
 function measuredAtByQuery(db: DbLike, state: WorkspaceState, opts: QueryTrackingRoutesOptions): Map<string, string> {
   const { project, active } = state
   if (active === null) return simpleMeasuredAtByQuery(db, project, state.queryRows, opts)
 
   const activeSignatures = assignmentSignaturesByQuery(active.plan)
   if (activeSignatures.size === 0) return new Map()
-  const eligibleRuns = db.select().from(runs).where(and(
+  // The sweep list carries no manifest: one is read only for a sweep worth opening.
+  const eligibleRuns = db.select({
+    id: runs.id,
+    measurementPlanVersionId: runs.measurementPlanVersionId,
+    finishedAt: runs.finishedAt,
+    createdAt: runs.createdAt,
+  }).from(runs).where(and(
     eq(runs.projectId, project.id),
     eq(runs.kind, RunKinds['answer-visibility']),
     inArray(runs.status, [RunStatuses.completed, RunStatuses.partial]),
@@ -577,55 +652,50 @@ function measuredAtByQuery(db: DbLike, state: WorkspaceState, opts: QueryTrackin
   )).orderBy(desc(runs.createdAt), desc(runs.id)).limit(SOURCE_LIMIT).all()
   if (eligibleRuns.length === 0) return new Map()
 
-  const versionIds = unique(eligibleRuns.flatMap(run => run.measurementPlanVersionId ? [run.measurementPlanVersionId] : []))
-  const versionPlans = new Map(db.select({
-    id: measurementPlanVersions.id,
-    revision: measurementPlanVersions.revision,
-    canonicalJson: measurementPlanVersions.canonicalJson,
-  }).from(measurementPlanVersions).where(and(
-    eq(measurementPlanVersions.projectId, project.id),
-    inArray(measurementPlanVersions.id, versionIds),
-  )).all().flatMap(row => {
-    const parsed = parseStoredMeasurementPlanAnyVersion(row.canonicalJson)
-    return parsed.schemaVersion === 2 ? [[row.id, { revision: row.revision, plan: parsed }] as const] : []
-  }))
-  const signaturesByVersionExecution = new Map<string, Map<string, Array<{ queryId: string; signature: string }>>>()
-  for (const [versionId, version] of versionPlans) {
-    signaturesByVersionExecution.set(versionId, assignmentSignaturesByExecution(version.plan))
+  // Each plan a sweep ran with is parsed at most once, and only when the walk reaches it.
+  const sweptPlans = new Map<string, SweptPlan | null>()
+  const sweptPlan = (versionId: string): SweptPlan | null => {
+    const known = sweptPlans.get(versionId)
+    if (known !== undefined) return known
+    let swept: SweptPlan | null = null
+    if (versionId === active.version.id) {
+      swept = { revision: active.version.revision, plan: active.plan, signaturesByExecution: assignmentSignaturesByExecution(active.plan) }
+    } else {
+      const row = db.select({
+        revision: measurementPlanVersions.revision,
+        canonicalJson: measurementPlanVersions.canonicalJson,
+      }).from(measurementPlanVersions).where(and(
+        eq(measurementPlanVersions.projectId, project.id),
+        eq(measurementPlanVersions.id, versionId),
+      )).get()
+      const parsed = row ? parseStoredMeasurementPlanAnyVersion(row.canonicalJson) : null
+      if (row && parsed?.schemaVersion === 2) {
+        swept = { revision: row.revision, plan: parsed, signaturesByExecution: assignmentSignaturesByExecution(parsed) }
+      }
+    }
+    sweptPlans.set(versionId, swept)
+    return swept
   }
-  const measurements = new Map<string, Map<string, string>>()
-  const mark = (queryId: string, signature: string, stamp: string) => {
-    const signatures = activeSignatures.get(queryId)
-    if (!signatures?.has(signature)) return
-    const measured = measurements.get(queryId) ?? new Map<string, string>()
-    if ((measured.get(signature) ?? '') < stamp) measured.set(signature, stamp)
-    measurements.set(queryId, measured)
+
+  // A signature holds its query id, so one set covers every active pairing.
+  const unmeasured = new Set<string>()
+  for (const signatures of activeSignatures.values()) {
+    for (const signature of signatures) unmeasured.add(signature)
   }
-  const snapshotsByRun = new Map<string, ReadinessSnapshot[]>()
-  const snapshotRows = db.select({
-    id: querySnapshots.id,
-    runId: querySnapshots.runId,
-    queryId: querySnapshots.queryId,
-    queryText: querySnapshots.queryText,
-    provider: querySnapshots.provider,
-    model: querySnapshots.model,
-    answerText: querySnapshots.answerText,
-    citedUrls: querySnapshots.citedUrls,
-    captureStatus: querySnapshots.captureStatus,
-    location: querySnapshots.location,
-    measurementExecutionId: querySnapshots.measurementExecutionId,
-    requestedContext: querySnapshots.requestedContext,
-    supportedContext: querySnapshots.supportedContext,
-  }).from(querySnapshots).where(inArray(querySnapshots.runId, eligibleRuns.map(run => run.id))).all()
-  for (const snapshot of snapshotRows) {
-    const snapshots = snapshotsByRun.get(snapshot.runId) ?? []
-    snapshots.push(snapshot)
-    snapshotsByRun.set(snapshot.runId, snapshots)
-  }
-  for (const run of eligibleRuns) {
-    const versionId = run.measurementPlanVersionId
-    const version = versionId ? versionPlans.get(versionId) : undefined
+  const measuredAt = new Map<string, string>()
+  const stampOf = (run: (typeof eligibleRuns)[number]) => run.finishedAt ?? run.createdAt
+  const newestFirst = [...eligibleRuns].sort((left, right) => compareText(stampOf(right), stampOf(left)))
+  for (const candidate of newestFirst) {
+    if (unmeasured.size === 0) break
+    const versionId = candidate.measurementPlanVersionId
+    const version = versionId ? sweptPlan(versionId) : null
     if (!version) continue
+    const open = [...version.signaturesByExecution]
+      .filter(([, entries]) => entries.some(entry => unmeasured.has(entry.signature)))
+    if (open.length === 0) continue
+
+    const run = db.select().from(runs).where(eq(runs.id, candidate.id)).get()
+    if (!run) continue
     let manifest: ReturnType<typeof measurementRunExpectedSlots>
     try {
       manifest = measurementRunExpectedSlots(run, version.plan)
@@ -634,6 +704,18 @@ function measuredAtByQuery(db: DbLike, state: WorkspaceState, opts: QueryTrackin
     }
     if (!manifestMatchesFrozenV2Execution(version.plan, manifest)) continue
 
+    const snapshots: ReadinessSnapshot[] = db.select({
+      id: querySnapshots.id,
+      runId: querySnapshots.runId,
+      queryId: querySnapshots.queryId,
+      queryText: querySnapshots.queryText,
+      provider: querySnapshots.provider,
+      model: querySnapshots.model,
+      location: querySnapshots.location,
+      measurementExecutionId: querySnapshots.measurementExecutionId,
+      requestedContext: querySnapshots.requestedContext,
+      supportedContext: querySnapshots.supportedContext,
+    }).from(querySnapshots).where(eq(querySnapshots.runId, run.id)).all()
     // Use the exact same canonical reconstruction as reporting. It rejects a
     // stale execution id, query text, requested model, or location; ignored
     // contexts do not count as observations. A corrupt run simply supplies no
@@ -644,7 +726,7 @@ function measuredAtByQuery(db: DbLike, state: WorkspaceState, opts: QueryTrackin
         version.revision,
         version.plan,
         manifest,
-        readinessAdapterSnapshots(snapshotsByRun.get(run.id) ?? []),
+        readinessAdapterSnapshots(snapshots),
       ).input
     } catch {
       continue
@@ -661,22 +743,67 @@ function measuredAtByQuery(db: DbLike, state: WorkspaceState, opts: QueryTrackin
       slots.push(slot)
       slotsByExecution.set(slot.executionId, slots)
     }
-    const stamp = run.finishedAt ?? run.createdAt
-    if (!versionId) continue
-    for (const [executionId, entries] of signaturesByVersionExecution.get(versionId) ?? []) {
+    const stamp = stampOf(candidate)
+    for (const [executionId, entries] of open) {
       const slots = slotsByExecution.get(executionId) ?? []
       if (slots.length === 0 || slots.some(slot => observedBySlot.get(slot.id) !== 1)) continue
-      for (const entry of entries) mark(entry.queryId, entry.signature, stamp)
+      for (const entry of entries) {
+        // A pairing a newer sweep measured keeps that sweep's time.
+        if (unmeasured.delete(entry.signature)) measuredAt.set(entry.signature, stamp)
+      }
     }
   }
   const result = new Map<string, string>()
   for (const [queryId, signatures] of activeSignatures) {
-    const measured = measurements.get(queryId)
-    if (!measured || [...signatures].some(signature => !measured.has(signature))) continue
-    const latest = [...measured.values()].sort(compareText).at(-1)
+    const stamps = [...signatures].flatMap(signature => measuredAt.get(signature) ?? [])
+    if (stamps.length !== signatures.size) continue
+    const latest = stamps.sort(compareText).at(-1)
     if (latest) result.set(queryId, latest)
   }
   return result
+}
+
+/**
+ * When a whole-project sweep last stored an answer for each of these queries.
+ * It reads the sweeps `measuredAtByQuery` lists, of any plan or none, so a
+ * stopped query keeps the date of its last answers. One grouped read per part.
+ */
+function lastAnsweredAtByQuery(db: DbLike, projectId: string, queryIds: readonly string[]): Map<string, string> {
+  const result = new Map<string, string>()
+  for (let start = 0; start < queryIds.length; start += QUERY_ID_READ_SIZE) {
+    const rows = db.select({
+      queryId: querySnapshots.queryId,
+      answeredAt: sql<string>`max(coalesce(${runs.finishedAt}, ${runs.createdAt}))`,
+    }).from(querySnapshots)
+      .innerJoin(runs, eq(querySnapshots.runId, runs.id))
+      .where(and(
+        inArray(querySnapshots.queryId, queryIds.slice(start, start + QUERY_ID_READ_SIZE)),
+        eq(runs.projectId, projectId),
+        eq(runs.kind, RunKinds['answer-visibility']),
+        inArray(runs.status, [RunStatuses.completed, RunStatuses.partial]),
+        ne(runs.trigger, RunTriggers.probe),
+        isNull(runs.measurementScope),
+      ))
+      .groupBy(querySnapshots.queryId).all()
+    for (const row of rows) {
+      if (row.queryId !== null) result.set(row.queryId, row.answeredAt)
+    }
+  }
+  return result
+}
+
+/** The queries among `queryIds` that a stored answer links to. */
+function queriesWithAnswers(db: DbLike, queryIds: readonly string[]): Set<string> {
+  const answered = new Set<string>()
+  for (let start = 0; start < queryIds.length; start += QUERY_ID_READ_SIZE) {
+    const rows = db.select({ queryId: querySnapshots.queryId }).from(querySnapshots)
+      .where(inArray(querySnapshots.queryId, queryIds.slice(start, start + QUERY_ID_READ_SIZE)))
+      .groupBy(querySnapshots.queryId).all()
+    for (const row of rows) {
+      if (row.queryId !== null) answered.add(row.queryId)
+    }
+  }
+  return answered
 }
 
 function marketKeysByEdge(plan: MeasurementPlanV2): Map<string, string[]> {
@@ -699,9 +826,11 @@ function trackedRows(
   queryRows: ReadonlyMap<string, { id: string; query: string; provenance: string | null }>,
   plan: MeasurementPlanV2 | null,
   opts: QueryTrackingRoutesOptions,
-): QueryTrackingTrackedRow[] {
+): SummarizedRow[] {
   const measured = measuredAtByQuery(db, state, opts)
   if (!plan) {
+    // No usable brand identity leaves the class unset rather than guessing non-brand.
+    const classifier = compileQueryClassifier(effectiveBrandNames(state.project))
     return [...queryRows.values()]
       .map(row => ({
         queryId: row.id,
@@ -711,6 +840,8 @@ function trackedRows(
         state: measured.has(row.id) ? 'tracked' as const : 'awaiting-sweep' as const,
         lastMeasuredAt: measured.get(row.id) ?? null,
         assignments: [],
+        focus: { kind: 'company' as const },
+        queryClasses: classifier ? [classifier.classify(row.query)] : [],
       }))
       .sort((left, right) => compareText(left.normalizedText, right.normalizedText) || compareText(left.queryId, right.queryId))
   }
@@ -727,6 +858,18 @@ function trackedRows(
     }
   }
   const marketsByEdge = marketKeysByEdge(plan)
+  const focusOf = planQueryFocus(plan)
+  const assignmentsByQuery = new Map<string, MeasurementPlanV2['assignments']>()
+  for (const assignment of plan.assignments) {
+    const assigned = assignmentsByQuery.get(assignment.queryId)
+    if (assigned) assigned.push(assignment)
+    else assignmentsByQuery.set(assignment.queryId, [assignment])
+  }
+  // No sweep can measure a query no location is paired with as the plan asks
+  // it now, so such a row shows when a sweep last answered it. The read is
+  // skipped while every row has a pairing.
+  const unpaired = allIds.filter(queryId => !assignmentsByQuery.has(queryId))
+  const lastAnswered = unpaired.length > 0 ? lastAnsweredAtByQuery(db, state.project.id, unpaired) : new Map<string, string>()
   return allIds.map(queryId => {
     const snapshot = snapshots.get(queryId)
     const row = queryRows.get(queryId)
@@ -734,17 +877,13 @@ function trackedRows(
     if (queryText === undefined || !queryText.trim()) {
       throw validationError(`Tracked query "${queryId}" has no usable text.`)
     }
-    const assignments = new Map<string, {
-      targetKey: string
-      groupKeys: string[]
-      marketKeys: string[]
-      queryClass: QueryClass | null
-      classificationSource: 'frozen' | 'server' | 'operator'
-      contexts: MeasurementV2ExecutionContext[]
-    }>()
-    for (const assignment of plan.assignments.filter(candidate => candidate.queryId === queryId)) {
+    const assignments = new Map<string, QueryTrackingAssignment & { classifiedContexts: QueryTrackingClassifiedContext[] }>()
+    // One location can hold both classes across its search locations, so read every assignment.
+    const classes: QueryClass[] = []
+    for (const assignment of assignmentsByQuery.get(queryId) ?? []) {
       const node = nodes.get(assignment.executionNodeKey)
       if (!node) continue
+      classes.push(assignment.queryClass)
       const existing = assignments.get(assignment.targetKey)
       const edgeKey = measurementV2UsageEdgeKey({
         executionNodeKey: assignment.executionNodeKey,
@@ -752,8 +891,10 @@ function trackedRows(
         queryId,
       })
       const source = assignment.classificationSource ?? 'frozen'
+      const classifiedContext = { ...node.context, queryClass: assignment.queryClass, marketKeys: marketsByEdge.get(edgeKey) ?? [] }
       if (existing) {
         existing.contexts.push(node.context)
+        existing.classifiedContexts.push(classifiedContext)
         existing.marketKeys.push(...(marketsByEdge.get(edgeKey) ?? []))
       } else {
         assignments.set(assignment.targetKey, {
@@ -763,6 +904,7 @@ function trackedRows(
           queryClass: assignment.queryClass,
           classificationSource: source,
           contexts: [node.context],
+          classifiedContexts: [classifiedContext],
         })
       }
     }
@@ -771,15 +913,19 @@ function trackedRows(
       queryText,
       normalizedText: normalizeText(queryText),
       provenance: snapshot ? provenanceFromPlan(snapshot.provenance) : parseQueryProvenance(row?.provenance ?? null),
-      state: measured.has(queryId) ? 'tracked' as const : 'awaiting-sweep' as const,
-      lastMeasuredAt: measured.get(queryId) ?? null,
+      // A row with no pairing has nothing a sweep could have measured as asked now, in the preview of its stop too.
+      state: measured.has(queryId) && assignmentsByQuery.has(queryId) ? 'tracked' as const : 'awaiting-sweep' as const,
+      lastMeasuredAt: measured.get(queryId) ?? lastAnswered.get(queryId) ?? null,
       assignments: [...assignments.values()]
         .map(assignment => ({
           ...assignment,
           marketKeys: unique(assignment.marketKeys).sort(compareText),
           contexts: uniqueContexts(assignment.contexts),
+          classifiedContexts: uniqueClassifiedContexts(assignment.classifiedContexts),
         }))
         .sort((left, right) => compareText(left.targetKey, right.targetKey)),
+      focus: focusOf(queryId),
+      queryClasses: distinctQueryClasses(classes),
     }
   }).sort((left, right) => compareText(left.normalizedText, right.normalizedText) || compareText(left.queryId, right.queryId))
 }
@@ -810,24 +956,43 @@ function savedSources(db: DbLike, projectId: string) {
   return { research, discovery }
 }
 
+/** The project's saved patterns, in one read. */
+function savedPatterns(db: DbLike, projectId: string): SavedPatterns {
+  return new Map(db.select({
+    id: measurementQueryTemplates.id,
+    name: measurementQueryTemplates.name,
+    pattern: measurementQueryTemplates.pattern,
+    variables: measurementQueryTemplates.variables,
+  }).from(measurementQueryTemplates).where(eq(measurementQueryTemplates.projectId, projectId)).all().map(row => [row.id, row]))
+}
+
 function workspaceDto(db: DbLike, state: WorkspaceState, opts: QueryTrackingRoutesOptions): QueryTrackingWorkspaceResponse {
   const plan = state.active?.plan ?? null
   const rows = new Map(state.queryRows.map(row => [row.id, row]))
+  const tracked = trackedRows(db, state, rows, plan, opts)
+  const places = plan ? planPlaceCounts(plan, tracked) : null
+  const assigned = plan ? assignedQueryCount(plan) : null
   return queryTrackingWorkspaceResponseSchema.parse({
     mode: state.mode,
     workspaceVersion: state.workspaceVersion,
     active: activeDto(state.active),
     defaultContexts: defaultContexts(state.project, opts, state.mode),
-    targets: plan?.targets.map(target => ({ stableKey: target.stableKey, label: target.label })) ?? [],
+    targets: plan?.targets.map(target => ({ stableKey: target.stableKey, label: target.label, ...places?.targets.get(target.stableKey) })) ?? [],
     groups: plan?.groups.map(group => ({
       stableKey: group.stableKey, label: group.label, targetKeys: group.targetKeys,
       ...(group.parentGroupKey ? { parentGroupKey: group.parentGroupKey } : {}),
+      ...places?.groups.get(group.stableKey),
     })) ?? [],
-    markets: plan?.reportingScopes?.map(scope => ({ stableKey: scope.stableKey, label: scope.label, usageEdges: scope.usageEdges, ...(scope.groupKey ? { groupKey: scope.groupKey } : {}) })) ?? [],
+    markets: plan?.reportingScopes?.map(scope => ({ stableKey: scope.stableKey, label: scope.label, usageEdges: scope.usageEdges, ...(scope.groupKey ? { groupKey: scope.groupKey } : {}), ...places?.markets.get(scope.stableKey) })) ?? [],
     // Tracked assignments have no market intersection, so Groups and Properties carry no market links.
     scopeOptions: plan ? planScopeOptions(plan, { marketLinks: false }) : simpleScopeOptions(),
-    tracked: trackedRows(db, state, rows, plan, opts),
+    tracked,
     savedSources: savedSources(db, state.project.id),
+    summary: trackingSummary(tracked, plan, plan ? advancedWorkload(plan) : simpleWorkload(state.project, rows, opts)),
+    // A read changes nothing, so `next` repeats `current`. A simple basket has no limit.
+    ...(assigned === null ? {} : { limits: queryLimitCounts(assigned, assigned, MEASUREMENT_DRAFT_MAX_QUERIES) }),
+    // A simple basket has no location or market to list.
+    ...(plan === null || places === null ? {} : { views: trackingViews(plan, tracked, places, savedPatterns(db, state.project.id)) }),
   })
 }
 
@@ -846,7 +1011,7 @@ function resolveAudience(plan: MeasurementPlanV2, input: QueryTrackingAudience |
   const groupKeys = unique(input?.groupKeys ?? [])
   const marketKeys = unique(input?.marketKeys ?? [])
   for (const targetKey of unique(input?.targetKeys ?? [])) {
-    if (!targetByKey.has(targetKey)) throw validationError(`Selected Property "${targetKey}" is not in the active plan.`)
+    if (!targetByKey.has(targetKey)) throw validationError(`Selected location "${targetKey}" is not in the active plan.`)
     targetKeys.add(targetKey)
   }
   for (const groupKey of groupKeys) {
@@ -860,7 +1025,7 @@ function resolveAudience(plan: MeasurementPlanV2, input: QueryTrackingAudience |
     const scope = marketByKey.get(marketKey)
     if (!scope) throw validationError(`Selected market "${marketKey}" is not in the active plan.`)
     if (hasExplicitTargets && !scope.usageEdges.some(edge => targetKeys.has(edge.targetKey))) {
-      throw validationError(`Market "${marketKey}" has no selected Property.`)
+      throw validationError(`Market "${marketKey}" has no selected location.`)
     }
     for (const edge of scope.usageEdges) {
       marketTargetKeys.add(edge.targetKey)
@@ -870,12 +1035,12 @@ function resolveAudience(plan: MeasurementPlanV2, input: QueryTrackingAudience |
   if (hasExplicitTargets && marketKeys.length > 0) {
     for (const targetKey of targetKeys) {
       if (!marketTargetKeys.has(targetKey)) {
-        throw validationError(`Selected Property "${targetKey}" does not belong to any selected market.`)
+        throw validationError(`Selected location "${targetKey}" does not belong to any selected market.`)
       }
     }
   }
   if (targetKeys.size === 0) {
-    throw validationError('Select at least one Property, group, or market for a portfolio query.')
+    throw validationError('Select at least one location, group or market.')
   }
   return {
     targetKeys: [...targetKeys].sort(compareText),
@@ -986,12 +1151,17 @@ function templateRecords(
   if (template.updatedAt !== addition.input.templateVersion || template.pattern !== addition.input.template) {
     throw validationError('The selected query template changed. Reload the template and preview again.')
   }
-  const unsupported = template.variables.filter(variable => variable !== 'market' && variable !== 'property')
+  // A variable is read by its kind, so a pattern saved under any alias expands (`QUERY_TEMPLATE_VARIABLE_NAMES`).
+  const marketNames = template.variables.filter(variable => queryTemplateVariableKind(variable) === 'market')
+  const locationNames = template.variables.filter(variable => queryTemplateVariableKind(variable) === 'locationName')
+  const unsupported = template.variables.filter(variable => !marketNames.includes(variable) && !locationNames.includes(variable))
   if (unsupported.length) {
-    throw validationError(`Query tracking templates support only {market} and {property}; found ${unsupported.map(variable => `{${variable}}`).join(', ')}.`)
+    throw validationError(`Query tracking templates support only {market} and {locationName}; found ${unsupported.map(variable => `{${variable}}`).join(', ')}.`)
   }
-  const needsMarket = template.variables.includes('market')
-  const needsProperty = template.variables.includes('property')
+  const needsMarket = marketNames.length > 0
+  const needsProperty = locationNames.length > 0
+  // Each label is bound under the names the pattern declares, so the frozen record keeps the pattern's own.
+  const named = (names: readonly string[], label: string) => Object.fromEntries(names.map(name => [name, label]))
   const expand = (bindings: Record<string, string>, scopedAudience: ResolvedAudience) => {
     const queryText = expandQueryTemplate(template.pattern, Object.fromEntries(
       template.variables.map(variable => [variable, bindings[variable] ?? '']),
@@ -1024,10 +1194,10 @@ function templateRecords(
   const scopes = new Map((plan.reportingScopes ?? []).map(scope => [scope.stableKey, scope]))
   const targets = new Map(plan.targets.map(target => [target.stableKey, target]))
   if (needsMarket && audience.marketKeys.length === 0) {
-    throw validationError('A template containing {market} needs a selected market.')
+    throw validationError(`A template containing {${marketNames[0]}} needs a selected market.`)
   }
   if (needsProperty && audience.targetKeys.length === 0) {
-    throw validationError('A template containing {property} needs a selected Property or group.')
+    throw validationError(`A template containing {${locationNames[0]}} needs a selected location or group.`)
   }
 
   if (needsMarket && needsProperty) {
@@ -1035,24 +1205,24 @@ function templateRecords(
       const scope = scopes.get(marketKey)!
       const marketTargets = unique(scope.usageEdges.map(edge => edge.targetKey))
       const selected = audience.targetKeys.filter(targetKey => marketTargets.includes(targetKey))
-      if (selected.length === 0) throw validationError(`Market "${marketKey}" has no selected Property.`)
+      if (selected.length === 0) throw validationError(`Market "${marketKey}" has no selected location.`)
       return selected.map(targetKey => expand(
-        { market: scope.label, property: targets.get(targetKey)?.label ?? targetKey },
+        { ...named(marketNames, scope.label), ...named(locationNames, targets.get(targetKey)?.label ?? targetKey) },
         { targetKeys: [targetKey], groupKeys: audience.groupKeys, marketKeys: [marketKey] },
       ))
     })
   }
   if (needsProperty) {
     return audience.targetKeys.map(targetKey => expand(
-      { property: targets.get(targetKey)?.label ?? targetKey },
+      named(locationNames, targets.get(targetKey)?.label ?? targetKey),
       { targetKeys: [targetKey], groupKeys: audience.groupKeys, marketKeys: audience.marketKeys },
     ))
   }
   return audience.marketKeys.map(marketKey => {
     const scope = scopes.get(marketKey)!
     const targetKeys = audience.targetKeys.filter(targetKey => scope.usageEdges.some(edge => edge.targetKey === targetKey))
-    if (targetKeys.length === 0) throw validationError(`Market "${marketKey}" has no selected Property.`)
-    return expand({ market: scope.label }, { targetKeys, groupKeys: audience.groupKeys, marketKeys: [marketKey] })
+    if (targetKeys.length === 0) throw validationError(`Market "${marketKey}" has no selected location.`)
+    return expand(named(marketNames, scope.label), { targetKeys, groupKeys: audience.groupKeys, marketKeys: [marketKey] })
   })
 }
 
@@ -1221,7 +1391,198 @@ function changeRows(
   }).sort((left, right) => compareText(left.queryText, right.queryText) || compareText(left.queryId, right.queryId))
 }
 
+/** Each query's Properties and reporting markets in one plan. A null plan places nothing. */
+function placementIndex(plan: MeasurementPlanV2 | null): (queryId: string) => QueryTrackingPlacement {
+  const targets = new Map<string, Set<string>>()
+  const markets = new Map<string, Set<string>>()
+  const add = (index: Map<string, Set<string>>, queryId: string, key: string) => {
+    const keys = index.get(queryId)
+    if (keys) keys.add(key)
+    else index.set(queryId, new Set([key]))
+  }
+  for (const assignment of plan?.assignments ?? []) add(targets, assignment.queryId, assignment.targetKey)
+  for (const scope of plan?.reportingScopes ?? []) {
+    for (const edge of scope.usageEdges) add(markets, edge.queryId, scope.stableKey)
+  }
+  const sorted = (keys: Set<string> | undefined) => [...(keys ?? [])].sort(compareText)
+  return queryId => ({ targetKeys: sorted(targets.get(queryId)), marketKeys: sorted(markets.get(queryId)) })
+}
+
+/**
+ * Everything a publish writes for a query's pairings, per query: each
+ * assignment's signature (location identity, search location and engines, type
+ * and its source) with its exact edge and the markets that report it. A null
+ * plan pairs nothing.
+ */
+function pairingSignaturesByQuery(plan: MeasurementPlanV2 | null): Map<string, Set<string>> {
+  const result = new Map<string, Set<string>>()
+  if (!plan) return result
+  const sign = frozenAssignmentSigner(plan)
+  const markets = marketKeysByEdge(plan)
+  for (const assignment of plan.assignments) {
+    const key = edgeKey(assignment)
+    // Who set the type is written by a publish and is not part of the measured signature, so it is signed here.
+    const signature = JSON.stringify([sign(assignment), assignment.classificationSource ?? null, key, markets.get(key) ?? []])
+    const signatures = result.get(assignment.queryId)
+    if (signatures) signatures.add(signature)
+    else result.set(assignment.queryId, new Set([signature]))
+  }
+  return result
+}
+
+function sameSet(left: ReadonlySet<string> | undefined, right: ReadonlySet<string> | undefined): boolean {
+  if ((left?.size ?? 0) !== (right?.size ?? 0)) return false
+  for (const value of left ?? []) {
+    if (!right?.has(value)) return false
+  }
+  return true
+}
+
+/**
+ * One row per added, reused or removed query: active placement before, the
+ * candidate's after. A scoped removal shows what remains. A no-op has none.
+ *
+ * `diff.reused` holds every existing query the change named, whether or not it
+ * moves. `altered` tells them apart: a query id keeps its wording, so a reused
+ * row is unaltered when its pairings are the same in both plans. `rewordedFrom`
+ * maps the query a wording edit lands on to the one it reworded.
+ */
+function queryChanges(
+  before: MeasurementPlanV2 | null,
+  after: MeasurementPlanV2 | null,
+  diff: QueryTrackingDiff,
+  rewordedFrom: ReadonlyMap<string, string>,
+): QueryTrackingQueryChange[] {
+  if (diff.noOp) return []
+  const placedBefore = placementIndex(before)
+  const placedAfter = placementIndex(after)
+  // Only a reused row can be unaltered, so a change that reuses nothing signs no plan.
+  const pairedBefore = pairingSignaturesByQuery(diff.reused.length > 0 ? before : null)
+  const pairedAfter = pairingSignaturesByQuery(diff.reused.length > 0 ? after : null)
+  const removedIds = new Set(diff.removed.map(row => row.queryId))
+  return (['added', 'reused', 'removed'] as const).flatMap(change => diff[change].map(row => {
+    // Named only when the same report lists the old wording as removed, so a reader can always pair the two rows.
+    const source = change === 'removed' ? undefined : rewordedFrom.get(row.queryId)
+    const reworded = source !== undefined && removedIds.has(source) ? source : undefined
+    return {
+      queryId: row.queryId,
+      queryText: row.queryText,
+      change,
+      before: placedBefore(row.queryId),
+      after: placedAfter(row.queryId),
+      altered: change !== 'reused' || !sameSet(pairedBefore.get(row.queryId), pairedAfter.get(row.queryId)),
+      ...(reworded === undefined ? {} : { rewordedFrom: reworded }),
+    }
+  }))
+}
+
+/**
+ * One row per market whose locations differ between the active plan and the
+ * candidate. A market stores no member list: its locations are the targets its
+ * usage edges name. A removal drops edges and `pruneReportingScopes` keeps the
+ * emptied market, which then takes no later addition: `resolveAudience` refuses
+ * one that names only that market, and `addAdvancedSource` skips that market
+ * for one that names it beside another. Query tracking never adds or drops a
+ * market, so the active plan lists them all.
+ */
+function marketChanges(before: MeasurementPlanV2, after: MeasurementPlanV2): QueryTrackingMarketChange[] {
+  const membersOf = (plan: MeasurementPlanV2) => new Map((plan.reportingScopes ?? []).map(scope => [
+    scope.stableKey,
+    sortedUnique(scope.usageEdges.map(edge => edge.targetKey)),
+  ]))
+  const membersAfter = membersOf(after)
+  return [...membersOf(before)].flatMap(([marketKey, targetKeys]) => {
+    const remaining = membersAfter.get(marketKey) ?? []
+    const kept = new Set(remaining)
+    const removedTargetKeys = targetKeys.filter(targetKey => !kept.has(targetKey))
+    if (removedTargetKeys.length === 0 && remaining.length === targetKeys.length) return []
+    return [{
+      marketKey,
+      before: { targetKeys },
+      after: { targetKeys: remaining },
+      removedTargetKeys,
+      emptied: remaining.length === 0,
+    }]
+  }).sort((left, right) => compareText(left.marketKey, right.marketKey))
+}
+
 type CandidateQueryRow = { id: string; query: string; provenance: string | null }
+
+/** Each query's Subject and Type in one plan, as its tracked row reports them. */
+function planSubjects(plan: MeasurementPlanV2): (queryId: string) => { focus: QueryTrackingFocus; queryClasses: QueryClass[] } {
+  const focusOf = planQueryFocus(plan)
+  const nodeKeys = new Set(plan.executionNodes.map(node => node.stableKey))
+  const classes = new Map<string, QueryClass[]>()
+  for (const assignment of plan.assignments) {
+    if (!nodeKeys.has(assignment.executionNodeKey)) continue
+    const assigned = classes.get(assignment.queryId)
+    if (assigned) assigned.push(assignment.queryClass)
+    else classes.set(assignment.queryId, [assignment.queryClass])
+  }
+  return queryId => ({ focus: focusOf(queryId), queryClasses: distinctQueryClasses(classes.get(queryId) ?? []) })
+}
+
+/**
+ * The two advanced preview reports that read each query's Subject before and
+ * after the change. Both are reports: a commit publishes whatever they list.
+ *
+ * `marketQueryChanges` has one row per market whose own-query count differs,
+ * counted as the workspace read counts `counts.marketQueries`. A market can
+ * lose every query of its own and keep its locations through their own
+ * queries, which `marketChanges` never reports.
+ *
+ * `typeMismatches` lists the added and reused queries the change would leave
+ * with a Type their Subject does not take (`subjectQueryClass`), and a market
+ * query whose wording the existing classifier reads as Branded for one of its
+ * locations. A row the change leaves with the Subject and Type it already had
+ * is old state, not this change's doing, and is not listed.
+ */
+function subjectReports(
+  state: WorkspaceState,
+  candidate: Candidate,
+  tracked: readonly SummarizedRow[],
+): { marketQueryChanges?: QueryTrackingMarketQueryChange[]; typeMismatches?: QueryTrackingTypeMismatch[] } {
+  const active = state.active
+  const plan = candidate.plan
+  if (!active || !plan) return {}
+  const before = planSubjects(active.plan)
+
+  const ownQueries = { before: new Map<string, number>(), after: new Map<string, number>() }
+  const count = (counts: Map<string, number>, focus: QueryTrackingFocus): void => {
+    if (focus.kind === 'market') counts.set(focus.key, (counts.get(focus.key) ?? 0) + 1)
+  }
+  // The rows the workspace read lists for the active plan.
+  for (const queryId of displayIds(new Map(state.queryRows.map(row => [row.id, row])), active.plan)) count(ownQueries.before, before(queryId).focus)
+  for (const row of tracked) count(ownQueries.after, row.focus)
+  // Query tracking never adds or drops a market, so the active plan lists them all.
+  const marketQueryChanges = (active.plan.reportingScopes ?? []).flatMap(scope => {
+    const was = ownQueries.before.get(scope.stableKey) ?? 0
+    const next = ownQueries.after.get(scope.stableKey) ?? 0
+    return was === next ? [] : [{ marketKey: scope.stableKey, before: { marketQueries: was }, after: { marketQueries: next } }]
+  }).sort((left, right) => compareText(left.marketKey, right.marketKey))
+
+  const rows = new Map(tracked.map(row => [row.queryId, row]))
+  const targets = new Map(plan.targets.map(target => [target.stableKey, target]))
+  const brandNames = effectiveBrandNames(state.project)
+  const typeMismatches: QueryTrackingTypeMismatch[] = []
+  for (const change of candidate.changes) {
+    const row = change.change === 'removed' ? undefined : rows.get(change.queryId)
+    if (!row) continue
+    const expectedQueryClass = subjectQueryClass(row.focus)
+    if (expectedQueryClass === null) continue
+    const brandedWording = row.focus.kind === 'market' && row.assignments.some(assignment =>
+      proposeQueryClassForTarget(row.queryText, brandNames, targets.get(assignment.targetKey)) === 'branded')
+    const typed = row.queryClasses.length === 1 && row.queryClasses[0] === expectedQueryClass
+    if (typed && !brandedWording) continue
+    const was = before(row.queryId)
+    if (JSON.stringify([was.focus, was.queryClasses]) === JSON.stringify([row.focus, row.queryClasses])) continue
+    typeMismatches.push({
+      queryId: row.queryId, queryText: row.queryText, focus: row.focus, expectedQueryClass,
+      queryClasses: row.queryClasses, brandedWording,
+    })
+  }
+  return { marketQueryChanges, typeMismatches }
+}
 
 function planSnapshot(plan: MeasurementPlanV2 | null, queryId: string) {
   return plan?.querySnapshots.find(snapshot => snapshot.queryId === queryId) ?? null
@@ -1435,7 +1796,7 @@ function applyOperatorClass(
     if (assignment.queryClass !== queryClass || assignment.classificationSource !== 'operator') {
       if (marketKeys?.size && (plan.reportingScopes ?? []).some(scope => !marketKeys.has(scope.stableKey)
         && scope.usageEdges.some(edge => edgeKey(edge) === edgeKey(assignment)))) {
-        throw validationError('This assignment is shared with another market. Change its classification from the Property or Whole site scope.')
+        throw validationError('This query is shared with another market. Change its type for every location instead.')
       }
       assignment.queryClass = queryClass
       assignment.classificationSource = 'operator'
@@ -1610,6 +1971,7 @@ function buildSimpleCandidate(
   const reusedQueryIds = new Set<string>()
   const mutatedQueryIds = new Set<string>()
   const scopedRemovalQueryIds = new Set<string>()
+  const rewordedFrom = new Map<string, string>()
   for (const edit of mutation.edits ?? []) {
     if (edit.audience !== undefined || edit.queryClass != null) {
       throw validationError('Audience selection and query-class overrides require an active advanced measurement plan.')
@@ -1623,6 +1985,9 @@ function buildSimpleCandidate(
       queryText: edit.text,
       provenance: { source: 'manual', sourceId: null, capturedAt: manualCapturedAt },
     }, reusedQueryIds)
+    // The row the new wording landed on, new or already in the basket.
+    const landedId = candidateIdsForText(state, null, rows, normalizeText(edit.text)).at(0)
+    if (landedId !== undefined && !rewordedFrom.has(landedId)) rewordedFrom.set(landedId, edit.queryId)
   }
   for (const removal of mutation.removals) {
     if (removal.audience !== undefined) {
@@ -1658,6 +2023,7 @@ function buildSimpleCandidate(
     reusedQueryIds,
     mutatedQueryIds,
     diff,
+    changes: queryChanges(null, null, diff, rewordedFrom),
     workload: workloadDiff(beforeWork, nextWork),
   }
 }
@@ -1677,10 +2043,22 @@ function addAdvancedSource(
     ?? stableNewQueryId(state.project.id, normalized)
   const knownBefore = state.queryRows.some(row => row.id === queryId)
     || planSnapshot(state.active?.plan ?? null, queryId) !== null
-  const queryText = queryTextForId(state, plan, rows, queryId, source.queryText.trim())
+  const typedText = source.queryText.trim()
+  const storedText = queryTextForId(state, plan, rows, queryId, typedText)
+  // A query that is asked keeps its stored wording: that is the measured text.
+  // One asked nowhere takes the typed wording, unless another row holds that
+  // exact text already (query text is unique in a project).
+  const retyped = storedText !== typedText
+    && planSnapshot(plan, queryId) === null
+    && planSnapshot(state.active?.plan ?? null, queryId) === null
+    && ![...rows.values()].some(row => row.id !== queryId && row.query === typedText)
+  const queryText = retyped ? typedText : storedText
   const provenance = provenanceForId(state, plan, rows, queryId, source.provenance)
-  if (!rows.has(queryId)) {
+  const row = rows.get(queryId)
+  if (!row) {
     rows.set(queryId, { id: queryId, query: queryText, provenance: serializeQueryProvenance(provenance) })
+  } else if (retyped) {
+    rows.set(queryId, { ...row, query: queryText })
   }
   if (!planSnapshot(plan, queryId)) {
     plan.querySnapshots.push({ queryId, queryText, provenance })
@@ -1703,7 +2081,7 @@ function addAdvancedSource(
   const targets = new Map(plan.targets.map(target => [target.stableKey, target]))
   for (const targetKey of source.audience.targetKeys) {
     const target = targets.get(targetKey)
-    if (!target) throw validationError(`Selected Property "${targetKey}" is not in the active plan.`)
+    if (!target) throw validationError(`Selected location "${targetKey}" is not in the active plan.`)
     const existing = plan.assignments.filter(assignment => assignment.queryId === queryId && assignment.targetKey === targetKey)
     const existingClass = existing.at(0)?.queryClass
     const existingSource = existing.at(0)?.classificationSource
@@ -1772,6 +2150,8 @@ function applyAdvancedEdit(
   reusedQueryIds: Set<string>,
   mutatedQueryIds: Set<string>,
   scopedRemovalQueryIds: Set<string>,
+  answeredQueryIds: ReadonlySet<string>,
+  rewordedFrom: Map<string, string>,
 ): MeasurementPlanV2 {
   const snapshot = planSnapshot(plan, edit.queryId)
   const row = rows.get(edit.queryId)
@@ -1813,7 +2193,7 @@ function applyAdvancedEdit(
     for (const record of records) {
       if (record.assignment.queryClass === record.queryClass && record.assignment.classificationSource === record.classificationSource) continue
       if (marketKeys.size > 0 && record.scopes.some(scope => !marketKeys.has(scope.stableKey))) {
-        throw validationError('This assignment is shared with another market. Change its classification from the Property or Whole site scope.')
+        throw validationError('This query is shared with another market. Change its type for every location instead.')
       }
       record.assignment.queryClass = record.queryClass
       record.assignment.classificationSource = record.classificationSource
@@ -1842,8 +2222,19 @@ function applyAdvancedEdit(
       const existingNode = plan.executionNodes.find(node => node.queryId === newQueryId && contextKey(node.context) === contextKey(record.node.context))
       const existingAssignment = existingNode ? plan.assignments.find(candidate => assignmentKey(candidate.targetKey, candidate.queryId, candidate.executionNodeKey)
         === assignmentKey(record.target.stableKey, newQueryId, existingNode.stableKey)) : undefined
-      if (existingAssignment && (existingAssignment.queryClass !== record.queryClass || existingAssignment.classificationSource !== record.classificationSource)) {
-        throw validationError('The destination query uses different classification settings. Review that query separately.')
+      if (existingAssignment && existingAssignment.queryClass !== record.queryClass) {
+        throw validationError(
+          'That wording is already tracked with a different type. Change that query\'s type first, or use different wording.',
+          { check: 'edit-destination-type-differs', displayToOperator: true },
+        )
+      }
+      // Same type, set a different way (by the server there, by an operator here, or the reverse):
+      // the two cannot be folded into one pairing, and there is no type to change.
+      if (existingAssignment && existingAssignment.classificationSource !== record.classificationSource) {
+        throw validationError(
+          'That wording is already tracked here. Use different wording, or stop this query instead.',
+          { check: 'edit-destination-type-source-differs', displayToOperator: true },
+        )
       }
       const edge = existingNode
         ? { queryId: newQueryId, targetKey: record.target.stableKey, executionNodeKey: existingNode.stableKey }
@@ -1862,10 +2253,15 @@ function applyAdvancedEdit(
       }
     }
   }
-  if (!planSnapshot(plan, edit.queryId)) rows.delete(edit.queryId)
-  else scopedRemovalQueryIds.add(edit.queryId)
+  // An old wording that left the plan keeps its row only when a stored answer
+  // links to it. A row that stays is reported removed with the pairs it lost,
+  // as a stopped query's is.
+  const stillAsked = planSnapshot(plan, edit.queryId) !== null
+  if (!stillAsked && !answeredQueryIds.has(edit.queryId)) rows.delete(edit.queryId)
+  else if (stillAsked || selectedEdges.length > 0) scopedRemovalQueryIds.add(edit.queryId)
   mutatedQueryIds.add(edit.queryId)
   mutatedQueryIds.add(newQueryId)
+  if (!rewordedFrom.has(newQueryId)) rewordedFrom.set(newQueryId, edit.queryId)
   return plan
 }
 
@@ -1882,15 +2278,21 @@ function buildAdvancedCandidate(
   const mutatedQueryIds = new Set<string>()
   const scopedRemovalQueryIds = new Set<string>()
   const fullRemovals = new Set<string>()
+  const rewordedFrom = new Map<string, string>()
 
+  // One read, and only when a wording is edited: which of those queries hold answers.
+  const rewordedIds = unique((mutation.edits ?? []).filter(edit => edit.text !== undefined).map(edit => edit.queryId))
+  const answeredQueryIds = rewordedIds.length > 0 ? queriesWithAnswers(db, rewordedIds) : new Set<string>()
   for (const edit of mutation.edits ?? []) {
-    plan = applyAdvancedEdit(state, plan, rows, edit, manualCapturedAt, reusedQueryIds, mutatedQueryIds, scopedRemovalQueryIds)
+    plan = applyAdvancedEdit(state, plan, rows, edit, manualCapturedAt, reusedQueryIds, mutatedQueryIds, scopedRemovalQueryIds, answeredQueryIds, rewordedFrom)
   }
 
   for (const removal of mutation.removals) {
     const queryId = resolveMutationQueryId(state, plan, rows, removal)
     if (!queryId) continue
-    const before = canonicalMeasurementPlanV2Json(plan)
+    // Both removal helpers return the plan they were given when nothing matched,
+    // so identity tells a change apart without serializing the plan per removal.
+    const before = plan
     if (removal.audience?.marketKeys?.length) {
       const audience = resolveAudience(active.plan, removal.audience)
       plan = removeMarketMembership(plan, queryId, new Set(audience.targetKeys), new Set(audience.marketKeys))
@@ -1899,12 +2301,12 @@ function buildAdvancedCandidate(
         ? new Set(plan.assignments.filter(assignment => assignment.queryId === queryId).map(assignment => assignment.targetKey))
         : new Set(resolveAudience(active.plan, removal.audience).targetKeys)
       if (targetKeys.size > 0) plan = removeAdvancedAssignments(plan, queryId, targetKeys)
-      // An unassigned query may still be a visible row. A full basket removal
-      // deletes that row too; a scoped Target removal leaves it for its other
-      // assignments, if any.
+      // A full removal is settled after the additions below: it stops a query
+      // the active plan asks and deletes the row of one asked nowhere. A scoped
+      // Target removal leaves the row for its other assignments, if any.
       if (removal.audience === undefined) fullRemovals.add(queryId)
     }
-    if (canonicalMeasurementPlanV2Json(plan) !== before) {
+    if (plan !== before) {
       mutatedQueryIds.add(queryId)
       if (removal.audience !== undefined) scopedRemovalQueryIds.add(queryId)
     }
@@ -1920,10 +2322,26 @@ function buildAdvancedCandidate(
     }
   }
 
-  // Delete a physical query only after additions have had a chance to reuse
-  // its active-plan id. The snapshot is the durable identity guard here.
+  // Settle full removals only after additions have had a chance to reuse an
+  // active-plan id. The snapshot is the durable identity guard here. A query
+  // the active plan asks is stopped: its row stays on the list, not asked, with
+  // the answers linked to it, and is reported removed with its pairing count.
+  // Only a query that was already asked nowhere loses its row.
+  const heldQueryIds = new Set(plan.querySnapshots.map(snapshot => snapshot.queryId))
+  const askedQueryIds = new Set(active.plan.assignments.map(assignment => assignment.queryId))
   for (const queryId of fullRemovals) {
-    if (!planSnapshot(plan, queryId)) rows.delete(queryId)
+    if (heldQueryIds.has(queryId)) continue
+    if (askedQueryIds.has(queryId) && rows.has(queryId)) scopedRemovalQueryIds.add(queryId)
+    else rows.delete(queryId)
+  }
+  // A row outlives the plan's hold on its query here, in a scoped stop of its
+  // last pairing and in a wording edit. The plan froze its Source, so the row
+  // takes it: the list keeps showing it, and tracking the query again reuses it.
+  for (const snapshot of active.plan.querySnapshots) {
+    const row = rows.get(snapshot.queryId)
+    if (!row || heldQueryIds.has(snapshot.queryId)) continue
+    const frozen = provenanceFromPlan(snapshot.provenance)
+    if (frozen) rows.set(snapshot.queryId, { ...row, provenance: serializeQueryProvenance(frozen) })
   }
 
   plan = fullPlanWithChecksum(pruneReportingScopes(plan))
@@ -1942,8 +2360,37 @@ function buildAdvancedCandidate(
     reusedQueryIds,
     mutatedQueryIds,
     diff,
+    changes: queryChanges(active.plan, plan, diff, rewordedFrom),
+    marketChanges: marketChanges(active.plan, plan),
     workload: workloadDiff(advancedWorkload(active.plan), advancedWorkload(plan)),
   }
+}
+
+function assignedQueryCount(plan: MeasurementPlanV2): number {
+  return new Set(plan.assignments.map(assignment => assignment.queryId)).size
+}
+
+/**
+ * The compiler's count (`usedQueryIds`): distinct queries the plan assigns.
+ * A simple basket has no plan, so it reports no limit.
+ */
+function queryLimits(candidate: Candidate): QueryTrackingLimits | undefined {
+  if (!candidate.state.active || !candidate.plan) return undefined
+  return queryLimitCounts(
+    assignedQueryCount(candidate.state.active.plan),
+    assignedQueryCount(candidate.plan),
+    MEASUREMENT_DRAFT_MAX_QUERIES,
+  )
+}
+
+/** Refuses exactly the change a preview reports as `limits.queries.exceeded`: the rule is `queryLimitCounts`'s. */
+function assertQueryLimit(limits: QueryTrackingLimits | undefined): void {
+  if (!limits?.queries.exceeded) return
+  const { current, next, max } = limits.queries
+  throw validationError(
+    `This change would track ${next.toLocaleString('en-US')} queries, over the ${max.toLocaleString('en-US')}-query limit. Remove queries or add fewer, then preview the change again.`,
+    { check: 'query-limit-exceeded', current, next, max, displayToOperator: true },
+  )
 }
 
 function buildCandidate(
@@ -1979,6 +2426,52 @@ function writeSimpleCandidate(
   }
 }
 
+/**
+ * What one commit changed, for its audit entry: the three counts it always
+ * held, and the query texts under `queries`. `stopped` is a query the change
+ * removed that is still on the list, `removed` one that is not, and `added`
+ * includes a query that was on the list and asked nowhere. `changed` is the
+ * rest of the queries the change reused. Each list holds at most
+ * `AUDIT_QUERY_TEXT_LIMIT` texts; `counts` stay exact and `truncated` says a
+ * list was cut.
+ */
+function auditDiff(candidate: Candidate) {
+  const { diff, plan } = candidate
+  const placement = new Map(candidate.changes.map(change => [change.queryId, change]))
+  const stays = (row: QueryTrackingChangeRow) => candidate.queryRows.has(row.queryId) || planSnapshot(plan, row.queryId) !== null
+  const started = (row: QueryTrackingChangeRow) => {
+    const change = placement.get(row.queryId)
+    return change !== undefined && change.before.targetKeys.length === 0 && change.after.targetKeys.length > 0
+  }
+  const lists = {
+    added: [...diff.added, ...diff.reused.filter(started)]
+      .sort((left, right) => compareText(left.queryText, right.queryText) || compareText(left.queryId, right.queryId)),
+    stopped: diff.removed.filter(stays),
+    removed: diff.removed.filter(row => !stays(row)),
+    // A simple basket's reused row is one an addition named and left as it was.
+    changed: plan === null ? [] : diff.reused.filter(row => !started(row) && placement.get(row.queryId)?.altered !== false),
+  }
+  const texts = (rows: readonly QueryTrackingChangeRow[]) => rows.slice(0, AUDIT_QUERY_TEXT_LIMIT).map(row => row.queryText)
+  return {
+    added: diff.added.length,
+    removed: diff.removed.length,
+    reused: diff.reused.length,
+    queries: {
+      added: texts(lists.added),
+      stopped: texts(lists.stopped),
+      removed: texts(lists.removed),
+      changed: texts(lists.changed),
+      counts: {
+        added: lists.added.length,
+        stopped: lists.stopped.length,
+        removed: lists.removed.length,
+        changed: lists.changed.length,
+      },
+      truncated: Object.values(lists).some(rows => rows.length > AUDIT_QUERY_TEXT_LIMIT),
+    },
+  }
+}
+
 function writeAdvancedCandidate(
   tx: DbLike,
   candidate: Candidate,
@@ -2007,7 +2500,18 @@ function writeAdvancedCandidate(
       tx.update(queries).set({ query: row.query, provenance: row.provenance }).where(eq(queries.id, row.id)).run()
     }
   }
-  if (!candidate.planChanged) return active
+  if (!candidate.planChanged) {
+    // Only catalog rows changed, as when a query asked nowhere is removed: no
+    // revision is published, so the change gets the audit entry a simple basket's does.
+    writeAuditLog(tx, auditFromRequest(request, {
+      projectId: candidate.state.project.id,
+      actor: 'api',
+      action: 'query-tracking.updated',
+      entityType: 'query',
+      diff: auditDiff(candidate),
+    }))
+    return active
+  }
 
   const plan = candidate.plan!
   const canonicalJson = canonicalMeasurementPlanV2Json(plan)
@@ -2041,9 +2545,7 @@ function writeAdvancedCandidate(
     diff: {
       previousRevision: active.version.revision,
       compiledChecksum: plan.compiledChecksum,
-      added: candidate.diff.added.length,
-      removed: candidate.diff.removed.length,
-      reused: candidate.diff.reused.length,
+      ...auditDiff(candidate),
     },
   }))
   const version = tx.select().from(measurementPlanVersions).where(eq(measurementPlanVersions.id, versionId)).get()
@@ -2068,15 +2570,21 @@ export async function queryTrackingRoutes(app: FastifyInstance, opts: QueryTrack
     }
     const reviewedAt = new Date().toISOString()
     const candidate = buildCandidate(app.db, state, parsed.data, opts, reviewedAt)
+    const limits = queryLimits(candidate)
+    const tracked = trackedRows(app.db, state, candidate.queryRows, candidate.plan, opts)
     return queryTrackingPreviewResponseSchema.parse({
       mode: state.mode,
       workspaceVersion: state.workspaceVersion,
       previewToken: mutationPreviewToken(candidate, parsed.data, reviewedAt),
       reviewedAt,
       active: activeDto(state.active),
-      tracked: trackedRows(app.db, state, candidate.queryRows, candidate.plan, opts),
+      tracked,
       diff: candidate.diff,
+      changes: candidate.changes,
+      ...(candidate.marketChanges ? { marketChanges: candidate.marketChanges } : {}),
+      ...subjectReports(state, candidate, tracked),
       workload: candidate.workload,
+      ...(limits ? { limits } : {}),
     })
   })
 
@@ -2105,7 +2613,13 @@ export async function queryTrackingRoutes(app: FastifyInstance, opts: QueryTrack
       if (parsed.data.previewToken !== mutationPreviewToken(candidate, parsed.data, reviewedAt)) {
         throw queryTrackingPreviewStale(parsed.data.expectedWorkspaceVersion, state.workspaceVersion)
       }
-      if (!candidate.diff.noOp && !rowsEqual(new Map(state.queryRows.map(row => [row.id, row])), candidate.queryRows)) {
+      // Both guards sit after the receipt replay, so a retried commit still
+      // returns its result. A simple basket only waits when its rows change
+      // under a planless sweep.
+      assertQueryLimit(queryLimits(candidate))
+      if (!candidate.diff.noOp && candidate.state.mode === 'advanced') {
+        assertNoActiveSweep(tx, { projectId: project.id, projectName: project.name })
+      } else if (!candidate.diff.noOp && !rowsEqual(new Map(state.queryRows.map(row => [row.id, row])), candidate.queryRows)) {
         assertNoActivePlanlessSweep(tx, { projectId: project.id, projectName: project.name })
       }
       const now = new Date()
@@ -2117,7 +2631,7 @@ export async function queryTrackingRoutes(app: FastifyInstance, opts: QueryTrack
           actor: 'api',
           action: 'query-tracking.updated',
           entityType: 'query',
-          diff: { added: candidate.diff.added.length, removed: candidate.diff.removed.length, reused: candidate.diff.reused.length },
+          diff: auditDiff(candidate),
         }))
         active = null
       } else if (!candidate.diff.noOp) {

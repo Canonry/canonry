@@ -28,7 +28,8 @@ Bundled via `packages/canonry/build-web.ts` → `packages/canonry/assets/`. Lowe
 | `src/pages/ProjectPage.tsx` | Project shell + tab router (`overview`, `portfolio`, `search-console`, `local`, `discovery`, `activity`, `backlinks`, `technical-aeo`, `history`, `settings`); stable `technical-aeo` key/route is labeled **Site Health** | Extract before adding hooks |
 | `src/pages/OverviewPage.tsx` | Portfolio overview (project list, sparkline, health cards) | |
 | `src/pages/ProjectsPage.tsx` / `HistoryPage.tsx` / `RunsPage.tsx` / `SettingsPage.tsx` / `BacklinksPage.tsx` / `TrafficPage.tsx` | One file per route | |
-| `src/components/project/*` | Section components: `GscSection`, `BingSummaryMetric`, `SiteHealthSection`, `SiteGraphSigma`, `TechnicalAeoSection`, `DiscoverySection`, `CitationVisibilitySection`, `VisibilityTrendSection`, `ActivitySection`, `BacklinksSection`, `GbpSection`, etc. | Site Health's map is Sigma v3 WebGL + Graphology; browser consumes published coordinates and never runs layout physics. |
+| `src/components/project/*` | Section components: `GscSection`, `BingSummaryMetric`, `SiteHealthSection`, `SiteGraphSigma`, `TechnicalAeoSection`, `DiscoverySection` (hosts the Queries tab), `CitationVisibilitySection`, `VisibilityTrendSection`, `ActivitySection`, `BacklinksSection`, `GbpSection`, etc. | Site Health's map is Sigma v3 WebGL + Graphology; browser consumes published coordinates and never runs layout physics. |
+| `src/components/project/queries/*` | The Queries tab behind `QueriesSection` in `DiscoverySection.tsx`: `SimpleTrackedQueries`, `advanced/AdvancedTrackedPage` (an Advanced project's Tracked page: number strip, toolbar, table, row menu, action sheet and bulk bar, all in `advanced/`), `use-tracked-results` (its one read of the last sweep's results), `use-tracking-composer`, `TrackingComposer` (Add, Edit and Remove query forms), `AddQueriesEntry`, `QueryResearchWorkspace`, `FindQueriesSection` | File-by-file roles: `apps/web/AGENTS.md` Key Files |
 | `src/components/project/advanced-measurement/*` | Advanced measurement UI (`AdvancedMeasurementSection`, `SetupWizard`, adapters) | |
 | `src/components/shared/*` | `ChartPrimitives` (Recharts wrapper), `AeroBar`, `BrandLockup`, `ToneBadge`, `ProviderBadge`, `StatusBadge` | |
 | `src/components/ui/*` | `button`, `card`, `badge`, `sheet` (Radix + Tailwind) | |
@@ -144,6 +145,9 @@ only other published artifact; every remaining internal package is bundled into 
 | `src/discovery/*` | Discovery orchestrator + routes |
 | `src/measurement-*` | Advanced measurement plans, overview, property evidence |
 | `src/measurement-scope-options.ts` | `planScopeOptions`: the single server scope-option builder (visibility report with `marketLinks: true`, query-tracking workspace with `marketLinks: false`); `simpleScopeOptions` for Simple projects |
+| `src/query-focus.ts` | `planQueryFocus`: the one rule that derives each tracked query's Subject (`focus`) from the active plan's pairings on read; never stored |
+| `src/query-tracking-summary.ts` | The workspace read's server counts: `trackingSummary`, `planPlaceCounts`, `queryLimitCounts` (`left`, on the read and the preview) |
+| `src/query-tracking-results.ts` | `GET /projects/:name/query-tracking/results`: Mentioned and Cited per tracked query and engine from one stored sweep (`readQueryTrackingResults`, `foldQueryTrackingResults`) |
 | `src/visibility-attribution.ts` | Query attribution helpers (`buildQueryAttribution`, `resolveCurrentQuery`) — by-id then by-text fallback for historical snapshots |
 | `AGENTS.md` | Route file map, `notProbeRun` contract, SDK layering |
 

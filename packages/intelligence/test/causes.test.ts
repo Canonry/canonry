@@ -65,6 +65,9 @@ describe('analyzeCause', () => {
     expect(result.details).toContain('angi.com')
     expect(result.details).toContain('roof repair phoenix')
     expect(result.details).toContain('chatgpt')
+    // The sentence is stored with the insight and printed as it is by the dashboard, the CLI, MCP and webhooks:
+    // the domains are the ones the answer cited, and it is two plain sentences with no dash.
+    expect(result.details).toBe('chatgpt now cites phoenix.gov, angi.com, somebody-else.com for "roof repair phoenix". None are tracked competitors.')
   })
 
   it('prefers competitor_gain over third_party_displacement when both are present', () => {

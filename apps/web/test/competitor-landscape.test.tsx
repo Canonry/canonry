@@ -105,7 +105,7 @@ describe('CompetitorLandscape', () => {
 
     expect(screen.getByRole('heading', { name: 'Competitors over time' })).toBeTruthy()
     expect(container.querySelector('.av-card-meta')?.textContent).toBe('Non-brand · last 30 days · tracked competitors only')
-    expect(within(grid()).getAllByRole('columnheader').map(cell => cell.textContent)).toEqual(['Brand', 'Type', 'Mention share', 'Named', 'Cited'])
+    expect(within(grid()).getAllByRole('columnheader').map(cell => cell.textContent)).toEqual(['Brand', 'Kind', 'Mention share', 'Mentioned', 'Cited'])
 
     const you = gridRow(YOU)
     expect(you.textContent).toBe('Canonry (you)Your brand31.7%13 of 8817 of 88')

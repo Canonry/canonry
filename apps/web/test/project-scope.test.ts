@@ -160,10 +160,26 @@ describe('selectedScopeOption', () => {
 
 describe('PROJECT_SCOPE_COPY', () => {
   it('names the row notices', () => {
-    expect(PROJECT_SCOPE_COPY).toEqual({
+    const { allOf, placeCounts: _placeCounts, ...notices } = PROJECT_SCOPE_COPY
+    expect(notices).toEqual({
+      place: 'Place',
+      loadingPlaces: 'Loading places',
       projectWide: 'Project-wide',
-      projectWideHelp: 'This tab covers the whole project. Your measurement scope stays selected for AI Visibility and Queries.',
-      savedScopeUnavailable: 'Saved scope unavailable',
+      projectWideHelp: 'This tab covers the whole project. Your place stays selected for AI Visibility and Queries.',
+      savedScopeUnavailable: 'Saved place unavailable',
     })
+    expect(allOf('Citypoint Dental')).toBe('All of Citypoint Dental')
+  })
+
+  it.each([
+    [192, 137, '192 locations · 137 markets'],
+    [1, 1, '1 location · 1 market'],
+    [1240, 2, '1,240 locations · 2 markets'],
+    // A list with nothing in it is left out, never printed as a zero.
+    [1, 0, '1 location'],
+    [0, 3, '3 markets'],
+    [0, 0, ''],
+  ])('prints %i locations and %i markets as given', (locations, markets, text) => {
+    expect(PROJECT_SCOPE_COPY.placeCounts(locations, markets)).toBe(text)
   })
 })

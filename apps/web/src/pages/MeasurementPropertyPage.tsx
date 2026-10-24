@@ -2,8 +2,8 @@ import { usePublishAeroView } from '../contexts/aero-view-context.js'
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
-import { ArrowLeft } from 'lucide-react'
-import { formatPercent, MeasurementEvidenceShapes, UNATTRIBUTED_MENTION_REASON } from '@canonry/canonry-contracts'
+import { AlertTriangle, Clock, Info, type LucideIcon } from 'lucide-react'
+import { formatPercent, MeasurementEvidenceShapes } from '@canonry/canonry-contracts'
 import type {
   MeasurementOverviewResponse,
   MeasurementPlanResponse,
@@ -14,27 +14,31 @@ import {
   getApiV1ProjectsByNameMeasurementPlanOptions,
   getApiV1ProjectsByNameMeasurementPropertyCompetitorsOptions,
   getApiV1ProjectsByNameMeasurementPropertyEvidenceInfiniteOptions,
-  getApiV1ProjectsByNameMeasurementQuestionResultOptions,
-  getApiV1ProjectsByNameVisibilityReportOptions,
 } from '@canonry/canonry-api-client/react-query'
 
 import { getEmbedConfig, heyClient, isDashboardManagedSweeps } from '../api.js'
 import { MANAGED_SWEEPS_COPY } from '../components/project/ManagedSweepStatus.js'
 import { effectiveEmbedProjectTabs, isEmbedProjectTabAllowed } from '../embed.js'
 import { Button } from '../components/ui/button.js'
-import { formatObservedInstantLabel, observedInstant } from '../components/shared/ChartPrimitives.js'
+import { BackLink, useInAppBack } from '../components/shared/BackLink.js'
+import { formatObservedInstantLabel, formatObservedInstantMonthDay, observedInstant } from '../components/shared/ChartPrimitives.js'
 import { InfoTooltip } from '../components/shared/InfoTooltip.js'
+import { StatusNote } from '../components/shared/StatusNote.js'
 import { DIFFERENT_SUBJECT_COPY } from '../lib/mention-identity-copy.js'
-import { AnswerMarkdown, ANSWER_SOURCES_LABEL } from '../components/shared/AnswerMarkdown.js'
+import { ANSWER_SOURCES_LABEL } from '../components/shared/AnswerMarkdown.js'
+import { AnswerText } from '../components/shared/AnswerText.js'
 import { ToneBadge } from '../components/shared/ToneBadge.js'
 import { excludedAnswersLabel, splitPercentSign, type CoverageSignal } from '../lib/format-helpers.js'
 import { SourceLink } from '../components/shared/SourceLink.js'
-import { carryVisibilitySearch, parseVisibilitySelection, patchVisibilitySelection, visibilityReportFirstPageQuery } from '../lib/measurement-view-url.js'
+import { carryVisibilitySearch, parseVisibilitySelection, patchVisibilitySelection } from '../lib/measurement-view-url.js'
+import { providerDisplayName } from '../lib/visibility-trend-helpers.js'
 import type { VisibilitySelectionState } from '../lib/measurement-view-url.js'
 import { MARKET_SCOPE_COPY } from '../components/project/VisibilityScopePicker.js'
+import { VISIBILITY_TOOLBAR_COPY } from '../components/project/VisibilityTrendSection.js'
 import { useAccount } from '../contexts/account-context.js'
-import { matcherLabel } from '../components/project/advanced-measurement/v2-overview-adapter.js'
-import { PropertyNamesSection } from '../components/project/advanced-measurement/PropertyNamesEditor.js'
+import { AddLocationQueryButton } from '../components/project/DiscoverySection.js'
+import { LocationSidePanel } from '../components/project/location/LocationSidePanel.js'
+import { LocationPlaces, LocationTrackedSection } from '../components/project/location/LocationTrackedSection.js'
 
 type QueryClass = 'branded' | 'non-brand'
 type MetricValue = MeasurementOverviewResponse['metrics']['mentionCoverage']
@@ -55,28 +59,41 @@ type ActivePlan = NonNullable<MeasurementPlanResponse['active']>
 type PlanV2 = Extract<ActivePlan['plan'], { schemaVersion: 2 }>
 
 const EVIDENCE_PAGE_SIZE = 50
-
+/** The way back over the page's name: a small link, a full-size target where a finger is the pointer. */
+const BACK_LINK = 'rounded-sm text-xs text-muted hover:text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400 pointer-coarse:min-h-11 max-md:min-h-11'
+const NO_COMPLETED_SWEEP = 'No completed check yet'
 /**
- * The founder's framing of the two baskets, kept beside the technical name so a
- * reader never has to guess which one they are looking at.
+ * Sent on every results read of this page. Until the published setup has a
+ * completed sweep of its own, the server answers with the last one, read under
+ * the setup it ran with, and says so in `measurement.awaitingSweep`. Without
+ * it every number here blanks on each tracking change.
  */
-const CLASS_LABELS: Record<QueryClass, { headline: string; technical: string }> = {
-  branded: { headline: 'When they know your name', technical: 'Branded queries' },
-  'non-brand': { headline: 'When they don\'t', technical: 'Non-brand queries' },
+const LAST_SWEEP = { fallback: 'last-sweep' } as const
+
+/** The two query types, named as the Queries tab names them. */
+const CLASS_LABELS: Record<QueryClass, string> = { branded: 'Branded', 'non-brand': 'Non-brand' }
+
+/** A type mid-sentence, for a tooltip or a button's accessible name: "branded queries". */
+function classQueries(queryClass: QueryClass): string {
+  return `${CLASS_LABELS[queryClass].toLocaleLowerCase()} queries`
 }
+
+interface UnavailableReason { label: string; detail?: string; icon?: LucideIcon }
 
 /**
  * Why a number is missing, in the reader's language. A metric with no evidence
  * renders one of these and never a percentage — "0%" is a measured result and
- * saying it here would invent one.
+ * saying it here would invent one. A reason that takes a sentence keeps it as
+ * `detail`, which the label opens (`ReasonLabel`). The sentence is this page's
+ * own: the shared one still says property.
  */
-const UNAVAILABLE_REASONS: Record<string, string> = {
-  plan_v1: 'Setup update required',
-  no_completed_run: 'No completed measurement yet',
-  no_population: 'No queries of this type are assigned',
-  evidence_incomplete: 'Source evidence is incomplete',
-  identity_ambiguous: UNATTRIBUTED_MENTION_REASON,
-  not_applicable: 'Not applicable for this Property',
+const UNAVAILABLE_REASONS: Record<string, UnavailableReason> = {
+  plan_v1: { label: 'Setup update required' },
+  no_completed_run: { label: NO_COMPLETED_SWEEP },
+  no_population: { label: 'No queries tracked' },
+  evidence_incomplete: { label: 'Evidence incomplete' },
+  identity_ambiguous: { label: 'Unclear answers', detail: 'No answer could be tied to one location.' },
+  not_applicable: { label: 'Not applicable' },
 }
 
 /** Measurement state in the operator's language, never the wire token. */
@@ -93,11 +110,11 @@ const MEASUREMENT_STATES: Record<
 }
 
 export const EVIDENCE_LABELS: Record<AnswerSource['classification'], { label: string; tone: 'positive' | 'caution' | 'neutral' | 'negative' }> = {
-  assigned: { label: 'Matches this Property', tone: 'positive' },
-  sibling: { label: 'Matches another Property', tone: 'caution' },
-  ownedUnmapped: { label: 'Site URL not in a Property', tone: 'caution' },
+  assigned: { label: 'This location', tone: 'positive' },
+  sibling: { label: 'Another location', tone: 'caution' },
+  ownedUnmapped: { label: 'Unmatched site page', tone: 'caution' },
   external: { label: 'External URL', tone: 'neutral' },
-  ambiguous: { label: 'Matches multiple Properties', tone: 'caution' },
+  ambiguous: { label: 'Several locations', tone: 'caution' },
   invalid: { label: 'Invalid URL', tone: 'negative' },
 }
 
@@ -117,6 +134,15 @@ function answerKey(row: AnswerRow): string {
   return `${row.expectedSlotId}:${row.usageEdgeId}`
 }
 
+/** The one action beside a failed read. `name` says what it reloads, for a reader who hears only the button. */
+function RetryButton({ name, onClick }: { name: string; onClick: () => void }) {
+  return (
+    <Button type="button" size="sm" variant="outline" className="h-11 px-4 text-sm md:h-11" aria-label={`Retry ${name}`} onClick={onClick}>
+      Retry
+    </Button>
+  )
+}
+
 /**
  * The mention signal as three states, never two. A null reads "Not measured"
  * with the reason beside it — reporting it as "not mentioned" would invent a
@@ -126,9 +152,9 @@ function answerKey(row: AnswerRow): string {
 function MentionSignal({ row }: { row: AnswerRow }) {
   if (row.mentioned === null) {
     return (
-      <span className="inline-flex flex-col items-start gap-0.5">
+      <span className="inline-flex items-center whitespace-nowrap">
         <ToneBadge tone="neutral">Not measured</ToneBadge>
-        <span className="text-xs text-muted">No mention signal for this Property</span>
+        <InfoTooltip placement="bottom" text="No mention signal for this location." />
       </span>
     )
   }
@@ -138,7 +164,7 @@ function MentionSignal({ row }: { row: AnswerRow }) {
         <ToneBadge tone="neutral">Not mentioned</ToneBadge>
         <span className="inline-flex items-center gap-1 text-xs text-muted">
           {DIFFERENT_SUBJECT_COPY.label}
-          <InfoTooltip text={DIFFERENT_SUBJECT_COPY.property} />
+          <InfoTooltip placement="bottom" text={DIFFERENT_SUBJECT_COPY.property} />
         </span>
       </span>
     )
@@ -146,32 +172,33 @@ function MentionSignal({ row }: { row: AnswerRow }) {
   return <ToneBadge tone={row.mentioned ? 'positive' : 'neutral'}>{row.mentioned ? 'Mentioned' : 'Not mentioned'}</ToneBadge>
 }
 
-/** Rendered where a source count would be, when there is no count to state. */
-const EM_DASH = '\u2014'
+/** An answer whose source list was not fully captured. Shown where its source count would be. */
+const SOURCES_PARTIAL = { label: 'Sources partial', detail: 'Sources were not fully captured for this answer.' } as const
+/** The same gap with nothing captured at all, so the row and its opened detail say one thing. */
+const SOURCES_NOT_SAVED = { label: 'Sources not saved', detail: 'The sources for this answer were not fully captured, so none can be shown.' } as const
+
+/** Why an answer with an unread citation has no source count: some sources were captured, or none. */
+function sourcesGap(row: AnswerRow) {
+  return row.sources.length === 0 ? SOURCES_NOT_SAVED : SOURCES_PARTIAL
+}
 
 /**
  * Citation is three states for the same reason mention is. Null means the
  * sources were never fully captured, so neither "Not cited" nor a source count
  * is a claim this run supports: both report an unseen list as an empty one.
+ * The Sources cell beside it says why, in place of a count.
  */
 function CitationSignal({ row }: { row: AnswerRow }) {
-  if (row.cited === null) {
-    return (
-      <span className="inline-flex flex-col items-start gap-0.5">
-        <ToneBadge tone="neutral">Not measured</ToneBadge>
-        <span className="text-xs text-muted">Sources were not fully captured</span>
-      </span>
-    )
-  }
+  if (row.cited === null) return <ToneBadge tone="neutral">Not measured</ToneBadge>
   return <ToneBadge tone={row.cited ? 'positive' : 'neutral'}>{row.cited ? 'Cited' : 'Not cited'}</ToneBadge>
 }
 
 function AnswerSources({ row }: { row: AnswerRow }) {
   if (row.cited === null && row.sources.length === 0) {
-    return <p className="py-2 text-sm text-secondary">The sources for this answer were not fully captured, so none can be shown.</p>
+    return <div className="py-2"><StatusNote icon={AlertTriangle} tone="caution" label={SOURCES_NOT_SAVED.label} detail={SOURCES_NOT_SAVED.detail} /></div>
   }
   if (row.sources.length === 0) {
-    return <p className="py-2 text-sm text-secondary">This answer returned no source URLs at all.</p>
+    return <div className="py-2"><StatusNote icon={Info} label="No sources" detail="This answer returned no source URLs at all." /></div>
   }
   return (
     <details className="mt-2" data-answer-sources>
@@ -183,7 +210,7 @@ function AnswerSources({ row }: { row: AnswerRow }) {
         <tbody>
           {sourcesOwnFirst(row.sources).map(source => (
             <tr key={source.sourceUrl}>
-              <td>
+              <td className="whitespace-nowrap">
                 <ToneBadge tone={EVIDENCE_LABELS[source.classification].tone}>
                   {EVIDENCE_LABELS[source.classification].label}
                 </ToneBadge>
@@ -199,53 +226,33 @@ function AnswerSources({ row }: { row: AnswerRow }) {
 }
 
 /**
- * The answer itself, fetched when a row is opened.
- *
- * The row above it can only ever say whether this Property was named. It cannot
- * say what the engine actually recommended, and that is the thing an operator
- * opens the row to find out: a "not mentioned" row on a local-market query can
- * turn out to be an answer recommending two other properties from the brand.
- * None of that is visible in a signal badge or a source count.
- *
- * Fetched per row rather than with the list because an answer runs to several
- * thousand characters and most rows are never opened. `observationId` is the
- * `resultId` this read takes — both are the stored snapshot id — so no new
- * plumbing is needed to line them up.
+ * `notInLastSweep` is the reason for a type that has queries now and had none
+ * in the sweep on screen (`MeasurementPropertyPage` builds it). It takes the
+ * place of "No queries tracked", which is no longer true of that type.
  */
-function AnswerText({ project, targetKey, resultId }: { project: string; targetKey: string; resultId: string }) {
-  const query = useQuery({
-    ...getApiV1ProjectsByNameMeasurementQuestionResultOptions({
-      client: heyClient,
-      path: { name: project },
-      query: { targetKey, resultId },
-    }),
-  })
-
-  if (query.isPending) {
-    return (
-      <p className="py-2 text-sm text-secondary" role="status" aria-live="polite">Loading the answer&hellip;</p>
-    )
-  }
-  if (query.isError) {
-    return (
-      <p className="py-2 text-sm text-secondary" role="alert">Could not load this answer.</p>
-    )
-  }
-  const answer = query.data?.answer
-  if (answer === null || answer === undefined || answer.trim() === '') {
-    // A measured answer with no stored text is not the same as an empty answer,
-    // and neither is worth dressing up as one.
-    return <p className="py-2 text-sm text-secondary">This answer was measured, but its text was not stored.</p>
-  }
-  return (
-    <div className="py-2">
-      <AnswerMarkdown headingLevel={4} copyable>{answer}</AnswerMarkdown>
-    </div>
-  )
+function reasonOf(metric: Extract<MetricValue, { state: 'unavailable' }>, notInLastSweep?: UnavailableReason): UnavailableReason {
+  if (notInLastSweep && metric.reason === 'no_population') return notInLastSweep
+  return UNAVAILABLE_REASONS[metric.reason] ?? { label: 'Not measured' }
 }
 
-function reasonText(metric: Extract<MetricValue, { state: 'unavailable' }>): string {
-  return UNAVAILABLE_REASONS[metric.reason] ?? 'Not measured'
+/** A type the sweep on screen asked nothing of for this location: neither rate exists, for the one reason. */
+function notAsked(row: PropertyRow | undefined): boolean {
+  return [row?.mentionCoverage, row?.citationCoverage].every(metric => metric?.state === 'unavailable' && metric.reason === 'no_population')
+}
+
+/** A reason's label. One with a sentence behind it is a note, so the sentence is a full-size tap away on a phone. */
+function ReasonLabel({ reason }: { reason: UnavailableReason }) {
+  return reason.detail ? <StatusNote icon={reason.icon ?? Info} label={reason.label} detail={reason.detail} /> : <>{reason.label}</>
+}
+
+/** A section with no rows for a type the last sweep did not ask: still "Not measured", with why beside it. */
+function NotInLastSweep({ reason }: { reason: UnavailableReason }) {
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-secondary">
+      <span className="font-medium">Not measured</span>
+      <ReasonLabel reason={reason} />
+    </div>
+  )
 }
 
 /**
@@ -253,12 +260,13 @@ function reasonText(metric: Extract<MetricValue, { state: 'unavailable' }>): str
  * "Not measured" and carries the server's reason, so an unmeasured Property can
  * never be read as a measured zero.
  */
-function MetricCell({ metric, signal, emphasis = false }: { metric: MetricValue; signal: CoverageSignal; emphasis?: boolean }) {
+function MetricCell({ metric, signal, emphasis = false, notInLastSweep }: { metric: MetricValue; signal: CoverageSignal; emphasis?: boolean; notInLastSweep?: UnavailableReason }) {
   if (metric.state === 'unavailable') {
     return (
       <span className="inline-flex flex-col gap-0.5">
-        <span className={emphasis ? 'text-lg font-semibold text-secondary' : 'text-sm font-medium text-secondary'}>Not measured</span>
-        <span className="text-sm text-secondary">{reasonText(metric)}</span>
+        {/* On a phone the two figure columns share what the type's name leaves, so the words are a size smaller there and stay on a line. */}
+        <span className={emphasis ? 'whitespace-nowrap text-lg font-semibold text-secondary max-md:text-base' : 'text-sm font-medium text-secondary'}>Not measured</span>
+        <span className="text-sm text-secondary"><ReasonLabel reason={reasonOf(metric, notInLastSweep)} /></span>
       </span>
     )
   }
@@ -268,13 +276,15 @@ function MetricCell({ metric, signal, emphasis = false }: { metric: MetricValue;
     : `${metric.numerator} of ${metric.denominator}`
   // Answers the server left out of both sides of this rate, named for its own
   // signal: not tied to one property under Mentioned, sources that could not be
-  // checked under Cited. The count above already excludes them; this keeps them visible.
+  // checked under Cited. The count already excludes them; the caution icon
+  // beside it (beside the rate, when there is no count) keeps them a hover,
+  // focus or tap away.
   const excluded = excludedAnswersLabel(metric, signal)
+  const note = excluded ? <InfoTooltip variant="caution" text={excluded} /> : null
   return (
-    <span className="inline-flex flex-col gap-0.5 tabular-nums">
-      <span className={emphasis ? 'text-lg font-semibold text-heading' : 'text-sm font-medium text-primary'}>{percent}</span>
-      {counted ? <span className="text-xs text-muted">{counted}</span> : null}
-      {excluded ? <span className="text-xs text-muted">{excluded}</span> : null}
+    <span className="inline-flex flex-col gap-0.5 whitespace-nowrap tabular-nums">
+      <span className={emphasis ? 'text-lg font-semibold text-heading' : 'text-sm font-medium text-primary'}>{percent}{counted ? null : note}</span>
+      {counted ? <span className="text-xs text-muted">{counted}{note}</span> : null}
     </span>
   )
 }
@@ -283,7 +293,7 @@ function overviewOptions(projectName: string, targetKey: string, queryClass: Que
   return getApiV1ProjectsByNameMeasurementOverviewOptions({
     client: heyClient,
     path: { name: projectName },
-    query: { scope: 'property', targetKey, queryClass },
+    query: { scope: 'property', targetKey, queryClass, ...LAST_SWEEP },
   })
 }
 
@@ -321,20 +331,24 @@ function PropertyProvenance({
    * response has not been read at all, in which case the line says nothing
    * rather than guessing which of the two it is.
    */
-  unmeasuredReason?: string
+  unmeasuredReason?: UnavailableReason
   queryClass: QueryClass
 }) {
   const when = measuredAt === undefined
     ? null
     : measuredAt === null
-      ? 'No completed check yet'
+      ? NO_COMPLETED_SWEEP
       : `Measured ${formatObservedInstantLabel(observedInstant(measuredAt))}`
   if (when === null && unmeasuredReason === undefined) return null
+  // A location never swept gets the same words from both sides: say them once.
+  const reason = unmeasuredReason?.label === when ? undefined : unmeasuredReason
   return (
     <p className="supporting-copy">
-      {[when, unmeasuredReason].filter(Boolean).join(' · ')}
+      {when}
+      {when !== null && reason ? ' · ' : ''}
+      {reason ? <ReasonLabel reason={reason} /> : null}
       {when !== null && unmeasuredReason === undefined
-        ? ` · ${CLASS_LABELS[queryClass].technical.toLocaleLowerCase()} only`
+        ? ` · ${CLASS_LABELS[queryClass]} only`
         : ''}
     </p>
   )
@@ -363,16 +377,13 @@ function MarketLink({
   if (groups.length === 0) return null
   return (
     <section aria-labelledby="property-market" className="page-section-divider">
-      <div className="section-head section-head-inline">
-        <div>
-          <p className="eyebrow eyebrow-soft">Competitive comparison</p>
-          <h2 id="property-market" className="text-base font-semibold text-heading">
-            Measured at the market level
-            <InfoTooltip text="Competitors are attached to a market rather than to a single Property, because one building has nobody to be compared against. Share of voice and competitor pressure are reported for the market this Property sits in." />
-          </h2>
+      <div className="section-head section-head-inline flex-wrap">
+        <div className="flex items-center gap-1">
+          <h3 id="property-market" className="text-base font-semibold text-heading">Competitors by market</h3>
+          <InfoTooltip placement="bottom" text="Competitors are set per market, not per location. Their numbers are for this location's markets." />
         </div>
         <Button asChild type="button" size="sm" variant="outline">
-          <Link to="/projects/$projectName" params={{ projectName: project }} search={previous => patchVisibilitySelection(carryVisibilitySearch(previous), { measurementScope: 'project' })}>Open measurement overview</Link>
+          <Link to="/projects/$projectName" params={{ projectName: project }} search={previous => patchVisibilitySelection(carryVisibilitySearch(previous), { measurementScope: 'project' })}>View in AI Visibility</Link>
         </Button>
       </div>
       <ul className="flex flex-wrap gap-2">
@@ -407,7 +418,15 @@ function MarketLink({
  * track beside "Not measured" reads as a measured zero, which is the one thing
  * this surface must never say.
  */
-function CoverageHeroRow({ label, metric, signal, failed = false }: { label: string; metric: MetricValue | undefined; signal: CoverageSignal; failed?: boolean }) {
+function CoverageHeroRow({ label, metric, signal, failed = false, notInLastSweep, saidAbove = false }: {
+  label: string
+  metric: MetricValue | undefined
+  signal: CoverageSignal
+  failed?: boolean
+  notInLastSweep?: UnavailableReason
+  /** The row above gave `notInLastSweep` for the same type. It is a note with a tab stop: once per type is enough. */
+  saidAbove?: boolean
+}) {
   if (metric === undefined) {
     // A class whose fetch failed also has no metric, and reporting that as
     // "Loading" is a spinner that never resolves: the retry lives in
@@ -419,22 +438,22 @@ function CoverageHeroRow({ label, metric, signal, failed = false }: { label: str
         <p className="aeo-hero-row-label">{label}</p>
         <p className="aeo-hero-row-value text-base font-semibold text-secondary">{failed ? 'Unavailable' : '…'}</p>
         {failed ? <div /> : <div className="aeo-hero-row-bar" aria-hidden="true" />}
-        <p className="aeo-hero-row-detail">{failed ? 'Could not be loaded' : 'Loading'}</p>
+        <p className="aeo-hero-row-detail">{failed ? 'Load failed' : 'Loading'}</p>
       </div>
     )
   }
   if (metric.state === 'unavailable') {
-    // `reasonText` falls back to "Not measured" for a reason this build does not
+    // `reasonOf` falls back to "Not measured" for a reason this build does not
     // know, which would print the same words twice across two columns and read
     // as a rendering fault. Drop the detail when it says nothing the value did
     // not already say.
-    const reason = reasonText(metric)
+    const reason = reasonOf(metric, notInLastSweep)
     return (
       <div className="aeo-hero-row">
         <p className="aeo-hero-row-label">{label}</p>
-        <p className="aeo-hero-row-value text-base font-semibold text-secondary">Not measured</p>
+        <p className="aeo-hero-row-value whitespace-nowrap text-base font-semibold text-secondary">Not measured</p>
         <div />
-        <p className="aeo-hero-row-detail">{reason === 'Not measured' ? '' : reason}</p>
+        <p className="aeo-hero-row-detail">{reason.label === 'Not measured' || (saidAbove && reason === notInLastSweep) ? '' : <ReasonLabel reason={reason} />}</p>
       </div>
     )
   }
@@ -454,7 +473,7 @@ function CoverageHeroRow({ label, metric, signal, failed = false }: { label: str
       </div>
       <p className="aeo-hero-row-detail tabular-nums">
         {counted ?? ''}
-        {excluded ? <span className="block">{excluded}</span> : null}
+        {excluded ? <InfoTooltip variant="caution" text={excluded} /> : null}
       </p>
     </div>
   )
@@ -465,28 +484,45 @@ function CoverageHero({
   nonBrand,
   brandedFailed = false,
   nonBrandFailed = false,
+  notInLastSweep,
 }: {
   branded: PropertyRow | undefined
   nonBrand: PropertyRow | undefined
   brandedFailed?: boolean
   nonBrandFailed?: boolean
+  notInLastSweep: (queryClass: QueryClass) => UnavailableReason | undefined
 }) {
   return (
     <section aria-labelledby="property-coverage-hero">
-      <h2 id="property-coverage-hero" className="sr-only">Coverage for this Property</h2>
+      <h2 id="property-coverage-hero" className="sr-only">Coverage for this location</h2>
       <div className="space-y-5">
         <div className="space-y-2">
-          <p className="eyebrow eyebrow-soft">Non-brand &middot; the demand to earn</p>
-          <CoverageHeroRow label="Mentioned" metric={nonBrand?.mentionCoverage} signal="mentioned" failed={nonBrandFailed} />
-          <CoverageHeroRow label="Cited" metric={nonBrand?.citationCoverage} signal="cited" failed={nonBrandFailed} />
+          <p className="text-[13px] font-medium text-secondary">{CLASS_LABELS['non-brand']}</p>
+          <CoverageHeroRow label="Mentioned" metric={nonBrand?.mentionCoverage} signal="mentioned" failed={nonBrandFailed} notInLastSweep={notInLastSweep('non-brand')} />
+          <CoverageHeroRow label="Cited" metric={nonBrand?.citationCoverage} signal="cited" failed={nonBrandFailed} notInLastSweep={notInLastSweep('non-brand')} saidAbove={notAsked(nonBrand)} />
         </div>
         <div className="space-y-2">
-          <p className="eyebrow eyebrow-soft">Branded &middot; already named</p>
-          <CoverageHeroRow label="Mentioned" metric={branded?.mentionCoverage} signal="mentioned" failed={brandedFailed} />
-          <CoverageHeroRow label="Cited" metric={branded?.citationCoverage} signal="cited" failed={brandedFailed} />
+          <p className="text-[13px] font-medium text-secondary">{CLASS_LABELS.branded}</p>
+          <CoverageHeroRow label="Mentioned" metric={branded?.mentionCoverage} signal="mentioned" failed={brandedFailed} notInLastSweep={notInLastSweep('branded')} />
+          <CoverageHeroRow label="Cited" metric={branded?.citationCoverage} signal="cited" failed={brandedFailed} notInLastSweep={notInLastSweep('branded')} saidAbove={notAsked(branded)} />
         </div>
       </div>
     </section>
+  )
+}
+
+/**
+ * A type whose numbers did not load, with the retry for that read. The type
+ * table announces it; the sections below that read the same numbers repeat it
+ * quietly, so one failure is one alert.
+ */
+function ClassLoadFailed({ queryClass, onRetry, announce = false }: { queryClass: QueryClass; onRetry: () => void; announce?: boolean }) {
+  const note = <StatusNote icon={AlertTriangle} tone="negative" label="Load failed" detail={`${CLASS_LABELS[queryClass]} queries did not load.`} />
+  return (
+    <div className="flex flex-wrap items-center gap-3">
+      {announce ? <span role="alert">{note}</span> : note}
+      <RetryButton name={classQueries(queryClass)} onClick={onRetry} />
+    </div>
   )
 }
 
@@ -500,12 +536,14 @@ function BrandContrast({
   brandedError,
   nonBrandError,
   onRetry,
+  notInLastSweep,
 }: {
   branded: PropertyRow | undefined
   nonBrand: PropertyRow | undefined
   brandedError: boolean
   nonBrandError: boolean
   onRetry: (queryClass: QueryClass) => void
+  notInLastSweep: (queryClass: QueryClass) => UnavailableReason | undefined
 }) {
   const rows: Array<{ queryClass: QueryClass; row: PropertyRow | undefined; isError: boolean }> = [
     { queryClass: 'branded', row: branded, isError: brandedError },
@@ -514,65 +552,46 @@ function BrandContrast({
   return (
     <section aria-labelledby="property-brand-contrast">
       <div className="section-head section-head-inline">
-        <div>
-          <p className="eyebrow eyebrow-soft">The gap</p>
-          <h2 id="property-brand-contrast" className="text-base font-semibold text-heading">
-            Named versus not named
-            <InfoTooltip text="Branded queries already contain your name, so an answer engine has an easy path back to you. Non-brand queries describe the need instead, and that is the demand you have to earn. Each row is measured only over the queries assigned to this Property in that class; a class with no assigned query reads Not measured rather than 0%." />
-          </h2>
+        <div className="flex items-center gap-1">
+          <h3 id="property-brand-contrast" className="text-base font-semibold text-heading">By type</h3>
+          <InfoTooltip placement="bottom" text="Each row counts only this location's queries of that type. A type with no query reads Not measured, not 0%." />
         </div>
       </div>
       <div className="overflow-x-auto rounded-md border border-default">
-        <table className="evidence-table min-w-[560px]">
-          <caption className="sr-only">Mention and citation coverage for this Property, split by query class</caption>
+        <table className="evidence-table max-md:[&_td]:px-2 max-md:[&_th]:px-2 md:min-w-[560px]">
+          <caption className="sr-only">Mention and citation coverage for this location, by query type</caption>
           <thead>
             <tr>
-              <th>Query type</th>
-              <th>Mentioned in the answer</th>
-              <th>Cited as a source</th>
+              <th>Type</th>
+              <th>Mentioned</th>
+              <th>Cited</th>
             </tr>
           </thead>
           <tbody>
             {rows.map(({ queryClass, row, isError }) => (
               <tr key={queryClass}>
                 <td>
-                  <span className="block font-medium text-heading">{CLASS_LABELS[queryClass].headline}</span>
-                  <span className="mt-0.5 block text-xs text-muted">{CLASS_LABELS[queryClass].technical}</span>
+                  <span className="block whitespace-nowrap font-medium text-heading">{CLASS_LABELS[queryClass]}</span>
                   {row && isError ? (
-                    <span className="mt-2 flex flex-wrap items-center gap-2 text-sm text-caution">
-                      <span role="status">Refresh failed.</span>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        className="h-11 px-3 text-sm md:h-11"
-                        onClick={() => onRetry(queryClass)}
-                      >
-                        Retry {CLASS_LABELS[queryClass].technical.toLocaleLowerCase()}
-                      </Button>
+                    <span className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+                      <span role="status"><StatusNote icon={AlertTriangle} tone="caution" label="Refresh failed" detail="The latest numbers did not load. These are the last ones read." /></span>
+                      <RetryButton name={classQueries(queryClass)} onClick={() => onRetry(queryClass)} />
                     </span>
+                  ) : isError ? (
+                    // Under the type's name: on a phone the two figure columns start past the edge of the table's frame.
+                    <div className="mt-2"><ClassLoadFailed queryClass={queryClass} onRetry={() => onRetry(queryClass)} announce /></div>
                   ) : null}
                 </td>
-                {row ? (
+                {row && notAsked(row) && notInLastSweep(queryClass) ? (
+                  // One reason for both figures, said once across their two columns.
+                  <td colSpan={2}><MetricCell metric={row.mentionCoverage} signal="mentioned" emphasis notInLastSweep={notInLastSweep(queryClass)} /></td>
+                ) : row ? (
                   <>
-                    <td><MetricCell metric={row.mentionCoverage} signal="mentioned" emphasis /></td>
-                    <td><MetricCell metric={row.citationCoverage} signal="cited" emphasis /></td>
+                    <td><MetricCell metric={row.mentionCoverage} signal="mentioned" emphasis notInLastSweep={notInLastSweep(queryClass)} /></td>
+                    <td><MetricCell metric={row.citationCoverage} signal="cited" emphasis notInLastSweep={notInLastSweep(queryClass)} /></td>
                   </>
                 ) : isError ? (
-                  <td colSpan={2}>
-                    <div className="flex flex-wrap items-center gap-3 text-sm text-secondary">
-                      <span role="alert">Could not load {CLASS_LABELS[queryClass].technical.toLocaleLowerCase()}.</span>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        className="h-11 px-4 text-sm md:h-11"
-                        onClick={() => onRetry(queryClass)}
-                      >
-                        Retry {CLASS_LABELS[queryClass].technical.toLocaleLowerCase()}
-                      </Button>
-                    </div>
-                  </td>
+                  <td colSpan={2}><span className="text-sm text-secondary">Unavailable</span></td>
                 ) : (
                   <>
                     <td><span className="text-sm text-secondary">Loading…</span></td>
@@ -588,35 +607,36 @@ function BrandContrast({
   )
 }
 
-function ProviderBreakdown({ row, queryClass, isError }: { row: PropertyRow | undefined; queryClass: QueryClass; isError: boolean }) {
+function ProviderBreakdown({ row, queryClass, isError, onRetry, notInLastSweep }: { row: PropertyRow | undefined; queryClass: QueryClass; isError: boolean; onRetry: () => void; notInLastSweep: UnavailableReason | undefined }) {
   return (
     <section aria-labelledby="property-providers" className="page-section-divider">
       <div className="section-head section-head-inline">
-        <div>
-          <h2 id="property-providers" className="text-base font-semibold text-heading">
-            Which engines answer for this Property
-            <InfoTooltip text="Each row is measured over the queries that engine actually answered for this Property, so the rows are a split of the same population rather than parts that add up to the Property total. An engine that answered nothing for this Property is absent instead of shown at 0%." />
-          </h2>
+        <div className="flex items-center gap-1">
+          <h3 id="property-providers" className="text-base font-semibold text-heading">By engine</h3>
+          <InfoTooltip placement="bottom" text="Each row covers the queries that engine answered for this location. Rows do not add up to the location total. An engine with no answer is not listed." />
         </div>
       </div>
       {row === undefined && isError ? (
-        <p className="text-sm text-secondary">Details for {CLASS_LABELS[queryClass].technical.toLocaleLowerCase()} are unavailable. Retry that query type above.</p>
+        <ClassLoadFailed queryClass={queryClass} onRetry={onRetry} />
       ) : row === undefined ? (
         <p className="text-sm text-secondary">Loading…</p>
+      ) : row.providers.length === 0 && notInLastSweep ? (
+        <NotInLastSweep reason={notInLastSweep} />
       ) : row.providers.length === 0 ? (
-        <p className="text-sm text-secondary">
-          No answer engine has measured {CLASS_LABELS[queryClass].technical.toLocaleLowerCase()} for this Property.
-          {row.mentionCoverage.state === 'unavailable' ? ` ${reasonText(row.mentionCoverage)}.` : ''}
-        </p>
+        <StatusNote
+          icon={Clock}
+          label="Not measured"
+          detail={`No answer engine has measured ${classQueries(queryClass)} for this location.${row.mentionCoverage.state === 'unavailable' ? ` ${reasonOf(row.mentionCoverage).detail ?? `${reasonOf(row.mentionCoverage).label}.`}` : ''}`}
+        />
       ) : (
         <div className="overflow-x-auto rounded-md border border-default">
-          <table className="evidence-table min-w-[520px]">
+          <table className="evidence-table max-md:[&_td]:px-2 max-md:[&_th]:px-2 md:min-w-[520px]">
             <caption className="sr-only">Per-engine mention and citation coverage</caption>
             <thead><tr><th>Engine</th><th>Mentioned</th><th>Cited</th></tr></thead>
             <tbody>
               {row.providers.map(provider => (
                 <tr key={provider.provider}>
-                  <td className="font-medium text-heading">{provider.provider}</td>
+                  <td className="font-medium text-heading">{providerDisplayName(provider.provider)}</td>
                   <td><MetricCell metric={provider.mentionCoverage} signal="mentioned" /></td>
                   <td><MetricCell metric={provider.citationCoverage} signal="cited" /></td>
                 </tr>
@@ -630,7 +650,7 @@ function ProviderBreakdown({ row, queryClass, isError }: { row: PropertyRow | un
 }
 
 /**
- * The full query list behind the count in the "Named instead" table's Queries
+ * The full query list behind the count in the "Mentioned instead" table's Queries
  * cell. Kept behind an `InfoTooltip` rather than inline: this page is already
  * scoped to one Property and one query class, so the same one or two queries
  * repeat down nearly every row — the joined text is the widest column in the
@@ -661,44 +681,55 @@ function competitorQueriesTooltipText(row: {
  * would also lose the `basis` — the count of answers this Property actually
  * missed, without which the occurrence numbers have no denominator.
  */
-function NamedInstead({ project, targetKey, queryClass }: { project: string; targetKey: string; queryClass: QueryClass }) {
+function NamedInstead({ project, targetKey, queryClass, notInLastSweep }: { project: string; targetKey: string; queryClass: QueryClass; notInLastSweep: UnavailableReason | undefined }) {
   const query = useQuery({
     ...getApiV1ProjectsByNameMeasurementPropertyCompetitorsOptions({
       client: heyClient,
       path: { name: project },
-      query: { targetKey, queryClass },
+      query: { targetKey, queryClass, ...LAST_SWEEP },
     }),
   })
 
   // Nothing to say yet, and a heading over a spinner is noise on a page that
   // already has four sections. The section appears when it has something.
-  if (query.isPending || query.isError) return null
+  if (query.isPending) return null
+  const failed = query.isError && query.data === undefined
   const competitors = query.data?.competitors ?? []
   const basis = query.data?.basis
 
   return (
     <section aria-labelledby="property-named-instead" className="page-section-divider">
       <div className="section-head section-head-inline">
-        <div>
-          <h2 id="property-named-instead" className="text-base font-semibold text-heading">
-            Named instead of this Property
-            <InfoTooltip text="Counted from the answers that did not name this Property, so a name here is one an engine recommended in its place. Occurrences count answers, not positions: an engine naming the same rival in two answers counts twice, and one naming it twice in a single answer counts once." />
-          </h2>
+        <div className="flex items-center gap-1">
+          <h3 id="property-named-instead" className="text-base font-semibold text-heading">Mentioned instead</h3>
+          <InfoTooltip placement="bottom" text="Names from the answers that did not mention this location. A name counts once per answer." />
         </div>
-        {competitors.length > 0 ? <p className="supporting-copy">{query.data?.total ?? competitors.length} named</p> : null}
+        {competitors.length > 0 ? <p className="supporting-copy">{query.data?.total ?? competitors.length} names</p> : null}
       </div>
-      {competitors.length === 0 ? (
-        <p className="text-sm text-secondary">
-          No rival was named in the answers this Property missed. Nothing to compete with here yet.
-        </p>
+      {failed ? (
+        <div className="flex flex-wrap items-center gap-3">
+          <span role="alert"><StatusNote icon={AlertTriangle} tone="negative" label="Load failed" detail="The names given instead did not load." /></span>
+          <RetryButton name="mentioned instead" onClick={() => { void query.refetch() }} />
+        </div>
+      ) : basis?.state === 'unavailable' && basis.reason === 'no_population' && notInLastSweep ? (
+        <NotInLastSweep reason={notInLastSweep} />
+      ) : basis?.state === 'unavailable' ? (
+        // No answer was read for this type. "None mentioned" would report that as a sweep in which no other name was mentioned.
+        <StatusNote
+          icon={Clock}
+          label="Not measured"
+          detail={`No answers to ${classQueries(queryClass)} have been measured for this location. ${reasonOf(basis).detail ?? `${reasonOf(basis).label}.`}`}
+        />
+      ) : competitors.length === 0 ? (
+        <StatusNote icon={Info} label="None mentioned" detail="No other name was mentioned in the answers this location missed." />
       ) : (
         <>
           <div className="overflow-x-auto rounded-md border border-default">
-            <table className="evidence-table min-w-[420px]">
-              <caption className="sr-only">Names the engines gave instead of this Property</caption>
+            <table className="evidence-table max-md:[&_td]:px-2 max-md:[&_th]:px-2 md:min-w-[420px]">
+              <caption className="sr-only">Names mentioned instead of this location</caption>
               <thead>
                 <tr>
-                  <th>Named</th>
+                  <th>Name</th>
                   <th>Answers</th>
                   <th>Engines</th>
                   <th>Queries</th>
@@ -710,13 +741,13 @@ function NamedInstead({ project, targetKey, queryClass }: { project: string; tar
                     <td className="text-strong">{row.name}</td>
                     <td className="tabular-nums text-secondary">{row.occurrences}</td>
                     <td className="text-secondary">
-                      {row.providers.join(', ')}
+                      {row.providers.map(name => providerDisplayName(name)).join(', ')}
                       {row.providersTruncated ? ` +${row.providerTotal - row.providers.length}` : ''}
                     </td>
                     <td className="text-right">
                       <span className="inline-flex items-center justify-end gap-1">
                         <span className="tabular-nums text-secondary">{row.questionTotal}</span>
-                        <InfoTooltip text={competitorQueriesTooltipText(row)} />
+                        <InfoTooltip placement="bottom" text={competitorQueriesTooltipText(row)} />
                       </span>
                     </td>
                   </tr>
@@ -725,9 +756,14 @@ function NamedInstead({ project, targetKey, queryClass }: { project: string; tar
             </table>
           </div>
           {basis?.state === 'available' ? (
-            <p className="supporting-copy mt-2">
-              {basis.targetMissResults} of {basis.answeredResults} answers to {CLASS_LABELS[queryClass].technical.toLocaleLowerCase()} did not name this Property.
-            </p>
+            <div className="mt-2 flex items-center text-sm">
+              <dl className="flex gap-2">
+                <dt className="text-secondary">Missed answers</dt>
+                {/* The type travels with the figure, as it does on the count under Cited on other queries. */}
+                <dd className="tabular-nums text-heading">{basis.targetMissResults} of {basis.answeredResults} <span className="text-secondary">&middot; {CLASS_LABELS[queryClass]}</span></dd>
+              </dl>
+              <InfoTooltip placement="bottom" text={`Answers to ${classQueries(queryClass)} that did not mention this location.`} />
+            </div>
           ) : null}
         </>
       )}
@@ -735,68 +771,16 @@ function NamedInstead({ project, targetKey, queryClass }: { project: string; tar
   )
 }
 
-function AssignedQuestions({ questions, queryClass }: { questions: readonly string[]; queryClass: QueryClass }) {
-  return (
-    <section aria-labelledby="property-questions" className="page-section-divider">
-      <div className="section-head section-head-inline">
-        <div>
-          <h2 id="property-questions" className="text-base font-semibold text-heading">
-            {CLASS_LABELS[queryClass].technical} assigned to this Property
-          </h2>
-        </div>
-        <p className="supporting-copy">{questions.length} assigned</p>
-      </div>
-      {questions.length === 0 ? (
-        <p className="text-sm text-secondary">
-          No {CLASS_LABELS[queryClass].technical.toLocaleLowerCase()} are assigned. Add one in advanced measurement setup to measure this class.
-        </p>
-      ) : (
-        <div className="overflow-x-auto rounded-md border border-default">
-          <table className="evidence-table min-w-[420px]">
-            <caption className="sr-only">Queries assigned to this Property</caption>
-            <thead><tr><th>Query</th></tr></thead>
-            <tbody>{questions.map(question => <tr key={question}><td className="text-secondary">{question}</td></tr>)}</tbody>
-          </table>
-        </div>
-      )}
-    </section>
-  )
-}
-
-function PropertyUrls({ urls }: { urls: readonly string[] }) {
-  return (
-    <section aria-labelledby="property-urls" className="page-section-divider">
-      <div className="section-head section-head-inline">
-        <div>
-          <h2 id="property-urls" className="text-base font-semibold text-heading">
-            URLs that count as this Property
-            <InfoTooltip text="A cited source URL is credited to this Property when it matches one of these. The most specific matcher wins, so a URL covered by two Properties at the same specificity is flagged for review instead of being credited to either." />
-          </h2>
-        </div>
-        <p className="supporting-copy">{urls.length} configured</p>
-      </div>
-      {urls.length === 0 ? (
-        <p className="text-sm text-secondary">No URLs are configured for this Property.</p>
-      ) : (
-        <div className="overflow-x-auto rounded-md border border-default">
-          <table className="evidence-table min-w-[420px]">
-            <caption className="sr-only">URL matchers configured for this Property</caption>
-            <thead><tr><th>URL</th></tr></thead>
-            <tbody>{urls.map(url => <tr key={url}><td className="break-all text-secondary">{url}</td></tr>)}</tbody>
-          </table>
-        </div>
-      )}
-    </section>
-  )
-}
-
 export const OTHER_QUERIES_COPY = {
   heading: 'Cited on other queries',
-  help: 'Answers to queries assigned to other properties that still cited one of this Property\u2019s own pages. This Property was not measured on those queries, so these answers are not in its Mentioned or Cited rates.',
-  notCounted: 'not in this Property\u2019s rates',
-  empty: 'No answer to a query assigned elsewhere cited this Property\u2019s pages in the displayed measurement.',
-  loadError: 'Citations from other queries could not be loaded.',
-  partlySaved: 'Sources partly saved',
+  help: 'Answers to queries tracked for other locations that still cited one of this location\u2019s own pages.',
+  notCounted: 'Not in rates',
+  notCountedHelp: 'This location was not measured on those queries, so these answers are not in its Mentioned or Cited rates.',
+  empty: 'None',
+  emptyHelp: 'No answer to a query tracked for another location cited this location\u2019s pages in this sweep.',
+  loadError: 'Load failed',
+  loadErrorHelp: 'Citations from other queries did not load.',
+  partlySaved: SOURCES_PARTIAL.label,
 } as const
 
 /**
@@ -813,12 +797,15 @@ function CitedOnOtherQueries({
   queryClass,
   runId,
   targetLabels,
+  notInLastSweep,
 }: {
   project: string
   targetKey: string
   queryClass: QueryClass
   runId: string | undefined
   targetLabels: ReadonlyMap<string, string>
+  /** Set when the sweep on screen did not hold this location. Its pages were then never looked for, so no row is not "None". */
+  notInLastSweep: UnavailableReason | undefined
 }) {
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set<string>())
   const input = {
@@ -830,6 +817,7 @@ function CitedOnOtherQueries({
       shape: MeasurementEvidenceShapes['other-queries'],
       limit: EVIDENCE_PAGE_SIZE,
       ...(runId ? { runId } : {}),
+      ...LAST_SWEEP,
     },
   } as const
   const query = useInfiniteQuery({
@@ -848,39 +836,44 @@ function CitedOnOtherQueries({
   const rows = pages.flatMap(page => page.otherQueries?.items ?? [])
   const total = pages[0]?.otherQueries?.totalEstimate ?? rows.length
   const rowKey = (row: OtherQueryRow) => `${row.expectedSlotId}:${row.queryClass}`
-  const classWords = CLASS_LABELS[queryClass].technical.toLocaleLowerCase()
+  const unchecked = rows.length === 0 ? notInLastSweep : undefined
 
   return (
     <section aria-labelledby="property-other-queries" className="page-section-divider">
-      <div className="section-head section-head-inline">
+      <div className="section-head section-head-inline flex-wrap">
         <div className="flex items-center gap-1">
-          <h2 id="property-other-queries" className="text-base font-semibold text-heading">{OTHER_QUERIES_COPY.heading}</h2>
-          <InfoTooltip text={OTHER_QUERIES_COPY.help} />
+          <h3 id="property-other-queries" className="text-base font-semibold text-heading">{OTHER_QUERIES_COPY.heading}</h3>
+          <InfoTooltip placement="bottom" text={OTHER_QUERIES_COPY.help} />
         </div>
-        {query.data ? (
-          <p className="supporting-copy">
-            {total} {total === 1 ? 'answer' : 'answers'} &middot; {classWords} &middot; {OTHER_QUERIES_COPY.notCounted}
-          </p>
+        {query.data && !unchecked ? (
+          <div className="flex flex-wrap items-center gap-x-3">
+            <p className="supporting-copy">{total} {total === 1 ? 'answer' : 'answers'} &middot; {CLASS_LABELS[queryClass]}</p>
+            {/* With no row there is nothing for the note to qualify. */}
+            {rows.length > 0 ? <StatusNote icon={Info} label={OTHER_QUERIES_COPY.notCounted} detail={OTHER_QUERIES_COPY.notCountedHelp} /> : null}
+          </div>
         ) : null}
       </div>
       {query.isPending ? (
         <p className="text-sm text-secondary">Loading…</p>
       ) : query.isError && rows.length === 0 ? (
-        <div className="flex flex-wrap items-center gap-3 text-sm text-secondary">
-          <span role="alert">{OTHER_QUERIES_COPY.loadError}</span>
-          <Button type="button" size="sm" variant="outline" className="h-11 px-4 text-sm md:h-11" onClick={() => { void query.refetch() }}>Retry</Button>
+        <div className="flex flex-wrap items-center gap-3">
+          <span role="alert"><StatusNote icon={AlertTriangle} tone="negative" label={OTHER_QUERIES_COPY.loadError} detail={OTHER_QUERIES_COPY.loadErrorHelp} /></span>
+          <RetryButton name="other queries" onClick={() => { void query.refetch() }} />
         </div>
+      ) : unchecked ? (
+        <NotInLastSweep reason={unchecked} />
       ) : rows.length === 0 ? (
-        <p className="text-sm text-secondary">{OTHER_QUERIES_COPY.empty}</p>
+        <StatusNote icon={Info} label={OTHER_QUERIES_COPY.empty} detail={OTHER_QUERIES_COPY.emptyHelp} />
       ) : (
         <>
-          <div className="overflow-x-auto rounded-md border border-default">
+          {/* Positioned, so the screen-reader-only header cell is clipped with the table instead of widening the page. */}
+          <div className="relative overflow-x-auto rounded-md border border-default">
             <table className="evidence-table min-w-[640px]">
-              <caption className="sr-only">Answers to other properties&rsquo; queries that cited this Property&rsquo;s pages</caption>
+              <caption className="sr-only">Answers to other locations&rsquo; queries that cited this location&rsquo;s pages</caption>
               <thead>
                 <tr>
                   <th>Query</th>
-                  <th>Assigned to</th>
+                  <th>Location</th>
                   <th>Pages cited</th>
                   <th><span className="sr-only">Answer</span></th>
                 </tr>
@@ -895,20 +888,25 @@ function CitedOnOtherQueries({
                       <tr>
                         <td className="text-secondary">
                           <span className="block text-sm font-medium text-heading">{row.queryText}</span>
-                          <span className="mt-1 block text-xs text-muted">{[row.provider, row.location].filter(Boolean).join(' · ')}</span>
+                          <span className="mt-1 block text-xs text-muted">{[providerDisplayName(row.provider), row.location].filter(Boolean).join(' · ')}</span>
                         </td>
                         <td>
                           <ul className="space-y-1">
                             {row.assignedTargetKeys.map(key => (
                               <li key={key}>
-                                <Link
-                                  to="/projects/$projectName/properties/$targetKey"
-                                  params={{ projectName: project, targetKey: key }}
-                                  search={carryVisibilitySearch}
-                                  className="text-sm text-link hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400"
-                                >
-                                  {targetLabels.get(key) ?? key}
-                                </Link>
+                                {targetLabels.has(key) ? (
+                                  <Link
+                                    to="/projects/$projectName/properties/$targetKey"
+                                    params={{ projectName: project, targetKey: key }}
+                                    search={carryVisibilitySearch}
+                                    className="text-sm text-link hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400"
+                                  >
+                                    {targetLabels.get(key)}
+                                  </Link>
+                                ) : (
+                                  // The last sweep can name a location the published setup has dropped. It has no page to open, and its key is no name.
+                                  <span className="text-sm text-secondary">Removed location</span>
+                                )}
                               </li>
                             ))}
                           </ul>
@@ -918,16 +916,16 @@ function CitedOnOtherQueries({
                             {row.sources.map(source => <li key={source.sourceUrl} className="min-w-0"><SourceLink url={source.sourceUrl} /></li>)}
                           </ul>
                           {row.sourcesTruncated ? <span className="mt-1 block text-xs text-muted">{row.sourceCount} pages in total</span> : null}
-                          {row.evidenceComplete ? null : <span className="mt-1 block text-xs text-muted">{OTHER_QUERIES_COPY.partlySaved}</span>}
+                          {row.evidenceComplete ? null : <span className="mt-1 block"><StatusNote icon={AlertTriangle} tone="caution" label={OTHER_QUERIES_COPY.partlySaved} detail={SOURCES_PARTIAL.detail} /></span>}
                         </td>
                         <td className="text-right">
                           <Button
                             type="button"
                             size="sm"
                             variant="ghost"
-                            className="h-auto min-h-11 max-w-full whitespace-normal py-2 text-left md:h-auto"
+                            className="h-auto min-h-11 max-w-full whitespace-normal py-2 text-left md:h-auto md:whitespace-nowrap"
                             aria-expanded={open}
-                            aria-label={open ? `Hide the answer for ${row.queryText}` : `Read the answer for ${row.queryText}`}
+                            aria-label={open ? `Hide the answer for ${row.queryText}` : `View the answer for ${row.queryText}`}
                             aria-controls={open ? detailId : undefined}
                             onClick={() => setExpanded(current => {
                               const next = new Set(current)
@@ -935,14 +933,14 @@ function CitedOnOtherQueries({
                               return next
                             })}
                           >
-                            {open ? 'Hide answer' : 'Read answer'}
+                            {open ? 'Hide answer' : 'View answer'}
                           </Button>
                         </td>
                       </tr>
                       {open ? (
                         <tr>
                           <td id={detailId} colSpan={4} className="bg-surface-subtle px-4">
-                            <AnswerText project={project} targetKey={row.assignedTargetKeys[0]!} resultId={row.observationId} />
+                            <AnswerText project={project} targetKey={row.assignedTargetKeys[0]!} resultId={row.observationId} headingLevel={4} />
                           </td>
                         </tr>
                       ) : null}
@@ -979,9 +977,9 @@ function CitedOnOtherQueries({
 function carriedFilterHelp(selection: VisibilitySelectionState, marketLabel: string | undefined): string | null {
   const filters = [
     selection.marketKey ? marketLabel ?? 'the selected market' : null,
-    selection.provider ? `the ${selection.provider} answer engine` : null,
+    selection.provider ? `the ${providerDisplayName(selection.provider)} answer engine` : null,
     selection.model ? `the ${selection.model} model` : null,
-    selection.location ? `location ${selection.location}` : null,
+    selection.location ? `search location ${selection.location}` : null,
     selection.from || selection.to ? 'a date range' : null,
     selection.measurementRunId ? 'a saved check' : null,
   ].filter((filter): filter is string => filter !== null)
@@ -992,6 +990,7 @@ function carriedFilterHelp(selection: VisibilitySelectionState, marketLabel: str
 export function MeasurementPropertyPage() {
   const { projectName, targetKey } = useParams({ strict: false }) as { projectName?: string; targetKey?: string }
   const navigate = useNavigate()
+  const canGoBack = useInAppBack()
   // Query type and filters arrive in AI Visibility's shared URL selection.
   const urlSearch = useSearch({ strict: false }) as Record<string, unknown>
   const selection = useMemo(() => parseVisibilitySelection(urlSearch), [urlSearch])
@@ -1024,6 +1023,10 @@ export function MeasurementPropertyPage() {
     if (!assignedPlan || urlQueryClass) return
     void navigate({ to: '.', replace: true, search: previous => patchVisibilitySelection(previous, { queryClass }) })
   }, [assignedPlan, urlQueryClass, queryClass, navigate])
+  const showQueryClass = (next: QueryClass) => {
+    // Replaces the entry, so one press of Back leaves the page whatever types were looked at.
+    void navigate({ to: '.', replace: true, search: previous => patchVisibilitySelection(previous, { queryClass: next }) })
+  }
   const brandedQuery = useQuery({ ...overviewOptions(project, property, 'branded'), enabled })
   const nonBrandQuery = useQuery({ ...overviewOptions(project, property, 'non-brand'), enabled })
 
@@ -1036,34 +1039,57 @@ export function MeasurementPropertyPage() {
   const displayedRunId = selected?.measurement.displayedRunId
   usePublishAeroView(project, { view: 'property', selection: { mode: 'advanced', scope: 'property', scopeKey: property, queryClass, limit: 10, ...(displayedRunId ? { runId: displayedRunId } : {}) } })
 
+  // After a tracking change the reads answer with the last sweep, which ran with the setup before the
+  // change: every figure below is that sweep's, and the header says so once. A location no sweep has
+  // measured has no measured setup, and reads "Not measured" as before. Both types' reads say which
+  // sweep it is, so the note and the reason below stand while either has loaded.
+  const sweep = (selected ?? brandedQuery.data ?? nonBrandQuery.data)?.measurement
+  const showsLastSweep = sweep?.awaitingSweep === true && typeof sweep.measuredRevision === 'number'
+  const sweptOn = sweep?.completedAt ? formatObservedInstantMonthDay(observedInstant(sweep.completedAt)) : null
+  // A type with queries for this location now and none in that sweep has no number yet. "No queries
+  // tracked" would be false of it, so its reason names the sweep. Each type is judged on its own.
+  const notInLastSweep = (candidate: QueryClass): UnavailableReason | undefined => showsLastSweep && isAssigned(candidate)
+    ? { icon: Clock, label: 'Not in last sweep', detail: `No queries of this type were asked for this location in the ${sweptOn ?? 'last'} sweep. First numbers after the next sweep.` }
+    : undefined
+  const selectedNotInLastSweep = notInLastSweep(queryClass)
+  // Set when the selected type's own numbers are missing for that reason. By engine and Answers read
+  // it: an empty engine list and an empty page of answers carry no reason of their own.
+  const selectedTypeGap = selectedRow?.mentionCoverage.state === 'unavailable' && selectedRow.mentionCoverage.reason === 'no_population'
+    ? selectedNotInLastSweep
+    : undefined
+  // Set when that sweep has no number of either type for a location the setup now asks queries: it did
+  // not hold the location. The sweep's own state would then read "Measured" over a page of "Not
+  // measured", and an empty list under Cited on other queries would read as a sweep that found none.
+  // It takes both types' reads to say so: a type still being read, or one whose read failed, may hold numbers.
+  const mayBeOutOfLastSweep = showsLastSweep
+    && [brandedRow, nonBrandRow].every(row => row === undefined || notAsked(row))
+    && (isAssigned('branded') || isAssigned('non-brand'))
+  const bothTypesRead = brandedRow !== undefined && nonBrandRow !== undefined
+  const locationNotInLastSweep: UnavailableReason | undefined = mayBeOutOfLastSweep && bothTypesRead
+    ? { icon: Clock, label: 'Not in last sweep', detail: `This location was not in the ${sweptOn ?? 'last'} sweep. First numbers after the next sweep.` }
+    : undefined
+  // The state is the sweep's, or "Not measured" for a location it did not hold. Until both types are
+  // read that is not known, and the header shows no state it may have to take back.
+  const headerState = !selected || (mayBeOutOfLastSweep && !bothTypesRead)
+    ? null
+    : MEASUREMENT_STATES[locationNotInLastSweep ? 'not_measured' : selected.measurement.state]
+
   // The engine COUNT is gone from this page: the engine table below states it by
   // listing one row per engine, and a card above restating it was one of the
   // three that made the facts grid repeat its own page. What survives is the
   // reason a class has no numbers at all, which nothing else says once.
   const engineUnmeasuredReason = selectedRow?.mentionCoverage.state === 'unavailable'
-    ? reasonText(selectedRow.mentionCoverage)
+    ? reasonOf(selectedRow.mentionCoverage, selectedNotInLastSweep)
     : undefined
   // Undefined while the response is unread, so a pending or failed fetch never
-  // asserts this Property has never been swept.
-  const measuredAt = selected === undefined ? undefined : selected.measurement.completedAt ?? null
-  const needsMeasurement = selected !== undefined && (selected.measurement.state === 'not_measured' || selected.nextAction.kind === 'run_measurement')
-  // After a tracking change this page blanks, but AI Visibility still shows this Property's last
-  // results. Ask the report the link opens, so the link names results only when there are some.
-  // The link opens the latest view, so a carried sweep, revision or end date is dropped.
-  const lastResultsSearch = (previous: Record<string, unknown>) => patchVisibilitySelection(carryVisibilitySearch(previous), {
-    measurementScope: 'property', measurementScopeKey: property, queryClass,
-    measurementRunId: undefined, measurementRevision: undefined, measurementTo: undefined,
-  })
-  const lastResultsQuery = useQuery({
-    ...getApiV1ProjectsByNameVisibilityReportOptions({ client: heyClient, path: { name: project }, query: visibilityReportFirstPageQuery(parseVisibilitySelection(lastResultsSearch(urlSearch))) }),
-    enabled: enabled && needsMeasurement,
-    retry: false,
-  })
-  // The measured revision belongs to the whole sweep. A Property that had no queries of this type
-  // before the change has an empty population in it, so nothing to show.
-  const lastResults = lastResultsQuery.data
-  const hasLastResults = lastResults !== undefined && lastResults.selection.measurement.measuredRevision !== null
-    && (lastResults.populations.find(population => population.queryClass === queryClass)?.summary.queryCount ?? 0) > 0
+  // asserts this Property has never been swept. A type that sweep did not ask
+  // was not measured on its day either: its reason stands alone, with the day in its help.
+  const measuredAt = selected === undefined || selectedTypeGap ? undefined : selected.measurement.completedAt ?? null
+  // Only a location no sweep has measured. One measured before a tracking change keeps its numbers.
+  const needsMeasurement = selected?.measurement.state === 'not_measured'
+  // While an overview is being read the header may still claim the page's one "Tracking changed" note,
+  // so the tracked section holds its own back: the note never moves from one to the other.
+  const overviewsLoading = brandedQuery.isFetching || nonBrandQuery.isFetching
 
   const evidenceInput = {
     client: heyClient,
@@ -1074,6 +1100,7 @@ export function MeasurementPropertyPage() {
       shape: MeasurementEvidenceShapes.answers,
       limit: EVIDENCE_PAGE_SIZE,
       ...(displayedRunId ? { runId: displayedRunId } : {}),
+      ...LAST_SWEEP,
     },
   } as const
   const evidenceQuery = useInfiniteQuery({
@@ -1093,18 +1120,6 @@ export function MeasurementPropertyPage() {
   const target = planV2?.targets.find(candidate => candidate.stableKey === property) ?? null
   const filterHelp = carriedFilterHelp(selection, planV2?.reportingScopes?.find(scope => scope.stableKey === selection.marketKey)?.label)
 
-  const questions = useMemo(() => {
-    if (!planV2) return []
-    const textById = new Map(planV2.querySnapshots.map(snapshot => [snapshot.queryId, snapshot.queryText]))
-    return [...new Set(planV2.assignments
-      .filter(assignment => assignment.targetKey === property && assignment.queryClass === queryClass)
-      .flatMap(assignment => {
-        const text = textById.get(assignment.queryId)
-        return text === undefined ? [] : [text]
-      }))].sort((left, right) => left.localeCompare(right))
-  }, [planV2, property, queryClass])
-
-  const urls = useMemo(() => target?.urlMatchers.map(matcherLabel) ?? [], [target])
   const targetLabels = useMemo(
     () => new Map((planV2?.targets ?? []).map(candidate => [candidate.stableKey, candidate.label])),
     [planV2],
@@ -1140,20 +1155,29 @@ export function MeasurementPropertyPage() {
     && (evidenceQuery.data?.pages ?? []).every(page => page.answers === undefined)
   const evidenceState = evidenceQuery.data?.pages[0]?.measurement.state
 
+  // "Back" with in-app history: to Queries, Settings or AI Visibility, whichever the reader came from. A direct
+  // open has nowhere to go back to, so it links to AI Visibility by name.
   const backLink = (
-    <Link
-      to="/projects/$projectName"
-      params={{ projectName: project }}
-      search={carryVisibilitySearch}
-      className="inline-flex items-center gap-1 text-xs text-muted hover:text-strong"
-    >
-      <ArrowLeft className="size-3.5" aria-hidden="true" />
-      Back to AI Visibility
-    </Link>
+    <BackLink
+      canGoBack={canGoBack}
+      className={BACK_LINK}
+      iconClassName="size-3.5"
+      fallback={link => (
+        <Link to="/projects/$projectName" params={{ projectName: project }} search={carryVisibilitySearch} className={link.className}>
+          {link.icon}
+          AI Visibility
+        </Link>
+      )}
+    />
   )
 
   if (!hasRouteParams) {
-    return <div className="page-container"><p className="text-sm text-muted">Missing project name or Property key in URL.</p></div>
+    return (
+      <div className="page-container space-y-3">
+        {project ? backLink : null}
+        <StatusNote icon={AlertTriangle} label="Location not found" />
+      </div>
+    )
   }
 
   // A child route the subnav never renders, so a direct link is the only way in.
@@ -1170,12 +1194,17 @@ export function MeasurementPropertyPage() {
     return (
       <div className="page-container">
         <div role="status" aria-live="polite">
-          <span className="sr-only">Loading Property</span>
+          <span className="sr-only">Loading location</span>
           <div className="h-32 animate-pulse rounded-md bg-surface-subtle" aria-hidden="true" />
         </div>
       </div>
     )
   }
+
+  const retryClass = (classToRetry: QueryClass) => {
+    void (classToRetry === 'branded' ? brandedQuery.refetch() : nonBrandQuery.refetch())
+  }
+  const retrySelectedClass = () => retryClass(queryClass)
 
   const planUnavailable = planQuery.isError && planQuery.data === undefined
   const brandedUnavailable = brandedQuery.isError && brandedQuery.data === undefined
@@ -1184,66 +1213,103 @@ export function MeasurementPropertyPage() {
     return (
       <div className="page-container space-y-3">
         {backLink}
-        <p role="alert" className="text-sm text-negative">Could not load this Property.</p>
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          className="h-11 px-4 text-sm md:h-11"
-          onClick={() => {
-            void planQuery.refetch()
-            void brandedQuery.refetch()
-            void nonBrandQuery.refetch()
-          }}
-        >
-          Try again
-        </Button>
+        <div className="flex flex-wrap items-center gap-3">
+          <span role="alert"><StatusNote icon={AlertTriangle} tone="negative" label="Could not load" detail="This location did not load." /></span>
+          <RetryButton
+            name="location"
+            onClick={() => {
+              void planQuery.refetch()
+              void brandedQuery.refetch()
+              void nonBrandQuery.refetch()
+            }}
+          />
+        </div>
       </div>
     )
   }
+
+  const setupLink = (label: string) => (
+    <Button asChild type="button" variant="outline" className="h-11 px-4 text-sm md:h-11">
+      <Link to="/projects/$projectName/portfolio" params={{ projectName: project }}>{label}</Link>
+    </Button>
+  )
 
   if (!planV2 || !target) {
     return (
       <div className="page-container space-y-3">
         {backLink}
-        <p role="status" className="text-sm text-secondary">
-          {planV2
-            ? 'This Property is not in the published setup. It may have been renamed or removed.'
-            : 'A Property page needs a published advanced measurement setup. Republish setup from the project Portfolio tab.'}
-        </p>
-        <Button asChild type="button" variant="outline" className="h-11 px-4 text-sm md:h-11">
-          <Link to="/projects/$projectName/portfolio" params={{ projectName: project }}>
-            {canWrite ? (legacyPlan ? 'Republish setup' : 'Open measurement setup') : 'View measurement setup'}
-          </Link>
-        </Button>
+        <div className="flex flex-wrap items-center gap-3">
+          <span role="status">
+            <StatusNote
+              icon={AlertTriangle}
+              tone="caution"
+              label={planV2 ? 'Location not found' : 'Setup not published'}
+              detail={planV2
+                ? 'This location is not in the published setup. It may have been renamed or removed.'
+                : 'A location page needs a published setup.'}
+            />
+          </span>
+          {setupLink(canWrite ? (legacyPlan ? 'Republish setup' : 'Open Bulk setup') : 'View Bulk setup')}
+        </div>
       </div>
     )
   }
 
   return (
     <div className="page-container space-y-8">
-      <div className="page-header">
-        <div className="page-header-left">
+      {/* From sm the name takes the room the badges and the button leave. In a frame too narrow for both they go under it. */}
+      <div className="page-header @container sm:flex-wrap">
+        <div className="page-header-left sm:flex-1 sm:basis-80">
           {backLink}
-          <h1 className="page-title mt-2">{target.label}</h1>
-          <p className="page-subtitle">
-            Property in {project}
+          {/* The badge is a sibling of the heading, so the page is named by the location alone. Both are inline:
+              a name that wraps keeps the badge on its last line, raised to the middle of the name's capitals. */}
+          <div className="mt-2">
+            <h1 className="page-title inline">{target.label}</h1>
+            <ToneBadge tone="neutral" className="relative -top-0.5 ml-2.5 align-middle">Location</ToneBadge>
+          </div>
+          {/* The header's width from sm, not the name's column: the line runs on under the badges and the button, which end above it. */}
+          <div className="page-subtitle flex min-h-5 flex-wrap items-center gap-x-4 gap-y-0.5 sm:w-[100cqw]">
+            <LocationPlaces projectName={project} targetKey={property} />
             {filterHelp ? (
-              <>
-                {' · Filters not applied '}
-                <InfoTooltip text={filterHelp} />
-              </>
+              <span className="inline-flex items-center">
+                Filters not applied
+                <InfoTooltip placement="bottom" text={filterHelp} />
+              </span>
             ) : null}
-          </p>
+          </div>
         </div>
-        <div className="page-header-right">
-          {selected ? (
-            <ToneBadge tone={MEASUREMENT_STATES[selected.measurement.state].tone}>
-              {MEASUREMENT_STATES[selected.measurement.state].label}
-            </ToneBadge>
+        <div className="page-header-right flex-wrap">
+          {/* The statuses wrap as one group, so on a phone the button after them always starts a row of its own. */}
+          {headerState || showsLastSweep ? (
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              {headerState ? <ToneBadge tone={headerState.tone}>{headerState.label}</ToneBadge> : null}
+              {/* The page's one "Tracking changed" note, as AI Visibility and Queries word it: the label, with which
+                  sweep is on screen and when new numbers arrive in its help. A managed dashboard dates no change. */}
+              {showsLastSweep ? (
+                <span role="status">
+                  <StatusNote
+                    icon={Clock}
+                    tone="caution"
+                    label={VISIBILITY_TOOLBAR_COPY.trackingChangedLabel(sweep.trackingChangedAt && !isDashboardManagedSweeps() ? formatObservedInstantMonthDay(observedInstant(sweep.trackingChangedAt)) : null)}
+                    detail={`${VISIBILITY_TOOLBAR_COPY.trackingChangedDetail(sweptOn, null)} Queries removed since ${sweptOn ?? 'the last check'} still count in the rates on this page. Queries added since do not.`}
+                  />
+                </span>
+              ) : null}
+              {selectedRow && selectedRow.flags > 0 ? (
+                <span className="inline-flex items-center whitespace-nowrap">
+                  <ToneBadge tone="caution">{selectedRow.flags} {selectedRow.flags === 1 ? 'unclear link' : 'unclear links'}</ToneBadge>
+                  <InfoTooltip variant="caution" text="Cited links that match more than one location. They are marked Several locations under Answers." />
+                </span>
+              ) : null}
+            </div>
           ) : null}
-          {selectedRow && selectedRow.flags > 0 ? (
-            <ToneBadge tone="caution">{selectedRow.flags} flagged</ToneBadge>
+          {/* The page's one primary action, for writers only, so a viewer sees no dead button. This render is past
+              the setup checks above: the plan is advanced and holds this location. Keyed, because the router keeps
+              this page mounted from one location to the next. */}
+          {canWrite ? (
+            <div className="flex flex-wrap items-center gap-2 max-sm:basis-full">
+              <AddLocationQueryButton key={property} projectName={project} locationKey={property} variant="default" className="pointer-coarse:min-h-11 max-md:min-h-11" />
+            </div>
           ) : null}
         </div>
       </div>
@@ -1253,28 +1319,54 @@ export function MeasurementPropertyPage() {
         nonBrand={nonBrandRow}
         brandedFailed={brandedUnavailable}
         nonBrandFailed={nonBrandUnavailable}
+        notInLastSweep={notInLastSweep}
       />
 
-      <BrandContrast
-        branded={brandedRow}
-        nonBrand={nonBrandRow}
-        brandedError={brandedQuery.isError}
-        nonBrandError={nonBrandQuery.isError}
-        onRetry={classToRetry => {
-          void (classToRetry === 'branded' ? brandedQuery.refetch() : nonBrandQuery.refetch())
-        }}
-      />
+      {/* What the location is tracked for, with what it is matched by beside it from a 68rem frame. The side panel
+          sits beside this section only: a narrower column would fold the answers table below into its phone layout. */}
+      <div className="@container">
+        <div className="grid gap-x-6 gap-y-8 @[68rem]:grid-cols-[minmax(0,1fr)_20rem]">
+          {/* A managed dashboard dates no tracking change, here as on AI Visibility and Queries. The section says it
+              only when the header does not and no overview is still being read: the page has one such note. */}
+          <LocationTrackedSection key={property} projectName={project} targetKey={property} canWrite={canWrite} trackingChangedAt={showsLastSweep || overviewsLoading ? null : isDashboardManagedSweeps() ? undefined : activePlan!.createdAt} />
+          <div className="min-w-0 @[68rem]:border-l @[68rem]:border-default @[68rem]:pl-6">
+            <LocationSidePanel
+              projectName={project}
+              target={target}
+              activeRevision={activePlan!.revision}
+              publishedBrandNames={planV2.identities.projectBrand.names}
+              setupAction={canWrite ? setupLink('Open Bulk setup') : undefined}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Every section from here to the end of the page is under this heading. */}
+      <div className="space-y-4 border-t border-default pt-6">
+        <h2 className="text-lg font-semibold text-heading">Results</h2>
+        <BrandContrast
+          branded={brandedRow}
+          nonBrand={nonBrandRow}
+          brandedError={brandedQuery.isError}
+          nonBrandError={nonBrandQuery.isError}
+          onRetry={retryClass}
+          notInLastSweep={notInLastSweep}
+        />
+      </div>
 
       {needsMeasurement ? (
         <section className="flex flex-wrap items-center justify-between gap-3 border-y border-default py-4" aria-label="Measurement next step">
-          <p className="text-sm text-secondary">
-            {isDashboardManagedSweeps() ? MANAGED_SWEEPS_COPY : canWrite
-              ? `Run a measurement from the project overview to collect this Property’s coverage and source evidence.${hasLastResults ? ' AI Visibility still shows the last results.' : ''}`
-              : 'This Property needs a new measurement before coverage and source evidence are available.'}
-          </p>
-          <Button asChild type="button" className="h-11 px-4 text-sm md:h-11">
-            <Link to="/projects/$projectName" params={{ projectName: project }} search={hasLastResults ? lastResultsSearch : carryVisibilitySearch}>
-              {hasLastResults ? 'See the last results' : canWrite ? 'Go to AI Visibility' : 'View AI Visibility'}
+          <StatusNote
+            icon={Clock}
+            label="Awaiting next sweep"
+            detail={isDashboardManagedSweeps() ? MANAGED_SWEEPS_COPY : canWrite
+              ? 'Run a sweep from AI Visibility to collect this location’s coverage and source evidence.'
+              : 'This location needs a new measurement before coverage and source evidence are available.'}
+          />
+          {/* Outlined: the header's Add button is the page's one filled action. */}
+          <Button asChild type="button" variant="outline" className="h-11 px-4 text-sm md:h-11">
+            <Link to="/projects/$projectName" params={{ projectName: project }} search={carryVisibilitySearch}>
+              {canWrite ? 'Go to AI Visibility' : 'View AI Visibility'}
             </Link>
           </Button>
         </section>
@@ -1282,18 +1374,17 @@ export function MeasurementPropertyPage() {
 
       <div className="flex flex-wrap items-end gap-4 border-y border-default py-4">
         <div className="space-y-1">
-          <label htmlFor="property-query-class" className="block text-sm font-medium text-heading">Query type</label>
+          <label htmlFor="property-query-class" className="block text-sm font-medium text-heading">Type</label>
+          {/* Named in full for a screen reader, as the same control is on AI Visibility. */}
           <select
             id="property-query-class"
+            aria-label="Query type"
             value={queryClass}
-            onChange={event => {
-              const next: QueryClass = event.target.value === 'branded' ? 'branded' : 'non-brand'
-              void navigate({ to: '.', search: previous => patchVisibilitySelection(previous, { queryClass: next }) })
-            }}
+            onChange={event => showQueryClass(event.target.value === 'branded' ? 'branded' : 'non-brand')}
             className="h-11 rounded-md border border-default bg-surface px-3 text-sm text-primary focus:outline-none focus:ring-2 focus:ring-mono-400"
           >
-            <option value="non-brand">{CLASS_LABELS['non-brand'].technical}</option>
-            <option value="branded">{CLASS_LABELS.branded.technical}</option>
+            <option value="non-brand">{CLASS_LABELS['non-brand']}</option>
+            <option value="branded">{CLASS_LABELS.branded}</option>
           </select>
         </div>
         <PropertyProvenance
@@ -1303,61 +1394,60 @@ export function MeasurementPropertyPage() {
         />
       </div>
 
-      <ProviderBreakdown row={selectedRow} queryClass={queryClass} isError={selectedClassUnavailable} />
+      <ProviderBreakdown row={selectedRow} queryClass={queryClass} isError={selectedClassUnavailable} onRetry={retrySelectedClass} notInLastSweep={selectedTypeGap} />
       {/* Directly under coverage, because it is what coverage raises and cannot
           answer. The evidence table below is the receipts; this is the finding. */}
-      <NamedInstead project={project} targetKey={property} queryClass={queryClass} />
-      <AssignedQuestions questions={questions} queryClass={queryClass} />
-      <PropertyNamesSection
-        projectName={project}
-        targetKey={property}
-        published={target}
-        activeRevision={activePlan!.revision}
-        publishedBrandNames={planV2.identities.projectBrand.names}
-      />
-      <PropertyUrls urls={urls} />
+      <NamedInstead project={project} targetKey={property} queryClass={queryClass} notInLastSweep={selectedNotInLastSweep} />
       <MarketLink project={project} groups={memberGroups} />
 
       <section aria-labelledby="property-evidence" className="page-section-divider">
         <div className="section-head section-head-inline">
-          <div>
-            <h2 id="property-evidence" className="text-base font-semibold text-heading">
-              Answers the engines gave
-              <InfoTooltip text="One row per answer an engine gave for the queries assigned to this Property in the displayed measurement. Mentioned and cited are independent: an answer can name this Property without linking it, or link it without naming it. Answers that did neither are listed first, because those are what a gap is made of. Where the answer text was not stored the mention reads Not measured, never a zero. Open a row to read what the engine actually said, followed by the source URLs it returned, this Property's own first. The answer is where a miss becomes actionable: a query this Property was not named in may still have named a sibling building." />
-            </h2>
+          <div className="flex items-center gap-1">
+            <h3 id="property-evidence" className="text-base font-semibold text-heading">Answers</h3>
+            <InfoTooltip placement="bottom" text="One row per answer to this location's queries in this sweep. Mentioned and cited are separate. No saved answer text reads Not measured. Open a row for the answer and its sources." />
           </div>
           {evidenceRows.length > 0 ? <p className="supporting-copy">{evidenceRows.length} of {evidenceTotal}</p> : null}
         </div>
         {selectedClassUnavailable ? (
-          <p className="text-sm text-secondary">Evidence for {CLASS_LABELS[queryClass].technical.toLocaleLowerCase()} is unavailable. Retry that query type above.</p>
+          <ClassLoadFailed queryClass={queryClass} onRetry={retrySelectedClass} />
         ) : evidenceQuery.isPending && evidenceRows.length === 0 ? (
-          <p className="text-sm text-secondary">Loading evidence…</p>
+          <p className="text-sm text-secondary">Loading…</p>
         ) : evidenceQuery.isError && evidenceRows.length === 0 ? (
-          <div className="flex flex-wrap items-center gap-3 text-sm text-secondary">
-            <span role="alert">Evidence could not be loaded.</span>
-            <Button type="button" size="sm" variant="outline" className="h-11 px-4 text-sm md:h-11" onClick={() => { void evidenceQuery.refetch() }}>Retry evidence</Button>
+          <div className="flex flex-wrap items-center gap-3">
+            <span role="alert"><StatusNote icon={AlertTriangle} tone="negative" label="Load failed" detail="The answers did not load." /></span>
+            <RetryButton name="answers" onClick={() => { void evidenceQuery.refetch() }} />
           </div>
         ) : evidenceState === 'not_measured' ? (
           // Not measured is not "no evidence". Saying "none" here would report
           // an absent measurement as a measured result.
-          <p className="text-sm text-secondary">{isDashboardManagedSweeps() ? MANAGED_SWEEPS_COPY : 'Not measured yet. Run a measurement to collect the answers for this Property.'}</p>
+          <StatusNote
+            icon={Clock}
+            label="Not measured"
+            detail={isDashboardManagedSweeps() ? MANAGED_SWEEPS_COPY : canWrite
+              ? 'Run a measurement to collect the answers for this location.'
+              : 'This location needs a new measurement before its answers are available.'}
+          />
         ) : evidenceShapeMismatch ? (
-          <p role="alert" className="text-sm text-caution">
-            This measurement was returned in an older format, so the answers cannot be shown here.
-            The numbers above are unaffected.
-          </p>
+          <div className="flex flex-wrap items-center gap-3">
+            <span role="alert">
+              <StatusNote icon={AlertTriangle} tone="caution" label="Answers unavailable" detail="This measurement was returned in an older format, so the answers cannot be shown here. The numbers above are unaffected." />
+            </span>
+            <RetryButton name="answers" onClick={() => { void evidenceQuery.refetch() }} />
+          </div>
+        ) : evidenceRows.length === 0 && selectedTypeGap ? (
+          <NotInLastSweep reason={selectedTypeGap} />
         ) : evidenceRows.length === 0 ? (
-          <p className="text-sm text-secondary">No answers matched this Property in the displayed measurement.</p>
+          <StatusNote icon={Info} label="No answers" detail="No answers matched this location in this sweep." />
         ) : (
           <>
             <div className="property-answer-table-container overflow-x-auto rounded-md border border-default">
               <table className="evidence-table property-evidence-table">
-                <caption className="sr-only">Answers measured for this Property</caption>
+                <caption className="sr-only">Answers measured for this location</caption>
                 <thead>
                   <tr>
                     <th>Query</th>
-                    <th>Mentioned in the answer</th>
-                    <th>Cited as a source</th>
+                    <th>Mentioned</th>
+                    <th>Cited</th>
                     <th>Sources</th>
                     <th><span className="sr-only">Sources detail</span></th>
                   </tr>
@@ -1371,25 +1461,25 @@ export function MeasurementPropertyPage() {
                       <Fragment key={key}>
                         <tr className="property-answer-summary">
                           <td className="text-secondary">
-                            <h3 className="text-sm font-medium text-heading">{item.queryText}</h3>
+                            <h4 className="text-sm font-medium text-heading">{item.queryText}</h4>
                             <span className="mt-1 block text-xs text-muted">
-                              {[item.provider, item.location].filter(Boolean).join(' · ')}
+                              {[providerDisplayName(item.provider), item.location].filter(Boolean).join(' · ')}
                             </span>
                             {item.historical || item.bridged ? (
                               <span className="mt-1 flex"><ToneBadge tone="caution">Historical</ToneBadge></span>
                             ) : null}
                           </td>
-                          <td><span className="property-evidence-mobile-label" aria-hidden="true">Mentioned</span><MentionSignal row={item} /></td>
-                          <td><span className="property-evidence-mobile-label" aria-hidden="true">Cited</span><CitationSignal row={item} /></td>
-                          <td className="tabular-nums text-secondary"><span className="property-evidence-mobile-label" aria-hidden="true">{ANSWER_SOURCES_LABEL}</span>{item.cited === null ? EM_DASH : item.sources.length}</td>
+                          <td className="whitespace-nowrap"><span className="property-evidence-mobile-label" aria-hidden="true">Mentioned</span><MentionSignal row={item} /></td>
+                          <td className="whitespace-nowrap"><span className="property-evidence-mobile-label" aria-hidden="true">Cited</span><CitationSignal row={item} /></td>
+                          <td className="whitespace-nowrap tabular-nums text-secondary"><span className="property-evidence-mobile-label" aria-hidden="true">{ANSWER_SOURCES_LABEL}</span>{item.cited === null ? <StatusNote icon={AlertTriangle} tone="caution" label={sourcesGap(item).label} detail={sourcesGap(item).detail} /> : item.sources.length}</td>
                           <td className="text-right">
                             <Button
                               type="button"
                               size="sm"
                               variant="ghost"
-                              className="h-auto min-h-11 max-w-full whitespace-normal py-2 text-left md:h-auto"
+                              className="h-auto min-h-11 max-w-full whitespace-normal py-2 text-left md:h-auto md:whitespace-nowrap"
                               aria-expanded={expanded}
-                              aria-label={expanded ? `Hide the answer for ${item.queryText}` : `Read the answer for ${item.queryText}`}
+                              aria-label={expanded ? `Hide the answer for ${item.queryText}` : `View the answer for ${item.queryText}`}
                               aria-controls={expanded ? detailId : undefined}
                               onClick={() => setExpandedAnswers(current => {
                                 const next = new Set(current)
@@ -1397,7 +1487,7 @@ export function MeasurementPropertyPage() {
                                 return next
                               })}
                             >
-                              {expanded ? 'Hide answer' : 'Read answer'}
+                              {expanded ? 'Hide answer' : 'View answer'}
                             </Button>
                           </td>
                         </tr>
@@ -1407,7 +1497,7 @@ export function MeasurementPropertyPage() {
                               {/* The answer leads. The source list is the supporting
                                   detail, not the point: a reader who opened this row
                                   wants to know what was said before who was linked. */}
-                              <AnswerText project={project} targetKey={property} resultId={item.observationId} />
+                              <AnswerText project={project} targetKey={property} resultId={item.observationId} headingLevel={5} />
                               <AnswerSources row={item} />
                             </td>
                           </tr>
@@ -1421,18 +1511,19 @@ export function MeasurementPropertyPage() {
             {evidenceQuery.hasNextPage ? (
               <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-secondary">
                 <span>Showing {evidenceRows.length} of {evidenceTotal}</span>
-                {evidenceQuery.isFetchNextPageError ? <span role="alert">Could not load more evidence.</span> : null}
+                {evidenceQuery.isFetchNextPageError ? <span role="alert"><StatusNote icon={AlertTriangle} tone="negative" label="Load failed" /></span> : null}
                 <Button
                   size="sm"
                   variant="outline"
                   className="h-11 px-4 text-sm md:h-11"
                   disabled={evidenceQuery.isFetchingNextPage}
+                  aria-label={evidenceQuery.isFetchNextPageError && !evidenceQuery.isFetchingNextPage ? 'Retry more answers' : undefined}
                   onClick={() => { void evidenceQuery.fetchNextPage() }}
                 >
                   {evidenceQuery.isFetchingNextPage
                     ? 'Loading…'
                     : evidenceQuery.isFetchNextPageError
-                      ? 'Retry more evidence'
+                      ? 'Retry'
                       : `Show ${EVIDENCE_PAGE_SIZE} more`}
                 </Button>
               </div>
@@ -1448,6 +1539,7 @@ export function MeasurementPropertyPage() {
           queryClass={queryClass}
           runId={displayedRunId}
           targetLabels={targetLabels}
+          notInLastSweep={locationNotInLastSweep}
         />
       ) : null}
     </div>
