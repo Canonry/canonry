@@ -8,13 +8,14 @@ const signal = (overrides: Partial<JourneyEntrySignal>): JourneyEntrySignal => (
   refererHost: null,
   utmSource: null,
   utmMedium: null,
-  clickId: false,
+  adClickId: false,
+  clickNetwork: null,
   ...overrides,
 })
 
 describe('classifyJourneyEntry', () => {
   it('lets an AI referral win over every other marker', () => {
-    expect(classifyJourneyEntry(signal({ aiProduct: 'ChatGPT', aiDomain: 'chatgpt.com', refererHost: 'chatgpt.com', utmSource: 'google', clickId: true })))
+    expect(classifyJourneyEntry(signal({ aiProduct: 'ChatGPT', aiDomain: 'chatgpt.com', refererHost: 'chatgpt.com', utmSource: 'google', adClickId: true })))
       .toEqual({ entryClass: 'ai', entryName: 'ChatGPT', entryHost: 'chatgpt.com', paid: false })
     expect(classifyJourneyEntry(signal({ aiProduct: 'ChatGPT', aiDomain: 'chatgpt.com', aiPaid: true })).paid).toBe(true)
   })
@@ -32,8 +33,32 @@ describe('classifyJourneyEntry', () => {
     expect(classifyJourneyEntry(signal({ refererHost: host }))).toMatchObject({ entryClass, entryName, paid: false })
   })
 
-  it('marks paid traffic from a paid medium or a click id', () => {
-    expect(classifyJourneyEntry(signal({ refererHost: 'www.google.com', clickId: true })))
+  it.each([
+    ['accounts.google.com'],
+    ['mail.google.com'],
+    ['docs.google.com'],
+    ['mail.yahoo.com'],
+    ['mail.yandex.ru'],
+    ['blog.naver.com'],
+  ])('treats non-search host %s as a referral, not search', host => {
+    expect(classifyJourneyEntry(signal({ refererHost: host }))).toMatchObject({ entryClass: 'referral', entryName: host })
+  })
+
+  it.each([['google.co.uk'], ['google.com.au'], ['search.yahoo.com'], ['uk.search.yahoo.com'], ['yandex.ru'], ['search.naver.com']])('still treats %s as search', host => {
+    expect(classifyJourneyEntry(signal({ refererHost: host })).entryClass).toBe('search')
+  })
+
+  it('does not call fbclid paid: platforms add it to unpaid links', () => {
+    expect(classifyJourneyEntry(signal({ refererHost: 'l.facebook.com', clickNetwork: 'Facebook' })))
+      .toEqual({ entryClass: 'social', entryName: 'Facebook', entryHost: 'l.facebook.com', paid: false })
+    expect(classifyJourneyEntry(signal({ clickNetwork: 'Facebook' })))
+      .toEqual({ entryClass: 'social', entryName: 'Facebook', entryHost: null, paid: false })
+    expect(classifyJourneyEntry(signal({ clickNetwork: 'Facebook', utmMedium: 'paid_social' })))
+      .toEqual({ entryClass: 'paid', entryName: 'Facebook', entryHost: null, paid: true })
+  })
+
+  it('marks paid traffic from a paid medium or an ad click id', () => {
+    expect(classifyJourneyEntry(signal({ refererHost: 'www.google.com', adClickId: true })))
       .toEqual({ entryClass: 'paid', entryName: 'Google', entryHost: 'google.com', paid: true })
     expect(classifyJourneyEntry(signal({ utmSource: 'facebook', utmMedium: 'CPC' })))
       .toEqual({ entryClass: 'paid', entryName: 'Facebook', entryHost: null, paid: true })

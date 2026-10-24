@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { fraction } from './ratio-unit.js'
 
 /**
  * AI visitor journeys: what a visitor who arrived from an AI engine did on the
@@ -8,12 +9,23 @@ import { z } from 'zod'
  * (IP + user agent, or the user agent alone), never a person.
  */
 
-/** Visits within this long after a visitor's latest AI-referred visit are kept. */
+/** Visits starting within this long after one of a visitor's AI-referred visits are kept. */
 export const JOURNEY_LOOKBACK_DAYS = 30
 /** Journey rows are deleted after this long. */
 export const JOURNEY_RETENTION_DAYS = 180
 /** A visit ends after this long without a request. */
 export const JOURNEY_VISIT_IDLE_MINUTES = 30
+
+/**
+ * Requests stored per visitor per UTC day. One person rarely makes more; a
+ * user-agent-only key (a source without an IP) can merge everyone on the same
+ * device and browser version, and the cap keeps such a key from storing that
+ * whole cohort's traffic. Requests over it are counted in `eventsCapped`.
+ */
+export const JOURNEY_MAX_REQUESTS_PER_VISITOR_DAY = 300
+
+/** Visits nested under each visitor in a journeys list: the first ones, in order. */
+export const JOURNEY_LIST_VISITS_PER_VISITOR = 20
 
 /**
  * What a visitor key was computed from. `ip-ua` (Cloud Run, Cloudflare,
@@ -41,12 +53,14 @@ export interface JourneyEntrySignal {
   aiProduct: string | null
   aiDomain: string | null
   aiPaid: boolean
-  /** External referer host, or null when absent or on the same site. */
+  /** External referer host, or null when absent, on the same site, or a sign-in or payment page. */
   refererHost: string | null
   utmSource: string | null
   utmMedium: string | null
-  /** A click id (gclid, msclkid, fbclid, ttclid, li_fat_id) was present; only its presence is kept. */
-  clickId: boolean
+  /** An ad click id (gclid, gbraid, wbraid, dclid, msclkid, ttclid, li_fat_id) was present; only its presence is kept. */
+  adClickId: boolean
+  /** Network named by a click id platforms also add to unpaid links (fbclid: Facebook, twclid: X). Not paid evidence. */
+  clickNetwork: string | null
 }
 
 export interface JourneyEntry {
@@ -58,15 +72,16 @@ export interface JourneyEntry {
 }
 
 const SEARCH_ENGINES: ReadonlyArray<{ name: string; match: (host: string) => boolean }> = [
-  { name: 'Google', match: h => /(^|\.)google\.[a-z.]+$/.test(h) },
-  { name: 'Bing', match: h => h === 'bing.com' || h.endsWith('.bing.com') },
-  { name: 'DuckDuckGo', match: h => h === 'duckduckgo.com' || h.endsWith('.duckduckgo.com') },
-  { name: 'Yahoo', match: h => /(^|\.)search\.yahoo\.[a-z.]+$/.test(h) || /(^|\.)yahoo\.[a-z.]+$/.test(h) },
-  { name: 'Yandex', match: h => /(^|\.)yandex\.[a-z.]+$/.test(h) },
-  { name: 'Baidu', match: h => h === 'baidu.com' || h.endsWith('.baidu.com') },
-  { name: 'Ecosia', match: h => h === 'ecosia.org' || h.endsWith('.ecosia.org') },
+  // Search hosts only: accounts.google.com, mail.yahoo.com and the like are not search.
+  { name: 'Google', match: h => /^google\.[a-z]{2,3}(?:\.[a-z]{2})?$/.test(h) },
+  { name: 'Bing', match: h => h === 'bing.com' || h === 'cn.bing.com' },
+  { name: 'DuckDuckGo', match: h => h === 'duckduckgo.com' || h === 'html.duckduckgo.com' },
+  { name: 'Yahoo', match: h => /(?:^|\.)search\.yahoo\.[a-z.]+$/.test(h) },
+  { name: 'Yandex', match: h => /^yandex\.[a-z]{2,3}$/.test(h) || h === 'ya.ru' },
+  { name: 'Baidu', match: h => h === 'baidu.com' || h === 'm.baidu.com' },
+  { name: 'Ecosia', match: h => h === 'ecosia.org' },
   { name: 'Brave Search', match: h => h === 'search.brave.com' },
-  { name: 'Naver', match: h => h === 'naver.com' || h.endsWith('.naver.com') },
+  { name: 'Naver', match: h => h === 'search.naver.com' || h === 'm.search.naver.com' },
   { name: 'Startpage', match: h => h === 'startpage.com' || h.endsWith('.startpage.com') },
   { name: 'Qwant', match: h => h === 'qwant.com' || h.endsWith('.qwant.com') },
 ]
@@ -122,8 +137,9 @@ function searchName(host: string): string | null {
 
 /**
  * Where a visit came from. AI referrals win (the AI-referral classifier already
- * judged them); then a paid marker (paid utm_medium or a click id); then the
- * external referer host; then a utm_source with no referer; else direct.
+ * judged them); then a paid marker (paid utm_medium or an ad click id); then
+ * the external referer host; then a utm_source with no referer; then a network
+ * click id (fbclid) with neither; else direct.
  */
 export function classifyJourneyEntry(signal: JourneyEntrySignal): JourneyEntry {
   if (signal.aiProduct) {
@@ -132,16 +148,17 @@ export function classifyJourneyEntry(signal: JourneyEntrySignal): JourneyEntry {
   const host = signal.refererHost ? baseHost(signal.refererHost) : null
   const medium = signal.utmMedium?.trim().toLowerCase() ?? ''
   const source = signal.utmSource?.trim().toLowerCase() ?? ''
-  const paid = PAID_MEDIUMS.has(medium) || signal.clickId
+  const paid = PAID_MEDIUMS.has(medium) || signal.adClickId
   const fromHost = host ? (searchName(host) ? { entryClass: 'search' as const, name: searchName(host)! } : socialName(host) ? { entryClass: 'social' as const, name: socialName(host)! } : null) : null
   const fromSource = source ? SOURCE_NAMES[source.replace(/\.com$/, '')] ?? null : null
   if (paid) {
-    return { entryClass: 'paid', entryName: fromHost?.name ?? fromSource?.name ?? (source || host), entryHost: host, paid: true }
+    return { entryClass: 'paid', entryName: fromHost?.name ?? fromSource?.name ?? signal.clickNetwork ?? (source || host), entryHost: host, paid: true }
   }
   if (fromHost) return { entryClass: fromHost.entryClass, entryName: fromHost.name, entryHost: host, paid: false }
   if (host) return { entryClass: 'referral', entryName: host, entryHost: host, paid: false }
   if (fromSource) return { entryClass: fromSource.entryClass, entryName: fromSource.name, entryHost: null, paid: false }
   if (source) return { entryClass: 'referral', entryName: source, entryHost: null, paid: false }
+  if (signal.clickNetwork) return { entryClass: 'social', entryName: signal.clickNetwork, entryHost: null, paid: false }
   return { entryClass: 'direct', entryName: null, entryHost: null, paid: false }
 }
 
@@ -161,10 +178,9 @@ export function journeyDeviceLabel(userAgent: string | null | undefined): string
     if (samsung) return `Samsung Internet ${samsung[1]}`
     const chrome = /(?:Chrome|CriOS)\/(\d+)/.exec(ua)
     if (chrome) return `Chrome ${chrome[1]}`
-    const safari = /Version\/(\d+(?:\.\d+)?).*Safari\//.exec(ua)
-    if (safari) return `Safari ${safari[1]}`
-    if (/Safari\//.test(ua)) return 'Safari'
-    return null
+    if (!/Safari\//.test(ua)) return null
+    const safari = /Version\/(\d+(?:\.\d+)?)/.exec(ua)
+    return safari ? `Safari ${safari[1]}` : 'Safari'
   })()
   const ios = /(iPhone|iPad|iPod).*?OS (\d+)_(\d+)/.exec(ua)
   if (ios) {
@@ -228,6 +244,8 @@ export const journeyVisitorDtoSchema = z.object({
   returned: z.boolean(),
   /** Entry classes of the visits after the first AI visit, in order. */
   returnChannels: z.array(journeyEntryClassSchema),
+  /** Requests not stored because this key passed the daily cap; high values suggest a user agent many people share. */
+  eventsCapped: z.number().int(),
 })
 export type JourneyVisitorDto = z.infer<typeof journeyVisitorDtoSchema>
 
@@ -240,6 +258,7 @@ export const journeysResponseSchema = z.object({
   totalVisitors: z.number().int(),
   limit: z.number().int(),
   offset: z.number().int(),
+  /** Each visitor's first visits, at most JOURNEY_LIST_VISITS_PER_VISITOR; `visitCount` is the total. */
   visitors: z.array(journeyVisitorDtoSchema.extend({ visits: z.array(journeyVisitDtoSchema) })),
 })
 export type JourneysResponse = z.infer<typeof journeysResponseSchema>
@@ -253,9 +272,19 @@ export const journeyEventDtoSchema = z.object({
 })
 export type JourneyEventDto = z.infer<typeof journeyEventDtoSchema>
 
+export const journeyDetailQuerySchema = z.object({
+  /** Visits per page, in time order. */
+  limit: z.number().int().min(1).max(500).optional(),
+  offset: z.number().int().min(0).optional(),
+})
+export type JourneyDetailQuery = z.infer<typeof journeyDetailQuerySchema>
+
 export const journeyDetailResponseSchema = z.object({
   project: z.string(),
   visitor: journeyVisitorDtoSchema,
+  totalVisits: z.number().int(),
+  limit: z.number().int(),
+  offset: z.number().int(),
   visits: z.array(journeyVisitDtoSchema.extend({ events: z.array(journeyEventDtoSchema) })),
 })
 export type JourneyDetailResponse = z.infer<typeof journeyDetailResponseSchema>
@@ -272,7 +301,7 @@ export const journeySummaryResponseSchema = z.object({
   /** Of aiVisitors, those who came back in a later visit. */
   returningVisitors: z.number().int(),
   /** returningVisitors / aiVisitors; null with no AI visitors. */
-  returnRate: z.number().nullable(),
+  returnRate: fraction().nullable(),
   /** Later visits of those visitors, by how they came back. */
   returnedVia: z.record(journeyEntryClassSchema, z.number().int()),
   /** Median days from a visitor's first AI visit to their first later visit; null with none. */

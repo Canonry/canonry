@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import Fastify from 'fastify'
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import { apiKeys, createClient, journeyEvents, journeyVisitors, journeyVisits, migrate, projects, trafficSources } from '@canonry/canonry-db'
-import type { NormalizedTrafficRequest } from '@canonry/canonry-contracts'
+import { JOURNEY_MAX_REQUESTS_PER_VISITOR_DAY, type NormalizedTrafficRequest } from '@canonry/canonry-contracts'
 import { apiRoutes } from '../src/index.js'
 import { hashApiKey } from '../src/auth.js'
-import { enforceJourneyRetention, journeyVisitorKey, persistJourneyBatch } from '../src/journeys.js'
+import { enforceJourneyRetention, journeyVisitorKey, persistJourneyBatch, recordJourneyBatch } from '../src/journeys.js'
 
 const SECRET = 'journey-test-secret-at-least-32-characters'
 const MAC = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36'
@@ -103,6 +103,14 @@ describe('AI visitor journeys', () => {
       expect(db.select().from(journeyVisitors).get()).toMatchObject({ firstAiAt: '2026-10-05T10:00:00.000Z', firstAiEngine: 'Perplexity', lastAiAt: '2026-10-20T10:00:00.000Z', lastSeenAt: '2026-10-20T10:00:00.000Z' })
     })
 
+    it('measures each request against the stored AI visit before it', () => {
+      persist([event('ai-aug', '2026-08-01T12:00:00Z', chatgpt)])
+      persist([event('ai-oct', '2026-10-20T12:00:00Z', perplexity)])
+      const google = { referer: 'https://www.google.com/' }
+      expect(persist([event('sep', '2026-09-15T12:00:00Z', google), event('aug', '2026-08-15T12:00:00Z', google)])).toEqual({ visitsWritten: 1, eventsStored: 1 })
+      expect(db.select().from(journeyEvents).all().map(e => e.sourceEventId).sort()).toEqual(['ai-aug', 'ai-oct', 'aug'])
+    })
+
     it('skips requests past retention and retention deletes old rows', () => {
       expect(persist([event('old', '2026-03-01T10:00:00Z', chatgpt)])).toEqual({ visitsWritten: 0, eventsStored: 0 })
       persist([event('a', '2026-04-01T10:00:00Z', chatgpt)], { now: '2026-04-02T00:00:00Z' })
@@ -111,6 +119,68 @@ describe('AI visitor journeys', () => {
       expect(db.select().from(journeyEvents).all().map(e => e.sourceEventId)).toEqual(['b'])
       expect(db.select().from(journeyVisits).all()).toHaveLength(1)
       expect(db.select().from(journeyVisitors).all().map(v => v.userAgent)).toEqual([IPHONE])
+    })
+
+    it('handles a batch larger than the spread-argument limit', () => {
+      const start = Date.parse('2026-10-20T00:00:00Z')
+      const events = Array.from({ length: 140_000 }, (_, i) => event(`bulk-${i}`, new Date(start + i * 1000).toISOString(), { remoteIp: `10.0.${(i >> 8) & 255}.${i & 255}` }))
+      events.push(event('bulk-ai', new Date(start).toISOString(), chatgpt))
+      expect(persist(events)).toEqual({ visitsWritten: 1, eventsStored: 1 })
+    }, 30_000)
+
+    it('a failed journey write rolls back alone and the traffic write still commits', () => {
+      db.run(sql`DROP TABLE journey_events`)
+      const errors: unknown[] = []
+      db.transaction(tx => {
+        tx.update(trafficSources).set({ displayName: 'Committed' }).where(eq(trafficSources.id, 'source')).run()
+        expect(recordJourneyBatch(tx, { projectId: 'project', sourceId: 'source', events: [event('a', '2026-10-20T10:00:00Z', chatgpt)], secret: SECRET, now: NOW }, {
+          onError: error => errors.push(error),
+          outerActive: () => db.$client.inTransaction,
+        })).toEqual({ visitsWritten: 0, eventsStored: 0 })
+      })
+      expect(errors).toHaveLength(1)
+      expect(db.select().from(trafficSources).where(eq(trafficSources.id, 'source')).get()?.displayName).toBe('Committed')
+      expect(db.select().from(journeyVisitors).all()).toEqual([])
+      expect(db.select().from(journeyVisits).all()).toEqual([])
+    })
+
+    it('rethrows when the failure already ended the outer transaction', () => {
+      db.run(sql`DROP TABLE journey_events`)
+      expect(() => db.transaction(tx => {
+        recordJourneyBatch(tx, { projectId: 'project', sourceId: 'source', events: [event('a', '2026-10-20T10:00:00Z', chatgpt)], secret: SECRET, now: NOW }, {
+          onError: () => undefined,
+          outerActive: () => false,
+        })
+      })).toThrow()
+    })
+
+    it('rewrites a stored visit when a late request becomes its first', () => {
+      persist([event('ai', '2026-10-20T09:00:00Z', chatgpt)])
+      persist([event('pricing', '2026-10-20T10:05:00Z', { path: '/pricing', referer: 'https://example.com/' })])
+      persist([event('root', '2026-10-20T10:00:00Z', { path: '/' })])
+      persist([event('google', '2026-10-20T09:58:00Z', { path: '/g', referer: 'https://www.google.com/' })])
+      const later = db.select().from(journeyVisits).all().filter(v => v.entryClass !== 'ai')
+      expect(later).toMatchObject([{ entryClass: 'search', entryName: 'Google', landingPath: '/g', startedAt: '2026-10-20T09:58:00.000Z', endedAt: '2026-10-20T10:05:00.000Z', requestCount: 3 }])
+    })
+
+    it('treats a referer on the project domain as a step even with no event host', () => {
+      persist([
+        event('a', '2026-10-20T10:00:00Z', { ...chatgpt, host: null, requestUrl: '/' }),
+        event('b', '2026-10-20T10:01:00Z', { path: '/pricing', host: null, requestUrl: '/pricing', referer: 'https://www.example.com/' }),
+      ])
+      expect(db.select().from(journeyVisits).all()).toMatchObject([{ entryClass: 'ai', requestCount: 2 }])
+    })
+
+    it('caps stored requests per visitor per day and counts the rest', () => {
+      const start = Date.parse('2026-10-20T00:00:00Z')
+      const events = [event('ai', new Date(start).toISOString(), chatgpt)]
+      for (let i = 1; i <= JOURNEY_MAX_REQUESTS_PER_VISITOR_DAY + 4; i += 1) {
+        events.push(event(`p${i}`, new Date(start + i * 60_000).toISOString(), { path: `/p${i}`, referer: 'https://example.com/' }))
+      }
+      persist(events.slice(0, 200))
+      persist(events.slice(200))
+      expect(db.select().from(journeyEvents).all()).toHaveLength(JOURNEY_MAX_REQUESTS_PER_VISITOR_DAY)
+      expect(db.select().from(journeyVisitors).get()).toMatchObject({ eventsCapped: 5 })
     })
 
     it('retention also removes visitors whose visits went with a deleted source', async () => {
@@ -183,7 +253,12 @@ describe('AI visitor journeys', () => {
       const res = await app.inject({ method: 'GET', url: `/api/v1/projects/example/journeys/${key}` })
       expect(res.statusCode).toBe(200)
       const body = res.json()
-      expect(body.visitor).toMatchObject({ visitorKey: key, keyBasis: 'ua', device: 'Mac · Chrome 155' })
+      expect(body).toMatchObject({ totalVisits: 2, limit: 100, offset: 0 })
+      expect(body.visitor).toMatchObject({ visitorKey: key, keyBasis: 'ua', device: 'Mac · Chrome 155', eventsCapped: 0 })
+      const second = (await app.inject({ method: 'GET', url: `/api/v1/projects/example/journeys/${key}?limit=1&offset=1` })).json()
+      expect(second).toMatchObject({ totalVisits: 2, limit: 1, offset: 1 })
+      expect(second.visits.map((v: { entryClass: string }) => v.entryClass)).toEqual(['search'])
+      expect((await app.inject({ method: 'GET', url: `/api/v1/projects/example/journeys/${key}?limit=501` })).statusCode).toBe(400)
       expect(body.visits[0].events).toEqual([
         { ts: '2026-10-18T10:00:00.000Z', method: 'GET', path: '/?utm_source=chatgpt.com', status: 200, kind: 'page' },
         { ts: '2026-10-18T10:02:00.000Z', method: 'GET', path: '/rooms', status: 200, kind: 'page' },

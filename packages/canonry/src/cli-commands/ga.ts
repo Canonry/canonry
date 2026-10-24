@@ -225,6 +225,19 @@ export const GA_CLI_COMMANDS: readonly CliCommandSpec[] = [
     },
   },
   {
+    path: ['ga', 'overview'],
+    windows: WINDOW_SETS.gaOverview,
+    usage: 'canonry ga overview <project> [--window 7d|30d|90d] [--format json]',
+    run: async (input) => {
+      const { gaOverview } = await import('../commands/ga.js')
+      const project = requireProject(input, 'ga.overview', 'canonry ga overview <project> [--window 7d|30d|90d] [--format json]')
+      await gaOverview(project, {
+        window: typeof input.values.window === 'string' ? input.values.window : undefined,
+        format: input.format,
+      })
+    },
+  },
+  {
     path: ['ga', 'session-history'],
     windows: WINDOW_SETS.metrics,
     usage: `canonry ga session-history <project> ${RANGE_USAGE} [--format json]`,
@@ -275,7 +288,7 @@ export const GA_CLI_COMMANDS: readonly CliCommandSpec[] = [
       unknownSubcommand(input.positionals[0], {
         command: 'ga',
         usage: 'canonry ga <subcommand> <project> [args]',
-        available: ['connect', 'disconnect', 'status', 'properties', 'sync', 'acquisition', 'measurement-analysis', 'search-landing-pages', 'traffic', 'coverage', 'ai-referral-history', 'ai-referral-daily', 'social-referral-history', 'session-history', 'social-referral-summary', 'attribution'],
+        available: ['connect', 'disconnect', 'status', 'properties', 'sync', 'acquisition', 'measurement-analysis', 'search-landing-pages', 'traffic', 'coverage', 'ai-referral-history', 'ai-referral-daily', 'social-referral-history', 'overview', 'session-history', 'social-referral-summary', 'attribution'],
       })
     },
   },

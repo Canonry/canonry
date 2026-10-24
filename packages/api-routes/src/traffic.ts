@@ -128,7 +128,7 @@ import {
   authRequired,
 } from '@canonry/canonry-contracts'
 import { auditFromRequest, resolveProject, syncRunTrigger, writeAuditLog } from './helpers.js'
-import { enforceJourneyRetention, persistJourneyBatch } from './journeys.js'
+import { enforceJourneyRetention, recordJourneyBatch } from './journeys.js'
 import type { ScheduledSyncClaim } from './helpers.js'
 import { connectionRoute, routeOutcomeFailure, webhookTargetRefusalReason, type ConnectionAttempt, type ConnectionSubject } from './connection-telemetry.js'
 import { createGuardedFetch, EgressFailedError, EgressRefusedError } from './guarded-fetch.js'
@@ -1528,7 +1528,10 @@ async function runBackfillTask(options: RunBackfillTaskOptions): Promise<void> {
 
       // AI visitor journeys from the same requests. Idempotent per source event,
       // so a backfill over an already-synced window adds nothing twice.
-      persistJourneyBatch(tx, { projectId: project.id, sourceId: sourceRow.id, events: allEvents, secret: journeyKeySecret, now: finishedAt })
+      recordJourneyBatch(tx, { projectId: project.id, sourceId: sourceRow.id, events: allEvents, secret: journeyKeySecret, now: finishedAt }, {
+        onError: () => { app.log.error({ sourceId: sourceRow.id }, 'AI visitor journey write failed during traffic backfill') },
+        outerActive: () => app.db.$client.inTransaction,
+      })
 
       // A backfill that reached back to or past the recorded skip has recovered
       // it, so clear the marker. Cleared only when the window actually covers
@@ -2713,6 +2716,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
     try {
       writeResult = writeTrafficEventBatch({
         journeyKeySecret: opts.journeyKeySecret,
+        onJourneyError: () => { app.log.error({ sourceId }, 'AI visitor journey write failed during traffic ingest') },
         db: app.db,
         projectId: project.id,
         sourceId,
@@ -2894,6 +2898,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
           committedAt = new Date().toISOString()
           const writeResult = writeTrafficEventBatch({
             journeyKeySecret: opts.journeyKeySecret,
+            onJourneyError: () => { app.log.error({ sourceId: sourceRow.id }, 'AI visitor journey write failed during queue drain') },
             db: app.db, projectId: project.id, sourceId: sourceRow.id, events: normalized,
             receivedAt: committedAt,
             receiptTtlMs: CLOUDFLARE_QUEUE_RECEIPT_TTL_MS,
@@ -3885,7 +3890,10 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       }
 
       // AI visitor journeys from the same deduplicated requests, in the same transaction.
-      persistJourneyBatch(tx, { projectId: project.id, sourceId: sourceRow.id, events: dedupedEvents, secret: opts.journeyKeySecret, now: finishedAt })
+      recordJourneyBatch(tx, { projectId: project.id, sourceId: sourceRow.id, events: dedupedEvents, secret: opts.journeyKeySecret, now: finishedAt }, {
+        onError: () => { app.log.error({ sourceId: sourceRow.id }, 'AI visitor journey write failed during traffic sync') },
+        outerActive: () => app.db.$client.inTransaction,
+      })
 
       // For WP we persist a continuation cursor and its fixed upper boundary
       // inside the same transaction as rollups. A terminal page clears both;

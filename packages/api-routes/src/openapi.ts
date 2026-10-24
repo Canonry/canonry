@@ -443,6 +443,13 @@ const analyticsWindowParameter: OpenApiParameter = {
   schema: { type: 'string', enum: ['7d', '30d', '90d', 'all'] },
 }
 
+const gaOverviewWindowParameter: OpenApiParameter = {
+  name: 'window',
+  in: 'query',
+  description: 'Overview window: the complete days ending yesterday, as GA4 counts "Last 30 days". Defaults to 30d. Any other value is rejected with 400.',
+  schema: { type: 'string', enum: ['7d', '30d', '90d'] },
+}
+
 const competitorLandscapeGroupKeyParameter: OpenApiParameter = {
   name: 'groupKey',
   in: 'query',
@@ -6318,6 +6325,18 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
+    path: '/api/v1/projects/{name}/ga/overview',
+    summary: 'Get the GA4 overview: totals, change against the previous period, and both periods by day',
+    tags: ['ga4'],
+    parameters: [nameParameter, gaOverviewWindowParameter],
+    responses: {
+      200: jsonResponse('GA4 overview returned.', 'GaOverviewResponse'),
+      400: errorResponse('GA4 is not connected, or the window is not 7d, 30d or 90d.'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'get',
     path: '/api/v1/projects/{name}/ga/session-history',
     summary: 'Get total sessions per day for the project',
     tags: ['ga4'],
@@ -7344,7 +7363,7 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/journeys',
     summary: 'List stored AI visitor journeys',
-    description: 'AI-touched visitors whose first AI-referred visit started in the window, newest first, each with its visits for 30 days after its latest AI visit (entry channel, landing page, page count). `device` is a short label; `userAgent` is the full string. Stored rows only, 180-day retention. No provider calls or writes.',
+    description: 'AI-touched visitors whose first AI-referred visit started in the window, newest first, each with its first 20 visits within 30 days after an AI visit (entry channel, landing page, page count; `visitCount` is the total). `device` is a short label; `userAgent` is the full string. `eventsCapped` counts requests over the 300-per-day cap, a sign of a user agent many people share. Stored rows only, 180-day retention. No provider calls or writes.',
     tags: ['traffic'],
     parameters: [
       nameParameter,
@@ -7361,10 +7380,15 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/journeys/{visitorKey}',
     summary: 'Read one stored AI visitor journey',
-    description: 'One visitor and every stored visit with its requests in order (path with utm parameters only, status, page or data request). Stored rows only. No provider calls or writes.',
+    description: 'One visitor and a page of its stored visits in time order, each with its requests (path with secret-like segments masked and utm parameters only, status, page or data request). Stored rows only. No provider calls or writes.',
     tags: ['traffic'],
-    parameters: [nameParameter, { name: 'visitorKey', in: 'path', required: true, description: 'Visitor key from the journey list.', schema: stringSchema }],
-    responses: { 200: jsonResponse('Journey detail.', 'JourneyDetailResponse'), 403: errorResponse('Journeys are unavailable to this principal.'), 404: errorResponse('Project or journey not found.') },
+    parameters: [
+      nameParameter,
+      { name: 'visitorKey', in: 'path', required: true, description: 'Visitor key from the journey list.', schema: stringSchema },
+      { name: 'limit', in: 'query', description: 'Visits per page, default 100.', schema: { type: 'integer', minimum: 1, maximum: 500 } },
+      { name: 'offset', in: 'query', description: 'Visits to skip, default 0.', schema: { type: 'integer', minimum: 0 } },
+    ],
+    responses: { 200: jsonResponse('Journey detail.', 'JourneyDetailResponse'), 400: errorResponse('Invalid selection.'), 403: errorResponse('Journeys are unavailable to this principal.'), 404: errorResponse('Project or journey not found.') },
   },
   {
     method: 'get',

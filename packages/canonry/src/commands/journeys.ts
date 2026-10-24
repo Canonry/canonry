@@ -1,5 +1,8 @@
 import {
+  formatPercent,
   formatValidationIssues,
+  JOURNEY_MAX_REQUESTS_PER_VISITOR_DAY,
+  journeyDetailQuerySchema,
   journeySummaryQuerySchema,
   journeysQuerySchema,
   type JourneyEntryClass,
@@ -55,13 +58,13 @@ export async function journeysSummary(project: string, opts: JourneyWindowOption
   console.log(`AI visitor journeys for "${project}", first AI visit ${day(result.windowStart)} to ${day(result.windowEnd)}`)
   console.log(`AI visitors: ${result.aiVisitors} (IP and user agent ${result.keyBasis.ipUa}, user agent only ${result.keyBasis.ua})`)
   console.log(`AI visits: ${result.aiVisits}`)
-  const rate = result.returnRate === null ? '-' : `${Math.round(result.returnRate * 100)}%`
+  const rate = formatPercent(result.returnRate)
   const median = result.medianDaysToReturn === null ? '' : `, median ${result.medianDaysToReturn.toFixed(1)} days to return`
   console.log(`Came back later: ${result.returningVisitors} (${rate})${median}`)
   const via = (Object.entries(result.returnedVia) as [JourneyEntryClass, number][]).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1])
   if (via.length > 0) console.log(`Later visits by entry: ${via.map(([cls, n]) => `${cls} ${n}`).join(', ')}`)
   for (const row of result.byEngine) console.log(`  ${row.engine}: ${row.visitors} visitors, ${row.returningVisitors} came back`)
-  console.log(`Stored for ${result.lookbackDays} days after each visitor's latest AI visit. ${result.keyBasis.ua > 0 ? UA_NOTE : ''}`.trim())
+  console.log(`Visits are kept for ${result.lookbackDays} days after each AI visit. ${result.keyBasis.ua > 0 ? UA_NOTE : ''}`.trim())
 }
 
 export async function journeysList(project: string, opts: JourneyListOptions): Promise<void> {
@@ -82,15 +85,18 @@ export async function journeysList(project: string, opts: JourneyListOptions): P
   console.log(`AI visitors for "${project}": ${result.visitors.length} of ${result.totalVisitors}, first AI visit ${day(result.windowStart)} to ${day(result.windowEnd)}`)
   for (const visitor of result.visitors) {
     const back = visitor.returned ? `back via ${visitor.returnChannels.join(', ')}` : 'no later visit'
-    console.log([minute(visitor.firstAiAt), visitor.firstAiEngine, visitor.device, `${visitor.visitCount} visits`, back, visitor.visitorKey].join('  '))
+    const device = visitor.keyBasis === 'ua' ? `${visitor.device} (UA only)` : visitor.device
+    console.log([minute(visitor.firstAiAt), visitor.firstAiEngine, device, `${visitor.visitCount} visits`, back, visitor.visitorKey].join('  '))
   }
   if (result.offset + result.visitors.length < result.totalVisitors) {
     console.log(`More: --offset ${result.offset + result.visitors.length}`)
   }
+  if (result.visitors.some(visitor => visitor.keyBasis === 'ua')) console.log(UA_NOTE)
 }
 
-export async function journeyShow(project: string, visitorKey: string, opts: { format?: string }): Promise<void> {
-  const result = await createApiClient().journeyGet(project, visitorKey)
+export async function journeyShow(project: string, visitorKey: string, opts: { limit?: number; offset?: number; format?: string }): Promise<void> {
+  const query = parse(journeyDetailQuerySchema, compact({ limit: opts.limit, offset: opts.offset }))
+  const result = await createApiClient().journeyGet(project, visitorKey, query)
   if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify(result, null, 2))
     return
@@ -106,6 +112,10 @@ export async function journeyShow(project: string, visitorKey: string, opts: { f
     for (const event of visit.events) {
       console.log(`  ${event.ts.slice(11, 19)}  ${event.method ?? '-'}  ${event.status ?? '-'}  ${event.kind === 'data' ? '[data] ' : ''}${event.path}`)
     }
+  }
+  if (visitor.eventsCapped > 0) console.log(`\n${visitor.eventsCapped} requests over the ${JOURNEY_MAX_REQUESTS_PER_VISITOR_DAY}-per-day cap were not stored.`)
+  if (result.offset + result.visits.length < result.totalVisits) {
+    console.log(`\nShowing visits ${result.offset + 1} to ${result.offset + result.visits.length} of ${result.totalVisits}. More: --offset ${result.offset + result.visits.length}`)
   }
   if (visitor.keyBasis === 'ua') console.log(`\n${UA_NOTE}`)
 }

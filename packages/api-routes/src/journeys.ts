@@ -3,10 +3,13 @@ import { and, asc, count, desc, eq, gte, inArray, lt, lte, sql } from 'drizzle-o
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import type { DatabaseClient } from '@canonry/canonry-db'
-import { journeyEvents, journeyVisitors, journeyVisits } from '@canonry/canonry-db'
+import { journeyEvents, journeyVisitors, journeyVisits, projects } from '@canonry/canonry-db'
 import {
   formatValidationIssues,
+  JOURNEY_LIST_VISITS_PER_VISITOR,
   JOURNEY_LOOKBACK_DAYS,
+  JOURNEY_MAX_REQUESTS_PER_VISITOR_DAY,
+  journeyDetailQuerySchema,
   JOURNEY_RETENTION_DAYS,
   JOURNEY_VISIT_IDLE_MINUTES,
   journeyDeviceLabel,
@@ -15,6 +18,8 @@ import {
   journeySummaryQuerySchema,
   journeysQuerySchema,
   notFound,
+  RatioUnits,
+  roundRatio,
   validationError,
   type JourneyDetailResponse,
   type JourneyEntryClass,
@@ -96,7 +101,12 @@ export function persistJourneyBatch(
 ): PersistJourneyBatchResult {
   if (!input.secret || input.events.length === 0) return { visitsWritten: 0, eventsStored: 0 }
   const retentionCutoff = Date.parse(input.now) - JOURNEY_RETENTION_MS
-  const extracted = extractJourneyRequests(input.events).filter(r => Date.parse(r.observedAt) >= retentionCutoff)
+  // The project's own domains: referers on them are steps, not arrivals, even
+  // when the provider reports no host or another subdomain.
+  const project = tx.select({ canonicalDomain: projects.canonicalDomain, ownedDomains: projects.ownedDomains }).from(projects)
+    .where(eq(projects.id, input.projectId)).get()
+  const siteDomains = project ? [project.canonicalDomain, ...project.ownedDomains] : []
+  const extracted = extractJourneyRequests(input.events, { siteDomains }).filter(r => Date.parse(r.observedAt) >= retentionCutoff)
   if (extracted.length === 0) return { visitsWritten: 0, eventsStored: 0 }
 
   const stored = new Set<string>()
@@ -120,14 +130,58 @@ export function persistJourneyBatch(
 
   // State for the visitors in this batch: their journey bounds and the stored
   // visits a request could continue.
-  const times = keyed.map(r => Date.parse(r.observedAt))
-  const windowStart = new Date(Math.min(...times) - IDLE_MS).toISOString()
-  const windowEnd = new Date(Math.max(...times) + IDLE_MS).toISOString()
-  const state = new Map<string, JourneyVisitorState>()
+  // A loop, not Math.min(...): a backfill batch can exceed the argument limit.
+  let earliest = Infinity
+  let latest = -Infinity
+  for (const request of keyed) {
+    const t = Date.parse(request.observedAt)
+    if (t < earliest) earliest = t
+    if (t > latest) latest = t
+  }
+  const windowStart = new Date(earliest - IDLE_MS).toISOString()
+  const windowEnd = new Date(latest + IDLE_MS).toISOString()
+  const lookbackStart = new Date(earliest - LOOKBACK_MS).toISOString()
+  const latestIso = new Date(latest).toISOString()
+  const firstDay = new Date(earliest).toISOString().slice(0, 10)
+  const dayAfterLast = new Date(Date.parse(`${new Date(latest).toISOString().slice(0, 10)}T00:00:00.000Z`) + DAY_MS).toISOString()
+  const state = new Map<string, JourneyVisitorState & { aiTimes: string[]; requestsByDay: Record<string, number> }>()
+  const stateFor = (visitorKey: string) => {
+    let visitor = state.get(visitorKey)
+    if (!visitor) {
+      visitor = { firstAiAt: null, firstAiEngine: null, lastAiAt: null, aiTimes: [], visits: [], requestsByDay: {} }
+      state.set(visitorKey, visitor)
+    }
+    return visitor
+  }
   for (const keys of chunks([...basisByKey.keys()])) {
     for (const row of tx.select().from(journeyVisitors)
       .where(and(eq(journeyVisitors.projectId, input.projectId), inArray(journeyVisitors.visitorKey, keys))).all()) {
-      state.set(row.visitorKey, { firstAiAt: row.firstAiAt, firstAiEngine: row.firstAiEngine, lastAiAt: row.lastAiAt, visits: [] })
+      Object.assign(stateFor(row.visitorKey), { firstAiAt: row.firstAiAt, firstAiEngine: row.firstAiEngine, lastAiAt: row.lastAiAt })
+    }
+    // AI visit starts that can cover a batch request, so the lookback is
+    // measured from the AI visit before each request, not the latest overall.
+    for (const row of tx.select({ visitorKey: journeyVisits.visitorKey, startedAt: journeyVisits.startedAt }).from(journeyVisits)
+      .where(and(
+        eq(journeyVisits.projectId, input.projectId),
+        inArray(journeyVisits.visitorKey, keys),
+        eq(journeyVisits.entryClass, 'ai'),
+        gte(journeyVisits.startedAt, lookbackStart),
+        lte(journeyVisits.startedAt, latestIso),
+      )).all()) {
+      stateFor(row.visitorKey).aiTimes.push(row.startedAt)
+    }
+    // Requests already stored per visitor and UTC day, for the daily cap.
+    const day = sql<string>`substr(${journeyEvents.ts}, 1, 10)`
+    for (const row of tx.select({ visitorKey: journeyVisits.visitorKey, day, total: count() }).from(journeyEvents)
+      .innerJoin(journeyVisits, eq(journeyVisits.id, journeyEvents.visitId))
+      .where(and(
+        eq(journeyVisits.projectId, input.projectId),
+        inArray(journeyVisits.visitorKey, keys),
+        gte(journeyEvents.ts, `${firstDay}T00:00:00.000Z`),
+        lt(journeyEvents.ts, dayAfterLast),
+      ))
+      .groupBy(journeyVisits.visitorKey, day).all()) {
+      stateFor(row.visitorKey).requestsByDay[row.day] = row.total
     }
     for (const row of tx.select().from(journeyVisits)
       .where(and(
@@ -144,13 +198,16 @@ export function persistJourneyBatch(
         requestCount: row.requestCount,
         pageCount: row.pageCount,
       }
-      const visitor = state.get(row.visitorKey)
-      if (visitor) visitor.visits.push(visit)
-      else state.set(row.visitorKey, { firstAiAt: null, firstAiEngine: null, lastAiAt: null, visits: [visit] })
+      stateFor(row.visitorKey).visits.push(visit)
     }
   }
 
-  const result = sessionizeJourneyRequests(keyed, state, { idleMs: IDLE_MS, lookbackMs: LOOKBACK_MS, newId: () => crypto.randomUUID() })
+  const result = sessionizeJourneyRequests(keyed, state, {
+    idleMs: IDLE_MS,
+    lookbackMs: LOOKBACK_MS,
+    maxRequestsPerDay: JOURNEY_MAX_REQUESTS_PER_VISITOR_DAY,
+    newId: () => crypto.randomUUID(),
+  })
 
   for (const visitor of result.visitors) {
     tx.insert(journeyVisitors).values({
@@ -162,6 +219,7 @@ export function persistJourneyBatch(
       firstAiEngine: visitor.firstAiEngine,
       lastAiAt: visitor.lastAiAt,
       lastSeenAt: visitor.lastSeenAt,
+      eventsCapped: visitor.eventsCapped,
       createdAt: input.now,
       updatedAt: input.now,
     }).onConflictDoUpdate({
@@ -173,6 +231,7 @@ export function persistJourneyBatch(
         firstAiEngine: sql`CASE WHEN ${visitor.firstAiAt} < ${journeyVisitors.firstAiAt} THEN ${visitor.firstAiEngine} ELSE ${journeyVisitors.firstAiEngine} END`,
         lastAiAt: sql`max(${journeyVisitors.lastAiAt}, ${visitor.lastAiAt})`,
         lastSeenAt: sql`max(${journeyVisitors.lastSeenAt}, ${visitor.lastSeenAt})`,
+        eventsCapped: sql`${journeyVisitors.eventsCapped} + ${visitor.eventsCapped}`,
         userAgent: visitor.userAgent,
         updatedAt: input.now,
       },
@@ -200,6 +259,17 @@ export function persistJourneyBatch(
         createdAt: input.now,
         ...values,
       }).run()
+    } else if (visit.headChanged) {
+      // A late request became the visit's first: it sets the landing page and,
+      // when it arrived from outside, where the visit came from.
+      tx.update(journeyVisits).set({
+        ...values,
+        landingPath: visit.landingPath,
+        entryClass: visit.entry.entryClass,
+        entryName: visit.entry.entryName,
+        entryHost: visit.entry.entryHost,
+        paid: visit.entry.paid,
+      }).where(eq(journeyVisits.id, visit.id)).run()
     } else {
       tx.update(journeyVisits).set(values).where(eq(journeyVisits.id, visit.id)).run()
     }
@@ -222,6 +292,35 @@ export function persistJourneyBatch(
     eventsStored += outcome.changes
   }
   return { visitsWritten: result.visits.length, eventsStored }
+}
+
+type JourneyTx = { transaction: <T>(run: (tx: JourneyDb) => T) => T }
+
+/**
+ * `persistJourneyBatch` inside a savepoint of the caller's traffic write. A
+ * journey failure rolls back only the journey rows and is reported through
+ * `onError`; the rollups, samples and receipts in the same transaction still
+ * commit, so journeys can never stop traffic ingestion.
+ */
+export function recordJourneyBatch(
+  tx: JourneyTx,
+  input: Parameters<typeof persistJourneyBatch>[1],
+  handlers: {
+    onError: (error: unknown) => void
+    /** Whether the caller's transaction is still open (`db.$client.inTransaction`). */
+    outerActive: () => boolean
+  },
+): PersistJourneyBatchResult {
+  if (!input.secret || input.events.length === 0) return { visitsWritten: 0, eventsStored: 0 }
+  try {
+    return tx.transaction(inner => persistJourneyBatch(inner, input))
+  } catch (error) {
+    // Some SQLite errors roll back the whole transaction, not just the
+    // savepoint. Then the traffic write must fail as one unit too.
+    if (!handlers.outerActive()) throw error
+    handlers.onError(error)
+    return { visitsWritten: 0, eventsStored: 0 }
+  }
 }
 
 /** Delete journey rows older than the retention window, across every project. */
@@ -293,6 +392,7 @@ function visitorDto(visitor: VisitorRow, visits: readonly VisitRow[]): JourneyVi
     aiVisitCount: visits.filter(v => v.entryClass === 'ai').length,
     returned: later.length > 0,
     returnChannels: later.map(v => journeyEntryClassSchema.parse(v.entryClass)),
+    eventsCapped: visitor.eventsCapped,
   }
 }
 
@@ -357,7 +457,7 @@ export async function journeyRoutes(app: FastifyInstance): Promise<void> {
       aiVisitors: visitors.length,
       aiVisits,
       returningVisitors: returning,
-      returnRate: visitors.length ? returning / visitors.length : null,
+      returnRate: visitors.length ? roundRatio(returning / visitors.length, RatioUnits.fraction) : null,
       returnedVia,
       medianDaysToReturn: days === null ? null : Math.round(days * 10) / 10,
       byEngine: [...engines].map(([engine, v]) => ({ engine, ...v })).sort((a, b) => b.visitors - a.visitors || a.engine.localeCompare(b.engine)),
@@ -395,22 +495,26 @@ export async function journeyRoutes(app: FastifyInstance): Promise<void> {
       offset,
       visitors: matching.slice(offset, offset + limit).map(({ visitor, dto }) => ({
         ...dto,
-        visits: (visits.get(visitor.visitorKey) ?? []).map(visitDto),
+        visits: (visits.get(visitor.visitorKey) ?? []).slice(0, JOURNEY_LIST_VISITS_PER_VISITOR).map(visitDto),
       })),
     }
     return response
   })
 
-  app.get<{ Params: { name: string; visitorKey: string } }>('/projects/:name/journeys/:visitorKey', async request => {
+  app.get<{ Params: { name: string; visitorKey: string }; Querystring: Record<string, unknown> }>('/projects/:name/journeys/:visitorKey', async request => {
     requireAdminSession(request)
     const project = resolveProject(app.db, request.params.name)
+    const query = parseQuery(journeyDetailQuerySchema, request.query)
+    const limit = query.limit ?? 100
+    const offset = query.offset ?? 0
     const visitor = app.db.select().from(journeyVisitors)
       .where(and(eq(journeyVisitors.projectId, project.id), eq(journeyVisitors.visitorKey, request.params.visitorKey)))
       .get()
     if (!visitor) throw notFound('Journey', request.params.visitorKey)
     const visits = visitsByVisitor(app.db, project.id, [visitor.visitorKey]).get(visitor.visitorKey) ?? []
+    const page = visits.slice(offset, offset + limit)
     const events = new Map<string, Array<typeof journeyEvents.$inferSelect>>()
-    for (const part of chunks(visits.map(v => v.id))) {
+    for (const part of chunks(page.map(v => v.id))) {
       for (const row of app.db.select().from(journeyEvents).where(inArray(journeyEvents.visitId, part)).orderBy(asc(journeyEvents.ts)).all()) {
         const list = events.get(row.visitId)
         if (list) list.push(row)
@@ -420,7 +524,10 @@ export async function journeyRoutes(app: FastifyInstance): Promise<void> {
     const response: JourneyDetailResponse = {
       project: project.name,
       visitor: visitorDto(visitor, visits),
-      visits: visits.map(v => ({
+      totalVisits: visits.length,
+      limit,
+      offset,
+      visits: page.map(v => ({
         ...visitDto(v),
         events: (events.get(v.id) ?? []).map(e => ({ ts: e.ts, method: e.method, path: e.path, status: e.status, kind: e.kind === 'data' ? 'data' as const : 'page' as const })),
       })),

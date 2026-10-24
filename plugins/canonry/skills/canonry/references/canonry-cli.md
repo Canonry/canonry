@@ -1042,7 +1042,7 @@ Target, or market attribution. Server sessions and GA sessions remain separate.
 
 ## Google Analytics 4
 
-GA4 integration supports service-account auth and OAuth (`canonry google connect <project> --type ga4`). With OAuth, `ga properties` lists the readable properties so the numeric id `ga connect --property-id` needs can be discovered without leaving canonry. The service account must have Viewer access on the GA4 property. `ga sync` writes the traffic tables (`gaTrafficSnapshots`, `gaAiReferrals`, `gaSocialReferrals`, `gaTrafficSummaries`) plus the GA4 Search Console landing-page snapshot (`gaSearchLandingWindows`, `gaSearchLandingPages`); every subsequent read command queries the local store rather than re-fetching from GA4, so reads are fast and quotaless. AI-referral rows are sessions GA4 puts in its `AI Assistant` channel (medium `ai-assistant`, since 2026-05-13, not retroactive) plus sessions whose source is an AI engine's host or a subdomain of it (`chatgpt.com`, `www.perplexity.ai`, `gemini.google.com`, `claude.ai`, `copilot.microsoft.com`, `grok.com`, `meta.ai`, `you.com`, …), its bare name (`chatgpt`, `gemini`, `grok`), its official Android app id, bare or as `android-app://` (`com.openai.chatgpt`, `com.microsoft.copilot`), or, for ChatGPT, Perplexity, Claude, DeepSeek and Phind, a tag that starts with the name or host (`perplexity_ai`, `chatgpt.com_ads`). These cover older history and AI visits GA4 files elsewhere. An engine name inside another source is never matched, so ngrok tunnels, `philanthropic.org` and the Gemini exchange stay out. A channel row whose source names no engine is kept under its own source and counted in every AI total; visits that send no referrer still land in Direct. Rows are tracked across three GA4 attribution dimensions (`session` / `first_user` / `manual_utm`; the manual UTM lens matches sources only, since GA4 has no channel for it) and joined to landing pages. Social referrals are split Organic vs Paid via GA4's `sessionDefaultChannelGroup`. All commands support `--format json`.
+GA4 integration supports service-account auth and OAuth (`canonry google connect <project> --type ga4`). With OAuth, `ga properties` lists the readable properties so the numeric id `ga connect --property-id` needs can be discovered without leaving canonry. The service account must have Viewer access on the GA4 property. `ga sync` writes the traffic tables (`gaTrafficSnapshots`, `gaAiReferrals`, `gaSocialReferrals`, `gaTrafficSummaries`) plus the GA4 Search Console landing-page snapshot (`gaSearchLandingWindows`, `gaSearchLandingPages`); every subsequent read command queries the local store rather than re-fetching from GA4, so reads are fast and quotaless. AI-referral rows are sessions GA4 puts in its `AI Assistant` channel (medium `ai-assistant`, since 2026-05-13, not retroactive) plus sessions whose source is an AI engine's host or a subdomain of it (`chatgpt.com`, `www.perplexity.ai`, `gemini.google.com`, `claude.ai`, `copilot.microsoft.com`, `grok.com`, `meta.ai`, `you.com`, …), its bare name (`chatgpt`, `gemini`, `grok`), its official Android app id, bare or as `android-app://` (`com.openai.chatgpt`, `com.microsoft.copilot`), or, for ChatGPT, Perplexity, Claude, DeepSeek and Phind, a tag that starts with the name or host (`perplexity_ai`, `chatgpt.com_ads`). These cover older history and AI visits GA4 files elsewhere. An engine name inside another source is never matched, so ngrok tunnels, `philanthropic.org` and the Gemini exchange stay out. A channel row whose source names no engine is kept under its own source and counted in every AI total; visits that send no referrer still land in Direct. Rows are tracked across three GA4 attribution dimensions (`session` / `first_user` / `manual_utm`; the manual UTM lens matches sources only, since GA4 has no channel for it) and joined to landing pages. Social referrals are split Organic vs Paid via GA4's `sessionDefaultChannelGroup`. Synced rows carry no GA4 property, so anything that changes the property a project resolves to (`ga connect` to another property, `ga disconnect`, or `google disconnect --type ga4` with no service account behind it) deletes the project's GA rows; the next `ga sync` refills them from the new property. All commands support `--format json`.
 
 ```bash
 cnry ga connect <project> --property-id <id> --key-file ./sa-key.json
@@ -1118,6 +1118,12 @@ cnry ga social-referral-summary <project> [--trend]
                                                   # socialSharePct, topSources[]; --trend adds 7d/30d direction
 cnry ga session-history <project> [--window 30d] [--start YYYY-MM-DD] [--end YYYY-MM-DD]
                                                   # daily totals: {date, sessions, organicSessions, users}
+cnry ga overview <project> [--window 7d|30d|90d]
+                                                  # GA4's overview for the complete days ending yesterday
+                                                  # (default 30d): users, new users, sessions, organic
+                                                  # sessions, views, event count, key events, engagement
+                                                  # rate, bounce rate, average engagement time, each against
+                                                  # the previous period; --format json adds both periods by day
 cnry ga coverage <project>                    # per-page overlay: {landingPage, sessions,
                                                   # organicSessions, users}
 ```
@@ -1856,6 +1862,34 @@ prefixes are literal. Limit is 1 to 500; offset starts at zero. Project/source
 attribution applies equally to Simple and Advanced portfolios; Property, Target,
 and market attribution is unavailable. No provider call or write. Signed-in
 viewers and embeds cannot read samples; API read keys retain project scope.
+
+### AI visitor journeys
+
+```bash
+cnry journeys summary <project> --since 2026-10-01 --format json
+cnry journeys list <project> --engine ChatGPT --returned true --limit 50 --format jsonl
+cnry journeys show <project> <visitor-key> --limit 100 --offset 0
+```
+
+Follows visitors with at least one AI-referred visit, from that first AI visit
+on (earlier visits are not stored), from every traffic source, with no site
+setup. `summary` counts AI visitors whose first AI visit
+falls in the window (default 30 days), how many came back in a later visit, by
+which entry (`ai`, `search`, `social`, `paid`, `referral`, `direct`), and median
+days to return. `list` returns those visitors newest first with their first 20
+visits (`visitCount` is the total) and marks user-agent-only keys; `show` pages
+through one visitor's visits and requests. A visit ends after 30 idle minutes
+or when the visitor arrives again from another outside source; a same-site,
+sign-in or payment referer is a step inside the visit.
+
+Visits are stored when they fall within 30 days after one of the visitor's AI visits;
+rows are deleted after 180 days. A visitor key is a keyed hash, never an IP.
+Sources without an IP (Vercel) key on the user agent only, so people with the
+same device and browser version can merge; `keyBasis` says which. A key stores
+at most 300 requests per UTC day and counts the rest in `eventsCapped`. Query
+strings keep only `utm_*`, and path segments that look like secrets (tokens,
+UUIDs, emails) are masked. Stored reads only, no provider call. Viewers and embeds cannot
+read journeys.
 
 ### Stored GA acquisition
 

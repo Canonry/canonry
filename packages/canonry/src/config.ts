@@ -685,7 +685,8 @@ export function loadConfig(configPath = getConfigPath()): CanonryConfig {
     })
   }
   const journeySecret = parsed.journeys?.visitorKeySecret
-  if (journeySecret !== undefined && journeySecret !== null && (typeof journeySecret !== 'string' || journeySecret.trim().length < 32)) {
+  // Blank (absent, null, or an empty string) means generate one.
+  if (journeySecret !== undefined && journeySecret !== null && (typeof journeySecret !== 'string' || (journeySecret.trim().length > 0 && journeySecret.trim().length < 32))) {
     throw new CliError({
       code: 'CONFIG_INVALID',
       message: `Invalid config at ${configPath}: journeys.visitorKeySecret must be a string of at least 32 characters, or left blank to generate one.`,

@@ -1026,6 +1026,7 @@ schema change, the stored rollups are untouched.
 | Project dashboard `/projects/:name/activity` | Live source table + 24h totals + GA4 referrals (combined view) |
 | Top-level `/traffic` route | Cross-project source admin (connect, sync, archive) |
 | `cnry traffic analytics <project> --period 30 --format json` | Complete stored 7/14/30/90-day totals, prior-window changes, operator/path/product breakdowns, and daily history |
+| `cnry journeys summary <project>` | AI visitors, how many came back and through which entry, from every traffic source |
 | `cnry doctor --project <name>` | Source health checks, including last-observed Worker drift for direct and Queue sources plus Queue local credential/sync state |
 | MCP toolkit `traffic` | Read/status tools plus pull-source setup/sync tools. Cloudflare connect is local-CLI-only so Worker secrets cannot enter an MCP transcript. |
 
@@ -1169,6 +1170,32 @@ Use GA4 for landed browser visits or edge/access logs for cache-independent
 request coverage. The `traffic.source.cache-blindspot` doctor check is a static
 warning; it does not request or impersonate traffic against the public origin,
 and it never sends a `health.degraded` alert.
+
+### AI visitor journeys
+
+Every sync, backfill and push also follows visitors who arrived from an AI
+engine: their later visits, how they came back (search, direct, social, paid,
+referral, another AI visit) and each page or API request. It works the same for
+every source and needs no site snippet or goal setup. Read it with
+`cnry journeys summary|list|show` or the `canonry_journeys_summary`,
+`canonry_journeys_list` and `canonry_journey_get` MCP tools.
+
+- A visitor key is an HMAC of IP and user agent under the install secret
+  `journeys.visitorKeySecret` (generated on first `serve` and saved in
+  config.yaml, or `CANONRY_JOURNEY_KEY_SECRET`). No IP is stored. Changing the
+  secret starts new keys.
+- Vercel logs carry no IP, so those visitors are keyed by user agent only.
+  Chrome reports the same user agent for every Mac on one version, so a key can
+  merge people: such visitors undercount people and can overstate return rates.
+  Read `keyBasis` before quoting a return rate. A key stores at most 300
+  requests per UTC day; `eventsCapped` counts the rest.
+- Only requests within 30 days after an AI visit are kept, plus the rest of a
+  visit already kept; rows are deleted after 180 days. Journeys start from the
+  first sync after upgrade; backfill a Cloud Run or Vercel source to seed
+  history it still retains.
+- Sign-in and payment return pages (Google accounts, Stripe, PayPal and the
+  like) are steps inside a visit, not new arrivals. Query strings keep only
+  `utm_*`; path segments that look like secrets are masked.
 
 ### Inspect stored samples
 

@@ -9,6 +9,7 @@ import { percentOf, RunKinds, RunStatuses, RunTriggers, formatPercent, gaAttribu
 import { createClient, migrate, gaAiReferrals, gaSocialReferrals, gaTrafficSnapshots, gaTrafficSummaries, gaTrafficWindowSummaries, gaDailyTotals, runs } from '@canonry/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import type { Ga4CredentialStore, Ga4CredentialRecord } from '../src/ga.js'
+import { dailyTotals as dailyTotalsFixture, unknownWindowMetrics } from './ga-sync-fixtures.js'
 
 function buildApp() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ga-routes-test-'))
@@ -249,10 +250,11 @@ describe('GA4 routes', () => {
     }))
     // Deduplicated per-day users. Deliberately BELOW the landing-page sums
     // (40 / 25) — that gap is the bug this table exists to close.
-    const fetchDailyTotalsSpy = vi.spyOn(gaModule, 'fetchDailyTotals').mockResolvedValue([
+    const fetchDailyTotalsSpy = vi.spyOn(gaModule, 'fetchDailyTotals').mockResolvedValue(dailyTotalsFixture([
       { date: '2026-03-19', sessions: 50, users: 33, engagementRate: 0.62, newUsers: 20},
       { date: '2026-03-20', sessions: 30, users: 21, engagementRate: 0.58, newUsers: 12},
-    ])
+    ]))
+    vi.spyOn(gaModule, 'fetchWindowMetrics').mockImplementation(async (_token, _property, windowKey) => unknownWindowMetrics(windowKey))
     const fetchAiReferralsSpy = vi.spyOn(gaModule, 'fetchAiReferrals').mockResolvedValue([
       { date: '2026-03-20', source: 'chatgpt.com', medium: 'referral', trafficClass: 'organic', channelGroup: 'Referral', landingPage: '/pricing?utm_source=chatgpt.com', sessions: 12, users: 9, sourceDimension: 'session' },
     ])
@@ -420,7 +422,8 @@ describe('GA4 routes', () => {
       totalDirectSessions: 0,
       totalUsers: 0,
     }))
-    const fetchDailyTotalsSpy = vi.spyOn(gaModule, 'fetchDailyTotals').mockResolvedValue([])
+    const fetchDailyTotalsSpy = vi.spyOn(gaModule, 'fetchDailyTotals').mockResolvedValue(dailyTotalsFixture())
+    vi.spyOn(gaModule, 'fetchWindowMetrics').mockImplementation(async (_token, _property, windowKey) => unknownWindowMetrics(windowKey))
     const fetchAiReferralsSpy = vi.spyOn(gaModule, 'fetchAiReferrals').mockResolvedValue([])
     const fetchSocialReferralsSpy = vi.spyOn(gaModule, 'fetchSocialReferrals').mockResolvedValue([])
     // Its own component (ga-search-landing-pages.test.ts); stubbed so no request leaves the test.
@@ -503,9 +506,10 @@ describe('GA4 routes', () => {
       totalDirectSessions: 5000,
       totalUsers: 22000,
     }))
-    const fetchDailyTotalsSpy = vi.spyOn(gaModule, 'fetchDailyTotals').mockResolvedValue([
+    const fetchDailyTotalsSpy = vi.spyOn(gaModule, 'fetchDailyTotals').mockResolvedValue(dailyTotalsFixture([
       { date: today, sessions: 30000, users: 22000, engagementRate: 0.66, newUsers: 14000},
-    ])
+    ]))
+    vi.spyOn(gaModule, 'fetchWindowMetrics').mockImplementation(async (_token, _property, windowKey) => unknownWindowMetrics(windowKey))
     const fetchAiReferralsSpy = vi.spyOn(gaModule, 'fetchAiReferrals').mockResolvedValue([])
     const fetchSocialReferralsSpy = vi.spyOn(gaModule, 'fetchSocialReferrals').mockResolvedValue([
       { date: today, source: 'facebook.com', medium: 'referral', sessions: 1273, users: 900, channelGroup: 'Organic Social' },
@@ -3108,16 +3112,19 @@ describe('GA4 routes', () => {
           totalDirectSessions: 0,
           totalUsers: 0,
         })),
-        vi.spyOn(gaModule, 'fetchDailyTotals').mockResolvedValue([]),
+        vi.spyOn(gaModule, 'fetchDailyTotals').mockResolvedValue(dailyTotalsFixture()),
+        vi.spyOn(gaModule, 'fetchWindowMetrics').mockImplementation(async (_token, _property, windowKey) => unknownWindowMetrics(windowKey)),
         vi.spyOn(gaModule, 'fetchAiReferrals').mockResolvedValue([]),
         vi.spyOn(gaModule, 'fetchSocialReferrals').mockResolvedValue([]),
         vi.spyOn(gaModule, 'fetchSearchLandingPages').mockResolvedValue({ status: 'ready', windows: [] }),
       ]
-      // fetchDailyTotals is the fetch that writes `ga_daily_totals` — the
-      // table whose 90 rows exposed the bug. Its args are snapshotted BEFORE
-      // mockRestore (which clears the call record) so we can assert the
-      // CLIENT was handed the bounded window too: a response saying 90 while
-      // the fetch was asked for 500 would just move the lie one layer down.
+      // fetchAggregateSummary sets the period the response reports. Its args
+      // are snapshotted BEFORE mockRestore (which clears the call record) so
+      // we can assert the CLIENT was handed the bounded window too: a response
+      // saying 90 while the fetch was asked for 500 would just move the lie one
+      // layer down. fetchDailyTotals is asked for no window at all: daily
+      // totals always keep the overview history, whatever `days` says.
+      const summarySpy = spies[2]!
       const dailyTotalsSpy = spies[4]!
 
       try {
@@ -3129,6 +3136,7 @@ describe('GA4 routes', () => {
         expect(res.statusCode).toBe(200)
         return {
           body: JSON.parse(res.payload),
+          windowArgs: summarySpy.mock.calls.map((call) => call[2]),
           dailyTotalsArgs: dailyTotalsSpy.mock.calls.map((call) => call[2]),
         }
       } finally {
@@ -3138,23 +3146,24 @@ describe('GA4 routes', () => {
     }
 
     it('reports the clamped window, the request, and the clamped flag for --days 500', async () => {
-      const { body, dailyTotalsArgs } = await syncWithDays(500, 'ga-clamp-over')
+      const { body, windowArgs, dailyTotalsArgs } = await syncWithDays(500, 'ga-clamp-over')
 
       expect(body.synced).toBe(true)
       expect(body.days).toBe(90)
       expect(body.requestedDays).toBe(500)
       expect(body.clamped).toBe(true)
       // The fetch layer got the bounded window, not the raw request.
-      expect(dailyTotalsArgs).toEqual([90])
+      expect(windowArgs).toEqual([90])
+      expect(dailyTotalsArgs).toEqual([undefined])
     })
 
     it('leaves an in-range window untouched and does not flag a clamp', async () => {
-      const { body, dailyTotalsArgs } = await syncWithDays(14, 'ga-clamp-in-range')
+      const { body, windowArgs } = await syncWithDays(14, 'ga-clamp-in-range')
 
       expect(body.days).toBe(14)
       expect(body.requestedDays).toBe(14)
       expect(body.clamped).toBe(false)
-      expect(dailyTotalsArgs).toEqual([14])
+      expect(windowArgs).toEqual([14])
     })
 
     it('treats the cap itself as an exact, unclamped window', async () => {
@@ -3166,12 +3175,12 @@ describe('GA4 routes', () => {
     })
 
     it('clamps a zero-day request up to the floor and flags it', async () => {
-      const { body, dailyTotalsArgs } = await syncWithDays(0, 'ga-clamp-under')
+      const { body, windowArgs } = await syncWithDays(0, 'ga-clamp-under')
 
       expect(body.days).toBe(1)
       expect(body.requestedDays).toBe(0)
       expect(body.clamped).toBe(true)
-      expect(dailyTotalsArgs).toEqual([1])
+      expect(windowArgs).toEqual([1])
     })
 
     it('defaults an omitted window to 30 days without flagging a clamp', async () => {

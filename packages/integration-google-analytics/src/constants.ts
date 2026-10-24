@@ -107,6 +107,17 @@ export const GA4_METRICS = {
    * sessions did not (captured live, 2026-10-08).
    */
   activeUsers: 'activeUsers',
+  /** GA4's "Views": web pages and app screens viewed. */
+  screenPageViews: 'screenPageViews',
+  /** GA4's "Key events" (named "conversions" until 2024). */
+  keyEvents: 'keyEvents',
+  /**
+   * Engaged time in seconds, summed. GA4's "Average engagement time" is this
+   * divided by `activeUsers` over the same span.
+   */
+  userEngagementDuration: 'userEngagementDuration',
+  /** Share of sessions that were not engaged (0-1), GA4's own figure. */
+  bounceRate: 'bounceRate',
   /**
    * Search Console metrics a GA4 property exposes once it is linked to Search
    * Console. Compatible only with the landing page, device and country

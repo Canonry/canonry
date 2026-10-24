@@ -65,6 +65,9 @@ import {
   siteCrawlSummarySchema,
   trafficSourceDtoSchema,
   trafficSampleDtoSchema,
+  journeyEventDtoSchema,
+  journeyVisitDtoSchema,
+  journeyVisitorDtoSchema,
   conversionTrackingContractSchema,
   gtmConnectionMetadataDtoSchema,
   gtmRawSnapshotMetadataDtoSchema,
@@ -712,6 +715,10 @@ const COVERAGE: Record<string, CoverageEntry> = {
     kind: 'internal-only',
     reason: 'Component-level sync completeness and error state backing the follow-up measurement API.',
   },
+  gaWindowMetrics: {
+    kind: 'internal-only',
+    reason: 'GA4 totals per overview window and the period before it, written by the sync. Backing store only: its values reach callers through the /ga/overview response, not as a direct row DTO.',
+  },
   gaDailyTotals: {
     kind: 'internal-only',
     reason: 'Property-level daily GA4 totals (no landing-page dim), the deduplicated `users` source for the session-history response. Backing store only — its values reach callers through that response, not as a direct row DTO. Mirrors gscDailyTotals.',
@@ -1043,6 +1050,18 @@ const COVERAGE: Record<string, CoverageEntry> = {
   rawEventSamples: {
     kind: 'dto', dto: trafficSampleDtoSchema,
     internal: { ipHash: 'Never exposed, including legacy non-null hashes.', projectId: 'Route scope.', createdAt: 'Ingest bookkeeping.', eventType: 'Exposed as kind with hyphenated wire values.', classifierDetailsJson: 'Exposed as classifier with only declared public fields.' },
+  },
+  journeyVisitors: {
+    kind: 'dto', dto: journeyVisitorDtoSchema,
+    internal: { projectId: 'Route scope.', createdAt: 'Write bookkeeping.', updatedAt: 'Write bookkeeping.' },
+  },
+  journeyVisits: {
+    kind: 'dto', dto: journeyVisitDtoSchema,
+    internal: { projectId: 'Route scope.', visitorKey: 'Visits are nested under the visitor that owns them.', createdAt: 'Write bookkeeping.', updatedAt: 'Write bookkeeping.' },
+  },
+  journeyEvents: {
+    kind: 'dto', dto: journeyEventDtoSchema,
+    internal: { id: 'Row identity only.', projectId: 'Route scope.', visitId: 'Events are nested under their visit.', sourceId: 'The visit carries its source.', sourceEventId: 'Provider event id kept only so writes stay idempotent.', createdAt: 'Write bookkeeping.' },
   },
   migrationsTable: {
     kind: 'internal-only',

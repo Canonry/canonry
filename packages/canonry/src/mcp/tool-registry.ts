@@ -1,4 +1,4 @@
-import { journeySummaryQuerySchema, journeysQuerySchema, trafficSamplesQuerySchema, gaAcquisitionQuerySchema, auditHistoryQuerySchema, visibilityCompareSelectionSchema, reportMonthSchema, referralAssessmentQuerySchema, instanceStatusDtoSchema, maxOperationAccess, operationAccess, OperationAccesses, type OperationAccess } from '@canonry/canonry-contracts'
+import { journeyDetailQuerySchema, journeySummaryQuerySchema, journeysQuerySchema, trafficSamplesQuerySchema, gaAcquisitionQuerySchema, auditHistoryQuerySchema, visibilityCompareSelectionSchema, reportMonthSchema, referralAssessmentQuerySchema, instanceStatusDtoSchema, maxOperationAccess, operationAccess, OperationAccesses, type OperationAccess } from '@canonry/canonry-contracts'
 
 import {
   sentimentSelectionSchema, sentimentEvidenceRequestSchema, sentimentCompareRequestSchema, sentimentSettingsUpdateSchema,
@@ -7,7 +7,7 @@ import {
   sentimentJobReadSchema, sentimentSummaryIncludeSchema, sentimentEvidenceOutcomeFilterSchema, queryClassSchema, SENTIMENT_ATTEMPT_PAGE_DEFAULT, SENTIMENT_QUERY_PAGE_DEFAULT, SENTIMENT_QUERY_PAGE_MAX,
 } from '@canonry/canonry-contracts'
 import { agentConversationCreateSchema, reportedQueryClasses } from '@canonry/canonry-contracts'
-import { PROVIDER_ACCOUNT_FAILURE_STREAK, PROVIDER_ACCOUNT_RETRY_HOURS } from '@canonry/canonry-contracts'
+import { PROVIDER_ACCOUNT_FAILURE_STREAK, PROVIDER_ACCOUNT_RETRY_HOURS, WINDOW_SETS } from '@canonry/canonry-contracts'
 import { insightSeveritySchema } from '@canonry/canonry-contracts'
 import type { ToolAnnotations } from '@modelcontextprotocol/sdk/types.js'
 import {
@@ -528,6 +528,13 @@ const gaWindowInputSchema = z.object({
 })
 
 const GA_RANGE_PARAMS = ['window', 'startDate', 'endDate'] as const
+
+// The overview compares GA4's own totals for a fixed window with the period
+// before it, so it takes only the window; there is no calendar range form.
+const gaOverviewInputSchema = z.object({
+  project: projectNameSchema,
+  window: z.enum(WINDOW_SETS.gaOverview).optional(),
+})
 
 const gaTrafficInputSchema = gaWindowInputSchema.extend({
   limit: z.number().int().positive().max(500).optional(),
@@ -2402,6 +2409,17 @@ const rawCanonryMcpTools = [
     handler: (client, input) => client.gaAttributionTrend(input.project),
   }),
   defineTool({
+    name: 'canonry_ga_overview',
+    title: 'Get the GA4 overview',
+    description: 'Get GA4\'s overview for a window (7d, 30d or 90d of complete days ending yesterday, as GA4 counts them): users, new users, sessions, organic sessions, views, event count, key events, engagement rate, bounce rate and average engagement time, each against the previous period, plus both periods by day.',
+    access: 'read',
+    tier: 'ga',
+    inputSchema: gaOverviewInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/ga/overview'],
+    handler: (client, input) => client.gaOverview(input.project, input.window),
+  }),
+  defineTool({
     name: 'canonry_ga_session_history',
     title: 'Get GA session history',
     description: 'Get total sessions per day for a Canonry project.',
@@ -2653,7 +2671,7 @@ const rawCanonryMcpTools = [
   defineTool({
     name: 'canonry_journeys_list',
     title: 'List AI visitor journeys',
-    description: 'List stored AI visitors, newest first AI visit first, with each visit (entry class and name, landing path, page count). Filter by first AI engine or by whether they came back. Visits are 30-minute sessions; storage covers 30 days after the latest AI visit, 180-day retention. No provider call or write.',
+    description: 'List stored AI visitors, newest first AI visit first, with their first 20 visits (entry class and name, landing path, page count; visitCount is the total). Filter by first AI engine or by whether they came back. Visits are 30-minute sessions; visits within 30 days after an AI visit are kept, 180-day retention. A high eventsCapped means a user agent many people share. No provider call or write.',
     access: 'read', tier: 'traffic', inputSchema: journeysQuerySchema.extend({ project: projectNameSchema }), annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/journeys'],
     handler: (client, input) => { const { project, ...query } = input; return client.journeysList(project, query) },
@@ -2661,10 +2679,10 @@ const rawCanonryMcpTools = [
   defineTool({
     name: 'canonry_journey_get',
     title: 'Read one AI visitor journey',
-    description: 'Read every stored visit and request (time, method, path, status, page or data) for one AI visitor key from canonry_journeys_list. No provider call or write.',
-    access: 'read', tier: 'traffic', inputSchema: z.object({ project: projectNameSchema, visitorKey: z.string().min(1) }), annotations: readAnnotations(),
+    description: 'Read one AI visitor key from canonry_journeys_list: a page of its stored visits in time order (limit 1 to 500, default 100; totalVisits is the total), each with its requests (time, method, path, status, page or data). No provider call or write.',
+    access: 'read', tier: 'traffic', inputSchema: journeyDetailQuerySchema.extend({ project: projectNameSchema, visitorKey: z.string().min(1) }), annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/journeys/{visitorKey}'],
-    handler: (client, input) => client.journeyGet(input.project, input.visitorKey),
+    handler: (client, input) => { const { project, visitorKey, ...query } = input; return client.journeyGet(project, visitorKey, query) },
   }),
   defineTool({
     name: 'canonry_traffic_events',

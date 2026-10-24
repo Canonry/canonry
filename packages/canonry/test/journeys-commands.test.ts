@@ -80,8 +80,9 @@ describe('journeys CLI commands', () => {
   it('list prints the short device label and streams JSONL', async () => {
     const text = await invokeCli(['journeys', 'list', 'test-proj', ...window])
     expect(text.exitCode, text.stderr).toBeUndefined()
-    expect(text.stdout).toContain('Mac · Chrome 155')
+    expect(text.stdout).toContain('Mac · Chrome 155 (UA only)')
     expect(text.stdout).toContain('back via search')
+    expect(text.stdout).toContain('user agent only')
     expect(text.stdout).not.toContain('AppleWebKit')
     let streamed = ''
     const write = vi.spyOn(process.stdout, 'write').mockImplementation(chunk => { streamed += String(chunk); return true })
@@ -101,6 +102,12 @@ describe('journeys CLI commands', () => {
     expect(text.stdout).toContain('ai ChatGPT  lands /')
     expect(text.stdout).toContain('search Google  lands /book')
     expect(text.stdout).toContain('[data] /api/contact')
+    const page = await invokeCli(['journeys', 'show', 'test-proj', KEY, '--limit', '1'])
+    expect(page.stdout).toContain('Showing visits 1 to 1 of 2. More: --offset 1')
+    expect(page.stdout).not.toContain('search Google')
+    const json = parseJsonOutput((await invokeCli(['journeys', 'show', 'test-proj', KEY, '--limit', '1', '--offset', '1', '--format', 'json'])).stdout) as { totalVisits: number; visits: Array<{ entryClass: string }> }
+    expect(json.totalVisits).toBe(2)
+    expect(json.visits.map(v => v.entryClass)).toEqual(['search'])
   })
 
   it.each([

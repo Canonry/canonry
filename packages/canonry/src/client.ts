@@ -1,4 +1,4 @@
-import type { JourneyDetailResponse, JourneySummaryQuery, JourneySummaryResponse, JourneysQuery, JourneysResponse } from '@canonry/canonry-contracts'
+import type { JourneyDetailQuery, JourneyDetailResponse, JourneySummaryQuery, JourneySummaryResponse, JourneysQuery, JourneysResponse } from '@canonry/canonry-contracts'
 import { getApiV1ProjectsByNameJourneys, getApiV1ProjectsByNameJourneysByVisitorKey, getApiV1ProjectsByNameJourneysSummary } from '@canonry/canonry-api-client'
 
 import type { TrafficSamplesQuery, TrafficSamplesResponse } from '@canonry/canonry-contracts'
@@ -173,6 +173,8 @@ import type {
   GA4AiReferralHistoryEntry,
   GA4SocialReferralHistoryEntry,
   GA4SessionHistoryEntry,
+  GaOverviewResponse,
+  GaOverviewWindow,
   AuditLogEntry,
   GoogleConnectionDto,
   GoogleOAuthStartResponse,
@@ -556,6 +558,7 @@ import {
   getApiV1ProjectsByNameGaSocialReferralTrend,
   getApiV1ProjectsByNameGaAttributionTrend,
   getApiV1ProjectsByNameGaSessionHistory,
+  getApiV1ProjectsByNameGaOverview,
   // Traffic
   postApiV1ProjectsByNameTrafficConnectCloudRun,
   postApiV1ProjectsByNameTrafficConnectWordpress,
@@ -3956,6 +3959,16 @@ export class ApiClient {
     )
   }
 
+  async gaOverview(project: string, window?: GaOverviewWindow): Promise<GaOverviewResponse> {
+    return this.invoke<GaOverviewResponse>(() =>
+      getApiV1ProjectsByNameGaOverview({
+        client: this.heyClient,
+        path: { name: project },
+        query: window ? { window } : undefined,
+      }),
+    )
+  }
+
   async gaSessionHistory(project: string, params?: Record<string, string>): Promise<GA4SessionHistoryEntry[]> {
     return this.invoke<GA4SessionHistoryEntry[]>(() =>
       getApiV1ProjectsByNameGaSessionHistory({
@@ -4107,8 +4120,8 @@ export class ApiClient {
     return this.invoke<JourneysResponse>(() => getApiV1ProjectsByNameJourneys({ client: this.heyClient, path: { name: project }, query }))
   }
 
-  async journeyGet(project: string, visitorKey: string): Promise<JourneyDetailResponse> {
-    return this.invoke<JourneyDetailResponse>(() => getApiV1ProjectsByNameJourneysByVisitorKey({ client: this.heyClient, path: { name: project, visitorKey } }))
+  async journeyGet(project: string, visitorKey: string, query?: JourneyDetailQuery): Promise<JourneyDetailResponse> {
+    return this.invoke<JourneyDetailResponse>(() => getApiV1ProjectsByNameJourneysByVisitorKey({ client: this.heyClient, path: { name: project, visitorKey }, query }))
   }
 
   async trafficListEvents(

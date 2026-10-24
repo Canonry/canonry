@@ -407,6 +407,7 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'GET /api/v1/projects/{name}/ga/social-referral-history': 'included',
   'GET /api/v1/projects/{name}/ga/social-referral-trend': 'included',
   'GET /api/v1/projects/{name}/ga/attribution-trend': 'included',
+  'GET /api/v1/projects/{name}/ga/overview': 'included',
   'GET /api/v1/projects/{name}/ga/session-history': 'included',
   'GET /api/v1/projects/{name}/ga/coverage': 'included',
   'GET /api/v1/projects/{name}/content/targets': 'included',

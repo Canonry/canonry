@@ -8,7 +8,7 @@ import { classifyAiReferral, classifyAiUserFetch, classifyCrawler, isSelfTraffic
  * rollup: `extractJourneyRequests` keeps the browser requests worth following,
  * and `sessionizeJourneyRequests` groups one visitor's requests into visits and
  * decides which to keep (only visitors who arrived from an AI engine, from that
- * visit until 30 days after their latest AI visit). Storage and the keyed
+ * visit and up to 30 days after each AI visit). Storage and the keyed
  * visitor hash live with the caller.
  */
 
@@ -16,38 +16,76 @@ import { classifyAiReferral, classifyAiUserFetch, classifyCrawler, isSelfTraffic
 // they are the only trace of navigation, and form posts are what a visitor did.
 const ASSET_EXTENSION_PATTERN = /\.(?:avif|bmp|css|gif|ico|jpe?g|js|map|mjs|mp3|mp4|otf|png|svg|ttf|txt|webm|webmanifest|webp|woff2?|xml)$/i
 const ASSET_PATH_PREFIXES = ['/_next/static/', '/_nuxt/', '/_ipx/', '/_vercel/', '/assets/', '/build/', '/dist/', '/fonts/', '/images/', '/img/', '/static/', '/wp-content/', '/wp-includes/', '/cdn-cgi/']
-const DATA_PATH_PATTERN = /(?:\.json$|^\/api\/|^\/wp-json\/|^\/graphql)/i
+const DATA_PATH_PATTERN = /\.json$|^\/api\/|^\/wp-json\/|^\/graphql/i
 // Automated clients the crawler rules do not name. A journey is a person in a browser.
 const NON_BROWSER_PATTERN = /bot|crawl|spider|slurp|scrape|curl\/|wget|python|java\/|go-http|okhttp|axios|node-fetch|headless|phantom|lighthouse|pingdom|uptime|monitor|preview|facebookexternalhit|whatsapp|telegram|discord|slack/i
 // Query parameters kept on a stored path. Everything else can carry personal data.
 const KEPT_QUERY_PARAMETERS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content']
-const CLICK_ID_PARAMETERS = ['gclid', 'gbraid', 'wbraid', 'msclkid', 'fbclid', 'ttclid', 'li_fat_id', 'twclid']
+// Click ids only ads add: paid evidence.
+const AD_CLICK_ID_PARAMETERS = ['gclid', 'gbraid', 'wbraid', 'dclid', 'msclkid', 'ttclid', 'li_fat_id']
+// Click ids platforms also add to unpaid links: they name the network, not a payment.
+const NETWORK_CLICK_ID_PARAMETERS: Readonly<Record<string, string>> = { fbclid: 'Facebook', twclid: 'X' }
+// Sign-in and payment pages that send a visitor straight back. Their referer
+// is a step inside the visit, not a new arrival.
+const STEP_REFERER_HOSTS = [
+  'accounts.google.com', 'accounts.youtube.com', 'pay.google.com', 'appleid.apple.com',
+  'login.microsoftonline.com', 'login.live.com', 'login.microsoft.com', 'github.com/login',
+  'checkout.stripe.com', 'js.stripe.com', 'hooks.stripe.com', 'pay.stripe.com', 'connect.stripe.com',
+  'paypal.com', 'pay.amazon.com', 'checkout.shopify.com', 'shop.app', 'klarna.com', 'afterpay.com',
+  'squareup.com', 'checkout.square.site', 'adyen.com', 'braintreegateway.com', 'auth0.com', 'okta.com',
+  'onelogin.com', 'amazoncognito.com', 'clerk.accounts.dev',
+]
 const MAX_PATH_LENGTH = 512
+const UUID_SEGMENT = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const LONG_HEX_SEGMENT = /^[0-9a-f]{16,}$/i
+const TOKEN_CHARSET = /^[\w-]+$/
+const JWT_SEGMENT = /^eyJ[\w-]+\.[\w-]+/
 
 export interface JourneyRequest {
   eventId: string
   observedAt: string
   method: string | null
-  /** Path plus kept utm parameters, at most 512 characters. */
+  /** Path with secret-like segments masked, plus kept utm parameters, at most 512 characters. */
   path: string
   status: number | null
   kind: JourneyEventKind
   remoteIp: string | null
   userAgent: string
-  /** True when the referer is this site (a step within a visit, not an entry). */
-  sameSiteReferer: boolean
+  /**
+   * True when the referer is this site or a sign-in or payment page: a step
+   * within a visit, not an arrival.
+   */
+  stepReferer: boolean
+  /** How the AI-referral classifier saw the AI engine, when it did. */
+  aiEvidence: 'referer' | 'utm' | 'referer-utm' | null
   signal: JourneyEntrySignal
 }
 
+export interface ExtractJourneyOptions {
+  /** The project's own domains (canonical and owned). Referers on them are steps. */
+  siteDomains?: readonly string[]
+}
+
 function baseHost(host: string | null | undefined): string | null {
-  const h = host?.trim().toLowerCase().replace(/^www\./, '').replace(/\.$/, '')
+  const h = host?.trim().toLowerCase().replace(/:\d+$/, '').replace(/^www\./, '').replace(/\.$/, '')
   return h || null
 }
 
-function refererHostOf(referer: string | null): string | null {
+/** A host from a bare domain or a URL-like value ("https://www.example.com/"). */
+function domainOf(value: string): string | null {
+  const v = value.trim().toLowerCase()
+  if (!v) return null
+  try {
+    return baseHost(new URL(v.includes('://') ? v : `https://${v}`).hostname)
+  } catch {
+    return null
+  }
+}
+
+function refererUrlOf(referer: string | null): URL | null {
   if (!referer) return null
   try {
-    return new URL(referer).hostname || null
+    return new URL(referer)
   } catch {
     return null
   }
@@ -63,8 +101,43 @@ function hostOfEvent(event: NormalizedTrafficRequest): string | null {
   }
 }
 
+const onDomain = (host: string, domain: string) => host === domain || host.endsWith(`.${domain}`)
+
+function isStepRefererHost(host: string, path: string): boolean {
+  return STEP_REFERER_HOSTS.some(entry => {
+    const slash = entry.indexOf('/')
+    if (slash < 0) return onDomain(host, entry)
+    return host === entry.slice(0, slash) && path.startsWith(entry.slice(slash))
+  })
+}
+
 function isAssetPath(path: string): boolean {
   return ASSET_PATH_PREFIXES.some(prefix => path.startsWith(prefix)) || ASSET_EXTENSION_PATTERN.test(path)
+}
+
+function looksSecret(segment: string): boolean {
+  if (UUID_SEGMENT.test(segment) || LONG_HEX_SEGMENT.test(segment) || JWT_SEGMENT.test(segment)) return true
+  if (segment.length < 20 || !TOKEN_CHARSET.test(segment)) return false
+  const digits = segment.replace(/\D/g, '').length
+  const letters = segment.replace(/[^a-z]/gi, '').length
+  const mixedCase = /[a-z]/.test(segment) && /[A-Z]/.test(segment)
+  // Random tokens mix digits and letters; readable slugs separate words with dashes.
+  return digits >= 3 && letters >= 3 && (mixedCase || !/[-_]/.test(segment))
+}
+
+/**
+ * A request path safe to keep: matrix parameters (";jsessionid=") dropped and
+ * path segments that look like secrets (UUIDs, long hex, JWTs, random tokens,
+ * email addresses) replaced, so reset, invite and share links are not stored.
+ * Readable slugs and short numeric ids stay: they are what a journey shows.
+ */
+export function maskJourneyPath(path: string): string {
+  return (path || '/').split('/').map(raw => {
+    const segment = raw.split(';')[0]!
+    if (!segment) return segment
+    if (/@|%40/i.test(segment)) return ':email'
+    return looksSecret(segment) ? ':token' : segment
+  }).join('/') || '/'
 }
 
 /** Whether a user agent looks like a person's browser (crawler rules run separately). */
@@ -77,10 +150,11 @@ export function isLikelyBrowser(userAgent: string | null | undefined): boolean {
  * The browser requests from one batch that a journey can use: no Canonry
  * self-traffic, crawlers, AI user fetches, non-browser clients, static assets,
  * HEAD or OPTIONS, or unreadable timestamps. Times become UTC ISO strings.
- * Query strings are cut down to utm parameters; a click id is reduced to the
- * fact that one was present.
+ * Query strings are cut down to utm parameters and secret-like path segments
+ * are masked; a click id is reduced to the fact that one was present.
  */
-export function extractJourneyRequests(events: readonly NormalizedTrafficRequest[]): JourneyRequest[] {
+export function extractJourneyRequests(events: readonly NormalizedTrafficRequest[], options: ExtractJourneyOptions = {}): JourneyRequest[] {
+  const siteDomains = (options.siteDomains ?? []).map(domainOf).filter((d): d is string => Boolean(d))
   const out: JourneyRequest[] = []
   for (const event of events) {
     const method = event.method?.toUpperCase() ?? null
@@ -99,11 +173,19 @@ export function extractJourneyRequests(events: readonly NormalizedTrafficRequest
       const value = params.get(name)
       return value ? [`${name}=${encodeURIComponent(value)}`] : []
     })
-    const path = (kept.length ? `${rawPath}?${kept.join('&')}` : rawPath).slice(0, MAX_PATH_LENGTH)
-    const refererHost = refererHostOf(event.referer)
+    const maskedPath = maskJourneyPath(rawPath)
+    const path = (kept.length ? `${maskedPath}?${kept.join('&')}` : maskedPath).slice(0, MAX_PATH_LENGTH)
+    const refererUrl = refererUrlOf(event.referer)
+    const refererHost = refererUrl?.hostname || null
+    const refererBase = baseHost(refererHost)
     const siteHost = baseHost(hostOfEvent(event))
-    const sameSiteReferer = Boolean(refererHost && siteHost && baseHost(refererHost) === siteHost)
+    const sameSite = Boolean(refererBase && (
+      (siteHost && (onDomain(refererBase, siteHost) || onDomain(siteHost, refererBase)))
+      || siteDomains.some(domain => onDomain(refererBase, domain))
+    ))
+    const stepReferer = sameSite || Boolean(refererBase && isStepRefererHost(refererBase, refererUrl?.pathname ?? '/'))
     const ai = classifyAiReferral(event)
+    const networkClickId = Object.keys(NETWORK_CLICK_ID_PARAMETERS).find(name => params.has(name))
 
     out.push({
       eventId: event.eventId,
@@ -114,15 +196,17 @@ export function extractJourneyRequests(events: readonly NormalizedTrafficRequest
       kind: DATA_PATH_PATTERN.test(rawPath) ? 'data' : 'page',
       remoteIp: event.remoteIp?.trim() || null,
       userAgent: event.userAgent!.trim(),
-      sameSiteReferer,
+      stepReferer,
+      aiEvidence: ai?.evidenceType ?? null,
       signal: {
         aiProduct: ai?.product ?? null,
         aiDomain: ai?.sourceDomain ?? null,
         aiPaid: ai?.trafficClass === 'paid',
-        refererHost: sameSiteReferer ? null : refererHost,
+        refererHost: stepReferer ? null : refererHost,
         utmSource: params.get('utm_source'),
         utmMedium: params.get('utm_medium'),
-        clickId: CLICK_ID_PARAMETERS.some(name => params.has(name)),
+        adClickId: AD_CLICK_ID_PARAMETERS.some(name => params.has(name)),
+        clickNetwork: networkClickId ? NETWORK_CLICK_ID_PARAMETERS[networkClickId]! : null,
       },
     })
   }
@@ -131,9 +215,9 @@ export function extractJourneyRequests(events: readonly NormalizedTrafficRequest
 
 /** A request carries entry evidence when it arrived from outside the site. */
 export function hasEntryEvidence(request: JourneyRequest): boolean {
-  if (request.sameSiteReferer) return false
+  if (request.stepReferer) return false
   const s = request.signal
-  return Boolean(s.aiProduct || s.refererHost || s.utmSource || s.utmMedium || s.clickId)
+  return Boolean(s.aiProduct || s.refererHost || s.utmSource || s.utmMedium || s.adClickId || s.clickNetwork)
 }
 
 function entryKey(entry: JourneyEntry): string {
@@ -153,8 +237,12 @@ export interface JourneyVisitorState {
   firstAiAt: string | null
   firstAiEngine: string | null
   lastAiAt: string | null
+  /** Start times of this visitor's stored AI visits near the batch, any order. */
+  aiTimes?: readonly string[]
   /** This visitor's stored visits near the batch window, any order. */
   visits: StoredJourneyVisit[]
+  /** Requests already stored per UTC day (YYYY-MM-DD) in the batch's days. */
+  requestsByDay?: Readonly<Record<string, number>>
 }
 
 export interface KeyedJourneyRequest extends JourneyRequest {
@@ -165,6 +253,8 @@ export interface JourneyVisitWrite extends StoredJourneyVisit {
   visitorKey: string
   landingPath: string
   isNew: boolean
+  /** A stored visit gained an earlier first request: its landing path and entry changed. */
+  headChanged: boolean
 }
 
 export interface JourneyEventWrite {
@@ -180,11 +270,15 @@ export interface JourneyVisitorWrite {
   lastAiAt: string
   userAgent: string
   lastSeenAt: string
+  /** Requests over the daily cap in this batch. */
+  eventsCapped: number
 }
 
 export interface SessionizeJourneyOptions {
   idleMs: number
   lookbackMs: number
+  /** Requests stored per visitor per UTC day; the rest are counted, not stored. */
+  maxRequestsPerDay: number
   newId: () => string
 }
 
@@ -192,44 +286,71 @@ export interface SessionizeJourneyResult {
   visits: JourneyVisitWrite[]
   events: JourneyEventWrite[]
   visitors: JourneyVisitorWrite[]
-  /** Requests not kept: the visitor had no AI visit at or before them within the lookback. */
+  /** Requests not kept: outside every AI journey, or background data calls that would open a visit. */
   dropped: number
+  /** Requests over the per-visitor daily cap. */
+  capped: number
 }
 
 const ms = (iso: string) => Date.parse(iso)
+const DIRECT_ENTRY: JourneyEntry = { entryClass: 'direct', entryName: null, entryHost: null, paid: false }
+const laterOf = (a: string | null, b: string): string => (a !== null && a > b ? a : b)
+
+interface Placement<V> {
+  visit: V | undefined
+  /** The request becomes the visit's first request. */
+  head: boolean
+}
 
 /**
- * The visit a request at `t` continues: one within the idle gap, from the same
- * outside source when the request arrived from outside. When visits overlap
- * that window, the latest one started at or before `t` wins (a click right
- * after a new arrival belongs to that arrival), else the earliest after it.
+ * Where a request at `t` goes, as if requests had arrived in time order. The
+ * current visit is the latest one started at or before `t` and not idle at
+ * `t`. A request with no entry evidence continues it. An arrival from outside
+ * continues it only from the same source. Otherwise the request starts a visit,
+ * and a later visit that begins within the idle gap and could only have
+ * continued this one (it opened with no entry evidence, or from the same
+ * source) takes this request as its first.
  */
-function continuedVisit<V extends StoredJourneyVisit>(visits: readonly V[], t: number, outsideEntry: string | null, idleMs: number): V | undefined {
-  let before: V | undefined
-  let after: V | undefined
+function placeRequest<V extends StoredJourneyVisit>(visits: readonly V[], t: number, outsideEntry: string | null, idleMs: number): Placement<V> {
+  let current: V | undefined
+  let next: V | undefined
   for (const v of visits) {
-    if (t < ms(v.startedAt) - idleMs || t > ms(v.endedAt) + idleMs) continue
-    if (outsideEntry !== null && outsideEntry !== entryKey(v.entry)) continue
-    if (ms(v.startedAt) <= t) {
-      if (!before || v.startedAt > before.startedAt) before = v
-    } else if (!after || v.startedAt < after.startedAt) {
-      after = v
+    const start = ms(v.startedAt)
+    if (start <= t) {
+      if (t <= ms(v.endedAt) + idleMs && (!current || v.startedAt > current.startedAt)) current = v
+    } else if (start - t <= idleMs && (!next || v.startedAt < next.startedAt)) {
+      next = v
     }
   }
-  return before ?? after
+  if (current && (outsideEntry === null || outsideEntry === entryKey(current.entry))) return { visit: current, head: false }
+  if (next && (next.entry.entryClass === 'direct' || outsideEntry === entryKey(next.entry))) return { visit: next, head: true }
+  return { visit: undefined, head: false }
 }
-const laterOf = (a: string | null, b: string): string => (a !== null && a > b ? a : b)
+
+/** Insert into a sorted array at the right place. */
+function insertSorted(values: string[], value: string): void {
+  let i = values.length
+  while (i > 0 && values[i - 1]! > value) i -= 1
+  if (values[i - 1] !== value) values.splice(i, 0, value)
+}
 
 /**
  * Group each visitor's requests into visits and keep the ones that belong to
- * an AI journey. A request continues the visit it falls within (idle gap under
- * `idleMs`) unless it arrives from a different outside source, which starts a
- * new visit, as analytics tools do. A request is kept when it is an AI
- * referral, or the visitor's first AI visit is at or before it and their
- * latest AI visit is within `lookbackMs` before it. Works for backfills that
- * arrive out of order: requests are matched against the visitor's stored
- * visits around them, and an earlier AI visit found later moves the journey
- * start back.
+ * an AI journey. Visits follow `placeRequest`: an idle gap of `idleMs` or an
+ * arrival from a different outside source starts a new visit, as analytics
+ * tools do. A request is kept when it is an AI touch, when an AI touch came
+ * within `lookbackMs` before it, or when it continues a kept visit. A
+ * background data call with no entry evidence never opens a visit.
+ *
+ * An AI engine seen only on a same-site referer's utm (the landing page was
+ * served from a cache the logs never saw) counts as an AI touch only when the
+ * visitor had none within the lookback; otherwise it is an ordinary step.
+ *
+ * Out-of-order batches (backfills) are matched against the visitor's stored
+ * visits and AI touches around them, so a late request joins or heads the
+ * right visit and an earlier AI visit moves the journey start back. A late
+ * request does not merge two stored visits, and a push request dropped before
+ * the visitor's AI landing arrived is not recovered.
  */
 export function sessionizeJourneyRequests(
   requests: readonly KeyedJourneyRequest[],
@@ -247,43 +368,81 @@ export function sessionizeJourneyRequests(
   const events: JourneyEventWrite[] = []
   const visitors: JourneyVisitorWrite[] = []
   let dropped = 0
+  let capped = 0
 
   for (const [visitorKey, list] of byVisitor) {
     list.sort((a, b) => (a.observedAt < b.observedAt ? -1 : a.observedAt > b.observedAt ? 1 : 0))
     const prior = state.get(visitorKey)
-    // AI visits in this batch can open the journey earlier than stored state says.
-    const aiTimes = list.filter(r => r.signal.aiProduct).map(r => r.observedAt)
-    const firstAiAt = [prior?.firstAiAt, aiTimes[0]].filter((t): t is string => Boolean(t)).sort()[0] ?? null
-    if (!firstAiAt) {
+    const isWeakAi = (r: JourneyRequest) => Boolean(r.signal.aiProduct) && r.stepReferer
+    const isStrongAi = (r: JourneyRequest) => Boolean(r.signal.aiProduct) && !r.stepReferer
+    // Known AI touches, sorted: stored ones and this batch's direct AI arrivals.
+    // Weak ones (same-site utm only) are added below when they count.
+    const aiTimes = [...new Set([
+      prior?.firstAiAt,
+      prior?.lastAiAt,
+      ...(prior?.aiTimes ?? []),
+      ...list.filter(isStrongAi).map(r => r.observedAt),
+    ].filter((t): t is string => Boolean(t)))].sort()
+    if (aiTimes.length === 0 && !list.some(isWeakAi)) {
       dropped += list.length
       continue
     }
-    const known: JourneyVisitWrite[] = (prior?.visits ?? []).map(v => ({ ...v, visitorKey, landingPath: '', isNew: false }))
-    let lastAiAt = prior?.lastAiAt ?? null
-    let firstAiEngine = prior?.firstAiAt && prior.firstAiAt === firstAiAt ? prior.firstAiEngine : null
+    const engineAt = new Map<string, string>()
+    const known: JourneyVisitWrite[] = (prior?.visits ?? []).map(v => ({ ...v, visitorKey, landingPath: '', isNew: false, headChanged: false }))
+    const requestsByDay = new Map(Object.entries(prior?.requestsByDay ?? {}))
     let keptAny = false
+    let visitorCapped = 0
     let lastSeenAt: string | null = null
     let userAgent = list[0].userAgent
+    // Index of the latest AI touch at or before the current request.
+    let aiIndex = -1
 
     for (const request of list) {
-      const isAi = Boolean(request.signal.aiProduct)
-      if (isAi) {
-        if (!lastAiAt || request.observedAt > lastAiAt) lastAiAt = request.observedAt
-        if (request.observedAt === firstAiAt && !firstAiEngine) firstAiEngine = request.signal.aiProduct
+      const t = ms(request.observedAt)
+      while (aiIndex + 1 < aiTimes.length && aiTimes[aiIndex + 1]! <= request.observedAt) aiIndex += 1
+      const withinLookback = aiIndex >= 0 && t - ms(aiTimes[aiIndex]!) <= options.lookbackMs
+      let aiTouch = isStrongAi(request)
+      if (isWeakAi(request) && !withinLookback) {
+        aiTouch = true
+        insertSorted(aiTimes, request.observedAt)
+        aiIndex = aiTimes.indexOf(request.observedAt)
       }
-      const inJourney = isAi || (request.observedAt >= firstAiAt && lastAiAt !== null && ms(request.observedAt) - ms(lastAiAt) <= options.lookbackMs)
-      if (!inJourney) {
+      if (aiTouch && request.signal.aiProduct && !engineAt.has(request.observedAt)) engineAt.set(request.observedAt, request.signal.aiProduct)
+
+      // A step (same-site, sign-in or payment referer) that opens a visit after
+      // an idle gap came from nowhere new: utm tags carried on internal links
+      // do not name a source for it.
+      const entry = aiTouch
+        ? classifyJourneyEntry(request.signal)
+        : request.stepReferer
+          ? DIRECT_ENTRY
+          : classifyJourneyEntry({ ...request.signal, aiProduct: null, aiDomain: null, aiPaid: false })
+      const outside = aiTouch || hasEntryEvidence(request)
+      const placement = placeRequest(known, t, outside ? entryKey(entry) : null, options.idleMs)
+      const continues = placement.visit !== undefined && !placement.head
+      const kept = aiTouch || withinLookback || continues
+      const opensVisit = placement.visit === undefined
+      if (!kept || (opensVisit && request.kind === 'data' && !outside)) {
         dropped += 1
         continue
       }
-      const entry = classifyJourneyEntry(request.signal)
-      const external = hasEntryEvidence(request)
-      const t = ms(request.observedAt)
-      const visit = continuedVisit(known, t, external ? entryKey(entry) : null, options.idleMs)
+      const day = request.observedAt.slice(0, 10)
+      const stored = requestsByDay.get(day) ?? 0
+      if (stored >= options.maxRequestsPerDay) {
+        visitorCapped += 1
+        continue
+      }
+      requestsByDay.set(day, stored + 1)
+
       let target: JourneyVisitWrite
-      if (visit) {
-        target = visit
-        if (request.observedAt < target.startedAt) target.startedAt = request.observedAt
+      if (placement.visit) {
+        target = placement.visit
+        if (placement.head) {
+          target.startedAt = request.observedAt
+          target.landingPath = request.path
+          if (outside) target.entry = entry
+          target.headChanged = !target.isNew
+        }
         if (request.observedAt > target.endedAt) target.endedAt = request.observedAt
         target.requestCount += 1
         if (request.kind === 'page') target.pageCount += 1
@@ -298,6 +457,7 @@ export function sessionizeJourneyRequests(
           pageCount: request.kind === 'page' ? 1 : 0,
           landingPath: request.path,
           isNew: true,
+          headChanged: false,
         }
         known.push(target)
       }
@@ -308,17 +468,20 @@ export function sessionizeJourneyRequests(
       userAgent = request.userAgent
     }
 
-    if (keptAny && lastAiAt) {
+    capped += visitorCapped
+    if ((keptAny || visitorCapped > 0) && aiTimes.length > 0) {
+      const firstAiAt = aiTimes[0]!
       visitors.push({
         visitorKey,
         firstAiAt,
-        firstAiEngine: firstAiEngine ?? prior?.firstAiEngine ?? 'AI',
-        lastAiAt,
+        firstAiEngine: (prior?.firstAiAt === firstAiAt ? prior?.firstAiEngine : null) ?? engineAt.get(firstAiAt) ?? prior?.firstAiEngine ?? 'AI',
+        lastAiAt: aiTimes[aiTimes.length - 1]!,
         userAgent,
-        lastSeenAt: lastSeenAt!,
+        lastSeenAt: lastSeenAt ?? prior?.lastAiAt ?? firstAiAt,
+        eventsCapped: visitorCapped,
       })
     }
   }
 
-  return { visits: [...visits.values()], events, visitors, dropped }
+  return { visits: [...visits.values()], events, visitors, dropped, capped }
 }

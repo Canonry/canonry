@@ -109,6 +109,10 @@ export const CLI_ROOT_SUMMARIES: Record<string, { section: string; summary: stri
     "section": "Integrations",
     "summary": "Server-side traffic ingestion (Cloud Run)"
   },
+  "journeys": {
+    "section": "Integrations",
+    "summary": "AI visitor journeys from server-side traffic"
+  },
   "schedule": {
     "section": "Automation",
     "summary": "Manage scheduled runs"

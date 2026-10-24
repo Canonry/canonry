@@ -17,7 +17,7 @@ import {
   enforceRawEventSampleRetention,
   retainedRawEventSampleTimestamp,
 } from './raw-event-sample-retention.js'
-import { persistJourneyBatch } from './journeys.js'
+import { recordJourneyBatch } from './journeys.js'
 
 // Signatures expire after five minutes. Keep receipts for one additional
 // replay window so clock skew and an edge retry cannot double-count, without
@@ -51,6 +51,8 @@ export interface WriteTrafficEventBatchOptions {
   sourceUpdate: TrafficSourceIngestUpdate
   /** Install secret for AI visitor journey keys; absent writes no journey rows. */
   journeyKeySecret?: string
+  /** A journey write failed and was rolled back; the traffic batch still commits. */
+  onJourneyError?: (error: unknown) => void
 }
 
 export interface WriteTrafficEventBatchResult {
@@ -159,7 +161,10 @@ export function writeTrafficEventBatch(
       // on the same storage boundary.
       const report = buildTrafficProbeReport(claimedEvents, { sampleLimit: claimedEvents.length })
       // AI visitor journeys from the newly claimed events, in this transaction.
-      persistJourneyBatch(tx, { projectId: opts.projectId, sourceId: opts.sourceId, events: claimedEvents, secret: opts.journeyKeySecret, now: opts.receivedAt })
+      recordJourneyBatch(tx, { projectId: opts.projectId, sourceId: opts.sourceId, events: claimedEvents, secret: opts.journeyKeySecret, now: opts.receivedAt }, {
+        onError: error => opts.onJourneyError?.(error),
+        outerActive: () => opts.db.$client.inTransaction,
+      })
       selfTrafficExcluded = report.totals.selfTrafficExcluded
       crawlerHits = report.totals.crawlerHits
       aiUserFetchHits = report.totals.aiUserFetchHits

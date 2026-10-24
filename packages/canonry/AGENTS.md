@@ -692,6 +692,7 @@ Direct and reviewed requests submit final query text: a scope only records a mar
 Date windows and headers:
 
 - Every date-scoped read (`ga traffic`, `ga session-history`, `ga ai-referral-daily`, `ga ai-referral-history`, `ga social-referral-history`) takes `--window` OR the explicit `--start` / `--end` calendar bounds (`YYYY-MM-DD`, inclusive). `--window` is rolling from now and cannot name a calendar month, so a monthly client total had to be hand-filtered out of a wider pull before. Explicit dates win over `--window`, and both are forwarded verbatim so the server (`resolveDateRange` in contracts) is the single place that decides. An unrecognised `--window` is rejected, not silently widened to the full history.
+- `ga overview` takes `--window 7d|30d|90d` and no calendar bounds: it reads GA4's own totals for a fixed window of complete days ending yesterday and for the period before it, which the sync stores per window (`WINDOW_SETS.gaOverview`).
 - `ga attribution` and `ga social-referral-summary` print `windowLine` — the measured window and its day count — ABOVE the numbers rather than as a trailing `Period:` footer, and carry `windowStart` / `windowEnd` / `windowDays` in `--format json`. Both render percentages that are only meaningful against that window, and a reader who meets "Direct 69%" before the period has already formed a view of the business by the time a footer tells them what it covers.
 
 ### Google Business Profile
@@ -793,7 +794,7 @@ attribution and no provider calls or sync.
 
 ### AI visitor journeys
 
-`src/commands/journeys.ts` — `journeys summary`, `journeys list` and `journeys show`
+`src/commands/journeys.ts`: `journeys summary`, `journeys list` and `journeys show`
 read stored journeys through `journeysSummary`, `journeysList` and `journeyGet`
 (MCP: `canonry_journeys_summary`, `canonry_journeys_list`, `canonry_journey_get`).
 JSON is the API DTO; `list --format jsonl` streams visitors with project and
@@ -801,7 +802,7 @@ window context. Human output shows the short device label, not the full user
 agent, except `show`, which prints both. Say when visitors are keyed by user
 agent only.
 
-`src/journey-secret.ts` — `resolveJourneyKeySecret` picks the HMAC secret for
+`src/journey-secret.ts`: `resolveJourneyKeySecret` picks the HMAC secret for
 visitor keys: `CANONRY_JOURNEY_KEY_SECRET` (at least 32 characters), then
 `journeys.visitorKeySecret`, else it generates one and saves it with
 `saveConfigPatch`. `serve` resolves it, never `createServer`, so test servers do

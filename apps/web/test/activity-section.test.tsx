@@ -46,7 +46,7 @@ vi.mock('recharts', () => {
   }
 })
 
-import { ActivitySection, ClickThroughActivity, SEARCH_LANDING_COPY } from '../src/components/project/ActivitySection.js'
+import { ACTIVITY_COPY, ActivitySection, ClickThroughActivity, SEARCH_LANDING_COPY } from '../src/components/project/ActivitySection.js'
 import { StackedSeriesChart } from '../src/components/project/ActivityParts.js'
 import { AiTrafficHistoryPanel } from '../src/components/project/AiTrafficHistoryPanel.js'
 
@@ -83,6 +83,43 @@ const EMPTY_SEARCH_LANDING = {
 const EMPTY_SERIES = { series: [], otherCount: 0, days: [] }
 
 const EMPTY_AI_DAILY_RESPONSE = { days: [], sources: [], totalSessions: 0, totalPaidSessions: 0, totalOrganicSessions: 0, byEngine: EMPTY_SERIES }
+
+const OVERVIEW_KEYS = ['activeUsers', 'newUsers', 'totalUsers', 'sessions', 'organicSessions', 'views', 'eventCount', 'keyEvents', 'engagementRate', 'bounceRate', 'averageEngagementTimeSeconds'] as const
+
+function overviewValues(values: Partial<Record<typeof OVERVIEW_KEYS[number], number | null>> = {}) {
+  return { ...Object.fromEntries(OVERVIEW_KEYS.map(key => [key, null])), ...values }
+}
+
+/**
+ * A `/ga/overview` response as the API sends it. Totals, every change and the
+ * days are the server's; the card only lays them out.
+ */
+function gaOverviewResponse(overrides: Record<string, unknown> = {}) {
+  return {
+    window: '30d',
+    current: { startDate: '2026-03-01', endDate: '2026-03-30' },
+    previous: { startDate: '2026-01-30', endDate: '2026-02-28' },
+    totals: overviewValues({ sessions: 4528, activeUsers: 2500, organicSessions: 2758, engagementRate: 0.6076, keyEvents: 146, bounceRate: 0.3924, views: 9913 }),
+    previousTotals: overviewValues({ sessions: 4256, activeUsers: 2356, organicSessions: 2578, engagementRate: 0.6106, bounceRate: 0.3994, views: 9439 }),
+    changePct: overviewValues({ sessions: 6.390977, activeUsers: 6.112054, organicSessions: 6.982157, engagementRate: -0.476486, bounceRate: -1.752629, views: 5.021718 }),
+    days: [
+      { date: '2026-03-29', previousDate: '2026-02-27', values: overviewValues({ sessions: 150, activeUsers: 90 }), previousValues: overviewValues({ sessions: 140, activeUsers: 85 }) },
+      { date: '2026-03-30', previousDate: '2026-02-28', values: overviewValues({ sessions: 160, activeUsers: 95 }), previousValues: overviewValues({ sessions: 130, activeUsers: 80 }) },
+    ],
+    syncedAt: '2026-03-31T04:00:00.000Z',
+    ...overrides,
+  }
+}
+
+/** A collapsed Activity row, found by the label in its summary. */
+function disclosure(container: HTMLElement, label: string): HTMLDetailsElement {
+  return within(container).getByText(label, { selector: 'summary > span' }).closest('details') as HTMLDetailsElement
+}
+
+async function openDisclosure(row: HTMLDetailsElement) {
+  fireEvent.click(row.querySelector('summary') as HTMLElement)
+  await waitFor(() => expect(row.open).toBe(true))
+}
 
 /**
  * A `/ga/traffic` response as the API sends it, groups and shares included.
@@ -160,6 +197,7 @@ function mockConnectedGa(routes: Record<string, () => Response>) {
     if (urlPath.endsWith('/projects/test-project/ga/traffic')) return jsonResponse(gaTrafficResponse())
     if (urlPath.endsWith('/projects/test-project/ga/ai-referral-daily')) return jsonResponse(EMPTY_AI_DAILY_RESPONSE)
     if (urlPath.endsWith('/projects/test-project/ga/session-history')) return jsonResponse([])
+    if (urlPath.endsWith('/projects/test-project/ga/overview')) return jsonResponse(gaOverviewResponse())
     if (urlPath.endsWith('/projects/test-project/ga/search-landing-pages')) return jsonResponse(EMPTY_SEARCH_LANDING)
     if (urlPath.endsWith('/projects/test-project/traffic/sources')) return jsonResponse({ sources: [] })
     if (urlPath.endsWith('/projects/test-project/traffic/events')) {
@@ -216,7 +254,7 @@ const AI_TRAFFIC = {
   aiSharePctDisplay: '35%',
 }
 
-test('keeps AI traffic history above the GA4 panels and loads GA4 without changing hook order', async () => {
+test('puts the GA4 overview first, then AI traffic history, and loads GA4 without changing hook order', async () => {
   onTestFinished(mockConnectedGa({
     '/ga/traffic': () => jsonResponse(gaTrafficResponse({
       ...AI_TRAFFIC,
@@ -238,12 +276,14 @@ test('keeps AI traffic history above the GA4 panels and loads GA4 without changi
 
   renderActivitySection()
 
-  await screen.findByRole('heading', { name: 'AI sessions by engine' })
-  const trafficPeriod = screen.getByRole('group', { name: 'Traffic time period' })
+  await screen.findByText(ACTIVITY_COPY.aiChartLabel, { selector: 'summary > span' })
+  // One period control, on the first traffic section's heading, above every panel it drives.
+  const trafficPeriod = within(sectionByHeading('Site traffic')).getByRole('group', { name: 'Traffic time period' })
   expect(within(trafficPeriod).getByRole('button', { name: '30d' }).getAttribute('aria-pressed')).toBe('true')
 
-  // Server data first: the AI history sits right under Server activity, before every GA4 section.
-  const order = ['Server activity', 'AI traffic history', 'Site traffic', 'Traffic by channel', 'Social', 'Top landing pages', SEARCH_LANDING_COPY.heading]
+  // The GA4 overview leads the traffic sections, as it did before 2026-10-21;
+  // the AI history follows it, ahead of the GA4 detail sections.
+  const order = ['Server activity', 'Site traffic', 'AI traffic history', 'Traffic by channel', 'Social', 'Top landing pages', SEARCH_LANDING_COPY.heading]
     .map(name => screen.getByRole('heading', { name, level: 2 }))
   for (let i = 1; i < order.length; i++) {
     expect(order[i - 1]!.compareDocumentPosition(order[i]!) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0)
@@ -293,7 +333,13 @@ test('groups AI sources by engine, keeps unattributed AI last, and shows each sh
   renderActivitySection()
 
   const section = (await screen.findByRole('heading', { name: 'Traffic by channel' })).closest('section') as HTMLElement
-  const table = within(section).getByRole('table', { name: 'AI referral sessions by engine' })
+  const row = disclosure(section, 'Where AI visitors came from')
+  // Closed by default; the row itself carries the API's counts.
+  expect(row.open).toBe(false)
+  expect(within(row).getByText('1 engine · 3 sources')).toBeTruthy()
+  expect(within(row).queryByRole('table')).toBeNull()
+  await openDisclosure(row)
+  const table = await within(row).findByRole('table', { name: 'AI referral sessions by engine' })
   const groupButtons = await within(table).findAllByRole('button', { expanded: false })
   expect(groupButtons.map(button => button.textContent)).toEqual(['ChatGPT2 sources', 'Unattributed AI1 source'])
 
@@ -359,11 +405,18 @@ test('social groups sources by platform from the API and opens the raw rows in p
   expect(figures.getByText('50.0% of social')).toBeTruthy()
   expect(within(figures.getByText('Top platform').closest('div') as HTMLElement).getByText('Instagram')).toBeTruthy()
 
+  // Each detail is a closed row whose summary carries the API's figure.
+  const chartRow = disclosure(section, ACTIVITY_COPY.socialChartLabel)
+  expect(within(chartRow).getByText('100 sessions')).toBeTruthy()
+  await openDisclosure(chartRow)
   // The chart legend toggles each API series; there is no client-side Top-N.
-  const legend = within(within(section).getByRole('group', { name: 'Social sessions by platform series' }))
+  const legend = within(await within(chartRow).findByRole('group', { name: 'Social sessions by platform series' }))
   expect(legend.getAllByRole('checkbox').map(box => (box.closest('label') as HTMLElement).textContent)).toEqual(['Instagram', 'Pinterest'])
 
-  const table = within(section).getByRole('table', { name: 'Social sessions by platform' })
+  const platformsRow = disclosure(section, 'Social platforms')
+  expect(within(platformsRow).getByText('2 platforms · 4 sources')).toBeTruthy()
+  await openDisclosure(platformsRow)
+  const table = await within(platformsRow).findByRole('table', { name: 'Social sessions by platform' })
   const instagram = within(table).getByRole('button', { name: /Instagram/ })
   expect(instagram.textContent).toBe('Instagram3 sources')
   expect(within(table).queryByText('ig')).toBeNull()
@@ -383,7 +436,7 @@ test('top time picker reloads every GA surface, social included, from the same w
     '30d': { label: 'Facebook', platform: 'facebook', source: 'facebook.com', sessions: 30 },
     '90d': { label: 'X', platform: 'x', source: 'x.com', sessions: 90 },
   } as const
-  const surfaces = ['traffic', 'ai-referral-daily', 'session-history'] as const
+  const surfaces = ['traffic', 'ai-referral-daily', 'session-history', 'overview'] as const
 
   onTestFinished(mockFetch((url) => {
     const parsed = new URL(url, window.location.origin)
@@ -396,6 +449,7 @@ test('top time picker reloads every GA surface, social included, from the same w
     seen.add(`${surface}:${windowKey}`)
     if (surface === 'ai-referral-daily') return jsonResponse(EMPTY_AI_DAILY_RESPONSE)
     if (surface === 'session-history') return jsonResponse([])
+    if (surface === 'overview') return jsonResponse(gaOverviewResponse({ window: windowKey }))
     const selected = platforms[windowKey]
     const row = { source: selected.source, medium: 'social', channelGroup: 'Organic Social', sessions: selected.sessions, share: 1 }
     return jsonResponse(gaTrafficResponse({
@@ -411,15 +465,17 @@ test('top time picker reloads every GA surface, social included, from the same w
       <ClickThroughActivity projectName="test-project" window={windowKey} />
     </QueryClientProvider>
   )
+  // Social's figures stay in view while its tables are closed rows, so the
+  // top platform figure is what proves the section reloaded for the window.
+  const topPlatform = () => {
+    const figures = within(sectionByHeading('Social')).getByLabelText('Social sessions')
+    return (within(figures).getByText('Top platform').closest('div') as HTMLElement).querySelector('dd')?.textContent
+  }
   const assertWindow = async (windowKey: keyof typeof platforms) => {
     await waitFor(() => {
       for (const surface of surfaces) expect(seen.has(`${surface}:${windowKey}`)).toBe(true)
-      expect(within(sectionByHeading('Social')).getByRole('button', { name: new RegExp(`^${platforms[windowKey].label}\\s?\\d`) })).toBeTruthy()
+      expect(topPlatform()).toBe(platforms[windowKey].label)
     })
-    const social = sectionByHeading('Social')
-    for (const [otherWindow, other] of Object.entries(platforms)) {
-      if (otherWindow !== windowKey) expect(within(social).queryByRole('button', { name: new RegExp(`^${other.label}\\s?\\d`) })).toBeNull()
-    }
   }
 
   const { rerender } = render(renderWindow('30d'))
@@ -824,4 +880,143 @@ test('a hidden chart series stays hidden when a new range reorders the series', 
 
   rerender(<StackedSeriesChart input={ranked(perplexity, chatgpt)} label="AI sessions by engine" />)
   expect(checked()).toEqual({ Perplexity: true, ChatGPT: false })
+})
+
+/**
+ * The GA4 overview card. Every figure, change and day is the API's; the card
+ * decides only which figure is charted and how a change is coloured.
+ */
+test('Site traffic shows GA4 figures with their change against the previous period', async () => {
+  window.localStorage.clear()
+  onTestFinished(() => window.localStorage.clear())
+  onTestFinished(mockConnectedGa({}))
+
+  renderActivitySection()
+
+  const tabs = within(await screen.findByRole('tablist', { name: 'Site traffic figures' }))
+  expect(tabs.getAllByRole('tab').map(tab => tab.getAttribute('aria-label'))).toEqual([
+    'Sessions 4.5K, up 6.4% on the previous period',
+    'Users 2.5K, up 6.1% on the previous period',
+    'Organic sessions 2.8K, up 7.0% on the previous period',
+    'Engagement rate 60.8%, down 0.5% on the previous period',
+    // The server sent no change: it reads as missing, never as 0%.
+    'Key events 146, no earlier data',
+  ])
+  // The first figure is charted until another is picked.
+  expect(tabs.getAllByRole('tab')[0]!.getAttribute('aria-selected')).toBe('true')
+  expect(within(sectionByHeading('Site traffic')).getByRole('img', { name: 'Sessions per day, last 30 days and the previous period' })).toBeTruthy()
+  // A fall in engagement is bad news; a rise in sessions is good news.
+  expect(within(tabs.getByRole('tab', { name: /^Sessions/ })).getByText('6.4%').className).toContain('text-positive')
+  expect(within(tabs.getByRole('tab', { name: /^Engagement rate/ })).getByText('0.5%').className).toContain('text-negative')
+})
+
+test('a falling bounce rate reads as good news', async () => {
+  window.localStorage.clear()
+  onTestFinished(() => window.localStorage.clear())
+  onTestFinished(mockConnectedGa({}))
+
+  renderActivitySection()
+
+  const tabs = within(await screen.findByRole('tablist', { name: 'Site traffic figures' }))
+  // Put Bounce rate in the fifth slot through its picker.
+  fireEvent.change(screen.getByRole('combobox', { name: 'Figure 5' }), { target: { value: 'bounceRate' } })
+  const bounce = await tabs.findByRole('tab', { name: 'Bounce rate 39.2%, down 1.8% on the previous period' })
+  expect(within(bounce).getByText('1.8%').className).toContain('text-positive')
+})
+
+test('picking a figure charts it, and a picker swaps a figure already shown', async () => {
+  window.localStorage.clear()
+  onTestFinished(() => window.localStorage.clear())
+  onTestFinished(mockConnectedGa({}))
+
+  const { unmount } = renderActivitySection()
+
+  const tabs = within(await screen.findByRole('tablist', { name: 'Site traffic figures' }))
+  fireEvent.click(tabs.getByRole('tab', { name: /^Users/ }))
+  expect(tabs.getByRole('tab', { name: /^Users/ }).getAttribute('aria-selected')).toBe('true')
+  expect(screen.getByRole('img', { name: 'Users per day, last 30 days and the previous period' })).toBeTruthy()
+
+  // Users is already in slot 2: choosing it for slot 1 swaps the two.
+  fireEvent.change(screen.getByRole('combobox', { name: 'Figure 1' }), { target: { value: 'activeUsers' } })
+  expect(tabs.getAllByRole('tab').slice(0, 2).map(tab => tab.getAttribute('aria-label')?.split(' ')[0])).toEqual(['Users', 'Sessions'])
+
+  // The choice is this viewer's and outlasts the visit.
+  unmount()
+  renderActivitySection()
+  const reopened = within(await screen.findByRole('tablist', { name: 'Site traffic figures' }))
+  expect(reopened.getAllByRole('tab').slice(0, 2).map(tab => tab.getAttribute('aria-label')?.split(' ')[0])).toEqual(['Users', 'Sessions'])
+})
+
+test('a picker keeps keyboard focus when a figure is picked, swaps included', async () => {
+  window.localStorage.clear()
+  onTestFinished(() => window.localStorage.clear())
+  onTestFinished(mockConnectedGa({}))
+
+  renderActivitySection()
+
+  await screen.findByRole('tablist', { name: 'Site traffic figures' })
+  const picker = screen.getByRole('combobox', { name: 'Figure 3' })
+  picker.focus()
+  fireEvent.change(picker, { target: { value: 'views' } })
+  // The same select, still mounted and focused: not handed back to the page.
+  expect(picker.isConnected).toBe(true)
+  expect(document.activeElement).toBe(picker)
+
+  // Sessions is in slot 1, so this swaps the two; focus still stays here.
+  fireEvent.change(picker, { target: { value: 'sessions' } })
+  expect(document.activeElement).toBe(picker)
+  expect(screen.getByRole('combobox', { name: 'Figure 1' })).toHaveProperty('value', 'views')
+})
+
+test('a project synced before the overview existed is told the figures come with the next sync', async () => {
+  window.localStorage.clear()
+  onTestFinished(() => window.localStorage.clear())
+  onTestFinished(mockConnectedGa({
+    '/ga/overview': () => jsonResponse(gaOverviewResponse({
+      totals: overviewValues(),
+      previousTotals: overviewValues(),
+      changePct: overviewValues(),
+      syncedAt: null,
+    })),
+  }))
+
+  renderActivitySection()
+
+  const site = await waitFor(() => sectionByHeading('Site traffic'))
+  expect(await within(site).findByText('These figures fill in after the next GA4 sync.')).toBeTruthy()
+  expect(within(site).getByRole('tab', { name: 'Sessions —, no earlier data' })).toBeTruthy()
+})
+
+/**
+ * Regression for 2026-10-23: a site with no AI sessions lost its sessions
+ * chart, because the only daily sessions chart lived inside the AI chart.
+ */
+test('Site traffic charts sessions per day when the site has no AI sessions at all', async () => {
+  window.localStorage.clear()
+  onTestFinished(() => window.localStorage.clear())
+  onTestFinished(mockConnectedGa({}))
+
+  renderActivitySection()
+
+  const site = await waitFor(() => sectionByHeading('Site traffic'))
+  expect(await within(site).findByRole('img', { name: 'Sessions per day, last 30 days and the previous period' })).toBeTruthy()
+  const channels = sectionByHeading('Traffic by channel')
+  for (const label of [ACTIVITY_COPY.aiChartLabel, 'Where AI visitors came from', 'Pages AI visitors landed on']) {
+    const row = disclosure(channels, label)
+    expect(row.open).toBe(false)
+    expect(within(row).getByText(ACTIVITY_COPY.noneInPeriod)).toBeTruthy()
+  }
+})
+
+test('a disconnected GA4 keeps the range picker and the AI traffic history on the tab', async () => {
+  onTestFinished(mockConnectedGa({
+    '/ga/status': () => jsonResponse({ connected: false, propertyId: null, clientEmail: null, lastSyncedAt: null }),
+  }))
+
+  renderActivitySection()
+
+  await screen.findByText(/Connect Google Analytics 4/i)
+  expect(within(sectionByHeading('Site traffic')).getByRole('group', { name: 'Traffic time period' })).toBeTruthy()
+  expect(screen.getByRole('heading', { name: 'AI traffic history', level: 2 })).toBeTruthy()
+  expect(screen.queryByRole('heading', { name: 'Traffic by channel' })).toBeNull()
 })

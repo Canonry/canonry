@@ -4,7 +4,7 @@ import { usageError } from '../cli-error.js'
 
 const SUMMARY_USAGE = 'canonry journeys summary <project> [--since <ISO>] [--until <ISO>] [--format json]'
 const LIST_USAGE = 'canonry journeys list <project> [--since <ISO>] [--until <ISO>] [--engine <name>] [--returned true|false] [--limit 50] [--offset 0] [--format json|jsonl]'
-const SHOW_USAGE = 'canonry journeys show <project> <visitor-key> [--format json]'
+const SHOW_USAGE = 'canonry journeys show <project> <visitor-key> [--limit 100] [--offset 0] [--format json]'
 
 function parseReturned(input: CliCommandInput): boolean | undefined {
   const value = getString(input.values, 'returned')
@@ -52,12 +52,14 @@ export const JOURNEYS_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['journeys', 'show'],
     usage: SHOW_USAGE,
-    help: 'Every stored visit and request for one AI visitor. No provider calls.',
+    help: 'Stored visits and requests for one AI visitor, a page at a time. No provider calls.',
+    options: { limit: stringOption(), offset: stringOption() },
     run: async input => {
       const { journeyShow } = await import('../commands/journeys.js')
       const project = requireProject(input, 'journeys.show', SHOW_USAGE)
       const visitorKey = requirePositional(input, 1, { command: 'journeys.show', usage: SHOW_USAGE, message: 'visitor key is required' })
-      await journeyShow(project, visitorKey, { format: input.format })
+      const integer = (name: string) => parseIntegerOption(input, name, { command: 'journeys.show', usage: SHOW_USAGE, message: `--${name} must be an integer` })
+      await journeyShow(project, visitorKey, { limit: integer('limit'), offset: integer('offset'), format: input.format })
     },
   },
   {

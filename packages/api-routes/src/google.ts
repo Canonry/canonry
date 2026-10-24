@@ -40,6 +40,8 @@ import {
   resolveGscRequestWindow, resolveGscWindowRange, resolveGscWindowDays, type GscWindowRange,
 } from './gsc-totals.js'
 import { assertNotProjectScoped } from './auth.js'
+import type { Ga4CredentialStore } from './ga.js'
+import { clearGaDataOnPropertyChange, projectsSharingGa4Connection, readGa4Properties } from './ga-property-data.js'
 import { resolveProject, syncRunTrigger, writeAuditLog } from './helpers.js'
 import type { ScheduledSyncClaim } from './helpers.js'
 import { startRouteOutcome } from './feature-outcome.js'
@@ -283,6 +285,12 @@ export interface GoogleRoutesOptions {
   claimScheduledSync?: ScheduledSyncClaim
   getGoogleAuthConfig?: () => { clientId?: string; clientSecret?: string }
   googleConnectionStore?: GoogleConnectionStore
+  /**
+   * GA4 service-account connections. A project's service account outranks the
+   * domain's OAuth `ga4` connection, so a write to that connection reads it to
+   * tell which projects actually change GA4 property.
+   */
+  ga4CredentialStore?: Ga4CredentialStore
   googleStateSecret?: string
   publicUrl?: string
   onGscSyncRequested?: (runId: string, projectId: string, opts?: { days?: number; full?: boolean }) => void
@@ -514,6 +522,13 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     throw validationError('Google auth storage is not configured for this deployment')
   }
 
+  // A write to a domain's OAuth `ga4` connection can move every project on
+  // that domain to another GA4 property, or to none. Read where each stands
+  // first, so `clearGaDataOnPropertyChange` can clear the ones that moved.
+  function ga4PropertiesBefore(type: string, domain: string) {
+    return type === 'ga4' ? readGa4Properties(opts, projectsSharingGa4Connection(app.db, domain)) : []
+  }
+
   // GET /projects/:name/google/connections
   app.get<{ Params: { name: string } }>('/projects/:name/google/connections', async (request) => {
     const project = resolveProject(app.db, request.params.name)
@@ -733,7 +748,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
         )
     }
 
-
+    const ga4Before = ga4PropertiesBefore(type, domain)
     store.upsertConnection({
       domain,
       connectionType: type as GoogleConnectionType,
@@ -749,13 +764,16 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       updatedAt: now,
     })
 
-    writeAuditLog(app.db, {
-      projectId: null,
-      actor: 'oauth',
-      action: 'google.connected',
-      entityType: 'google_connection',
-      entityId: type,
-      diff: { domain, type, propertyId },
+    app.db.transaction((tx) => {
+      clearGaDataOnPropertyChange(tx, opts, ga4Before, 'oauth')
+      writeAuditLog(tx, {
+        projectId: null,
+        actor: 'oauth',
+        action: 'google.connected',
+        entityType: 'google_connection',
+        entityId: type,
+        diff: { domain, type, propertyId },
+      })
     })
 
     attempt.succeeded()
@@ -802,18 +820,22 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       )
     }
 
+    const ga4Before = ga4PropertiesBefore(type, project.canonicalDomain)
     const deleted = store.deleteConnection(project.canonicalDomain, type)
     if (!deleted) {
       attempt.failed(undefined, 'NOT_CONNECTED')
       throw notFound('Google connection', type)
     }
 
-    writeAuditLog(app.db, {
-      projectId: project.id,
-      actor: 'api',
-      action: 'google.disconnected',
-      entityType: 'google_connection',
-      entityId: type,
+    app.db.transaction((tx) => {
+      clearGaDataOnPropertyChange(tx, opts, ga4Before)
+      writeAuditLog(tx, {
+        projectId: project.id,
+        actor: 'api',
+        action: 'google.disconnected',
+        entityType: 'google_connection',
+        entityId: type,
+      })
     })
 
     return reply.status(204).send()
@@ -1985,6 +2007,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       throw validationError('propertyId is required')
     }
 
+    const ga4Before = ga4PropertiesBefore(request.params.type, project.canonicalDomain)
     const conn = store.updateConnection(
       project.canonicalDomain,
       request.params.type as GoogleConnectionType,
@@ -1994,6 +2017,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       attempt.failed(undefined, 'NOT_CONNECTED')
       throw notFound('Google connection', request.params.type)
     }
+    app.db.transaction((tx) => clearGaDataOnPropertyChange(tx, opts, ga4Before))
 
     return googleConnectionDto(conn)
   }))
