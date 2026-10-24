@@ -4765,6 +4765,67 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `CREATE INDEX IF NOT EXISTS idx_research_run_queries_upstream_job ON research_run_queries(upstream_job_id) WHERE upstream_job_id IS NOT NULL`,
     ],
   },
+  {
+    // AI visitor journeys: visitors who arrived from an AI engine, their
+    // visits for 30 days after their latest AI visit, and those visits'
+    // requests. Visitor keys are keyed hashes; no IP is stored. New tables
+    // only, so every existing row and query is unchanged.
+    version: 188,
+    name: 'ai-visitor-journeys',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS journey_visitors (
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        visitor_key TEXT NOT NULL,
+        key_basis TEXT NOT NULL,
+        user_agent TEXT,
+        first_ai_at TEXT NOT NULL,
+        first_ai_engine TEXT NOT NULL,
+        last_ai_at TEXT NOT NULL,
+        last_seen_at TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (project_id, visitor_key)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_journey_visitors_project_first_ai ON journey_visitors(project_id, first_ai_at)`,
+      `CREATE INDEX IF NOT EXISTS idx_journey_visitors_last_seen ON journey_visitors(last_seen_at)`,
+      `CREATE TABLE IF NOT EXISTS journey_visits (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        visitor_key TEXT NOT NULL,
+        source_id TEXT NOT NULL REFERENCES traffic_sources(id) ON DELETE CASCADE,
+        started_at TEXT NOT NULL,
+        ended_at TEXT NOT NULL,
+        entry_class TEXT NOT NULL,
+        entry_name TEXT,
+        entry_host TEXT,
+        paid INTEGER NOT NULL DEFAULT 0,
+        landing_path TEXT NOT NULL,
+        request_count INTEGER NOT NULL,
+        page_count INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_journey_visits_visitor ON journey_visits(project_id, visitor_key, started_at)`,
+      `CREATE INDEX IF NOT EXISTS idx_journey_visits_project_started ON journey_visits(project_id, started_at)`,
+      `CREATE INDEX IF NOT EXISTS idx_journey_visits_ended ON journey_visits(ended_at)`,
+      `CREATE TABLE IF NOT EXISTS journey_events (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        visit_id TEXT NOT NULL REFERENCES journey_visits(id) ON DELETE CASCADE,
+        source_id TEXT NOT NULL REFERENCES traffic_sources(id) ON DELETE CASCADE,
+        source_event_id TEXT NOT NULL,
+        ts TEXT NOT NULL,
+        method TEXT,
+        path TEXT NOT NULL,
+        status INTEGER,
+        kind TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_journey_events_source_event ON journey_events(project_id, source_id, source_event_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_journey_events_visit_ts ON journey_events(visit_id, ts)`,
+      `CREATE INDEX IF NOT EXISTS idx_journey_events_ts ON journey_events(ts)`,
+    ],
+  },
 ]
 
 /**

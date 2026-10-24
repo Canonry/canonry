@@ -100,6 +100,9 @@ erDiagram
   traffic_sources ||--o{ ai_user_fetch_events_hourly : "rolls up"
   traffic_sources ||--o{ ai_referral_events_hourly : "rolls up"
   traffic_sources ||--o{ raw_event_samples : "samples"
+  projects ||--o{ journey_visitors : has
+  traffic_sources ||--o{ journey_visits : "sessionizes"
+  journey_visits ||--o{ journey_events : contains
 
   projects ||--o| agent_sessions : "active conversation"
   projects ||--o{ agent_conversations : "saved conversations"
@@ -371,6 +374,9 @@ Local-AEO signals. The OAuth connection reuses `google_connections` with `connec
 | **ai_user_fetch_events_hourly** | Hourly rollup of on-demand per-user fetches from AI surfaces (ChatGPT-User, Perplexity-User, MistralAI-User). UA-evidenced like a crawler, but each hit was initiated by a real user inside an AI surface — kept disjoint from `crawler_events_hourly` so dashboard / API totals don't conflate machine crawl with human-in-the-loop fetch. Composite PK matches `crawler_events_hourly`. |
 | **ai_referral_events_hourly** | Hourly rollup of server-observed human AI-referral clicks (UTM or referer evidence). Composite PK matches the crawler bucket pattern. `paid_sessions_or_hits` / `organic_sessions_or_hits` split `sessions_or_hits` by traffic class; unclassified is the residual `sessions_or_hits - paid - organic`. The split rides the measure (not the PK) because the paid marker lives in the query string that `landing_path_normalized` strips, so one bucket can hold both classes. Rows written before the ingest classifier (both counters 0) surface as unclassified rather than organic. |
 | **raw_event_samples** | Bounded sample tail for classifier debugging. Source writes reject already-expired samples and prune source-local rows; a startup and daily global sweep removes expired rows from dormant sources. Timestamps are canonical UTC, and the 30-day boundary is inclusive. FK: sourceId → traffic_sources. |
+| **journey_visitors** | AI visitor journeys: one row per keyed visitor whose first visit came from an AI engine. `visitor_key` is an HMAC (the install's `journeys.visitorKeySecret`, kept in config.yaml, never here) over project, key basis, IP and user agent; `key_basis` is `ip-ua`, or `ua` for sources with no IP (Vercel), which can merge people on the same device and browser version. No IP is stored. Holds the full `user_agent`, `first_ai_at`/`first_ai_engine`, `last_ai_at` and `last_seen_at`; writes only widen these bounds. PK: `(project_id, visitor_key)`. FK: projectId → projects (cascade). |
+| **journey_visits** | 30-minute visits of those visitors, kept from the first AI visit until 30 days after the latest one. `entry_class` is `ai` / `search` / `social` / `paid` / `referral` / `direct`, with `entry_name`, `entry_host`, `paid`, `landing_path`, `request_count` and `page_count`. A request from a different outside source starts a new visit. FK: sourceId → traffic_sources (cascade). |
+| **journey_events** | The requests in each visit: time, method, path (query cut to `utm_*`), status and `kind` (`page`, or `data` for JSON and API calls). Unique `(project_id, source_id, source_event_id)` makes every traffic write path idempotent. Journey rows are deleted 180 days after their time by the daily traffic sweep, which also removes visitors left with no visits. FK: visitId → journey_visits (cascade). |
 
 ### Experimental Sentiment
 

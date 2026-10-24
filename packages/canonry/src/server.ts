@@ -989,6 +989,11 @@ export function createGoogleMarketingConfigCredentialStore(input: {
 export async function createServer(opts: {
   config: CanonryConfig;
   db: DatabaseClient;
+  /**
+   * Install secret for AI visitor journey keys, resolved by `canonry serve`
+   * (see resolveJourneyKeySecret). Absent: journeys are not recorded.
+   */
+  journeyKeySecret?: string;
   open?: boolean;
   logger?: boolean;
   /**
@@ -3512,6 +3517,7 @@ export async function createServer(opts: {
     wordpressTrafficCredentialStore,
     vercelTrafficCredentialStore,
     cloudflareTrafficCredentialStore,
+    journeyKeySecret: opts.journeyKeySecret,
     cloudflareTrafficIngestUrl: buildCloudflareIngestUrlTemplate(opts.config),
     onTrafficSynced: trackTrafficSynced,
     onTrafficIngested: trackTrafficIngested,

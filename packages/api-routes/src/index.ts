@@ -52,6 +52,7 @@ import { analyticsRoutes } from './analytics.js'
 import { intelligenceRoutes } from './intelligence.js'
 import { trafficAnalyticsRoutes } from './traffic-analytics.js'
 import { trafficSamplesRoutes } from './traffic-samples.js'
+import { journeyRoutes } from './journeys.js'
 import { referralAssessmentRoutes } from './referral-assessment.js'
 import { organicEvidenceRoutes } from './organic-evidence.js'
 import { citationRoutes } from './citations.js'
@@ -396,6 +397,8 @@ export interface ApiRoutesOptions {
   defaultWordpressMaxPages?: TrafficRoutesOptions['defaultWordpressMaxPages']
   /** Vercel traffic credential store — stores Vercel API tokens in config, not DB */
   vercelTrafficCredentialStore?: TrafficRoutesOptions['vercelTrafficCredentialStore']
+  /** Install secret for AI visitor journey keys. Absent: journeys are not recorded. */
+  journeyKeySecret?: TrafficRoutesOptions['journeyKeySecret']
   /** Override Vercel traffic pull (tests) — see `TrafficRoutesOptions` */
   pullVercelTrafficEvents?: TrafficRoutesOptions['pullVercelTrafficEvents']
   /** Wall-clock budget (ms) for a Vercel sync's adaptive drain — see `TrafficRoutesOptions` */
@@ -750,6 +753,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     await api.register(organicEvidenceRoutes)
     await api.register(referralAssessmentRoutes)
     await api.register(trafficSamplesRoutes)
+    await api.register(journeyRoutes)
     await api.register(citationRoutes)
     await api.register(visibilityStatsRoutes)
     await api.register(resultsExportRoutes)
@@ -865,6 +869,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       googleConnectionStore: opts.googleConnectionStore,
     } satisfies GaSearchLandingRoutesOptions)
     await api.register(trafficRoutes, {
+      journeyKeySecret: opts.journeyKeySecret,
       cloudRunCredentialStore: opts.cloudRunCredentialStore,
       pullCloudRunEvents: opts.pullCloudRunEvents,
       resolveCloudRunAccessToken: opts.resolveCloudRunAccessToken,

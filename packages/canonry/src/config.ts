@@ -487,6 +487,14 @@ export interface CanonryConfig {
   wordpress?: WordpressConfigEntry
   wordpressTraffic?: WordpressTrafficConfigEntry
   vercelTraffic?: VercelTrafficConfigEntry
+  /**
+   * AI visitor journeys. `visitorKeySecret` keys the per-visitor hash (HMAC).
+   * It is generated on the first server start when absent and kept here, apart
+   * from the database whose hashes it protects. `CANONRY_JOURNEY_KEY_SECRET`
+   * overrides it. Changing it starts new visitor keys: stored journeys remain
+   * but later visits no longer join them.
+   */
+  journeys?: { visitorKeySecret?: string | null } | null
   cloudflareTraffic?: CloudflareTrafficConfigEntry
   openaiAds?: OpenAiAdsConfigEntry
   googleAds?: GoogleAdsConfigEntry
@@ -674,6 +682,13 @@ export function loadConfig(configPath = getConfigPath()): CanonryConfig {
     throw new CliError({
       code: 'CONFIG_INVALID',
       message: `Invalid config at ${configPath}: agent.model must be a non-empty string or left blank.`,
+    })
+  }
+  const journeySecret = parsed.journeys?.visitorKeySecret
+  if (journeySecret !== undefined && journeySecret !== null && (typeof journeySecret !== 'string' || journeySecret.trim().length < 32)) {
+    throw new CliError({
+      code: 'CONFIG_INVALID',
+      message: `Invalid config at ${configPath}: journeys.visitorKeySecret must be a string of at least 32 characters, or left blank to generate one.`,
     })
   }
   if (!agentAllowViewersSchema.safeParse(parsed.agent?.allowViewers).success) {

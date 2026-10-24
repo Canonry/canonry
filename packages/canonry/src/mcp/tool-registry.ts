@@ -1,4 +1,4 @@
-import { trafficSamplesQuerySchema, gaAcquisitionQuerySchema, auditHistoryQuerySchema, visibilityCompareSelectionSchema, reportMonthSchema, referralAssessmentQuerySchema, instanceStatusDtoSchema, maxOperationAccess, operationAccess, OperationAccesses, type OperationAccess } from '@canonry/canonry-contracts'
+import { journeySummaryQuerySchema, journeysQuerySchema, trafficSamplesQuerySchema, gaAcquisitionQuerySchema, auditHistoryQuerySchema, visibilityCompareSelectionSchema, reportMonthSchema, referralAssessmentQuerySchema, instanceStatusDtoSchema, maxOperationAccess, operationAccess, OperationAccesses, type OperationAccess } from '@canonry/canonry-contracts'
 
 import {
   sentimentSelectionSchema, sentimentEvidenceRequestSchema, sentimentCompareRequestSchema, sentimentSettingsUpdateSchema,
@@ -2641,6 +2641,30 @@ const rawCanonryMcpTools = [
     access: 'read', tier: 'traffic', inputSchema: trafficSamplesQuerySchema.extend({ project: projectNameSchema }), annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/traffic/samples'],
     handler: (client, input) => { const { project, ...query } = input; return client.trafficListSamples(project, query) },
+  }),
+  defineTool({
+    name: 'canonry_journeys_summary',
+    title: 'Summarize AI visitor journeys',
+    description: 'Stored AI visitor journeys: visitors whose first AI visit started in the window (default 30 days), how many came back in a later visit, by which entry (search, direct, social, paid, referral, ai), median days to return, and counts by engine. Visitors are keyed hashes, never IPs; user-agent-only keys (sources without an IP) can merge people on the same device and browser version. No provider call or write.',
+    access: 'read', tier: 'traffic', inputSchema: journeySummaryQuerySchema.extend({ project: projectNameSchema }), annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/journeys/summary'],
+    handler: (client, input) => { const { project, ...query } = input; return client.journeysSummary(project, query) },
+  }),
+  defineTool({
+    name: 'canonry_journeys_list',
+    title: 'List AI visitor journeys',
+    description: 'List stored AI visitors, newest first AI visit first, with each visit (entry class and name, landing path, page count). Filter by first AI engine or by whether they came back. Visits are 30-minute sessions; storage covers 30 days after the latest AI visit, 180-day retention. No provider call or write.',
+    access: 'read', tier: 'traffic', inputSchema: journeysQuerySchema.extend({ project: projectNameSchema }), annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/journeys'],
+    handler: (client, input) => { const { project, ...query } = input; return client.journeysList(project, query) },
+  }),
+  defineTool({
+    name: 'canonry_journey_get',
+    title: 'Read one AI visitor journey',
+    description: 'Read every stored visit and request (time, method, path, status, page or data) for one AI visitor key from canonry_journeys_list. No provider call or write.',
+    access: 'read', tier: 'traffic', inputSchema: z.object({ project: projectNameSchema, visitorKey: z.string().min(1) }), annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/journeys/{visitorKey}'],
+    handler: (client, input) => client.journeyGet(input.project, input.visitorKey),
   }),
   defineTool({
     name: 'canonry_traffic_events',

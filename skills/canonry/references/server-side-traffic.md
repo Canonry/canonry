@@ -1026,6 +1026,7 @@ schema change, the stored rollups are untouched.
 | Project dashboard `/projects/:name/activity` | Live source table + 24h totals + GA4 referrals (combined view) |
 | Top-level `/traffic` route | Cross-project source admin (connect, sync, archive) |
 | `cnry traffic analytics <project> --period 30 --format json` | Complete stored 7/14/30/90-day totals, prior-window changes, operator/path/product breakdowns, and daily history |
+| `cnry journeys summary <project>` | AI visitors, how many came back and through which entry, from every traffic source |
 | `cnry doctor --project <name>` | Source health checks, including last-observed Worker drift for direct and Queue sources plus Queue local credential/sync state |
 | MCP toolkit `traffic` | Read/status tools plus pull-source setup/sync tools. Cloudflare connect is local-CLI-only so Worker secrets cannot enter an MCP transcript. |
 
@@ -1169,6 +1170,25 @@ Use GA4 for landed browser visits or edge/access logs for cache-independent
 request coverage. The `traffic.source.cache-blindspot` doctor check is a static
 warning; it does not request or impersonate traffic against the public origin,
 and it never sends a `health.degraded` alert.
+
+### AI visitor journeys
+
+Every sync, backfill and push also follows visitors who arrived from an AI
+engine: their later visits, how they came back (search, direct, social, paid,
+referral, another AI visit) and each page or API request. It works the same for
+every source and needs no site snippet or goal setup. Read it with
+`cnry journeys summary|list|show` or the `canonry_journeys_*` MCP tools.
+
+- A visitor key is an HMAC of IP and user agent under the install secret
+  `journeys.visitorKeySecret` (generated on first `serve` and saved in
+  config.yaml, or `CANONRY_JOURNEY_KEY_SECRET`). No IP is stored. Changing the
+  secret starts new keys.
+- Vercel logs carry no IP, so those visitors are keyed by user agent only.
+  Chrome reports the same user agent for every Mac on one version, so a key can
+  merge people. Treat counts from `keyBasis: ua` as upper bounds of people.
+- Only visits from the first AI visit to 30 days after the latest one are kept;
+  rows are deleted after 180 days. Journeys start from the first sync after
+  upgrade; backfill a source to seed history it still retains.
 
 ### Inspect stored samples
 

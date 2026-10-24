@@ -37,6 +37,7 @@ Every API operation carries `x-canonry-access` metadata and responses expose the
 | `src/ads.ts` / `src/ads-live-delivery.ts` | OpenAI ads (ChatGPT ads) routes; pure live-vs-stored comparison engine |
 | `src/traffic.ts` / `src/ai-referral-status.ts` | Server-side traffic ingestion routes; shared `ai_referral_events_hourly` read conditions |
 | `src/traffic-samples.ts` | Stored diagnostic sample rows with project/source scope, bounded paging, and viewer/embed restrictions. |
+| `src/journeys.ts` | AI visitor journeys: `persistJourneyBatch` (called in the same transaction as every traffic write: pull sync, backfill and push), `enforceJourneyRetention`, `journeyVisitorKey`, and the stored `/journeys`, `/journeys/summary` and `/journeys/:visitorKey` reads (see "AI visitor journeys"). |
 | `src/traffic-analytics.ts` | Full-window stored crawler, user-fetch and referral aggregates, exposed through `/traffic/analytics`; detail-row caps do not limit totals, operator/path/product breakdowns or history. `period` is read-selection identity, not execution tuning. |
 | `src/referral-assessment.ts` | DB-only project/source burst diagnostic. Raw headlines unchanged; grouped candidate counts and separate adjusted estimate, with GA quotient coverage limits. |
 | `src/technical-aeo.ts` | Site Health / Technical AEO routes |
@@ -871,6 +872,23 @@ Keep unknown traffic out of the default, require admin session authority, and
 never allow embed access. Select public fields explicitly and parse classifier
 evidence through the tolerant, stripping schema. No IP hashes, provider calls,
 retention writes, or rollup changes belong in this route.
+
+### AI visitor journeys
+
+`journeys.ts` follows visitors who arrived from an AI engine. The pure core
+(extract, sessionize) lives in `@canonry/canonry-integration-traffic`; this file
+keys, stores and reads. Rules:
+
+- Every traffic write path calls `persistJourneyBatch` inside its own
+  transaction with the batch it just rolled up. A new provider gets journeys by
+  producing `NormalizedTrafficRequest` rows; never add provider-specific logic.
+- No secret, no writes. The visitor key is an HMAC under the install secret
+  (`journeyKeySecret` from `ApiRoutesOptions`); never store or return an IP,
+  and never return the secret.
+- Writes are idempotent on `(project_id, source_id, source_event_id)` and
+  visitor bounds only widen, so overlapping pulls and re-run backfills are safe.
+- Reads require admin session authority, never allow embed access, and make no
+  provider call.
 
 ### Stored acquisition rows
 

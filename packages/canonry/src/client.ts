@@ -1,3 +1,6 @@
+import type { JourneyDetailResponse, JourneySummaryQuery, JourneySummaryResponse, JourneysQuery, JourneysResponse } from '@canonry/canonry-contracts'
+import { getApiV1ProjectsByNameJourneys, getApiV1ProjectsByNameJourneysByVisitorKey, getApiV1ProjectsByNameJourneysSummary } from '@canonry/canonry-api-client'
+
 import type { TrafficSamplesQuery, TrafficSamplesResponse } from '@canonry/canonry-contracts'
 import { getApiV1ProjectsByNameTrafficSamples } from '@canonry/canonry-api-client'
 
@@ -4094,6 +4097,18 @@ export class ApiClient {
 
   async trafficListSamples(project: string, query?: TrafficSamplesQuery): Promise<TrafficSamplesResponse> {
     return this.invoke<TrafficSamplesResponse>(() => getApiV1ProjectsByNameTrafficSamples({ client: this.heyClient, path: { name: project }, query }))
+  }
+
+  async journeysSummary(project: string, query?: JourneySummaryQuery): Promise<JourneySummaryResponse> {
+    return this.invoke<JourneySummaryResponse>(() => getApiV1ProjectsByNameJourneysSummary({ client: this.heyClient, path: { name: project }, query }))
+  }
+
+  async journeysList(project: string, query?: JourneysQuery): Promise<JourneysResponse> {
+    return this.invoke<JourneysResponse>(() => getApiV1ProjectsByNameJourneys({ client: this.heyClient, path: { name: project }, query }))
+  }
+
+  async journeyGet(project: string, visitorKey: string): Promise<JourneyDetailResponse> {
+    return this.invoke<JourneyDetailResponse>(() => getApiV1ProjectsByNameJourneysByVisitorKey({ client: this.heyClient, path: { name: project, visitorKey } }))
   }
 
   async trafficListEvents(

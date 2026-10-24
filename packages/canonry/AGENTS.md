@@ -791,6 +791,22 @@ attribution and no provider calls or sync.
   a populated unknown lookup. Initial upserts assert the complete stored record;
   keep legacy-mode, Queue validation, staged-source, and deletion contracts here.
 
+### AI visitor journeys
+
+`src/commands/journeys.ts` — `journeys summary`, `journeys list` and `journeys show`
+read stored journeys through `journeysSummary`, `journeysList` and `journeyGet`
+(MCP: `canonry_journeys_summary`, `canonry_journeys_list`, `canonry_journey_get`).
+JSON is the API DTO; `list --format jsonl` streams visitors with project and
+window context. Human output shows the short device label, not the full user
+agent, except `show`, which prints both. Say when visitors are keyed by user
+agent only.
+
+`src/journey-secret.ts` — `resolveJourneyKeySecret` picks the HMAC secret for
+visitor keys: `CANONRY_JOURNEY_KEY_SECRET` (at least 32 characters), then
+`journeys.visitorKeySecret`, else it generates one and saves it with
+`saveConfigPatch`. `serve` resolves it, never `createServer`, so test servers do
+not write to the active config. Never print the secret.
+
 ### Backlinks
 
 `src/commands/backlinks.ts` — Common Crawl backlink commands: `backlinks install`, `doctor`, `status`, `sync`, `list`, `sources`, `extract`, `releases`, `cache prune`. Historical source filters remain readable, but no non-Common-Crawl ingestion runs.

@@ -17,6 +17,7 @@ import {
   enforceRawEventSampleRetention,
   retainedRawEventSampleTimestamp,
 } from './raw-event-sample-retention.js'
+import { persistJourneyBatch } from './journeys.js'
 
 // Signatures expire after five minutes. Keep receipts for one additional
 // replay window so clock skew and an edge retry cannot double-count, without
@@ -48,6 +49,8 @@ export interface WriteTrafficEventBatchOptions {
   validateSource: (source: TrafficSourceRow | undefined) => void
   /** Adapter-owned progress fields committed atomically with receipts and rollups. */
   sourceUpdate: TrafficSourceIngestUpdate
+  /** Install secret for AI visitor journey keys; absent writes no journey rows. */
+  journeyKeySecret?: string
 }
 
 export interface WriteTrafficEventBatchResult {
@@ -155,6 +158,8 @@ export function writeTrafficEventBatch(
       // samples persist. This keeps one-event push and Queue batches
       // on the same storage boundary.
       const report = buildTrafficProbeReport(claimedEvents, { sampleLimit: claimedEvents.length })
+      // AI visitor journeys from the newly claimed events, in this transaction.
+      persistJourneyBatch(tx, { projectId: opts.projectId, sourceId: opts.sourceId, events: claimedEvents, secret: opts.journeyKeySecret, now: opts.receivedAt })
       selfTrafficExcluded = report.totals.selfTrafficExcluded
       crawlerHits = report.totals.crawlerHits
       aiUserFetchHits = report.totals.aiUserFetchHits

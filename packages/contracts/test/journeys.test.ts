@@ -1,0 +1,81 @@
+import { describe, expect, it } from 'vitest'
+import { classifyJourneyEntry, journeyDeviceLabel, journeysQuerySchema, type JourneyEntrySignal } from '../src/index.js'
+
+const signal = (overrides: Partial<JourneyEntrySignal>): JourneyEntrySignal => ({
+  aiProduct: null,
+  aiDomain: null,
+  aiPaid: false,
+  refererHost: null,
+  utmSource: null,
+  utmMedium: null,
+  clickId: false,
+  ...overrides,
+})
+
+describe('classifyJourneyEntry', () => {
+  it('lets an AI referral win over every other marker', () => {
+    expect(classifyJourneyEntry(signal({ aiProduct: 'ChatGPT', aiDomain: 'chatgpt.com', refererHost: 'chatgpt.com', utmSource: 'google', clickId: true })))
+      .toEqual({ entryClass: 'ai', entryName: 'ChatGPT', entryHost: 'chatgpt.com', paid: false })
+    expect(classifyJourneyEntry(signal({ aiProduct: 'ChatGPT', aiDomain: 'chatgpt.com', aiPaid: true })).paid).toBe(true)
+  })
+
+  it.each([
+    ['www.google.com', 'search', 'Google'],
+    ['google.co.uk', 'search', 'Google'],
+    ['bing.com', 'search', 'Bing'],
+    ['duckduckgo.com', 'search', 'DuckDuckGo'],
+    ['m.facebook.com', 'social', 'Facebook'],
+    ['l.instagram.com', 'social', 'Instagram'],
+    ['t.co', 'social', 'X'],
+    ['out.reddit.com', 'social', 'Reddit'],
+  ] as const)('classifies referer %s as %s', (host, entryClass, entryName) => {
+    expect(classifyJourneyEntry(signal({ refererHost: host }))).toMatchObject({ entryClass, entryName, paid: false })
+  })
+
+  it('marks paid traffic from a paid medium or a click id', () => {
+    expect(classifyJourneyEntry(signal({ refererHost: 'www.google.com', clickId: true })))
+      .toEqual({ entryClass: 'paid', entryName: 'Google', entryHost: 'google.com', paid: true })
+    expect(classifyJourneyEntry(signal({ utmSource: 'facebook', utmMedium: 'CPC' })))
+      .toEqual({ entryClass: 'paid', entryName: 'Facebook', entryHost: null, paid: true })
+  })
+
+  it('falls back to the referer host, then utm_source, then direct', () => {
+    expect(classifyJourneyEntry(signal({ refererHost: 'www.example.org' })))
+      .toEqual({ entryClass: 'referral', entryName: 'example.org', entryHost: 'example.org', paid: false })
+    expect(classifyJourneyEntry(signal({ utmSource: 'google' })))
+      .toEqual({ entryClass: 'search', entryName: 'Google', entryHost: null, paid: false })
+    expect(classifyJourneyEntry(signal({ utmSource: 'newsletter' })))
+      .toEqual({ entryClass: 'referral', entryName: 'newsletter', entryHost: null, paid: false })
+    expect(classifyJourneyEntry(signal({})))
+      .toEqual({ entryClass: 'direct', entryName: null, entryHost: null, paid: false })
+  })
+})
+
+describe('journeyDeviceLabel', () => {
+  it.each([
+    ['Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36', 'Mac · Chrome 155'],
+    ['Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.7 Mobile/15E148 Safari/604.1', 'iPhone · iOS 18.7 · Safari'],
+    ['Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/155.0.0.0 Mobile/15E148 Safari/604.1', 'iPhone · iOS 18.7 · Chrome 155'],
+    ['Mozilla/5.0 (Linux; Android 15; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Mobile Safari/537.36', 'Android 15 · Chrome 155'],
+    ['Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36 Edg/155.0.0.0', 'Windows · Edge 155'],
+    ['Mozilla/5.0 (Macintosh; Intel Mac OS X 15.7; rv:140.0) Gecko/20100101 Firefox/140.0', 'Mac · Firefox 140'],
+    ['Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.1 Safari/605.1.15', 'Mac · Safari 26.1'],
+  ])('shortens %s', (ua, label) => {
+    expect(journeyDeviceLabel(ua)).toBe(label)
+  })
+
+  it('handles a missing or unrecognized user agent', () => {
+    expect(journeyDeviceLabel(null)).toBe('Unknown device')
+    expect(journeyDeviceLabel('')).toBe('Unknown device')
+    expect(journeyDeviceLabel('x'.repeat(60))).toHaveLength(40)
+  })
+})
+
+describe('journeysQuerySchema', () => {
+  it('accepts timestamps or dates and bounds the page size', () => {
+    expect(journeysQuerySchema.safeParse({ since: '2026-10-01', until: '2026-10-24T00:00:00Z', limit: 200 }).success).toBe(true)
+    expect(journeysQuerySchema.safeParse({ limit: 201 }).success).toBe(false)
+    expect(journeysQuerySchema.safeParse({ since: 'yesterday' }).success).toBe(false)
+    expect(journeysQuerySchema.safeParse({ returned: 'yes' }).success).toBe(false)
+  })
+})
