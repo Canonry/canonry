@@ -17,7 +17,9 @@ import { eq } from 'drizzle-orm'
 import {
   deliverReviewEvent,
   drainReviewDeliveries,
+  dueReviewDeliveryProjects,
   reviewEventId,
+  startReviewDeliveryLoop,
 } from '../src/review-webhook-delivery.js'
 import type { ReviewWebhookPayload } from '@canonry/canonry-contracts'
 import { Notifier } from '../src/notifier.js'
@@ -139,6 +141,10 @@ function fixture(url = 'https://receiver.example/events') {
     options,
     advance: () => {
       clock += 61_000
+    },
+    now: () => clock,
+    advanceTo: (at: number) => {
+      clock = at
     },
   }
 }
@@ -450,5 +456,136 @@ describe('engine review events and per-destination durable delivery', () => {
     const debts = f.db.select().from(reviewWebhookDeliveries).all()
     expect(debts.every(row => row.retryAt !== null && row.retryAt !== initialDeadline && row.attempts === 0 && row.attemptedAt === null)).toBe(true)
     expect(deliver).not.toHaveBeenCalled()
+  })
+
+  it('retries a chat send that never reached the network', async () => {
+    const f = fixture('https://discord.com/api/webhooks/123/fixture_token')
+    const deliver = vi.fn()
+      .mockResolvedValueOnce({ status: 0, error: 'connect ECONNREFUSED', requestSent: false })
+      .mockResolvedValueOnce({ status: 204, error: null, requestSent: true })
+    expect(await deliverReviewEvent({ ...f.options, deliver })).toBe(false)
+    expect(f.db.select().from(reviewWebhookDeliveries).get()).toMatchObject({ state: 'pending', attempts: 1 })
+    f.advance()
+    expect(await deliverReviewEvent({ ...f.options, deliver })).toBe(true)
+    expect(deliver).toHaveBeenCalledTimes(2)
+    expect(f.db.select().from(auditLog).all()).toHaveLength(0)
+  })
+
+  it('holds a chat send that reached the receiver unanswered, and records it for the doctor check', async () => {
+    const f = fixture('https://discord.com/api/webhooks/123/fixture_token')
+    const deliver = vi.fn(async () => ({ status: 0, error: 'socket hang up', requestSent: true }))
+    expect(await deliverReviewEvent({ ...f.options, deliver })).toBe(false)
+    f.advance()
+    await drainReviewDeliveries({ db: f.db, projectId: 'p1', now: f.options.now, resolve: f.options.resolve, deliver })
+    expect(deliver).toHaveBeenCalledTimes(1)
+    expect(f.db.select().from(reviewWebhookDeliveries).get()?.state).toBe('uncertain')
+    const audits = f.db.select().from(auditLog).all()
+    expect(audits.map(row => row.action)).toEqual(['notification.review-undelivered'])
+    expect(JSON.parse(audits[0]!.diff!)).toMatchObject({ state: 'uncertain', reason: 'no_response', status: 0, attempts: 1, notificationId: 'n1' })
+  })
+
+  it.each([400, 401, 403, 404, 410, 422])('fails a delivery the destination refuses with %i, without retrying it', async (status) => {
+    const f = fixture()
+    const deliver = vi.fn(async () => ({ status, error: null, requestSent: true }))
+    expect(await deliverReviewEvent({ ...f.options, deliver })).toBe(false)
+    f.advance()
+    await drainReviewDeliveries({ db: f.db, projectId: 'p1', now: f.options.now, resolve: f.options.resolve, deliver })
+    expect(deliver).toHaveBeenCalledTimes(1)
+    expect(f.db.select().from(reviewWebhookDeliveries).get()).toMatchObject({ state: 'failed', retryAt: null, attempts: 1 })
+    expect(JSON.parse(f.db.select().from(auditLog).get()!.diff!)).toMatchObject({ state: 'failed', reason: 'refused', status })
+  })
+
+  it('backs off from one minute, doubling, and fails after ten attempts', async () => {
+    const f = fixture()
+    const deliver = vi.fn(async () => ({ status: 503, error: null, requestSent: true }))
+    const waits: number[] = []
+    for (let attempt = 1; attempt <= 10; attempt++) {
+      await deliverReviewEvent({ ...f.options, deliver })
+      const retryAt = f.db.select().from(reviewWebhookDeliveries).get()!.retryAt
+      if (retryAt) {
+        waits.push(Date.parse(retryAt) - f.now())
+        f.advanceTo(Date.parse(retryAt))
+      }
+    }
+    expect(waits).toEqual([1, 2, 4, 8, 16, 32, 64, 128, 256].map(minutes => minutes * 60_000))
+    expect(deliver).toHaveBeenCalledTimes(10)
+    expect(f.db.select().from(reviewWebhookDeliveries).get()).toMatchObject({ state: 'failed', retryAt: null, attempts: 10 })
+    expect(JSON.parse(f.db.select().from(auditLog).get()!.diff!)).toMatchObject({ reason: 'retries_exhausted', attempts: 10 })
+  })
+
+  it('backs off an unreachable target by how long the event has waited, without counting attempts', async () => {
+    const f = fixture()
+    const unavailable = vi.fn(async () => ({ ok: false as const, message: 'DNS unavailable', unresolved: true as const }))
+    const deliver = vi.fn()
+    await deliverReviewEvent({ ...f.options, resolve: unavailable, deliver })
+    f.advanceTo(NOW + 4 * 3_600_000)
+    await deliverReviewEvent({ ...f.options, resolve: unavailable, deliver })
+    const row = f.db.select().from(reviewWebhookDeliveries).get()!
+    // A quarter of the four hours it has waited, not another minute.
+    expect(Date.parse(row.retryAt!) - f.now()).toBe(3_600_000)
+    expect(row.attempts).toBe(0)
+    expect(deliver).not.toHaveBeenCalled()
+  })
+
+  it('waits at least as long as a rate-limited receiver asks', async () => {
+    const f = fixture()
+    const deliver = vi.fn(async () => ({ status: 429, error: null, requestSent: true, retryAfterSeconds: 900 }))
+    await deliverReviewEvent({ ...f.options, deliver })
+    const row = f.db.select().from(reviewWebhookDeliveries).get()!
+    expect(row.state).toBe('pending')
+    expect(Date.parse(row.retryAt!) - NOW).toBe(900_000)
+  })
+
+  it('sends at most three chat alerts per destination per pass and leaves the rest due', async () => {
+    const f = fixture('https://discord.com/api/webhooks/123/fixture_token')
+    const deliver = vi.fn(async () => ({ status: 204, error: null, requestSent: true }))
+    const chatSendsLeft = new Map<string, number>()
+    for (const digit of ['1', '2', '3', '4', '5']) {
+      await deliverReviewEvent({ ...f.options, payload: { ...f.options.payload, eventId: 'evt_' + digit.repeat(64) }, deliver, chatSendsLeft })
+    }
+    expect(deliver).toHaveBeenCalledTimes(3)
+    expect(f.db.select().from(reviewWebhookDeliveries).all().filter(row => row.state === 'pending' && row.attempts === 0)).toHaveLength(2)
+    // The next pass, with its own allowance, sends the rest.
+    expect(await drainReviewDeliveries({ db: f.db, projectId: 'p1', now: f.options.now, resolve: f.options.resolve, deliver })).toBe(2)
+    expect(deliver).toHaveBeenCalledTimes(5)
+  })
+
+  it('drains due deliveries from the timer without waiting for a GBP sync', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(NOW)
+    onTestFinished(() => vi.useRealTimers())
+    const f = fixture()
+    transport.calls.length = 0
+    transport.outcomes.clear()
+    transport.outcomes.set('https://receiver.example/events', [503, 200])
+    const notifier = new Notifier(f.db, 'https://canonry.example')
+    await notifier.dispatchReviewAlerts('p1')
+    expect(transport.calls).toHaveLength(1)
+    expect(dueReviewDeliveryProjects(f.db, Date.now())).toEqual([])
+    vi.setSystemTime(NOW + 61_000)
+    expect(dueReviewDeliveryProjects(f.db, Date.now())).toEqual(['p1'])
+    expect(await notifier.drainDueReviewDeliveries()).toBe(1)
+    expect(transport.calls).toHaveLength(2)
+    expect(dueReviewDeliveryProjects(f.db, Date.now())).toEqual([])
+  })
+
+  it('runs one drain per interval and never two at once', async () => {
+    vi.useFakeTimers()
+    onTestFinished(() => vi.useRealTimers())
+    let finish: () => void = () => {}
+    const drain = vi.fn(() => new Promise<number>(resolve => { finish = () => resolve(0) }))
+    const stop = startReviewDeliveryLoop(drain, 1_000)
+    onTestFinished(stop)
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(drain).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(3_000)
+    expect(drain).toHaveBeenCalledTimes(1)
+    finish()
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(drain).toHaveBeenCalledTimes(2)
+    stop()
+    finish()
+    await vi.advanceTimersByTimeAsync(5_000)
+    expect(drain).toHaveBeenCalledTimes(2)
   })
 })

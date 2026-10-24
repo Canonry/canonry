@@ -266,12 +266,15 @@ export async function gbpLocalPostsRoutes(
               post: null,
             }
       }
-      if (existing) {
-        const binding = JSON.parse(existing.diff ?? 'null') as {
+      // A claimed attempt answers only the request it was claimed for.
+      const answerExisting = (
+        claimed: typeof auditLog.$inferSelect,
+      ): GbpLocalPostAttempt => {
+        const binding = JSON.parse(claimed.diff ?? 'null') as {
           requestDigest?: unknown
         } | null
         if (
-          existing.projectId !== project.id ||
+          claimed.projectId !== project.id ||
           binding?.requestDigest !== payload
         )
           throw validationError(
@@ -279,6 +282,7 @@ export async function gbpLocalPostsRoutes(
           )
         return readResult()
       }
+      if (existing) return answerExisting(existing)
       const token = await options.token(project.canonicalDomain)
       // Preflight and token refresh yield to selection/project edits. The claim
       // and provider call must use eligibility read after the final await.
@@ -302,7 +306,16 @@ export async function gbpLocalPostsRoutes(
           locationName: body.locationName,
         },
       })
-      if (!claim) return readResult()
+      if (!claim) {
+        // Another request claimed this attempt during the awaits above.
+        const winner = app.db
+          .select()
+          .from(auditLog)
+          .where(eq(auditLog.id, key))
+          .get()
+        if (!winner) return readResult()
+        return answerExisting(winner)
+      }
       let post: GbpLocalPostDto | null = null
       let status: GbpLocalPostAttempt['status'] = 'uncertain'
       try {

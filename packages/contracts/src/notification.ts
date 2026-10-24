@@ -226,8 +226,20 @@ export interface ReviewWebhookPayload {
   dashboardUrl: string
 }
 
+/**
+ * One review event's delivery to one destination. `uncertain` is a chat send
+ * that reached the network with no answer (never resent, since chat webhooks
+ * cannot deduplicate); `failed` is a destination that refused it or a send out
+ * of retries. Both wait for a person: the `gbp.reviews.delivery` doctor check
+ * lists them.
+ */
 export const ReviewDeliveryStates = Object.freeze({
-  Pending: 'pending', Attempting: 'attempting', Sent: 'sent', Uncertain: 'uncertain', Canceled: 'canceled',
+  Pending: 'pending',
+  Attempting: 'attempting',
+  Sent: 'sent',
+  Uncertain: 'uncertain',
+  Failed: 'failed',
+  Canceled: 'canceled',
 } as const)
 export type ReviewDeliveryState = (typeof ReviewDeliveryStates)[keyof typeof ReviewDeliveryStates]
 

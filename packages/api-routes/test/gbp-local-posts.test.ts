@@ -312,6 +312,33 @@ describe('GBP API transport authorization and send-once claim', () => {
     expect(saved.json().post.name).toBe(post.name)
     expect(fetch).toHaveBeenCalledTimes(1)
   })
+  it('refuses a concurrent request that reuses the attempt with different content', async () => {
+    // An expired token makes each request wait on a refresh between the
+    // claimed-attempt check and the claim, so both pass the check before
+    // either claims. The loser must not be answered with the winner's attempt.
+    const f = await fixture({ tokenExpiresAt: new Date(0).toISOString() })
+    let refreshes = 0
+    let releaseRefreshes: () => void = () => {}
+    const bothRefreshing = new Promise<void>((resolve) => { releaseRefreshes = resolve })
+    const fetch = vi.fn(async (url: string | URL | Request) => {
+      if (String(url) !== 'https://oauth2.googleapis.com/token') return new Response(JSON.stringify(post))
+      refreshes += 1
+      if (refreshes === 2) releaseRefreshes()
+      await bothRefreshing
+      return new Response(JSON.stringify({ access_token: 'fresh-fixture-token', expires_in: 3600, token_type: 'Bearer' }))
+    })
+    vi.stubGlobal('fetch', fetch)
+    const changed = { ...body, content: { ...content, summary: 'A different editorial article.' } }
+    const [first, second] = await Promise.all([
+      f.request('POST', 'local-posts', body),
+      f.request('POST', 'local-posts', changed),
+    ])
+    expect(refreshes).toBe(2)
+    expect([first.statusCode, second.statusCode].sort()).toEqual([200, 400])
+    const refused = first.statusCode === 400 ? first : second
+    expect(refused.body).toContain('different content')
+    expect(fetch.mock.calls.filter(([url]) => String(url).includes('/localPosts'))).toHaveLength(1)
+  })
   it('retains ambiguous sends across repeated calls and never repeats the POST', async () => {
     const f = await fixture()
     const fetch = vi.fn(async () => {

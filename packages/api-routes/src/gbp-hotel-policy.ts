@@ -14,6 +14,21 @@ export function hotelEditorialText(value: string): boolean {
 }
 
 const JSON_STRING = /"(?:\\.|[^"\\])*"/gu
+
+/**
+ * Percent-decode each run of escapes. A run that is not valid UTF-8 becomes a
+ * space rather than throwing: one malformed escape on a page must not refuse
+ * it outright, and a space still separates any word hidden behind it.
+ */
+function decodePercentRuns(value: string): string {
+  return value.replace(/(?:%[0-9a-f]{2})+/giu, (part) => {
+    try {
+      return decodeURIComponent(part)
+    } catch {
+      return ' '
+    }
+  })
+}
 const SCHEMA_TYPE =
   /^(?:https?:\/\/schema\.org\/)?(?:Offer|AggregateOffer|OfferCatalog)$/u
 const SCHEMA_CONTEXT = /^https?:\/\/schema\.org\/?$/u
@@ -61,9 +76,7 @@ function editorialJsonLd(source: string): string | null {
     // duplicate members and could hide an earlier promotional value.
     const canonical = source.replace(JSON_STRING, (token) =>
       JSON.stringify(
-        decodeHTML(String(JSON.parse(token)))
-          .normalize('NFKC')
-          .replace(/(?:%[0-9a-f]{2})+/giu, (part) => decodeURIComponent(part))
+        decodePercentRuns(decodeHTML(String(JSON.parse(token))).normalize('NFKC'))
           .replace(/\s+/gu, ' '),
       ),
     )
@@ -133,9 +146,7 @@ function editorialHtml(html: string): boolean {
   return (
     valid &&
     hotelEditorialText(text) &&
-    hotelEditorialText(
-      text.replace(/(?:%[0-9a-f]{2})+/giu, (part) => decodeURIComponent(part)),
-    )
+    hotelEditorialText(decodePercentRuns(text))
   )
 }
 export async function hotelEditorialDestination(
@@ -156,7 +167,7 @@ export async function hotelEditorialDestination(
       target.hash ||
       target.search ||
       ![host, `www.${host}`].includes(target.hostname) ||
-      !hotelEditorialText(summary + ' ' + decodeURIComponent(target.pathname))
+      !hotelEditorialText(summary + ' ' + decodePercentRuns(target.pathname))
     )
       return false
     const response = await fetchImpl(target, {

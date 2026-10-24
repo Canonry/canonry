@@ -243,7 +243,9 @@ function reviewView(payload: ReviewWebhookPayload): AlertView {
     return {
       severity: AlertSeverities.warning,
       title: `${project.name}: new ${review.starRating}-star review`,
-      body: review.comment ? (review.comment.length>500?review.comment.slice(0,499)+'…':review.comment) : 'Rating only, no text.',
+      body: review.comment
+        ? (review.comment.length > 500 ? `${review.comment.slice(0, 499)}…` : review.comment)
+        : 'Rating only, no text.',
       fields,
       url: googleBusinessReviewUrl(review.reviewUri) ?? googleBusinessReviewUrl(review.location.mapsUri) ?? payload.dashboardUrl,
       footer: project.canonicalDomain,

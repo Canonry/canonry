@@ -133,16 +133,16 @@ describe('hotel editorial-only guard', () => {
     ).toBe(false)
   })
 
-  it('accepts the actual AZ solar page service catalog without changing the all-client editorial restriction', async () => {
+  it('accepts a service catalog of schema.org Offers without relaxing the editorial restriction', async () => {
     const html = readFileSync(
-      new URL('./fixtures/az-solar-service-catalog.html', import.meta.url),
+      new URL('./fixtures/service-catalog-offers.html', import.meta.url),
       'utf8',
     )
-    expect(await editorialPage(html, 'azcoatingsllc.com')).toBe(true)
+    expect(await editorialPage(html, 'roofing.example')).toBe(true)
     expect(
       await editorialPage(
         html.replace('A roof access guide.', 'Special offers'),
-        'azcoatingsllc.com',
+        'roofing.example',
       ),
     ).toBe(false)
   })
@@ -260,6 +260,11 @@ describe('hotel editorial-only guard', () => {
         async () => new Response(page),
       ),
     ).toBe(false)
+  })
+  it('reads a malformed percent escape as a space instead of refusing the page', async () => {
+    expect(await editorialPage('<article>Keep 100%ff of the roof dry.</article>')).toBe(true)
+    // The space still separates a word hidden behind the bad escape.
+    expect(await editorialPage('<article>A guide.</article><a href="/x%ffoffers">More</a>')).toBe(false)
   })
   it('does not mistake schema-shaped text inside a JSON string for identifiers', async () => {
     expect(

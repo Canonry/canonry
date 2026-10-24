@@ -1054,21 +1054,28 @@ export const notifications = sqliteTable('notifications', {
   index('idx_notifications_project').on(table.projectId),
 ])
 
-/** Empty on upgrade. One durable debt/receipt per review event and configured destination. */
+/**
+ * One durable delivery per review event and configured destination (migration
+ * 189), empty on upgrade. `state` follows `ReviewDeliveryStates`; `retry_at` is
+ * when a pending delivery is next due.
+ */
 export const reviewWebhookDeliveries = sqliteTable('review_webhook_deliveries', {
-  id:text('id').primaryKey(),
-  projectId:text('project_id').notNull().references(()=>projects.id,{onDelete:'cascade'}),
-  notificationId:text('notification_id').notNull().references(()=>notifications.id,{onDelete:'cascade'}),
-  eventId:text('event_id').notNull(),
-  targetDigest:text('target_digest').notNull(),
-  payload:text('payload',{mode:'json'}).$type<import('@canonry/canonry-contracts').ReviewWebhookPayload>().notNull(),
-  state:text('state').$type<import('@canonry/canonry-contracts').ReviewDeliveryState>().notNull().default('pending'),
-  attempts:integer('attempts').notNull().default(0),
-  attemptedAt:text('attempted_at'),
-  retryAt:text('retry_at'),
-  deliveredAt:text('delivered_at'),
-  createdAt:text('created_at').notNull(),
-},table=>[uniqueIndex('uniq_review_webhook_delivery').on(table.projectId,table.notificationId,table.eventId)])
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  notificationId: text('notification_id').notNull().references(() => notifications.id, { onDelete: 'cascade' }),
+  eventId: text('event_id').notNull(),
+  targetDigest: text('target_digest').notNull(),
+  payload: text('payload', { mode: 'json' }).$type<import('@canonry/canonry-contracts').ReviewWebhookPayload>().notNull(),
+  state: text('state').$type<import('@canonry/canonry-contracts').ReviewDeliveryState>().notNull().default('pending'),
+  attempts: integer('attempts').notNull().default(0),
+  attemptedAt: text('attempted_at'),
+  retryAt: text('retry_at'),
+  deliveredAt: text('delivered_at'),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  uniqueIndex('uniq_review_webhook_delivery').on(table.projectId, table.notificationId, table.eventId),
+  index('idx_review_webhook_deliveries_due').on(table.state, table.retryAt),
+])
 
 export const googleConnections = sqliteTable('google_connections', {
   id: text('id').primaryKey(),

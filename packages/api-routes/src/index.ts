@@ -1016,7 +1016,8 @@ export type {
   ExecuteDiscoveryResult,
   OnDiscoveryRunRequested,
 } from './discovery/index.js'
-export { deliverWebhook, resolveWebhookTarget } from './webhooks.js'
+export { deliverWebhook, resolveWebhookTarget, verifyCanonryWebhook } from './webhooks.js'
+export type { WebhookDeliveryResult } from './webhooks.js'
 // One classification of a webhook destination and its answer, shared by the test route and deliveries.
 export { webhookOutcomeTarget, webhookResponseReason, webhookTargetRefusalReason } from './connection-telemetry.js'
 // Audit rows written by a host route, so they carry the same request context.
@@ -1342,5 +1343,3 @@ function buildTrafficSourceValidators(opts: ApiRoutesOptions): Record<string, Tr
   }
   return Object.keys(validators).length > 0 ? validators : undefined
 }
-
-export { verifyCanonryWebhook } from './webhooks.js'

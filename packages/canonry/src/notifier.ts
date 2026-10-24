@@ -1,4 +1,4 @@
-import { deliverReviewEvent, drainReviewDeliveries, reviewEventId } from './review-webhook-delivery.js'
+import { deliverReviewEvent, drainReviewDeliveries, dueReviewDeliveryProjects, reviewEventId } from './review-webhook-delivery.js'
 import { eq, desc, and, inArray, or, isNull } from 'drizzle-orm'
 import { deliverWebhook, measurementRunCompleteness, notProbeRun, redactNotificationUrl, resolveDestination, resolveWebhookTarget, toAlertView, webhookOutcomeTarget, webhookResponseReason, webhookTargetRefusalReason } from '@canonry/canonry-api-routes'
 import type { DatabaseClient } from '@canonry/canonry-db'
@@ -1083,6 +1083,26 @@ export class Notifier {
     }
   }
 
+  /**
+   * Send the review deliveries that are due, for every project that has some.
+   * The engine runs this on a timer, so a failed send waits for its retry time
+   * rather than the next GBP sync. A project mid-dispatch is skipped: that
+   * dispatch drains its own deliveries.
+   */
+  async drainDueReviewDeliveries(): Promise<number> {
+    let delivered = 0
+    for (const projectId of dueReviewDeliveryProjects(this.db, Date.now())) {
+      if (this.reviewDispatchInFlight.has(projectId)) continue
+      this.reviewDispatchInFlight.add(projectId)
+      try {
+        delivered += await drainReviewDeliveries({ db: this.db, projectId, allowLoopback: this.allowLoopbackWebhooks })
+      } finally {
+        this.reviewDispatchInFlight.delete(projectId)
+      }
+    }
+    return delivered
+  }
+
   private async dispatchQueuedReviewAlerts(projectId: string): Promise<{ reviews: number; ratingDrops: number; delivered: number }> {
     const pendingReviews = this.db.select().from(gbpReviews)
       .where(and(eq(gbpReviews.projectId, projectId), eq(gbpReviews.alertState, 'pending')))
@@ -1092,6 +1112,9 @@ export class Notifier {
       .all()
     const project = this.db.select().from(projects).where(eq(projects.id, projectId)).get()
     if (!project) return { reviews: 0, ratingDrops: 0, delivered: 0 }
+    // Chat destinations take a few review sends per pass, new and retried
+    // alike; the rest stay due for the timer's next pass, in order.
+    const chatSendsLeft = new Map<string, number>()
 
     const now = new Date()
     const nowIso = now.toISOString()
@@ -1186,7 +1209,7 @@ export class Notifier {
           for (const notification of subscribedTo('review.negative')) {
             const sent = await deliverReviewEvent({
               db: this.db, projectId, notificationId: notification.id, payload,
-              allowLoopback: this.allowLoopbackWebhooks,
+              allowLoopback: this.allowLoopbackWebhooks, chatSendsLeft,
               onDelivered: () => { delivered += 1 },
             })
             if (!sent) all = false
@@ -1209,7 +1232,7 @@ export class Notifier {
 
     // Durable delivery work belongs to immutable events, independently of the
     // current review row (which a newer edit may already have acknowledged).
-    delivered += await drainReviewDeliveries({ db: this.db, projectId, allowLoopback: this.allowLoopbackWebhooks })
+    delivered += await drainReviewDeliveries({ db: this.db, projectId, allowLoopback: this.allowLoopbackWebhooks, chatSendsLeft })
 
     if (ratingsToSend.length > 0) {
       const ids = ratingsToSend.map((r) => r.id)

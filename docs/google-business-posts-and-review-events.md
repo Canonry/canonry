@@ -17,18 +17,19 @@ Supported content is deliberately limited to English STANDARD editorial article
 updates, one PHOTO source URL and a LEARN_MORE article link. Offers, events and
 scheduledTime are rejected. Every linked article is checked for promotional copy
 and links, even when location category metadata is missing or localized. This
-conservative policy protects hotel locations, including Gjelina, and can refuse
-an editorial page whose shared navigation advertises an offer. It is not a
-semantic policy classifier and does not add promotional posting support.
+conservative policy protects hotel locations and can refuse an editorial page
+whose shared navigation advertises an offer. It is not a semantic policy
+classifier and does not add promotional posting support.
 
-That restriction also applies to AZ: this initial transport is editorial-only
-for every client, even when a location's category is missing or localized.
+This initial transport is editorial-only for every client, even when a
+location's category is missing or localized.
 Valid JSON-LD with a schema.org context may use `Offer`, `AggregateOffer`,
 `OfferCatalog` and `offers` as schema identifiers without advertising a deal.
 Those identifiers alone do not block an article. Descriptions, names, links,
 discount/coupon fields and sale-price data are still checked, including escaped
 strings and duplicate JSON members. Malformed JSON-LD, unsupported contexts and
-excessive nesting fail closed. No schema is removed from the article.
+excessive nesting fail closed. A malformed percent escape is read as a space
+rather than refusing the page. No schema is removed from the article.
 
 Commands (machine-readable JSON):
 
@@ -66,18 +67,26 @@ New material rating/comment changes can emit `review.negative`; timestamp-only
 and owner-reply changes do not generate another alert. The existing 30-day alert
 window remains. Alerts never reply to, delete or alter Google reviews.
 
-Each material revision has an immutable `evt_…` ID. The new delivery table is
-empty on migration, has a unique project/destination/event key, and preserves
-per-destination debt across restarts. One accepted destination cannot acknowledge
-another failed destination. Acknowledgement compares the exact observed rating,
-comment and material revision, so an older send cannot hide a concurrent edit.
-Each sync also drains up to 100 due delivery records independently of the current
-review queue. Future retry deadlines do not consume that budget; never-attempted
-and oldest-due ready work goes first. Failed DNS/preflight reads receive a bounded
-retry deadline without incrementing provider attempts, so unavailable targets do
-not monopolize later batches. An older still-negative
-material event retains its original payload and can finish after a newer event
-succeeds, without repeating destinations that already accepted it.
+Each material revision has an immutable `evt_…` ID. The delivery table
+(migration 189) is empty on upgrade, has a unique project/destination/event key,
+and preserves per-destination debt across restarts. One accepted destination
+cannot acknowledge another failed destination. Acknowledgement compares the exact
+observed rating, comment and material revision, so an older send cannot hide a
+concurrent edit. Each review is its own message, with its own link and its own
+delivery record.
+
+Due deliveries drain every minute on an engine timer, and after every GBP sync,
+up to 100 per project per pass, never-attempted and oldest-due first. Chat
+destinations (Discord, Slack) take at most three sends per pass, so a burst of
+reviews goes out over a few minutes instead of tripping their webhook rate
+limits. A failed send retries after one minute, doubling to six hours, never
+sooner than a `Retry-After` asks. A destination that refuses the request (a 4xx
+other than 408, 425 or 429) fails at once, and a send still failing after ten
+attempts fails too. Failed DNS/preflight reads back off by the event's age
+without counting as provider attempts, so unavailable targets do not monopolize
+later passes. An older still-negative material event retains its original
+payload and can finish after a newer event succeeds, without repeating
+destinations that already accepted it.
 
 Before a retry and again after DNS resolution, the engine checks the current
 project, selected account/location, destination subscription and review rating.
@@ -104,10 +113,15 @@ stable event ID before effects; signature verification alone does not stop a
 replay within the freshness window. No secrets are created by migration.
 
 A definitive failed delivery retries only notification delivery. A lost generic
-webhook acknowledgement can retry with the same deduplicated event ID. A lost
-Discord/Slack acknowledgement is held as uncertain, since those endpoints do not
-provide an idempotency guarantee; operator reconciliation is required rather
-than risking repeated alerts. No historical backlog is dumped into channels.
+webhook acknowledgement can retry with the same deduplicated event ID. A request
+that never reached the network (DNS, connect or TLS failure) is retried for every
+destination, because no receiver can have it. A Discord/Slack request that did
+reach the network but got no answer is held as `uncertain`, since those endpoints
+do not deduplicate; it is never resent. Uncertain and failed deliveries are
+listed by the `gbp.reviews.delivery` doctor check for seven days, with the
+destination and the review link, and each one writes a
+`notification.review-undelivered` audit entry. No historical backlog is dumped
+into channels.
 
 Google Pub/Sub NEW_REVIEW/UPDATED_REVIEW notifications could later replace the
 upstream polling wake-up. That requires separately approved cloud topic/IAM and
@@ -118,15 +132,15 @@ here. The outgoing engine webhook contract remains the same.
 
 1. Confirm each selected account/location and project credential scopes.
 2. Confirm each client's engine notification destination. Orchestrator manifest
-   targets are not proof of engine webhook routing. The currently observed AZ
-   and Gjelina manifest targets match, so Gjelina routing needs owner confirmation.
+   targets are not proof of engine webhook routing; confirm each route with its
+   owner before enabling alerts.
 3. Approve deployment/migration, then configure hourly sync and the intended
    `review.negative` subscriptions with the existing settings. Preserve a silent
    baseline and verify routing before enabling alerts.
 4. Enable GBP social delivery separately per client in the companion outbox.
-   Gjelina's existing social hold must remain until separately authorized.
+   Any existing social hold remains until separately authorized.
 
-On October 23, authorized read-only Google requests returned HTTP 200 for both
-clients' Local Posts and Reviews. The review samples reported AZ 25 reviews and
-Gjelina 150; these were access checks, not complete scans or claims that no
-negative reviews exist. No live notifications, previews or posts were sent.
+On October 23, authorized read-only Google requests returned HTTP 200 for Local
+Posts and Reviews on the pilot locations. These were access checks, not complete
+scans or claims that no negative reviews exist. No live notifications, previews
+or posts were sent.

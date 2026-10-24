@@ -25,11 +25,40 @@ import {
   resolveWebhookTarget,
   toAlertView,
   writeAuditLog,
+  type WebhookDeliveryResult,
 } from '@canonry/canonry-api-routes'
+import { describeError } from '@canonry/canonry-contracts'
 import { isWithinAlertWindow } from './gbp-reviews.js'
+import { createLogger } from './logger.js'
+
+const log = createLogger('ReviewDelivery')
 
 const hash = (value: unknown): string =>
   createHash('sha256').update(JSON.stringify(value)).digest('hex')
+
+/** Provider attempts before a retryable failure is reported instead of retried. */
+export const REVIEW_DELIVERY_MAX_ATTEMPTS = 10
+/**
+ * Chat sends per destination in one pass. Discord and Slack rate-limit each
+ * webhook, so a burst of reviews goes out a few per pass instead of tripping
+ * that limit; the rest stay due for the next pass.
+ */
+export const REVIEW_CHAT_SENDS_PER_PASS = 3
+/** How often due deliveries are retried between GBP syncs. */
+export const REVIEW_DELIVERY_INTERVAL_MS = 60_000
+const RETRY_BASE_MS = 60_000
+const RETRY_MAX_MS = 6 * 60 * 60_000
+
+/** One minute doubling to six hours, and never sooner than the receiver asked. */
+function retryDelayMs(attempts: number, retryAfterSeconds?: number): number {
+  const backoff = Math.min(RETRY_BASE_MS * 2 ** Math.max(0, attempts - 1), RETRY_MAX_MS)
+  return Math.max(backoff, (retryAfterSeconds ?? 0) * 1000)
+}
+
+/** A 4xx a retry cannot change: the destination refused the request as sent. */
+function permanentlyRefused(status: number): boolean {
+  return status >= 400 && status < 500 && status !== 408 && status !== 425 && status !== 429
+}
 export function reviewEventId(
   projectId: string,
   review: {
@@ -62,6 +91,8 @@ type ReviewDeliveryOptions = {
   onDelivered?: () => void
   resolve?: typeof resolveWebhookTarget
   deliver?: typeof deliverWebhook
+  /** Chat sends left per destination (target digest) in this pass. */
+  chatSendsLeft?: Map<string, number>
 }
 
 /** A stored event can outlive its mutable review row, but never its authority. */
@@ -121,14 +152,60 @@ function cancelReviewDelivery(db: DatabaseClient, id: string, reason: string): v
   })
 }
 
-/** A failed preflight read is not a provider attempt, but must yield the batch. */
+/**
+ * A failed preflight read is not a provider attempt, but must yield the batch.
+ * With no attempt to count, the wait grows with the event's age instead, so an
+ * unreachable target is not resolved every minute for a month.
+ */
 function deferReviewDelivery(db: DatabaseClient, saved: typeof reviewWebhookDeliveries.$inferSelect, now: number): void {
   if (saved.state !== State.Pending && saved.state !== State.Attempting) return
-  db.update(reviewWebhookDeliveries).set({ retryAt: new Date(now + 60_000).toISOString() }).where(and(
+  const waited = now - Date.parse(saved.createdAt)
+  const delay = Math.min(Math.max(RETRY_BASE_MS, Number.isFinite(waited) ? waited / 4 : RETRY_BASE_MS), RETRY_MAX_MS)
+  db.update(reviewWebhookDeliveries).set({ retryAt: new Date(now + delay).toISOString() }).where(and(
     eq(reviewWebhookDeliveries.id, saved.id),
     eq(reviewWebhookDeliveries.state, saved.state),
     eq(reviewWebhookDeliveries.attempts, saved.attempts),
   )).run()
+}
+
+/** A delivery that stopped without landing: the doctor check lists it, the audit log explains it. */
+function auditUndelivered(
+  db: DatabaseClient,
+  saved: typeof reviewWebhookDeliveries.$inferSelect,
+  outcome: { state: string; reason: string; status?: number; attempts: number },
+): void {
+  writeAuditLog(db, {
+    projectId: saved.projectId, actor: 'scheduler', action: 'notification.review-undelivered',
+    entityType: 'review-webhook-delivery', entityId: saved.id,
+    diff: { eventId: saved.eventId, notificationId: saved.notificationId, targetDigest: saved.targetDigest, ...outcome },
+  })
+}
+
+/** Projects with review deliveries due now: pending past their retry time, or an attempt that never finished. */
+export function dueReviewDeliveryProjects(db: DatabaseClient, now: number): string[] {
+  const at = new Date(now).toISOString()
+  const staleAttempt = new Date(now - 60_000).toISOString()
+  return db.selectDistinct({ projectId: reviewWebhookDeliveries.projectId }).from(reviewWebhookDeliveries).where(or(
+    and(eq(reviewWebhookDeliveries.state, State.Pending), or(isNull(reviewWebhookDeliveries.retryAt), lte(reviewWebhookDeliveries.retryAt, at))),
+    and(eq(reviewWebhookDeliveries.state, State.Attempting), lte(reviewWebhookDeliveries.attemptedAt, staleAttempt)),
+  )).all().map(row => row.projectId)
+}
+
+/**
+ * Drain due deliveries every `intervalMs`, so a failed send waits for its
+ * retry time rather than for the next GBP sync. Passes never overlap.
+ */
+export function startReviewDeliveryLoop(drain: () => Promise<number>, intervalMs = REVIEW_DELIVERY_INTERVAL_MS): () => void {
+  let running = false
+  const timer = setInterval(() => {
+    if (running) return
+    running = true
+    void drain()
+      .catch((err: unknown) => { log.warn('review-delivery.drain-failed', { error: describeError(err) }) })
+      .finally(() => { running = false })
+  }, intervalMs)
+  timer.unref?.()
+  return () => clearInterval(timer)
 }
 
 /** Retry bounded durable debt even when a newer review revision is already sent. */
@@ -145,8 +222,9 @@ export async function drainReviewDeliveries(options: Omit<ReviewDeliveryOptions,
     ),
   )).orderBy(asc(reviewWebhookDeliveries.retryAt), asc(reviewWebhookDeliveries.attemptedAt), asc(reviewWebhookDeliveries.createdAt), asc(reviewWebhookDeliveries.id)).limit(100).all()
   let delivered = 0
+  const chatSendsLeft = options.chatSendsLeft ?? new Map<string, number>()
   for (const debt of ready) {
-    await deliverReviewEvent({ ...options, notificationId: debt.notificationId, payload: debt.payload,
+    await deliverReviewEvent({ ...options, notificationId: debt.notificationId, payload: debt.payload, chatSendsLeft,
       onDelivered: () => { delivered += 1; options.onDelivered?.() },
     })
   }
@@ -221,7 +299,7 @@ export async function deliverReviewEvent(options: ReviewDeliveryOptions): Promis
     // Generic receivers deduplicate by stable eventId. A chat webhook cannot
     // prove whether an interrupted request landed, so it needs reconciliation.
     const state = destination.signed ? State.Pending : State.Uncertain
-    db.update(reviewWebhookDeliveries)
+    const moved = db.update(reviewWebhookDeliveries)
       .set({ state })
       .where(
         and(
@@ -231,7 +309,11 @@ export async function deliverReviewEvent(options: ReviewDeliveryOptions): Promis
           eq(reviewWebhookDeliveries.attemptedAt, saved.attemptedAt),
         ),
       )
-      .run()
+      .returning({ id: reviewWebhookDeliveries.id })
+      .get()
+    if (moved && state === State.Uncertain) {
+      auditUndelivered(db, saved, { state, reason: 'interrupted_attempt', attempts: saved.attempts })
+    }
     saved = db
       .select()
       .from(reviewWebhookDeliveries)
@@ -240,6 +322,11 @@ export async function deliverReviewEvent(options: ReviewDeliveryOptions): Promis
     if (!saved || saved.state !== State.Pending) return false
   }
   if (saved.retryAt && Date.parse(saved.retryAt) > now()) return false
+  if (destination.render && options.chatSendsLeft) {
+    const left = options.chatSendsLeft.get(targetDigest) ?? REVIEW_CHAT_SENDS_PER_PASS
+    if (left <= 0) return false
+    options.chatSendsLeft.set(targetDigest, left - 1)
+  }
   if (destination.signed && !notification.webhookSecret) { deferReviewDelivery(db, saved, now()); return false }
   const target = await (options.resolve ?? resolveWebhookTarget)(
     notification.config.url,
@@ -283,35 +370,46 @@ export async function deliverReviewEvent(options: ReviewDeliveryOptions): Promis
     typeof rendered === 'object'
       ? { ...rendered, allowed_mentions: { parse: [] } }
       : (rendered ?? saved.payload)
-  let status = 0
+  let result: WebhookDeliveryResult
   try {
-    status = (
-      await (options.deliver ?? deliverWebhook)(
-        target.target,
-        body,
-        destination.signed ? notification.webhookSecret : null,
-      )
-    ).status
-  } catch {
-    /* Ambiguous transport outcome is deliberately retained. */
+    result = await (options.deliver ?? deliverWebhook)(
+      target.target,
+      body,
+      destination.signed ? notification.webhookSecret : null,
+    )
+  } catch (err) {
+    // A transport that threw cannot say how far the request got.
+    result = { status: 0, error: describeError(err), requestSent: true }
   }
-  const sent = status >= 200 && status < 300
-  const uncertain = status === 0 && !destination.signed
+  const attempts = saved.attempts + 1
+  const sent = result.status >= 200 && result.status < 300
+  // Only a request that may have reached the receiver and got no answer is
+  // ambiguous. A chat webhook cannot deduplicate, so that one is never resent;
+  // a signed receiver deduplicates by event id, so it is retried like any
+  // failure. A request known never to have left (DNS, connect, TLS) cannot
+  // have landed anywhere; a transport that does not say counts as ambiguous.
+  const uncertain = !sent && result.status === 0 && result.requestSent !== false && !destination.signed
+  const refused = !sent && permanentlyRefused(result.status)
+  const exhausted = !sent && !uncertain && !refused && attempts >= REVIEW_DELIVERY_MAX_ATTEMPTS
+  const state = sent ? State.Sent : uncertain ? State.Uncertain : refused || exhausted ? State.Failed : State.Pending
   db.update(reviewWebhookDeliveries)
     .set({
-      state: sent ? State.Sent : uncertain ? State.Uncertain : State.Pending,
+      state,
       deliveredAt: sent ? new Date(now()).toISOString() : null,
-      retryAt:
-        sent || uncertain ? null : new Date(now() + 60_000).toISOString(),
+      retryAt: state === State.Pending ? new Date(now() + retryDelayMs(attempts, result.retryAfterSeconds)).toISOString() : null,
     })
     .where(
       and(
         eq(reviewWebhookDeliveries.id, id),
         eq(reviewWebhookDeliveries.state, State.Attempting),
-        eq(reviewWebhookDeliveries.attempts, saved.attempts + 1),
+        eq(reviewWebhookDeliveries.attempts, attempts),
       ),
     )
     .run()
+  if (state === State.Uncertain || state === State.Failed) {
+    const reason = uncertain ? 'no_response' : refused ? 'refused' : 'retries_exhausted'
+    auditUndelivered(db, saved, { state, reason, status: result.status, attempts })
+  }
   if (sent) options.onDelivered?.()
   return sent
 }
