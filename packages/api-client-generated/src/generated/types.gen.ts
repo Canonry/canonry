@@ -4,6 +4,540 @@ export type ClientOptions = {
     baseUrl: `${string}://${string}` | (string & {});
 };
 
+export type SeoOperatorTask = {
+    id: string;
+    runId: string;
+    status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | 'reconciliation-required';
+    reservedCostMicros: number;
+    actualCostMicros: number | null;
+    receipts: Array<{
+        remoteTaskId: string | null;
+        statusCode: number | null;
+        costMicros: number | null;
+    }>;
+};
+
+export type SeoReconcileInput = {
+    actualCostMicros: number;
+    remoteTaskId: string;
+    outcome: 'completed' | 'failed';
+    note: string;
+};
+
+export type SeoReconcileResult = {
+    id: string;
+    status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | 'reconciliation-required';
+};
+
+export type SeoContext = {
+    available: boolean;
+    reason: string | null;
+    connections: Array<{
+        id: string;
+        label: string;
+        provider: 'dataforseo';
+        capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords'>;
+    }>;
+    scopes: Array<{
+        kind: 'project' | 'group' | 'market' | 'property';
+        key: string | null;
+        label: string;
+        planRevision?: number;
+        supported: boolean;
+        reason: string | null;
+        capabilities?: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords'>;
+    }>;
+    access: {
+        canRun: boolean;
+        canWrite: boolean;
+    };
+};
+
+export type SeoStatus = {
+    available: boolean;
+    reason: string | null;
+    capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords'>;
+    profileCount: number;
+    latestRunId: string | null;
+    latestRunStatus: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | 'reconciliation-required' | null;
+    lastCompletedAt: string | null;
+};
+
+export type SeoProfile = {
+    name: string;
+    connectionId: string;
+    capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords'>;
+    targets: Array<{
+        kind: 'domain' | 'host';
+        value: string;
+        includeSubdomains: boolean;
+    }>;
+    keywords: Array<string>;
+    locationCode: number;
+    languageCode: string;
+    limit: number;
+    scope: {
+        kind: 'project' | 'group' | 'market' | 'property';
+        key?: string;
+        expectedPlanRevision?: number;
+    };
+    id: string;
+    revision: number;
+    createdAt: string;
+    updatedAt: string;
+};
+
+export type SeoProfileList = {
+    profiles: Array<{
+        name: string;
+        connectionId: string;
+        capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords'>;
+        targets: Array<{
+            kind: 'domain' | 'host';
+            value: string;
+            includeSubdomains: boolean;
+        }>;
+        keywords: Array<string>;
+        locationCode: number;
+        languageCode: string;
+        limit: number;
+        scope: {
+            kind: 'project' | 'group' | 'market' | 'property';
+            key?: string;
+            expectedPlanRevision?: number;
+        };
+        id: string;
+        revision: number;
+        createdAt: string;
+        updatedAt: string;
+    }>;
+};
+
+export type SeoProfileInput = {
+    name: string;
+    connectionId: string;
+    capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords'>;
+    targets: Array<{
+        kind: 'domain' | 'host';
+        value: string;
+        includeSubdomains: boolean;
+    }>;
+    keywords: Array<string>;
+    locationCode: number;
+    languageCode: string;
+    limit: number;
+    scope: {
+        kind: 'project' | 'group' | 'market' | 'property';
+        key?: string;
+        expectedPlanRevision?: number;
+    };
+};
+
+export type SeoQuote = {
+    token: string;
+    expiresAt: string;
+    profileId: string;
+    profileRevision: number;
+    taskCount: number;
+    targets: Array<{
+        kind: 'domain' | 'host';
+        value: string;
+        includeSubdomains: boolean;
+    }>;
+    capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords'>;
+    availability: 'ready' | 'unavailable';
+    reason: string | null;
+};
+
+export type SeoRefreshIntentInput = {
+    profileId: string;
+};
+
+export type SeoSyncInput = {
+    quoteToken: string;
+    idempotencyKey: string;
+};
+
+export type SeoRun = {
+    id: string;
+    projectId: string;
+    profileId: string;
+    profileRevision: number;
+    locationCode: number;
+    languageCode: string;
+    cancelRequested: boolean;
+    status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | 'reconciliation-required';
+    capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords'>;
+    scope: {
+        kind: 'project' | 'group' | 'market' | 'property';
+        key?: string;
+        expectedPlanRevision?: number;
+    };
+    taskCount: number;
+    completedTasks: number;
+    failedTasks: number;
+    createdAt: string;
+    startedAt: string | null;
+    finishedAt: string | null;
+    error: string | null;
+};
+
+export type SeoRunDetail = {
+    id: string;
+    projectId: string;
+    profileId: string;
+    profileRevision: number;
+    locationCode: number;
+    languageCode: string;
+    cancelRequested: boolean;
+    status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | 'reconciliation-required';
+    capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords'>;
+    scope: {
+        kind: 'project' | 'group' | 'market' | 'property';
+        key?: string;
+        expectedPlanRevision?: number;
+    };
+    taskCount: number;
+    completedTasks: number;
+    failedTasks: number;
+    createdAt: string;
+    startedAt: string | null;
+    finishedAt: string | null;
+    error: string | null;
+    tasks: Array<{
+        id: string;
+        capability: 'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords';
+        target: {
+            kind: 'domain' | 'host';
+            value: string;
+            includeSubdomains: boolean;
+        } | null;
+        status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | 'reconciliation-required';
+        error: string | null;
+        remoteTaskId: string | null;
+    }>;
+    results: {
+        keywordMetrics: Array<{
+            keyword: string;
+            searchVolume: number | null;
+            cpcUsd: number | null;
+            adCompetition: number | null;
+            /**
+             * Provider difficulty score on a 0–100 scale; not a percentage.
+             */
+            keywordDifficulty: number | null;
+            searchIntent: string | null;
+            monthlySearches: Array<{
+                year: number;
+                month: number;
+                searchVolume: number | null;
+            }>;
+            coreKeyword: string | null;
+            provenance: {
+                provider: 'dataforseo';
+                dataset: string;
+                engine: 'google';
+                locationCode: number;
+                languageCode: string;
+                device: 'unspecified';
+                collectedAt: string;
+                sourceUpdatedAt: string | null;
+            };
+        }>;
+        domainIntelligence: Array<{
+            target: {
+                kind: 'domain' | 'host';
+                value: string;
+                includeSubdomains: boolean;
+            };
+            organicKeywords: number | null;
+            estimatedOrganicTraffic: number | null;
+            estimatedOrganicTrafficValueUsd: number | null;
+            top1: number | null;
+            top2To3: number | null;
+            top4To10: number | null;
+            top11To20: number | null;
+            provenance: {
+                provider: 'dataforseo';
+                dataset: string;
+                engine: 'google';
+                locationCode: number;
+                languageCode: string;
+                device: 'unspecified';
+                collectedAt: string;
+                sourceUpdatedAt: string | null;
+            };
+        }>;
+        rankedKeywords: Array<{
+            target: {
+                kind: 'domain' | 'host';
+                value: string;
+                includeSubdomains: boolean;
+            };
+            keyword: string;
+            url: string | null;
+            rankOrganic: number | null;
+            rankAbsolute: number | null;
+            searchVolume: number | null;
+            estimatedTraffic: number | null;
+            cpcUsd: number | null;
+            /**
+             * Provider difficulty score on a 0–100 scale; not a percentage.
+             */
+            keywordDifficulty: number | null;
+            serpFeatures: Array<string>;
+            provenance: {
+                provider: 'dataforseo';
+                dataset: string;
+                engine: 'google';
+                locationCode: number;
+                languageCode: string;
+                device: 'unspecified';
+                collectedAt: string;
+                sourceUpdatedAt: string | null;
+            };
+        }>;
+    };
+    resultCounts: {
+        keywordMetrics: number;
+        domainIntelligence: number;
+        rankedKeywords: number;
+    };
+    resultsTruncated: boolean;
+};
+
+export type SeoRunList = {
+    runs: Array<{
+        id: string;
+        projectId: string;
+        profileId: string;
+        profileRevision: number;
+        locationCode: number;
+        languageCode: string;
+        cancelRequested: boolean;
+        status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | 'reconciliation-required';
+        capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords'>;
+        scope: {
+            kind: 'project' | 'group' | 'market' | 'property';
+            key?: string;
+            expectedPlanRevision?: number;
+        };
+        taskCount: number;
+        completedTasks: number;
+        failedTasks: number;
+        createdAt: string;
+        startedAt: string | null;
+        finishedAt: string | null;
+        error: string | null;
+    }>;
+};
+
+export type SeoOverview = {
+    status: {
+        available: boolean;
+        reason: string | null;
+        capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords'>;
+        profileCount: number;
+        latestRunId: string | null;
+        latestRunStatus: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | 'reconciliation-required' | null;
+        lastCompletedAt: string | null;
+    };
+    profiles: Array<{
+        name: string;
+        connectionId: string;
+        capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords'>;
+        targets: Array<{
+            kind: 'domain' | 'host';
+            value: string;
+            includeSubdomains: boolean;
+        }>;
+        keywords: Array<string>;
+        locationCode: number;
+        languageCode: string;
+        limit: number;
+        scope: {
+            kind: 'project' | 'group' | 'market' | 'property';
+            key?: string;
+            expectedPlanRevision?: number;
+        };
+        id: string;
+        revision: number;
+        createdAt: string;
+        updatedAt: string;
+    }>;
+    latestRun: {
+        id: string;
+        projectId: string;
+        profileId: string;
+        profileRevision: number;
+        locationCode: number;
+        languageCode: string;
+        cancelRequested: boolean;
+        status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | 'reconciliation-required';
+        capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords'>;
+        scope: {
+            kind: 'project' | 'group' | 'market' | 'property';
+            key?: string;
+            expectedPlanRevision?: number;
+        };
+        taskCount: number;
+        completedTasks: number;
+        failedTasks: number;
+        createdAt: string;
+        startedAt: string | null;
+        finishedAt: string | null;
+        error: string | null;
+    } | null;
+    evidenceRunId: string | null;
+    evidenceRun: {
+        id: string;
+        projectId: string;
+        profileId: string;
+        profileRevision: number;
+        locationCode: number;
+        languageCode: string;
+        cancelRequested: boolean;
+        status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | 'reconciliation-required';
+        capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords'>;
+        scope: {
+            kind: 'project' | 'group' | 'market' | 'property';
+            key?: string;
+            expectedPlanRevision?: number;
+        };
+        taskCount: number;
+        completedTasks: number;
+        failedTasks: number;
+        createdAt: string;
+        startedAt: string | null;
+        finishedAt: string | null;
+        error: string | null;
+    } | null;
+    summary: {
+        target: {
+            kind: 'domain' | 'host';
+            value: string;
+            includeSubdomains: boolean;
+        };
+        organicKeywords: number | null;
+        inTop10: number | null;
+        estimatedOrganicTraffic: number | null;
+        provenance: {
+            provider: 'dataforseo';
+            dataset: string;
+            engine: 'google';
+            locationCode: number;
+            languageCode: string;
+            device: 'unspecified';
+            collectedAt: string;
+            sourceUpdatedAt: string | null;
+        };
+    } | null;
+    keywordMetricsCount: number;
+    domainIntelligenceCount: number;
+    rankedKeywordCount: number;
+};
+
+export type SeoKeywordMetricsList = {
+    runId: string | null;
+    total: number;
+    limit: number;
+    offset: number;
+    items: Array<{
+        keyword: string;
+        searchVolume: number | null;
+        cpcUsd: number | null;
+        adCompetition: number | null;
+        /**
+         * Provider difficulty score on a 0–100 scale; not a percentage.
+         */
+        keywordDifficulty: number | null;
+        searchIntent: string | null;
+        monthlySearches: Array<{
+            year: number;
+            month: number;
+            searchVolume: number | null;
+        }>;
+        coreKeyword: string | null;
+        provenance: {
+            provider: 'dataforseo';
+            dataset: string;
+            engine: 'google';
+            locationCode: number;
+            languageCode: string;
+            device: 'unspecified';
+            collectedAt: string;
+            sourceUpdatedAt: string | null;
+        };
+    }>;
+};
+
+export type SeoDomainIntelligenceList = {
+    runId: string | null;
+    total: number;
+    limit: number;
+    offset: number;
+    items: Array<{
+        target: {
+            kind: 'domain' | 'host';
+            value: string;
+            includeSubdomains: boolean;
+        };
+        organicKeywords: number | null;
+        estimatedOrganicTraffic: number | null;
+        estimatedOrganicTrafficValueUsd: number | null;
+        top1: number | null;
+        top2To3: number | null;
+        top4To10: number | null;
+        top11To20: number | null;
+        provenance: {
+            provider: 'dataforseo';
+            dataset: string;
+            engine: 'google';
+            locationCode: number;
+            languageCode: string;
+            device: 'unspecified';
+            collectedAt: string;
+            sourceUpdatedAt: string | null;
+        };
+    }>;
+};
+
+export type SeoRankedKeywordList = {
+    runId: string | null;
+    total: number;
+    limit: number;
+    offset: number;
+    items: Array<{
+        target: {
+            kind: 'domain' | 'host';
+            value: string;
+            includeSubdomains: boolean;
+        };
+        keyword: string;
+        url: string | null;
+        rankOrganic: number | null;
+        rankAbsolute: number | null;
+        searchVolume: number | null;
+        estimatedTraffic: number | null;
+        cpcUsd: number | null;
+        /**
+         * Provider difficulty score on a 0–100 scale; not a percentage.
+         */
+        keywordDifficulty: number | null;
+        serpFeatures: Array<string>;
+        provenance: {
+            provider: 'dataforseo';
+            dataset: string;
+            engine: 'google';
+            locationCode: number;
+            languageCode: string;
+            device: 'unspecified';
+            collectedAt: string;
+            sourceUpdatedAt: string | null;
+        };
+    }>;
+};
+
 export type SentimentSummary = {
     state: 'disabled' | 'not-measured' | 'processing' | 'partial' | 'complete' | 'failed' | 'canceled' | 'unsupported';
     reason: string | null;
@@ -1878,7 +2412,9 @@ export type AgentPromptRequest = {
     scope?: 'all' | 'read-only';
     profile?: 'default' | 'ads-operator';
     context?: {
-        view: 'project' | 'visibility' | 'property' | 'queries' | 'site-health';
+        view: 'project' | 'visibility' | 'property' | 'queries' | 'site-health' | 'seo';
+        seoProfileId?: string;
+        seoRunId?: string;
         unavailableReason?: string;
         selection?: {
             mode: 'auto' | 'simple' | 'advanced';
@@ -5411,7 +5947,7 @@ export type InstanceStatusDto = {
         integrations: Array<{
             integration: 'gsc' | 'ga' | 'gbp' | 'bing' | 'ads' | 'google-ads' | 'gtm' | 'traffic';
             label: string;
-            runKind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync';
+            runKind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync';
             sourceId: string | null;
             state: 'ok' | 'failing' | 'stale' | 'never-synced';
             lastSuccessAt: string | null;
@@ -6146,6 +6682,7 @@ export type GbpLocalPost = {
     actionType: string | null;
     articleUrl: string | null;
     imageUrls: Array<string>;
+    mediaSourceUrlsComplete?: boolean;
     createTime: string;
     updateTime: string;
     searchUrl: string | null;
@@ -6161,6 +6698,7 @@ export type GbpLocalPostList = {
         actionType: string | null;
         articleUrl: string | null;
         imageUrls: Array<string>;
+        mediaSourceUrlsComplete?: boolean;
         createTime: string;
         updateTime: string;
         searchUrl: string | null;
@@ -6181,6 +6719,7 @@ export type GbpLocalPostAttempt = {
         actionType: string | null;
         articleUrl: string | null;
         imageUrls: Array<string>;
+        mediaSourceUrlsComplete?: boolean;
         createTime: string;
         updateTime: string;
         searchUrl: string | null;
@@ -8091,7 +8630,7 @@ export type LatestProjectRunDto = {
         sourceId?: string | null;
         id: string;
         projectId: string;
-        kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync';
+        kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync';
         status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
         trigger: 'manual' | 'scheduled' | 'config-apply' | 'backfill' | 'probe';
         measurementPlanVersionId?: string | null;
@@ -12090,26 +12629,26 @@ export type OnboardingTelemetryEvent = {
 export type UiTelemetryEvent = {
     eventId: string;
     uiSessionId: string;
-    page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/agent-setup' | '/backlinks' | '/traffic' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
+    page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/seo-data' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/agent-setup' | '/backlinks' | '/traffic' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
     event: 'ui.page_viewed';
-    tab?: 'overview' | 'portfolio' | 'search-console' | 'conversions' | 'local' | 'discovery' | 'queries' | 'properties' | 'report' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings' | 'other';
+    tab?: 'overview' | 'portfolio' | 'search-console' | 'seo-data' | 'conversions' | 'local' | 'discovery' | 'queries' | 'properties' | 'report' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings' | 'other';
 } | {
     eventId: string;
     uiSessionId: string;
-    page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/agent-setup' | '/backlinks' | '/traffic' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
+    page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/seo-data' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/agent-setup' | '/backlinks' | '/traffic' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
     event: 'ui.action';
-    action: 'sweep.launch' | 'sweep.cancel' | 'site_audit.launch' | 'project.create' | 'project.update' | 'project.delete' | 'query.add' | 'query.delete' | 'query.generate' | 'competitor.save' | 'competitor.delete' | 'schedule.save' | 'schedule.delete' | 'provider.save' | 'settings.save' | 'integration.connect_started' | 'integration.connect' | 'integration.disconnect' | 'traffic.sync' | 'notification.save' | 'notification.test' | 'measurement_plan.publish' | 'property_names.save' | 'discovery.run' | 'api_key.create' | 'api_key.revoke' | 'export.download' | 'report.download' | 'aero.open' | 'aero.send' | 'agent_setup.copy' | 'agent_setup.verify_copy' | 'filter.change' | 'search.submit';
-    tab?: 'overview' | 'portfolio' | 'search-console' | 'conversions' | 'local' | 'discovery' | 'queries' | 'properties' | 'report' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings' | 'other';
+    action: 'sweep.launch' | 'sweep.cancel' | 'site_audit.launch' | 'project.create' | 'project.update' | 'project.delete' | 'query.add' | 'query.delete' | 'query.generate' | 'competitor.save' | 'competitor.delete' | 'schedule.save' | 'schedule.delete' | 'provider.save' | 'settings.save' | 'integration.connect_started' | 'integration.connect' | 'integration.disconnect' | 'traffic.sync' | 'seo.refresh' | 'seo.profile.save' | 'seo.cancel' | 'notification.save' | 'notification.test' | 'measurement_plan.publish' | 'property_names.save' | 'discovery.run' | 'api_key.create' | 'api_key.revoke' | 'export.download' | 'report.download' | 'aero.open' | 'aero.send' | 'agent_setup.copy' | 'agent_setup.verify_copy' | 'filter.change' | 'search.submit';
+    tab?: 'overview' | 'portfolio' | 'search-console' | 'seo-data' | 'conversions' | 'local' | 'discovery' | 'queries' | 'properties' | 'report' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings' | 'other';
     integration?: 'google' | 'gsc' | 'ga' | 'bing' | 'gbp' | 'wordpress' | 'openai_ads' | 'google_ads' | 'gtm' | 'traffic_cloudflare' | 'traffic_vercel' | 'traffic_cloud_run' | 'traffic_wordpress';
     format?: 'csv' | 'json' | 'html';
-    filter?: 'provider' | 'model' | 'location' | 'window' | 'query_class' | 'other';
+    filter?: 'provider' | 'model' | 'location' | 'window' | 'query_class' | 'seoProfile' | 'other';
 } | {
     eventId: string;
     uiSessionId: string;
-    page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/agent-setup' | '/backlinks' | '/traffic' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
+    page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/seo-data' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/agent-setup' | '/backlinks' | '/traffic' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
     event: 'ui.error';
     kind: 'render' | 'unhandled' | 'api';
-    tab?: 'overview' | 'portfolio' | 'search-console' | 'conversions' | 'local' | 'discovery' | 'queries' | 'properties' | 'report' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings' | 'other';
+    tab?: 'overview' | 'portfolio' | 'search-console' | 'seo-data' | 'conversions' | 'local' | 'discovery' | 'queries' | 'properties' | 'report' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings' | 'other';
     component?: string;
     errorName?: string;
     route?: string;
@@ -12119,11 +12658,11 @@ export type UiTelemetryEvent = {
 } | {
     eventId: string;
     uiSessionId: string;
-    page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/agent-setup' | '/backlinks' | '/traffic' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
+    page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/seo-data' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/agent-setup' | '/backlinks' | '/traffic' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
     event: 'ui.vitals';
     metric: 'LCP' | 'INP' | 'CLS' | 'FCP' | 'TTFB';
     rating: 'good' | 'needs-improvement' | 'poor';
-    tab?: 'overview' | 'portfolio' | 'search-console' | 'conversions' | 'local' | 'discovery' | 'queries' | 'properties' | 'report' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings' | 'other';
+    tab?: 'overview' | 'portfolio' | 'search-console' | 'seo-data' | 'conversions' | 'local' | 'discovery' | 'queries' | 'properties' | 'report' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings' | 'other';
 };
 
 export type OrganicEvidenceDto = {
@@ -13120,7 +13659,7 @@ export type ProjectOverviewDto = {
             sourceId?: string | null;
             id: string;
             projectId: string;
-            kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync';
+            kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync';
             status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
             trigger: 'manual' | 'scheduled' | 'config-apply' | 'backfill' | 'probe';
             measurementPlanVersionId?: string | null;
@@ -14126,7 +14665,7 @@ export type RunDetailDto = {
     sourceId?: string | null;
     id: string;
     projectId: string;
-    kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync';
+    kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync';
     status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
     trigger: 'manual' | 'scheduled' | 'config-apply' | 'backfill' | 'probe';
     measurementPlanVersionId?: string | null;
@@ -14428,7 +14967,7 @@ export type RunDto = {
     sourceId?: string | null;
     id: string;
     projectId: string;
-    kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync';
+    kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync';
     status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
     trigger: 'manual' | 'scheduled' | 'config-apply' | 'backfill' | 'probe';
     measurementPlanVersionId?: string | null;
@@ -17229,6 +17768,763 @@ export type ErrorEnvelope = {
         details?: unknown;
     };
 };
+
+export type GetApiV1SeoOperatorTasksByIdData = {
+    body?: never;
+    path: {
+        /**
+         * Exact SEO task ID.
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/seo/operator/tasks/{id}';
+};
+
+export type GetApiV1SeoOperatorTasksByIdErrors = {
+    /**
+     * Host operator authority required.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Task not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1SeoOperatorTasksByIdError = GetApiV1SeoOperatorTasksByIdErrors[keyof GetApiV1SeoOperatorTasksByIdErrors];
+
+export type GetApiV1SeoOperatorTasksByIdResponses = {
+    /**
+     * Private receipt.
+     */
+    200: SeoOperatorTask;
+};
+
+export type GetApiV1SeoOperatorTasksByIdResponse = GetApiV1SeoOperatorTasksByIdResponses[keyof GetApiV1SeoOperatorTasksByIdResponses];
+
+export type PostApiV1SeoOperatorTasksByIdReconcileData = {
+    body: SeoReconcileInput;
+    path: {
+        /**
+         * Exact SEO task ID.
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/seo/operator/tasks/{id}/reconcile';
+};
+
+export type PostApiV1SeoOperatorTasksByIdReconcileErrors = {
+    /**
+     * Invalid receipt.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Host operator authority and seo.run required.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Task not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Receipt already reconciled differently.
+     */
+    409: ErrorEnvelope;
+};
+
+export type PostApiV1SeoOperatorTasksByIdReconcileError = PostApiV1SeoOperatorTasksByIdReconcileErrors[keyof PostApiV1SeoOperatorTasksByIdReconcileErrors];
+
+export type PostApiV1SeoOperatorTasksByIdReconcileResponses = {
+    /**
+     * Receipt reconciled.
+     */
+    200: SeoReconcileResult;
+};
+
+export type PostApiV1SeoOperatorTasksByIdReconcileResponse = PostApiV1SeoOperatorTasksByIdReconcileResponses[keyof PostApiV1SeoOperatorTasksByIdReconcileResponses];
+
+export type GetApiV1ProjectsByNameSeoContextData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/seo/context';
+};
+
+export type GetApiV1ProjectsByNameSeoContextErrors = {
+    /**
+     * Invalid scope or input.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Insufficient authority.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project or selected evidence not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Selection, intent or execution identity changed.
+     */
+    409: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameSeoContextError = GetApiV1ProjectsByNameSeoContextErrors[keyof GetApiV1ProjectsByNameSeoContextErrors];
+
+export type GetApiV1ProjectsByNameSeoContextResponses = {
+    /**
+     * SEO response.
+     */
+    200: SeoContext;
+};
+
+export type GetApiV1ProjectsByNameSeoContextResponse = GetApiV1ProjectsByNameSeoContextResponses[keyof GetApiV1ProjectsByNameSeoContextResponses];
+
+export type GetApiV1ProjectsByNameSeoStatusData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/seo/status';
+};
+
+export type GetApiV1ProjectsByNameSeoStatusErrors = {
+    /**
+     * Invalid scope or input.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Insufficient authority.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project or selected evidence not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Selection, intent or execution identity changed.
+     */
+    409: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameSeoStatusError = GetApiV1ProjectsByNameSeoStatusErrors[keyof GetApiV1ProjectsByNameSeoStatusErrors];
+
+export type GetApiV1ProjectsByNameSeoStatusResponses = {
+    /**
+     * SEO response.
+     */
+    200: SeoStatus;
+};
+
+export type GetApiV1ProjectsByNameSeoStatusResponse = GetApiV1ProjectsByNameSeoStatusResponses[keyof GetApiV1ProjectsByNameSeoStatusResponses];
+
+export type GetApiV1ProjectsByNameSeoProfilesData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/seo/profiles';
+};
+
+export type GetApiV1ProjectsByNameSeoProfilesErrors = {
+    /**
+     * Invalid scope or input.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Insufficient authority.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project or selected evidence not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Selection, intent or execution identity changed.
+     */
+    409: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameSeoProfilesError = GetApiV1ProjectsByNameSeoProfilesErrors[keyof GetApiV1ProjectsByNameSeoProfilesErrors];
+
+export type GetApiV1ProjectsByNameSeoProfilesResponses = {
+    /**
+     * SEO response.
+     */
+    200: SeoProfileList;
+};
+
+export type GetApiV1ProjectsByNameSeoProfilesResponse = GetApiV1ProjectsByNameSeoProfilesResponses[keyof GetApiV1ProjectsByNameSeoProfilesResponses];
+
+export type GetApiV1ProjectsByNameSeoProfilesByIdData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Exact project-scoped identifier.
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/seo/profiles/{id}';
+};
+
+export type GetApiV1ProjectsByNameSeoProfilesByIdErrors = {
+    /**
+     * Invalid scope or input.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Insufficient authority.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project or selected evidence not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Selection, intent or execution identity changed.
+     */
+    409: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameSeoProfilesByIdError = GetApiV1ProjectsByNameSeoProfilesByIdErrors[keyof GetApiV1ProjectsByNameSeoProfilesByIdErrors];
+
+export type GetApiV1ProjectsByNameSeoProfilesByIdResponses = {
+    /**
+     * SEO response.
+     */
+    200: SeoProfile;
+};
+
+export type GetApiV1ProjectsByNameSeoProfilesByIdResponse = GetApiV1ProjectsByNameSeoProfilesByIdResponses[keyof GetApiV1ProjectsByNameSeoProfilesByIdResponses];
+
+export type PutApiV1ProjectsByNameSeoProfilesByIdData = {
+    body: SeoProfileInput;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Exact project-scoped identifier.
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/seo/profiles/{id}';
+};
+
+export type PutApiV1ProjectsByNameSeoProfilesByIdErrors = {
+    /**
+     * Invalid scope or input.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Insufficient authority.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project or selected evidence not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Selection, intent or execution identity changed.
+     */
+    409: ErrorEnvelope;
+};
+
+export type PutApiV1ProjectsByNameSeoProfilesByIdError = PutApiV1ProjectsByNameSeoProfilesByIdErrors[keyof PutApiV1ProjectsByNameSeoProfilesByIdErrors];
+
+export type PutApiV1ProjectsByNameSeoProfilesByIdResponses = {
+    /**
+     * SEO response.
+     */
+    200: SeoProfile;
+};
+
+export type PutApiV1ProjectsByNameSeoProfilesByIdResponse = PutApiV1ProjectsByNameSeoProfilesByIdResponses[keyof PutApiV1ProjectsByNameSeoProfilesByIdResponses];
+
+export type GetApiV1ProjectsByNameSeoRunsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Restrict history to this profile.
+         */
+        profileId?: string;
+    };
+    url: '/api/v1/projects/{name}/seo/runs';
+};
+
+export type GetApiV1ProjectsByNameSeoRunsErrors = {
+    /**
+     * Invalid scope or input.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Insufficient authority.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project or selected evidence not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Selection, intent or execution identity changed.
+     */
+    409: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameSeoRunsError = GetApiV1ProjectsByNameSeoRunsErrors[keyof GetApiV1ProjectsByNameSeoRunsErrors];
+
+export type GetApiV1ProjectsByNameSeoRunsResponses = {
+    /**
+     * SEO response.
+     */
+    200: SeoRunList;
+};
+
+export type GetApiV1ProjectsByNameSeoRunsResponse = GetApiV1ProjectsByNameSeoRunsResponses[keyof GetApiV1ProjectsByNameSeoRunsResponses];
+
+export type GetApiV1ProjectsByNameSeoRunsByIdData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Exact project-scoped identifier.
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/seo/runs/{id}';
+};
+
+export type GetApiV1ProjectsByNameSeoRunsByIdErrors = {
+    /**
+     * Invalid scope or input.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Insufficient authority.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project or selected evidence not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Selection, intent or execution identity changed.
+     */
+    409: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameSeoRunsByIdError = GetApiV1ProjectsByNameSeoRunsByIdErrors[keyof GetApiV1ProjectsByNameSeoRunsByIdErrors];
+
+export type GetApiV1ProjectsByNameSeoRunsByIdResponses = {
+    /**
+     * SEO response.
+     */
+    200: SeoRunDetail;
+};
+
+export type GetApiV1ProjectsByNameSeoRunsByIdResponse = GetApiV1ProjectsByNameSeoRunsByIdResponses[keyof GetApiV1ProjectsByNameSeoRunsByIdResponses];
+
+export type GetApiV1ProjectsByNameSeoOverviewData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Exact saved profile. Required when multiple profiles exist.
+         */
+        profileId?: string;
+        /**
+         * Exact historical refresh. Omit for latest saved evidence for the selected profile.
+         */
+        runId?: string;
+        /**
+         * Page size only. Never changes the evidence scope or denominator.
+         */
+        limit?: number;
+        /**
+         * Evidence page offset.
+         */
+        offset?: number;
+    };
+    url: '/api/v1/projects/{name}/seo/overview';
+};
+
+export type GetApiV1ProjectsByNameSeoOverviewErrors = {
+    /**
+     * Invalid scope or input.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Insufficient authority.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project or selected evidence not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Selection, intent or execution identity changed.
+     */
+    409: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameSeoOverviewError = GetApiV1ProjectsByNameSeoOverviewErrors[keyof GetApiV1ProjectsByNameSeoOverviewErrors];
+
+export type GetApiV1ProjectsByNameSeoOverviewResponses = {
+    /**
+     * SEO response.
+     */
+    200: SeoOverview;
+};
+
+export type GetApiV1ProjectsByNameSeoOverviewResponse = GetApiV1ProjectsByNameSeoOverviewResponses[keyof GetApiV1ProjectsByNameSeoOverviewResponses];
+
+export type GetApiV1ProjectsByNameSeoKeywordMetricsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Exact saved profile. Required when multiple profiles exist.
+         */
+        profileId?: string;
+        /**
+         * Exact historical refresh. Omit for latest saved evidence for the selected profile.
+         */
+        runId?: string;
+        /**
+         * Page size only. Never changes the evidence scope or denominator.
+         */
+        limit?: number;
+        /**
+         * Evidence page offset.
+         */
+        offset?: number;
+    };
+    url: '/api/v1/projects/{name}/seo/keyword-metrics';
+};
+
+export type GetApiV1ProjectsByNameSeoKeywordMetricsErrors = {
+    /**
+     * Invalid scope or input.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Insufficient authority.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project or selected evidence not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Selection, intent or execution identity changed.
+     */
+    409: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameSeoKeywordMetricsError = GetApiV1ProjectsByNameSeoKeywordMetricsErrors[keyof GetApiV1ProjectsByNameSeoKeywordMetricsErrors];
+
+export type GetApiV1ProjectsByNameSeoKeywordMetricsResponses = {
+    /**
+     * SEO response.
+     */
+    200: SeoKeywordMetricsList;
+};
+
+export type GetApiV1ProjectsByNameSeoKeywordMetricsResponse = GetApiV1ProjectsByNameSeoKeywordMetricsResponses[keyof GetApiV1ProjectsByNameSeoKeywordMetricsResponses];
+
+export type GetApiV1ProjectsByNameSeoDomainIntelligenceData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Exact saved profile. Required when multiple profiles exist.
+         */
+        profileId?: string;
+        /**
+         * Exact historical refresh. Omit for latest saved evidence for the selected profile.
+         */
+        runId?: string;
+        /**
+         * Page size only. Never changes the evidence scope or denominator.
+         */
+        limit?: number;
+        /**
+         * Evidence page offset.
+         */
+        offset?: number;
+    };
+    url: '/api/v1/projects/{name}/seo/domain-intelligence';
+};
+
+export type GetApiV1ProjectsByNameSeoDomainIntelligenceErrors = {
+    /**
+     * Invalid scope or input.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Insufficient authority.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project or selected evidence not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Selection, intent or execution identity changed.
+     */
+    409: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameSeoDomainIntelligenceError = GetApiV1ProjectsByNameSeoDomainIntelligenceErrors[keyof GetApiV1ProjectsByNameSeoDomainIntelligenceErrors];
+
+export type GetApiV1ProjectsByNameSeoDomainIntelligenceResponses = {
+    /**
+     * SEO response.
+     */
+    200: SeoDomainIntelligenceList;
+};
+
+export type GetApiV1ProjectsByNameSeoDomainIntelligenceResponse = GetApiV1ProjectsByNameSeoDomainIntelligenceResponses[keyof GetApiV1ProjectsByNameSeoDomainIntelligenceResponses];
+
+export type GetApiV1ProjectsByNameSeoRankedKeywordsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Exact saved profile. Required when multiple profiles exist.
+         */
+        profileId?: string;
+        /**
+         * Exact historical refresh. Omit for latest saved evidence for the selected profile.
+         */
+        runId?: string;
+        /**
+         * Page size only. Never changes the evidence scope or denominator.
+         */
+        limit?: number;
+        /**
+         * Evidence page offset.
+         */
+        offset?: number;
+    };
+    url: '/api/v1/projects/{name}/seo/ranked-keywords';
+};
+
+export type GetApiV1ProjectsByNameSeoRankedKeywordsErrors = {
+    /**
+     * Invalid scope or input.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Insufficient authority.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project or selected evidence not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Selection, intent or execution identity changed.
+     */
+    409: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameSeoRankedKeywordsError = GetApiV1ProjectsByNameSeoRankedKeywordsErrors[keyof GetApiV1ProjectsByNameSeoRankedKeywordsErrors];
+
+export type GetApiV1ProjectsByNameSeoRankedKeywordsResponses = {
+    /**
+     * SEO response.
+     */
+    200: SeoRankedKeywordList;
+};
+
+export type GetApiV1ProjectsByNameSeoRankedKeywordsResponse = GetApiV1ProjectsByNameSeoRankedKeywordsResponses[keyof GetApiV1ProjectsByNameSeoRankedKeywordsResponses];
+
+export type PostApiV1ProjectsByNameSeoRefreshIntentsData = {
+    body: SeoRefreshIntentInput;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/seo/refresh-intents';
+};
+
+export type PostApiV1ProjectsByNameSeoRefreshIntentsErrors = {
+    /**
+     * Invalid scope or input.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Insufficient authority.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project or selected evidence not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Selection, intent or execution identity changed.
+     */
+    409: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameSeoRefreshIntentsError = PostApiV1ProjectsByNameSeoRefreshIntentsErrors[keyof PostApiV1ProjectsByNameSeoRefreshIntentsErrors];
+
+export type PostApiV1ProjectsByNameSeoRefreshIntentsResponses = {
+    /**
+     * SEO response.
+     */
+    200: SeoQuote;
+};
+
+export type PostApiV1ProjectsByNameSeoRefreshIntentsResponse = PostApiV1ProjectsByNameSeoRefreshIntentsResponses[keyof PostApiV1ProjectsByNameSeoRefreshIntentsResponses];
+
+export type PostApiV1ProjectsByNameSeoSyncData = {
+    body: SeoSyncInput;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/seo/sync';
+};
+
+export type PostApiV1ProjectsByNameSeoSyncErrors = {
+    /**
+     * Invalid scope or input.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Insufficient authority.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project or selected evidence not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Selection, intent or execution identity changed.
+     */
+    409: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameSeoSyncError = PostApiV1ProjectsByNameSeoSyncErrors[keyof PostApiV1ProjectsByNameSeoSyncErrors];
+
+export type PostApiV1ProjectsByNameSeoSyncResponses = {
+    /**
+     * SEO response.
+     */
+    200: SeoRun;
+    /**
+     * SEO refresh accepted.
+     */
+    202: SeoRun;
+};
+
+export type PostApiV1ProjectsByNameSeoSyncResponse = PostApiV1ProjectsByNameSeoSyncResponses[keyof PostApiV1ProjectsByNameSeoSyncResponses];
+
+export type PostApiV1ProjectsByNameSeoRunsByIdCancelData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Exact project-scoped identifier.
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/seo/runs/{id}/cancel';
+};
+
+export type PostApiV1ProjectsByNameSeoRunsByIdCancelErrors = {
+    /**
+     * Invalid scope or input.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Insufficient authority.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project or selected evidence not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Selection, intent or execution identity changed.
+     */
+    409: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameSeoRunsByIdCancelError = PostApiV1ProjectsByNameSeoRunsByIdCancelErrors[keyof PostApiV1ProjectsByNameSeoRunsByIdCancelErrors];
+
+export type PostApiV1ProjectsByNameSeoRunsByIdCancelResponses = {
+    /**
+     * SEO response.
+     */
+    200: SeoRun;
+};
+
+export type PostApiV1ProjectsByNameSeoRunsByIdCancelResponse = PostApiV1ProjectsByNameSeoRunsByIdCancelResponses[keyof PostApiV1ProjectsByNameSeoRunsByIdCancelResponses];
 
 export type GetApiV1OpenapiJsonData = {
     body?: never;
@@ -22651,15 +23947,15 @@ export type GetApiV1ProjectsByNameRunsData = {
         /**
          * Restrict results to a single run kind. Without this filter, integration syncs (bing-inspect, gsc-sync, ga-sync) can fill the default 500-row cap within minutes on busy projects and push answer-visibility runs out of the response. Unknown values are rejected with 400.
          */
-        kind?: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync';
+        kind?: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync';
         /**
          * Exclude one run kind before applying the row limit. Combines with kind and status filters. Unknown values are rejected with 400.
          */
-        excludeKind?: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync';
+        excludeKind?: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync';
         /**
          * Exclude multiple run kinds before applying the row limit. Accepts repeated or comma-separated values. Combines with excludeKind, kind, and status; unknown values are rejected with 400.
          */
-        excludeKinds?: Array<'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync'>;
+        excludeKinds?: Array<'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync'>;
         /**
          * Restrict results to a single run status, e.g. "running" to find in-flight work or "failed" to triage. Unknown values are rejected with 400 rather than returning an empty list.
          */
@@ -22821,15 +24117,15 @@ export type GetApiV1RunsData = {
         /**
          * Restrict results to a single run kind. Without this filter, integration syncs (bing-inspect, gsc-sync, ga-sync) can fill the default 500-row cap within minutes on busy projects and push answer-visibility runs out of the response. Unknown values are rejected with 400.
          */
-        kind?: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync';
+        kind?: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync';
         /**
          * Exclude one run kind before applying the row limit. Combines with kind and status filters. Unknown values are rejected with 400.
          */
-        excludeKind?: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync';
+        excludeKind?: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync';
         /**
          * Exclude multiple run kinds before applying the row limit. Accepts repeated or comma-separated values. Combines with excludeKind, kind, and status; unknown values are rejected with 400.
          */
-        excludeKinds?: Array<'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync'>;
+        excludeKinds?: Array<'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync'>;
         /**
          * Restrict results to a single run status, e.g. "running" to find in-flight work or "failed" to triage. Unknown values are rejected with 400 rather than returning an empty list.
          */

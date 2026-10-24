@@ -43,6 +43,7 @@ const NODE_PACKAGES = [
   'integration-cloudflare-queue',
   'integration-cloudflare-worker',
   'integration-commoncrawl',
+  'integration-dataforseo',
   'integration-google',
   'integration-google-ads',
   'integration-google-analytics',

@@ -6,6 +6,7 @@ export function aeroViewFromLocation(path: string, search: Record<string, unknow
   const selection = parseVisibilitySelection(search)
   if (property) return { view: 'property', selection: visibilityReportRequestSchema.parse({ scope: 'property', scopeKey: decodeURIComponent(property[1]), queryClass: selection.queryClass, limit: 10 }) }
   if (path.endsWith('/technical-aeo')) return { view: 'site-health' }
+  if (path.endsWith('/seo-data')) return { view: 'seo', ...(typeof search.seoProfileId === 'string' ? { seoProfileId: search.seoProfileId } : {}), ...(typeof search.seoRunId === 'string' ? { seoRunId: search.seoRunId } : {}) }
   if (path.endsWith('/queries') && search.queryWorkspace === 'research') return { view: 'project' }
   const projectRoot = /^\/projects\/[^/]+\/?$/.test(path)
   if (projectRoot || path.endsWith('/queries')) {

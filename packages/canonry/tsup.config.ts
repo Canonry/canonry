@@ -91,5 +91,6 @@ export default defineConfig({
     '@canonry/canonry-integration-cloudflare-queue',
     '@canonry/canonry-integration-cloudflare-worker',
     '@canonry/canonry-integration-commoncrawl',
+    '@canonry/canonry-integration-dataforseo',
   ],
 })

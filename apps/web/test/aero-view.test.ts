@@ -37,3 +37,7 @@ it('does not claim a research workspace displays carried measurement evidence', 
 it('uses only applied assignment filters for tracked queries', () => {
   expect(aeroViewFromLocation('/projects/demo/queries', { measurementScope: 'property', measurementScopeKey: 'hotel', measurementMarketKey: 'london', measurementRunId: 'old-run', measurementProvider: 'openai', queryClass: 'branded' })).toEqual({ view: 'queries', selection: { mode: 'auto', scope: 'property', scopeKey: 'hotel', queryClass: 'branded', limit: 25 } })
 })
+
+it('carries the SEO profile and historical refresh independently of measurement filters', () => {
+  expect(aeroViewFromLocation('/projects/demo/seo-data', { seoProfileId: 'france', seoRunId: 'saved-refresh', measurementScope: 'property', measurementScopeKey: 'other' })).toEqual({ view: 'seo', seoProfileId: 'france', seoRunId: 'saved-refresh' })
+})

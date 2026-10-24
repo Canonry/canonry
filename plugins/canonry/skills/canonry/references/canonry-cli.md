@@ -1,5 +1,11 @@
 # Canonry CLI Reference
 
+## SEO data
+
+`cnry seo context <project>` lists configured sources, exact scopes and permissions. Use `seo profile list/show/set` to manage profiles, `seo overview`, `seo keyword-metrics`, `seo domain-intelligence` and `seo ranked-keywords` for stored evidence. Preserve `--profile-id` and `--run-id` when paging with `--limit` and `--offset`.
+
+After explicit approval for the profile and bounded work, prepare `seo refresh-intent <project> <profile-id>`, then pass its token and a stable retry key to `seo sync --intent-token ... --idempotency-key ...`. Inspect `seo runs` and `seo run show`; `seo run cancel` stops undispatched work. Use `--format json` for API-shaped output. Hosted budgets are internal. Never infer actual traffic from provider estimates or broaden a Property into a domain.
+
 The CLI is invoked as `cnry` (short form) or `canonry` — both ship with the `@canonry/canonry` npm package and behave identically. This reference uses `cnry`.
 
 ## Find a command

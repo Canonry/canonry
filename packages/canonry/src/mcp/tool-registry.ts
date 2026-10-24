@@ -141,6 +141,8 @@ import {
   uniqueStrings,
 } from './schema.js'
 import type { CanonryMcpTier } from './toolkits.js'
+import { seoOperatorTaskSchema, seoReconcileInputSchema, seoReconcileResultSchema } from '@canonry/canonry-contracts'
+import { seoContextSchema, seoStatusSchema, seoProfileListSchema, seoProfileSchema, seoQuoteSchema, seoRunSchema, seoRunListSchema, seoRunDetailSchema, seoOverviewSchema, seoKeywordMetricsListSchema, seoDomainIntelligenceListSchema, seoRankedKeywordListSchema, seoEvidenceQuerySchema, seoProfileInputSchema, seoRefreshIntentInputSchema, seoSyncInputSchema, SEO_RUN_SCOPE, SEO_WRITE_SCOPE } from '@canonry/canonry-contracts'
 
 export type McpToolAccess = 'read' | 'write'
 
@@ -1278,7 +1280,152 @@ const sentimentPreviewInputSchema = sentimentBackfillSelectionSchema.safeExtend(
 })
 const sentimentBackfillInputSchema = sentimentBackfillRequestSchema.extend({ project: projectNameSchema })
 
+const seoIdInputSchema = projectInputSchema.extend({ id: z.string().min(1) })
+const seoEvidenceInputSchema = seoEvidenceQuerySchema.extend({ project: projectNameSchema })
+
 const rawCanonryMcpTools = [
+  defineTool({
+    name: 'canonry_seo_operator_task', title: 'Inspect private SEO receipt',
+    description: 'Host operator only. Inspect the reserved cost and upstream receipt of an exact task. Customer admin scope does not authorize this tool.',
+    access: 'read', tier: 'seo', requiresOperator: true,
+    inputSchema: z.object({ id: z.string().min(1) }), outputSchema: seoOperatorTaskSchema, annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/seo/operator/tasks/{id}'],
+    handler: (client, input) => client.getSeoOperatorTask(input.id),
+  }),
+  defineTool({
+    name: 'canonry_seo_operator_reconcile', title: 'Reconcile private SEO receipt',
+    description: 'Host operator and seo.run only. Submit an independently verified upstream receipt to resolve an unknown outcome. Never guess a cost or assume a timeout was free. Does not retry the provider request.',
+    access: 'write', tier: 'seo', requiresOperator: true, requiredScope: SEO_RUN_SCOPE,
+    inputSchema: z.object({ id: z.string().min(1), receipt: seoReconcileInputSchema }), outputSchema: seoReconcileResultSchema, annotations: writeAnnotations({ idempotentHint: true }),
+    openApiOperations: ['POST /api/v1/seo/operator/tasks/{id}/reconcile'],
+    handler: (client, input) => client.reconcileSeoTask(input.id, input.receipt),
+  }),
+  defineTool({
+    name: 'canonry_seo_context', title: 'SEO context',
+    description: "Read stored SEO data only. No provider calls. Preserve profile, target, locale, source date, missing values and partial states. Third-party traffic estimates are not analytics or AI citation and mention coverage. Keep runId fixed while paging evidence.",
+    access: 'read', tier: 'seo',
+    inputSchema: projectInputSchema, outputSchema: seoContextSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/seo/context'],
+    handler: (client, input) => client.getSeoContext(input.project),
+  }),
+  defineTool({
+    name: 'canonry_seo_status', title: 'SEO status',
+    description: "Read stored SEO data only. No provider calls. Preserve profile, target, locale, source date, missing values and partial states. Third-party traffic estimates are not analytics or AI citation and mention coverage. Keep runId fixed while paging evidence.",
+    access: 'read', tier: 'seo',
+    inputSchema: projectInputSchema, outputSchema: seoStatusSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/seo/status'],
+    handler: (client, input) => client.getSeoStatus(input.project),
+  }),
+  defineTool({
+    name: 'canonry_seo_profiles', title: 'SEO profiles',
+    description: "Read stored SEO data only. No provider calls. Preserve profile, target, locale, source date, missing values and partial states. Third-party traffic estimates are not analytics or AI citation and mention coverage. Keep runId fixed while paging evidence.",
+    access: 'read', tier: 'seo',
+    inputSchema: projectInputSchema, outputSchema: seoProfileListSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/seo/profiles'],
+    handler: (client, input) => client.listSeoProfiles(input.project),
+  }),
+  defineTool({
+    name: 'canonry_seo_profile', title: 'SEO profile',
+    description: "Read stored SEO data only. No provider calls. Preserve profile, target, locale, source date, missing values and partial states. Third-party traffic estimates are not analytics or AI citation and mention coverage. Keep runId fixed while paging evidence.",
+    access: 'read', tier: 'seo',
+    inputSchema: seoIdInputSchema, outputSchema: seoProfileSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/seo/profiles/{id}'],
+    handler: (client, input) => client.getSeoProfile(input.project, input.id),
+  }),
+  defineTool({
+    name: 'canonry_seo_profile_set', title: 'SEO profile set',
+    description: "Create or replace a complete project-scoped SEO profile. Requires seo.write. Pins exact scope and Advanced plan revision, source, targets, locale, capabilities, keyword basket and row limit. Never starts provider work. Credentials and financial controls remain host configuration.",
+    access: 'write', tier: 'seo', requiredScope: SEO_WRITE_SCOPE,
+    inputSchema: projectInputSchema.extend({ id: z.string().min(1), profile: seoProfileInputSchema }), outputSchema: seoProfileSchema,
+    annotations: writeAnnotations({ idempotentHint: true }),
+    openApiOperations: ['PUT /api/v1/projects/{name}/seo/profiles/{id}'],
+    handler: (client, input) => client.putSeoProfile(input.project, input.id, input.profile),
+  }),
+  defineTool({
+    name: 'canonry_seo_refresh_intent', title: 'SEO refresh intent',
+    description: "Prepare an opaque, expiring intent for a saved profile without a provider call or reservation. Submit the token explicitly with canonry_seo_sync. No internal cost or policy data is returned.",
+    access: 'read', tier: 'seo',
+    inputSchema: seoRefreshIntentInputSchema.extend({ project: projectNameSchema }), outputSchema: seoQuoteSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['POST /api/v1/projects/{name}/seo/refresh-intents'],
+    handler: (client, input) => client.createSeoRefreshIntent(input.project, { profileId: input.profileId }),
+  }),
+  defineTool({
+    name: 'canonry_seo_sync', title: 'SEO sync',
+    description: "Explicitly start a saved SEO refresh. Requires seo.run. May call a paid provider under private host controls. Reuse quoteToken and idempotencyKey for an exact retry; changed input conflicts. Poll canonry_seo_run. Never call merely to answer a stored-evidence question.",
+    access: 'write', tier: 'seo', requiredScope: SEO_RUN_SCOPE,
+    inputSchema: seoSyncInputSchema.extend({ project: projectNameSchema }), outputSchema: seoRunSchema,
+    annotations: writeAnnotations({ idempotentHint: true, openWorldHint: true }),
+    openApiOperations: ['POST /api/v1/projects/{name}/seo/sync'],
+    handler: (client, input) => client.syncSeo(input.project, { quoteToken: input.quoteToken, idempotencyKey: input.idempotencyKey }),
+  }),
+  defineTool({
+    name: 'canonry_seo_runs', title: 'SEO runs',
+    description: "Read stored SEO data only. No provider calls. Preserve profile, target, locale, source date, missing values and partial states. Third-party traffic estimates are not analytics or AI citation and mention coverage. Keep runId fixed while paging evidence.",
+    access: 'read', tier: 'seo',
+    inputSchema: projectInputSchema.extend({ profileId: z.string().min(1).optional() }), outputSchema: seoRunListSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/seo/runs'],
+    handler: (client, input) => client.listSeoRuns(input.project, { profileId: input.profileId }),
+  }),
+  defineTool({
+    name: 'canonry_seo_run', title: 'SEO run',
+    description: "Read stored SEO data only. No provider calls. Preserve profile, target, locale, source date, missing values and partial states. Third-party traffic estimates are not analytics or AI citation and mention coverage. Keep runId fixed while paging evidence.",
+    access: 'read', tier: 'seo',
+    inputSchema: seoIdInputSchema, outputSchema: seoRunDetailSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/seo/runs/{id}'],
+    handler: (client, input) => client.getSeoRun(input.project, input.id),
+  }),
+  defineTool({
+    name: 'canonry_seo_run_cancel', title: 'SEO run cancel',
+    description: "Stop undispatched work for an exact SEO run. Requires seo.run. Already accepted requests can still finish; inspect the terminal outcome.",
+    access: 'write', tier: 'seo', requiredScope: SEO_RUN_SCOPE,
+    inputSchema: seoIdInputSchema, outputSchema: seoRunSchema,
+    annotations: writeAnnotations({ idempotentHint: true }),
+    openApiOperations: ['POST /api/v1/projects/{name}/seo/runs/{id}/cancel'],
+    handler: (client, input) => client.cancelSeoRun(input.project, input.id),
+  }),
+  defineTool({
+    name: 'canonry_seo_overview', title: 'SEO overview',
+    description: "Read stored SEO data only. No provider calls. Preserve profile, target, locale, source date, missing values and partial states. Third-party traffic estimates are not analytics or AI citation and mention coverage. Keep runId fixed while paging evidence.",
+    access: 'read', tier: 'seo',
+    inputSchema: seoEvidenceInputSchema, outputSchema: seoOverviewSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/seo/overview'],
+    handler: (client, input) => { const { project, ...query } = input; return client.getSeoOverview(project, query) },
+  }),
+  defineTool({
+    name: 'canonry_seo_keyword_metrics', title: 'SEO keyword metrics',
+    description: "Read stored SEO data only. No provider calls. Preserve profile, target, locale, source date, missing values and partial states. Third-party traffic estimates are not analytics or AI citation and mention coverage. Keep runId fixed while paging evidence.",
+    access: 'read', tier: 'seo',
+    inputSchema: seoEvidenceInputSchema, outputSchema: seoKeywordMetricsListSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/seo/keyword-metrics'],
+    handler: (client, input) => { const { project, ...query } = input; return client.getSeoKeywordMetrics(project, query) },
+  }),
+  defineTool({
+    name: 'canonry_seo_domain_intelligence', title: 'SEO domain intelligence',
+    description: "Read stored SEO data only. No provider calls. Preserve profile, target, locale, source date, missing values and partial states. Third-party traffic estimates are not analytics or AI citation and mention coverage. Keep runId fixed while paging evidence.",
+    access: 'read', tier: 'seo',
+    inputSchema: seoEvidenceInputSchema, outputSchema: seoDomainIntelligenceListSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/seo/domain-intelligence'],
+    handler: (client, input) => { const { project, ...query } = input; return client.getSeoDomainIntelligence(project, query) },
+  }),
+  defineTool({
+    name: 'canonry_seo_ranked_keywords', title: 'SEO ranked keywords',
+    description: "Read stored SEO data only. No provider calls. Preserve profile, target, locale, source date, missing values and partial states. Third-party traffic estimates are not analytics or AI citation and mention coverage. Keep runId fixed while paging evidence.",
+    access: 'read', tier: 'seo',
+    inputSchema: seoEvidenceInputSchema, outputSchema: seoRankedKeywordListSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/seo/ranked-keywords'],
+    handler: (client, input) => { const { project, ...query } = input; return client.getSeoRankedKeywords(project, query) },
+  }),
   defineTool({
     name: 'canonry_sentiment_settings', title: 'Read sentiment readiness and settings',
     description: 'Read experimental sentiment configuration, evaluator identity, readiness and action permissions. No provider calls or credentials. Install administrators alone can configure or submit backfills.',

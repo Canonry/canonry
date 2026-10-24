@@ -18,6 +18,7 @@ vi.mock('../src/gbp-hotel-policy.js', () => ({
   hotelEditorialDestination: vi.fn(async () => true),
 }))
 import { hashApiKey } from '../src/auth.js'
+import { gbpLocalPostListSchema } from '@canonry/canonry-contracts'
 
 const NOW = new Date().toISOString()
 const content = {
@@ -165,7 +166,9 @@ describe('GBP API transport authorization and send-once claim', () => {
     { name: 'wrong provider identity', payload: { ...post, name: 'accounts/999/locations/222/localPosts/333', summary: privateValue },
       expected: { category: 'response', reason: 'WRONG_IDENTITY' } },
   ]
-  it.each(reads.flatMap(path => failures.map(failure => ({ path, ...failure }))))(
+  it.each(reads.flatMap(path => failures
+    .filter(failure => failure.name !== 'unsupported media' || !path.startsWith('local-posts?'))
+    .map(failure => ({ path, ...failure }))))(
     'returns only safe diagnostics for $name on $path',
     async (test) => {
       const f = await fixture()
@@ -182,6 +185,64 @@ describe('GBP API transport authorization and send-once claim', () => {
       expect(f.db.select().from(auditLog).all()).toEqual([])
     },
   )
+  it.each([
+    { label: 'Google-hosted photo without original source', media: [{ mediaFormat: 'PHOTO', googleUrl: 'https://lh3.googleusercontent.com/historical-photo' }] },
+    { label: 'video with original source', media: [{ mediaFormat: 'VIDEO', sourceUrl: 'https://one.example/old-video.mp4' }] },
+    { label: 'Google-hosted video', media: [{ mediaFormat: 'VIDEO', googleUrl: 'https://lh3.googleusercontent.com/historical-video' }] },
+    { label: 'mixed known and unsupported media', media: [...content.media, { mediaFormat: 'VIDEO', googleUrl: 'https://lh3.googleusercontent.com/historical-video' }] },
+    { label: 'unknown media format', media: [{ mediaFormat: 'FUTURE_FORMAT' }] },
+  ])('retains historical $label and pagination while exact-post verification stays strict', async (test) => {
+    const f = await fixture()
+    const historical = { ...post, media: test.media }
+    const fetch = vi.fn(async (url: string | URL | Request) => new Response(JSON.stringify(
+      String(url).includes('/localPosts?') ? { localPosts: [historical], nextPageToken: 'next-history-page' } : historical,
+    )))
+    vi.stubGlobal('fetch', fetch)
+    const listed = await f.request('GET', reads[0]!)
+    expect(listed.statusCode).toBe(200)
+    expect(gbpLocalPostListSchema.parse(listed.json())).toEqual({ posts: [{
+      name: post.name, languageCode: post.languageCode, summary: post.summary,
+      topicType: post.topicType, state: post.state, actionType: post.callToAction.actionType,
+      articleUrl: post.callToAction.url, imageUrls: [], mediaSourceUrlsComplete: false,
+      createTime: post.createTime, updateTime: post.updateTime, searchUrl: post.searchUrl,
+    }], nextPageToken: 'next-history-page' })
+    const exact = await f.request('GET', reads[1]!)
+    expect(exact.statusCode).toBe(502)
+    expect(exact.json().error.details).toEqual({ category: 'response', reason: 'UNSUPPORTED_MEDIA' })
+    expect(f.db.select().from(auditLog).all()).toEqual([])
+    expect(fetch).toHaveBeenCalledTimes(2)
+  })
+  it.each([{ media: null }, { media: {} }, { media: [null] }, { media: [7] }, { media: [[]] }])('keeps malformed media $media unavailable instead of claiming complete coverage', async ({ media }) => {
+    const f = await fixture()
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ localPosts: [{ ...post, media }] }))))
+    const response = await f.request('GET', reads[0]!)
+    expect(response.statusCode).toBe(502)
+    expect(response.json().error.details).toEqual({ category: 'response', reason: 'INVALID_RESPONSE' })
+    expect(response.json()).not.toHaveProperty('posts')
+  })
+  it('does not retain historical media from another account as complete coverage', async () => {
+    const f = await fixture()
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ localPosts: [{
+      ...post, name: 'accounts/999/locations/222/localPosts/333',
+      media: [{ mediaFormat: 'PHOTO', googleUrl: 'https://lh3.googleusercontent.com/historical' }],
+    }] }))))
+    const response = await f.request('GET', reads[0]!)
+    expect(response.statusCode).toBe(502)
+    expect(response.json().error.details).toEqual({ category: 'response', reason: 'WRONG_IDENTITY' })
+  })
+  it('keeps an unsupported newly-created image result uncertain and never submits it again', async () => {
+    const f = await fixture()
+    const fetch = vi.fn(async () => new Response(JSON.stringify({
+      ...post, media: [...content.media, { mediaFormat: 'VIDEO', googleUrl: 'https://lh3.googleusercontent.com/extra' }],
+    })))
+    vi.stubGlobal('fetch', fetch)
+    const first = await f.request('POST', 'local-posts', body)
+    expect(first.statusCode).toBe(200)
+    expect(first.json()).toMatchObject({ status: 'uncertain', post: null })
+    const replay = await f.request('POST', 'local-posts', body)
+    expect(replay.json()).toEqual(first.json())
+    expect(fetch).toHaveBeenCalledTimes(1)
+  })
   it.each([
     { name: 'missing connection', connectionMissing: true, expected: { category: 'token', reason: 'NOT_CONNECTED' } },
     { name: 'failed refresh', tokenExpiresAt: new Date(0).toISOString(), expected: { category: 'token', reason: 'REFRESH_FAILED', upstreamStatus: 400 } },

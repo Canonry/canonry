@@ -50,6 +50,7 @@ describe('Google Local Posts fixed transport', () => {
       state: 'LIVE',
       articleUrl: content.callToAction.url,
       imageUrls: [content.media[0].sourceUrl],
+      mediaSourceUrlsComplete: true,
     })
     expect(fetch.mock.calls[0]?.[0]).toBe(
       'https://mybusiness.googleapis.com/v4/' +
@@ -71,6 +72,27 @@ describe('Google Local Posts fixed transport', () => {
       ),
     )
     await expect(getLocalPost('secret', name)).rejects.toThrow('identity')
+  })
+  it('retains every historical identity and continuation across pages with unavailable media sources', async () => {
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ localPosts: [
+        { ...post(), media: [{ mediaFormat: 'PHOTO', googleUrl: 'https://lh3.googleusercontent.com/old-photo' }] },
+        { ...post(), name: parent + '/localPosts/444', media: [{ mediaFormat: 'VIDEO', sourceUrl: 'https://example.com/old-video.mp4' }] },
+      ], nextPageToken: 'history-page+2/' })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ localPosts: [
+        { ...post(), name: parent + '/localPosts/555' },
+      ] })))
+    vi.stubGlobal('fetch', fetch)
+    const first = await listLocalPosts('secret', 'accounts/111', 'locations/222')
+    const second = await listLocalPosts('secret', 'accounts/111', 'locations/222', first.nextPageToken!)
+    expect([...first.posts, ...second.posts].map(item => ({ name: item.name, articleUrl: item.articleUrl, imageUrls: item.imageUrls, complete: item.mediaSourceUrlsComplete }))).toEqual([
+      { name, articleUrl: content.callToAction.url, imageUrls: [], complete: false },
+      { name: parent + '/localPosts/444', articleUrl: content.callToAction.url, imageUrls: [], complete: false },
+      { name: parent + '/localPosts/555', articleUrl: content.callToAction.url, imageUrls: [content.media[0].sourceUrl], complete: true },
+    ])
+    expect(second.nextPageToken).toBeNull()
+    expect(fetch.mock.calls[1]?.[0]).toBe('https://mybusiness.googleapis.com/v4/' + parent + '/localPosts?pageSize=100&pageToken=history-page%2B2%2F')
+    expect(fetch).toHaveBeenCalledTimes(2)
   })
   it.each([400, 403, 429, 503])(
     'never retries create HTTP %s',

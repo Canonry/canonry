@@ -274,6 +274,8 @@ Specialist connections remain at `/api/v1/mcp/x/<toolkit>` and `/api/v1/mcp/x/<t
 
 ## Tool Surface
 
+The `seo` toolkit exposes provider-neutral saved keyword metrics, ranked keywords, domain intelligence, profile management and explicit refreshes. Start with `canonry_seo_context` and `canonry_seo_overview`. A refresh uses `canonry_seo_refresh_intent` followed by `canonry_seo_sync` with an idempotency key. Preparation has no provider side effects; submission requires `seo.run`. Profile writes require `seo.write`. Host financial controls stay internal, and operator receipt tools require separate host authority. See [SEO data](seo-data.md).
+
 `canonry_research_run_start` is for one direct context. It accepts the final
 editable query text and optional saved destination/provenance; it does not
 expand a pattern or a group.

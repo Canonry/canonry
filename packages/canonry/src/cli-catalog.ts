@@ -9,6 +9,10 @@ import { resolveCliAccess } from './cli-access.js'
 const { version } = createRequire(import.meta.url)('../package.json') as { version: string }
 
 export const CLI_ROOT_SUMMARIES: Record<string, { section: string; summary: string }> = {
+  "seo": {
+    "section": "Integrations",
+    "summary": "Read stored SEO evidence and explicitly refresh saved profiles"
+  },
   "bootstrap": {
     "section": "Setup",
     "summary": "Create local config/database (no provider required)"

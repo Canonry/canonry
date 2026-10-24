@@ -975,6 +975,11 @@ export function mcpToAgentTool(
  * a foot-gun (it would erase the user's context mid-turn).
  */
 export const AERO_EXCLUDED_MCP_TOOLS: ReadonlySet<CanonryMcpToolName> = new Set([
+  'canonry_seo_operator_task',
+  'canonry_seo_operator_reconcile',
+  'canonry_seo_profile_set',
+  'canonry_seo_sync',
+  'canonry_seo_run_cancel',
   // Reloading install-wide credentials remains an explicit operator action.
   CanonryMcpToolNames.canonry_providers_reload,
   // Aero reads stored sentiment. Configuration and backfill submission can

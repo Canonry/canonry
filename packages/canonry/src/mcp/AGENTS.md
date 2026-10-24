@@ -1,5 +1,7 @@
 # MCP adapter (`canonry-mcp`)
 
+The `seo` toolkit mirrors stored SEO reads, profiles and explicit refreshes. Mutations require `seo.write` or `seo.run`; host receipt tools additionally require `requiresOperator` and remain absent from customer catalogs. Never promote local intent preparation into permission to refresh.
+
 For MCP clients such as Claude Desktop, Codex, or custom agent shells that
 prefer a typed tool catalog over shell or HTTP, the package ships a separate
 `canonry-mcp` bin. It is a thin stdio adapter over `createApiClient()` — not
