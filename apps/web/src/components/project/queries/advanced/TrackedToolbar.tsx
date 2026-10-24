@@ -207,7 +207,7 @@ export function TrackedToolbar({
           </div>
         )}
         {count || legend || active > 0 ? (
-          <div className="flex basis-full flex-wrap items-center justify-between gap-x-4 gap-y-1">
+          <div className="flex basis-full flex-wrap items-center gap-x-4 gap-y-1">
             {count || active > 0 ? (
               <div className="flex flex-wrap items-center gap-x-1">
                 {count ? <p role="status" className="whitespace-nowrap text-[13px] leading-5 tabular-nums text-secondary">{count}</p> : null}
@@ -220,6 +220,13 @@ export function TrackedToolbar({
                 {/* Set into the count's line with a mouse, so the first filter chosen does not move the table. */}
                 {active > 0 ? <Button type="button" variant="ghost" size="sm" className="-my-1.5 px-2 text-[13px] pointer-coarse:my-0 pointer-coarse:min-h-11 max-md:my-0 max-md:min-h-11" onClick={clearFilters}>Clear filters</Button> : null}
               </div>
+            ) : null}
+            {/* After the count and Clear filters: its width changes with the Result and engine, so it must not push them along. */}
+            {!grouped && filters.result !== 'any' ? (
+              <p aria-live="polite" aria-atomic="true" className="text-[13px] leading-5 text-secondary max-md:basis-full">
+                Result: <span className="font-medium text-strong">{TRACKED_FILTER_OPTIONS.result.find(option => option.value === filters.result)?.label}</span>
+                {' · '}{filters.engine === 'any' ? 'Any engine' : providerDisplayName(filters.engine)}
+              </p>
             ) : null}
             {legend ? <div className="min-w-0 md:ml-auto">{legend}</div> : null}
           </div>

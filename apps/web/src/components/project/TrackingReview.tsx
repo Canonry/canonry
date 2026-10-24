@@ -278,16 +278,18 @@ export function TrackingReview({ workspace, contextLabels, showActions = true, .
         {/* The heading takes focus, so a screen reader hears the block with it. */}
         {blocked ? <span className="sr-only">, publish blocked</span> : null}
       </h3>
-      {/* Five numbers pass the width of a sheet in one row, so they sit three to a row: the query counts, then the answers. */}
-      <dl className={`mt-3 grid grid-cols-2 gap-x-6 gap-y-3 ${left ? 'sm:grid-cols-3' : 'sm:grid-cols-4'}`}>
-        <ReviewNumber label="Queries asked" value={`${count(queries.current)} → ${count(queries.next)}`} />
-        {left ? <ReviewNumber label="Left under limit" value={`${count(left.current)} → ${count(left.next)}`} /> : null}
-        {/* Of five, the widest takes a row of its own on a phone, which keeps the two answer changes side by side. */}
-        <ReviewNumber label="Answers per sweep" className={left ? 'max-sm:col-span-2' : undefined} value={`${count(workload.existingProviderCalls)} → ${count(workload.nextSweepProviderCalls)}`} />
-        {/* One provider call is one answer; added and removed answers stay separate. */}
-        <ReviewNumber label="Answers added" value={signed('+', workload.addedProviderCalls)} />
-        <ReviewNumber label="Answers removed" value={signed('−', workload.removedProviderCalls)} />
-      </dl>
+      {/* A full page has room for all five numbers. Sheets keep three per row; the container, not the viewport, decides. */}
+      <div className="@container/review">
+        <dl className={`mt-3 grid grid-cols-2 gap-x-6 gap-y-3 ${left ? 'sm:grid-cols-3 @[56rem]/review:grid-cols-5' : 'sm:grid-cols-4'}`}>
+          <ReviewNumber label="Queries asked" value={`${count(queries.current)} → ${count(queries.next)}`} />
+          {left ? <ReviewNumber label="Left under limit" value={`${count(left.current)} → ${count(left.next)}`} /> : null}
+          {/* Of five, the widest takes a row of its own on a phone, which keeps the two answer changes side by side. */}
+          <ReviewNumber label="Answers per sweep" className={left ? 'max-sm:col-span-2' : undefined} value={`${count(workload.existingProviderCalls)} → ${count(workload.nextSweepProviderCalls)}`} />
+          {/* One provider call is one answer; added and removed answers stay separate. */}
+          <ReviewNumber label="Answers added" value={signed('+', workload.addedProviderCalls)} />
+          <ReviewNumber label="Answers removed" value={signed('−', workload.removedProviderCalls)} />
+        </dl>
+      </div>
       {/* A publish writes a new revision with no continuity link. AI Visibility and location pages keep the last sweep, marked Tracking changed, until the next one. */}
       {publishesPlan ? <div className="mt-3">
         <StatusNote icon={Clock} tone="caution" label="New numbers next sweep" detail="After you publish, AI Visibility and location pages keep showing the last sweep, marked Tracking changed, until the next sweep. Past answers are kept. Publishing does not run a sweep." />
@@ -300,15 +302,17 @@ export function TrackingReview({ workspace, contextLabels, showActions = true, .
       {changes.length > 0 ? <>
         <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-1">
           <p className="text-[13px] font-medium leading-5 text-secondary">{trackingChangeSummary(presented, true)}</p>
-          {/* The two stay side by side where the line is too narrow to hold them beside the counts. */}
-          {check ? (
-            <div className="flex flex-wrap gap-x-5">
-              <ReviewCheck label="Subject as chosen" missed={check.subjectMisses} miss="Subject" detail="would get a different Subject than the one you chose" />
-              <ReviewCheck label="Locations as chosen" missed={check.locationMisses} miss="location" detail="would be asked for other locations than your Subject holds" />
+          {/* Checks share the count's line where they fit, and wrap together in a narrower review. */}
+          {check || preview.typeMismatches !== undefined ? (
+            <div className="flex flex-wrap gap-x-5 gap-y-1">
+              {check ? <>
+                <ReviewCheck label="Subject as chosen" missed={check.subjectMisses} miss="Subject" detail="would get a different Subject than the one you chose" />
+                <ReviewCheck label="Locations as chosen" missed={check.locationMisses} miss="location" detail="would be asked for other locations than your Subject holds" />
+              </> : null}
+              {preview.typeMismatches !== undefined ? <ReviewCheck label="Type follows Subject" missed={preview.typeMismatches.length} miss="type" detail="would get a type their Subject does not take" /> : null}
             </div>
           ) : null}
         </div>
-        {preview.typeMismatches !== undefined ? <div className="mt-2"><ReviewCheck label="Type follows Subject" missed={preview.typeMismatches.length} miss="type" detail="would get a type their Subject does not take" /></div> : null}
         <ReviewTable label="Changes" rows={changes} {...table} check={check} />
       </> : null}
       {diff.unchanged.length > 0 ? <UnchangedQueries rows={rows('Unchanged', diff.unchanged)} {...table} /> : null}
@@ -358,6 +362,7 @@ export function TrackingReviewActions({ preview, isCommitting, expectedSubjects,
       )}
       {/* A publish in flight ends the review when it lands, so the draft stays out of reach until then. */}
       {onBack ? <Button type="button" variant="ghost" size="sm" disabled={isCommitting} onClick={onBack}>Back</Button> : null}
+      {hasChanges && preview.mode === 'advanced' ? <StatusNote icon={Clock} label="No check on publish" /> : null}
       {/* Only a publish that asks something new has first answers to wait for. */}
       {hasChanges && !sweepActive && !blocked && nextSweepDate && preview.workload.addedProviderCalls > 0 ? <StatusNote icon={CalendarClock} label={`First answers ${nextSweepDate}`} /> : null}
       {blocked ? (

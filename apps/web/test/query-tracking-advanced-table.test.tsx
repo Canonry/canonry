@@ -214,9 +214,8 @@ test('a query asked nowhere stays reachable under Not asked, and never reads as 
   rerender({ trackedFilters: { ...LIST_FILTERS, status: 'not-asked' } })
   expect(queryRows()).toEqual(['Best AEO platform'])
   const row = screen.getByText('Best AEO platform').closest('tr')!
-  // Its Status says so for all to see. Its engine cells draw no pair and say the same to a screen reader.
-  expect(row.querySelector('.tracked-cell-status')!.textContent).toBe('Not asked')
-  expect([...row.querySelectorAll('td.tracked-cell-engine')].map(cell => cell.textContent)).toEqual(['Not asked'])
+  // The selected signal's summary cell says why there is no engine count, visibly and to a screen reader.
+  expect(within(row).getByRole('cell', { name: 'Not asked' }).textContent).toBe('Not asked')
   expect(within(row).queryByRole('button', { name: /: Not checked$/ })).toBeNull()
   expect(within(row).getByText('None')).toBeTruthy()
   expect(row.textContent).not.toMatch(/First answers|Awaiting check|Not in current plan/)

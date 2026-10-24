@@ -1,7 +1,8 @@
 import React from 'react'
 import { afterEach, expect, onTestFinished, test, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { createBrowserHistory, createRootRoute, createRoute, createRouter, RouterProvider, useNavigate, useRouterState } from '@tanstack/react-router'
 import type { ResearchBatchCreate, ResearchRunDetailDto } from '@canonry/canonry-contracts'
 
 import { QueriesSection, type QueriesSectionProps } from '../src/components/project/DiscoverySection.js'
@@ -10,6 +11,8 @@ import { FIND_COPY } from '../src/components/project/queries/FindQueriesSection.
 import { AccountProvider } from '../src/contexts/account-context.js'
 import { getToasts, resetToasts } from '../src/lib/toast-store.js'
 import { jsonResponse, mockFetch } from './mock-fetch.js'
+import { renderQuerySection } from './support/query-tracking-fixtures.js'
+import { DEFAULT_TRACKED_FILTERS } from '../src/components/project/queries/advanced/tracked-filters.js'
 
 // Research as one page under Tracked | Research: where it opens, what "Start from" offers, the places a pattern repeats for, the select over a batch's results, Find ideas, and tracking ticked results on an Advanced project.
 
@@ -40,6 +43,7 @@ const probes = [
 ].map(probe => ({ ...probe, sessionId: session.id, projectId: session.projectId, createdAt: session.createdAt }))
 
 type Options = {
+  mode?: 'simple' | 'advanced'
   engine?: boolean; scopeOptions?: boolean; searchLocations?: boolean; sessions?: Array<typeof session>; failSessions?: boolean; failResults?: boolean; savedRunStatus?: ResearchRunDetailDto['status']
   /** A plan that holds the places research is saved under, so a result can be tracked for one. */
   plan?: boolean
@@ -120,10 +124,11 @@ function installApi(options: Options = {}) {
     if (path.startsWith('/api/v1/projects/demo/research/runs/')) return jsonResponse(saved.find(run => path.endsWith(`/${run.id}`)))
     if (path === '/api/v1/projects/demo/query-tracking' && state.failWorkspace) return jsonResponse({ error: { code: 'UNAVAILABLE', message: 'Temporary read failure' } }, 503)
     if (path === '/api/v1/projects/demo/query-tracking') return jsonResponse({
-      mode: 'advanced', workspaceVersion, active: activePlan, defaultContexts: options.plan ? [searchContext] : [],
+      mode: options.mode ?? 'advanced', workspaceVersion, active: activePlan, defaultContexts: options.plan ? [searchContext] : [],
       ...(options.plan ? { targets: planTargets, markets: planMarkets } : { targets: [{ stableKey: 'plan-target', label: 'Plan target' }], markets: [{ stableKey: 'plan-market', label: 'Plan market', usageEdges: [] }] }), groups: [],
       ...(options.scopeOptions === false ? {} : { scopeOptions }), tracked: state.tracked.map(trackedRow), savedSources: { research: [], discovery: [] },
     })
+    if (path === '/api/v1/projects/demo/query-tracking/results') return jsonResponse({ mode: 'advanced', scope: { kind: 'project', key: null }, run: null, engines: [], rows: [], pendingRows: 0 })
     if (path === '/api/v1/projects/demo/measurement-query-templates') return jsonResponse({ templates: [] })
     if (path === '/api/v1/projects/demo/discover/sessions') return state.failSessions ? jsonResponse({ error: { code: 'UNAVAILABLE', message: 'Temporary read failure' } }, 503) : jsonResponse(options.sessions ?? [])
     const found = (options.sessions ?? []).find(item => path === `/api/v1/projects/demo/discover/sessions/${item.id}`)
@@ -164,6 +169,37 @@ function renderPage(props: Partial<QueriesSectionProps> = {}) {
   const page = (next: Partial<QueriesSectionProps>) => <QueryClientProvider client={queryClient}><QueriesSection projectName="demo" queryWorkspace="research" {...next} /></QueryClientProvider>
   const view = render(page(props))
   return { rerender: (next: Partial<QueriesSectionProps>) => view.rerender(page(next)) }
+}
+
+/** Browser history exercises the popstate guard; memory history only blocks push and replace. */
+function renderHistoryPage(mode: 'write' | 'find') {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+  onTestFinished(() => queryClient.clear())
+  function Page() {
+    const navigate = useNavigate()
+    const search = useRouterState({ select: state => state.location.search as Record<string, unknown> })
+    return <QueriesSection
+      projectName="demo" trackedMode="advanced" trackedFilters={{ ...DEFAULT_TRACKED_FILTERS, group: 'none' }}
+      queryWorkspace={search.queryWorkspace === 'research' ? 'research' : 'tracked'} researchMode={mode}
+      onQueryWorkspaceChange={queryWorkspace => { void navigate({ search: previous => ({ ...previous, queryWorkspace }) }) }}
+    />
+  }
+  const root = createRootRoute({ component: Page, validateSearch: (search: Record<string, unknown>) => search })
+  const route = createRoute({ getParentRoute: () => root, path: '/projects/$projectName/queries' })
+  window.history.replaceState(null, '', '/projects/demo/queries')
+  const history = createBrowserHistory()
+  const router = createRouter({ routeTree: root.addChildren([route]), history })
+  onTestFinished(() => { history.destroy(); window.history.replaceState(null, '', '/') })
+  render(<QueryClientProvider client={queryClient}><RouterProvider router={router} /></QueryClientProvider>)
+  return router
+}
+
+async function browserHistoryStep(router: ReturnType<typeof renderHistoryPage>, direction: 'back' | 'forward') {
+  await act(async () => {
+    const popped = new Promise<void>(resolve => window.addEventListener('popstate', () => resolve(), { once: true }))
+    router.history[direction]()
+    await popped
+  })
 }
 
 const RUN = /^Run(?: \d+ quer(?:y|ies))?$/
@@ -214,6 +250,119 @@ async function reviewTracking(title: string) {
   await sheet.findByRole('heading', { name: /^Review \d+ changes?$/ })
   return sheet
 }
+
+test('workspace tabs support keyboard selection, labelled panels and history without losing the Research draft', async () => {
+  const state = installApi({ plan: true })
+  const router = renderHistoryPage('write')
+  const tracked = await screen.findByRole<HTMLButtonElement>('tab', { name: 'Tracked' })
+  const research = screen.getByRole<HTMLButtonElement>('tab', { name: 'Research' })
+  const expectWorkspace = (name: 'Tracked' | 'Research') => {
+    const active = name === 'Tracked' ? tracked : research
+    const inactive = name === 'Tracked' ? research : tracked
+    expect(active.getAttribute('aria-selected')).toBe('true')
+    expect([active.tabIndex, inactive.tabIndex]).toEqual([0, -1])
+    const panel = screen.getByRole('tabpanel', { name })
+    expect(active.getAttribute('aria-controls')).toBe(panel.id)
+    expect(panel.getAttribute('aria-labelledby')).toBe(active.id)
+    expect(screen.getAllByRole('tabpanel')).toHaveLength(1)
+  }
+  expectWorkspace('Tracked')
+  tracked.focus()
+  fireEvent.keyDown(tracked, { key: 'ArrowRight' })
+  await ready()
+  await waitFor(() => expectWorkspace('Research'))
+  expect(document.activeElement).toBe(research)
+  expect(window.location.search).toContain('queryWorkspace=research')
+  fireEvent.change(screen.getByRole('textbox', { name: 'Queries' }), { target: { value: 'quiet apartments near transit' } })
+
+  // Home and End activate the first and last tab; Left and Right wrap at either end.
+  for (const [from, key, name] of [
+    [research, 'Home', 'Tracked'], [tracked, 'End', 'Research'],
+    [research, 'ArrowRight', 'Tracked'], [tracked, 'ArrowLeft', 'Research'],
+  ] as const) {
+    fireEvent.keyDown(from, { key })
+    await waitFor(() => expectWorkspace(name))
+    expect(document.activeElement).toBe(name === 'Tracked' ? tracked : research)
+  }
+  expect(screen.getByRole<HTMLTextAreaElement>('textbox', { name: 'Queries' }).value).toBe('quiet apartments near transit')
+  // A browser shortcut belongs to history, not to the tab's arrow-key handler.
+  expect(fireEvent.keyDown(research, { key: 'ArrowLeft', altKey: true })).toBe(true)
+  expectWorkspace('Research')
+  await browserHistoryStep(router, 'back')
+  await waitFor(() => expectWorkspace('Tracked'))
+  expect(screen.queryByRole('textbox', { name: 'Queries' })).toBeNull()
+  await browserHistoryStep(router, 'forward')
+  await waitFor(() => expectWorkspace('Research'))
+  expect(screen.getByRole<HTMLTextAreaElement>('textbox', { name: 'Queries' }).value).toBe('quiet apartments near transit')
+  expect(state.posts).toEqual([])
+})
+
+test.each(['simple', 'advanced'] as const)('%s Research keeps its unsent queries, save destination and search location through repeated Tracked visits', async mode => {
+  const state = installApi({ mode, plan: true })
+  const view = renderQuerySection({ projectName: 'demo', queryWorkspace: 'research', trackedMode: mode })
+  await ready()
+  fireEvent.change(screen.getByRole('textbox', { name: 'Queries' }), { target: { value: 'quiet apartments\napartments near transit' } })
+  fireEvent.change(await screen.findByRole('combobox', { name: 'Save under' }), { target: { value: 'market:riverside' } })
+  fireEvent.change(screen.getByRole('combobox', { name: 'Search location' }), { target: { value: 'Downtown' } })
+
+  for (let visit = 0; visit < 2; visit += 1) {
+    const trackedTab = screen.getByRole('tab', { name: 'Tracked' })
+    trackedTab.focus()
+    view.rerender({ queryWorkspace: 'tracked', selection: { measurementScope: 'market', measurementScopeKey: 'old-mill', queryClass: 'all' } })
+    await screen.findByRole('region', { name: 'Tracked queries' })
+    // Hidden Research is outside the keyboard/accessibility tree and does not move focus into its form.
+    expect(screen.queryByRole('textbox', { name: 'Queries' })).toBeNull()
+    expect(screen.queryByRole('combobox', { name: 'Save under' })).toBeNull()
+    expect(document.activeElement).toBe(trackedTab)
+    view.rerender({ queryWorkspace: 'research', selection: { measurementScope: 'market', measurementScopeKey: 'old-mill', queryClass: 'all' } })
+    expect(screen.getByRole<HTMLTextAreaElement>('textbox', { name: 'Queries' }).value).toBe('quiet apartments\napartments near transit')
+    expect(screen.getByRole<HTMLSelectElement>('combobox', { name: 'Save under' }).value).toBe('market:riverside')
+    expect(screen.getByRole<HTMLSelectElement>('combobox', { name: 'Search location' }).value).toBe('Downtown')
+  }
+  // Navigating alone never runs research; the explicit Run uses the retained draft's independent destination and geography.
+  expect(state.posts).toEqual([])
+  fireEvent.click(screen.getByRole('button', { name: RUN }))
+  await waitFor(() => expect(state.posts).toHaveLength(1))
+  expect(state.posts[0]).toMatchObject({ path: '/api/v1/projects/demo/research/batches', body: { runs: [{ queries: ['quiet apartments', 'apartments near transit'], location: downtown, scope: { kind: 'market', key: 'riverside' } }] } })
+})
+
+test.each([
+  ['write', false], ['write', true], ['find', false], ['find', true],
+] as const)('Back from %s closes a tracking sheet (dirty: %s), and Forward retains the draft and selection without reopening it', async (mode, dirty) => {
+  const state = installApi({ plan: true, sessions: [session] })
+  const router = renderHistoryPage(mode)
+  fireEvent.click(await screen.findByRole('tab', { name: 'Research' }))
+  const query = mode === 'write' ? 'Older saved query' : 'Lofts near transit'
+  const selected = await screen.findByRole<HTMLInputElement>('checkbox', { name: `Select ${query}` })
+  await waitFor(() => expect(selected.disabled).toBe(false))
+  const field = mode === 'write' ? 'Queries' : FIND_COPY.customer
+  fireEvent.change(screen.getByRole('textbox', { name: field }), { target: { value: 'keep this unfinished draft' } })
+  fireEvent.click(selected)
+  fireEvent.click(bar().getByRole('button', { name: 'Track 1' }))
+  const sheet = within(await screen.findByRole('dialog', { name: 'Track 1 query' }))
+  if (dirty) chooseMarket(sheet, 'Old Mill')
+
+  await browserHistoryStep(router, 'back')
+  if (dirty) {
+    const prompt = await sheet.findByRole('group', { name: 'Discard this change?' })
+    // Cancelling the navigation preserves the sheet before the explicit discard permits Back.
+    fireEvent.click(within(prompt).getByRole('button', { name: 'Keep editing' }))
+    await waitFor(() => expect(sheet.queryByRole('group', { name: 'Discard this change?' })).toBeNull())
+    await waitFor(() => expect(window.location.search).toContain('queryWorkspace=research'))
+    expect(screen.getByRole('dialog', { name: 'Track 1 query' })).toBeTruthy()
+    await browserHistoryStep(router, 'back')
+    fireEvent.click(await sheet.findByRole('button', { name: 'Discard' }))
+  }
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  expect(screen.getByRole('tab', { name: 'Tracked' }).getAttribute('aria-selected')).toBe('true')
+  await browserHistoryStep(router, 'forward')
+  await waitFor(() => expect(screen.getByRole('tab', { name: 'Research' }).getAttribute('aria-selected')).toBe('true'))
+  expect(screen.queryByRole('dialog')).toBeNull()
+  expect(screen.getByRole<HTMLTextAreaElement>('textbox', { name: field }).value).toBe('keep this unfinished draft')
+  expect(screen.getByRole<HTMLInputElement>('checkbox', { name: `Select ${query}` }).checked).toBe(true)
+  expect(bar().getByRole('button', { name: 'Track 1' })).toBeTruthy()
+  expect(state.posts).toEqual([])
+})
 
 test('with no researchMode a writer lands on Write, and each choice of Start from is handed to the host', async () => {
   const state = installApi()
@@ -329,11 +478,19 @@ test('runs still at work are read again only while their own form is in view', a
   onTestFinished(() => { vi.useRealTimers() })
   const state = installApi({ savedRunStatus: 'running', sessions: [testing] })
   const reads = (path: string) => state.paths.filter(item => item === `/api/v1/projects/demo/${path}`).length
-  renderPage()
+  const view = renderQuerySection({ projectName: 'demo', queryWorkspace: 'research' })
   await screen.findByText('Older saved answer')
   const first = reads('research/runs')
   await vi.advanceTimersByTimeAsync(3100)
   await waitFor(() => expect(reads('research/runs')).toBeGreaterThan(first))
+
+  view.rerender({ queryWorkspace: 'tracked', selection: { measurementScope: 'market', measurementScopeKey: 'old-mill', queryClass: 'all' } })
+  await screen.findByRole('region', { name: 'Tracked queries' })
+  const onTracked = state.paths.filter(path => path.includes('/research/')).length
+  await vi.advanceTimersByTimeAsync(6200)
+  expect(state.paths.filter(path => path.includes('/research/'))).toHaveLength(onTracked)
+  view.rerender({ queryWorkspace: 'research' })
+  await screen.findByText('Older saved answer')
 
   // Behind Find ideas the saved runs wait, and Find ideas reads its own run that is still testing.
   start('Find ideas')
