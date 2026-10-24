@@ -1,3 +1,6 @@
+import { getApiV1ProjectsByNameGbpLocalPostAttempt } from '@canonry/canonry-api-client'
+import type { GbpLocalPostList, GbpLocalPostDto, GbpLocalPostCreate, GbpLocalPostAttempt, GbpLiveReviews } from '@canonry/canonry-contracts'
+import { getApiV1ProjectsByNameGbpLocalPosts, getApiV1ProjectsByNameGbpLocalPost, getApiV1ProjectsByNameGbpReviewsLive, postApiV1ProjectsByNameGbpLocalPosts } from '@canonry/canonry-api-client'
 import type { TrafficSamplesQuery, TrafficSamplesResponse } from '@canonry/canonry-contracts'
 import type { SeoOperatorTask, SeoReconcileInput, SeoReconcileResult } from '@canonry/canonry-contracts'
 import { getApiV1SeoOperatorTasksById, postApiV1SeoOperatorTasksByIdReconcile } from '@canonry/canonry-api-client'
@@ -174,6 +177,8 @@ import type {
   GA4AiReferralHistoryEntry,
   GA4SocialReferralHistoryEntry,
   GA4SessionHistoryEntry,
+  GaOverviewResponse,
+  GaOverviewWindow,
   AuditLogEntry,
   GoogleConnectionDto,
   GoogleOAuthStartResponse,
@@ -557,6 +562,7 @@ import {
   getApiV1ProjectsByNameGaSocialReferralTrend,
   getApiV1ProjectsByNameGaAttributionTrend,
   getApiV1ProjectsByNameGaSessionHistory,
+  getApiV1ProjectsByNameGaOverview,
   // Traffic
   postApiV1ProjectsByNameTrafficConnectCloudRun,
   postApiV1ProjectsByNameTrafficConnectWordpress,
@@ -3129,6 +3135,21 @@ export class ApiClient {
   }
 
   // Google Business Profile (Phase 1: auth + discovery)
+  async listGbpLocalPosts(project: string, query: {accountName:string;locationName:string;pageToken?:string}): Promise<GbpLocalPostList> {
+    return this.invoke<GbpLocalPostList>(() => getApiV1ProjectsByNameGbpLocalPosts({client:this.heyClient,path:{name:project},query}))
+  }
+  async getGbpLocalPost(project: string, postName: string): Promise<GbpLocalPostDto> {
+    return this.invoke<GbpLocalPostDto>(() => getApiV1ProjectsByNameGbpLocalPost({client:this.heyClient,path:{name:project},query:{postName}}))
+  }
+  async getGbpLocalPostAttempt(project:string,attemptId:string,packageId:string):Promise<GbpLocalPostAttempt>{
+    return this.invoke<GbpLocalPostAttempt>(()=>getApiV1ProjectsByNameGbpLocalPostAttempt({client:this.heyClient,path:{name:project},query:{attemptId,packageId}}))
+  }
+  async createGbpLocalPost(project: string, body: GbpLocalPostCreate): Promise<GbpLocalPostAttempt> {
+    return this.invoke<GbpLocalPostAttempt>(() => postApiV1ProjectsByNameGbpLocalPosts({client:this.heyClient,path:{name:project},body}))
+  }
+  async readGbpReviewsLive(project: string, query: {accountName:string;locationName:string}): Promise<GbpLiveReviews> {
+    return this.invoke<GbpLiveReviews>(() => getApiV1ProjectsByNameGbpReviewsLive({client:this.heyClient,path:{name:project},query}))
+  }
   async listGbpAccounts(project: string): Promise<GbpAccountListResponse> {
     return this.invoke<GbpAccountListResponse>(() =>
       getApiV1ProjectsByNameGbpAccounts({
@@ -3954,6 +3975,16 @@ export class ApiClient {
   async gaAttributionTrend(project: string): Promise<GaAttributionTrendResponse> {
     return this.invoke<GaAttributionTrendResponse>(() =>
       getApiV1ProjectsByNameGaAttributionTrend({ client: this.heyClient, path: { name: project } }),
+    )
+  }
+
+  async gaOverview(project: string, window?: GaOverviewWindow): Promise<GaOverviewResponse> {
+    return this.invoke<GaOverviewResponse>(() =>
+      getApiV1ProjectsByNameGaOverview({
+        client: this.heyClient,
+        path: { name: project },
+        query: window ? { window } : undefined,
+      }),
     )
   }
 

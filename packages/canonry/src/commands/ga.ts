@@ -4,6 +4,7 @@ import { formatValidationIssues, gaAcquisitionQuerySchema, type GaAcquisitionQue
 import { CliError, isMachineFormat, usageError } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
 import { GA_SEARCH_LANDING_WINDOW_DAYS, GaMoverChangeBases, describeError, formatPercent, gaSearchLandingHasSearchData, gaSearchLandingPageLabel } from '@canonry/canonry-contracts'
+import { GA_OVERVIEW_METRICS, GA_OVERVIEW_METRIC_ORDER, RatioUnits, formatGaOverviewValue, formatSignedPercent, isGaOverviewWindow, type GaOverviewResponse } from '@canonry/canonry-contracts'
 
 function getClient() {
   return createApiClient()
@@ -699,6 +700,45 @@ export async function gaSocialReferralHistory(project: string, opts?: GaRangeOpt
     const chanLabel = row.channelGroup === 'Paid Social' ? 'paid' : 'organic'
     console.log(
       `  ${row.date.padEnd(dateWidth)}  ${row.source.padEnd(sourceWidth)}  ${chanLabel.padEnd(chanWidth)}  ${String(row.sessions).padEnd(10)}${String(row.users).padEnd(8)}`,
+    )
+  }
+}
+
+export async function gaOverview(project: string, opts?: { window?: string; format?: string }): Promise<void> {
+  const window = opts?.window
+  if (window !== undefined && !isGaOverviewWindow(window)) {
+    throw usageError(`Invalid --window "${window}": the GA4 overview supports 7d, 30d or 90d.`)
+  }
+  const client = getClient()
+  const result: GaOverviewResponse = await client.gaOverview(project, window)
+
+  if (opts?.format === 'json') {
+    console.log(JSON.stringify(result, null, 2))
+    return
+  } else if (opts?.format === 'jsonl') {
+    // An object command: `jsonl` is its JSON document on one line.
+    console.log(JSON.stringify(result))
+    return
+  }
+
+  const span = (period: GaOverviewResponse['current']) =>
+    period.startDate && period.endDate ? `${period.startDate} to ${period.endDate}` : 'not synced'
+  console.log(`GA4 overview for "${project}", ${span(result.current)} vs ${span(result.previous)}:\n`)
+  if (result.syncedAt === null) {
+    console.log('No GA4 overview figures yet. Run "canonry ga sync <project>" to fetch them.')
+    return
+  }
+
+  const labelWidth = Math.max(...GA_OVERVIEW_METRIC_ORDER.map(key => GA_OVERVIEW_METRICS[key].label.length)) + 2
+  console.log(`  ${'METRIC'.padEnd(labelWidth)}${'THIS PERIOD'.padStart(14)}${'PREVIOUS'.padStart(14)}${'CHANGE'.padStart(10)}`)
+  console.log(`  ${'─'.repeat(labelWidth)}${'─'.repeat(14)}${'─'.repeat(14)}${'─'.repeat(10)}`)
+  for (const key of GA_OVERVIEW_METRIC_ORDER) {
+    const change = result.changePct[key]
+    console.log(
+      `  ${GA_OVERVIEW_METRICS[key].label.padEnd(labelWidth)}`
+      + `${formatGaOverviewValue(key, result.totals[key]).padStart(14)}`
+      + `${formatGaOverviewValue(key, result.previousTotals[key]).padStart(14)}`
+      + `${(change === null ? '—' : formatSignedPercent(change, RatioUnits.percent)).padStart(10)}`,
     )
   }
 }

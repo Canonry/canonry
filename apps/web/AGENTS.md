@@ -308,6 +308,25 @@ Saved answer source lists use `SourceLink` to show the title and full, wrapping
 URL. Only HTTP(S) destinations are clickable. Keep source classification and
 counted disclosures in Advanced and Research views.
 
+### Activity tab
+
+`ActivitySection` orders Server activity, Site traffic (GA4's overview), AI
+traffic history, then the GA4 detail sections (Traffic by channel, Social, Top
+landing pages, Google organic search traffic). `ActivitySection` owns the one
+7d/30d/90d control and shows it in the Site traffic heading in every GA4 state;
+`ClickThroughActivity` renders the AI traffic history in its `between` slot,
+outside every GA4 state, so a disconnected GA4 removes neither. Site traffic is
+`SiteTrafficCard` over `/ga/overview` (complete days ending yesterday against
+the previous period, as GA4 counts them): five figure slots whose labels are
+pickers (picking a figure already shown swaps the two; the choice is kept in
+this browser), and the chosen figure by day with the previous period dashed.
+Every figure and change is the API's; colour follows `gaOverviewChangeTone`,
+so a falling bounce rate reads as good news. Under each section's figures, its
+charts and tables are closed `.visibility-disclosure` rows (`DisclosureRow`)
+that mount their detail only while open, each summary carrying the API's
+count, or "None in this period". Never drop a figure while restyling this tab;
+the site-wide sessions chart disappeared once that way.
+
 ### API calls (Critical)
 
 A connected Search Engines tab reads stored evidence on mount. Google property

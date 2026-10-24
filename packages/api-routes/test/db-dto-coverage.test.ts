@@ -177,6 +177,7 @@ const COVERAGE: Record<string, CoverageEntry> = {
     kind: 'internal-only',
     reason: 'Private atomic account/project reservation and settlement counters; no customer or operator budget DTO exposes raw rows.',
   },
+  reviewWebhookDeliveries: {kind:'internal-only',reason:'Immutable per-destination review-event payload and delivery debt; internal acknowledgement/retry records, never a public review DTO.'},
   sentimentDefinitions: {
     kind: 'internal-only',
     reason: 'Immutable evaluator JSON is exposed only through validated, project-scoped sentiment DTOs; hashes and storage columns remain private.',
@@ -761,6 +762,10 @@ const COVERAGE: Record<string, CoverageEntry> = {
   gaMeasurementSyncStates: {
     kind: 'internal-only',
     reason: 'Component-level sync completeness and error state backing the follow-up measurement API.',
+  },
+  gaWindowMetrics: {
+    kind: 'internal-only',
+    reason: 'GA4 totals per overview window and the period before it, written by the sync. Backing store only: its values reach callers through the /ga/overview response, not as a direct row DTO.',
   },
   gaDailyTotals: {
     kind: 'internal-only',

@@ -1,0 +1,50 @@
+<!-- A contractor's service catalog, as JSON-LD on an editorial page. -->
+<article>A roof access guide.</article>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": [
+    "Organization",
+    "LocalBusiness",
+    "RoofingContractor"
+  ],
+  "hasOfferCatalog": {
+    "@type": "OfferCatalog",
+    "name": "Roofing Services",
+    "itemListElement": [
+      {
+        "@type": "Offer",
+        "itemOffered": {
+          "@type": "Service",
+          "name": "Roof Coating",
+          "description": "Spray-applied roof coating for commercial flat roofs. 20+ year proven lifespan."
+        }
+      },
+      {
+        "@type": "Offer",
+        "itemOffered": {
+          "@type": "Service",
+          "name": "Commercial Roof Restoration",
+          "description": "Full commercial roof restoration without replacement for flat and low-slope roofs."
+        }
+      },
+      {
+        "@type": "Offer",
+        "itemOffered": {
+          "@type": "Service",
+          "name": "Floor Coating",
+          "description": "Floor coatings for industrial and warehouse environments."
+        }
+      },
+      {
+        "@type": "Offer",
+        "itemOffered": {
+          "@type": "Service",
+          "name": "Free Roof Inspection",
+          "description": "Complimentary commercial roof inspection across the service area."
+        }
+      }
+    ]
+  }
+}
+</script>

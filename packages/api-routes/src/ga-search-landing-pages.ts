@@ -23,8 +23,8 @@ import type {
   GaSearchLandingSyncResult,
 } from '@canonry/canonry-contracts'
 import type { GA4SearchLandingMetrics, GA4SearchLandingWindowReport } from '@canonry/canonry-integration-google-analytics'
-import type { Ga4CredentialStore } from './ga.js'
-import type { GoogleConnectionStore } from './google.js'
+import { resolveCurrentGa4PropertyId } from './ga-property-data.js'
+import type { Ga4ConnectionStores } from './ga-property-data.js'
 import { resolveProject } from './helpers.js'
 
 type Database = FastifyInstance['db']
@@ -147,73 +147,8 @@ function deleteSearchLandingRows(db: Database | Transaction, projectId: string):
   db.delete(gaSearchLandingWindows).where(eq(gaSearchLandingWindows.projectId, projectId)).run()
 }
 
-function resetSearchLanding(db: Database | Transaction, projectId: string, updatedAt: string): void {
-  deleteSearchLandingRows(db, projectId)
-  db.update(gaMeasurementSyncStates)
-    .set({
-      searchLandingStatus: 'never-synced',
-      searchLandingError: null,
-      searchLandingSyncedAt: null,
-      searchLandingAttemptedAt: null,
-      updatedAt,
-    })
-    .where(eq(gaMeasurementSyncStates.projectId, projectId))
-    .run()
-}
-
-/** Drop the project's snapshot and reset its state (GA disconnect). */
-export function clearSearchLandingSnapshot(db: Database, projectId: string, updatedAt: string): void {
-  db.transaction((tx) => resetSearchLanding(tx, projectId, updatedAt))
-}
-
-/**
- * GA connect: drop the project's snapshot and reset its state, as disconnect
- * does, when the connect moved the project from one GA4 property to another,
- * or when the stored snapshot names a property other than the one the project
- * resolves to now. Reconnecting to the same property (a rotated key) keeps it.
- * Returns whether the snapshot was cleared.
- */
-export function clearSearchLandingSnapshotOnPropertyChange(
-  db: Database,
-  projectId: string,
-  properties: { previousPropertyId: string | null; propertyId: string | null },
-  updatedAt: string,
-): boolean {
-  return db.transaction((tx) => {
-    const storedProperties = tx.selectDistinct({ propertyId: gaSearchLandingWindows.propertyId })
-      .from(gaSearchLandingWindows)
-      .where(eq(gaSearchLandingWindows.projectId, projectId))
-      .all()
-    const moved = properties.previousPropertyId !== null && properties.previousPropertyId !== properties.propertyId
-    const otherProperty = storedProperties.some((stored) => stored.propertyId !== properties.propertyId)
-    if (!moved && !otherProperty) return false
-    resetSearchLanding(tx, projectId, updatedAt)
-    return true
-  })
-}
-
 /** The connection stores the read resolves a project's current GA4 property from. */
-export interface GaSearchLandingRoutesOptions {
-  ga4CredentialStore?: Ga4CredentialStore
-  googleConnectionStore?: GoogleConnectionStore
-}
-
-/**
- * The GA4 property a project resolves to now, in the order the GA sync
- * resolves credentials: the project's service-account connection first, then
- * the domain's OAuth (`ga4`) connection. The same property `GET /ga/status`
- * reports. Reads stored connection records only: no token refresh and no
- * Google call. Null when neither names a property.
- */
-export function resolveCurrentGa4PropertyId(
-  stores: GaSearchLandingRoutesOptions,
-  projectName: string,
-  canonicalDomain: string,
-): string | null {
-  const serviceAccount = stores.ga4CredentialStore?.getConnection(projectName)
-  if (serviceAccount?.propertyId) return serviceAccount.propertyId
-  return stores.googleConnectionStore?.getConnection(canonicalDomain, 'ga4')?.propertyId ?? null
-}
+export type GaSearchLandingRoutesOptions = Ga4ConnectionStores
 
 type SearchLandingStateFields = Pick<
   typeof gaMeasurementSyncStates.$inferInsert,

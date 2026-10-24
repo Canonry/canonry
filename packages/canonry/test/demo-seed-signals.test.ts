@@ -13,6 +13,7 @@ import {
   createClient,
   gaAiReferrals,
   gaDailyTotals,
+  gaWindowMetrics,
   gbpLocations,
   gscDailyTotals,
   insights,
@@ -23,6 +24,7 @@ import {
   siteCrawlSnapshots,
   type DatabaseClient,
 } from '@canonry/canonry-db'
+import { GA_OVERVIEW_HISTORY_DAYS } from '@canonry/canonry-contracts'
 import { apiRoutes } from '@canonry/canonry-api-routes'
 import { seedDemoSignals } from '../src/demo/seed-signals.js'
 import { demoReadOptions } from '../src/demo/stores.js'
@@ -61,7 +63,10 @@ describe('seedDemoSignals', () => {
       const where = eq(gscDailyTotals.projectId, project.id)
       expect(db.select().from(gscDailyTotals).where(where).all()).toHaveLength(14)
       expect(db.select().from(bingCoverageSnapshots).where(eq(bingCoverageSnapshots.projectId, project.id)).all().length).toBeGreaterThan(1)
-      expect(db.select().from(gaDailyTotals).where(eq(gaDailyTotals.projectId, project.id)).all()).toHaveLength(14)
+      // Every daily total a sync keeps, so each overview window has its previous period.
+      expect(db.select().from(gaDailyTotals).where(eq(gaDailyTotals.projectId, project.id)).all()).toHaveLength(GA_OVERVIEW_HISTORY_DAYS)
+      // Both periods of each overview window.
+      expect(db.select().from(gaWindowMetrics).where(eq(gaWindowMetrics.projectId, project.id)).all()).toHaveLength(6)
       expect(db.select().from(gaAiReferrals).where(eq(gaAiReferrals.projectId, project.id)).all().length).toBeGreaterThan(1)
       expect(db.select().from(siteCrawlSnapshots).where(eq(siteCrawlSnapshots.projectId, project.id)).get()?.complete).toBe(true)
       expect(db.select().from(siteCrawlGraphNodes).where(eq(siteCrawlGraphNodes.projectId, project.id)).all().length).toBeGreaterThan(2)

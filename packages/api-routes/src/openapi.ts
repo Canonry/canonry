@@ -443,6 +443,13 @@ const analyticsWindowParameter: OpenApiParameter = {
   schema: { type: 'string', enum: ['7d', '30d', '90d', 'all'] },
 }
 
+const gaOverviewWindowParameter: OpenApiParameter = {
+  name: 'window',
+  in: 'query',
+  description: 'Overview window: the complete days ending yesterday, as GA4 counts "Last 30 days". Defaults to 30d. Any other value is rejected with 400.',
+  schema: { type: 'string', enum: ['7d', '30d', '90d'] },
+}
+
 const competitorLandscapeGroupKeyParameter: OpenApiParameter = {
   name: 'groupKey',
   in: 'query',
@@ -4664,6 +4671,11 @@ const routeCatalog: OpenApiOperation[] = [
       429: errorResponse('GBP API quota exceeded (access form may not be approved).'),
     },
   },
+  { method: 'get', path: '/api/v1/projects/{name}/gbp/local-posts', summary: 'Read one bounded page of Local Posts', tags: ['gbp'], parameters: [nameParameter, { name: 'accountName', in: 'query', required: true, description: 'Exact selected Google account resource.', schema: { type: 'string' } }, { name: 'locationName', in: 'query', required: true, description: 'Exact selected Google location resource.', schema: { type: 'string' } }, { name: 'pageToken', in: 'query', required: false, description: 'Opaque next-page token; omission starts the scan.', schema: { type: 'string' } }], responses: { 200: jsonResponse('Live Google read returned.', 'GbpLocalPostList'), 400: errorResponse('Invalid scope.'), 403: errorResponse('Live GBP read not authorized.'), 502: errorResponse('Provider result unavailable or incomplete.') } },
+  { method: 'get', path: '/api/v1/projects/{name}/gbp/local-post', summary: 'Read one exact Local Post', tags: ['gbp'], parameters: [nameParameter, { name: 'postName', in: 'query', required: true, description: 'Exact existing Google post resource.', schema: { type: 'string' } }], responses: { 200: jsonResponse('Live Google read returned.', 'GbpLocalPost'), 400: errorResponse('Invalid scope.'), 403: errorResponse('Live GBP read not authorized.'), 502: errorResponse('Provider result unavailable or incomplete.') } },
+  { method: 'get', path: '/api/v1/projects/{name}/gbp/reviews/live', summary: 'Read a complete bounded review baseline without changing it', tags: ['gbp'], parameters: [nameParameter, { name: 'accountName', in: 'query', required: true, description: 'Exact selected Google account resource.', schema: { type: 'string' } }, { name: 'locationName', in: 'query', required: true, description: 'Exact selected Google location resource.', schema: { type: 'string' } }], responses: { 200: jsonResponse('Live Google read returned.', 'GbpLiveReviews'), 400: errorResponse('Invalid scope.'), 403: errorResponse('Live GBP read not authorized.'), 502: errorResponse('Provider result unavailable or incomplete.') } },
+  {method:'get',path:'/api/v1/projects/{name}/gbp/local-post-attempt',summary:'Read the saved attempt without another Google POST',tags:['gbp'],parameters:[nameParameter,{name:'attemptId',in:'query',required:true,description:'Exact saved UUID.',schema:{type:'string'}},{name:'packageId',in:'query',required:true,description:'Exact approved package digest.',schema:{type:'string'}}],responses:{200:jsonResponse('Saved accepted, rejected or uncertain result.','GbpLocalPostAttempt'),400:errorResponse('No matching saved attempt.'),403:errorResponse('Not authorized.')}},
+  { method: 'post', path: '/api/v1/projects/{name}/gbp/local-posts', summary: 'Create one already-approved STANDARD article post; replay never sends again', tags: ['gbp'], parameters: [nameParameter], requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/GbpLocalPostCreate' } } } }, responses: { 200: jsonResponse('Durable attempt state; accepted is not independent verification.', 'GbpLocalPostAttempt'), 400: errorResponse('Invalid or conflicting attempt.'), 403: errorResponse('GBP write not authorized or target unavailable.') } },
   {
     method: 'get',
     path: '/api/v1/projects/{name}/gbp/accounts',
@@ -6521,6 +6533,18 @@ const routeCatalog: OpenApiOperation[] = [
     responses: {
       200: jsonResponse('Attribution trend returned.', 'GaAttributionTrendResponse'),
       400: errorResponse('GA4 is not connected.'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/ga/overview',
+    summary: 'Get the GA4 overview: totals, change against the previous period, and both periods by day',
+    tags: ['ga4'],
+    parameters: [nameParameter, gaOverviewWindowParameter],
+    responses: {
+      200: jsonResponse('GA4 overview returned.', 'GaOverviewResponse'),
+      400: errorResponse('GA4 is not connected, or the window is not 7d, 30d or 90d.'),
       404: errorResponse('Project not found.'),
     },
   },

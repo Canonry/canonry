@@ -132,8 +132,17 @@ function renderPanel(landingPages: ApiGaTrafficAiLandingPage[]) {
   )
 }
 
+/** The AI landing pages are a collapsed row: open it the way a reader would. */
+async function openAiLandingPages() {
+  const label = await screen.findByText('Pages AI visitors landed on', { selector: 'summary > span' })
+  const row = label.closest('details') as HTMLDetailsElement
+  fireEvent.click(row.querySelector('summary') as HTMLElement)
+  await waitFor(() => expect(row.open).toBe(true))
+}
+
 test('shows 25 landing-page rows per page and paginates the rest', async () => {
   renderPanel(makeLandingPages(60))
+  await openAiLandingPages()
 
   // Page 1: first 25 rows render, the 26th does not.
   await waitFor(() => expect(screen.getByText('1 to 25 of 60 rows')).toBeTruthy())
@@ -170,6 +179,7 @@ test('shows 25 landing-page rows per page and paginates the rest', async () => {
 
 test('renders no pagination controls when there are 25 or fewer rows', async () => {
   renderPanel(makeLandingPages(25))
+  await openAiLandingPages()
 
   await waitFor(() => expect(screen.getByText('25 rows')).toBeTruthy())
   // The shared footer always reports the visible range, but omits page controls
@@ -182,6 +192,7 @@ test('renders no pagination controls when there are 25 or fewer rows', async () 
 
 test('changing the sort resets to page 1', async () => {
   renderPanel(makeLandingPages(60))
+  await openAiLandingPages()
 
   // Jump to page 2.
   await waitFor(() => expect(screen.getByText('Page 1 of 3')).toBeTruthy())
@@ -207,6 +218,7 @@ test('middle-truncates long URLs while preserving the full value for filtering a
     },
     ...makeLandingPages(30),
   ])
+  await openAiLandingPages()
 
   await waitFor(() => expect(screen.getByText('1 to 25 of 31 rows')).toBeTruthy())
   const expectedDisplay = `${[...landingPage].slice(0, 36).join('')}…${[...landingPage].slice(-18).join('')}`

@@ -1,3 +1,4 @@
+import { gbpLocalPostDtoSchema, gbpLocalPostListSchema, gbpLocalPostAttemptSchema, gbpLiveReviewsSchema, gbpLocalPostCreateSchema } from '@canonry/canonry-contracts'
 /**
  * Centralized OpenAPI schema registry for canonry's API responses.
  *
@@ -100,6 +101,7 @@ import {
   ga4AiReferralDailyDtoSchema,
   ga4AiReferralHistoryEntrySchema,
   ga4SessionHistoryEntrySchema,
+  gaOverviewResponseSchema,
   ga4SocialReferralHistoryEntrySchema,
   ga4PropertiesDtoSchema,
   ga4StatusDtoSchema,
@@ -462,6 +464,7 @@ const SCHEMA_TABLE = {
   GA4AiReferralHistoryEntry: ga4AiReferralHistoryEntrySchema,
   GA4MeasurementAnalysisDto: gaMeasurementAnalysisDtoSchema,
   GA4SessionHistoryEntry: ga4SessionHistoryEntrySchema,
+  GaOverviewResponse: gaOverviewResponseSchema,
   GA4SocialReferralHistoryEntry: ga4SocialReferralHistoryEntrySchema,
   GA4PropertiesDto: ga4PropertiesDtoSchema,
   GA4StatusDto: ga4StatusDtoSchema,
@@ -471,6 +474,11 @@ const SCHEMA_TABLE = {
   GaSearchLandingPagesResponse: gaSearchLandingPagesResponseSchema,
   GaSocialReferralTrendResponse: gaSocialReferralTrendResponseSchema,
   GaTrafficResponse: gaTrafficResponseSchema,
+  GbpLocalPost: gbpLocalPostDtoSchema,
+  GbpLocalPostList: gbpLocalPostListSchema,
+  GbpLocalPostAttempt: gbpLocalPostAttemptSchema,
+  GbpLiveReviews: gbpLiveReviewsSchema,
+  GbpLocalPostCreate: gbpLocalPostCreateSchema,
   GbpAccountListResponse: gbpAccountListResponseSchema,
   GbpDailyMetricListResponse: gbpDailyMetricListResponseSchema,
   GbpKeywordImpressionListResponse: gbpKeywordImpressionListResponseSchema,

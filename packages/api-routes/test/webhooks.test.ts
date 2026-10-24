@@ -91,8 +91,48 @@ test('deliverWebhook falls back to the next checked address when the first refus
   })
   if (!check.ok) throw new Error(check.message)
 
-  expect(await deliverWebhook(check.target, { event: 'run.completed' }, null)).toEqual({ status: 204, error: null })
+  expect(await deliverWebhook(check.target, { event: 'run.completed' }, null)).toEqual({ status: 204, error: null, requestSent: true })
   expect(receiver.requests.map(({ method, path, headers, body }) => ({ method, path, host: headers.host, body }))).toEqual([
     { method: 'POST', path: '/hook', host: `hooks.example.test:${receiver.port}`, body: '{"event":"run.completed"}' },
   ])
+})
+
+/** A loopback target for `port`, as the delivery path would check it. */
+async function loopbackTarget(port: number) {
+  const check = await resolveWebhookTarget(`http://hooks.example.test:${port}/hook`, {
+    allowLoopback: true,
+    resolveAddresses: async () => [{ address: '127.0.0.1', family: 4 }],
+  })
+  if (!check.ok) throw new Error(check.message)
+  return check.target
+}
+
+test('deliverWebhook reports a refused connection as never sent, so a retry cannot duplicate it', async () => {
+  // Nothing listens on a port a closed site just released.
+  const closed = await startRecordingSite((_request, response) => response.writeHead(204).end())
+  const port = closed.port
+  await closed.close()
+
+  const result = await deliverWebhook(await loopbackTarget(port), { event: 'review.negative' }, null)
+
+  expect(result).toMatchObject({ status: 0, requestSent: false })
+})
+
+test('deliverWebhook reports a receiver that took the request and hung up as sent', async () => {
+  // The site has read the whole body before it drops the connection, which
+  // is exactly the case a chat webhook cannot settle: it may have posted.
+  receiver = await startRecordingSite((_request, response) => response.socket?.destroy())
+
+  const result = await deliverWebhook(await loopbackTarget(receiver.port), { event: 'review.negative' }, null)
+
+  expect(result).toMatchObject({ status: 0, requestSent: true })
+  expect(receiver.requests).toHaveLength(1)
+})
+
+test('deliverWebhook passes on how long a rate-limited receiver asked to wait', async () => {
+  receiver = await startRecordingSite((_request, response) => response.writeHead(429, { 'Retry-After': '120' }).end())
+
+  const result = await deliverWebhook(await loopbackTarget(receiver.port), { event: 'review.negative' }, null)
+
+  expect(result).toEqual({ status: 429, error: null, requestSent: true, retryAfterSeconds: 120 })
 })

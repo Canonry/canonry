@@ -2,6 +2,7 @@ import crypto from 'node:crypto'
 import {
   AI_REFERRAL_ENGINE_DEFINITIONS,
   GA4_AI_ASSISTANT_CHANNEL_GROUP,
+  GA_OVERVIEW_HISTORY_DAYS,
   GA_SEARCH_LANDING_WINDOWS,
   GA_SEARCH_LANDING_WINDOW_DAYS,
   classifyAiReferralTrafficClass,
@@ -9,11 +10,13 @@ import {
   describeError,
   describeFetchError,
   escapeRegExp,
+  gaOverviewComparisonDaysAgo,
+  gaOverviewComparisonRanges,
   isoDateDaysBeforeInTimeZone,
   parseBoundedRate,
   withRetry,
 } from '@canonry/canonry-contracts'
-import type { GaSearchLandingWindow } from '@canonry/canonry-contracts'
+import type { GaOverviewWindow, GaSearchLandingWindow } from '@canonry/canonry-contracts'
 
 async function fetchWithContext(input: string | URL, init?: RequestInit): Promise<Response> {
   try {
@@ -415,6 +418,25 @@ async function batchRunReports(
 
 function formatDate(d: Date): string {
   return d.toISOString().slice(0, 10)
+}
+
+/**
+ * A GA4 relative date. GA4 resolves it in the property's reporting time zone,
+ * which is how its own "Last N days" ranges count days.
+ */
+function ga4RelativeDate(daysAgo: number): string {
+  if (daysAgo === 0) return 'today'
+  if (daysAgo === 1) return 'yesterday'
+  return `${daysAgo}daysAgo`
+}
+
+/** The property's reporting time zone, as GA4 states it on its responses. */
+function reportTimeZone(...responses: Array<GA4RunReportResponse | undefined>): string | null {
+  for (const res of responses) {
+    const zone = res?.metadata?.timeZone?.trim()
+    if (zone) return zone
+  }
+  return null
 }
 
 function measurementDateRange(days?: number) {
@@ -1058,6 +1080,26 @@ export interface GA4DailyTotalRow {
   engagementRate: number | null
   /** GA4's `newUsers` for the day. `null` when the response omitted it. */
   newUsers: number | null
+  /**
+   * The overview's daily figures, each `null` when GA4 sent no value: GA4's
+   * `activeUsers`, sessions in the Organic Search channel, `screenPageViews`,
+   * `eventCount`, `keyEvents`, `userEngagementDuration` (seconds) and
+   * `bounceRate` (0-1).
+   */
+  activeUsers: number | null
+  organicSessions: number | null
+  views: number | null
+  eventCount: number | null
+  keyEvents: number | null
+  engagementSeconds: number | null
+  bounceRate: number | null
+}
+
+/** The days `fetchDailyTotals` asked GA4 for, inclusive and in the property's time zone, and what came back. */
+export interface GA4DailyTotals {
+  startDate: string
+  endDate: string
+  rows: GA4DailyTotalRow[]
 }
 
 /**
@@ -1094,46 +1136,94 @@ function parseOptionalCountMetric(value: string | undefined): number | null {
 export async function fetchDailyTotals(
   accessToken: string,
   propertyId: string,
-  days?: number,
-): Promise<GA4DailyTotalRow[]> {
+  days: number = GA_OVERVIEW_HISTORY_DAYS,
+  options: { now?: Date } = {},
+): Promise<GA4DailyTotals> {
   validateAccessToken(accessToken)
   validatePropertyId(propertyId)
 
-  const { effectiveDays: syncDays } = resolveGa4SyncDays(days)
-  const endDate = new Date()
-  const startDate = new Date()
-  startDate.setDate(startDate.getDate() - syncDays)
+  // Bounded by the overview history, not the sync cap: daily totals are the
+  // foundation read every window and its previous period draw from.
+  const historyDays = Math.min(Math.max(1, Number.isFinite(days) ? Math.trunc(days) : GA_OVERVIEW_HISTORY_DAYS), GA_OVERVIEW_HISTORY_DAYS)
+  // Relative dates, so GA4 counts days in the property's reporting time zone,
+  // as the overview's periods do. Today stays in while it fills: the session
+  // history reads each day's users from here.
+  const requestedAt = (options.now ?? new Date()).toISOString()
+  const dateRange = { startDate: ga4RelativeDate(historyDays), endDate: ga4RelativeDate(0) }
 
-  ga4Log('info', 'fetch-daily-totals.start', { propertyId, days: syncDays })
+  ga4Log('info', 'fetch-daily-totals.start', { propertyId, days: historyDays })
 
-  // One row per day in the range, so the window itself bounds the response —
-  // `+ 1` covers both endpoints being inclusive. No paging needed.
-  const res = await runReport(accessToken, propertyId, {
-    dateRanges: [{ startDate: formatDate(startDate), endDate: formatDate(endDate) }],
-    dimensions: [{ name: DIM.date }],
-    metrics: [
-      { name: MET.sessions },
-      { name: MET.totalUsers },
-      { name: MET.engagementRate },
-      { name: MET.newUsers },
-    ],
-    limit: syncDays + 1,
-  })
+  // One row per day in the range, so the window itself bounds each response —
+  // `+ 1` covers both endpoints being inclusive. No paging needed. GA4 takes
+  // at most ten metrics per report, which is exactly what the first one asks.
+  const [totalsRes, organicRes] = await batchRunReports(accessToken, propertyId, [
+    {
+      dateRanges: [dateRange],
+      dimensions: [{ name: DIM.date }],
+      metrics: [
+        { name: MET.sessions },
+        { name: MET.totalUsers },
+        { name: MET.engagementRate },
+        { name: MET.newUsers },
+        { name: MET.activeUsers },
+        { name: MET.screenPageViews },
+        { name: MET.eventCount },
+        { name: MET.keyEvents },
+        { name: MET.userEngagementDuration },
+        { name: MET.bounceRate },
+      ],
+      limit: historyDays + 1,
+    },
+    {
+      dateRanges: [dateRange],
+      dimensions: [{ name: DIM.date }],
+      metrics: [{ name: MET.sessions }],
+      dimensionFilter: {
+        filter: {
+          fieldName: DIM.sessionDefaultChannelGrouping,
+          stringFilter: { matchType: 'EXACT', value: 'Organic Search' },
+        },
+      },
+      limit: historyDays + 1,
+    },
+  ])
 
-  const rows: GA4DailyTotalRow[] = (res.rows ?? []).map((row) => {
-    const users = parseInt(row.metricValues[1]?.value ?? '0', 10) || 0
-    const newUsers = parseOptionalCountMetric(row.metricValues[3]?.value)
+  // GA4 sends no row for a day with no organic session. The report itself ran,
+  // so a day the totals carry and this one omits had zero organic sessions.
+  const organicByDate = new Map<string, number>()
+  for (const row of organicRes?.rows ?? []) {
+    const date = compactDateToIso(row.dimensionValues[0]?.value ?? '')
+    if (date) organicByDate.set(date, parseOptionalCountMetric(row.metricValues[0]?.value) ?? 0)
+  }
+
+  const rows: GA4DailyTotalRow[] = (totalsRes?.rows ?? []).map((row) => {
+    const date = compactDateToIso(row.dimensionValues[0]?.value ?? '')
+    const metric = (index: number) => parseOptionalMetric(row.metricValues[index]?.value)
+    const count = (index: number) => parseOptionalCountMetric(row.metricValues[index]?.value)
     return {
-      date: compactDateToIso(row.dimensionValues[0]?.value ?? ''),
+      date,
       sessions: parseInt(row.metricValues[0]?.value ?? '0', 10) || 0,
-      users,
-      engagementRate: parseBoundedRate(parseOptionalMetric(row.metricValues[2]?.value)),
-      newUsers,
+      users: parseInt(row.metricValues[1]?.value ?? '0', 10) || 0,
+      engagementRate: parseBoundedRate(metric(2)),
+      newUsers: count(3),
+      activeUsers: count(4),
+      organicSessions: organicRes ? (organicByDate.get(date) ?? 0) : null,
+      views: count(5),
+      eventCount: count(6),
+      keyEvents: metric(7),
+      engagementSeconds: metric(8),
+      bounceRate: parseBoundedRate(metric(9)),
     }
   }).filter((row) => row.date.length > 0)
 
-  ga4Log('info', 'fetch-daily-totals.done', { propertyId, days: syncDays, rows: rows.length })
-  return rows
+  // The dates GA4 resolved the range to, so a sync replaces exactly those days.
+  const timeZone = reportTimeZone(totalsRes, organicRes) ?? 'UTC'
+  ga4Log('info', 'fetch-daily-totals.done', { propertyId, days: historyDays, timeZone, rows: rows.length })
+  return {
+    startDate: isoDateDaysBeforeInTimeZone(requestedAt, historyDays, timeZone),
+    endDate: isoDateDaysBeforeInTimeZone(requestedAt, 0, timeZone),
+    rows,
+  }
 }
 
 export interface GA4WindowSummary {
@@ -1226,6 +1316,135 @@ export async function fetchWindowSummary(
 
   ga4Log('info', 'fetch-window-summary.done', { propertyId, ...summary })
   return summary
+}
+
+/** GA4's totals for one period of an overview window. Every figure is `null` when GA4 sent no value. */
+export interface GA4WindowMetricsPeriod {
+  startDate: string
+  endDate: string
+  activeUsers: number | null
+  newUsers: number | null
+  totalUsers: number | null
+  sessions: number | null
+  organicSessions: number | null
+  views: number | null
+  eventCount: number | null
+  keyEvents: number | null
+  engagementRate: number | null
+  bounceRate: number | null
+  engagementSeconds: number | null
+}
+
+export interface GA4WindowMetrics {
+  windowKey: GaOverviewWindow
+  current: GA4WindowMetricsPeriod
+  previous: GA4WindowMetricsPeriod
+}
+
+const COMPARISON_RANGE_NAMES = { current: 'current', previous: 'previous' } as const
+
+/**
+ * Fetch GA4's own totals for a window and the period before it: one report
+ * with both date ranges, so GA4 computes distinct users and every rate over
+ * each whole period (no sum of days can), plus the Organic Search sessions.
+ * Both periods are complete days in the property's reporting time zone.
+ */
+export async function fetchWindowMetrics(
+  accessToken: string,
+  propertyId: string,
+  windowKey: GaOverviewWindow,
+  options: { now?: Date } = {},
+): Promise<GA4WindowMetrics> {
+  validateAccessToken(accessToken)
+  validatePropertyId(propertyId)
+
+  // Relative dates resolve in the property's time zone. UTC dates would end a
+  // New York window on its unfinished today each evening once UTC passes
+  // midnight.
+  const requestedAt = options.now ?? new Date()
+  const daysAgo = gaOverviewComparisonDaysAgo(windowKey)
+  const dateRanges = [
+    { startDate: ga4RelativeDate(daysAgo.current.start), endDate: ga4RelativeDate(daysAgo.current.end), name: COMPARISON_RANGE_NAMES.current },
+    { startDate: ga4RelativeDate(daysAgo.previous.start), endDate: ga4RelativeDate(daysAgo.previous.end), name: COMPARISON_RANGE_NAMES.previous },
+  ]
+
+  ga4Log('info', 'fetch-window-metrics.start', { propertyId, windowKey })
+
+  // With two date ranges GA4 adds a `dateRange` dimension to each row, valued
+  // with the range's name. No row comes back for a range with no data.
+  const [totalsRes, organicRes] = await batchRunReports(accessToken, propertyId, [
+    {
+      dateRanges,
+      dimensions: [],
+      metrics: [
+        { name: MET.activeUsers },
+        { name: MET.newUsers },
+        { name: MET.totalUsers },
+        { name: MET.sessions },
+        { name: MET.screenPageViews },
+        { name: MET.eventCount },
+        { name: MET.keyEvents },
+        { name: MET.engagementRate },
+        { name: MET.bounceRate },
+        { name: MET.userEngagementDuration },
+      ],
+      limit: dateRanges.length,
+    },
+    {
+      dateRanges,
+      dimensions: [],
+      metrics: [{ name: MET.sessions }],
+      dimensionFilter: {
+        filter: {
+          fieldName: DIM.sessionDefaultChannelGrouping,
+          stringFilter: { matchType: 'EXACT', value: 'Organic Search' },
+        },
+      },
+      limit: dateRanges.length,
+    },
+  ])
+
+  const rowFor = (res: GA4RunReportResponse | undefined, name: string): GA4ReportRow | undefined => {
+    const index = Math.max(0, (res?.dimensionHeaders ?? []).findIndex((header) => header.name === 'dateRange'))
+    return res?.rows?.find((row) => row.dimensionValues[index]?.value === name)
+  }
+
+  const period = (name: string, range: { startDate: string; endDate: string }): GA4WindowMetricsPeriod => {
+    const totals = rowFor(totalsRes, name)
+    const organic = rowFor(organicRes, name)
+    const metric = (index: number) => parseOptionalMetric(totals?.metricValues[index]?.value)
+    const count = (index: number) => parseOptionalCountMetric(totals?.metricValues[index]?.value)
+    return {
+      ...range,
+      activeUsers: count(0),
+      newUsers: count(1),
+      totalUsers: count(2),
+      sessions: count(3),
+      views: count(4),
+      eventCount: count(5),
+      keyEvents: metric(6),
+      engagementRate: parseBoundedRate(metric(7)),
+      bounceRate: parseBoundedRate(metric(8)),
+      engagementSeconds: metric(9),
+      // A period with sessions but no Organic Search row had none; a period
+      // GA4 sent nothing for stays unknown.
+      organicSessions: organic
+        ? parseOptionalCountMetric(organic.metricValues[0]?.value)
+        : (totals ? 0 : null),
+    }
+  }
+
+  // The dates GA4 resolved the ranges to, in the zone it reports.
+  const timeZone = reportTimeZone(totalsRes, organicRes) ?? 'UTC'
+  const ranges = gaOverviewComparisonRanges(windowKey, requestedAt, timeZone)
+  const result: GA4WindowMetrics = {
+    windowKey,
+    current: period(COMPARISON_RANGE_NAMES.current, ranges.current),
+    previous: period(COMPARISON_RANGE_NAMES.previous, ranges.previous),
+  }
+
+  ga4Log('info', 'fetch-window-metrics.done', { propertyId, windowKey, timeZone })
+  return result
 }
 
 /**

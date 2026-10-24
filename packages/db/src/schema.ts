@@ -1054,6 +1054,29 @@ export const notifications = sqliteTable('notifications', {
   index('idx_notifications_project').on(table.projectId),
 ])
 
+/**
+ * One durable delivery per review event and configured destination (migration
+ * 189), empty on upgrade. `state` follows `ReviewDeliveryStates`; `retry_at` is
+ * when a pending delivery is next due.
+ */
+export const reviewWebhookDeliveries = sqliteTable('review_webhook_deliveries', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  notificationId: text('notification_id').notNull().references(() => notifications.id, { onDelete: 'cascade' }),
+  eventId: text('event_id').notNull(),
+  targetDigest: text('target_digest').notNull(),
+  payload: text('payload', { mode: 'json' }).$type<import('@canonry/canonry-contracts').ReviewWebhookPayload>().notNull(),
+  state: text('state').$type<import('@canonry/canonry-contracts').ReviewDeliveryState>().notNull().default('pending'),
+  attempts: integer('attempts').notNull().default(0),
+  attemptedAt: text('attempted_at'),
+  retryAt: text('retry_at'),
+  deliveredAt: text('delivered_at'),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  uniqueIndex('uniq_review_webhook_delivery').on(table.projectId, table.notificationId, table.eventId),
+  index('idx_review_webhook_deliveries_due').on(table.state, table.retryAt),
+])
+
 export const googleConnections = sqliteTable('google_connections', {
   id: text('id').primaryKey(),
   domain: text('domain').notNull(),
@@ -1882,6 +1905,20 @@ export const gaDailyTotals = sqliteTable('ga_daily_totals', {
    * `newVsReturning` dimension.
    */
   newUsers: integer('new_users'),
+  /**
+   * The rest of GA4's daily figures, added for the overview (migration 188):
+   * `activeUsers`, sessions in the Organic Search channel, `screenPageViews`,
+   * `eventCount`, `keyEvents`, `userEngagementDuration` (seconds) and
+   * `bounceRate` (0-1). Nullable with no default, like the two above: rows
+   * synced before they were requested have no reading.
+   */
+  activeUsers: integer('active_users'),
+  organicSessions: integer('organic_sessions'),
+  views: integer('views'),
+  eventCount: integer('event_count'),
+  keyEvents: real('key_events'),
+  engagementSeconds: real('engagement_seconds'),
+  bounceRate: real('bounce_rate'),
   syncedAt: text('synced_at').notNull(),
   syncRunId: text('sync_run_id').references(() => runs.id, { onDelete: 'cascade' }),
   createdAt: text('created_at').notNull(),
@@ -2083,6 +2120,42 @@ export const gaTrafficWindowSummaries = sqliteTable('ga_traffic_window_summaries
 }, (table) => [
   uniqueIndex('idx_ga_window_summary_unique').on(table.projectId, table.windowKey),
   index('idx_ga_window_summary_run').on(table.syncRunId),
+])
+
+/**
+ * GA4's own totals for each overview window (`7d` / `30d` / `90d`) and for the
+ * period of the same length before it (migration 188): one row per
+ * (project, window, period), replaced on every sync. Users are distinct over
+ * the whole period and the rates are GA4's, which no sum of daily rows can
+ * reproduce. Every figure is nullable: GA4 sends no row for a period with no
+ * data, and that is not a measured zero.
+ */
+export const gaWindowMetrics = sqliteTable('ga_window_metrics', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  /** '7d' | '30d' | '90d' */
+  windowKey: text('window_key').notNull(),
+  /** `GaOverviewPeriods`: 'current' | 'previous' */
+  period: text('period').notNull(),
+  startDate: text('start_date').notNull(),
+  endDate: text('end_date').notNull(),
+  activeUsers: integer('active_users'),
+  newUsers: integer('new_users'),
+  totalUsers: integer('total_users'),
+  sessions: integer('sessions'),
+  organicSessions: integer('organic_sessions'),
+  views: integer('views'),
+  eventCount: integer('event_count'),
+  keyEvents: real('key_events'),
+  engagementRate: real('engagement_rate'),
+  bounceRate: real('bounce_rate'),
+  /** GA4's `userEngagementDuration` over the period, in seconds. */
+  engagementSeconds: real('engagement_seconds'),
+  syncedAt: text('synced_at').notNull(),
+  syncRunId: text('sync_run_id').references(() => runs.id, { onDelete: 'cascade' }),
+}, (table) => [
+  uniqueIndex('idx_ga_window_metrics_unique').on(table.projectId, table.windowKey, table.period),
+  index('idx_ga_window_metrics_run').on(table.syncRunId),
 ])
 
 // GA4's "Google organic search traffic: Landing page + query string" report

@@ -7,7 +7,7 @@ import {
   sentimentJobReadSchema, sentimentSummaryIncludeSchema, sentimentEvidenceOutcomeFilterSchema, queryClassSchema, SENTIMENT_ATTEMPT_PAGE_DEFAULT, SENTIMENT_QUERY_PAGE_DEFAULT, SENTIMENT_QUERY_PAGE_MAX,
 } from '@canonry/canonry-contracts'
 import { agentConversationCreateSchema, reportedQueryClasses } from '@canonry/canonry-contracts'
-import { PROVIDER_ACCOUNT_FAILURE_STREAK, PROVIDER_ACCOUNT_RETRY_HOURS } from '@canonry/canonry-contracts'
+import { PROVIDER_ACCOUNT_FAILURE_STREAK, PROVIDER_ACCOUNT_RETRY_HOURS, WINDOW_SETS } from '@canonry/canonry-contracts'
 import { insightSeveritySchema } from '@canonry/canonry-contracts'
 import type { ToolAnnotations } from '@modelcontextprotocol/sdk/types.js'
 import {
@@ -530,6 +530,13 @@ const gaWindowInputSchema = z.object({
 })
 
 const GA_RANGE_PARAMS = ['window', 'startDate', 'endDate'] as const
+
+// The overview compares GA4's own totals for a fixed window with the period
+// before it, so it takes only the window; there is no calendar range form.
+const gaOverviewInputSchema = z.object({
+  project: projectNameSchema,
+  window: z.enum(WINDOW_SETS.gaOverview).optional(),
+})
 
 const gaTrafficInputSchema = gaWindowInputSchema.extend({
   limit: z.number().int().positive().max(500).optional(),
@@ -2549,6 +2556,17 @@ const rawCanonryMcpTools = [
     handler: (client, input) => client.gaAttributionTrend(input.project),
   }),
   defineTool({
+    name: 'canonry_ga_overview',
+    title: 'Get the GA4 overview',
+    description: 'Get GA4\'s overview for a window (7d, 30d or 90d of complete days ending yesterday, as GA4 counts them): users, new users, sessions, organic sessions, views, event count, key events, engagement rate, bounce rate and average engagement time, each against the previous period, plus both periods by day.',
+    access: 'read',
+    tier: 'ga',
+    inputSchema: gaOverviewInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/ga/overview'],
+    handler: (client, input) => client.gaOverview(input.project, input.window),
+  }),
+  defineTool({
     name: 'canonry_ga_session_history',
     title: 'Get GA session history',
     description: 'Get total sessions per day for a Canonry project.',
@@ -2560,6 +2578,51 @@ const rawCanonryMcpTools = [
     handler: (client, input) => client.gaSessionHistory(input.project, compactStringParams(input, GA_RANGE_PARAMS)),
   }),
   // ----- Google Business Profile (Phase 1: auth + discovery) -----
+  defineTool({
+    name: 'canonry_gbp_local_post_attempt',
+    title: 'Read a saved Google post attempt',
+    description: 'Reconcile the exact saved attempt without another provider POST. Uncertain is not permission to retry.',
+    access: 'read',
+    tier: 'gbp',
+    inputSchema: z.object({ project: projectNameSchema, attemptId: z.string(), packageId: z.string() }),
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/gbp/local-post-attempt'],
+    handler: (client, input) => client.getGbpLocalPostAttempt(input.project, input.attemptId, input.packageId),
+  }),
+  defineTool({
+    name: 'canonry_gbp_local_posts',
+    title: 'Read Google Business Profile posts',
+    description: 'Read one bounded page for an exact selected account/location. A nextPageToken means coverage is incomplete.',
+    access: 'read',
+    tier: 'gbp',
+    inputSchema: z.object({ project: projectNameSchema, accountName: z.string(), locationName: z.string(), pageToken: z.string().optional() }),
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/gbp/local-posts'],
+    handler: (client, input) => client.listGbpLocalPosts(input.project, { accountName: input.accountName, locationName: input.locationName, pageToken: input.pageToken }),
+  }),
+  defineTool({
+    name: 'canonry_gbp_local_post',
+    title: 'Read an exact Google Business Profile post',
+    description: 'Read current state, content, source image and public URL; PROCESSING is not published.',
+    access: 'read',
+    tier: 'gbp',
+    inputSchema: z.object({ project: projectNameSchema, postName: z.string() }),
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/gbp/local-post'],
+    handler: (client, input) => client.getGbpLocalPost(input.project, input.postName),
+  }),
+  defineTool({
+    name: 'canonry_gbp_reviews_live',
+    title: 'Read live Google reviews',
+    description: 'Read the complete bounded review baseline for an exact selected account/location; never replies or changes reviews.',
+    access: 'read',
+    tier: 'gbp',
+    inputSchema: z.object({ project: projectNameSchema, accountName: z.string(), locationName: z.string() }),
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/gbp/reviews/live'],
+    handler: (client, input) => client.readGbpReviewsLive(input.project, { accountName: input.accountName, locationName: input.locationName }),
+  }),
+
   defineTool({
     name: 'canonry_gbp_accounts',
     title: 'List Google Business Profile accounts',

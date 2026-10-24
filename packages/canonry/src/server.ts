@@ -273,6 +273,7 @@ import { createProviderModelCatalog } from "./provider-model-catalog.js";
 import { openRouterModels } from "./agent/pi-models.js";
 import { Scheduler, ensureDefaultHealthSchedule } from "./scheduler.js";
 import { startSiteLivenessLoop } from "./site-liveness-loop.js";
+import { startReviewDeliveryLoop } from "./review-webhook-delivery.js";
 import { startProviderBatchPoller } from "./provider-batch-poller.js";
 import { refreshAllIntegrations } from "./data-refresh.js";
 import { Notifier } from "./notifier.js";
@@ -1910,6 +1911,7 @@ export async function createServer(opts: {
   };
 
   let stopSiteLiveness: (() => void) | null = null;
+  let stopReviewDeliveries: (() => void) | null = null;
   let stopProviderBatchPoller: (() => void) | null = null;
   let stopInstallState: (() => void) | null = null;
 
@@ -4179,6 +4181,9 @@ export async function createServer(opts: {
         },
         notify: (projectId, result) => notifier.onSiteLivenessChecked(projectId, result),
       });
+      // Review alerts whose send failed retry on their own schedule, not only
+      // when the next GBP sync dispatches alerts.
+      stopReviewDeliveries = startReviewDeliveryLoop(() => notifier.drainDueReviewDeliveries());
       // Resumes every batch a previous process left outstanding, and finalizes
       // the runs boot recovery handed to it.
       stopProviderBatchPoller = startProviderBatchPoller({ db: opts.db, registry, runner: jobRunner });
@@ -4217,6 +4222,8 @@ export async function createServer(opts: {
     stopLogCapture();
     stopSiteLiveness?.();
     stopSiteLiveness = null;
+    stopReviewDeliveries?.();
+    stopReviewDeliveries = null;
     stopProviderBatchPoller?.();
     stopProviderBatchPoller = null;
     stopInstallState?.();

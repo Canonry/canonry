@@ -6212,6 +6212,88 @@ export type Ga4SessionHistoryEntry = {
     usersSource: 'deduplicated' | 'landing-page-sum';
 };
 
+export type GaOverviewResponse = {
+    window: '7d' | '30d' | '90d' | 'all';
+    current: {
+        startDate: string | null;
+        endDate: string | null;
+    };
+    previous: {
+        startDate: string | null;
+        endDate: string | null;
+    };
+    totals: {
+        activeUsers: number | null;
+        newUsers: number | null;
+        totalUsers: number | null;
+        sessions: number | null;
+        organicSessions: number | null;
+        views: number | null;
+        eventCount: number | null;
+        keyEvents: number | null;
+        engagementRate: number | null;
+        bounceRate: number | null;
+        averageEngagementTimeSeconds: number | null;
+    };
+    previousTotals: {
+        activeUsers: number | null;
+        newUsers: number | null;
+        totalUsers: number | null;
+        sessions: number | null;
+        organicSessions: number | null;
+        views: number | null;
+        eventCount: number | null;
+        keyEvents: number | null;
+        engagementRate: number | null;
+        bounceRate: number | null;
+        averageEngagementTimeSeconds: number | null;
+    };
+    changePct: {
+        activeUsers: number | null;
+        newUsers: number | null;
+        totalUsers: number | null;
+        sessions: number | null;
+        organicSessions: number | null;
+        views: number | null;
+        eventCount: number | null;
+        keyEvents: number | null;
+        engagementRate: number | null;
+        bounceRate: number | null;
+        averageEngagementTimeSeconds: number | null;
+    };
+    days: Array<{
+        date: string;
+        previousDate: string;
+        values: {
+            activeUsers: number | null;
+            newUsers: number | null;
+            totalUsers: number | null;
+            sessions: number | null;
+            organicSessions: number | null;
+            views: number | null;
+            eventCount: number | null;
+            keyEvents: number | null;
+            engagementRate: number | null;
+            bounceRate: number | null;
+            averageEngagementTimeSeconds: number | null;
+        };
+        previousValues: {
+            activeUsers: number | null;
+            newUsers: number | null;
+            totalUsers: number | null;
+            sessions: number | null;
+            organicSessions: number | null;
+            views: number | null;
+            eventCount: number | null;
+            keyEvents: number | null;
+            engagementRate: number | null;
+            bounceRate: number | null;
+            averageEngagementTimeSeconds: number | null;
+        };
+    }>;
+    syncedAt: string | null;
+};
+
 export type Ga4SocialReferralHistoryEntry = {
     date: string;
     source: string;
@@ -6589,6 +6671,97 @@ export type GaTrafficResponse = {
     windowDays: number | null;
     periodStart: string | null;
     periodEnd: string | null;
+};
+
+export type GbpLocalPost = {
+    name: string;
+    languageCode: string;
+    summary: string;
+    topicType: string;
+    state: 'LIVE' | 'PROCESSING' | 'REJECTED' | 'SCHEDULED' | 'RECURRING' | 'LOCAL_POST_STATE_UNSPECIFIED';
+    actionType: string | null;
+    articleUrl: string | null;
+    imageUrls: Array<string>;
+    mediaSourceUrlsComplete?: boolean;
+    createTime: string;
+    updateTime: string;
+    searchUrl: string | null;
+};
+
+export type GbpLocalPostList = {
+    posts: Array<{
+        name: string;
+        languageCode: string;
+        summary: string;
+        topicType: string;
+        state: 'LIVE' | 'PROCESSING' | 'REJECTED' | 'SCHEDULED' | 'RECURRING' | 'LOCAL_POST_STATE_UNSPECIFIED';
+        actionType: string | null;
+        articleUrl: string | null;
+        imageUrls: Array<string>;
+        mediaSourceUrlsComplete?: boolean;
+        createTime: string;
+        updateTime: string;
+        searchUrl: string | null;
+    }>;
+    nextPageToken: string | null;
+};
+
+export type GbpLocalPostAttempt = {
+    attemptId: string;
+    packageId: string;
+    status: 'accepted' | 'uncertain' | 'rejected';
+    post: {
+        name: string;
+        languageCode: string;
+        summary: string;
+        topicType: string;
+        state: 'LIVE' | 'PROCESSING' | 'REJECTED' | 'SCHEDULED' | 'RECURRING' | 'LOCAL_POST_STATE_UNSPECIFIED';
+        actionType: string | null;
+        articleUrl: string | null;
+        imageUrls: Array<string>;
+        mediaSourceUrlsComplete?: boolean;
+        createTime: string;
+        updateTime: string;
+        searchUrl: string | null;
+    } | null;
+};
+
+export type GbpLiveReviews = {
+    accountName: string;
+    locationName: string;
+    profileUrl: string | null;
+    checkedAt: string;
+    complete: true;
+    reviews: Array<{
+        reviewName: string;
+        starRating: number | null;
+        comment: string | null;
+        reviewerName: string | null;
+        createTime: string | null;
+        updateTime: string;
+    }>;
+};
+
+export type GbpLocalPostCreate = {
+    accountName: string;
+    locationName: string;
+    attemptId: string;
+    packageId: string;
+    content: {
+        languageCode: string;
+        summary: string;
+        topicType: 'STANDARD';
+        callToAction: {
+            actionType: 'LEARN_MORE';
+            url: string;
+        };
+        media: [
+            {
+                mediaFormat: 'PHOTO';
+                sourceUrl: string;
+            }
+        ];
+    };
 };
 
 export type GbpAccountListResponse = {
@@ -27917,6 +28090,224 @@ export type PostApiV1ProjectsByNameGbpLocationsDiscoverResponses = {
 
 export type PostApiV1ProjectsByNameGbpLocationsDiscoverResponse = PostApiV1ProjectsByNameGbpLocationsDiscoverResponses[keyof PostApiV1ProjectsByNameGbpLocationsDiscoverResponses];
 
+export type GetApiV1ProjectsByNameGbpLocalPostsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query: {
+        /**
+         * Exact selected Google account resource.
+         */
+        accountName: string;
+        /**
+         * Exact selected Google location resource.
+         */
+        locationName: string;
+        /**
+         * Opaque next-page token; omission starts the scan.
+         */
+        pageToken?: string;
+    };
+    url: '/api/v1/projects/{name}/gbp/local-posts';
+};
+
+export type GetApiV1ProjectsByNameGbpLocalPostsErrors = {
+    /**
+     * Invalid scope.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Live GBP read not authorized.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Provider result unavailable or incomplete.
+     */
+    502: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameGbpLocalPostsError = GetApiV1ProjectsByNameGbpLocalPostsErrors[keyof GetApiV1ProjectsByNameGbpLocalPostsErrors];
+
+export type GetApiV1ProjectsByNameGbpLocalPostsResponses = {
+    /**
+     * Live Google read returned.
+     */
+    200: GbpLocalPostList;
+};
+
+export type GetApiV1ProjectsByNameGbpLocalPostsResponse = GetApiV1ProjectsByNameGbpLocalPostsResponses[keyof GetApiV1ProjectsByNameGbpLocalPostsResponses];
+
+export type PostApiV1ProjectsByNameGbpLocalPostsData = {
+    body: GbpLocalPostCreate;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/gbp/local-posts';
+};
+
+export type PostApiV1ProjectsByNameGbpLocalPostsErrors = {
+    /**
+     * Invalid or conflicting attempt.
+     */
+    400: ErrorEnvelope;
+    /**
+     * GBP write not authorized or target unavailable.
+     */
+    403: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameGbpLocalPostsError = PostApiV1ProjectsByNameGbpLocalPostsErrors[keyof PostApiV1ProjectsByNameGbpLocalPostsErrors];
+
+export type PostApiV1ProjectsByNameGbpLocalPostsResponses = {
+    /**
+     * Durable attempt state; accepted is not independent verification.
+     */
+    200: GbpLocalPostAttempt;
+};
+
+export type PostApiV1ProjectsByNameGbpLocalPostsResponse = PostApiV1ProjectsByNameGbpLocalPostsResponses[keyof PostApiV1ProjectsByNameGbpLocalPostsResponses];
+
+export type GetApiV1ProjectsByNameGbpLocalPostData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query: {
+        /**
+         * Exact existing Google post resource.
+         */
+        postName: string;
+    };
+    url: '/api/v1/projects/{name}/gbp/local-post';
+};
+
+export type GetApiV1ProjectsByNameGbpLocalPostErrors = {
+    /**
+     * Invalid scope.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Live GBP read not authorized.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Provider result unavailable or incomplete.
+     */
+    502: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameGbpLocalPostError = GetApiV1ProjectsByNameGbpLocalPostErrors[keyof GetApiV1ProjectsByNameGbpLocalPostErrors];
+
+export type GetApiV1ProjectsByNameGbpLocalPostResponses = {
+    /**
+     * Live Google read returned.
+     */
+    200: GbpLocalPost;
+};
+
+export type GetApiV1ProjectsByNameGbpLocalPostResponse = GetApiV1ProjectsByNameGbpLocalPostResponses[keyof GetApiV1ProjectsByNameGbpLocalPostResponses];
+
+export type GetApiV1ProjectsByNameGbpReviewsLiveData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query: {
+        /**
+         * Exact selected Google account resource.
+         */
+        accountName: string;
+        /**
+         * Exact selected Google location resource.
+         */
+        locationName: string;
+    };
+    url: '/api/v1/projects/{name}/gbp/reviews/live';
+};
+
+export type GetApiV1ProjectsByNameGbpReviewsLiveErrors = {
+    /**
+     * Invalid scope.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Live GBP read not authorized.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Provider result unavailable or incomplete.
+     */
+    502: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameGbpReviewsLiveError = GetApiV1ProjectsByNameGbpReviewsLiveErrors[keyof GetApiV1ProjectsByNameGbpReviewsLiveErrors];
+
+export type GetApiV1ProjectsByNameGbpReviewsLiveResponses = {
+    /**
+     * Live Google read returned.
+     */
+    200: GbpLiveReviews;
+};
+
+export type GetApiV1ProjectsByNameGbpReviewsLiveResponse = GetApiV1ProjectsByNameGbpReviewsLiveResponses[keyof GetApiV1ProjectsByNameGbpReviewsLiveResponses];
+
+export type GetApiV1ProjectsByNameGbpLocalPostAttemptData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query: {
+        /**
+         * Exact saved UUID.
+         */
+        attemptId: string;
+        /**
+         * Exact approved package digest.
+         */
+        packageId: string;
+    };
+    url: '/api/v1/projects/{name}/gbp/local-post-attempt';
+};
+
+export type GetApiV1ProjectsByNameGbpLocalPostAttemptErrors = {
+    /**
+     * No matching saved attempt.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Not authorized.
+     */
+    403: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameGbpLocalPostAttemptError = GetApiV1ProjectsByNameGbpLocalPostAttemptErrors[keyof GetApiV1ProjectsByNameGbpLocalPostAttemptErrors];
+
+export type GetApiV1ProjectsByNameGbpLocalPostAttemptResponses = {
+    /**
+     * Saved accepted, rejected or uncertain result.
+     */
+    200: GbpLocalPostAttempt;
+};
+
+export type GetApiV1ProjectsByNameGbpLocalPostAttemptResponse = GetApiV1ProjectsByNameGbpLocalPostAttemptResponses[keyof GetApiV1ProjectsByNameGbpLocalPostAttemptResponses];
+
 export type GetApiV1ProjectsByNameGbpAccountsData = {
     body?: never;
     path: {
@@ -31823,6 +32214,45 @@ export type GetApiV1ProjectsByNameGaAttributionTrendResponses = {
 };
 
 export type GetApiV1ProjectsByNameGaAttributionTrendResponse = GetApiV1ProjectsByNameGaAttributionTrendResponses[keyof GetApiV1ProjectsByNameGaAttributionTrendResponses];
+
+export type GetApiV1ProjectsByNameGaOverviewData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Overview window: the complete days ending yesterday, as GA4 counts "Last 30 days". Defaults to 30d. Any other value is rejected with 400.
+         */
+        window?: '7d' | '30d' | '90d';
+    };
+    url: '/api/v1/projects/{name}/ga/overview';
+};
+
+export type GetApiV1ProjectsByNameGaOverviewErrors = {
+    /**
+     * GA4 is not connected, or the window is not 7d, 30d or 90d.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameGaOverviewError = GetApiV1ProjectsByNameGaOverviewErrors[keyof GetApiV1ProjectsByNameGaOverviewErrors];
+
+export type GetApiV1ProjectsByNameGaOverviewResponses = {
+    /**
+     * GA4 overview returned.
+     */
+    200: GaOverviewResponse;
+};
+
+export type GetApiV1ProjectsByNameGaOverviewResponse = GetApiV1ProjectsByNameGaOverviewResponses[keyof GetApiV1ProjectsByNameGaOverviewResponses];
 
 export type GetApiV1ProjectsByNameGaSessionHistoryData = {
     body?: never;

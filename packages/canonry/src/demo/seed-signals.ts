@@ -18,7 +18,6 @@ import {
   bingUrlInspections,
   conversionTrackingContracts,
   gaAcquisitionDaily,
-  gaDailyTotals,
   gaLeadEventsDaily,
   gaMeasurementSyncStates,
   gaSearchLandingPages,
@@ -46,6 +45,7 @@ import {
 import { DEMO_GA4_PROPERTY_ID, type DemoSeedContext, type DemoSeedProject } from './types.js'
 import { seedSiteCrawl } from './seed-site-crawl.js'
 import { seedGaReferrals } from './seed-ga-referrals.js'
+import { seedGaOverview } from './seed-ga-overview.js'
 import { harborResortsInventory } from './site-inventories/harbor-resorts.js'
 import { summitRoofingInventory } from './site-inventories/summit-roofing.js'
 
@@ -158,13 +158,14 @@ async function seedProjectSignals(db: DatabaseClient, project: DemoSeedProject, 
       db.insert(gscQueryDailyTotals).values({ id: `${prefix}-gsc-query-${i}-${termIndex}`, projectId: project.id, date, query, clicks: queryClicks, impressions: queryImpressions, position: (7.1 + termIndex + i * 0.03).toFixed(2), syncedAt: nowIso, syncRunId, createdAt: at(date) }).run()
       db.insert(gscSearchData).values({ id: `${prefix}-gsc-page-${i}-${termIndex}`, projectId: project.id, syncRunId, date, query, page: termIndex === 0 ? root : `${root}services/`, country: 'usa', device: 'DESKTOP', clicks: queryClicks, impressions: queryImpressions, ctr: (queryClicks / queryImpressions).toFixed(4), position: (7.1 + termIndex).toFixed(2), createdAt: at(date) }).run()
     }
-    db.insert(gaDailyTotals).values({ id: `${prefix}-ga-total-${date}`, projectId: project.id, date, sessions: 92 + i * 4 + variant * 11, users: 71 + i * 3 + variant * 8, engagementRate: 0.58 + i * 0.004, newUsers: 29 + i, syncedAt: nowIso, syncRunId, createdAt: at(date) }).run()
     db.insert(gaTrafficSnapshots).values({ id: `${prefix}-ga-page-${date}`, projectId: project.id, date, landingPage: '/', landingPageNormalized: '/', sessions: 62 + i * 3, organicSessions: 39 + i * 2, directSessions: 14 + i, users: 48 + i * 2, syncedAt: nowIso, syncRunId }).run()
     db.insert(gaAcquisitionDaily).values({ id: `${prefix}-ga-acquisition-${date}`, projectId: project.id, date, channelGroup: 'Organic Search', source: 'google', medium: 'organic', hostName: project.domain, landingPage: '/', landingPageNormalized: '/', sessions: 39 + i * 2, syncedAt: nowIso, syncRunId, createdAt: at(date) }).run()
     db.insert(gaLeadEventsDaily).values({ id: `${prefix}-ga-lead-${date}`, projectId: project.id, date, eventName: 'generate_lead', channelGroup: 'Organic Search', source: 'google', medium: 'organic', hostName: project.domain, landingPage: '/', landingPageNormalized: '/', attributionScope: 'landing-page', eventCount: 3 + (i % 4), syncedAt: nowIso, syncRunId, createdAt: at(date) }).run()
     db.insert(bingCoverageSnapshots).values({ id: `${prefix}-bing-coverage-${date}`, projectId: project.id, syncRunId, date, indexed: 48 + i, notIndexed: 3, unknown: 2, createdAt: at(date) }).run()
   }
   seedGaReferrals(db, { projectId: project.id, prefix, syncRunId, nowIso, dates })
+  // Every daily total the sync keeps, and each window's GA4 totals for the overview.
+  seedGaOverview(db, { projectId: project.id, prefix, syncRunId, now, variant })
   db.insert(gscDataWatermarks).values({ projectId: project.id, dataThroughDate: dates.at(-1)!, syncedThroughDate: dates.at(-1)!, updatedAt: nowIso }).run()
   db.insert(gscCoverageSnapshots).values({ id: `${prefix}-gsc-coverage`, projectId: project.id, syncRunId, date: dates.at(-1)!, indexed: 1, notIndexed: 0, unknownPages: 0, verifiedByInspection: 1, derivedFromImpressions: 0, reasonBreakdown: {}, createdAt: nowIso }).run()
   db.insert(gscUrlInspections).values({ id: `${prefix}-gsc-inspection`, projectId: project.id, syncRunId, url: `${root}services/`, indexingState: 'INDEXING_ALLOWED', verdict: 'PASS', coverageState: 'Submitted and indexed', pageFetchState: 'SUCCESSFUL', robotsTxtState: 'ALLOWED', crawlTime: nowIso, lastCrawlResult: 'SUCCESSFUL', isMobileFriendly: true, richResults: ['Sample FAQ'], referringUrls: [root], inspectedAt: nowIso, createdAt: nowIso }).run()

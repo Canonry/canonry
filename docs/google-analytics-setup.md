@@ -195,6 +195,8 @@ merge; meaningful query parameters stay distinct. Grouping and filtered totals
 run in SQL, with bounded pagination afterward. This read never calls Google.
 A never-synced project returns an empty result; a failed sync keeps old rows and
 reports its stored error. Coverage and sync timestamps describe stored evidence.
-Rows have no GA property identity, so older property data cannot be separated
-after changing a connection. GA4 can threshold or fold long tails into `(other)`;
-these are reported sessions, not a reconciliation with other GA totals.
+Rows have no GA property identity, so connecting the project to another GA4
+property, or disconnecting it, deletes them with the rest of its GA data; the
+next sync fills them from the property it uses now. GA4 can threshold or fold
+long tails into `(other)`; these are reported sessions, not a reconciliation
+with other GA totals.

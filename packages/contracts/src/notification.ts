@@ -201,6 +201,8 @@ export interface ReviewAlertLocation {
 export interface ReviewWebhookPayload {
   source: 'canonry'
   event: 'review.negative'
+  /** Stable material-review revision identity, shared across destination retries. */
+  eventId?: string
   project: { name: string; canonicalDomain: string }
   /** Oldest first, so a receiver that posts one message per review keeps the order they arrived in. */
   reviews: Array<{
@@ -224,6 +226,23 @@ export interface ReviewWebhookPayload {
   dashboardUrl: string
 }
 
+/**
+ * One review event's delivery to one destination. `uncertain` is a chat send
+ * that reached the network with no answer (never resent, since chat webhooks
+ * cannot deduplicate); `failed` is a destination that refused it or a send out
+ * of retries. Both wait for a person: the `gbp.reviews.delivery` doctor check
+ * lists them.
+ */
+export const ReviewDeliveryStates = Object.freeze({
+  Pending: 'pending',
+  Attempting: 'attempting',
+  Sent: 'sent',
+  Uncertain: 'uncertain',
+  Failed: 'failed',
+  Canceled: 'canceled',
+} as const)
+export type ReviewDeliveryState = (typeof ReviewDeliveryStates)[keyof typeof ReviewDeliveryStates]
+
 export interface RatingWebhookPayload {
   source: 'canonry'
   event: 'review.rating-dropped'
@@ -238,4 +257,16 @@ export interface RatingWebhookPayload {
     observedAt: string
   }>
   dashboardUrl: string
+}
+
+/** Only provider-owned Google review/profile links are suitable for review alerts. */
+export function googleBusinessReviewUrl(value: string | null): string | null {
+  try {
+    if (!value) return null
+    const url = new URL(value)
+    const providerPath = (['www.google.com', 'google.com'].includes(url.hostname) && url.pathname.startsWith('/maps'))
+      || url.hostname === 'maps.google.com'
+      || (url.hostname === 'local.google.com' && url.pathname === '/place')
+    return url.protocol === 'https:' && !url.username && !url.password && !url.port && providerPath ? url.href : null
+  } catch { return null }
 }
