@@ -47,6 +47,13 @@ An interrupted claim without a provider identity requires explicit investigation
 it is never silently reset. List pagination retains the next token. Unknown
 states, malformed media and incomplete live review coverage fail closed.
 
+Local Posts list/get failures retain HTTP 502 and unknown coverage. Error details
+identify `token`, `google_api`, `response` or `unclassified`, with an allowlisted
+reason and bounded upstream HTTP status when available. Raw Google/OAuth bodies,
+messages, credentials and post content are never included. A malformed response
+cannot become an empty, complete post list. These diagnostics authorize no retry
+of a create request and do not relax duplicate checks.
+
 The orchestrator companion change performs live source/image preflight, exact
 owner Discord approval, duplicate scans, final hold/configuration checks, durable
 submission and LIVE readback. `PROCESSING` is not success. Verification requires
