@@ -1,6 +1,7 @@
 import { and, asc, eq, ne } from 'drizzle-orm'
 
-import { loadConfig } from '../config.js'
+import { loadConfig, saveConfigPatch } from '../config.js'
+import { resolveJourneyKeySecret } from '../journey-secret.js'
 import { createClient, migrate, projects, runs } from '@canonry/canonry-db'
 import { allowsKeylessFirstRunSetup, createServer, waitForServerRuntimeStartup } from '../server.js'
 import { closeWithIdleSweep } from '../server-shutdown.js'
@@ -156,7 +157,10 @@ export async function serveCommand(format: CliFormat = 'text'): Promise<void> {
     claudeConfigDir: process.env.CLAUDE_CONFIG_DIR,
     codexHome: process.env.CODEX_HOME,
   })
-  const app = await createServer({ config, db, host, getAgentPluginState })
+  // The journey key secret is resolved here, against the config read from disk,
+  // so a generated secret is saved to that file and stays stable across restarts.
+  const journeyKeySecret = resolveJourneyKeySecret(config, process.env, saveConfigPatch)
+  const app = await createServer({ config, db, host, getAgentPluginState, journeyKeySecret })
 
   // Set the moment the server is bound and serving. Everything after that point
   // in this `try` is reporting: console output, the skills nudge, telemetry.

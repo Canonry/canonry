@@ -16,6 +16,8 @@ import {
   rawEventSamples,
   auditLog,
   trafficEventReceipts,
+  journeyEvents,
+  journeyVisitors,
 } from '@canonry/canonry-db'
 import { TrafficSourceStatuses, TrafficSourceTypes } from '@canonry/canonry-contracts'
 import { canonicalizeCloudflareJson } from '@canonry/canonry-integration-cloudflare-worker'
@@ -37,6 +39,7 @@ async function buildHarness(opts: {
   ingestIpRateLimitMax?: number
   sampleLimit?: number
   canonicalDomain?: string
+  journeyKeySecret?: string
 } = {}) {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cf-traffic-routes-test-'))
   const dbPath = path.join(tmpDir, 'test.db')
@@ -72,6 +75,7 @@ async function buildHarness(opts: {
     cloudflareIngestRateLimitMax: opts.ingestRateLimitMax,
     cloudflareIngestIpRateLimitMax: opts.ingestIpRateLimitMax,
     defaultTrafficSampleLimit: opts.sampleLimit,
+    journeyKeySecret: opts.journeyKeySecret,
   })
   await app.ready()
 
@@ -438,7 +442,7 @@ describe('POST /traffic/cloudflare/ingest', () => {
   let secret: string
   let projectId: string
   beforeEach(async () => {
-    h = await buildHarness()
+    h = await buildHarness({ journeyKeySecret: 'journey-test-secret-at-least-32-characters' })
     const res = await h.app.inject({
       method: 'POST',
       url: '/api/v1/projects/test-project/traffic/connect/cloudflare',
@@ -511,6 +515,19 @@ describe('POST /traffic/cloudflare/ingest', () => {
       version: expect.any(String),
     }))
     expect(manifests[0]!.hits).toBe(1)
+  })
+
+  it('records an AI visitor journey once, even when the Worker retries the batch', async () => {
+    const browser = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.7 Mobile/15E148 Safari/604.1'
+    const at = (minutes: number) => new Date(Date.now() - (10 - minutes) * 60_000).toISOString()
+    const events = [
+      buildIngestEvent({ eventId: 'ray-ai', userAgent: browser, remoteIp: '198.51.100.7', path: '/', referer: 'https://chatgpt.com/', observedAt: at(0), cf: { verifiedBot: false, botScore: 90, country: 'US', asn: 64500, asOrganization: 'Example ISP' } }),
+      buildIngestEvent({ eventId: 'ray-next', userAgent: browser, remoteIp: '198.51.100.7', path: '/rooms', referer: 'https://example.com/', observedAt: at(1), cf: { verifiedBot: false, botScore: 90, country: 'US', asn: 64500, asOrganization: 'Example ISP' } }),
+    ]
+    const body = { schemaVersion: 1, workerVersion: CURRENT_CLOUDFLARE_WORKER_VERSION, events }
+    for (let i = 0; i < 2; i += 1) { const res = await ingest({ body }); expect(res.statusCode, `${i} ${res.payload}`).toBe(200) }
+    expect(h.db.select().from(journeyVisitors).all()).toMatchObject([{ projectId, keyBasis: 'ip-ua', firstAiEngine: 'ChatGPT' }])
+    expect(h.db.select().from(journeyEvents).all().map(e => e.sourceEventId).sort()).toEqual(['cloudflare-worker:ray-ai', 'cloudflare-worker:ray-next'])
   })
 
   it('writes NO sidecar for a classifier with no published manifest, so the hit reads as unattributed', async () => {

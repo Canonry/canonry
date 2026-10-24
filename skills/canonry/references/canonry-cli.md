@@ -1863,6 +1863,36 @@ attribution applies equally to Simple and Advanced portfolios; Property, Target,
 and market attribution is unavailable. No provider call or write. Signed-in
 viewers and embeds cannot read samples; API read keys retain project scope.
 
+### AI visitor journeys
+
+```bash
+cnry journeys summary <project> --since 2026-10-01 --format json
+cnry journeys list <project> --engine ChatGPT --returned true --limit 50 --format jsonl
+cnry journeys show <project> <visitor-key> --limit 100 --offset 0
+```
+
+Follows visitors with at least one AI-referred visit, from that first AI visit
+on (earlier visits are not stored), from every traffic source, with no site
+setup. `summary` counts AI visitors whose first AI visit
+falls in the window (default 30 days), how many came back in a later visit, by
+which entry (`ai`, `search`, `social`, `paid`, `referral`, `direct`), and median
+days to return. `list` returns those visitors newest first with their first 20
+visits (`visitCount` is the total) and marks user-agent-only keys; `show` pages
+through one visitor's visits and requests. A visit ends after 30 idle minutes
+or when the visitor arrives again from another outside source; a same-site,
+sign-in or payment referer is a step inside the visit.
+
+Visits are stored when they fall within 30 days after one of the visitor's AI visits;
+rows are deleted after 180 days. A visitor key is a keyed hash, never an IP.
+Sources without an IP (Vercel) key on the user agent only, so people with the
+same device and browser version can merge; `keyBasis` says which. A key stores
+at most 300 requests per UTC day besides AI touches; `cappedDays` counts the days it hit
+that cap. `partialSources` names sources whose logs miss later visits (the
+Cloudflare Worker forwards only AI and bot requests). Query
+strings keep only `utm_*`, and path segments that look like secrets (tokens,
+UUIDs, emails) are masked. Stored reads only, no provider call. Viewers and embeds cannot
+read journeys.
+
 ### Stored GA acquisition
 
 ```bash

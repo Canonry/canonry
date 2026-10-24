@@ -16,6 +16,7 @@ import { GBP_CLI_COMMANDS } from './cli-commands/gbp.js'
 import { createGoogleMarketingCliCommands } from './cli-commands/google-marketing.js'
 import { GET_CLI_COMMANDS } from './cli-commands/get.js'
 import { TRAFFIC_CLI_COMMANDS } from './cli-commands/traffic.js'
+import { JOURNEYS_CLI_COMMANDS } from './cli-commands/journeys.js'
 import { COMPETITOR_CLI_COMMANDS } from './cli-commands/competitor.js'
 import { GOOGLE_CLI_COMMANDS } from './cli-commands/google.js'
 import { KEYS_CLI_COMMANDS } from './cli-commands/keys.js'
@@ -72,6 +73,7 @@ const REGISTERED_COMMANDS: readonly CliCommandSpec[] = [
   ...GBP_CLI_COMMANDS,
   ...createGoogleMarketingCliCommands(createApiClient),
   ...TRAFFIC_CLI_COMMANDS,
+  ...JOURNEYS_CLI_COMMANDS,
   ...INTELLIGENCE_CLI_COMMANDS,
   ...VISIBILITY_STATS_CLI_COMMANDS,
   ...CONTENT_CLI_COMMANDS,

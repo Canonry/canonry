@@ -2781,6 +2781,72 @@ export const rawEventSamples = sqliteTable('raw_event_samples', {
   index('idx_raw_event_samples_event_type').on(table.eventType),
 ])
 
+// AI visitor journeys: what a visitor who arrived from an AI engine did
+// afterwards, across later visits through any channel (contracts journeys.ts).
+// A visitor is a keyed hash, unique per project, of the IP and user agent (or
+// the user agent alone where the provider reports no IP). No IP is stored.
+// A global sweep deletes rows older than JOURNEY_RETENTION_DAYS.
+export const journeyVisitors = sqliteTable('journey_visitors', {
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  visitorKey: text('visitor_key').notNull(),
+  keyBasis: text('key_basis').notNull(),
+  userAgent: text('user_agent'),
+  firstAiAt: text('first_ai_at').notNull(),
+  firstAiEngine: text('first_ai_engine').notNull(),
+  lastAiAt: text('last_ai_at').notNull(),
+  lastSeenAt: text('last_seen_at').notNull(),
+  /** UTC days (YYYY-MM-DD) on which this key reached the per-day request cap. */
+  cappedDays: text('capped_days', { mode: 'json' }).$type<string[]>().notNull().default([]),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.projectId, table.visitorKey] }),
+  index('idx_journey_visitors_project_first_ai').on(table.projectId, table.firstAiAt),
+  index('idx_journey_visitors_last_seen').on(table.lastSeenAt),
+])
+
+export const journeyVisits = sqliteTable('journey_visits', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  visitorKey: text('visitor_key').notNull(),
+  sourceId: text('source_id').notNull().references(() => trafficSources.id, { onDelete: 'cascade' }),
+  startedAt: text('started_at').notNull(),
+  endedAt: text('ended_at').notNull(),
+  entryClass: text('entry_class').notNull(),
+  entryName: text('entry_name'),
+  entryHost: text('entry_host'),
+  paid: integer('paid', { mode: 'boolean' }).notNull().default(false),
+  landingPath: text('landing_path').notNull(),
+  requestCount: integer('request_count').notNull(),
+  pageCount: integer('page_count').notNull(),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  index('idx_journey_visits_visitor').on(table.projectId, table.visitorKey, table.startedAt),
+  index('idx_journey_visits_project_started').on(table.projectId, table.startedAt),
+  index('idx_journey_visits_ended').on(table.endedAt),
+])
+
+export const journeyEvents = sqliteTable('journey_events', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  visitId: text('visit_id').notNull().references(() => journeyVisits.id, { onDelete: 'cascade' }),
+  sourceId: text('source_id').notNull().references(() => trafficSources.id, { onDelete: 'cascade' }),
+  sourceEventId: text('source_event_id').notNull(),
+  ts: text('ts').notNull(),
+  method: text('method'),
+  path: text('path').notNull(),
+  status: integer('status'),
+  kind: text('kind').notNull(),
+  /** The request was an AI touch: it starts or renews the visitor's 30-day lookback. */
+  aiTouch: integer('ai_touch', { mode: 'boolean' }).notNull().default(false),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_journey_events_source_event').on(table.projectId, table.sourceId, table.sourceEventId),
+  index('idx_journey_events_visit_ts').on(table.visitId, table.ts),
+  index('idx_journey_events_ts').on(table.ts),
+])
+
 export const discoverySessions = sqliteTable('discovery_sessions', {
   id: text('id').primaryKey(),
   projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),

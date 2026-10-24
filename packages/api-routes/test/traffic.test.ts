@@ -18,6 +18,9 @@ import {
   runs,
   auditLog,
   schedules,
+  journeyEvents,
+  journeyVisitors,
+  journeyVisits,
 } from '@canonry/canonry-db'
 import {
   trafficEventsResponseSchema,
@@ -175,6 +178,8 @@ async function buildHarness(
     onScheduleUpdated?: (event: { action: string; projectId: string; kind: string }, db: ReturnType<typeof createClient>) => void
     /** Wall-clock budget (ms) for the Vercel sync drain. Tests set a tiny/zero value to exercise the deadline path. */
     vercelSyncDeadlineMs?: number
+    /** Enables AI visitor journeys. */
+    journeyKeySecret?: string
   } = {},
 ) {
   const trafficSyncedEvents: Array<unknown> = []
@@ -357,6 +362,7 @@ async function buildHarness(
       }
     },
     vercelSyncDeadlineMs: options.vercelSyncDeadlineMs,
+    journeyKeySecret: options.journeyKeySecret,
     cloudflareTrafficCredentialStore,
     cloudflareTrafficIngestUrl: 'https://canonry.test/api/v1/projects/{name}/traffic/cloudflare/ingest',
     onTrafficSynced: (event) => {
@@ -6199,6 +6205,88 @@ describe('traffic source connection outcomes', () => {
         { integration: 'traffic_vercel', action: 'connect', status: 'failed', reasonCode: 'PERMISSION_MISSING', errorName: 'VercelLogsApiError', ...DONE },
         { integration: 'traffic_cloud_run', action: 'connect', status: 'failed', reasonCode: 'VALIDATION', errorName: 'AppError', ...DONE },
       ])
+    } finally {
+      await h.close()
+    }
+  })
+})
+
+describe('AI visitor journeys from pulled traffic', () => {
+  const BROWSER = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36'
+  const SECRET = 'journey-test-secret-at-least-32-characters'
+
+  async function waitForRun(db: ReturnType<typeof createClient>, runId: string) {
+    const deadline = performance.now() + 2000
+    while (performance.now() < deadline) {
+      const row = db.select().from(runs).where(eq(runs.id, runId)).get()
+      if (row && row.status !== RunStatuses.running) return row
+      await new Promise<void>(resolve => setTimeout(resolve, 25))
+    }
+    throw new Error(`run ${runId} did not finish`)
+  }
+
+  function journeyEvents_(db: ReturnType<typeof createClient>) {
+    return db.select().from(journeyEvents).all()
+  }
+
+  function visitorTraffic(): NormalizedTrafficRequest[] {
+    const base = Date.now() - 50 * 60_000
+    const at = (minutes: number) => new Date(base + minutes * 60_000).toISOString()
+    return [
+      buildEvent({ eventId: 'ai-landing', userAgent: BROWSER, remoteIp: '198.51.100.7', path: '/', queryString: 'utm_source=chatgpt.com', referer: 'https://chatgpt.com/', observedAt: at(0) }),
+      buildEvent({ eventId: 'ai-next', userAgent: BROWSER, remoteIp: '198.51.100.7', path: '/rooms', referer: 'https://example.com/', observedAt: at(2) }),
+      buildEvent({ eventId: 'ai-asset', userAgent: BROWSER, remoteIp: '198.51.100.7', path: '/_next/static/app.js', referer: 'https://example.com/', observedAt: at(2) }),
+      buildEvent({ eventId: 'later-google', userAgent: BROWSER, remoteIp: '198.51.100.7', path: '/book', referer: 'https://www.google.com/', observedAt: at(45) }),
+      buildEvent({ eventId: 'crawler', userAgent: 'GPTBot/1.0', remoteIp: '20.171.207.34', path: '/', observedAt: at(5) }),
+      buildEvent({ eventId: 'other-person', userAgent: BROWSER, remoteIp: '203.0.113.9', path: '/', referer: 'https://www.google.com/', observedAt: at(6) }),
+    ]
+  }
+
+  async function connect(h: Awaited<ReturnType<typeof buildHarness>>): Promise<string> {
+    const res = await h.app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
+      payload: { gcpProjectId: 'journey-project', keyJson: SA_KEY },
+    })
+    expect(res.statusCode, res.payload).toBe(200)
+    return JSON.parse(res.payload).id as string
+  }
+
+  it('stores the AI visitor once across an overlapping sync and a re-run backfill', async () => {
+    const h = await buildHarness(visitorTraffic(), { bypassTimeFilter: true, journeyKeySecret: SECRET })
+    try {
+      const sourceId = await connect(h)
+      for (let i = 0; i < 2; i += 1) {
+        const sync = await h.app.inject({ method: 'POST', url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`, payload: { sinceMinutes: 120 } })
+        expect(sync.statusCode, sync.payload).toBe(200)
+      }
+      const backfill = await h.app.inject({ method: 'POST', url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/backfill`, payload: { days: 1 } })
+      expect(backfill.statusCode, backfill.payload).toBe(200)
+      expect((await waitForRun(h.db, JSON.parse(backfill.payload).runId)).status).toBe(RunStatuses.completed)
+
+      const visitors = h.db.select().from(journeyVisitors).all()
+      expect(visitors).toHaveLength(1)
+      expect(visitors[0]).toMatchObject({ keyBasis: 'ip-ua', firstAiEngine: 'ChatGPT', userAgent: BROWSER })
+      expect(JSON.stringify(visitors)).not.toContain('198.51.100.7')
+      expect(h.db.select().from(journeyVisits).all().map(v => [v.entryClass, v.entryName, v.requestCount]).sort())
+        .toEqual([['ai', 'ChatGPT', 2], ['search', 'Google', 1]])
+      expect(journeyEvents_(h.db).map(e => e.sourceEventId).sort()).toEqual(['ai-landing', 'ai-next', 'later-google'])
+
+      const summary = await h.app.inject({ method: 'GET', url: '/api/v1/projects/test-project/journeys/summary' })
+      expect(summary.json()).toMatchObject({ aiVisitors: 1, aiVisits: 1, returningVisitors: 1, returnRate: 1, returnedVia: { search: 1 }, keyBasis: { ipUa: 1, ua: 0 } })
+    } finally {
+      await h.close()
+    }
+  })
+
+  it('stores nothing without a journey secret', async () => {
+    const h = await buildHarness(visitorTraffic())
+    try {
+      const sourceId = await connect(h)
+      const sync = await h.app.inject({ method: 'POST', url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`, payload: { sinceMinutes: 120 } })
+      expect(sync.statusCode, sync.payload).toBe(200)
+      expect(h.db.select().from(journeyVisitors).all()).toEqual([])
+      expect(journeyEvents_(h.db)).toEqual([])
     } finally {
       await h.close()
     }
