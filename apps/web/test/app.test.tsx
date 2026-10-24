@@ -191,7 +191,7 @@ test('overview route renders the premium portfolio dashboard', async () => {
   expect(html).toMatch(/All projects/)
   expect(html).toContain('<span>All projects</span>')
   expect(html).toContain('<span class="breadcrumb-current">All projects</span>')
-  expect(html).toMatch(/class="mobile-nav-link[^"]*"[^>]*>All projects<\/a>/)
+  expect(html).toContain('Open navigation')
   expect(html).toMatch(/Visibility across all projects/)
   expect(html).toMatch(/Infrastructure/)
   expect(html).toMatch(/Citypoint Dental NYC/)

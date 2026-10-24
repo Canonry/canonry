@@ -1,7 +1,18 @@
 import { test, expect } from 'vitest'
 
-import { buildDashboard, buildPortfolioProject, buildProjectCommandCenter, type ProjectData } from '../src/build-dashboard.js'
-import type { ApiSettings } from '../src/api.js'
+import { buildDashboard, buildPortfolioProject, buildProjectCommandCenter, toRunListItem, type ProjectData } from '../src/build-dashboard.js'
+import type { ApiRun, ApiSettings } from '../src/api.js'
+
+test('unrecognized stored job kinds retain a readable type and their reported outcome', () => {
+  const item = toRunListItem({
+    id: 'legacy-run', projectId: 'project', kind: 'data-refresh' as ApiRun['kind'],
+    status: 'completed', trigger: 'manual', createdAt: '2026-10-24T12:00:00.000Z',
+  }, 'Sample project')
+
+  expect(item.kindLabel).toBe('Unknown job type')
+  expect(item.summary).toBe('Unknown job type completed')
+  expect(item.status).toBe('completed')
+})
 
 test('buildProjectCommandCenter evidence summary uses canonical mention vocabulary, not legacy "visible"', () => {
   // AGENTS.md vocabulary rule: new UI labels for the answer-text-presence

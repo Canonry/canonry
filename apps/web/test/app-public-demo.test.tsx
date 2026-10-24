@@ -1,8 +1,9 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import React from 'react'
-import { afterEach, beforeAll, expect, test, vi } from 'vitest'
+import { afterEach, beforeAll, expect, onTestFinished, test, vi } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
+import { cleanup, fireEvent, render, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { RouterProvider } from '@tanstack/react-router'
 import { getApiV1ProjectsQueryKey } from '@canonry/canonry-api-client/react-query'
@@ -46,22 +47,27 @@ async function demoHealth(): Promise<HealthSnapshot> {
 /** The demo signs every visitor in with this read-only, non-administrator key. */
 const DEMO_READ_KEY: ApiKeyAccess = { id: 'public-demo-viewer', scopes: ['read'], projectId: null, readOnly: false }
 
-async function renderDemoApp(health?: HealthSnapshot, { path = '/', config = { demo: DEMO } }: { path?: string; config?: NonNullable<typeof window.__CANONRY_CONFIG__> } = {}): Promise<Document> {
+/** The demo app as a visitor first gets it, before any interaction. */
+async function demoAppElement(health?: HealthSnapshot, { path = '/', config = { demo: DEMO } }: { path?: string; config?: NonNullable<typeof window.__CANONRY_CONFIG__> } = {}): Promise<React.ReactElement> {
   window.__CANONRY_CONFIG__ = config
   const fixture = createDashboardFixture()
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   queryClient.setQueryData(getApiV1ProjectsQueryKey({ client: heyClient }), fixture.dashboard.projects.map((entry) => entry.project))
   const router = createAppRouter(queryClient, { initialEntries: [path] })
   await router.load()
-  const markup = renderToStaticMarkup(
+  return (
     <QueryClientProvider client={queryClient}>
       <AccountProvider account={null} apiKey={DEMO_READ_KEY}>
         <DashboardProvider value={{ dashboard: fixture.dashboard, health: health ?? fixture.health }}>
           <RouterProvider router={router} />
         </DashboardProvider>
       </AccountProvider>
-    </QueryClientProvider>,
+    </QueryClientProvider>
   )
+}
+
+async function renderDemoApp(...args: Parameters<typeof demoAppElement>): Promise<Document> {
+  const markup = renderToStaticMarkup(await demoAppElement(...args))
   return new DOMParser().parseFromString(markup, 'text/html')
 }
 
@@ -76,13 +82,21 @@ test('the skip link is the first stop for a keyboard, ahead of the demo banner',
 })
 
 test.each([false, true])('agent setup navigation is available only outside the public demo (demo=%s)', async (demo) => {
-  const document = await renderDemoApp(undefined, { config: demo ? { demo: DEMO } : {} })
-  for (const selector of ['.sidebar-link', '.mobile-nav-link']) {
-    const links = Array.from(document.querySelectorAll<HTMLAnchorElement>(selector))
-      .filter(link => link.textContent?.trim() === 'Agent setup')
-    expect(links).toHaveLength(demo ? 0 : 1)
-    if (!demo) expect(links[0]!.getAttribute('href')).toBe('/agent-setup')
-  }
+  const config = demo ? { demo: DEMO } : {}
+  const document = await renderDemoApp(undefined, { config })
+  const sidebarLinks = Array.from(document.querySelectorAll<HTMLAnchorElement>('.sidebar-link'))
+    .filter(link => link.textContent?.trim() === 'Agent setup')
+  expect(sidebarLinks).toHaveLength(demo ? 0 : 1)
+  if (!demo) expect(sidebarLinks[0]!.getAttribute('href')).toBe('/agent-setup')
+
+  // The mobile navigation is a dialog, so its links exist only once it is open.
+  onTestFinished(cleanup)
+  const view = render(await demoAppElement(undefined, { config }))
+  fireEvent.click(view.getByRole('button', { name: 'Open navigation' }))
+  const navigation = await view.findByRole('dialog', { name: 'Navigation' })
+  const mobileLinks = within(navigation).queryAllByRole('link', { name: 'Agent setup' })
+  expect(mobileLinks).toHaveLength(demo ? 0 : 1)
+  if (!demo) expect(mobileLinks[0]!.getAttribute('href')).toBe('/agent-setup')
 })
 
 test('the demo worker pill reads as disabled, not healthy', async () => {

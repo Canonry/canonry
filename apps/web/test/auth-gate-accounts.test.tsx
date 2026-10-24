@@ -9,7 +9,7 @@
 import { test, expect, onTestFinished, describe, afterEach } from 'vitest'
 
 import React from 'react'
-import { render, screen, cleanup, fireEvent, act } from '@testing-library/react'
+import { render, screen, cleanup, fireEvent, act, within } from '@testing-library/react'
 
 import { AuthGate } from '../src/components/auth/AuthGate.js'
 import { handleAuthExpired } from '../src/api.js'
@@ -192,9 +192,16 @@ describe('what a signed-in person sees', () => {
     render(<AuthGate />)
     await screen.findByRole('heading', { name: 'All projects' })
 
-    expect(screen.getAllByText('owner').length).toBeGreaterThan(0)
-    expect(screen.getAllByRole('button', { name: 'Sign out' }).length).toBe(2)
-    expect(screen.getAllByText('Settings').length).toBeGreaterThan(0)
+    const sidebar = within(screen.getByRole('complementary', { name: 'Primary navigation' }))
+    expect(sidebar.getByText('owner')).toBeTruthy()
+    expect(sidebar.getByRole('button', { name: 'Sign out' })).toBeTruthy()
+    expect(sidebar.getByRole('link', { name: 'Settings' })).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }))
+    const navigation = within(await screen.findByRole('dialog', { name: 'Navigation' }))
+    expect(navigation.getByText('owner')).toBeTruthy()
+    expect(navigation.getByRole('button', { name: 'Sign out' })).toBeTruthy()
+    expect(navigation.getByRole('link', { name: 'Settings' })).toBeTruthy()
   })
 
   test('a viewer is told they are read-only and is not shown administrator screens', async () => {
@@ -208,6 +215,11 @@ describe('what a signed-in person sees', () => {
     // Settings holds provider credentials and API keys — not a viewer's screen.
     expect(screen.queryByText('Settings')).toBeNull()
     expect(screen.queryByText('Setup')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }))
+    const navigation = within(await screen.findByRole('dialog', { name: 'Navigation' }))
+    expect(navigation.queryByRole('link', { name: 'Settings' })).toBeNull()
+    expect(navigation.queryByRole('link', { name: 'Setup' })).toBeNull()
   })
 })
 
@@ -279,8 +291,8 @@ test('P2.9: identity and a way out exist on the mobile surface too', async () =>
   render(<AuthGate />)
   await screen.findByRole('heading', { name: 'All projects' })
 
-  const mobileNav = document.querySelector('.mobile-nav')
-  expect(mobileNav).toBeTruthy()
-  expect(mobileNav!.textContent).toContain('watcher')
-  expect(mobileNav!.querySelector('[data-testid="mobile-sign-out"]')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }))
+  const mobileNav = await screen.findByRole('dialog', { name: 'Navigation' })
+  expect(mobileNav.textContent).toContain('watcher')
+  expect(mobileNav.querySelector('[data-testid="mobile-sign-out"]')).toBeTruthy()
 })

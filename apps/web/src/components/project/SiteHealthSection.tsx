@@ -1,3 +1,4 @@
+import { wasOnboardingScanSkipped } from '../../lib/onboarding-draft.js'
 import { usePublishAeroView } from '../../contexts/aero-view-context.js'
 import {
   useEffect,
@@ -2127,6 +2128,19 @@ export function SiteHealthSection({
     runId: requestedRunId,
     createdAt: requestedAuditRun?.createdAt,
   })
+  const scanHistoryUnconfirmed = explicitOnboarding && !requestedRunId && !auditRunsQuery.isSuccess
+  const scanNotStarted = explicitOnboarding && auditRunsQuery.isSuccess && auditScans.length === 0 && !requestedRunId && !runMutation.isPending
+  const scanSkipped = scanNotStarted && wasOnboardingScanSkipped(projectName)
+  const onboardingEmptyHeading = scanHistoryUnconfirmed
+    ? auditRunsQuery.isError ? 'Scan history could not be loaded' : 'Checking scan history…'
+    : scanNotStarted
+      ? scanSkipped ? 'Site scan skipped' : 'No site scan yet'
+      : 'Page health results unavailable'
+  const onboardingEmptyDescription = scanHistoryUnconfirmed
+    ? 'Scan status is not confirmed. Check scan history before starting a scan.'
+    : scanNotStarted
+      ? 'No scan has been started for this project. Run a first scan or continue without scanning.'
+      : 'This scan did not produce page health results. Run it again to continue setup.'
   const siteAuditReady = Boolean(crawl?.hasCrawlData && !showProgressState && !recoveryPhase)
   // Explicit onboarding has one task per state. A usable terminal crawl opens
   // Page health immediately; active and recovery states stay on the scan view.
@@ -2515,27 +2529,31 @@ export function SiteHealthSection({
         <TransientSiteHealthPanel view={currentView} tabbed={!explicitOnboarding}>
           <section className="rounded-lg border border-default bg-surface-subtle px-5 py-8 text-center">
             <h2 className="text-base font-semibold text-heading">
-              {explicitOnboarding ? 'Page health results unavailable' : 'Full-site map not available'}
+              {explicitOnboarding ? onboardingEmptyHeading : 'Full-site map not available'}
             </h2>
             <p className="mx-auto mt-2 max-w-xl text-sm text-secondary">
               {managedScanForViewer
                 ? MANAGED_SCANS_COPY
                 : explicitOnboarding
-                ? 'This scan did not produce page health results. Run it again to continue setup.'
+                ? onboardingEmptyDescription
                 : crawl?.legacyAuditAvailable
                 ? 'Existing page health results are preserved. Run a new scan to build the page and internal-link map.'
                 : embedded
                   ? 'A full-site scan has not been run for this project.'
                   : 'Run a scan to discover pages, site sections, and internal links.'}
             </p>
+            {explicitOnboarding && !scanHistoryUnconfirmed ? <p className="mt-2 text-sm text-secondary">First scan: up to {SITE_AUDIT_ONBOARDING_PAGE_LIMIT} pages.</p> : null}
             {(crawl?.legacyAuditAvailable || explicitOnboarding) && (
               <div className="mt-4 flex flex-wrap justify-center gap-2">
                 {crawl?.legacyAuditAvailable && !explicitOnboarding && (
                   <Button variant="secondary" size="sm" onClick={() => setView('technical')}>View page health</Button>
                 )}
-                {explicitOnboarding && !managedScanForViewer && (
-                  <Button type="button" size="sm" onClick={startScan}>Run scan again</Button>
+                {scanHistoryUnconfirmed && auditRunsQuery.isError ? <Button type="button" size="sm" onClick={() => { void auditRunsQuery.refetch() }}>Retry scan history</Button> : null}
+                {explicitOnboarding && !scanHistoryUnconfirmed && !managedScanForViewer && (
+                  <Button type="button" size="sm" disabled={scanBusy} onClick={startScan}>{scanNotStarted ? 'Run first scan' : 'Run scan again'}</Button>
                 )}
+                {explicitOnboarding && onContinueOnboarding ? <Button type="button" variant="secondary" size="sm" onClick={onContinueOnboarding}>{scanHistoryUnconfirmed ? 'Continue setup' : 'Continue without scanning'}</Button> : null}
+                {explicitOnboarding && onSkipOnboarding ? <Button type="button" variant="ghost" size="sm" onClick={onSkipOnboarding}>Skip for now</Button> : null}
               </div>
             )}
           </section>

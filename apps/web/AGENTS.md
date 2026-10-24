@@ -695,9 +695,19 @@ Token migration guardrails:
   Tailwind v4 `@layer` / `@property` / `color-mix` output reliably, so the
   computed-style spot check is the Tailwind compiler-output assertion.
 
+### Onboarding state and draft recovery
+
+- Public domain/name/locale and unsaved query/competitor inputs restore from allowlisted session storage scoped by base path and project. Scan consent and provider credentials never persist. Saving clears the saved field's draft; Reset restores persisted project/query state, while Skip or leaving preserves unsaved inputs.
+- Completion leads with a compact Project saved heading, one sweep status and Open project. Optional setup is a flat list: Connect your agent opens `/agent-setup`, and the data-source details start closed. Keep promotional demos and repeated explanatory paragraphs off this finish step. It derives scan/sweep outcomes from their latest saved runs. Distinguish never started, skipped, queued, running, partial, failed, cancelled and completed; name previous saved evidence separately. Provider/query readiness determines the next action.
+- Bare setup without a run offers Run first scan and a way to continue without scanning. Show the first scan's 100-page cap at the decision.
+
 ### Layout and navigation
 
 - **Sidebar navigation** (persistent left, `w-56`, hidden on mobile with full-screen overlay fallback).
+- The full-screen navigation uses the shared Radix dialog behavior: focus starts
+  on Close, stays inside while open, and returns to Open navigation after Close,
+  Escape, or route navigation. Closed navigation is unmounted; background content
+  is unavailable to pointer and assistive-technology interaction while open.
 - **Compact topbar** with breadcrumb, health pills, and primary action button.
 - **Page container** (`max-w-6xl`, centered) for all page content.
 - **Aero bar lane.** While the floating Aero bar shows, `RootLayout` adds `main-area-agent-bar` to `.main-area` (the wrapper holding the page and the footer): bottom padding plus a matching root `scroll-padding-bottom`, so the bar never covers a control or the footer's links. Pages never pad for the bar themselves.

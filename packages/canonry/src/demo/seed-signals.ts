@@ -3,6 +3,7 @@
  * domains and explicit fixture copy: they are never credentials or live provider
  * responses, and this module never starts a job or makes a network request.
  */
+import { RunKinds, RunStatuses, RunTriggers } from '@canonry/canonry-contracts'
 import {
   adsAdGroups,
   adsAds,
@@ -124,7 +125,11 @@ function seedSearchLandingPages(
 async function seedProjectSignals(db: DatabaseClient, project: DemoSeedProject, now: Date, variant: number): Promise<void> {
   const nowIso = now.toISOString()
   const prefix = `demo-signals-${project.id}`
-  const syncRunId = `${prefix}-sync`
+  const gscRunId = `${prefix}-gsc-sync`
+  const bingRunId = `${prefix}-bing-inspect-sitemap`
+  const gaRunId = `${prefix}-ga-sync`
+  const gbpRunId = `${prefix}-gbp-sync`
+  const adsRunId = `${prefix}-ads-sync`
   const crawlRunId = `${prefix}-crawl`
   const root = `https://${project.domain}/`
   const attemptId = `${prefix}-crawl-attempt`
@@ -133,9 +138,13 @@ async function seedProjectSignals(db: DatabaseClient, project: DemoSeedProject, 
   const locationName = `locations/demo-${variant + 1}`
 
   db.insert(runs).values([
-    { id: syncRunId, projectId: project.id, kind: 'data-refresh', status: 'completed', trigger: 'manual', startedAt: nowIso, finishedAt: nowIso, createdAt: nowIso },
-    { id: crawlRunId, projectId: project.id, kind: 'site-audit', status: 'completed', trigger: 'manual', startedAt: nowIso, finishedAt: nowIso, createdAt: nowIso },
-  ]).run()
+    { id: gscRunId, kind: RunKinds['gsc-sync'] },
+    { id: bingRunId, kind: RunKinds['bing-inspect-sitemap'] },
+    { id: gaRunId, kind: RunKinds['ga-sync'] },
+    { id: gbpRunId, kind: RunKinds['gbp-sync'] },
+    { id: adsRunId, kind: RunKinds['ads-sync'] },
+    { id: crawlRunId, kind: RunKinds['site-audit'] },
+  ].map(run => ({ ...run, projectId: project.id, status: RunStatuses.completed, trigger: RunTriggers.manual, startedAt: nowIso, finishedAt: nowIso, createdAt: nowIso }))).run()
 
   // Safe connection metadata lets the existing status readers render context;
   // neither table holds OAuth material.
@@ -155,40 +164,41 @@ async function seedProjectSignals(db: DatabaseClient, project: DemoSeedProject, 
     for (const [termIndex, query] of searchTerms.entries()) {
       const queryClicks = Math.max(3, Math.round(clicks / (termIndex + 2)))
       const queryImpressions = Math.round(impressions / (termIndex + 2))
-      db.insert(gscQueryDailyTotals).values({ id: `${prefix}-gsc-query-${i}-${termIndex}`, projectId: project.id, date, query, clicks: queryClicks, impressions: queryImpressions, position: (7.1 + termIndex + i * 0.03).toFixed(2), syncedAt: nowIso, syncRunId, createdAt: at(date) }).run()
-      db.insert(gscSearchData).values({ id: `${prefix}-gsc-page-${i}-${termIndex}`, projectId: project.id, syncRunId, date, query, page: termIndex === 0 ? root : `${root}services/`, country: 'usa', device: 'DESKTOP', clicks: queryClicks, impressions: queryImpressions, ctr: (queryClicks / queryImpressions).toFixed(4), position: (7.1 + termIndex).toFixed(2), createdAt: at(date) }).run()
+      db.insert(gscQueryDailyTotals).values({ id: `${prefix}-gsc-query-${i}-${termIndex}`, projectId: project.id, date, query, clicks: queryClicks, impressions: queryImpressions, position: (7.1 + termIndex + i * 0.03).toFixed(2), syncedAt: nowIso, syncRunId: gscRunId, createdAt: at(date) }).run()
+      db.insert(gscSearchData).values({ id: `${prefix}-gsc-page-${i}-${termIndex}`, projectId: project.id, syncRunId: gscRunId, date, query, page: termIndex === 0 ? root : `${root}services/`, country: 'usa', device: 'DESKTOP', clicks: queryClicks, impressions: queryImpressions, ctr: (queryClicks / queryImpressions).toFixed(4), position: (7.1 + termIndex).toFixed(2), createdAt: at(date) }).run()
     }
-    db.insert(gaTrafficSnapshots).values({ id: `${prefix}-ga-page-${date}`, projectId: project.id, date, landingPage: '/', landingPageNormalized: '/', sessions: 62 + i * 3, organicSessions: 39 + i * 2, directSessions: 14 + i, users: 48 + i * 2, syncedAt: nowIso, syncRunId }).run()
-    db.insert(gaAcquisitionDaily).values({ id: `${prefix}-ga-acquisition-${date}`, projectId: project.id, date, channelGroup: 'Organic Search', source: 'google', medium: 'organic', hostName: project.domain, landingPage: '/', landingPageNormalized: '/', sessions: 39 + i * 2, syncedAt: nowIso, syncRunId, createdAt: at(date) }).run()
-    db.insert(gaLeadEventsDaily).values({ id: `${prefix}-ga-lead-${date}`, projectId: project.id, date, eventName: 'generate_lead', channelGroup: 'Organic Search', source: 'google', medium: 'organic', hostName: project.domain, landingPage: '/', landingPageNormalized: '/', attributionScope: 'landing-page', eventCount: 3 + (i % 4), syncedAt: nowIso, syncRunId, createdAt: at(date) }).run()
-    db.insert(bingCoverageSnapshots).values({ id: `${prefix}-bing-coverage-${date}`, projectId: project.id, syncRunId, date, indexed: 48 + i, notIndexed: 3, unknown: 2, createdAt: at(date) }).run()
+    db.insert(gaTrafficSnapshots).values({ id: `${prefix}-ga-page-${date}`, projectId: project.id, date, landingPage: '/', landingPageNormalized: '/', sessions: 62 + i * 3, organicSessions: 39 + i * 2, directSessions: 14 + i, users: 48 + i * 2, syncedAt: nowIso, syncRunId: gaRunId }).run()
+    db.insert(gaAcquisitionDaily).values({ id: `${prefix}-ga-acquisition-${date}`, projectId: project.id, date, channelGroup: 'Organic Search', source: 'google', medium: 'organic', hostName: project.domain, landingPage: '/', landingPageNormalized: '/', sessions: 39 + i * 2, syncedAt: nowIso, syncRunId: gaRunId, createdAt: at(date) }).run()
+    db.insert(gaLeadEventsDaily).values({ id: `${prefix}-ga-lead-${date}`, projectId: project.id, date, eventName: 'generate_lead', channelGroup: 'Organic Search', source: 'google', medium: 'organic', hostName: project.domain, landingPage: '/', landingPageNormalized: '/', attributionScope: 'landing-page', eventCount: 3 + (i % 4), syncedAt: nowIso, syncRunId: gaRunId, createdAt: at(date) }).run()
+    db.insert(bingCoverageSnapshots).values({ id: `${prefix}-bing-coverage-${date}`, projectId: project.id, syncRunId: bingRunId, date, indexed: 48 + i, notIndexed: 3, unknown: 2, createdAt: at(date) }).run()
   }
-  seedGaReferrals(db, { projectId: project.id, prefix, syncRunId, nowIso, dates })
+  seedGaReferrals(db, { projectId: project.id, prefix, syncRunId: gaRunId, nowIso, dates })
   // Every daily total the sync keeps, and each window's GA4 totals for the overview.
-  seedGaOverview(db, { projectId: project.id, prefix, syncRunId, now, variant })
+  seedGaOverview(db, { projectId: project.id, prefix, syncRunId: gaRunId, now, variant })
   db.insert(gscDataWatermarks).values({ projectId: project.id, dataThroughDate: dates.at(-1)!, syncedThroughDate: dates.at(-1)!, updatedAt: nowIso }).run()
-  db.insert(gscCoverageSnapshots).values({ id: `${prefix}-gsc-coverage`, projectId: project.id, syncRunId, date: dates.at(-1)!, indexed: 1, notIndexed: 0, unknownPages: 0, verifiedByInspection: 1, derivedFromImpressions: 0, reasonBreakdown: {}, createdAt: nowIso }).run()
-  db.insert(gscUrlInspections).values({ id: `${prefix}-gsc-inspection`, projectId: project.id, syncRunId, url: `${root}services/`, indexingState: 'INDEXING_ALLOWED', verdict: 'PASS', coverageState: 'Submitted and indexed', pageFetchState: 'SUCCESSFUL', robotsTxtState: 'ALLOWED', crawlTime: nowIso, lastCrawlResult: 'SUCCESSFUL', isMobileFriendly: true, richResults: ['Sample FAQ'], referringUrls: [root], inspectedAt: nowIso, createdAt: nowIso }).run()
+  db.insert(gscCoverageSnapshots).values({ id: `${prefix}-gsc-coverage`, projectId: project.id, syncRunId: gscRunId, date: dates.at(-1)!, indexed: 1, notIndexed: 0, unknownPages: 0, verifiedByInspection: 1, derivedFromImpressions: 0, reasonBreakdown: {}, createdAt: nowIso }).run()
+  db.insert(gscUrlInspections).values({ id: `${prefix}-gsc-inspection`, projectId: project.id, syncRunId: gscRunId, url: `${root}services/`, indexingState: 'INDEXING_ALLOWED', verdict: 'PASS', coverageState: 'Submitted and indexed', pageFetchState: 'SUCCESSFUL', robotsTxtState: 'ALLOWED', crawlTime: nowIso, lastCrawlResult: 'SUCCESSFUL', isMobileFriendly: true, richResults: ['Sample FAQ'], referringUrls: [root], inspectedAt: nowIso, createdAt: nowIso }).run()
   db.insert(bingKeywordStats).values(searchTerms.map((query, i) => ({ id: `${prefix}-bing-keyword-${i}`, projectId: project.id, query, impressions: 310 - i * 70, clicks: 22 - i * 4, ctr: '0.071', averagePosition: String(6 + i), syncedAt: nowIso, createdAt: nowIso }))).run()
-  db.insert(bingUrlInspections).values({ id: `${prefix}-bing-inspection`, projectId: project.id, url: root, httpCode: 200, inIndex: true, lastCrawledDate: dates.at(-2)!, inIndexDate: dates.at(-8)!, inspectedAt: nowIso, syncRunId, createdAt: nowIso, documentSize: 24120, anchorCount: 18, discoveryDate: dates[0]! }).run()
+  db.insert(bingUrlInspections).values({ id: `${prefix}-bing-inspection`, projectId: project.id, url: root, httpCode: 200, inIndex: true, lastCrawledDate: dates.at(-2)!, inIndexDate: dates.at(-8)!, inspectedAt: nowIso, syncRunId: bingRunId, createdAt: nowIso, documentSize: 24120, anchorCount: 18, discoveryDate: dates[0]! }).run()
   db.insert(gaMeasurementSyncStates).values({ projectId: project.id, acquisitionStatus: 'ready', acquisitionSyncedAt: nowIso, leadStatus: 'ready', leadSyncedAt: nowIso, leadAttributionScope: 'landing-page', searchLandingStatus: 'ready', searchLandingSyncedAt: nowIso, searchLandingAttemptedAt: nowIso, updatedAt: nowIso }).run()
-  seedSearchLandingPages(db, { projectId: project.id, prefix, syncRunId, nowIso, now, variant })
-  db.insert(gaTrafficSummaries).values({ id: `${prefix}-ga-summary`, projectId: project.id, periodStart: dates[0]!, periodEnd: dates.at(-1)!, totalSessions: 1610, totalOrganicSessions: 980, totalUsers: 1214, syncedAt: nowIso, syncRunId }).run()
-  db.insert(gaTrafficWindowSummaries).values({ id: `${prefix}-ga-window`, projectId: project.id, windowKey: '30d', periodStart: dates[0]!, periodEnd: dates.at(-1)!, totalSessions: 1610, totalOrganicSessions: 980, totalDirectSessions: 284, totalUsers: 1214, syncedAt: nowIso, syncRunId }).run()
+  seedSearchLandingPages(db, { projectId: project.id, prefix, syncRunId: gaRunId, nowIso, now, variant })
+  db.insert(gaTrafficSummaries).values({ id: `${prefix}-ga-summary`, projectId: project.id, periodStart: dates[0]!, periodEnd: dates.at(-1)!, totalSessions: 1610, totalOrganicSessions: 980, totalUsers: 1214, syncedAt: nowIso, syncRunId: gaRunId }).run()
+  db.insert(gaTrafficWindowSummaries).values({ id: `${prefix}-ga-window`, projectId: project.id, windowKey: '30d', periodStart: dates[0]!, periodEnd: dates.at(-1)!, totalSessions: 1610, totalOrganicSessions: 980, totalDirectSessions: 284, totalUsers: 1214, syncedAt: nowIso, syncRunId: gaRunId }).run()
 
   const inventory = variant === 0 ? summitRoofingInventory() : harborResortsInventory()
   const crawl = await seedSiteCrawl(db, { project, prefix, root, crawlRunId, attemptId, nowIso, inventory })
   // The link insight names a page that really carries a broken link, preferring a guide.
   const brokenLinkSource = (crawl.findings.find(finding => finding.sourceNodeKey?.startsWith('/guides/')) ?? crawl.findings.at(0))?.sourceUrl ?? root
-  seedLocalAndCommercialSignals(db, { project, prefix, root, syncRunId, campaignId, groupId, locationName, nowIso, dates, variant })
+  seedLocalAndCommercialSignals(db, { project, prefix, root, gbpRunId, adsRunId, campaignId, groupId, locationName, nowIso, dates, variant })
 
   // The simple project's health and insights come from its stored sweeps
-  // (seed-answer-intelligence.ts). The portfolio keeps these fixed examples.
+  // (seed-answer-intelligence.ts). The portfolio's fixed health and opportunity
+  // examples have no producing sweep; only its crawl insight names a real run.
   if (variant === 1) {
-    db.insert(healthSnapshots).values({ id: `${prefix}-health`, projectId: project.id, runId: syncRunId, overallCitedRate: '0.61', overallMentionRate: '0.74', totalPairs: 42, citedPairs: 26, mentionedPairs: 31, providerBreakdown: { openai: { citedRate: 0.62, mentionRate: 0.76, cited: 13, mentioned: 16, total: 21 }, perplexity: { citedRate: 0.6, mentionRate: 0.71, cited: 13, mentioned: 15, total: 21 } }, createdAt: nowIso }).run()
+    db.insert(healthSnapshots).values({ id: `${prefix}-health`, projectId: project.id, overallCitedRate: '0.61', overallMentionRate: '0.74', totalPairs: 42, citedPairs: 26, mentionedPairs: 31, providerBreakdown: { openai: { citedRate: 0.62, mentionRate: 0.76, cited: 13, mentioned: 16, total: 21 }, perplexity: { citedRate: 0.6, mentionRate: 0.71, cited: 13, mentioned: 15, total: 21 } }, createdAt: nowIso }).run()
     db.insert(insights).values([
-      { id: `${prefix}-insight-1`, projectId: project.id, runId: syncRunId, type: 'opportunity', severity: 'medium', title: 'Expand service comparison guidance', query: searchTerms[0]!, provider: 'openai', recommendation: { action: 'Draft a comparison section', target: `${root}services/`, reason: 'Sample insight for the public dashboard.' }, cause: { cause: 'Sample answer-history gap', details: 'This is stored sample data.' }, dismissed: false, createdAt: nowIso },
-      { id: `${prefix}-insight-2`, projectId: project.id, runId: syncRunId, type: 'persistent-gap', severity: 'low', title: 'Review one internal link target', query: searchTerms[1]!, provider: 'perplexity', recommendation: { action: 'Repair the illustrative link', target: brokenLinkSource, reason: 'Sample finding for the public dashboard.' }, cause: { cause: 'Sample crawl finding', details: 'This is stored sample data.' }, dismissed: false, createdAt: nowIso },
+      { id: `${prefix}-insight-1`, projectId: project.id, type: 'opportunity', severity: 'medium', title: 'Expand service comparison guidance', query: searchTerms[0]!, provider: 'openai', recommendation: { action: 'Draft a comparison section', target: `${root}services/`, reason: 'Sample insight for the public dashboard.' }, cause: { cause: 'Sample answer-history gap', details: 'This is stored sample data.' }, dismissed: false, createdAt: nowIso },
+      { id: `${prefix}-insight-2`, projectId: project.id, runId: crawlRunId, type: 'persistent-gap', severity: 'low', title: 'Review one internal link target', query: searchTerms[1]!, provider: 'perplexity', recommendation: { action: 'Repair the illustrative link', target: brokenLinkSource, reason: 'Sample finding for the public dashboard.' }, cause: { cause: 'Sample crawl finding', details: 'This is stored sample data.' }, dismissed: false, createdAt: nowIso },
     ]).run()
   }
   db.insert(auditLog).values([
@@ -197,25 +207,25 @@ async function seedProjectSignals(db: DatabaseClient, project: DemoSeedProject, 
   ]).run()
 }
 
-function seedLocalAndCommercialSignals(db: DatabaseClient, input: { project: DemoSeedProject; prefix: string; root: string; syncRunId: string; campaignId: string; groupId: string; locationName: string; nowIso: string; dates: string[]; variant: number }): void {
-  const { project, prefix, root, syncRunId, campaignId, groupId, locationName, nowIso, dates, variant } = input
+function seedLocalAndCommercialSignals(db: DatabaseClient, input: { project: DemoSeedProject; prefix: string; root: string; gbpRunId: string; adsRunId: string; campaignId: string; groupId: string; locationName: string; nowIso: string; dates: string[]; variant: number }): void {
+  const { project, prefix, root, gbpRunId, adsRunId, campaignId, groupId, locationName, nowIso, dates, variant } = input
   const business = variant === 0
     ? { category: 'Roofing contractor', campaign: 'Spring roof inspection campaign' }
     : { category: 'Resort hotel', campaign: 'Spring resort stays campaign' }
   db.insert(gbpLocations).values({ id: `${prefix}-gbp-location`, projectId: project.id, accountName: 'accounts/demo-fixture', locationName, displayName: `${project.displayName} - Sample`, primaryCategoryDisplayName: business.category, storefrontAddress: '100 Example Avenue, Demo City', websiteUri: root, placeId: `demo-place-${project.id}`, mapsUri: `https://maps.example/${project.id}`, description: 'Sample listing for the public, view-only Canonry dashboard.', selected: true, syncedAt: nowIso, createdAt: nowIso, updatedAt: nowIso }).run()
   db.insert(gbpDailyMetrics).values(dates.slice(-7).flatMap((date, i) => [
-    { id: `${prefix}-gbp-impressions-${date}`, projectId: project.id, locationName, date, metric: 'BUSINESS_IMPRESSIONS_DESKTOP_MAPS', value: 44 + i * 2, syncRunId },
-    { id: `${prefix}-gbp-clicks-${date}`, projectId: project.id, locationName, date, metric: 'WEBSITE_CLICKS', value: 7 + (i % 3), syncRunId },
+    { id: `${prefix}-gbp-impressions-${date}`, projectId: project.id, locationName, date, metric: 'BUSINESS_IMPRESSIONS_DESKTOP_MAPS', value: 44 + i * 2, syncRunId: gbpRunId },
+    { id: `${prefix}-gbp-clicks-${date}`, projectId: project.id, locationName, date, metric: 'WEBSITE_CLICKS', value: 7 + (i % 3), syncRunId: gbpRunId },
   ])).run()
-  db.insert(gbpKeywordImpressions).values({ id: `${prefix}-gbp-keyword`, projectId: project.id, locationName, periodStart: dates[0]!.slice(0, 7), periodEnd: dates.at(-1)!.slice(0, 7), keyword: 'sample local service', valueCount: 148, valueThreshold: null, syncRunId }).run()
-  db.insert(gbpKeywordMonthly).values({ id: `${prefix}-gbp-monthly`, projectId: project.id, locationName, month: dates.at(-1)!.slice(0, 7), keyword: 'sample local service', valueCount: 148, valueThreshold: null, syncRunId, syncedAt: nowIso }).run()
-  db.insert(gbpPlaceActions).values({ id: `${prefix}-gbp-action`, projectId: project.id, locationName, placeActionLinkName: `${locationName}/placeActionLinks/demo`, placeActionType: 'APPOINTMENT', uri: `${root}contact/`, isPreferred: true, providerType: 'MERCHANT', syncRunId }).run()
+  db.insert(gbpKeywordImpressions).values({ id: `${prefix}-gbp-keyword`, projectId: project.id, locationName, periodStart: dates[0]!.slice(0, 7), periodEnd: dates.at(-1)!.slice(0, 7), keyword: 'sample local service', valueCount: 148, valueThreshold: null, syncRunId: gbpRunId }).run()
+  db.insert(gbpKeywordMonthly).values({ id: `${prefix}-gbp-monthly`, projectId: project.id, locationName, month: dates.at(-1)!.slice(0, 7), keyword: 'sample local service', valueCount: 148, valueThreshold: null, syncRunId: gbpRunId, syncedAt: nowIso }).run()
+  db.insert(gbpPlaceActions).values({ id: `${prefix}-gbp-action`, projectId: project.id, locationName, placeActionLinkName: `${locationName}/placeActionLinks/demo`, placeActionType: 'APPOINTMENT', uri: `${root}contact/`, isPreferred: true, providerType: 'MERCHANT', syncRunId: gbpRunId }).run()
   db.insert(backlinkSummaries).values({ id: `${prefix}-backlinks`, projectId: project.id, source: 'commoncrawl', release: 'DEMO-2026-09', targetDomain: project.domain, totalLinkingDomains: 3, totalHosts: 12, top10HostsShare: '0.42', queriedAt: nowIso, createdAt: nowIso }).run()
   db.insert(backlinkDomains).values(['partners.demo.example', 'local-guides.demo.example', 'trade-directory.demo.example'].map((linkingDomain, i) => ({ id: `${prefix}-backlink-domain-${i}`, projectId: project.id, source: 'commoncrawl' as const, release: 'DEMO-2026-09', targetDomain: project.domain, linkingDomain, numHosts: 5 - i, createdAt: nowIso }))).run()
   db.insert(adsConnections).values({ id: `${prefix}-ads-connection`, projectId: project.id, adAccountId: `demo-account-${project.id}`, displayName: 'Sample Ad Account', currencyCode: 'USD', timezone: 'UTC', status: 'active', reviewStatus: 'approved', integrityReviewStatus: 'sample', integrityDecision: 'synthetic', lastSyncedAt: nowIso, conversionTrackingConfigured: true, createdAt: nowIso, updatedAt: nowIso }).run()
-  db.insert(adsCampaigns).values({ id: campaignId, projectId: project.id, name: business.campaign, description: 'Sample stored campaign for the public dashboard.', status: 'ACTIVE', biddingType: 'MAXIMIZE_CONVERSIONS', dailySpendLimitMicros: 45000000, conversionEventSettingIds: ['demo-conversion-setting'], targeting: { sampleData: true }, syncRunId, syncedAt: nowIso }).run()
-  db.insert(adsAdGroups).values({ id: groupId, projectId: project.id, campaignId, name: 'Service comparison intent', description: 'Sample stored ad group.', status: 'ACTIVE', billingEventType: 'CPC', maxBidMicros: 3200000, contextHints: ['sample service\nsample comparison'], syncRunId, syncedAt: nowIso }).run()
-  db.insert(adsAds).values({ id: `${prefix}-ad`, projectId: project.id, adGroupId: groupId, name: 'Sample responsive ad', status: 'ACTIVE', creative: { sampleData: true, headline: 'Sample service guidance' }, reviewStatus: 'APPROVED', syncRunId, syncedAt: nowIso }).run()
-  db.insert(adsInsightsDaily).values(dates.slice(-7).map((date, i) => ({ id: `${prefix}-ads-insight-${date}`, projectId: project.id, level: 'campaign', entityId: campaignId, date, impressions: 340 + i * 20, clicks: 22 + i, spendMicros: 1800000 + i * 100000, conversions: 2 + (i % 3), syncRunId }))).run()
+  db.insert(adsCampaigns).values({ id: campaignId, projectId: project.id, name: business.campaign, description: 'Sample stored campaign for the public dashboard.', status: 'ACTIVE', biddingType: 'MAXIMIZE_CONVERSIONS', dailySpendLimitMicros: 45000000, conversionEventSettingIds: ['demo-conversion-setting'], targeting: { sampleData: true }, syncRunId: adsRunId, syncedAt: nowIso }).run()
+  db.insert(adsAdGroups).values({ id: groupId, projectId: project.id, campaignId, name: 'Service comparison intent', description: 'Sample stored ad group.', status: 'ACTIVE', billingEventType: 'CPC', maxBidMicros: 3200000, contextHints: ['sample service\nsample comparison'], syncRunId: adsRunId, syncedAt: nowIso }).run()
+  db.insert(adsAds).values({ id: `${prefix}-ad`, projectId: project.id, adGroupId: groupId, name: 'Sample responsive ad', status: 'ACTIVE', creative: { sampleData: true, headline: 'Sample service guidance' }, reviewStatus: 'APPROVED', syncRunId: adsRunId, syncedAt: nowIso }).run()
+  db.insert(adsInsightsDaily).values(dates.slice(-7).map((date, i) => ({ id: `${prefix}-ads-insight-${date}`, projectId: project.id, level: 'campaign', entityId: campaignId, date, impressions: 340 + i * 20, clicks: 22 + i, spendMicros: 1800000 + i * 100000, conversions: 2 + (i % 3), syncRunId: adsRunId }))).run()
   db.insert(conversionTrackingContracts).values({ id: `${prefix}-conversion`, projectId: project.id, name: 'Sample lead', eventName: 'generate_lead', googleAds: { customerId: 'demo-customer', conversionActionId: 'demo-action', conversionId: 'AW-123456', conversionLabel: 'demo-label', campaignIds: [campaignId], requireBiddableGoal: true, requirePrimaryAction: true }, gtm: { accountId: 'demo-account', containerId: 'demo-container', tagId: 'demo-tag', triggerIds: ['demo-trigger'], variableIds: ['demo-value', 'demo-currency'] }, runtime: { verificationRequired: true, requireTransactionId: true, requireValue: true, requireCurrency: true, productionHosts: [project.domain] }, createdAt: nowIso, updatedAt: nowIso }).run()
 }

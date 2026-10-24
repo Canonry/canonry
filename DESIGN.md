@@ -7,7 +7,9 @@ This file is the durable UI contract for humans and coding agents. Read it with
 
 Canonry is a professional desktop analytics tool used by an operator scanning
 dense evidence on a monitor for extended periods. The default dark theme must
-remain restrained, high contrast, and quiet. Design serves the task.
+remain restrained, high contrast, and quiet. Design serves the task. Prioritize
+desktop density and keyboard use; mobile is a compatibility check, not the design
+target.
 
 ## Information hierarchy
 
@@ -60,7 +62,8 @@ each choice.
 - A small mutually exclusive time range may use one rectangular segmented
   control with `rounded-md`, never a rack of separate pills.
 - Chart series use a checkbox-style legend.
-- Actions use the shared rectangular `Button` component.
+- Actions use the shared rectangular `Button` component and its standard desktop
+  sizes. Do not add blanket 44px minimum heights to desktop actions or list rows.
 - Active filters use compact rectangular tokens only when the filter value must
   remain visible; otherwise keep state in the originating control.
 - Every control needs default, hover, focus, active, disabled, and loading
@@ -92,7 +95,8 @@ each choice.
 ## Accessibility and responsive behavior
 
 - Normal text must meet WCAG AA contrast. Interactive controls have visible
-  focus states and at least a 44px touch target where they stand alone.
+  focus states and keyboard access. Keep desktop controls compact; increase
+  standalone touch targets for coarse pointers where needed.
 - Do not communicate state through color alone.
 - Site Health graph states use the dedicated color-vision-safe
   `--chart-site-health-*` palette plus matching status glyphs in labels, search,
