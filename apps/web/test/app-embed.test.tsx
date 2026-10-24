@@ -199,7 +199,7 @@ test('without embed config the full application chrome renders', async () => {
   expect(html).toContain('aria-label="Changelog"')
   expect(html).toContain('class="topbar"')
   expect(html).toContain('class="footer"')
-  expect(html).toContain('id="mobile-nav"')
+  expect(html).toContain('Open navigation')
   expect(html).not.toContain('app-shell-embed')
 })
 
