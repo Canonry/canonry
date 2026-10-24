@@ -918,9 +918,11 @@ Cloudflare to redeliver after the visibility timeout.
 
 The source lease rejects concurrent scheduler and operator drains. A stale
 lease can be recovered after its expiry, and only its owner can release it.
-Receipts remain for Cloudflare's current 14-day platform maximum plus a replay
-margin. This stays safe even when the locally recorded retention is stale or
-lower than the Queue's actual setting.
+Each sync reads the Queue's live message retention from Cloudflare and keeps
+receipts for that long plus a 10-minute replay margin, since a message can only
+be redelivered while it is retained. If the read fails or returns no usable
+value, receipts keep Cloudflare's 14-day maximum plus the margin, so a stale
+locally recorded retention can never shorten the redelivery window.
 
 Each default Queue sync drains at most 10 batches of 100 messages: **1,000
 messages per tick**. Doctor reports a residual of 1–1,000 messages as within

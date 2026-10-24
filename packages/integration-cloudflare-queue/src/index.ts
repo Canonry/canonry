@@ -1,6 +1,7 @@
 export {
   ackCloudflareQueueMessages,
   CloudflareQueueApiError,
+  getCloudflareQueueRetentionSeconds,
   pullCloudflareQueueMessages,
 } from './client.js'
 export type {

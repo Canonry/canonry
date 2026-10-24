@@ -406,6 +406,8 @@ export interface ApiRoutesOptions {
   pullCloudflareQueueMessages?: TrafficRoutesOptions['pullCloudflareQueueMessages']
   /** Override Cloudflare Queue acknowledgement (tests/hosts). */
   ackCloudflareQueueMessages?: TrafficRoutesOptions['ackCloudflareQueueMessages']
+  /** Injectable live Queue retention read for tests; see `TrafficRoutesOptions`. */
+  getCloudflareQueueRetentionSeconds?: TrafficRoutesOptions['getCloudflareQueueRetentionSeconds']
   /** Bounded Cloudflare Queue short-poll batches per traffic sync. */
   cloudflareQueueMaxBatches?: TrafficRoutesOptions['cloudflareQueueMaxBatches']
   /** Override the canonry ingest URL embedded into generated Worker scripts (tests) */
@@ -879,6 +881,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       cloudflareTrafficCredentialStore: opts.cloudflareTrafficCredentialStore,
       pullCloudflareQueueMessages: opts.pullCloudflareQueueMessages,
       ackCloudflareQueueMessages: opts.ackCloudflareQueueMessages,
+      getCloudflareQueueRetentionSeconds: opts.getCloudflareQueueRetentionSeconds,
       cloudflareQueueMaxBatches: opts.cloudflareQueueMaxBatches,
       cloudflareTrafficIngestUrl: opts.cloudflareTrafficIngestUrl,
       cloudflareIngestRateLimitMax: opts.cloudflareIngestRateLimitMax,

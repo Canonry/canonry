@@ -144,22 +144,36 @@ async function withQueueRetry<T>(
   throw lastError
 }
 
+function queueUrl(options: ResolvedClientOptions): string {
+  return `${options.apiBaseUrl}/accounts/${encodeURIComponent(options.accountId)}` +
+    `/queues/${encodeURIComponent(options.queueId)}`
+}
+
 async function postJson<T>(
   options: ResolvedClientOptions,
   action: 'pull' | 'ack',
   body: Record<string, unknown>,
   signal?: AbortSignal,
 ): Promise<T> {
+  return requestJson<T>(options, { method: 'POST', url: queueMessagesUrl(options, action), label: action, body }, signal)
+}
+
+async function requestJson<T>(
+  options: ResolvedClientOptions,
+  request: { method: 'GET' | 'POST'; url: string; label: string; body?: Record<string, unknown> },
+  signal?: AbortSignal,
+): Promise<T> {
+  const { label: action } = request
   return withQueueRetry(async () => {
     let response: Response
     try {
-      response = await options.fetchImpl(queueMessagesUrl(options, action), {
-        method: 'POST',
+      response = await options.fetchImpl(request.url, {
+        method: request.method,
         headers: {
           Authorization: `Bearer ${options.apiToken}`,
-          'Content-Type': 'application/json',
+          ...(request.body ? { 'Content-Type': 'application/json' } : {}),
         },
-        body: JSON.stringify(body),
+        ...(request.body ? { body: JSON.stringify(request.body) } : {}),
         signal: requestSignal(options.timeoutMs, signal),
       })
     } catch (error) {
@@ -408,6 +422,34 @@ function normalizeRetries(retries: readonly CloudflareQueueRetry[] | undefined):
     }
     return { leaseId, ...(retry.delaySeconds === undefined ? {} : { delaySeconds: retry.delaySeconds }) }
   })
+}
+
+// Cloudflare's configurable message retention range, in seconds.
+const MIN_RETENTION_SECONDS = 60
+const MAX_RETENTION_SECONDS = 14 * 24 * 60 * 60
+
+/**
+ * The Queue's message retention in seconds, as Cloudflare reports it now
+ * (`GET /queues/{id}`, `result.settings.message_retention_period`). A message
+ * can only be redelivered while it is retained, so this bounds how long a
+ * consumer must remember what it already processed. Null when the response
+ * carries no usable value; HTTP and transport failures throw.
+ */
+export async function getCloudflareQueueRetentionSeconds(
+  client: CloudflareQueueClientOptions,
+  signal?: AbortSignal,
+): Promise<number | null> {
+  const resolved = resolveOptions(client)
+  const envelope = await requestJson<unknown>(resolved, { method: 'GET', url: queueUrl(resolved), label: 'read' }, signal)
+  if (envelope == null || typeof envelope !== 'object' || Array.isArray(envelope)) return null
+  const result = (envelope as Record<string, unknown>).result
+  if (result == null || typeof result !== 'object' || Array.isArray(result)) return null
+  const settings = (result as Record<string, unknown>).settings
+  if (settings == null || typeof settings !== 'object' || Array.isArray(settings)) return null
+  const seconds = (settings as Record<string, unknown>).message_retention_period
+  return typeof seconds === 'number' && Number.isInteger(seconds) && seconds >= MIN_RETENTION_SECONDS && seconds <= MAX_RETENTION_SECONDS
+    ? seconds
+    : null
 }
 
 /** Pull one short-poll batch. The caller owns draining, persistence, and ack ordering. */

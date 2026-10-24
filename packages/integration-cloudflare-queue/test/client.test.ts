@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
   ackCloudflareQueueMessages,
+  getCloudflareQueueRetentionSeconds,
   pullCloudflareQueueMessages,
 } from '../src/index.js'
 
@@ -425,5 +426,55 @@ describe('ackCloudflareQueueMessages', () => {
 
     await expect(ackCloudflareQueueMessages({ ...client, fetchImpl }, {})).rejects.toMatchObject({ status: 400 })
     expect(fetchImpl).not.toHaveBeenCalled()
+  })
+})
+
+// Shape of Cloudflare's documented Get Queue response
+// (GET /accounts/{account_id}/queues/{queue_id}), unmodeled fields included.
+function queueResponse(settings: Record<string, unknown> | undefined): Response {
+  return new Response(JSON.stringify({
+    errors: [],
+    messages: [],
+    success: true,
+    result: {
+      consumers: [],
+      consumers_total_count: 0,
+      created_on: '2026-08-16T18:00:00.000000Z',
+      modified_on: '2026-08-16T18:00:00.000000Z',
+      producers: [{ script: 'canonry-traffic-source', type: 'worker' }],
+      producers_total_count: 1,
+      queue_id: 'queue-1',
+      queue_name: 'canonry-events',
+      ...(settings ? { settings } : {}),
+    },
+  }), { headers: { 'content-type': 'application/json' } })
+}
+
+describe('getCloudflareQueueRetentionSeconds', () => {
+  it('reads the live message retention from the documented Get Queue endpoint', async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(queueResponse({ delivery_delay: 0, delivery_paused: false, message_retention_period: 345_600 }))
+    await expect(getCloudflareQueueRetentionSeconds({ ...client, fetchImpl })).resolves.toBe(345_600)
+    expect(fetchImpl.mock.calls[0]?.[0]).toBe('https://queue.example.test/client/v4/accounts/account-1/queues/queue-1')
+    const init = fetchImpl.mock.calls[0]?.[1]
+    expect(init).toMatchObject({ method: 'GET', headers: { Authorization: 'Bearer queue-secret-token' } })
+    expect(init?.body).toBeUndefined()
+  })
+
+  it.each([
+    ['missing settings', undefined],
+    ['missing retention', { delivery_delay: 0 }],
+    ['below the minimum', { message_retention_period: 30 }],
+    ['above the 14-day maximum', { message_retention_period: 1_209_601 }],
+    ['not an integer', { message_retention_period: '345600' }],
+  ])('returns null for %s', async (_label, settings) => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(queueResponse(settings))
+    await expect(getCloudflareQueueRetentionSeconds({ ...client, fetchImpl })).resolves.toBeNull()
+  })
+
+  it('throws a secret-free error on HTTP failure', async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(new Response('denied for queue-secret-token', { status: 403 }))
+    const error = await getCloudflareQueueRetentionSeconds({ ...client, fetchImpl, maxRetries: 0 }).catch((caught: unknown) => caught)
+    expect(error).toMatchObject({ name: 'CloudflareQueueApiError', status: 403, message: 'Cloudflare Queue read failed with HTTP 403' })
+    expect(String((error as Error).message)).not.toContain('queue-secret-token')
   })
 })

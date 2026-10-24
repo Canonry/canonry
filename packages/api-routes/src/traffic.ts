@@ -113,6 +113,7 @@ import {
 import {
   ackCloudflareQueueMessages,
   CloudflareQueueApiError,
+  getCloudflareQueueRetentionSeconds,
   pullCloudflareQueueMessages,
 } from '@canonry/canonry-integration-cloudflare-queue'
 import type {
@@ -344,6 +345,8 @@ export interface TrafficRoutesOptions {
     client: CloudflareQueueClientOptions,
     options: AckCloudflareQueueMessagesOptions,
   ) => Promise<CloudflareQueueAckResult>
+  /** Injectable live Queue retention read (seconds, or null) so route tests never call Cloudflare. */
+  getCloudflareQueueRetentionSeconds?: (client: CloudflareQueueClientOptions) => Promise<number | null>
   /** Bounded short-poll batches per sync invocation. */
   cloudflareQueueMaxBatches?: number
   /** Override the canonry ingest URL embedded into generated Worker scripts (for tests). */
@@ -460,11 +463,17 @@ const MAX_BACKFILL_DAYS = 90
 const BACKFILL_MAX_PAGES = 1_000
 const BACKFILL_SAMPLE_LIMIT = 500
 const CLOUDFLARE_INGEST_BODY_LIMIT = 256 * 1024
-// Queue retention is configured outside Canonry and this v1 connection only
-// records the operator-provided value. Keep dedupe receipts through the
-// current Cloudflare maximum (14 days) plus a replay margin, so a lower or
-// stale local value can never shorten the redelivery safety window.
-const CLOUDFLARE_QUEUE_RECEIPT_TTL_MS = 14 * 24 * 60 * 60_000 + 10 * 60_000
+// A Queue message can be redelivered only while Cloudflare retains it. Each
+// sync reads the Queue's live retention and keeps dedupe receipts for that
+// long plus a replay margin. Retention is configured outside Canonry and the
+// connect-time value can be stale, so when the live read fails the receipts
+// fall back to Cloudflare's maximum (14 days) plus the margin: never shorter
+// than the redelivery window.
+const CLOUDFLARE_QUEUE_RECEIPT_REPLAY_MARGIN_MS = 10 * 60_000
+const CLOUDFLARE_QUEUE_RECEIPT_TTL_MS = 14 * 24 * 60 * 60_000 + CLOUDFLARE_QUEUE_RECEIPT_REPLAY_MARGIN_MS
+// The retention read is an optimization: one quick attempt, no retries, so it
+// never eats into the sync lease.
+const CLOUDFLARE_QUEUE_RETENTION_READ_TIMEOUT_MS = 10_000
 // The Queue client can spend up to 210 seconds on one transient ACK sequence
 // (four 30-second requests plus three capped waits). Keep the upstream message
 // lease beyond that budget so a second consumer cannot receive the same batch
@@ -491,6 +500,24 @@ function timingSafeEqualHex(a: string | null | undefined, b: string | null | und
   const left = Buffer.from(a, 'hex')
   const right = Buffer.from(b, 'hex')
   return left.length === right.length && crypto.timingSafeEqual(left, right)
+}
+
+/**
+ * How long to keep Queue dedupe receipts: the live retention plus a replay
+ * margin, or the 14-day maximum when the retention cannot be read.
+ */
+export async function cloudflareQueueReceiptTtlMs(
+  readRetentionSeconds: () => Promise<number | null>,
+  onReadFailure: () => void,
+): Promise<number> {
+  try {
+    const seconds = await readRetentionSeconds()
+    if (seconds !== null) return seconds * 1_000 + CLOUDFLARE_QUEUE_RECEIPT_REPLAY_MARGIN_MS
+  } catch {
+    // Fall through to the maximum below.
+  }
+  onReadFailure()
+  return CLOUDFLARE_QUEUE_RECEIPT_TTL_MS
 }
 
 function parseDirectPushCloudflareSourceConfig(config: unknown) {
@@ -1581,6 +1608,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
   const pullVercelEvents = opts.pullVercelTrafficEvents ?? listVercelTrafficEvents
   const pullQueueMessages = opts.pullCloudflareQueueMessages ?? pullCloudflareQueueMessages
   const ackQueueMessages = opts.ackCloudflareQueueMessages ?? ackCloudflareQueueMessages
+  const readQueueRetentionSeconds = opts.getCloudflareQueueRetentionSeconds ?? getCloudflareQueueRetentionSeconds
   const cloudflareQueueMaxBatches = opts.cloudflareQueueMaxBatches ?? DEFAULT_CLOUDFLARE_QUEUE_MAX_BATCHES
   if (!Number.isInteger(cloudflareQueueMaxBatches) || cloudflareQueueMaxBatches < 1 || cloudflareQueueMaxBatches > 50) {
     throw new RangeError('cloudflareQueueMaxBatches must be an integer from 1 to 50')
@@ -2812,6 +2840,10 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         let committedAt = startedAt
         let remainingBacklogCount = 0
         const canonicalHost = resolveCloudflareWorkerRouteHost(project.canonicalDomain)
+        const receiptTtlMs = await cloudflareQueueReceiptTtlMs(
+          () => readQueueRetentionSeconds({ ...queueClient, maxRetries: 0, timeoutMs: CLOUDFLARE_QUEUE_RETENTION_READ_TIMEOUT_MS }),
+          () => request.log.warn({ sourceId: sourceRow.id }, 'Could not read Cloudflare Queue retention; keeping dedupe receipts for the 14-day maximum'),
+        )
         for (let batch = 0; batch < cloudflareQueueMaxBatches; batch += 1) {
           if (!tryClaimTrafficSyncLease({
             db: app.db, sourceId: sourceRow.id, owner: leaseOwner, now: new Date().toISOString(),
@@ -2876,7 +2908,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
           const writeResult = writeTrafficEventBatch({
             db: app.db, projectId: project.id, sourceId: sourceRow.id, events: normalized,
             receivedAt: committedAt,
-            receiptTtlMs: CLOUDFLARE_QUEUE_RECEIPT_TTL_MS,
+            receiptTtlMs,
             sampleLimit,
             validateSource: latest => {
               if (!latest || latest.projectId !== project.id

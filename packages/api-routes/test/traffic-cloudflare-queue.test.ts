@@ -24,6 +24,8 @@ async function harness(options: {
   queueAck?: Parameters<typeof apiRoutes>[1]['ackCloudflareQueueMessages']
   includeDirectIngestUrl?: boolean
   queueMaxBatches?: number
+  /** Live Queue retention read; by default it fails, as if Cloudflare were unreachable. */
+  queueRetention?: Parameters<typeof apiRoutes>[1]['getCloudflareQueueRetentionSeconds']
 } = {}) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-cloudflare-queue-'))
   directories.push(directory)
@@ -49,6 +51,7 @@ async function harness(options: {
     }),
     pullCloudflareQueueMessages: options.queuePull,
     ackCloudflareQueueMessages: options.queueAck,
+    getCloudflareQueueRetentionSeconds: options.queueRetention ?? (async () => { throw new Error('retention read unavailable in tests') }),
     cloudflareQueueMaxBatches: options.queueMaxBatches,
   })
   await app.ready()
@@ -298,11 +301,45 @@ describe('Cloudflare Queue pull lifecycle', () => {
       .toBe(CURRENT_CLOUDFLARE_WORKER_VERSION)
     const [receipt] = h.db.select().from(trafficEventReceipts).all()
     expect(receipt).toBeDefined()
-    // Queue configuration is caller supplied and is not verified against
-    // Cloudflare. Retain receipts for the platform maximum plus a replay
-    // margin, rather than trusting a potentially lower claimed retention.
+    // The live retention read failed in this harness. Receipts keep the
+    // platform maximum plus a replay margin rather than trusting the
+    // connect-time retention, which may be stale.
     expect(Date.parse(receipt!.expiresAt) - Date.parse(receipt!.receivedAt))
       .toBe(14 * 24 * 60 * 60_000 + 10 * 60_000)
+    await h.app.close()
+  })
+
+  it.each([
+    ['the live retention', async () => 345_600, 345_600_000 + 10 * 60_000],
+    ['the 14-day maximum when Cloudflare reports no usable retention', async () => null, 14 * 24 * 60 * 60_000 + 10 * 60_000],
+  ] as const)('keeps receipts for %s plus the replay margin', async (_label, queueRetention, expectedTtlMs) => {
+    const retentionReads: Array<{ maxRetries?: number; timeoutMs?: number; queueId: string }> = []
+    const message = {
+      id: 'queue-message-ttl', timestampMs: 1_700_000_000_000, attempts: 1, leaseId: 'lease-ttl', metadata: {},
+      contentType: 'json' as const,
+      body: {
+        schemaVersion: 1,
+        workerVersion: CURRENT_CLOUDFLARE_WORKER_VERSION,
+        events: [{
+          eventId: 'ray-queue-ttl', observedAt: '2026-08-11T12:00:00.000Z', method: 'GET', host: 'example.com',
+          path: '/queue', queryString: null, status: 200, userAgent: 'GPTBot/1.0', remoteIp: null, referer: null,
+          cf: { verifiedBot: true, botScore: null, country: null, asn: null, asOrganization: null },
+        }],
+      },
+    }
+    const h = await harness({
+      queuePull: async () => ({ messageBacklogCount: 0, messages: [message], skippedUnleasedMessageCount: 0 }),
+      queueAck: async () => ({ acknowledgedLeaseIds: ['lease-ttl'], retriedLeaseIds: [], warningCount: 0 }),
+      queueRetention: async client => { retentionReads.push(client); return queueRetention() },
+    })
+    const connected = await h.app.inject({ method: 'POST', url: '/api/v1/projects/test-project/traffic/connect/cloudflare', payload: queuePayload })
+    const sourceId = JSON.parse(connected.payload).sourceId as string
+    const sync = await h.app.inject({ method: 'POST', url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`, payload: {} })
+    expect(sync.statusCode).toBe(200)
+    // One quick attempt per sync, so the read never eats into the sync lease.
+    expect(retentionReads).toMatchObject([{ queueId: queuePayload.queueId, maxRetries: 0, timeoutMs: 10_000 }])
+    const [receipt] = h.db.select().from(trafficEventReceipts).all()
+    expect(Date.parse(receipt!.expiresAt) - Date.parse(receipt!.receivedAt)).toBe(expectedTtlMs)
     await h.app.close()
   })
 
