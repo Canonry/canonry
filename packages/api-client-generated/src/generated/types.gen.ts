@@ -5676,6 +5676,88 @@ export type Ga4SessionHistoryEntry = {
     usersSource: 'deduplicated' | 'landing-page-sum';
 };
 
+export type GaOverviewResponse = {
+    window: '7d' | '30d' | '90d' | 'all';
+    current: {
+        startDate: string | null;
+        endDate: string | null;
+    };
+    previous: {
+        startDate: string | null;
+        endDate: string | null;
+    };
+    totals: {
+        activeUsers: number | null;
+        newUsers: number | null;
+        totalUsers: number | null;
+        sessions: number | null;
+        organicSessions: number | null;
+        views: number | null;
+        eventCount: number | null;
+        keyEvents: number | null;
+        engagementRate: number | null;
+        bounceRate: number | null;
+        averageEngagementTimeSeconds: number | null;
+    };
+    previousTotals: {
+        activeUsers: number | null;
+        newUsers: number | null;
+        totalUsers: number | null;
+        sessions: number | null;
+        organicSessions: number | null;
+        views: number | null;
+        eventCount: number | null;
+        keyEvents: number | null;
+        engagementRate: number | null;
+        bounceRate: number | null;
+        averageEngagementTimeSeconds: number | null;
+    };
+    changePct: {
+        activeUsers: number | null;
+        newUsers: number | null;
+        totalUsers: number | null;
+        sessions: number | null;
+        organicSessions: number | null;
+        views: number | null;
+        eventCount: number | null;
+        keyEvents: number | null;
+        engagementRate: number | null;
+        bounceRate: number | null;
+        averageEngagementTimeSeconds: number | null;
+    };
+    days: Array<{
+        date: string;
+        previousDate: string;
+        values: {
+            activeUsers: number | null;
+            newUsers: number | null;
+            totalUsers: number | null;
+            sessions: number | null;
+            organicSessions: number | null;
+            views: number | null;
+            eventCount: number | null;
+            keyEvents: number | null;
+            engagementRate: number | null;
+            bounceRate: number | null;
+            averageEngagementTimeSeconds: number | null;
+        };
+        previousValues: {
+            activeUsers: number | null;
+            newUsers: number | null;
+            totalUsers: number | null;
+            sessions: number | null;
+            organicSessions: number | null;
+            views: number | null;
+            eventCount: number | null;
+            keyEvents: number | null;
+            engagementRate: number | null;
+            bounceRate: number | null;
+            averageEngagementTimeSeconds: number | null;
+        };
+    }>;
+    syncedAt: string | null;
+};
+
 export type Ga4SocialReferralHistoryEntry = {
     date: string;
     source: string;
@@ -30530,6 +30612,45 @@ export type GetApiV1ProjectsByNameGaAttributionTrendResponses = {
 };
 
 export type GetApiV1ProjectsByNameGaAttributionTrendResponse = GetApiV1ProjectsByNameGaAttributionTrendResponses[keyof GetApiV1ProjectsByNameGaAttributionTrendResponses];
+
+export type GetApiV1ProjectsByNameGaOverviewData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Overview window: the complete days ending yesterday, as GA4 counts "Last 30 days". Defaults to 30d. Any other value is rejected with 400.
+         */
+        window?: '7d' | '30d' | '90d';
+    };
+    url: '/api/v1/projects/{name}/ga/overview';
+};
+
+export type GetApiV1ProjectsByNameGaOverviewErrors = {
+    /**
+     * GA4 is not connected, or the window is not 7d, 30d or 90d.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameGaOverviewError = GetApiV1ProjectsByNameGaOverviewErrors[keyof GetApiV1ProjectsByNameGaOverviewErrors];
+
+export type GetApiV1ProjectsByNameGaOverviewResponses = {
+    /**
+     * GA4 overview returned.
+     */
+    200: GaOverviewResponse;
+};
+
+export type GetApiV1ProjectsByNameGaOverviewResponse = GetApiV1ProjectsByNameGaOverviewResponses[keyof GetApiV1ProjectsByNameGaOverviewResponses];
 
 export type GetApiV1ProjectsByNameGaSessionHistoryData = {
     body?: never;

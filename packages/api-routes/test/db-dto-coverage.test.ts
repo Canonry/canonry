@@ -712,6 +712,10 @@ const COVERAGE: Record<string, CoverageEntry> = {
     kind: 'internal-only',
     reason: 'Component-level sync completeness and error state backing the follow-up measurement API.',
   },
+  gaWindowMetrics: {
+    kind: 'internal-only',
+    reason: 'GA4 totals per overview window and the period before it, written by the sync. Backing store only: its values reach callers through the /ga/overview response, not as a direct row DTO.',
+  },
   gaDailyTotals: {
     kind: 'internal-only',
     reason: 'Property-level daily GA4 totals (no landing-page dim), the deduplicated `users` source for the session-history response. Backing store only — its values reach callers through that response, not as a direct row DTO. Mirrors gscDailyTotals.',

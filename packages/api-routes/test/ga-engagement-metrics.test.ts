@@ -10,6 +10,7 @@ import { gaMeasurementAnalysisDtoSchema } from '@canonry/canonry-contracts'
 import * as gaModule from '@canonry/canonry-integration-google-analytics'
 import { apiRoutes } from '../src/index.js'
 import type { Ga4CredentialRecord, Ga4CredentialStore } from '../src/ga.js'
+import { dailyTotals, unknownWindowMetrics } from './ga-sync-fixtures.js'
 
 /**
  * GA4 engagement rate + returning users, from the sync write through to the
@@ -148,10 +149,11 @@ describe('GA4 engagement metrics', () => {
     vi.spyOn(gaModule, 'fetchLeadEvents').mockResolvedValue({
       startDate: '2026-06-22', endDate: ANCHOR, attributionScope: 'landing-page', rows: [],
     })
-    vi.spyOn(gaModule, 'fetchDailyTotals').mockResolvedValue([
+    vi.spyOn(gaModule, 'fetchDailyTotals').mockResolvedValue(dailyTotals([
       { date: '2026-07-21', sessions: 100, users: 80, engagementRate: 0.6, newUsers: 50},
       { date: ANCHOR, sessions: 300, users: 200, engagementRate: null, newUsers: null},
-    ])
+    ]))
+    vi.spyOn(gaModule, 'fetchWindowMetrics').mockImplementation(async (_token, _property, windowKey) => unknownWindowMetrics(windowKey))
 
     const response = await ctx.app.inject({
       method: 'POST',

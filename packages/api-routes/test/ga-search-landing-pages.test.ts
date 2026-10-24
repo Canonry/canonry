@@ -19,6 +19,7 @@ import type { GA4SearchLandingReport, GA4SearchLandingWindowReport } from '@cano
 import { apiRoutes } from '../src/index.js'
 import type { Ga4CredentialRecord, Ga4CredentialStore } from '../src/ga.js'
 import type { GoogleConnectionRecord, GoogleConnectionStore } from '../src/google.js'
+import { dailyTotals, unknownWindowMetrics } from './ga-sync-fixtures.js'
 
 const PROJECT = 'search-landing'
 
@@ -155,7 +156,8 @@ async function mockGa(searchLanding: () => Promise<GA4SearchLandingReport>) {
   vi.spyOn(ga, 'fetchWindowSummary').mockImplementation(async (_token, _property, windowKey) => ({
     windowKey, periodStart: dateDaysAgo(29), periodEnd: dateDaysAgo(0), totalSessions: 10, totalOrganicSessions: 4, totalDirectSessions: 2, totalUsers: 8,
   }))
-  vi.spyOn(ga, 'fetchDailyTotals').mockResolvedValue([])
+  vi.spyOn(ga, 'fetchDailyTotals').mockResolvedValue(dailyTotals())
+  vi.spyOn(ga, 'fetchWindowMetrics').mockImplementation(async (_token, _property, windowKey) => unknownWindowMetrics(windowKey))
   vi.spyOn(ga, 'fetchTrafficByLandingPage').mockResolvedValue([])
   const ai = vi.spyOn(ga, 'fetchAiReferrals').mockResolvedValue([])
   const social = vi.spyOn(ga, 'fetchSocialReferrals').mockResolvedValue([])

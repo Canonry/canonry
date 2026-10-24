@@ -4765,6 +4765,46 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `CREATE INDEX IF NOT EXISTS idx_research_run_queries_upstream_job ON research_run_queries(upstream_job_id) WHERE upstream_job_id IS NOT NULL`,
     ],
   },
+  {
+    // The GA4 overview: the rest of GA4's daily figures beside the ones already
+    // stored, and GA4's own totals for each window and the period before it.
+    // Every new figure is NULL on existing rows: they were synced before the
+    // metric was requested, and a 0 would read as a measured day with no views.
+    version: 188,
+    name: 'ga-overview-metrics',
+    statements: [
+      `ALTER TABLE ga_daily_totals ADD COLUMN active_users INTEGER`,
+      `ALTER TABLE ga_daily_totals ADD COLUMN organic_sessions INTEGER`,
+      `ALTER TABLE ga_daily_totals ADD COLUMN views INTEGER`,
+      `ALTER TABLE ga_daily_totals ADD COLUMN event_count INTEGER`,
+      `ALTER TABLE ga_daily_totals ADD COLUMN key_events REAL`,
+      `ALTER TABLE ga_daily_totals ADD COLUMN engagement_seconds REAL`,
+      `ALTER TABLE ga_daily_totals ADD COLUMN bounce_rate REAL`,
+      `CREATE TABLE IF NOT EXISTS ga_window_metrics (
+        id                 TEXT PRIMARY KEY,
+        project_id         TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        window_key         TEXT NOT NULL,
+        period             TEXT NOT NULL,
+        start_date         TEXT NOT NULL,
+        end_date           TEXT NOT NULL,
+        active_users       INTEGER,
+        new_users          INTEGER,
+        total_users        INTEGER,
+        sessions           INTEGER,
+        organic_sessions   INTEGER,
+        views              INTEGER,
+        event_count        INTEGER,
+        key_events         REAL,
+        engagement_rate    REAL,
+        bounce_rate        REAL,
+        engagement_seconds REAL,
+        synced_at          TEXT NOT NULL,
+        sync_run_id        TEXT REFERENCES runs(id) ON DELETE CASCADE
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_ga_window_metrics_unique ON ga_window_metrics(project_id, window_key, period)`,
+      `CREATE INDEX IF NOT EXISTS idx_ga_window_metrics_run ON ga_window_metrics(sync_run_id)`,
+    ],
+  },
 ]
 
 /**

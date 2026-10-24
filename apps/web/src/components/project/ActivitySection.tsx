@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { RefreshCw, Unplug, Upload } from 'lucide-react'
 
@@ -14,12 +14,14 @@ import {
 } from '../shared/DataTableControls.js'
 import { AiTrafficHistoryPanel } from './AiTrafficHistoryPanel.js'
 import {
+  DisclosureRow,
+  DisclosureRows,
   GroupedReferralTable,
   KpiRow,
   PlainHeader,
   SectionHeading,
+  SiteTrafficCard,
   SortHeader,
-  SubHeading,
   StackedSeriesChart,
   type SortDir,
 } from './ActivityParts.js'
@@ -36,8 +38,10 @@ import {
   gaSearchLandingPageLabel,
   type GaSearchLandingPageRow,
   type GaSearchLandingPagesResponse,
+  type GaOverviewResponse,
   type GaSearchLandingWindow,
   type MetricsWindow,
+  isGaOverviewWindow,
 } from '@canonry/canonry-contracts'
 import {
   toneFromTrafficSourceStatus,
@@ -53,6 +57,7 @@ import {
 } from '../../api.js'
 import {
   getApiV1ProjectsByNameGaAiReferralDailyOptions,
+  getApiV1ProjectsByNameGaOverviewOptions,
   getApiV1ProjectsByNameGaSearchLandingPagesOptions,
   getApiV1ProjectsByNameGaSessionHistoryOptions,
   getApiV1ProjectsByNameGaStatusOptions,
@@ -104,7 +109,8 @@ type PageSortKey = 'landingPage' | 'sessions' | 'organicSessions'
 type AiLandingPageSortKey = 'landingPage' | 'source' | 'sessions'
 
 export const ACTIVITY_COPY = {
-  siteTrafficTooltip: 'Sessions, Google organic search sessions and distinct users from GA4. Distinct users are unavailable when the selected range has no stored GA4 aggregate.',
+  siteTrafficTooltip: 'GA4\'s own figures for the complete days ending yesterday, as GA4 counts them, each against the period of the same length before it. Pick a figure in any slot to chart it by day.',
+  siteTrafficFallbackTooltip: 'Sessions, Google organic search sessions and distinct users from GA4. Distinct users are unavailable when the selected range has no stored GA4 aggregate.',
   channelTooltip: 'GA4 sessions split into five channels that do not overlap. AI sessions are taken out of the channel GA4 filed them under before the rest is counted.',
   organicTooltip: 'Sessions from Google organic search, after AI sessions are taken out.',
   socialTooltip: 'Organic Social and Paid Social sessions, after AI sessions are taken out.',
@@ -120,6 +126,7 @@ export const ACTIVITY_COPY = {
   noAiReferrals: 'No AI referrals in this period.',
   noAiLandingPages: 'No AI landing pages in this period.',
   noSocial: 'No social sessions in this period.',
+  noneInPeriod: 'None in this period',
   aiHistoryTooltip: 'Daily AI crawls, page fetches and visits from connected traffic sources, with GA4 visits beside server visits.',
 } as const
 
@@ -218,37 +225,41 @@ function ServerActivityPanel({ projectName }: { projectName: string }) {
 }
 
 export function ActivitySection({ projectName }: { projectName: string }) {
-  // Owned here so every panel below reads the same range. The AI history is a
-  // SIBLING of ClickThroughActivity, never a child: that component returns a
-  // connect prompt with no GA4 property, and the history exists without GA4.
+  // Owned here so every panel below reads the same range. The GA4 overview only
+  // shows the control in its heading; no GA4 state can take it away.
   const [trafficWindow, setTrafficWindow] = useState<MetricsWindow>('30d')
   return (
-    <div className="space-y-10">
+    <div>
       <ServerActivityPanel projectName={projectName} />
       <div className="page-section-divider" />
-      <section aria-labelledby="ai-traffic-history-heading">
-        {/* The picker sits above both the AI history and the GA4 panels it
-            drives, so a disconnected GA4 cannot take it away. */}
-        <SectionHeading
-          id="ai-traffic-history-heading"
-          title="AI traffic history"
-          tooltip={ACTIVITY_COPY.aiHistoryTooltip}
-          actions={(
-            <MetricsWindowPicker
-              windows={TRAFFIC_WINDOWS}
-              value={trafficWindow}
-              onChange={setTrafficWindow}
-              label="Traffic time period"
-            />
-          )}
-        />
-        <AiTrafficHistoryPanel
-          projectName={projectName}
-          sinceMinutes={TRAFFIC_WINDOW_MINUTES[trafficWindow]}
-        />
-      </section>
-      <div className="page-section-divider" />
-      <ClickThroughActivity projectName={projectName} window={trafficWindow} />
+      <ClickThroughActivity
+        projectName={projectName}
+        window={trafficWindow}
+        periodControl={(
+          <MetricsWindowPicker
+            windows={TRAFFIC_WINDOWS}
+            value={trafficWindow}
+            onChange={setTrafficWindow}
+            label="Traffic time period"
+          />
+        )}
+        between={(
+          <>
+            <div className="page-section-divider" />
+            <section aria-labelledby="ai-traffic-history-heading">
+              <SectionHeading
+                id="ai-traffic-history-heading"
+                title="AI traffic history"
+                tooltip={ACTIVITY_COPY.aiHistoryTooltip}
+              />
+              <AiTrafficHistoryPanel
+                projectName={projectName}
+                sinceMinutes={TRAFFIC_WINDOW_MINUTES[trafficWindow]}
+              />
+            </section>
+          </>
+        )}
+      />
     </div>
   )
 }
@@ -323,17 +334,9 @@ function SocialSourceCells({ row }: { row: ApiGaSocialReferral }) {
   )
 }
 
-// Exported for focused testing of the GA4 click-through panel (e.g. landing-page
-// pagination) without standing up a router for the sibling ServerActivityPanel's links.
-export function ClickThroughActivity({ projectName, window: windowProp }: {
-  projectName: string
-  /** Owned by ActivitySection, which renders the only picker on the page. */
-  window?: MetricsWindow
-}) {
+/** GA4 reads and actions for the Activity tab, shared by its overview and its detail sections. */
+function useGaActivity(projectName: string, trafficWindow: MetricsWindow) {
   const queryClient = useQueryClient()
-  // Read-only here: ActivitySection owns the control. Defaulted so this
-  // component stays independently mountable in tests.
-  const trafficWindow = windowProp ?? '30d'
   const [status, setStatus] = useState<ApiGaStatus | null>(null)
   const [traffic, setTraffic] = useState<ApiGaTraffic | null>(null)
   const [loading, setLoading] = useState(true)
@@ -341,10 +344,9 @@ export function ClickThroughActivity({ projectName, window: windowProp }: {
   const [disconnecting, setDisconnecting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
-  const [pageSort, setPageSort] = useState<{ key: PageSortKey; dir: SortDir }>({ key: 'sessions', dir: 'desc' })
-  const [aiLandingSort, setAiLandingSort] = useState<{ key: AiLandingPageSortKey; dir: SortDir }>({ key: 'sessions', dir: 'desc' })
   const [aiDaily, setAiDaily] = useState<GA4AiReferralDailyDto>(EMPTY_AI_DAILY)
   const [sessionHistory, setSessionHistory] = useState<GA4SessionHistoryEntry[]>([])
+  const [overview, setOverview] = useState<GaOverviewResponse | null>(null)
 
   async function loadData(cancelled: { current: boolean }) {
     setLoading(true)
@@ -365,6 +367,7 @@ export function ClickThroughActivity({ projectName, window: windowProp }: {
         setTraffic(null)
         setAiDaily(EMPTY_AI_DAILY)
         setSessionHistory([])
+        setOverview(null)
         setLoading(false)
         return
       }
@@ -374,7 +377,7 @@ export function ClickThroughActivity({ projectName, window: windowProp }: {
       // the traffic response, so it shares that response's window by
       // construction.
       const windowParam = trafficWindow === 'all' ? undefined : trafficWindow
-      const [trafficData, aiDailyData, sessionHistoryData] = await Promise.all([
+      const [trafficData, aiDailyData, sessionHistoryData, overviewData] = await Promise.all([
         queryClient.fetchQuery({
           ...getApiV1ProjectsByNameGaTrafficOptions({
             client: heyClient,
@@ -399,11 +402,22 @@ export function ClickThroughActivity({ projectName, window: windowProp }: {
           }),
           staleTime: TRAFFIC_STALE_MS,
         }).catch(() => [] as GA4SessionHistoryEntry[]),
+        // The GA4 overview has no 'all' window; the page never offers one.
+        // A server too old for the read leaves the plain figures in its place.
+        queryClient.fetchQuery({
+          ...getApiV1ProjectsByNameGaOverviewOptions({
+            client: heyClient,
+            path: { name: projectName },
+            query: { window: isGaOverviewWindow(trafficWindow) ? trafficWindow : '30d' },
+          }),
+          staleTime: TRAFFIC_STALE_MS,
+        }).catch(() => null),
       ])
       if (cancelled.current) return
       setTraffic(trafficData)
       setAiDaily(aiDailyData)
       setSessionHistory(sessionHistoryData)
+      setOverview(overviewData)
       setLoading(false)
     } catch (err) {
       if (cancelled.current) return
@@ -445,6 +459,7 @@ export function ClickThroughActivity({ projectName, window: windowProp }: {
       await invalidateProjectQueryDomain(queryClient, 'ga')
       setStatus({ connected: false, propertyId: null, clientEmail: null, lastSyncedAt: null, createdAt: null, updatedAt: null })
       setTraffic(null)
+      setOverview(null)
       setNotice('GA4 disconnected')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Disconnect failed')
@@ -452,6 +467,169 @@ export function ClickThroughActivity({ projectName, window: windowProp }: {
       setDisconnecting(false)
     }
   }
+
+  async function handleConnected() {
+    await invalidateProjectQueryDomain(queryClient, 'ga')
+    await loadData({ current: false })
+  }
+
+  return {
+    status,
+    traffic,
+    loading,
+    syncing,
+    disconnecting,
+    error,
+    notice,
+    aiDaily,
+    sessionHistory,
+    overview,
+    handleSync,
+    handleDisconnect,
+    handleConnected,
+  }
+}
+
+type GaActivity = ReturnType<typeof useGaActivity>
+
+// Exported for focused testing of the GA4 panels (e.g. landing-page pagination)
+// without standing up a router for the ServerActivityPanel's links.
+export function ClickThroughActivity({ projectName, window: windowProp, periodControl, between }: {
+  projectName: string
+  /** Owned by ActivitySection, which renders the only picker on the page. */
+  window?: MetricsWindow
+  /** That picker, shown in the Site traffic heading. Absent when mounted alone. */
+  periodControl?: ReactNode
+  /**
+   * Rendered between the GA4 overview and the GA4 detail sections, and outside
+   * every GA4 state: GaOverview and GaDetails own the loading state and the
+   * connect prompt, so a disconnected GA4 cannot take this away. ActivitySection
+   * puts the AI traffic history here, which needs no GA4 at all.
+   */
+  between?: ReactNode
+}) {
+  // Read-only here: ActivitySection owns the control. Defaulted so this
+  // component stays independently mountable in tests.
+  const ga = useGaActivity(projectName, windowProp ?? '30d')
+  return (
+    <>
+      <GaOverview ga={ga} projectName={projectName} periodControl={periodControl} />
+      {between}
+      <GaDetails ga={ga} projectName={projectName} />
+    </>
+  )
+}
+
+/** "Site traffic": the GA4 figures and sessions per day, or the state that stands in for them. */
+function GaOverview({ ga, projectName, periodControl }: {
+  ga: GaActivity
+  projectName: string
+  periodControl?: ReactNode
+}) {
+  const { status, traffic, syncing, disconnecting, handleSync, handleDisconnect } = ga
+  const connected = status?.connected === true
+  const canManage = connected && !isEmbed() && !isPublicDemo()
+  const windowLabel = traffic ? formatWindow(traffic.windowStart, traffic.windowEnd) : null
+
+  let body: ReactNode
+  if (ga.loading && !status) {
+    body = <p className="text-sm text-secondary">Loading traffic data…</p>
+  } else if (!connected) {
+    body = isEmbed() || isPublicDemo()
+      ? <p className="text-sm text-secondary">No Google Analytics 4 property connected.</p>
+      : <Ga4ConnectForm projectName={projectName} onConnected={() => { void ga.handleConnected() }} />
+  } else if (traffic && ga.overview) {
+    body = <SiteTrafficCard overview={ga.overview} refreshing={ga.loading} />
+  } else if (traffic) {
+    body = (
+      <>
+        <KpiRow
+          label="Site traffic"
+          items={[
+            { label: 'Total sessions', value: formatCompact(traffic.totalSessions), detail: traffic.totalSessions.toLocaleString() },
+            { label: 'Organic sessions', value: formatCompact(traffic.totalOrganicSessions), detail: `${traffic.organicSharePctDisplay} of total` },
+            {
+              label: 'Total users',
+              value: traffic.totalUsers === null ? 'n/a' : formatCompact(traffic.totalUsers),
+              detail: traffic.totalUsers === null ? 'Unavailable for this range' : traffic.totalUsers.toLocaleString(),
+            },
+          ]}
+        />
+      </>
+    )
+  } else {
+    body = (
+      <div className="flex flex-wrap items-center gap-3 border-y border-default py-4">
+        <p className="text-sm text-secondary">No traffic data yet.</p>
+        {!isEmbed() && !isPublicDemo() && (
+          <Button variant="outline" size="sm" disabled={syncing} onClick={asyncHandler(handleSync)}>
+            <RefreshCw className={`mr-1.5 size-3.5 ${syncing ? 'animate-spin' : ''}`} />
+            Sync from GA4
+          </Button>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <section aria-labelledby="site-traffic-heading">
+      <SectionHeading
+        id="site-traffic-heading"
+        title="Site traffic"
+        tooltip={ga.overview
+          ? ACTIVITY_COPY.siteTrafficTooltip
+          : windowLabel ? `${ACTIVITY_COPY.siteTrafficFallbackTooltip} Data covers ${windowLabel}.` : ACTIVITY_COPY.siteTrafficFallbackTooltip}
+        meta={connected ? (
+          <span className="inline-flex items-center gap-1.5">
+            <span aria-hidden="true" className="inline-block size-2 rounded-full bg-positive-500" />
+            GA4 property <span className="text-strong">{status.propertyId}</span>
+            {status.clientEmail && <span className="text-muted">· {status.clientEmail}</span>}
+          </span>
+        ) : undefined}
+        actions={periodControl || canManage ? (
+          <div className="flex flex-wrap items-center gap-2">
+            {periodControl}
+            {canManage && (
+              <>
+                <Button variant="outline" size="sm" disabled={syncing} onClick={asyncHandler(handleSync)}>
+                  <RefreshCw className={`mr-1.5 size-3.5 ${syncing ? 'animate-spin' : ''}`} />
+                  {syncing ? 'Syncing…' : 'Sync'}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-negative-400 hover:text-negative"
+                  disabled={disconnecting}
+                  onClick={asyncHandler(handleDisconnect)}
+                >
+                  <Unplug className="mr-1.5 size-3.5" />
+                  Disconnect
+                </Button>
+              </>
+            )}
+          </div>
+        ) : undefined}
+      />
+      {ga.error && (
+        <div role="alert" className="mb-4 rounded-lg border border-negative-800/60 bg-negative-900/20 px-4 py-2 text-sm text-negative">
+          {ga.error}
+        </div>
+      )}
+      {ga.notice && (
+        <div role="status" className="mb-4 rounded-lg border border-positive-800/60 bg-positive-900/20 px-4 py-2 text-sm text-positive">
+          {ga.notice}
+        </div>
+      )}
+      {body}
+    </section>
+  )
+}
+
+/** The GA4 sections under the overview. Each section's figures stay in view; its charts and tables open in place. */
+function GaDetails({ ga, projectName }: { ga: GaActivity; projectName: string }) {
+  const { traffic, aiDaily, sessionHistory } = ga
+  const [pageSort, setPageSort] = useState<{ key: PageSortKey; dir: SortDir }>({ key: 'sessions', dir: 'desc' })
+  const [aiLandingSort, setAiLandingSort] = useState<{ key: AiLandingPageSortKey; dir: SortDir }>({ key: 'sessions', dir: 'desc' })
 
   const sortedPages = useMemo(() => {
     if (!traffic?.topPages) return []
@@ -504,27 +682,7 @@ export function ClickThroughActivity({ projectName, window: windowProp }: {
     setAiLandingSort((current) => (current.key === key ? { key, dir: current.dir === 'desc' ? 'asc' : 'desc' } : { key, dir: 'desc' }))
   }
 
-  if (loading && !status) {
-    return <p className="py-8 text-center text-sm text-secondary">Loading traffic data…</p>
-  }
-
-  // Not connected state
-  if (!status?.connected) {
-    if (isEmbed() || isPublicDemo()) {
-      return <p className="text-sm text-secondary">No Google Analytics 4 property connected.</p>
-    }
-    return (
-      <Ga4ConnectForm
-        projectName={projectName}
-        onConnected={() => {
-          void (async () => {
-            await invalidateProjectQueryDomain(queryClient, 'ga')
-            await loadData({ current: false })
-          })()
-        }}
-      />
-    )
-  }
+  if (!ga.status?.connected) return null
 
   const windowLabel = traffic ? formatWindow(traffic.windowStart, traffic.windowEnd) : null
   const breakdown = traffic?.channelBreakdown
@@ -545,76 +703,7 @@ export function ClickThroughActivity({ projectName, window: windowProp }: {
       : null
 
   return (
-    <div className="space-y-10">
-      {error && (
-        <div role="alert" className="rounded-lg border border-negative-800/60 bg-negative-900/20 px-4 py-2 text-sm text-negative">
-          {error}
-        </div>
-      )}
-      {notice && (
-        <div role="status" className="rounded-lg border border-positive-800/60 bg-positive-900/20 px-4 py-2 text-sm text-positive">
-          {notice}
-        </div>
-      )}
-
-      <section aria-labelledby="site-traffic-heading">
-        <SectionHeading
-          id="site-traffic-heading"
-          title="Site traffic"
-          tooltip={windowLabel ? `${ACTIVITY_COPY.siteTrafficTooltip} Data covers ${windowLabel}.` : ACTIVITY_COPY.siteTrafficTooltip}
-          meta={(
-            <span className="inline-flex items-center gap-1.5">
-              <span aria-hidden="true" className="inline-block size-2 rounded-full bg-positive-500" />
-              GA4 property <span className="text-strong">{status.propertyId}</span>
-              {status.clientEmail && <span className="text-muted">· {status.clientEmail}</span>}
-            </span>
-          )}
-          actions={!isEmbed() && !isPublicDemo() ? (
-            <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" disabled={syncing} onClick={asyncHandler(handleSync)}>
-                <RefreshCw className={`mr-1.5 size-3.5 ${syncing ? 'animate-spin' : ''}`} />
-                {syncing ? 'Syncing…' : 'Sync'}
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-negative-400 hover:text-negative"
-                disabled={disconnecting}
-                onClick={asyncHandler(handleDisconnect)}
-              >
-                <Unplug className="mr-1.5 size-3.5" />
-                Disconnect
-              </Button>
-            </div>
-          ) : undefined}
-        />
-
-        {traffic ? (
-          <KpiRow
-            label="Site traffic"
-            items={[
-              { label: 'Total sessions', value: formatCompact(traffic.totalSessions), detail: traffic.totalSessions.toLocaleString() },
-              { label: 'Organic sessions', value: formatCompact(traffic.totalOrganicSessions), detail: `${traffic.organicSharePctDisplay} of total` },
-              {
-                label: 'Total users',
-                value: traffic.totalUsers === null ? 'n/a' : formatCompact(traffic.totalUsers),
-                detail: traffic.totalUsers === null ? 'Unavailable for this range' : traffic.totalUsers.toLocaleString(),
-              },
-            ]}
-          />
-        ) : (
-          <div className="flex flex-wrap items-center gap-3 border-y border-default py-4">
-            <p className="text-sm text-secondary">No traffic data yet.</p>
-            {!isEmbed() && !isPublicDemo() && (
-              <Button variant="outline" size="sm" disabled={syncing} onClick={asyncHandler(handleSync)}>
-                <RefreshCw className={`mr-1.5 size-3.5 ${syncing ? 'animate-spin' : ''}`} />
-                Sync from GA4
-              </Button>
-            )}
-          </div>
-        )}
-      </section>
-
+    <>
       {traffic && breakdown && (
         <>
           <div className="page-section-divider" />
@@ -644,88 +733,104 @@ export function ClickThroughActivity({ projectName, window: windowProp }: {
               ]}
             />
 
-            <SubHeading title={ACTIVITY_COPY.aiChartLabel} />
-            {aiDaily.days.length > 0 ? (
-              <StackedSeriesChart
-                input={aiDaily.byEngine}
-                baseline={sessionBaseline}
-                baselineLabel="Total sessions"
+            <DisclosureRows>
+              <DisclosureRow
                 label={ACTIVITY_COPY.aiChartLabel}
-              />
-            ) : (
-              <p className="text-sm text-secondary">{ACTIVITY_COPY.noAiReferrals}</p>
-            )}
+                meta={aiDaily.days.length > 0 ? countOf(aiDaily.totalSessions, 'session') : ACTIVITY_COPY.noneInPeriod}
+              >
+                {aiDaily.days.length > 0 ? (
+                  <StackedSeriesChart
+                    input={aiDaily.byEngine}
+                    baseline={sessionBaseline}
+                    baselineLabel="Total sessions"
+                    label={ACTIVITY_COPY.aiChartLabel}
+                  />
+                ) : (
+                  <p className="text-sm text-secondary">{ACTIVITY_COPY.noAiReferrals}</p>
+                )}
+              </DisclosureRow>
 
-            <SubHeading
-              title="Where AI visitors came from"
-              tooltip={ACTIVITY_COPY.aiEnginesTooltip}
-              meta={aiEngines.length > 0 ? `${aiEngines.filter((group) => group.engine !== null).length} engines · ${traffic.aiReferrals.length} sources` : undefined}
-            />
-            {aiEngines.length > 0 ? (
-              <GroupedReferralTable
-                groups={aiEngines}
-                groupLabel="Engine"
-                caption="AI referral sessions by engine"
-                childColumns={AI_SOURCE_COLUMNS}
-                childRowKey={(row) => `${row.source}:${row.medium}:${row.sourceDimension}:${row.trafficClass}`}
-                renderChildCells={(row) => <AiSourceCells row={row} />}
-                pinLast={isUnattributedAiGroup}
-              />
-            ) : (
-              <p className="text-sm text-secondary">{ACTIVITY_COPY.noAiReferrals}</p>
-            )}
-
-            <SubHeading title="Pages AI visitors landed on" meta={aiLandingRowCount} />
-            {traffic.aiReferralLandingPages.length > 0 ? (
-              <>
-                <DataTableSearch
-                  value={aiLandingTable.query}
-                  onChange={aiLandingTable.setQuery}
-                  label="Filter landing page URLs or query parameters"
-                  placeholder="Filter URL or query parameters"
-                  className="mb-4 max-w-md"
-                />
-                {aiLandingTable.totalRows > 0 ? (
-                  <>
-                    <div className="overflow-x-auto">
-                      <table className="w-full min-w-[36rem] text-sm">
-                        <thead>
-                          <tr className="border-b border-default">
-                            <SortHeader label="Landing page" sortKey="landingPage" current={aiLandingSort.key} dir={aiLandingSort.dir} onSort={sortAiLanding} align="left" />
-                            <SortHeader label="Source" sortKey="source" current={aiLandingSort.key} dir={aiLandingSort.dir} onSort={sortAiLanding} align="left" />
-                            <PlainHeader label="Attribution" align="left" />
-                            <SortHeader label="Sessions" sortKey="sessions" current={aiLandingSort.key} dir={aiLandingSort.dir} onSort={sortAiLanding} align="right" />
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {aiLandingTable.rows.map((row) => (
-                            <AiReferralLandingPageRow
-                              key={`${row.landingPage}:${row.source}:${row.medium}:${row.sourceDimension}`}
-                              row={row}
-                            />
-                          ))}
-                        </tbody>
-                      </table>
+              <DisclosureRow
+                label="Where AI visitors came from"
+                meta={aiEngines.length > 0
+                  ? `${countOf(aiEngines.filter((group) => group.engine !== null).length, 'engine')} · ${countOf(traffic.aiReferrals.length, 'source')}`
+                  : ACTIVITY_COPY.noneInPeriod}
+              >
+                {aiEngines.length > 0 ? (
+                  // The help sits beside the table, never in the row: a button
+                  // inside a summary toggles it and joins its accessible name.
+                  <div className="flex items-start gap-3">
+                    <div className="min-w-0 flex-1">
+                      <GroupedReferralTable
+                        groups={aiEngines}
+                        groupLabel="Engine"
+                        caption="AI referral sessions by engine"
+                        childColumns={AI_SOURCE_COLUMNS}
+                        childRowKey={(row) => `${row.source}:${row.medium}:${row.sourceDimension}:${row.trafficClass}`}
+                        renderChildCells={(row) => <AiSourceCells row={row} />}
+                        pinLast={isUnattributedAiGroup}
+                      />
                     </div>
-                    <DataTablePagination
-                      page={aiLandingTable.page}
-                      pageSize={aiLandingTable.pageSize}
-                      visibleRows={aiLandingTable.rows.length}
-                      totalRows={aiLandingTable.totalRows}
-                      onPageChange={aiLandingTable.setPage}
-                      itemLabel={aiLandingTable.hasQuery ? 'matches' : 'rows'}
+                    <InfoTooltip text={ACTIVITY_COPY.aiEnginesTooltip} />
+                  </div>
+                ) : (
+                  <p className="text-sm text-secondary">{ACTIVITY_COPY.noAiReferrals}</p>
+                )}
+              </DisclosureRow>
+
+              <DisclosureRow label="Pages AI visitors landed on" meta={aiLandingRowCount ?? ACTIVITY_COPY.noneInPeriod}>
+                {traffic.aiReferralLandingPages.length > 0 ? (
+                  <>
+                    <DataTableSearch
+                      value={aiLandingTable.query}
+                      onChange={aiLandingTable.setQuery}
+                      label="Filter landing page URLs or query parameters"
+                      placeholder="Filter URL or query parameters"
+                      className="mb-4 max-w-md"
                     />
+                    {aiLandingTable.totalRows > 0 ? (
+                      <>
+                        <div className="overflow-x-auto">
+                          <table className="w-full min-w-[36rem] text-sm">
+                            <thead>
+                              <tr className="border-b border-default">
+                                <SortHeader label="Landing page" sortKey="landingPage" current={aiLandingSort.key} dir={aiLandingSort.dir} onSort={sortAiLanding} align="left" />
+                                <SortHeader label="Source" sortKey="source" current={aiLandingSort.key} dir={aiLandingSort.dir} onSort={sortAiLanding} align="left" />
+                                <PlainHeader label="Attribution" align="left" />
+                                <SortHeader label="Sessions" sortKey="sessions" current={aiLandingSort.key} dir={aiLandingSort.dir} onSort={sortAiLanding} align="right" />
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {aiLandingTable.rows.map((row) => (
+                                <AiReferralLandingPageRow
+                                  key={`${row.landingPage}:${row.source}:${row.medium}:${row.sourceDimension}`}
+                                  row={row}
+                                />
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                        <DataTablePagination
+                          page={aiLandingTable.page}
+                          pageSize={aiLandingTable.pageSize}
+                          visibleRows={aiLandingTable.rows.length}
+                          totalRows={aiLandingTable.totalRows}
+                          onPageChange={aiLandingTable.setPage}
+                          itemLabel={aiLandingTable.hasQuery ? 'matches' : 'rows'}
+                        />
+                      </>
+                    ) : (
+                      <div className="flex flex-wrap items-center gap-3 py-4">
+                        <p className="text-sm text-secondary">No landing pages match this filter</p>
+                        <Button variant="outline" size="sm" onClick={() => aiLandingTable.setQuery('')}>Clear filter</Button>
+                      </div>
+                    )}
                   </>
                 ) : (
-                  <div className="flex flex-wrap items-center gap-3 py-4">
-                    <p className="text-sm text-secondary">No landing pages match this filter</p>
-                    <Button variant="outline" size="sm" onClick={() => aiLandingTable.setQuery('')}>Clear filter</Button>
-                  </div>
+                  <p className="text-sm text-secondary">{ACTIVITY_COPY.noAiLandingPages}</p>
                 )}
-              </>
-            ) : (
-              <p className="text-sm text-secondary">{ACTIVITY_COPY.noAiLandingPages}</p>
-            )}
+              </DisclosureRow>
+            </DisclosureRows>
           </section>
 
           <div className="page-section-divider" />
@@ -751,27 +856,36 @@ export function ClickThroughActivity({ projectName, window: windowProp }: {
               ]}
             />
 
-            {socialPlatforms.length > 0 ? (
-              <>
-                <SubHeading title={ACTIVITY_COPY.socialChartLabel} />
-                <StackedSeriesChart input={traffic.socialPlatformDaily} label={ACTIVITY_COPY.socialChartLabel} />
+            <DisclosureRows>
+              <DisclosureRow
+                label={ACTIVITY_COPY.socialChartLabel}
+                meta={socialPlatforms.length > 0 ? countOf(traffic.socialSessions, 'session') : ACTIVITY_COPY.noneInPeriod}
+              >
+                {socialPlatforms.length > 0
+                  ? <StackedSeriesChart input={traffic.socialPlatformDaily} label={ACTIVITY_COPY.socialChartLabel} />
+                  : <p className="text-sm text-secondary">{ACTIVITY_COPY.noSocial}</p>}
+              </DisclosureRow>
 
-                <SubHeading
-                  title="Social platforms"
-                  meta={`${socialPlatforms.length} platforms · ${traffic.socialReferrals.length} sources`}
-                />
-                <GroupedReferralTable
-                  groups={socialPlatforms}
-                  groupLabel="Platform"
-                  caption="Social sessions by platform"
-                  childColumns={SOCIAL_SOURCE_COLUMNS}
-                  childRowKey={(row) => `${row.source}:${row.medium}:${row.channelGroup}`}
-                  renderChildCells={(row) => <SocialSourceCells row={row} />}
-                />
-              </>
-            ) : (
-              <p className="mt-4 text-sm text-secondary">{ACTIVITY_COPY.noSocial}</p>
-            )}
+              <DisclosureRow
+                label="Social platforms"
+                meta={socialPlatforms.length > 0
+                  ? `${countOf(socialPlatforms.length, 'platform')} · ${countOf(traffic.socialReferrals.length, 'source')}`
+                  : ACTIVITY_COPY.noneInPeriod}
+              >
+                {socialPlatforms.length > 0 ? (
+                  <GroupedReferralTable
+                    groups={socialPlatforms}
+                    groupLabel="Platform"
+                    caption="Social sessions by platform"
+                    childColumns={SOCIAL_SOURCE_COLUMNS}
+                    childRowKey={(row) => `${row.source}:${row.medium}:${row.channelGroup}`}
+                    renderChildCells={(row) => <SocialSourceCells row={row} />}
+                  />
+                ) : (
+                  <p className="text-sm text-secondary">{ACTIVITY_COPY.noSocial}</p>
+                )}
+              </DisclosureRow>
+            </DisclosureRows>
           </section>
         </>
       )}
@@ -829,11 +943,16 @@ export function ClickThroughActivity({ projectName, window: windowProp }: {
           because GA4 stores it for 7, 28 and 90 days ending yesterday. */}
       <GoogleOrganicSearchPagesPanel projectName={projectName} />
 
-      <p className="text-xs text-secondary">
+      <p className="mt-6 text-xs text-secondary">
         {traffic?.lastSyncedAt ? `Last synced ${relativeTime(traffic.lastSyncedAt)}` : 'Never synced'}
       </p>
-    </div>
+    </>
   )
+}
+
+/** "1 engine", "8 engines": a row's count with its noun. */
+function countOf(count: number, noun: string): string {
+  return `${count.toLocaleString()} ${count === 1 ? noun : `${noun}s`}`
 }
 
 type SearchLandingSortKey = 'landingPage' | 'clicks' | 'impressions' | 'ctr' | 'position' | 'activeUsers'
