@@ -21,6 +21,15 @@ conservative policy protects hotel locations, including Gjelina, and can refuse
 an editorial page whose shared navigation advertises an offer. It is not a
 semantic policy classifier and does not add promotional posting support.
 
+That restriction also applies to AZ: this initial transport is editorial-only
+for every client, even when a location's category is missing or localized.
+Valid JSON-LD with a schema.org context may use `Offer`, `AggregateOffer`,
+`OfferCatalog` and `offers` as schema identifiers without advertising a deal.
+Those identifiers alone do not block an article. Descriptions, names, links,
+discount/coupon fields and sale-price data are still checked, including escaped
+strings and duplicate JSON members. Malformed JSON-LD, unsupported contexts and
+excessive nesting fail closed. No schema is removed from the article.
+
 Commands (machine-readable JSON):
 
 - `cnry gbp posts list PROJECT --account accounts/ID --location locations/ID`

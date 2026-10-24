@@ -12,6 +12,132 @@ export function hotelEditorialText(value: string): boolean {
     )
   )
 }
+
+const JSON_STRING = /"(?:\\.|[^"\\])*"/gu
+const SCHEMA_TYPE =
+  /^(?:https?:\/\/schema\.org\/)?(?:Offer|AggregateOffer|OfferCatalog)$/u
+const SCHEMA_CONTEXT = /^https?:\/\/schema\.org\/?$/u
+
+/** Keep every source value, including duplicate members; only schema identifiers are masked. */
+function editorialJsonLd(source: string): string | null {
+  try {
+    const parsed: unknown = JSON.parse(source)
+    if (parsed === null || typeof parsed !== 'object') return null
+    const roots: unknown[] = Array.isArray(parsed) ? parsed : [parsed]
+    if (
+      roots.length === 0 ||
+      roots.some(
+        (value) =>
+          value === null || typeof value !== 'object' || Array.isArray(value),
+      )
+    )
+      return null
+    const pending = roots.map((value) => ({ value, depth: 0 }))
+    let visited = 0
+    while (pending.length > 0) {
+      const { value, depth } = pending.pop()!
+      if (depth > 32 || ++visited > 10_000) return null
+      if (value === null || typeof value !== 'object') continue
+      if (Array.isArray(value)) {
+        pending.push(
+          ...value.map((item: unknown) => ({ value: item, depth: depth + 1 })),
+        )
+        continue
+      }
+      const row = value as Record<string, unknown>
+      if (depth === 0 || Object.hasOwn(row, '@context')) {
+        const context = row['@context']
+        if (typeof context !== 'string' || !SCHEMA_CONTEXT.test(context))
+          return null
+      }
+      pending.push(
+        ...Object.values(row).map((item) => ({
+          value: item,
+          depth: depth + 1,
+        })),
+      )
+    }
+    // Decode string escapes without JSON.stringify(parsed), which would erase
+    // duplicate members and could hide an earlier promotional value.
+    const canonical = source.replace(JSON_STRING, (token) =>
+      JSON.stringify(
+        decodeHTML(String(JSON.parse(token)))
+          .normalize('NFKC')
+          .replace(/(?:%[0-9a-f]{2})+/giu, (part) => decodeURIComponent(part))
+          .replace(/\s+/gu, ' '),
+      ),
+    )
+    // These member names / enum values indicate real promotional structured data,
+    // even when camel-casing means the prose keyword matcher would miss them.
+    for (const match of canonical.matchAll(
+      /(?:\{|,)\s*("(?:\\.|[^"\\])*")\s*:/gu,
+    )) {
+      const key = String(JSON.parse(match[1]!))
+        .replace(/[^a-z]/giu, '')
+        .toLowerCase()
+      if (
+        /discount|coupon|promo|specialrate|saleprice|strikethroughprice/u.test(
+          key,
+        )
+      )
+        return null
+    }
+    for (const match of canonical.matchAll(JSON_STRING)) {
+      if (
+        /^(?:https?:\/\/schema\.org\/)?(?:SalePrice|StrikethroughPrice)$/u.test(
+          String(JSON.parse(match[0])),
+        )
+      )
+        return null
+    }
+    return canonical
+      .replace(
+        /([,{]\s*"@type"\s*:\s*)("(?:\\.|[^"\\])*"|\[\s*\]|\[\s*"(?:\\.|[^"\\])*"(?:\s*,\s*"(?:\\.|[^"\\])*")*\s*\])/gu,
+        (_whole, prefix: string, raw: string) => {
+          const types: unknown = JSON.parse(raw)
+          const mask = (type: unknown): unknown =>
+            typeof type === 'string' && SCHEMA_TYPE.test(type)
+              ? 'SchemaType'
+              : type
+          return (
+            prefix +
+            JSON.stringify(Array.isArray(types) ? types.map(mask) : mask(types))
+          )
+        },
+      )
+      .replace(/([,{]\s*)"offers"(\s*:)/gu, '$1"schemaOffers"$2')
+  } catch {
+    return null
+  }
+}
+
+function editorialHtml(html: string): boolean {
+  let valid = true
+  const text = html.replace(
+    /<script\b((?:[^"'<>]|"[^"]*"|'[^']*')*)>([\s\S]*?)<\/script\s*>/giu,
+    (whole: string, attributes: string, body: string) => {
+      if (
+        !/(?:^|\s)type\s*=\s*(?:"application\/ld\+json"|'application\/ld\+json'|application\/ld\+json(?=\s|$))/iu.test(
+          attributes,
+        )
+      )
+        return whole
+      const normalized = editorialJsonLd(body)
+      if (normalized === null) {
+        valid = false
+        return whole
+      }
+      return `<script${attributes}>${normalized}</script>`
+    },
+  )
+  return (
+    valid &&
+    hotelEditorialText(text) &&
+    hotelEditorialText(
+      text.replace(/(?:%[0-9a-f]{2})+/giu, (part) => decodeURIComponent(part)),
+    )
+  )
+}
 export async function hotelEditorialDestination(
   domain: string,
   summary: string,
@@ -66,14 +192,7 @@ export async function hotelEditorialDestination(
     )
     // Scan markup as well as visible copy: a linked /offers page is disallowed
     // even when its anchor says something innocuous. Encoded paths are decoded.
-    return (
-      hotelEditorialText(html) &&
-      hotelEditorialText(
-        html.replace(/(?:%[0-9a-f]{2})+/giu, (part) =>
-          decodeURIComponent(part),
-        ),
-      )
-    )
+    return editorialHtml(html)
   } catch {
     return false
   }
