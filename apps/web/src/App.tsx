@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import * as Dialog from '@radix-ui/react-dialog'
 
 import {
   BookOpen,
@@ -417,7 +418,7 @@ export function RootLayout() {
 
   // Escape key closes drawer
   useEffect(() => {
-    if (typeof window === 'undefined' || (!runId && !evidenceId)) {
+    if (typeof window === 'undefined' || mobileNavOpen || (!runId && !evidenceId)) {
       return
     }
 
@@ -431,7 +432,7 @@ export function RootLayout() {
     return () => {
       window.removeEventListener('keydown', onKeyDown)
     }
-  }, [runId, evidenceId, closeDrawer])
+  }, [runId, evidenceId, closeDrawer, mobileNavOpen])
 
   // While loading or dashboard not yet available, use context data or null (no mock fallback)
   const safeDashboard = dashboard ?? contextDashboard?.dashboard ?? null
@@ -553,7 +554,7 @@ export function RootLayout() {
   }
 
   return (
-    <>
+    <Dialog.Root open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
     <a className="skip-link" href="#content">
       Skip to content
     </a>
@@ -780,35 +781,38 @@ export function RootLayout() {
               </span>
             </div>
             {!isFocusedSetup ? (
+              <Dialog.Trigger asChild>
               <Button
                 className="nav-toggle"
                 variant="secondary"
                 size="icon"
                 type="button"
-                aria-expanded={mobileNavOpen}
-                aria-controls="mobile-nav"
-                onClick={() => setMobileNavOpen((open) => !open)}
               >
                 <Menu className="size-4" />
                 <span className="sr-only">Open navigation</span>
               </Button>
+              </Dialog.Trigger>
             ) : null}
           </div>
         </header>
 
         {/* Mobile nav overlay */}
         {!isFocusedSetup ? (
-          <div id="mobile-nav" className={`mobile-nav ${mobileNavOpen ? 'mobile-nav-open' : ''}`}>
+          <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-40" />
+          <Dialog.Content className="mobile-nav mobile-nav-open" aria-describedby={undefined}>
+          <Dialog.Title className="sr-only">Navigation</Dialog.Title>
+          <Dialog.Close asChild>
           <Button
             className="mobile-nav-close"
             variant="ghost"
             size="icon"
             type="button"
-            onClick={() => setMobileNavOpen(false)}
           >
             <X className="size-5" />
             <span className="sr-only">Close navigation</span>
           </Button>
+          </Dialog.Close>
           <Link to="/" className="mobile-nav-link" activeProps={{ className: 'mobile-nav-link mobile-nav-link-active' }} activeOptions={{ exact: true }}>
             All projects
           </Link>
@@ -877,7 +881,8 @@ export function RootLayout() {
               </div>
             </div>
           )}
-          </div>
+          </Dialog.Content>
+          </Dialog.Portal>
         ) : null}
 
         {/* Page content */}
@@ -1086,6 +1091,6 @@ export function RootLayout() {
       <Toaster />
       {agentBarVisible ? <AeroBarHost /> : null}
     </div>
-    </>
+    </Dialog.Root>
   )
 }

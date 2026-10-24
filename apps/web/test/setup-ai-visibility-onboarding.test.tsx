@@ -30,10 +30,12 @@ afterEach(() => {
   delete window.__CANONRY_CONFIG__
   navigate.mockReset()
   clearOnboardingRunLaunched()
+  window.sessionStorage.clear()
 })
 
 function renderProjectSetup(options: {
   onboarding: boolean
+  projectScoped?: boolean
   onboardingFinish?: boolean
   complete?: boolean
   providerReady?: boolean
@@ -42,7 +44,7 @@ function renderProjectSetup(options: {
   cdpStatus?: { connected?: boolean; browserVersion?: string }
   cdpResponse?: () => Response | Promise<Response>
   apiKey?: ApiKeyAccess
-  queryResponse?: () => Response | Promise<Response>
+  queryResponse?: (init?: RequestInit) => Response | Promise<Response>
   providerResponse?: () => Response | Promise<Response>
   includeLocalProvider?: boolean
 }) {
@@ -85,11 +87,12 @@ function renderProjectSetup(options: {
     requests.push({ path: pathOf(url), method: init?.method, body: init?.body })
     if (pathOf(url) === '/api/v1/projects' || pathOf(url).split('?')[0] === '/api/v1/runs') return jsonResponse([])
     if (pathOf(url) === '/api/v1/settings') return jsonResponse({ providers: [] })
+    if (pathOf(url).includes('/runs?kind=site-audit')) return jsonResponse([])
     if (pathOf(url).endsWith('/measurement-setup')) return jsonResponse({ answerVisibilityProviderReady: options.providerReady !== false })
     if (pathOf(url) === '/api/v1/cdp/status') return options.cdpResponse?.() ?? jsonResponse(options.cdpStatus ?? {})
     if (pathOf(url).startsWith('/api/v1/settings/providers/')) return options.providerResponse?.() ?? jsonResponse({ name: 'gemini', configured: true })
     if (pathOf(url).endsWith('/queries')) {
-      if (options.queryResponse) return options.queryResponse()
+      if (options.queryResponse) return options.queryResponse(init)
       return jsonResponse(options.complete ? [{ id: 'query-1', query: 'best local dentist' }] : [])
     }
     return jsonResponse({})
@@ -102,7 +105,7 @@ function renderProjectSetup(options: {
       <AccountProvider account={null} apiKey={options.apiKey}>
         <DashboardProvider value={fixture}>
           <SetupPage
-            visibilityProjectName={project.project.name}
+            visibilityProjectName={options.projectScoped === false ? undefined : project.project.name}
             siteHealthOnboarding={options.onboarding}
             {...(options.onboardingFinish === undefined ? {} : { onboardingFinish: options.onboardingFinish })}
           />
@@ -118,6 +121,10 @@ function renderProjectSetup(options: {
     domain: project.project.canonicalDomain,
     queryClient,
     requests,
+    switchProjectName: (name: string) => {
+      project.project.name = name
+      rendered.rerender(content())
+    },
     markProviderReady: (name: string) => {
       fixture.dashboard.settings.providerStatuses = fixture.dashboard.settings.providerStatuses.map(provider => (
         provider.name.toLowerCase() === name.toLowerCase() ? { ...provider, state: 'ready' } : provider
@@ -647,25 +654,37 @@ test('invalidates project query and dashboard caches after project-scoped query 
   })
 })
 
-test('keeps project-scoped query controls blocked until the canonical query read settles', async () => {
+test.each([true, false])('keeps reset blocked until saved queries are confirmed (project-scoped: %s)', async projectScoped => {
   let resolveQueries: ((response: Response) => void) | undefined
   renderProjectSetup({
-    onboarding: true,
+    onboarding: projectScoped,
+    projectScoped,
+    readyProviderNames: ['gemini'],
     queryResponse: () => new Promise<Response>((resolve) => { resolveQueries = resolve }),
   })
 
   expect(await screen.findByRole('heading', { name: 'Add queries' })).toBeTruthy()
   await waitFor(() => expect(resolveQueries).toBeTypeOf('function'))
-  expect(screen.getByText('Loading saved queries…').closest('[role="status"]')).toBeTruthy()
-  expect(screen.queryByLabelText('Queries (one per line)')).toBeNull()
-  expect(screen.queryByRole('button', { name: /Save .*quer/i })).toBeNull()
-  expect(screen.queryByRole('button', { name: 'Finish without AI Visibility' })).toBeNull()
+  expect((screen.getByRole('button', { name: 'Reset unsaved fields' }) as HTMLButtonElement).disabled).toBe(true)
+  if (projectScoped) {
+    expect(screen.getByText('Loading saved queries…').closest('[role="status"]')).toBeTruthy()
+    expect(screen.queryByLabelText('Queries (one per line)')).toBeNull()
+    expect(screen.queryByRole('button', { name: /Save .*quer/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Finish without AI Visibility' })).toBeNull()
+  }
 
   resolveQueries?.(jsonResponse([{ id: 'query-saved', query: 'saved canonical query' }]))
-
+  if (!projectScoped) {
+    await screen.findByRole('heading', { name: 'Add competitors' })
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+  }
   expect(await screen.findByText('saved canonical query')).toBeTruthy()
   expect(screen.queryByText('Loading saved queries…')).toBeNull()
   expect(screen.queryByLabelText('Queries (one per line)')).toBeNull()
+  expect((screen.getByRole('button', { name: 'Reset unsaved fields' }) as HTMLButtonElement).disabled).toBe(false)
+  fireEvent.click(screen.getByRole('button', { name: 'Reset unsaved fields' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Edit queries' }))
+  expect((screen.getByLabelText('Queries (one per line)') as HTMLTextAreaElement).value).toBe('saved canonical query')
 })
 
 
@@ -815,4 +834,56 @@ test('a first run that skipped the site scan still ends on the finish step', asy
     search: { onboarding: 'complete', setupProject: projectName, skipped: 'visibility' },
     replace: true,
   })
+})
+
+
+test('restores unsaved setup queries after reload and resets to saved queries without retaining credentials', async () => {
+  const options = { onboarding: true, providerReady: false, queryResponse: () => jsonResponse([{ id: 'saved-query', query: 'saved customer query' }]) }
+  renderProjectSetup(options)
+  fireEvent.click(await screen.findByRole('button', { name: 'Edit queries' }))
+  fireEvent.change(screen.getByRole('textbox', { name: 'Queries (one per line)' }), { target: { value: 'saved customer query\nunsaved customer query' } })
+  fireEvent.change(screen.getByLabelText('API key'), { target: { value: 'synthetic-unsaved-provider-secret' } })
+  expect(Object.values(window.sessionStorage).join(' ')).not.toContain('synthetic-unsaved-provider-secret')
+  cleanup()
+  renderProjectSetup(options)
+  expect((await screen.findByLabelText('API key') as HTMLInputElement).value).toBe('')
+  expect((await screen.findByRole('textbox', { name: 'Queries (one per line)' }) as HTMLTextAreaElement).value).toBe('saved customer query\nunsaved customer query')
+  expect(screen.queryByRole('button', { name: 'Edit queries' })).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Reset unsaved fields' }))
+  expect(await screen.findByRole('button', { name: 'Edit queries' })).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Edit queries' }))
+  expect((screen.getByRole('textbox', { name: 'Queries (one per line)' }) as HTMLTextAreaElement).value).toBe('saved customer query')
+})
+
+
+test('switching setup projects isolates the unsaved query draft', async () => {
+  const { switchProjectName } = renderProjectSetup({ onboarding: true, providerReady: false })
+  fireEvent.change(await screen.findByRole('textbox', { name: 'Queries (one per line)' }), { target: { value: 'first project unsaved query' } })
+  switchProjectName('another-fictional-project')
+  expect((await screen.findByRole('textbox', { name: 'Queries (one per line)' }) as HTMLTextAreaElement).value).toBe('')
+})
+
+
+test('global setup reset preserves queries saved during this visit', async () => {
+  let saved = [{ id: 'saved-a', query: 'saved query A' }]
+  const { requests } = renderProjectSetup({
+    onboarding: false,
+    projectScoped: false,
+    readyProviderNames: ['gemini'],
+    queryResponse: init => {
+      if (init?.method === 'PUT') saved = [{ id: 'saved-a', query: 'saved query A' }, { id: 'saved-b', query: 'saved query B' }]
+      return jsonResponse(saved)
+    },
+  })
+  await screen.findByRole('heading', { name: 'Add competitors' })
+  fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Edit queries' }))
+  fireEvent.change(screen.getByLabelText('Queries (one per line)'), { target: { value: 'saved query A\nsaved query B' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Save 2 queries' }))
+  await screen.findByRole('heading', { name: 'Add competitors' })
+  expect(requests.find(request => request.method === 'PUT' && request.path.endsWith('/queries'))?.body).toBe(JSON.stringify({ queries: ['saved query A', 'saved query B'] }))
+  fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Reset unsaved fields' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Edit queries' }))
+  expect((screen.getByLabelText('Queries (one per line)') as HTMLTextAreaElement).value).toBe('saved query A\nsaved query B')
 })

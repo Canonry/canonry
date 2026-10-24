@@ -156,6 +156,7 @@ export function FindQueriesSection({
       path: { name: projectName },
       query: { limit: '10' },
     }),
+    enabled: !paused,
     refetchInterval: (query) => {
       const sessions = query.state.data
       return !paused && sessions?.some(session => ACTIVE_DISCOVERY_STATUSES.has(session.status)) ? 3000 : false
@@ -177,7 +178,7 @@ export function FindQueriesSection({
       client: heyClient,
       path: { name: projectName, id: selectedSessionId ?? '' },
     }),
-    enabled: Boolean(selectedSessionId),
+    enabled: !paused && Boolean(selectedSessionId),
     refetchInterval: !paused && selectedSession && ACTIVE_DISCOVERY_STATUSES.has(selectedSession.status) ? 3000 : false,
   })
 
@@ -188,7 +189,7 @@ export function FindQueriesSection({
   const publicDemo = isPublicDemo()
   const settingsQuery = useQuery({
     ...getApiV1SettingsOptions({ client: heyClient }),
-    enabled: !publicDemo,
+    enabled: !paused && !publicDemo,
     staleTime: 60_000,
   })
   const noGemini = settingsQuery.data !== undefined && !settingsQuery.data.providers.some(item => item.name === 'gemini' && item.configured)
@@ -524,7 +525,7 @@ export function FindQueriesSection({
         </div>
       </div>
       {/* After the page it rides over, so it comes to rest under the results. */}
-      {tracking?.workspace ? (
+      {!paused && tracking?.workspace ? (
         <TrackResearchBar
           id={barId}
           projectName={projectName}

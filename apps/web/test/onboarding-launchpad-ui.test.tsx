@@ -56,6 +56,7 @@ afterEach(() => {
   cleanup()
   resetRunTracker()
   resetToasts()
+  window.sessionStorage.clear()
   delete window.__CANONRY_CONFIG__
 })
 
@@ -295,7 +296,7 @@ test('the finish step leads with the agent and server-side traffic, with real li
 
   await renderSetup('/setup?onboarding=complete&setupProject=example-com')
 
-  expect(await screen.findByRole('heading', { level: 1, name: 'You’re set.' })).toBeTruthy()
+  expect(await screen.findByRole('heading', { level: 1, name: 'Your project is saved.' })).toBeTruthy()
   const progress = screen.getByRole('list', { name: 'Onboarding progress' })
   expect(within(progress).getByText('Next steps').closest('[aria-current="step"]')).toBeTruthy()
 
@@ -345,9 +346,13 @@ test('the finish step marks skipped stages as skipped, never complete', async ()
 
   const progress = await screen.findByRole('list', { name: 'Onboarding progress' })
   await waitFor(() => {
-    expect(within(progress).getAllByText('Skipped')).toHaveLength(3)
+    expect(within(progress).getAllByText('Not started')).toHaveLength(2)
+    expect(within(progress).getAllByText('Skipped')).toHaveLength(1)
   })
   expect(within(progress).queryByText('Complete')).toBeNull()
+  expect(screen.queryByText(/Canonry is tracking/)).toBeNull()
+  expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Your project is saved.')
+  expect(screen.getByText('AI Visibility setup was skipped. No first sweep has run.')).toBeTruthy()
 })
 
 test('the finish step credits a scan that ran and an AI Visibility step that was not skipped', async () => {
@@ -389,15 +394,16 @@ test('only a finished scan counts as a completed scan step', () => {
   const ok = (data: Array<{ status: string; trigger: string }>) => ({ isSuccess: true, data })
 
   expect(runOutcome(ok([run('completed')]))).toBeUndefined()
-  expect(runOutcome(ok([run('partial')]))).toBeUndefined()
-  // A newer failure does not undo an older finished scan.
-  expect(runOutcome(ok([run('failed'), run('completed')]))).toBeUndefined()
-  expect(runOutcome(ok([run('queued')]))).toBe('pending')
-  expect(runOutcome(ok([run('running')]))).toBe('pending')
-  expect(runOutcome(ok([run('failed'), run('cancelled')]))).toBe('incomplete')
-  expect(runOutcome(ok([]))).toBe('skipped')
+  expect(runOutcome(ok([run('partial')]))).toBe('partial')
+  // Latest state stays distinct from earlier retained evidence.
+  expect(runOutcome(ok([run('completed'), run('failed')]))).toBe('failed')
+  expect(runOutcome(ok([run('queued')]))).toBe('queued')
+  expect(runOutcome(ok([run('running')]))).toBe('running')
+  expect(runOutcome(ok([run('cancelled'), run('failed')]))).toBe('failed')
+  expect(runOutcome(ok([run('cancelled')]))).toBe('cancelled')
+  expect(runOutcome(ok([]))).toBe('not-started')
   // A probe is not a scan the operator ran.
-  expect(runOutcome(ok([run('completed', 'probe')]))).toBe('skipped')
+  expect(runOutcome(ok([run('completed', 'probe')]))).toBe('not-started')
   // No answer, or a failed read, proves nothing: never a check mark.
   expect(runOutcome({ isSuccess: false })).toBe('unknown')
 })
@@ -410,7 +416,8 @@ test('AI Visibility is complete only when a sweep finished', () => {
   expect(visibilityOutcome('pending', false)).toEqual({ visibility: 'pending' })
   expect(visibilityOutcome('incomplete', false)).toEqual({ visibility: 'incomplete' })
   expect(visibilityOutcome('skipped', false)).toEqual({ visibility: 'skipped' })
-  expect(visibilityOutcome('pending', true)).toEqual({ visibility: 'skipped' })
+  expect(visibilityOutcome('pending', true)).toEqual({ visibility: 'pending' })
+  expect(visibilityOutcome('not-started', true)).toEqual({ visibility: 'skipped' })
   expect(visibilityOutcome('unknown', false)).toEqual({ visibility: 'unknown' })
 })
 
@@ -659,7 +666,7 @@ test('the explicit Site Health handoff can be skipped to the finish step', async
     expect(router.state.location.search).toEqual({ onboarding: 'complete', setupProject: 'example-com', skipped: 'visibility' })
   })
   // Skipping still ends on the finish step, never cold in the project.
-  expect(await screen.findByRole('heading', { name: 'You’re set.' })).toBeTruthy()
+  expect(await screen.findByRole('heading', { name: 'Your project is saved.' })).toBeTruthy()
 })
 
 test('continues a mapped project into focused AI Visibility setup', async () => {
@@ -1444,4 +1451,58 @@ test('keeps auto mode on actionable conflict recovery after the project list bec
 
   expect(await screen.findByRole('button', { name: 'View projects' })).toBeTruthy()
   expect(screen.queryByText('Step 2 of 5')).toBeNull()
+})
+
+
+test('retains public launchpad fields across reload without retaining scan consent and resets deliberately', async () => {
+  onTestFinished(mockFetch(() => jsonResponse([])))
+  await renderSetup('/setup?experience=platform')
+  fireEvent.change(await screen.findByRole('textbox', { name: 'Website URL' }), { target: { value: 'cedar.example' } })
+  fireEvent.change(screen.getByLabelText('Country'), { target: { value: 'CA' } })
+  fireEvent.change(screen.getByLabelText('Language'), { target: { value: 'fr' } })
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Allow Canonry to scan this public site.' }))
+  cleanup()
+  await renderSetup('/setup?experience=platform')
+  expect((await screen.findByRole('textbox', { name: 'Website URL' }) as HTMLInputElement).value).toBe('cedar.example')
+  expect((screen.getByLabelText('Country') as HTMLSelectElement).value).toBe('CA')
+  expect((screen.getByLabelText('Language') as HTMLSelectElement).value).toBe('fr')
+  expect((screen.getByRole('checkbox', { name: 'Allow Canonry to scan this public site.' }) as HTMLInputElement).checked).toBe(false)
+  expect(screen.getByText(/First scan: up to 100 pages/)).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Reset draft' }))
+  cleanup()
+  await renderSetup('/setup?experience=platform')
+  expect((await screen.findByRole('textbox', { name: 'Website URL' }) as HTMLInputElement).value).toBe('')
+  expect((screen.getByLabelText('Country') as HTMLSelectElement).value).toBe('US')
+})
+
+test.each([
+  { provider: false, queries: [], message: 'Connect an answer engine to set up AI Visibility.' },
+  { provider: true, queries: [], message: 'Save queries before starting the first AI sweep.' },
+  { provider: true, queries: [{ id: 'q', query: 'where to stay' }], message: 'Your queries and answer engine are ready. Start the first AI sweep when you are ready.' },
+])('completion names the actual next prerequisite: $message', async ({ provider, queries, message }) => {
+  onTestFinished(mockFetch(url => {
+    const path = pathOf(url)
+    if (path.endsWith('/measurement-setup')) return jsonResponse({ answerVisibilityProviderReady: provider })
+    if (path.endsWith('/queries')) return jsonResponse(queries)
+    return jsonResponse([])
+  }))
+  await renderSetup('/setup?onboarding=complete&setupProject=example-com&skipped=visibility')
+  expect(await screen.findByText(message)).toBeTruthy()
+  expect(screen.getByRole('link', { name: 'Continue AI Visibility setup' })).toBeTruthy()
+})
+
+test('a queued retry and partial scan keep earlier evidence available and never imply full coverage', async () => {
+  onTestFinished(mockFetch(url => {
+    const path = pathOf(url)
+    if (path.includes('/runs?kind=site-audit')) return jsonResponse([{ status: 'partial', trigger: 'manual' }])
+    if (path.includes('/runs?kind=answer-visibility')) return jsonResponse([{ status: 'completed', trigger: 'manual' }, { status: 'queued', trigger: 'manual' }])
+    return jsonResponse([])
+  }))
+  await renderSetup('/setup?onboarding=complete&setupProject=example-com&skipped=visibility')
+  const progress = await screen.findByRole('list', { name: 'Onboarding progress' })
+  await waitFor(() => expect(within(progress).getAllByText('Partial results')).toHaveLength(2))
+  expect(within(progress).getByText('Queued')).toBeTruthy()
+  expect(screen.getByText('Earlier saved AI Visibility results remain available.')).toBeTruthy()
+  expect(screen.getByText('The latest AI sweep is queued; new results are not available yet.')).toBeTruthy()
+  expect(within(progress).queryByText('Skipped')).toBeNull()
 })

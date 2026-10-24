@@ -207,17 +207,19 @@ export function ResearchQueriesSection({
 
   const projectQuery = useQuery({
     ...getApiV1ProjectsByNameOptions({ client: heyClient, path: { name: projectName } }),
+    enabled: !paused,
     staleTime: 60_000,
   })
   const settingsQuery = useQuery({
     ...getApiV1SettingsOptions({ client: heyClient }),
-    enabled: !limitedAccess && !publicDemo,
+    enabled: !paused && !limitedAccess && !publicDemo,
     staleTime: 60_000,
   })
   const historyInput = { client: heyClient, path: { name: projectName }, query: { limit: 20 } }
   const runsQuery = useInfiniteQuery({
     ...getApiV1ProjectsByNameResearchRunsInfiniteOptions(historyInput),
     initialData: undefined,
+    enabled: !paused,
     initialPageParam: historyInput,
     getNextPageParam: lastPage => lastPage.nextCursor
       ? { path: historyInput.path, query: { ...historyInput.query, cursor: lastPage.nextCursor } }
@@ -244,7 +246,7 @@ export function ResearchQueriesSection({
       client: heyClient,
       path: { name: projectName, runId: selectedRunId ?? '' },
     }),
-    enabled: !historyError && Boolean(selectedRunId),
+    enabled: !paused && !historyError && Boolean(selectedRunId),
     refetchInterval: !paused && selectedRun && ACTIVE_RESEARCH_STATUSES.has(selectedRun.status) ? 3000 : false,
   })
   const detail = historyError || detailQuery.isError ? null : detailQuery.data ?? null
@@ -259,7 +261,7 @@ export function ResearchQueriesSection({
   }
   // A saved run clears the form, which drops focus. It goes to the run's results once they are drawn: for a first run, after past research has been read again.
   useEffect(() => {
-    if (showSavedRun.current && showResults('batch')) showSavedRun.current = false
+    if (!paused && showSavedRun.current && showResults('batch')) showSavedRun.current = false
   })
 
   const locations = projectQuery.data?.locations ?? []

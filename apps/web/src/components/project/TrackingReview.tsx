@@ -358,6 +358,7 @@ export function TrackingReviewActions({ preview, isCommitting, expectedSubjects,
       )}
       {/* A publish in flight ends the review when it lands, so the draft stays out of reach until then. */}
       {onBack ? <Button type="button" variant="ghost" size="sm" disabled={isCommitting} onClick={onBack}>Back</Button> : null}
+      {hasChanges && preview.mode === 'advanced' ? <StatusNote icon={Clock} label="No sweep on publish" /> : null}
       {/* Only a publish that asks something new has first answers to wait for. */}
       {hasChanges && !sweepActive && !blocked && nextSweepDate && preview.workload.addedProviderCalls > 0 ? <StatusNote icon={CalendarClock} label={`First answers ${nextSweepDate}`} /> : null}
       {blocked ? (

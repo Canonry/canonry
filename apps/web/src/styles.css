@@ -986,7 +986,7 @@
 
   /* mobile nav */
   .mobile-nav {
-    @apply fixed inset-0 z-40 hidden flex-col bg-bg/98 p-4 pt-16 backdrop-blur-sm;
+    @apply fixed inset-0 z-40 hidden flex-col overflow-y-auto bg-bg/98 p-4 pt-16 backdrop-blur-sm;
   }
 
   .mobile-nav-open {

@@ -30,6 +30,7 @@ import {
   type OnboardingSurface as OnboardingTelemetrySurface,
   type OnboardingTelemetryEvent,
 } from '@canonry/canonry-contracts'
+import { clearOnboardingDraft, markOnboardingScanSkipped, readOnboardingDraft, writeOnboardingDraft } from '../lib/onboarding-draft.js'
 import { asyncHandler } from '../lib/async-handler.js'
 import { addToast } from '../lib/toast-store.js'
 import {
@@ -573,6 +574,7 @@ function SiteHealthOnboardingPageBody({
     })
   }
   const continueOnboarding = () => {
+    if (!initialRunId) markOnboardingScanSkipped(project.name)
     void navigate({
       to: '/setup',
       search: {
@@ -584,6 +586,7 @@ function SiteHealthOnboardingPageBody({
     })
   }
   const skipOnboarding = () => {
+    if (!initialRunId) markOnboardingScanSkipped(project.name)
     // Leaving on purpose is an outcome, not an absence of one. Without this the
     // funnel cannot tell a user who chose to stop from one who vanished.
     emit({
@@ -785,11 +788,12 @@ function PlatformSetupPageBody({
     retry: false,
   })
   const telemetryMutation = useMutation(putApiV1TelemetryMutation())
-  const [domain, setDomain] = useState('')
-  const [projectName, setProjectName] = useState('')
-  const [displayName, setDisplayName] = useState('')
-  const [country, setCountry] = useState('US')
-  const [language, setLanguage] = useState('en')
+  const [draft] = useState(() => readOnboardingDraft('platform'))
+  const [domain, setDomain] = useState(draft.domain ?? '')
+  const [projectName, setProjectName] = useState(draft.projectName ?? '')
+  const [displayName, setDisplayName] = useState(draft.displayName ?? '')
+  const [country, setCountry] = useState(draft.country ?? 'US')
+  const [language, setLanguage] = useState(draft.language ?? 'en')
   const [crawlApproved, setCrawlApproved] = useState(false)
   const [phase, setPhase] = useState<'idle' | 'creating' | 'dispatching' | 'recovery'>('idle')
   const [createdProject, setCreatedProject] = useState<ApiProject | null>(null)
@@ -818,6 +822,23 @@ function PlatformSetupPageBody({
       resumed: false,
     }, 'onboarding.started')
   }, [emit, onboardingSessionId])
+
+  useEffect(() => {
+    if (createdProject) return
+    writeOnboardingDraft('platform', { domain, projectName, displayName, country, language })
+  }, [createdProject, domain, projectName, displayName, country, language])
+
+  const resetDraft = () => {
+    clearOnboardingDraft('platform')
+    setDomain('')
+    setProjectName('')
+    setDisplayName('')
+    setCountry('US')
+    setLanguage('en')
+    setCrawlApproved(false)
+    setCreateError(null)
+    setCreateConflict(false)
+  }
 
   const identity = deriveLaunchpadIdentity(domain)
   const resolvedProjectName = projectName || identity?.projectName || ''
@@ -957,6 +978,7 @@ function PlatformSetupPageBody({
       // dispatch recovery.
       onActivationStarted()
       setCreatedProject(project)
+      clearOnboardingDraft('platform')
       emit({
         flowVersion: ONBOARDING_FLOW_VERSION,
         onboardingSessionId,
@@ -968,6 +990,7 @@ function PlatformSetupPageBody({
         queryKey: getApiV1ProjectsQueryKey({ client: heyClient }),
       })
       if (skipSiteScan) {
+        markOnboardingScanSkipped(project.name)
         await navigate({
           to: '/setup',
           search: {
@@ -1080,6 +1103,10 @@ function PlatformSetupPageBody({
         </p>
       </header>
 
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2 text-[13px] text-secondary">
+        <p>Unsaved fields can be restored in this tab when browser storage is available. Scan permission must be given again after reload.</p>
+        <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={resetDraft}>Reset draft</Button>
+      </div>
       <form aria-labelledby="site-map-setup-title" className="space-y-6" onSubmit={asyncHandler(submit)} noValidate>
         <div className="grid gap-2">
           <label className="text-sm font-medium text-heading" htmlFor="launchpad-domain">Website URL</label>
@@ -1204,6 +1231,7 @@ function PlatformSetupPageBody({
           </div>
         </details>
 
+        {!skipSiteScan ? <p className="text-sm text-secondary">First scan: up to {SITE_AUDIT_ONBOARDING_PAGE_LIMIT} pages. A limited scan describes the pages reached, not the whole site.</p> : null}
         {!skipSiteScan ? (
           <label className="flex min-h-11 cursor-pointer items-start gap-3 py-2">
             <input

@@ -36,7 +36,9 @@ and pin the cache by version (`~/.codex/plugins/cache/canonry/canonry/<version>/
 
 ## Prerequisites
 
-Install Node.js 22.19 or newer. Then install Canonry globally so the plugin can
+Install Node.js in a supported range: `>=22.23.4 <23`, `>=24.22.1 <25`, or
+`>=26.12.1 <27`. Check `node --version` before installing and upgrade Node first
+if it is outside these ranges. Then install Canonry globally so the plugin can
 find `canonry-mcp` on `PATH`. A one-off `npx` invocation is not sufficient.
 Bootstrap the local runtime after installation:
 

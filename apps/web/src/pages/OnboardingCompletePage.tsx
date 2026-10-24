@@ -1,13 +1,14 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { Link } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
-import { getApiV1ProjectsByNameRunsOptions, getApiV1ProjectsByNameTechnicalAeoOptions } from '@canonry/canonry-api-client/react-query'
+import { getApiV1ProjectsByNameRunsOptions, getApiV1ProjectsByNameTechnicalAeoOptions, getApiV1ProjectsByNameMeasurementSetupOptions, getApiV1ProjectsByNameQueriesOptions } from '@canonry/canonry-api-client/react-query'
 import { ONBOARDING_FLOW_VERSION, RunKinds, RunStatuses, RunTriggers, type OnboardingNextAction, type RunKind } from '@canonry/canonry-contracts'
 import { ArrowRight, Bell, CalendarClock, Check, Copy, LineChart, MapPin, Search, Server } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
 import { heyClient, recordOnboardingEvent } from '../api.js'
 import { createOnboardingEventId, getOrCreateOnboardingSessionId } from '../lib/onboarding-telemetry.js'
+import { wasOnboardingScanSkipped } from '../lib/onboarding-draft.js'
 import { addToast } from '../lib/toast-store.js'
 import { OnboardingProgress, type OnboardingStage, type OnboardingStageOutcome } from '../components/shared/OnboardingProgress.js'
 import { Button } from '../components/ui/button.js'
@@ -76,8 +77,27 @@ export function OnboardingCompletePage({
   // What happened is read from the project's runs, not from how the operator
   // got here: every exit lands on this page, including ones before any scan
   // and ones taken while a sweep is still running.
-  const scanOutcome = useRunOutcome(projectName, RunKinds['site-audit'])
-  const sweepOutcome = useRunOutcome(projectName, RunKinds['answer-visibility'])
+  const scan = useOnboardingRunOutcome(projectName, RunKinds['site-audit'])
+  const scanOutcome = scan.outcome === 'not-started' && wasOnboardingScanSkipped(projectName) ? 'skipped' : scan.outcome
+  const sweep = useOnboardingRunOutcome(projectName, RunKinds['answer-visibility'])
+  const sweepOutcome = sweep.outcome
+  const readiness = useQuery({
+    ...getApiV1ProjectsByNameMeasurementSetupOptions({ client: heyClient, path: { name: projectName } }),
+    enabled: sweepOutcome === 'not-started',
+    retry: false,
+  })
+  const savedQueries = useQuery({
+    ...getApiV1ProjectsByNameQueriesOptions({ client: heyClient, path: { name: projectName } }),
+    enabled: sweepOutcome === 'not-started',
+    retry: false,
+  })
+  const nextStep = readiness.data?.answerVisibilityProviderReady === false
+    ? 'Connect an answer engine to set up AI Visibility.'
+    : savedQueries.isSuccess && savedQueries.data.length === 0
+      ? 'Save queries before starting the first AI sweep.'
+      : readiness.data?.answerVisibilityProviderReady === true && savedQueries.isSuccess
+        ? 'Your queries and answer engine are ready. Start the first AI sweep when you are ready.'
+        : 'Continue AI Visibility setup to check your queries and answer engine.'
   const outcomes: Partial<Record<OnboardingStage, OnboardingStageOutcome>> = {
     ...(scanOutcome ? { site: scanOutcome, fixes: scanOutcome } : {}),
     ...visibilityOutcome(sweepOutcome, skippedVisibility),
@@ -89,15 +109,32 @@ export function OnboardingCompletePage({
       <OnboardingProgress current="done" outcomes={outcomes} />
 
       <header className="relative mx-auto mt-12 max-w-2xl text-center md:mt-16">
-        <CheckBadge />
-        <p className="onb-reveal mt-6 text-sm font-medium text-positive" style={delay(250)}>Setup complete</p>
+        {scanOutcome === undefined && sweepOutcome === undefined ? <CheckBadge /> : null}
+        <p className="onb-reveal mt-6 text-sm font-medium text-positive" style={delay(250)}>Project saved</p>
         <h1 className="onb-reveal mt-2 text-5xl font-semibold tracking-tight text-heading md:text-6xl" style={delay(350)}>
-          You&rsquo;re set.
+          Your project is saved.
         </h1>
         <p className="onb-reveal mx-auto mt-4 max-w-xl text-lg text-secondary" style={delay(450)}>
-          Canonry is tracking <span className="font-medium text-heading">{projectName}</span>.
-          Here&rsquo;s how to get the most out of it from here.
+          <span className="font-medium text-heading">{projectName}</span> is ready for the next step. Scans and AI sweeps run only when started or scheduled.
         </p>
+        <p className="mt-4 text-sm text-secondary" role="status">
+          {sweepOutcome === undefined ? 'The latest AI sweep completed. Review its results and coverage.'
+            : sweepOutcome === 'partial' ? 'The latest AI sweep returned partial results. Review its coverage before drawing conclusions.'
+            : sweepOutcome === 'queued' ? 'The latest AI sweep is queued; new results are not available yet.'
+            : sweepOutcome === 'running' ? 'The latest AI sweep is running; new results are not complete yet.'
+            : sweepOutcome === 'failed' || sweepOutcome === 'cancelled' ? 'The latest AI sweep did not finish. Review the run before trying again.'
+            : sweepOutcome === 'unknown' ? 'AI Visibility status could not be confirmed yet.'
+            : skippedVisibility ? 'AI Visibility setup was skipped. No first sweep has run.'
+            : 'AI Visibility has not started.'}
+        </p>
+        {sweep.hasEarlierResults ? <p className="mt-2 text-sm text-secondary">Earlier saved AI Visibility results remain available.</p> : null}
+        {scan.hasEarlierResults ? <p className="mt-2 text-sm text-secondary">Earlier saved Site Health results remain available.</p> : null}
+        {sweepOutcome === 'not-started' ? (
+          <div className="mt-4 space-y-3">
+            <p className="text-sm text-secondary">{nextStep}</p>
+            <Button asChild variant="secondary"><Link to="/setup" search={{ experience: 'legacy', onboarding: 'first-run', setupProject: projectName }}>Continue AI Visibility setup</Link></Button>
+          </div>
+        ) : null}
       </header>
 
       <div className="mt-14 grid gap-4 md:grid-cols-6">
@@ -134,21 +171,29 @@ export function OnboardingCompletePage({
 }
 
 /** The outcome of a project's runs of one kind, re-read while one is in flight. */
-function useRunOutcome(projectName: string, kind: RunKind): OnboardingStageOutcome | undefined {
+export function useOnboardingRunOutcome(projectName: string, kind: RunKind, enabled = true): { outcome: OnboardingStageOutcome | undefined; hasEarlierResults: boolean } {
   const query = useQuery({
     ...getApiV1ProjectsByNameRunsOptions({
       client: heyClient,
       path: { name: projectName },
-      query: { kind, limit: 20 },
+      query: { kind, limit: 5000 },
     }),
+    enabled,
     retry: false,
     // A run still going when the operator got here finishes on its own;
     // re-read until it does, so the step turns complete without a reload.
-    refetchInterval: (current) => runOutcome(current.state.status === 'success'
-      ? { isSuccess: true, data: current.state.data }
-      : { isSuccess: false }) === 'pending' ? 5_000 : false,
+    refetchInterval: (current) => {
+      const outcome = runOutcome(current.state.status === 'success'
+        ? { isSuccess: true, data: current.state.data }
+        : { isSuccess: false })
+      return outcome === 'queued' || outcome === 'running' ? 5_000 : false
+    },
   })
-  return runOutcome(query)
+  const runs = query.data?.filter(run => run.trigger !== RunTriggers.probe) ?? []
+  return {
+    outcome: runOutcome(query),
+    hasEarlierResults: runs.slice(0, -1).some(run => run.status === RunStatuses.completed || run.status === RunStatuses.partial),
+  }
 }
 
 /**
@@ -161,13 +206,13 @@ export function visibilityOutcome(
   skipped: boolean,
 ): Partial<Record<OnboardingStage, OnboardingStageOutcome>> {
   if (sweep === undefined) return {}
-  if (skipped) return { visibility: 'skipped' }
+  if (skipped && sweep === 'not-started') return { visibility: 'skipped' }
   return { visibility: sweep }
 }
 
 /**
- * How a project's runs of one kind ended, or `undefined` when one finished. Only a completed or
- * partial scan earns a check: a queued or running one is still in progress, a
+ * How the latest non-probe run ended, or `undefined` when it completed. A
+ * partial run keeps its coverage qualifier; a queued or running one is still in progress, a
  * failed one did not finish, and a history read that has not answered (or
  * failed) proves nothing either way.
  */
@@ -177,9 +222,16 @@ export function runOutcome(query: {
 }): OnboardingStageOutcome | undefined {
   if (!query.isSuccess || !query.data) return 'unknown'
   const scans = query.data.filter(run => run.trigger !== RunTriggers.probe)
-  if (scans.some(run => run.status === RunStatuses.completed || run.status === RunStatuses.partial)) return undefined
-  if (scans.some(run => run.status === RunStatuses.queued || run.status === RunStatuses.running)) return 'pending'
-  return scans.length > 0 ? 'incomplete' : 'skipped'
+  // The project-scoped runs endpoint returns chronological order.
+  const latest = scans.at(-1)
+  if (!latest) return 'not-started'
+  if (latest.status === RunStatuses.completed) return undefined
+  if (latest.status === RunStatuses.partial) return 'partial'
+  if (latest.status === RunStatuses.queued) return 'queued'
+  if (latest.status === RunStatuses.running) return 'running'
+  if (latest.status === RunStatuses.failed) return 'failed'
+  if (latest.status === RunStatuses.cancelled) return 'cancelled'
+  return 'unknown'
 }
 
 function delay(ms: number): CSSProperties {
@@ -468,8 +520,8 @@ const WEEK = ['M', 'T', 'W', 'T', 'F', 'S', 'S']
 function ScheduleTile({ projectName }: { projectName: string }) {
   return (
     <>
-      <TileHeading id="onb-schedule-heading" eyebrow="Scheduled sweeps" title="Runs on its own.">
-        Re-measure every week without lifting a finger, so a drop shows up before a customer notices.
+      <TileHeading id="onb-schedule-heading" eyebrow="Scheduled sweeps" title="Choose when to measure.">
+        Set a schedule to re-measure automatically. No schedule is created by finishing setup.
       </TileHeading>
       <ol className="mt-6 grid grid-cols-7 gap-2" aria-hidden="true">
         {WEEK.map((day, index) => (
@@ -490,7 +542,8 @@ function AlertsTile({ projectName, score }: { projectName: string; score: number
       <TileHeading id="onb-alerts-heading" eyebrow="Notifications" title="Hear about changes.">
         Get a webhook in Slack or anywhere else when a sweep finishes or a score moves.
       </TileHeading>
-      <div className="relative mt-6 flex h-14 items-center" aria-hidden="true">
+      <p className="mt-4 text-[13px] text-secondary">Example notification</p>
+      <div className="relative mt-2 flex h-14 items-center" aria-hidden="true">
         <span className="onb-bell flex size-10 items-center justify-center rounded-full border border-default bg-bg-elevated">
           <Bell className="size-4 text-secondary" />
         </span>
