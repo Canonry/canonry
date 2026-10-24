@@ -135,7 +135,7 @@ export function maskJourneyPath(path: string): string {
   return (path || '/').split('/').map(raw => {
     const segment = raw.split(';')[0]!
     if (!segment) return segment
-    if (/@|%40/i.test(segment)) return ':email'
+    if (/@|%40/.test(segment)) return ':email'
     return looksSecret(segment) ? ':token' : segment
   }).join('/') || '/'
 }
