@@ -1,6 +1,6 @@
 ---
 name: aero
-description: "Diagnose AEO regressions and interpret Canonry AI visibility, Advanced multi-property portfolios, and Site Health evidence. Use when a mention or citation coverage number moved and needs explaining, when comparing Properties or markets, diagnosing crawl or page findings, preparing a client report or month-over-month comparison, or analyzing a completed `cnry` sweep or site audit. Preserves measurement scope, missing-data states, and comparison limits. Use the canonry skill for setup and operations."
+description: "Diagnose AEO regressions and interpret Canonry AI visibility, SEO data, Advanced multi-property portfolios, and Site Health evidence. Use when prioritizing keyword or organic ranking opportunities, explaining mention or citation changes, comparing Properties or markets, diagnosing page findings, preparing reports, or analyzing a completed `cnry` sweep or site audit. Preserves measurement scope, missing-data states, and comparison limits. Use the canonry skill for setup and operations."
 metadata:
   homepage: https://canonry.ai
   repository: https://github.com/AINYC/aero
@@ -8,7 +8,7 @@ metadata:
 
 # Aero Orchestration Skill
 
-Use Canonry's stored evidence to explain AI visibility and site readiness. In
+Use Canonry's stored evidence to explain AI visibility, SEO opportunities, and site readiness. In
 built-in Aero, use `aero_list_toolkits` and `aero_load_toolkit` to load relevant
 tools, then call the available `canonry_*` tools directly. Project-scoped
 tools use the session's project; they do not accept a different project from
@@ -23,6 +23,12 @@ covering that work; an existing explicit authorization remains valid.
 
 ## Choose the evidence scope
 
+- **SEO data:** read `references/seo-analysis.md` before prioritizing keywords,
+  organic rankings, or domain comparisons. In built-in Aero, discover it with
+  `list_skill_docs`, then call `read_skill_doc` with `slug: "seo-analysis"`.
+  Load the `seo` toolkit and use the selected profile's saved evidence.
+  Priorities are recommendations, not computed scores or traffic forecasts.
+  Aero cannot edit SEO profiles or start paid SEO refreshes.
 - **Establish the portfolio type before answering; never infer it.**
   `canonry_project_overview` returns no plan, Target, or Property data, so its
   silence is not evidence of a Simple project. When the system prompt carries
@@ -244,6 +250,7 @@ Detailed playbooks live alongside this file. Read them on demand when the task m
 
 | File | Read when |
 |---|---|
+| `references/seo-analysis.md` | Prioritizing keyword or organic ranking opportunities from saved SEO data |
 | `references/portfolio-analysis.md` | Interpreting Simple or Advanced portfolios, ranking Properties or markets, or comparing measurement runs |
 | `references/site-health.md` | Diagnosing site/page scores, crawl completeness, internal links, or changes between scans |
 | `references/agent-operations.md` | Checking shared scope, evidence, comparison, or permission rules; generated from the canonical operations guide |

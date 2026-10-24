@@ -58,6 +58,10 @@ A sweep crippled by a provider outage captures fewer questions and looks identic
 
 ## Build summaries from stored evidence
 
+For keyword and organic ranking recommendations, read `seo-analysis.md`.
+Keep its qualitative priorities and provider estimates separate from measured traffic and AI coverage.
+State the SEO profile, refresh date, and inspected coverage in the report.
+
 Use the project overview for current state, `canonry_visibility_compare` for
 calendar-month comparisons, and scoped measurement tools for Advanced
 Properties and markets. Read `canonry_organic_evidence` for the stored GSC,
