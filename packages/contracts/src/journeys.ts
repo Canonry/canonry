@@ -20,9 +20,18 @@ export const JOURNEY_VISIT_IDLE_MINUTES = 30
  * Requests stored per visitor per UTC day. One person rarely makes more; a
  * user-agent-only key (a source without an IP) can merge everyone on the same
  * device and browser version, and the cap keeps such a key from storing that
- * whole cohort's traffic. Requests over it are counted in `eventsCapped`.
+ * whole cohort's traffic. AI touches are always stored. The days a key reached
+ * the cap are kept in `cappedDays`.
  */
 export const JOURNEY_MAX_REQUESTS_PER_VISITOR_DAY = 300
+
+/**
+ * Traffic source types whose logs hold only part of a visitor's requests, so
+ * journeys from them miss later visits. Reads name these sources.
+ */
+export const JOURNEY_PARTIAL_SOURCE_TYPES: Readonly<Record<string, string>> = {
+  cloudflare: 'The Worker forwards only AI-referred and bot requests, so later visits from this source are not recorded.',
+}
 
 /** Visits nested under each visitor in a journeys list: the first ones, in order. */
 export const JOURNEY_LIST_VISITS_PER_VISITOR = 20
@@ -100,23 +109,25 @@ const SOCIAL_NETWORKS: ReadonlyArray<{ name: string; hosts: readonly string[] }>
 ]
 
 // utm_source values that name a search engine or network without a referer.
-const SOURCE_NAMES: Readonly<Record<string, { entryClass: JourneyEntryClass; name: string }>> = {
-  google: { entryClass: 'search', name: 'Google' },
-  bing: { entryClass: 'search', name: 'Bing' },
-  duckduckgo: { entryClass: 'search', name: 'DuckDuckGo' },
-  yahoo: { entryClass: 'search', name: 'Yahoo' },
-  facebook: { entryClass: 'social', name: 'Facebook' },
-  fb: { entryClass: 'social', name: 'Facebook' },
-  instagram: { entryClass: 'social', name: 'Instagram' },
-  ig: { entryClass: 'social', name: 'Instagram' },
-  twitter: { entryClass: 'social', name: 'X' },
-  x: { entryClass: 'social', name: 'X' },
-  linkedin: { entryClass: 'social', name: 'LinkedIn' },
-  reddit: { entryClass: 'social', name: 'Reddit' },
-  pinterest: { entryClass: 'social', name: 'Pinterest' },
-  tiktok: { entryClass: 'social', name: 'TikTok' },
-  youtube: { entryClass: 'social', name: 'YouTube' },
-}
+// A Map, so a value such as "constructor" or "__proto__" never reaches an
+// inherited object property.
+const SOURCE_NAMES: ReadonlyMap<string, { entryClass: JourneyEntryClass; name: string }> = new Map([
+  ['google', { entryClass: 'search', name: 'Google' }],
+  ['bing', { entryClass: 'search', name: 'Bing' }],
+  ['duckduckgo', { entryClass: 'search', name: 'DuckDuckGo' }],
+  ['yahoo', { entryClass: 'search', name: 'Yahoo' }],
+  ['facebook', { entryClass: 'social', name: 'Facebook' }],
+  ['fb', { entryClass: 'social', name: 'Facebook' }],
+  ['instagram', { entryClass: 'social', name: 'Instagram' }],
+  ['ig', { entryClass: 'social', name: 'Instagram' }],
+  ['twitter', { entryClass: 'social', name: 'X' }],
+  ['x', { entryClass: 'social', name: 'X' }],
+  ['linkedin', { entryClass: 'social', name: 'LinkedIn' }],
+  ['reddit', { entryClass: 'social', name: 'Reddit' }],
+  ['pinterest', { entryClass: 'social', name: 'Pinterest' }],
+  ['tiktok', { entryClass: 'social', name: 'TikTok' }],
+  ['youtube', { entryClass: 'social', name: 'YouTube' }],
+])
 
 const PAID_MEDIUMS = new Set(['cpc', 'ppc', 'paid', 'paidsearch', 'paid_search', 'paid-search', 'paidsocial', 'paid_social', 'paid-social', 'cpm', 'display', 'ads', 'ad'])
 
@@ -150,7 +161,7 @@ export function classifyJourneyEntry(signal: JourneyEntrySignal): JourneyEntry {
   const source = signal.utmSource?.trim().toLowerCase() ?? ''
   const paid = PAID_MEDIUMS.has(medium) || signal.adClickId
   const fromHost = host ? (searchName(host) ? { entryClass: 'search' as const, name: searchName(host)! } : socialName(host) ? { entryClass: 'social' as const, name: socialName(host)! } : null) : null
-  const fromSource = source ? SOURCE_NAMES[source.replace(/\.com$/, '')] ?? null : null
+  const fromSource = source ? SOURCE_NAMES.get(source.replace(/\.com$/, '')) ?? null : null
   if (paid) {
     return { entryClass: 'paid', entryName: fromHost?.name ?? fromSource?.name ?? signal.clickNetwork ?? (source || host), entryHost: host, paid: true }
   }
@@ -211,6 +222,14 @@ export type JourneysQuery = z.infer<typeof journeysQuerySchema>
 export const journeySummaryQuerySchema = journeysQuerySchema.pick({ since: true, until: true })
 export type JourneySummaryQuery = z.infer<typeof journeySummaryQuerySchema>
 
+/** Project traffic sources whose journeys miss later visits, with the reason. */
+export const journeyPartialSourcesSchema = z.array(z.object({
+  sourceId: z.string(),
+  sourceType: z.string(),
+  reason: z.string(),
+}))
+export type JourneyPartialSources = z.infer<typeof journeyPartialSourcesSchema>
+
 export const journeyVisitDtoSchema = z.object({
   id: z.string(),
   sourceId: z.string(),
@@ -244,8 +263,8 @@ export const journeyVisitorDtoSchema = z.object({
   returned: z.boolean(),
   /** Entry classes of the visits after the first AI visit, in order. */
   returnChannels: z.array(journeyEntryClassSchema),
-  /** Requests not stored because this key passed the daily cap; high values suggest a user agent many people share. */
-  eventsCapped: z.number().int(),
+  /** UTC days on which this key reached the daily request cap; a key that reaches it often is probably a user agent many people share. */
+  cappedDays: z.number().int(),
 })
 export type JourneyVisitorDto = z.infer<typeof journeyVisitorDtoSchema>
 
@@ -258,6 +277,7 @@ export const journeysResponseSchema = z.object({
   totalVisitors: z.number().int(),
   limit: z.number().int(),
   offset: z.number().int(),
+  partialSources: journeyPartialSourcesSchema,
   /** Each visitor's first visits, at most JOURNEY_LIST_VISITS_PER_VISITOR; `visitCount` is the total. */
   visitors: z.array(journeyVisitorDtoSchema.extend({ visits: z.array(journeyVisitDtoSchema) })),
 })
@@ -269,6 +289,8 @@ export const journeyEventDtoSchema = z.object({
   path: z.string(),
   status: z.number().int().nullable(),
   kind: journeyEventKindSchema,
+  /** This request was an AI touch: it started or renewed the 30-day window. */
+  aiTouch: z.boolean(),
 })
 export type JourneyEventDto = z.infer<typeof journeyEventDtoSchema>
 
@@ -308,5 +330,6 @@ export const journeySummaryResponseSchema = z.object({
   medianDaysToReturn: z.number().nullable(),
   byEngine: z.array(z.object({ engine: z.string(), visitors: z.number().int(), returningVisitors: z.number().int() })),
   keyBasis: z.object({ ipUa: z.number().int(), ua: z.number().int() }),
+  partialSources: journeyPartialSourcesSchema,
 })
 export type JourneySummaryResponse = z.infer<typeof journeySummaryResponseSchema>

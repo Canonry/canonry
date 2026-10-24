@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import Fastify from 'fastify'
 import { eq, sql } from 'drizzle-orm'
 import { apiKeys, createClient, journeyEvents, journeyVisitors, journeyVisits, migrate, projects, trafficSources } from '@canonry/canonry-db'
-import { JOURNEY_MAX_REQUESTS_PER_VISITOR_DAY, type NormalizedTrafficRequest } from '@canonry/canonry-contracts'
+import { JOURNEY_MAX_REQUESTS_PER_VISITOR_DAY, JOURNEY_PARTIAL_SOURCE_TYPES, type NormalizedTrafficRequest } from '@canonry/canonry-contracts'
 import { apiRoutes } from '../src/index.js'
 import { hashApiKey } from '../src/auth.js'
 import { enforceJourneyRetention, journeyVisitorKey, persistJourneyBatch, recordJourneyBatch } from '../src/journeys.js'
@@ -180,7 +180,45 @@ describe('AI visitor journeys', () => {
       persist(events.slice(0, 200))
       persist(events.slice(200))
       expect(db.select().from(journeyEvents).all()).toHaveLength(JOURNEY_MAX_REQUESTS_PER_VISITOR_DAY)
-      expect(db.select().from(journeyVisitors).get()).toMatchObject({ eventsCapped: 5 })
+      expect(db.select().from(journeyVisitors).get()).toMatchObject({ cappedDays: ['2026-10-20'] })
+      // Replaying every request changes nothing.
+      persist(events)
+      expect(db.select().from(journeyEvents).all()).toHaveLength(JOURNEY_MAX_REQUESTS_PER_VISITOR_DAY)
+      expect(db.select().from(journeyVisitors).get()).toMatchObject({ cappedDays: ['2026-10-20'] })
+      expect(db.select().from(journeyVisits).get()).toMatchObject({ requestCount: JOURNEY_MAX_REQUESTS_PER_VISITOR_DAY })
+    })
+
+    it('stores a batch whose utm_source names an object property', () => {
+      expect(persist([
+        event('a', '2026-10-20T10:00:00Z', chatgpt),
+        event('b', '2026-10-20T11:00:00Z', { path: '/x', queryString: 'utm_source=constructor' }),
+        event('c', '2026-10-20T12:00:00Z', { path: '/y', queryString: 'utm_source=__proto__' }),
+      ])).toEqual({ visitsWritten: 3, eventsStored: 3 })
+      expect(db.select().from(journeyVisits).all().map(v => [v.entryClass, v.entryName]).sort()).toEqual([['ai', 'ChatGPT'], ['referral', '__proto__'], ['referral', 'constructor']])
+    })
+
+    it('moves a stored visit\'s later requests to a late arrival inside it', () => {
+      persist([
+        event('ai', '2026-10-20T09:00:00Z', chatgpt),
+        event('checkout', '2026-10-20T09:10:00Z', { path: '/checkout', referer: 'https://example.com/' }),
+      ])
+      persist([event('google', '2026-10-20T09:05:00Z', { path: '/g', referer: 'https://www.google.com/' })])
+      const visits = db.select().from(journeyVisits).orderBy(journeyVisits.startedAt).all()
+      expect(visits.map(v => [v.entryClass, v.startedAt, v.endedAt, v.requestCount])).toEqual([
+        ['ai', '2026-10-20T09:00:00.000Z', '2026-10-20T09:00:00.000Z', 1],
+        ['search', '2026-10-20T09:05:00.000Z', '2026-10-20T09:10:00.000Z', 2],
+      ])
+      const checkout = db.select().from(journeyEvents).where(eq(journeyEvents.sourceEventId, 'checkout')).get()
+      expect(checkout?.visitId).toBe(visits[1]!.id)
+    })
+
+    it('a backfill keeps a return within 30 days of an AI touch inside an earlier visit', () => {
+      // Sep 1: ChatGPT landing at 09:00 and a second ChatGPT click at 09:25 in the same visit.
+      persist([event('ai1', '2026-09-01T09:00:00Z', chatgpt), event('ai2', '2026-09-01T09:25:00Z', chatgpt)])
+      persist([event('ai3', '2026-10-20T09:00:00Z', chatgpt)])
+      // Backfilled later: a Google return 30 days and 10 minutes after the first click.
+      expect(persist([event('back', '2026-10-01T09:10:00Z', { path: '/back', referer: 'https://www.google.com/' })])).toEqual({ visitsWritten: 1, eventsStored: 1 })
+      expect(db.select().from(journeyEvents).all().filter(e => e.aiTouch).map(e => e.sourceEventId).sort()).toEqual(['ai1', 'ai2', 'ai3'])
     })
 
     it('retention also removes visitors whose visits went with a deleted source', async () => {
@@ -226,7 +264,16 @@ describe('AI visitor journeys', () => {
         medianDaysToReturn: 2,
         byEngine: [{ engine: 'ChatGPT', visitors: 1, returningVisitors: 1 }, { engine: 'Perplexity', visitors: 1, returningVisitors: 0 }],
         keyBasis: { ipUa: 0, ua: 2 },
+        partialSources: [],
       })
+    })
+
+    it('names Cloudflare sources whose logs miss later visits', async () => {
+      db.insert(trafficSources).values({ id: 'edge', projectId: 'project', sourceType: 'cloudflare', displayName: 'Edge', status: 'connected', createdAt: created, updatedAt: created }).run()
+      db.insert(trafficSources).values({ id: 'old-edge', projectId: 'project', sourceType: 'cloudflare', displayName: 'Old', status: 'archived', createdAt: created, updatedAt: created }).run()
+      const expected = [{ sourceId: 'edge', sourceType: 'cloudflare', reason: JOURNEY_PARTIAL_SOURCE_TYPES.cloudflare }]
+      expect((await app.inject({ method: 'GET', url: '/api/v1/projects/example/journeys/summary' })).json().partialSources).toEqual(expected)
+      expect((await app.inject({ method: 'GET', url: '/api/v1/projects/example/journeys' })).json().partialSources).toEqual(expected)
     })
 
     it('lists visitors newest first with filters and paging', async () => {
@@ -254,15 +301,15 @@ describe('AI visitor journeys', () => {
       expect(res.statusCode).toBe(200)
       const body = res.json()
       expect(body).toMatchObject({ totalVisits: 2, limit: 100, offset: 0 })
-      expect(body.visitor).toMatchObject({ visitorKey: key, keyBasis: 'ua', device: 'Mac · Chrome 155', eventsCapped: 0 })
+      expect(body.visitor).toMatchObject({ visitorKey: key, keyBasis: 'ua', device: 'Mac · Chrome 155', cappedDays: 0 })
       const second = (await app.inject({ method: 'GET', url: `/api/v1/projects/example/journeys/${key}?limit=1&offset=1` })).json()
       expect(second).toMatchObject({ totalVisits: 2, limit: 1, offset: 1 })
       expect(second.visits.map((v: { entryClass: string }) => v.entryClass)).toEqual(['search'])
       expect((await app.inject({ method: 'GET', url: `/api/v1/projects/example/journeys/${key}?limit=501` })).statusCode).toBe(400)
       expect(body.visits[0].events).toEqual([
-        { ts: '2026-10-18T10:00:00.000Z', method: 'GET', path: '/?utm_source=chatgpt.com', status: 200, kind: 'page' },
-        { ts: '2026-10-18T10:02:00.000Z', method: 'GET', path: '/rooms', status: 200, kind: 'page' },
-        { ts: '2026-10-18T10:03:00.000Z', method: 'POST', path: '/api/availability', status: 200, kind: 'data' },
+        { ts: '2026-10-18T10:00:00.000Z', method: 'GET', path: '/?utm_source=chatgpt.com', status: 200, kind: 'page', aiTouch: true },
+        { ts: '2026-10-18T10:02:00.000Z', method: 'GET', path: '/rooms', status: 200, kind: 'page', aiTouch: false },
+        { ts: '2026-10-18T10:03:00.000Z', method: 'POST', path: '/api/availability', status: 200, kind: 'data', aiTouch: false },
       ])
       const otherKey = journeyVisitorKey(SECRET, 'other', null, MAC).visitorKey
       expect((await app.inject({ method: 'GET', url: `/api/v1/projects/example/journeys/${otherKey}` })).statusCode).toBe(404)

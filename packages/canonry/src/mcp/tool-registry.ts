@@ -2716,7 +2716,7 @@ const rawCanonryMcpTools = [
   defineTool({
     name: 'canonry_journeys_list',
     title: 'List AI visitor journeys',
-    description: 'List stored AI visitors, newest first AI visit first, with their first 20 visits (entry class and name, landing path, page count; visitCount is the total). Filter by first AI engine or by whether they came back. Visits are 30-minute sessions; visits within 30 days after an AI visit are kept, 180-day retention. A high eventsCapped means a user agent many people share. No provider call or write.',
+    description: 'List stored AI visitors, newest first AI visit first, with their first 20 visits (entry class and name, landing path, page count; visitCount is the total). Filter by first AI engine or by whether they came back. Visits are 30-minute sessions; visits within 30 days after an AI visit are kept, 180-day retention. A high cappedDays means a user agent many people share; partialSources names sources whose logs miss later visits. No provider call or write.',
     access: 'read', tier: 'traffic', inputSchema: journeysQuerySchema.extend({ project: projectNameSchema }), annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/journeys'],
     handler: (client, input) => { const { project, ...query } = input; return client.journeysList(project, query) },

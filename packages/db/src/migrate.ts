@@ -4847,7 +4847,7 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
         first_ai_engine TEXT NOT NULL,
         last_ai_at TEXT NOT NULL,
         last_seen_at TEXT NOT NULL,
-        events_capped INTEGER NOT NULL DEFAULT 0,
+        capped_days TEXT NOT NULL DEFAULT '[]',
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         PRIMARY KEY (project_id, visitor_key)
@@ -4885,6 +4885,7 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
         path TEXT NOT NULL,
         status INTEGER,
         kind TEXT NOT NULL,
+        ai_touch INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL
       )`,
       `CREATE UNIQUE INDEX IF NOT EXISTS idx_journey_events_source_event ON journey_events(project_id, source_id, source_event_id)`,

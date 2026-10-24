@@ -237,7 +237,7 @@ export interface JourneyVisitorState {
   firstAiAt: string | null
   firstAiEngine: string | null
   lastAiAt: string | null
-  /** Start times of this visitor's stored AI visits near the batch, any order. */
+  /** Times of this visitor's stored AI touches near the batch, any order. */
   aiTimes?: readonly string[]
   /** This visitor's stored visits near the batch window, any order. */
   visits: StoredJourneyVisit[]
@@ -255,12 +255,19 @@ export interface JourneyVisitWrite extends StoredJourneyVisit {
   isNew: boolean
   /** A stored visit gained an earlier first request: its landing path and entry changed. */
   headChanged: boolean
+  /**
+   * This new visit is a late arrival inside a stored visit: that visit's
+   * requests after `after` belong to this one, as they would have in time order.
+   */
+  splitFrom?: { visitId: string; after: string }
 }
 
 export interface JourneyEventWrite {
   visitId: string
   visitorKey: string
   request: KeyedJourneyRequest
+  /** The request was an AI touch (it starts or renews the lookback). */
+  aiTouch: boolean
 }
 
 export interface JourneyVisitorWrite {
@@ -270,8 +277,8 @@ export interface JourneyVisitorWrite {
   lastAiAt: string
   userAgent: string
   lastSeenAt: string
-  /** Requests over the daily cap in this batch. */
-  eventsCapped: number
+  /** UTC days (YYYY-MM-DD) on which this batch hit the daily cap for the visitor. */
+  cappedDays: string[]
 }
 
 export interface SessionizeJourneyOptions {
@@ -288,7 +295,7 @@ export interface SessionizeJourneyResult {
   visitors: JourneyVisitorWrite[]
   /** Requests not kept: outside every AI journey, or background data calls that would open a visit. */
   dropped: number
-  /** Requests over the per-visitor daily cap. */
+  /** Requests over the per-visitor daily cap (AI touches are never capped). */
   capped: number
 }
 
@@ -300,6 +307,8 @@ interface Placement<V> {
   visit: V | undefined
   /** The request becomes the visit's first request. */
   head: boolean
+  /** The visit in progress at the request's time, whether or not it continues it. */
+  current: V | undefined
 }
 
 /**
@@ -322,9 +331,9 @@ function placeRequest<V extends StoredJourneyVisit>(visits: readonly V[], t: num
       next = v
     }
   }
-  if (current && (outsideEntry === null || outsideEntry === entryKey(current.entry))) return { visit: current, head: false }
-  if (next && (next.entry.entryClass === 'direct' || outsideEntry === entryKey(next.entry))) return { visit: next, head: true }
-  return { visit: undefined, head: false }
+  if (current && (outsideEntry === null || outsideEntry === entryKey(current.entry))) return { visit: current, head: false, current }
+  if (next && (next.entry.entryClass === 'direct' || outsideEntry === entryKey(next.entry))) return { visit: next, head: true, current }
+  return { visit: undefined, head: false, current }
 }
 
 /** Insert into a sorted array at the right place. */
@@ -348,9 +357,12 @@ function insertSorted(values: string[], value: string): void {
  *
  * Out-of-order batches (backfills) are matched against the visitor's stored
  * visits and AI touches around them, so a late request joins or heads the
- * right visit and an earlier AI visit moves the journey start back. A late
- * request does not merge two stored visits, and a push request dropped before
- * the visitor's AI landing arrived is not recovered.
+ * right visit, a late arrival from elsewhere inside a stored visit takes that
+ * visit's later requests (`splitFrom`), and an earlier AI visit moves the
+ * journey start back. AI touches are always stored and marked, so the
+ * lookback can be rebuilt exactly. A late request does not merge two stored
+ * visits, and a push request dropped before the visitor's AI landing arrived
+ * is not recovered.
  */
 export function sessionizeJourneyRequests(
   requests: readonly KeyedJourneyRequest[],
@@ -391,7 +403,7 @@ export function sessionizeJourneyRequests(
     const known: JourneyVisitWrite[] = (prior?.visits ?? []).map(v => ({ ...v, visitorKey, landingPath: '', isNew: false, headChanged: false }))
     const requestsByDay = new Map(Object.entries(prior?.requestsByDay ?? {}))
     let keptAny = false
-    let visitorCapped = 0
+    const cappedDays = new Set<string>()
     let lastSeenAt: string | null = null
     let userAgent = list[0].userAgent
     // Index of the latest AI touch at or before the current request.
@@ -428,8 +440,9 @@ export function sessionizeJourneyRequests(
       }
       const day = request.observedAt.slice(0, 10)
       const stored = requestsByDay.get(day) ?? 0
-      if (stored >= options.maxRequestsPerDay) {
-        visitorCapped += 1
+      if (stored >= options.maxRequestsPerDay && !aiTouch) {
+        cappedDays.add(day)
+        capped += 1
         continue
       }
       requestsByDay.set(day, stored + 1)
@@ -459,17 +472,25 @@ export function sessionizeJourneyRequests(
           isNew: true,
           headChanged: false,
         }
+        // An arrival from elsewhere inside a visit that already has later
+        // requests: those requests followed this arrival, so they move to it.
+        const inside = placement.current
+        if (outside && inside && request.observedAt < inside.endedAt) {
+          target.splitFrom = { visitId: inside.id, after: request.observedAt }
+          target.endedAt = inside.endedAt
+          inside.endedAt = request.observedAt
+          visits.set(inside.id, inside)
+        }
         known.push(target)
       }
       visits.set(target.id, target)
-      events.push({ visitId: target.id, visitorKey, request })
+      events.push({ visitId: target.id, visitorKey, request, aiTouch })
       keptAny = true
       lastSeenAt = laterOf(lastSeenAt, request.observedAt)
       userAgent = request.userAgent
     }
 
-    capped += visitorCapped
-    if ((keptAny || visitorCapped > 0) && aiTimes.length > 0) {
+    if ((keptAny || cappedDays.size > 0) && aiTimes.length > 0) {
       const firstAiAt = aiTimes[0]!
       visitors.push({
         visitorKey,
@@ -478,7 +499,7 @@ export function sessionizeJourneyRequests(
         lastAiAt: aiTimes[aiTimes.length - 1]!,
         userAgent,
         lastSeenAt: lastSeenAt ?? prior?.lastAiAt ?? firstAiAt,
-        eventsCapped: visitorCapped,
+        cappedDays: [...cappedDays].sort(),
       })
     }
   }

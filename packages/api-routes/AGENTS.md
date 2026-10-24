@@ -901,7 +901,15 @@ keys, stores and reads. Rules:
 - Writes are idempotent on `(project_id, source_id, source_event_id)` and
   visitor bounds only widen, so overlapping pulls and re-run backfills are safe.
 - A visitor stores at most `JOURNEY_MAX_REQUESTS_PER_VISITOR_DAY` requests per
-  UTC day; the rest are counted in `events_capped`, never silently dropped.
+  UTC day (AI touches are always stored); the days a key hit the cap are kept
+  in `capped_days`, a set, so replays never inflate it.
+- Visit times and counts are recomputed from the requests each visit holds
+  after every write; a late outside arrival inside a stored visit moves that
+  visit's later requests to the new visit.
+- AI touches are marked on `journey_events.ai_touch`; the lookback reads them,
+  not visit starts, so touches inside a visit count.
+- Reads name `partialSources` (`JOURNEY_PARTIAL_SOURCE_TYPES`): sources whose
+  logs miss later visits, such as the Cloudflare Worker.
 - `recordJourneyBatch` rethrows when the outer transaction is gone (some SQLite
   errors roll back more than the savepoint), so the traffic write still fails
   as one unit.

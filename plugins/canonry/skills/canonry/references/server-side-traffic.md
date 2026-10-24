@@ -1188,7 +1188,11 @@ every source and needs no site snippet or goal setup. Read it with
   Chrome reports the same user agent for every Mac on one version, so a key can
   merge people: such visitors undercount people and can overstate return rates.
   Read `keyBasis` before quoting a return rate. A key stores at most 300
-  requests per UTC day; `eventsCapped` counts the rest.
+  requests per UTC day besides AI touches; `cappedDays` counts the days it hit
+  that cap.
+- The Cloudflare Worker forwards only AI-referred and bot requests, so journeys
+  from a Cloudflare source record AI landings but not later visits. Reads list
+  such sources in `partialSources`.
 - Only requests within 30 days after an AI visit are kept, plus the rest of a
   visit already kept; rows are deleted after 180 days. Journeys start from the
   first sync after upgrade; backfill a Cloud Run or Vercel source to seed

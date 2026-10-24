@@ -1886,7 +1886,9 @@ Visits are stored when they fall within 30 days after one of the visitor's AI vi
 rows are deleted after 180 days. A visitor key is a keyed hash, never an IP.
 Sources without an IP (Vercel) key on the user agent only, so people with the
 same device and browser version can merge; `keyBasis` says which. A key stores
-at most 300 requests per UTC day and counts the rest in `eventsCapped`. Query
+at most 300 requests per UTC day besides AI touches; `cappedDays` counts the days it hit
+that cap. `partialSources` names sources whose logs miss later visits (the
+Cloudflare Worker forwards only AI and bot requests). Query
 strings keep only `utm_*`, and path segments that look like secrets (tokens,
 UUIDs, emails) are masked. Stored reads only, no provider call. Viewers and embeds cannot
 read journeys.

@@ -7833,7 +7833,7 @@ export const getApiV1ProjectsByNameJourneysSummaryQueryKey = (options: Options<G
 /**
  * Summarize stored AI visitor journeys
  *
- * Visitors whose first AI-referred visit started in the window (default the last 30 days): how many came back in a later visit, through which channel (search, direct, social, paid, referral, another AI visit), and how long after. Built from server-side traffic with no site code. A visitor is a keyed hash of IP and user agent (user agent alone where the provider reports no IP); keyBasis counts each kind. Stored rows only, 180-day retention. No provider calls or writes.
+ * Visitors whose first AI-referred visit started in the window (default the last 30 days): how many came back in a later visit, through which channel (search, direct, social, paid, referral, another AI visit), and how long after. Built from server-side traffic with no site code. A visitor is a keyed hash of IP and user agent (user agent alone where the provider reports no IP); keyBasis counts each kind. `partialSources` names project sources whose logs miss later visits (the Cloudflare Worker forwards only AI and bot requests). Stored rows only, 180-day retention. No provider calls or writes.
  */
 export const getApiV1ProjectsByNameJourneysSummaryOptions = (options: Options<GetApiV1ProjectsByNameJourneysSummaryData>) => queryOptions<GetApiV1ProjectsByNameJourneysSummaryResponse, GetApiV1ProjectsByNameJourneysSummaryError, GetApiV1ProjectsByNameJourneysSummaryResponse, ReturnType<typeof getApiV1ProjectsByNameJourneysSummaryQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -7853,7 +7853,7 @@ export const getApiV1ProjectsByNameJourneysQueryKey = (options: Options<GetApiV1
 /**
  * List stored AI visitor journeys
  *
- * AI-touched visitors whose first AI-referred visit started in the window, newest first, each with its first 20 visits within 30 days after an AI visit (entry channel, landing page, page count; `visitCount` is the total). `device` is a short label; `userAgent` is the full string. `eventsCapped` counts requests over the 300-per-day cap, a sign of a user agent many people share. Stored rows only, 180-day retention. No provider calls or writes.
+ * AI-touched visitors whose first AI-referred visit started in the window, newest first, each with its first 20 visits within 30 days after an AI visit (entry channel, landing page, page count; `visitCount` is the total). `device` is a short label; `userAgent` is the full string. `cappedDays` counts the days a key reached the 300-requests-per-day cap, a sign of a user agent many people share. `partialSources` names sources whose logs miss later visits. Stored rows only, 180-day retention. No provider calls or writes.
  */
 export const getApiV1ProjectsByNameJourneysOptions = (options: Options<GetApiV1ProjectsByNameJourneysData>) => queryOptions<GetApiV1ProjectsByNameJourneysResponse, GetApiV1ProjectsByNameJourneysError, GetApiV1ProjectsByNameJourneysResponse, ReturnType<typeof getApiV1ProjectsByNameJourneysQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -7873,7 +7873,7 @@ export const getApiV1ProjectsByNameJourneysInfiniteQueryKey = (options: Options<
 /**
  * List stored AI visitor journeys
  *
- * AI-touched visitors whose first AI-referred visit started in the window, newest first, each with its first 20 visits within 30 days after an AI visit (entry channel, landing page, page count; `visitCount` is the total). `device` is a short label; `userAgent` is the full string. `eventsCapped` counts requests over the 300-per-day cap, a sign of a user agent many people share. Stored rows only, 180-day retention. No provider calls or writes.
+ * AI-touched visitors whose first AI-referred visit started in the window, newest first, each with its first 20 visits within 30 days after an AI visit (entry channel, landing page, page count; `visitCount` is the total). `device` is a short label; `userAgent` is the full string. `cappedDays` counts the days a key reached the 300-requests-per-day cap, a sign of a user agent many people share. `partialSources` names sources whose logs miss later visits. Stored rows only, 180-day retention. No provider calls or writes.
  */
 export const getApiV1ProjectsByNameJourneysInfiniteOptions = (options: Options<GetApiV1ProjectsByNameJourneysData>) => {
     const opts = infiniteQueryOptions<GetApiV1ProjectsByNameJourneysResponse, GetApiV1ProjectsByNameJourneysError, InfiniteData<GetApiV1ProjectsByNameJourneysResponse>, QueryKey<Options<GetApiV1ProjectsByNameJourneysData>>, number | Pick<QueryKey<Options<GetApiV1ProjectsByNameJourneysData>>[0], 'body' | 'headers' | 'path' | 'query'>>(

@@ -48,6 +48,10 @@ describe('classifyJourneyEntry', () => {
     expect(classifyJourneyEntry(signal({ refererHost: host })).entryClass).toBe('search')
   })
 
+  it.each([['constructor'], ['__proto__'], ['toString'], ['hasOwnProperty']])('treats utm_source %s as a plain referral name', source => {
+    expect(classifyJourneyEntry(signal({ utmSource: source }))).toEqual({ entryClass: 'referral', entryName: source.toLowerCase(), entryHost: null, paid: false })
+  })
+
   it('does not call fbclid paid: platforms add it to unpaid links', () => {
     expect(classifyJourneyEntry(signal({ refererHost: 'l.facebook.com', clickNetwork: 'Facebook' })))
       .toEqual({ entryClass: 'social', entryName: 'Facebook', entryHost: 'l.facebook.com', paid: false })

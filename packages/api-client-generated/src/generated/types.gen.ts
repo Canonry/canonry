@@ -16605,6 +16605,11 @@ export type JourneysResponse = {
     totalVisitors: number;
     limit: number;
     offset: number;
+    partialSources: Array<{
+        sourceId: string;
+        sourceType: string;
+        reason: string;
+    }>;
     visitors: Array<{
         visitorKey: string;
         keyBasis: 'ip-ua' | 'ua';
@@ -16618,7 +16623,7 @@ export type JourneysResponse = {
         aiVisitCount: number;
         returned: boolean;
         returnChannels: Array<'ai' | 'search' | 'social' | 'paid' | 'referral' | 'direct'>;
-        eventsCapped: number;
+        cappedDays: number;
         visits: Array<{
             id: string;
             sourceId: string;
@@ -16650,7 +16655,7 @@ export type JourneyDetailResponse = {
         aiVisitCount: number;
         returned: boolean;
         returnChannels: Array<'ai' | 'search' | 'social' | 'paid' | 'referral' | 'direct'>;
-        eventsCapped: number;
+        cappedDays: number;
     };
     totalVisits: number;
     limit: number;
@@ -16673,6 +16678,7 @@ export type JourneyDetailResponse = {
             path: string;
             status: number | null;
             kind: 'page' | 'data';
+            aiTouch: boolean;
         }>;
     }>;
 };
@@ -16699,6 +16705,11 @@ export type JourneySummaryResponse = {
         ipUa: number;
         ua: number;
     };
+    partialSources: Array<{
+        sourceId: string;
+        sourceType: string;
+        reason: string;
+    }>;
 };
 
 export type TrafficSourceDetailDto = {

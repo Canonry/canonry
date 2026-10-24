@@ -2795,8 +2795,8 @@ export const journeyVisitors = sqliteTable('journey_visitors', {
   firstAiEngine: text('first_ai_engine').notNull(),
   lastAiAt: text('last_ai_at').notNull(),
   lastSeenAt: text('last_seen_at').notNull(),
-  /** Requests not stored because this key passed the per-day cap. */
-  eventsCapped: integer('events_capped').notNull().default(0),
+  /** UTC days (YYYY-MM-DD) on which this key reached the per-day request cap. */
+  cappedDays: text('capped_days', { mode: 'json' }).$type<string[]>().notNull().default([]),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 }, (table) => [
@@ -2838,6 +2838,8 @@ export const journeyEvents = sqliteTable('journey_events', {
   path: text('path').notNull(),
   status: integer('status'),
   kind: text('kind').notNull(),
+  /** The request was an AI touch: it starts or renews the visitor's 30-day lookback. */
+  aiTouch: integer('ai_touch', { mode: 'boolean' }).notNull().default(false),
   createdAt: text('created_at').notNull(),
 }, (table) => [
   uniqueIndex('idx_journey_events_source_event').on(table.projectId, table.sourceId, table.sourceEventId),

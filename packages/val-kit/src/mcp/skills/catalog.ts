@@ -24,6 +24,7 @@ import { part as canonryReferencesGoogleBusinessProfilePart0 } from './canonry-r
 import { part as canonryReferencesGoogleMarketingPart0 } from './canonry-references-google-marketing.0.js'
 import { part as canonryReferencesIndexingPart0 } from './canonry-references-indexing.0.js'
 import { part as canonryReferencesServerSideTrafficPart0 } from './canonry-references-server-side-traffic.0.js'
+import { part as canonryReferencesServerSideTrafficPart1 } from './canonry-references-server-side-traffic.1.js'
 import { part as canonryReferencesWordpressIntegrationPart0 } from './canonry-references-wordpress-integration.0.js'
 
 export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
@@ -164,7 +165,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Canonry CLI Reference",
     description: "canonry skill reference: references/canonry-cli.md",
     entryPoint: false,
-    characters: 188327,
+    characters: 188473,
     content: [canonryReferencesCanonryCliPart0, canonryReferencesCanonryCliPart1, canonryReferencesCanonryCliPart2, canonryReferencesCanonryCliPart3].join(''),
   },
   {
@@ -204,8 +205,8 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Server-side traffic (AI Visibility — Server-Side)",
     description: "canonry skill reference: references/server-side-traffic.md",
     entryPoint: false,
-    characters: 58515,
-    content: canonryReferencesServerSideTrafficPart0,
+    characters: 58745,
+    content: [canonryReferencesServerSideTrafficPart0, canonryReferencesServerSideTrafficPart1].join(''),
   },
   {
     uri: "canonry-skill://canonry/references/wordpress-integration.md",

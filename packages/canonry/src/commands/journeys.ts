@@ -6,6 +6,7 @@ import {
   journeySummaryQuerySchema,
   journeysQuerySchema,
   type JourneyEntryClass,
+  type JourneyPartialSources,
   type JourneyVisitDto,
 } from '@canonry/canonry-contracts'
 import type { z } from 'zod'
@@ -46,6 +47,10 @@ function entryLabel(visit: Pick<JourneyVisitDto, 'entryClass' | 'entryName' | 'p
   return `${visit.entryClass}${name}${visit.paid && visit.entryClass !== 'paid' ? ' (paid)' : ''}`
 }
 
+function printPartialSources(sources: JourneyPartialSources): void {
+  for (const source of sources) console.log(`Partial source ${source.sourceId} (${source.sourceType}): ${source.reason}`)
+}
+
 const UA_NOTE = 'Visitors keyed by user agent only (sources without an IP, such as Vercel) can merge different people on the same device and browser version.'
 
 export async function journeysSummary(project: string, opts: JourneyWindowOptions): Promise<void> {
@@ -65,6 +70,7 @@ export async function journeysSummary(project: string, opts: JourneyWindowOption
   if (via.length > 0) console.log(`Later visits by entry: ${via.map(([cls, n]) => `${cls} ${n}`).join(', ')}`)
   for (const row of result.byEngine) console.log(`  ${row.engine}: ${row.visitors} visitors, ${row.returningVisitors} came back`)
   console.log(`Visits are kept for ${result.lookbackDays} days after each AI visit. ${result.keyBasis.ua > 0 ? UA_NOTE : ''}`.trim())
+  printPartialSources(result.partialSources)
 }
 
 export async function journeysList(project: string, opts: JourneyListOptions): Promise<void> {
@@ -92,6 +98,7 @@ export async function journeysList(project: string, opts: JourneyListOptions): P
     console.log(`More: --offset ${result.offset + result.visitors.length}`)
   }
   if (result.visitors.some(visitor => visitor.keyBasis === 'ua')) console.log(UA_NOTE)
+  printPartialSources(result.partialSources)
 }
 
 export async function journeyShow(project: string, visitorKey: string, opts: { limit?: number; offset?: number; format?: string }): Promise<void> {
@@ -110,10 +117,10 @@ export async function journeyShow(project: string, visitorKey: string, opts: { l
     console.log('')
     console.log(`${minute(visit.startedAt)} to ${minute(visit.endedAt)}  ${entryLabel(visit)}  lands ${visit.landingPath}  ${visit.pageCount} pages, ${visit.requestCount} requests`)
     for (const event of visit.events) {
-      console.log(`  ${event.ts.slice(11, 19)}  ${event.method ?? '-'}  ${event.status ?? '-'}  ${event.kind === 'data' ? '[data] ' : ''}${event.path}`)
+      console.log(`  ${event.ts.slice(11, 19)}  ${event.method ?? '-'}  ${event.status ?? '-'}  ${event.aiTouch ? '[ai] ' : ''}${event.kind === 'data' ? '[data] ' : ''}${event.path}`)
     }
   }
-  if (visitor.eventsCapped > 0) console.log(`\n${visitor.eventsCapped} requests over the ${JOURNEY_MAX_REQUESTS_PER_VISITOR_DAY}-per-day cap were not stored.`)
+  if (visitor.cappedDays > 0) console.log(`\nReached the ${JOURNEY_MAX_REQUESTS_PER_VISITOR_DAY}-requests-per-day cap on ${visitor.cappedDays} day(s); requests over it were not stored.`)
   if (result.offset + result.visits.length < result.totalVisits) {
     console.log(`\nShowing visits ${result.offset + 1} to ${result.offset + result.visits.length} of ${result.totalVisits}. More: --offset ${result.offset + result.visits.length}`)
   }

@@ -50,7 +50,7 @@ describe('journeys CLI commands', () => {
       { id: 'v2', projectId: project.id, visitorKey: KEY, sourceId: 'logs', startedAt: '2026-10-20T09:00:00.000Z', endedAt: '2026-10-20T09:01:00.000Z', entryClass: 'search', entryName: 'Google', entryHost: 'google.com', paid: false, landingPath: '/book', requestCount: 1, pageCount: 0, createdAt: at, updatedAt: at },
     ]).run()
     db.insert(journeyEvents).values([
-      { id: 'e1', projectId: project.id, visitId: 'v1', sourceId: 'logs', sourceEventId: 's1', ts: at, method: 'GET', path: '/', status: 200, kind: 'page', createdAt: at },
+      { id: 'e1', projectId: project.id, visitId: 'v1', sourceId: 'logs', sourceEventId: 's1', ts: at, method: 'GET', path: '/', status: 200, kind: 'page', aiTouch: true, createdAt: at },
       { id: 'e2', projectId: project.id, visitId: 'v1', sourceId: 'logs', sourceEventId: 's2', ts: '2026-10-18T10:02:00.000Z', method: 'GET', path: '/rooms', status: 200, kind: 'page', createdAt: at },
       { id: 'e3', projectId: project.id, visitId: 'v2', sourceId: 'logs', sourceEventId: 's3', ts: '2026-10-20T09:01:00.000Z', method: 'POST', path: '/api/contact', status: 200, kind: 'data', createdAt: at },
     ]).run()
@@ -102,6 +102,7 @@ describe('journeys CLI commands', () => {
     expect(text.stdout).toContain('ai ChatGPT  lands /')
     expect(text.stdout).toContain('search Google  lands /book')
     expect(text.stdout).toContain('[data] /api/contact')
+    expect(text.stdout).toContain('[ai] /')
     const page = await invokeCli(['journeys', 'show', 'test-proj', KEY, '--limit', '1'])
     expect(page.stdout).toContain('Showing visits 1 to 1 of 2. More: --offset 1')
     expect(page.stdout).not.toContain('search Google')

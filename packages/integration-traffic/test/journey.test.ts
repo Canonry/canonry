@@ -144,7 +144,7 @@ describe('sessionizeJourneyRequests', () => {
       lastAiAt: '2026-10-18T12:00:00.000Z',
       userAgent: MAC_CHROME,
       lastSeenAt: '2026-10-18T13:36:00.000Z',
-      eventsCapped: 0,
+      cappedDays: [],
     }])
     expect(result.events).toHaveLength(6)
     expect(result.dropped).toBe(0)
@@ -334,7 +334,28 @@ describe('sessionizeJourneyRequests', () => {
     const result = sessionizeJourneyRequests(requests('2026-10-18T10:00:00Z', steps), state, { ...OPTIONS, maxRequestsPerDay: 3, newId: ids() })
     expect(result.events).toHaveLength(2)
     expect(result.capped).toBe(2)
-    expect(result.visitors[0]).toMatchObject({ eventsCapped: 2 })
+    expect(result.visitors[0]).toMatchObject({ cappedDays: ['2026-10-18'] })
+  })
+
+  it('always stores AI touches, even over the daily cap, and marks them', () => {
+    const state = new Map<string, JourneyVisitorState>([['v1', { firstAiAt: null, firstAiEngine: null, lastAiAt: null, visits: [], requestsByDay: { '2026-10-18': 5 } }]])
+    const result = sessionizeJourneyRequests(requests('2026-10-18T10:00:00Z', [[0, fromChatGpt], [1, internal('/a')]]), state, { ...OPTIONS, maxRequestsPerDay: 5, newId: ids() })
+    expect(result.events.map(e => [e.request.path, e.aiTouch])).toEqual([['/?utm_source=chatgpt.com', true]])
+    expect(result.capped).toBe(1)
+  })
+
+  it('a late outside arrival inside a stored visit takes its later requests', () => {
+    // Stored: ChatGPT visit 09:00 to 09:10 (checkout at 09:10). Late: Google at 09:05.
+    const state = new Map<string, JourneyVisitorState>([['v1', {
+      firstAiAt: '2026-10-18T09:00:00.000Z', firstAiEngine: 'ChatGPT', lastAiAt: '2026-10-18T09:00:00.000Z',
+      aiTimes: ['2026-10-18T09:00:00.000Z'],
+      visits: [{ id: 'chatgpt', startedAt: '2026-10-18T09:00:00.000Z', endedAt: '2026-10-18T09:10:00.000Z', entry: { entryClass: 'ai', entryName: 'ChatGPT', entryHost: 'chatgpt.com', paid: false }, requestCount: 2, pageCount: 2 }],
+    }]])
+    const result = sessionizeJourneyRequests(requests('2026-10-18T09:05:00Z', [[0, { ...fromGoogle, path: '/g' }], [2, internal('/after')]]), state, { ...OPTIONS, newId: ids() })
+    const google = result.visits.find(v => v.isNew)!
+    expect(google).toMatchObject({ entry: { entryClass: 'search' }, splitFrom: { visitId: 'chatgpt', after: '2026-10-18T09:05:00.000Z' } })
+    // A later request in the batch continues the new visit, not the split one.
+    expect(result.events.map(e => e.visitId)).toEqual([google.id, google.id])
   })
 })
 

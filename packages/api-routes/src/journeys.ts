@@ -1,14 +1,17 @@
 import crypto from 'node:crypto'
-import { and, asc, count, desc, eq, gte, inArray, lt, lte, sql } from 'drizzle-orm'
+import { and, asc, count, desc, eq, gt, gte, inArray, lt, lte, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import type { DatabaseClient } from '@canonry/canonry-db'
-import { journeyEvents, journeyVisitors, journeyVisits, projects } from '@canonry/canonry-db'
+import { journeyEvents, journeyVisitors, journeyVisits, projects, trafficSources } from '@canonry/canonry-db'
 import {
   formatValidationIssues,
   JOURNEY_LIST_VISITS_PER_VISITOR,
   JOURNEY_LOOKBACK_DAYS,
   JOURNEY_MAX_REQUESTS_PER_VISITOR_DAY,
+  JOURNEY_PARTIAL_SOURCE_TYPES,
+  TrafficSourceStatuses,
+  type JourneyPartialSources,
   journeyDetailQuerySchema,
   JOURNEY_RETENTION_DAYS,
   JOURNEY_VISIT_IDLE_MINUTES,
@@ -153,22 +156,26 @@ export function persistJourneyBatch(
     }
     return visitor
   }
+  const storedCappedDays = new Map<string, string[]>()
   for (const keys of chunks([...basisByKey.keys()])) {
     for (const row of tx.select().from(journeyVisitors)
       .where(and(eq(journeyVisitors.projectId, input.projectId), inArray(journeyVisitors.visitorKey, keys))).all()) {
       Object.assign(stateFor(row.visitorKey), { firstAiAt: row.firstAiAt, firstAiEngine: row.firstAiEngine, lastAiAt: row.lastAiAt })
+      storedCappedDays.set(row.visitorKey, row.cappedDays)
     }
-    // AI visit starts that can cover a batch request, so the lookback is
-    // measured from the AI visit before each request, not the latest overall.
-    for (const row of tx.select({ visitorKey: journeyVisits.visitorKey, startedAt: journeyVisits.startedAt }).from(journeyVisits)
+    // Every stored AI touch that can cover a batch request, including touches
+    // inside a visit, so the lookback is measured from the touch before each
+    // request whatever order the requests arrive in.
+    for (const row of tx.select({ visitorKey: journeyVisits.visitorKey, ts: journeyEvents.ts }).from(journeyEvents)
+      .innerJoin(journeyVisits, eq(journeyVisits.id, journeyEvents.visitId))
       .where(and(
         eq(journeyVisits.projectId, input.projectId),
         inArray(journeyVisits.visitorKey, keys),
-        eq(journeyVisits.entryClass, 'ai'),
-        gte(journeyVisits.startedAt, lookbackStart),
-        lte(journeyVisits.startedAt, latestIso),
+        eq(journeyEvents.aiTouch, true),
+        gte(journeyEvents.ts, lookbackStart),
+        lte(journeyEvents.ts, latestIso),
       )).all()) {
-      stateFor(row.visitorKey).aiTimes.push(row.startedAt)
+      stateFor(row.visitorKey).aiTimes.push(row.ts)
     }
     // Requests already stored per visitor and UTC day, for the daily cap.
     const day = sql<string>`substr(${journeyEvents.ts}, 1, 10)`
@@ -209,7 +216,12 @@ export function persistJourneyBatch(
     newId: () => crypto.randomUUID(),
   })
 
+  const cappedCutoff = new Date(Date.parse(input.now) - JOURNEY_RETENTION_MS).toISOString().slice(0, 10)
   for (const visitor of result.visitors) {
+    // A set of days, so replaying the same requests never counts twice.
+    const cappedDays = [...new Set([...(storedCappedDays.get(visitor.visitorKey) ?? []), ...visitor.cappedDays])]
+      .filter(day => day >= cappedCutoff)
+      .sort()
     tx.insert(journeyVisitors).values({
       projectId: input.projectId,
       visitorKey: visitor.visitorKey,
@@ -219,7 +231,7 @@ export function persistJourneyBatch(
       firstAiEngine: visitor.firstAiEngine,
       lastAiAt: visitor.lastAiAt,
       lastSeenAt: visitor.lastSeenAt,
-      eventsCapped: visitor.eventsCapped,
+      cappedDays,
       createdAt: input.now,
       updatedAt: input.now,
     }).onConflictDoUpdate({
@@ -231,7 +243,7 @@ export function persistJourneyBatch(
         firstAiEngine: sql`CASE WHEN ${visitor.firstAiAt} < ${journeyVisitors.firstAiAt} THEN ${visitor.firstAiEngine} ELSE ${journeyVisitors.firstAiEngine} END`,
         lastAiAt: sql`max(${journeyVisitors.lastAiAt}, ${visitor.lastAiAt})`,
         lastSeenAt: sql`max(${journeyVisitors.lastSeenAt}, ${visitor.lastSeenAt})`,
-        eventsCapped: sql`${journeyVisitors.eventsCapped} + ${visitor.eventsCapped}`,
+        cappedDays,
         userAgent: visitor.userAgent,
         updatedAt: input.now,
       },
@@ -274,6 +286,14 @@ export function persistJourneyBatch(
       tx.update(journeyVisits).set(values).where(eq(journeyVisits.id, visit.id)).run()
     }
   }
+  // Late arrivals inside a stored visit take that visit's later requests, in
+  // the order the splits were made (a split can move requests on again).
+  for (const visit of result.visits) {
+    if (!visit.splitFrom) continue
+    tx.update(journeyEvents).set({ visitId: visit.id })
+      .where(and(eq(journeyEvents.visitId, visit.splitFrom.visitId), gt(journeyEvents.ts, visit.splitFrom.after)))
+      .run()
+  }
   let eventsStored = 0
   for (const event of result.events) {
     const outcome = tx.insert(journeyEvents).values({
@@ -287,11 +307,26 @@ export function persistJourneyBatch(
       path: event.request.path,
       status: event.request.status,
       kind: event.request.kind,
+      aiTouch: event.aiTouch,
       createdAt: input.now,
     }).onConflictDoNothing().run()
     eventsStored += outcome.changes
   }
+  // Visit times and counts come from the requests each visit now holds, so
+  // splits, late heads and replays all leave them exact.
+  for (const ids of chunks(result.visits.map(v => v.id))) recomputeVisitTotals(tx, ids)
   return { visitsWritten: result.visits.length, eventsStored }
+}
+
+function recomputeVisitTotals(tx: JourneyDb, visitIds: readonly string[]): void {
+  if (visitIds.length === 0) return
+  const of = (expression: ReturnType<typeof sql>) => sql`(SELECT ${expression} FROM ${journeyEvents} WHERE ${journeyEvents.visitId} = ${journeyVisits.id})`
+  tx.update(journeyVisits).set({
+    startedAt: sql`coalesce(${of(sql`min(${journeyEvents.ts})`)}, ${journeyVisits.startedAt})`,
+    endedAt: sql`coalesce(${of(sql`max(${journeyEvents.ts})`)}, ${journeyVisits.endedAt})`,
+    requestCount: of(sql`count(*)`),
+    pageCount: of(sql`count(*) FILTER (WHERE ${journeyEvents.kind} = 'page')`),
+  }).where(inArray(journeyVisits.id, [...visitIds])).run()
 }
 
 type JourneyTx = { transaction: <T>(run: (tx: JourneyDb) => T) => T }
@@ -392,7 +427,7 @@ function visitorDto(visitor: VisitorRow, visits: readonly VisitRow[]): JourneyVi
     aiVisitCount: visits.filter(v => v.entryClass === 'ai').length,
     returned: later.length > 0,
     returnChannels: later.map(v => journeyEntryClassSchema.parse(v.entryClass)),
-    eventsCapped: visitor.eventsCapped,
+    cappedDays: visitor.cappedDays.length,
   }
 }
 
@@ -408,6 +443,16 @@ function visitsByVisitor(db: DatabaseClient, projectId: string, keys: readonly s
     }
   }
   return out
+}
+
+/** Project sources whose logs hold only part of a visitor's requests (see JOURNEY_PARTIAL_SOURCE_TYPES). */
+function partialSources(db: DatabaseClient, projectId: string): JourneyPartialSources {
+  const types = Object.keys(JOURNEY_PARTIAL_SOURCE_TYPES)
+  return db.select({ id: trafficSources.id, sourceType: trafficSources.sourceType, status: trafficSources.status }).from(trafficSources)
+    .where(and(eq(trafficSources.projectId, projectId), inArray(trafficSources.sourceType, types)))
+    .orderBy(asc(trafficSources.id)).all()
+    .filter(row => row.status !== TrafficSourceStatuses.archived)
+    .map(row => ({ sourceId: row.id, sourceType: row.sourceType, reason: JOURNEY_PARTIAL_SOURCE_TYPES[row.sourceType]! }))
 }
 
 function median(values: number[]): number | null {
@@ -465,6 +510,7 @@ export async function journeyRoutes(app: FastifyInstance): Promise<void> {
         ipUa: visitors.filter(v => v.keyBasis === JourneyKeyBases['ip-ua']).length,
         ua: visitors.filter(v => v.keyBasis !== JourneyKeyBases['ip-ua']).length,
       },
+      partialSources: partialSources(app.db, project.id),
     }
     return response
   })
@@ -493,6 +539,7 @@ export async function journeyRoutes(app: FastifyInstance): Promise<void> {
       totalVisitors: matching.length,
       limit,
       offset,
+      partialSources: partialSources(app.db, project.id),
       visitors: matching.slice(offset, offset + limit).map(({ visitor, dto }) => ({
         ...dto,
         visits: (visits.get(visitor.visitorKey) ?? []).slice(0, JOURNEY_LIST_VISITS_PER_VISITOR).map(visitDto),
@@ -529,7 +576,7 @@ export async function journeyRoutes(app: FastifyInstance): Promise<void> {
       offset,
       visits: page.map(v => ({
         ...visitDto(v),
-        events: (events.get(v.id) ?? []).map(e => ({ ts: e.ts, method: e.method, path: e.path, status: e.status, kind: e.kind === 'data' ? 'data' as const : 'page' as const })),
+        events: (events.get(v.id) ?? []).map(e => ({ ts: e.ts, method: e.method, path: e.path, status: e.status, kind: e.kind === 'data' ? 'data' as const : 'page' as const, aiTouch: e.aiTouch })),
       })),
     }
     return response
