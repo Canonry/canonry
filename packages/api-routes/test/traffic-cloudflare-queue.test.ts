@@ -5,8 +5,8 @@ import os from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
 import { and, eq } from 'drizzle-orm'
-import { createClient, migrate, projects, schedules, trafficEventReceipts, trafficSources } from '@canonry/canonry-db'
-import { SchedulableRunKinds, TrafficSourceStatuses, TrafficSourceTypes } from '@canonry/canonry-contracts'
+import { createClient, migrate, projects, runs, schedules, trafficEventReceipts, trafficSources } from '@canonry/canonry-db'
+import { RunStatuses, SchedulableRunKinds, TrafficSourceStatuses, TrafficSourceTypes } from '@canonry/canonry-contracts'
 import { CloudflareQueueApiError } from '@canonry/canonry-integration-cloudflare-queue'
 import { apiRoutes } from '../src/index.js'
 import { CURRENT_CLOUDFLARE_WORKER_VERSION } from '../src/cloudflare-worker-version.js'
@@ -26,6 +26,7 @@ async function harness(options: {
   queueMaxBatches?: number
   /** Live Queue retention read; by default it fails, as if Cloudflare were unreachable. */
   queueRetention?: Parameters<typeof apiRoutes>[1]['getCloudflareQueueRetentionSeconds']
+  queueSyncDeadlineMs?: number
 } = {}) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-cloudflare-queue-'))
   directories.push(directory)
@@ -53,6 +54,7 @@ async function harness(options: {
     ackCloudflareQueueMessages: options.queueAck,
     getCloudflareQueueRetentionSeconds: options.queueRetention ?? (async () => { throw new Error('retention read unavailable in tests') }),
     cloudflareQueueMaxBatches: options.queueMaxBatches,
+    cloudflareQueueSyncDeadlineMs: options.queueSyncDeadlineMs,
   })
   await app.ready()
   await app.inject({ method: 'PUT', url: '/api/v1/projects/test-project', payload: {
@@ -64,6 +66,30 @@ async function harness(options: {
 const queuePayload = {
   deliveryMode: 'queue-pull', accountId: 'account-1', queueId: 'queue-1', queueName: 'canonry-events',
   retentionSeconds: 86_400, apiToken: 'cf-secret-queue-token',
+}
+
+/** Queue envelopes from the generated Worker; `valid: false` gives batches the route drops as poison. */
+function queueMessages(count: number, prefix: string, options: { valid?: boolean } = {}) {
+  return Array.from({ length: count }, (_, index) => ({
+    id: `${prefix}-${index}`, timestampMs: 1_700_000_000_000, attempts: 1, leaseId: `${prefix}-lease-${index}`,
+    metadata: {}, contentType: 'json' as const,
+    body: {
+      schemaVersion: 1,
+      workerVersion: CURRENT_CLOUDFLARE_WORKER_VERSION,
+      events: options.valid === false ? [] : [{
+        eventId: `${prefix}-ray-${index}`, observedAt: '2026-08-11T12:00:00.000Z', method: 'GET', host: 'example.com',
+        path: '/queue', queryString: null, status: 200, userAgent: 'GPTBot/1.0', remoteIp: null, referer: null,
+        cf: { verifiedBot: true, botScore: null, country: null, asn: null, asOrganization: null },
+      }],
+    },
+  }))
+}
+
+async function connectAndSync(h: Awaited<ReturnType<typeof harness>>) {
+  const connected = await h.app.inject({ method: 'POST', url: '/api/v1/projects/test-project/traffic/connect/cloudflare', payload: queuePayload })
+  const sourceId = JSON.parse(connected.payload).sourceId as string
+  const synced = await h.app.inject({ method: 'POST', url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`, payload: {} })
+  return { sourceId, synced }
 }
 
 describe('Cloudflare Queue pull lifecycle', () => {
@@ -343,6 +369,65 @@ describe('Cloudflare Queue pull lifecycle', () => {
     await h.app.close()
   })
 
+  describe('receipt lifetimes across retention changes', () => {
+    const HOUR = 60 * 60_000
+    const MARGIN = 10 * 60_000
+    async function syncWithSeededReceipt(seedLifetimeMs: number, liveRetentionSeconds: number) {
+      const h = await harness({
+        queuePull: async () => ({ messageBacklogCount: 0, messages: queueMessages(1, 'fresh'), skippedUnleasedMessageCount: 0 }),
+        queueAck: async (_client, options) => ({ acknowledgedLeaseIds: options.acks, retriedLeaseIds: [], warningCount: 0 }),
+        queueRetention: async () => liveRetentionSeconds,
+      })
+      const connected = await h.app.inject({ method: 'POST', url: '/api/v1/projects/test-project/traffic/connect/cloudflare', payload: queuePayload })
+      const sourceId = JSON.parse(connected.payload).sourceId as string
+      const seededAt = new Date(Date.now() - HOUR).toISOString()
+      const seededExpiry = new Date(Date.parse(seededAt) + seedLifetimeMs).toISOString()
+      h.db.insert(trafficEventReceipts).values({ sourceId, eventId: 'seeded', receivedAt: seededAt, expiresAt: seededExpiry }).run()
+      const synced = await h.app.inject({ method: 'POST', url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`, payload: {} })
+      expect(synced.statusCode).toBe(200)
+      const receipt = (eventId: string) => h.db.select().from(trafficEventReceipts)
+        .where(and(eq(trafficEventReceipts.sourceId, sourceId), eq(trafficEventReceipts.eventId, eventId))).get()!
+      const lifetime = (row: { receivedAt: string; expiresAt: string }) => Date.parse(row.expiresAt) - Date.parse(row.receivedAt)
+      return { h, seeded: receipt('seeded'), fresh: receipt('cloudflare-worker:fresh-ray-0'), seededExpiry, lifetime }
+    }
+
+    it('extends live receipts when the retention went up', async () => {
+      const { h, seeded, lifetime } = await syncWithSeededReceipt(24 * HOUR, 345_600)
+      expect(Math.abs(lifetime(seeded) - (345_600_000 + MARGIN))).toBeLessThanOrEqual(2)
+      await h.app.close()
+    })
+
+    it('keeps new receipts until the newest receipt from a longer retention expires', async () => {
+      const { h, fresh, seededExpiry } = await syncWithSeededReceipt(345_600_000 + MARGIN, 3_600)
+      expect(fresh.expiresAt).toBe(seededExpiry)
+      await h.app.close()
+    })
+
+    it('takes no floor from receipts written by the maximum-retention fallback', async () => {
+      const { h, fresh, lifetime } = await syncWithSeededReceipt(14 * 24 * HOUR + MARGIN, 3_600)
+      expect(lifetime(fresh)).toBe(3_600_000 + MARGIN)
+      await h.app.close()
+    })
+  })
+
+  it.each([
+    ['a failed read with its status', async () => { throw new CloudflareQueueApiError('Cloudflare Queue read failed with HTTP 403', 403) },
+      { status: 403, error: 'Cloudflare Queue read failed with HTTP 403' }, 'Could not read Cloudflare Queue retention'],
+    ['an unusable value separately', async () => null, {}, 'Cloudflare reported no usable Queue retention'],
+  ] as const)('logs %s', async (_label, queueRetention, fields, message) => {
+    const h = await harness({
+      queuePull: async () => ({ messageBacklogCount: 0, messages: queueMessages(1, 'logged'), skippedUnleasedMessageCount: 0 }),
+      queueAck: async (_client, options) => ({ acknowledgedLeaseIds: options.acks, retriedLeaseIds: [], warningCount: 0 }),
+      queueRetention,
+    })
+    const warnings: Array<{ fields: Record<string, unknown>; message: string }> = []
+    h.app.log.warn = ((logged: Record<string, unknown>, text: string) => { warnings.push({ fields: logged, message: text }) }) as typeof h.app.log.warn
+    const { synced, sourceId } = await connectAndSync(h)
+    expect(synced.statusCode).toBe(200)
+    expect(warnings).toContainEqual({ fields: { sourceId, ...fields }, message: expect.stringContaining(message) })
+    await h.app.close()
+  })
+
   it('poison-ACKs text payloads because the generated Worker contract is JSON-only', async () => {
     const acknowledged: string[][] = []
     const textMessage = {
@@ -557,26 +642,19 @@ describe('Cloudflare Queue pull lifecycle', () => {
   it('commits and acknowledges each Queue lease batch before pulling the next one', async () => {
     const acknowledgedBatchSizes: number[] = []
     let pulls = 0
-    const messages = (count: number, prefix: string) => Array.from({ length: count }, (_, index) => ({
-      id: `${prefix}-${index}`, timestampMs: 1_700_000_000_000, attempts: 1, leaseId: `${prefix}-lease-${index}`,
-      metadata: {}, contentType: 'json' as const,
-      body: { schemaVersion: 1, workerVersion: '1.0.0', events: [] },
-    }))
     const h = await harness({
       queuePull: async () => {
         pulls += 1
         return pulls === 1
-          ? { messageBacklogCount: 1, messages: messages(100, 'first'), skippedUnleasedMessageCount: 0 }
-          : { messageBacklogCount: 0, messages: messages(1, 'second'), skippedUnleasedMessageCount: 0 }
+          ? { messageBacklogCount: 1, messages: queueMessages(100, 'first', { valid: false }), skippedUnleasedMessageCount: 0 }
+          : { messageBacklogCount: 0, messages: queueMessages(1, 'second', { valid: false }), skippedUnleasedMessageCount: 0 }
       },
       queueAck: async (_client, options) => {
         acknowledgedBatchSizes.push(options.acks.length)
         return { acknowledgedLeaseIds: options.acks, retriedLeaseIds: [], warningCount: 0 }
       },
     })
-    const connected = await h.app.inject({ method: 'POST', url: '/api/v1/projects/test-project/traffic/connect/cloudflare', payload: queuePayload })
-    const sourceId = JSON.parse(connected.payload).sourceId as string
-    const synced = await h.app.inject({ method: 'POST', url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`, payload: {} })
+    const { synced } = await connectAndSync(h)
 
     expect(synced.statusCode).toBe(200)
     expect(acknowledgedBatchSizes).toEqual([100, 1])
@@ -584,46 +662,115 @@ describe('Cloudflare Queue pull lifecycle', () => {
     await h.app.close()
   })
 
-  it('keeps draining through partial batches while a backlog remains, up to the batch cap', async () => {
+  it('keeps draining through partial batches while a backlog remains, up to the pull cap', async () => {
     const pullSizes = [37, 52, 100, 8, 61]
+    const acknowledged: number[] = []
     let pulls = 0
-    const messages = (count: number, prefix: string) => Array.from({ length: count }, (_, index) => ({
-      id: `${prefix}-${index}`, timestampMs: 1_700_000_000_000, attempts: 1, leaseId: `${prefix}-lease-${index}`,
-      metadata: {}, contentType: 'json' as const,
-      body: { schemaVersion: 1, workerVersion: '1.0.0', events: [] },
-    }))
     const h = await harness({
       queueMaxBatches: 4,
       queuePull: async () => {
         const size = pullSizes[pulls]!
         pulls += 1
-        return { messageBacklogCount: 60_000, messages: messages(size, `pull-${pulls}`), skippedUnleasedMessageCount: 0 }
+        return { messageBacklogCount: 60_000, messages: queueMessages(size, `pull-${pulls}`), skippedUnleasedMessageCount: 0 }
       },
-      queueAck: async (_client, options) => ({ acknowledgedLeaseIds: options.acks, retriedLeaseIds: [], warningCount: 0 }),
+      queueAck: async (_client, options) => {
+        acknowledged.push(options.acks.length)
+        return { acknowledgedLeaseIds: options.acks, retriedLeaseIds: [], warningCount: 0 }
+      },
     })
-    const connected = await h.app.inject({ method: 'POST', url: '/api/v1/projects/test-project/traffic/connect/cloudflare', payload: queuePayload })
-    const sourceId = JSON.parse(connected.payload).sourceId as string
-    const synced = await h.app.inject({ method: 'POST', url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`, payload: {} })
+    const { synced } = await connectAndSync(h)
     expect(synced.statusCode).toBe(200)
     // Partial batches (37, 52, 8) no longer end the drain; the cap of 4 does.
-    expect(pulls).toBe(4)
-    expect(JSON.parse(synced.payload)).toMatchObject({ remainingBacklogCount: 60_000 })
+    expect(acknowledged).toEqual([37, 52, 100, 8])
+    expect(JSON.parse(synced.payload)).toMatchObject({ pulledEvents: 197, remainingBacklogCount: 60_000 })
+    expect(h.db.select().from(trafficEventReceipts).all()).toHaveLength(197)
     await h.app.close()
   })
 
-  it('stops the drain on an empty pull even when a backlog is reported', async () => {
+  it('stops at the drain deadline even while a backlog remains', async () => {
+    let pulls = 0
+    const h = await harness({
+      queueSyncDeadlineMs: 1,
+      queuePull: async () => {
+        pulls += 1
+        await new Promise(resolve => setTimeout(resolve, 5))
+        return { messageBacklogCount: 60_000, messages: queueMessages(10, `deadline-${pulls}`), skippedUnleasedMessageCount: 0 }
+      },
+      queueAck: async (_client, options) => ({ acknowledgedLeaseIds: options.acks, retriedLeaseIds: [], warningCount: 0 }),
+    })
+    const { synced } = await connectAndSync(h)
+    expect(synced.statusCode).toBe(200)
+    expect(pulls).toBe(1)
+    expect(JSON.parse(synced.payload)).toMatchObject({ pulledEvents: 10, remainingBacklogCount: 60_000 })
+    await h.app.close()
+  })
+
+  it('keeps draining past one empty pull and stops after two in a row', async () => {
+    const script = [10, 0, 10, 0, 0, 10]
+    let pulls = 0
+    const h = await harness({
+      queuePull: async () => {
+        const size = script[pulls]!
+        pulls += 1
+        return { messageBacklogCount: 500, messages: queueMessages(size, `empty-${pulls}`), skippedUnleasedMessageCount: 0 }
+      },
+      queueAck: async (_client, options) => ({ acknowledgedLeaseIds: options.acks, retriedLeaseIds: [], warningCount: 0 }),
+    })
+    const { synced } = await connectAndSync(h)
+    expect(synced.statusCode).toBe(200)
+    expect(pulls).toBe(5)
+    expect(JSON.parse(synced.payload)).toMatchObject({ pulledEvents: 20 })
+    await h.app.close()
+  })
+
+  it('stops after a partial pull of only unacknowledgeable entries', async () => {
     let pulls = 0
     const h = await harness({
       queuePull: async () => {
         pulls += 1
-        return { messageBacklogCount: 500, messages: [], skippedUnleasedMessageCount: 0 }
+        return { messageBacklogCount: 3, messages: [], skippedUnleasedMessageCount: 3 }
       },
     })
-    const connected = await h.app.inject({ method: 'POST', url: '/api/v1/projects/test-project/traffic/connect/cloudflare', payload: queuePayload })
-    const sourceId = JSON.parse(connected.payload).sourceId as string
-    const synced = await h.app.inject({ method: 'POST', url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`, payload: {} })
+    const { synced } = await connectAndSync(h)
     expect(synced.statusCode).toBe(200)
     expect(pulls).toBe(1)
+    await h.app.close()
+  })
+
+  it('keeps saved batches and ends the run partial when a later pull fails', async () => {
+    const acknowledged: number[] = []
+    let pulls = 0
+    const h = await harness({
+      queuePull: async () => {
+        pulls += 1
+        if (pulls === 2) throw new CloudflareQueueApiError('Cloudflare Queue pull failed with HTTP 503', 503)
+        return { messageBacklogCount: 100, messages: queueMessages(5, 'saved'), skippedUnleasedMessageCount: 0 }
+      },
+      queueAck: async (_client, options) => {
+        acknowledged.push(options.acks.length)
+        return { acknowledgedLeaseIds: options.acks, retriedLeaseIds: [], warningCount: 0 }
+      },
+    })
+    const { synced, sourceId } = await connectAndSync(h)
+    expect(synced.statusCode).toBe(200)
+    expect(JSON.parse(synced.payload)).toMatchObject({ pulledEvents: 5, crawlerHits: 5 })
+    expect(acknowledged).toEqual([5])
+    expect(h.synced.at(-1)).toMatchObject({ status: 'completed', pulledEvents: 5 })
+    const run = h.db.select().from(runs).where(eq(runs.sourceId, sourceId)).all().at(-1)
+    expect(run).toMatchObject({ status: RunStatuses.partial, error: 'Cloudflare Queue pull failed with HTTP 503' })
+    expect(h.db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).get()?.lastError).toBeNull()
+    await h.app.close()
+  })
+
+  it('reads the retention only when a batch carries events', async () => {
+    let reads = 0
+    const h = await harness({
+      queuePull: async () => ({ messageBacklogCount: 0, messages: [], skippedUnleasedMessageCount: 0 }),
+      queueRetention: async () => { reads += 1; return 345_600 },
+    })
+    const { synced } = await connectAndSync(h)
+    expect(synced.statusCode).toBe(200)
+    expect(reads).toBe(0)
     await h.app.close()
   })
 

@@ -875,6 +875,20 @@ filtering and recursive notification redaction on every selection. Both competit
 replacement writers use `competitorSetChangeAuditFields` to retain set changes and
 discarded names; never rewrite old audit records.
 
+### Cloudflare Queue drain
+
+The Queue sync in `traffic.ts` commits each batch before acknowledging it and
+renews the source lease before every pull and ack; keep both. It drains while
+Cloudflare reports a backlog, until `cloudflareQueueSyncDeadlineMs` (default 4
+minutes, `CANONRY_CLOUDFLARE_QUEUE_SYNC_DEADLINE_MS`) or the
+`cloudflareQueueMaxBatches` safety cap. A partial batch never ends the drain;
+two empty pulls in a row, or a partial pull of only unleased entries, do. A
+failure after a committed and acknowledged batch ends the run `partial` with
+the saved counts. Receipt lifetimes come from `loadQueueReceiptPolicy`, read
+lazily at the first batch with events: live retention plus a margin, extended
+when retention rises, floored by the newest non-fallback receipt when it falls,
+and the 14-day fallback when the read fails.
+
 ### Stored traffic samples
 
 `traffic-samples.ts` exposes bounded stored sample rows with project/source scope.

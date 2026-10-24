@@ -87,9 +87,13 @@ function resolveOptions(options: CloudflareQueueClientOptions): ResolvedClientOp
   }
 }
 
-function queueMessagesUrl(options: ResolvedClientOptions, action: 'pull' | 'ack'): string {
+function queueUrl(options: ResolvedClientOptions): string {
   return `${options.apiBaseUrl}/accounts/${encodeURIComponent(options.accountId)}` +
-    `/queues/${encodeURIComponent(options.queueId)}/messages/${action}`
+    `/queues/${encodeURIComponent(options.queueId)}`
+}
+
+function queueMessagesUrl(options: ResolvedClientOptions, action: 'pull' | 'ack'): string {
+  return `${queueUrl(options)}/messages/${action}`
 }
 
 function requestSignal(timeoutMs: number, signal?: AbortSignal): AbortSignal {
@@ -144,11 +148,6 @@ async function withQueueRetry<T>(
   throw lastError
 }
 
-function queueUrl(options: ResolvedClientOptions): string {
-  return `${options.apiBaseUrl}/accounts/${encodeURIComponent(options.accountId)}` +
-    `/queues/${encodeURIComponent(options.queueId)}`
-}
-
 async function postJson<T>(
   options: ResolvedClientOptions,
   action: 'pull' | 'ack',
@@ -196,7 +195,11 @@ async function requestJson<T>(
 
     try {
       return await response.json() as T
-    } catch {
+    } catch (error) {
+      // A timeout while reading the body is a timeout, not a bad payload.
+      if (isAbortError(error)) {
+        throw new CloudflareQueueApiError('Cloudflare Queue request timed out or was aborted', 408)
+      }
       throw new CloudflareQueueApiError(`Cloudflare Queue ${action} returned invalid JSON`, 502)
     }
   }, {
@@ -424,30 +427,34 @@ function normalizeRetries(retries: readonly CloudflareQueueRetry[] | undefined):
   })
 }
 
-// Cloudflare's configurable message retention range, in seconds.
+/** Cloudflare's longest configurable Queue message retention today: 14 days, in seconds. */
+export const CLOUDFLARE_QUEUE_MAX_RETENTION_SECONDS = 14 * 24 * 60 * 60
+// Cloudflare's shortest configurable retention, in seconds.
 const MIN_RETENTION_SECONDS = 60
-const MAX_RETENTION_SECONDS = 14 * 24 * 60 * 60
+// A reported retention above today's maximum is used as is (Cloudflare may
+// raise the limit); this sanity cap only rejects nonsense values.
+const SANITY_MAX_RETENTION_SECONDS = 10 * 365 * 24 * 60 * 60
+
+function recordOrNull(value: unknown): Record<string, unknown> | null {
+  return value != null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null
+}
 
 /**
  * The Queue's message retention in seconds, as Cloudflare reports it now
  * (`GET /queues/{id}`, `result.settings.message_retention_period`). A message
  * can only be redelivered while it is retained, so this bounds how long a
  * consumer must remember what it already processed. Null when the response
- * carries no usable value; HTTP and transport failures throw.
+ * is not a success or carries no usable value; HTTP and transport failures throw.
  */
 export async function getCloudflareQueueRetentionSeconds(
   client: CloudflareQueueClientOptions,
   signal?: AbortSignal,
 ): Promise<number | null> {
   const resolved = resolveOptions(client)
-  const envelope = await requestJson<unknown>(resolved, { method: 'GET', url: queueUrl(resolved), label: 'read' }, signal)
-  if (envelope == null || typeof envelope !== 'object' || Array.isArray(envelope)) return null
-  const result = (envelope as Record<string, unknown>).result
-  if (result == null || typeof result !== 'object' || Array.isArray(result)) return null
-  const settings = (result as Record<string, unknown>).settings
-  if (settings == null || typeof settings !== 'object' || Array.isArray(settings)) return null
-  const seconds = (settings as Record<string, unknown>).message_retention_period
-  return typeof seconds === 'number' && Number.isInteger(seconds) && seconds >= MIN_RETENTION_SECONDS && seconds <= MAX_RETENTION_SECONDS
+  const envelope = recordOrNull(await requestJson<unknown>(resolved, { method: 'GET', url: queueUrl(resolved), label: 'read' }, signal))
+  if (envelope?.success !== true) return null
+  const seconds = recordOrNull(recordOrNull(envelope.result)?.settings)?.message_retention_period
+  return typeof seconds === 'number' && Number.isInteger(seconds) && seconds >= MIN_RETENTION_SECONDS && seconds <= SANITY_MAX_RETENTION_SECONDS
     ? seconds
     : null
 }

@@ -18,7 +18,7 @@ import {
   trafficSources,
 } from '@canonry/canonry-db'
 import {
-  DEFAULT_CLOUDFLARE_QUEUE_DRAIN_BUDGET,
+  CLOUDFLARE_QUEUE_RESIDUAL_WARN_COUNT,
   TRAFFIC_SOURCE_MAX_CATCHUP_MS,
 } from '../../traffic-limits.js'
 import { CURRENT_CLOUDFLARE_WORKER_VERSION } from '../../cloudflare-worker-version.js'
@@ -776,12 +776,12 @@ const queueBacklogCheck: CheckDefinition = {
 
     const remaining = measured.filter(source => (source.queueBacklogCount ?? 0) > 0)
     const total = remaining.reduce((sum, source) => sum + source.queueBacklogCount!, 0)
-    if (total > DEFAULT_CLOUDFLARE_QUEUE_DRAIN_BUDGET) {
+    if (total > CLOUDFLARE_QUEUE_RESIDUAL_WARN_COUNT) {
       return {
         status: CheckStatuses.warn,
         code: 'traffic.queue-backlog.remaining',
-        summary: `${total.toLocaleString('en-US')} message(s) remained across ${remaining.length} Cloudflare Queue source(s) after the last bounded sync, exceeding the default ${DEFAULT_CLOUDFLARE_QUEUE_DRAIN_BUDGET.toLocaleString('en-US')}-message drain budget.`,
-        remediation: 'Run `canonry traffic sync <project> --source <id>` again. If the backlog stays above 1,000 messages, shorten the traffic-sync schedule interval.',
+        summary: `${total.toLocaleString('en-US')} message(s) remained across ${remaining.length} Cloudflare Queue source(s) after the last sync, more than the ${CLOUDFLARE_QUEUE_RESIDUAL_WARN_COUNT.toLocaleString('en-US')} that can arrive while a drain runs. The drain stopped at its time limit or pull cap before the Queue was empty.`,
+        remediation: 'If the backlog keeps growing, messages will pass the Queue\'s retention and be dropped. Shorten the traffic-sync schedule interval, or raise `CANONRY_CLOUDFLARE_QUEUE_SYNC_DEADLINE_MS` (default 4 minutes per sync).',
         details,
       }
     }
@@ -790,8 +790,8 @@ const queueBacklogCheck: CheckDefinition = {
       return {
         status: CheckStatuses.ok,
         code: 'traffic.queue-backlog.within-drain-budget',
-        summary: `${total.toLocaleString('en-US')} message(s) remained after the last bounded sync, within the default ${DEFAULT_CLOUDFLARE_QUEUE_DRAIN_BUDGET.toLocaleString('en-US')}-message drain budget.`,
-        remediation: 'If no new messages arrive, the next scheduled sync can drain this residual backlog. Run `canonry traffic sync <project> --source <id>` to accelerate it.',
+        summary: `${total.toLocaleString('en-US')} message(s) remained after the last sync, within the ${CLOUDFLARE_QUEUE_RESIDUAL_WARN_COUNT.toLocaleString('en-US')} that can arrive while a drain runs.`,
+        remediation: 'The next scheduled sync drains these. Run `canonry traffic sync <project> --source <id>` to drain them sooner.',
         details,
       }
     }

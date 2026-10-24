@@ -6,7 +6,9 @@ import path from 'node:path'
 import { createClient, migrate, projects, trafficSources, crawlerEventsHourly } from '@canonry/canonry-db'
 import { TRAFFIC_SOURCE_CHECKS } from '../src/doctor/checks/traffic-source.js'
 import {
+  resolveCloudflareQueueSyncDeadlineMs,
   resolveVercelSyncDeadlineMs,
+  DEFAULT_CLOUDFLARE_QUEUE_SYNC_DEADLINE_MS,
   DEFAULT_VERCEL_SYNC_DEADLINE_MS,
   VERCEL_MAX_SYNC_WINDOW_MS,
 } from '../src/traffic-limits.js'
@@ -237,21 +239,24 @@ describe('never-synced siblings', () => {
   })
 })
 
-describe('vercel sync deadline override', () => {
+describe.each([
+  ['vercel', resolveVercelSyncDeadlineMs, 'CANONRY_VERCEL_SYNC_DEADLINE_MS', DEFAULT_VERCEL_SYNC_DEADLINE_MS],
+  ['cloudflare queue', resolveCloudflareQueueSyncDeadlineMs, 'CANONRY_CLOUDFLARE_QUEUE_SYNC_DEADLINE_MS', DEFAULT_CLOUDFLARE_QUEUE_SYNC_DEADLINE_MS],
+] as const)('%s sync deadline override', (_label, resolve, envName, defaultMs) => {
   it('is unset by default so the built-in budget applies', () => {
-    expect(resolveVercelSyncDeadlineMs({})).toBeUndefined()
-    expect(resolveVercelSyncDeadlineMs({ CANONRY_VERCEL_SYNC_DEADLINE_MS: '' })).toBeUndefined()
-    expect(DEFAULT_VERCEL_SYNC_DEADLINE_MS).toBe(4 * 60_000)
+    expect(resolve({})).toBeUndefined()
+    expect(resolve({ [envName]: '' })).toBeUndefined()
+    expect(defaultMs).toBe(4 * 60_000)
   })
 
   it('accepts a raise, which is the whole point of the knob', () => {
-    expect(resolveVercelSyncDeadlineMs({ CANONRY_VERCEL_SYNC_DEADLINE_MS: '600000' })).toBe(600_000)
+    expect(resolve({ [envName]: '600000' })).toBe(600_000)
   })
 
   it('clamps rather than rejects, so a bad value cannot remove the bound', () => {
-    expect(resolveVercelSyncDeadlineMs({ CANONRY_VERCEL_SYNC_DEADLINE_MS: '1' })).toBe(30_000)
-    expect(resolveVercelSyncDeadlineMs({ CANONRY_VERCEL_SYNC_DEADLINE_MS: '99999999' })).toBe(15 * 60_000)
-    expect(resolveVercelSyncDeadlineMs({ CANONRY_VERCEL_SYNC_DEADLINE_MS: 'abc' })).toBeUndefined()
-    expect(resolveVercelSyncDeadlineMs({ CANONRY_VERCEL_SYNC_DEADLINE_MS: '-5' })).toBeUndefined()
+    expect(resolve({ [envName]: '1' })).toBe(30_000)
+    expect(resolve({ [envName]: '99999999' })).toBe(15 * 60_000)
+    expect(resolve({ [envName]: 'abc' })).toBeUndefined()
+    expect(resolve({ [envName]: '-5' })).toBeUndefined()
   })
 })

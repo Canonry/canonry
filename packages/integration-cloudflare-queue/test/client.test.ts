@@ -291,6 +291,17 @@ describe('pullCloudflareQueueMessages', () => {
     expect(fetchImpl).toHaveBeenCalledOnce()
   })
 
+  it('reports a timeout while reading the body as a timeout, without retrying it as bad JSON', async () => {
+    const response = new Response('{}', { headers: { 'content-type': 'application/json' } })
+    Object.defineProperty(response, 'json', { value: async () => { throw new DOMException('The operation was aborted.', 'AbortError') } })
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response)
+    const sleep = vi.fn(async () => {})
+    await expect(pullCloudflareQueueMessages({ ...client, fetchImpl, sleep })).rejects.toMatchObject({
+      status: 408, message: 'Cloudflare Queue request timed out or was aborted',
+    })
+    expect(fetchImpl).toHaveBeenCalledOnce()
+  })
+
   it('redacts non-abort transport errors before they leave the client', async () => {
     const fetchImpl = vi.fn<typeof fetch>().mockRejectedValue(
       new Error('Authorization: Bearer queue-secret-token; upstream body'),
@@ -460,15 +471,36 @@ describe('getCloudflareQueueRetentionSeconds', () => {
     expect(init?.body).toBeUndefined()
   })
 
+  it('uses a retention above today\'s 14-day maximum as reported', async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(queueResponse({ message_retention_period: 1_209_601 }))
+    await expect(getCloudflareQueueRetentionSeconds({ ...client, fetchImpl })).resolves.toBe(1_209_601)
+  })
+
   it.each([
     ['missing settings', undefined],
     ['missing retention', { delivery_delay: 0 }],
     ['below the minimum', { message_retention_period: 30 }],
-    ['above the 14-day maximum', { message_retention_period: 1_209_601 }],
-    ['not an integer', { message_retention_period: '345600' }],
+    ['beyond the sanity cap', { message_retention_period: 8_640_000_000_000 }],
+    ['not a number', { message_retention_period: '345600' }],
+    ['not an integer', { message_retention_period: 345_600.5 }],
   ])('returns null for %s', async (_label, settings) => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(queueResponse(settings))
     await expect(getCloudflareQueueRetentionSeconds({ ...client, fetchImpl })).resolves.toBeNull()
+  })
+
+  it('returns null for a non-success envelope', async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({
+      success: false, errors: [{ code: 10000, message: 'Authentication error' }], messages: [], result: { settings: { message_retention_period: 345_600 } },
+    }), { headers: { 'content-type': 'application/json' } }))
+    await expect(getCloudflareQueueRetentionSeconds({ ...client, fetchImpl })).resolves.toBeNull()
+  })
+
+  it('makes exactly one attempt when retries are off', async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(new Response('unavailable', { status: 503 }))
+    const sleep = vi.fn(async () => {})
+    await expect(getCloudflareQueueRetentionSeconds({ ...client, fetchImpl, maxRetries: 0, sleep })).rejects.toMatchObject({ status: 503 })
+    expect(fetchImpl).toHaveBeenCalledOnce()
+    expect(sleep).not.toHaveBeenCalled()
   })
 
   it('throws a secret-free error on HTTP failure', async () => {

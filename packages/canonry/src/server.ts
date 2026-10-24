@@ -21,7 +21,7 @@ const { version: PKG_VERSION } = _require("../package.json") as {
 };
 import Fastify from "fastify";
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
-import { anyUsersExist, apiRoutes, auditFromRequest, createProjectPassQueue, hashApiKey, hasProxyHeaders, previewCompetitorAutoAliases, resolveTrustProxy, resolveVercelSyncDeadlineMs, runChecks, scheduledHealthCheckIds, SITE_REACHABILITY_CHECK_ID, SITE_REACHABILITY_CHECKS, syncRunClaimKey, writeAuditLog, type ApiRoutesOptions } from "@canonry/canonry-api-routes";
+import { anyUsersExist, apiRoutes, auditFromRequest, createProjectPassQueue, hashApiKey, hasProxyHeaders, previewCompetitorAutoAliases, resolveTrustProxy, resolveCloudflareQueueSyncDeadlineMs, resolveVercelSyncDeadlineMs, runChecks, scheduledHealthCheckIds, SITE_REACHABILITY_CHECK_ID, SITE_REACHABILITY_CHECKS, syncRunClaimKey, writeAuditLog, type ApiRoutesOptions } from "@canonry/canonry-api-routes";
 import {
   apiKeys,
   auditLog,
@@ -3135,6 +3135,7 @@ export async function createServer(opts: {
     // was previously reachable only from tests, so a source losing ground could
     // not be rescued without shipping code. Unset keeps the built-in default.
     vercelSyncDeadlineMs: resolveVercelSyncDeadlineMs(process.env),
+    cloudflareQueueSyncDeadlineMs: resolveCloudflareQueueSyncDeadlineMs(process.env),
     researchAllowViewers,
     researchViewerDailyRunLimit,
     // Local-only Aero agent routes. Registered here so they inherit api-routes'
