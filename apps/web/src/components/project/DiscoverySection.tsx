@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { useQuery } from '@tanstack/react-query'
 import { AlertTriangle } from 'lucide-react'
@@ -110,6 +110,7 @@ export function QueriesSection({
   trackedMode,
 }: QueriesSectionProps) {
   const { account } = useAccount()
+  const workspaceId = useId()
   const [uncontrolledWorkspace, setUncontrolledWorkspace] = useState<QueryWorkspace>('tracked')
   const [uncontrolledResearchMode, setUncontrolledResearchMode] = useState<ResearchWorkspaceMode>()
   const [uncontrolledTrackedFilters, setUncontrolledTrackedFilters] = useState(DEFAULT_TRACKED_FILTERS)
@@ -134,6 +135,18 @@ export function QueriesSection({
   const selectWorkspace = (workspace: QueryWorkspace) => {
     if (controlledWorkspace === undefined) setUncontrolledWorkspace(workspace)
     onQueryWorkspaceChange?.(workspace)
+  }
+  const moveWorkspaceFocus = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.altKey || event.ctrlKey || event.metaKey || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+    const tabs = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]'))
+    const current = tabs.indexOf(event.target as HTMLButtonElement)
+    if (current < 0) return
+    event.preventDefault()
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1
+      : (current + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length
+    tabs[next]?.focus()
+    // Use the same selection path as a click, including the host's URL/history update.
+    if (next !== current) tabs[next]?.click()
   }
   const selectResearchMode = (mode: ResearchWorkspaceMode) => {
     if (controlledResearchMode === undefined) setUncontrolledResearchMode(mode)
@@ -163,38 +176,40 @@ export function QueriesSection({
       {/* The tab row keeps one height with or without actions, so the tabs never move. In a row too narrow for both, the actions take the first line under the rule. */}
       {!addQueriesPage ? <div className="@container">
         <div className="grid @xl:grid-cols-[1fr_auto]">
-          <div className="flex min-h-12 items-end border-b border-default" role="tablist" aria-label="Query workspace">
-            <WorkspaceTab active={queryWorkspace === 'tracked'} label="Tracked" onClick={() => selectWorkspace('tracked')} />
-            {showResearchWorkspace ? <WorkspaceTab active={queryWorkspace === 'research'} label="Research" onClick={() => selectWorkspace('research')} /> : null}
+          <div className="flex min-h-12 items-end border-b border-default" role="tablist" aria-label="Query workspace" onKeyDown={moveWorkspaceFocus}>
+            <WorkspaceTab id={`${workspaceId}-tracked-tab`} panelId={`${workspaceId}-tracked-panel`} active={queryWorkspace === 'tracked'} label="Tracked" onClick={() => selectWorkspace('tracked')} />
+            {showResearchWorkspace ? <WorkspaceTab id={`${workspaceId}-research-tab`} panelId={`${workspaceId}-research-panel`} active={queryWorkspace === 'research'} label="Research" onClick={() => selectWorkspace('research')} /> : null}
           </div>
           <div ref={setActionsSlot} className="flex flex-wrap items-center justify-end gap-2 pt-3 empty:hidden @xl:border-b @xl:border-default @xl:pt-0 @xl:pl-3" />
         </div>
       </div>
       : null}
       <div className="mt-4">
-        {queryWorkspace === 'tracked' ? (
-          <TrackedQueriesSection
-            addQueriesPage={addQueriesPage}
-            projectName={projectName}
-            selection={selection}
-            onSelectionChange={onSelectionChange}
-            trackingQueryId={trackingQueryId}
-            onTrackingQueryIdChange={onTrackingQueryIdChange}
-            pendingTrackingSource={pendingTrackingSource}
-            onPendingTrackingSourceHandled={() => setPendingTrackingSource(null)}
-            publishGuard={publishGuard}
-            trackedFilters={trackedFilters}
-            onTrackedFiltersChange={changeTrackedFilters}
-            trackedView={trackedView}
-            trackingChangedAt={trackingChangedAt}
-            nextSweepDate={nextSweepDate}
-            rootLabel={rootLabel}
-            trackedMode={trackedMode}
-            actionsSlot={actionsSlot}
-          />
-        ) : null}
-        {showResearchWorkspace && researchVisit?.projectName === projectName ? <div hidden={queryWorkspace !== 'research'}>
-          <QueryResearchWorkspace
+        <div role={addQueriesPage ? undefined : 'tabpanel'} id={`${workspaceId}-tracked-panel`} aria-labelledby={addQueriesPage ? undefined : `${workspaceId}-tracked-tab`} hidden={queryWorkspace !== 'tracked'}>
+          {queryWorkspace === 'tracked' ? (
+            <TrackedQueriesSection
+              addQueriesPage={addQueriesPage}
+              projectName={projectName}
+              selection={selection}
+              onSelectionChange={onSelectionChange}
+              trackingQueryId={trackingQueryId}
+              onTrackingQueryIdChange={onTrackingQueryIdChange}
+              pendingTrackingSource={pendingTrackingSource}
+              onPendingTrackingSourceHandled={() => setPendingTrackingSource(null)}
+              publishGuard={publishGuard}
+              trackedFilters={trackedFilters}
+              onTrackedFiltersChange={changeTrackedFilters}
+              trackedView={trackedView}
+              trackingChangedAt={trackingChangedAt}
+              nextSweepDate={nextSweepDate}
+              rootLabel={rootLabel}
+              trackedMode={trackedMode}
+              actionsSlot={actionsSlot}
+            />
+          ) : null}
+        </div>
+        {showResearchWorkspace && !addQueriesPage ? <div role="tabpanel" id={`${workspaceId}-research-panel`} aria-labelledby={`${workspaceId}-research-tab`} hidden={queryWorkspace !== 'research'}>
+          {researchVisit?.projectName === projectName ? <QueryResearchWorkspace
             key={projectName}
             projectName={projectName}
             selection={researchVisit.selection}
@@ -207,19 +222,22 @@ export function QueriesSection({
             trackedMode={trackedMode}
             sweepActive={publishGuard?.sweepActive}
             nextSweepDate={nextSweepDate}
-          />
+          /> : null}
         </div> : null}
       </div>
     </section>
   )
 }
 
-export function WorkspaceTab({ active, label, onClick }: { active: boolean; label: string; onClick: () => void }) {
+export function WorkspaceTab({ id, panelId, active, label, onClick }: { id: string; panelId: string; active: boolean; label: string; onClick: () => void }) {
   return (
     <button
       type="button"
       role="tab"
+      id={id}
+      aria-controls={panelId}
       aria-selected={active}
+      tabIndex={active ? 0 : -1}
       className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors pointer-coarse:min-h-11 max-md:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-500 focus-visible:ring-inset ${active ? 'border-mono-400 text-heading' : 'border-transparent text-muted hover:border-strong hover:text-strong'}`}
       onClick={onClick}
     >

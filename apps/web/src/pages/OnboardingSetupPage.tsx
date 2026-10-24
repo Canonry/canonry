@@ -1104,7 +1104,7 @@ function PlatformSetupPageBody({
       </header>
 
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2 text-[13px] text-secondary">
-        <p>Unsaved fields can be restored in this tab when browser storage is available. Scan permission must be given again after reload.</p>
+        <p>Draft fields use tab storage when available. Scan permission resets on reload.</p>
         <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={resetDraft}>Reset draft</Button>
       </div>
       <form aria-labelledby="site-map-setup-title" className="space-y-6" onSubmit={asyncHandler(submit)} noValidate>
@@ -1112,7 +1112,7 @@ function PlatformSetupPageBody({
           <label className="text-sm font-medium text-heading" htmlFor="launchpad-domain">Website URL</label>
           <input
             id="launchpad-domain"
-            className="h-11 w-full rounded-md border border-strong bg-bg-elevated/50 px-3 text-base text-heading outline-none transition placeholder:text-muted focus:border-mono-500 focus:ring-1 focus:ring-mono-500"
+            className="h-10 w-full rounded-md border border-strong bg-bg-elevated/50 px-3 text-base text-heading outline-none transition placeholder:text-muted focus:border-mono-500 focus:ring-1 focus:ring-mono-500 md:h-9 md:text-sm"
             type="text"
             inputMode="url"
             autoComplete="url"
@@ -1158,7 +1158,7 @@ function PlatformSetupPageBody({
         </div>
 
         <details className="group border-y border-default">
-          <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-4 py-3 text-sm [&::-webkit-details-marker]:hidden">
+          <summary className="flex min-h-9 cursor-pointer list-none items-center justify-between gap-4 py-2 text-sm [&::-webkit-details-marker]:hidden">
             {/* Nothing behind this is advanced: it is the project name Canonry
                 is about to create and the locale it will measure in. Both are
                 worth seeing before the scan starts. */}
@@ -1259,7 +1259,7 @@ function PlatformSetupPageBody({
 
         <div className="grid gap-2">
           <Button
-            className="h-11 w-full"
+            className="w-full"
             type="submit"
             disabled={!identity || (!skipSiteScan && !crawlApproved) || !localeValid || busy}
           >

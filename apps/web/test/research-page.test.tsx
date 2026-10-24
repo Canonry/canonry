@@ -251,6 +251,52 @@ async function reviewTracking(title: string) {
   return sheet
 }
 
+test('workspace tabs support keyboard selection, labelled panels and history without losing the Research draft', async () => {
+  const state = installApi({ plan: true })
+  const router = renderHistoryPage('write')
+  const tracked = await screen.findByRole<HTMLButtonElement>('tab', { name: 'Tracked' })
+  const research = screen.getByRole<HTMLButtonElement>('tab', { name: 'Research' })
+  const expectWorkspace = (name: 'Tracked' | 'Research') => {
+    const active = name === 'Tracked' ? tracked : research
+    const inactive = name === 'Tracked' ? research : tracked
+    expect(active.getAttribute('aria-selected')).toBe('true')
+    expect([active.tabIndex, inactive.tabIndex]).toEqual([0, -1])
+    const panel = screen.getByRole('tabpanel', { name })
+    expect(active.getAttribute('aria-controls')).toBe(panel.id)
+    expect(panel.getAttribute('aria-labelledby')).toBe(active.id)
+    expect(screen.getAllByRole('tabpanel')).toHaveLength(1)
+  }
+  expectWorkspace('Tracked')
+  tracked.focus()
+  fireEvent.keyDown(tracked, { key: 'ArrowRight' })
+  await ready()
+  await waitFor(() => expectWorkspace('Research'))
+  expect(document.activeElement).toBe(research)
+  expect(window.location.search).toContain('queryWorkspace=research')
+  fireEvent.change(screen.getByRole('textbox', { name: 'Queries' }), { target: { value: 'quiet apartments near transit' } })
+
+  // Home and End activate the first and last tab; Left and Right wrap at either end.
+  for (const [from, key, name] of [
+    [research, 'Home', 'Tracked'], [tracked, 'End', 'Research'],
+    [research, 'ArrowRight', 'Tracked'], [tracked, 'ArrowLeft', 'Research'],
+  ] as const) {
+    fireEvent.keyDown(from, { key })
+    await waitFor(() => expectWorkspace(name))
+    expect(document.activeElement).toBe(name === 'Tracked' ? tracked : research)
+  }
+  expect(screen.getByRole<HTMLTextAreaElement>('textbox', { name: 'Queries' }).value).toBe('quiet apartments near transit')
+  // A browser shortcut belongs to history, not to the tab's arrow-key handler.
+  expect(fireEvent.keyDown(research, { key: 'ArrowLeft', altKey: true })).toBe(true)
+  expectWorkspace('Research')
+  await browserHistoryStep(router, 'back')
+  await waitFor(() => expectWorkspace('Tracked'))
+  expect(screen.queryByRole('textbox', { name: 'Queries' })).toBeNull()
+  await browserHistoryStep(router, 'forward')
+  await waitFor(() => expectWorkspace('Research'))
+  expect(screen.getByRole<HTMLTextAreaElement>('textbox', { name: 'Queries' }).value).toBe('quiet apartments near transit')
+  expect(state.posts).toEqual([])
+})
+
 test.each(['simple', 'advanced'] as const)('%s Research keeps its unsent queries, save destination and search location through repeated Tracked visits', async mode => {
   const state = installApi({ mode, plan: true })
   const view = renderQuerySection({ projectName: 'demo', queryWorkspace: 'research', trackedMode: mode })
