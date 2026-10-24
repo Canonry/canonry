@@ -1,6 +1,6 @@
 export * from './constants.js'
 export * from './types.js'
-export { listLocalPosts, getLocalPost, createLocalPost } from './local-posts-client.js'
+export { listLocalPosts, getLocalPost, createLocalPost, GbpLocalPostResponseError } from './local-posts-client.js'
 export { listAccounts } from './accounts-client.js'
 export { listLocations, formatStorefrontAddress, buildLocationProfileFields } from './locations-client.js'
 export type { ListLocationsOptions, LocationProfileFields } from './locations-client.js'

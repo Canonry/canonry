@@ -14,12 +14,24 @@ import { GBP_LEGACY_V4_BASE, GBP_REQUEST_TIMEOUT_MS } from './constants.js'
 import { gbpFetchGet } from './http.js'
 import { GbpApiError, type GbpFetchOptions } from './types.js'
 
+/** Safe categories only; provider payloads never become diagnostic messages. */
+export class GbpLocalPostResponseError extends Error {
+  constructor(readonly reason: 'INVALID_RESPONSE' | 'UNSUPPORTED_MEDIA' | 'WRONG_IDENTITY') {
+    super(reason === 'UNSUPPORTED_MEDIA'
+      ? 'Unsupported or incomplete Google Local Post media'
+      : reason === 'WRONG_IDENTITY'
+        ? 'Wrong Google Local Post identity'
+        : 'Invalid Google Local Post response')
+    this.name = 'GbpLocalPostResponseError'
+  }
+}
+
 function parent(account: string, location: string): string {
   return `${gbpAccountNameSchema.parse(account)}/${gbpLocationNameSchema.parse(location)}`
 }
 function post(value: unknown): GbpLocalPostDto {
   if (!value || typeof value !== 'object')
-    throw new Error('Invalid Google Local Post response')
+    throw new GbpLocalPostResponseError('INVALID_RESPONSE')
   const raw = value as Record<string, unknown>
   const action = raw.callToAction as Record<string, unknown> | undefined
   const media = Array.isArray(raw.media)
@@ -34,8 +46,8 @@ function post(value: unknown): GbpLocalPostDto {
         typeof item.sourceUrl !== 'string',
     )
   )
-    throw new Error('Unsupported or incomplete Google Local Post media')
-  return gbpLocalPostDtoSchema.parse({
+    throw new GbpLocalPostResponseError('UNSUPPORTED_MEDIA')
+  const parsed = gbpLocalPostDtoSchema.safeParse({
     name: raw.name,
     languageCode: raw.languageCode ?? '',
     summary: raw.summary ?? '',
@@ -48,6 +60,8 @@ function post(value: unknown): GbpLocalPostDto {
     updateTime: raw.updateTime,
     searchUrl: raw.searchUrl ?? null,
   })
+  if (!parsed.success) throw new GbpLocalPostResponseError('INVALID_RESPONSE')
+  return parsed.data
 }
 export async function listLocalPosts(
   token: string,
@@ -64,9 +78,11 @@ export async function listLocalPosts(
     localPosts?: unknown[]
     nextPageToken?: string
   }>(url.toString(), token, options)
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw) || (raw.localPosts !== undefined && !Array.isArray(raw.localPosts)))
+    throw new GbpLocalPostResponseError('INVALID_RESPONSE')
   const posts = (raw.localPosts ?? []).map(post)
   if (posts.some((item) => !item.name.startsWith(`${scope}/localPosts/`)))
-    throw new Error('Wrong Google Local Post location')
+    throw new GbpLocalPostResponseError('WRONG_IDENTITY')
   return { posts, nextPageToken: raw.nextPageToken ?? null }
 }
 export async function getLocalPost(
@@ -78,7 +94,7 @@ export async function getLocalPost(
   const result = post(
     await gbpFetchGet<unknown>(`${GBP_LEGACY_V4_BASE}/${name}`, token, options),
   )
-  if (result.name !== name) throw new Error('Wrong Google Local Post identity')
+  if (result.name !== name) throw new GbpLocalPostResponseError('WRONG_IDENTITY')
   return result
 }
 export async function createLocalPost(

@@ -45,7 +45,7 @@ const post = {
   updateTime: NOW,
   searchUrl: 'https://local.google.com/place?id=123&use=posts&lpsid=abc',
 }
-async function fixture(options: { tokenExpiresAt?: string } = {}) {
+async function fixture(options: { tokenExpiresAt?: string; connectionMissing?: boolean } = {}) {
   vi.mocked(hotelEditorialDestination).mockResolvedValue(true)
   const root = mkdtempSync(join(tmpdir(), 'cnry-gbp-posts-'))
   const db = createClient(join(root, 'test.db'))
@@ -112,7 +112,7 @@ async function fixture(options: { tokenExpiresAt?: string } = {}) {
     }),
     googleConnectionStore: {
       listConnections: () => [],
-      getConnection: () => ({
+      getConnection: () => options.connectionMissing ? undefined : ({
         domain: 'one.example',
         connectionType: 'gbp',
         accessToken: 'fixture-token',
@@ -143,6 +143,77 @@ async function fixture(options: { tokenExpiresAt?: string } = {}) {
   return { app, db, request }
 }
 describe('GBP API transport authorization and send-once claim', () => {
+  const privateValue = 'CANARY_PRIVATE_TOKEN_AND_CUSTOMER_CONTENT'
+  const reads = [
+    'local-posts?accountName=accounts/111&locationName=locations/222',
+    'local-post?postName=' + post.name,
+  ]
+  const failures = [
+    { name: 'known Google rejection', status: 403,
+      error: { message: privateValue, details: [{ reason: 'ACCESS_TOKEN_SCOPE_INSUFFICIENT', metadata: { token: privateValue } }] },
+      expected: { category: 'google_api', reason: 'ACCESS_TOKEN_SCOPE_INSUFFICIENT', upstreamStatus: 403 } },
+    { name: 'unknown Google reason', status: 401,
+      error: { message: privateValue, details: [{ reason: privateValue }] },
+      expected: { category: 'google_api', reason: 'UNCLASSIFIED', upstreamStatus: 401 } },
+    { name: 'known Google status without details', status: 400,
+      error: { message: privateValue, status: 'INVALID_ARGUMENT' },
+      expected: { category: 'google_api', reason: 'INVALID_ARGUMENT', upstreamStatus: 400 } },
+    { name: 'unsupported media', payload: { ...post, media: [{ mediaFormat: 'VIDEO', googleUrl: privateValue }] },
+      expected: { category: 'response', reason: 'UNSUPPORTED_MEDIA' } },
+    { name: 'invalid provider fields', payload: { ...post, updateTime: privateValue },
+      expected: { category: 'response', reason: 'INVALID_RESPONSE' } },
+    { name: 'wrong provider identity', payload: { ...post, name: 'accounts/999/locations/222/localPosts/333', summary: privateValue },
+      expected: { category: 'response', reason: 'WRONG_IDENTITY' } },
+  ]
+  it.each(reads.flatMap(path => failures.map(failure => ({ path, ...failure }))))(
+    'returns only safe diagnostics for $name on $path',
+    async (test) => {
+      const f = await fixture()
+      const fetch = vi.fn(async () => new Response(JSON.stringify(
+        'error' in test ? { error: test.error } : test.path.startsWith('local-posts?') ? { localPosts: [test.payload] } : test.payload,
+      ), { status: 'status' in test ? test.status : 200 }))
+      vi.stubGlobal('fetch', fetch)
+      const response = await f.request('GET', test.path)
+      expect(response.statusCode).toBe(502)
+      expect(response.json().error).toMatchObject({ code: 'PROVIDER_ERROR', details: test.expected })
+      expect(response.json().error.details).toEqual(test.expected)
+      expect(response.body).not.toContain(privateValue)
+      expect(fetch).toHaveBeenCalledTimes(1)
+      expect(f.db.select().from(auditLog).all()).toEqual([])
+    },
+  )
+  it.each([
+    { name: 'missing connection', connectionMissing: true, expected: { category: 'token', reason: 'NOT_CONNECTED' } },
+    { name: 'failed refresh', tokenExpiresAt: new Date(0).toISOString(), expected: { category: 'token', reason: 'REFRESH_FAILED', upstreamStatus: 400 } },
+  ])('keeps $name separate from Google post failures without exposing token data', async (test) => {
+    const f = await fixture(test)
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ error: 'invalid_grant', error_description: privateValue }), { status: 400 }))
+    vi.stubGlobal('fetch', fetch)
+    const response = await f.request('GET', reads[0]!)
+    expect(response.statusCode).toBe(502)
+    expect(response.json().error.details).toEqual(test.expected)
+    expect(response.body).not.toContain(privateValue)
+    expect(fetch).toHaveBeenCalledTimes('connectionMissing' in test ? 0 : 1)
+    expect(f.db.select().from(auditLog).all()).toEqual([])
+  })
+  it('does not expose an unexpected transport exception or claim complete duplicate coverage', async () => {
+    const f = await fixture()
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new Error(privateValue) }))
+    const response = await f.request('GET', reads[0]!)
+    expect(response.statusCode).toBe(502)
+    expect(response.json().error.details).toEqual({ category: 'unclassified', reason: 'UNCLASSIFIED' })
+    expect(response.body).not.toContain(privateValue)
+    expect(response.json()).not.toHaveProperty('posts')
+    expect(f.db.select().from(auditLog).all()).toEqual([])
+  })
+  it('does not interpret a malformed top-level array as complete empty duplicate coverage', async () => {
+    const f = await fixture()
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('[]')))
+    const response = await f.request('GET', reads[0]!)
+    expect(response.statusCode).toBe(502)
+    expect(response.json().error.details).toEqual({ category: 'response', reason: 'INVALID_RESPONSE' })
+    expect(response.json()).not.toHaveProperty('posts')
+  })
   it('requires explicit live-read authority and refuses another project before provider access', async () => {
     const f = await fixture()
     const fetch = vi.fn(async () => new Response('{}'))
