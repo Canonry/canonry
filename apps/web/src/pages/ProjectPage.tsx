@@ -2590,12 +2590,13 @@ function ProjectPageContent({
     { key: 'history', label: 'Change History', href: `${projectTabBase}/history` },
   ]
   // In embed mode the effective allowlist narrows the subnav to the curated
-  // client-facing tabs; outside embed it is undefined and every tab shows.
+  // client-facing tabs. Settings also requires write access outside embed/demo.
   const projectTabItems = projectTabItemsAll.filter((item) => isEmbedProjectTabAllowed(item.key, embedProjectTabs))
   const projectOverflowTabItems = projectOverflowTabItemsAll.filter((item) =>
     isEmbedProjectTabAllowed(item.key, embedProjectTabs),
   )
-  const projectSettingsTab = isEmbedProjectTabAllowed('settings', embedProjectTabs)
+  const canViewProjectSettings = canWrite || isEmbed() || isPublicDemo()
+  const projectSettingsTab = canViewProjectSettings && isEmbedProjectTabAllowed('settings', embedProjectTabs)
     ? { key: 'settings' as const, label: 'Settings', href: `${projectTabBase}/settings` }
     : null
 
@@ -3156,7 +3157,15 @@ function ProjectPageContent({
         </>
         )}
         </>
-      ) : tab === 'settings' ? (
+      ) : tab === 'settings' ? !canViewProjectSettings ? (
+        <Card className="surface-card empty-card">
+          <h2>Project settings unavailable</h2>
+          <p>Your account has view-only access to this project.</p>
+          <Button asChild>
+            <Link to="/projects/$projectName" params={{ projectName }}>Return to overview</Link>
+          </Button>
+        </Card>
+      ) : (
         <>
           <ProjectSettingsSection project={{ ...model.project, displayName: model.project.displayName ?? model.project.name, defaultLocation: model.project.defaultLocation ?? null }} onUpdateProject={async (name, updates) => { await handleUpdateProject(name, updates) }} />
           <ProjectEngineSettingsSection project={model.project} onSave={async next => { await handleUpdateProject(model.project.name, next) }} />

@@ -159,8 +159,9 @@ test.each([false, true])('an unconfigured source gives a setup next step while p
     await screen.findByText('saved keyword')
     expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Refresh data' }).disabled).toBe(true)
   } else {
-    await screen.findByRole('heading', { name: 'Connect an SEO source' })
-    expect(screen.getByText(/administrator/i).textContent).toMatch(/connect|configure/i)
+    await screen.findByRole('heading', { name: 'Configure an SEO data provider' })
+    expect(screen.getByText('Connect a provider before creating an SEO profile.')).toBeTruthy()
+    expect(screen.queryByText(/administrator/i)).toBeNull()
     expect(screen.queryByRole('combobox', { name: 'SEO profile' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Refresh data' })).toBeNull()
     expect(screen.queryByRole('table')).toBeNull()
@@ -179,7 +180,7 @@ test('a configured source with an unavailable Advanced scope shows the plan reco
   await mount(null)
   await screen.findByRole('heading', { name: 'SEO scope unavailable' })
   expect(screen.getByText(reason)).not.toBeNull()
-  expect(screen.queryByRole('heading', { name: 'Connect an SEO source' })).toBeNull()
+  expect(screen.queryByRole('heading', { name: 'Configure an SEO data provider' })).toBeNull()
   expect(screen.queryByRole('button', { name: 'New profile' })).toBeNull()
 })
 
