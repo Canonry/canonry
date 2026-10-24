@@ -56,6 +56,12 @@ Profile setup stores source, targets, explicit keywords, locale, capabilities,
 and plan revision; its dataset choices intersect source and scope capabilities
 when the API supplies them. Credentials and internal request accounting remain host-only;
 customer pages may show research metrics such as CPC and estimated traffic value.
+Profile creation requires a configured source with a usable dataset. Unconfigured
+hosts retain saved evidence and show administrator guidance; unavailable Advanced
+scopes show the API's plan recovery instruction. Keyword-only setup
+omits target and ranked-row controls. Editor dismissal restores its opener's
+focus; saving focuses the profile selector. Failed refresh links retain profile
+navigation and require an explicit return to latest data.
 Access uses the context's `canRun` and `canWrite` independently, with embed/demo
 write gates. Refresh first obtains a bounded intent and reuses the same intent
 and idempotency key after an ambiguous transport failure. Definitive validation
