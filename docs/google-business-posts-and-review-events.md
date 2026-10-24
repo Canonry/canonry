@@ -47,6 +47,15 @@ An interrupted claim without a provider identity requires explicit investigation
 it is never silently reset. List pagination retains the next token. Unknown
 states, malformed media and incomplete live review coverage fail closed.
 
+Historical discovery keeps posts whose media is a video or lacks an original
+PHOTO source URL. Their identity, caption, article link and pagination remain
+available for duplicate detection. List results set `mediaSourceUrlsComplete`
+to false and return no image URLs rather than presenting partial image evidence.
+Malformed media containers/items still make coverage unknown. Exact post GET
+and create-response parsing continue to reject unsupported media; the outbox's
+exact verifier still requires one approved image. A historical listing cannot
+verify an approved post's image.
+
 Local Posts list/get failures retain HTTP 502 and unknown coverage. Error details
 identify `token`, `google_api`, `response` or `unclassified`, with an allowlisted
 reason and bounded upstream HTTP status when available. Raw Google/OAuth bodies,

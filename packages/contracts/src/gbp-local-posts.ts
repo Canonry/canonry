@@ -58,6 +58,8 @@ export const gbpLocalPostDtoSchema = z.object({
   actionType: z.string().nullable(),
   articleUrl: z.string().nullable(),
   imageUrls: z.array(z.string()),
+  /** Listing only: false retains the post/links but supplies no exact image proof. */
+  mediaSourceUrlsComplete: z.boolean().optional(),
   createTime: z.string().datetime({ offset: true }),
   updateTime: z.string().datetime({ offset: true }),
   searchUrl: z.string().nullable(),
