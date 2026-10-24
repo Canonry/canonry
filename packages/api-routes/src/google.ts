@@ -1,4 +1,5 @@
 import crypto from 'node:crypto'
+import { gbpLocalPostsRoutes } from './gbp-local-posts.js'
 import { eq, and, desc, sql, inArray } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { gscSearchData, gscUrlInspections, gscCoverageSnapshots, gbpLocations, gbpDailyMetrics, gbpKeywordImpressions, gbpKeywordMonthly, gbpPlaceActions, gbpLodgingSnapshots, gbpAttributesSnapshots, gbpPlaceDetails, gbpReviews, gbpReviewRatings, readNegativeReviewMaxStars, runs, projects, type DatabaseClient } from '@canonry/canonry-db'
@@ -512,6 +513,13 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
     )
   }
   const stateSecret = opts.googleStateSecret
+
+  await gbpLocalPostsRoutes(app, { token: async domain => {
+    const store = opts.googleConnectionStore
+    const auth = opts.getGoogleAuthConfig?.()
+    if (!store || !auth?.clientId || !auth.clientSecret) throw validationError('Google connection is not configured.')
+    return (await getValidToken(store, domain, 'gbp', auth.clientId, auth.clientSecret)).accessToken
+  } })
 
   function getAuthConfig() {
     return opts.getGoogleAuthConfig?.() ?? {}

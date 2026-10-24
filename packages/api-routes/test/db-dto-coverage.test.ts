@@ -127,6 +127,7 @@ type CoverageEntry =
     }
 
 const COVERAGE: Record<string, CoverageEntry> = {
+  reviewWebhookDeliveries: {kind:'internal-only',reason:'Immutable per-destination review-event payload and delivery debt; internal acknowledgement/retry records, never a public review DTO.'},
   sentimentDefinitions: {
     kind: 'internal-only',
     reason: 'Immutable evaluator JSON is exposed only through validated, project-scoped sentiment DTOs; hashes and storage columns remain private.',

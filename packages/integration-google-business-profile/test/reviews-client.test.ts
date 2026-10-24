@@ -56,7 +56,7 @@ describe('listReviews', () => {
     const url = new URL(fetchSpy.mock.calls[0]![0] as string)
     expect(url.origin + url.pathname).toBe('https://mybusiness.googleapis.com/v4/accounts/111/locations/222/reviews')
     expect(url.searchParams.get('pageSize')).toBe('50')
-    expect(url.searchParams.get('orderBy')).toBe('update_time desc')
+    expect(url.searchParams.get('orderBy')).toBe('updateTime desc')
     expect(listing).toEqual({
       averageRating: 4.4,
       totalReviewCount: 57,
@@ -237,5 +237,13 @@ describe('normalizeGoogleTimestamp', () => {
     expect(normalizeGoogleTimestamp(undefined)).toBeNull()
     expect(normalizeGoogleTimestamp('')).toBeNull()
     expect(normalizeGoogleTimestamp('not a date')).toBeNull()
+  })
+})
+
+describe('complete review baselines',()=>{
+  it('refuses a pagination bound with unvisited reviews rather than returning a partial baseline',async()=>{
+    const fetch=vi.spyOn(globalThis,'fetch').mockResolvedValue(new Response(JSON.stringify({reviews:[],nextPageToken:'more'})))
+    try { await expect(listReviews('fixture','accounts/111','locations/222',{maxPages:1})).rejects.toThrow('incomplete') }
+    finally { fetch.mockRestore() }
   })
 })

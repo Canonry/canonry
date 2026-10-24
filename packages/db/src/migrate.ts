@@ -4805,6 +4805,31 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `CREATE INDEX IF NOT EXISTS idx_ga_window_metrics_run ON ga_window_metrics(sync_run_id)`,
     ],
   },
+  {
+    // Durable review-webhook delivery: one row per review event and configured
+    // destination, so a receiver that failed keeps its debt after another one
+    // succeeded. Empty on upgrade: no historical backfill, nothing activated.
+    version: 189,
+    name: 'durable-review-webhook-deliveries',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS review_webhook_deliveries (
+        id              TEXT PRIMARY KEY,
+        project_id      TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        notification_id TEXT NOT NULL REFERENCES notifications(id) ON DELETE CASCADE,
+        event_id        TEXT NOT NULL,
+        target_digest   TEXT NOT NULL,
+        payload         TEXT NOT NULL,
+        state           TEXT NOT NULL DEFAULT 'pending',
+        attempts        INTEGER NOT NULL DEFAULT 0,
+        attempted_at    TEXT,
+        retry_at        TEXT,
+        delivered_at    TEXT,
+        created_at      TEXT NOT NULL
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS uniq_review_webhook_delivery ON review_webhook_deliveries(project_id, notification_id, event_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_review_webhook_deliveries_due ON review_webhook_deliveries(state, retry_at)`,
+    ],
+  },
 ]
 
 /**

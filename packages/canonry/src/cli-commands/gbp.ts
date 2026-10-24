@@ -10,6 +10,51 @@ import { usageError } from '../cli-error.js'
 
 export const GBP_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
+    path: ['gbp', 'posts', 'attempt'], access: 'stored',
+    usage: 'canonry gbp posts attempt <project> --attempt UUID --package SHA256 [--format json]',
+    options: { attempt: stringOption(), package: stringOption() },
+    run: async input => {
+      const { gbpLocalPosts } = await import('../commands/gbp.js')
+      await gbpLocalPosts(requireProject(input, 'gbp.posts.attempt', 'canonry gbp posts attempt <project>'), 'attempt', { attempt: getString(input.values, 'attempt'), package: getString(input.values, 'package') })
+    },
+  },
+  {
+    path: ['gbp', 'posts', 'list'], access: 'live',
+    usage: 'canonry gbp posts list <project> --account accounts/id --location locations/id [--page-token token] [--format json]',
+    options: { account: stringOption(), location: stringOption(), 'page-token': stringOption() },
+    run: async input => {
+      const { gbpLocalPosts } = await import('../commands/gbp.js')
+      await gbpLocalPosts(requireProject(input, 'gbp.posts.list', 'canonry gbp posts list <project>'), 'list', { account: getString(input.values, 'account'), location: getString(input.values, 'location'), pageToken: getString(input.values, 'page-token') })
+    },
+  },
+  {
+    path: ['gbp', 'posts', 'get'], access: 'live',
+    usage: 'canonry gbp posts get <project> --post resource [--format json]',
+    options: { post: stringOption() },
+    run: async input => {
+      const { gbpLocalPosts } = await import('../commands/gbp.js')
+      await gbpLocalPosts(requireProject(input, 'gbp.posts.get', 'canonry gbp posts get <project>'), 'get', { post: getString(input.values, 'post') })
+    },
+  },
+  {
+    path: ['gbp', 'posts', 'create'], access: 'write',
+    usage: 'canonry gbp posts create <project> --request file [--format json]',
+    options: { request: stringOption() },
+    run: async input => {
+      const { gbpLocalPosts } = await import('../commands/gbp.js')
+      await gbpLocalPosts(requireProject(input, 'gbp.posts.create', 'canonry gbp posts create <project>'), 'create', { request: getString(input.values, 'request') })
+    },
+  },
+  {
+    path: ['gbp', 'reviews', 'live'], access: 'live',
+    usage: 'canonry gbp reviews live <project> --account accounts/id --location locations/id [--format json]',
+    options: { account: stringOption(), location: stringOption() },
+    run: async input => {
+      const { gbpLocalPosts } = await import('../commands/gbp.js')
+      await gbpLocalPosts(requireProject(input, 'gbp.reviews.live', 'canonry gbp reviews live <project>'), 'reviews', { account: getString(input.values, 'account'), location: getString(input.values, 'location') })
+    },
+  },
+  {
     path: ['gbp', 'connect'],
     usage: 'canonry gbp connect <project> [--public-url <url>] [--format json]',
     options: {

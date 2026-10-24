@@ -29,8 +29,8 @@
     "@canonry/canonry-db": "workspace:*",
     "@canonry/canonry-integration-bing": "workspace:*",
     "@canonry/canonry-integration-cloud-run": "workspace:*",
-    "@canonry/canonry-integration-cloudflare-worker": "workspace:*",
     "@canonry/canonry-integration-cloudflare-queue": "workspace:*",
+    "@canonry/canonry-integration-cloudflare-worker": "workspace:*",
     "@canonry/canonry-integration-commoncrawl": "workspace:*",
     "@canonry/canonry-integration-google": "workspace:*",
     "@canonry/canonry-integration-google-analytics": "workspace:*",
@@ -44,6 +44,7 @@
     "@fastify/rate-limit": "^11.2.1",
     "cron-parser": "^5.10.2",
     "drizzle-orm": "^0.45.4",
+    "entities": "8.1.0",
     "fastify": "^5.12.7",
     "undici": "^8.12.3",
     "zod": "^4.6.7"
