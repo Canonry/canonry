@@ -820,6 +820,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     await api.register(googleRoutes, {
       getGoogleAuthConfig: opts.getGoogleAuthConfig,
       googleConnectionStore: opts.googleConnectionStore,
+      ga4CredentialStore: opts.ga4CredentialStore,
       googleStateSecret: opts.googleStateSecret,
       publicUrl: opts.publicUrl,
       routePrefix: opts.routePrefix,

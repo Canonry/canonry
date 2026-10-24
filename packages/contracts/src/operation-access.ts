@@ -203,6 +203,7 @@ export const STORED_READ_OPERATIONS: ReadonlySet<string> = new Set([
   'GET /api/v1/projects/{name}/ga/social-referral-history',
   'GET /api/v1/projects/{name}/ga/social-referral-trend',
   'GET /api/v1/projects/{name}/ga/attribution-trend',
+  'GET /api/v1/projects/{name}/ga/overview',
   'GET /api/v1/projects/{name}/ga/session-history',
   'GET /api/v1/projects/{name}/ga/coverage',
   'GET /api/v1/projects/{name}/content/targets',

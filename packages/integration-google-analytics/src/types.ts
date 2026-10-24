@@ -13,7 +13,11 @@ export interface GA4StringFilter {
 }
 
 export interface GA4RunReportRequest {
-  dateRanges: Array<{ startDate: string; endDate: string }>
+  /**
+   * With more than one range, GA4 adds a `dateRange` dimension to every row,
+   * valued with the range's `name` (or `date_range_<index>` without one).
+   */
+  dateRanges: Array<{ startDate: string; endDate: string; name?: string }>
   dimensions: Array<{ name: string }>
   metrics: Array<{ name: string }>
   dimensionFilter?: {

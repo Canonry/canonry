@@ -142,6 +142,7 @@ const CLI_ACCESS_BY_ID: Readonly<Record<string, OperationAccess>> = Object.freez
   'ga.measurement-analysis': 'stored',
   'ga.properties': 'live',
   'ga.search-landing-pages': 'stored',
+  'ga.overview': 'stored',
   'ga.session-history': 'stored',
   'ga.social-referral-history': 'stored',
   'ga.social-referral-summary': 'stored',

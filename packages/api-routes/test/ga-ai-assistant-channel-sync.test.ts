@@ -9,6 +9,7 @@ import * as gaModule from '@canonry/canonry-integration-google-analytics'
 import type { GA4RunReportRequest, GA4RunReportResponse } from '@canonry/canonry-integration-google-analytics'
 import { apiRoutes } from '../src/index.js'
 import type { Ga4CredentialRecord, Ga4CredentialStore } from '../src/ga.js'
+import { dailyTotals, unknownWindowMetrics } from './ga-sync-fixtures.js'
 
 /**
  * GA4's AI Assistant channel from the sync through the headline AI surfaces.
@@ -77,7 +78,8 @@ function stubOtherGa4Fetches(): void {
   vi.spyOn(gaModule, 'fetchWindowSummary').mockImplementation(async (_t, _p, windowKey) => ({
     windowKey, ...period, totalSessions: 400, totalOrganicSessions: 150, totalDirectSessions: 40, totalUsers: 280,
   }))
-  vi.spyOn(gaModule, 'fetchDailyTotals').mockResolvedValue([])
+  vi.spyOn(gaModule, 'fetchDailyTotals').mockResolvedValue(dailyTotals())
+  vi.spyOn(gaModule, 'fetchWindowMetrics').mockImplementation(async (_token, _property, windowKey) => unknownWindowMetrics(windowKey))
   vi.spyOn(gaModule, 'fetchTrafficByLandingPage').mockResolvedValue([])
   vi.spyOn(gaModule, 'fetchAcquisitionByChannel').mockResolvedValue({ startDate: period.periodStart, endDate: period.periodEnd, rows: [] })
 }

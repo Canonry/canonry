@@ -11,6 +11,7 @@ import { apiRoutes, credentialFailure, type OutcomeTelemetryEvent } from '../src
 import type { BingConnectionRecord } from '../src/bing.js'
 import type { Ga4CredentialRecord } from '../src/ga.js'
 import type { GoogleConnectionRecord } from '../src/google.js'
+import { dailyTotals, unknownWindowMetrics } from './ga-sync-fixtures.js'
 
 const NOW = '2026-10-09T12:00:00.000Z'
 const CLI = { 'user-agent': 'canonry-cli/7.19.0', 'x-canonry-surface': 'cli', 'x-canonry-agent': 'none' }
@@ -247,9 +248,10 @@ describe('ga4 sync outcome', () => {
     vi.spyOn(ga, 'fetchWindowSummary').mockImplementation(async (_token, _property, windowKey) => ({
       windowKey, periodStart: dateDaysAgo(30), periodEnd: dateDaysAgo(1), totalSessions: 1, totalOrganicSessions: 0, totalDirectSessions: 0, totalUsers: 1,
     }))
-    vi.spyOn(ga, 'fetchDailyTotals').mockResolvedValue(withData
+    vi.spyOn(ga, 'fetchDailyTotals').mockResolvedValue(dailyTotals(withData
       ? [{ date: dateDaysAgo(2), sessions: 50, users: 33, engagementRate: 0.6, newUsers: 20 }]
-      : [])
+      : []))
+    vi.spyOn(ga, 'fetchWindowMetrics').mockImplementation(async (_token, _property, windowKey) => unknownWindowMetrics(windowKey))
     vi.spyOn(ga, 'fetchTrafficByLandingPage').mockResolvedValue(withData
       ? [
           { date: dateDaysAgo(2), landingPage: '/a', sessions: 30, organicSessions: 10, users: 20 },

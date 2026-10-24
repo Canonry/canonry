@@ -7,7 +7,7 @@ import {
   sentimentJobReadSchema, sentimentSummaryIncludeSchema, sentimentEvidenceOutcomeFilterSchema, queryClassSchema, SENTIMENT_ATTEMPT_PAGE_DEFAULT, SENTIMENT_QUERY_PAGE_DEFAULT, SENTIMENT_QUERY_PAGE_MAX,
 } from '@canonry/canonry-contracts'
 import { agentConversationCreateSchema, reportedQueryClasses } from '@canonry/canonry-contracts'
-import { PROVIDER_ACCOUNT_FAILURE_STREAK, PROVIDER_ACCOUNT_RETRY_HOURS } from '@canonry/canonry-contracts'
+import { PROVIDER_ACCOUNT_FAILURE_STREAK, PROVIDER_ACCOUNT_RETRY_HOURS, WINDOW_SETS } from '@canonry/canonry-contracts'
 import { insightSeveritySchema } from '@canonry/canonry-contracts'
 import type { ToolAnnotations } from '@modelcontextprotocol/sdk/types.js'
 import {
@@ -528,6 +528,13 @@ const gaWindowInputSchema = z.object({
 })
 
 const GA_RANGE_PARAMS = ['window', 'startDate', 'endDate'] as const
+
+// The overview compares GA4's own totals for a fixed window with the period
+// before it, so it takes only the window; there is no calendar range form.
+const gaOverviewInputSchema = z.object({
+  project: projectNameSchema,
+  window: z.enum(WINDOW_SETS.gaOverview).optional(),
+})
 
 const gaTrafficInputSchema = gaWindowInputSchema.extend({
   limit: z.number().int().positive().max(500).optional(),
@@ -2400,6 +2407,17 @@ const rawCanonryMcpTools = [
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/ga/attribution-trend'],
     handler: (client, input) => client.gaAttributionTrend(input.project),
+  }),
+  defineTool({
+    name: 'canonry_ga_overview',
+    title: 'Get the GA4 overview',
+    description: 'Get GA4\'s overview for a window (7d, 30d or 90d of complete days ending yesterday, as GA4 counts them): users, new users, sessions, organic sessions, views, event count, key events, engagement rate, bounce rate and average engagement time, each against the previous period, plus both periods by day.',
+    access: 'read',
+    tier: 'ga',
+    inputSchema: gaOverviewInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/ga/overview'],
+    handler: (client, input) => client.gaOverview(input.project, input.window),
   }),
   defineTool({
     name: 'canonry_ga_session_history',

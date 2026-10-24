@@ -2,23 +2,26 @@ import crypto from 'node:crypto'
 import { eq, desc, and, sql } from 'drizzle-orm'
 import type { SQL, SQLWrapper } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { gaTrafficSnapshots, gaTrafficSummaries, gaTrafficWindowSummaries, gaDailyTotals, gaAiReferrals, gaSocialReferrals, gaAcquisitionDaily, gaLeadEventsDaily, gaMeasurementSyncStates, runs } from '@canonry/canonry-db'
-import { breakdownShares, classifyAiReferralTrafficClass, classifyOutcomeError, deltaPercent, formatPercent, gaSyncOnlySchema, percentOf, shareOf, validationError, notFound, forbidden, quotaExceeded, providerError, AppError, FeatureNames, OutcomeReasonCodes, OutcomeStatuses, RunKinds, RunStatuses, resolveDateRange, normalizeUrlPath, describeError, inclusiveDayCount } from '@canonry/canonry-contracts'
+import { gaTrafficSnapshots, gaTrafficSummaries, gaTrafficWindowSummaries, gaWindowMetrics, gaDailyTotals, gaAiReferrals, gaSocialReferrals, gaAcquisitionDaily, gaLeadEventsDaily, gaMeasurementSyncStates, runs } from '@canonry/canonry-db'
+import { breakdownShares, classifyAiReferralTrafficClass, classifyOutcomeError, deltaPercent, formatPercent, GaOverviewPeriods, gaOverviewComparisonRanges, gaSyncOnlySchema, percentOf, shareOf, validationError, notFound, forbidden, quotaExceeded, providerError, AppError, FeatureNames, OutcomeReasonCodes, OutcomeStatuses, RunKinds, RunStatuses, resolveDateRange, normalizeUrlPath, describeError, inclusiveDayCount } from '@canonry/canonry-contracts'
 import type { GA4ChannelBreakdownDto, GaAttributionTrendResponse, GaSearchLandingSyncResult, GaSocialReferralTrendResponse, ResolvedDateRange } from '@canonry/canonry-contracts'
 import { resolveProject, syncRunTrigger, writeAuditLog } from './helpers.js'
 import type { ScheduledSyncClaim } from './helpers.js'
 import { assertNotProjectScoped } from './auth.js'
 import { credentialFailure, startRouteOutcome } from './feature-outcome.js'
 import { buildSessionHistory } from './ga-session-history.js'
+import { buildGaOverview, parseGaOverviewWindow } from './ga-overview.js'
 import { findBiggestMover } from './ga-source-mover.js'
 import { buildAiReferralDailySeries, normalizeAiTrafficClass, pickWinningAttributionDimension, summarizeAiReferralCounts } from './ga-ai-referral-aggregation.js'
 import { groupAiEngines, groupSocialPlatforms, paidSocialSummary, socialPlatformDailySeries } from './ga-referral-groups.js'
-import { clearSearchLandingSnapshot, clearSearchLandingSnapshotOnPropertyChange, persistSearchLandingFailure, persistSearchLandingSnapshot, resolveCurrentGa4PropertyId } from './ga-search-landing-pages.js'
+import { clearGaDataOnPropertyChange, clearGaPropertyData, projectsSharingGa4Connection, readGa4Properties } from './ga-property-data.js'
+import { persistSearchLandingFailure, persistSearchLandingSnapshot } from './ga-search-landing-pages.js'
 import {
   getAccessToken,
   fetchTrafficByLandingPage,
   fetchAggregateSummary,
   fetchWindowSummary,
+  fetchWindowMetrics,
   fetchDailyTotals,
   fetchAiReferrals,
   fetchSocialReferrals,
@@ -615,7 +618,9 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       if (existing?.clientEmail === clientEmail && existing.privateKey === privateKey && existing.propertyId === propertyId) {
         return { connected: true, propertyId, authMethod: 'service-account', clientEmail }
       }
-      const previousPropertyId = resolveCurrentGa4PropertyId(opts, project.name, project.canonicalDomain)
+      // GA rows belong to the property they were read from, so a connect that
+      // points the project at another property drops them.
+      const before = readGa4Properties(opts, [project])
       opts.ga4CredentialStore.upsertConnection({
         projectName: project.name,
         propertyId,
@@ -624,19 +629,15 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
         createdAt: existing?.createdAt ?? now,
         updatedAt: now,
       })
-      // The Search Console landing-page snapshot belongs to one property, so a
-      // connect that points the project at another one drops it.
-      clearSearchLandingSnapshotOnPropertyChange(app.db, project.id, {
-        previousPropertyId,
-        propertyId: resolveCurrentGa4PropertyId(opts, project.name, project.canonicalDomain),
-      }, now)
-
-      writeAuditLog(app.db, {
-        projectId: project.id,
-        actor: 'api',
-        action: 'ga4.connected',
-        entityType: 'ga_connection',
-        entityId: propertyId,
+      app.db.transaction((tx) => {
+        clearGaDataOnPropertyChange(tx, opts, before)
+        writeAuditLog(tx, {
+          projectId: project.id,
+          actor: 'api',
+          action: 'ga4.connected',
+          entityType: 'ga_connection',
+          entityId: propertyId,
+        })
       })
 
       return { connected: true, propertyId, authMethod: 'service-account', clientEmail }
@@ -686,27 +687,24 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       return { connected: true, propertyId, authMethod: 'oauth' }
     }
 
-    // Store the property ID on the OAuth connection record
-    const previousPropertyId = resolveCurrentGa4PropertyId(opts, project.name, project.canonicalDomain)
-    const connectedAt = new Date().toISOString()
+    // Store the property ID on the OAuth connection record. Same rule as the
+    // service-account path, for every project on this domain: they all
+    // resolve through this record, and a service-account connection still
+    // wins over it, so a project is cleared only when its property changed.
+    const before = readGa4Properties(opts, projectsSharingGa4Connection(app.db, project.canonicalDomain))
     googleStore.updateConnection(project.canonicalDomain, 'ga4', {
       propertyId,
-      updatedAt: connectedAt,
+      updatedAt: new Date().toISOString(),
     })
-    // Same rule as the service-account path. A service-account connection
-    // still wins over OAuth, so this clears only when the property the
-    // project resolves to actually changed.
-    clearSearchLandingSnapshotOnPropertyChange(app.db, project.id, {
-      previousPropertyId,
-      propertyId: resolveCurrentGa4PropertyId(opts, project.name, project.canonicalDomain),
-    }, connectedAt)
-
-    writeAuditLog(app.db, {
-      projectId: project.id,
-      actor: 'api',
-      action: 'ga4.connected',
-      entityType: 'ga_connection',
-      entityId: propertyId,
+    app.db.transaction((tx) => {
+      clearGaDataOnPropertyChange(tx, opts, before)
+      writeAuditLog(tx, {
+        projectId: project.id,
+        actor: 'api',
+        action: 'ga4.connected',
+        entityType: 'ga_connection',
+        entityId: propertyId,
+      })
     })
 
     return { connected: true, propertyId, authMethod: 'oauth' }
@@ -724,36 +722,27 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       throw notFound('GA4 connection', project.name)
     }
 
-    // Delete traffic data, summaries, AI and social referral rows along with the connection.
-    app.db.delete(gaTrafficSnapshots)
-      .where(eq(gaTrafficSnapshots.projectId, project.id))
-      .run()
-    app.db.delete(gaTrafficSummaries)
-      .where(eq(gaTrafficSummaries.projectId, project.id))
-      .run()
-    app.db.delete(gaDailyTotals)
-      .where(eq(gaDailyTotals.projectId, project.id))
-      .run()
-    app.db.delete(gaAiReferrals)
-      .where(eq(gaAiReferrals.projectId, project.id))
-      .run()
-    app.db.delete(gaSocialReferrals)
-      .where(eq(gaSocialReferrals.projectId, project.id))
-      .run()
-    // The Search Console landing-page snapshot belongs to the disconnected
-    // property, so it goes with it, and its state reads `never-synced` again.
-    clearSearchLandingSnapshot(app.db, project.id, new Date().toISOString())
-
     const propertyId = saConn?.propertyId ?? oauthConn?.propertyId ?? null
+    // The other projects on this domain lose the OAuth connection too.
+    const others = readGa4Properties(
+      opts,
+      projectsSharingGa4Connection(app.db, project.canonicalDomain).filter((other) => other.id !== project.id),
+    )
     opts.ga4CredentialStore?.deleteConnection(project.name)
     opts.googleConnectionStore?.deleteConnection(project.canonicalDomain, 'ga4')
 
-    writeAuditLog(app.db, {
-      projectId: project.id,
-      actor: 'api',
-      action: 'ga4.disconnected',
-      entityType: 'ga_connection',
-      entityId: propertyId,
+    app.db.transaction((tx) => {
+      // Every GA row came from the disconnected property, so all of them go,
+      // and every GA read shows the project as never synced.
+      clearGaPropertyData(tx, project.id)
+      clearGaDataOnPropertyChange(tx, opts, others)
+      writeAuditLog(tx, {
+        projectId: project.id,
+        actor: 'api',
+        action: 'ga4.disconnected',
+        entityType: 'ga_connection',
+        entityId: propertyId,
+      })
     })
 
     return reply.status(204).send()
@@ -910,11 +899,15 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       // Daily totals carry NO landing-page dimension, so GA deduplicates
       // `users` per day. Fetched unconditionally alongside the summary for the
       // same reason the summary is: the daily series is a foundation read, not
-      // a channel breakdown the `only` flag scopes.
+      // a channel breakdown the `only` flag scopes. They always cover the
+      // overview history (GA_OVERVIEW_HISTORY_DAYS), whatever `days` is, so
+      // every window's previous period has its days too. The window metrics
+      // are GA4's own totals for each window and the period before it.
       const fetches: Promise<unknown>[] = [
         fetchAggregateSummary(accessToken, propertyId, days),
         ...WINDOW_KEYS.map((w) => fetchWindowSummary(accessToken, propertyId, w)),
-        fetchDailyTotals(accessToken, propertyId, days),
+        fetchDailyTotals(accessToken, propertyId),
+        ...WINDOW_KEYS.map((w) => fetchWindowMetrics(accessToken, propertyId, w)),
       ]
       if (syncTraffic) fetches.push(fetchTrafficByLandingPage(accessToken, propertyId, days))
       if (syncAi) fetches.push(fetchAiReferrals(accessToken, propertyId, days))
@@ -935,7 +928,8 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       const summary: Awaited<ReturnType<typeof fetchAggregateSummary>> = results[0] as Awaited<ReturnType<typeof fetchAggregateSummary>>
       const windowSummaries = results.slice(1, 1 + WINDOW_KEYS.length) as Array<Awaited<ReturnType<typeof fetchWindowSummary>>>
       const dailyTotals = results[1 + WINDOW_KEYS.length] as Awaited<ReturnType<typeof fetchDailyTotals>>
-      let idx = 2 + WINDOW_KEYS.length
+      const windowMetrics = results.slice(2 + WINDOW_KEYS.length, 2 + 2 * WINDOW_KEYS.length) as Array<Awaited<ReturnType<typeof fetchWindowMetrics>>>
+      let idx = 2 + 2 * WINDOW_KEYS.length
       if (syncTraffic) { rows = results[idx++] as typeof rows }
       if (syncAi) { aiReferrals = results[idx++] as typeof aiReferrals }
       if (syncSocial) { socialReferrals = results[idx++] as typeof socialReferrals }
@@ -982,13 +976,13 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
           .where(
             and(
               eq(gaDailyTotals.projectId, project.id),
-              sql`${gaDailyTotals.date} >= ${summary.periodStart}`,
-              sql`${gaDailyTotals.date} <= ${summary.periodEnd}`,
+              sql`${gaDailyTotals.date} >= ${dailyTotals.startDate}`,
+              sql`${gaDailyTotals.date} <= ${dailyTotals.endDate}`,
             ),
           )
           .run()
 
-        for (const row of dailyTotals) {
+        for (const row of dailyTotals.rows) {
           tx.insert(gaDailyTotals).values({
             id: crypto.randomUUID(),
             projectId: project.id,
@@ -1001,10 +995,49 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
             // row keeps only what GA4 actually reported.
             engagementRate: row.engagementRate,
             newUsers: row.newUsers,
+            activeUsers: row.activeUsers,
+            organicSessions: row.organicSessions,
+            views: row.views,
+            eventCount: row.eventCount,
+            keyEvents: row.keyEvents,
+            engagementSeconds: row.engagementSeconds,
+            bounceRate: row.bounceRate,
             syncedAt: now,
             syncRunId: runId,
             createdAt: now,
           }).run()
+        }
+
+        // GA4's totals per overview window, both periods, replaced together:
+        // one sync's view of every window, so no window keeps a stale period.
+        tx.delete(gaWindowMetrics).where(eq(gaWindowMetrics.projectId, project.id)).run()
+        for (const windowMetric of windowMetrics) {
+          for (const [period, totals] of [
+            [GaOverviewPeriods.current, windowMetric.current],
+            [GaOverviewPeriods.previous, windowMetric.previous],
+          ] as const) {
+            tx.insert(gaWindowMetrics).values({
+              id: crypto.randomUUID(),
+              projectId: project.id,
+              windowKey: windowMetric.windowKey,
+              period,
+              startDate: totals.startDate,
+              endDate: totals.endDate,
+              activeUsers: totals.activeUsers,
+              newUsers: totals.newUsers,
+              totalUsers: totals.totalUsers,
+              sessions: totals.sessions,
+              organicSessions: totals.organicSessions,
+              views: totals.views,
+              eventCount: totals.eventCount,
+              keyEvents: totals.keyEvents,
+              engagementRate: totals.engagementRate,
+              bounceRate: totals.bounceRate,
+              engagementSeconds: totals.engagementSeconds,
+              syncedAt: now,
+              syncRunId: runId,
+            }).run()
+          }
         }
 
         if (syncAi) {
@@ -1268,10 +1301,10 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
         totalUsers: summary.totalUsers,
         ...(only ? { only } : {}),
       })
-      const counts = { rows: rows.length + dailyTotals.length + aiReferrals.length + socialReferrals.length }
+      const counts = { rows: rows.length + dailyTotals.rows.length + aiReferrals.length + socialReferrals.length }
       if (componentFailure) {
         outcome.report({ status: OutcomeStatuses.partial, ...classifyOutcomeError(componentFailure.error), counts })
-      } else if (rows.length === 0 && dailyTotals.length === 0) {
+      } else if (rows.length === 0 && dailyTotals.rows.length === 0) {
         outcome.report({ status: OutcomeStatuses.skipped, reasonCode: OutcomeReasonCodes.NO_DATA, counts })
       } else {
         outcome.report({ status: OutcomeStatuses.succeeded, counts })
@@ -2025,6 +2058,36 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       socialBiggestMover: findBiggestMover(socialSourceCurrent, socialSourcePrev),
     }
     return response
+  })
+
+  // GET /projects/:name/ga/overview — GA4's overview for a window beside the
+  // period before it: GA4's own totals, their change, and the days of both.
+  // Stored rows only; a sync is what asks GA4.
+  app.get<{
+    Params: { name: string }
+    Querystring: { window?: string }
+  }>('/projects/:name/ga/overview', async (request, _reply) => {
+    const project = resolveProject(app.db, request.params.name)
+    requireGa4Connection(opts, project.name, project.canonicalDomain)
+    const window = parseGaOverviewWindow(request.query.window)
+
+    const periodRows = app.db.select().from(gaWindowMetrics)
+      .where(and(eq(gaWindowMetrics.projectId, project.id), eq(gaWindowMetrics.windowKey, window)))
+      .all()
+    const current = periodRows.find((row) => row.period === GaOverviewPeriods.current) ?? null
+    const previous = periodRows.find((row) => row.period === GaOverviewPeriods.previous) ?? null
+    const fallback = gaOverviewComparisonRanges(window)
+    const from = previous?.startDate ?? fallback.previous.startDate
+    const to = current?.endDate ?? fallback.current.endDate
+    const daily = app.db.select().from(gaDailyTotals)
+      .where(and(
+        eq(gaDailyTotals.projectId, project.id),
+        sql`${gaDailyTotals.date} >= ${from}`,
+        sql`${gaDailyTotals.date} <= ${to}`,
+      ))
+      .all()
+
+    return buildGaOverview({ window, current, previous, daily, fallback })
   })
 
   // GET /projects/:name/ga/session-history
