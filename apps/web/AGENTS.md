@@ -685,7 +685,7 @@ Token migration guardrails:
 ### Onboarding state and draft recovery
 
 - Public domain/name/locale and unsaved query/competitor inputs restore from allowlisted session storage scoped by base path and project. Scan consent and provider credentials never persist. Saving clears the saved field's draft; Reset restores persisted project/query state, while Skip or leaving preserves unsaved inputs.
-- Completion says Project saved and derives scan/sweep outcomes from their latest saved runs. Distinguish never started, skipped, queued, running, partial, failed, cancelled and completed; name previous saved evidence separately. Provider/query readiness determines the next action.
+- Completion leads with a compact Project saved heading, one sweep status and Open project. Optional setup is a flat list; agent and data-source details start closed. Keep promotional demos and repeated explanatory paragraphs off this finish step. It derives scan/sweep outcomes from their latest saved runs. Distinguish never started, skipped, queued, running, partial, failed, cancelled and completed; name previous saved evidence separately. Provider/query readiness determines the next action.
 - Bare setup without a run offers Run first scan and a way to continue without scanning. Show the first scan's 100-page cap at the decision.
 
 ### Layout and navigation
