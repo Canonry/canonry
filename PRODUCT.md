@@ -37,6 +37,8 @@ Users usually arrive to answer four questions, in this order:
 
 ## Product principles
 
+- Design the dashboard for desktop operators first. Preserve narrow-width
+  compatibility without making mobile sizing drive the desktop layout.
 - Lead with operator state, not implementation state.
 - Show one clear next action when an action is necessary.
 - Keep the default view concise; preserve detail through tables, tooltips, and

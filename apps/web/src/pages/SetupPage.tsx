@@ -1073,7 +1073,7 @@ function ReadySetupPage({
 
   const StepSurface = isProjectScoped ? 'section' : Card
   const providerRefreshAction = providerReadiness !== true || cdpConfigured === true ? (
-    <Button type="button" variant="ghost" size="sm" className="min-h-11" onClick={() => {
+    <Button type="button" variant="ghost" size="sm" onClick={() => {
       void refetch()
       if (selectionCanUseCdp) void cdpStatusQuery.refetch()
     }}>
@@ -1103,7 +1103,6 @@ function ReadySetupPage({
           type="button"
           variant="ghost"
           size="sm"
-          className="min-h-11"
           disabled={projectProviderQuery.isFetching}
           onClick={() => { void projectProviderQuery.refetch() }}
         >
@@ -1399,12 +1398,12 @@ function ReadySetupPage({
                     Ask your agent to compare answers and available sources with Canonry Research, then recommend queries. Research does not change your tracked queries.
                   </p>
                 </div>
-                <Button type="button" variant="outline" size="sm" className="min-h-11 shrink-0 self-start" onClick={asyncHandler(copyResearchPrompt)}>
+                <Button type="button" variant="outline" size="sm" className="shrink-0 self-start" onClick={asyncHandler(copyResearchPrompt)}>
                   {researchPromptCopied ? 'Research prompt copied' : 'Copy research prompt'}
                 </Button>
               </div>
               <details open={researchCopyError || undefined} className="text-sm text-secondary">
-                <summary className="min-h-11 cursor-pointer py-3 text-link">View agent prompt</summary>
+                <summary className="min-h-9 cursor-pointer py-2 text-link">View agent prompt</summary>
                 <textarea aria-label="Agent query research prompt" readOnly className="setup-textarea mt-2 w-full" rows={8} value={researchPrompt} />
               </details>
               {researchCopyError ? <p role="alert" className="text-sm text-negative">Could not copy. Select and copy the prompt above.</p> : null}
@@ -1790,7 +1789,7 @@ function ReadySetupPage({
         </div>
         {siteHealthOnboarding ? (
           <div className="page-header-right">
-            <Button type="button" variant="outline" className="min-h-11" onClick={skipToFinish}>
+            <Button type="button" variant="outline" onClick={skipToFinish}>
               Skip AI Visibility
             </Button>
           </div>
@@ -1803,7 +1802,7 @@ function ReadySetupPage({
       /> : null}
 
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2 text-[13px] text-secondary">
-        <p>Unsaved fields can be restored in this tab when browser storage is available. Credentials are never retained.</p>
+        <p>Draft fields use tab storage when available. Credentials are excluded from drafts.</p>
         <Button type="button" variant="ghost" size="sm" disabled={(Boolean(resumeProjectName) && !resumeQueriesQuery.isSuccess) || projectSaving || queriesSaving || competitorsSaving || runSaving} onClick={resetDraft}>Reset unsaved fields</Button>
       </div>
       <section className="setup-wizard">

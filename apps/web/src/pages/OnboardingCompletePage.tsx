@@ -81,7 +81,7 @@ export function OnboardingCompletePage({
   return (
     <div className="page-container max-w-4xl py-8 md:py-10">
       <OnboardingProgress current="done" outcomes={outcomes} />
-      <div className="mx-auto mt-10 max-w-2xl md:mt-14">
+      <div className="mx-auto mt-8 max-w-2xl">
         <header>
           <p className="break-words text-sm text-secondary">{projectName}</p>
           <h1 className="mt-2 text-3xl font-semibold tracking-tight text-heading">Project saved</h1>
@@ -98,13 +98,13 @@ export function OnboardingCompletePage({
           {sweep.hasEarlierResults ? <p className="mt-2 text-sm text-secondary">Earlier AI results remain available.</p> : null}
           {scan.hasEarlierResults ? <p className="mt-2 text-sm text-secondary">Earlier page health results remain available.</p> : null}
           <div className="mt-6 flex flex-wrap gap-3">
-            <Button asChild className="h-11">
+            <Button asChild>
               <Link to="/projects/$projectName" params={{ projectName }} replace aria-label={`Open project ${projectName}`} onClick={() => trackNextAction('open_project')}>
                 Open project <ArrowRight className="size-4" aria-hidden="true" />
               </Link>
             </Button>
             {sweepOutcome === 'not-started' ? (
-              <Button asChild variant="secondary" className="h-11">
+              <Button asChild variant="secondary">
                 <Link to="/setup" search={{ experience: 'legacy', onboarding: 'first-run', setupProject: projectName }}>{setupAction}</Link>
               </Button>
             ) : null}
@@ -197,15 +197,15 @@ function OptionalSetup({ projectName, onAction }: { projectName: string; onActio
       addToast({ tone: 'negative', title: 'Could not copy the command', detail: `Run ${AGENT_MCP_INSTALL_COMMAND} in your terminal.` })
     }
   }
-  const linkClass = 'inline-flex min-h-11 items-center text-sm font-medium text-link underline-offset-4 hover:underline'
+  const linkClass = 'inline-flex min-h-9 items-center text-sm font-medium text-link underline-offset-4 hover:underline'
 
   return (
-    <section aria-labelledby="onb-options-heading" className="mt-10">
+    <section aria-labelledby="onb-options-heading" className="mt-8">
       <h2 id="onb-options-heading" className="mb-2 text-sm font-medium text-secondary">Optional setup</h2>
       <ul className="divide-y divide-default border-y border-default">
         <li>
           <details>
-            <summary className="min-h-11 cursor-pointer py-3 text-sm font-medium text-heading">Connect your agent</summary>
+            <summary className="min-h-9 cursor-pointer py-2 text-sm font-medium text-heading">Connect your agent</summary>
             <div className="flex flex-wrap items-center gap-3 pb-4">
               <code className="min-w-0 break-all text-[13px] text-secondary">{AGENT_MCP_INSTALL_COMMAND}</code>
               <Button type="button" variant="secondary" size="sm" onClick={() => { void copy() }}>
@@ -218,7 +218,7 @@ function OptionalSetup({ projectName, onAction }: { projectName: string; onActio
         </li>
         <li>
           <details>
-            <summary className="min-h-11 cursor-pointer py-3 text-sm font-medium text-heading">Connect data sources</summary>
+            <summary className="min-h-9 cursor-pointer py-2 text-sm font-medium text-heading">Connect data sources</summary>
             <ul className="pb-3 pl-4">
               <li><Link to="/traffic" className={linkClass} onClick={() => onAction('connect_server_traffic')}>Connect server-side traffic</Link></li>
               {DATA_SOURCES.map(({ label, action, to }) => (
@@ -228,12 +228,12 @@ function OptionalSetup({ projectName, onAction }: { projectName: string; onActio
           </details>
         </li>
         <li>
-          <Link to="/projects/$projectName/settings" params={{ projectName }} className="flex min-h-11 items-center justify-between gap-3 py-3 text-sm font-medium text-heading" onClick={() => onAction('set_schedule')}>
+          <Link to="/projects/$projectName/settings" params={{ projectName }} className="flex min-h-9 items-center justify-between gap-3 py-2 text-sm font-medium text-heading" onClick={() => onAction('set_schedule')}>
             Set a schedule <ArrowRight className="size-4 text-muted" aria-hidden="true" />
           </Link>
         </li>
         <li>
-          <Link to="/projects/$projectName/settings" params={{ projectName }} className="flex min-h-11 items-center justify-between gap-3 py-3 text-sm font-medium text-heading" onClick={() => onAction('add_notification')}>
+          <Link to="/projects/$projectName/settings" params={{ projectName }} className="flex min-h-9 items-center justify-between gap-3 py-2 text-sm font-medium text-heading" onClick={() => onAction('add_notification')}>
             Add a notification <ArrowRight className="size-4 text-muted" aria-hidden="true" />
           </Link>
         </li>
