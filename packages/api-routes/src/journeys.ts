@@ -9,8 +9,11 @@ import {
   JOURNEY_LIST_VISITS_PER_VISITOR,
   JOURNEY_LOOKBACK_DAYS,
   JOURNEY_MAX_REQUESTS_PER_VISITOR_DAY,
+  JOURNEY_PAGE_VIEWS_PENDING_REASON,
   JOURNEY_PARTIAL_SOURCE_TYPES,
   TrafficSourceStatuses,
+  TrafficSourceTypes,
+  cloudflareTrafficSourceConfigSchema,
   type JourneyPartialSources,
   journeyDetailQuerySchema,
   JOURNEY_RETENTION_DAYS,
@@ -41,6 +44,7 @@ import {
   type StoredJourneyVisit,
 } from '@canonry/canonry-integration-traffic'
 import { requireAdminSession } from './auth.js'
+import { cloudflareWorkerVersionFor } from './cloudflare-worker-version.js'
 import { resolveProject } from './helpers.js'
 
 const DAY_MS = 24 * 60 * 60_000
@@ -445,14 +449,36 @@ function visitsByVisitor(db: DatabaseClient, projectId: string, keys: readonly s
   return out
 }
 
-/** Project sources whose logs hold only part of a visitor's requests (see JOURNEY_PARTIAL_SOURCE_TYPES). */
+/**
+ * Project sources whose logs hold only part of a visitor's requests (see
+ * JOURNEY_PARTIAL_SOURCE_TYPES). A Cloudflare source set to forward page views
+ * is complete once its deployed Worker reports the matching version.
+ */
 function partialSources(db: DatabaseClient, projectId: string): JourneyPartialSources {
   const types = Object.keys(JOURNEY_PARTIAL_SOURCE_TYPES)
-  return db.select({ id: trafficSources.id, sourceType: trafficSources.sourceType, status: trafficSources.status }).from(trafficSources)
+  const rows = db.select({
+    id: trafficSources.id,
+    sourceType: trafficSources.sourceType,
+    status: trafficSources.status,
+    configJson: trafficSources.configJson,
+    lastWorkerVersion: trafficSources.lastWorkerVersion,
+  }).from(trafficSources)
     .where(and(eq(trafficSources.projectId, projectId), inArray(trafficSources.sourceType, types)))
     .orderBy(asc(trafficSources.id)).all()
-    .filter(row => row.status !== TrafficSourceStatuses.archived)
-    .map(row => ({ sourceId: row.id, sourceType: row.sourceType, reason: JOURNEY_PARTIAL_SOURCE_TYPES[row.sourceType]! }))
+  const out: JourneyPartialSources = []
+  for (const row of rows) {
+    if (row.status === TrafficSourceStatuses.archived) continue
+    let reason = JOURNEY_PARTIAL_SOURCE_TYPES[row.sourceType]!
+    if (row.sourceType === TrafficSourceTypes.cloudflare) {
+      const config = cloudflareTrafficSourceConfigSchema.safeParse(row.configJson)
+      if (config.success && config.data.forwardPageViews) {
+        if (row.lastWorkerVersion === cloudflareWorkerVersionFor({ forwardPageViews: true })) continue
+        reason = JOURNEY_PAGE_VIEWS_PENDING_REASON
+      }
+    }
+    out.push({ sourceId: row.id, sourceType: row.sourceType, reason })
+  }
+  return out
 }
 
 function median(values: number[]): number | null {

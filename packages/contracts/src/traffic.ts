@@ -261,6 +261,11 @@ const cloudflareTrafficSourceBaseSchema = z.object({
   expectedBotListVersion: z.string().min(1),
   /** Target Cloudflare zone for the operator-managed Worker route. */
   zoneId: z.string().nullable(),
+  /**
+   * The generated Worker also forwards people's page views (document loads),
+   * so AI visitor journeys see later visits. Absent on older rows: off.
+   */
+  forwardPageViews: z.boolean().default(false),
 })
 
 export const cloudflareDirectPushTrafficSourceConfigSchema = cloudflareTrafficSourceBaseSchema.extend({
@@ -305,6 +310,11 @@ const trafficConnectCloudflareBaseRequestSchema = z.object({
   displayName: z.string().min(1).optional(),
   /** Target Cloudflare zone. Canonry does not validate it against Cloudflare. */
   zoneId: z.string().min(1).optional(),
+  /**
+   * Generate a Worker that also forwards page views, for complete AI visitor
+   * journeys. Omitted on a reconnect keeps the source's current setting.
+   */
+  forwardPageViews: z.boolean().optional(),
 })
 
 export const trafficConnectCloudflareDirectPushRequestSchema = trafficConnectCloudflareBaseRequestSchema.extend({
@@ -344,6 +354,8 @@ const trafficConnectCloudflareResponseBaseSchema = z.object({
   workerScript: z.string().min(1),
   wranglerToml: z.string().min(1),
   workerVersion: z.string().min(1),
+  /** Whether the generated Worker forwards page views. */
+  forwardPageViews: z.boolean().default(false),
   instructions: z.string().min(1),
 })
 

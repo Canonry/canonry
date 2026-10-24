@@ -30,8 +30,11 @@ export const JOURNEY_MAX_REQUESTS_PER_VISITOR_DAY = 300
  * journeys from them miss later visits. Reads name these sources.
  */
 export const JOURNEY_PARTIAL_SOURCE_TYPES: Readonly<Record<string, string>> = {
-  cloudflare: 'The Worker forwards only AI-referred and bot requests, so later visits from this source are not recorded.',
+  cloudflare: 'The Worker forwards only AI-referred and bot requests, so later visits from this source are not recorded. Reconnect with --forward-page-views and redeploy the Worker to record them.',
 }
+
+/** A Cloudflare source set to forward page views whose deployed Worker has not reported it yet. */
+export const JOURNEY_PAGE_VIEWS_PENDING_REASON = 'Page-view forwarding is on, but the deployed Worker has not reported it yet. Redeploy the Worker and send a request through it.'
 
 /** Visits nested under each visitor in a journeys list: the first ones, in order. */
 export const JOURNEY_LIST_VISITS_PER_VISITOR = 20
