@@ -110,6 +110,8 @@ Your agent and dashboard use the same project API. The dashboard makes trends, e
 
 Track brand mentions and citations over time, by query and answer engine. Find answers that cite competitors but omit your site.
 
+Compare direct AI engines, OpenRouter models, and search answers from Exa and Parallel.
+
 ![Canonry AI Visibility mention share trend across answer engines](https://raw.githubusercontent.com/Canonry/canonry/main/docs/images/ai-visibility-trend.png)
 
 *Track your share of answer-engine brand mentions over time.*
@@ -131,6 +133,9 @@ For an existing project, configure a provider with your own key.
 | Meta (Muse) | [Meta Model API](https://dev.meta.ai/) | `MUSE_API_KEY` |
 | Claude | [Anthropic Console](https://console.anthropic.com/settings/keys) | `ANTHROPIC_API_KEY` |
 | Perplexity | [Perplexity settings](https://www.perplexity.ai/settings/api) | `PERPLEXITY_API_KEY` |
+| [OpenRouter](docs/providers/openrouter.md) | [OpenRouter keys](https://openrouter.ai/keys) | `OPENROUTER_API_KEY` |
+| [Exa](docs/providers/answer-services/exa.md) | [Exa dashboard](https://dashboard.exa.ai/api-keys) | `EXA_API_KEY` |
+| [Parallel](docs/providers/answer-services/parallel.md) | [Parallel platform](https://platform.parallel.ai) | `PARALLEL_API_KEY` |
 | Local model | Any OpenAI-compatible endpoint | `LOCAL_BASE_URL` |
 
 Add the queries that matter to your project:
@@ -146,13 +151,20 @@ cnry visibility-stats my-site --by-provider
 <a id="why-we-use-model-providers-apis-directly-not-a-router"></a>
 
 <details>
-<summary>Why Canonry uses direct provider APIs</summary>
+<summary>Direct APIs, OpenRouter, and search answer services</summary>
 
-Canonry uses direct provider APIs to capture answers, citations, and available
-search details that model routers can omit. This richer data helps us measure
-brand mentions and website citations accurately and explain changes in your
-visibility.
-[Read more about accuracy and why we chose models and direct provider API adapters individually](docs/providers/model-selection.md).
+Canonry supports direct model APIs, OpenRouter, and search answer services such
+as Exa and Parallel. Direct adapters retain the search and grounding details
+each provider exposes. OpenRouter offers multiple models through one key. Exa
+and Parallel search the web and return answers with source evidence.
+
+Each direct engine, OpenRouter model route, and service profile keeps separate
+results and history. The same model through different APIs can return different
+answers and citation evidence. Canonry measures brand mentions separately from
+source citations and keeps missing evidence unknown.
+
+[Provider guides](docs/providers/README.md) describe the evidence and limits of
+each integration.
 
 </details>
 
@@ -177,6 +189,33 @@ Site audits show technical findings alongside that evidence.
 ![Canonry Site Map graph](https://raw.githubusercontent.com/Canonry/canonry/main/docs/images/dashboard.png)
 
 *Map crawlable pages and the internal links that connect them.*
+
+### SEO data
+
+The **SEO data** project section adds keyword research and organic search evidence for Simple and Advanced portfolios.
+DataForSEO Labs is the first adapter in a provider-neutral integration.
+
+- **Keyword metrics:** Search volume, keyword difficulty, CPC, and monthly demand estimates.
+- **Ranked keywords:** Observed positions, ranking URLs, search volume, and estimated traffic.
+- **Domain comparison:** Organic keyword totals, position buckets, and estimated traffic for the profile's domains.
+
+Profiles select the source, supported datasets, targets, market, and language. A manual **Refresh data** action collects new evidence.
+Saved results and refresh activity are available through the dashboard, API, CLI, and MCP. Opening results never starts a paid request.
+Provider estimates stay separate from Search Console observations, analytics, and AI citation and mention coverage.
+
+SEO is off by default. The host operator configures DataForSEO credentials and spending limits in `config.yaml`.
+Hosted budgets and receipts stay internal. The project section manages profiles, but the Settings page has no SEO credentials or budget form.
+Without a configured source, refresh is disabled and saved evidence remains readable.
+
+See the [SEO setup and CLI guide](docs/seo-data.md) for configuration, scope limits, and refresh commands.
+This phase supports manual refreshes, without scheduled rank tracking, a crawler, or Lighthouse audits.
+
+<details>
+<summary>SEO dashboard preview (sample data)</summary>
+
+![Canonry SEO data dashboard with domain metrics and ranked keywords](docs/images/seo-data-phase-one/desktop.jpg)
+
+</details>
 
 ### Portfolios and competitors
 
@@ -208,6 +247,7 @@ Connect the sources you use. Each integration adds evidence or tools to the same
 |---|---|
 | **AI answers** | ChatGPT · Claude · Gemini · Meta (Muse) · Perplexity · OpenAI-compatible local models |
 | **Search and local** | [Google Search Console](docs/google-search-console-setup.md) · [Bing Webmaster Tools](docs/bing-webmaster-setup.md) · [Google Business Profile](skills/canonry/references/google-business-profile.md) |
+| **SEO research** | [DataForSEO Labs](docs/seo-data.md): keyword metrics, ranked keywords, and domain comparison |
 | **Analytics** | [Google Analytics 4](docs/google-analytics-setup.md) |
 | **Conversion measurement** | [Google Ads + Google Tag Manager](docs/google-marketing.md): read-only snapshots and declared conversion contracts |
 | **Server traffic** | [Cloudflare · Vercel · Cloud Run · WordPress](skills/canonry/references/server-side-traffic.md) |

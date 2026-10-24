@@ -1,4 +1,5 @@
 export { registerAgentConversationRoutes } from './agent-conversations.js'
+export { blockedAddressReason, stripIpv6Brackets } from './egress-policy.js'
 import type { FastifyInstance, FastifyError } from 'fastify'
 import rateLimit from '@fastify/rate-limit'
 import type { DatabaseClient } from '@canonry/canonry-db'
@@ -9,7 +10,12 @@ export { SentimentService } from './sentiment-service.js'
 export type { SentimentServiceOptions, SentimentInstallState } from './sentiment-service.js'
 export { selectSentimentSources } from './sentiment-source.js'
 export { sentimentClassifierInput, sentimentHash } from './sentiment-input.js'
-import { AppError, runtimeStateMissing, describeError, operationAccess, OperationAccesses, OPERATION_ACCESS_HEADER, STORED_ONLY_HEADER, matchOperationTemplate, storedOnlyRefused } from '@canonry/canonry-contracts'
+export {
+  refreshSnapshotMentionIdentity,
+  snapshotsWithSentimentResults,
+  type SnapshotMentionIdentityRefresh,
+} from './sentiment-mention-identity.js'
+import { AppError, routeFamiliesOf, runtimeStateMissing, describeError, operationAccess, OperationAccesses, OPERATION_ACCESS_HEADER, STORED_ONLY_HEADER, matchOperationTemplate, storedOnlyRefused } from '@canonry/canonry-contracts'
 import { authPlugin } from './auth.js'
 import { registerRequestContext, type RequestContextOptions } from './request-context.js'
 import { createOutcomeEmitter, type OutcomeTelemetryEvent, type OutcomeTelemetryInput } from './outcome-telemetry.js'
@@ -108,12 +114,13 @@ import {
   VercelLogsApiError,
 } from '@canonry/canonry-integration-vercel'
 import { doctorRoutes, type DoctorRoutesOptions } from './doctor.js'
-import { statusRoutes } from './status.js'
+import { statusRoutes, type StatusRoutesOptions } from './status.js'
 import { discoveryRoutes } from './discovery/index.js'
 import type { DiscoveryRoutesOptions } from './discovery/index.js'
 import { technicalAeoRoutes } from './technical-aeo.js'
 import type { TechnicalAeoRoutesOptions } from './technical-aeo.js'
 import { researchRoutes } from './research.js'
+import { seoRoutes, type SeoRoutesOptions } from './seo.js'
 import type { ResearchRoutesOptions } from './research.js'
 import { CheckStatuses, TrafficSourceTypes } from '@canonry/canonry-contracts'
 import type { ScheduledSyncClaim } from './helpers.js'
@@ -151,6 +158,8 @@ export * from './notifications/destinations.js'
 export { resolveVercelSyncDeadlineMs, VERCEL_MAX_SYNC_WINDOW_MS, DEFAULT_VERCEL_SYNC_DEADLINE_MS, TRAFFIC_SOURCE_MAX_CATCHUP_MS } from './traffic-limits.js'
 export interface ApiRoutesOptions {
   db: DatabaseClient
+  /** Host-reported MCP prerequisites; never starts a connection or provider probe. */
+  getMcpHealth?: StatusRoutesOptions['getMcpHealth']
   /** Consumes a host-owned scheduler claim at a sync run insert. */
   claimScheduledSync?: ScheduledSyncClaim
   /** Host-approved direct bearer IDs, never inferred from customer roles or scopes. */
@@ -421,6 +430,8 @@ export interface ApiRoutesOptions {
   researchAllowViewers?: boolean
   /** Viewer-created research runs allowed per project and UTC day. Defaults to 20. */
   researchViewerDailyRunLimit?: number
+  getSeoRuntime?: SeoRoutesOptions['getSeoRuntime']
+  onSeoRunRequested?: SeoRoutesOptions['onSeoRunRequested']
   /** Discovery harvest seam — extracts issued search queries (fan-out) from a stored probe payload, provider-shaped. Wire to the provider adapter's extractor. */
   harvestSearchQueries?: DiscoveryRoutesOptions['harvestSearchQueries']
   /** Discovery harvest embed seam — embeds query strings for the semantic novelty pass. Wire to the Gemini embedder; unset/rejecting degrades novelty to exact-match. */
@@ -653,6 +664,10 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     await api.register(userRoutes)
 
     await api.register(openApiRoutes, { ...opts.openApiInfo, routePrefix: opts.routePrefix })
+    // Route families of every adapter this host knows (OpenRouter models,
+    // answer-service profiles). Their bare connections never join "all
+    // configured", so connecting one never widens an existing project.
+    const providerRouteFamilies = routeFamiliesOf(opts.providerAdapters)
     await api.register(projectRoutes, {
       onProjectDeleting: opts.onProjectDeleting,
       onProjectDeleted: opts.onProjectDeleted,
@@ -685,9 +700,11 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       getRunnableProviderNames: opts.getRunnableProviderNames,
       getEffectiveProviderModels: opts.getEffectiveProviderModels,
       getBatchEligibleProviderNames: opts.getBatchEligibleProviderNames,
+      providerAdapters: opts.providerAdapters,
     } satisfies RunRoutesOptions)
     await api.register(measurementPlanRoutes, {
       getRunnableProviderNames: opts.getRunnableProviderNames,
+      providerRouteFamilies,
       onCompetitorAliasesChanged: opts.onCompetitorAliasesChanged,
       onCompetitorAutoAliasRescan: opts.onCompetitorAutoAliasRescan,
     } satisfies MeasurementPlanRoutesOptions)
@@ -698,6 +715,8 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     // handlers never have to touch this file or `openapi.ts`.
     await api.register(measurementDraftRoutes, {
       getRunnableProviderNames: opts.getRunnableProviderNames,
+      providerRouteFamilies,
+      providerAdapters: opts.providerAdapters,
       onCompetitorAliasesChanged: opts.onCompetitorAliasesChanged,
       onCompetitorAutoAliasRescan: opts.onCompetitorAutoAliasRescan,
     } satisfies MeasurementDraftRoutesOptions)
@@ -709,10 +728,14 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     await api.register(visibilityReportRoutes)
     await api.register(queryTrackingRoutes, {
       getRunnableProviderNames: opts.getRunnableProviderNames,
+      providerRouteFamilies,
       providerSummary: opts.providerSummary,
     })
+    // The results read compares a simple sweep with what the project dispatches
+    // now, through the workspace's own signature, so it takes the same options.
     await api.register(queryTrackingResultsRoutes, {
       getRunnableProviderNames: opts.getRunnableProviderNames,
+      providerRouteFamilies,
       providerSummary: opts.providerSummary,
     })
     await api.register(applyRoutes, {
@@ -741,7 +764,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     await api.register(citationRoutes)
     await api.register(visibilityStatsRoutes)
     await api.register(resultsExportRoutes)
-    await api.register(compositeRoutes, { sentiment: opts.sentiment, getRunnableProviderNames: opts.getRunnableProviderNames })
+    await api.register(compositeRoutes, { sentiment: opts.sentiment, getRunnableProviderNames: opts.getRunnableProviderNames, providerRouteFamilies })
     await api.register(contentRoutes, {
       explainContentRecommendation: opts.explainContentRecommendation,
       briefContentRecommendation: opts.briefContentRecommendation,
@@ -761,10 +784,12 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     await api.register(keysRoutes)
     await api.register(snapshotRoutes, {
       onSnapshotRequested: opts.onSnapshotRequested,
+      providerAdapters: opts.providerAdapters,
     } satisfies SnapshotRoutesOptions)
     await api.register(scheduleRoutes, {
       onScheduleUpdated: opts.onScheduleUpdated,
       validProviderNames: opts.providerAdapters?.map(a => a.name),
+      providerAdapters: opts.providerAdapters,
     } satisfies ScheduleRoutesOptions)
     await api.register(notificationRoutes, {
       allowLoopbackWebhooks: opts.allowLoopbackWebhooks,
@@ -806,6 +831,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     await api.register(googleRoutes, {
       getGoogleAuthConfig: opts.getGoogleAuthConfig,
       googleConnectionStore: opts.googleConnectionStore,
+      ga4CredentialStore: opts.ga4CredentialStore,
       googleStateSecret: opts.googleStateSecret,
       publicUrl: opts.publicUrl,
       routePrefix: opts.routePrefix,
@@ -896,6 +922,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       onCompetitorAliasesChanged: opts.onCompetitorAliasesChanged,
       onCompetitorAutoAliasRescan: opts.onCompetitorAutoAliasRescan,
     } satisfies DiscoveryRoutesOptions)
+    await api.register(seoRoutes, { getSeoRuntime: opts.getSeoRuntime, onSeoRunRequested: opts.onSeoRunRequested } satisfies SeoRoutesOptions)
     await api.register(researchRoutes, {
       getCachedProviderModels: opts.getCachedProviderModels,
       getEffectiveProviderModels: opts.getEffectiveProviderModels,
@@ -933,6 +960,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     })
     await api.register(statusRoutes, {
       db: opts.db,
+      getMcpHealth: opts.getMcpHealth,
       googleConnectionStore: opts.googleConnectionStore,
       bingConnectionStore: opts.bingConnectionStore,
       ga4CredentialStore: opts.ga4CredentialStore,
@@ -1000,7 +1028,8 @@ export type {
   ExecuteDiscoveryResult,
   OnDiscoveryRunRequested,
 } from './discovery/index.js'
-export { deliverWebhook, resolveWebhookTarget } from './webhooks.js'
+export { deliverWebhook, resolveWebhookTarget, verifyCanonryWebhook } from './webhooks.js'
+export type { WebhookDeliveryResult } from './webhooks.js'
 // One classification of a webhook destination and its answer, shared by the test route and deliveries.
 export { webhookOutcomeTarget, webhookResponseReason, webhookTargetRefusalReason } from './connection-telemetry.js'
 // Audit rows written by a host route, so they carry the same request context.
@@ -1326,3 +1355,5 @@ function buildTrafficSourceValidators(opts: ApiRoutesOptions): Record<string, Tr
   }
   return Object.keys(validators).length > 0 ? validators : undefined
 }
+
+export type { SeoRoutesOptions, SeoConnection, SeoPolicy } from './seo.js'

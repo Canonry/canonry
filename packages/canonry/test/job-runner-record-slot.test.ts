@@ -217,6 +217,9 @@ function expectedPlanRow(runId: string, provider: string, model: string, queryNu
     servedModel: `${model}-2026-07-01`,
     citationState: 'cited',
     answerMentioned: true,
+    // Sentiment's identity verdicts arrive after the sweep, never with it.
+    mentionIdentity: null,
+    wrongSubjectTargetKeys: null,
     answerText: ANSWER,
     citedDomains: ['example.com', 'rivalrywidgets.com'],
     citedUrls: provider === 'openai' || provider === 'gemini' ? SOURCES.map(source => source.uri) : null,
@@ -244,6 +247,8 @@ function expectedPlanRow(runId: string, provider: string, model: string, queryNu
       estimatedCostMicros: provider === 'openai' ? OPENAI_STANDARD_COST : null,
       priceSource: provider === 'openai' ? 'override' : null,
     },
+    // Only hosted answer services record vendor-neutral evidence.
+    answerEvidence: null,
     rawResponse: JSON.stringify({
       model,
       servedModel: `${model}-2026-07-01`,

@@ -202,7 +202,7 @@ function searchLocationReader(all: readonly Context[], contextLabels: ContextLab
     const own = contextLabels([context])
     details.set(context, own)
     for (const detail of own) {
-      if (!names.has(detail)) names.set(detail, `${context.location?.label ?? 'No search location'} · ${context.providers.map(providerDisplayName).join(', ')}`)
+      if (!names.has(detail)) names.set(detail, `${context.location?.label ?? 'No search location'} · ${context.providers.map(name => providerDisplayName(name)).join(', ')}`)
     }
   }
   const uses = new Map<string, number>()
@@ -372,7 +372,7 @@ export function TrackingReviewActions({ preview, isCommitting, expectedSubjects,
       ) : null}
       {preview?.diff.noOp ? <StatusNote icon={Info} label="Nothing to publish" detail="Nothing here would change what is tracked." /> : null}
       {/* Last in its row, so Back stays beside Publish. */}
-      {hasChanges && sweepActive ? <span role="status" className="order-last"><StatusNote icon={Pause} tone="caution" label="Sweep running" detail="A sweep is queued or running. Publish after it finishes." /></span> : null}
+      {hasChanges && sweepActive ? <span role="status" className="order-last"><StatusNote icon={Pause} tone="caution" label="Check running" detail="A check is queued or running. Publish after it finishes." /></span> : null}
     </>
   )
 }

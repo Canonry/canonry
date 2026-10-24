@@ -26,6 +26,7 @@ export const ProviderIds = {
   local: 'local',
   cdpChatgpt: 'cdp:chatgpt',
   zai: 'zai',
+  openrouter: 'openrouter',
 } as const
 
 export type ProviderId = (typeof ProviderIds)[keyof typeof ProviderIds]
@@ -59,6 +60,7 @@ export const AgentProviderIds = {
   openai: ProviderIds.openai,
   gemini: ProviderIds.gemini,
   zai: ProviderIds.zai,
+  openrouter: ProviderIds.openrouter,
 } as const
 
 export type AgentProviderId = (typeof AgentProviderIds)[keyof typeof AgentProviderIds]

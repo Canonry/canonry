@@ -12,7 +12,7 @@ import { toneFromRunStatus } from '../lib/tone-helpers.js'
 import { buildSystemHealthCards, serviceStatusTooltip } from '../lib/health-helpers.js'
 import { useDashboardOverview as useDashboard } from '../queries/use-dashboard-overview.js'
 import { useHealth } from '../queries/use-health.js'
-import { useDrawer } from '../hooks/use-drawer.js'
+import { RunDetailLink } from '../components/shared/RunDetailLink.js'
 import { useAccount } from '../contexts/account-context.js'
 import { useInitialDashboard } from '../contexts/dashboard-context.js'
 import type { PortfolioProjectVm } from '../view-models.js'
@@ -57,7 +57,7 @@ function OverviewProjectCard({
             title={project.providerCoverage}
           >
             {project.providerCoverage
-              ? <><span className="sr-only">Partial sweep: </span>{project.providerCoverage}</>
+              ? <><span className="sr-only">Partial check: </span>{project.providerCoverage}</>
               : project.mentionDelta}
           </p>
         </div>
@@ -104,7 +104,6 @@ export function OverviewPage() {
   // skeleton branch first and hit this on every cold load.
   const enableLiveStatus = !contextDashboard
   const healthQuery = useHealth(enableLiveStatus, contextDashboard?.health)
-  const { openRun } = useDrawer()
 
   if (isError && !safeDashboard) {
     return (
@@ -154,7 +153,7 @@ export function OverviewPage() {
   const awaitingBaseline = model.projects.length > 0 && model.projects.every(project => project.hasMeasurement === false)
   const sentimentColumn = model.projects.some(project => showsSentimentOverview(project.sentiment))
   const attentionItems = model.attentionItems.map(item => awaitingBaseline && item.id === 'attention_stable'
-    ? { ...item, tone: 'neutral' as const, title: 'Awaiting first measurement', detail: 'Visibility results will appear after the first sweep.' }
+    ? { ...item, tone: 'neutral' as const, title: 'Awaiting first measurement', detail: 'Visibility results will appear after the first check.' }
     : item)
 
   const healthSnapshot = healthQuery.data ?? contextDashboard?.health ?? { apiStatus: { label: 'API', state: 'checking', detail: 'Checking service health' }, workerStatus: { label: 'Worker', state: 'checking', detail: 'Checking service health' } }
@@ -248,13 +247,13 @@ export function OverviewPage() {
               <p className="supporting-copy" role="status">Loading recent jobs…</p>
             ) : model.recentRuns.length > 0 ? (
               model.recentRuns.map((run) => (
-                <button key={run.id} className="compact-run" type="button" onClick={() => openRun(run.id)}>
+                <RunDetailLink key={run.id} run={run} projectName={model.projects.find(project => project.project.id === run.projectId)?.project.name} className="compact-run">
                   <div>
                     <p className="compact-run-title">{run.projectName}</p>
                     <p className="compact-run-detail">{run.summary}</p>
                   </div>
                   <StatusBadge status={run.status} />
-                </button>
+                </RunDetailLink>
               ))
             ) : (
               <p className="supporting-copy">Run history appears here after the first launch.</p>

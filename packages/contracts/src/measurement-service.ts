@@ -10,6 +10,7 @@ import {
   measurementV2StableKeySchema,
 } from './measurement-plan-v2.js'
 import { compareText } from './text-order.js'
+import { mentionIdentitySchema } from './mention-identity.js'
 
 /** The five deterministic outcomes produced by sitemap target discovery. */
 export const measurementDiscoveryClassificationSchema = z.enum([
@@ -390,6 +391,13 @@ export const measurementAnswerEvidenceSchema = z.object({
   // baseline edge. A consumer got no null branch for a value it can receive.
   queryClass: z.union([z.enum(['branded', 'non-brand']), z.null()]),
   mentioned: z.boolean().nullable(),
+  /**
+   * `wrong-subject` when the answer writes this Property's name but sentiment
+   * found it is about another subject, so `mentioned` is false. Null when no
+   * sentiment verdict changes the mention, and always on a baseline edge.
+   * Defaults to null for a row from a server that predates the field.
+   */
+  mentionIdentity: z.union([mentionIdentitySchema, z.null()]).default(null),
   /**
    * Null where citation capture was incomplete and nothing matched: with the
    * sources unseen, "not cited" is a claim the run does not support.

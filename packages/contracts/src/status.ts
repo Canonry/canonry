@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { runKindSchema, runStatusSchema, runTriggerSchema } from './run.js'
+import { mcpHealthSchema } from './health.js'
 
 export const statusIntegrationSchema = z.enum(['gsc', 'ga', 'gbp', 'bing', 'ads', 'google-ads', 'gtm', 'traffic'])
 export const StatusIntegrations = statusIntegrationSchema.enum
@@ -51,6 +52,7 @@ export type ProjectStatus = z.infer<typeof projectStatusSchema>
 
 export const instanceStatusDtoSchema = z.object({
   generatedAt: dateTimeSchema,
+  mcp: mcpHealthSchema.optional(),
   summary: z.object({
     projects: z.number().int().nonnegative(),
     ok: z.number().int().nonnegative(),

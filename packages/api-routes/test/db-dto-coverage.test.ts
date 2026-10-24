@@ -24,6 +24,9 @@ import {
   discoverySessionDtoSchema,
   researchRunQuerySchema,
   researchRunSummarySchema,
+  seoProfileSchema,
+  seoRunSchema,
+  seoTaskSchema,
   ga4AiReferralDtoSchema,
   ga4ConnectionDtoSchema,
   gaAcquisitionRowSchema,
@@ -127,6 +130,54 @@ type CoverageEntry =
     }
 
 const COVERAGE: Record<string, CoverageEntry> = {
+  seoProfiles: {
+    kind: 'dto',
+    dto: seoProfileSchema,
+    internal: {
+      projectId: 'Implied by the project-scoped profile route.',
+      input: 'Validated profile fields are flattened into SeoProfile rather than returned as a storage envelope.',
+    },
+  },
+  seoJobs: {
+    kind: 'dto',
+    dto: seoRunSchema,
+    internal: {
+      projectKey: 'Retained project identity for durable receipts after project deletion; deleted sidecars are hidden from customer reads.',
+      runId: 'Nullable Activity link; the public SEO run id is the same id while that link exists.',
+      profile: 'Frozen inputs supply capabilities, scope and locale fields; the raw stored profile envelope is private.',
+      scopeSnapshot: 'Frozen Advanced plan assignments and targets used to validate lineage; not a raw customer DTO.',
+      requestHash: 'Internal idempotency binding to the accepted refresh intent.',
+      idempotencyKey: 'Internal write receipt key; never part of saved evidence output.',
+      principalId: 'Internal originating identity for receipt replay authorization.',
+      connectionId: 'Frozen dispatch binding; current connection choices are exposed through SeoContext.',
+      accountKey: 'Private provider funding fingerprint shared by connection aliases.',
+      buckets: 'Private reservation periods and monetary limits; never included in customer DTOs.',
+    },
+  },
+  seoTasks: {
+    kind: 'dto',
+    dto: seoTaskSchema,
+    internal: {
+      jobId: 'Implied by the run detail containing the task.',
+      request: 'Projects capability and target only; the frozen provider request is not exposed as raw storage.',
+      leaseOwner: 'Private dispatch ownership token.',
+      leaseUntil: 'Internal crash recovery deadline.',
+      catalogRevision: 'Private pricing catalog identity for admission and dispatch validation.',
+      collectionOutcome: 'Distinguishes collected evidence from later financial reconciliation; public status is projected.',
+      reservedMicros: 'Private operating cost hold; available only in the explicitly host-operator task DTO.',
+      actualMicros: 'Private operating cost settlement; available only in the explicitly host-operator task DTO.',
+      receipts: 'Public task exposes only remoteTaskId; full financial receipts require host operator authority.',
+      results: 'Normalized evidence is projected through paginated capability DTOs and bounded run detail.',
+      reconciliation: 'Private operator verification note and settlement receipt.',
+      startedAt: 'Internal per-task dispatch time; parent run exposes lifecycle timestamps.',
+      finishedAt: 'Internal per-task completion time; parent run exposes lifecycle timestamps.',
+    },
+  },
+  seoBudgets: {
+    kind: 'internal-only',
+    reason: 'Private atomic account/project reservation and settlement counters; no customer or operator budget DTO exposes raw rows.',
+  },
+  reviewWebhookDeliveries: {kind:'internal-only',reason:'Immutable per-destination review-event payload and delivery debt; internal acknowledgement/retry records, never a public review DTO.'},
   sentimentDefinitions: {
     kind: 'internal-only',
     reason: 'Immutable evaluator JSON is exposed only through validated, project-scoped sentiment DTOs; hashes and storage columns remain private.',
@@ -248,6 +299,8 @@ const COVERAGE: Record<string, CoverageEntry> = {
       screenshotPath: 'Debug-only artifact path; not surfaced on the snapshot DTO.',
       rawResponse: 'Raw provider payload; exposed via a separate endpoint, not the snapshot DTO.',
       providerBatchId: 'Links the answer to its provider_batches row; the run detail lists the batches.',
+      answerEvidence: 'Serialized as the public `evidence` field, only for answers that recorded evidence.',
+      wrongSubjectTargetKeys: 'Advanced per-Property sentiment verdicts; read through the measurement report, where each Property\'s answer evidence carries `mentionIdentity`.',
     },
   },
   schedules: {
@@ -710,6 +763,10 @@ const COVERAGE: Record<string, CoverageEntry> = {
     kind: 'internal-only',
     reason: 'Component-level sync completeness and error state backing the follow-up measurement API.',
   },
+  gaWindowMetrics: {
+    kind: 'internal-only',
+    reason: 'GA4 totals per overview window and the period before it, written by the sync. Backing store only: its values reach callers through the /ga/overview response, not as a direct row DTO.',
+  },
   gaDailyTotals: {
     kind: 'internal-only',
     reason: 'Property-level daily GA4 totals (no landing-page dim), the deduplicated `users` source for the session-history response. Backing store only — its values reach callers through that response, not as a direct row DTO. Mirrors gscDailyTotals.',
@@ -792,6 +849,7 @@ const COVERAGE: Record<string, CoverageEntry> = {
       researchRunId: 'Implied by the enclosing detail route.',
       queryText: 'Serialized as the public `query` field.',
       rawResponse: 'Raw provider payload retained for diagnostics.',
+      answerEvidence: 'Serialized as the public `evidence` field, only for answers that recorded evidence.',
     },
   },
   backlinkDomains: {

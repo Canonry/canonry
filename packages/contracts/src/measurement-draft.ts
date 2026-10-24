@@ -397,6 +397,41 @@ export const measurementDraftApplyPairedAssignmentsRequestSchema = z.object({
   contextOverride: measurementDraftContextOverrideSchema.optional(),
 }).strict()
 
+/**
+ * Change only the engine identity for exact edges selected through published
+ * market membership. Locations are intentionally absent: market routing must
+ * retain every frozen location rather than rebuilding a Cartesian context.
+ */
+export const measurementDraftRouteMarketsRequestSchema = z.object({
+  marketKeys: z.array(measurementV2StableKeySchema).min(1),
+  targetKeys: z.array(measurementV2StableKeySchema).min(1).optional(),
+  queryIds: z.array(measurementDraftQueryIdSchema).min(1).optional(),
+  contextOverride: z.object({
+    providers: z.array(providerNameSchema).min(1),
+    models: z.record(providerNameSchema, z.string().trim().min(1)).optional(),
+  }).strict(),
+}).strict()
+export type MeasurementDraftRouteMarketsRequest = z.output<typeof measurementDraftRouteMarketsRequestSchema>
+
+export const measurementDraftPreviewMarketRoutingResponseSchema = z.object({
+  draftEtag: z.string().trim().min(1),
+  markets: z.array(z.object({
+    marketKey: measurementV2StableKeySchema,
+    label: z.string().trim().min(1),
+    matchedEdges: z.number().int().nonnegative(),
+    changedEdges: z.number().int().nonnegative(),
+  }).strict()),
+  matchedEdges: z.number().int().nonnegative(),
+  changedEdges: z.number().int().nonnegative(),
+  execution: z.object({
+    addedNodes: z.number().int().nonnegative(),
+    addedProviderCalls: z.number().int().nonnegative(),
+    fullRunNodes: z.number().int().nonnegative(),
+    fullRunProviderCalls: z.number().int().nonnegative(),
+  }).strict(),
+}).strict()
+export type MeasurementDraftPreviewMarketRoutingResponse = z.output<typeof measurementDraftPreviewMarketRoutingResponseSchema>
+
 /** Removing one query from one or many Targets never deletes the project query behind it. */
 export const measurementDraftRemoveAssignmentRequestSchema = z.union([
   z.object({

@@ -26,13 +26,13 @@ function settings(configure = false): SentimentSettings {
 function SentimentSection(props: Omit<ComponentProps<typeof SentimentScopeProvider>, 'children'>) {
   return <SentimentScopeProvider {...props}><SentimentControls /><SentimentHeadlines /></SentimentScopeProvider>
 }
-function renderScope(children: ReactNode, options: { enabled?: boolean; configure?: boolean; branded?: SentimentSummary; nonBrand?: SentimentSummary; evidence?: SentimentEvidenceItem[]; selection?: ComponentProps<typeof SentimentScopeProvider>['selection'] } = {}) {
+function renderScope(children: ReactNode, options: { enabled?: boolean; configure?: boolean; branded?: SentimentSummary; nonBrand?: SentimentSummary; evidence?: SentimentEvidenceItem[]; selection?: ComponentProps<typeof SentimentScopeProvider>['selection']; evaluatorProvider?: 'typesafe' | 'openrouter' } = {}) {
   const branded = options.branded ?? summary()
   const nonBrand = options.nonBrand ?? { ...summary(), selection: { ...summary().selection, queryClass: 'non-brand' as const }, score: { ...summary().score, favorableRate: 0.25, favorableDisplay: '25%' } }
   const requests: URL[] = []
   const restore = mockFetch(url => {
     const request = new URL(url); requests.push(request)
-    if (request.pathname.endsWith('/settings')) return jsonResponse({ ...settings(options.configure), enabled: options.enabled ?? true })
+    if (request.pathname.endsWith('/settings')) return jsonResponse({ ...settings(options.configure), enabled: options.enabled ?? true, ...(options.evaluatorProvider ? { provider: options.evaluatorProvider, model: options.evaluatorProvider === 'openrouter' ? 'typesafe/jev-1.13' : 'jev-1.13.0' } : {}) })
     if (request.pathname.endsWith('/jobs')) return jsonResponse({ jobs: [] })
     if (request.pathname.endsWith('/evidence')) return jsonResponse({ state: 'complete', selection: branded.selection, items: options.evidence ?? [], nextCursor: null })
     return jsonResponse(request.searchParams.get('queryClass') === 'non-brand' ? nonBrand : branded)
@@ -355,6 +355,13 @@ describe('sentiment presentation', () => {
       expect(screen.queryByText('Experimental sentiment')).toBeNull()
       fireEvent.click(manage)
       expect(await screen.findByText('Experimental sentiment')).toBeTruthy()
+    } finally { page.close() }
+  })
+  it.each(['typesafe', 'openrouter'] as const)('identifies the %s sentiment evaluator independently of the measured answer model', async evaluatorProvider => {
+    const page = renderScope(<><SentimentHeadlines /><SentimentControls /></>, { configure: true, evaluatorProvider })
+    try {
+      fireEvent.click(await screen.findByRole('button', { name: 'Manage sentiment' }))
+      expect(await screen.findByText(evaluatorProvider === 'openrouter' ? 'typesafe/jev-1.13 · OpenRouter' : 'jev-1.13.0 · TypeSafe')).toBeTruthy()
     } finally { page.close() }
   })
   it('keeps enable reachable while default-off projects do not request summaries', async () => {
@@ -2066,7 +2073,7 @@ describe('sentiment generated SDK and administrator flow', () => {
     })
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     try {
-      render(<QueryClientProvider client={client}><SentimentScopeProvider projectName="project" selection={{ mode: 'simple', scope: 'project', queryClass: 'branded', runIds: ['east-run', 'west-run'] }} runOptions={[{ id: 'east-run', label: 'East sweep' }]}><SentimentControls /><SentimentQueryScore queryId="q" queryClass="branded" /></SentimentScopeProvider></QueryClientProvider>)
+      render(<QueryClientProvider client={client}><SentimentScopeProvider projectName="project" selection={{ mode: 'simple', scope: 'project', queryClass: 'branded', runIds: ['east-run', 'west-run'] }} runOptions={[{ id: 'east-run', label: 'East check' }]}><SentimentControls /><SentimentQueryScore queryId="q" queryClass="branded" /></SentimentScopeProvider></QueryClientProvider>)
       fireEvent.click(await screen.findByRole('button', { name: 'View Branded sentiment evidence for Is North Hall good?' }))
       await screen.findByText('No stored sentiment evidence for this query and scope.')
       const evidence = requests.find(url => url.pathname.endsWith('/evidence'))!
@@ -2075,7 +2082,7 @@ describe('sentiment generated SDK and administrator flow', () => {
       fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' })
       await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
       fireEvent.click(screen.getByRole('button', { name: 'Manage sentiment' }))
-      fireEvent.change(screen.getByRole('combobox', { name: 'Saved sweep' }), { target: { value: 'east-run' } })
+      fireEvent.change(screen.getByRole('combobox', { name: 'Saved check' }), { target: { value: 'east-run' } })
       fireEvent.click(screen.getByRole('button', { name: 'Preview sentiment backfill' }))
       await screen.findByText('Eligible assessments')
       const preview = requests.find(url => url.pathname.endsWith('/backfill-preview'))!
@@ -2108,20 +2115,20 @@ describe('sentiment generated SDK and administrator flow', () => {
       // An Advanced view says Type, and the sentence about what a backfill covers sits behind a short note.
       expect(screen.getByRole('combobox', { name: 'Type' })).toBeTruthy()
       expect(screen.queryByRole('combobox', { name: 'Query class' })).toBeNull()
-      expect(screen.getByRole('button', { name: 'Covers the whole sweep. The backfill covers every engine, search location and query of the chosen sweep for this type.' }).textContent).toBe('Covers the whole sweep')
-      expect(screen.queryByText(/of the chosen sweep for this/)).toBeNull()
+      expect(screen.getByRole('button', { name: 'Covers the whole check. The backfill covers every engine, search location and query of the chosen check for this type.' }).textContent).toBe('Covers the whole check')
+      expect(screen.queryByText(/of the chosen check for this/)).toBeNull()
       fireEvent.click(screen.getByRole('button', { name: 'Preview sentiment backfill' }))
-      await screen.findByText('Branded queries · whole sweep')
+      await screen.findByText('Branded queries · whole check')
       expect(Object.fromEntries(previews[0]!.searchParams)).toEqual({ mode: 'auto', scope: 'project', queryClass: 'branded', runId: 'run' })
       const skipped = screen.getByRole('list', { name: 'Skipped assessments' })
       // The select reads "Type" here, so the skipped line says "type" too.
-      expect([...skipped.querySelectorAll('li')].map(item => item.textContent)).toEqual(['Incomplete sweep: 1', 'Non-brand answers (backfill that type separately): 4', 'A newer reason: 2'])
+      expect([...skipped.querySelectorAll('li')].map(item => item.textContent)).toEqual(['Incomplete check: 1', 'Non-brand answers (backfill that type separately): 4', 'A newer reason: 2'])
       expect((screen.getByRole('button', { name: 'Confirm sentiment backfill' }) as HTMLButtonElement).disabled).toBe(false)
 
       fireEvent.click(limit)
-      // The note never says "whole sweep" beside a ticked "Limit to the current view".
-      expect(screen.getByRole('button', { name: 'Limited to this view. The backfill covers only the answers of the chosen sweep that match the view below, for this type.' }).textContent).toBe('Limited to this view')
-      expect(screen.queryByRole('button', { name: /Covers the whole sweep/ })).toBeNull()
+      // The note never says "whole check" beside a ticked "Limit to the current view".
+      expect(screen.getByRole('button', { name: 'Limited to this view. The backfill covers only the answers of the chosen check that match the view below, for this type.' }).textContent).toBe('Limited to this view')
+      expect(screen.queryByRole('button', { name: /Covers the whole check/ })).toBeNull()
       fireEvent.click(screen.getByRole('button', { name: 'Preview sentiment backfill' }))
       await screen.findByText('Branded queries · engine openai · model source-model · search location Chicago · location north · market chicago · setup version 3')
       expect(Object.fromEntries(previews[1]!.searchParams)).toMatchObject({ mode: 'advanced', queryClass: 'branded', runId: 'run', provider: 'openai', model: 'source-model', location: 'Chicago', scope: 'property', scopeKey: 'north', marketKey: 'chicago', revision: '3' })
@@ -2170,8 +2177,8 @@ describe('sentiment generated SDK and administrator flow', () => {
       fireEvent.click(await screen.findByRole('button', { name: 'Manage sentiment' }))
       expect(screen.getByRole('checkbox', { name: /Limit to the current view/ }).closest('label')!.textContent).toBe(`Limit to the current view${filters}`)
       // A Simple view reads as it always did: "Query class" and the sentence. An Advanced view says Type, with the sentence behind a note.
-      const sentence = screen.queryByText('The backfill covers every engine, location and query of the chosen sweep for this query class.')
-      const note = screen.queryByRole('button', { name: 'Covers the whole sweep. The backfill covers every engine, search location and query of the chosen sweep for this type.' })
+      const sentence = screen.queryByText('The backfill covers every engine, location and query of the chosen check for this query class.')
+      const note = screen.queryByRole('button', { name: 'Covers the whole check. The backfill covers every engine, search location and query of the chosen check for this type.' })
       expect([sentence !== null, note !== null]).toEqual([!advanced, advanced])
       expect(screen.getByRole('combobox', { name: advanced ? 'Type' : 'Query class' })).toBeTruthy()
       expect(screen.queryByRole('combobox', { name: advanced ? 'Query class' : 'Type' })).toBeNull()

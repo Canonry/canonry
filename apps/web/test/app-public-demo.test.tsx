@@ -16,6 +16,7 @@ import { DashboardProvider } from '../src/contexts/dashboard-context.js'
 import { preloadAllLazyRoutes } from '../src/router/routes.js'
 import { fetchHealth } from '../src/queries/use-health.js'
 import type { HealthSnapshot } from '../src/view-models.js'
+import { compileAppStyles, compiledDeclarations, compiledElementProperty, parseCompiledCss } from './compiled-app-css.js'
 
 beforeAll(async () => {
   await preloadAllLazyRoutes()
@@ -74,6 +75,16 @@ test('the skip link is the first stop for a keyboard, ahead of the demo banner',
   expect(focusable[0]!.compareDocumentPosition(banner!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
 })
 
+test.each([false, true])('agent setup navigation is available only outside the public demo (demo=%s)', async (demo) => {
+  const document = await renderDemoApp(undefined, { config: demo ? { demo: DEMO } : {} })
+  for (const selector of ['.sidebar-link', '.mobile-nav-link']) {
+    const links = Array.from(document.querySelectorAll<HTMLAnchorElement>(selector))
+      .filter(link => link.textContent?.trim() === 'Agent setup')
+    expect(links).toHaveLength(demo ? 0 : 1)
+    if (!demo) expect(links[0]!.getAttribute('href')).toBe('/agent-setup')
+  }
+})
+
 test('the demo worker pill reads as disabled, not healthy', async () => {
   const document = await renderDemoApp(await demoHealth())
   const pill = Array.from(document.querySelectorAll('.health-pill')).find(element => element.textContent?.startsWith('Worker'))
@@ -96,13 +107,22 @@ test('a demo project page offers the Aero preview to the read-only visitor', asy
   })
   const bar = Array.from(document.querySelectorAll('button')).find((button) => button.textContent?.includes(`Ask Aero about ${project.name}`))
   expect(bar).toBeTruthy()
-  // The shell reserves room for the bar, so it never covers the page's end.
-  expect(document.querySelector('.page-shell')?.classList.contains('pb-20')).toBe(true)
+  // The shell reserves room for the bar, so it never covers the page's end,
+  // and the page scroller keeps the same lane clear when focus or
+  // scrollIntoView brings a control into view, so the bar never sits on it.
+  // The lane is on the wrapper that holds the page AND the footer, so the bar
+  // never covers the footer's links at the end of the page either.
+  const area = document.querySelector('.main-area')!
+  expect(area.classList.contains('main-area-agent-bar')).toBe(true)
+  expect(area.querySelector('footer')).toBeTruthy()
+  const rules = parseCompiledCss(await compileAppStyles([...area.classList]))
+  expect(compiledElementProperty(rules, area, 'padding-bottom')).toBe('6rem')
+  expect(compiledDeclarations(rules, 'html:has(.main-area-agent-bar)')['scroll-padding-bottom']).toBe('6rem')
 })
 
 test('the same read-only key outside the demo gets no Aero bar', async () => {
   const project = createDashboardFixture().dashboard.projects[0]!.project
   const document = await renderDemoApp(undefined, { path: `/projects/${encodeURIComponent(project.name)}`, config: {} })
   expect(document.body.textContent).not.toMatch(/Ask Aero/)
-  expect(document.querySelector('.page-shell')?.classList.contains('pb-20')).toBe(false)
+  expect(document.querySelector('.main-area')?.classList.contains('main-area-agent-bar')).toBe(false)
 })

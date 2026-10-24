@@ -1,3 +1,4 @@
+import { googleBusinessReviewUrl } from '@canonry/canonry-contracts'
 import { z } from 'zod'
 import type {
   HealthWebhookPayload,
@@ -242,9 +243,11 @@ function reviewView(payload: ReviewWebhookPayload): AlertView {
     return {
       severity: AlertSeverities.warning,
       title: `${project.name}: new ${review.starRating}-star review`,
-      body: review.comment ?? 'Rating only, no text.',
+      body: review.comment
+        ? (review.comment.length > 500 ? `${review.comment.slice(0, 499)}…` : review.comment)
+        : 'Rating only, no text.',
       fields,
-      url: review.reviewUri ?? review.location.mapsUri ?? payload.dashboardUrl,
+      url: googleBusinessReviewUrl(review.reviewUri) ?? googleBusinessReviewUrl(review.location.mapsUri) ?? payload.dashboardUrl,
       footer: project.canonicalDomain,
       timestamp: review.updateTime,
     }

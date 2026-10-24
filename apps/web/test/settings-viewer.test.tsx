@@ -78,10 +78,10 @@ describe('Settings as a view-only account', () => {
   test('nothing stored: each section says View only, and no empty state tells a viewer to set something up', async () => {
     const methods = renderSettings('viewer')
     // Plain words, not a note with a sentence behind it: the sentence is an instruction to someone who can act on it.
-    expect((await section('Scheduled sweeps').findByText('No schedule')).closest('button')).toBeNull()
+    expect((await section('Scheduled checks').findByText('No schedule')).closest('button')).toBeNull()
     expect((await section('Notifications').findByText('No webhooks')).closest('button')).toBeNull()
 
-    for (const heading of ['Project settings', 'Scheduled sweeps', 'Notifications']) {
+    for (const heading of ['Project settings', 'Scheduled checks', 'Notifications']) {
       expect(section(heading).getByRole('button', { name: VIEW_ONLY }).textContent, heading).toBe('View only')
     }
     for (const name of WRITE_CONTROLS) expect(screen.queryByRole('button', { name }), String(name)).toBeNull()
@@ -93,8 +93,8 @@ describe('Settings as a view-only account', () => {
 
   test('a stored schedule and webhook are read with no Pause, Remove or Test', async () => {
     renderSettings('viewer', { schedule: true, webhook: true })
-    expect(await section('Scheduled sweeps').findByText('0 6 * * *')).toBeTruthy()
-    expect(section('Scheduled sweeps').getByText('Active')).toBeTruthy()
+    expect(await section('Scheduled checks').findByText('0 6 * * *')).toBeTruthy()
+    expect(section('Scheduled checks').getByText('Active')).toBeTruthy()
     expect(await section('Notifications').findByText('hooks.example.com/canonry')).toBeTruthy()
 
     for (const name of WRITE_CONTROLS) expect(screen.queryByRole('button', { name }), String(name)).toBeNull()
@@ -105,7 +105,7 @@ describe('Settings as a view-only account', () => {
 describe('Settings as an administrator', () => {
   test('nothing stored: every control is offered, and each empty state says what setting one does', async () => {
     renderSettings('admin')
-    expect((await screen.findByRole('button', { name: 'No schedule. Set a schedule to run sweeps automatically.' })).textContent).toBe('No schedule')
+    expect((await screen.findByRole('button', { name: 'No schedule. Set a schedule to run AI Visibility checks automatically.' })).textContent).toBe('No schedule')
     expect((await screen.findByRole('button', { name: 'No webhooks. Add a webhook to get alerted when citations change or runs complete.' })).textContent).toBe('No webhooks')
 
     for (const name of [/^Edit settings$/, /^\+ Add search location$/, /^Set harbor as default search location$/, /^Remove search location north$/, /^\+ Set schedule$/, /^\+ Add webhook$/]) {
@@ -116,9 +116,9 @@ describe('Settings as an administrator', () => {
 
   test('a stored schedule and webhook keep Edit, Pause, Remove and Test', async () => {
     renderSettings('admin', { schedule: true, webhook: true })
-    await waitFor(() => expect(section('Scheduled sweeps').getByRole('button', { name: 'Edit schedule' })).toBeTruthy())
-    expect(section('Scheduled sweeps').getByRole('button', { name: 'Pause' })).toBeTruthy()
-    expect(section('Scheduled sweeps').getByRole('button', { name: 'Remove' })).toBeTruthy()
+    await waitFor(() => expect(section('Scheduled checks').getByRole('button', { name: 'Edit schedule' })).toBeTruthy())
+    expect(section('Scheduled checks').getByRole('button', { name: 'Pause' })).toBeTruthy()
+    expect(section('Scheduled checks').getByRole('button', { name: 'Remove' })).toBeTruthy()
     expect(await section('Notifications').findByRole('button', { name: 'Test' })).toBeTruthy()
     expect(section('Notifications').getByRole('button', { name: 'Remove' })).toBeTruthy()
   })

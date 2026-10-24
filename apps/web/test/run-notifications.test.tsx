@@ -132,7 +132,7 @@ test('emits one terminal toast for a tracked run and does not duplicate it', asy
   )
 
   await waitFor(() => {
-    expect(getToasts().some((toast) => toast.title === 'Visibility sweep completed')).toBe(true)
+    expect(getToasts().some((toast) => toast.title === 'AI Visibility check completed')).toBe(true)
   })
 
   expect(getRunTrackerState().runs).toEqual({})
@@ -140,7 +140,7 @@ test('emits one terminal toast for a tracked run and does not duplicate it', asy
   queryClient.setQueryData(runsCacheKey, [makeRun('completed')])
 
   await waitFor(() => {
-    expect(getToasts().filter((toast) => toast.title === 'Visibility sweep completed')).toHaveLength(1)
+    expect(getToasts().filter((toast) => toast.title === 'AI Visibility check completed')).toHaveLength(1)
   })
 })
 
@@ -212,7 +212,7 @@ test('keeps run notifications active when the app is bootstrapped from dashboard
   })
 
   await waitFor(() => {
-    expect(getToasts().some((toast) => toast.title === 'Visibility sweep completed')).toBe(true)
+    expect(getToasts().some((toast) => toast.title === 'AI Visibility check completed')).toBe(true)
   })
 })
 
@@ -301,7 +301,7 @@ test('toast CTA opens the existing run drawer via router state', async () => {
 
   const runId = fixture.dashboard.runs[0]!.id
   addToast({
-    title: 'Visibility sweep completed',
+    title: 'AI Visibility check completed',
     tone: 'positive',
     cta: {
       label: 'View run',
@@ -348,7 +348,7 @@ test('renders tracked work in the global task center across the app shell', asyn
   )
 
   expect(screen.getByText('Active tasks')).not.toBeNull()
-  expect(screen.getAllByText('Technical audit').length).toBeGreaterThanOrEqual(1)
+  expect(screen.getAllByText('Technical AEO audit').length).toBeGreaterThanOrEqual(1)
   expect(screen.getAllByText('Running').length).toBeGreaterThanOrEqual(1)
   expect(screen.getAllByText('Citypoint Dental NYC').length).toBeGreaterThanOrEqual(1)
 })
@@ -469,7 +469,7 @@ test('does not invalidate GSC project queries for non-GSC runs', async () => {
 
   // Wait for the terminal toast to fire so the observer effect has run.
   await waitFor(() => {
-    expect(getToasts().some((toast) => toast.title === 'Visibility sweep completed')).toBe(true)
+    expect(getToasts().some((toast) => toast.title === 'AI Visibility check completed')).toBe(true)
   })
 
   const state = queryClient.getQueryState(gscCoverageKey)

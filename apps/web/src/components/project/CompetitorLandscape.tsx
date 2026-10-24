@@ -27,7 +27,7 @@ const WINDOW_PHRASE: Record<CompetitorLandscapeWindow, string> = {
   '7d': 'last 7 days',
   '30d': 'last 30 days',
   '90d': 'last 90 days',
-  all: 'all sweeps',
+  all: 'all checks',
 }
 
 const CLASS_WORD: Record<QueryClassFilter, string> = {
@@ -438,7 +438,7 @@ export function CompetitorLandscape({
   const details: React.ReactNode[] = []
   if (landscape && evidence) {
     details.push(landscape.runCount !== undefined
-      ? <>Base: <strong>{landscape.runCount}</strong> {plural(landscape.runCount, 'sweep', 'sweeps')}, <strong>{evidence.answeredResults}</strong> {plural(evidence.answeredResults, 'answer', 'answers')}</>
+      ? <>Base: <strong>{landscape.runCount}</strong> {plural(landscape.runCount, 'check', 'checks')}, <strong>{evidence.answeredResults}</strong> {plural(evidence.answeredResults, 'answer', 'answers')}</>
       : <>Base: <strong>{evidence.answeredResults}</strong> {plural(evidence.answeredResults, 'answer', 'answers')}</>)
     if (!landscape.reason && metricState === 'measured' && landscape.project.shareOfVoice !== null) {
       details.push(
@@ -459,7 +459,7 @@ export function CompetitorLandscape({
     }
     const excluded = evidence.excludedProbeResults + evidence.excludedNonCompletedResults
     if (excluded > 0) {
-      details.push(<>Left out: <strong>{excluded}</strong> {plural(excluded, 'answer', 'answers')} from spot checks or unfinished sweeps</>)
+      details.push(<>Left out: <strong>{excluded}</strong> {plural(excluded, 'answer', 'answers')} from spot checks or unfinished checks</>)
     }
   }
   const pages = [...(landscape ? [{ name: 'You', row: landscape.project }] : []), ...frameRows.map(row => ({ name: row.domain, row }))]

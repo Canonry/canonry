@@ -1,4 +1,11 @@
+import { getApiV1ProjectsByNameGbpLocalPostAttempt } from '@canonry/canonry-api-client'
+import type { GbpLocalPostList, GbpLocalPostDto, GbpLocalPostCreate, GbpLocalPostAttempt, GbpLiveReviews } from '@canonry/canonry-contracts'
+import { getApiV1ProjectsByNameGbpLocalPosts, getApiV1ProjectsByNameGbpLocalPost, getApiV1ProjectsByNameGbpReviewsLive, postApiV1ProjectsByNameGbpLocalPosts } from '@canonry/canonry-api-client'
 import type { TrafficSamplesQuery, TrafficSamplesResponse } from '@canonry/canonry-contracts'
+import type { SeoOperatorTask, SeoReconcileInput, SeoReconcileResult } from '@canonry/canonry-contracts'
+import { getApiV1SeoOperatorTasksById, postApiV1SeoOperatorTasksByIdReconcile } from '@canonry/canonry-api-client'
+import type { SeoContext, SeoStatus, SeoProfileList, SeoProfile, SeoQuote, SeoRun, SeoRunList, SeoRunDetail, SeoOverview, SeoKeywordMetricsList, SeoDomainIntelligenceList, SeoRankedKeywordList, SeoProfileInput, SeoRefreshIntentInput, SeoSyncInput, SeoEvidenceQuery } from '@canonry/canonry-contracts'
+import { getApiV1ProjectsByNameSeoContext, getApiV1ProjectsByNameSeoStatus, getApiV1ProjectsByNameSeoProfiles, getApiV1ProjectsByNameSeoProfilesById, putApiV1ProjectsByNameSeoProfilesById, postApiV1ProjectsByNameSeoRefreshIntents, postApiV1ProjectsByNameSeoSync, getApiV1ProjectsByNameSeoRuns, getApiV1ProjectsByNameSeoRunsById, postApiV1ProjectsByNameSeoRunsByIdCancel, getApiV1ProjectsByNameSeoOverview, getApiV1ProjectsByNameSeoKeywordMetrics, getApiV1ProjectsByNameSeoDomainIntelligence, getApiV1ProjectsByNameSeoRankedKeywords } from '@canonry/canonry-api-client'
 import { getApiV1ProjectsByNameTrafficSamples } from '@canonry/canonry-api-client'
 
 import type { GaAcquisitionQuery, GaAcquisitionResponse } from '@canonry/canonry-contracts'
@@ -97,8 +104,10 @@ import type {
   MeasurementDraftDiffPreviewResponse,
   MeasurementDraftPreviewAssignmentsRequest,
   MeasurementDraftPreviewAssignmentsResponse,
+  MeasurementDraftPreviewMarketRoutingResponse,
   MeasurementDraftPreviewGroupMembershipRequest,
   MeasurementDraftPreviewGroupMembershipResponse,
+  MeasurementDraftRouteMarketsRequest,
   MeasurementDraftReplaceAssignmentsRequest,
   MeasurementPlanV2PublishResponse,
   MeasurementQuerySetDetail,
@@ -170,6 +179,8 @@ import type {
   GA4AiReferralHistoryEntry,
   GA4SocialReferralHistoryEntry,
   GA4SessionHistoryEntry,
+  GaOverviewResponse,
+  GaOverviewWindow,
   AuditLogEntry,
   GoogleConnectionDto,
   GoogleOAuthStartResponse,
@@ -553,6 +564,7 @@ import {
   getApiV1ProjectsByNameGaSocialReferralTrend,
   getApiV1ProjectsByNameGaAttributionTrend,
   getApiV1ProjectsByNameGaSessionHistory,
+  getApiV1ProjectsByNameGaOverview,
   // Traffic
   postApiV1ProjectsByNameTrafficConnectCloudRun,
   postApiV1ProjectsByNameTrafficConnectWordpress,
@@ -684,6 +696,8 @@ import {
   postApiV1ProjectsByNameMeasurementPlanDraftActionsPreviewAssignments,
   postApiV1ProjectsByNameMeasurementPlanDraftActionsReplaceAssignments,
   postApiV1ProjectsByNameMeasurementPlanDraftActionsApplyPairedAssignments,
+  postApiV1ProjectsByNameMeasurementPlanDraftActionsPreviewRouteMarkets,
+  postApiV1ProjectsByNameMeasurementPlanDraftActionsRouteMarkets,
   postApiV1ProjectsByNameMeasurementPlanDraftActionsRemoveAssignment,
   postApiV1ProjectsByNameMeasurementPlanDraftActionsClearAssignments,
   postApiV1ProjectsByNameMeasurementPlanDraftActionsClassifyAssignments,
@@ -1522,7 +1536,7 @@ export class ApiClient {
       postApiV1ProjectsByNameQueriesGenerate({
         client: this.heyClient,
         path: { name: project },
-        body: { provider, count } as never,
+        body: { provider, count },
       }),
     )
   }
@@ -1556,7 +1570,7 @@ export class ApiClient {
       postApiV1ProjectsByNameKeywordsGenerate({
         client: this.heyClient,
         path: { name: project },
-        body: { provider, count } as never,
+        body: { provider, count },
       }),
     )
   }
@@ -2094,6 +2108,35 @@ export class ApiClient {
     )
   }
 
+  async previewMeasurementDraftMarketRouting(
+    project: string,
+    request: MeasurementDraftRouteMarketsRequest,
+  ): Promise<MeasurementDraftPreviewMarketRoutingResponse> {
+    return this.invoke<MeasurementDraftPreviewMarketRoutingResponse>(() =>
+      postApiV1ProjectsByNameMeasurementPlanDraftActionsPreviewRouteMarkets({
+        client: this.heyClient,
+        path: { name: project },
+        body: request,
+      }),
+    )
+  }
+
+  async routeMeasurementDraftMarkets(
+    project: string,
+    request: MeasurementDraftRouteMarketsRequest,
+    idempotencyKey: string,
+    etag?: string,
+  ): Promise<DraftMutationResponse> {
+    return this.invoke<DraftMutationResponse>(() =>
+      postApiV1ProjectsByNameMeasurementPlanDraftActionsRouteMarkets({
+        client: this.heyClient,
+        path: { name: project },
+        body: request,
+        headers: this.measurementDraftMutationHeaders(idempotencyKey, etag) as never,
+      }),
+    )
+  }
+
   async removeMeasurementDraftAssignment(
     project: string,
     request: MeasurementPlanDraftRemoveAssignmentRequest,
@@ -2609,7 +2652,7 @@ export class ApiClient {
     },
   ): Promise<ProviderSummaryEntryDto> {
     return this.invoke<ProviderSummaryEntryDto>(() =>
-      putApiV1SettingsProvidersByName({ client: this.heyClient, path: { name } as never, body }),
+      putApiV1SettingsProvidersByName({ client: this.heyClient, path: { name }, body }),
     )
   }
 
@@ -3094,6 +3137,21 @@ export class ApiClient {
   }
 
   // Google Business Profile (Phase 1: auth + discovery)
+  async listGbpLocalPosts(project: string, query: {accountName:string;locationName:string;pageToken?:string}): Promise<GbpLocalPostList> {
+    return this.invoke<GbpLocalPostList>(() => getApiV1ProjectsByNameGbpLocalPosts({client:this.heyClient,path:{name:project},query}))
+  }
+  async getGbpLocalPost(project: string, postName: string): Promise<GbpLocalPostDto> {
+    return this.invoke<GbpLocalPostDto>(() => getApiV1ProjectsByNameGbpLocalPost({client:this.heyClient,path:{name:project},query:{postName}}))
+  }
+  async getGbpLocalPostAttempt(project:string,attemptId:string,packageId:string):Promise<GbpLocalPostAttempt>{
+    return this.invoke<GbpLocalPostAttempt>(()=>getApiV1ProjectsByNameGbpLocalPostAttempt({client:this.heyClient,path:{name:project},query:{attemptId,packageId}}))
+  }
+  async createGbpLocalPost(project: string, body: GbpLocalPostCreate): Promise<GbpLocalPostAttempt> {
+    return this.invoke<GbpLocalPostAttempt>(() => postApiV1ProjectsByNameGbpLocalPosts({client:this.heyClient,path:{name:project},body}))
+  }
+  async readGbpReviewsLive(project: string, query: {accountName:string;locationName:string}): Promise<GbpLiveReviews> {
+    return this.invoke<GbpLiveReviews>(() => getApiV1ProjectsByNameGbpReviewsLive({client:this.heyClient,path:{name:project},query}))
+  }
   async listGbpAccounts(project: string): Promise<GbpAccountListResponse> {
     return this.invoke<GbpAccountListResponse>(() =>
       getApiV1ProjectsByNameGbpAccounts({
@@ -3922,6 +3980,16 @@ export class ApiClient {
     )
   }
 
+  async gaOverview(project: string, window?: GaOverviewWindow): Promise<GaOverviewResponse> {
+    return this.invoke<GaOverviewResponse>(() =>
+      getApiV1ProjectsByNameGaOverview({
+        client: this.heyClient,
+        path: { name: project },
+        query: window ? { window } : undefined,
+      }),
+    )
+  }
+
   async gaSessionHistory(project: string, params?: Record<string, string>): Promise<GA4SessionHistoryEntry[]> {
     return this.invoke<GA4SessionHistoryEntry[]>(() =>
       getApiV1ProjectsByNameGaSessionHistory({
@@ -4157,6 +4225,98 @@ export class ApiClient {
         query: { limit: opts?.limit !== undefined ? String(opts.limit) : undefined, cursor: opts?.cursor } as never,
       }),
     )
+  }
+
+  async getSeoContext(project: string): Promise<SeoContext> {
+    return this.invoke<SeoContext>(() => getApiV1ProjectsByNameSeoContext({
+      client: this.heyClient, path: { name: project },
+    }))
+  }
+
+  async getSeoOperatorTask(id: string): Promise<SeoOperatorTask> {
+    return this.invoke<SeoOperatorTask>(() => getApiV1SeoOperatorTasksById({ client: this.heyClient, path: { id } }))
+  }
+
+  async reconcileSeoTask(id: string, request: SeoReconcileInput): Promise<SeoReconcileResult> {
+    return this.invoke<SeoReconcileResult>(() => postApiV1SeoOperatorTasksByIdReconcile({ client: this.heyClient, path: { id }, body: request }))
+  }
+
+  async getSeoStatus(project: string): Promise<SeoStatus> {
+    return this.invoke<SeoStatus>(() => getApiV1ProjectsByNameSeoStatus({
+      client: this.heyClient, path: { name: project },
+    }))
+  }
+
+  async listSeoProfiles(project: string): Promise<SeoProfileList> {
+    return this.invoke<SeoProfileList>(() => getApiV1ProjectsByNameSeoProfiles({
+      client: this.heyClient, path: { name: project },
+    }))
+  }
+
+  async getSeoProfile(project: string, id: string): Promise<SeoProfile> {
+    return this.invoke<SeoProfile>(() => getApiV1ProjectsByNameSeoProfilesById({
+      client: this.heyClient, path: { name: project, id },
+    }))
+  }
+
+  async putSeoProfile(project: string, id: string, request: SeoProfileInput): Promise<SeoProfile> {
+    return this.invoke<SeoProfile>(() => putApiV1ProjectsByNameSeoProfilesById({
+      client: this.heyClient, path: { name: project, id }, body: request,
+    }))
+  }
+
+  async createSeoRefreshIntent(project: string, request: SeoRefreshIntentInput): Promise<SeoQuote> {
+    return this.invoke<SeoQuote>(() => postApiV1ProjectsByNameSeoRefreshIntents({
+      client: this.heyClient, path: { name: project }, body: request,
+    }))
+  }
+
+  async syncSeo(project: string, request: SeoSyncInput): Promise<SeoRun> {
+    return this.invoke<SeoRun>(() => postApiV1ProjectsByNameSeoSync({
+      client: this.heyClient, path: { name: project }, body: request,
+    }))
+  }
+
+  async listSeoRuns(project: string, query?: { profileId?: string }): Promise<SeoRunList> {
+    return this.invoke<SeoRunList>(() => getApiV1ProjectsByNameSeoRuns({
+      client: this.heyClient, path: { name: project }, query,
+    }))
+  }
+
+  async getSeoRun(project: string, id: string): Promise<SeoRunDetail> {
+    return this.invoke<SeoRunDetail>(() => getApiV1ProjectsByNameSeoRunsById({
+      client: this.heyClient, path: { name: project, id },
+    }))
+  }
+
+  async cancelSeoRun(project: string, id: string): Promise<SeoRun> {
+    return this.invoke<SeoRun>(() => postApiV1ProjectsByNameSeoRunsByIdCancel({
+      client: this.heyClient, path: { name: project, id },
+    }))
+  }
+
+  async getSeoOverview(project: string, query?: SeoEvidenceQuery): Promise<SeoOverview> {
+    return this.invoke<SeoOverview>(() => getApiV1ProjectsByNameSeoOverview({
+      client: this.heyClient, path: { name: project }, query,
+    }))
+  }
+
+  async getSeoKeywordMetrics(project: string, query?: SeoEvidenceQuery): Promise<SeoKeywordMetricsList> {
+    return this.invoke<SeoKeywordMetricsList>(() => getApiV1ProjectsByNameSeoKeywordMetrics({
+      client: this.heyClient, path: { name: project }, query,
+    }))
+  }
+
+  async getSeoDomainIntelligence(project: string, query?: SeoEvidenceQuery): Promise<SeoDomainIntelligenceList> {
+    return this.invoke<SeoDomainIntelligenceList>(() => getApiV1ProjectsByNameSeoDomainIntelligence({
+      client: this.heyClient, path: { name: project }, query,
+    }))
+  }
+
+  async getSeoRankedKeywords(project: string, query?: SeoEvidenceQuery): Promise<SeoRankedKeywordList> {
+    return this.invoke<SeoRankedKeywordList>(() => getApiV1ProjectsByNameSeoRankedKeywords({
+      client: this.heyClient, path: { name: project }, query,
+    }))
   }
 
   async getResearchRun(project: string, runId: string): Promise<ResearchRunDetailDto> {

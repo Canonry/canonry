@@ -1,4 +1,4 @@
-import type { AgentConversation, AgentConversationList, AgentConversationDelete } from '@canonry/canonry-contracts'
+import type { AgentConversation, AgentConversationList, AgentConversationDelete, ProviderCatalogEntryDto } from '@canonry/canonry-contracts'
 import { getApiV1ProjectsByNameAgentConversations, getApiV1ProjectsByNameAgentConversationsById, postApiV1ProjectsByNameAgentConversations, postApiV1ProjectsByNameAgentConversationsByIdResume, deleteApiV1ProjectsByNameAgentConversationsById } from '@canonry/canonry-api-client'
 import { mcpHealthSchema, DEFAULT_VIEWER_RESEARCH_DAILY_RUN_LIMIT, RunKinds } from '@canonry/canonry-contracts'
 import { recordUiApiResult, trackUiAction } from './lib/ui-telemetry.js'
@@ -193,6 +193,7 @@ declare global {
       /** Present only when dashboard chrome differs from its defaults. */
       dashboard?: {
         showResourceLinks?: boolean
+        showLocalAgentSetup?: boolean
         showUpdateNotification?: boolean
         managedSweeps?: boolean
         managedRunKinds?: SchedulableRunKind[]
@@ -315,6 +316,12 @@ export function getEmbedConfig(): EmbedClientConfig | null {
 export function shouldShowDashboardResourceLinks(): boolean {
   if (typeof window === 'undefined') return true
   return window.__CANONRY_CONFIG__?.dashboard?.showResourceLinks !== false
+}
+
+/** Whether local plugin, CLI, and stdio MCP onboarding instructions render. */
+export function shouldShowDashboardLocalAgentSetup(): boolean {
+  if (typeof window === 'undefined') return true
+  return window.__CANONRY_CONFIG__?.dashboard?.showLocalAgentSetup !== false
 }
 
 /**
@@ -1002,20 +1009,14 @@ export interface ApiProviderSummary {
     maxRequestsPerMinute: number
     maxRequestsPerDay: number
   }
+  /** Absent means an answer engine. */
+  kind?: ProviderCatalogEntryDto['kind']
 }
 
 export interface ApiSettings {
   providers: ApiProviderSummary[]
-  providerCatalog: Array<{
-    name: string
-    displayName: string
-    mode: 'api' | 'browser'
-    modelConfigurable: boolean
-    defaultModel: string
-    knownModels: Array<{ id: string; displayName: string; tier: 'flagship' | 'standard' | 'fast' | 'economy' }>
-    modelValidationPattern: { source: string; flags: string }
-    modelValidationHint: string
-  }>
+  /** Credential-free adapter metadata, including routed connections and answer-service profiles. */
+  providerCatalog: ProviderCatalogEntryDto[]
   google: {
     configured: boolean
   }
@@ -1128,7 +1129,7 @@ export function updateProviderConfig(provider: string, body: {
   return invokeWeb<ApiProviderSummary>(() =>
     putApiV1SettingsProvidersByName({
       client: heyClient,
-      path: { name: provider } as never,
+      path: { name: provider },
       body,
     }),
   )
@@ -1259,7 +1260,7 @@ export function generateQueries(projectName: string, provider: string, count?: n
     postApiV1ProjectsByNameQueriesGenerate({
       client: heyClient,
       path: { name: projectName },
-      body: { provider, count } as never,
+      body: { provider, count },
     }),
   )
 }

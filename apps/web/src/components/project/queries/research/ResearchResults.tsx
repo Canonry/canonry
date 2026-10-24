@@ -1,10 +1,14 @@
 import { createContext, useContext, useEffect, useId, useRef, useState, type ReactNode, type Ref } from 'react'
 import { AlertTriangle, Ban, Clock, Info, MousePointerClick } from 'lucide-react'
 import {
+  answerCompletionLabel,
+  answerCostBasisLabel,
   CitationStates,
   normalizeIdentityText,
   ResearchQueryStatuses,
   ResearchRunStatuses,
+  type AnswerEvidence as AnswerEvidenceDto,
+  type AnswerSource as AnswerSourceDto,
   type ResearchRunDetailDto,
   type ResearchRunQueryDto,
   type ResearchRunScope,
@@ -45,6 +49,11 @@ export const RESEARCH_RESULTS_COPY = {
   citedCompetitorsHelp: 'Cited as a source, not only named in the answer.',
   noAnswer: 'No answer',
   answerPending: 'Answer pending',
+  waitingUpstream: 'Waiting on service',
+  partialAnswer: 'Partial answer, not measured',
+  serviceEvidence: 'Answer service evidence',
+  citationsNotMeasured: 'Not measured',
+  citationsNotMeasuredHelp: 'This service does not tie its sources to the answer.',
   brandedQuery: 'Branded',
   nonBrandQuery: 'Non-brand',
   untypedQuery: 'Not set',
@@ -126,6 +135,7 @@ export function SelectedActionsLink({ barId }: { barId: string }) {
 export const RESEARCH_STATUS_LABEL: Record<ResearchRunStatus, string> = {
   [ResearchRunStatuses.queued]: 'Queued',
   [ResearchRunStatuses.running]: 'Running',
+  [ResearchRunStatuses['waiting-upstream']]: 'Waiting',
   [ResearchRunStatuses.completed]: 'Completed',
   [ResearchRunStatuses.partial]: 'Partial',
   [ResearchRunStatuses.failed]: 'Failed',
@@ -171,8 +181,8 @@ export function formatResearchDate(value: string): string {
  * The results of one saved research run: what was asked and where, one row
  * per query with the engine's two chips, and the selected query's answer.
  * Research checks the company's names and the project's domain, so the first
- * chip is N. A query still queued or running draws skeleton chips; a signal
- * the engine never returned is a dashed box, never a No.
+ * chip is N. A query still queued, running or waiting on an upstream job draws
+ * skeleton chips; a signal the engine never returned is a dashed box, never a No.
  *
  * On an Advanced project (`ResearchTrackingContext`) a Tracked column says
  * which queries are tracked already, with their Subject, and an account that
@@ -351,9 +361,15 @@ export function ResearchAnswer({
           <InfoTooltip text={RESEARCH_RESULTS_COPY.reviewHelp} placement="bottom" />
         </div>
       )}
-      {query.error ? (
+      {query.error && (
         <div className="rounded-md border border-negative-800/40 bg-negative-950/20 px-3 py-2 text-sm text-negative">{query.error}</div>
-      ) : query.answerText ? (
+      )}
+      {query.error && query.evidence && query.answerText ? (
+        <div>
+          <p className="text-[10px] uppercase tracking-wide text-muted">{RESEARCH_RESULTS_COPY.partialAnswer}</p>
+          <div className="mt-1"><AnswerMarkdown headingLevel={4} copyable>{query.answerText}</AnswerMarkdown></div>
+        </div>
+      ) : query.error ? null : query.answerText ? (
         <div>
           <p className="text-[10px] uppercase tracking-wide text-muted">Answer</p>
           <div className="mt-1"><AnswerMarkdown headingLevel={4} copyable>{query.answerText}</AnswerMarkdown></div>
@@ -361,7 +377,9 @@ export function ResearchAnswer({
       ) : (
         <div>{query.status === ResearchQueryStatuses.queued || query.status === ResearchQueryStatuses.running
           ? <StatusNote icon={Clock} label={RESEARCH_RESULTS_COPY.answerPending} />
-          : <StatusNote icon={Ban} label={RESEARCH_RESULTS_COPY.noAnswer} />}</div>
+          : query.status === ResearchQueryStatuses['waiting-upstream']
+            ? <StatusNote icon={Clock} label={RESEARCH_RESULTS_COPY.waitingUpstream} detail={waitingUpstreamDetail(query.upstreamJobId)} />
+            : <StatusNote icon={Ban} label={RESEARCH_RESULTS_COPY.noAnswer} />}</div>
       )}
       {query.namedCompetitors.length > 0 && (
         <div>
@@ -391,17 +409,59 @@ export function ResearchAnswer({
           </ul>
         </div>
       )}
+      {query.evidence && <AnswerServiceEvidence evidence={query.evidence} />}
+    </div>
+  )
+}
+
+/** Why a query has no answer yet while its service works on it as an upstream job. */
+function waitingUpstreamDetail(upstreamJobId: string | null | undefined): string {
+  return `The service is still working on this query as an upstream job${upstreamJobId ? ` (${upstreamJobId})` : ''}. It is followed by that job and never sent again.`
+}
+
+const SOURCE_RELATIONSHIP_LABELS: Record<AnswerSourceDto['relationship'], string> = {
+  'explicit-citation': 'Cited in the answer',
+  'answer-support': 'Used for the answer',
+  'search-result': 'Search result',
+  'page-read': 'Page read',
+}
+
+/** What a search answer service returned beyond the answer: status, identity and every source with its relationship. */
+function AnswerServiceEvidence({ evidence }: { evidence: AnswerEvidenceDto }) {
+  const otherSources = evidence.sources.filter(source => source.relationship === 'search-result' || source.relationship === 'page-read')
+  return (
+    <div className="space-y-3">
+      <p className="text-[10px] uppercase tracking-wide text-muted">{RESEARCH_RESULTS_COPY.serviceEvidence}</p>
+      <dl className="definition-list">
+        <div><dt>Status</dt><dd>{answerCompletionLabel(evidence.completion.status)}</dd></div>
+        <div><dt>Profile</dt><dd className="font-mono text-xs">{evidence.identity.route}</dd></div>
+        <div><dt>Model</dt><dd>{evidence.identity.disclosedModel ? `${evidence.identity.disclosedModel}${evidence.identity.disclosedModelKind === 'service-tier' ? ' (service tier)' : ''}` : 'Not disclosed'}</dd></div>
+        <div><dt>Cost</dt><dd>{answerCostBasisLabel(evidence.usage.cost)}</dd></div>
+        {!evidence.citationMeasurable && <div><dt>Citations</dt><dd className="flex items-center">{RESEARCH_RESULTS_COPY.citationsNotMeasured}<InfoTooltip text={RESEARCH_RESULTS_COPY.citationsNotMeasuredHelp} placement="bottom" /></dd></div>}
+      </dl>
+      {otherSources.length > 0 && (
+        <ul className="space-y-3">
+          {otherSources.map((source, index) => (
+            <li key={`${source.url}-${index}`} className="min-w-0">
+              <p className="text-xs text-muted">{SOURCE_RELATIONSHIP_LABELS[source.relationship]}</p>
+              <SourceLink url={source.url} title={source.title ?? source.url} />
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   )
 }
 
 /**
- * One query's two signals, each from its own field. A query still queued or
- * running has no result yet, so its pair is a skeleton; once it has finished
- * or failed, a signal with no value is not checked, never a No.
+ * One query's two signals, each from its own field. A query still queued,
+ * running or waiting on an upstream job has no result yet, so its pair is a
+ * skeleton; once it has finished or failed, a signal with no value is not
+ * checked, never a No. A service whose sources are not tied to the answer
+ * leaves `citationState` null, so its Cited chip reads not checked.
  */
 function researchSignal(query: ResearchRunQueryDto): EngineSignal | undefined {
-  if (query.status === ResearchQueryStatuses.queued || query.status === ResearchQueryStatuses.running) return undefined
+  if (query.status === ResearchQueryStatuses.queued || query.status === ResearchQueryStatuses.running || query.status === ResearchQueryStatuses['waiting-upstream']) return undefined
   return {
     mentioned: query.answerMentioned,
     cited: query.citationState === null ? null : query.citationState === CitationStates.cited,
@@ -414,7 +474,7 @@ function shortId(id: string): string {
 
 export function toneForResearchRun(status: ResearchRunStatus) {
   if (status === ResearchRunStatuses.completed) return 'positive'
-  if (status === ResearchRunStatuses.partial) return 'caution'
+  if (status === ResearchRunStatuses.partial || status === ResearchRunStatuses['waiting-upstream']) return 'caution'
   if (status === ResearchRunStatuses.failed) return 'negative'
   return 'neutral'
 }
@@ -422,5 +482,6 @@ export function toneForResearchRun(status: ResearchRunStatus) {
 function toneForResearchQuery(status: ResearchRunQueryDto['status']) {
   if (status === ResearchQueryStatuses.completed) return 'positive'
   if (status === ResearchQueryStatuses.failed) return 'negative'
+  if (status === ResearchQueryStatuses['waiting-upstream']) return 'caution'
   return 'neutral'
 }

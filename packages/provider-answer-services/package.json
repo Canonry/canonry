@@ -1,0 +1,18 @@
+{
+  "name": "@canonry/canonry-provider-answer-services",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    ".": { "types": "./src/index.ts", "default": "./src/index.ts" },
+    "./testing": { "types": "./test/fake-service.ts", "default": "./test/fake-service.ts" }
+  },
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "node ../../scripts/typecheck.mjs --noEmit -p tsconfig.json",
+    "test": "vitest run --config ../../vitest.package.config.ts",
+    "lint": "oxlint -c ../../.oxlintrc.json --type-aware src/ test/"
+  },
+  "dependencies": { "@canonry/canonry-contracts": "workspace:*" }
+}

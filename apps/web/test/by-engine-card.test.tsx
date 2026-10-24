@@ -156,7 +156,7 @@ describe('By engine card', () => {
 
   test.each([
     ['no-queries', 'Add queries to start tracking AI citations.'],
-    ['no-runs-yet', 'Engine results appear after the first AI Visibility sweep.'],
+    ['no-runs-yet', 'Engine results appear after the first AI Visibility check.'],
   ] as const)('keeps a plain state when there is nothing to count (%s)', (reason, copy) => {
     const { container } = renderCard(emptyCitationVisibility(reason))
 

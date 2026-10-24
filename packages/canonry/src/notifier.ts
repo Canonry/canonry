@@ -1,4 +1,5 @@
-import { eq, desc, and, inArray, or } from 'drizzle-orm'
+import { deliverReviewEvent, drainReviewDeliveries, dueReviewDeliveryProjects, reviewEventId } from './review-webhook-delivery.js'
+import { eq, desc, and, inArray, or, isNull } from 'drizzle-orm'
 import { deliverWebhook, measurementRunCompleteness, notProbeRun, redactNotificationUrl, resolveDestination, resolveWebhookTarget, toAlertView, webhookOutcomeTarget, webhookResponseReason, webhookTargetRefusalReason } from '@canonry/canonry-api-routes'
 import type { DatabaseClient } from '@canonry/canonry-db'
 import { auditLog, doctorHealthState, siteLivenessState, gbpLocations, gbpReviewRatings, gbpReviews, groupRunsByCreatedAt, insightNotifyState, notifications, projects, queries, querySnapshots, readNegativeReviewMaxStars, runs } from '@canonry/canonry-db'
@@ -1082,6 +1083,26 @@ export class Notifier {
     }
   }
 
+  /**
+   * Send the review deliveries that are due, for every project that has some.
+   * The engine runs this on a timer, so a failed send waits for its retry time
+   * rather than the next GBP sync. A project mid-dispatch is skipped: that
+   * dispatch drains its own deliveries.
+   */
+  async drainDueReviewDeliveries(): Promise<number> {
+    let delivered = 0
+    for (const projectId of dueReviewDeliveryProjects(this.db, Date.now())) {
+      if (this.reviewDispatchInFlight.has(projectId)) continue
+      this.reviewDispatchInFlight.add(projectId)
+      try {
+        delivered += await drainReviewDeliveries({ db: this.db, projectId, allowLoopback: this.allowLoopbackWebhooks })
+      } finally {
+        this.reviewDispatchInFlight.delete(projectId)
+      }
+    }
+    return delivered
+  }
+
   private async dispatchQueuedReviewAlerts(projectId: string): Promise<{ reviews: number; ratingDrops: number; delivered: number }> {
     const pendingReviews = this.db.select().from(gbpReviews)
       .where(and(eq(gbpReviews.projectId, projectId), eq(gbpReviews.alertState, 'pending')))
@@ -1089,10 +1110,11 @@ export class Notifier {
     const pendingRatings = this.db.select().from(gbpReviewRatings)
       .where(and(eq(gbpReviewRatings.projectId, projectId), eq(gbpReviewRatings.alertState, 'pending')))
       .all()
-    if (pendingReviews.length === 0 && pendingRatings.length === 0) return { reviews: 0, ratingDrops: 0, delivered: 0 }
-
     const project = this.db.select().from(projects).where(eq(projects.id, projectId)).get()
     if (!project) return { reviews: 0, ratingDrops: 0, delivered: 0 }
+    // Chat destinations take a few review sends per pass, new and retried
+    // alike; the rest stay due for the timer's next pass, in order.
+    const chatSendsLeft = new Map<string, number>()
 
     const now = new Date()
     const nowIso = now.toISOString()
@@ -1165,29 +1187,52 @@ export class Notifier {
         setReviewState(ids, 'skipped')
       } else {
         reviewsToSend.sort((a, b) => a.updateTime.localeCompare(b.updateTime))
-        const payload: ReviewWebhookPayload = {
-          source: 'canonry',
-          event: 'review.negative',
-          project: projectRef,
-          reviews: reviewsToSend.map((r) => ({
-            location: locationRef(r.locationName),
-            origin: r.origin,
-            reviewName: r.reviewName,
-            starRating: r.starRating!,
-            comment: r.comment,
-            reviewerName: r.reviewerName,
-            createTime: r.createTime,
-            updateTime: r.updateTime,
-            replied: r.origin === 'places' ? null : r.replyComment !== null,
-            reviewUri: r.reviewUri,
-          })),
-          dashboardUrl,
+        // One immutable material revision per event. Delivery receipts are per
+        // destination, so one successful receiver cannot erase another's debt.
+        for (const review of reviewsToSend) {
+          const payload: ReviewWebhookPayload = {
+            source: 'canonry',
+            event: 'review.negative',
+            eventId: reviewEventId(projectId, review),
+            project: projectRef,
+            reviews: [{
+              location: locationRef(review.locationName), origin: review.origin,
+              reviewName: review.reviewName, starRating: review.starRating!,
+              comment: review.comment, reviewerName: review.reviewerName,
+              createTime: review.createTime, updateTime: review.updateTime,
+              replied: review.origin === 'places' ? null : review.replyComment !== null,
+              reviewUri: review.reviewUri,
+            }],
+            dashboardUrl,
+          }
+          let all = true
+          for (const notification of subscribedTo('review.negative')) {
+            const sent = await deliverReviewEvent({
+              db: this.db, projectId, notificationId: notification.id, payload,
+              allowLoopback: this.allowLoopbackWebhooks, chatSendsLeft,
+              onDelivered: () => { delivered += 1 },
+            })
+            if (!sent) all = false
+          }
+          // Never mark a newer material edit sent because an older request finished.
+          if (all) {
+            this.db.update(gbpReviews).set({ alertState: 'sent', alertStateAt: nowIso })
+              .where(and(
+                eq(gbpReviews.id, review.id),
+                eq(gbpReviews.alertState, 'pending'),
+                eq(gbpReviews.updateTime, review.updateTime),
+                review.alertStateAt === null ? isNull(gbpReviews.alertStateAt) : eq(gbpReviews.alertStateAt, review.alertStateAt),
+                review.comment === null ? isNull(gbpReviews.comment) : eq(gbpReviews.comment, review.comment),
+                review.starRating === null ? isNull(gbpReviews.starRating) : eq(gbpReviews.starRating, review.starRating),
+              )).run()
+          }
         }
-        const accepted = await sendAll('review.negative', payload)
-        if (accepted > 0) setReviewState(ids, 'sent')
-        delivered += accepted
       }
     }
+
+    // Durable delivery work belongs to immutable events, independently of the
+    // current review row (which a newer edit may already have acknowledged).
+    delivered += await drainReviewDeliveries({ db: this.db, projectId, allowLoopback: this.allowLoopbackWebhooks, chatSendsLeft })
 
     if (ratingsToSend.length > 0) {
       const ids = ratingsToSend.map((r) => r.id)

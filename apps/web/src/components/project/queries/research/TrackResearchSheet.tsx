@@ -404,7 +404,7 @@ function TrackSheet({ projectName, workspace, contextChoices, sweepActive, nextS
                       <dt className="shrink-0">Search location and engines</dt>
                       <dd className="min-w-0 text-strong">
                         <SearchLocationText
-                          label={`${contextChoices[0]!.input.location ?? 'No search location'} · ${contextChoices[0]!.input.providers.map(providerDisplayName).join(', ')}`}
+                          label={`${contextChoices[0]!.input.location ?? 'No search location'} · ${contextChoices[0]!.input.providers.map(name => providerDisplayName(name)).join(', ')}`}
                           detail={contextChoices[0]!.label}
                         />
                       </dd>

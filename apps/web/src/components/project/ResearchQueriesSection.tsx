@@ -8,6 +8,8 @@ import {
   deduplicateResearchQueries,
   expandResearchTemplate,
   hostOf,
+  isOpenRouterRoute,
+  openRouterRouteModel,
   researchTemplateBindings,
   type LocationContext,
   type ResearchRunDetailDto,
@@ -20,6 +22,7 @@ import {
 } from '@canonry/canonry-contracts'
 
 import { heyClient, isEmbed, isPublicDemo, type ViewerResearchConfig } from '../../api.js'
+import { catalogRouteFamilies, isAnswerServiceRouteFor, isRoutedConnection, RESEARCH_WORKFLOW } from '../../lib/provider-routes.js'
 import {
   getApiV1ProjectsByNameOptions,
   getApiV1ProjectsByNameResearchRunsByRunIdOptions,
@@ -264,19 +267,67 @@ export function ResearchQueriesSection({
 
   const locations = projectQuery.data?.locations ?? []
   const providerOptions = useMemo(() => {
-    if (limitedAccess) return (historyPolicy?.providers ?? []).map(item => ({ ...item, catalog: item }))
-    const catalog = new Map((settingsQuery.data?.providerCatalog ?? []).map(item => [item.name, item]))
-    return (settingsQuery.data?.providers ?? [])
-      .filter(item => item.configured && catalog.get(item.name)?.mode === 'api')
+    if (limitedAccess) {
+      return (historyPolicy?.providers ?? [])
+        .filter(item => item.name !== 'openrouter')
+        .map(item => ({ ...item, catalog: item }))
+    }
+    const catalogEntries = settingsQuery.data?.providerCatalog ?? []
+    const catalog = new Map(catalogEntries.map(item => [item.name, item]))
+    const routeFamilies = catalogRouteFamilies(catalogEntries)
+    const configured = new Map((settingsQuery.data?.providers ?? [])
+      .filter(item => item.configured)
+      .map(item => [item.name, item]))
+    const direct = [...configured.values()]
+      .filter(item => !isRoutedConnection(item.name, routeFamilies) && !isOpenRouterRoute(item.name) && catalog.get(item.name)?.mode === 'api')
       .map(item => ({ ...item, catalog: { ...catalog.get(item.name)!, defaultModel: item.model || catalog.get(item.name)!.defaultModel } }))
-  }, [limitedAccess, historyPolicy?.providers, settingsQuery.data])
+    // Each research profile of a connected answer service, offered for explicit choice only.
+    const profiles = catalogEntries
+      .filter(entry => isAnswerServiceRouteFor(entry, RESEARCH_WORKFLOW) && configured.has(entry.connection ?? entry.name))
+      .map(entry => ({ name: entry.name, displayName: entry.displayName, configured: true, defaultModel: entry.defaultModel, kind: entry.kind, catalog: entry }))
+
+    const openRouterCatalog = catalog.get('openrouter')
+    const serverRoutes = new Map((historyPolicy?.providers ?? [])
+      .filter(item => isOpenRouterRoute(item.name))
+      .map(item => [item.name, item]))
+    if (!configured.has('openrouter') && serverRoutes.size === 0) return [...direct, ...profiles]
+    const routes = [...new Set([
+      ...(projectQuery.data?.providers ?? []),
+      ...serverRoutes.keys(),
+    ])]
+      .filter(isOpenRouterRoute)
+      .flatMap(name => {
+        const model = openRouterRouteModel(name)
+        if (!model) return []
+        const savedRoute = catalog.get(name)
+        const serverRoute = serverRoutes.get(name)
+        const routeCatalog = savedRoute ?? (openRouterCatalog ? {
+          ...openRouterCatalog,
+          name,
+          displayName: serverRoute?.displayName ?? providerDisplayName(name),
+          modelConfigurable: false,
+          defaultModel: model,
+          knownModels: openRouterCatalog.knownModels.filter(candidate => candidate.id === model),
+        } : serverRoute)
+        return routeCatalog ? [{
+          name,
+          displayName: serverRoute?.displayName ?? providerDisplayName(name),
+          configured: true,
+          defaultModel: model,
+          catalog: routeCatalog,
+        }] : []
+      })
+    return [...direct, ...routes, ...profiles]
+  }, [historyPolicy?.providers, limitedAccess, projectQuery.data?.providers, settingsQuery.data])
   const noConfiguredApiProviders = !(limitedAccess ? runsQuery.isPending : settingsQuery.isPending) && providerOptions.length === 0
   const selectedProvider = providerOptions.find(item => item.name === provider) ?? null
 
   useEffect(() => {
     if (!provider && projectQuery.data && !projectQuery.isError && !settingsQuery.isError) {
-      const preferred = projectQuery.data.providers.find(name => providerOptions.some(item => item.name === name))
-      setProvider(preferred ?? providerOptions[0]?.name ?? '')
+      // The default never lands on an answer service; choosing one is always explicit.
+      const defaults = providerOptions.filter(item => !('kind' in item) || item.kind !== 'answer-service')
+      const preferred = projectQuery.data.providers.find(name => defaults.some(item => item.name === name))
+      setProvider(preferred ?? defaults[0]?.name ?? '')
     }
   }, [provider, providerOptions, projectQuery.data, projectQuery.isError, settingsQuery.isError])
 

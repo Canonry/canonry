@@ -129,6 +129,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
         servedModel: querySnapshots.servedModel,
         citationState: querySnapshots.citationState,
         answerMentioned: querySnapshots.answerMentioned,
+        mentionIdentity: querySnapshots.mentionIdentity,
         answerText: querySnapshots.answerText,
       })
       .from(querySnapshots)
@@ -563,6 +564,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
           runId: querySnapshots.runId,
           citationState: querySnapshots.citationState,
           answerMentioned: querySnapshots.answerMentioned,
+          mentionIdentity: querySnapshots.mentionIdentity,
           answerText: querySnapshots.answerText,
         })
         .from(querySnapshots)
@@ -593,6 +595,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
         provider: querySnapshots.provider,
         citationState: querySnapshots.citationState,
         answerMentioned: querySnapshots.answerMentioned,
+        mentionIdentity: querySnapshots.mentionIdentity,
         answerText: querySnapshots.answerText,
         citedDomains: querySnapshots.citedDomains,
       })
@@ -829,7 +832,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
     const latestOutsideWindow = latestRuns?.find(run => cutoff && run.createdAt < cutoff)
     if (latestOutsideWindow) {
       throw validationError(
-        `The latest sweep (run "${latestOutsideWindow.id}") is older than the ${window} window. Omit window, or widen it, to read it.`,
+        `The latest AI Visibility check (run "${latestOutsideWindow.id}") is older than the ${window} window. Omit window, or widen it, to read it.`,
       )
     }
 

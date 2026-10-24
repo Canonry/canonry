@@ -3,7 +3,8 @@ import path from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 
 import { eq } from 'drizzle-orm'
-import { getBootstrapEnv, withBootstrapProviderDefaults, type BootstrapProviderName } from '@canonry/canonry-config'
+import { getAnswerServiceEnv, getBootstrapEnv, withBootstrapProviderDefaults, type BootstrapProviderName } from '@canonry/canonry-config'
+import { answerServiceDescriptors } from '@canonry/canonry-provider-answer-services'
 import { ProviderNames, ProviderReloadErrorReasons } from '@canonry/canonry-contracts'
 import { createClient, migrate, apiKeys, dashboardSessions } from '@canonry/canonry-db'
 
@@ -158,6 +159,12 @@ export async function bootstrapCommand(opts?: { format?: CliFormat; ref?: string
   const mergedProviders: Record<string, ProviderConfigEntry> = { ...existingConfig?.providers }
   for (const [name, fromEnv] of Object.entries(env.providers) as [BootstrapProviderName, object | undefined][]) {
     if (fromEnv) mergedProviders[name] = mergeEnvProvider(name, mergedProviders[name], fromEnv)
+  }
+  // Hosted answer services declare their own key variable; the env key
+  // replaces the saved one and every other saved field (quota) is kept.
+  for (const [name, fromEnv] of Object.entries(getAnswerServiceEnv(process.env, answerServiceDescriptors))) {
+    const defaults = answerServiceDescriptors.find(descriptor => descriptor.id === name)?.defaultQuota
+    mergedProviders[name] = { ...mergedProviders[name], apiKey: fromEnv.apiKey, quota: mergedProviders[name]?.quota ?? (defaults ? { ...defaults } : undefined) }
   }
 
   if ((env.googleClientId && !env.googleClientSecret) || (!env.googleClientId && env.googleClientSecret)) {

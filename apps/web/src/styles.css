@@ -1019,6 +1019,22 @@
     @apply min-w-0 flex-1 px-4 py-5 md:px-6;
   }
 
+  /* The floating Aero bar is fixed over the bottom of the viewport. While the
+     layout shows it, the shell keeps a lane below its last control, and the
+     page scroller keeps the same lane clear when focus or scrollIntoView
+     brings a control into view, so the bar never sits on a button the
+     operator is about to press (it once hid Save engines and took the click).
+     RootLayout sets the class on .main-area, which holds the page and the
+     footer, so the lane sits after the footer's links too; pages never pad
+     for the bar. */
+  .main-area-agent-bar {
+    padding-bottom: 6rem;
+  }
+
+  html:has(.main-area-agent-bar) {
+    scroll-padding-bottom: 6rem;
+  }
+
   .page-container {
     @apply mx-auto w-full min-w-0 max-w-6xl;
   }
@@ -1391,7 +1407,7 @@
   }
 
   .project-engine-help {
-    @apply text-xs leading-snug text-muted;
+    @apply text-sm leading-snug text-secondary;
   }
 
   .project-engine-list {
@@ -2579,11 +2595,11 @@
   }
 
   .setup-input {
-    @apply rounded-md border border-strong bg-bg-elevated/50 px-3 py-2 text-sm text-heading placeholder-mono-600 outline-none transition focus:border-mono-500 focus:ring-1 focus:ring-mono-500;
+    @apply rounded-md border border-strong bg-bg-elevated/50 px-3 py-2 text-sm text-heading placeholder-mono-400 outline-none transition focus:border-mono-500 focus:ring-1 focus:ring-mono-500;
   }
 
   .setup-textarea {
-    @apply rounded-md border border-strong bg-bg-elevated/50 px-3 py-2 text-sm text-heading placeholder-mono-600 outline-none transition focus:border-mono-500 focus:ring-1 focus:ring-mono-500 resize-y font-mono;
+    @apply rounded-md border border-strong bg-bg-elevated/50 px-3 py-2 text-sm text-heading placeholder-mono-400 outline-none transition focus:border-mono-500 focus:ring-1 focus:ring-mono-500 resize-y font-mono;
   }
 
   .setup-input:disabled,

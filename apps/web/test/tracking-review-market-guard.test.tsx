@@ -176,7 +176,7 @@ test('keeps the other reasons Publish is off: a sweep, a publish in flight, and 
   fireEvent.click(confirmBox())
   // Confirmed, and still off while a sweep runs.
   expect(publish().disabled).toBe(true)
-  expect(noteButton('Sweep running', 'A sweep is queued or running. Publish after it finishes.', screen.getByRole('status')).classList.contains('text-caution')).toBe(true)
+  expect(noteButton('Check running', 'A check is queued or running. Publish after it finishes.', screen.getByRole('status')).classList.contains('text-caution')).toBe(true)
 
   show({ sweepActive: false, isCommitting: true })
   expect(screen.getByRole('button', { name: 'Publishing…' })).toHaveProperty('disabled', true)

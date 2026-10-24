@@ -24,6 +24,7 @@ import { BackLink, useInAppBack } from '../components/shared/BackLink.js'
 import { formatObservedInstantLabel, formatObservedInstantMonthDay, observedInstant } from '../components/shared/ChartPrimitives.js'
 import { InfoTooltip } from '../components/shared/InfoTooltip.js'
 import { StatusNote } from '../components/shared/StatusNote.js'
+import { DIFFERENT_SUBJECT_COPY } from '../lib/mention-identity-copy.js'
 import { ANSWER_SOURCES_LABEL } from '../components/shared/AnswerMarkdown.js'
 import { AnswerText } from '../components/shared/AnswerText.js'
 import { ToneBadge } from '../components/shared/ToneBadge.js'
@@ -60,7 +61,7 @@ type PlanV2 = Extract<ActivePlan['plan'], { schemaVersion: 2 }>
 const EVIDENCE_PAGE_SIZE = 50
 /** The way back over the page's name: a small link, a full-size target where a finger is the pointer. */
 const BACK_LINK = 'rounded-sm text-xs text-muted hover:text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400 pointer-coarse:min-h-11 max-md:min-h-11'
-const NO_COMPLETED_SWEEP = 'No completed sweep yet'
+const NO_COMPLETED_SWEEP = 'No completed check yet'
 /**
  * Sent on every results read of this page. Until the published setup has a
  * completed sweep of its own, the server answers with the last one, read under
@@ -145,7 +146,8 @@ function RetryButton({ name, onClick }: { name: string; onClick: () => void }) {
 /**
  * The mention signal as three states, never two. A null reads "Not measured"
  * with the reason beside it — reporting it as "not mentioned" would invent a
- * measured miss out of a missing measurement.
+ * measured miss out of a missing measurement. A name match sentiment judged to
+ * be about another subject reads "Not mentioned" with why beside it.
  */
 function MentionSignal({ row }: { row: AnswerRow }) {
   if (row.mentioned === null) {
@@ -153,6 +155,17 @@ function MentionSignal({ row }: { row: AnswerRow }) {
       <span className="inline-flex items-center whitespace-nowrap">
         <ToneBadge tone="neutral">Not measured</ToneBadge>
         <InfoTooltip placement="bottom" text="No mention signal for this location." />
+      </span>
+    )
+  }
+  if (!row.mentioned && row.mentionIdentity === 'wrong-subject') {
+    return (
+      <span className="inline-flex flex-col items-start gap-0.5">
+        <ToneBadge tone="neutral">Not mentioned</ToneBadge>
+        <span className="inline-flex items-center gap-1 text-xs text-muted">
+          {DIFFERENT_SUBJECT_COPY.label}
+          <InfoTooltip placement="bottom" text={DIFFERENT_SUBJECT_COPY.property} />
+        </span>
       </span>
     )
   }
@@ -728,7 +741,7 @@ function NamedInstead({ project, targetKey, queryClass, notInLastSweep }: { proj
                     <td className="text-strong">{row.name}</td>
                     <td className="tabular-nums text-secondary">{row.occurrences}</td>
                     <td className="text-secondary">
-                      {row.providers.map(providerDisplayName).join(', ')}
+                      {row.providers.map(name => providerDisplayName(name)).join(', ')}
                       {row.providersTruncated ? ` +${row.providerTotal - row.providers.length}` : ''}
                     </td>
                     <td className="text-right">
@@ -968,7 +981,7 @@ function carriedFilterHelp(selection: VisibilitySelectionState, marketLabel: str
     selection.model ? `the ${selection.model} model` : null,
     selection.location ? `search location ${selection.location}` : null,
     selection.from || selection.to ? 'a date range' : null,
-    selection.measurementRunId ? 'a saved sweep' : null,
+    selection.measurementRunId ? 'a saved check' : null,
   ].filter((filter): filter is string => filter !== null)
   if (filters.length === 0) return null
   return `AI Visibility is filtered to ${filters.join(', ')}. This page shows the latest measurement for ${MARKET_SCOPE_COPY.allMarkets.toLocaleLowerCase()} and answer engines.`
@@ -1278,7 +1291,7 @@ export function MeasurementPropertyPage() {
                     icon={Clock}
                     tone="caution"
                     label={VISIBILITY_TOOLBAR_COPY.trackingChangedLabel(sweep.trackingChangedAt && !isDashboardManagedSweeps() ? formatObservedInstantMonthDay(observedInstant(sweep.trackingChangedAt)) : null)}
-                    detail={`${VISIBILITY_TOOLBAR_COPY.trackingChangedDetail(sweptOn, null)} Queries removed since ${sweptOn ?? 'the last sweep'} still count in the rates on this page. Queries added since do not.`}
+                    detail={`${VISIBILITY_TOOLBAR_COPY.trackingChangedDetail(sweptOn, null)} Queries removed since ${sweptOn ?? 'the last check'} still count in the rates on this page. Queries added since do not.`}
                   />
                 </span>
               ) : null}

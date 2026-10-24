@@ -53,6 +53,8 @@ const CSV_COLUMNS = [
   'answer_text',
   'grounding_sources_json',
   'search_queries_json',
+  // Vendor-neutral evidence (search answer services); empty for engines.
+  'answer_evidence_json',
 ] as const
 
 function parseFormat(value: string | undefined): ResultsExportFormat {
@@ -160,6 +162,7 @@ export function renderResultsExportCsv(report: ResultsExportDto): string {
     record.answerText,
     JSON.stringify(record.groundingSources),
     JSON.stringify(record.searchQueries),
+    record.answerEvidence ? JSON.stringify(record.answerEvidence) : null,
   ].map(csvCell).join(','))
   return [CSV_COLUMNS.join(','), ...rows].join('\r\n') + '\r\n'
 }
@@ -219,6 +222,7 @@ export async function resultsExportRoutes(app: FastifyInstance) {
         recommendedCompetitors: querySnapshots.recommendedCompetitors,
         answerText: querySnapshots.answerText,
         rawResponse: querySnapshots.rawResponse,
+        answerEvidence: querySnapshots.answerEvidence,
       })
       .from(querySnapshots)
       .innerJoin(runs, eq(querySnapshots.runId, runs.id))
@@ -262,6 +266,7 @@ export async function resultsExportRoutes(app: FastifyInstance) {
         answerText: row.answerText,
         groundingSources: evidence.groundingSources,
         searchQueries: evidence.searchQueries,
+        answerEvidence: row.answerEvidence ?? null,
       }
     })
 

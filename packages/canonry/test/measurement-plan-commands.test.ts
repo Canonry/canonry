@@ -1038,6 +1038,31 @@ describe('measurement-plan CLI commands', () => {
     expect(output).toContain('not measured')
   })
 
+  it('marks an answer sentiment judged wrong-subject for this Property and explains it once', async () => {
+    const [cited, missed] = PROPERTY_ANSWERS.answers.items
+    getMeasurementPropertyEvidence.mockResolvedValueOnce({
+      ...PROPERTY_ANSWERS,
+      answers: { ...PROPERTY_ANSWERS.answers, items: [
+        { ...cited!, mentionIdentity: null },
+        { ...missed!, mentioned: false, mentionIdentity: 'wrong-subject' },
+        { ...missed!, observationId: 'obs-3', expectedSlotId: 'slot-3', queryText: 'harbor view open now', mentioned: false, mentionIdentity: 'wrong-subject' },
+      ] },
+    })
+    const logged: string[] = []
+    const log = vi.spyOn(console, 'log').mockImplementation(line => { logged.push(String(line)) })
+
+    await command('measurement-plan property-evidence').run({
+      positionals: ['acme'], values: { 'target-key': 'harbor-view', shape: 'answers' }, format: 'text', dryRun: false,
+    })
+
+    log.mockRestore()
+    const lines = logged.join('\n').split('\n')
+    expect(lines.find(line => line.includes('best harbor view stays'))).toMatch(/\bno\b.*· different subject$/)
+    expect(lines.find(line => line.includes('harbor view open now'))).toMatch(/· different subject$/)
+    expect(lines.find(line => line.includes('harbor view reviews'))).not.toContain('different subject')
+    expect(lines.filter(line => line.includes('sentiment found it is about something else'))).toHaveLength(1)
+  })
+
   it('says a measured Property matched no ANSWERS, not no source evidence, in the answer shape', async () => {
     getMeasurementPropertyEvidence.mockResolvedValueOnce({
       ...PROPERTY_ANSWERS,

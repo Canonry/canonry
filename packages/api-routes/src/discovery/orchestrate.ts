@@ -93,6 +93,10 @@ export interface DiscoveryProbeResult {
  * implementation may return a partial map.
  */
 export type DiscoveryDomainClassification = Record<string, DiscoveryCompetitorType>
+export interface DiscoveryDomainClassificationResult {
+  classifications: DiscoveryDomainClassification
+  evaluator: NonNullable<DiscoveryCompetitorMapEntry['evaluator']>
+}
 
 /**
  * Injection seam — canonry's side wires the real Gemini calls behind these.
@@ -147,7 +151,7 @@ export interface DiscoveryDeps {
     project: DiscoveryProjectContext
     icpDescription: string
     domains: string[]
-  }) => Promise<DiscoveryDomainClassification>
+  }) => Promise<DiscoveryDomainClassification | DiscoveryDomainClassificationResult>
 }
 
 export interface ExecuteDiscoveryOptions {
@@ -275,12 +279,13 @@ async function classifyCompetitorDomains(
   project: DiscoveryProjectContext,
   icpDescription: string,
   domains: string[],
-): Promise<DiscoveryDomainClassification> {
-  if (domains.length === 0) return {}
+): Promise<{ classifications: DiscoveryDomainClassification; evaluator?: DiscoveryCompetitorMapEntry['evaluator'] }> {
+  if (domains.length === 0) return { classifications: {} }
   try {
-    return await deps.classifyDomains({ project, icpDescription, domains })
+    const result = await deps.classifyDomains({ project, icpDescription, domains })
+    return typeof result.classifications === 'object' ? result as DiscoveryDomainClassificationResult : { classifications: result as DiscoveryDomainClassification }
   } catch {
-    return {}
+    return { classifications: {} }
   }
 }
 
@@ -562,7 +567,8 @@ export async function executeDiscovery(opts: ExecuteDiscoveryOptions): Promise<E
     opts.icpDescription,
     domains,
   )
-  const competitorMap = buildCompetitorMap(probeRows, opts.project, classification)
+  const competitorMap = buildCompetitorMap(probeRows, opts.project, classification.classifications)
+    .map(entry => ({ ...entry, ...(classification.evaluator ? { evaluator: classification.evaluator } : {}) }))
 
   opts.db
     .update(discoverySessions)

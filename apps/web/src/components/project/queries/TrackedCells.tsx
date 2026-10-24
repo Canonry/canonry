@@ -39,5 +39,5 @@ export function MeasurementStateBadge({ row, outsidePlan = false }: { row: Query
   if (outsidePlan) return <ToneBadge tone="neutral">Not in current plan</ToneBadge>
   return row.state === 'tracked'
     ? <ToneBadge tone="positive">Measured</ToneBadge>
-    : <ToneBadge tone="caution">Awaiting sweep</ToneBadge>
+    : <ToneBadge tone="caution">Awaiting check</ToneBadge>
 }

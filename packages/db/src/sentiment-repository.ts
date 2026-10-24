@@ -353,7 +353,7 @@ export class SentimentRepository {
   }
 
   finishAttempt(input: {
-    attemptId: string; now: string; returnedModel: string | null; usageStatus: 'reported' | 'estimated' | 'unknown'
+    attemptId: string; now: string; returnedModel: string | null; usageStatus: 'reported' | 'estimated' | 'unknown'; provider?: 'typesafe' | 'openrouter'
     usage?: { inputTokens: number; outputTokens: number; costMillicents?: number }; safeFailure?: string | null
   }) {
     return this.db.transaction(tx => {
@@ -366,17 +366,26 @@ export class SentimentRepository {
       if (input.usage && input.usageStatus === 'reported') {
         const work = tx.select().from(sentimentWorkItems).where(eq(sentimentWorkItems.id, attempt.workItemId)).get()!
         tx.insert(llmUsageEvents).values({
-          id: `sentiment:${attempt.id}`, projectId: attempt.projectId, runId: work.runId, feature: 'sentiment', provider: 'typesafe',
+          id: `sentiment:${attempt.id}`, projectId: attempt.projectId, runId: work.runId, feature: 'sentiment', provider: input.provider ?? 'typesafe',
           model: input.returnedModel ?? attempt.requestedModel, inputTokens: input.usage.inputTokens, outputTokens: input.usage.outputTokens,
           totalTokens: input.usage.inputTokens + input.usage.outputTokens, costMillicents: input.usage.costMillicents ?? 0,
-          metadata: { sentimentAttemptId: attempt.id, usageStatus: 'reported' }, createdAt: input.now,
+          metadata: { sentimentAttemptId: attempt.id, usageStatus: 'reported', ...(input.usage.costMillicents === undefined ? { costStatus: 'unknown' } : {}) }, createdAt: input.now,
         }).onConflictDoNothing().run()
       }
       return true
     }, { behavior: 'immediate' })
   }
 
-  completeWork(input: { workItemId: string; owner: string; outcome: string; result: unknown; returnedModel: string | null; now: string }) {
+  /**
+   * `onCompleted` runs in the same transaction once a completed result is
+   * stored, so state derived from the verdict (the snapshot's mention identity)
+   * commits with it or not at all. It does not run for work canceled while it
+   * ran: that result stays out of every read.
+   */
+  completeWork(
+    input: { workItemId: string; owner: string; outcome: string; result: unknown; returnedModel: string | null; now: string },
+    onCompleted?: (tx: Pick<DatabaseClient, 'select' | 'update'>, work: { projectId: string; runId: string; snapshotId: string }) => void,
+  ) {
     return this.db.transaction(tx => {
       const work = tx.select().from(sentimentWorkItems).where(and(
         eq(sentimentWorkItems.id, input.workItemId), eq(sentimentWorkItems.leaseOwner, input.owner),
@@ -391,6 +400,7 @@ export class SentimentRepository {
         leaseOwner: null, leaseExpiresAt: null, nextAttemptAt: null, updatedAt: input.now,
       }).where(eq(sentimentWorkItems.id, work.id)).run()
       shiftJobs(tx, work.id, work.status, status, input.now)
+      if (status === 'completed') onCompleted?.(tx, work)
       return true
     }, { behavior: 'immediate' })
   }

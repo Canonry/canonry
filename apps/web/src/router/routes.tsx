@@ -29,6 +29,7 @@ const LazyProjectPage = lazyRouteComponent(() => import('../pages/ProjectPage.js
 const LazyRunsPage = lazyRouteComponent(() => import('../pages/RunsPage.js'), 'RunsPage')
 const LazyHistoryPage = lazyRouteComponent(() => import('../pages/HistoryPage.js'), 'HistoryPage')
 const LazySettingsPage = lazyRouteComponent(() => import('../pages/SettingsPage.js'), 'SettingsPage')
+const LazyAgentSetupPage = lazyRouteComponent(() => import('../pages/AgentSetupPage.js'), 'AgentSetupPage')
 const LazyBacklinksPage = lazyRouteComponent(() => import('../pages/BacklinksPage.js'), 'BacklinksPage')
 const LazyTrafficPage = lazyRouteComponent(() => import('../pages/TrafficPage.js'), 'TrafficPage')
 const LazyTrafficSourceDetailPage = lazyRouteComponent(() => import('../pages/TrafficSourceDetailPage.js'), 'TrafficSourceDetailPage')
@@ -55,6 +56,7 @@ export async function preloadAllLazyRoutes(): Promise<void> {
     LazyRunsPage.preload?.(),
     LazyHistoryPage.preload?.(),
     LazySettingsPage.preload?.(),
+    LazyAgentSetupPage.preload?.(),
     LazyBacklinksPage.preload?.(),
     LazyTrafficPage.preload?.(),
     LazyTrafficSourceDetailPage.preload?.(),
@@ -72,6 +74,8 @@ type SearchParams = {
   runId?: string
   /** Exact Site Health onboarding handoff; separate from the global run drawer. */
   siteHealthRunId?: string
+  seoProfileId?: string
+  seoRunId?: string
   evidenceId?: string
   runStatus?: string
   runKind?: string
@@ -144,6 +148,8 @@ export const rootRoute = createRootRouteWithContext<RouterContext>()({
     manageQueries: search.manageQueries === true || search.manageQueries === 'true' ? true : undefined,
     runId: typeof search.runId === 'string' ? search.runId : undefined,
     siteHealthRunId: typeof search.siteHealthRunId === 'string' ? search.siteHealthRunId : undefined,
+    seoProfileId: typeof search.seoProfileId === 'string' ? search.seoProfileId : undefined,
+    seoRunId: typeof search.seoRunId === 'string' ? search.seoRunId : undefined,
     evidenceId: typeof search.evidenceId === 'string' ? search.evidenceId : undefined,
     runStatus: typeof search.runStatus === 'string' ? search.runStatus : undefined,
     runKind: typeof search.runKind === 'string' ? search.runKind : undefined,
@@ -269,6 +275,12 @@ export const projectSearchConsoleRoute = createRoute({
   component: () => <LazyProjectPage tab="search-console" />,
 })
 
+export const projectSeoDataRoute = createRoute({
+  getParentRoute: () => projectLayoutRoute,
+  path: '/seo-data',
+  component: () => <LazyProjectPage tab="seo-data" />,
+})
+
 export const projectConversionsRoute = createRoute({
   getParentRoute: () => projectLayoutRoute,
   path: '/conversions',
@@ -373,6 +385,12 @@ export const setupRoute = createRoute({
   component: OnboardingSetupPage,
 })
 
+export const agentSetupRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/agent-setup',
+  component: LazyAgentSetupPage,
+})
+
 export const backlinksRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/backlinks',
@@ -404,6 +422,7 @@ export const routeTree = rootRoute.addChildren([
     projectOverviewRoute,
     projectPortfolioRoute,
     projectSearchConsoleRoute,
+    projectSeoDataRoute,
     projectConversionsRoute,
     projectLocalRoute,
     projectDiscoveryRoute,
@@ -421,6 +440,7 @@ export const routeTree = rootRoute.addChildren([
   historyRoute,
   settingsRoute,
   setupRoute,
+  agentSetupRoute,
   backlinksRoute,
   trafficRoute,
   trafficSourceDetailRoute,

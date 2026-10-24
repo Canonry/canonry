@@ -135,12 +135,36 @@ dashboard:
 ```
 
 `showResourceLinks` removes the GitHub, documentation, and changelog icons
-from the sidebar and page footer. `showUpdateNotification` removes the
+from the sidebar and page footer, plus repository documentation links on Agent
+Setup. `showUpdateNotification` removes the
 available-version badge from the sidebar but keeps update checks and CLI
 notices active.
 
 For container deployments, set `CANONRY_DASHBOARD_SHOW_RESOURCE_LINKS=0` or
 `CANONRY_DASHBOARD_SHOW_UPDATE_NOTIFICATION=0`.
+
+### Agent setup instructions
+
+Agent Setup includes local plugins, CLI, and `canonry-mcp` instructions by
+default. For a client deployment whose users connect through ChatGPT or Claude,
+hide those instructions explicitly:
+
+```yaml
+dashboard:
+  showLocalAgentSetup: false
+```
+
+For containers, set `CANONRY_DASHBOARD_SHOW_LOCAL_AGENT_SETUP=0` and restart.
+The environment value overrides YAML; `1` restores local instructions. Blank or
+unrecognized environment values fall back to YAML, then the default `true`.
+
+This setting changes only Agent Setup presentation. CLI, API, MCP, permissions,
+and hosted connector readiness stay the same. The page does not infer the
+audience from public URL, readiness, or user role. Both views include hosted
+connection steps when configured; the client view never falls back to local
+commands if hosted setup needs attention. `showResourceLinks: false` hides
+repository documentation links while retaining the ChatGPT and Claude help
+links.
 
 ### Managed run kinds
 
@@ -214,8 +238,9 @@ unaffected.
 ### Aero reasoning
 
 Aero asks the model to reason a little before it answers and calls tools.
-OpenAI models default to `low`; Claude, Gemini and Z.ai default to `off`. To set
-it for the install:
+OpenAI models default to `low`; Claude, Gemini and Z.ai default to `off`. A model
+used through OpenRouter gets the same default as its own provider, so
+`openai/gpt-6-luna` runs at `low`. To set it for the install:
 
 ```yaml
 agent:

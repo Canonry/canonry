@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { PROVIDER_NAMES, type QueryTrackingTrackedRow, type QueryTrackingWorkspaceResponse } from '@canonry/canonry-contracts'
+import { isSweepProvider, PROVIDER_NAMES, type QueryTrackingTrackedRow, type QueryTrackingWorkspaceResponse } from '@canonry/canonry-contracts'
 
 import {
   coverageByQuery,
@@ -608,9 +608,12 @@ describe('trackedLayout', () => {
   })
 
   describe('an engine column', () => {
-    /** Each engine's name in its header, 13px medium, as Chrome measures it, in px. A new engine needs its own before this passes. */
+    /**
+     * Each engine's name in its header, 13px medium, as Chrome measures it, in px. A new engine needs its own before this passes.
+     * A routed connection alone (OpenRouter) is never a column: a sweep measures its routes, each under its own name.
+     */
     const NAME_WIDTH: Record<string, number> = { Gemini: 42, OpenAI: 46, Claude: 43, Perplexity: 61, Muse: 34, Local: 34, 'Cdp:chatgpt': 76 }
-    const columns = PROVIDER_NAMES.map(provider => {
+    const columns = PROVIDER_NAMES.filter(provider => isSweepProvider(provider)).map(provider => {
       const name = providerDisplayName(provider)
       return { name, text: NAME_WIDTH[name]!, width: trackedEngineColumnWidth(name) }
     })

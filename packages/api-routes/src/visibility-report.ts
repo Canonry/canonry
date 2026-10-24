@@ -15,6 +15,7 @@ import {
   RunStatuses,
   answerProseForMentions,
   compileBrandAliases,
+  countsAsMention,
   effectiveBrandNames,
   matcherMatchesText,
   measurementV2UsageEdgeKey,
@@ -102,6 +103,8 @@ type VisibilitySnapshot = Pick<typeof querySnapshots.$inferSelect,
   | 'servedModel'
   | 'citationState'
   | 'answerMentioned'
+  | 'mentionIdentity'
+  | 'wrongSubjectTargetKeys'
   | 'answerText'
   | 'recommendedCompetitors'
   | 'citedDomains'
@@ -142,6 +145,8 @@ function loadVisibilitySnapshots(
     servedModel: querySnapshots.servedModel,
     citationState: querySnapshots.citationState,
     answerMentioned: querySnapshots.answerMentioned,
+    mentionIdentity: querySnapshots.mentionIdentity,
+    wrongSubjectTargetKeys: querySnapshots.wrongSubjectTargetKeys,
     answerText: querySnapshots.answerText,
     recommendedCompetitors: querySnapshots.recommendedCompetitors,
     citedDomains: querySnapshots.citedDomains,
@@ -474,7 +479,7 @@ function frozenSimpleRun(
     if (!slotKeys.has(slotId)) throw new Error(`Frozen simple definition has no slot for stored snapshot ${snapshot.id}`)
     const preparedAnswerText = preparedAnswerProse(snapshot.answerText)
     const mentioned = snapshot.answerText !== null
-      ? matcherMatchesText(matcher, preparedAnswerText)
+      ? countsAsMention(matcherMatchesText(matcher, preparedAnswerText), snapshot.mentionIdentity)
       : snapshot.answerMentioned === true
     const competitorSignalsForSnapshot = !includeEvidence || competitors === null
       ? { mentioned: [], cited: [] }

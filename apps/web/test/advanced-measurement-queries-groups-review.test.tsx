@@ -644,7 +644,7 @@ test('places competitors only in groups and uses one clear continuation action',
   const { props } = renderGroups({ groupDraft: emptyGroupDraft })
   expect(screen.getByText('rival.example')).toBeTruthy()
   expect(screen.getByRole('button', { name: "How groups apply. Competitor domains are used only in this group's competitor report. Membership changes affect future pairs only." }).textContent).toBe('How groups apply')
-  expect(screen.getByRole('button', { name: 'Use groups to apply queries by market and compare competitors.' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Use groups to organize locations, apply queries in bulk, and compare competitors.' })).toBeTruthy()
 
   expect(screen.queryByRole('button', { name: 'Skip groups' })).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
@@ -699,7 +699,7 @@ test('reviews CSV group rows before applying only matched memberships', () => {
   })
 
   expect(screen.getByText('1 matched · 1 group ready · 1 needs attention')).toBeTruthy()
-  expect(screen.getByRole('button', { name: 'Import group membership once instead of selecting the same locations for every group.' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Import group membership once instead of selecting the same locations repeatedly.' })).toBeTruthy()
   // The file's header is a wire name: the example and the hint show `property` as typed.
   expect(screen.getByLabelText('Group membership CSV').getAttribute('placeholder')).toBe('property,group,url\nHarbor House,Dallas,https://example.com/harbor-house')
   expect(screen.getByText('Use columns named property and group. URL is optional.')).toBeTruthy()
@@ -1047,7 +1047,7 @@ test('viewer access is inspect-only across the three steps', () => {
   const groupView = renderGroups({ access: 'viewer' })
   expect(screen.getByRole('button', { name: viewOnly }).textContent).toBe('View only')
   expect(groupView.container.querySelectorAll('input, select, textarea')).toHaveLength(0)
-  expect([...groupView.container.querySelectorAll('button')].map(button => button.getAttribute('aria-label'))).toEqual(['Use groups to apply queries by market and compare competitors.', viewOnly])
+  expect([...groupView.container.querySelectorAll('button')].map(button => button.getAttribute('aria-label'))).toEqual(['Use groups to organize locations, apply queries in bulk, and compare competitors.', viewOnly])
   groupView.unmount()
 
   const reviewView = renderReview({ access: 'viewer' })

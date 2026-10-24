@@ -24,6 +24,22 @@ function compactMeasurementCase(scenario: NativeDispatchCase): NativeDispatchCas
 }
 
 const expectedToolNames = [
+  'canonry_seo_operator_task',
+  'canonry_seo_operator_reconcile',
+  'canonry_seo_context',
+  'canonry_seo_status',
+  'canonry_seo_profiles',
+  'canonry_seo_profile',
+  'canonry_seo_profile_set',
+  'canonry_seo_refresh_intent',
+  'canonry_seo_sync',
+  'canonry_seo_runs',
+  'canonry_seo_run',
+  'canonry_seo_run_cancel',
+  'canonry_seo_overview',
+  'canonry_seo_keyword_metrics',
+  'canonry_seo_domain_intelligence',
+  'canonry_seo_ranked_keywords',
   'canonry_sentiment_settings',
   'canonry_sentiment_configure',
   'canonry_sentiment',
@@ -119,7 +135,12 @@ const expectedToolNames = [
   'canonry_ga_social_referral_history',
   'canonry_ga_social_referral_trend',
   'canonry_ga_attribution_trend',
+  'canonry_ga_overview',
   'canonry_ga_session_history',
+  'canonry_gbp_local_post_attempt',
+  'canonry_gbp_local_posts',
+  'canonry_gbp_local_post',
+  'canonry_gbp_reviews_live',
   'canonry_gbp_accounts',
   'canonry_gbp_locations',
   'canonry_gbp_locations_discover',
@@ -837,7 +858,7 @@ describe('MCP tool registry', () => {
   })
 
   it('ships the curated v1 surface', () => {
-    expect(canonryMcpTools.filter(tool => tool.access === 'read').length).toBe(173)
+    expect(canonryMcpTools.filter(tool => tool.access === 'read').length).toBe(190)
     expect(canonryMcpTools.map(tool => tool.name)).toEqual(expectedToolNames)
     const readNames = canonryMcpTools.filter(tool => tool.access === 'read' && !tool.requiresOperator).map(tool => tool.name)
     expect(getCanonryMcpTools('read-only').map(tool => tool.name)).toEqual(readNames)
@@ -879,8 +900,8 @@ describe('MCP tool registry', () => {
     expect(counts.get('monitoring')).toBe(64)
     expect(counts.get('setup')).toBe(69)
     expect(counts.get('gsc')).toBe(11)
-    expect(counts.get('ga')).toBe(13)
-    expect(counts.get('gbp')).toBe(14)
+    expect(counts.get('ga')).toBe(14)
+    expect(counts.get('gbp')).toBe(18)
     expect(counts.get('ads')).toBe(26)
     expect(counts.get('google-ads')).toBe(6)
     expect(counts.get('gtm')).toBe(7)
@@ -1523,7 +1544,7 @@ describe('Dynamic tool catalog', () => {
       'canonry_run_cancel',
       'canonry_agent_webhook_attach',
     ])
-    expect(help.toolkits.map(t => t.name)).toEqual(['monitoring', 'setup', 'gsc', 'bing', 'ga', 'gbp', 'ads', 'google-ads', 'gtm', 'conversion-tracking', 'traffic', 'agent', 'discovery'])
+    expect(help.toolkits.map(t => t.name)).toEqual(['seo', 'monitoring', 'setup', 'gsc', 'bing', 'ga', 'gbp', 'ads', 'google-ads', 'gtm', 'conversion-tracking', 'traffic', 'agent', 'discovery'])
     expect(help.toolkits.every(t => !t.loaded)).toBe(true)
 
     const monitoringFirst = catalog.loadToolkit('monitoring')
@@ -1549,7 +1570,7 @@ describe('Dynamic tool catalog', () => {
 
     const help = catalog.helpResult()
     expect(help.eager).toBe(true)
-    expect(help.loadedToolkits.sort()).toEqual(['ads', 'agent', 'bing', 'conversion-tracking', 'discovery', 'ga', 'gbp', 'google-ads', 'gsc', 'gtm', 'monitoring', 'setup', 'traffic'])
+    expect(help.loadedToolkits.sort()).toEqual(['ads', 'agent', 'bing', 'conversion-tracking', 'discovery', 'ga', 'gbp', 'google-ads', 'gsc', 'gtm', 'monitoring', 'seo', 'setup', 'traffic'])
     expect(help.toolkits.every(t => t.loaded)).toBe(true)
   })
 

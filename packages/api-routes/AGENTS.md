@@ -8,7 +8,7 @@ Shared Fastify route plugins used by both the local server (`packages/canonry`) 
 
 | File | Role |
 |------|------|
-| `src/status.ts` | Stored integration status, scoped to visible projects; shares doctor failure readers and freshness constants without running doctor checks. |
+| `src/status.ts` | Stored integration status, scoped to visible projects; shares doctor failure readers and freshness constants without running doctor checks. Optional `getMcpHealth` supplies the host's MCP prerequisites for instance and project reads, including an empty project list; it must not probe providers, DNS, or a client connection. |
 | `src/index.ts` | Plugin entry point, global error handler, `ApiRoutesOptions` interface |
 | `src/helpers.ts` | `resolveProject()`, `writeAuditLog()`, `incrementUsage()`, `notProbeRun()` Drizzle predicate (see "Probe runs") |
 | `src/auth.ts` | Auth plugin: API key and session validation, scope gates (see "Deployment posture and key authority") |
@@ -32,8 +32,10 @@ Every API operation carries `x-canonry-access` metadata and responses expose the
 | `src/gsc-period-comparison.ts` / `src/gbp-summary.ts` | Pure calculations behind the GSC performance tiles and `/gbp/summary` |
 | `src/ga-acquisition.ts` | Stored grouped acquisition sessions, filters, and paging. |
 | `src/ga.ts` | Google Analytics 4 routes |
+| `src/ga-overview.ts` | Pure builder behind `/ga/overview`: GA4's stored totals for a window and the period before it, their change (`deltaPercent`, relative for rates too), and both periods by day, a day GA4 sent no row for inside a synced period read as zero counts and unknown rates |
 | `src/ga-source-mover.ts` | Pure biggest-mover calculation behind `/ga/social-referral-trend` and `/ga/attribution-trend` (see "GA4 trend movers") |
-| `src/ga-search-landing-pages.ts` | GA4's Search Console landing-page snapshot: the sync's persist / failure writers, the connect / disconnect clears, `resolveCurrentGa4PropertyId` and `GET /ga/search-landing-pages` (see "GA4 Search Console landing pages") |
+| `src/ga-property-data.ts` | The GA tables a sync fills from one GA4 property and the clears every GA4 connection write runs, plus `resolveCurrentGa4PropertyId` (see "GA4 property-bound data") |
+| `src/ga-search-landing-pages.ts` | GA4's Search Console landing-page snapshot: the sync's persist / failure writers and `GET /ga/search-landing-pages` (see "GA4 Search Console landing pages") |
 | `src/ads.ts` / `src/ads-live-delivery.ts` | OpenAI ads (ChatGPT ads) routes; pure live-vs-stored comparison engine |
 | `src/traffic.ts` / `src/ai-referral-status.ts` | Server-side traffic ingestion routes; shared `ai_referral_events_hourly` read conditions |
 | `src/traffic-samples.ts` | Stored diagnostic sample rows with project/source scope, bounded paging, and viewer/embed restrictions. |
@@ -57,6 +59,19 @@ Every API operation carries `x-canonry-access` metadata and responses expose the
 | `src/egress-policy.ts` | The one outbound address policy: `blockedAddressReason` and `isLoopbackAddress`, both decided by the address bytes. `resolveWebhookTarget` (`src/webhooks.ts`) and `resolvePublicHttpTarget` (`resolveMeasurementSitemapTarget`) classify every resolved address with it, so add or remove a range here, never in a gate. `allowLoopback` admits loopback by its bytes only. Both gates are tested against `test/egress-address-fixture.ts`. `resolveWebhookTarget` answers `localhost` and `*.localhost` with 127.0.0.1 and ::1 without asking DNS (RFC 6761), because its `dns.resolve4`/`resolve6` queries never read the hosts file. |
 
 ## Patterns
+
+### Routed providers and answer services
+
+Route families come from the host's adapter descriptions (`ProviderAdapterInfo.routes`, `profiles`, `kind`); `index.ts` derives them once (`routeFamiliesOf`) and passes them to every plugin that resolves provider names. Validate explicit selections with `invalidProviderSelections(names, available, adapters, workflow)` and check route authority with `assertProviderRouteScope(..., families)`; every "all configured" expansion and every `runnableProviders` call takes `routeFamilies`, so a routed connection never joins an implicit roster. An answer service accepts only a key on `PUT /settings/providers/:name` (no base URL, no model). `/settings` lists each answer-service connection and one entry per profile from its descriptor; engine entries keep their exact shape. Research defaults never pick an answer service, and research and run snapshot DTOs carry `evidence` only when it was recorded.
+
+### OpenRouter measurement routes
+
+OpenRouter credentials belong to the `openrouter` connection. Sweeps select fixed `openrouter:vendor/model` routes; the connection alone is excluded from automatic sweeps. `provider-models.ts` resolves route descriptors from the connection metadata, and `/settings` exposes both the connection and selectable model routes through the existing catalog. Model routes keep independent snapshot/manifest identities while account admission and fill quotas share `providerConnectionName` from contracts. `run-queue.ts` and the draft compiler freeze each route's model and reject conflicting overrides.
+
+Adding a routed model is model selection and requires `settings.write` through `assertOpenRouterRouteScope`. Runs, query generation, schedules, research and Advanced contexts may select routes already saved on that project with their normal action scope. Draft edits preserve previously authorized routes; publishing a route outside the project's saved roster requires model-choice authority.
+Ad hoc `/snapshot` has no saved project roster, so any explicit OpenRouter route requires `settings.write`.
+
+Draft engine changes preserve existing location overrides, including an explicit empty location list. Rerouting uses `frozenMeasurementDraftExecutionKeys` from the draft compiler to reuse matching executions across Properties and remaps market edges to those keys. Identical provider work must not acquire a second execution key that the queue deduplicates but reports still expect.
 
 ### Run admission
 
@@ -173,6 +188,8 @@ Historical trends use the shared compact measurement signals. Reconstruct detail
 Groups select properties. Markets select frozen `reportingScopes` execution edges. Group breakdown rows use the same selected population as direct group summaries; navigation metadata alone never adds a market filter.
 The measurement overview's `scope=market` (`marketKey`) selects the same exact market edges (`resolveMarketScope` in `measurement-overview.ts`); its `scope=group` keeps every edge of the group's Properties. The response `scope.kind` names which one was read, so a group figure never stands for a market.
 `measurement-overview`, `measurement-changes` and `measurement-report` default to `MEASUREMENT_DEFAULT_QUERY_CLASS` (non-brand). `all` pools both classes and is served only on request. A v1 revision records no class: its report echoes `queryClass: null` and refuses a named class. Property evidence and competitors still default to `all` over HTTP; MCP sends non-brand for them.
+Sentiment's identity verdicts override name matches (`src/sentiment-mention-identity.ts`, `docs/sentiment.md`). A Simple snapshot's `mention_identity` is `wrong-subject` when the latest completed result that judged identity said so, and its stored `answer_mentioned` is false. Every reader that turns a project name match into a mention passes the stored verdict through contracts `countsAsMention`: the read-time helpers in `helpers.ts`, mention share inputs, `visibility-compare`, the Simple visibility report, the stored recompute (`backfillProjectAnswerMentions`) and `canonry backfill`. The snapshot input types make `mentionIdentity` required, so a new reader cannot silently skip it. Advanced readers drop the Properties in `wrong_subject_target_keys` through the report kernel (`MeasurementObservationInput.wrongSubjectTargetIds`, `resolveMentionIdentity`) and `createTargetMentionReader`. `refreshSnapshotMentionIdentity` writes both columns, in the sentiment worker's completion transaction, after `canonry backfill answer-visibility` rewrites answer text, and once on local startup; nothing else writes them. It counts only results whose `source_text_hash` matches the answer's current text. Only `wrong-subject` changes a mention; `ambiguous-subject` never does.
+
 A clarifying answer ("which X do you mean?") names a Property only when the answer cites that Property's own page or the Property's branded query names it (`queryNamedTargetIds` in `measurement-report.ts`, read with the answer's longest-name matcher). A non-brand or unclassified (v1) assignment never settles it: a non-brand query containing the name uses it as a place. `prepareReport` reads the branded edges; `createTargetMentionReader` takes the frozen query text with the answer's branded target ids. A multi-entity answer and a Property with `identityAliases` keep their stricter rule.
 The optional `marketKey` intersects a project, group, or property selection with exact market edges before every report section and answer read. It participates in cursor identity. Explicit `reportingScopes.groupKey` links navigation; never infer it from overlapping properties.
 Display-only revisions and additive reporting scopes use the comparable chain only when every existing market population and all other measurement semantics remain exact. Material changes read prior evidence through its own frozen plan.
@@ -440,6 +457,7 @@ Every read-time competitor reader scores stored answers with the names the proje
 
 - The auth plugin does API key and session validation. It exports `hashApiKey()` (sha256 of a raw `cnry_…` token → `api_keys.key_hash`) and `requireScope()`; both are reused by `keys.ts`.
 - Every path that renews a named-account session must reissue its browser cookie in the same response, including public session reads and native OAuth consent. A renewed database row alone leaves the browser dropping the cookie at its prior expiry. Use the host's cookie path and `cookieIsSecure` request/proxy fallback; preserve the existing idle and absolute lifetimes.
+- OAuth hosts set `authorizationPath` inside their session-cookie base path. Metadata advertises it; legacy root authorize/login/consent URLs redirect with HTTP 307, preserving method and query. Never widen a tenant cookie to the host root to repair subpath sign-in.
 - The `onRequest` hook also enforces the **global read-only gate**: a read-only key (`isReadOnlyKey(scopes)` from contracts — has `read`, no `*`/`*.write`) is rejected on every mutating HTTP method (POST/PUT/PATCH/DELETE) with `403`; GET/HEAD/OPTIONS pass. Method-based, so a new write route is read-only-protected automatically — see "Deployment posture and key authority" above (the read-only keys bullet in "Operational guidance").
 - It also exports `requirePaidReadScope()`, the gate for GETs that SPEND (they call a provider live on the caller's behalf rather than returning stored data): an ALLOW list of `*` / `ads.write` / `ads.approve` / `ads.activate`, so a read-only key, a key scoped to something unrelated, and an empty scope list are all refused. Pair it with `requireAdminSession()` — the scope gate returns early for a signed-in person, so alone it would let a viewer spend.
 - `requireInstanceAdministrator()` gates an ADMINISTRATOR SURFACE, and asks two questions where the others ask one: the caller must not be a signed-in viewer, AND must not be a credential narrower than the install (one confined to a project, or carrying anything less than the wildcard). `requireAdminSession()` alone answers only the first, because it reads a role and an API key carries none, so every key passes it. Use this wherever a narrow key reaching the route would be wrong rather than merely unusual: every `/projects/:name/agent/*` route carries it, since Aero's tools execute with the install root key and its transcript is the operator's own conversation. `isInstanceAdministrator()` is the non-throwing form, for a read that stays available but discloses less (the `config.agent-providers` doctor check consults it).
@@ -637,6 +655,15 @@ The dimensioned search-data table is valid for RANKING and invalid for TOTALS. R
 - Any new figure added to `/ga/traffic`, and any new route whose numbers are read beside it, must use the same resolved range.
 - Row shares are computed here, never in a surface: each `aiReferrals` / `socialReferrals` row's `share` comes from `breakdownShares`, so a table adds up to 1 (AI rows over their own sum, which can sit below `aiSessionsDeduped` because that total picks the winning lens per day), and each top page's `organicShare` from `shareOf`.
 
+### GA4 property-bound data
+
+`src/ga-property-data.ts`. GA rows record no GA4 property (only the landing-page windows do), so a project's GA data must come from the one property it resolves to now (`resolveCurrentGa4PropertyId`: its service account, then its domain's OAuth `ga4` connection).
+
+- `GA_PROPERTY_TABLES` lists every table a sync fills, `ga_measurement_sync_state` included: its timestamps would turn the new property's first sync into an incremental one. Add a new GA table there; `ga-property-data.test.ts` reads every `ga_*` table from the schema and fails on one a clear leaves behind.
+- `ga disconnect` clears the project with `clearGaPropertyData`. Every other GA4 connection write reads the affected projects' properties first (`readGa4Properties`), then calls `clearGaDataOnPropertyChange` in the transaction that writes its audit entry: `ga connect` (both paths) and the Google routes for `ga4` (OAuth callback, `DELETE /google/connections/ga4`, `PUT .../ga4/property`). A new write path does the same.
+- A project is cleared when its property changed, to another or to none, or when its stored landing-page snapshot names another one. A project still on the same property (a rotated key, a repeated connect, an OAuth change its service account overrides) keeps its data.
+- The OAuth connection is keyed by the exact domain, so its writes reach every project with that canonical domain (`projectsSharingGa4Connection`), and each project that loses rows gets its own `ga4.data-cleared` audit entry. A change made outside these routes (a hand-edited `config.yaml`) clears nothing.
+
 ### GA4 Search Console landing pages
 
 `src/ga-search-landing-pages.ts`: GA4's "Google organic search traffic: Landing page + query string" report, stored by `POST /ga/sync` (or `only: 'search-landing'`) and read by `GET /ga/search-landing-pages`.
@@ -644,8 +671,8 @@ The dimensioned search-data table is valid for RANKING and invalid for TOTALS. R
 - **Window snapshots, GA4 totals only.** One stored snapshot per `7d` / `28d` / `90d` window, each ending yesterday in the property time zone, as GA4's own ranges do. `total` is the window row's GA4 TOTAL, never a sum of the page rows (users are distinct per grain; CTR and position are ratios). There is no `--start` / `--end`: a custom range could not be answered exactly.
 - **One request per window** (`fetchSearchLandingPages` in the GA4 integration). The Search Console metrics reject `date`, `sessionSource`, `sessionMedium` and `sessionDefaultChannelGroup`, so there are no daily rows and no source filter; Active users is GA4's plain `activeUsers` from the same request, which reproduced GA4's report (a google / organic filter did not).
 - **Fail-soft, keep the last good snapshot.** `ready` replaces every window and page row in one transaction. `unavailable` (GA4 refused the Search Console metrics, inferred for an unlinked property and not yet observed live) and `error` write only the `search_landing_*` state; the stored snapshot of the same property and its `syncedAt` stay, and the read returns them beside the status. The run still completes, and `syncedComponents` lists `search-landing` only when the snapshot was stored.
-- **The snapshot belongs to one property.** Window rows carry the GA4 `property_id` they were read from. A failed attempt against a different property (the project was pointed at a new one) drops the old snapshot in the same transaction, so another property's figures are never shown as the last good snapshot. `POST /ga/connect` (both paths) drops the snapshot and resets the state when the property the project resolves to changes, or the stored snapshot names another property; a reconnect to the same property keeps it.
-- **Stored data only, current property only.** The read makes no Google call, so a project that never synced reads `never-synced` with a null `total`. It resolves the project's current property from the stored connection records (`resolveCurrentGa4PropertyId`: service account, then the domain's OAuth `ga4` connection, the sync's order and the property `ga status` reports) and reads a window stored for any other property, or with no connection at all, as `never-synced` with no Total and no rows. A GET never deletes it; the next sync replaces it or drops it. Disconnect deletes the snapshot and resets the state.
+- **The snapshot belongs to one property.** Window rows carry the GA4 `property_id` they were read from. A failed attempt against a different property (the project was pointed at a new one) drops the old snapshot in the same transaction, so another property's figures are never shown as the last good snapshot. A connection write that changes the project's property drops it with the rest of the project's GA data (see "GA4 property-bound data").
+- **Stored data only, current property only.** The read makes no Google call, so a project that never synced reads `never-synced` with a null `total`. It resolves the project's current property from the stored connection records (`resolveCurrentGa4PropertyId`: service account, then the domain's OAuth `ga4` connection, the sync's order and the property `ga status` reports) and reads a window stored for any other property, or with no connection at all, as `never-synced` with no Total and no rows. A GET never deletes it; the next sync replaces it or drops it. Disconnect deletes it with the rest of the project's GA data.
 
 ### GA4 trend movers
 
@@ -911,7 +938,8 @@ retention writes, or rollup changes belong in this route.
 counting the full selection. It never requires a live GA connection. The normalized
 page keeps meaningful query parameters; only the path-prefix filter ignores them.
 `literalPathPrefixCondition` shares boundary-safe, escaped SQL matching with the
-measurement analysis reader. Project-only scope cannot identify older GA properties.
+measurement analysis reader. Rows record no GA4 property; a change of property clears
+them (see "GA4 property-bound data").
 
 ### Window parsing
 
@@ -970,3 +998,20 @@ Suggestion reads refuse oversized exact workloads before matching: at most
 `competitor-suggestions-work-limit` with narrowing guidance, never a sampled
 result presented as exact. Add/replace competitor inputs validate registrable
 domains; removals stay permissive so legacy invalid rows can be cleaned up.
+
+## SEO data
+
+`seo.ts` owns named project profiles, free refresh intents, durable sync admission,
+and saved evidence reads. `seo.run` authorizes sync/cancel; `seo.write` authorizes
+profile changes; both deny viewer sessions and delegated viewers. Read-semantic
+intents perform no provider I/O and bind identity, profile revision, frozen scope,
+provider account, pricing revision, and host policy. Customer projections exclude
+provider operating costs; CPC and estimated traffic value remain legitimate SEO
+metrics. `/seo/operator/tasks/:id` and its reconciliation write require host
+operator authority, never merely an administrator session. Reconciliation records
+a verified upstream receipt without repeating the paid request.
+
+Advanced non-project domain metrics require exact host footprints; path/entity
+Properties can use explicit keyword metrics. Domain intelligence cannot substitute
+a broader domain for a Property. Saved evidence defaults to the latest completed
+or partial job for the selected profile, independently of the latest refresh state.

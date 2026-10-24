@@ -342,7 +342,7 @@ test('draws the Add button beside the tabs, then the number strip, the toolbar a
   expect(requests.filter(request => request.startsWith('GET /query-tracking'))).toEqual(['GET /query-tracking', 'GET /query-tracking/results?sort=winning&compare=previous'])
   expect(requests.filter(request => !request.startsWith('GET '))).toEqual([])
   // None of the old page's words.
-  expect(document.body.textContent).not.toMatch(/Scope|Class|Whole site|Assigned relationships|Awaiting sweep|Not in current plan|Legacy|Template|Unclassified|propert|question|—/)
+  expect(document.body.textContent).not.toMatch(/Scope|Class|Whole site|Assigned relationships|Awaiting check|Not in current plan|Legacy|Template|Unclassified|propert|question|—/)
   expectNoSentence(region())
 })
 

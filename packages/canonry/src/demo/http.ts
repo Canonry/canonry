@@ -24,6 +24,18 @@ const INLINE_SCRIPT = /<script(?<attributes>[^>]*)>(?<body>[\s\S]*?)<\/script>/g
 // the demo, so it is not served.
 // Legacy Report documents reach the SPA's AI Visibility redirect; its APIs stay denied.
 const DEMO_DOCUMENT_PATH = /^\/(?:projects(?:\/[^/.]+(?:\/(?:portfolio|discovery|search-console|activity|technical-aeo|conversions|local|queries|backlinks|report|history|settings|properties)(?:\/[^/.]+)*)?)?|runs|history|traffic(?:\/[^/.]+(?:\/[^/.]+)?)?)\/?$/
+// The link preview that chat apps and social sites show for a demo URL. They
+// read only the static document, so the tags are written into it here.
+const DEMO_TITLE = 'Canonry live demo'
+const DEMO_DESCRIPTION = 'The open-source AEO operating platform. Sample data, no sign-in.'
+const DEMO_PREVIEW_IMAGE = 'demo-og.png'
+const DEMO_PREVIEW_IMAGE_ALT = 'Canonry dashboard with sample data'
+const DEMO_PREVIEW_SLOT = '<!--canonry-demo-preview-->'
+// A Host header worth echoing into the document: a name or address with an optional port.
+const PLAIN_HOST = /^[a-z0-9.-]+(?::\d{1,5})?$/i
+// Link-preview fetchers that read robots.txt. Search crawlers stay disallowed.
+const LINK_PREVIEW_AGENTS = ['Twitterbot', 'facebookexternalhit', 'LinkedInBot', 'Slackbot-LinkExpanding', 'Discordbot', 'TelegramBot', 'WhatsApp']
+const DEMO_ROBOTS = [...LINK_PREVIEW_AGENTS.map(agent => `User-agent: ${agent}`), 'Allow: /', '', 'User-agent: *', 'Disallow: /', ''].join('\n')
 // Where a request whose path the router cannot decode is routed a second time.
 // No route or dashboard location matches it, so it lands in the not-found handler.
 const UNDECODABLE_PATH = '/.undecodable-path'
@@ -49,6 +61,39 @@ function demoContentSecurityPolicy(document: string): string {
     "form-action 'none'",
     "frame-ancestors 'self'",
   ].join('; ')
+}
+
+function escapeAttribute(value: string): string {
+  return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
+/**
+ * Open Graph and Twitter card tags for one request. Previewers need absolute
+ * URLs, so they are built from the origin the visitor asked for (the scheme
+ * comes from a trusted proxy's X-Forwarded-Proto). A Host header that is not a
+ * plain name leaves the URLs relative rather than echoing it.
+ */
+function demoPreviewTags(request: FastifyRequest): string {
+  const origin = PLAIN_HOST.test(request.host) ? `${request.protocol}://${request.host}` : ''
+  const image = `${origin}/${DEMO_PREVIEW_IMAGE}`
+  const page = `${origin}${request.url.split('?')[0] ?? '/'}`
+  const tags: Array<[string, string, string]> = [
+    ['property', 'og:type', 'website'],
+    ['property', 'og:site_name', 'Canonry'],
+    ['property', 'og:title', DEMO_TITLE],
+    ['property', 'og:description', DEMO_DESCRIPTION],
+    ['property', 'og:url', page],
+    ['property', 'og:image', image],
+    ['property', 'og:image:width', '1200'],
+    ['property', 'og:image:height', '630'],
+    ['property', 'og:image:alt', DEMO_PREVIEW_IMAGE_ALT],
+    ['name', 'twitter:card', 'summary_large_image'],
+    ['name', 'twitter:title', DEMO_TITLE],
+    ['name', 'twitter:description', DEMO_DESCRIPTION],
+    ['name', 'twitter:image', image],
+    ['name', 'twitter:image:alt', DEMO_PREVIEW_IMAGE_ALT],
+  ]
+  return tags.map(([attribute, key, value]) => `<meta ${attribute}="${key}" content="${escapeAttribute(value)}">`).join('')
 }
 
 function isDemoDocumentRequest(request: FastifyRequest): boolean {
@@ -87,7 +132,10 @@ export async function createDemoHttpServer(options: {
   const { db, assetsDir, now } = options
   const html = readFileSync(join(assetsDir, 'index.html'), 'utf8')
     .replace('<head>', '<head><base href="/">')
-    .replace('</head>', `<script>window.__CANONRY_CONFIG__=${JSON.stringify(DEMO_CLIENT_CONFIG)}</script></head>`)
+    .replace(/<title>[^<]*<\/title>/, `<title>${DEMO_TITLE}</title>`)
+    .replace(/<meta\s+name="description"\s+content="[^"]*"\s*\/?>/, `<meta name="description" content="${DEMO_DESCRIPTION}" />`)
+    .replace('</head>', `${DEMO_PREVIEW_SLOT}<script>window.__CANONRY_CONFIG__=${JSON.stringify(DEMO_CLIENT_CONFIG)}</script></head>`)
+  // The preview tags add no script, so the policy hashes the shared document.
   const contentSecurityPolicy = demoContentSecurityPolicy(html)
   db.insert(apiKeys).values({
     ...DEMO_VIEWER,
@@ -201,10 +249,10 @@ export async function createDemoHttpServer(options: {
     index: false,
     dotfiles: 'deny',
   })
-  const sendDocument = (_request: unknown, reply: FastifyReply) => {
-    return reply.header('Cache-Control', 'no-cache').type('text/html').send(html)
+  const sendDocument = (request: FastifyRequest, reply: FastifyReply) => {
+    return reply.header('Cache-Control', 'no-cache').type('text/html').send(html.replace(DEMO_PREVIEW_SLOT, demoPreviewTags(request)))
   }
-  for (const [filename, contentType] of [['favicon.svg', 'image/svg+xml'], ['favicon-32.png', 'image/png'], ['apple-touch-icon.png', 'image/png']] as const) {
+  for (const [filename, contentType] of [['favicon.svg', 'image/svg+xml'], ['favicon-32.png', 'image/png'], ['apple-touch-icon.png', 'image/png'], [DEMO_PREVIEW_IMAGE, 'image/png']] as const) {
     const path = join(assetsDir, filename)
     if (existsSync(path)) {
       const icon = readFileSync(path)
@@ -212,7 +260,7 @@ export async function createDemoHttpServer(options: {
     }
   }
   app.get('/', sendDocument)
-  app.get('/robots.txt', async (_request, reply) => reply.type('text/plain').send('User-agent: *\nDisallow: /\n'))
+  app.get('/robots.txt', async (_request, reply) => reply.type('text/plain').send(DEMO_ROBOTS))
   app.setNotFoundHandler(async (request, reply) => {
     if (undecodable.has(request.raw)) {
       return reply.code(400).send({ error: { code: 'VALIDATION_ERROR', message: 'The request path is not a valid URL.' } })

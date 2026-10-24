@@ -332,7 +332,7 @@ describe('TrackResearchSheet', () => {
     const running = renderSheet({ items, sweepActive: true, nextSweepDate: 'Oct 21' }).sheet
     await review(running, writes)
     expect(running.getByRole<HTMLButtonElement>('button', { name: 'Publish 1 change' }).disabled).toBe(true)
-    expect(running.getByRole('button', { name: /^Sweep running\./ })).toBeTruthy()
+    expect(running.getByRole('button', { name: /^Check running\./ })).toBeTruthy()
     expect(running.queryByText('First answers Oct 21')).toBeNull()
 
     cleanup()

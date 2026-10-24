@@ -34,7 +34,7 @@ function useWriteGuard(): () => void {
 function queuedTitleForRun(kind: string) {
   if (kind === 'gsc-sync') return 'GSC sync queued'
   if (kind === 'inspect-sitemap') return 'Sitemap inspection queued'
-  return 'Visibility sweep queued'
+  return 'AI Visibility check queued'
 }
 
 function queuedDetailForRun(projectLabel: string | undefined, kind: string) {
@@ -138,8 +138,8 @@ function handleTrackedRunError(error: unknown, options?: {
 }) {
   if (error instanceof ApiError && error.code === 'PROVIDERS_FAILING') {
     addToast({
-      title: 'Sweep not started',
-      detail: 'Every provider keeps failing on its account. The AI Visibility notice says when sweeps resume.',
+      title: 'Check not started',
+      detail: 'Every provider keeps failing on its account. The AI Visibility notice says when checks resume.',
       tone: 'caution',
       durationMs: 8000,
       dedupeKey: `providers-failing:${options?.projectKey ?? 'project'}:${options?.sourceAction ?? 'run'}`,

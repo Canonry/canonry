@@ -79,14 +79,14 @@ export function formatDuration(startedAt: string | null, finishedAt: string | nu
 
 function kindLabel(kind: RunKind): string {
   switch (kind) {
-    case RunKinds['answer-visibility']: return 'Answer visibility sweep'
+    case RunKinds['answer-visibility']: return 'AI Visibility check'
     case RunKinds['gsc-sync']: return 'GSC sync'
     case RunKinds['inspect-sitemap']: return 'Sitemap inspection'
     case RunKinds['ga-sync']: return 'GA sync'
     case RunKinds['traffic-sync']: return 'Traffic sync'
     case RunKinds['bing-inspect']: return 'Bing URL inspection'
     case RunKinds['bing-inspect-sitemap']: return 'Bing sitemap inspection'
-    case RunKinds['site-audit']: return 'Site audit'
+    case RunKinds['site-audit']: return 'Technical AEO audit'
     case RunKinds['backlink-extract']: return 'Backlink extract'
     case RunKinds['aeo-discover-seed']: return 'Discovery (seed phase)'
     case RunKinds['aeo-discover-probe']: return 'Discovery (probe phase)'
@@ -94,6 +94,7 @@ function kindLabel(kind: RunKind): string {
     case RunKinds['ads-sync']: return 'ChatGPT ads sync'
     case RunKinds['google-ads-sync']: return 'Google Ads sync'
     case RunKinds['gtm-sync']: return 'Tag Manager sync'
+    case RunKinds['seo-sync']: return 'SEO data refresh'
   }
 }
 
@@ -133,6 +134,7 @@ function formatRunError(error: RunErrorDto): string {
 }
 
 function statusDetailFromRun(run: ApiRun): string {
+  if (run.kind === RunKinds['seo-sync']) return 'View the saved scope and task results in SEO data.'
   switch (run.status) {
     case RunStatuses.queued: return 'Waiting for execution slot.'
     case RunStatuses.running: return 'Provider queries in progress.'
@@ -356,6 +358,7 @@ function buildEvidenceFromTimeline(
             competitorDomains,
             recommendedCompetitors: snap?.recommendedCompetitors ?? [],
             matchedTerms: snap?.matchedTerms ?? [],
+            mentionIdentity: snap?.mentionIdentity ?? null,
             relatedTechnicalSignals: [],
             groundingSources: snap?.groundingSources ?? [],
             searchQueries: snap?.searchQueries ?? [],
@@ -855,7 +858,7 @@ export function buildDashboard(projectDataList: ProjectData[], apiSettings?: Api
     setup: {
       healthChecks: [
         { id: 'api', label: 'API reachable', detail: 'API is responding.', state: 'ready', guidance: 'Required for project creation and run history.' },
-        { id: 'provider', label: 'Provider configured', detail: 'Gemini key is configured.', state: 'ready', guidance: 'Required for answer-visibility sweeps.' },
+        { id: 'provider', label: 'Provider configured', detail: 'Gemini key is configured.', state: 'ready', guidance: 'Required for AI Visibility checks.' },
       ],
       projectDraft: { name: '', canonicalDomain: '', country: 'US', language: 'en' },
       queryImportState: { mode: 'paste', queryCount: 0, preview: [] },
@@ -870,6 +873,7 @@ export function buildDashboard(projectDataList: ProjectData[], apiSettings?: Api
       providerStatuses: (apiSettings?.providers ?? []).map(p => ({
         name: p.name,
         displayName: p.displayName,
+        ...(p.kind ? { kind: p.kind } : {}),
         keyUrl: p.keyUrl,
         modelHint: p.modelHint,
         model: p.model,

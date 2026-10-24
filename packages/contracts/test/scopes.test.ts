@@ -7,6 +7,8 @@ import {
   GOOGLE_MARKETING_WRITE_SCOPE,
   READ_ONLY_SCOPE,
   WILDCARD_SCOPE,
+  SEO_RUN_SCOPE,
+  SEO_WRITE_SCOPE,
   isReadOnlyKey,
   restrictedWriteScopes,
   intersectScopes,
@@ -25,6 +27,13 @@ describe('scope constants', () => {
 })
 
 describe('isReadOnlyKey', () => {
+  it.each([SEO_RUN_SCOPE, SEO_WRITE_SCOPE])('keeps %s restricted to its authorized SEO routes', scope => {
+    expect(isReadOnlyKey(['read', scope])).toBe(false)
+    expect(restrictedWriteScopes(['read', scope])).toEqual([scope])
+    expect(restrictedWriteScopes([scope, 'research.run'])).toEqual([scope, 'research.run'])
+    expect(intersectScopes(['read'], ['read', scope])).toEqual(['read'])
+    expect(intersectScopes(['read', scope], ['read', 'settings.write'])).toEqual(['read'])
+  })
   it.each(['logs.read', 'users.read', 'custom.read'])('treats the named read scope %s as read-only by default', scope => {
     expect(isReadOnlyKey([scope])).toBe(true)
     expect(isReadOnlyKey([scope, 'read'])).toBe(true)

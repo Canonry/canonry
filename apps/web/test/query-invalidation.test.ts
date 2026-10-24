@@ -106,3 +106,18 @@ test('keeps generated operation-prefix matching in the typed domain registry', (
   expect(violations).toEqual([])
   expect(Object.keys(PROJECT_QUERY_DOMAINS).length).toBeGreaterThan(0)
 })
+
+test('a completed SEO profile refresh leaves other profiles and projects cached', async () => {
+  const queryClient = new QueryClient()
+  const keys = [
+    [{ _id: 'getApiV1ProjectsByNameSeoOverview', path: { name: 'alpha' }, query: { profileId: 'france' } }],
+    [{ _id: 'getApiV1ProjectsByNameSeoRankedKeywords', path: { name: 'alpha' }, query: { profileId: 'france', runId: 'saved' } }],
+    [{ _id: 'getApiV1ProjectsByNameSeoOverview', path: { name: 'alpha' }, query: { profileId: 'germany' } }],
+    [{ _id: 'getApiV1ProjectsByNameSeoOverview', path: { name: 'beta' }, query: { profileId: 'france' } }],
+    [{ _id: 'getApiV1ProjectsByNameGoogleGscCoverage', path: { name: 'alpha' } }],
+  ]
+  for (const key of keys) queryClient.setQueryData(key, { saved: true })
+  await invalidateProjectQueryDomain(queryClient, 'seo', { projectName: 'alpha', profileId: 'france' })
+  expect(keys.map(key => queryClient.getQueryState(key)?.isInvalidated)).toEqual([true, true, false, false, false])
+  queryClient.clear()
+})

@@ -4,7 +4,7 @@ import { and, eq, inArray, notExists, sql } from 'drizzle-orm'
 import { queueRunIfProjectIdle, nextRunFromCron, nextRunFromSchedule, ensureCurrentQueryBasketRevision, hasOutstandingProviderBatch, latestQueryBasketRevision } from '@canonry/canonry-api-routes'
 import type { DatabaseClient } from '@canonry/canonry-db'
 import { schedules, projects, runs, siteCrawlRunRequests } from '@canonry/canonry-db'
-import type { CalendarRecurrence, ProviderName, LocationContext, SchedulableRunKind } from '@canonry/canonry-contracts'
+import type { CalendarRecurrence, ProviderName, ProviderRouteFamily, LocationContext, SchedulableRunKind } from '@canonry/canonry-contracts'
 import {
   SchedulableRunKinds,
   calendarRecurrenceSchema,
@@ -79,6 +79,8 @@ export interface SchedulerCallbacks {
    * measure against while a hand-triggered one worked fine.
    */
   getRunnableProviderNames?: () => readonly string[]
+  /** Route families of every known adapter, so a routed connection never joins "all configured". */
+  getProviderRouteFamilies?: () => readonly ProviderRouteFamily[]
   /** Provider → the model this host has it pointed at, frozen onto plan runs. */
   getEffectiveProviderModels?: () => Readonly<Record<string, string>>
   /**
@@ -755,6 +757,7 @@ export class Scheduler {
         location: locationLabel,
         providers,
         runnableProviders: this.callbacks.getRunnableProviderNames?.(),
+        routeFamilies: this.callbacks.getProviderRouteFamilies?.(),
         providerModels: this.callbacks.getEffectiveProviderModels?.(),
         batchEligibleProviders: this.callbacks.getBatchEligibleProviderNames?.() ?? null,
         // A skipped slot is otherwise invisible: no run row, nothing in the

@@ -1,4 +1,4 @@
-import type { McpHealth, ProjectDto, QueryClass, RunDto, RunStatus, GroundingSource, MentionShareDto, MovementComparisonDto, ProjectOverviewProviderScoreDto, SuggestedQueriesSummaryDto, SentimentOverview } from '@canonry/canonry-contracts'
+import type { InsightActionGroup, McpHealth, MentionIdentity, ProjectDto, QueryClass, RunDto, RunStatus, GroundingSource, MentionShareDto, MovementComparisonDto, ProjectOverviewProviderScoreDto, SuggestedQueriesSummaryDto, SentimentOverview } from '@canonry/canonry-contracts'
 
 export type MetricTone = 'positive' | 'caution' | 'negative' | 'neutral'
 /** `disabled` is a service switched off on purpose, such as the public demo's worker. */
@@ -156,6 +156,8 @@ export interface CitationInsightVm {
   competitorDomains: string[]
   recommendedCompetitors?: string[]
   matchedTerms?: string[]
+  /** `wrong-subject`: the answer uses a matched name, but sentiment found it is about something else. */
+  mentionIdentity?: MentionIdentity | null
   relatedTechnicalSignals: string[]
   groundingSources: GroundingSource[]
   /** Web search queries this AI model issued while researching the prompt (Gemini grounding queries, the CDP-submitted query, etc.). */
@@ -184,7 +186,7 @@ export interface AffectedPhrase {
  *  Opportunities panel as Write / Investigate / Monitor / Track cards. The
  *  `track` group is GSC-derived (suggested queries to add to the basket), not
  *  insight-derived — it doesn't actually appear on `ProjectInsightVm`. */
-export type InsightActionGroup = 'write' | 'investigate' | 'monitor'
+export type { InsightActionGroup }
 
 export interface ProjectInsightVm {
   id: string
@@ -296,6 +298,8 @@ export interface SetupWizardVm {
 export interface ProviderStatusVm {
   name: string
   displayName?: string
+  /** Absent means an answer engine. An answer service never counts toward sweep readiness. */
+  kind?: 'answer-engine' | 'model-gateway' | 'answer-service'
   keyUrl?: string
   modelHint?: string
   model?: string

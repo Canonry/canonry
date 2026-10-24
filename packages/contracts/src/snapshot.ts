@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { answerEvidenceSchema } from './answer-evidence.js'
 import { groundingSourceSchema } from './run.js'
 
 export const snapshotProviderModeSchema = z.enum(['all', 'api', 'browser'])
@@ -96,6 +97,10 @@ export const snapshotProviderResultSchema = z.object({
   searchQueries: z.array(z.string()).default([]),
   answerText: z.string(),
   error: z.string().nullable().optional(),
+  /** Vendor-neutral answer evidence (answer services); absent for answer engines. */
+  evidence: answerEvidenceSchema.nullable().optional(),
+  /** False when the provider's sources are not tied to its answer, so `cited` was not measured. */
+  citationMeasured: z.boolean().optional(),
 })
 
 export type SnapshotProviderResultDto = z.infer<typeof snapshotProviderResultSchema>
@@ -112,7 +117,15 @@ export const snapshotSummarySchema = z.object({
   totalProviders: z.number().int().nonnegative(),
   totalComparisons: z.number().int().nonnegative(),
   mentionCount: z.number().int().nonnegative(),
+  /** Successful responses whose citation was measured and found the domain cited; read against `citationComparisons`. */
   citationCount: z.number().int().nonnegative(),
+  /**
+   * Successful responses whose citation could be measured: the denominator of
+   * `citationCount`. Lower than `totalComparisons` when a provider's sources
+   * are not tied to its answer, so those answers are neither cited nor not
+   * cited. Absent on reports made before it existed (read `totalComparisons`).
+   */
+  citationComparisons: z.number().int().nonnegative().optional(),
   topCompetitors: z.array(snapshotCompetitorEntrySchema).default([]),
   visibilityGap: z.string(),
   whatThisMeans: z.array(z.string()).default([]),

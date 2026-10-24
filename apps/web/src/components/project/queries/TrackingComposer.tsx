@@ -73,7 +73,7 @@ export function TrackingComposer({
           <h3 ref={editorHeadingRef} tabIndex={-1}>Edit query</h3>
           {workspace.mode === 'simple' ? <Button type="button" variant="ghost" size="sm" onClick={close}>Cancel</Button> : null}
         </div>
-        <ChangeFacts action={action} advanced={workspace.mode === 'advanced'} detail="Changes apply to future sweeps. Earlier results stay unchanged." />
+        <ChangeFacts action={action} advanced={workspace.mode === 'advanced'} detail="Changes apply to future checks. Earlier results stay unchanged." />
         <div className="mt-4 max-w-2xl space-y-4">
           <label className="block" htmlFor="tracking-query-text">
             <span className="text-xs font-medium text-secondary">Query</span>
@@ -447,7 +447,7 @@ function ComposerActions({
         {isPreviewing ? 'Reviewing…' : advanced ? 'Review' : 'Review changes'}
       </WriteButton>
       <Button type="button" variant="ghost" size="sm" onClick={onCancel}>Cancel</Button>
-      <StatusNote icon={Info} label="No sweep on publish" detail="Publishing does not run a sweep." />
+      <StatusNote icon={Info} label="No check on publish" detail="Publishing does not run a check." />
     </div>
   )
 }

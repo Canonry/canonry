@@ -303,6 +303,7 @@ test.each([undefined, false, true])('managedSweeps=%s preserves dashboard key or
     showUpdateNotification: false,
     extension: { label: 'preserve this' },
     showResourceLinks: false,
+    showLocalAgentSetup: false,
     requirePassword: true,
     ...(managedSweeps === undefined ? {} : { managedSweeps }),
   }

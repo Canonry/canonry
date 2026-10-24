@@ -1,8 +1,76 @@
 import { describe, expect, it } from 'vitest'
-import { measurementDraftAuthoringSchema } from '@canonry/canonry-contracts'
+import { answerServiceCatalogFields, measurementDraftAuthoringSchema, routeFamiliesOf } from '@canonry/canonry-contracts'
+import { createFakeAnswerServiceAdapter, FAKE_SERVICE_ID, fakeServiceDescriptor } from '@canonry/canonry-provider-answer-services/testing'
 import { compileMeasurementDraft } from '../src/measurement-draft-compile.js'
+import { invalidProviderSelections } from '../src/provider-models.js'
+import type { ProviderAdapterInfo } from '../src/settings.js'
+
+/** The description a host publishes for the test-only answer service, built the way the server builds it. */
+function fakeServiceInfo(): ProviderAdapterInfo {
+  const adapter = createFakeAnswerServiceAdapter()
+  return {
+    name: adapter.name, displayName: adapter.displayName, mode: 'api', modelConfigurable: false,
+    defaultModel: adapter.modelRegistry.defaultModel, knownModels: adapter.modelRegistry.knownModels,
+    modelValidationPattern: adapter.modelRegistry.validationPattern, modelValidationHint: adapter.modelRegistry.validationHint,
+    kind: adapter.kind!, capabilities: adapter.capabilities!, routes: adapter.routes!,
+    ...answerServiceCatalogFields(fakeServiceDescriptor),
+  }
+}
 
 describe('measurement draft compiler', () => {
+  it('freezes OpenRouter route models and refuses a conflicting model override', () => {
+    const route = 'openrouter:google/gemini-2.5-flash'
+    const authoring = measurementDraftAuthoringSchema.parse({
+      defaultContext: { providers: ['gemini', route], models: { gemini: 'gemini-2.5-flash' }, locations: [] },
+      targets: [{ stableKey: 'widgets', label: 'Widgets', status: 'included', aliases: ['Northwind Widgets'], urlMatchers: ['https://northwind.example/widgets/*'], source: 'manual' }],
+      assignments: [{ targetKey: 'widgets', queryId: 'q-one', queryClass: 'non-brand', classificationSource: 'operator' }],
+      groups: [],
+    })
+    const context = { canonicalDomain: 'northwind.example', ownedDomains: [], brandNames: ['Northwind'], locations: [], trackedQueries: [{ id: 'q-one', query: 'best widget supplier' }] }
+    const result = compileMeasurementDraft(authoring, context)
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error('route draft should compile')
+    expect(result.plan.executionNodes[0]!.context.models).toEqual({ gemini: 'gemini-2.5-flash', [route]: 'google/gemini-2.5-flash' })
+    expect(result.plan.executionNodes[0]!.expectedSnapshots).toBe(2)
+    const conflict = compileMeasurementDraft({ ...authoring, defaultContext: { ...authoring.defaultContext, models: { [route]: 'openai/gpt-5' } } }, context)
+    expect(conflict.ok).toBe(false)
+    expect(conflict.checks).toContainEqual(expect.objectContaining({ ruleId: 'invalid-provider-model', severity: 'fail' }))
+  })
+
+  it('refuses a profile that does not run visibility sweeps, as the simple path does, in both execution blocks', () => {
+    const adapters = [fakeServiceInfo()]
+    const families = routeFamiliesOf(adapters)
+    const sweepProfile = `${FAKE_SERVICE_ID}:cited`
+    const researchOnly = `${FAKE_SERVICE_ID}:results`
+    const base = {
+      targets: [{ stableKey: 'widgets', label: 'Widgets', status: 'included', aliases: ['Northwind Widgets'], urlMatchers: ['https://northwind.example/widgets/*'], source: 'manual' }],
+      assignments: [{ targetKey: 'widgets', queryId: 'q-one', queryClass: 'non-brand', classificationSource: 'operator' }],
+      groups: [],
+    }
+    const context = { canonicalDomain: 'northwind.example', ownedDomains: [], brandNames: ['Northwind'], locations: [], trackedQueries: [{ id: 'q-one', query: 'best widget supplier' }], routeFamilies: families, providerAdapters: adapters }
+    // The simple path refuses the research-only profile.
+    expect(invalidProviderSelections(['gemini', researchOnly], ['gemini', FAKE_SERVICE_ID], adapters, 'visibility-sweep')).toEqual([researchOnly])
+
+    const refused = compileMeasurementDraft(measurementDraftAuthoringSchema.parse({ ...base, defaultContext: { providers: ['gemini', researchOnly], locations: [] } }), context)
+    expect(refused.ok).toBe(false)
+    expect(refused.checks).toContainEqual(expect.objectContaining({ ruleId: 'invalid-provider-model', severity: 'fail', message: 'Results only · Fake Answers (fake-answers:results) does not run visibility sweeps; choose a profile that does.' }))
+
+    // An exact context seeded from a published revision follows the same rule.
+    const exact = compileMeasurementDraft(measurementDraftAuthoringSchema.parse({
+      ...base,
+      defaultContext: { providers: ['gemini'], locations: [] },
+      assignments: [{ ...base.assignments[0], executionContexts: [{ providers: ['gemini', researchOnly], models: {}, location: null }] }],
+    }), context)
+    expect(exact.ok).toBe(false)
+    expect(exact.checks).toContainEqual(expect.objectContaining({ ruleId: 'invalid-provider-model', severity: 'fail', message: expect.stringContaining('does not run visibility sweeps') }))
+
+    const accepted = compileMeasurementDraft(measurementDraftAuthoringSchema.parse({ ...base, defaultContext: { providers: ['gemini', sweepProfile], locations: [] } }), context)
+    expect(accepted.ok).toBe(true)
+    if (!accepted.ok) throw new Error('a sweep profile should compile')
+    expect(accepted.plan.executionNodes[0]!.expectedSnapshots).toBe(2)
+    expect(accepted.plan.executionNodes[0]!.context.models).toEqual({ [sweepProfile]: 'cited' })
+  })
+
   it.each(['Northwind Widgets', 'Eastport', 'NorthwindWidgets in Eastport'])('refuses identity context that does not qualify the Property name: %s', identityAlias => {
     const authoring = measurementDraftAuthoringSchema.parse({
       defaultContext: { providers: ['openai'], locations: [] },

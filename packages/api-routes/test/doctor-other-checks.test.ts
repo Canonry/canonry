@@ -316,6 +316,37 @@ describe('config.providers', () => {
     const result = providersCheck.run({ db: {} as DoctorContext['db'], project: null })
     expect(result.status).toBe('skipped')
   })
+
+  it('never counts a search answer service toward AI Visibility, and names it separately', () => {
+    // An answer service runs only where a project picks one of its profiles,
+    // so a key for one alone leaves "all configured engines" with nothing to run.
+    const onlyService = providersCheck.run({
+      db: {} as DoctorContext['db'],
+      project: null,
+      providerSummary: [
+        { name: 'gemini', configured: false },
+        { name: 'exa', configured: true, kind: 'answer-service' },
+      ],
+    })
+    expect(onlyService.status).toBe('warn')
+    expect(onlyService.code).toBe('providers.none-configured')
+    expect(onlyService.summary).toBe('No answer-engine provider is configured. Page Health remains available; AI Visibility is disabled. Search answer services configured (used only where a project picks one of their profiles): exa.')
+    expect(onlyService.details).toEqual({ available: ['gemini'], answerServices: ['exa'] })
+
+    const withEngine = providersCheck.run({
+      db: {} as DoctorContext['db'],
+      project: null,
+      providerSummary: [
+        { name: 'gemini', configured: true },
+        { name: 'openai', configured: false },
+        { name: 'exa', configured: true, kind: 'answer-service' },
+        { name: 'parallel', configured: false, kind: 'answer-service' },
+      ],
+    })
+    expect(withEngine.status).toBe('ok')
+    expect(withEngine.summary).toBe('1 of 2 providers configured: gemini. Search answer services configured (used only where a project picks one of their profiles): exa.')
+    expect(withEngine.details).toEqual({ configured: ['gemini'], total: 2, answerServices: ['exa'] })
+  })
 })
 
 const agentProvidersCheck = PROVIDERS_CHECKS.find((c) => c.id === 'config.agent-providers')!
@@ -325,8 +356,8 @@ function agentEntry(id: string, configured: boolean, keySource: 'config' | 'env'
 }
 
 describe('config.agent-providers', () => {
-  it('returns ok and reports the configured agent providers', () => {
-    const result = agentProvidersCheck.run({
+  it('returns ok and reports the configured agent providers', async () => {
+    const result = await agentProvidersCheck.run({
       db: {} as DoctorContext['db'],
       project: null,
       getAgentProviderSummary: () => [
@@ -341,8 +372,8 @@ describe('config.agent-providers', () => {
     expect(result.details).toMatchObject({ configured: ['claude', 'zai'] })
   })
 
-  it('warns (not fails) when no agent provider has a key', () => {
-    const result = agentProvidersCheck.run({
+  it('warns (not fails) when no agent provider has a key', async () => {
+    const result = await agentProvidersCheck.run({
       db: {} as DoctorContext['db'],
       project: null,
       getAgentProviderSummary: () => [agentEntry('claude', false), agentEntry('zai', false)],
@@ -352,10 +383,11 @@ describe('config.agent-providers', () => {
     // The remediation names every agent provider an operator can add a key for.
     for (const id of AGENT_PROVIDER_IDS) expect(result.remediation).toContain(id)
     expect(result.remediation).toMatch(/ANTHROPIC_API_KEY/)
+    expect(result.remediation).toMatch(/OPENROUTER_API_KEY/)
   })
 
-  it('warns on an agent.provider pin with no key, even while other providers are configured', () => {
-    const result = agentProvidersCheck.run({
+  it('warns on an agent.provider pin with no key, even while other providers are configured', async () => {
+    const result = await agentProvidersCheck.run({
       db: {} as DoctorContext['db'],
       project: null,
       getAgentProviderSummary: () => [agentEntry('claude', true, 'config'), agentEntry('zai', false)],
@@ -367,20 +399,21 @@ describe('config.agent-providers', () => {
     expect(result.details).toMatchObject({ pin: { provider: 'zai' } })
   })
 
-  it('warns when the pinned agent.model does not resolve', () => {
-    const result = agentProvidersCheck.run({
+  it('warns when the pinned agent.model does not resolve', async () => {
+    const result = await agentProvidersCheck.run({
       db: {} as DoctorContext['db'],
       project: null,
       getAgentProviderSummary: () => [agentEntry('claude', true, 'config')],
-      getAgentPin: () => ({ provider: 'claude', model: 'not-a-model', configured: true, envVar: 'ANTHROPIC_API_KEY', modelError: 'unknown model' }),
+      // The host may load a live model list first, so the pin can arrive later.
+      getAgentPin: async () => ({ provider: 'claude', model: 'not-a-model', configured: true, envVar: 'ANTHROPIC_API_KEY', modelError: 'unknown model' }),
     })
     expect(result.status).toBe('warn')
     expect(result.code).toBe('agent-providers.pin-model-invalid')
     expect(result.summary).toContain('not-a-model')
   })
 
-  it('names a healthy pin on the ok result', () => {
-    const result = agentProvidersCheck.run({
+  it('names a healthy pin on the ok result', async () => {
+    const result = await agentProvidersCheck.run({
       db: {} as DoctorContext['db'],
       project: null,
       getAgentProviderSummary: () => [agentEntry('claude', true, 'config'), agentEntry('zai', true, 'config')],
@@ -390,14 +423,14 @@ describe('config.agent-providers', () => {
     expect(result.summary).toContain('pinned to zai (glm-5-turbo)')
   })
 
-  it('skips when the agent provider summary is unavailable (e.g. cloud)', () => {
-    const result = agentProvidersCheck.run({ db: {} as DoctorContext['db'], project: null })
+  it('skips when the agent provider summary is unavailable (e.g. cloud)', async () => {
+    const result = await agentProvidersCheck.run({ db: {} as DoctorContext['db'], project: null })
     expect(result.status).toBe('skipped')
     expect(result.code).toBe('agent-providers.summary-unavailable')
   })
 
-  it('tells a caller who is not an install administrator nothing', () => {
-    const result = agentProvidersCheck.run({
+  it('tells a caller who is not an install administrator nothing', async () => {
+    const result = await agentProvidersCheck.run({
       db: {} as DoctorContext['db'],
       project: null,
       callerIsInstanceAdministrator: false,
@@ -415,8 +448,8 @@ describe('config.agent-providers', () => {
     expect(result.details).toBeUndefined()
   })
 
-  it('treats an unwired caller as the operator, so the CLI doctor is unchanged', () => {
-    const result = agentProvidersCheck.run({
+  it('treats an unwired caller as the operator, so the CLI doctor is unchanged', async () => {
+    const result = await agentProvidersCheck.run({
       db: {} as DoctorContext['db'],
       project: null,
       getAgentProviderSummary: () => [agentEntry('zai', true, 'config')],

@@ -76,6 +76,8 @@ export default defineConfig({
     '@canonry/canonry-api-routes',
     '@canonry/canonry-provider-gemini',
     '@canonry/canonry-provider-openai',
+    '@canonry/canonry-provider-openrouter',
+    '@canonry/canonry-provider-answer-services',
     '@canonry/canonry-provider-claude',
     '@canonry/canonry-provider-local',
     '@canonry/canonry-provider-cdp',
@@ -89,5 +91,6 @@ export default defineConfig({
     '@canonry/canonry-integration-cloudflare-queue',
     '@canonry/canonry-integration-cloudflare-worker',
     '@canonry/canonry-integration-commoncrawl',
+    '@canonry/canonry-integration-dataforseo',
   ],
 })

@@ -1,6 +1,7 @@
 import { type ApiClient, createApiClient } from '../client.js'
 import {
   CitationStates,
+  MentionIdentities,
   OUTSTANDING_PROVIDER_BATCH_STATUSES,
   ProviderBatchStatuses,
   RunStatuses,
@@ -592,13 +593,19 @@ export function printRunDetail(run: RunDetailDto): void {
   if (run.usage && run.usage.length > 0) printUsageTable(run.usage)
   if (run.snapshots && run.snapshots.length > 0) {
     console.log(`\n  Snapshots: ${run.snapshots.length}  (cell = [citation][mention];  C=cited c=not, M=mentioned m=not, –=no data)`)
+    let differentSubject = 0
     for (const s of run.snapshots) {
       const citationGlyph = s.citationState === CitationStates.cited ? 'C' : 'c'
       const mentionGlyph = typeof s.answerMentioned === 'boolean'
         ? (s.answerMentioned ? 'M' : 'm')
         : '–'
       const modelLabel = s.model ? ` (${s.model})` : ''
-      console.log(`    [${citationGlyph}${mentionGlyph}]  ${s.provider}${modelLabel}  ${s.query}`)
+      const ruledOut = s.mentionIdentity === MentionIdentities['wrong-subject']
+      if (ruledOut) differentSubject++
+      console.log(`    [${citationGlyph}${mentionGlyph}]  ${s.provider}${modelLabel}  ${s.query}${ruledOut ? '  · different subject' : ''}`)
+    }
+    if (differentSubject > 0) {
+      console.log('  · different subject: the answer uses your name, but sentiment found it is about something else, so it is not counted as mentioned.')
     }
   }
 }

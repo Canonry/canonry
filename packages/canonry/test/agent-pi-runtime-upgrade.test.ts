@@ -477,20 +477,20 @@ describe('stored model fallback', () => {
   }
 
   it('moves a stored model id the catalog dropped to the provider default, but still refuses a requested or pinned one', async () => {
-    expect(getAgentProvider('zai').defaultModel).toBe('glm-5.2')
+    expect(getAgentProvider('zai').defaultModel).toBe('glm-5.3-flash')
     const projectId = insertProject()
     insertZaiSession(projectId, 'glm-5.1')
     const registry = new SessionRegistry({ db, client: {} as ApiClient, config: config({ zai: { apiKey: 'zai-key' } }) })
 
     const agent = await registry.acquireForTurn('demo')
-    expect(agent.state.model).toMatchObject({ provider: 'zai', id: 'glm-5.2' })
-    expect(sessionRow(projectId)).toMatchObject({ modelProvider: 'zai', modelId: 'glm-5.2' })
+    expect(agent.state.model).toMatchObject({ provider: 'zai', id: 'glm-5.3-flash' })
+    expect(sessionRow(projectId)).toMatchObject({ modelProvider: 'zai', modelId: 'glm-5.3-flash' })
 
     // An explicit request is kept as given, so a retired id fails loudly on a
     // live session and leaves the turn model and the row alone.
     await expect(registry.acquireForTurn('demo', { provider: 'zai', modelId: 'glm-5.1' })).rejects.toThrow(/glm-5\.1/)
-    expect(agent.state.model).toMatchObject({ provider: 'zai', id: 'glm-5.2' })
-    expect(sessionRow(projectId)).toMatchObject({ modelProvider: 'zai', modelId: 'glm-5.2' })
+    expect(agent.state.model).toMatchObject({ provider: 'zai', id: 'glm-5.3-flash' })
+    expect(sessionRow(projectId)).toMatchObject({ modelProvider: 'zai', modelId: 'glm-5.3-flash' })
     expect(registry.isBusy('demo')).toBe(false)
 
     // ...and on a cold one.

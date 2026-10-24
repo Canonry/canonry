@@ -16,6 +16,17 @@ export async function readAeroViewEvidence(options: AeroViewOptions): Promise<un
   const { client, projectName, context } = options
   if (context?.unavailableReason) throw validationError(context.unavailableReason)
   const base = `/${(options.basePath ?? '').replace(/^\/+|\/+$/g, '')}`.replace(/\/$/, '')
+  if (context?.view === 'seo') {
+    const overview = await client.getSeoOverview(projectName, { profileId: context.seoProfileId, runId: context.seoRunId })
+    const search = new URLSearchParams(context.seoProfileId ? { seoProfileId: context.seoProfileId } : {})
+    if (context.seoRunId) search.set('seoRunId', context.seoRunId)
+    return {
+      context, retrievedAt: new Date().toISOString(),
+      source: { label: 'Open SEO data', href: `${base}/projects/${encodeURIComponent(projectName)}/seo-data?${search}` },
+      overview,
+      interpretation: 'Stored third-party SEO estimates. Preserve profile, scope, locale, dataset and collection date. Estimates are not Search Console observations or AI citation and mention coverage. Missing or partial data is not zero. This read does not refresh data.',
+    }
+  }
   if (context?.view === 'site-health') {
     if (!context.page?.nodeKey) {
       const overview = await client.getTechnicalAeoCrawl(projectName, context.page)

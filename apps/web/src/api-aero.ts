@@ -82,6 +82,8 @@ export interface AeroTranscript {
   messages: AeroMessage[]
   modelProvider: string | null
   modelId: string | null
+  /** What a turn that names no provider or model runs on; absent from older servers. */
+  nextTurn?: { provider: string; modelId: string } | null
   updatedAt: string | null
 }
 

@@ -801,6 +801,7 @@ function parseCompetitorMap(
     domain: entry.domain,
     hits: entry.hits,
     competitorType: entry.competitorType ?? DiscoveryCompetitorTypes.unknown,
+    ...(entry.evaluator ? { evaluator: entry.evaluator } : {}),
   }))
 }
 

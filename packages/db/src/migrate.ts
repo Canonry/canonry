@@ -4731,6 +4731,127 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `ALTER TABLE research_run_queries ADD COLUMN retrieved_sources TEXT`,
     ],
   },
+  {
+    // Sentiment's identity verdicts as they bear on mentions: a Simple answer's
+    // `wrong-subject` verdict, and the Advanced Properties judged wrong-subject.
+    // NULL on every existing row; the local server fills them from stored
+    // sentiment results once on startup (`sentiment-mention-identity`).
+    version: 185,
+    name: 'snapshot-sentiment-mention-identity',
+    statements: [
+      `ALTER TABLE query_snapshots ADD COLUMN mention_identity TEXT`,
+      `ALTER TABLE query_snapshots ADD COLUMN wrong_subject_target_keys TEXT`,
+    ],
+  },
+  {
+    // Vendor-neutral answer evidence from hosted web-search answer services.
+    // NULL on every existing row and for every other engine: no evidence was
+    // recorded, which never reads as "no sources".
+    version: 186,
+    name: 'answer-service-evidence',
+    statements: [
+      `ALTER TABLE query_snapshots ADD COLUMN answer_evidence TEXT`,
+      `ALTER TABLE research_run_queries ADD COLUMN answer_evidence TEXT`,
+    ],
+  },
+  {
+    // The upstream job a `waiting-upstream` research query waits on, so a job
+    // executor can find and resume it by id instead of submitting it again.
+    // NULL on every existing row and for every query not waiting on a job.
+    version: 187,
+    name: 'research-upstream-job-id',
+    statements: [
+      `ALTER TABLE research_run_queries ADD COLUMN upstream_job_id TEXT`,
+      `CREATE INDEX IF NOT EXISTS idx_research_run_queries_upstream_job ON research_run_queries(upstream_job_id) WHERE upstream_job_id IS NOT NULL`,
+    ],
+  },
+  {
+    // The GA4 overview: the rest of GA4's daily figures beside the ones already
+    // stored, and GA4's own totals for each window and the period before it.
+    // Every new figure is NULL on existing rows: they were synced before the
+    // metric was requested, and a 0 would read as a measured day with no views.
+    version: 188,
+    name: 'ga-overview-metrics',
+    statements: [
+      `ALTER TABLE ga_daily_totals ADD COLUMN active_users INTEGER`,
+      `ALTER TABLE ga_daily_totals ADD COLUMN organic_sessions INTEGER`,
+      `ALTER TABLE ga_daily_totals ADD COLUMN views INTEGER`,
+      `ALTER TABLE ga_daily_totals ADD COLUMN event_count INTEGER`,
+      `ALTER TABLE ga_daily_totals ADD COLUMN key_events REAL`,
+      `ALTER TABLE ga_daily_totals ADD COLUMN engagement_seconds REAL`,
+      `ALTER TABLE ga_daily_totals ADD COLUMN bounce_rate REAL`,
+      `CREATE TABLE IF NOT EXISTS ga_window_metrics (
+        id                 TEXT PRIMARY KEY,
+        project_id         TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        window_key         TEXT NOT NULL,
+        period             TEXT NOT NULL,
+        start_date         TEXT NOT NULL,
+        end_date           TEXT NOT NULL,
+        active_users       INTEGER,
+        new_users          INTEGER,
+        total_users        INTEGER,
+        sessions           INTEGER,
+        organic_sessions   INTEGER,
+        views              INTEGER,
+        event_count        INTEGER,
+        key_events         REAL,
+        engagement_rate    REAL,
+        bounce_rate        REAL,
+        engagement_seconds REAL,
+        synced_at          TEXT NOT NULL,
+        sync_run_id        TEXT REFERENCES runs(id) ON DELETE CASCADE
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_ga_window_metrics_unique ON ga_window_metrics(project_id, window_key, period)`,
+      `CREATE INDEX IF NOT EXISTS idx_ga_window_metrics_run ON ga_window_metrics(sync_run_id)`,
+    ],
+  },
+  {
+    // Durable review-webhook delivery: one row per review event and configured
+    // destination, so a receiver that failed keeps its debt after another one
+    // succeeded. Empty on upgrade: no historical backfill, nothing activated.
+    version: 189,
+    name: 'durable-review-webhook-deliveries',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS review_webhook_deliveries (
+        id              TEXT PRIMARY KEY,
+        project_id      TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        notification_id TEXT NOT NULL REFERENCES notifications(id) ON DELETE CASCADE,
+        event_id        TEXT NOT NULL,
+        target_digest   TEXT NOT NULL,
+        payload         TEXT NOT NULL,
+        state           TEXT NOT NULL DEFAULT 'pending',
+        attempts        INTEGER NOT NULL DEFAULT 0,
+        attempted_at    TEXT,
+        retry_at        TEXT,
+        delivered_at    TEXT,
+        created_at      TEXT NOT NULL
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS uniq_review_webhook_delivery ON review_webhook_deliveries(project_id, notification_id, event_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_review_webhook_deliveries_due ON review_webhook_deliveries(state, retry_at)`,
+    ],
+  },
+  {
+    version: 190,
+    name: 'seo-durable-sync',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS seo_profiles (project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE, id TEXT NOT NULL, revision INTEGER NOT NULL, input TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(project_id,id))`,
+      `CREATE TABLE IF NOT EXISTS seo_jobs (id TEXT PRIMARY KEY, project_id TEXT REFERENCES projects(id) ON DELETE SET NULL, project_key TEXT NOT NULL, run_id TEXT REFERENCES runs(id) ON DELETE SET NULL, profile_id TEXT NOT NULL, profile_revision INTEGER NOT NULL, profile TEXT NOT NULL, scope_snapshot TEXT NOT NULL, request_hash TEXT NOT NULL, idempotency_key TEXT NOT NULL, principal_id TEXT NOT NULL, connection_id TEXT NOT NULL, account_key TEXT NOT NULL, buckets TEXT NOT NULL, status TEXT NOT NULL, cancel_requested INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, started_at TEXT, finished_at TEXT, error TEXT)`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_seo_jobs_idempotency ON seo_jobs(project_key,idempotency_key)`,
+      `CREATE INDEX IF NOT EXISTS idx_seo_jobs_project ON seo_jobs(project_id,created_at)`,
+      `CREATE INDEX IF NOT EXISTS idx_seo_jobs_run ON seo_jobs(run_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_seo_jobs_status ON seo_jobs(status)`,
+      `CREATE TABLE IF NOT EXISTS seo_tasks (id TEXT PRIMARY KEY, job_id TEXT NOT NULL REFERENCES seo_jobs(id), request TEXT NOT NULL, status TEXT NOT NULL, lease_owner TEXT, lease_until TEXT, catalog_revision TEXT NOT NULL, collection_outcome TEXT, reserved_micros INTEGER NOT NULL, actual_micros INTEGER, receipts TEXT NOT NULL DEFAULT '[]', results TEXT NOT NULL, reconciliation TEXT, started_at TEXT, finished_at TEXT, error TEXT)`,
+      `CREATE INDEX IF NOT EXISTS idx_seo_tasks_job ON seo_tasks(job_id)`,
+      `CREATE TABLE IF NOT EXISTS seo_budgets (scope TEXT NOT NULL, period TEXT NOT NULL, reserved_micros INTEGER NOT NULL DEFAULT 0, spent_micros INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(scope,period))`,
+    ],
+  },
+  {
+    version: 191,
+    name: 'seo-intent-replay-lookup',
+    statements: [
+      `CREATE INDEX IF NOT EXISTS idx_seo_jobs_intent ON seo_jobs(project_key,request_hash)`,
+    ],
+  },
 ]
 
 /**

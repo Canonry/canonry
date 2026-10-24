@@ -66,7 +66,7 @@ function searchLocationNamer(workspace: StoredContexts, more: readonly QueryTrac
   const stored = [...workspace.defaultContexts, ...workspace.tracked.flatMap(row => row.assignments.flatMap(assignment => assignment.classifiedContexts ?? assignment.contexts))]
   for (const context of [...stored.map(contextInput), ...more]) {
     const detail = contextLabel(context)
-    if (!names.has(detail)) names.set(detail, `${context.location ?? 'No search location'} · ${context.providers.map(providerDisplayName).join(', ')}`)
+    if (!names.has(detail)) names.set(detail, `${context.location ?? 'No search location'} · ${context.providers.map(name => providerDisplayName(name)).join(', ')}`)
   }
   const uses = new Map<string, number>()
   for (const name of names.values()) uses.set(name, (uses.get(name) ?? 0) + 1)

@@ -24,8 +24,16 @@ import {
   type MeasurementV2UsageEdge,
   compareText,
   sortedUnique as canonicalStrings,
+  isEligibleFor,
+  isSweepProvider,
+  OPENROUTER_ROUTE_FAMILY,
+  ProviderWorkflows,
+  resolveProviderRoute,
+  type ProviderRouteFamily,
 } from '@canonry/canonry-contracts'
 import { canonicalJson, canonicalJsonValue, sha256Hex } from './measurement-draft-repo.js'
+import { providerAdapterForName } from './provider-models.js'
+import type { ProviderAdapterInfo } from './settings.js'
 import { measurementMentionAliasKey } from './measurement-report.js'
 
 /**
@@ -57,6 +65,14 @@ export interface MeasurementDraftCompileContext {
   brandNames: readonly string[]
   locations: readonly LocationContext[]
   trackedQueries: ReadonlyArray<{ id: string; query: string }>
+  /** Route families of the host's adapters, so every routed key pins its model or profile. Omitted: OpenRouter only. */
+  routeFamilies?: readonly ProviderRouteFamily[]
+  /**
+   * The host's adapter descriptions, so a provider whose profile does not run
+   * visibility sweeps is refused here, the same rule a project, run, schedule
+   * or apply selection follows. Omitted: no workflow check.
+   */
+  providerAdapters?: readonly ProviderAdapterInfo[]
 }
 
 export type MeasurementDraftCompileResult =
@@ -256,6 +272,24 @@ function normalizeProviders(values: readonly string[]): string[] {
   return canonicalStrings(values.map(value => value.trim().toLowerCase()).filter(Boolean))
 }
 
+/** Reuse frozen identities across Properties when compiling or rerouting an assignment. */
+export function frozenMeasurementDraftExecutionKeys(authoring: MeasurementDraftAuthoring): Map<string, string> {
+  const keys = new Map<string, string>()
+  for (const assignment of authoring.assignments) {
+    for (const exact of assignment.executionContexts ?? []) {
+      if (exact.executionNodeKey === undefined) continue
+      const signature = canonicalJson({
+        queryId: assignment.queryId,
+        location: exact.location,
+        providers: normalizeProviders(exact.providers),
+        models: Object.fromEntries(Object.entries(exact.models).map(([provider, model]) => [provider.trim().toLowerCase(), model])),
+      })
+      keys.set(signature, exact.executionNodeKey)
+    }
+  }
+  return keys
+}
+
 /**
  * Compile the authoring intent into the immutable v2 document.
  *
@@ -263,6 +297,21 @@ function normalizeProviders(values: readonly string[]): string[] {
  * as a `fail` check with a stable rule id and a field path, so the browser can
  * point at the field rather than showing a stack.
  */
+/** Why a known provider cannot run in a visibility sweep, or null when it can (or is not described). */
+function sweepIneligibleMessage(provider: string, adapters: readonly ProviderAdapterInfo[] | undefined): string | null {
+  if (!adapters) return null
+  const adapter = providerAdapterForName(provider, adapters)
+  if (!adapter || isEligibleFor(adapter, ProviderWorkflows['visibility-sweep'], 'explicit')) return null
+  return `${adapter.displayName} (${provider}) does not run visibility sweeps; choose a profile that does.`
+}
+
+/** Why a routed connection or a malformed route cannot be measured. */
+function routedProviderMessage(provider: string, families: readonly ProviderRouteFamily[] | undefined): string {
+  const connection = (families ?? [OPENROUTER_ROUTE_FAMILY]).find(family => provider === family.connection || provider.startsWith(`${family.connection}:`))
+  if (!connection || connection.connection === 'openrouter') return 'OpenRouter measurement requires a fixed model route.'
+  return `Measurement through ${connection.connection} requires one of its ${connection.selectionKind} routes.`
+}
+
 export function compileMeasurementDraft(
   authoring: MeasurementDraftAuthoring,
   context: MeasurementDraftCompileContext,
@@ -436,6 +485,16 @@ export function compileMeasurementDraft(
       }
       models[normalized] = model
     }
+    for (const provider of providers) {
+      if (!isSweepProvider(provider, context.routeFamilies)) sink.fail('invalid-provider-model', routedProviderMessage(provider, context.routeFamilies), [...path, 'providers'])
+      const ineligible = sweepIneligibleMessage(provider, context.providerAdapters)
+      if (ineligible) sink.fail('invalid-provider-model', ineligible, [...path, 'providers'])
+      const route = resolveProviderRoute(provider, context.routeFamilies)
+      if (!route) continue
+      const pinned = route.selection
+      if (models[provider] && models[provider] !== pinned) sink.fail('invalid-provider-model', `${route.connection === 'openrouter' ? 'OpenRouter route' : 'Route'} "${provider}" pins ${route.family.selectionKind} "${pinned}".`, [...path, 'models', provider])
+      models[provider] = pinned
+    }
     const labels = canonicalStrings(override?.locations ?? authoring.defaultContext.locations)
     const locations: Array<LocationContext | null> = []
     labels.forEach((label, labelIndex) => {
@@ -477,6 +536,16 @@ export function compileMeasurementDraft(
       // model. An empty map is a frozen request for the provider default.
       models[normalized] = model
     }
+    for (const provider of providers) {
+      if (!isSweepProvider(provider, context.routeFamilies)) sink.fail('invalid-provider-model', routedProviderMessage(provider, context.routeFamilies), [...path, 'providers'])
+      const ineligible = sweepIneligibleMessage(provider, context.providerAdapters)
+      if (ineligible) sink.fail('invalid-provider-model', ineligible, [...path, 'providers'])
+      const route = resolveProviderRoute(provider, context.routeFamilies)
+      if (!route) continue
+      const pinned = route.selection
+      if (models[provider] && models[provider] !== pinned) sink.fail('invalid-provider-model', `${route.connection === 'openrouter' ? 'OpenRouter route' : 'Route'} "${provider}" pins ${route.family.selectionKind} "${pinned}".`, [...path, 'models', provider])
+      models[provider] = pinned
+    }
     const identity = exact.executionNodeKey === undefined ? {} : { executionNodeKey: exact.executionNodeKey }
     if (exact.location === null) return { ...identity, providers, models, location: null }
     const configured = locationsByLabel.get(exact.location.label)
@@ -502,19 +571,7 @@ export function compileMeasurementDraft(
   const frozenProvenanceByQuery = new Map<string, MeasurementV2QuerySnapshot['provenance']>()
   // An added Target can reuse an imported execution. Resolve these identities
   // before walking assignments so reuse does not depend on Target ordering.
-  const frozenKeysBySignature = new Map<string, string>()
-  for (const assignment of authoring.assignments) {
-    for (const exact of assignment.executionContexts ?? []) {
-      if (exact.executionNodeKey === undefined) continue
-      const signature = canonicalJson({
-        queryId: assignment.queryId,
-        location: exact.location,
-        providers: normalizeProviders(exact.providers),
-        models: Object.fromEntries(Object.entries(exact.models).map(([provider, model]) => [provider.trim().toLowerCase(), model])),
-      })
-      frozenKeysBySignature.set(signature, exact.executionNodeKey)
-    }
-  }
+  const frozenKeysBySignature = frozenMeasurementDraftExecutionKeys(authoring)
 
   authoring.assignments.forEach((assignment, index) => {
     const path: (string | number)[] = ['assignments', index]

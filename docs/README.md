@@ -31,6 +31,7 @@ Canonry is API-first. The API is the source of truth, the CLI is the standard op
 | [`../packages/val-kit/AGENTS.md`](../packages/val-kit/AGENTS.md) | current | contributors | `@canonry/val-kit`: the Vals' shared host kit — module boundaries, dev vs production graph, and the manual publish gate |
 | [`plugins.md`](plugins.md) | current | agent users | Portable Agent Plugin structure, client adapters, installation, coexistence, and security boundaries |
 | [`mcp.md`](mcp.md) | current | operators, agent users, contributors | MCP stdio adapter rationale, setup, auth model, safety rules, and limitations |
+| [`seo-data.md`](seo-data.md) | current | operators, developers | Provider-neutral SEO profiles, explicit refreshes, stored evidence and host-only financial controls |
 | [`report-retirement.md`](report-retirement.md) | current | operators, agents | Canonry 7 Report retirement and replacement API, CLI, and MCP reads |
 | [`competitor-landscape.md`](competitor-landscape.md) | current | operators, engineers | Pinned-first historical competitor evidence for Simple and Advanced Measurement scopes |
 | [`query-visibility.md`](query-visibility.md) | current | operators, contributors | Query assignments, research promotion, market scopes, and frozen visibility results |
@@ -39,6 +40,8 @@ Canonry is API-first. The API is the source of truth, the CLI is the standard op
 | [`providers/README.md`](providers/README.md) | current | engineers | Provider system overview, ProviderAdapter interface, how to add a provider |
 | [`providers/model-selection.md`](providers/model-selection.md) | current | operators, engineers | Direct-model selection, answer and citation evidence, and model router trade-offs |
 | [`providers/gemini.md`](providers/gemini.md) | current | engineers | Gemini provider behavior and constraints |
+| [`providers/openrouter.md`](providers/openrouter.md) | current | engineers | Multi-model setup, sweep identity and independent evaluator roles |
+| [`providers/answer-services.md`](providers/answer-services.md) | current | engineers | Shared layer for hosted search answer services: profiles, evidence, eligibility, adding a vendor |
 | [`providers/openai.md`](providers/openai.md) | current | engineers | OpenAI provider behavior and constraints |
 | [`providers/muse.md`](providers/muse.md) | current | operators, engineers | Muse setup, search evidence, and model tier choice |
 | [`providers/claude.md`](providers/claude.md) | current | engineers | Claude provider behavior and constraints |

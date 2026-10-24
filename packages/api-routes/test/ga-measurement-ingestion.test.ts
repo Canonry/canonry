@@ -18,6 +18,7 @@ import {
 } from '@canonry/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import type { Ga4CredentialRecord, Ga4CredentialStore } from '../src/ga.js'
+import { dailyTotals, unknownWindowMetrics } from './ga-sync-fixtures.js'
 
 function dateDaysAgo(days: number): string {
   const date = new Date()
@@ -101,9 +102,10 @@ async function mockLegacyGa() {
     totalDirectSessions: 2,
     totalUsers: 8,
   }))
-  vi.spyOn(ga, 'fetchDailyTotals').mockResolvedValue([
+  vi.spyOn(ga, 'fetchDailyTotals').mockResolvedValue(dailyTotals([
     { date: dateDaysAgo(1), sessions: 10, users: 8, engagementRate: 0.7, newUsers: 6},
-  ])
+  ]))
+  vi.spyOn(ga, 'fetchWindowMetrics').mockImplementation(async (_token, _property, windowKey) => unknownWindowMetrics(windowKey))
   vi.spyOn(ga, 'fetchTrafficByLandingPage').mockResolvedValue([
     {
       date: dateDaysAgo(1),

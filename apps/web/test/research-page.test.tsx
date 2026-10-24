@@ -1098,7 +1098,7 @@ test('a sweep in progress reaches the review from both Research tables and holds
   fireEvent.click(bar().getByRole('button', { name: 'Track 1' }))
   const research = await reviewTracking('Track 1 query')
   expect(research.getByRole<HTMLButtonElement>('button', { name: 'Publish 1 change' }).disabled).toBe(true)
-  expect(research.getByRole('button', { name: /^Sweep running\./ })).toBeTruthy()
+  expect(research.getByRole('button', { name: /^Check running\./ })).toBeTruthy()
   // A sweep that is running is what the review says, not the date of the next one.
   expect(research.queryByText('First answers Oct 21')).toBeNull()
   fireEvent.click(research.getByRole('button', { name: 'Back' }))
@@ -1116,7 +1116,7 @@ test('a sweep in progress reaches the review from both Research tables and holds
   fireEvent.click(find.getByRole('button', { name: 'Review' }))
   await find.findByRole('heading', { name: 'Review 1 change' })
   expect(find.getByRole<HTMLButtonElement>('button', { name: 'Publish 1 change' }).disabled).toBe(true)
-  expect(find.getByRole('button', { name: /^Sweep running\./ })).toBeTruthy()
+  expect(find.getByRole('button', { name: /^Check running\./ })).toBeTruthy()
   fireEvent.click(find.getByRole('button', { name: 'Publish 1 change' }))
   // Two reviews, and nothing published.
   expect(state.posts.map(post => post.path)).toEqual([PREVIEW, PREVIEW])

@@ -9,6 +9,7 @@ import {
   type InstanceStatusDto,
   type ProjectStatus,
   type IntegrationStatusRow,
+  type McpHealth,
 } from '@canonry/canonry-contracts'
 import {
   adsConnections,
@@ -42,6 +43,7 @@ import type { DoctorRoutesOptions } from './doctor.js'
 
 export interface StatusRoutesOptions {
   db: DatabaseClient
+  getMcpHealth?: () => McpHealth
   googleConnectionStore?: GoogleConnectionStore
   bingConnectionStore?: BingConnectionStore
   ga4CredentialStore?: Ga4CredentialStore
@@ -181,14 +183,14 @@ export async function statusRoutes(app: FastifyInstance, opts: StatusRoutesOptio
     if (requested) {
       const project = resolveProject(opts.db, requested)
       if (scopedId && project.id !== scopedId) throw forbidden('This project is outside the API key scope.')
-      const result = { generatedAt: new Date().toISOString(), summary: { projects: 1, ok: 0, failing: 0, warning: 0, stale: 0, neverSynced: 0 }, projects: [projectStatus(opts, project)] }
+      const result = { generatedAt: new Date().toISOString(), ...(opts.getMcpHealth ? { mcp: opts.getMcpHealth() } : {}), summary: { projects: 1, ok: 0, failing: 0, warning: 0, stale: 0, neverSynced: 0 }, projects: [projectStatus(opts, project)] }
       const status = result.projects[0]!.state
       result.summary[status === 'never-synced' ? 'neverSynced' : status]++
       if (request.query.problems === 'true') result.projects = result.projects.map(item => ({ ...item, integrations: item.integrations.filter(row => row.state !== 'ok') }))
       return instanceStatusDtoSchema.parse(result)
     }
     const projectsRows = (scopedId ? opts.db.select().from(projects).where(eq(projects.id, scopedId)) : opts.db.select().from(projects)).all()
-    const output: InstanceStatusDto = { generatedAt: new Date().toISOString(), summary: { projects: projectsRows.length, ok: 0, failing: 0, warning: 0, stale: 0, neverSynced: 0 }, projects: projectsRows.map(project => projectStatus(opts, project)) }
+    const output: InstanceStatusDto = { generatedAt: new Date().toISOString(), ...(opts.getMcpHealth ? { mcp: opts.getMcpHealth() } : {}), summary: { projects: projectsRows.length, ok: 0, failing: 0, warning: 0, stale: 0, neverSynced: 0 }, projects: projectsRows.map(project => projectStatus(opts, project)) }
     for (const project of output.projects) {
       const key = project.state === 'never-synced' ? 'neverSynced' : project.state
       output.summary[key] = (output.summary[key] ?? 0) + 1

@@ -1,12 +1,12 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { and, asc, eq, gt } from 'drizzle-orm'
 import {
-  backoffDelayMs, canonicalSentimentJson, hasCurrentSentimentTemplate, storedSentimentClassifierInputSchema, sentimentClassifierOutputSchema,
+  backoffDelayMs, canonicalSentimentJson, hasCurrentSentimentTemplate, storedSentimentClassifierInputSchema, sentimentClassifierOutputSchema, sentimentEvaluatorProvider,
   sentimentSelectionSchema, type SentimentClassifier, type SentimentClassifierInput, type SentimentClassifierOutput, type SentimentOutcome,
   OutcomeReasonCodes, OutcomeStatuses, OutcomeSurfaces, OutcomeTriggers, type FeatureCompletedProperties, type OutcomeReasonCode,
 } from '@canonry/canonry-contracts'
 import { SentimentIdempotencyConflict, SentimentRepository, sentimentCompletionReceipts, sentimentSettings, type DatabaseClient, type SentimentDispatchBlock } from '@canonry/canonry-db'
-import { SentimentService, selectSentimentSources, sentimentClassifierInput, sentimentHash } from '@canonry/canonry-api-routes'
+import { SentimentService, refreshSnapshotMentionIdentity, selectSentimentSources, sentimentClassifierInput, sentimentHash } from '@canonry/canonry-api-routes'
 import { sentimentInstallReadiness, type SentimentInstallConfig } from '@canonry/canonry-config'
 import { createOutcomeSampler, outcomeFailure, startOutcomeTimer, trackFeatureCompleted } from './outcome-telemetry.js'
 
@@ -59,6 +59,15 @@ function abstentionReason(outcome: SentimentOutcome): OutcomeReasonCode {
 
 type WorkOutcome = Pick<FeatureCompletedProperties, 'status' | 'reasonCode' | 'errorName' | 'counts'>
 
+/**
+ * A stored verdict can settle whether the answer's name match is a mention
+ * (`wrong-subject`), so the snapshot's mention fields are refreshed in the
+ * transaction that stores it.
+ */
+const applyMentionIdentity: Parameters<SentimentRepository['completeWork']>[1] = (tx, work) => {
+  refreshSnapshotMentionIdentity(tx, [work.snapshotId])
+}
+
 /** One-way, so a rotated key lifts an authorization pause without the key being stored. */
 function credentialFingerprint(apiKey: string | undefined): string {
   return createHash('sha256').update('canonry-sentiment-credential\0').update(apiKey ?? '').digest('hex')
@@ -72,7 +81,7 @@ export class SentimentWorker {
   private readonly sampleOutcome = createOutcomeSampler({ burst: 5, refillMs: 120_000 })
   constructor(private readonly db: DatabaseClient, private readonly options: SentimentWorkerOptions) { this.repository = new SentimentRepository(db) }
   private now() { return (this.options.now?.() ?? new Date()).toISOString() }
-  private service() { return new SentimentService(this.db, { install: () => { const config = this.options.configuration(); return { ...sentimentInstallReadiness(config), model: config.model } }, previewSecret: this.owner, now: this.options.now }) }
+  private service() { return new SentimentService(this.db, { install: () => { const config = this.options.configuration(); return { ...sentimentInstallReadiness(config), model: config.model, provider: config.provider } }, previewSecret: this.owner, now: this.options.now }) }
   /** The completion callback is merely a wakeup; receipts make a missed callback recoverable. */
   reconcile(): number {
     const configuration = this.options.configuration()
@@ -87,7 +96,7 @@ export class SentimentWorker {
       if (!receipts.length) continue
       const definition = service.definition(settings.evaluationDefinitionId)
       // An earlier evaluator template waits for reconfiguration; its receipts stay unreconciled until then.
-      if (!hasCurrentSentimentTemplate(definition)) continue
+      if (!hasCurrentSentimentTemplate(definition) || sentimentEvaluatorProvider(definition) !== configuration.provider || definition.requestedModel !== configuration.model) continue
       let reconciled = start
       try {
         for (const receipt of receipts) {
@@ -181,7 +190,7 @@ export class SentimentWorker {
     const prepared = this.options.prepare?.(input)
     if (unavailable || prepared?.ok === false) {
       const result: SentimentClassifierOutput = { kind: 'abstained', outcome: unavailable ?? (prepared!.ok === false ? prepared!.outcome : 'input-too-large'), reason: unavailable ?? (prepared!.ok === false ? prepared!.reason : 'Input unavailable'), returnedModel: null, usage: { kind: 'unknown', inputTokens: null, outputTokens: null } }
-      this.repository.completeWork({ workItemId: work.id, owner, outcome: result.outcome, result, returnedModel: null, now: this.now() })
+      this.repository.completeWork({ workItemId: work.id, owner, outcome: result.outcome, result, returnedModel: null, now: this.now() }, applyMentionIdentity)
       report({ status: OutcomeStatuses.skipped, reasonCode: abstentionReason(result.outcome) })
       return
     }
@@ -189,6 +198,11 @@ export class SentimentWorker {
     const config = this.options.configuration()
     if (this.holdUnlessReady(config)) {
       this.repository.failWork({ workItemId: work.id, owner, now: this.now(), errorCode: 'INSTALL_NOT_READY', retryAt: new Date(Date.parse(this.now()) + 60_000).toISOString() })
+      report({ status: OutcomeStatuses.skipped, reasonCode: OutcomeReasonCodes.NOT_CONNECTED })
+      return
+    }
+    if (sentimentEvaluatorProvider(input.definition) !== config.provider || input.definition.requestedModel !== config.model) {
+      this.repository.failWork({ workItemId: work.id, owner, now: this.now(), errorCode: 'EVALUATOR_ROUTE_CHANGED', retryAt: new Date(Date.parse(this.now()) + 60_000).toISOString() })
       report({ status: OutcomeStatuses.skipped, reasonCode: OutcomeReasonCodes.NOT_CONNECTED })
       return
     }
@@ -230,8 +244,9 @@ export class SentimentWorker {
       result = { kind: 'failed', outcome: 'failed', returnedModel: null, usage: { kind: 'unknown', inputTokens: null, outputTokens: null }, error: { code: 'CLASSIFIER_TRANSPORT_ERROR', message: 'The classifier attempt did not return a usable response.', retryable: true, retryAfterMs: null } }
     }
     const now = this.now()
-    const usage = result.usage.inputTokens !== null && result.usage.outputTokens !== null ? { inputTokens: result.usage.inputTokens, outputTokens: result.usage.outputTokens, costMillicents: Math.round(result.usage.inputTokens * 0.0042) } : undefined
-    this.repository.finishAttempt({ attemptId: attempt.id, now, returnedModel: result.returnedModel, usageStatus: result.usage.kind, usage, safeFailure: result.kind === 'failed' ? result.error.code : null })
+    const evaluatorProvider = sentimentEvaluatorProvider(input.definition)
+    const usage = result.usage.inputTokens !== null && result.usage.outputTokens !== null ? { inputTokens: result.usage.inputTokens, outputTokens: result.usage.outputTokens, ...(evaluatorProvider === 'typesafe' ? { costMillicents: Math.round(result.usage.inputTokens * 0.0042) } : {}) } : undefined
+    this.repository.finishAttempt({ attemptId: attempt.id, now, provider: evaluatorProvider, returnedModel: result.returnedModel, usageStatus: result.usage.kind, usage, safeFailure: result.kind === 'failed' ? result.error.code : null })
     const counts = { attempts: attempt.attemptNumber, ...(usage ? { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens } : {}) }
     if (result.kind === 'failed') {
       const failure = transportError
@@ -253,7 +268,7 @@ export class SentimentWorker {
       this.repository.failWork({ workItemId: work.id, owner, now, errorCode: result.error.code, ...(result.error.retryable && attempt.attemptNumber - work.attemptBudgetStart < latest.maxAttempts ? { retryAt: new Date(Date.parse(now) + retryMs).toISOString() } : {}) })
       reportFailed()
     } else {
-      this.repository.completeWork({ workItemId: work.id, owner, outcome: result.outcome, result, returnedModel: result.returnedModel, now })
+      this.repository.completeWork({ workItemId: work.id, owner, outcome: result.outcome, result, returnedModel: result.returnedModel, now }, applyMentionIdentity)
       this.repository.releaseDispatchPause({ now, dispatchedAt: attempt.dispatchedAt })
       report({ status: OutcomeStatuses.succeeded, counts })
     }

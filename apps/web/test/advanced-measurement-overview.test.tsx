@@ -1055,7 +1055,7 @@ describe('row detail', () => {
 
     const engineRows = [...document.querySelectorAll('tr.measurement-subrow')]
     expect(engineRows.map(row => row.querySelector('.measurement-subrow-name')?.textContent))
-      .toEqual(['openai', 'gemini'])
+      .toEqual(['OpenAI', 'Gemini'])
 
     // The invariant: read down a column and the sub-rows total the parent.
     // Cell order matches the header — name, mention, citation.

@@ -2,6 +2,8 @@
  * Per-provider in-process concurrency and rolling-minute dispatch guard.
  * Daily quota is persisted separately because it must survive restarts.
  */
+import { providerConnectionName } from '@canonry/canonry-contracts'
+
 export class ProviderExecutionGate {
   private readonly window: number[] = []
   private readonly waiters: Array<() => void> = []
@@ -17,9 +19,24 @@ export class ProviderExecutionGate {
     this.dispatchQueued()
   }
 
-  async run<T>(task: () => Promise<T>): Promise<T> {
+  async run<T>(task: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+    if (signal?.aborted) throw signal.reason
     return new Promise<T>((resolve, reject) => {
-      this.waiters.push(() => { void this.execute(task, resolve, reject) })
+      const dispatch = () => {
+        signal?.removeEventListener('abort', cancel)
+        void this.execute(task, resolve, reject)
+      }
+      const cancel = () => {
+        const index = this.waiters.indexOf(dispatch)
+        if (index < 0) return
+        this.waiters.splice(index, 1)
+        signal?.removeEventListener('abort', cancel)
+        const reason: unknown = signal?.reason
+        reject(reason instanceof Error ? reason : new DOMException('Provider request canceled', 'AbortError'))
+        this.dispatchQueued()
+      }
+      signal?.addEventListener('abort', cancel, { once: true })
+      this.waiters.push(dispatch)
       this.dispatchQueued()
     })
   }
@@ -86,7 +103,7 @@ export function getSharedProviderExecutionGate(
   maxConcurrency: number,
   maxPerMinute: number,
 ): ProviderExecutionGate {
-  const key = providerName.trim().toLocaleLowerCase('en')
+  const key = providerConnectionName(providerName.trim().toLocaleLowerCase('en'))
   const existing = sharedGates.get(key)
   if (existing) return existing
   const gate = new ProviderExecutionGate(maxConcurrency, maxPerMinute)

@@ -18,6 +18,8 @@ import {
   type MeasurementPlanContext,
   type MeasurementPlanCounts,
   type MeasurementPlanInput,
+  isSweepProvider,
+  type ProviderRouteFamily,
 } from '@canonry/canonry-contracts'
 import {
   measurementPlans,
@@ -36,6 +38,8 @@ export const MEASUREMENT_PLAN_WRITE_SCOPE = 'measurement-plan.write'
 
 export interface MeasurementPlanRoutesOptions extends MarketPinWriteHooks {
   getRunnableProviderNames?: () => readonly string[]
+  /** Route families of the host's adapters; routed connections never join "all configured". */
+  providerRouteFamilies?: readonly ProviderRouteFamily[]
 }
 
 type PlanCounts = MeasurementPlanCounts
@@ -121,9 +125,11 @@ function compileContextForProject(
     ? project.locations.find(location => location.label === project.defaultLocation) ?? null
     : null
   const projectProviders = normalizedProviderNames(project.providers)
+  // "All configured" counts concrete engines only: a routed connection
+  // (a gateway or an answer service) answers nothing by itself.
   const selectedProviders = projectProviders.length > 0
     ? projectProviders
-    : normalizedProviderNames(opts.getRunnableProviderNames?.() ?? [])
+    : normalizedProviderNames(opts.getRunnableProviderNames?.() ?? []).filter(name => isSweepProvider(name, opts.providerRouteFamilies))
 
   return {
     canonicalDomain: project.canonicalDomain,

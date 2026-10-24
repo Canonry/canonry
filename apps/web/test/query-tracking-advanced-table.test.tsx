@@ -72,7 +72,7 @@ test.each([
   expect(queryRows()).toEqual(['Best AEO platform'])
   expect(type.value).toBe('non-brand')
   // None of the old page's words for a type, a place or a state.
-  expect(document.body.textContent).not.toMatch(/Query type|Unclassified|Whole site|Assigned relationships|Awaiting sweep|Not in current plan|Legacy|Template|saved query record/)
+  expect(document.body.textContent).not.toMatch(/Query type|Unclassified|Whole site|Assigned relationships|Awaiting check|Not in current plan|Legacy|Template|saved query record/)
 })
 
 test.each([
@@ -219,6 +219,6 @@ test('a query asked nowhere stays reachable under Not asked, and never reads as 
   expect([...row.querySelectorAll('td.tracked-cell-engine')].map(cell => cell.textContent)).toEqual(['Not asked'])
   expect(within(row).queryByRole('button', { name: /: Not checked$/ })).toBeNull()
   expect(within(row).getByText('None')).toBeTruthy()
-  expect(row.textContent).not.toMatch(/First answers|Awaiting sweep|Not in current plan/)
+  expect(row.textContent).not.toMatch(/First answers|Awaiting check|Not in current plan/)
   expect(addButton().textContent).toBe('Add queries')
 })

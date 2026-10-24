@@ -48,7 +48,7 @@ export function buildNextSteps(): NextStep[] {
     {
       id: 'schedule',
       icon: CalendarClock,
-      label: 'Scheduled sweeps',
+      label: 'Scheduled checks',
       detail: 'Re-measure on a schedule instead of by hand.',
       action: 'Set up',
       to: '/projects/$projectName/settings',
@@ -57,7 +57,7 @@ export function buildNextSteps(): NextStep[] {
       id: 'notifications',
       icon: Bell,
       label: 'Notifications',
-      detail: 'Send a webhook when a sweep finishes or a score moves.',
+      detail: 'Send a webhook when a check finishes or a score moves.',
       action: 'Set up',
       to: '/projects/$projectName/settings',
     },
@@ -74,8 +74,8 @@ export function buildNextSteps(): NextStep[] {
       icon: Terminal,
       label: 'Your agent',
       detail: 'Read this project from Claude Code, Codex, or any MCP client.',
-      action: 'Docs',
-      href: 'https://github.com/Canonry/canonry/blob/main/docs/mcp.md',
+      action: 'Set up',
+      to: '/agent-setup',
     },
   ]
 }

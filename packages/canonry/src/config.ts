@@ -3,10 +3,12 @@ import path from 'node:path'
 import os from 'node:os'
 import crypto from 'node:crypto'
 import { parse, stringify } from 'yaml'
-import { AGENT_REASONING_LEVELS, agentAllowViewersSchema, agentModelSchema, agentProviderSchema, agentReasoningSchema, dashboardManagedRunKindsSchema, dashboardManagedSweepsSchema, researchAllowViewersSchema, researchViewerDailyRunLimitSchema } from '@canonry/canonry-config'
+import { AGENT_REASONING_LEVELS, agentAllowViewersSchema, agentModelSchema, agentProviderSchema, agentReasoningSchema, classificationConfigSchema, dashboardManagedRunKindsSchema, dashboardManagedSweepsSchema, researchAllowViewersSchema, researchViewerDailyRunLimitSchema } from '@canonry/canonry-config'
 import type { AgentReasoningLevel, SentimentInstallConfigInput } from '@canonry/canonry-config'
 import { AGENT_PROVIDER_IDS, isRetiredAgentProviderId } from '@canonry/canonry-contracts'
+import { seoInstallConfigSchema, type SeoInstallConfig } from '@canonry/canonry-config'
 import type { AgentProviderId, EmbedConfigEntry, ProviderBatchConfig, ProviderPricing, ProviderQuotaPolicy, SchedulableRunKind } from '@canonry/canonry-contracts'
+import { isAgentModelAccepted } from './agent/providers.js'
 import { CliError } from './cli-error.js'
 import { normalizeProviderBatchSettings } from './provider-batch-config.js'
 
@@ -379,7 +381,8 @@ export interface AgentConfigEntry {
   /**
    * How hard Aero asks the model to reason on every turn, one of
    * `AGENT_REASONING_LEVELS`. Absent uses the provider's default
-   * (`PROVIDER_DEFAULT_REASONING`: `low` for OpenAI, `off` elsewhere). The model
+   * (`PROVIDER_DEFAULT_REASONING`: `low` for OpenAI, `off` elsewhere; an
+   * OpenRouter model takes its direct provider's level). The model
    * clamps a level it does not support. `CANONRY_AGENT_REASONING` overrides it;
    * resolved by `resolveAgentReasoning`.
    */
@@ -410,6 +413,13 @@ export interface DashboardConfigEntry {
    * quieter branded UI.
    */
   showResourceLinks?: boolean
+
+  /**
+   * Whether agent onboarding includes local plugins, CLI, and canonry-mcp
+   * instructions. Defaults to true. Presentation only; does not change access
+   * or hosted connector readiness.
+   */
+  showLocalAgentSetup?: boolean
 
   /**
    * Whether the dashboard sidebar shows the available-version notification.
@@ -448,6 +458,10 @@ export interface PlacesConfigEntry {
 }
 
 export interface CanonryConfig {
+  /** DataForSEO credentials and operator-set funding policy; config.yaml only. */
+  seo?: SeoInstallConfig
+  /** Model for domain classification, separate from the measured sweep engines and Aero. */
+  classification?: import('@canonry/canonry-config').ClassificationConfig
   /**
    * Private opt-in TypeSafe classifier credentials and limits. Reloaded from
    * config.yaml before dispatch; the in-memory copy is a startup snapshot that
@@ -624,6 +638,9 @@ export function loadConfig(configPath = getConfigPath()): CanonryConfig {
 
   // Validate only the managed fields, without cloning/reordering the dashboard or
   // tightening validation of legacy fields (including blank YAML values).
+  if (parsed.seo !== undefined && !seoInstallConfigSchema.safeParse(parsed.seo).success) {
+    throw new CliError({ code: 'CONFIG_INVALID', message: `Invalid config at ${configPath}: seo requires an explicit funding mode, positive integer budget caps, and connection credentials.` })
+  }
   if (!dashboardManagedSweepsSchema.safeParse(parsed.dashboard?.managedSweeps).success) {
     throw new CliError({
       code: 'CONFIG_INVALID',
@@ -676,6 +693,16 @@ export function loadConfig(configPath = getConfigPath()): CanonryConfig {
       code: 'CONFIG_INVALID',
       message: `Invalid config at ${configPath}: agent.reasoning must be one of ${AGENT_REASONING_LEVELS.join(', ')}, or left blank.`,
     })
+  }
+  if (parsed.classification !== undefined) {
+    const classification = classificationConfigSchema.safeParse(parsed.classification)
+    if (!classification.success || (classification.data.model && !isAgentModelAccepted(classification.data.provider, classification.data.model))) {
+      throw new CliError({
+        code: 'CONFIG_INVALID',
+        message: `Invalid config at ${configPath}: classification requires a supported provider and an available non-empty model.`,
+      })
+    }
+    parsed.classification = classification.data
   }
   // A model without a provider is silently ignored at resolution time, which
   // is exactly the invisible-configuration failure this pin exists to remove.

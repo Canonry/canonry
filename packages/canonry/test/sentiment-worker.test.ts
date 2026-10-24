@@ -1,10 +1,11 @@
 import { eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { buildSimpleMeasurementDefinition, createSentimentEvaluationDefinition, type SentimentClassifierInput, type SentimentClassifierOutput } from '@canonry/canonry-contracts'
+import { buildSimpleMeasurementDefinition, createSentimentEvaluationDefinition, type SentimentClassifierInput, type SentimentClassifierOutput, type SentimentOutcome } from '@canonry/canonry-contracts'
 import { createClient, llmUsageEvents, migrate, projects, queries, querySnapshots, recordSentimentCompletion, runs, SentimentRepository, sentimentAttempts, sentimentJobs, sentimentSettings, sentimentWorkItems, simpleMeasurementDefinitions, type DatabaseClient } from '@canonry/canonry-db'
-import { SentimentService, selectSentimentSources, sentimentHash } from '@canonry/canonry-api-routes'
+import { SentimentService, backfillProjectAnswerMentions, selectSentimentSources, sentimentHash } from '@canonry/canonry-api-routes'
 import { resolveSentimentInstallConfig, type SentimentInstallConfig } from '@canonry/canonry-config'
 import { SentimentWorker, createSentimentPoller, sentimentRateLimitDelayMs } from '../src/sentiment-worker.js'
+import { repairSentimentMentionIdentityOnStartup } from '../src/startup-sentiment-mention-identity.js'
 
 const trackEvent = vi.hoisted(() => vi.fn())
 vi.mock('../src/telemetry.js', () => ({ trackEvent }))
@@ -51,6 +52,28 @@ function secondProject() {
 function worker(classify = vi.fn(async (input: SentimentClassifierInput) => classified(input))) { return { classify, runtime: new SentimentWorker(db, { configuration, classifier: () => ({ classify }), now }) } }
 
 describe('durable sentiment worker', () => {
+  it('holds frozen TypeSafe work after a route change and requires a new evaluator epoch before OpenRouter dispatch', async () => {
+    service.configure('p', { enabled: true }); source('r')
+    let active = configuration()
+    const classify = vi.fn(async (input: SentimentClassifierInput) => ({ ...classified(input), returnedModel: 'typesafe/jev-1.13-20260917' }))
+    const runtime = new SentimentWorker(db, { configuration: () => active, classifier: () => ({ classify }), now })
+    runtime.reconcile()
+    const directDefinitionId = service.settings('p').evaluationDefinitionId
+    active = resolveSentimentInstallConfig({}, { enabled: true, provider: 'openrouter' }, { openrouter: 'shared-router-key' })
+    await runtime.tick()
+    expect(classify).not.toHaveBeenCalled()
+    expect(db.select().from(sentimentAttempts).all()).toHaveLength(0)
+    const routed = new SentimentService(db, { install: () => ({ enabled: true, ready: true, reason: null, provider: active.provider, model: active.model }), now, previewSecret: 'secret' })
+    expect(routed.settings('p')).toMatchObject({ ready: false })
+    const changed = routed.configure('p', { enabled: true })
+    expect(changed.evaluationDefinitionId).not.toBe(directDefinitionId)
+    expect(changed.enablementEpoch).toBe(2)
+    source('next'); await runtime.tick()
+    expect(classify).toHaveBeenCalledTimes(1)
+    expect(classify.mock.calls[0]![0].definition).toMatchObject({ provider: 'openrouter', requestedModel: 'typesafe/jev-1.13', expectedReturnedModel: 'typesafe/jev-1.13-20260917' })
+    expect(db.select().from(llmUsageEvents).all()).toMatchObject([{ provider: 'openrouter', model: 'typesafe/jev-1.13-20260917', costMillicents: 0, metadata: { costStatus: 'unknown' } }])
+    expect(db.select().from(sentimentAttempts).get()?.usage).toEqual({ inputTokens: 1000, outputTokens: 10 })
+  })
 
   it('claims only what the minute\'s request budget allows, leaving the rest queued instead of deferred', async () => {
     service.configure('p', { enabled: true }); for (const id of ['r1', 'r2', 'r3', 'r4', 'r5']) source(id)
@@ -407,6 +430,41 @@ describe('durable sentiment worker', () => {
     await runtime.tick()
     expect(service.jobList('p').jobs[0]).toMatchObject({ state: 'canceled', counts: { canceled: 1 } })
     expect(db.select().from(llmUsageEvents).all()).toHaveLength(1)
+  })
+})
+
+describe('sentiment identity verdicts on stored mentions', () => {
+  const judged = (outcome: SentimentOutcome) => vi.fn(async (input: SentimentClassifierInput): Promise<SentimentClassifierOutput> => outcome === 'favorable'
+    ? classified(input)
+    : { kind: 'abstained', outcome, reason: 'Fixture identity verdict.', returnedModel: 'jev-1.13.0', usage: { kind: 'reported', inputTokens: 1000, outputTokens: 10 } })
+  const stored = () => db.select({ answerMentioned: querySnapshots.answerMentioned, mentionIdentity: querySnapshots.mentionIdentity })
+    .from(querySnapshots).where(eq(querySnapshots.id, 's-r1')).get()
+
+  it.each([
+    ['wrong-subject', false, 'wrong-subject'],
+    ['ambiguous-subject', true, null],
+    ['favorable', true, null],
+  ] as const)('stores a %s verdict with the answer\'s mention, and an answer-field recompute keeps it', async (outcome, answerMentioned, mentionIdentity) => {
+    service.configure('p', { enabled: true }); source('r1')
+    // Captured as a name match: the answer reads "Acme is excellent."
+    db.update(querySnapshots).set({ answerMentioned: true }).where(eq(querySnapshots.id, 's-r1')).run()
+    const { runtime } = worker(judged(outcome))
+    await runtime.tick(); await runtime.tick()
+    expect(stored()).toEqual({ answerMentioned, mentionIdentity })
+    // An alias edit rescores every stored answer; the verdict must survive it.
+    backfillProjectAnswerMentions(db, 'p')
+    expect(stored()).toEqual({ answerMentioned, mentionIdentity })
+  })
+
+  it('applies a verdict stored before answers recorded it once, on startup', async () => {
+    service.configure('p', { enabled: true }); source('r1')
+    const { runtime } = worker(judged('wrong-subject'))
+    await runtime.tick(); await runtime.tick()
+    // An upgraded database: the verdict is stored, the answer predates its columns.
+    db.update(querySnapshots).set({ answerMentioned: true, mentionIdentity: null }).where(eq(querySnapshots.id, 's-r1')).run()
+    expect(repairSentimentMentionIdentityOnStartup(db)).toEqual({ examined: 1, updated: 1 })
+    expect(stored()).toEqual({ answerMentioned: false, mentionIdentity: 'wrong-subject' })
+    expect(repairSentimentMentionIdentityOnStartup(db)).toBeNull()
   })
 })
 

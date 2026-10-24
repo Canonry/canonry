@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from '@tanstack/react-router'
 
 import { Button } from '../components/ui/button.js'
 import { Card } from '../components/ui/card.js'
@@ -15,7 +16,7 @@ import { addToast } from '../lib/toast-store.js'
 import { useDashboardOverview as useDashboard } from '../queries/use-dashboard-overview.js'
 import { useHealth } from '../queries/use-health.js'
 import { useInitialDashboard } from '../contexts/dashboard-context.js'
-import type { HealthSnapshot } from '../view-models.js'
+import type { HealthSnapshot, ProviderStatusVm } from '../view-models.js'
 
 const defaultHealthSnapshot: HealthSnapshot = {
   apiStatus: { label: 'API', state: 'checking', detail: 'Checking service health' },
@@ -27,6 +28,18 @@ const defaultHealthSnapshot: HealthSnapshot = {
  * keys. The server refuses this whole surface to a view-only account; the
  * wrapper below is so a viewer gets an explanation rather than an empty page.
  */
+/** A connection whose projects pick routes (OpenRouter models, answer-service profiles). */
+function isRoutedProvider(provider: ProviderStatusVm): boolean {
+  return provider.name === 'openrouter' || provider.kind === 'model-gateway' || provider.kind === 'answer-service'
+}
+
+function routedConnectionCopy(provider: ProviderStatusVm): { connected: string; choose: string } {
+  const name = provider.displayName ?? provider.name
+  return provider.kind === 'answer-service'
+    ? { connected: `${name} connected. Projects use it only where you choose its profiles.`, choose: 'Choose project profiles' }
+    : { connected: `${name} connected. Choose the models for each project.`, choose: 'Choose project models' }
+}
+
 export function SettingsPage() {
   return (
     <AdminOnly title="Settings">
@@ -44,6 +57,8 @@ function SettingsPageBody() {
   const healthSnapshot = healthQuery.data ?? contextDashboard?.health ?? defaultHealthSnapshot
 
   const [configuringProvider, setConfiguringProvider] = useState<string | null>(null)
+  const [savedRoutedConnections, setSavedRoutedConnections] = useState<ReadonlySet<string>>(new Set())
+  const [modelProject, setModelProject] = useState('')
   const [configuringGoogle, setConfiguringGoogle] = useState(false)
   const [configuringBing, setConfiguringBing] = useState(false)
   const [bingApiKey, setBingApiKey] = useState('')
@@ -52,6 +67,8 @@ function SettingsPageBody() {
   const [bingSuccess, setBingSuccess] = useState(false)
 
   if (!settings) return null
+  const projects = dashboard?.projects ?? contextDashboard?.dashboard?.projects ?? []
+  const selectedModelProject = modelProject || projects[0]?.project.name
 
   return (
     <div className="page-container">
@@ -81,7 +98,7 @@ function SettingsPageBody() {
                   </div>
                   <div className="flex items-center gap-2">
                     <ToneBadge tone={provider.state === 'ready' ? 'positive' : 'caution'}>
-                      {provider.state === 'ready' ? 'Ready' : 'Needs config'}
+                      {provider.state === 'ready' ? 'Ready' : 'Not connected'}
                     </ToneBadge>
                     <Button
                       type="button"
@@ -100,7 +117,7 @@ function SettingsPageBody() {
                 <details className="mt-3">
                   <summary className="cursor-pointer text-sm text-secondary hover:text-strong">Advanced</summary>
                   <dl className="definition-list mt-2">
-                    <div>
+                    {!isRoutedProvider(provider) && <div>
                       <dt>Model</dt>
                       <dd className="font-mono text-xs">
                         {provider.model ?? provider.defaultModel ?? 'unknown'}
@@ -108,7 +125,7 @@ function SettingsPageBody() {
                           <span className="ml-1 font-sans text-muted">(default)</span>
                         )}
                       </dd>
-                    </div>
+                    </div>}
                     {provider.quota && (
                       <>
                         <div>
@@ -128,11 +145,18 @@ function SettingsPageBody() {
                     providerName={provider.name}
                     keyUrl={provider.keyUrl}
                     modelHint={provider.modelHint}
+                    {...(provider.kind ? { kind: provider.kind } : {})}
                     onSaved={() => {
                       setConfiguringProvider(null)
+                      if (isRoutedProvider(provider)) setSavedRoutedConnections(current => new Set([...current, provider.name]))
                     }}
                   />
                 )}
+                {isRoutedProvider(provider) && (provider.state === 'ready' || savedRoutedConnections.has(provider.name)) && <div className="mt-3 flex flex-wrap items-end gap-3">
+                  <p role={savedRoutedConnections.has(provider.name) ? 'status' : undefined} className="w-full text-sm text-secondary">{routedConnectionCopy(provider).connected}</p>
+                  {projects.length > 1 && <label className="text-sm text-secondary">Project<select className="setup-input ml-2" value={selectedModelProject} onChange={event => setModelProject(event.target.value)}>{projects.map(project => <option key={project.project.name} value={project.project.name}>{project.project.displayName ?? project.project.name}</option>)}</select></label>}
+                  <Button type="button" variant="outline" asChild>{selectedModelProject ? <Link to="/projects/$projectName/settings" params={{ projectName: selectedModelProject }} hash="answer-engines">{routedConnectionCopy(provider).choose}</Link> : <Link to="/setup">Create a project</Link>}</Button>
+                </div>}
               </div>
             ))}
           </div>
@@ -153,7 +177,7 @@ function SettingsPageBody() {
               <h2>Google OAuth</h2>
             </div>
             <ToneBadge tone={settings.google.state === 'ready' ? 'positive' : 'caution'}>
-              {settings.google.state === 'ready' ? 'Ready' : 'Needs config'}
+              {settings.google.state === 'ready' ? 'Ready' : 'Not connected'}
             </ToneBadge>
           </div>
           <p className="mt-2 text-sm text-secondary">{settings.google.detail}</p>
@@ -196,7 +220,7 @@ function SettingsPageBody() {
               <h2>Webmaster Tools</h2>
             </div>
             <ToneBadge tone={settings.bing.state === 'ready' ? 'positive' : 'caution'}>
-              {settings.bing.state === 'ready' ? 'Ready' : 'Needs config'}
+              {settings.bing.state === 'ready' ? 'Ready' : 'Not connected'}
             </ToneBadge>
           </div>
           <p className="mt-2 text-sm text-secondary">{settings.bing.detail}</p>

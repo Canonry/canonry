@@ -8,7 +8,14 @@ import {
   textContainsBrandAlias,
   textContainsDomain,
   describeError,
+  IncompleteAnswerError,
   SnapshotProviderModes,
+  canGenerateText,
+  isCitationMeasurable,
+  isEligibleFor,
+  isSweepProvider,
+  ProviderWorkflows,
+  adapterConnectionName,
   validationError,
 } from '@canonry/canonry-contracts'
 import type {
@@ -66,11 +73,20 @@ export class SnapshotService {
     const manualCompetitors = normalizeStringList(input.competitors ?? [])
     const requestedNames = input.providers === undefined ? undefined : [...new Set(input.providers)]
     const mode = input.providerMode ?? SnapshotProviderModes.all
+    const families = this.registry.routeFamilies()
+    // Without a provider list a snapshot uses every configured answer engine
+    // and nothing else; a gateway route or an answer service runs only when named.
     const providers = requestedNames === undefined
-      ? this.registry.getAll().filter(provider => mode === SnapshotProviderModes.all || provider.adapter.mode === mode)
+      ? this.registry.getAll().filter(provider => isSweepProvider(provider.adapter.name, families)
+        && isEligibleFor(provider.adapter, ProviderWorkflows.snapshot, 'implicit')
+        && (mode === SnapshotProviderModes.all || provider.adapter.mode === mode))
       : requestedNames.map(name => {
         const provider = this.registry.get(name)
         if (!provider) throw validationError(`Snapshot provider "${name}" is not configured`)
+        if (!isSweepProvider(name, families)) throw validationError(`Select a concrete ${provider.adapter.displayName} model or profile for the snapshot`)
+        if (!isEligibleFor(provider.adapter, ProviderWorkflows.snapshot, 'explicit')) {
+          throw validationError(`Snapshot provider "${name}" does not run snapshots`)
+        }
         if (mode !== SnapshotProviderModes.all && provider.adapter.mode !== mode) {
           throw validationError(`Snapshot provider "${name}" does not match providerMode "${mode}"`)
         }
@@ -83,9 +99,11 @@ export class SnapshotService {
       throw new Error('No providers configured. Add at least one provider API key before running canonry snapshot.')
     }
 
-    const analysisProvider = pickAnalysisProvider(providers.filter(provider => provider.adapter.mode === SnapshotProviderModes.api))
+    // Profiling and assessment need plain text generation; an answer service
+    // only answers tracked queries, so it is never the analysis provider.
+    const analysisProvider = pickAnalysisProvider(providers.filter(provider => provider.adapter.mode === SnapshotProviderModes.api && canGenerateText(provider.adapter)))
     if (!analysisProvider && manualQueries.length === 0) {
-      throw validationError('Automatic category-query generation requires a selected API provider. Include an API provider or pass manual queries via --queries.')
+      throw validationError('Automatic category-query generation requires a selected API provider that can generate text. Include one or pass manual queries via --queries.')
     }
     const homepageUrl = `https://${domain}`
 
@@ -183,7 +201,7 @@ export class SnapshotService {
     if (ctx.analysisProvider && ctx.siteText) {
       const prompt = buildProfilePrompt(ctx)
       try {
-        const raw = await ctx.analysisProvider.adapter.generateText(prompt, ctx.analysisProvider.config)
+        const raw = await generateAnalysisText(ctx.analysisProvider, prompt)
         const parsed = parseJsonObject<{
           industry?: string
           summary?: string
@@ -248,7 +266,7 @@ export class SnapshotService {
       gates.set(
         provider.adapter.name,
         getSharedProviderExecutionGate(
-          provider.adapter.name,
+          adapterConnectionName(provider.adapter),
           provider.config.quotaPolicy.maxConcurrency,
           provider.config.quotaPolicy.maxRequestsPerMinute,
         ),
@@ -283,12 +301,14 @@ export class SnapshotService {
             // the snapshot API grows owned-domain support.
             const answerVisibilityDomains = [ctx.domain]
 
+            const citationMeasured = isCitationMeasurable(normalized)
             return {
               provider: provider.adapter.name,
               displayName: provider.adapter.displayName,
               model: raw.model,
               mentioned: determineAnswerMentioned(normalized.answerText, [ctx.companyName], answerVisibilityDomains),
-              cited: citesTargetDomain(normalized.citedDomains, normalized.groundingSources, ctx.domain),
+              // Search results the answer is not tied to never make a domain cited.
+              cited: citationMeasured && citesTargetDomain(normalized.citedDomains, normalized.groundingSources, ctx.domain),
               describedAccurately: 'unknown' as const,
               accuracyNotes: null,
               incorrectClaims: [],
@@ -298,6 +318,7 @@ export class SnapshotService {
               searchQueries: uniqueStrings(normalized.searchQueries),
               answerText: normalized.answerText,
               error: null,
+              ...(raw.evidence ? { evidence: raw.evidence, citationMeasured } : {}),
             } satisfies SnapshotProviderResultDto
           } catch (err) {
             return {
@@ -313,8 +334,10 @@ export class SnapshotService {
               citedDomains: [],
               groundingSources: [],
               searchQueries: [],
-              answerText: '',
+              answerText: err instanceof IncompleteAnswerError ? err.answerText ?? '' : '',
               error: describeError(err),
+              // An incomplete answer keeps its evidence for inspection; it is never scored.
+              ...(err instanceof IncompleteAnswerError ? { evidence: err.evidence, citationMeasured: false } : {}),
             } satisfies SnapshotProviderResultDto
           }
         })
@@ -364,7 +387,7 @@ export class SnapshotService {
         responses,
         manualCompetitors: ctx.manualCompetitors,
       })
-      const raw = await ctx.analysisProvider.adapter.generateText(prompt, ctx.analysisProvider.config)
+      const raw = await generateAnalysisText(ctx.analysisProvider, prompt)
       const parsed = parseJsonObject<{
         assessments?: Array<{
           query?: string
@@ -409,6 +432,11 @@ export class SnapshotService {
       return buildFallbackBatchAssessment(ctx.companyName, ctx.audit)
     }
   }
+}
+
+async function generateAnalysisText(provider: RegisteredProvider, prompt: string): Promise<string> {
+  if (!canGenerateText(provider.adapter)) throw new Error(`${provider.adapter.displayName} cannot generate text`)
+  return provider.adapter.generateText(prompt, provider.config)
 }
 
 function pickAnalysisProvider(providers: RegisteredProvider[]): RegisteredProvider | undefined {
@@ -562,7 +590,11 @@ function buildSnapshotSummary(
   const successfulResults = allResults.filter(result => !result.error)
   const failedComparisons = allResults.length - successfulResults.length
   const mentionCount = successfulResults.filter(result => result.mentioned).length
-  const citationCount = successfulResults.filter(result => result.cited).length
+  // An answer whose sources are not tied to it was neither cited nor not
+  // cited, so it stays out of the citation denominator.
+  const citationMeasured = successfulResults.filter(result => result.citationMeasured !== false)
+  const citationCount = citationMeasured.filter(result => result.cited).length
+  const citationComparisons = citationMeasured.length
   const totalComparisons = successfulResults.length
   const competitorCounts = new Map<string, number>()
 
@@ -602,6 +634,7 @@ function buildSnapshotSummary(
     totalComparisons,
     mentionCount,
     citationCount,
+    citationComparisons,
     topCompetitors,
     visibilityGap: buildVisibilityGap(
       companyName,
@@ -610,6 +643,7 @@ function buildSnapshotSummary(
       totalComparisons,
       mentionCount,
       citationCount,
+      citationComparisons,
       failedComparisons,
     ),
     whatThisMeans: combinedWhatThisMeans,
@@ -624,11 +658,17 @@ function buildVisibilityGap(
   totalComparisons: number,
   mentionCount: number,
   citationCount: number,
+  citationComparisons: number,
   failedComparisons: number,
 ): string {
   const successfulLabel = `${totalComparisons} successful provider response${totalComparisons === 1 ? '' : 's'}`
   const failureSuffix = failedComparisons > 0
     ? ` ${failedComparisons} provider response${failedComparisons === 1 ? '' : 's'} failed.`
+    : ''
+  // Responses whose sources are not tied to the answer: citation not measured, never "not cited".
+  const unmeasured = totalComparisons - citationComparisons
+  const unmeasuredSuffix = unmeasured > 0 && citationComparisons > 0
+    ? ` Citation was not measured in ${unmeasured} of them, because those providers do not tie their sources to the answer.`
     : ''
   if (totalComparisons === 0) {
     return `No providers returned successful answers across ${queryCount} category queries and ${providerCount} providers.${failureSuffix}`.trim()
@@ -636,10 +676,17 @@ function buildVisibilityGap(
   if (mentionCount === 0) {
     return `${companyName} was not mentioned in any of the ${successfulLabel} across ${queryCount} category queries and ${providerCount} providers.${failureSuffix}`.trim()
   }
-  if (citationCount === 0) {
-    return `${companyName} was mentioned in ${mentionCount}/${totalComparisons} successful provider response${totalComparisons === 1 ? '' : 's'}, but never linked or cited directly.${failureSuffix}`.trim()
+  const mentioned = `${companyName} was mentioned in ${mentionCount}/${successfulLabel}`
+  if (citationComparisons === 0) {
+    return `${mentioned}. Citation was not measured, because ${totalComparisons === 1 ? 'that provider does' : 'those providers do'} not tie ${totalComparisons === 1 ? 'its' : 'their'} sources to the answer.${failureSuffix}`.trim()
   }
-  return `${companyName} was mentioned in ${mentionCount}/${totalComparisons} successful provider response${totalComparisons === 1 ? '' : 's'} and cited in ${citationCount}/${totalComparisons}.${failureSuffix}`.trim()
+  const citedPart = citationCount === 0
+    ? `never linked or cited directly in the ${citationComparisons} where citation was measured`
+    : `cited in ${citationCount}/${citationComparisons}${unmeasured > 0 ? ' where citation was measured' : ''}`
+  if (citationCount === 0 && unmeasured === 0) {
+    return `${mentioned}, but never linked or cited directly.${failureSuffix}`.trim()
+  }
+  return `${mentioned}${citationCount === 0 ? ', but ' : ' and '}${citedPart}.${unmeasuredSuffix}${failureSuffix}`.trim()
 }
 
 function buildFallbackRecommendedActions(audit: SnapshotAuditDto): string[] {

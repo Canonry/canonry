@@ -150,6 +150,7 @@ export async function historyRoutes(app: FastifyInstance) {
         model: querySnapshots.model,
         citationState: querySnapshots.citationState,
         answerMentioned: querySnapshots.answerMentioned,
+        mentionIdentity: querySnapshots.mentionIdentity,
         answerText: querySnapshots.answerText,
         citedDomains: querySnapshots.citedDomains,
         citedUrls: querySnapshots.citedUrls,
@@ -207,6 +208,7 @@ export async function historyRoutes(app: FastifyInstance) {
           answerMentioned: resolveSnapshotAnswerMentioned(s, project),
           visibilityState: resolveSnapshotVisibilityState(s, project),
           mentionState: resolveSnapshotMentionState(s, project),
+          mentionIdentity: s.mentionIdentity ?? null,
           answerText: s.answerText,
           citedDomains: s.citedDomains,
           citedUrls: s.citedUrls,
@@ -487,6 +489,7 @@ export async function historyRoutes(app: FastifyInstance) {
         query: queries.query,
         citationState: querySnapshots.citationState,
         answerMentioned: querySnapshots.answerMentioned,
+        mentionIdentity: querySnapshots.mentionIdentity,
         answerText: querySnapshots.answerText,
       })
       .from(querySnapshots)
@@ -500,6 +503,7 @@ export async function historyRoutes(app: FastifyInstance) {
         query: queries.query,
         citationState: querySnapshots.citationState,
         answerMentioned: querySnapshots.answerMentioned,
+        mentionIdentity: querySnapshots.mentionIdentity,
         answerText: querySnapshots.answerText,
       })
       .from(querySnapshots)

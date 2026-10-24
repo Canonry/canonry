@@ -1,7 +1,9 @@
 import {
+  AGENT_PROVIDER_IDS,
   CheckCategories,
   CheckScopes,
   CheckStatuses,
+  makesInstallMeasurable,
 } from '@canonry/canonry-contracts'
 import type { CheckDefinition } from '../types.js'
 
@@ -20,26 +22,34 @@ const providersConfiguredCheck: CheckDefinition = {
         remediation: null,
       }
     }
-    const configured = summary.filter((entry) => entry.configured).map((entry) => entry.name)
-    const total = summary.length
+    // A search answer service runs only where a project names one of its
+    // profiles, so it never makes AI Visibility ready on its own; it is
+    // listed separately, the same rule the dashboard's readiness applies.
+    const engines = summary.filter(makesInstallMeasurable)
+    const configured = engines.filter((entry) => entry.configured).map((entry) => entry.name)
+    const answerServices = summary.filter((entry) => !makesInstallMeasurable(entry) && entry.configured).map((entry) => entry.name)
+    const servicesNote = answerServices.length > 0
+      ? ` Search answer services configured (used only where a project picks one of their profiles): ${answerServices.join(', ')}.`
+      : ''
+    const total = engines.length
     if (configured.length === 0) {
       return {
         status: CheckStatuses.warn,
         code: 'providers.none-configured',
-        summary: 'No answer-engine provider is configured. Page Health remains available; AI Visibility is disabled.',
+        summary: `No answer-engine provider is configured. Page Health remains available; AI Visibility is disabled.${servicesNote}`,
         remediation:
           'To enable AI Visibility, run `canonry settings provider <name> --api-key <key>` while the server is running, ' +
           'or set a provider environment variable and rerun `canonry bootstrap`. Bootstrap reloads a matching running local server; ' +
           'if it is offline, start it to use the saved settings.',
-        details: { available: summary.map((entry) => entry.name) },
+        details: { available: engines.map((entry) => entry.name), ...(answerServices.length > 0 ? { answerServices } : {}) },
       }
     }
     return {
       status: CheckStatuses.ok,
       code: 'providers.configured',
-      summary: `${configured.length} of ${total} providers configured: ${configured.join(', ')}.`,
+      summary: `${configured.length} of ${total} providers configured: ${configured.join(', ')}.${servicesNote}`,
       remediation: null,
-      details: { configured, total },
+      details: { configured, total, ...(answerServices.length > 0 ? { answerServices } : {}) },
     }
   },
 }
@@ -49,7 +59,7 @@ const agentProvidersConfiguredCheck: CheckDefinition = {
   category: CheckCategories.providers,
   scope: CheckScopes.global,
   title: 'Agent provider keys',
-  run: (ctx) => {
+  run: async (ctx) => {
     // Which provider drives the agent, and that a key is configured for it, is
     // administrator knowledge: `GET /agent/providers` refuses a non-administrator
     // outright rather than serving a trimmed catalog, on the grounds that naming
@@ -86,7 +96,7 @@ const agentProvidersConfiguredCheck: CheckDefinition = {
     }
     // A pin overrides detection, so its health is Aero's health, whatever the
     // other providers look like.
-    const pin = ctx.getAgentPin?.() ?? null
+    const pin = (await ctx.getAgentPin?.()) ?? null
     if (pin && !pin.configured) {
       return {
         status: CheckStatuses.warn,
@@ -111,9 +121,9 @@ const agentProvidersConfiguredCheck: CheckDefinition = {
         code: 'agent-providers.none-configured',
         summary: 'No agent LLM provider has credentials configured — the built-in Aero agent cannot run.',
         remediation:
-          'Add a key for one of the agent providers (claude, openai, gemini, zai) under ' +
+          `Add a key for one of the agent providers (${AGENT_PROVIDER_IDS.join(', ')}) under ` +
           '`providers.<name>.apiKey` in ~/.canonry/config.yaml, or export its env var ' +
-          '(e.g. ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY).',
+          '(e.g. ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, OPENROUTER_API_KEY).',
         details,
       }
     }

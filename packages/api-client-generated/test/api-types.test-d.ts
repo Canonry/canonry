@@ -13,7 +13,10 @@ import type {
   MeasurementDiscoveryRequest,
   MeasurementDiscoveryResponse,
   MeasurementReportResponse,
+  PostApiV1ProjectsByNameKeywordsGenerateData,
   PostApiV1ProjectsByNameMeasurementDiscoveryData,
+  PostApiV1ProjectsByNameQueriesGenerateData,
+  PutApiV1SettingsProvidersByNameData,
   ResearchBatchCreate,
 } from '../src/index.js'
 
@@ -59,6 +62,15 @@ expectTypeOf<MeasurementReportResponse['groups'][number]['targetIds']>()
 
 expectTypeOf<NonNullable<ResearchBatchCreate['runs'][number]['scope']>['expectedPlanRevision']>()
   .toEqualTypeOf<number>()
+
+// Connection settings use the bare OpenRouter id; executable query generation
+// accepts concrete model-route ids discovered at runtime.
+expectTypeOf<PutApiV1SettingsProvidersByNameData['path']['name']>()
+  .toEqualTypeOf<string>()
+expectTypeOf<PostApiV1ProjectsByNameQueriesGenerateData['body']['provider']>()
+  .toEqualTypeOf<string>()
+expectTypeOf<PostApiV1ProjectsByNameKeywordsGenerateData['body']['provider']>()
+  .toEqualTypeOf<string>()
 
 expectTypeOf<GetApiV1ProjectsByNameTechnicalAeoGraphData['query']>()
   .toEqualTypeOf<{ runId?: string; maxNodes?: number; maxEdges?: number; linkKind?: 'all' | 'content' | 'template' } | undefined>()

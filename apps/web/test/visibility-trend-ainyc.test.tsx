@@ -107,7 +107,7 @@ test('reads 25.0% of 100 answers on Sep 29, with its change qualified in view an
   const legend = await screen.findByRole('list', { name: 'Engines' })
   const card = trendCard()
   expect(within(card).getByText('AI answers over time')).toBeTruthy()
-  expect(card.querySelector('.av-card-meta')?.textContent).toBe('Sep 29 · 2 sweeps')
+  expect(card.querySelector('.av-card-meta')?.textContent).toBe('Sep 29 · 2 checks')
   expect(within(card).getByRole('button', {
     name: 'Mentioned = share of answers that name you. Cited = share that link to your site. Mention share = your share of tracked-brand mentions in non-brand answers.',
   })).toBeTruthy()
@@ -116,11 +116,11 @@ test('reads 25.0% of 100 answers on Sep 29, with its change qualified in view an
   // says so where it is read, rather than being withheld.
   expect(readout()).toEqual({ value: '25.0%', change: 'up 4.5 points (not the same queries)', base: '· 25 of 100 answers' })
   expect(bullets(card.querySelector(':scope > details.av-details'))).toEqual([
-    'Not the same queries: Sep 29 point mixes the 5:41 AM sweep and the 5:59 AM sweep, with 3 queries added between them',
+    'Not the same queries: Sep 29 point mixes the 5:41 AM check and the 5:59 AM check, with 3 queries added between them',
     'Base: Mar 13 to Apr 8 point',
     '25.0% pools all answers; not an average of engines',
   ])
-  expect(screen.getByText('Mentioned rate across 5 sweeps. Latest 25.0%, up 4.5 points over the period, not the same queries.')).toBeTruthy()
+  expect(screen.getByText('Mentioned rate across 5 checks. Latest 25.0%, up 4.5 points over the period, not the same queries.')).toBeTruthy()
 
   // The legend names engines and their latest rate, never a model.
   expect([...legend.querySelectorAll('li')].map(item => item.textContent)).toEqual([
@@ -177,7 +177,7 @@ test('collapses What changed to one line and opens a table by engine, newest fir
   expect(changes.querySelectorAll('tbody th[scope="row"]')).toHaveLength(5)
 
   expect(within(changes).getByRole('button', {
-    name: 'First sweep on the new model or query set. Sep 29 = the 5:41 AM and 5:59 AM sweeps. Sweep before: Jul 14.',
+    name: 'First check on the new model or query set. Sep 29 = the 5:41 AM and 5:59 AM checks. Check before: Jul 14.',
   })).toBeTruthy()
   // chat-latest has no update on record and was last checked Jul 20: that
   // note rides on its row, never as the banner above the readout.
@@ -205,10 +205,10 @@ test('dates every model change "on or before" Sep 29 on 7 days, bounded by the J
   renderAinyc('7d', {})
   await screen.findByRole('list', { name: 'Engines' })
 
-  expect(trendCard().querySelector('.av-card-meta')?.textContent).toBe('Sep 29 · 2 sweeps')
+  expect(trendCard().querySelector('.av-card-meta')?.textContent).toBe('Sep 29 · 2 checks')
   // One point: no change figure to withhold, but the point still mixes two query sets.
   expect(bullets(trendCard().querySelector(':scope > details.av-details'))).toEqual([
-    'Sep 29 point mixes the 5:41 AM sweep and the 5:59 AM sweep, with 3 queries added between them',
+    'Sep 29 point mixes the 5:41 AM check and the 5:59 AM check, with 3 queries added between them',
     '25.0% pools all answers; not an average of engines',
   ])
 
@@ -223,13 +223,13 @@ test('dates every model change "on or before" Sep 29 on 7 days, bounded by the J
   ])
   expect(bullets(changes.querySelector('.av-wc-body > details.av-details'))).toEqual([
     'Added Sep 29: Canonry, Canonry AEO agency, Canonry reviews',
-    'Changed before this date range, after the Jul 14 sweep: Claude, Gemini, OpenAI and Perplexity',
+    'Changed before this date range, after the Jul 14 check: Claude, Gemini, OpenAI and Perplexity',
     'Claude last answered with claude-sonnet-5 on Sep 29',
     'Gemini last answered with gemini-3.5-flash on Sep 29',
     'OpenAI last answered with chat-latest on Sep 29',
     'Perplexity last answered with openai/gpt-6-luna on Sep 29',
   ])
-  expect(within(changes).getByRole('button', { name: /Sweep before: Jul 14\.$/ })).toBeTruthy()
+  expect(within(changes).getByRole('button', { name: /Check before: Jul 14\.$/ })).toBeTruthy()
 
   // Mention share reads non-brand answers only, which the branded additions left alone.
   act(() => { fireEvent.click(screen.getByRole('radio', { name: 'Mention share' })) })
@@ -245,7 +245,7 @@ test('the first and latest point tooltips carry their own dates, counts and mode
   renderAinyc()
   await screen.findByRole('list', { name: 'Engines' })
   expect(tooltipText()).toEqual([
-    'Mar 13 to Apr 8 · 41 sweeps',
+    'Mar 13 to Apr 8 · 41 checks',
     'Claude51.9%147 of 283',
     'Gemini3.3%10 of 307',
     'OpenAI22.3%67 of 300',
@@ -258,7 +258,7 @@ test('the first and latest point tooltips carry their own dates, counts and mode
   renderAinyc()
   await screen.findByRole('list', { name: 'Engines' })
   expect(tooltipText()).toEqual([
-    'Sep 29 · 2 sweeps',
+    'Sep 29 · 2 checks',
     '3 queries added 5:59 AM',
     'Claude20.0%5 of 25',
     'Gemini36.0%9 of 25',

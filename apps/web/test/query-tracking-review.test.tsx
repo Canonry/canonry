@@ -56,7 +56,7 @@ test('focuses the preview outcome and shows the before and after numbers under t
   // The words are the notice's own, so this check cannot go on passing over a reworded notice.
   expect(advancedResetNotice).toMatch(advancedResetNoticeWords)
   expect(screen.queryByText(advancedResetNoticeWords)).toBeNull()
-  expect(within(heading.parentElement!).queryByText('Publishing does not run a sweep.')).toBeNull()
+  expect(within(heading.parentElement!).queryByText('Publishing does not run a check.')).toBeNull()
 })
 
 test('keeps added and removed queries and answers separate in the review numbers', async () => {

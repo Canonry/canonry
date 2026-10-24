@@ -27,12 +27,15 @@ function setup(opts: {
   blockBad?: Promise<void>
   /** The registered provider name; `test` is not one telemetry knows. */
   provider?: string
+  /** Register the shared connection while the saved run selects a routed model. */
+  connectionProvider?: string
   /** The text a failing provider call throws, as adapters word it. */
   failWith?: string
   /** What the engine reports it retrieved; undefined when it reports nothing. */
   retrievedSources?: Array<{ uri: string; title: string; kind: 'search-result' | 'page-read'; query: string | null }>
 } = {}) {
   const provider = opts.provider ?? 'test'
+  const connectionProvider = opts.connectionProvider ?? provider
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-research-runner-'))
   cleanup.push(dir)
   const db = createClient(path.join(dir, 'test.db'))
@@ -42,18 +45,11 @@ function setup(opts: {
   for (const domain of opts.competitorDomains ?? []) {
     db.insert(competitors).values({ id: crypto.randomUUID(), projectId: 'p', domain, aliases: opts.competitorAliases?.[domain] ?? [], createdAt: now }).run()
   }
-  db.insert(researchRuns).values({ id: 'r', projectId: 'p', status: 'queued', provider, resolvedModel: 'exact-model', totalQueries: 2, completedQueries: 0, failedQueries: 0, createdAt: now }).run()
-  for (const [position, queryText] of ['good', 'bad'].entries()) {
-    db.insert(researchRunQueries).values({
-      id: crypto.randomUUID(), researchRunId: 'r', position, queryText,
-      status: 'queued', resolvedModel: 'exact-model', groundingSources: [],
-      citedDomains: [], searchQueries: [], createdAt: now,
-    }).run()
-  }
+  seedResearchRun(db, { id: 'r', provider, queries: ['good', 'bad'], createdAt: now })
   const registry = new ProviderRegistry()
   const models: string[] = []
   registry.register({
-    name: provider,
+    name: connectionProvider,
     executeTrackedQuery: async (_input: { query: string }, config: { model?: string }) => {
       models.push(config.model ?? '')
       if (_input.query === 'bad') await opts.blockBad
@@ -69,10 +65,29 @@ function setup(opts: {
     }),
     healthcheck: async () => ({ ok: true, provider: 'test', message: 'ok' }),
   } as never, {
-    provider, model: 'wrong',
+    provider: connectionProvider, model: 'wrong',
     quotaPolicy: { maxConcurrency: 2, maxRequestsPerMinute: 100, maxRequestsPerDay: 10 },
   })
   return { db, registry, models }
+}
+
+function seedResearchRun(
+  db: ReturnType<typeof createClient>,
+  input: { id: string; provider: string; queries: string[]; createdAt?: string },
+): void {
+  const createdAt = input.createdAt ?? new Date().toISOString()
+  db.insert(researchRuns).values({
+    id: input.id, projectId: 'p', status: 'queued', provider: input.provider,
+    resolvedModel: 'exact-model', totalQueries: input.queries.length,
+    completedQueries: 0, failedQueries: 0, createdAt,
+  }).run()
+  for (const [position, queryText] of input.queries.entries()) {
+    db.insert(researchRunQueries).values({
+      id: crypto.randomUUID(), researchRunId: input.id, position, queryText,
+      status: 'queued', resolvedModel: 'exact-model', groundingSources: [],
+      citedDomains: [], searchQueries: [], createdAt,
+    }).run()
+  }
 }
 describe('executeResearchRun', () => {
   it('records partial results, preserves a null served model, and charges dispatched calls only', async () => {
@@ -270,26 +285,53 @@ describe('executeResearchRun', () => {
     expect(second).toEqual({ reserved: false, used: 8 })
     expect(db.select().from(usageCounters).get()?.count).toBe(8)
   })
+
+  it('shares visibility quota across sibling OpenRouter research routes', async () => {
+    const firstRoute = 'openrouter:google/gemini-3.1-flash-lite'
+    const secondRoute = 'openrouter:anthropic/claude-sonnet-4.6'
+    const { db, registry } = setup({
+      provider: firstRoute,
+      connectionProvider: 'openrouter',
+      failQueries: false,
+    })
+    const period = new Date().toISOString().slice(0, 10)
+    expect(reserveDailyQueryQuota(db, {
+      scope: 'p:openrouter', period, count: 6, limit: 10,
+    }).reserved).toBe(true)
+    seedResearchRun(db, { id: 'r2', provider: secondRoute, queries: ['one', 'two'] })
+
+    await executeResearchRun(db, registry, 'r', 'p')
+    await executeResearchRun(db, registry, 'r2', 'p')
+
+    expect(db.select().from(researchRuns).all().map(row => row.status)).toEqual(['completed', 'completed'])
+    expect(db.select().from(usageCounters).all().map(row => ({ scope: row.scope, count: row.count }))).toEqual([
+      { scope: 'p:openrouter', count: 10 },
+    ])
+  })
 })
 
 describe('research run outcome telemetry', () => {
   const researched = { feature: 'research', operation: 'run', durationBucket: expect.any(String) }
 
   it('reports a finished batch with its queries, saved answers and failures, and the provider when telemetry knows it', async () => {
-    const complete = setup({ failQueries: false, provider: 'gemini' })
-    await executeResearchRun(complete.db, complete.registry, 'r', 'p')
+    for (const provider of ['gemini', 'openrouter:google/gemini-3.1-flash-lite']) {
+      const complete = setup({ failQueries: false, provider })
+      await executeResearchRun(complete.db, complete.registry, 'r', 'p')
+    }
     // One query fails on the provider's account; the adapter's text is classified, never sent.
     const partial = setup({ failWith: '[provider-test] 401 Incorrect API key provided: sk-live-123' })
     await executeResearchRun(partial.db, partial.registry, 'r', 'p')
 
     expect(trackEvent.mock.calls).toEqual([
       ['feature.completed', { ...researched, trigger: 'manual', provider: 'gemini', status: 'succeeded', counts: { queries: 2, snapshots: 2, failures: 0 } }, undefined],
+      ['feature.completed', { ...researched, trigger: 'manual', provider: 'openrouter', status: 'succeeded', counts: { queries: 2, snapshots: 2, failures: 0 } }, undefined],
       ['feature.completed', {
         ...researched, trigger: 'manual', status: 'partial', reasonCode: 'INVALID_CREDENTIALS', errorName: 'Error',
         counts: { queries: 2, snapshots: 1, failures: 1 },
       }, { errorCode: 'INVALID_CREDENTIALS' }],
     ])
     expect(JSON.stringify(trackEvent.mock.calls)).not.toContain('sk-live')
+    expect(JSON.stringify(trackEvent.mock.calls)).not.toContain('google/gemini')
   })
 
   it('reports a batch refused before dispatch, and one recovered at startup, as failed with the reason', async () => {

@@ -61,6 +61,10 @@ export interface ListReviewsOptions extends GbpFetchOptions {
    * to fetch every page (the first sync of a location).
    */
   stopBefore?: string | null
+  /** A bounded live check must fail rather than establish a partial baseline. */
+  maxPages?: number
+  /** New live consumers require exact identity and no silently discarded rows. */
+  strict?: boolean
 }
 
 /**
@@ -117,6 +121,8 @@ export async function listReviews(
   locationName: string,
   opts: ListReviewsOptions = {},
 ): Promise<GbpReviewListing> {
+  const maxPages = opts.maxPages ?? GBP_MAX_PAGES
+  if (!Number.isInteger(maxPages) || maxPages < 1 || maxPages > GBP_MAX_PAGES) throw new Error('Invalid review page bound')
   const reviews: GbpReviewRow[] = []
   let averageRating: number | null = null
   let totalReviewCount: number | null = null
@@ -127,14 +133,17 @@ export async function listReviews(
     const url = new URL(`${GBP_LEGACY_V4_BASE}/${accountName}/${locationName}/reviews`)
     url.searchParams.set('pageSize', String(GBP_REVIEWS_PAGE_SIZE))
     // Documented default, set explicitly because early stop depends on it.
-    url.searchParams.set('orderBy', 'update_time desc')
+    url.searchParams.set('orderBy', 'updateTime desc')
     if (pageToken) url.searchParams.set('pageToken', pageToken)
     const res = await gbpFetchGet<ListReviewsResponse>(url.toString(), accessToken, opts)
     if (page === 0) {
       averageRating = typeof res.averageRating === 'number' ? res.averageRating : null
       totalReviewCount = typeof res.totalReviewCount === 'number' ? res.totalReviewCount : null
     }
-    const rows = (res.reviews ?? []).map(toRow).filter((row): row is GbpReviewRow => row !== null)
+    if (opts.strict && res.reviews !== undefined && !Array.isArray(res.reviews)) throw new Error('Invalid review list')
+    const mapped = (res.reviews ?? []).map(toRow)
+    if (opts.strict && mapped.some(row => row === null || !row.reviewName.startsWith(`${accountName}/${locationName}/reviews/`) || !/^[\w-]{1,200}$/u.test(row.reviewName.split('/').at(-1) ?? ''))) throw new Error('Incomplete or wrong-location review response')
+    const rows = mapped.filter((row): row is GbpReviewRow => row !== null)
     reviews.push(...rows)
     pageToken = res.nextPageToken
     page++
@@ -145,7 +154,9 @@ export async function listReviews(
       stoppedEarly = true
       break
     }
-  } while (pageToken && page < GBP_MAX_PAGES)
+  } while (pageToken && page < maxPages)
+  if (pageToken && !stoppedEarly) throw new Error('Review pagination is incomplete')
+  if (opts.strict && (new Set(reviews.map(row => row.reviewName)).size !== reviews.length || (totalReviewCount !== null && totalReviewCount !== reviews.length))) throw new Error('Review coverage is incomplete or changed during pagination')
   return { reviews, averageRating, totalReviewCount, stoppedEarly }
 }
 

@@ -4,7 +4,9 @@ import { visibilityReportRequestSchema, type VisibilityReportResponse } from './
 
 /** A turn's displayed selection, never an authorization grant. */
 export const agentViewContextSchema = z.object({
-  view: z.enum(['project', 'visibility', 'property', 'queries', 'site-health']),
+  view: z.enum(['project', 'visibility', 'property', 'queries', 'site-health', 'seo']),
+  seoProfileId: z.string().trim().min(1).max(128).optional(),
+  seoRunId: z.string().trim().min(1).max(128).optional(),
   unavailableReason: z.string().trim().min(1).max(512).optional(),
   selection: visibilityReportRequestSchema.optional(),
   /** On the Queries page: the results read the screen shows (signal, grouping, sort, filters, comparison). */
@@ -19,6 +21,8 @@ export const agentViewContextSchema = z.object({
     nodeKey: z.string().trim().min(1).max(2048).optional(),
   }).strict().optional(),
 }).strict().superRefine((value, ctx) => {
+  if (value.seoProfileId && value.view !== 'seo') ctx.addIssue({ code: 'custom', message: 'SEO profile context requires the SEO view.' })
+  if (value.seoRunId && value.view !== 'seo') ctx.addIssue({ code: 'custom', message: 'SEO run context requires the SEO view.' })
   if (value.page && value.view !== 'site-health') ctx.addIssue({ code: 'custom', message: 'Page context requires Site Health.' })
   if (value.selection && !['visibility', 'property', 'queries'].includes(value.view)) ctx.addIssue({ code: 'custom', message: 'Measurement selection requires a measurement view.' })
   if ((value.results || value.opened) && value.view !== 'queries') ctx.addIssue({ code: 'custom', message: 'A results read requires the Queries view.' })
@@ -90,7 +94,7 @@ export type { AgentProviderId } from './providers.js'
  * in the OpenAPI components — the SDK needs that to emit a string-union
  * type instead of a bare `string`.
  */
-export const agentProviderIdSchema = z.enum(['claude', 'openai', 'gemini', 'zai'])
+export const agentProviderIdSchema = z.enum(['claude', 'openai', 'gemini', 'zai', 'openrouter'])
 
 export const agentProviderOptionDtoSchema = z.object({
   /** Stable identifier — what clients pass back as `provider` on the prompt endpoint. */
@@ -106,6 +110,12 @@ export const agentProviderOptionDtoSchema = z.object({
    * Surfaced so the UI can nudge users toward their preferred source of truth.
    */
   keySource: z.enum(['config', 'env']).nullable(),
+  /**
+   * A short list of models to offer for this provider: the default first,
+   * then a few stronger current models. A pinned model outside the list is
+   * listed first. Any other model ID can still be requested.
+   */
+  models: z.array(z.object({ id: z.string(), displayName: z.string() })).optional(),
 })
 export type AgentProviderOption = z.infer<typeof agentProviderOptionDtoSchema>
 

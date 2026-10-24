@@ -1,5 +1,11 @@
 # Canonry CLI Reference
 
+## SEO data
+
+`cnry seo context <project>` lists configured sources, exact scopes and permissions. Use `seo profile list/show/set` to manage profiles, `seo overview`, `seo keyword-metrics`, `seo domain-intelligence` and `seo ranked-keywords` for stored evidence. Preserve `--profile-id` and `--run-id` when paging with `--limit` and `--offset`.
+
+After explicit approval for the profile and bounded work, prepare `seo refresh-intent <project> <profile-id>`, then pass its token and a stable retry key to `seo sync --intent-token ... --idempotency-key ...`. Inspect `seo runs` and `seo run show`; `seo run cancel` stops undispatched work. Use `--format json` for API-shaped output. Hosted budgets are internal. Never infer actual traffic from provider estimates or broaden a Property into a domain.
+
 The CLI is invoked as `cnry` (short form) or `canonry` — both ship with the `@canonry/canonry` npm package and behave identically. This reference uses `cnry`.
 
 ## Find a command
@@ -486,7 +492,7 @@ cnry insights <project>                        # list active insights (regressio
 cnry insights <project> --type gbp-*           # filter by insight type; trailing * = prefix (e.g. only GBP insights)
 cnry insights <project> --type gbp-description-missing   # exact type match
 cnry insights <project> --severity high        # minimum severity (high returns high + critical)
-cnry insights <project> --limit 10             # cap to the newest N
+cnry insights <project> --limit 10             # first N: newest analysis, needs-action before wins, most severe first
 cnry insights <project> --dismissed            # include dismissed insights
 cnry insights <project> --format json          # JSON output
 cnry insights dismiss <project> <id>           # dismiss an insight
@@ -714,6 +720,7 @@ cnry settings provider gemini --api-key <KEY> --model gemini-flash-latest
 cnry settings provider openai --max-per-day 1000 --max-per-minute 20
 cnry settings provider perplexity --api-key <KEY> --model fast
 cnry settings provider muse --api-key <KEY> --model muse-spark-1.3
+cnry settings provider openrouter --api-key <KEY>
 ```
 
 Perplexity runs on its Agent API. `--model` takes a preset (`fast` default, `low`, `medium`, `high`, `xhigh`) or a `vendor/model` slug such as `perplexity/sonar`. Retired Sonar names still work and run as their replacement (`sonar` → `fast`, `sonar-pro` → `low`).
@@ -731,7 +738,29 @@ database paths, authentication, and other server settings still need a restart.
 Changing or removing a provider with an outstanding batch is refused until the
 batch settles; quota-only updates remain available.
 
-Available providers: `gemini`, `openai`, `claude`, `perplexity`, `muse`, `local`, `cdp`
+Available connections: `gemini`, `openai`, `claude`, `perplexity`, `muse`, `local`, `openrouter`, `cdp`.
+
+OpenRouter uses one connection key and several selected models. Add each model
+to the project with repeatable `--provider openrouter:publisher/model` flags;
+include direct providers you want to retain because the flag replaces the list.
+The bare `openrouter` connection is not a sweep engine. Direct and routed models
+have separate results, including Simple and Advanced Measurement. Routed models
+share their connection limits; adding a new model requires `settings.write`.
+Aero can use `--provider openrouter --model publisher/model` independently of
+the project's sweep models. Classifications identify their own evaluator route.
+
+Search answer services (hosted services that search the web and answer) take
+only an API key: `cnry settings provider <service> --api-key <KEY>`, or the
+environment variable each service names at bootstrap. `cnry settings` lists
+every registered service with its key variable, its profiles and the workflows
+each profile allows. Name a profile route `<service>:<profile>` in `--provider`;
+the bare connection is not an engine, and an empty provider list, schedules,
+discovery and Aero never pick a service up. Only complete answers are
+measured, and each answer stores its evidence (source relationships,
+completion, frozen profile settings, cost basis), so read what a service
+discloses from that evidence rather than assuming it. See
+[search answer services](https://github.com/Canonry/canonry/blob/main/docs/providers/answer-services.md)
+and the service's own page under `docs/providers/answer-services/`.
 
 Set `MUSE_API_KEY` before `cnry bootstrap` or `cnry init` to store the key. Setup also accepts `MUSE_MODEL` and `MUSE_BASE_URL`. `cnry init --muse-key <KEY>` stores a key directly. Muse uses Meta's Standard `muse-spark-1.3` by default. Contributor model IDs require an explicit model override; Meta permits training on their prompts and completions. See [the Muse provider guide](https://github.com/Canonry/canonry/blob/main/docs/providers/muse.md).
 
@@ -1031,7 +1060,7 @@ Target, or market attribution. Server sessions and GA sessions remain separate.
 
 ## Google Analytics 4
 
-GA4 integration supports service-account auth and OAuth (`canonry google connect <project> --type ga4`). With OAuth, `ga properties` lists the readable properties so the numeric id `ga connect --property-id` needs can be discovered without leaving canonry. The service account must have Viewer access on the GA4 property. `ga sync` writes the traffic tables (`gaTrafficSnapshots`, `gaAiReferrals`, `gaSocialReferrals`, `gaTrafficSummaries`) plus the GA4 Search Console landing-page snapshot (`gaSearchLandingWindows`, `gaSearchLandingPages`); every subsequent read command queries the local store rather than re-fetching from GA4, so reads are fast and quotaless. AI-referral rows are sessions GA4 puts in its `AI Assistant` channel (medium `ai-assistant`, since 2026-05-13, not retroactive) plus sessions whose source is an AI engine's host or a subdomain of it (`chatgpt.com`, `www.perplexity.ai`, `gemini.google.com`, `claude.ai`, `copilot.microsoft.com`, `grok.com`, `meta.ai`, `you.com`, …), its bare name (`chatgpt`, `gemini`, `grok`), its official Android app id, bare or as `android-app://` (`com.openai.chatgpt`, `com.microsoft.copilot`), or, for ChatGPT, Perplexity, Claude, DeepSeek and Phind, a tag that starts with the name or host (`perplexity_ai`, `chatgpt.com_ads`). These cover older history and AI visits GA4 files elsewhere. An engine name inside another source is never matched, so ngrok tunnels, `philanthropic.org` and the Gemini exchange stay out. A channel row whose source names no engine is kept under its own source and counted in every AI total; visits that send no referrer still land in Direct. Rows are tracked across three GA4 attribution dimensions (`session` / `first_user` / `manual_utm`; the manual UTM lens matches sources only, since GA4 has no channel for it) and joined to landing pages. Social referrals are split Organic vs Paid via GA4's `sessionDefaultChannelGroup`. All commands support `--format json`.
+GA4 integration supports service-account auth and OAuth (`canonry google connect <project> --type ga4`). With OAuth, `ga properties` lists the readable properties so the numeric id `ga connect --property-id` needs can be discovered without leaving canonry. The service account must have Viewer access on the GA4 property. `ga sync` writes the traffic tables (`gaTrafficSnapshots`, `gaAiReferrals`, `gaSocialReferrals`, `gaTrafficSummaries`) plus the GA4 Search Console landing-page snapshot (`gaSearchLandingWindows`, `gaSearchLandingPages`); every subsequent read command queries the local store rather than re-fetching from GA4, so reads are fast and quotaless. AI-referral rows are sessions GA4 puts in its `AI Assistant` channel (medium `ai-assistant`, since 2026-05-13, not retroactive) plus sessions whose source is an AI engine's host or a subdomain of it (`chatgpt.com`, `www.perplexity.ai`, `gemini.google.com`, `claude.ai`, `copilot.microsoft.com`, `grok.com`, `meta.ai`, `you.com`, …), its bare name (`chatgpt`, `gemini`, `grok`), its official Android app id, bare or as `android-app://` (`com.openai.chatgpt`, `com.microsoft.copilot`), or, for ChatGPT, Perplexity, Claude, DeepSeek and Phind, a tag that starts with the name or host (`perplexity_ai`, `chatgpt.com_ads`). These cover older history and AI visits GA4 files elsewhere. An engine name inside another source is never matched, so ngrok tunnels, `philanthropic.org` and the Gemini exchange stay out. A channel row whose source names no engine is kept under its own source and counted in every AI total; visits that send no referrer still land in Direct. Rows are tracked across three GA4 attribution dimensions (`session` / `first_user` / `manual_utm`; the manual UTM lens matches sources only, since GA4 has no channel for it) and joined to landing pages. Social referrals are split Organic vs Paid via GA4's `sessionDefaultChannelGroup`. Synced rows carry no GA4 property, so anything that changes the property a project resolves to (`ga connect` to another property, `ga disconnect`, or `google disconnect --type ga4` with no service account behind it) deletes the project's GA rows; the next `ga sync` refills them from the new property. All commands support `--format json`.
 
 ```bash
 cnry ga connect <project> --property-id <id> --key-file ./sa-key.json
@@ -1107,6 +1136,12 @@ cnry ga social-referral-summary <project> [--trend]
                                                   # socialSharePct, topSources[]; --trend adds 7d/30d direction
 cnry ga session-history <project> [--window 30d] [--start YYYY-MM-DD] [--end YYYY-MM-DD]
                                                   # daily totals: {date, sessions, organicSessions, users}
+cnry ga overview <project> [--window 7d|30d|90d]
+                                                  # GA4's overview for the complete days ending yesterday
+                                                  # (default 30d): users, new users, sessions, organic
+                                                  # sessions, views, event count, key events, engagement
+                                                  # rate, bounce rate, average engagement time, each against
+                                                  # the previous period; --format json adds both periods by day
 cnry ga coverage <project>                    # per-page overlay: {landingPage, sessions,
                                                   # organicSessions, users}
 ```
@@ -1822,6 +1857,14 @@ breakdown row as `location <label>` and lists the ranked ones under
 `Most criticized locations: N of total` with favorable, mixed and unfavorable
 counts; read one with `--scope property --scope-key <key> --outcome mixed,unfavorable`
 (in a market view, pass that market as `--market-key`).
+
+Sentiment also checks mentions. When its latest verdict on an answer is
+`wrong-subject` (the answer uses the name but is about a namesake or a shared word),
+the answer stops counting as mentioned everywhere: run detail and snapshot JSON carry
+`mentionIdentity: "wrong-subject"` with `matchedTerms` still listing the name, and
+`canonry run show` marks the row `different subject`. An Advanced Property's answer
+evidence carries the same field on that Property's row. `ambiguous-subject` never
+changes a mention. Probes are never assessed.
 
 ### Stored traffic samples
 

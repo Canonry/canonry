@@ -1,4 +1,5 @@
 export const CANONRY_MCP_TIERS = [
+  'seo',
   'core',
   'monitoring',
   'setup',
@@ -19,6 +20,7 @@ export const CANONRY_MCP_TIERS = [
 export type CanonryMcpTier = typeof CANONRY_MCP_TIERS[number]
 
 export const CANONRY_MCP_TOOLKIT_NAMES = [
+  'seo',
   'monitoring',
   'setup',
   'gsc',
@@ -43,6 +45,12 @@ export interface CanonryMcpToolkit {
 }
 
 export const CANONRY_MCP_TOOLKITS: readonly CanonryMcpToolkit[] = [
+  {
+    name: 'seo',
+    title: 'SEO data',
+    description: 'Provider-neutral keyword metrics, ranked keywords, domain intelligence, saved profiles and explicit refreshes. DataForSEO is the first adapter.',
+    whenToLoad: 'Load to inspect saved organic-search estimates, manage exact SEO profiles or explicitly refresh evidence. Search Console observations and AI citation and mention coverage remain separate.',
+  },
   {
     name: 'monitoring',
     title: 'Measurement, runs, insights, health',

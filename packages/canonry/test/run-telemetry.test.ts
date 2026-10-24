@@ -5,6 +5,7 @@ import {
   FAILURE_STREAK_SAMPLE_RATE,
   buildProviderOutcomeProps,
   buildRunCompletedProps,
+  buildRunRefusedProps,
   buildSiteAuditCompletedProps,
   describeRunFailure,
   failureStreakSampling,
@@ -168,6 +169,34 @@ describe('buildRunCompletedProps', () => {
     expect(buildRunCompletedProps({ ...baseInput, callLatencies: new Map([['claude', []]]) })).not.toHaveProperty('providerLatencyMs')
   })
 
+  it('aggregates routed model calls and latency samples without sending model identities', () => {
+    const google = 'openrouter:google/gemini-3.1-flash-lite'
+    const anthropic = 'openrouter:anthropic/claude-sonnet-4.6'
+    const props = buildRunCompletedProps({
+      ...baseInput, providerCount: 3, providers: ['gemini', google, anthropic],
+      answers: [
+        { provider: 'gemini', usage: priced('standard', 1), dispatchMode: 'sync' },
+        { provider: google, usage: priced('standard', 3), dispatchMode: 'sync' },
+        { provider: google, usage: priced('standard', 3), dispatchMode: 'sync' },
+        { provider: anthropic, usage: priced('batch', 5), dispatchMode: 'batch' },
+      ],
+      callLatencies: new Map([['gemini', [2]], [google, [10, 100, 1000]], [anthropic, [2000]]]),
+    })
+    expect(props.providers).toEqual(['gemini', 'openrouter'])
+    expect(props.providerCount).toBe(3)
+    expect(props.providerCalls).toEqual({ gemini: 1, openrouter: 3 })
+    expect(props.usage).toEqual({ inputTokens: 4000, outputTokens: 800, costMicros: 12, batchCalls: 1 })
+    // The median of all four calls is 550; averaging route medians would be 1050.
+    expect(props.providerLatencyMs).toEqual({ gemini: 2, openrouter: 550 })
+    expect(JSON.stringify(props)).not.toMatch(/google\/|anthropic\//)
+  })
+
+  it('reports an answer-service profile as its connection, never the profile', () => {
+    const props = buildRunCompletedProps({ ...baseInput, providerCount: 3, providers: ['gemini', 'acme-answers:deep', 'acme-answers:fast', 'cdp:chatgpt'] })
+    expect(props.providers).toEqual(['gemini', 'acme-answers', 'cdp:chatgpt'])
+    expect(JSON.stringify(props)).not.toMatch(/:deep|:fast/)
+  })
+
   it('stays within the collector limits with every property present', () => {
     const providers = ['gemini', 'openai', 'claude', 'perplexity', 'muse', 'local', 'cdp:chatgpt']
     const props = {
@@ -312,6 +341,18 @@ describe('buildProviderOutcomeProps', () => {
     expect(buildProviderOutcomeProps(['gemini'], new Map([['gemini', 'fetch failed']]))).toEqual({
       providerOutcomes: { gemini: 'NETWORK' },
     })
+  })
+
+  it('keeps the strongest routed connection failure and refusal without sending model identities', () => {
+    const google = 'openrouter:google/gemini-3.1-flash-lite'
+    const anthropic = 'openrouter:anthropic/claude-sonnet-4.6'
+    const outcomes = buildProviderOutcomeProps(['gemini', google, anthropic], new Map([
+      [google, '503 Service Unavailable'], [anthropic, '401 Incorrect API key provided'],
+    ]))
+    expect(outcomes).toEqual({ providerOutcomes: { gemini: 'ok', openrouter: 'PROVIDER_AUTH' }, providerHttpStatus: { openrouter: 401 } })
+    const refusal = buildRunRefusedProps({ providers: { [google]: 'PROVIDER_BILLING', [anthropic]: 'PROVIDER_AUTH' }, trigger: 'scheduled' })
+    expect(refusal).toEqual({ reason: 'providers_failing', providerCount: 2, providers: ['openrouter'], providerOutcomes: { openrouter: 'PROVIDER_AUTH' }, trigger: 'scheduled' })
+    expect(JSON.stringify({ outcomes, refusal })).not.toMatch(/google\/|anthropic\//)
   })
 
   it('stays within the collector limit of 12 nested keys', () => {

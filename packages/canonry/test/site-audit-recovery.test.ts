@@ -34,13 +34,20 @@ describe('site-audit crash recovery', () => {
       state: status, startedAt: now, lastEventSequence: 7, createdAt: now, updatedAt: now,
     }).run()
 
-    const otherStaleRuns = Object.values(RunKinds).filter(kind => kind !== RunKinds['site-audit'])
+    const otherStaleRuns = Object.values(RunKinds).filter(kind => kind !== RunKinds['site-audit'] && kind !== RunKinds['seo-sync'])
       .map((kind, index) => ({
         id: `stale-${kind}`, projectId: 'project', kind,
         status: index % 2 === 0 ? RunStatuses.queued : RunStatuses.running,
         createdAt: now,
       }))
     db.insert(runs).values(otherStaleRuns).run()
+    // SEO owns its leases and possible paid submissions. Generic boot recovery
+    // must not terminalize its Activity row before that owner reconciles it.
+    db.insert(runs).values({
+      id: 'seo-owned-run', projectId: 'project', kind: RunKinds['seo-sync'],
+      status, startedAt: status === RunStatuses.running ? now : null, createdAt: now,
+    }).run()
+    const seoBeforeBoot = db.select().from(runs).where(eq(runs.id, 'seo-owned-run')).get()
     const terminalRuns = [RunStatuses.completed, RunStatuses.partial, RunStatuses.failed, RunStatuses.cancelled]
       .map(status => ({
         id: `terminal-${status}`, projectId: 'project', kind: RunKinds['answer-visibility'],
@@ -86,6 +93,7 @@ describe('site-audit crash recovery', () => {
           finishedAt: expect.any(String),
         })
       }
+      expect(db.select().from(runs).where(eq(runs.id, 'seo-owned-run')).get()).toEqual(seoBeforeBoot)
       for (const run of terminalRuns) {
         expect(db.select().from(runs).where(eq(runs.id, run.id)).get()).toMatchObject({
           status: run.status, finishedAt: now, error: null,

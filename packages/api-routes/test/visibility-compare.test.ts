@@ -175,6 +175,16 @@ describe('computeVisibilityCompare — share of voice', () => {
     expect(dto.competitors.from).toEqual([])
   })
 
+  it('does not count a name match sentiment judged wrong-subject as a project mention in named SoV', () => {
+    const competitors = [{ domain: 'rival.com', brandTokens: ['rival'] }]
+    const namesake = () => snap({ queryId: 'q1', provider: 'openai', mentionIdentity: 'wrong-subject', answerText: 'Demo Hardware and Rival both stock lumber.' })
+    const brand = () => snap({ queryId: 'q2', provider: 'openai', answerMentioned: true, mentionIdentity: null, answerText: 'Demo and Rival are both options.' })
+    const dto = computeVisibilityCompare(build([namesake(), brand()], [namesake(), brand()], { competitors, brandNames: ['demo'] }))
+
+    // One project mention against two competitor mentions.
+    expect(metricOf(dto, 'mention-share-of-voice').from).toMatchObject({ numerator: 1, denominator: 3 })
+  })
+
   it('labels named SoV pooled when no project identity can classify the basket', () => {
     const competitors = [{ domain: 'rival.com', brandTokens: ['rival'] }]
     const s = () => snap({ queryId: 'q1', provider: 'openai', answerText: 'Rival is one option.' })

@@ -158,7 +158,7 @@ function TrackingPreview({
   const hasChanges = !preview.diff.noOp
   const subcopy = !hasChanges
     ? 'This request leaves tracking unchanged.'
-    : 'Changes apply to future sweeps. Earlier results stay unchanged.'
+    : 'Changes apply to future checks. Earlier results stay unchanged.'
   const changed = [
     { label: 'Added', rows: preview.diff.added },
     { label: 'Removed', rows: preview.diff.removed },
@@ -185,7 +185,7 @@ function TrackingPreview({
         <WriteButton type="button" size="sm" disabled={!hasChanges || isCommitting || sweepActive} onClick={onConfirm}>
           {isCommitting ? 'Confirming…' : 'Confirm changes'}
         </WriteButton>
-        {hasChanges && sweepActive ? <p role="status" className="text-sm leading-5 text-caution">A sweep is queued or running. Publish after it finishes.</p> : null}
+        {hasChanges && sweepActive ? <p role="status" className="text-sm leading-5 text-caution">A check is queued or running. Publish after it finishes.</p> : null}
       </div>
     </Card>
   )
@@ -203,8 +203,8 @@ function previewWorkloadLine(preview: QueryTrackingPreviewResponse): string {
   return [
     added.length > 0 ? `+${count(added.length)} ${added.length === 1 ? 'query' : 'queries'}` : null,
     removed.length > 0 ? `−${count(removed.length)} ${removed.length === 1 ? 'query' : 'queries'}` : null,
-    `+${count(addedProviderCalls)} / −${count(removedProviderCalls)} answers per sweep`,
-    `next sweep asks ${count(nextSweepProviderCalls)}`,
+    `+${count(addedProviderCalls)} / −${count(removedProviderCalls)} answers per check`,
+    `next check asks ${count(nextSweepProviderCalls)}`,
   ].filter((part): part is string => part !== null).join(' · ')
 }
 

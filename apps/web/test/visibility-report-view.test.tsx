@@ -76,7 +76,7 @@ function reportWithAnswer(queryKey: string, answerText: string): VisibilityRepor
 }
 
 function legacyReportFixture(): VisibilityReportResponse {
-  const report = reportWithAnswer('query-context', 'A saved answer from an older sweep.')
+  const report = reportWithAnswer('query-context', 'A saved answer from an older check.')
   report.selection.mode = 'simple'
   report.selection.queryClass = 'all'
   report.selection.provenance = { kind: 'legacy-simple', definitionRevision: null }
@@ -264,7 +264,7 @@ describe('shared production visibility view', () => {
     expect(screen.queryByRole('region', { name: 'Non-brand queries', exact: true })).toBeNull()
     fireEvent.click(within(population).getByText('Query results', { selector: 'span' }).closest('summary')!)
     fireEvent.click(within(population).getByRole('button', { name: /View answers for/ }))
-    expect(await screen.findByText('A saved answer from an older sweep.')).toBeTruthy()
+    expect(await screen.findByText('A saved answer from an older check.')).toBeTruthy()
     expect(requests.at(-1)!.searchParams.get('queryClass')).toBe('unknown')
     expect(requests.at(-1)!.searchParams.get('runId')).toBe('run-2')
   })
@@ -495,7 +495,7 @@ describe('shared production visibility view', () => {
     expect(html).toContain('Not measured')
     expect(html).toContain('Query results')
     expect(html).toContain('View answers')
-    expect(html).not.toContain('Run AI sweep')
+    expect(html).not.toContain('Run AI Visibility check')
   })
 
   it.each([
@@ -1003,7 +1003,7 @@ describe('shared production visibility view', () => {
     expect(disclosure.getAttribute('aria-expanded')).toBe('true')
     expect(screen.queryByText('Measured run')).toBeNull()
     expect(screen.queryByText('All observed models')).toBeNull()
-    expect(screen.getByRole('button', { name: 'Choose a saved AI sweep to view its results. No new sweep starts.' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Choose a saved AI Visibility check to view its results. No new check starts.' })).toBeTruthy()
 
     fireEvent.change(screen.getByLabelText('Start date (UTC)'), { target: { value: '2026-09-01' } })
     expect(select).toHaveBeenLastCalledWith({ measurementFrom: '2026-09-01T00:00:00.000Z' })
@@ -1011,7 +1011,7 @@ describe('shared production visibility view', () => {
     expect(select).toHaveBeenLastCalledWith({ measurementTo: '2026-09-02T23:59:59.999Z' })
 
     const results = screen.getByRole('combobox', { name: 'Results from' }) as HTMLSelectElement
-    expect(results.options[0]!.text).toBe('Latest saved sweep')
+    expect(results.options[0]!.text).toBe('Latest saved check')
     expect([...results.options].map(option => option.value)).toEqual(['', 'run-2', 'run-1'])
     fireEvent.change(results, { target: { value: 'run-1' } })
     expect(select).toHaveBeenLastCalledWith({ measurementRunId: 'run-1', measurementQueryKey: undefined })

@@ -123,7 +123,7 @@ describe('CompetitorLandscape', () => {
     const { details, bullets } = detailsList(container)
     expect(details.open).toBe(false)
     expect(bullets).toEqual([
-      'Base: 2 sweeps, 88 answers',
+      'Base: 2 checks, 88 answers',
       'Mention share: you 13, pbjmarketing.com 28 of 41 tracked-brand mentions',
       'Answers with source links: 86',
       // No other competitor site; the 59 company names are listed separately.
@@ -223,7 +223,7 @@ describe('CompetitorLandscape', () => {
     expect(detailsList(container).bullets).toEqual(expect.arrayContaining([
       'No answer text: 2 answers, left out of mention share',
       'Incomplete source lists: 1 answer, not counted as misses',
-      'Left out: 3 answers from spot checks or unfinished sweeps',
+      'Left out: 3 answers from spot checks or unfinished checks',
     ]))
 
     rerender(<CompetitorLandscape {...props} landscape={{

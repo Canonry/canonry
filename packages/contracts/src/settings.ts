@@ -1,5 +1,8 @@
 import { z } from 'zod'
 import { providerQuotaPolicySchema } from './provider.js'
+import { providerKindSchema, providerWorkflowSchema } from './provider-eligibility.js'
+import { providerSelectionKindSchema } from './provider-routes.js'
+import { answerServiceProfileSummarySchema, providerKeyCheckSchema, providerSettingsFieldSchema } from './answer-service.js'
 
 /**
  * Per-provider summary entry surfaced by `GET /settings`. Mirrors the
@@ -25,6 +28,8 @@ export const providerSummaryEntryDtoSchema = z.object({
   quota: providerQuotaPolicySchema.optional(),
   /** Whether Vertex AI is configured for this provider (Gemini only). */
   vertexConfigured: z.boolean().optional(),
+  /** Absent means an answer engine. */
+  kind: providerKindSchema.optional(),
 })
 export type ProviderSummaryEntryDto = z.infer<typeof providerSummaryEntryDtoSchema>
 
@@ -68,6 +73,26 @@ export const providerCatalogEntryDtoSchema = z.object({
   })).default([]),
   modelValidationPattern: z.object({ source: z.string(), flags: z.string() }),
   modelValidationHint: z.string(),
+  /** Absent means an answer engine. Hosted web-search answer services are `answer-service`. */
+  kind: providerKindSchema.optional(),
+  /** The connection that owns this entry's key and quota (its own name for a connection). */
+  connection: z.string().optional(),
+  /**
+   * On a routed connection: what its route keys select (`model` for OpenRouter,
+   * `profile` for an answer service). The connection itself is never a target.
+   */
+  selectionKind: providerSelectionKindSchema.nullable().optional(),
+  /** Answer-service profiles: all of them on the connection, the pinned one on a route. */
+  profiles: z.array(answerServiceProfileSummarySchema).optional(),
+  /** Workflows an explicit selection of this entry may run. Absent means every workflow. */
+  workflows: z.array(providerWorkflowSchema).optional(),
+  /** Whether this entry can act as a plain text generator (analysis, query generation). */
+  textGeneration: z.boolean().optional(),
+  /** Credential fields the connection accepts. Answer services take a key and nothing else. */
+  settingsFields: z.array(providerSettingsFieldSchema).optional(),
+  keyCheck: providerKeyCheckSchema.optional(),
+  keyUrl: z.string().optional(),
+  vendorDocsUrl: z.string().optional(),
 })
 export type ProviderCatalogEntryDto = z.infer<typeof providerCatalogEntryDtoSchema>
 

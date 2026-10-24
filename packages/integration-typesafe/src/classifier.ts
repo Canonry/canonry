@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
-import { SentimentOutcomes, answerProseForMentions, compileBrandAliases, hostOf, matcherMatchesText, sentimentClassifierInputSchema } from '@canonry/canonry-contracts'
+import { SentimentOutcomes, answerProseForMentions, asRecord, compileBrandAliases, hostOf, matcherMatchesText, sentimentClassifierInputSchema } from '@canonry/canonry-contracts'
 import type { SentimentClassifier, SentimentClassifierInput, SentimentClassifierOutput, SentimentEvidence, SentimentOutcome, SentimentUsage } from '@canonry/canonry-contracts'
-import { record, requestJev } from './client.js'
+import { requestJev } from './client.js'
 import type { JevChoiceQuestion, JevClientOptions, JevRequest } from './client.js'
 
 const UNKNOWN_USAGE: SentimentUsage = { kind: 'unknown', inputTokens: null, outputTokens: null }
@@ -91,8 +91,8 @@ export function buildJevSentimentRequest(input: SentimentClassifierInput): Reque
 
 interface ParsedChoice { choice: string; confidence: number | null }
 function parseChoice(value: unknown, question: JevChoiceQuestion): ParsedChoice | null {
-  const answer = record(value)
-  const probabilities = record(answer?.probabilities)
+  const answer = asRecord(value)
+  const probabilities = asRecord(answer?.probabilities)
   if (answer?.type !== 'choice' || typeof answer.choice !== 'string' || !Object.hasOwn(question.criteria, answer.choice) || !probabilities) return null
   const expected = Object.keys(question.criteria)
   if (Object.keys(probabilities).length !== expected.length || expected.some(key => typeof probabilities[key] !== 'number' || !Number.isFinite(probabilities[key]) || (probabilities[key] as number) < 0 || (probabilities[key] as number) > 1)) return null
@@ -103,13 +103,18 @@ function parseChoice(value: unknown, question: JevChoiceQuestion): ParsedChoice 
 }
 
 export function createTypeSafeClassifier(options: Omit<JevClientOptions, 'signal'>): SentimentClassifier {
+  return createJevSentimentClassifier((request, signal) => requestJev(request, { ...options, signal }))
+}
+
+/** Shares the frozen Jev rubric and evidence checks across supported transports. */
+export function createJevSentimentClassifier(dispatch: (request: JevRequest, signal?: AbortSignal) => Promise<import('./client.js').JevResult>): SentimentClassifier {
   return { async classify(rawInput, callOptions) {
     const valid = sentimentClassifierInputSchema.safeParse(rawInput)
     if (!valid.success) return { kind: 'failed', outcome: SentimentOutcomes.failed, returnedModel: null, usage: UNKNOWN_USAGE, error: { code: 'input-contract', message: 'The classifier input does not match its frozen contract.', retryable: false, retryAfterMs: null } }
     const input = valid.data
     const built = buildJevSentimentRequest(input)
     if (!built.ok) return { kind: 'abstained', outcome: built.outcome, reason: built.reason, returnedModel: null, usage: UNKNOWN_USAGE }
-    const response = await requestJev(built.request, { ...options, signal: callOptions?.signal })
+    const response = await dispatch(built.request, callOptions?.signal)
     if (!response.ok) return { kind: 'failed', outcome: SentimentOutcomes.failed, returnedModel: response.returnedModel, usage: response.usage, error: response.error }
     const parsed = Object.fromEntries(Object.entries(built.request.questions).map(([id, question]) => [id, parseChoice(response.answers[id], question)]))
     const spans = new Map(input.sentences.map(span => [span.id, span]))
@@ -120,7 +125,7 @@ export function createTypeSafeClassifier(options: Omit<JevClientOptions, 'signal
       return span ? [{ ...span }] : null
     }
     const abstain = (outcome: SentimentOutcome, reason: string): SentimentClassifierOutput => ({ kind: 'abstained', outcome, reason, returnedModel: response.returnedModel, usage: response.usage })
-    if (!parsed.identity || !parsed.judgment || !parsed.stance) return { kind: 'failed', outcome: SentimentOutcomes.failed, returnedModel: response.returnedModel, usage: response.usage, error: { code: 'response-contract', message: 'TypeSafe returned a malformed headline decision.', retryable: false, retryAfterMs: null } }
+    if (!parsed.identity || !parsed.judgment || !parsed.stance) return { kind: 'failed', outcome: SentimentOutcomes.failed, returnedModel: response.returnedModel, usage: response.usage, error: { code: 'response-contract', message: 'Jev returned a malformed headline decision.', retryable: false, retryAfterMs: null } }
     if (parsed.identity.choice === 'absent') return abstain(SentimentOutcomes['subject-not-mentioned'], 'The known intended subject is not discussed in the answer.')
     if (parsed.identity.choice === 'wrong') return abstain(SentimentOutcomes['wrong-subject'], 'The answer refers to another subject.')
     if (parsed.identity.choice !== 'correct') return abstain(SentimentOutcomes['ambiguous-subject'], 'The intended subject cannot be resolved unambiguously.')

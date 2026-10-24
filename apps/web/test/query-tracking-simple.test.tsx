@@ -93,7 +93,7 @@ test('gives an opted-in viewer the direct query test without exposing discovery 
 })
 
 test.each([
-  { name: 'a simple preview', mode: 'simple', noOp: false, heading: 'Confirm tracked query changes', subcopy: 'Changes apply to future sweeps. Earlier results stay unchanged.' },
+  { name: 'a simple preview', mode: 'simple', noOp: false, heading: 'Confirm tracked query changes', subcopy: 'Changes apply to future checks. Earlier results stay unchanged.' },
 ])('shows no reset notice for $name', async ({ mode, noOp, heading, subcopy }) => {
   installWorkspaceApi(path => {
     if (path.endsWith('/query-tracking/preview')) return jsonResponse(preview({ mode, diff: noOp ? { ...removalDiff, removed: [], noOp } : removalDiff }))
@@ -233,8 +233,8 @@ test('keeps simple measurements classifier-only with no Apply to box and never s
     removals: [],
   })
   // A simple project keeps the earlier review, with none of the advanced one.
-  expect(screen.getByText('+1 / −0 answers per sweep · next sweep asks 3')).toBeTruthy()
-  expect(screen.getByText('Changes apply to future sweeps. Earlier results stay unchanged.')).toBeTruthy()
+  expect(screen.getByText('+1 / −0 answers per check · next check asks 3')).toBeTruthy()
+  expect(screen.getByText('Changes apply to future checks. Earlier results stay unchanged.')).toBeTruthy()
   expect(screen.getByText('Ready to confirm')).toBeTruthy()
   expect(screen.getByRole('button', { name: 'Confirm changes' })).toBeTruthy()
   expect(screen.queryByRole('button', { name: /^Publish/ })).toBeNull()

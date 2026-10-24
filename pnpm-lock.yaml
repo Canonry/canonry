@@ -426,6 +426,9 @@ importers:
       drizzle-orm:
         specifier: ^0.45.4
         version: 0.45.4(@opentelemetry/api@1.9.1)(@types/better-sqlite3@9.6.0)(better-sqlite3@13.0.3)
+      entities:
+        specifier: 8.1.0
+        version: 8.1.0
       fastify:
         specifier: ^5.12.7
         version: 5.12.7
@@ -435,6 +438,10 @@ importers:
       zod:
         specifier: ^4.6.7
         version: 4.6.7
+    devDependencies:
+      '@canonry/canonry-provider-answer-services':
+        specifier: workspace:*
+        version: link:../provider-answer-services
 
   packages/canonry:
     dependencies:
@@ -541,6 +548,9 @@ importers:
       '@canonry/canonry-integration-commoncrawl':
         specifier: workspace:*
         version: link:../integration-commoncrawl
+      '@canonry/canonry-integration-dataforseo':
+        specifier: workspace:*
+        version: link:../integration-dataforseo
       '@canonry/canonry-integration-google':
         specifier: workspace:*
         version: link:../integration-google
@@ -571,6 +581,9 @@ importers:
       '@canonry/canonry-intelligence':
         specifier: workspace:*
         version: link:../intelligence
+      '@canonry/canonry-provider-answer-services':
+        specifier: workspace:*
+        version: link:../provider-answer-services
       '@canonry/canonry-provider-cdp':
         specifier: workspace:*
         version: link:../provider-cdp
@@ -589,6 +602,9 @@ importers:
       '@canonry/canonry-provider-openai':
         specifier: workspace:*
         version: link:../provider-openai
+      '@canonry/canonry-provider-openrouter':
+        specifier: workspace:*
+        version: link:../provider-openrouter
       '@canonry/canonry-provider-perplexity':
         specifier: workspace:*
         version: link:../provider-perplexity
@@ -684,6 +700,15 @@ importers:
         specifier: 1.5.6-r.2
         version: 1.5.6-r.2
 
+  packages/integration-dataforseo:
+    dependencies:
+      '@canonry/canonry-contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      zod:
+        specifier: ^4.6.7
+        version: 4.6.7
+
   packages/integration-google:
     dependencies:
       '@canonry/canonry-contracts':
@@ -762,6 +787,12 @@ importers:
         specifier: workspace:*
         version: link:../contracts
 
+  packages/provider-answer-services:
+    dependencies:
+      '@canonry/canonry-contracts':
+        specifier: workspace:*
+        version: link:../contracts
+
   packages/provider-cdp:
     dependencies:
       '@canonry/canonry-contracts':
@@ -819,6 +850,12 @@ importers:
       openai:
         specifier: ^7.40.0
         version: 7.40.0(@aws-sdk/credential-provider-node@3.972.87)(@smithy/signature-v4@5.7.4)(undici@8.12.3)(ws@8.22.0)(zod@4.6.7)
+
+  packages/provider-openrouter:
+    dependencies:
+      '@canonry/canonry-contracts':
+        specifier: workspace:*
+        version: link:../contracts
 
   packages/provider-perplexity:
     dependencies:

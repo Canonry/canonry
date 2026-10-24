@@ -857,7 +857,7 @@ test('the Portfolio route is an explicit non-embed project workspace', async () 
   expect(html).not.toMatch(/href="\/projects\/[^"/]+\/portfolio" class="project-subnav-link/)
   expect(html).toContain('Bulk setup')
   expect(html).toContain('Loading bulk setup')
-  expect(html).toContain('AI sweep running')
+  expect(html).toContain('AI Visibility check running')
   expect(html).not.toContain('Portfolio setup')
   expect(html).not.toContain('Coverage and performance')
 })
@@ -872,7 +872,7 @@ test.each([false, true])('a Simple project retains its overview with or without 
   expect(html).toContain('Mention gaps')
   expect(html).toContain('Citation gaps')
   expect(html).toContain('Query evidence')
-  expect(html).toContain('AI sweep running')
+  expect(html).toContain('AI Visibility check running')
   expect(html).not.toContain('Set up advanced measurement')
   expect(html).not.toContain('Republish setup')
   expectNoResultsToolbar(html)
@@ -1010,7 +1010,7 @@ test('an active setup uses the unified report without flashing legacy metrics', 
   expect(html).toContain('Non-brand queries')
   expect(html).toContain('Locations mentioned')
   expect(html).toContain('Harbor House')
-  expect(html).toContain('AI sweep running')
+  expect(html).toContain('AI Visibility check running')
   // Competitor history remains available on the legacy Advanced Measurement
   // surface; group-only scope does not exist until a v2 plan is active.
   expect(html).toContain('Competitors over time')
@@ -1560,7 +1560,7 @@ test.each([true, false])('the Queries route pauses publishing while a sweep is q
   fireEvent.click(within(await page.findByRole('dialog', { name: 'Stop tracking' })).getByRole('button', { name: 'Review' }))
   const publish = await page.findByRole('button', { name: 'Publish 1 change' }) as HTMLButtonElement
   expect(publish.disabled).toBe(sweepActive)
-  const message = page.queryByRole('button', { name: 'Sweep running. A sweep is queued or running. Publish after it finishes.' })
+  const message = page.queryByRole('button', { name: 'Check running. A check is queued or running. Publish after it finishes.' })
   expect(message?.parentElement?.parentElement?.getAttribute('role') ?? null).toBe(sweepActive ? 'status' : null)
 })
 
@@ -1737,7 +1737,7 @@ test('a failed setup read keeps project results and the global run action visibl
 
   expect(await page.findByText('Could not check the advanced measurement setup. Existing project-wide results remain available.')).toBeTruthy()
   expect(await page.findByRole('heading', { name: 'AI answers over time' })).toBeTruthy()
-  expect(page.getByRole('button', { name: 'AI sweep running…' })).toBeTruthy()
+  expect(page.getByRole('button', { name: 'AI Visibility check running…' })).toBeTruthy()
   expect(page.queryByRole('button', { name: 'Set up advanced measurement' })).toBeNull()
   expect(page.getByRole('button', { name: 'Retry setup check' })).toBeTruthy()
 })
@@ -1908,11 +1908,11 @@ function forceNoisyFreshVisibility(dashboard: ReturnType<typeof createDashboardF
   project.queryCounts = { cited: 0, total: 0 }
   project.recentRuns = []
   project.mentionSummary.value = 'No data'
-  project.mentionSummary.delta = 'Run a sweep first'
+  project.mentionSummary.delta = 'Run a check first'
   project.visibilitySummary.value = 'No data'
-  project.visibilitySummary.delta = 'Run a sweep first'
+  project.visibilitySummary.delta = 'Run a check first'
   project.mentionShareSummary.value = 'No data'
-  project.mentionShareSummary.delta = 'Run a sweep first'
+  project.mentionShareSummary.delta = 'Run a check first'
   project.mentionShareSummary.breakdown = { ...emptyMentionBreakdown }
   project.mentionShareSummary.branded = { ...emptyMentionBreakdown }
   dashboard.runs = []
@@ -1925,10 +1925,10 @@ function forceNoisyFreshVisibility(dashboard: ReturnType<typeof createDashboardF
 test('the header states when the next AI sweep fires', async () => {
   const html = await renderAt('/projects/project_citypoint', undefined, undefined, { schedule: schedule() })
 
-  expect(within(renderedPage(html)).getByText('Next AI sweep Aug 7')).toBeTruthy()
+  expect(within(renderedPage(html)).getByText('Next AI Visibility check Aug 7')).toBeTruthy()
   // The fixture has a sweep in flight, so the button sits in its busy state.
   // The point is the vocabulary: every state of this control names the sweep.
-  expect(html).toContain('AI sweep running')
+  expect(html).toContain('AI Visibility check running')
   // "Run now" said nothing about WHAT ran, and the page has six other sync
   // kinds. The disabled state already called it a sweep, so the label only
   // admitted what it did once you had clicked it.
@@ -1938,10 +1938,10 @@ test('the header states when the next AI sweep fires', async () => {
 test('a DISABLED schedule promises no next sweep, even though the row still carries a stale nextRunAt', async () => {
   const html = await renderAt('/projects/project_citypoint', undefined, undefined, { schedule: schedule({ enabled: false }) })
 
-  expect(html).not.toContain('Next AI sweep')
+  expect(html).not.toContain('Next AI Visibility check')
   // The override is still offered — a paused schedule is exactly when someone
   // needs to run one by hand.
-  expect(html).toContain('AI sweep')
+  expect(html).toContain('AI Visibility check')
 })
 
 test('a fresh project offers one AI Visibility setup action instead of an unready sweep', async () => {
@@ -1962,14 +1962,14 @@ test('a fresh project offers one AI Visibility setup action instead of an unread
   expect(html).toContain('Where competitors are winning')
   expect(html).toContain('Competitors over time')
   expect(html).toContain('Add competitor')
-  expect(html).toContain('Competitive mention and citation gaps appear after the first AI Visibility sweep.')
-  expect(html).not.toContain('No completed sweep')
+  expect(html).toContain('Competitive mention and citation gaps appear after the first AI Visibility check.')
+  expect(html).not.toContain('No completed check')
   expect(html.match(/No data/g) ?? []).toHaveLength(0)
-  expect(html.match(/Run a sweep first/g) ?? []).toHaveLength(0)
+  expect(html.match(/Run a check first/g) ?? []).toHaveLength(0)
   expect(html).not.toContain('No comparison yet')
-  expect(html).not.toContain('Run another sweep')
+  expect(html).not.toContain('Run another check')
   expect(html).not.toContain('Baseline captured')
-  expect(html).not.toContain('Run AI sweep')
+  expect(html).not.toContain('Run AI Visibility check')
 })
 
 test('Map site is the overview primary action and is omitted on Site Health', async () => {
@@ -2061,14 +2061,14 @@ test('a first sweep in flight replaces empty-state instructions with one live st
   const pastSweepsPage = renderedPage(html)
   document.body.append(pastSweepsPage)
   onTestFinished(() => { pastSweepsPage.remove() })
-  expect(within(within(pastSweepsPage).getByRole('table', { name: 'Past sweeps' })).getByRole('cell', { name: 'queued' })).toBeTruthy()
-  expect(html.match(/Competitive mention and citation gaps appear after the first AI Visibility sweep\./g)).toHaveLength(1)
+  expect(within(within(pastSweepsPage).getByRole('table', { name: 'Past checks' })).getByRole('cell', { name: 'queued' })).toBeTruthy()
+  expect(html.match(/Competitive mention and citation gaps appear after the first AI Visibility check\./g)).toHaveLength(1)
   expect(html.match(/No data/g) ?? []).toHaveLength(0)
-  expect(html.match(/Run a sweep first/g) ?? []).toHaveLength(0)
+  expect(html.match(/Run a check first/g) ?? []).toHaveLength(0)
   expect(html).not.toContain('No comparison yet')
 })
 
-/** Puts ainyc's two Sep 29 sweeps behind the Simple overview's cards. */
+/** Puts ainyc's two Sep 29 checks behind the Simple overview's cards. */
 function withAinycSweeps(dashboard: ReturnType<typeof createDashboardFixture>['dashboard']) {
   const project = dashboard.projects.find(entry => entry.project.id === 'project_citypoint')!
   const completed = project.recentRuns.find(run => run.status === 'completed')!
@@ -2098,7 +2098,7 @@ test.each([false, true])('ainyc\'s Simple overview opens on the trend chart, wit
   expect(at('AI answers over time')).toBeGreaterThan(-1)
   expect(at('AI answers over time')).toBeLessThan(competitive)
   expect(competitive).toBeLessThan(html.indexOf('Query evidence'))
-  expect(html).not.toMatch(/Coverage signals|No sweep yet|first AI sweep|Compared with the|Visibility by query type/)
+  expect(html).not.toMatch(/Coverage signals|No check yet|first AI Visibility check|Compared with the|Visibility by query type/)
 })
 
 test('What changed names ainyc\'s added queries as written and dates the sweep before the change', async () => {
@@ -2123,7 +2123,7 @@ test('What changed names ainyc\'s added queries as written and dates the sweep b
     'Perplexity last answered with openai/gpt-6-luna on Sep 29',
   ])
   expect([...changes.querySelectorAll('button[aria-label]')].map(button => button.getAttribute('aria-label')))
-    .toContainEqual(expect.stringMatching(/ Sweep before: Jul 14\.$/))
+    .toContainEqual(expect.stringMatching(/ Check before: Jul 14\.$/))
   expect(html).not.toContain('Query set changed')
 })
 
@@ -2139,7 +2139,7 @@ test('Where competitors are winning and the query table read ainyc\'s latest swe
   const card = [...doc.querySelectorAll('section.page-section-divider')]
     .find(section => section.querySelector('h2')?.textContent === 'Where competitors are winning')!
 
-  expect(card.querySelector('.av-card-meta')?.textContent).toBe('Latest sweep')
+  expect(card.querySelector('.av-card-meta')?.textContent).toBe('Latest check')
   // Non-brand mention share, its caption and the server's brand ranking.
   expect(card.querySelector('.mention-share-value')?.textContent).toBe('33.3%')
   expect(card.querySelector('.mention-share-caption')?.textContent).toBe('Non-brand · 7 of 21 brand mentions')
@@ -2244,7 +2244,7 @@ test('By engine, Past sweeps and Competitors over time read ainyc as the approve
   ])
 
   // Trigger and duration in words; times follow the viewer's zone.
-  const sweeps = [...card('Past sweeps').querySelectorAll('tbody tr')].map(cells)
+  const sweeps = [...card('Past checks').querySelectorAll('tbody tr')].map(cells)
   expect(sweeps.map(row => row.slice(1, 3))).toEqual([
     ['Manual', '2 minutes 28 seconds'],
     ['Manual', '2 minutes 10 seconds'],
@@ -2267,9 +2267,9 @@ test('By engine, Past sweeps and Competitors over time read ainyc as the approve
   // Engine results precede the evidence table; both histories start collapsed below it.
   const at = (title: string) => html.indexOf(`class="av-card-title">${title}<`)
   expect(at('By engine')).toBeLessThan(html.indexOf('Query evidence'))
-  expect(html.indexOf('Query evidence')).toBeLessThan(at('Past sweeps'))
-  expect(at('Past sweeps')).toBeLessThan(at('Competitors over time'))
-  expect(card('Past sweeps').querySelector<HTMLDetailsElement>('details.av-history')?.open).toBe(false)
+  expect(html.indexOf('Query evidence')).toBeLessThan(at('Past checks'))
+  expect(at('Past checks')).toBeLessThan(at('Competitors over time'))
+  expect(card('Past checks').querySelector<HTMLDetailsElement>('details.av-history')?.open).toBe(false)
   expect(competitors.closest<HTMLDetailsElement>('details.visibility-disclosure')?.open).toBe(false)
   expect(html).not.toMatch(/All time|Citation and engine diagnostics|Recent execution history|Competitor landscape/)
 })
@@ -2289,7 +2289,7 @@ test('a running spot check keeps the Run button waiting', async () => {
 
   // The server refuses a sweep while the probe runs, so the button keeps waiting.
   const doc = new DOMParser().parseFromString(html, 'text/html')
-  expect([...doc.querySelectorAll('[data-project-actions] button')].map(button => button.textContent)).toContain('AI sweep running…')
+  expect([...doc.querySelectorAll('[data-project-actions] button')].map(button => button.textContent)).toContain('AI Visibility check running…')
 })
 
 test('a frozen visibility baseline remains visible when five newer failed runs fill the recent-run slice', async () => {
@@ -2307,7 +2307,7 @@ test('a frozen visibility baseline remains visible when five newer failed runs f
   })
 
   expect(html).toContain('Mention gaps')
-  expect(html).not.toContain('Competitive mention and citation gaps appear after the first AI Visibility sweep.')
+  expect(html).not.toContain('Competitive mention and citation gaps appear after the first AI Visibility check.')
 })
 
 test('fresh project settings use the empty collection instead of a noisy schedule 404', async () => {
@@ -2357,7 +2357,7 @@ test('fresh project settings use the empty collection instead of a noisy schedul
     </AccountProvider>,
   )
 
-  expect(await page.findByRole('heading', { name: 'Scheduled sweeps' })).toBeTruthy()
+  expect(await page.findByRole('heading', { name: 'Scheduled checks' })).toBeTruthy()
   // Awaited, not synchronous: this copy appears only once the schedules query
   // settles, and nothing before it waits on that query. The heading above can
   // resolve first, so a synchronous read here is a race that only passed while
@@ -2407,7 +2407,7 @@ test('a query-ready project with a configured provider can run an AI sweep', asy
     readiness: true,
   })
 
-  expect(html).toContain('Run AI sweep')
+  expect(html).toContain('Run AI Visibility check')
   expectTrendChartFirst(html)
   expect(html).not.toContain('Set up AI Visibility to capture a baseline')
   expect(html).not.toContain('Checking AI readiness')
@@ -2443,7 +2443,7 @@ test('a project-scoped writer reads sweep readiness without instance settings ac
     },
   })
 
-  expect(html).toContain('Run AI sweep')
+  expect(html).toContain('Run AI Visibility check')
   expect(html).not.toContain('Checking AI readiness')
   expect(html).not.toContain('Retry AI readiness')
   const container = renderedPage(html)
@@ -2454,7 +2454,7 @@ test('a project-scoped writer reads sweep readiness without instance settings ac
 test.each([
   { name: 'Simple', measurement: { plan: { active: null } as MeasurementPlanResponse, setup: simpleMeasurementSetupResponse() } },
   { name: 'Advanced', measurement: { plan: measurementPlanV2Response(4), visibilityReport: visibilityReportResponse({ mode: 'advanced' }) } },
-])('a $name project whose sweeps are on hold says so and holds its sweep button', async ({ measurement }) => {
+])('a $name project whose checks are on hold says so and holds its check button', async ({ measurement }) => {
   const streak = { code: 'PROVIDER_AUTH', consecutiveRuns: 10, since: '2026-10-01T00:00:00.000Z', latestRunId: 'run-9', retryAfter: '2026-10-08T12:30:00.000Z' }
   const page = (runAdmission: unknown) => renderAt('/projects/project_citypoint', undefined, measurement, {
     settleReadiness: true,
@@ -2469,17 +2469,17 @@ test.each([
   })
 
   const held = await page({ refused: true, retryAfter: streak.retryAfter, providers: { openai: streak } })
-  expect(held).toContain('Sweeps are on hold')
-  expect(held).toContain('AI sweeps on hold')
-  expect(held).not.toContain('>Run AI sweep<')
+  expect(held).toContain('Checks are on hold')
+  expect(held).toContain('AI Visibility checks on hold')
+  expect(held).not.toContain('>Run AI Visibility check<')
 
   const skipped = await page({ refused: false, retryAfter: null, providers: { openai: streak } })
-  expect(skipped).toContain('OpenAI is left out of sweeps')
-  expect(skipped).toContain('Run AI sweep')
-  expect(skipped).not.toContain('AI sweeps on hold')
+  expect(skipped).toContain('OpenAI is left out of checks')
+  expect(skipped).toContain('Run AI Visibility check')
+  expect(skipped).not.toContain('AI Visibility checks on hold')
 
   const clear = await page({ refused: false, retryAfter: null, providers: {} })
-  expect(clear).not.toContain('left out of sweeps')
+  expect(clear).not.toContain('left out of checks')
   expect(clear).not.toContain('on hold')
 })
 
@@ -2521,14 +2521,14 @@ test('simple manual sweep admission is independent of the scheduled roster', asy
   await router.load()
   const page = render(<QueryClientProvider client={queryClient}><DashboardProvider value={{ dashboard: fixture.dashboard, health: fixture.health }}><RouterProvider router={router} /></DashboardProvider></QueryClientProvider>)
 
-  const launch = await page.findByRole('button', { name: 'Run AI sweep' })
+  const launch = await page.findByRole('button', { name: 'Run AI Visibility check' })
   expect(launch.hasAttribute('disabled')).toBe(false)
   expect(selectionReads).toContain('manual')
   expect(selectionReads).toContain('scheduled')
-  expect(await page.findByRole('region', { name: 'Scheduled sweeps are on hold' })).toBeTruthy()
-  expect(await page.findByRole('region', { name: 'OpenAI is left out of manual sweeps' })).toBeTruthy()
+  expect(await page.findByRole('region', { name: 'Scheduled checks are on hold' })).toBeTruthy()
+  expect(await page.findByRole('region', { name: 'OpenAI is left out of manual checks' })).toBeTruthy()
   fireEvent.click(launch)
-  const confirm = await page.findByRole('button', { name: 'Run project-wide sweep' })
+  const confirm = await page.findByRole('button', { name: 'Run project-wide check' })
   expect(confirm.hasAttribute('disabled')).toBe(false)
   expect(page.getByRole('dialog').textContent).toContain('OpenAI is left out')
 
@@ -2541,10 +2541,10 @@ test('simple manual sweep admission is independent of the scheduled roster', asy
   fireEvent.click(confirm)
   expect(writes).toEqual([])
   fireEvent.click(page.getByRole('button', { name: 'Cancel' }))
-  const held = await page.findByRole('button', { name: 'AI sweeps on hold' })
+  const held = await page.findByRole('button', { name: 'AI Visibility checks on hold' })
   expect(held.hasAttribute('disabled')).toBe(true)
-  expect(await page.findByRole('region', { name: 'Manual sweeps are on hold' })).toBeTruthy()
-  expect(page.queryByRole('region', { name: 'Scheduled sweeps are on hold' })).toBeNull()
+  expect(await page.findByRole('region', { name: 'Manual checks are on hold' })).toBeTruthy()
+  expect(page.queryByRole('region', { name: 'Scheduled checks are on hold' })).toBeNull()
 })
 
 test('a project-scoped writer can retry when the project readiness read fails', async () => {
@@ -2598,9 +2598,9 @@ test('a project-scoped writer can retry when the project readiness read fails', 
   const retry = await page.findByRole('button', { name: 'Retry AI readiness' })
   expect(retry.hasAttribute('disabled')).toBe(false)
   expect(page.queryByRole('button', { name: 'Set up AI Visibility' })).toBeNull()
-  expect(page.queryByRole('button', { name: 'Run AI sweep' })).toBeNull()
+  expect(page.queryByRole('button', { name: 'Run AI Visibility check' })).toBeNull()
   fireEvent.click(retry)
-  const launch = await page.findByRole('button', { name: 'Run AI sweep' })
+  const launch = await page.findByRole('button', { name: 'Run AI Visibility check' })
   expect(launch.hasAttribute('disabled')).toBe(false)
   expect(page.queryByRole('button', { name: 'Retry AI readiness' })).toBeNull()
   expect(setupReads).toBe(2)
@@ -2681,10 +2681,10 @@ test('saving the project provider allowlist refreshes server-owned sweep readine
 
   // The project has a tracked query, so it is set up: what it lacks is an engine it can use.
   expect(await page.findByRole('button', { name: 'Connect an engine' })).toBeTruthy()
-  fireEvent.click(await page.findByLabelText('All configured engines'))
+  fireEvent.click(await page.findByLabelText('All connected engines'))
   fireEvent.click(page.getByRole('button', { name: 'Save engines' }))
 
-  expect(await page.findByRole('button', { name: 'Run AI sweep' })).toBeTruthy()
+  expect(await page.findByRole('button', { name: 'Run AI Visibility check' })).toBeTruthy()
   expect(savedBody?.providers).toEqual([])
   expect(setupReads).toBeGreaterThanOrEqual(2)
 })
@@ -2744,7 +2744,7 @@ test('window focus refreshes server-owned sweep readiness on a mounted project',
   expect(await page.findByRole('button', { name: 'Checking AI readiness…' })).toBeTruthy()
 
   releaseFocusRead?.()
-  expect(await page.findByRole('button', { name: 'Run AI sweep' })).toBeTruthy()
+  expect(await page.findByRole('button', { name: 'Run AI Visibility check' })).toBeTruthy()
   expect(setupReads).toBe(2)
 })
 
@@ -2772,8 +2772,8 @@ test('a sweep confirmation cannot use cached readiness after its refresh fails',
   const router = createAppRouter(queryClient, { initialEntries: ['/projects/project_citypoint'] })
   await router.load()
   const page = render(<QueryClientProvider client={queryClient}><DashboardProvider value={{ dashboard: fixture.dashboard, health: fixture.health }}><RouterProvider router={router} /></DashboardProvider></QueryClientProvider>)
-  fireEvent.click(await page.findByRole('button', { name: 'Run AI sweep' }))
-  const confirm = await page.findByRole('button', { name: 'Run project-wide sweep' })
+  fireEvent.click(await page.findByRole('button', { name: 'Run AI Visibility check' }))
+  const confirm = await page.findByRole('button', { name: 'Run project-wide check' })
   expect((confirm as HTMLButtonElement).disabled).toBe(false)
   expect(writes).toEqual([])
   failed = true
@@ -2805,7 +2805,7 @@ test('AI Visibility honors the project provider allowlist instead of any configu
 
   expect(html).toContain('Connect an engine')
   expect(html).not.toContain('Set up AI Visibility')
-  expect(html).not.toContain('Run AI sweep')
+  expect(html).not.toContain('Run AI Visibility check')
   }
 })
 
@@ -2824,7 +2824,7 @@ test('an active measurement plan supplies runnable queries when the live basket 
     readiness: true,
   })
 
-  expect(html).toContain('Run AI sweep')
+  expect(html).toContain('Run AI Visibility check')
   expect(html).not.toContain('Set up AI Visibility to capture a baseline')
 })
 
@@ -2843,9 +2843,9 @@ test('an established schedule stays visible when run prerequisites need repair',
     readiness: false,
   })
 
-  expect(html).toContain('Next AI sweep')
+  expect(html).toContain('Next AI Visibility check')
   expect(html).toContain('Connect an engine')
-  expect(html).not.toContain('Run AI sweep')
+  expect(html).not.toContain('Run AI Visibility check')
 })
 
 // Deleting a project destroys every query, run and snapshot. It used to be an
@@ -2854,7 +2854,7 @@ test('an established schedule stays visible when run prerequisites need repair',
 test('deleting the project is not reachable from the page header', async () => {
   const html = await renderAt('/projects/project_citypoint')
 
-  expect(projectActions(html).textContent).toContain('AI sweep')
+  expect(projectActions(html).textContent).toContain('AI Visibility check')
   expect(html).not.toContain('Delete project')
 })
 
@@ -2970,7 +2970,7 @@ test.each(['simple', 'advanced'] as const)('%s Settings names every section on t
     ['settings-engines', []],
     ['settings-site-health', ['Site Health scans']],
     ['settings-locations-markets', ['Locations & markets']],
-    ['settings-schedule', ['Scheduled sweeps']],
+    ['settings-schedule', ['Scheduled checks']],
     ['settings-notifications', ['Notifications']],
     ['settings-delete', ['Delete project']],
   ])
@@ -3014,7 +3014,7 @@ test.each(['simple', 'advanced'] as const)('%s Settings lists Delete project and
     ['settings-general', ['Project settings', 'Tracking results']],
     ['settings-site-health', ['Site Health scans']],
     ['settings-locations-markets', ['Locations & markets']],
-    ['settings-schedule', ['Scheduled sweeps']],
+    ['settings-schedule', ['Scheduled checks']],
     ['settings-notifications', ['Notifications']],
     ['settings-delete', ['Delete project']],
   ])
@@ -3032,7 +3032,7 @@ test.each(['simple', 'advanced'] as const)('an embedded %s Settings has no jump 
   expect(html).not.toContain('Locations &amp; markets')
   // The sections an embed had are the ones it has, as siblings on one stacked page.
   const headings = [...page.querySelectorAll('h2')].map(heading => heading.textContent)
-  expect(headings).toEqual(expect.arrayContaining(['Project settings', 'Site Health scans', 'Scheduled sweeps', 'Notifications']))
+  expect(headings).toEqual(expect.arrayContaining(['Project settings', 'Site Health scans', 'Scheduled checks', 'Notifications']))
   expect(within(page).getByText('Search locations')).toBeTruthy()
 })
 
@@ -4277,7 +4277,7 @@ test('a published Property scope opens the Property page, and every return keeps
   // Property reads take no market, so the page states its wider scope instead
   // of implying the carried market filter applies to these numbers.
   expect(page.getByText(/Filters not applied/)).toBeTruthy()
-  expect(page.getByRole('button', { name: `AI Visibility is filtered to ${PROPERTY_MARKET.label}, a saved sweep. This page shows the latest measurement for all markets and answer engines.` })).toBeTruthy()
+  expect(page.getByRole('button', { name: `AI Visibility is filtered to ${PROPERTY_MARKET.label}, a saved check. This page shows the latest measurement for all markets and answer engines.` })).toBeTruthy()
   expect((page.getByLabelText('Query type') as HTMLSelectElement).value).toBe('branded')
   // The reader came from the report, so the way back is Back: it returns there, not to a fixed page.
   const back = page.getByRole('button', { name: 'Back' })
@@ -4466,9 +4466,9 @@ test('managed sweeps unset preserves the operator sweep control and identical op
   const original = await renderAt('/projects/project_citypoint', undefined, undefined, options)
   const disabled = await renderAt('/projects/project_citypoint', undefined, undefined, { ...options, managedSweeps: false })
   for (const html of [original, disabled]) {
-    const launch = within(projectActions(html)).getByRole('button', { name: 'Run AI sweep' })
+    const launch = within(projectActions(html)).getByRole('button', { name: 'Run AI Visibility check' })
     expect(launch.hasAttribute('disabled')).toBe(false)
-    expect(html).not.toContain('Sweeps are run by your Canonry team')
+    expect(html).not.toContain('Checks are run by your Canonry team')
   }
 })
 
@@ -4490,7 +4490,7 @@ test.each(['simple', 'advanced'] as const)('managed sweeps replaces the %s heade
       expect(renderedPage(html).querySelector('.project-context-meta')).toBeNull()
       expect(actions.querySelectorAll('p:not([role="status"])')).toHaveLength(0)
     }
-    expect(html).not.toMatch(/Run AI sweep|Run measurement|Checking AI readiness|Set up AI Visibility|Connect an engine/)
+    expect(html).not.toMatch(/Run AI Visibility check|Run measurement|Checking AI readiness|Set up AI Visibility|Connect an engine/)
   }
 })
 
@@ -4510,9 +4510,9 @@ test('an Advanced explicit historical range is a results filter token, not conte
 })
 
 test.each([
-  { label: 'names when tracking changed and the next scheduled sweep', managedSweeps: false, running: false, visible: 'Tracking changed Aug 1', detail: 'Showing the Jul 30 results, from before the change. New numbers after the Sep 8 sweep.' },
-  { label: 'names no next sweep date while a sweep is under way', managedSweeps: false, running: true, visible: 'Tracking changed Aug 1', detail: 'Showing the Jul 30 results, from before the change. New numbers after the next sweep.' },
-  { label: 'names neither date on a managed dashboard', managedSweeps: true, running: false, visible: 'Tracking changed', detail: 'Showing the Jul 30 results, from before the change. New numbers after the next sweep.' },
+  { label: 'names when tracking changed and the next scheduled check', managedSweeps: false, running: false, visible: 'Tracking changed Aug 1', detail: 'Showing the Jul 30 results, from before the change. New numbers after the Sep 8 check.' },
+  { label: 'names no next check date while a check is under way', managedSweeps: false, running: true, visible: 'Tracking changed Aug 1', detail: 'Showing the Jul 30 results, from before the change. New numbers after the next check.' },
+  { label: 'names neither date on a managed dashboard', managedSweeps: true, running: false, visible: 'Tracking changed', detail: 'Showing the Jul 30 results, from before the change. New numbers after the next check.' },
 ])('the Advanced tracking-changed strip $label', async ({ managedSweeps, running, visible, detail }) => {
   const report = visibilityReportResponse({ mode: 'advanced', queryClass: parseVisibilitySelection({}).queryClass })
   report.selection.measurement = { ...report.selection.measurement, activeRevision: 5, awaitingSweep: true, pendingAssignmentCount: 1, completedAt: '2026-07-30T12:05:00.000Z' }
@@ -4564,7 +4564,7 @@ test.each(['simple', 'advanced'] as const)('managed %s settings exposes schedule
   )
   const container = document.createElement('div')
   container.innerHTML = html
-  const section = within(container).getByRole('heading', { name: 'Scheduled sweeps' }).closest('section')!
+  const section = within(container).getByRole('heading', { name: 'Scheduled checks' }).closest('section')!
   expect(section.textContent).toContain(MANAGED_SWEEPS_COPY)
   expect(section.textContent).toContain('0 6 * * *')
   expect(within(section).queryByRole('button', { name: /Set schedule|Edit schedule|Pause|Resume|Remove|Save schedule/ })).toBeNull()
@@ -4577,7 +4577,7 @@ test('managed header does not label an active Site Health scan as a sweep', asyn
       project.recentRuns = [{ ...project.recentRuns[0]!, kind: 'site-audit', status: 'running' }]
     },
   })
-  expect(projectActions(html).textContent).not.toContain('AI sweep running')
+  expect(projectActions(html).textContent).not.toContain('AI Visibility check running')
 })
 
 test('managed sweeps removes Simple empty-state launch instructions', async () => {
@@ -4586,7 +4586,7 @@ test('managed sweeps removes Simple empty-state launch instructions', async () =
     managedSweeps: true, configureFixture: forceNoisyFreshVisibility, citationVisibility: emptyCitationVisibility('no-runs-yet'),
   })
   expect(html).toContain(MANAGED_SWEEPS_COPY)
-  expect(html).not.toMatch(/Run another sweep|Complete your first AI Visibility sweep|Run a sweep|Engine results appear after the first AI Visibility sweep/)
+  expect(html).not.toMatch(/Run another check|Complete your first AI Visibility check|Run a check|Engine results appear after the first AI Visibility check/)
 })
 
 test('legacy managedSweeps alone still leaves Site Health scan controls available', async () => {
@@ -4650,8 +4650,8 @@ test.each(['', '/technical-aeo', '/settings', '/history'])('unset managed run ki
       const doc = renderedPage(html)
       expect(within(doc).getByRole('heading', { level: 1, name: 'Citypoint Dental NYC' })).toBeTruthy()
       expect(html).not.toContain('Scans are run by your Canonry team')
-      expect(html).not.toContain('Sweeps are run by your Canonry team')
-      expect(within(projectActions(html)).getByRole('button', { name: /AI sweep running|Checking AI readiness|Set up AI Visibility|Connect an engine|Run AI sweep/ }).hasAttribute('disabled')).toBe(true)
+      expect(html).not.toContain('Checks are run by your Canonry team')
+      expect(within(projectActions(html)).getByRole('button', { name: /AI Visibility check running|Checking AI readiness|Set up AI Visibility|Connect an engine|Run AI Visibility check/ }).hasAttribute('disabled')).toBe(true)
       if (suffix === '/technical-aeo') expect(within(doc).getByRole('heading', { name: 'Site Health' })).toBeTruthy()
       if (suffix === '/settings') expect(within(doc).getByRole('heading', { name: 'Project settings' })).toBeTruthy()
       if (suffix === '/history') expect(within(within(doc).getByRole('tablist', { name: 'Project history views' })).getByRole('tab', { name: 'Changes' }).getAttribute('aria-selected')).toBe('true')

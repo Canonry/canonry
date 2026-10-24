@@ -12,6 +12,7 @@ import { WriteButton } from '../shared/AccessControls.js'
 import { formatTimestamp } from '../../lib/format-helpers.js'
 import { fetchSentimentEvidence, fetchSentimentJob, fetchSentimentSettings, isEmbed, previewSentimentBackfill, submitSentimentBackfill, updateSentimentSettings } from '../../api.js'
 import { sentimentQueryKey, useSentiment } from '../../queries/sentiment.js'
+import { providerDisplayName } from '../../lib/visibility-trend-helpers.js'
 
 type QueryClass = 'branded' | 'non-brand'
 type QueryClassView = QueryClass | 'all' | 'unclassified' | 'unknown'
@@ -358,7 +359,7 @@ function SentimentScope({ projectName, selection, runOptions, waitForResolvedRun
   const selected = selection.queryClass === 'non-brand' ? nonBrand.data : branded.data
   const effective = selected?.selection
   const resolved: SentimentSelection = { ...activeSelection, ...(effective ? { ...effective, runId: effective.runId ?? undefined, runIds: effective.runId ? undefined : effective.runIds, revision: effective.revision ?? undefined, evaluationDefinitionId: effective.evaluationDefinitionId ?? undefined } : {}) }
-  const options = resolved.runId && !runOptions.some(run => run.id === resolved.runId) ? [{ id: resolved.runId, label: 'Displayed sweep' }, ...runOptions] : runOptions
+  const options = resolved.runId && !runOptions.some(run => run.id === resolved.runId) ? [{ id: resolved.runId, label: 'Displayed check' }, ...runOptions] : runOptions
   const restoreFocus = (event: Event) => { event.preventDefault(); opener.current?.focus() }
   return <SentimentContext.Provider value={{ projectName, selection: activeSelection, advanced, resolveSource, settings, summaries: { branded, 'non-brand': nonBrand }, configured, hasSourceEvidence,
     openManage: element => { opener.current = element; setManageOpen(true) },
@@ -578,7 +579,7 @@ function SentimentEvidenceContent({ item }: { item: SentimentEvidenceItem }) {
   // The page decides, never the item: an answer from a sweep with no published setup names no Property and no revision. A Simple page keeps its labels.
   const advanced = useContext(SentimentContext)?.advanced ?? false
   return <article className="space-y-4 border-b border-default py-5 text-sm text-secondary">
-    <div className="flex flex-wrap items-center gap-2"><strong className="text-primary">{item.subject.displayName}</strong><ToneBadge tone={outcomeTone(item.outcome)}>{outcomeLabel(item.outcome)}</ToneBadge><span>{CLASS_LABEL[item.context.queryClass]}</span><span>{item.context.provider}</span><span>{item.context.servedModel ?? 'Source model unavailable'}</span><span>{item.context.location ?? (advanced ? 'No search location' : 'No location')}</span></div>
+    <div className="flex flex-wrap items-center gap-2"><strong className="text-primary">{item.subject.displayName}</strong><ToneBadge tone={outcomeTone(item.outcome)}>{outcomeLabel(item.outcome)}</ToneBadge><span>{CLASS_LABEL[item.context.queryClass]}</span><span>{providerDisplayName(item.context.provider)}</span><span>{item.context.servedModel ?? 'Source model unavailable'}</span><span>{item.context.location ?? (advanced ? 'No search location' : 'No location')}</span></div>
     {item.reason && <p>{item.reason}</p>}
     <section><h3 className="mb-2 text-heading">Conclusion evidence</h3>{item.conclusion.length ? item.conclusion.map(span => <blockquote className="mb-2 border-l border-strong pl-3 text-primary" key={`${span.id}:${span.start}`}>{span.text}</blockquote>) : <p>No valid conclusion evidence is available.</p>}</section>
     <section><h3 className="mb-2 text-heading">Complaint evidence</h3>{item.complaint?.length ? item.complaint.map(span => <blockquote className="mb-2 border-l border-strong pl-3 text-primary" key={`${span.id}:${span.start}`}>{span.text}</blockquote>) : <p>No complaint was identified.</p>}</section>
@@ -615,10 +616,10 @@ export function SentimentJobs({ projectName, jobs }: { projectName: string; jobs
 }
 /** Plain labels for the server's backfill skip reasons; a reason this build does not know still reads through. */
 const SENTIMENT_SKIP_REASON_LABELS: Readonly<Record<string, string>> = {
-  probe: 'Probe sweeps',
-  'unsupported-run-kind': 'Not an answer sweep',
-  'failed-run': 'Failed sweep',
-  'incomplete-run': 'Incomplete sweep',
+  probe: 'Probe checks',
+  'unsupported-run-kind': 'Not an AI Visibility check',
+  'failed-run': 'Failed check',
+  'incomplete-run': 'Incomplete check',
   'legacy-missing-provenance': 'Saved without its frozen query and subject record',
   'legacy-missing-language': 'Saved before the answer language was recorded',
 }
@@ -656,7 +657,7 @@ function viewBackfillFilters(selection: SentimentBackfillSelection, advanced: bo
 /** The selection a preview actually covered, as the server echoed it. */
 function describeSentimentBackfillSelection(selection: SentimentBackfillSelection, advanced: boolean): string {
   const filters = viewBackfillFilters(selection, advanced)
-  return [`${CLASS_LABEL[selection.queryClass]} queries`, ...(filters.length ? filters : ['whole sweep'])].join(' · ')
+  return [`${CLASS_LABEL[selection.queryClass]} queries`, ...(filters.length ? filters : ['whole check'])].join(' · ')
 }
 /**
  * A dashboard backfill covers the whole chosen sweep for one query class: every
@@ -694,15 +695,16 @@ function SentimentSettingsEditor({ projectName, settings, selection, advanced, r
   }, onSuccess: async () => { reset(); await refresh() }, onError: refresh })
   const pending = save.isPending || inspect.isPending || submit.isPending
   return <div className="mt-5 space-y-5 text-sm text-secondary">
+    <dl className="definition-list"><div><dt>Evaluator</dt><dd>{settings.model} · {settings.provider === 'openrouter' ? 'OpenRouter' : 'TypeSafe'}</dd></div></dl>
     <p>{settings.disclosure}</p>{!settings.ready && <p>{settings.readinessReasons.join('; ') || 'An operator must configure sentiment on this installation.'}</p>}
-    <form className="space-y-3" onSubmit={event => { event.preventDefault(); save.mutate() }}><label className="flex items-center gap-2"><input type="checkbox" checked={enabled} disabled={pending} onChange={event => { setEnabled(event.target.checked); reset() }} />Enable project sentiment</label><p>Enabling applies to future completed sweeps. Past sweeps require an explicit backfill.</p><WriteButton type="submit" disabled={pending}>{save.isPending ? 'Saving…' : 'Save sentiment settings'}</WriteButton>{save.isError && <p role="alert">{describeError(save.error)}</p>}{save.isSuccess && <p role="status">Sentiment settings saved.</p>}</form>
-    {settings.actions.backfill && <section className="space-y-3"><h3>Backfill a saved sweep</h3><label className="block">Saved sweep<select className="mt-1 block w-full rounded-md border border-default bg-bg p-2 text-primary" value={runId} disabled={pending} onChange={event => { setRunId(event.target.value); reset() }}><option value="">Select a saved sweep</option>{runOptions.map(run => <option key={run.id} value={run.id}>{run.label}</option>)}</select></label><label className="block">{advanced ? 'Type' : 'Query class'}<select className="mt-1 block w-full rounded-md border border-default bg-bg p-2 text-primary" value={queryClass} disabled={pending} onChange={event => { setQueryClass(event.target.value as QueryClass); reset() }}><option value="non-brand">Non-brand</option><option value="branded">Branded</option></select></label>
+    <form className="space-y-3" onSubmit={event => { event.preventDefault(); save.mutate() }}><label className="flex items-center gap-2"><input type="checkbox" checked={enabled} disabled={pending} onChange={event => { setEnabled(event.target.checked); reset() }} />Enable project sentiment</label><p>Enabling applies to future completed checks. Past checks require an explicit backfill.</p><WriteButton type="submit" disabled={pending}>{save.isPending ? 'Saving…' : 'Save sentiment settings'}</WriteButton>{save.isError && <p role="alert">{describeError(save.error)}</p>}{save.isSuccess && <p role="status">Sentiment settings saved.</p>}</form>
+    {settings.actions.backfill && <section className="space-y-3"><h3>Backfill a saved check</h3><label className="block">Saved check<select className="mt-1 block w-full rounded-md border border-default bg-bg p-2 text-primary" value={runId} disabled={pending} onChange={event => { setRunId(event.target.value); reset() }}><option value="">Select a saved check</option>{runOptions.map(run => <option key={run.id} value={run.id}>{run.label}</option>)}</select></label><label className="block">{advanced ? 'Type' : 'Query class'}<select className="mt-1 block w-full rounded-md border border-default bg-bg p-2 text-primary" value={queryClass} disabled={pending} onChange={event => { setQueryClass(event.target.value as QueryClass); reset() }}><option value="non-brand">Non-brand</option><option value="branded">Branded</option></select></label>
       {/* An Advanced page says "type" and keeps the sentence behind a note, which follows the checkbox under it. A Simple page reads as it did. */}
       {advanced
         ? <div>{limited
-          ? <StatusNote icon={Info} label="Limited to this view" detail="The backfill covers only the answers of the chosen sweep that match the view below, for this type." />
-          : <StatusNote icon={Info} label="Covers the whole sweep" detail="The backfill covers every engine, search location and query of the chosen sweep for this type." />}</div>
-        : <p>The backfill covers every engine, location and query of the chosen sweep for this query class.</p>}
+          ? <StatusNote icon={Info} label="Limited to this view" detail="The backfill covers only the answers of the chosen check that match the view below, for this type." />
+          : <StatusNote icon={Info} label="Covers the whole check" detail="The backfill covers every engine, search location and query of the chosen check for this type." />}</div>
+        : <p>The backfill covers every engine, location and query of the chosen check for this query class.</p>}
       {viewFilters.length > 0 && <label className="flex items-start gap-2"><input type="checkbox" className="mt-1" checked={limitToView} disabled={pending} onChange={event => { setLimitToView(event.target.checked); reset() }} /><span>Limit to the current view<span className="block">{viewFilters.join(' · ')}</span></span></label>}
       <Button variant="outline" disabled={pending || !runId || !settings.enabled || !settings.ready} onClick={() => { reset(); inspect.mutate() }}>{inspect.isPending ? 'Preparing preview…' : 'Preview sentiment backfill'}</Button>{inspect.isError && <p role="alert">{describeError(inspect.error)}</p>}
       {preview && <div className="space-y-3"><dl className="grid grid-cols-[1fr_auto] gap-2"><dt>Selection</dt><dd className="text-right">{describeSentimentBackfillSelection(preview.selection, advanced)}</dd><dt>Eligible assessments</dt><dd>{preview.eligibleAssessments}</dd><dt>Already classified</dt><dd>{preview.alreadyClassified}</dd><dt>Estimated input tokens</dt><dd>{preview.estimatedInputTokens}</dd><dt>Estimated cost (USD)</dt><dd>{preview.estimatedCostUsd ?? 'Unavailable'}</dd></dl><InfoTooltip text={preview.estimateMethod} />

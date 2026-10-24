@@ -1,5 +1,7 @@
 # canonry
 
+SEO integration uses `SeoRuntime` for durable explicit refresh dispatch. `commands/seo.ts` and `cli-commands/seo.ts` use only public ApiClient methods. Host-only credentials and financial limits come from `config.seo`; customer DTOs never expose them. See `docs/seo-data.md` for scope, receipt recovery and deployment limits.
+
 ## Purpose
 
 The publishable npm package (`@canonry/canonry`). Bundles the CLI, local Fastify server, in-process job runner, provider registry, scheduler, and pre-built SPA. This is what users install with `npm install -g @canonry/canonry`.
@@ -174,6 +176,7 @@ The event catalog and envelope are under "Telemetry events" below.
 
 - `src/telemetry.ts` — `trackEvent`, source attribution (incl. the validated `CANONRY_TELEMETRY_SOURCE` harness override), per-process `sessionId`, `cli.upgraded` detection
 - `src/run-telemetry.ts` — `classifyRunError`, `buildRunCompletedProps`: keeps the `run.completed` payload composition in one spot
+  OpenRouter routes aggregate under their connection through `providerConnectionName`: usage sums answers, latency uses all call samples, and outcomes keep the strongest error. Telemetry omits sweep route/model IDs; saved product evidence retains them.
 - `src/setup-state.ts` — `buildSetupState`: `{ provider_count, has_keywords, project_count, is_first_run }` snapshot ridden on every `cli.command`
 
 Telemetry tests exercise the collector through a mocked upstream `fetch`, and CLI guards through `runCli`.
@@ -507,8 +510,12 @@ The snapshot rescore behind `canonry backfill answer-mentions`, the alias hooks 
 - `assets/`: `server.ts` default `assetsDir` is this dir; `createServer({assetsDir: '/tmp/my-dist'})` override lets tests/custom builds point elsewhere without forking the package.
 - `src/server.ts`: `createServer` opts take an optional `assetsDir` override (default = bundled `assets/`) so integration tests can point at a temp `index.html`.
 - The SPA document's embed config and headers are covered in "Embed mode (#716)".
+- `dashboard.showLocalAgentSetup` is a deployment presentation setting, defaulting to true. `CANONRY_DASHBOARD_SHOW_LOCAL_AGENT_SETUP` overrides YAML; inject only false into the SPA config. Never infer it from public URL, hosted readiness, or user role, or use it to gate CLI/API/MCP authority. `showResourceLinks` also gates the Agent Setup page's repository documentation links. See `docs/deployment.md`.
 
 ### Provider registration
+
+`provider-answer-services` adapters are spread once into `API_ADAPTERS`; their descriptors feed the settings catalog (`ANSWER_SERVICE_CATALOG`) and env bootstrap (`getAnswerServiceEnv`). `ProviderRegistry.get` resolves any route family through the connection's `forRoute`, `getForProject([])` and snapshot defaults admit implicit-eligible engines only, and gates and quotas key on `adapterConnectionName`. Research and snapshots keep an `IncompleteAnswerError`'s evidence on the failed row; generation roles require `canGenerateText`. Telemetry reports connections only (`telemetryConnectionName`).
+`provider-openrouter` registers one key connection named `openrouter`. Projects select pinned model routes (`openrouter:publisher/model`); the bare connection is never swept automatically. `ProviderRegistry.get` resolves each route to its own adapter identity with the shared connection config. Gate and daily-quota keys use `providerConnectionName`, while snapshots, execution manifests, filters and analytics retain the route name. The adapter requests search internally, extracts source annotations, and preserves requested versus served model IDs. Both Simple and Advanced sweeps capture routed citation URLs and record requested locations as ignored. See `docs/providers/openrouter.md`.
 
 `src/provider-reload-batch-guard.ts` refuses changes other than quota while a batch still needs its registration. It checks pending database batches and `JobRunner.getExecutingBatchRegistrations()`, which retains captured base registrations before submission starts and until both the sweep and late submissions settle. Cancellation loops capture every registration before their first await.
 
@@ -519,6 +526,8 @@ The snapshot rescore behind `canonry backfill answer-mentions`, the alias hooks 
 `src/provider-batch-config.ts` owns batch dispatch configuration (`docs/batch-mode.md`). `loadConfig` validates `providers.<name>.batch` / `.pricing` with the contracts schemas and refuses a malformed block. `providerConfigFromEntry` builds every registered `ProviderConfig`, carrying both blocks, and is used by boot and the provider-update path, so a dashboard key rotation keeps them. `batchEligibleProviderNames` (adapter capability AND `batch.enabled`) is the one rule behind `getBatchEligibleProviderNames`. `server.ts` passes it to the API routes and the scheduler. Boot logs `provider.batch.unsupported` once per provider whose config enables batch but whose adapter has none. Log a provider name as `provider`: it is the key the durable log store keeps as `context.provider`. `canonry run --dispatch-mode` and `canonry project create|update --dispatch-mode provider=sync|batch` / `--clear-dispatch-mode` are the CLI surfaces. `run show` prints batch state lines and the usage table from the run detail, and `--format json` prints the response verbatim.
 
 ### Health endpoint
+
+`mcp.status` reports transport registration. Optional `mcp.hosted` reports the configured HTTPS connector URL only when the public URL, OAuth routes and named accounts are ready; it never claims client authorization or external reachability. The same host callback supplies `/status` for CLI/MCP parity. Keep health free of DNS/provider probes or MCP session creation. Browser OAuth authorization follows the instance base path so named-account cookies retain their tenant scope; legacy root authorization URLs redirect with method/query preserved.
 
 `GET /health` (also served at `<basePath>health`) exposes `basePath` for auto-discovery and identifies the build and the deployment it is running as:
 ```json
@@ -633,7 +642,7 @@ Registered via `src/cli-commands/measurement-plan.ts`.
 `src/discovery-run.ts`:
 
 - `executeDiscoveryRun` — fires `executeDiscovery` (api-routes orchestrator) with Gemini-backed seed/embed/probe/classifyDomains deps, writes the `discovery.basket-divergence` insight, and hands off to `RunCoordinator.onRunCompleted` so Aero wakes up with a bucket-count payload. Forwards the run's resolved `locations` into `executeDiscovery` → `deps.seed`.
-- `classifyDomains` is one plain-text `generateText` call per session; `buildClassificationPrompt` / `parseClassificationResponse` are private helpers that build the `domain => category` prompt and forgivingly parse the model's reply into a `DiscoveryDomainClassification`.
+- `classifyDomains` is one plain-text generation per session; `buildClassificationPrompt` / `parseClassificationResponse` are private helpers that build the `domain => category` prompt and parse the reply. Without a role override it retains the native Gemini adapter. `classification.provider` / `classification.model` independently selects a pi generative classify model, including OpenRouter using its shared credential. Sweep, query-class, mention and citation decisions do not inherit that role. The session's competitor-map JSON freezes evaluator provider, requested model, prompt version and nullable served model beside each category; historical entries omit it. pi's normalized generative model ID is requested provenance, so served model stays null unless transport supplies it literally.
 - `buildSeedPrompt` / `buildLocationConstraint` are private helpers that build the Gemini seed prompt — when locations are present they geo-constrain the prompt and (for 2+ locations) add a per-area seed quota of `floor(DEFAULT_SEED_COUNT / locationCount)`.
 - The probe dep computes BOTH signals from the normalized result: `citationState` from cited domains AND `answerMentioned` from the answer text via the shared `determineAnswerMentioned` (brand names from `effectiveBrandNames`, domains from `canonicalDomains`) — same helper the answer-visibility writer uses, so discovery and sweeps agree on "mentioned".
 - The embed dep wraps `embedQueries` in private `embedWithRetry` — shared `withRetry` + `isRetryableHttpError` with a per-attempt wall-clock timeout, so a transient blip between the two paid grounded phases no longer fails the session while a permanent 4xx still does.
@@ -687,6 +696,7 @@ Direct and reviewed requests submit final query text: a scope only records a mar
 Date windows and headers:
 
 - Every date-scoped read (`ga traffic`, `ga session-history`, `ga ai-referral-daily`, `ga ai-referral-history`, `ga social-referral-history`) takes `--window` OR the explicit `--start` / `--end` calendar bounds (`YYYY-MM-DD`, inclusive). `--window` is rolling from now and cannot name a calendar month, so a monthly client total had to be hand-filtered out of a wider pull before. Explicit dates win over `--window`, and both are forwarded verbatim so the server (`resolveDateRange` in contracts) is the single place that decides. An unrecognised `--window` is rejected, not silently widened to the full history.
+- `ga overview` takes `--window 7d|30d|90d` and no calendar bounds: it reads GA4's own totals for a fixed window of complete days ending yesterday and for the period before it, which the sync stores per window (`WINDOW_SETS.gaOverview`).
 - `ga attribution` and `ga social-referral-summary` print `windowLine` — the measured window and its day count — ABOVE the numbers rather than as a trailing `Period:` footer, and carry `windowStart` / `windowEnd` / `windowDays` in `--format json`. Both render percentages that are only meaningful against that window, and a reader who meets "Direct 69%" before the period has already formed a view of the business by the time a footer tells them what it covers.
 
 ### Google Business Profile
@@ -809,9 +819,10 @@ attribution and no provider calls or sync.
   this setting for any other authorization. See `docs/deployment.md`.
 
 - `CANONRY_AGENT_REASONING` overrides `agent.reasoning` (Aero's reasoning
-  level). Unset, each provider uses `PROVIDER_DEFAULT_REASONING` in
-  `src/agent/providers.ts`; an unknown env value is ignored. Resolved by
-  `resolveAgentReasoning` in `src/agent-config.ts`.
+  level). Unset, the model's default comes from `defaultAgentReasoning` in
+  `src/agent/providers.ts` (`PROVIDER_DEFAULT_REASONING`; an OpenRouter model
+  takes its direct provider's level); an unknown env value is ignored.
+  Resolved by `resolveAgentReasoning` in `src/agent-config.ts`.
 
 - `CANONRY_AGENT_ALLOW_VIEWERS` overrides `agent.allowViewers` (default off).
   When on, signed-in viewers use Aero through `ViewerAeroSessions`
@@ -970,7 +981,7 @@ so it never sets a failing exit code. The standing advisories
 same policy. See `api-routes/src/doctor/AGENTS.md`.
 ### Sentiment worker
 
-`sentiment-worker.ts` owns all TypeSafe I/O; classifier calls are single attempts and durable scheduling owns retries. Both `sentiment.enabled` in private install config and project sentiment settings default off. `TYPESAFE_API_KEY` and `CANONRY_SENTIMENT_ENABLED` override the private YAML configuration. `sentiment-config.ts` rereads it immediately before dispatch so disabling does not require restarting the server. Only an explicit disable cancels; an invalid or unreadable file holds dispatch as `invalid-config`, and a missing key or unsupported model holds the same way. `saveConfigPatch` never writes `sentiment`, because config.yaml is its only source. A definition frozen under an earlier request template (`hasCurrentSentimentTemplate` in contracts) admits and dispatches nothing until the project is configured again. Only `jev-1.13.0` is ready. The coordinator only wakes the worker; startup/poll reconciliation reads completion receipts atomically persisted by the initial success and fill transactions, including superseded fills. Install suspension persists cancellation and a resume boundary; reenablement never revives old selections. Shared SQLite leases and attempt reservations bound concurrent requests and input tokens across projects. Each actual attempt has a receipt and reported usage goes directly to `llm_usage_events` as `typesafe`/`sentiment`; unknown remote billing stays unknown. No secret reaches these records. A crash can require another billed attempt; successful result uniqueness is not exactly-once external billing. A 429 pauses dispatch for every project for 30-60s, doubling with each further 429 up to 15-30 min (a longer Retry-After wins). A 401/403 pauses it until the configured key changes, with one probe request per hour. Neither refusal counts against `maxAttempts`. When a pause ends, one probe request goes first, and a success releases the pause only if it was sent after the pause began. Reconciliation keeps a per-project receipt cursor, so each completion is selected once. Claims take automatic work before backfills and rotate across projects.
+`sentiment-worker.ts` owns direct TypeSafe and pi OpenRouter Jev classification; classifier calls are single attempts and durable scheduling owns retries. Both `sentiment.enabled` in private install config and project sentiment settings default off. `TYPESAFE_API_KEY` and `CANONRY_SENTIMENT_ENABLED` override the private YAML configuration. `sentiment-config.ts` rereads it immediately before dispatch so disabling does not require restarting the server. Only an explicit disable cancels; an invalid or unreadable file holds dispatch as `invalid-config`, and a missing key or unsupported model holds the same way. `saveConfigPatch` never writes `sentiment`, because config.yaml is its only source. A definition frozen under an earlier request template (`hasCurrentSentimentTemplate` in contracts) admits and dispatches nothing until the project is configured again. `sentiment.provider` selects direct TypeSafe (`jev-1.13.0`) or OpenRouter (`typesafe/jev-1.13`, requiring served snapshot `typesafe/jev-1.13-20260917`). The routed evaluator uses the shared OpenRouter key and connection gate, rereads configuration after queued waits, and preserves literal served-model and usage metadata through pi’s transport observer. A route change holds the old frozen definition until project reconfiguration starts a new epoch. The coordinator only wakes the worker; startup/poll reconciliation reads completion receipts atomically persisted by the initial success and fill transactions, including superseded fills. Install suspension persists cancellation and a resume boundary; reenablement never revives old selections. Shared SQLite leases and attempt reservations bound concurrent requests and input tokens across projects. Each actual attempt has a receipt and reported usage goes directly to `llm_usage_events` under the frozen `typesafe` or `openrouter` evaluator provider with kind `sentiment`; unknown remote billing stays unknown. No secret reaches these records. A crash can require another billed attempt; successful result uniqueness is not exactly-once external billing. A 429 pauses dispatch for every project for 30-60s, doubling with each further 429 up to 15-30 min (a longer Retry-After wins). A 401/403 pauses it until the configured key changes, with one probe request per hour. Neither refusal counts against `maxAttempts`. When a pause ends, one probe request goes first, and a success releases the pause only if it was sent after the pause began. Reconciliation keeps a per-project receipt cursor, so each completion is selected once. Claims take automatic work before backfills and rotate across projects.
 
 ### Sentiment CLI
 
@@ -1052,3 +1063,13 @@ mutations stay write. `get --from doctor` remains live. Access filters apply to
 both help forms, including parent-only roots, and are rejected on normal
 execution. A registered group with no matching access remains a valid empty
 catalog, not an unknown command.
+
+## SEO dispatch
+
+`seo-runtime.ts` executes durable SEO tasks after the listener binds. It reloads
+host configuration before submission, checks current policy and reserved pricing,
+renews task leases, and never resubmits uncertain requests. `JobRunner` skips
+`seo-sync` recovery; only `SeoRepository` owns those receipts and liabilities.
+Fleet tenants run this same `canonry serve` runtime. The lightweight `apps/api`
+entry point has saved reads but reports SEO execution unavailable without a runtime.
+SEO completion does not trigger Aero or another paid workflow.

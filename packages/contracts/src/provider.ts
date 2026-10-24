@@ -3,6 +3,18 @@ import type { GroundingSource, RetrievedSource } from './run.js'
 import type { ModelDefinition, ProviderModelRegistry } from './models.js'
 import { RetrievalStatuses, type RetrievalContract, type RetrievalStatus } from './retrieval.js'
 import type { ProviderBatchCapability, ProviderBatchConfig, ProviderPricing, ProviderUsage, TrackedQueryRequest } from './provider-batch.js'
+import type { AnswerEvidence } from './answer-evidence.js'
+import type { ProviderCapabilities, ProviderKind } from './provider-eligibility.js'
+import {
+  DEFAULT_PROVIDER_ROUTE_FAMILIES,
+  isConcreteProviderName,
+  isRouteAvailable,
+  OPENROUTER_ROUTE_FAMILY,
+  routeConnectionName,
+  routeSelection,
+  type ProviderRouteFamily,
+  type ResolvedProviderRoute,
+} from './provider-routes.js'
 
 export const providerQuotaPolicySchema = z.object({
   maxConcurrency: z.number().int().positive(),
@@ -17,7 +29,7 @@ export type ProviderQuotaPolicy = z.infer<typeof providerQuotaPolicySchema>
  * registered adapters. These constants are kept for backward compatibility
  * but are NOT the source of truth — each adapter self-declares its name.
  */
-export const PROVIDER_NAMES = ['gemini', 'openai', 'claude', 'perplexity', 'muse', 'local', 'cdp:chatgpt'] as const
+export const PROVIDER_NAMES = ['gemini', 'openai', 'claude', 'perplexity', 'muse', 'local', 'openrouter', 'cdp:chatgpt'] as const
 export const ProviderNames = {
   gemini: 'gemini',
   openai: 'openai',
@@ -25,6 +37,7 @@ export const ProviderNames = {
   perplexity: 'perplexity',
   muse: 'muse',
   local: 'local',
+  openrouter: 'openrouter',
   cdpChatgpt: 'cdp:chatgpt',
 } as const
 export const providerNameSchema = z.string().min(1)
@@ -38,9 +51,58 @@ export type ProviderName = string
 export const providerModelsSchema = z.record(z.string(), z.string().trim().min(1))
 export type ProviderModels = z.infer<typeof providerModelsSchema>
 
-export const API_PROVIDER_NAMES = ['gemini', 'openai', 'claude', 'perplexity', 'muse', 'local'] as const
+export const API_PROVIDER_NAMES = ['gemini', 'openai', 'claude', 'perplexity', 'muse', 'local', 'openrouter'] as const
 export const apiProviderNameSchema = z.string().min(1)
 export type ApiProviderName = string
+
+/**
+ * OpenRouter sweep models offered first, one from the maker of each major
+ * consumer answer engine. Pickers show only the ones OpenRouter's live
+ * catalog still lists; every other model stays one search away.
+ */
+export const OPENROUTER_RECOMMENDED_SWEEP_MODELS = [
+  { id: 'openai/gpt-6-luna', engine: 'ChatGPT' },
+  { id: 'google/gemini-3.8-flash', engine: 'Gemini' },
+  { id: 'anthropic/claude-sonnet-5.5', engine: 'Claude' },
+] as const
+
+/** The model an `openrouter:<publisher/model>` route pins, or undefined for anything else. */
+export function openRouterRouteModel(name: string): string | undefined {
+  return routeSelection(name, OPENROUTER_ROUTE_FAMILY)
+}
+
+export function isOpenRouterRoute(name: string): boolean {
+  return openRouterRouteModel(name) !== undefined
+}
+
+export function openRouterRouteName(model: string): string {
+  const route = `openrouter:${model.trim()}`
+  if (!isOpenRouterRoute(route)) throw new Error('OpenRouter requires a fixed vendor/model slug.')
+  return route
+}
+
+/**
+ * Connection credentials, quotas and account holds are shared by its routes.
+ * Pass the families of the adapters in scope; the default knows OpenRouter.
+ */
+export function providerConnectionName(name: string, families: readonly ProviderRouteFamily[] = DEFAULT_PROVIDER_ROUTE_FAMILIES): string {
+  return routeConnectionName(name, families)
+}
+
+/** A route is available when its shared connection is available. */
+export function isProviderAvailable(name: string, available: readonly string[], families: readonly ProviderRouteFamily[] = DEFAULT_PROVIDER_ROUTE_FAMILIES): boolean {
+  return isRouteAvailable(name, available, families)
+}
+
+/** A routed connection alone (OpenRouter, an answer service) does not select a target for measurement. */
+export function isSweepProvider(name: string, families: readonly ProviderRouteFamily[] = DEFAULT_PROVIDER_ROUTE_FAMILIES): boolean {
+  return isConcreteProviderName(name, families)
+}
+
+/** The connection of a registered adapter, read from the family it declares. */
+export function adapterConnectionName(adapter: Pick<ProviderAdapter, 'name' | 'routes'>): string {
+  return adapter.routes ? routeConnectionName(adapter.name, [adapter.routes]) : providerConnectionName(adapter.name)
+}
 
 export type ProviderMode = 'api' | 'browser'
 
@@ -242,6 +304,23 @@ export interface RawQueryResult {
    * Claude `pause_turn`) can be found later; never used to drop an answer.
    */
   stopReason?: string
+  /**
+   * The answer text, when the adapter extracts it while parsing (answer
+   * services). Adapters that read it back from `rawResponse` in
+   * `normalizeResult` leave it unset.
+   */
+  answerText?: string
+  /**
+   * Vendor-neutral evidence (source relationships, completion, identity,
+   * usage basis). Set by answer services; absent for adapters that predate it.
+   */
+  evidence?: AnswerEvidence
+  /**
+   * Whether this answer's sources can say if a domain was cited. Absent means
+   * true, as for every answer engine. False when the service never ties its
+   * sources to the answer, so a citation state must not be recorded.
+   */
+  citationMeasurable?: boolean
 }
 
 /**
@@ -269,6 +348,43 @@ export interface NormalizedQueryResult {
   retrievedSources?: RetrievedSource[] | null
   /** See {@link RawQueryResult.retrievalStatus}. */
   retrievalStatus: RetrievalStatus
+  /** See {@link RawQueryResult.evidence}. */
+  evidence?: AnswerEvidence
+  /** See {@link RawQueryResult.citationMeasurable}. */
+  citationMeasurable?: boolean
+}
+
+/** Whether an answer's citation state may be recorded. Answers without the flag always may. */
+export function isCitationMeasurable(result: { citationMeasurable?: boolean }): boolean {
+  return result.citationMeasurable !== false
+}
+
+/**
+ * Thrown when an upstream returned something that is not a complete answer
+ * (partial, failed or pending). It carries the evidence so a caller that
+ * understands completion can keep it, while every other caller fails closed
+ * instead of storing a cut-off or pending answer as a measured observation.
+ *
+ * `resumable` is true only for a pending upstream job the adapter can follow
+ * later from its stored id (a job profile run by a job executor). A caller
+ * that keeps saved work then waits on it instead of failing it, and never
+ * submits it again. A pending handle from a synchronous request cannot be
+ * followed, so it stays a failure that keeps its job id as evidence.
+ */
+export class IncompleteAnswerError extends Error {
+  readonly resumable: boolean
+  constructor(
+    message: string,
+    readonly evidence: AnswerEvidence,
+    readonly answerText: string | null,
+    readonly rawResponse: Record<string, unknown> | null,
+    options: { resumable?: boolean } = {},
+  ) {
+    super(message)
+    this.name = 'IncompleteAnswerError'
+    // Without a job id there is nothing to follow, whatever the caller claims.
+    this.resumable = options.resumable === true && evidence.completion.upstreamJobId !== null
+  }
 }
 
 export interface ProviderHealthcheckResult {
@@ -284,6 +400,22 @@ export interface ProviderAdapter {
   displayName: string
   /** Whether this is an API-based or browser-based (CDP) provider */
   mode: ProviderMode
+  /** Absent means an answer engine; see {@link ProviderKind}. */
+  kind?: ProviderKind
+  /** Absent means a full answer engine: generation plus every grounded workflow. */
+  capabilities?: ProviderCapabilities
+  /**
+   * The route family this connection serves. Its bare name is then never a
+   * measurement target; `<name>:<selection>` keys are.
+   */
+  routes?: ProviderRouteFamily
+  /**
+   * The adapter a resolved route runs as. Absent: the registry derives one
+   * from this adapter with the route's selection pinned as its model.
+   */
+  forRoute?(route: ResolvedProviderRoute): ProviderAdapter
+  /** The quota a connection starts with when config.yaml sets none. Absent: the shared default. */
+  defaultQuota?: ProviderQuotaPolicy
   /**
    * Whether this adapter actually forwards a `LocationContext` to the model —
    * in the prompt or as a request parameter. Required, not optional, for the
@@ -317,5 +449,9 @@ export interface ProviderAdapter {
   /** Asynchronous batch dispatch, for providers whose API has one. */
   batch?: ProviderBatchCapability
   normalizeResult(raw: RawQueryResult): NormalizedQueryResult
-  generateText(prompt: string, config: ProviderConfig): Promise<string>
+  /**
+   * Plain text generation. Optional: a hosted answer service always searches
+   * and answers, so it has none. Check with `canGenerateText` before calling.
+   */
+  generateText?(prompt: string, config: ProviderConfig): Promise<string>
 }

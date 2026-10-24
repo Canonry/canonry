@@ -86,6 +86,114 @@ test.each([false, true])('managedSweeps=%s preserves client Discovery and Resear
   await waitFor(() => expect(posts).toContain('/api/v1/projects/demo/research/batches'))
 })
 
+test('admin research offers saved OpenRouter routes without exposing the bare connection', async () => {
+  const bodies: Array<Record<string, unknown>> = []
+  const route = 'openrouter:google/gemini-2.5-pro'
+  const restoreFetch = mockFetch((url, init) => {
+    const path = new URL(url).pathname
+    if (path === '/api/v1/projects/demo/research/runs') return jsonResponse({ runs: [] })
+    if (path === '/api/v1/projects/demo/research/batches' && init?.method === 'POST') {
+      bodies.push(JSON.parse(String(init.body)) as Record<string, unknown>)
+      return jsonResponse({ error: { code: 'INTERNAL_ERROR', message: 'Test provider unavailable' } }, 503)
+    }
+    if (path === '/api/v1/projects/demo') return jsonResponse({
+      id: 'project_demo', name: 'demo', providers: ['openai', route], providerModels: { openai: 'gpt-5-mini' },
+      locations: [], defaultLocation: null,
+    })
+    if (path === '/api/v1/settings') return jsonResponse({
+      providers: [
+        { name: 'openai', displayName: 'OpenAI', configured: true, model: 'gpt-5-mini' },
+        { name: 'openrouter', displayName: 'OpenRouter', configured: true },
+      ],
+      providerCatalog: [
+        {
+          name: 'openai', displayName: 'OpenAI', mode: 'api', modelConfigurable: true,
+          defaultModel: 'gpt-5-mini', knownModels: [], modelValidationPattern: { source: '.', flags: '' }, modelValidationHint: 'Model ID',
+        },
+        {
+          name: 'openrouter', displayName: 'OpenRouter', mode: 'api', modelConfigurable: true,
+          defaultModel: '', knownModels: [{ id: 'google/gemini-2.5-pro', displayName: 'Gemini 2.5 Pro', tier: 'flagship' }],
+          modelValidationPattern: { source: '.', flags: '' }, modelValidationHint: 'vendor/model',
+        },
+      ],
+    })
+    throw new Error(`Unexpected request: ${url}`)
+  })
+  onTestFinished(restoreFetch)
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+  onTestFinished(() => queryClient.clear())
+
+  render(<QueryClientProvider client={queryClient}><ResearchQueriesSection projectName="demo" /></QueryClientProvider>)
+
+  expect(await screen.findByRole('option', { name: 'google/gemini-2.5-pro via OpenRouter' })).toHaveProperty('value', route)
+  expect(screen.queryByRole('option', { name: 'OpenRouter' })).toBeNull()
+  fireEvent.change(screen.getByRole('combobox', { name: 'Engine' }), { target: { value: route } })
+  fireEvent.change(screen.getByRole('textbox', { name: 'Queries' }), { target: { value: 'Which answer engine cites sources?' } })
+  const run = screen.getByRole('button', { name: RUN }) as HTMLButtonElement
+  await waitFor(() => expect(run.disabled).toBe(false))
+  fireEvent.click(run)
+
+  await waitFor(() => expect(bodies).toHaveLength(1))
+  expect(bodies[0]).toMatchObject({ runs: [{ provider: route, model: 'google/gemini-2.5-pro' }] })
+})
+
+test('admin research offers an active-v2 OpenRouter route absent from project providers', async () => {
+  const bodies: Array<Record<string, unknown>> = []
+  const route = 'openrouter:anthropic/claude-3.7-sonnet'
+  const restoreFetch = mockFetch((url, init) => {
+    const path = new URL(url).pathname
+    if (path === '/api/v1/projects/demo/research/runs') return jsonResponse({
+      runs: [],
+      providers: [{
+        name: route,
+        displayName: 'anthropic/claude-3.7-sonnet via OpenRouter',
+        modelConfigurable: false,
+        defaultModel: 'anthropic/claude-3.7-sonnet',
+        knownModels: [],
+      }],
+    })
+    if (path === '/api/v1/projects/demo/research/batches' && init?.method === 'POST') {
+      bodies.push(JSON.parse(String(init.body)) as Record<string, unknown>)
+      return jsonResponse({ error: { code: 'INTERNAL_ERROR', message: 'Test provider unavailable' } }, 503)
+    }
+    if (path === '/api/v1/projects/demo') return jsonResponse({
+      id: 'project_demo', name: 'demo', providers: ['openai'], providerModels: { openai: 'gpt-5-mini' },
+      locations: [], defaultLocation: null,
+    })
+    if (path === '/api/v1/settings') return jsonResponse({
+      providers: [
+        { name: 'openai', displayName: 'OpenAI', configured: true, model: 'gpt-5-mini' },
+        { name: 'openrouter', displayName: 'OpenRouter', configured: true },
+      ],
+      providerCatalog: [
+        {
+          name: 'openai', displayName: 'OpenAI', mode: 'api', modelConfigurable: true,
+          defaultModel: 'gpt-5-mini', knownModels: [], modelValidationPattern: { source: '.', flags: '' }, modelValidationHint: 'Model ID',
+        },
+        {
+          name: 'openrouter', displayName: 'OpenRouter', mode: 'api', modelConfigurable: true,
+          defaultModel: '', knownModels: [], modelValidationPattern: { source: '.', flags: '' }, modelValidationHint: 'vendor/model',
+        },
+      ],
+    })
+    throw new Error(`Unexpected request: ${url}`)
+  })
+  onTestFinished(restoreFetch)
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+  onTestFinished(() => queryClient.clear())
+
+  render(<QueryClientProvider client={queryClient}><ResearchQueriesSection projectName="demo" /></QueryClientProvider>)
+
+  expect(await screen.findByRole('option', { name: 'anthropic/claude-3.7-sonnet via OpenRouter' })).toHaveProperty('value', route)
+  expect(screen.queryByRole('option', { name: 'OpenRouter' })).toBeNull()
+  fireEvent.change(screen.getByRole('combobox', { name: 'Engine' }), { target: { value: route } })
+  fireEvent.change(screen.getByRole('textbox', { name: 'Queries' }), { target: { value: 'Which answer engine cites sources?' } })
+  fireEvent.click(screen.getByRole('button', { name: RUN }))
+
+  await waitFor(() => expect(bodies).toHaveLength(1))
+  expect(bodies[0]).toMatchObject({ runs: [{ provider: route, model: 'anthropic/claude-3.7-sonnet' }] })
+})
+
 test('resets the selected query when switching research history batches', async () => {
   const run = (id: string, model: string) => ({
     id, projectId: 'project_demo', status: 'completed', provider: 'openai', requestedModel: model, resolvedModel: model,
@@ -181,6 +289,27 @@ function shownText() {
   while (walker.nextNode()) text.push(walker.currentNode.textContent)
   return text.join('\n')
 }
+
+test('saved answer-service evidence names who estimated a cost', async () => {
+  const evidence = {
+    version: 1,
+    identity: { connection: 'svc', route: 'svc:basic', service: 'svc', product: 'answer', profile: 'basic', settings: {}, requestedServiceModel: null, disclosedModel: null, disclosedModelKind: null, requestPolicy: 'v1', parserVersion: 'p1' },
+    completion: { status: 'complete', finishReason: null, upstreamStatus: null, upstreamRequestId: null, upstreamJobId: null, error: null },
+    usage: {
+      tokens: { input: null, output: null, reasoning: null, basis: 'unknown' }, searches: { count: null, basis: 'unknown' }, pageReads: { count: null, basis: 'unknown' },
+      billedUnits: [], cost: { micros: 4000, currency: 'USD', basis: 'estimated', estimatedBy: 'canonry' },
+    },
+    sources: [], searchQueries: [], retrievalStatus: 'unknown', citationBasis: 'answer-support', citationMeasurable: true, directSourceUrls: true,
+    location: { requested: null, sent: null, strength: null, serviceDefault: null, status: 'not-requested' }, rawTruncated: false,
+  }
+  renderSavedResearch('Answer from a search answer service.', [], { query: { evidence, citationMeasured: true } })
+  await screen.findByText('Answer from a search answer service.')
+  const results = within(screen.getByRole('region', { name: RESEARCH_COPY.resultsTitle }))
+  // The estimate is Canonry's, so it must not read as a figure the service provided.
+  expect(results.getByText('Estimated by Canonry')).toBeTruthy()
+  expect(results.queryByText('Estimated by the service')).toBeNull()
+  expect(results.getByText('Complete')).toBeTruthy()
+})
 
 test('saved results retain their saved scope independently from the current form', async () => {
   renderSavedResearch('Demo is also the name of a fishing line company.')
@@ -494,6 +623,45 @@ test('a limited account with no engine is told to ask its team, and the Model li
   expect(note.textContent).toBe('No engine connected')
   expect([...(screen.getByRole('combobox', { name: 'Model' }) as HTMLSelectElement).options].map(option => option.text)).toEqual(['Choose an engine'])
   expect((screen.getByRole('button', { name: RUN }) as HTMLButtonElement).disabled).toBe(true)
+})
+
+test('limited research submits a server-approved OpenRouter route and never offers the bare connection', async () => {
+  const bodies: Array<Record<string, unknown>> = []
+  const route = 'openrouter:anthropic/claude-3.7-sonnet'
+  const restore = mockFetch((url, init) => {
+    const path = new URL(url).pathname
+    if (path === '/api/v1/projects/demo/research/runs' || path === '/api/v1/projects/demo/research/batches') {
+      if (init?.method === 'POST') {
+        bodies.push(JSON.parse(String(init.body)) as Record<string, unknown>)
+        return jsonResponse({ error: { code: 'INTERNAL_ERROR', message: 'Test failure' } }, 500)
+      }
+      return jsonResponse({ runs: [], access: { canRun: true, dailyRunLimit: 7 }, providers: [
+        { name: 'openrouter', displayName: 'OpenRouter', modelConfigurable: true, defaultModel: 'auto', knownModels: [] },
+        { name: route, displayName: 'anthropic/claude-3.7-sonnet via OpenRouter', modelConfigurable: false, defaultModel: 'anthropic/claude-3.7-sonnet', knownModels: [] },
+      ] })
+    }
+    if (path === '/api/v1/projects/demo') return jsonResponse({
+      id: 'project_demo', name: 'demo', providers: [route], providerModels: {}, locations: [], defaultLocation: null,
+    })
+    throw new Error(`Unexpected request: ${url}`)
+  })
+  onTestFinished(restore)
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+  onTestFinished(() => queryClient.clear())
+
+  render(<AccountProvider account={null} apiKey={{ id: 'research-key', scopes: ['read', 'research.run'], projectId: 'project_demo', readOnly: false }}>
+    <QueryClientProvider client={queryClient}><ResearchQueriesSection projectName="demo" /></QueryClientProvider>
+  </AccountProvider>)
+
+  expect(await screen.findByRole('option', { name: 'anthropic/claude-3.7-sonnet via OpenRouter' })).toHaveProperty('value', route)
+  expect(screen.queryByRole('option', { name: 'OpenRouter' })).toBeNull()
+  fireEvent.change(screen.getByRole('textbox', { name: /^Queries/ }), { target: { value: 'Which platform fits?' } })
+  const button = screen.getByRole('button', { name: RUN }) as HTMLButtonElement
+  await waitFor(() => expect(button.disabled).toBe(false))
+  fireEvent.click(button)
+
+  await waitFor(() => expect(bodies).toHaveLength(1))
+  expect(bodies[0]).toMatchObject({ runs: [{ provider: route, model: 'anthropic/claude-3.7-sonnet' }] })
 })
 
 test('viewer research follows the visibility model, offers discovered alternatives, and resets on engine change', async () => {

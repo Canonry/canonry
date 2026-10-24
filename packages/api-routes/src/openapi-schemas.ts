@@ -1,3 +1,4 @@
+import { gbpLocalPostDtoSchema, gbpLocalPostListSchema, gbpLocalPostAttemptSchema, gbpLiveReviewsSchema, gbpLocalPostCreateSchema } from '@canonry/canonry-contracts'
 /**
  * Centralized OpenAPI schema registry for canonry's API responses.
  *
@@ -23,6 +24,8 @@
  *       hatch and TODO it for migration.
  */
 import { z, type ZodType } from 'zod'
+import { seoOperatorTaskSchema, seoReconcileInputSchema, seoReconcileResultSchema } from '@canonry/canonry-contracts'
+import { seoContextSchema, seoStatusSchema, seoProfileSchema, seoProfileListSchema, seoProfileInputSchema, seoQuoteSchema, seoRefreshIntentInputSchema, seoSyncInputSchema, seoRunSchema, seoRunDetailSchema, seoRunListSchema, seoOverviewSchema, seoKeywordMetricsListSchema, seoDomainIntelligenceListSchema, seoRankedKeywordListSchema } from '@canonry/canonry-contracts'
 import { sentimentSummarySchema, sentimentSettingsSchema, sentimentSettingsUpdateSchema, sentimentEvidencePageSchema, sentimentComparisonSchema, sentimentBackfillPreviewSchema, sentimentBackfillRequestSchema, sentimentJobsSchema, sentimentJobSchema } from '@canonry/canonry-contracts'
 import { visibilityReportResponseSchema } from '@canonry/canonry-contracts'
 import { queryTrackingWorkspaceResponseSchema, queryTrackingPreviewRequestSchema, queryTrackingPreviewResponseSchema, queryTrackingCommitRequestSchema, queryTrackingCommitResponseSchema, queryTrackingResultsResponseSchema } from '@canonry/canonry-contracts'
@@ -98,6 +101,7 @@ import {
   ga4AiReferralDailyDtoSchema,
   ga4AiReferralHistoryEntrySchema,
   ga4SessionHistoryEntrySchema,
+  gaOverviewResponseSchema,
   ga4SocialReferralHistoryEntrySchema,
   ga4PropertiesDtoSchema,
   ga4StatusDtoSchema,
@@ -184,11 +188,13 @@ import {
   measurementDraftPreviewAssignmentsResponseSchema,
   measurementDraftPreviewGroupMembershipRequestSchema,
   measurementDraftPreviewGroupMembershipResponseSchema,
+  measurementDraftPreviewMarketRoutingResponseSchema,
   measurementDraftRebindTargetRequestSchema,
   measurementDraftRemoveAssignmentRequestSchema,
   measurementDraftRemoveCompetitorRequestSchema,
   measurementDraftRemoveGroupRequestSchema,
   measurementDraftReplaceAssignmentsRequestSchema,
+  measurementDraftRouteMarketsRequestSchema,
   measurementDraftRenameTargetRequestSchema,
   measurementChangesResponseSchema,
   measurementDataQualityResponseSchema,
@@ -336,6 +342,24 @@ import {
  * obvious in review.
  */
 const SCHEMA_TABLE = {
+  SeoOperatorTask: seoOperatorTaskSchema,
+  SeoReconcileInput: seoReconcileInputSchema,
+  SeoReconcileResult: seoReconcileResultSchema,
+  SeoContext: seoContextSchema,
+  SeoStatus: seoStatusSchema,
+  SeoProfile: seoProfileSchema,
+  SeoProfileList: seoProfileListSchema,
+  SeoProfileInput: seoProfileInputSchema,
+  SeoQuote: seoQuoteSchema,
+  SeoRefreshIntentInput: seoRefreshIntentInputSchema,
+  SeoSyncInput: seoSyncInputSchema,
+  SeoRun: seoRunSchema,
+  SeoRunDetail: seoRunDetailSchema,
+  SeoRunList: seoRunListSchema,
+  SeoOverview: seoOverviewSchema,
+  SeoKeywordMetricsList: seoKeywordMetricsListSchema,
+  SeoDomainIntelligenceList: seoDomainIntelligenceListSchema,
+  SeoRankedKeywordList: seoRankedKeywordListSchema,
   SentimentSummary: sentimentSummarySchema,
   SentimentSettings: sentimentSettingsSchema,
   SentimentSettingsUpdate: sentimentSettingsUpdateSchema,
@@ -441,6 +465,7 @@ const SCHEMA_TABLE = {
   GA4AiReferralHistoryEntry: ga4AiReferralHistoryEntrySchema,
   GA4MeasurementAnalysisDto: gaMeasurementAnalysisDtoSchema,
   GA4SessionHistoryEntry: ga4SessionHistoryEntrySchema,
+  GaOverviewResponse: gaOverviewResponseSchema,
   GA4SocialReferralHistoryEntry: ga4SocialReferralHistoryEntrySchema,
   GA4PropertiesDto: ga4PropertiesDtoSchema,
   GA4StatusDto: ga4StatusDtoSchema,
@@ -450,6 +475,11 @@ const SCHEMA_TABLE = {
   GaSearchLandingPagesResponse: gaSearchLandingPagesResponseSchema,
   GaSocialReferralTrendResponse: gaSocialReferralTrendResponseSchema,
   GaTrafficResponse: gaTrafficResponseSchema,
+  GbpLocalPost: gbpLocalPostDtoSchema,
+  GbpLocalPostList: gbpLocalPostListSchema,
+  GbpLocalPostAttempt: gbpLocalPostAttemptSchema,
+  GbpLiveReviews: gbpLiveReviewsSchema,
+  GbpLocalPostCreate: gbpLocalPostCreateSchema,
   GbpAccountListResponse: gbpAccountListResponseSchema,
   GbpDailyMetricListResponse: gbpDailyMetricListResponseSchema,
   GbpKeywordImpressionListResponse: gbpKeywordImpressionListResponseSchema,
@@ -527,11 +557,13 @@ const SCHEMA_TABLE = {
   MeasurementDraftPreviewAssignmentsResponse: measurementDraftPreviewAssignmentsResponseSchema,
   MeasurementDraftPreviewGroupMembershipRequest: measurementDraftPreviewGroupMembershipRequestSchema,
   MeasurementDraftPreviewGroupMembershipResponse: measurementDraftPreviewGroupMembershipResponseSchema,
+  MeasurementDraftPreviewMarketRoutingResponse: measurementDraftPreviewMarketRoutingResponseSchema,
   MeasurementDraftRebindTargetRequest: measurementDraftRebindTargetRequestSchema,
   MeasurementDraftRemoveAssignmentRequest: measurementDraftRemoveAssignmentRequestSchema,
   MeasurementDraftRemoveCompetitorRequest: measurementDraftRemoveCompetitorRequestSchema,
   MeasurementDraftRemoveGroupRequest: measurementDraftRemoveGroupRequestSchema,
   MeasurementDraftReplaceAssignmentsRequest: measurementDraftReplaceAssignmentsRequestSchema,
+  MeasurementDraftRouteMarketsRequest: measurementDraftRouteMarketsRequestSchema,
   MeasurementDraftRenameTargetRequest: measurementDraftRenameTargetRequestSchema,
   MeasurementChangesResponse: measurementChangesResponseSchema,
   MeasurementDataQualityResponse: measurementDataQualityResponseSchema,

@@ -358,7 +358,7 @@ test('reviews on the Add page, keeps the draft on Back, and publishes with the r
   const dialog = screen.getByRole('region', { name: 'Add queries' })
   expect(sheet.queryByText(publishNotice)).toBeNull()
   expect(noteButton(publishLine, publishNotice, dialog).classList.contains('text-caution')).toBe(true)
-  expect(sheet.queryByText('Publishing does not run a sweep.')).toBeNull()
+  expect(sheet.queryByText('Publishing does not run a check.')).toBeNull()
   expect(sheet.queryByLabelText('Queries')).toBeNull()
   expect(sheetText()).not.toMatch(/question/i)
   expectNoSentence(dialog)
@@ -393,8 +393,8 @@ test('pauses publishing on the Add page while a sweep is queued or running', asy
   const publish = await sheet.findByRole('button', { name: 'Publish 1 change' }) as HTMLButtonElement
   expect(publish.disabled).toBe(true)
   // A short status; the sentence is its help.
-  expect(sheet.getByRole('status').textContent).toBe('Sweep running')
-  noteButton('Sweep running', 'A sweep is queued or running. Publish after it finishes.', sheet.getByRole('status'))
+  expect(sheet.getByRole('status').textContent).toBe('Check running')
+  noteButton('Check running', 'A check is queued or running. Publish after it finishes.', sheet.getByRole('status'))
   // Publish and the pause sit in the footer beside Back, not at the end of the scrolling list of changes.
   const footer = sheet.getByRole('button', { name: 'Back' }).parentElement!
   expect(publish.parentElement).toBe(footer)

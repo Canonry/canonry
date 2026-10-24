@@ -4,6 +4,7 @@ import {
   deriveCitedUrlCandidates,
   filterCapturedCitedUrls,
   isVertexGroundingRedirect,
+  isOpenRouterRoute,
   mapWithConcurrency,
   type CitedUrlCaptureStatus,
   type GroundingSource,
@@ -27,10 +28,16 @@ export interface CitedUrlCapture {
 export interface CitedUrlCaptureOptions {
   fetchImpl?: FetchImpl
   timeoutMs?: number
+  /**
+   * The answer's sources are its cited page URLs (an answer service whose
+   * citations are measurable and whose source URLs are the pages themselves,
+   * see `hasDirectCitedUrls`). Absent: decided by provider name.
+   */
+  directCitedSources?: boolean
 }
 
 function isRouteCapableProvider(provider: string): boolean {
-  return (ROUTE_CAPABLE_CITED_URL_PROVIDERS as readonly string[]).includes(provider)
+  return isOpenRouterRoute(provider) || (ROUTE_CAPABLE_CITED_URL_PROVIDERS as readonly string[]).includes(provider)
 }
 
 function parseHttpUrl(value: string, base?: string): URL | undefined {
@@ -90,7 +97,7 @@ export async function captureCitedUrls(
   opts: CitedUrlCaptureOptions = {},
 ): Promise<CitedUrlCapture> {
   const sourceCount = sources.length
-  if (!isRouteCapableProvider(provider)) {
+  if (!(opts.directCitedSources ?? isRouteCapableProvider(provider))) {
     return {
       citedUrls: null,
       captureStatus: 'unsupported',

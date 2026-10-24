@@ -18,7 +18,7 @@ import { getRunTrackerState, resetRunTracker } from '../src/lib/run-tracker-stor
 import { getToasts, resetToasts } from '../src/lib/toast-store.js'
 import { jsonResponse, mockFetch, pathOf } from './mock-fetch.js'
 import { AGENT_SETUP_GUIDE_URL, AGENT_SETUP_REQUEST, resolveAutoResumeTarget } from '../src/pages/OnboardingSetupPage.js'
-import { AGENT_MCP_INSTALL_COMMAND, runOutcome, visibilityOutcome } from '../src/pages/OnboardingCompletePage.js'
+import { runOutcome, visibilityOutcome } from '../src/pages/OnboardingCompletePage.js'
 import { isOnboardingHandoff, markOnboardingHandoff } from '../src/lib/onboarding-telemetry.js'
 
 vi.mock('../src/components/project/SiteHealthSection.js', () => ({
@@ -131,14 +131,25 @@ test('defaults a fresh install to the domain-first Site Health flow', async () =
   expect(await screen.findByRole('heading', { name: 'Scan your site' })).toBeTruthy()
   expect(screen.queryByText('Step 2 of 5')).toBeNull()
   expect(screen.getByText('Use your agent instead')).toBeTruthy()
-  expect(screen.getByRole('button', { name: 'Copy setup request' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Copy new-install request' })).toBeTruthy()
+})
+
+test('keeps new local installation instructions out of the launchpad when local agent setup is disabled', async () => {
+  window.__CANONRY_CONFIG__ = { dashboard: { onboardingMode: 'platform', showLocalAgentSetup: false } }
+  await renderSetup()
+
+  const agentOption = await screen.findByRole('region', { name: 'Use your agent instead' })
+  expect(within(agentOption).getByRole('link', { name: 'Agent setup' }).getAttribute('href')).toBe('/agent-setup')
+  expect(within(agentOption).getByText('Connect ChatGPT or Claude Desktop to this instance.')).toBeTruthy()
+  expect(within(agentOption).queryByRole('button', { name: 'Copy new-install request' })).toBeNull()
+  expect(within(agentOption).queryByRole('link', { name: /Agent quickstart/i })).toBeNull()
 })
 
 test('the legacy rescue query wins over an enabled platform flag', async () => {
   window.__CANONRY_CONFIG__ = { dashboard: { onboardingMode: 'platform' } }
   await renderSetup('/setup?experience=legacy')
 
-  expect(await screen.findByText('Step 2 of 5')).toBeTruthy()
+  expect(await screen.findByRole('heading', { name: 'Create project' })).toBeTruthy()
 })
 
 test('auto resumes Site Health for an existing project instead of the provider-gated wizard', async () => {
@@ -224,7 +235,7 @@ test('auto resume leaves a scanned install on the wizard instead of reopening fi
 
   const { router } = await renderSetup('/setup')
 
-  expect(await screen.findByText(/Step \d of 5/)).toBeTruthy()
+  expect(await screen.findByRole('listitem', { current: 'step' })).toBeTruthy()
   expect(router.state.location.search).not.toMatchObject({ onboarding: 'site-health' })
   expect(screen.queryByRole('region', { name: 'Explicit Site Health' })).toBeNull()
 })
@@ -247,7 +258,7 @@ test('auto resume reads the whole scan history, not the runs endpoint\'s 30-day 
 
   await renderSetup('/setup')
 
-  expect(await screen.findByText(/Step \d of 5/)).toBeTruthy()
+  expect(await screen.findByRole('listitem', { current: 'step' })).toBeTruthy()
   expect(runListUrls.length).toBeGreaterThan(0)
   for (const url of runListUrls) {
     const query = new URLSearchParams(url.slice(url.indexOf('?') + 1))
@@ -271,7 +282,7 @@ test('auto resume decides once, so a refetch mid-wizard does not redirect out of
   }))
 
   const { router, queryClient } = await renderSetup('/setup')
-  expect(await screen.findByText(/Step \d of 5/)).toBeTruthy()
+  expect(await screen.findByRole('listitem', { current: 'step' })).toBeTruthy()
 
   // The wizard creates a project (never scanned), which refreshes both lists.
   projects.push({ ...AUTO_RESUME_PROJECT, id: 'project-new', name: 'new-com', createdAt: '2026-03-01T00:00:00.000Z' })
@@ -280,7 +291,7 @@ test('auto resume decides once, so a refetch mid-wizard does not redirect out of
     expect(queryClient.isFetching()).toBe(0)
   })
 
-  expect(screen.getByText(/Step \d of 5/)).toBeTruthy()
+  expect(screen.getByRole('listitem', { current: 'step' })).toBeTruthy()
   expect(router.state.location.search).not.toMatchObject({ onboarding: 'site-health' })
 })
 
@@ -308,7 +319,7 @@ test('the finish step leads with the agent and server-side traffic, with real li
   expect(href('Set a schedule')).toBe('/projects/example-com/settings')
   expect(href('Add a notification')).toBe('/projects/example-com/settings')
   expect(href('Open example-com')).toBe('/projects/example-com')
-  expect(screen.getByText(AGENT_MCP_INSTALL_COMMAND)).toBeTruthy()
+  expect(href('Agent setup')).toBe('/agent-setup')
 
   // The agent window shows the agent doing work, one example at a time, and
   // a reader can pick any of them.
@@ -331,7 +342,7 @@ test('the finish step never invents a score for an unscanned project', async () 
 
   await renderSetup('/setup?onboarding=complete&setupProject=example-com')
 
-  expect(await screen.findByText('sweep finished')).toBeTruthy()
+  expect(await screen.findByText('check finished')).toBeTruthy()
   expect(screen.queryByText('page health 0')).toBeNull()
 })
 
@@ -368,7 +379,7 @@ test('the finish step credits a scan that ran and an AI Visibility step that was
   expect(within(progress).queryByText('Skipped')).toBeNull()
 })
 
-test('a failed copy of the agent install command says so instead of failing silently', async () => {
+test('the finish step opens agent setup and keeps commands available without clipboard access', async () => {
   const clipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
   // Outside a secure context there is no clipboard API at all.
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined })
@@ -379,9 +390,14 @@ test('a failed copy of the agent install command says so instead of failing sile
   onTestFinished(mockFetch(() => jsonResponse([])))
 
   await renderSetup('/setup?onboarding=complete&setupProject=example-com')
-  fireEvent.click(await screen.findByRole('button', { name: 'Copy' }))
+  fireEvent.click(await screen.findByRole('link', { name: 'Agent setup' }))
+  await screen.findByRole('heading', { name: 'Agent setup', level: 1 })
+  fireEvent.click(screen.getByText('Local plugins and other MCP clients'))
+  fireEvent.click(screen.getByRole('button', { name: 'Copy install commands' }))
 
-  expect(await screen.findByText('Could not copy the command')).toBeTruthy()
+  const command = await screen.findByRole('textbox', { name: 'Copy install commands text' }) as HTMLTextAreaElement
+  expect(command.closest('details')?.open).toBe(true)
+  expect(command.value).toBe('codex plugin marketplace add Canonry/canonry\ncodex plugin add canonry@canonry')
 })
 
 test('only a finished scan counts as a completed scan step', () => {
@@ -468,31 +484,25 @@ test('the finish step records its view and each next action once, inside the exi
     return jsonResponse([])
   }))
 
-  await renderSetup('/setup?onboarding=complete&setupProject=example-com')
+  const { router } = await renderSetup('/setup?onboarding=complete&setupProject=example-com')
+  const navigate = vi.spyOn(router, 'navigate').mockResolvedValue(undefined)
+  onTestFinished(() => navigate.mockRestore())
   await waitFor(() => {
     expect(events.filter(event => event.event === 'onboarding.started')).toHaveLength(1)
   })
   // New step VALUE, never a new event NAME: the collector drops unknown names.
   expect(events[0]).toMatchObject({ event: 'onboarding.started', step: 'finish', resumed: false, surface: 'platform', flowVersion: 1 })
 
-  // A second click on the same action (here, the copy button) records nothing new.
-  const writeText = vi.fn(async () => {})
-  const clipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
-  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
-  onTestFinished(() => {
-    if (clipboard) Object.defineProperty(navigator, 'clipboard', clipboard)
-    else Reflect.deleteProperty(navigator, 'clipboard')
-  })
-  fireEvent.click(screen.getByRole('button', { name: 'Copy' }))
-  await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1))
-  fireEvent.click(await screen.findByRole('button', { name: 'Copied' }))
-  await waitFor(() => expect(writeText).toHaveBeenCalledTimes(2))
-  fireEvent.click(screen.getByRole('link', { name: 'Connect server-side traffic' }))
+  // Keep the page mounted so a repeated click exercises telemetry deduplication.
+  const trafficLink = screen.getByRole('link', { name: 'Connect server-side traffic' })
+  fireEvent.click(trafficLink)
+  fireEvent.click(trafficLink)
+  fireEvent.click(screen.getByRole('link', { name: 'Set a schedule' }))
   await waitFor(() => {
     expect(events.filter(event => event.event === 'onboarding.step_completed')).toHaveLength(2)
   })
   const actions = events.filter(event => event.event === 'onboarding.step_completed')
-  expect(actions.map(event => event.nextAction)).toEqual(['copy_agent_command', 'connect_server_traffic'])
+  expect(actions.map(event => event.nextAction)).toEqual(['connect_server_traffic', 'set_schedule'])
   for (const action of actions) {
     expect(action).toMatchObject({ step: 'finish', method: 'manual', surface: 'platform' })
   }
@@ -676,7 +686,7 @@ test('continues a mapped project into focused AI Visibility setup', async () => 
   const heading = await screen.findByRole('heading', { name: 'Set up AI Visibility' })
   expect(heading).toBeTruthy()
   expect(document.activeElement).toBe(heading)
-  expect(screen.getByText('Step 1 of 2')).toBeTruthy()
+  expect(screen.getByRole('heading', { name: 'Add queries' })).toBeTruthy()
   expect(screen.getByRole('heading', { name: 'Add queries' })).toBeTruthy()
   expect(screen.queryByRole('list', { name: 'Setup progress' })).toBeNull()
   expect(screen.queryByText('System check')).toBeNull()
@@ -709,7 +719,7 @@ test('does not resume another project when the Site Health handoff is stale', as
   const resolvedHeading = await screen.findByRole('heading', { name: 'Set up AI Visibility' })
   expect(resolvedHeading).not.toBe(heading)
   expect(document.activeElement).toBe(resolvedHeading)
-  expect(screen.getByText('Step 1 of 2')).toBeTruthy()
+  expect(screen.getByRole('heading', { name: 'Add queries' })).toBeTruthy()
 })
 
 test('keeps the fresh-install launchpad focused until a project exists', async () => {
@@ -769,7 +779,7 @@ test('creates without a crawl and enters provider-free query setup for the exact
 
   expect(await screen.findByRole('heading', { name: 'Set up AI Visibility' })).toBeTruthy()
   expect(await screen.findByRole('heading', { name: 'Add queries' })).toBeTruthy()
-  expect(screen.getByText('Step 1 of 2')).toBeTruthy()
+  expect(screen.getByRole('heading', { name: 'Add queries' })).toBeTruthy()
   expect(screen.queryByRole('heading', { name: 'System check' })).toBeNull()
   expect(router.state.location.search).toMatchObject({
     experience: 'legacy',
@@ -810,11 +820,12 @@ test('auto waits for a successful authoritative empty project list before showin
   await renderSetup()
 
   expect(await screen.findByRole('heading', { name: 'Scan your site' })).toBeTruthy()
-  expect(screen.getByText('Enter your public website to see its pages, structure, internal links, and technical SEO scores.')).toBeTruthy()
+  expect(screen.getByText('Enter your public website to see its pages, structure, internal links, and Technical AEO scores.')).toBeTruthy()
   const setupForm = screen.getByRole('form', { name: 'Scan your site' })
   const agentOption = screen.getByRole('region', { name: 'Use your agent instead' })
   expect(Boolean(setupForm.compareDocumentPosition(agentOption) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true)
-  expect(screen.getByText('Copy a complete CLI setup request into any agent.')).toBeTruthy()
+  expect(screen.getByText('Connect your agent to this instance, or copy a request for a new local installation.')).toBeTruthy()
+  expect(within(agentOption).getByRole('link', { name: 'Agent setup' }).getAttribute('href')).toBe('/agent-setup')
   const agentGuide = screen.getByRole('link', { name: /Agent quickstart/i })
   expect(agentGuide.getAttribute('href')).toBe(AGENT_SETUP_GUIDE_URL)
   expect(agentGuide.getAttribute('target')).toBe('_blank')
@@ -838,7 +849,7 @@ test('auto waits for a successful authoritative empty project list before showin
   expect(within(onboardingProgress).getByText('Scan site').closest('[aria-current="step"]')).toBeTruthy()
   expect(within(onboardingProgress).getByText('AI Visibility')).toBeTruthy()
   expect(within(onboardingProgress).getByText('Optional')).toBeTruthy()
-  expect(screen.getByRole('button', { name: 'Copy setup request' }).getAttribute('type')).toBe('button')
+  expect(screen.getByRole('button', { name: 'Copy new-install request' }).getAttribute('type')).toBe('button')
   expect(screen.queryByText(/The crawl does not call answer providers/i)).toBeNull()
   expect(screen.queryByText(/Aero is enabled/i)).toBeNull()
   expect(screen.queryByText(/configured agent provider/i)).toBeNull()
@@ -1101,9 +1112,9 @@ test('the setup request cannot strand an agent or point it at the wrong install'
   expect(AGENT_SETUP_REQUEST).toContain('never present it as a full-site result')
 })
 
-test('gives an agent a copyable setup request', async () => {
-  window.__CANONRY_CONFIG__ = { dashboard: { onboardingMode: 'platform' } }
-  const writeText = vi.fn(async () => {})
+test.each([true, false])('gives an agent a copyable setup request with resource links set to %s', async showResourceLinks => {
+  window.__CANONRY_CONFIG__ = { dashboard: { onboardingMode: 'platform', showResourceLinks } }
+  const writeText = vi.fn<(text: string) => Promise<void>>().mockResolvedValue(undefined)
   const clipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
   Object.defineProperty(navigator, 'clipboard', {
     configurable: true,
@@ -1118,11 +1129,17 @@ test('gives an agent a copyable setup request', async () => {
   })
 
   await renderSetup()
-  fireEvent.click(await screen.findByRole('button', { name: 'Copy setup request' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Copy new-install request' }))
 
-  await waitFor(() => {
+  await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1))
+  if (showResourceLinks) {
     expect(writeText).toHaveBeenCalledWith(AGENT_SETUP_REQUEST)
-  })
+    expect(screen.getByRole('link', { name: /Agent quickstart/i })).toBeTruthy()
+  } else {
+    expect(writeText.mock.calls[0]![0]).not.toContain('github.com')
+    expect(writeText.mock.calls[0]![0]).toContain('wait for separate approval before scanning')
+    expect(screen.queryByRole('link', { name: /Agent quickstart/i })).toBeNull()
+  }
   expect(AGENT_SETUP_REQUEST).toContain('https://github.com/Canonry/canonry#or-use-any-shell-capable-coding-agent')
   expect(AGENT_SETUP_REQUEST).toContain('https://github.com/Canonry/canonry/blob/main/skills/canonry/references/canonry-cli.md')
   expect(AGENT_SETUP_REQUEST).toContain('https://github.com/Canonry/canonry/blob/main/docs/plugins.md')
@@ -1136,11 +1153,11 @@ test('gives an agent a copyable setup request', async () => {
   expect(AGENT_SETUP_REQUEST).toContain('never ask me to paste passwords, API keys, OAuth credentials, or command output')
   expect(AGENT_SETUP_REQUEST).toContain('Tell me the termination reason in plain words')
   expect(AGENT_SETUP_REQUEST).toContain('read that scan instead of starting a new one')
-  expect(screen.getByRole('button', { name: 'Copied setup request' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Copied new-install request' })).toBeTruthy()
 })
 
-test('offers the agent guide when the Clipboard API is unavailable', async () => {
-  window.__CANONRY_CONFIG__ = { dashboard: { onboardingMode: 'platform' } }
+test.each([true, false])('offers clipboard recovery with resource links set to %s', async showResourceLinks => {
+  window.__CANONRY_CONFIG__ = { dashboard: { onboardingMode: 'platform', showResourceLinks } }
   const clipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
   Object.defineProperty(navigator, 'clipboard', {
     configurable: true,
@@ -1155,17 +1172,17 @@ test('offers the agent guide when the Clipboard API is unavailable', async () =>
   })
 
   await renderSetup()
-  fireEvent.click(await screen.findByRole('button', { name: 'Copy setup request' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Copy new-install request' }))
 
   await waitFor(() => {
     expect(getToasts()).toContainEqual(expect.objectContaining({
       tone: 'negative',
       title: 'Could not copy setup request',
-      detail: 'Open the agent quickstart to continue with the CLI instead.',
+      detail: showResourceLinks ? 'Open the agent quickstart to continue with the CLI instead.' : 'Check your browser’s clipboard permission and try again.',
     }))
   })
-  expect(screen.queryByRole('button', { name: 'Copied setup request' })).toBeNull()
-  expect(screen.getByRole('link', { name: /Agent quickstart/i })).toBeTruthy()
+  expect(screen.queryByRole('button', { name: 'Copied new-install request' })).toBeNull()
+  expect(Boolean(screen.queryByRole('link', { name: /Agent quickstart/i }))).toBe(showResourceLinks)
 })
 
 test('auto confirms a cached empty project list after mount before showing the launchpad', async () => {

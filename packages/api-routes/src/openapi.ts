@@ -267,8 +267,14 @@ const providerNameParameter: OpenApiParameter = {
   name: 'name',
   in: 'path',
   required: true,
-  description: 'Provider name.',
-  schema: { type: 'string', enum: ['gemini', 'openai', 'claude', 'perplexity', 'muse', 'local'] },
+  description: 'Registered API provider connection name. OpenRouter settings use the bare `openrouter` connection id, never a model route.',
+  schema: { type: 'string', minLength: 1 },
+}
+
+const queryGenerationProviderSchema = {
+  type: 'string',
+  minLength: 1,
+  description: 'Configured sweep provider. OpenRouter models use `openrouter:publisher/model`; the bare `openrouter` connection is not executable.',
 }
 
 const locationLabelParameter: OpenApiParameter = {
@@ -435,6 +441,13 @@ const analyticsWindowParameter: OpenApiParameter = {
   in: 'query',
   description: 'Time window for analytics queries. An unrecognised value is rejected with 400; it is never widened to the full history.',
   schema: { type: 'string', enum: ['7d', '30d', '90d', 'all'] },
+}
+
+const gaOverviewWindowParameter: OpenApiParameter = {
+  name: 'window',
+  in: 'query',
+  description: 'Overview window: the complete days ending yesterday, as GA4 counts "Last 30 days". Defaults to 30d. Any other value is rejected with 400.',
+  schema: { type: 'string', enum: ['7d', '30d', '90d'] },
 }
 
 const competitorLandscapeGroupKeyParameter: OpenApiParameter = {
@@ -831,7 +844,215 @@ function measurementDraftAction(input: {
   }
 }
 
+const seoEvidenceParameters: OpenApiParameter[] = [
+  { name: 'profileId', in: 'query', description: 'Exact saved profile. Required when multiple profiles exist.', schema: stringSchema },
+  { name: 'runId', in: 'query', description: 'Exact historical refresh. Omit for latest saved evidence for the selected profile.', schema: stringSchema },
+  { name: 'limit', in: 'query', description: 'Page size only. Never changes the evidence scope or denominator.', schema: { type: 'integer', minimum: 1, maximum: 100, default: 50 } },
+  { name: 'offset', in: 'query', description: 'Evidence page offset.', schema: { type: 'integer', minimum: 0, default: 0 } },
+]
+
 const routeCatalog: OpenApiOperation[] = [
+  {
+    method: 'get', path: '/api/v1/seo/operator/tasks/{id}',
+    summary: 'Inspect a private SEO task receipt', tags: ['seo'],
+    description: 'Host operator only: requires a direct unscoped bearer key ID on CANONRY_OPERATOR_KEY_IDS. Customer administrators, browser sessions and delegated credentials cannot read financial receipts.',
+    parameters: [{ name: 'id', in: 'path', required: true, description: 'Exact SEO task ID.', schema: stringSchema }],
+    responses: { 200: jsonResponse('Private receipt.', 'SeoOperatorTask'), 403: errorResponse('Host operator authority required.'), 404: errorResponse('Task not found.') },
+  },
+  {
+    method: 'post', path: '/api/v1/seo/operator/tasks/{id}/reconcile',
+    summary: 'Reconcile an unknown SEO receipt', tags: ['seo'],
+    description: 'Host operator and seo.run only. Record an independently verified upstream receipt, actual cost, outcome and verification note. Never calls the provider or resubmits the request. Exact replay is idempotent; conflicting settlement is refused.',
+    parameters: [{ name: 'id', in: 'path', required: true, description: 'Exact SEO task ID.', schema: stringSchema }],
+    requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/SeoReconcileInput' } } } },
+    responses: { 200: jsonResponse('Receipt reconciled.', 'SeoReconcileResult'), 400: errorResponse('Invalid receipt.'), 403: errorResponse('Host operator authority and seo.run required.'), 404: errorResponse('Task not found.'), 409: errorResponse('Receipt already reconciled differently.') },
+  },
+  {
+    method: 'get', path: '/api/v1/projects/{name}/seo/context',
+    summary: 'Inspect SEO connections, scope support and permissions', tags: ['seo'],
+    description: "Stored evidence only; never calls a provider. Preserves the selected profile, target, locale and measurement scope.",
+    parameters: [nameParameter],
+    responses: {
+      200: jsonResponse('SEO response.', 'SeoContext'),
+      400: errorResponse('Invalid scope or input.'),
+      403: errorResponse('Insufficient authority.'),
+      404: errorResponse('Project or selected evidence not found.'),
+      409: errorResponse('Selection, intent or execution identity changed.'),
+    },
+  },
+  {
+    method: 'get', path: '/api/v1/projects/{name}/seo/status',
+    summary: 'Inspect stored SEO readiness and latest run', tags: ['seo'],
+    description: "Stored evidence only; never calls a provider. Preserves the selected profile, target, locale and measurement scope.",
+    parameters: [nameParameter],
+    responses: {
+      200: jsonResponse('SEO response.', 'SeoStatus'),
+      400: errorResponse('Invalid scope or input.'),
+      403: errorResponse('Insufficient authority.'),
+      404: errorResponse('Project or selected evidence not found.'),
+      409: errorResponse('Selection, intent or execution identity changed.'),
+    },
+  },
+  {
+    method: 'get', path: '/api/v1/projects/{name}/seo/profiles',
+    summary: 'List SEO profiles', tags: ['seo'],
+    description: "Stored evidence only; never calls a provider. Preserves the selected profile, target, locale and measurement scope.",
+    parameters: [nameParameter],
+    responses: {
+      200: jsonResponse('SEO response.', 'SeoProfileList'),
+      400: errorResponse('Invalid scope or input.'),
+      403: errorResponse('Insufficient authority.'),
+      404: errorResponse('Project or selected evidence not found.'),
+      409: errorResponse('Selection, intent or execution identity changed.'),
+    },
+  },
+  {
+    method: 'get', path: '/api/v1/projects/{name}/seo/profiles/{id}',
+    summary: 'Read an SEO profile', tags: ['seo'],
+    description: "Stored evidence only; never calls a provider. Preserves the selected profile, target, locale and measurement scope.",
+    parameters: [nameParameter, { name: 'id', in: 'path', required: true, description: 'Exact project-scoped identifier.', schema: stringSchema }],
+    responses: {
+      200: jsonResponse('SEO response.', 'SeoProfile'),
+      400: errorResponse('Invalid scope or input.'),
+      403: errorResponse('Insufficient authority.'),
+      404: errorResponse('Project or selected evidence not found.'),
+      409: errorResponse('Selection, intent or execution identity changed.'),
+    },
+  },
+  {
+    method: 'get', path: '/api/v1/projects/{name}/seo/runs',
+    summary: 'List stored SEO refreshes', tags: ['seo'],
+    description: "Stored evidence only; never calls a provider. Preserves the selected profile, target, locale and measurement scope.",
+    parameters: [nameParameter, { name: 'profileId', in: 'query', description: 'Restrict history to this profile.', schema: stringSchema }],
+    responses: {
+      200: jsonResponse('SEO response.', 'SeoRunList'),
+      400: errorResponse('Invalid scope or input.'),
+      403: errorResponse('Insufficient authority.'),
+      404: errorResponse('Project or selected evidence not found.'),
+      409: errorResponse('Selection, intent or execution identity changed.'),
+    },
+  },
+  {
+    method: 'get', path: '/api/v1/projects/{name}/seo/runs/{id}',
+    summary: 'Read stored SEO run details', tags: ['seo'],
+    description: "Stored evidence only; never calls a provider. Preserves the selected profile, target, locale and measurement scope.",
+    parameters: [nameParameter, { name: 'id', in: 'path', required: true, description: 'Exact project-scoped identifier.', schema: stringSchema }],
+    responses: {
+      200: jsonResponse('SEO response.', 'SeoRunDetail'),
+      400: errorResponse('Invalid scope or input.'),
+      403: errorResponse('Insufficient authority.'),
+      404: errorResponse('Project or selected evidence not found.'),
+      409: errorResponse('Selection, intent or execution identity changed.'),
+    },
+  },
+  {
+    method: 'get', path: '/api/v1/projects/{name}/seo/overview',
+    summary: 'Read the saved SEO overview', tags: ['seo'],
+    description: "Stored evidence only; never calls a provider. Preserves the selected profile, target, locale and measurement scope.",
+    parameters: [nameParameter, ...seoEvidenceParameters],
+    responses: {
+      200: jsonResponse('SEO response.', 'SeoOverview'),
+      400: errorResponse('Invalid scope or input.'),
+      403: errorResponse('Insufficient authority.'),
+      404: errorResponse('Project or selected evidence not found.'),
+      409: errorResponse('Selection, intent or execution identity changed.'),
+    },
+  },
+  {
+    method: 'get', path: '/api/v1/projects/{name}/seo/keyword-metrics',
+    summary: 'Read stored keyword metrics', tags: ['seo'],
+    description: "Stored evidence only; never calls a provider. Preserves the selected profile, target, locale and measurement scope.",
+    parameters: [nameParameter, ...seoEvidenceParameters],
+    responses: {
+      200: jsonResponse('SEO response.', 'SeoKeywordMetricsList'),
+      400: errorResponse('Invalid scope or input.'),
+      403: errorResponse('Insufficient authority.'),
+      404: errorResponse('Project or selected evidence not found.'),
+      409: errorResponse('Selection, intent or execution identity changed.'),
+    },
+  },
+  {
+    method: 'get', path: '/api/v1/projects/{name}/seo/domain-intelligence',
+    summary: 'Read stored domain intelligence', tags: ['seo'],
+    description: "Stored evidence only; never calls a provider. Preserves the selected profile, target, locale and measurement scope.",
+    parameters: [nameParameter, ...seoEvidenceParameters],
+    responses: {
+      200: jsonResponse('SEO response.', 'SeoDomainIntelligenceList'),
+      400: errorResponse('Invalid scope or input.'),
+      403: errorResponse('Insufficient authority.'),
+      404: errorResponse('Project or selected evidence not found.'),
+      409: errorResponse('Selection, intent or execution identity changed.'),
+    },
+  },
+  {
+    method: 'get', path: '/api/v1/projects/{name}/seo/ranked-keywords',
+    summary: 'Read stored ranked keywords', tags: ['seo'],
+    description: "Stored evidence only; never calls a provider. Preserves the selected profile, target, locale and measurement scope.",
+    parameters: [nameParameter, ...seoEvidenceParameters],
+    responses: {
+      200: jsonResponse('SEO response.', 'SeoRankedKeywordList'),
+      400: errorResponse('Invalid scope or input.'),
+      403: errorResponse('Insufficient authority.'),
+      404: errorResponse('Project or selected evidence not found.'),
+      409: errorResponse('Selection, intent or execution identity changed.'),
+    },
+  },
+  {
+    method: 'put', path: '/api/v1/projects/{name}/seo/profiles/{id}',
+    summary: 'Save an SEO profile', tags: ['seo'],
+    description: "Requires seo.write and an administrator session. Saving never starts provider work. Scope, locale, targets, capabilities, keywords and row limit are identity parameters.",
+    parameters: [nameParameter, { name: 'id', in: 'path', required: true, description: 'Exact project-scoped identifier.', schema: stringSchema }],
+    requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/SeoProfileInput' } } } },
+    responses: {
+      200: jsonResponse('SEO response.', 'SeoProfile'),
+      400: errorResponse('Invalid scope or input.'),
+      403: errorResponse('Insufficient authority.'),
+      404: errorResponse('Project or selected evidence not found.'),
+      409: errorResponse('Selection, intent or execution identity changed.'),
+    },
+  },
+  {
+    method: 'post', path: '/api/v1/projects/{name}/seo/refresh-intents',
+    summary: 'Prepare an SEO refresh intent', tags: ['seo'],
+    description: "Pure local preview. Does not reserve funds or call a provider. The opaque expiring intent binds the profile revision, scope, adapter catalog and private policy without exposing financial data.",
+    parameters: [nameParameter],
+    requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/SeoRefreshIntentInput' } } } },
+    responses: {
+      200: jsonResponse('SEO response.', 'SeoQuote'),
+      400: errorResponse('Invalid scope or input.'),
+      403: errorResponse('Insufficient authority.'),
+      404: errorResponse('Project or selected evidence not found.'),
+      409: errorResponse('Selection, intent or execution identity changed.'),
+    },
+  },
+  {
+    method: 'post', path: '/api/v1/projects/{name}/seo/sync',
+    summary: 'Start an explicit SEO refresh', tags: ['seo'],
+    description: "Requires seo.run and an administrator session. The intent token is the complete execution identity. The caller idempotencyKey must be reused for a retry; reusing it for another identity conflicts. All tasks reserve private host policy before dispatch. No implicit refresh occurs on reads.",
+    parameters: [nameParameter],
+    requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/SeoSyncInput' } } } },
+    responses: {
+      200: jsonResponse('SEO response.', 'SeoRun'),
+      202: jsonResponse('SEO refresh accepted.', 'SeoRun'),
+      400: errorResponse('Invalid scope or input.'),
+      403: errorResponse('Insufficient authority.'),
+      404: errorResponse('Project or selected evidence not found.'),
+      409: errorResponse('Selection, intent or execution identity changed.'),
+    },
+  },
+  {
+    method: 'post', path: '/api/v1/projects/{name}/seo/runs/{id}/cancel',
+    summary: 'Cancel an SEO refresh', tags: ['seo'],
+    description: "Requires seo.run and an administrator session. Stops undispatched tasks; already submitted tasks retain their evidence and unresolved liabilities.",
+    parameters: [nameParameter, { name: 'id', in: 'path', required: true, description: 'Exact project-scoped identifier.', schema: stringSchema }],
+    responses: {
+      200: jsonResponse('SEO response.', 'SeoRun'),
+      400: errorResponse('Invalid scope or input.'),
+      403: errorResponse('Insufficient authority.'),
+      404: errorResponse('Project or selected evidence not found.'),
+      409: errorResponse('Selection, intent or execution identity changed.'),
+    },
+  },
   {
     method: 'get',
     path: '/api/v1/openapi.json',
@@ -1219,6 +1440,22 @@ const routeCatalog: OpenApiOperation[] = [
     summary: 'Assign each query to the one Target it names',
     description: 'Takes explicit (targetKey, queryId) pairs, so N pairs create at most N assignments. Use it when each question names its own Property; `apply-assignments` is a cross product and would multiply the two lists together.',
     request: 'MeasurementDraftApplyPairedAssignmentsRequest',
+  }),
+  measurementDraftAction({
+    action: 'preview-route-markets',
+    summary: 'Preview exact market engine routing',
+    description: 'Previews provider and model changes for exact edges in the selected markets. Frozen locations and unrelated or shared market edges are preserved.',
+    request: 'MeasurementDraftRouteMarketsRequest',
+    response: 'MeasurementDraftPreviewMarketRoutingResponse',
+    responseDescription: 'Matched market edges and execution impact returned.',
+    readOnly: true,
+    rateLimited: true,
+  }),
+  measurementDraftAction({
+    action: 'route-markets',
+    summary: 'Route selected market edges through an engine',
+    description: 'Changes provider and model identity only for exact edges in the selected markets. It preserves every frozen location and clones contexts shared with an unselected market.',
+    request: 'MeasurementDraftRouteMarketsRequest',
   }),
   measurementDraftAction({
     action: 'remove-assignment',
@@ -2134,7 +2371,7 @@ const routeCatalog: OpenApiOperation[] = [
             type: 'object',
             required: ['provider'],
             properties: {
-              provider: { type: 'string', enum: ['gemini', 'openai', 'claude', 'perplexity', 'muse', 'local'] },
+              provider: queryGenerationProviderSchema,
               count: integerSchema,
             },
           },
@@ -2243,7 +2480,7 @@ const routeCatalog: OpenApiOperation[] = [
             type: 'object',
             required: ['provider'],
             properties: {
-              provider: { type: 'string', enum: ['gemini', 'openai', 'claude', 'perplexity', 'muse', 'local'] },
+              provider: queryGenerationProviderSchema,
               count: integerSchema,
             },
           },
@@ -4473,6 +4710,11 @@ const routeCatalog: OpenApiOperation[] = [
       429: errorResponse('GBP API quota exceeded (access form may not be approved).'),
     },
   },
+  { method: 'get', path: '/api/v1/projects/{name}/gbp/local-posts', summary: 'Read one bounded page of Local Posts', tags: ['gbp'], parameters: [nameParameter, { name: 'accountName', in: 'query', required: true, description: 'Exact selected Google account resource.', schema: { type: 'string' } }, { name: 'locationName', in: 'query', required: true, description: 'Exact selected Google location resource.', schema: { type: 'string' } }, { name: 'pageToken', in: 'query', required: false, description: 'Opaque next-page token; omission starts the scan.', schema: { type: 'string' } }], responses: { 200: jsonResponse('Live Google read returned.', 'GbpLocalPostList'), 400: errorResponse('Invalid scope.'), 403: errorResponse('Live GBP read not authorized.'), 502: errorResponse('Provider result unavailable or incomplete.') } },
+  { method: 'get', path: '/api/v1/projects/{name}/gbp/local-post', summary: 'Read one exact Local Post', tags: ['gbp'], parameters: [nameParameter, { name: 'postName', in: 'query', required: true, description: 'Exact existing Google post resource.', schema: { type: 'string' } }], responses: { 200: jsonResponse('Live Google read returned.', 'GbpLocalPost'), 400: errorResponse('Invalid scope.'), 403: errorResponse('Live GBP read not authorized.'), 502: errorResponse('Provider result unavailable or incomplete.') } },
+  { method: 'get', path: '/api/v1/projects/{name}/gbp/reviews/live', summary: 'Read a complete bounded review baseline without changing it', tags: ['gbp'], parameters: [nameParameter, { name: 'accountName', in: 'query', required: true, description: 'Exact selected Google account resource.', schema: { type: 'string' } }, { name: 'locationName', in: 'query', required: true, description: 'Exact selected Google location resource.', schema: { type: 'string' } }], responses: { 200: jsonResponse('Live Google read returned.', 'GbpLiveReviews'), 400: errorResponse('Invalid scope.'), 403: errorResponse('Live GBP read not authorized.'), 502: errorResponse('Provider result unavailable or incomplete.') } },
+  {method:'get',path:'/api/v1/projects/{name}/gbp/local-post-attempt',summary:'Read the saved attempt without another Google POST',tags:['gbp'],parameters:[nameParameter,{name:'attemptId',in:'query',required:true,description:'Exact saved UUID.',schema:{type:'string'}},{name:'packageId',in:'query',required:true,description:'Exact approved package digest.',schema:{type:'string'}}],responses:{200:jsonResponse('Saved accepted, rejected or uncertain result.','GbpLocalPostAttempt'),400:errorResponse('No matching saved attempt.'),403:errorResponse('Not authorized.')}},
+  { method: 'post', path: '/api/v1/projects/{name}/gbp/local-posts', summary: 'Create one already-approved STANDARD article post; replay never sends again', tags: ['gbp'], parameters: [nameParameter], requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/GbpLocalPostCreate' } } } }, responses: { 200: jsonResponse('Durable attempt state; accepted is not independent verification.', 'GbpLocalPostAttempt'), 400: errorResponse('Invalid or conflicting attempt.'), 403: errorResponse('GBP write not authorized or target unavailable.') } },
   {
     method: 'get',
     path: '/api/v1/projects/{name}/gbp/accounts',
@@ -6335,6 +6577,18 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
+    path: '/api/v1/projects/{name}/ga/overview',
+    summary: 'Get the GA4 overview: totals, change against the previous period, and both periods by day',
+    tags: ['ga4'],
+    parameters: [nameParameter, gaOverviewWindowParameter],
+    responses: {
+      200: jsonResponse('GA4 overview returned.', 'GaOverviewResponse'),
+      400: errorResponse('GA4 is not connected, or the window is not 7d, 30d or 90d.'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'get',
     path: '/api/v1/projects/{name}/ga/session-history',
     summary: 'Get total sessions per day for the project',
     tags: ['ga4'],
@@ -6371,7 +6625,7 @@ const routeCatalog: OpenApiOperation[] = [
       { name: 'runId', in: 'query', description: 'Filter by run ID.', schema: stringSchema },
       { name: 'type', in: 'query', description: 'Filter by insight type. Exact match, or a trailing `*` for a prefix (e.g. `gbp-*`).', schema: stringSchema },
       { name: 'severity', in: 'query', description: 'Minimum severity (low|medium|high|critical); e.g. `high` returns high + critical.', schema: stringSchema },
-      { name: 'limit', in: 'query', description: 'Cap the number of (newest-first) insights returned.', schema: stringSchema },
+      { name: 'limit', in: 'query', description: 'Keep the first N insights. Order: newest analysis first; within one analysis, insights that need action before wins, then most severe first.', schema: stringSchema },
     ],
     responses: {
       // TODO: Add `InsightDto` Zod schema in contracts.
@@ -7969,7 +8223,7 @@ export const canonryLocalRouteCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/agent/transcript',
     summary: 'Get the rolling Aero transcript for this project',
     description:
-      'Returns the full message history of the project-scoped Aero session plus the persisted model provider/id and last-updated timestamp. Empty messages array when the project has no session yet. Administrator-only: a signed-in viewer, and any API key narrower than the install (read-only, or scoped to a single project), are refused with 403. There is one Aero session per project, so this is the operator conversation rather than metadata about it.',
+      'Returns the full message history of the project-scoped Aero session plus the persisted model provider/id, `nextTurn` (the provider and model a turn that names neither would run on: the conversation\'s own model unless the `agent.provider` pin overrides it; null when no provider can run) and last-updated timestamp. Empty messages array when the project has no session yet. Administrator-only: a signed-in viewer, and any API key narrower than the install (read-only, or scoped to a single project), are refused with 403. There is one Aero session per project, so this is the operator conversation rather than metadata about it.',
     tags: ['agent'],
     parameters: [nameParameter],
     responses: {

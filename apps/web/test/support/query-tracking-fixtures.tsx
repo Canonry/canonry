@@ -237,8 +237,8 @@ export const advancedResetLine = 'New numbers next sweep'
 export const advancedResetNotice = 'After you publish, AI Visibility and location pages keep showing the last sweep, marked Tracking changed, until the next sweep. Past answers are kept. Publishing does not run a sweep.'
 /** Words of that notice, for a check that it is never visible text. Kept beside it so a reworded notice cannot leave the check matching nothing. */
 export const advancedResetNoticeWords = /keep showing the last sweep/
-export const sweepActiveLabel = 'Sweep running'
-export const sweepActiveMessage = 'A sweep is queued or running. Publish after it finishes.'
+export const sweepActiveLabel = 'Check running'
+export const sweepActiveMessage = 'A check is queued or running. Publish after it finishes.'
 
 /** A short note's button: its name is the label, then the sentence behind it. Only the label is visible text. */
 export function noteButton(label: string, detail: string, container: HTMLElement = document.body) {

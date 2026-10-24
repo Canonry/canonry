@@ -130,16 +130,16 @@ function seedInstall(db: DatabaseClient): void {
   ]).run()
   const snapshot = (provider: string, usage: SnapshotUsage | null, createdAt = at) => ({ id: id(), runId: sweep, provider, citationState: 'cited', usage, dispatchMode: 'sync' as const, createdAt })
   db.insert(querySnapshots).values([
-    snapshot('gemini', answerUsage(1_800)),
+    snapshot('openrouter:google/gemini-3.1-flash-lite', answerUsage(1_800)),
     snapshot('gemini', answerUsage(1_800)),
     // No price for this model, so the window's cost is unknown.
-    snapshot('openai', answerUsage(null)),
+    snapshot('openrouter:anthropic/claude-sonnet-4.6', answerUsage(null)),
     // A browser answer is a call with no token usage.
     snapshot('cdp:chatgpt', null),
-    snapshot('gemini', answerUsage(1_800), beforeWindow),
+    snapshot('openrouter:google/gemini-3.1-flash-lite', answerUsage(1_800), beforeWindow),
   ]).run()
   db.insert(researchRuns).values([
-    { id: id(), projectId: alpha, status: 'completed', provider: 'openai', resolvedModel: 'gpt-5', totalQueries: 5, completedQueries: 4, failedQueries: 1, createdAt: at },
+    { id: id(), projectId: alpha, status: 'completed', provider: 'openrouter:anthropic/claude-sonnet-4.6', resolvedModel: 'anthropic/claude-sonnet-4.6', totalQueries: 5, completedQueries: 4, failedQueries: 1, createdAt: at },
     { id: id(), projectId: beta, status: 'completed', provider: 'gemini', resolvedModel: 'gemini-flash', totalQueries: 3, completedQueries: 3, createdAt: beforeWindow },
   ]).run()
   db.insert(discoverySessions).values([
@@ -184,7 +184,7 @@ describe('install.state contents', () => {
     const config = {
       apiKey: 'test',
       database: ':memory:',
-      providers: { gemini: { apiKey: 'g' }, openai: { apiKey: 'o' } },
+      providers: { gemini: { apiKey: 'g' }, openai: { apiKey: 'o' }, openrouter: { apiKey: 'r' } },
       cdp: { host: '127.0.0.1' },
       agent: { provider: 'claude', model: claudeModel },
     } as unknown as CanonryConfig
@@ -195,7 +195,7 @@ describe('install.state contents', () => {
 
     const [state] = installStates()
     expect(state).toEqual({
-      providers: ['gemini', 'openai', 'cdp:chatgpt'],
+      providers: ['gemini', 'openai', 'openrouter', 'cdp:chatgpt'],
       integrations: ['gsc', 'ga4', 'bing', 'google_ads', 'openai_ads', 'traffic_cloudflare', 'traffic_cloud_run', 'wordpress', 'backlinks', 'webhook', 'agent_webhook', 'cdp'],
       counts: {
         projects: 2,
@@ -224,7 +224,7 @@ describe('install.state contents', () => {
         aeroCostMicros: 13_500,
         webhookDeliveries: 2,
       },
-      providerCalls24h: { gemini: 13, openai: 6, 'cdp:chatgpt': 1 },
+      providerCalls24h: { gemini: 12, openai: 1, openrouter: 6, 'cdp:chatgpt': 1 },
       agentProvider: 'claude',
       agentModel: claudeModel,
       uptimeBucket: '5m_to_30m',

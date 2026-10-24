@@ -63,6 +63,11 @@ describe('Jev real HTTP boundary', () => {
     expect(calls).toBe(0)
     expect(result).toMatchObject({ ok: false, error: { code: 'canceled', retryable: false } })
   })
+  it('rejects a routed evaluator model before sending direct TypeSafe credentials', async () => {
+    const server = await stub([{ status: 200, body: complete }])
+    expect(await requestJev({ ...input, model: 'typesafe/jev-1.13' }, { apiKey: 'direct-key', fetch: server.transport })).toMatchObject({ ok: false, error: { code: 'model-mismatch', retryable: false } })
+    expect(server.requests).toHaveLength(0)
+  })
   it('cancels a request on timeout without leaking transport details', async () => {
     const transport: typeof fetch = async (_target, init) => new Promise((_resolve, reject) => {
       init?.signal?.addEventListener('abort', () => reject(new Error('synthetic-secret')), { once: true })

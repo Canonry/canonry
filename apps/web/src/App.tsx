@@ -17,6 +17,7 @@ import {
   Radar,
   Rocket,
   Settings,
+  Terminal,
   X,
   type LucideIcon,
 } from 'lucide-react'
@@ -505,6 +506,7 @@ export function RootLayout() {
     if (path === '/history') return 'History'
     if (path === '/settings') return 'Settings'
     if (path === '/setup') return 'Setup'
+    if (path === '/agent-setup') return 'Agent setup'
     if (path === '/backlinks') return 'Backlink data'
     if (path === '/traffic') return 'Traffic sources'
     if (path.startsWith('/traffic/')) return 'Traffic sources'
@@ -626,6 +628,15 @@ export function RootLayout() {
             <Link2 className="sidebar-icon" />
             <span>Backlink data</span>
           </Link>}
+          {!isPublicDemo() && <Link
+            to="/agent-setup"
+            className="sidebar-link"
+            activeProps={{ className: 'sidebar-link sidebar-link-active' }}
+            activeOptions={{ exact: true }}
+          >
+            <Terminal className="sidebar-icon" />
+            <span>Agent setup</span>
+          </Link>}
           {isAdmin && (
             <Link
               to="/settings"
@@ -728,7 +739,7 @@ export function RootLayout() {
       )}
 
       {/* ── Main area ── */}
-      <div className="main-area">
+      <div className={`main-area ${agentBarVisible && currentProjectName ? 'main-area-agent-bar' : ''}`.trim()}>
         {/* Topbar */}
         <header className="topbar">
           <div className="topbar-left">
@@ -827,6 +838,9 @@ export function RootLayout() {
           {!isPublicDemo() && <Link to="/backlinks" className="mobile-nav-link" activeProps={{ className: 'mobile-nav-link mobile-nav-link-active' }} activeOptions={{ exact: true }}>
             Backlink data
           </Link>}
+          {!isPublicDemo() && <Link to="/agent-setup" className="mobile-nav-link" activeProps={{ className: 'mobile-nav-link mobile-nav-link-active' }} activeOptions={{ exact: true }}>
+            Agent setup
+          </Link>}
           {isAdmin && (
             <Link to="/settings" className="mobile-nav-link" activeProps={{ className: 'mobile-nav-link mobile-nav-link-active' }} activeOptions={{ exact: true }}>
               Settings
@@ -883,7 +897,7 @@ export function RootLayout() {
         {/* Page content */}
         <main
           id="content"
-          className={`page-shell ${agentBarVisible && currentProjectName ? 'pb-20' : ''}`.trim()}
+          className="page-shell"
         >
           {isLoading && !contextDashboard ? (
             <div className="page-skeleton">

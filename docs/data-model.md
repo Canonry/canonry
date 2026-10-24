@@ -29,6 +29,7 @@ erDiagram
   measurement_plan_versions ||--o{ runs : "optionally pins"
   projects ||--o| schedules : "has (1:1)"
   projects ||--o{ notifications : has
+  notifications ||--o{ review_webhook_deliveries : delivers
   projects ||--o{ audit_log : has
   projects ||--o{ insights : has
   projects ||--o{ health_snapshots : has
@@ -66,6 +67,7 @@ erDiagram
   projects ||--o| ga_connections : "has (1:1)"
   projects ||--o{ ga_traffic_snapshots : has
   projects ||--o{ ga_daily_totals : has
+  projects ||--o{ ga_window_metrics : has
   projects ||--o{ ga_traffic_summaries : has
   projects ||--o{ ga_ai_referrals : has
   projects ||--o{ ga_social_referrals : has
@@ -127,7 +129,7 @@ erDiagram
 | **measurement_plan_versions** | Immutable canonical Target-model revisions. A revision freezes project brand identity, Targets, optional reporting groups, URL matchers, query snapshots, deduplicated execution nodes with expected snapshot counts, and baseline/Target usage edges. Groups never own queries or execution edges. | Unique: `(projectId, revision)` |
 | **measurement_segments** | Stable project-local identity for a Target or group, including its immutable `kind`. Only explicit retirement permanently prevents key reuse; omission from a revision does not. First publish a revision without the key, then run `canonry measurement-plan retire <project> <stable-key>` (or the matching API/MCP mutation). Retirement is idempotent and irreversible. Labels, memberships, aliases, and URL matchers remain versioned in canonical plan JSON. | Unique: `(projectId, stableKey)` |
 | **runs** | Existing sweep executions. A run queued for a project with an active plan pins `measurement_plan_version_id` and freezes its execution graph, provider list, and any group/target scope in `measurement_manifest`; planless runs keep both null. `provider_dispatch_modes` freezes which providers go to a batch API (null = all sync); `pending_provider_errors` holds sync-provider errors while finalization waits on a batch; `skipped_providers` (nullable JSON, migration 175) freezes the providers the run does not call because each keeps failing on its account, with the streak that decided it (null = none skipped). | FK: projectId → projects; optional composite FK `(projectId, measurementPlanVersionId)` → plan version |
-| **query_snapshots** | Per-query per-provider results. A row written by a plan-aware run also records `measurement_execution_id`, the `requested_context` it was measured under, and `supported_context` — filled only when the provider actually forwards the location, null otherwise. Historical and planless rows keep all three null. `dispatch_mode` (`sync`/`batch`), `provider_batch_id`, `stop_reason`, and `usage` (tokens, searches, estimated cost) are null on rows that predate batch dispatch. | FK: runId → runs, queryId → queries, providerBatchId → provider_batches (SET NULL, indexed) |
+| **query_snapshots** | Per-query per-provider results. A row written by a plan-aware run also records `measurement_execution_id`, the `requested_context` it was measured under, and `supported_context` — filled only when the provider actually forwards the location, null otherwise. Historical and planless rows keep all three null. `dispatch_mode` (`sync`/`batch`), `provider_batch_id`, `stop_reason`, and `usage` (tokens, searches, estimated cost) are null on rows that predate batch dispatch. `mention_identity` (`wrong-subject` or null) and `wrong_subject_target_keys` (JSON Property stable keys or null) cache sentiment's identity verdicts (migration 185): a Simple answer judged `wrong-subject` has `answer_mentioned` false, and an Advanced report drops the listed Properties' mentions of the answer (`docs/sentiment.md`). | FK: runId → runs, queryId → queries, providerBatchId → provider_batches (SET NULL, indexed) |
 | **run_fills** | One attempt to complete a partial plan run in place; its answers land in the parent run's own snapshot rows. | Composite FK `(projectId, runId)` → runs |
 | **provider_batches** | One batch submitted to a provider's asynchronous batch API for a run (see `docs/batch-mode.md`). Written as `submitting` before the submit call; carries the provider's batch id, status, counts, deadline, and the stored daily-quota reservation. | Composite FK `(projectId, runId)` → runs (CASCADE); indexes on `status`, `run_id` |
 | **provider_batch_requests** | Maps each batch line's short `custom_id` (the row id) to its slot: execution id, query, requested model and location, and the ingest `outcome`. | FK: batchId → provider_batches (CASCADE), queryId → queries (SET NULL, indexed); unique `(batchId, executionId)` |
@@ -135,6 +137,7 @@ erDiagram
 | **research_run_queries** | One persisted answer/evidence result per research batch query. | FK: researchRunId → research_runs, unique `(researchRunId, position)` |
 | **schedules** | Cron schedules (1:1 with project) | Unique: projectId |
 | **notifications** | Alert configurations per project | FK: projectId → projects |
+| **review_webhook_deliveries** | One durable delivery per negative-review event and destination (v189), empty on upgrade. `state` is `pending`, `attempting`, `sent`, `uncertain` (a chat send that got no answer, never resent), `failed` (refused, or out of retries) or `canceled`; `retry_at` is when a pending delivery is next due. An engine timer drains due rows every minute. | FK: projectId → projects, notificationId → notifications; unique (project_id, notification_id, event_id) |
 | **audit_log** | Change tracking. Authenticated actor plus nullable `credentialId` and `requestId`; client/session hints are not identity. Credential IDs remain after key deletion. | FK: projectId → projects (optional) |
 
 `research_runs` and `research_run_queries` are the durable ad-hoc research
@@ -316,11 +319,14 @@ configuration value into an observation. Treat NULL as unknown.
 
 ### Integrations — Google Analytics
 
+GA rows record no GA4 property (only `ga_search_landing_windows.property_id` does), so a project's rows always come from the one property it resolves to. `ga disconnect`, and every connection write that moves a project to another property or to none, deletes that project's rows from every table below except `ga_connections` (`packages/api-routes/src/ga-property-data.ts`). That includes `ga_measurement_sync_state`, so the next sync backfills acquisition and lead events in full, as a first sync does.
+
 | Table | Purpose |
 |-------|---------|
 | **ga_connections** | GA4 property connection (1:1 with project) |
 | **ga_traffic_snapshots** | Per-page daily traffic snapshots. Includes `sessions`, `organic_sessions`, and `direct_sessions` (nullable; populated by GA4 sync) — supports per-channel landing-page breakdowns. |
-| **ga_daily_totals** | GA4 property-level daily totals (no landing-page dimension), so `users` is deduplicated by GA and matches the GA UI. `SUM(users)` over `ga_traffic_snapshots` overcounts multi-page visitors and must not be used for a daily user count. Also holds `engagement_rate` (a real GA4 metric, requested directly) and `new_users`; returning users are DERIVED as `users - new_users` because GA4 exposes no `returningUsers` metric, and the subtraction is exact here since the date-only grain has GA deduplicate both counts inside the day. Both columns are nullable with no default — rows written before v116 have no reading, and a 0 would read as a real "nobody engaged, nobody returned" day. Unique: `(project_id, date)` |
+| **ga_daily_totals** | GA4 property-level daily totals (no landing-page dimension), so `users` is deduplicated by GA and matches the GA UI. `SUM(users)` over `ga_traffic_snapshots` overcounts multi-page visitors and must not be used for a daily user count. Also holds `engagement_rate` (a real GA4 metric, requested directly) and `new_users`; returning users are DERIVED as `users - new_users` because GA4 exposes no `returningUsers` metric, and the subtraction is exact here since the date-only grain has GA deduplicate both counts inside the day. Both columns are nullable with no default — rows written before v116 have no reading, and a 0 would read as a real "nobody engaged, nobody returned" day. v188 adds the rest of the GA4 overview's daily figures (`active_users`, `organic_sessions`, `views`, `event_count`, `key_events`, `engagement_seconds`, `bounce_rate`), nullable for the same reason; every sync rewrites the last `GA_OVERVIEW_HISTORY_DAYS` (180) days, counted in the property's reporting time zone like GA4's own dates, so each overview window has its previous period. Disconnect deletes the rows. Unique: `(project_id, date)` |
+| **ga_window_metrics** | GA4's own totals for each overview window (`7d` / `30d` / `90d` of complete days ending yesterday in the property's reporting time zone) and for the period of the same length before it: one row per `(project_id, window_key, period)` with `period` `current` or `previous`, replaced together on every sync (v188). Users are distinct over the whole period and the rates are GA4's, which no sum of daily rows reproduces. Every figure is nullable: GA4 sends no row for a period with no data. Disconnect deletes the rows, so another property never shows them. |
 | **ga_traffic_summaries** | Aggregated traffic summaries |
 | **ga_ai_referrals** | AI engine referral tracking. `traffic_class` splits `paid` AI traffic (paid/cpc/sponsored UTM values or GA4 paid channel groups, including tagged ChatGPT ads) from `organic`/non-paid AI referrals. Unique: `(projectId, date, source, medium, sourceDimension, channelGroup, landingPage)` |
 | **ga_social_referrals** | Social media referral tracking. Unique: `(projectId, date, source, medium, channelGroup)` |
@@ -467,6 +473,7 @@ Several text columns store serialized JSON. Always use `parseJsonColumn()` from 
 | `query_snapshots.citedDomains` | `string[]` |
 | `query_snapshots.groundingSources` | `GroundingSource[]` |
 | `query_snapshots.competitorOverlap` | `string[]` (legacy mixed mention/citation evidence; never a metric source by itself) |
+| `query_snapshots.wrongSubjectTargetKeys` | `string[]` or null (Advanced Properties sentiment judged `wrong-subject` for the answer) |
 | `insights.recommendation` | `{ action: string; detail?: string }` |
 | `insights.cause` | `{ category: string; detail?: string }` |
 | `health_snapshots.providerBreakdown` | `Record<string, { total: number; cited: number; rate: number }>` |

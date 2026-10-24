@@ -311,11 +311,13 @@ function renderQueries(pdf: PdfWriter, report: SnapshotReportDto) {
   for (const queryResult of report.queryResults) {
     pdf.subheading(queryResult.query, 11)
     for (const result of queryResult.providerResults) {
+      // Sources not tied to the answer: citation was not measured, never reported as missing.
+      const citation = result.citationMeasured === false ? ' (citation not measured)' : ''
       const status = result.error
         ? 'error'
         : result.mentioned
-          ? result.cited ? 'mentioned and cited' : 'mentioned'
-          : 'not mentioned'
+          ? result.cited ? 'mentioned and cited' : `mentioned${citation}`
+          : `not mentioned${citation}`
       const accuracy = result.describedAccurately === 'not-mentioned'
         ? ''
         : `; accuracy: ${result.describedAccurately}`

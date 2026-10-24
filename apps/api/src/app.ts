@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 
 import type { PlatformEnv } from '@canonry/canonry-config'
 import { resolveOperatorApiKeyIds } from '@canonry/canonry-config'
+import { OPENROUTER_MODEL_PATTERN } from '@canonry/canonry-contracts'
 import { createClient, migrate, OperationalLogStore } from '@canonry/canonry-db'
 import { apiRoutes, backfillProjectAnswerMentions, resolveTrustProxy } from '@canonry/canonry-api-routes'
 import { addLogListener, createFastifyLogger } from '@canonry/canonry-api-routes/runtime-logger'
@@ -50,7 +51,7 @@ export function buildApp(env: PlatformEnv) {
     retention: env.databaseUrl === ':memory:' ? 'process' : 'durable',
   })
 
-  const providerSummary = (['gemini', 'openai', 'claude', 'perplexity', 'muse'] as const).map(name => ({
+  const providerSummary = (['gemini', 'openai', 'claude', 'perplexity', 'muse', 'openrouter'] as const).map(name => ({
     name,
     model: env.providers[name]?.model,
     configured: !!env.providers[name],
@@ -76,6 +77,11 @@ export function buildApp(env: PlatformEnv) {
   // (deferred): move each registry into an SDK-free module shared by the adapter
   // and this list so they cannot drift.
   const providerAdapters = [
+    {
+      name: 'openrouter', displayName: 'OpenRouter', mode: 'api' as const, modelConfigurable: true,
+      defaultModel: '', knownModels: [], modelValidationPattern: OPENROUTER_MODEL_PATTERN,
+      modelValidationHint: 'a concrete model ID (publisher/model)',
+    },
     {
       name: 'gemini', displayName: 'Gemini', mode: 'api' as const, modelConfigurable: true,
       defaultModel: 'gemini-flash-latest',

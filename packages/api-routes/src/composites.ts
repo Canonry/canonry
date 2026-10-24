@@ -32,6 +32,7 @@ import {
   RunTriggers,
   type AttentionItemDto,
   type CitationState,
+  type MentionIdentity,
   type RunKind,
   type HealthSnapshotDto,
   type InsightDto,
@@ -59,6 +60,7 @@ import {
   normalizeQueryText,
   summarizeObservedQueryCounts,
   validationError,
+  type ProviderRouteFamily,
 } from '@canonry/canonry-contracts'
 import {
   buildCompetitorPressureScore,
@@ -81,6 +83,7 @@ import {
   type SuggestedQueryGscRow,
 } from '@canonry/canonry-intelligence'
 import { notProbeRun, resolveProject } from './helpers.js'
+import { compareInsightsForTriage } from './intelligence.js'
 import { runAdmissionState } from './run-queue.js'
 import {
   mergeGscQueryTotalsWithFallback, readGscQueryDailyFallbackRows, readGscQueryDailyRows,
@@ -115,6 +118,8 @@ export async function compositeRoutes(app: FastifyInstance, options: {
   sentiment?: SentimentServiceOptions
   /** Current provider registry membership, for which providers the next sweep would call. */
   getRunnableProviderNames?: () => readonly string[]
+  /** Route families of the host's adapters; routed connections never join "all configured". */
+  providerRouteFamilies?: readonly ProviderRouteFamily[]
 }) {
   const sentiment = options.sentiment ? new SentimentService(app.db, options.sentiment) : null
   // GET /projects/:name/overview — composite read for "how is project X doing?".
@@ -170,6 +175,7 @@ export async function compositeRoutes(app: FastifyInstance, options: {
       projectId: project.id,
       now: new Date().toISOString(),
       runnableProviders: options.getRunnableProviderNames?.(),
+      routeFamilies: options.providerRouteFamilies,
     }
     const admission = runAdmissionState(app.db, admissionParams)
     const manualAdmission = runAdmissionState(app.db, { ...admissionParams, selection: RunTriggers.manual })
@@ -194,8 +200,9 @@ export async function compositeRoutes(app: FastifyInstance, options: {
       .all()
     const topInsights: InsightDto[] = insightRows
       .filter(row => !row.dismissed)
-      .slice(0, TOP_INSIGHT_LIMIT)
       .map(mapInsightRow)
+      .sort(compareInsightsForTriage)
+      .slice(0, TOP_INSIGHT_LIMIT)
 
     // Load snapshots for the latest visibility run + previous, then a window
     // of recent visibility runs for the sparkline. One DB hit gathers them
@@ -532,6 +539,8 @@ interface OverviewSnapshot {
   model: string | null
   citationState: CitationState
   answerMentioned: boolean | null
+  /** Sentiment's stored identity verdict; `wrong-subject` keeps a name match from counting. */
+  mentionIdentity: MentionIdentity | null
   /** Raw LLM answer text — needed by Mention Share to scan for competitor
    *  brand mentions. Variable size; ~3-5KB per snapshot for an 80-snapshot
    *  run is ~400KB total — manageable to include in the overview payload. */
@@ -558,6 +567,7 @@ function loadSnapshotsByRunIds(
       model: querySnapshots.model,
       citationState: querySnapshots.citationState,
       answerMentioned: querySnapshots.answerMentioned,
+      mentionIdentity: querySnapshots.mentionIdentity,
       answerText: querySnapshots.answerText,
       rawResponse: querySnapshots.rawResponse,
       competitorOverlap: querySnapshots.competitorOverlap,
@@ -600,6 +610,7 @@ function loadSnapshotsByRunIds(
       model: row.model,
       citationState: row.citationState as CitationState,
       answerMentioned: row.answerMentioned,
+      mentionIdentity: row.mentionIdentity,
       answerText: row.answerText,
       groundingSources: parseOverviewGroundingSources(row.rawResponse),
       competitorOverlap: row.competitorOverlap,
@@ -903,7 +914,7 @@ function buildRunStatusScore(allRuns: readonly (typeof runs.$inferSelect)[]): Sc
       value: 'None',
       delta: 'No runs yet',
       tone: 'neutral',
-      description: 'Trigger a visibility sweep to start tracking.',
+      description: 'Run an AI Visibility check to start tracking.',
       tooltip,
       trend: [],
     }
@@ -981,7 +992,7 @@ function buildAttentionItems(
         id: 'stale_visibility',
         tone: 'caution',
         title: 'Stale visibility data',
-        detail: `Last visibility sweep was ${latestVisRun.createdAt}; integration syncs have run since.`,
+        detail: `Last AI Visibility check was ${latestVisRun.createdAt}; integration syncs have run since.`,
         actionLabel: 'Stale',
         href: '#runs',
       })

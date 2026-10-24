@@ -241,7 +241,7 @@ test('counts every query that misses, and names no way back where the caller has
 
 test('keeps both pauses when a sweep runs over a blocked publish', () => {
   renderReview({ preview: preview([{ row: everyLocation }]), expectedSubjects: [market(everyLocation.queryText)], sweepActive: true })
-  expect(within(actions()).getAllByRole('status').map(status => status.textContent)).toEqual(['Publish blocked', 'Sweep running'])
+  expect(within(actions()).getAllByRole('status').map(status => status.textContent)).toEqual(['Publish blocked', 'Check running'])
   blockedNote('1 query')
   expect(publish().disabled).toBe(true)
 })

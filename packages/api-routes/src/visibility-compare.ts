@@ -4,12 +4,14 @@ import {
   CitationStates,
   compileBrandAliases,
   compileQueryClassifier,
+  countsAsMention,
   hostOf,
   hostMatchesDomain,
   matcherMatchesText,
   RetrievalStatuses,
   wilsonInterval,
   type BrandAliasMatcher,
+  type MentionIdentity,
   type QueryClass,
   type RetrievalStatus,
   type VisibilityCompareDto,
@@ -35,6 +37,8 @@ export interface VisibilityCompareSnapshotInput {
   citationState: string
   answerMentioned: boolean | null
   answerText: string | null
+  /** Sentiment's stored identity verdict on a Simple answer (`countsAsMention`). */
+  mentionIdentity: MentionIdentity | null
   citedDomains: string[]
   /** Frozen Advanced scope identity; absent for the legacy simple basket. */
   cohortKey?: string
@@ -318,7 +322,7 @@ function countPeriod(
       // Share uses current identity; named-rate counts above deliberately keep
       // their historical persisted-boolean semantics.
       projectMentioned: s.answerText
-        ? matcherMatchesText(projectMatcher, answerProseForMentions(s.answerText))
+        ? countsAsMention(matcherMatchesText(projectMatcher, answerProseForMentions(s.answerText)), s.mentionIdentity)
         : s.answerMentioned === true,
       answerText: s.answerText,
       queryClass: queryClassOf(s),

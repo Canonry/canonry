@@ -291,7 +291,7 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
       <div className="section-head section-head-inline">
         <div>
           <p className="eyebrow eyebrow-soft">Automation</p>
-          <h2>Scheduled sweeps</h2>
+          <h2>Scheduled checks</h2>
         </div>
         {canManageSchedule && !scheduleLoading && !loadFailed && !editing && (
           <Button type="button" variant="outline" size="sm" onClick={startEditing}>
@@ -326,7 +326,7 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
           {managedSweeps
             ? <p className="supporting-copy">{MANAGED_SWEEPS_COPY}</p>
             // Only someone who can set a schedule is told to.
-            : <StatusNote icon={CalendarOff} label="No schedule" detail={canManageSchedule ? 'Set a schedule to run sweeps automatically.' : undefined} />}
+            : <StatusNote icon={CalendarOff} label="No schedule" detail={canManageSchedule ? 'Set a schedule to run AI Visibility checks automatically.' : undefined} />}
         </Card>
       )}
 

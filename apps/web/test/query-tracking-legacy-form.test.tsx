@@ -176,7 +176,7 @@ test('starts with the question, preserves written text, and keeps required measu
   expect(screen.getByRole('button', { name: 'Review' }).hasAttribute('disabled')).toBe(false)
   // The form shows labels only. Every sentence is behind a help button.
   const form = screen.getByRole('heading', { name: 'Add query' }).closest('.surface-card') as HTMLElement
-  noteButton('No sweep on publish', 'Publishing does not run a sweep.', form)
+  noteButton('No check on publish', 'Publishing does not run a check.', form)
   expect(form.textContent).not.toMatch(/question|propert|classif|template|assign|context/i)
   expectNoSentence(form)
 })

@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import { parse } from 'yaml'
 import {
   MeasurementEvidenceShapes,
+  MentionIdentities,
   compareText,
   formatIsoDate,
   formatPercent,
@@ -926,11 +927,18 @@ function printMeasurementPropertyEvidence(response: MeasurementPropertyEvidenceR
     // Both signals on every row: a single cell that flipped between them would
     // leave a reader unable to tell which one they are looking at.
     lines.push(`${'Engine'.padEnd(12)}${'Question'.padEnd(40)}${'Mentioned'.padEnd(15)}${'Cited'.padEnd(8)}Sources`)
+    let differentSubject = 0
     for (const item of page.items) {
+      const ruledOut = item.mentionIdentity === MentionIdentities['wrong-subject']
+      if (ruledOut) differentSubject++
       lines.push(
         `${item.provider.padEnd(12)}${item.queryText.slice(0, 39).padEnd(40)}`
-        + `${signalText(item.mentioned).padEnd(15)}${signalText(item.cited).padEnd(8)}${item.sources.length}`,
+        + `${signalText(item.mentioned).padEnd(15)}${signalText(item.cited).padEnd(8)}${item.sources.length}`
+        + (ruledOut ? '  · different subject' : ''),
       )
+    }
+    if (differentSubject > 0) {
+      lines.push('· different subject: the answer uses this Property\'s name, but sentiment found it is about something else, so it is not counted as mentioned.')
     }
   } else {
     lines.push(`${'Match'.padEnd(14)}${'Engine'.padEnd(12)}${'Question'.padEnd(40)}URL`)

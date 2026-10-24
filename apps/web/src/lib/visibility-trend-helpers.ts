@@ -1,3 +1,4 @@
+import { openRouterRouteModel } from '@canonry/canonry-contracts'
 import type {
   BasketChangeEvent,
   BrandMetricsDto,
@@ -140,8 +141,8 @@ export function formatBucketDayRange(bucket: BrandMetricsDto['buckets'][number],
 export function formatBucketDateLabel(bucket: BrandMetricsDto['buckets'][number], now: Date = new Date()): string {
   const range = readBucketObservedRange(bucket)
   const days = formatBucketDayRange(bucket, now)
-  if (!range || !days) return 'Sweep date unavailable'
-  return `${days} · ${range.sweepCount} ${range.sweepCount === 1 ? 'sweep' : 'sweeps'}`
+  if (!range || !days) return 'Check date unavailable'
+  return `${days} · ${range.sweepCount} ${range.sweepCount === 1 ? 'check' : 'checks'}`
 }
 
 /** Axis tick for a bucket ("Mar 13"): the first sweep it actually contains, in the viewer's timezone. */
@@ -183,10 +184,20 @@ const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   perplexity: 'Perplexity',
   muse: 'Muse',
   local: 'Local',
+  openrouter: 'OpenRouter',
 }
 
-/** An engine's name as people read it ("OpenAI", "Perplexity"). */
-export function providerDisplayName(name: string): string {
+/**
+ * An engine's name as people read it ("OpenAI", "Perplexity"). Pass the
+ * server's provider catalog where it is loaded: its display names come from
+ * each adapter or service descriptor ("Standard · <service>"), so a routed
+ * key of any family reads the way the server names it.
+ */
+export function providerDisplayName(name: string, catalog?: ReadonlyArray<{ name: string; displayName?: string }>): string {
+  const listed = catalog?.find(entry => entry.name === name)?.displayName?.trim()
+  if (listed) return listed
+  const routedModel = openRouterRouteModel(name)
+  if (routedModel) return `${routedModel} via OpenRouter`
   const key = normalizeProviderKey(name)
   return PROVIDER_DISPLAY_NAMES[key] ?? name.charAt(0).toUpperCase() + name.slice(1)
 }

@@ -161,6 +161,30 @@ describe('openapi contract', () => {
     expect(schemas.KeywordGenerateResponse?.required).toEqual(['keywords', 'provider'])
   })
 
+  it('documents the OpenRouter connection separately from executable model routes', () => {
+    const doc = buildOpenApiDocument()
+    type Operation = {
+      parameters?: Array<{ name: string; description?: string; schema?: { type?: string; minLength?: number; enum?: string[] } }>
+      requestBody?: { content: Record<string, { schema?: { properties?: Record<string, { type?: string; minLength?: number; enum?: string[]; description?: string }> } }> }
+    }
+    const paths = doc.paths as Record<string, Record<string, Operation>>
+    const settings = paths['/api/v1/settings/providers/{name}']?.put
+    const queries = paths['/api/v1/projects/{name}/queries/generate']?.post
+    const keywords = paths['/api/v1/projects/{name}/keywords/generate']?.post
+
+    const connection = settings?.parameters?.find(parameter => parameter.name === 'name')
+    expect(connection).toMatchObject({
+      description: expect.stringContaining('bare `openrouter`'),
+      schema: { type: 'string', minLength: 1 },
+    })
+    expect(connection?.schema?.enum).toBeUndefined()
+    for (const operation of [queries, keywords]) {
+      const provider = operation?.requestBody?.content['application/json']?.schema?.properties?.provider
+      expect(provider).toMatchObject({ type: 'string', minLength: 1, description: expect.stringContaining('openrouter:publisher/model') })
+      expect(provider?.enum).toBeUndefined()
+    }
+  })
+
   it('documents the POST /apply config document in its input form', () => {
     // Apply fills a defaulted field when the document leaves it out, so none
     // of them may be documented as required on the request body.

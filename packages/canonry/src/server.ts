@@ -8,8 +8,10 @@ import { setImmediate as yieldToEventLoop } from "node:timers/promises";
 import { and, eq, isNotNull, isNull, lte, max, ne, or, sql } from "drizzle-orm";
 import { dashboardManagedRunKindsSchema, resolveOperatorApiKeyIds, sentimentInstallReadiness } from "@canonry/canonry-config";
 import { CliError } from "./cli-error.js";
+import { SeoRuntime } from "./seo-runtime.js";
 import { isLoopbackBindHost } from "./serve-endpoint.js";
-import { createTypeSafeClassifier, buildJevSentimentRequest } from "@canonry/canonry-integration-typesafe";
+import { buildJevSentimentRequest } from "@canonry/canonry-integration-typesafe";
+import { createConfiguredSentimentClassifier } from "./sentiment-openrouter.js";
 import { SentimentWorker, createSentimentPoller } from "./sentiment-worker.js";
 import { loadSentimentInstallConfig } from "./sentiment-config.js";
 
@@ -42,6 +44,8 @@ import {
   geminiAdapter,
 } from "@canonry/canonry-provider-gemini";
 import { openaiAdapter } from "@canonry/canonry-provider-openai";
+import { openrouterAdapter } from "@canonry/canonry-provider-openrouter";
+import { answerServiceAdapters, answerServiceDescriptors } from "@canonry/canonry-provider-answer-services";
 import { claudeAdapter } from "@canonry/canonry-provider-claude";
 import { localAdapter } from "@canonry/canonry-provider-local";
 import { cdpChatgptAdapter } from "@canonry/canonry-provider-cdp";
@@ -88,6 +92,9 @@ import {
   storedOnlyRefused,
   type OutcomeTrigger,
   type RunKind,
+  canGenerateText,
+  answerServiceCatalogFields,
+  routeFamiliesOf,
 } from "@canonry/canonry-contracts";
 import type {
   CanonryConfig,
@@ -263,8 +270,10 @@ import { registeredProviderNames } from "./provider-registration.js";
 import { configuredProviderEntries, DEFAULT_CDP_QUOTA, DEFAULT_PROVIDER_QUOTA, resolveProviderQuotaPolicy } from "./provider-runtime-config.js";
 import { assertProviderReloadKeepsPendingBatches } from "./provider-reload-batch-guard.js";
 import { createProviderModelCatalog } from "./provider-model-catalog.js";
+import { openRouterModels } from "./agent/pi-models.js";
 import { Scheduler, ensureDefaultHealthSchedule } from "./scheduler.js";
 import { startSiteLivenessLoop } from "./site-liveness-loop.js";
+import { startReviewDeliveryLoop } from "./review-webhook-delivery.js";
 import { startProviderBatchPoller } from "./provider-batch-poller.js";
 import { refreshAllIntegrations } from "./data-refresh.js";
 import { Notifier } from "./notifier.js";
@@ -272,7 +281,7 @@ import { IntelligenceService } from "./intelligence-service.js";
 import { RunCoordinator } from "./run-coordinator.js";
 import { SessionRegistry } from "./agent/session-registry.js";
 import { ViewerAeroSessions } from "./agent/viewer-sessions.js";
-import { buildAgentProvidersResponse } from "./agent/providers.js";
+import { buildAgentProvidersResponse, resolveApiKeyFor } from "./agent/providers.js";
 import { describeAgentPin } from "./agent/session.js";
 import { registerMcpHttpRoutes, mcpTransportPaths, mcpHttpHealth } from "./mcp-http.js";
 import { registerOAuthRoutes, registerOAuthAdminRoutes, cookieIsSecure, createCredentialChecker, hashSessionToken, parseCookieHeader, resolveUserSession, createUserSession, serializeUserSessionCookie, USER_SESSION_COOKIE_NAME } from "@canonry/canonry-api-routes";
@@ -367,6 +376,12 @@ function resolveDashboardShowResourceLinks(env: NodeJS.ProcessEnv, config: Canon
     ?? true;
 }
 
+function resolveDashboardShowLocalAgentSetup(env: NodeJS.ProcessEnv, config: CanonryConfig): boolean {
+  return parseBooleanEnv(env.CANONRY_DASHBOARD_SHOW_LOCAL_AGENT_SETUP)
+    ?? config.dashboard?.showLocalAgentSetup
+    ?? true;
+}
+
 function resolveDashboardManagedRunKinds(env: NodeJS.ProcessEnv, config: CanonryConfig): SchedulableRunKind[] {
   const configured = dashboardManagedRunKindsSchema.safeParse(config.dashboard?.managedRunKinds);
   if (!configured.success) {
@@ -422,7 +437,11 @@ function resolveDashboardOnboardingMode(
     ?? config.dashboard?.onboardingMode;
 }
 
-/** All known API adapters — add new providers here */
+/**
+ * All known API adapters. Add new answer engines here. Hosted web-search
+ * answer services register once, in
+ * packages/provider-answer-services/src/services/index.ts.
+ */
 const API_ADAPTERS: ProviderAdapter[] = [
   geminiAdapter,
   openaiAdapter,
@@ -430,7 +449,34 @@ const API_ADAPTERS: ProviderAdapter[] = [
   localAdapter,
   perplexityAdapter,
   museAdapter,
+  openrouterAdapter,
+  ...answerServiceAdapters,
 ];
+
+/** Route families of every known adapter (OpenRouter models, answer-service profiles). */
+const PROVIDER_ROUTE_FAMILIES = routeFamiliesOf(API_ADAPTERS);
+
+/** Settings fields, profiles and key-check behaviour, read from each answer service's descriptor. */
+const ANSWER_SERVICE_CATALOG = new Map(answerServiceDescriptors.map((descriptor) => [descriptor.id, answerServiceCatalogFields(descriptor)]));
+
+/** The adapter description api-routes validates against: model registry plus kind, routes and descriptor fields. */
+function providerAdapterInfo(adapter: ProviderAdapter) {
+  return {
+    name: adapter.name,
+    displayName: adapter.displayName,
+    mode: adapter.mode,
+    // An answer service takes a key only; its routes pin their profiles.
+    modelConfigurable: adapter.mode === "api" && adapter.kind !== "answer-service",
+    defaultModel: adapter.modelRegistry.defaultModel,
+    knownModels: adapter.modelRegistry.knownModels,
+    modelValidationPattern: adapter.modelRegistry.validationPattern,
+    modelValidationHint: adapter.modelRegistry.validationHint,
+    ...(adapter.kind ? { kind: adapter.kind } : {}),
+    ...(adapter.capabilities ? { capabilities: adapter.capabilities } : {}),
+    ...(adapter.routes ? { routes: adapter.routes } : {}),
+    ...ANSWER_SERVICE_CATALOG.get(adapter.name),
+  };
+}
 
 /** All known browser (CDP) adapters */
 const BROWSER_ADAPTERS: ProviderAdapter[] = [cdpChatgptAdapter];
@@ -469,6 +515,7 @@ function providerSummaries(registry: ProviderRegistry, config: CanonryConfig, in
     configured: Boolean(registry.get(adapter.name)),
     quota: registry.get(adapter.name)?.config.quotaPolicy,
     vertexConfigured: adapter.name === ProviderNames.gemini ? Boolean(config.providers?.gemini?.vertexProject) : undefined,
+    ...(adapter.kind ? { kind: adapter.kind } : {}),
   }));
 }
 
@@ -1092,6 +1139,10 @@ export async function createServer(opts: {
     onFirstActivation: () => maybeShowActivationNotice(),
   });
   jobRunner.recoverStaleRuns();
+  const seoRuntime = new SeoRuntime(opts.db, () => loadConfig(runtimeConfigPath).seo, () => {
+    const stat = fs.statSync(runtimeConfigPath, { bigint: true });
+    return `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}`;
+  });
   // Local canonry serve runs on the operator's machine, where pointing a
   // webhook at localhost (Discord test container, Pipedream-mock dev server,
   // etc.) is a legitimate workflow. Default to allowing it for the local
@@ -1860,6 +1911,7 @@ export async function createServer(opts: {
   };
 
   let stopSiteLiveness: (() => void) | null = null;
+  let stopReviewDeliveries: (() => void) | null = null;
   let stopProviderBatchPoller: (() => void) | null = null;
   let stopInstallState: (() => void) | null = null;
 
@@ -1875,6 +1927,7 @@ export async function createServer(opts: {
     // "all configured providers" exactly as a hand-triggered one does.
     getRunnableProviderNames: () =>
       registry.getAll().map((provider) => provider.adapter.name),
+    getProviderRouteFamilies: () => PROVIDER_ROUTE_FAMILIES,
     getEffectiveProviderModels: () => effectiveProviderModels(registry),
     getBatchEligibleProviderNames: () => batchEligibleProviderNames(registry),
     onTrafficSyncRequested: (projectName, sourceId) => {
@@ -2279,7 +2332,7 @@ export async function createServer(opts: {
   // A value that normalises to bare '/' is treated as no base path to avoid
   // a duplicate-route error with fastify-static (which also registers '/').
   const rawBasePath = process.env.CANONRY_BASE_PATH ?? opts.config.basePath;
-  const normalizedBasePath = rawBasePath
+  const normalizedBasePath = rawBasePath && rawBasePath !== "/"
     ? "/" + rawBasePath.replace(/^\//, "").replace(/\/?$/, "/")
     : undefined;
   const basePath: string | undefined =
@@ -2304,6 +2357,7 @@ export async function createServer(opts: {
   }
   const dashboardRequirePassword = resolveDashboardRequirePassword(process.env, opts.config);
   const dashboardShowResourceLinks = resolveDashboardShowResourceLinks(process.env, opts.config);
+  const dashboardShowLocalAgentSetup = resolveDashboardShowLocalAgentSetup(process.env, opts.config);
   const dashboardShowUpdateNotification = resolveDashboardShowUpdateNotification(process.env, opts.config);
   const dashboardOnboardingMode = resolveDashboardOnboardingMode(process.env, opts.config);
   const researchAllowViewers = resolveResearchAllowViewers(process.env, opts.config);
@@ -2320,6 +2374,12 @@ export async function createServer(opts: {
   // If the proxy does strip the prefix, set CANONRY_BASE_PATH to empty/unset and
   // let the proxy handle path rewriting instead.
   const apiPrefix = basePath ? `${basePath}api/v1` : "/api/v1";
+  const authorizationPath = `${basePath ?? "/"}oauth/authorize`;
+  const getMcpHealth = () => mcpHttpHealth(app, apiPrefix, {
+    publicUrl: opts.config.publicUrl,
+    hasAccounts: anyUsersExist(opts.db),
+    authorizationPath,
+  });
   // One checker, shared by /auth/login and the OAuth consent page, so the two
   // sign-in doors carry the same brute-force and threadpool budgets.
   const credentialChecker = createCredentialChecker({
@@ -2790,7 +2850,7 @@ export async function createServer(opts: {
 
   const sentimentWorker = new SentimentWorker(opts.db, {
     configuration: loadSentimentInstallConfig,
-    classifier: configuration => createTypeSafeClassifier({ apiKey: configuration.apiKey! }),
+    classifier: configuration => createConfiguredSentimentClassifier(configuration, registry, loadSentimentInstallConfig),
     prepare: input => {
       const built = buildJevSentimentRequest(input);
       return built.ok ? { ok: true, estimatedInputTokens: built.estimate.inputTokens } : built;
@@ -2950,9 +3010,25 @@ export async function createServer(opts: {
   });
   app.addHook("onReady", async () => { resumeAnswerFieldRecomputes(); });
   app.addHook("onReady", async () => { sentimentTimer = setInterval(pollSentiment, 5_000); sentimentTimer.unref(); pollSentiment(); });
+  app.addHook("onClose", async () => { await seoRuntime.stop(); });
   app.addHook("onClose", async () => { clearInterval(sentimentTimer); sentimentPoller.stop(); await sentimentPoller.settled(); });
 
   const providerModelCatalog = createProviderModelCatalog(registry);
+  // Aero, analysis and classification on OpenRouter take their models from
+  // this same catalog (one fetch, one cache lifetime) instead of pi-ai's fixed list.
+  // Their key may come from OPENROUTER_API_KEY alone, which registers no sweep
+  // provider; the catalog is then read with that key, in the same cache entry.
+  const aeroOpenRouterCatalog = providerModelCatalog.orUnregistered(() => {
+    const apiKey = resolveApiKeyFor(ProviderNames.openrouter, opts.config);
+    return apiKey
+      ? { adapter: openrouterAdapter, config: { provider: ProviderNames.openrouter, apiKey, quotaPolicy: DEFAULT_PROVIDER_QUOTA } }
+      : undefined;
+  });
+  const disconnectOpenRouterModels = openRouterModels.connect({
+    read: () => aeroOpenRouterCatalog.read(ProviderNames.openrouter),
+    cached: () => aeroOpenRouterCatalog.cached(ProviderNames.openrouter),
+  });
+  app.addHook("onClose", async () => { disconnectOpenRouterModels(); });
   const recordProviderChange = (
     name: string,
     before: RegisteredProvider | undefined,
@@ -2994,7 +3070,7 @@ export async function createServer(opts: {
     db: opts.db,
     claimScheduledSync,
     sentiment: {
-      install: () => { const configuration = loadSentimentInstallConfig(); return { ...sentimentInstallReadiness(configuration), model: configuration.model }; },
+      install: () => { const configuration = loadSentimentInstallConfig(); return { ...sentimentInstallReadiness(configuration), model: configuration.model, provider: configuration.provider }; },
       previewSecret: opts.config.apiKey,
       estimate: input => { const built = buildJevSentimentRequest(input); return built.estimate?.inputTokens ?? 0; },
     },
@@ -3064,6 +3140,7 @@ export async function createServer(opts: {
     // Local-only Aero agent routes. Registered here so they inherit api-routes'
     // auth plugin — bare `registerAgentRoutes(app, ...)` would skip auth.
     credentials: credentialChecker,
+    getMcpHealth,
     oauthResourceUrl: publicOrigin
       ? `${publicOrigin}${`${basePath ?? "/"}api/v1/mcp`.replace("//", "/")}`
       : undefined,
@@ -3307,6 +3384,7 @@ export async function createServer(opts: {
       executeDiscoveryRun({
         db: opts.db,
         registry,
+        getClassifierConfig: () => loadConfig(runtimeConfigPath),
         runId: input.runId,
         sessionId: input.sessionId,
         projectId: input.projectId,
@@ -3323,6 +3401,8 @@ export async function createServer(opts: {
           app.log.error({ runId: input.runId, err }, "Discovery run failed");
         });
     },
+    getSeoRuntime: seoRuntime.getRuntime,
+    onSeoRunRequested: () => seoRuntime.wake(),
     onResearchRunRequested: dispatchResearchRun,
     // Read issued search queries (fan-out) back out of a stored probe payload.
     // Discovery is Gemini-only today, so the Gemini extractor handles every
@@ -3394,16 +3474,7 @@ export async function createServer(opts: {
     providerSummary,
     getProviderModels: providerModelCatalog,
     getCachedProviderModels: providerModelCatalog.cached,
-    providerAdapters: [...API_ADAPTERS, ...BROWSER_ADAPTERS].map((a) => ({
-      name: a.name,
-      displayName: a.displayName,
-      mode: a.mode,
-      modelConfigurable: a.mode === "api",
-      defaultModel: a.modelRegistry.defaultModel,
-      knownModels: a.modelRegistry.knownModels,
-      modelValidationPattern: a.modelRegistry.validationPattern,
-      modelValidationHint: a.modelRegistry.validationHint,
-    })),
+    providerAdapters: [...API_ADAPTERS, ...BROWSER_ADAPTERS].map(providerAdapterInfo),
     googleSettingsSummary,
     bingSettingsSummary,
     bingConnectionStore,
@@ -3539,21 +3610,24 @@ export async function createServer(opts: {
     ) => {
       const name = providerName;
       if (!adapterMap[name]) return null;
+      const adapterDefaultQuota = adapterMap[name]!.defaultQuota ?? DEFAULT_QUOTA;
+      const answerService = adapterMap[name]!.kind === "answer-service";
 
       // Update config and persist
       if (!opts.config.providers) opts.config.providers = {};
       const existing = opts.config.providers[name];
       const previousProvider = registry.get(name) ?? (existing ? {
         adapter: adapterMap[name]!,
-        config: providerConfigFromEntry(name, existing, resolveProviderQuotaPolicy(existing.quota, DEFAULT_QUOTA)),
+        config: providerConfigFromEntry(name, existing, resolveProviderQuotaPolicy(existing.quota, adapterDefaultQuota)),
       } : undefined);
       const mergedQuota = incomingQuota
-        ? { ...(existing?.quota ?? DEFAULT_QUOTA), ...incomingQuota }
+        ? { ...(existing?.quota ?? adapterDefaultQuota), ...incomingQuota }
         : existing?.quota;
       opts.config.providers[name] = {
         apiKey: apiKey || existing?.apiKey,
-        baseUrl: baseUrl || existing?.baseUrl,
-        model: model || existing?.model,
+        // An answer service's endpoint is fixed and its routes pin profiles.
+        baseUrl: answerService ? undefined : baseUrl || existing?.baseUrl,
+        model: answerService ? undefined : model || existing?.model,
         quota: mergedQuota,
         // Preserve Vertex AI config (Gemini provider) — these are set via
         // config file or env vars, not through the dashboard update payload
@@ -3576,7 +3650,7 @@ export async function createServer(opts: {
       }
 
       // Re-register in the live registry (use preserved model if none was passed)
-      const quota = resolveProviderQuotaPolicy(opts.config.providers[name]!.quota, DEFAULT_QUOTA);
+      const quota = resolveProviderQuotaPolicy(opts.config.providers[name]!.quota, adapterDefaultQuota);
       registry.register(adapterMap[name]!, providerConfigFromEntry(name, opts.config.providers[name]!, quota));
 
       providerSummary.splice(0, providerSummary.length, ...providerSummaries(registry, opts.config));
@@ -3732,6 +3806,9 @@ export async function createServer(opts: {
       const provider = registry.get(providerName);
       if (!provider)
         throw new Error(`Provider "${providerName}" is not configured`);
+      // Query generation is plain text generation, which answer services do not offer.
+      if (!canGenerateText(provider.adapter))
+        throw validationError(`${provider.adapter.displayName} cannot generate queries. Choose a provider that generates text.`);
 
       const siteText = await fetchSiteText(project.domain);
 
@@ -3776,6 +3853,9 @@ export async function createServer(opts: {
       }
       if (!dashboardShowResourceLinks) {
         dashboardConfig.showResourceLinks = false;
+      }
+      if (!dashboardShowLocalAgentSetup) {
+        dashboardConfig.showLocalAgentSetup = false;
       }
       if (!dashboardShowUpdateNotification) {
         dashboardConfig.showUpdateNotification = false;
@@ -4012,7 +4092,7 @@ export async function createServer(opts: {
       status: "ok",
       service: "canonry",
       version: PKG_VERSION,
-      mcp: mcpHttpHealth(app, apiPrefix),
+      mcp: getMcpHealth(),
       ...(buildCommit ? { commit: buildCommit } : {}),
       ...(instance ? { instance } : {}),
       ...(basePath ? { basePath: basePath.replace(/\/$/, "") } : {}),
@@ -4027,6 +4107,7 @@ export async function createServer(opts: {
     registerOAuthRoutes(app, {
       db: opts.db,
       issuer: publicOrigin,
+      authorizationPath,
       resourcePaths: mcpTransportPaths().map((suffix) =>
         `${basePath ?? "/"}api/v1${suffix}`.replace("//", "/"),
       ),
@@ -4050,7 +4131,7 @@ export async function createServer(opts: {
         return serializeUserSessionCookie({
           value: token,
           path: basePath ?? "/",
-          secure: opts.config.publicUrl?.startsWith("https://") ?? false,
+          secure: sessionCookieSecure,
         });
       },
     });
@@ -4086,6 +4167,7 @@ export async function createServer(opts: {
   app.addHook("onListen", () => {
     if (runtimeStartupSettled) return;
     try {
+      seoRuntime.start();
       scheduler.start();
       stopSiteLiveness = startSiteLivenessLoop({
         db: opts.db,
@@ -4099,6 +4181,9 @@ export async function createServer(opts: {
         },
         notify: (projectId, result) => notifier.onSiteLivenessChecked(projectId, result),
       });
+      // Review alerts whose send failed retry on their own schedule, not only
+      // when the next GBP sync dispatches alerts.
+      stopReviewDeliveries = startReviewDeliveryLoop(() => notifier.drainDueReviewDeliveries());
       // Resumes every batch a previous process left outstanding, and finalizes
       // the runs boot recovery handed to it.
       stopProviderBatchPoller = startProviderBatchPoller({ db: opts.db, registry, runner: jobRunner });
@@ -4137,6 +4222,8 @@ export async function createServer(opts: {
     stopLogCapture();
     stopSiteLiveness?.();
     stopSiteLiveness = null;
+    stopReviewDeliveries?.();
+    stopReviewDeliveries = null;
     stopProviderBatchPoller?.();
     stopProviderBatchPoller = null;
     stopInstallState?.();

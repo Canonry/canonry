@@ -10,13 +10,13 @@ test('a project-wide paid sweep requires explicit confirmation and cancel starts
   const confirm = vi.fn()
   const close = vi.fn()
   render(<ProjectSweepConfirmation open projectLabel="Northstar Demo" onOpenChange={close} onConfirm={confirm} disabled={false} />)
-  expect(screen.getByRole('dialog').textContent).toContain('View filters do not limit the sweep.')
+  expect(screen.getByRole('dialog').textContent).toContain('View filters do not limit the check.')
   expect(screen.getByRole('dialog').textContent).toContain('Provider charges apply.')
   expect(confirm).not.toHaveBeenCalled()
   fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
   expect(close).toHaveBeenCalledWith(false)
   expect(confirm).not.toHaveBeenCalled()
-  fireEvent.click(screen.getByRole('button', { name: 'Run project-wide sweep' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Run project-wide check' }))
   expect(confirm).toHaveBeenCalledOnce()
 })
 
@@ -24,9 +24,9 @@ test('a viewer or unavailable readiness cannot confirm a sweep', () => {
   const confirm = vi.fn()
   const props = { open: true, projectLabel: 'Northstar Demo', onOpenChange: vi.fn(), onConfirm: confirm }
   const page = render(<ProjectSweepConfirmation {...props} disabled />)
-  expect((screen.getByRole('button', { name: 'Run project-wide sweep' }) as HTMLButtonElement).disabled).toBe(true)
+  expect((screen.getByRole('button', { name: 'Run project-wide check' }) as HTMLButtonElement).disabled).toBe(true)
   page.rerender(<AccountProvider account={{ name: 'Viewer', role: 'viewer' }}><ProjectSweepConfirmation {...props} disabled={false} /></AccountProvider>)
-  fireEvent.click(screen.getByRole('button', { name: 'Run project-wide sweep' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Run project-wide check' }))
   expect(confirm).not.toHaveBeenCalled()
 })
 
@@ -38,7 +38,7 @@ test('managed sweeps cannot expose an already-open confirmation dialog', () => {
     const confirm = vi.fn()
     render(<ProjectSweepConfirmation open projectLabel="Northstar Demo" onOpenChange={vi.fn()} onConfirm={confirm} disabled={false} />)
     expect(screen.queryByRole('dialog')).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Run project-wide sweep' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Run project-wide check' })).toBeNull()
     expect(confirm).not.toHaveBeenCalled()
   } finally {
     window.__CANONRY_CONFIG__ = original

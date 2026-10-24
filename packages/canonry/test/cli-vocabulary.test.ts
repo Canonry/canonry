@@ -62,6 +62,19 @@ describe('CLI canonical vocabulary', () => {
       expect(out).toContain('[cm]  gemini  q-neither')
     })
 
+    it('marks a name match sentiment judged wrong-subject and explains it once', () => {
+      const run = makeRun([
+        { query: 'q-namesake', citationState: 'not-cited', answerMentioned: false, mentionIdentity: 'wrong-subject', matchedTerms: ['Acme'] },
+        { query: 'q-other-namesake', citationState: 'cited', answerMentioned: false, mentionIdentity: 'wrong-subject', matchedTerms: ['Acme'] },
+        { query: 'q-brand', citationState: 'cited', answerMentioned: true, mentionIdentity: null },
+      ])
+      const out = captureStdout(() => printRunDetail(run))
+      expect(out).toContain('[cm]  gemini  q-namesake  · different subject')
+      expect(out).toContain('[Cm]  gemini  q-other-namesake  · different subject')
+      expect(out).toContain('[CM]  gemini  q-brand\n')
+      expect(out.match(/the answer uses your name, but sentiment found it is about something else/g)).toHaveLength(1)
+    })
+
     it('renders the dash glyph for mention when answerMentioned is undefined', () => {
       const run = makeRun([
         { query: 'q-no-mention-data', citationState: 'cited', answerMentioned: undefined },

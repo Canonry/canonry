@@ -28,6 +28,7 @@ export const PROJECT_QUERY_DOMAINS = {
   // The results read alone. The `queryTracking` prefix above also matches it.
   queryTrackingResults: 'getApiV1ProjectsByNameQueryTrackingResults',
   technicalAeo: 'getApiV1ProjectsByNameTechnicalAeo',
+  seo: 'getApiV1ProjectsByNameSeo',
   runs: 'getApiV1ProjectsByNameRuns',
   runAdmission: 'getApiV1ProjectsByNameRunAdmission',
 } as const
@@ -37,12 +38,15 @@ export type ProjectQueryDomain = keyof typeof PROJECT_QUERY_DOMAINS
 export function invalidateProjectQueryDomain(
   queryClient: Pick<QueryClient, 'invalidateQueries'>,
   domain: ProjectQueryDomain,
+  selection?: { projectName: string; profileId?: string },
 ): Promise<void> {
   const prefix = PROJECT_QUERY_DOMAINS[domain]
   return queryClient.invalidateQueries({
     predicate: (query) => {
-      const head = query.queryKey[0] as { _id?: string } | undefined
+      const head = query.queryKey[0] as SdkQueryKey | undefined
       return typeof head?._id === 'string' && head._id.startsWith(prefix)
+        && (!selection || (head.path?.name === selection.projectName
+          && (selection.profileId === undefined || head.query?.profileId === selection.profileId)))
     },
   })
 }
@@ -98,6 +102,7 @@ export function invalidateQueryTrackingPublication(
 interface SdkQueryKey {
   _id?: string
   path?: { name?: string }
+  query?: { profileId?: string }
 }
 
 const GLOBAL_PROJECT_READS = new Set([
@@ -112,6 +117,8 @@ export function refreshQueriesAfterWrite(queryClient: QueryClient, request: Requ
   if (!apiPath || /^(?:telemetry|feedback|auth|session)(?:\/|$)/.test(apiPath)) return
   const projectPath = apiPath.match(/^projects\/([^/]+)(?:\/(.*))?$/)
   const resourcePath = projectPath ? projectPath[2] ?? '' : apiPath
+  // Reviewing a bounded SEO refresh intent does not change saved evidence.
+  if (request.method === 'POST' && resourcePath === 'seo/refresh-intents') return
   // Only POST actions are previews/tests; project names and location labels are data.
   if (request.method === 'POST' && /(?:^|\/)(?:[^/]*-preview|preview(?:-[^/]+)?|test|generate)$/.test(resourcePath)) return
   const input = body && typeof body === 'object' ? body as { dryRun?: boolean; confirm?: boolean } : null
@@ -161,11 +168,12 @@ export function refreshQueriesAfterWrite(queryClient: QueryClient, request: Requ
   }
   const isGlobalRead = (query: Query): boolean => GLOBAL_PROJECT_READS.has((query.queryKey[0] as SdkQueryKey | undefined)?._id ?? '')
   // Queueing work changes run state; its results change only after completion.
-  const runTrigger = request.method === 'POST' && /^(?:runs|technical-aeo\/runs|discover\/run|backlinks\/extract|google\/gsc\/(?:sync|inspect-sitemap)|bing\/inspect-sitemap|(?:gbp|ads|google-ads|gtm)\/sync)$/.test(resourcePath)
+  const runTrigger = request.method === 'POST' && /^(?:runs|technical-aeo\/runs|discover\/run|backlinks\/extract|seo\/sync|google\/gsc\/(?:sync|inspect-sitemap)|bing\/inspect-sitemap|(?:gbp|ads|google-ads|gtm)\/sync)$/.test(resourcePath)
   const isRunStateRead = (query: Query): boolean => {
     const head = query.queryKey[0] as SdkQueryKey | undefined
     return isGlobalRead(query)
       || ['getApiV1ProjectsByName', 'getApiV1ProjectsByNameOverview', 'getApiV1ProjectsByNameRuns', 'getApiV1ProjectsByNameTechnicalAeoRuns', 'getApiV1ProjectsByNameTimeline'].includes(head?._id ?? '')
+      || ['getApiV1ProjectsByNameSeoOverview', 'getApiV1ProjectsByNameSeoRuns', 'getApiV1ProjectsByNameSeoStatus'].includes(head?._id ?? '')
       || (query.queryKey[0] === 'project-dashboard-full' && query.queryKey[3] === 'overview')
       || query.queryKey[0] === 'project-overview-slim'
   }

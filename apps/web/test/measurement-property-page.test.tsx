@@ -201,7 +201,7 @@ const AWAITING_SWEEP: { activeRevision: number; measuredRevision: number | null;
 const SWEPT_ON = formatObservedInstantMonthDay(observedInstant(SWEPT_AT))
 const CHANGED_ON = formatObservedInstantMonthDay(observedInstant(CHANGED_AT))
 /** What the header's one note says, after its label. */
-const TRACKING_CHANGED_HELP = `Showing the ${SWEPT_ON} results, from before the change. New numbers after the next sweep. Queries removed since ${SWEPT_ON} still count in the rates on this page. Queries added since do not.`
+const TRACKING_CHANGED_HELP = `Showing the ${SWEPT_ON} results, from before the change. New numbers after the next check. Queries removed since ${SWEPT_ON} still count in the rates on this page. Queries added since do not.`
 /** Why a type with queries now has no number from that sweep. */
 const NOT_IN_LAST_SWEEP = `Not in last sweep. No queries of this type were asked for this location in the ${SWEPT_ON} sweep. First numbers after the next sweep.`
 /** Why a list of what cited this location is not "None" when that sweep had no number of either type for it. */
@@ -264,6 +264,7 @@ function answerRow(overrides: {
   provider?: string
   location?: string | null
   historical?: boolean
+  mentionIdentity?: 'wrong-subject' | null
 }) {
   const sources = overrides.sources ?? []
   return {
@@ -277,6 +278,7 @@ function answerRow(overrides: {
     location: overrides.location ?? null,
     queryClass: 'non-brand' as const,
     mentioned: overrides.mentioned === undefined ? false : overrides.mentioned,
+    mentionIdentity: overrides.mentionIdentity ?? null,
     // `??` treated an explicit null as absent and fell through to a computed
     // boolean, so a test could not express "capture was incomplete" at all.
     cited: 'cited' in overrides ? overrides.cited! : sources.some(source => source.classification === 'assigned'),
@@ -1199,6 +1201,22 @@ describe('Property answer evidence', () => {
     expect(within(row).queryByText('Cited', { selector: 'div' })).toBeNull()
   })
 
+  it('renders a name match sentiment judged wrong-subject as not mentioned, with the reason beside it', async () => {
+    const evidence = await renderAnswers([
+      answerRow({ slot: 'a', queryText: 'where to stay by the water', mentioned: false, mentionIdentity: 'wrong-subject' }),
+      answerRow({ slot: 'b', queryText: 'best small hotels in the old port', mentioned: false }),
+    ])
+    const ruledOut = answerFor(evidence, 'where to stay by the water')
+    const missed = answerFor(evidence, 'best small hotels in the old port')
+
+    expect(within(ruledOut).getByText('Not mentioned')).toBeTruthy()
+    expect(within(ruledOut).getByText('Different subject')).toBeTruthy()
+    expect(within(ruledOut).getByRole('button', { name: 'The answer uses this location\u2019s name, but sentiment found it is about something else, so it does not count as a mention.' })).toBeTruthy()
+    // An ordinary miss carries no verdict and says nothing more.
+    expect(within(missed).getByText('Not mentioned')).toBeTruthy()
+    expect(within(missed).queryByText('Different subject')).toBeNull()
+  })
+
   it('renders an unread mention as Not measured with its reason and never as a zero', async () => {
     const evidence = await renderAnswers([
       answerRow({ slot: 'a', queryText: 'where to stay by the water', mentioned: null }),
@@ -1435,7 +1453,7 @@ describe('Property facts and market link', () => {
 
     // Provenance is the one fact no section states, so it survives as a line.
     expect(screen.getByText(`${MEASURED_LINE} · Non-brand only`)).toBeTruthy()
-    expect(screen.queryByText(/No completed sweep yet/)).toBeNull()
+    expect(screen.queryByText(/No completed check yet/)).toBeNull()
   })
 
   it('never claims zero engines for a class the run never measured', async () => {
@@ -1510,7 +1528,7 @@ describe('Property facts and market link', () => {
     // history nobody has read: "Never" is a measured claim.
     await screen.findByRole('region', { name: 'Coverage for this location' })
     expect(screen.queryByText(/Never/)).toBeNull()
-    expect(screen.queryByText(/No completed sweep yet/)).toBeNull()
+    expect(screen.queryByText(/No completed check yet/)).toBeNull()
 
     // And the hero says the class failed rather than spinning forever: the
     // retry is in the table below, so "Loading" is a promise nothing will keep.
@@ -1705,7 +1723,7 @@ describe('Mentioned instead of this Property', () => {
 
   it.each([
     { reason: 'no_population', why: 'No queries tracked.' },
-    { reason: 'no_completed_run', why: 'No completed sweep yet.' },
+    { reason: 'no_completed_run', why: 'No completed check yet.' },
     { reason: 'evidence_incomplete', why: 'Evidence incomplete.' },
   ])('says Not measured, never None mentioned, when no answer was read ($reason)', async ({ reason, why }) => {
     await renderPropertyPageFromApi(url => {
@@ -2596,7 +2614,7 @@ describe('Location page copy', () => {
 
     // The sweep date and the type's own reason are the same words here.
     const strip = (await screen.findByLabelText('Query type')).closest<HTMLElement>('.border-y')!
-    expect(within(strip).getByText('No completed sweep yet')).toBeTruthy()
+    expect(within(strip).getByText('No completed check yet')).toBeTruthy()
   })
 
   it('says the page could not load and reads all three again on Retry', async () => {
@@ -2899,7 +2917,7 @@ describe('What the location is tracked for', () => {
     const sweptOn = formatObservedInstantMonthDay(observedInstant(COMPLETED_AT))
     await screen.findByRole('table', { name: 'Location queries' })
     const tracked = screen.getByRole('region', { name: 'Queries about this location' })
-    const note = await within(tracked).findByRole('button', { name: `Tracking changed ${changedOn}. Showing the ${sweptOn} results, from before the change. New numbers after the next sweep.` })
+    const note = await within(tracked).findByRole('button', { name: `Tracking changed ${changedOn}. Showing the ${sweptOn} results, from before the change. New numbers after the next check.` })
     expect(note.textContent).toBe(`Tracking changed ${changedOn}`)
     expect(screen.getAllByText(/^Tracking changed/)).toHaveLength(1)
   })
@@ -2917,7 +2935,7 @@ describe('What the location is tracked for', () => {
 
     const sweptOn = formatObservedInstantMonthDay(observedInstant(COMPLETED_AT))
     await screen.findByRole('table', { name: 'Location queries' })
-    const note = await within(screen.getByRole('region', { name: 'Queries about this location' })).findByRole('button', { name: `Tracking changed. Showing the ${sweptOn} results, from before the change. New numbers after the next sweep.` })
+    const note = await within(screen.getByRole('region', { name: 'Queries about this location' })).findByRole('button', { name: `Tracking changed. Showing the ${sweptOn} results, from before the change. New numbers after the next check.` })
     expect(note.textContent).toBe('Tracking changed')
     expect(screen.getAllByText(/^Tracking changed/)).toHaveLength(1)
   })
@@ -3129,8 +3147,8 @@ describe('After a tracking change', () => {
     // The server says a sweep is awaited here too. With no measured setup there is no older sweep on screen to mark.
     expect(within(page).queryByText(/^Tracking changed/)).toBeNull()
     expect(within(page.querySelector<HTMLElement>('.page-header')!).getByText('Not measured')).toBeTruthy()
-    expect(heroRows(page)).toEqual(Array.from({ length: 4 }, () => ['Not measured', 'No completed sweep yet']))
-    for (const type of ['Non-brand', 'Branded']) expect(figures(page, TYPE_TABLE, type)).toEqual(['Not measuredNo completed sweep yet', 'Not measuredNo completed sweep yet'])
+    expect(heroRows(page)).toEqual(Array.from({ length: 4 }, () => ['Not measured', 'No completed check yet']))
+    for (const type of ['Non-brand', 'Branded']) expect(figures(page, TYPE_TABLE, type)).toEqual(['Not measuredNo completed check yet', 'Not measuredNo completed check yet'])
     for (const section of ['By engine', 'Mentioned instead', 'Answers']) expect(visibleText(within(page).getByRole('region', { name: section }))).toBe(`${section}Not measured`)
     expect(within(page).queryByText('Not in last sweep')).toBeNull()
     expect(within(within(page).getByRole('region', { name: 'Measurement next step' })).getByRole('link', { name: 'Go to AI Visibility' })).toBeTruthy()
@@ -3183,7 +3201,7 @@ describe('After a tracking change', () => {
     expect(reasons).toHaveLength(8)
     for (const reason of [...reasons, within(other).getByRole('button', { name: LOCATION_NOT_IN_LAST_SWEEP })]) expect(reason.querySelector('svg.lucide-clock')).not.toBeNull()
     expect(within(page).queryByRole('alert')).toBeNull()
-    for (const wrong of ['None mentioned', 'No answers', 'No queries tracked', 'No completed sweep yet', OTHER_QUERIES_COPY.empty, /^0 answers/]) expect(within(page).queryByText(wrong)).toBeNull()
+    for (const wrong of ['None mentioned', 'No answers', 'No queries tracked', 'No completed check yet', OTHER_QUERIES_COPY.empty, /^0 answers/]) expect(within(page).queryByText(wrong)).toBeNull()
     expectLocationCopy(page)
     expect(within(page).queryByRole('region', { name: 'Measurement next step' })).toBeNull()
   })
@@ -3328,7 +3346,7 @@ describe('After a tracking change', () => {
       overviews: { nonBrand: measured.nonBrand, branded: notAsked('branded') },
     })
 
-    expect(within(header).getByRole('button', { name: `Tracking changed ${CHANGED_ON}. Showing the last results, from before the change. New numbers after the next sweep. Queries removed since the last sweep still count in the rates on this page. Queries added since do not.` })).toBeTruthy()
+    expect(within(header).getByRole('button', { name: `Tracking changed ${CHANGED_ON}. Showing the last results, from before the change. New numbers after the next check. Queries removed since the last check still count in the rates on this page. Queries added since do not.` })).toBeTruthy()
     expect(within(page).getAllByRole('button', { name: 'Not in last sweep. No queries of this type were asked for this location in the last sweep. First numbers after the next sweep.' })).toHaveLength(2)
   })
 

@@ -19,12 +19,42 @@ export type InsightType =
   | 'gbp-metric-drop'
   | 'gbp-keyword-drop'
 
+export const insightSeveritySchema = z.enum(['critical', 'high', 'medium', 'low'])
+export type InsightSeverity = z.infer<typeof insightSeveritySchema>
+
+/** What an insight asks of the operator: write content, investigate a drop, or monitor a win. */
+export const insightActionGroupSchema = z.enum(['write', 'investigate', 'monitor'])
+export type InsightActionGroup = z.infer<typeof insightActionGroupSchema>
+export const InsightActionGroups = insightActionGroupSchema.enum
+
+/** The action each insight type calls for. Only `monitor` insights are wins; every other type needs action. */
+export const insightActionGroupByType: Record<InsightType, InsightActionGroup> = {
+  // Content-required: a missing or competitive answer needs new or updated material.
+  opportunity: InsightActionGroups.write,
+  'persistent-gap': InsightActionGroups.write,
+  'competitor-gained': InsightActionGroups.write,
+  'competitor-lost': InsightActionGroups.write,
+  // Diagnostic: something previously cited dropped, so find out why first.
+  regression: InsightActionGroups.investigate,
+  // Observational: positive movement; keep watching that it doesn't reverse.
+  gain: InsightActionGroups.monitor,
+  'first-citation': InsightActionGroups.monitor,
+  'provider-pickup': InsightActionGroups.monitor,
+  // GBP: profile gaps need content or profile work; metric and keyword drops need diagnosis.
+  'gbp-lodging-gap': InsightActionGroups.write,
+  'gbp-listing-discrepancy': InsightActionGroups.write,
+  'gbp-cta-gap': InsightActionGroups.write,
+  'gbp-description-missing': InsightActionGroups.write,
+  'gbp-metric-drop': InsightActionGroups.investigate,
+  'gbp-keyword-drop': InsightActionGroups.investigate,
+}
+
 export interface InsightDto {
   id: string
   projectId: string
   runId: string | null
   type: InsightType
-  severity: 'critical' | 'high' | 'medium' | 'low'
+  severity: InsightSeverity
   title: string
   query: string
   provider: string

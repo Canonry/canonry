@@ -74,7 +74,8 @@ export interface FrozenPlanScope {
   executionNodeKeys: Set<string>
   queryClassesByExecution: Map<string, Set<'branded' | 'non-brand'>>
   competitors: LandscapePin[]
-  mentioned: (answerText: string | null, executionId: string | null, citedUrls: readonly string[]) => boolean | null
+  /** `wrongSubjectTargetKeys` is the answer's stored sentiment verdicts (Properties judged wrong-subject). */
+  mentioned: (answerText: string | null, executionId: string | null, citedUrls: readonly string[], wrongSubjectTargetKeys: readonly string[] | null) => boolean | null
 }
 
 export interface AdvancedScope {
@@ -149,6 +150,8 @@ export function selectLandscapePopulation(
       model: querySnapshots.model,
       servedModel: querySnapshots.servedModel,
       answerMentioned: querySnapshots.answerMentioned,
+      mentionIdentity: querySnapshots.mentionIdentity,
+      wrongSubjectTargetKeys: querySnapshots.wrongSubjectTargetKeys,
       answerText: selection?.answerTextCap === undefined
         ? querySnapshots.answerText
         : sql<string | null>`null`,
@@ -484,7 +487,7 @@ export function readCompetitorLandscape(
       : undefined
     const snapshots = filters.answers !== 'not-mentioned' ? eligibleSnapshots : eligibleSnapshots.filter((snapshot, index) => {
       const mentioned = advanced
-        ? advanced.runScopes.get(snapshot.runId)?.mentioned(snapshot.answerText, snapshot.measurementExecutionId, measurementSnapshotSources(snapshot).urls) ?? null
+        ? advanced.runScopes.get(snapshot.runId)?.mentioned(snapshot.answerText, snapshot.measurementExecutionId, measurementSnapshotSources(snapshot).urls, snapshot.wrongSubjectTargetKeys) ?? null
         : snapshot.answerText === null || !simpleMentionInputs!.classified ? null : simpleMentionInputs!.snapshots[index]!.projectMentioned
       if (mentioned === null) unknownMentionAnswers++
       return mentioned === false
@@ -848,12 +851,12 @@ function scopeForFrozenPlan(
   return {
     executionNodeKeys,
     queryClassesByExecution,
-    mentioned: (answerText, executionId, citedUrls) => {
+    mentioned: (answerText, executionId, citedUrls, wrongSubjectTargetKeys) => {
       const ids = executionId === null ? [] : [...targetIdsByExecution.get(executionId) ?? []]
       const queryText = executionId === null ? undefined : queryTextByExecution.get(executionId)
       const brandedTargetIds = executionId === null ? undefined : brandedTargetIdsByExecution.get(executionId)
       const query = queryText === undefined || brandedTargetIds === undefined ? null : { text: queryText, brandedTargetIds }
-      return readMention(answerText, ids, citedUrls, query)
+      return readMention(answerText, ids, citedUrls, query, wrongSubjectTargetKeys)
     },
     competitors: mergePins(groups.flatMap(group => group.competitors.map(competitor => ({
       domain: competitor.domain,
