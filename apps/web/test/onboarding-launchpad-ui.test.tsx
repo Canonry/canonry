@@ -56,6 +56,7 @@ afterEach(() => {
   cleanup()
   resetRunTracker()
   resetToasts()
+  window.sessionStorage.clear()
   delete window.__CANONRY_CONFIG__
 })
 
@@ -284,70 +285,70 @@ test('auto resume decides once, so a refetch mid-wizard does not redirect out of
   expect(router.state.location.search).not.toMatchObject({ onboarding: 'site-health' })
 })
 
-test('the finish step leads with the agent and server-side traffic, with real links', async () => {
-  onTestFinished(mockFetch((url) => {
-    const path = pathOf(url)
-    if (path === '/api/v1/projects/example-com/technical-aeo') {
-      return jsonResponse({ project: 'example-com', hasData: true, aggregateScore: 72, pagesAudited: 56 })
-    }
+test('the finish step keeps optional features in a visible list with details closed until requested', async () => {
+  const reads: string[] = []
+  onTestFinished(mockFetch(url => {
+    reads.push(pathOf(url))
     return jsonResponse([])
   }))
 
   await renderSetup('/setup?onboarding=complete&setupProject=example-com')
 
-  expect(await screen.findByRole('heading', { level: 1, name: 'You’re set.' })).toBeTruthy()
+  expect(await screen.findByRole('heading', { level: 1, name: 'Project saved' })).toBeTruthy()
+  expect(await screen.findByText('No AI sweep yet.')).toBeTruthy()
+  expect(screen.getByRole('link', { name: 'Open project example-com' }).getAttribute('href')).toBe('/projects/example-com')
   const progress = screen.getByRole('list', { name: 'Onboarding progress' })
   expect(within(progress).getByText('Next steps').closest('[aria-current="step"]')).toBeTruthy()
 
-  const href = (name: string) => screen.getByRole('link', { name }).getAttribute('href')
-  // Server-side traffic is the differentiator, so it is the primary data action.
+  const options = screen.getByRole('heading', { name: 'Optional setup' }).closest('section')!
+  const list = within(options).getAllByRole('list')[0]!
+  expect(Array.from(list.children).filter(child => child.tagName === 'LI')).toHaveLength(4)
+  const agentSummary = within(list).getByText('Connect your agent')
+  const dataSummary = within(list).getByText('Connect data sources')
+  const agentDetails = agentSummary.closest('details') as HTMLDetailsElement
+  const dataDetails = dataSummary.closest('details') as HTMLDetailsElement
+  expect(agentDetails.open).toBe(false)
+  expect(dataDetails.open).toBe(false)
+  expect(within(list).getByRole('link', { name: 'Set a schedule' }).getAttribute('href')).toBe('/projects/example-com/settings')
+  expect(within(list).getByRole('link', { name: 'Add a notification' }).getAttribute('href')).toBe('/projects/example-com/settings')
+
+  fireEvent.click(agentSummary)
+  expect(agentDetails.open).toBe(true)
+  expect(dataDetails.open).toBe(false)
+  expect(within(agentDetails).getByText(AGENT_MCP_INSTALL_COMMAND)).toBeTruthy()
+  expect(within(agentDetails).getByRole('button', { name: 'Copy command' })).toBeTruthy()
+  fireEvent.click(dataSummary)
+  expect(dataDetails.open).toBe(true)
+  const href = (name: string) => within(dataDetails).getByRole('link', { name }).getAttribute('href')
   expect(href('Connect server-side traffic')).toBe('/traffic')
   expect(href('Connect Search Console')).toBe('/projects/example-com/search-console')
   expect(href('Connect Google Analytics')).toBe('/projects/example-com/activity')
   expect(href('Connect Business Profile')).toBe('/projects/example-com/local')
-  expect(href('Set a schedule')).toBe('/projects/example-com/settings')
-  expect(href('Add a notification')).toBe('/projects/example-com/settings')
-  expect(href('Open example-com')).toBe('/projects/example-com')
-  expect(screen.getByText(AGENT_MCP_INSTALL_COMMAND)).toBeTruthy()
-
-  // The agent window shows the agent doing work, one example at a time, and
-  // a reader can pick any of them.
-  const sessions = screen.getByRole('tablist', { name: 'Example agent sessions' })
-  expect(within(sessions).getAllByRole('tab').map(tab => tab.textContent)).toEqual(['Diagnose', 'Fix', 'Automate'])
-  expect(screen.getByText('canonry_insights_list')).toBeTruthy()
-  fireEvent.click(within(sessions).getByRole('tab', { name: 'Automate' }))
-  expect(within(sessions).getByRole('tab', { name: 'Automate' }).getAttribute('aria-selected')).toBe('true')
-  expect(screen.getByText('canonry_schedule_set')).toBeTruthy()
-  expect(screen.queryByText('canonry_insights_list')).toBeNull()
-
-  // The notification preview quotes the project's real page health.
-  expect(await screen.findByText('page health 72')).toBeTruthy()
-})
-
-test('the finish step never invents a score for an unscanned project', async () => {
-  onTestFinished(mockFetch((url) => pathOf(url) === '/api/v1/projects/example-com/technical-aeo'
-    ? jsonResponse({ project: 'example-com', hasData: false, aggregateScore: 0, pagesAudited: 0 })
-    : jsonResponse([])))
-
-  await renderSetup('/setup?onboarding=complete&setupProject=example-com')
-
-  expect(await screen.findByText('sweep finished')).toBeTruthy()
-  expect(screen.queryByText('page health 0')).toBeNull()
+  expect(screen.getByRole('link', { name: 'Review page health' }).getAttribute('href')).toBe('/projects/example-com/technical-aeo')
+  fireEvent.click(agentSummary)
+  fireEvent.click(dataSummary)
+  expect(agentDetails.open).toBe(false)
+  expect(dataDetails.open).toBe(false)
+  // Finishing setup does not need a score read or a synthetic results preview.
+  expect(reads).not.toContain('/api/v1/projects/example-com/technical-aeo')
+  expect(screen.queryByRole('tablist', { name: 'Example agent sessions' })).toBeNull()
 })
 
 test('the finish step marks skipped stages as skipped, never complete', async () => {
   // No site-audit run at all: the operator reached the finish without a scan.
-  onTestFinished(mockFetch((url) => pathOf(url) === '/api/v1/projects/example-com/technical-aeo'
-    ? jsonResponse({ project: 'example-com', hasData: false, aggregateScore: 0, pagesAudited: 0 })
-    : jsonResponse([])))
+  onTestFinished(mockFetch(() => jsonResponse([])))
 
   await renderSetup('/setup?onboarding=complete&setupProject=example-com&skipped=visibility')
 
   const progress = await screen.findByRole('list', { name: 'Onboarding progress' })
   await waitFor(() => {
-    expect(within(progress).getAllByText('Skipped')).toHaveLength(3)
+    expect(within(progress).getAllByText('Not started')).toHaveLength(2)
+    expect(within(progress).getAllByText('Skipped')).toHaveLength(1)
   })
   expect(within(progress).queryByText('Complete')).toBeNull()
+  expect(screen.queryByText(/Canonry is tracking/)).toBeNull()
+  expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Project saved')
+  expect(screen.getByText('No AI sweep yet.')).toBeTruthy()
 })
 
 test('the finish step credits a scan that ran and an AI Visibility step that was not skipped', async () => {
@@ -366,6 +367,7 @@ test('the finish step credits a scan that ran and an AI Visibility step that was
     expect(within(progress).getAllByText('Complete')).toHaveLength(3)
   })
   expect(within(progress).queryByText('Skipped')).toBeNull()
+  expect(screen.getByRole('status').textContent).toBe('Latest AI sweep complete.')
 })
 
 test('a failed copy of the agent install command says so instead of failing silently', async () => {
@@ -379,7 +381,8 @@ test('a failed copy of the agent install command says so instead of failing sile
   onTestFinished(mockFetch(() => jsonResponse([])))
 
   await renderSetup('/setup?onboarding=complete&setupProject=example-com')
-  fireEvent.click(await screen.findByRole('button', { name: 'Copy' }))
+  fireEvent.click(await screen.findByText('Connect your agent'))
+  fireEvent.click(screen.getByRole('button', { name: 'Copy command' }))
 
   expect(await screen.findByText('Could not copy the command')).toBeTruthy()
 })
@@ -389,15 +392,16 @@ test('only a finished scan counts as a completed scan step', () => {
   const ok = (data: Array<{ status: string; trigger: string }>) => ({ isSuccess: true, data })
 
   expect(runOutcome(ok([run('completed')]))).toBeUndefined()
-  expect(runOutcome(ok([run('partial')]))).toBeUndefined()
-  // A newer failure does not undo an older finished scan.
-  expect(runOutcome(ok([run('failed'), run('completed')]))).toBeUndefined()
-  expect(runOutcome(ok([run('queued')]))).toBe('pending')
-  expect(runOutcome(ok([run('running')]))).toBe('pending')
-  expect(runOutcome(ok([run('failed'), run('cancelled')]))).toBe('incomplete')
-  expect(runOutcome(ok([]))).toBe('skipped')
+  expect(runOutcome(ok([run('partial')]))).toBe('partial')
+  // Latest state stays distinct from earlier retained evidence.
+  expect(runOutcome(ok([run('completed'), run('failed')]))).toBe('failed')
+  expect(runOutcome(ok([run('queued')]))).toBe('queued')
+  expect(runOutcome(ok([run('running')]))).toBe('running')
+  expect(runOutcome(ok([run('cancelled'), run('failed')]))).toBe('failed')
+  expect(runOutcome(ok([run('cancelled')]))).toBe('cancelled')
+  expect(runOutcome(ok([]))).toBe('not-started')
   // A probe is not a scan the operator ran.
-  expect(runOutcome(ok([run('completed', 'probe')]))).toBe('skipped')
+  expect(runOutcome(ok([run('completed', 'probe')]))).toBe('not-started')
   // No answer, or a failed read, proves nothing: never a check mark.
   expect(runOutcome({ isSuccess: false })).toBe('unknown')
 })
@@ -410,7 +414,8 @@ test('AI Visibility is complete only when a sweep finished', () => {
   expect(visibilityOutcome('pending', false)).toEqual({ visibility: 'pending' })
   expect(visibilityOutcome('incomplete', false)).toEqual({ visibility: 'incomplete' })
   expect(visibilityOutcome('skipped', false)).toEqual({ visibility: 'skipped' })
-  expect(visibilityOutcome('pending', true)).toEqual({ visibility: 'skipped' })
+  expect(visibilityOutcome('pending', true)).toEqual({ visibility: 'pending' })
+  expect(visibilityOutcome('not-started', true)).toEqual({ visibility: 'skipped' })
   expect(visibilityOutcome('unknown', false)).toEqual({ visibility: 'unknown' })
 })
 
@@ -433,6 +438,7 @@ test('the finish step shows a sweep still running as in progress', async () => {
     expect(within(progress).getByText('AI Visibility').closest('li')?.textContent).toContain('In progress')
   })
   expect(within(progress).getAllByText('Complete')).toHaveLength(2)  // scan + page health
+  expect(screen.getByRole('status').textContent).toBe('AI sweep running.')
 })
 
 test('the finish step shows a running scan as in progress, not complete', async () => {
@@ -483,10 +489,12 @@ test('the finish step records its view and each next action once, inside the exi
     if (clipboard) Object.defineProperty(navigator, 'clipboard', clipboard)
     else Reflect.deleteProperty(navigator, 'clipboard')
   })
-  fireEvent.click(screen.getByRole('button', { name: 'Copy' }))
+  fireEvent.click(screen.getByText('Connect your agent'))
+  fireEvent.click(screen.getByRole('button', { name: 'Copy command' }))
   await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1))
   fireEvent.click(await screen.findByRole('button', { name: 'Copied' }))
   await waitFor(() => expect(writeText).toHaveBeenCalledTimes(2))
+  fireEvent.click(screen.getByText('Connect data sources'))
   fireEvent.click(screen.getByRole('link', { name: 'Connect server-side traffic' }))
   await waitFor(() => {
     expect(events.filter(event => event.event === 'onboarding.step_completed')).toHaveLength(2)
@@ -659,7 +667,7 @@ test('the explicit Site Health handoff can be skipped to the finish step', async
     expect(router.state.location.search).toEqual({ onboarding: 'complete', setupProject: 'example-com', skipped: 'visibility' })
   })
   // Skipping still ends on the finish step, never cold in the project.
-  expect(await screen.findByRole('heading', { name: 'You’re set.' })).toBeTruthy()
+  expect(await screen.findByRole('heading', { name: 'Project saved' })).toBeTruthy()
 })
 
 test('continues a mapped project into focused AI Visibility setup', async () => {
@@ -1444,4 +1452,62 @@ test('keeps auto mode on actionable conflict recovery after the project list bec
 
   expect(await screen.findByRole('button', { name: 'View projects' })).toBeTruthy()
   expect(screen.queryByText('Step 2 of 5')).toBeNull()
+})
+
+
+test('retains public launchpad fields across reload without retaining scan consent and resets deliberately', async () => {
+  onTestFinished(mockFetch(() => jsonResponse([])))
+  await renderSetup('/setup?experience=platform')
+  fireEvent.change(await screen.findByRole('textbox', { name: 'Website URL' }), { target: { value: 'cedar.example' } })
+  fireEvent.change(screen.getByLabelText('Country'), { target: { value: 'CA' } })
+  fireEvent.change(screen.getByLabelText('Language'), { target: { value: 'fr' } })
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Allow Canonry to scan this public site.' }))
+  cleanup()
+  await renderSetup('/setup?experience=platform')
+  expect((await screen.findByRole('textbox', { name: 'Website URL' }) as HTMLInputElement).value).toBe('cedar.example')
+  expect((screen.getByLabelText('Country') as HTMLSelectElement).value).toBe('CA')
+  expect((screen.getByLabelText('Language') as HTMLSelectElement).value).toBe('fr')
+  expect((screen.getByRole('checkbox', { name: 'Allow Canonry to scan this public site.' }) as HTMLInputElement).checked).toBe(false)
+  expect(screen.getByText(/First scan: up to 100 pages/)).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Reset draft' }))
+  cleanup()
+  await renderSetup('/setup?experience=platform')
+  expect((await screen.findByRole('textbox', { name: 'Website URL' }) as HTMLInputElement).value).toBe('')
+  expect((screen.getByLabelText('Country') as HTMLSelectElement).value).toBe('US')
+})
+
+test.each([
+  { provider: false, queries: [], action: 'Connect an engine' },
+  { provider: true, queries: [], action: 'Add queries' },
+  { provider: true, queries: [{ id: 'q', query: 'where to stay' }], action: 'Start first sweep' },
+  { provider: undefined, queries: [{ id: 'q', query: 'where to stay' }], action: 'Continue setup' },
+])('completion routes to the actual next prerequisite without starting work: $action', async ({ provider, queries, action }) => {
+  const mutations: string[] = []
+  onTestFinished(mockFetch((url, init) => {
+    const path = pathOf(url)
+    if (init?.method && init.method !== 'GET') mutations.push(path)
+    if (path.endsWith('/measurement-setup')) return jsonResponse({ answerVisibilityProviderReady: provider })
+    if (path.endsWith('/queries')) return jsonResponse(queries)
+    return jsonResponse([])
+  }))
+  const { router } = await renderSetup('/setup?onboarding=complete&setupProject=example-com&skipped=visibility')
+  fireEvent.click(await screen.findByRole('link', { name: action }))
+  await waitFor(() => expect(router.state.location.search).toMatchObject({ experience: 'legacy', onboarding: 'first-run', setupProject: 'example-com' }))
+  expect(mutations.filter(path => path !== '/api/v1/telemetry/onboarding')).toEqual([])
+})
+
+test('a queued retry and partial scan keep earlier evidence available and never imply full coverage', async () => {
+  onTestFinished(mockFetch(url => {
+    const path = pathOf(url)
+    if (path.includes('/runs?kind=site-audit')) return jsonResponse([{ status: 'partial', trigger: 'manual' }])
+    if (path.includes('/runs?kind=answer-visibility')) return jsonResponse([{ status: 'completed', trigger: 'manual' }, { status: 'queued', trigger: 'manual' }])
+    return jsonResponse([])
+  }))
+  await renderSetup('/setup?onboarding=complete&setupProject=example-com&skipped=visibility')
+  const progress = await screen.findByRole('list', { name: 'Onboarding progress' })
+  await waitFor(() => expect(within(progress).getAllByText('Partial results')).toHaveLength(2))
+  expect(within(progress).getByText('Queued')).toBeTruthy()
+  expect(screen.getByText('Earlier AI results remain available.')).toBeTruthy()
+  expect(screen.getByText('AI sweep queued.')).toBeTruthy()
+  expect(within(progress).queryByText('Skipped')).toBeNull()
 })

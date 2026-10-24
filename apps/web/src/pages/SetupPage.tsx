@@ -6,6 +6,7 @@ import { ManagedSweepStatus, MANAGED_SWEEPS_COPY } from '../components/project/M
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ONBOARDING_FLOW_VERSION,
+  RunKinds,
   bucketOnboardingCount,
   type OnboardingTelemetryEvent,
 } from '@canonry/canonry-contracts'
@@ -40,6 +41,8 @@ import { useHealth } from '../queries/use-health.js'
 import { useInitialDashboard } from '../contexts/dashboard-context.js'
 import { useAccount } from '../contexts/account-context.js'
 import { buildSetupModel, serviceStatusTooltip } from '../lib/health-helpers.js'
+import { useOnboardingRunOutcome } from './OnboardingCompletePage.js'
+import { clearOnboardingDraft, readOnboardingDraft, wasOnboardingScanSkipped, writeOnboardingDraft } from '../lib/onboarding-draft.js'
 import { asyncHandler } from '../lib/async-handler.js'
 import { summarizeRunError } from '../lib/format-helpers.js'
 import {
@@ -242,7 +245,7 @@ function SetupPageBody({ visibilityProjectName, siteHealthOnboarding, onboarding
   if (visibilityProjectName && !safeDashboard.projects.some(project => project.project.name === visibilityProjectName)) {
     return (
       <div className="page-container">
-        {siteHealthOnboarding ? <OnboardingProgress current="visibility" /> : null}
+        {siteHealthOnboarding ? <OnboardingProgress current="visibility" outcomes={{ site: 'unknown', fixes: 'unknown' }} /> : null}
         <div className="page-header">
           <div className="page-header-left">
             <h1 ref={visibilityHeadingRef} tabIndex={-1} className="page-title">Set up AI Visibility</h1>
@@ -272,6 +275,7 @@ function SetupPageBody({ visibilityProjectName, siteHealthOnboarding, onboarding
 
   return (
     <ReadySetupPage
+      key={visibilityProjectName ?? 'global'}
       dashboard={safeDashboard}
       initialHealth={contextDashboard?.health}
       enableLiveStatus={!contextDashboard}
@@ -344,6 +348,8 @@ function ReadySetupPage({
   // partial runs may contain fewer snapshots than the project's actual basket.
   const snapshotQueryCount = resumeProject?.queryCounts.total ?? 0
   const resumeProjectName = resumeProject?.project.name
+  const scan = useOnboardingRunOutcome(resumeProjectName ?? '', RunKinds['site-audit'], Boolean(siteHealthOnboarding && resumeProjectName))
+  const scanOutcome = scan.outcome === 'not-started' && resumeProjectName && wasOnboardingScanSkipped(resumeProjectName) ? 'skipped' : scan.outcome
   const resumeQueriesQuery = useQuery({
     queryKey: ['setup', 'resume-queries', resumeProjectName],
     queryFn: () => resumeProjectName ? fetchQueries(resumeProjectName) : Promise.resolve([]),
@@ -375,15 +381,17 @@ function ReadySetupPage({
     hasRunAttempt: resumeProjectRuns.length > 0 || hasExistingSuccessfulBaseline,
   })
 
+  const [draftScope] = useState(() => `wizard:${resumeProjectName ?? 'new'}`)
+  const [draft] = useState(() => readOnboardingDraft(draftScope))
   const [step, setStep] = useState<SetupStep>(initialResumeStep)
   const [resumeApplied, setResumeApplied] = useState(!resumeLoading)
   const queriesHydrating = isProjectScoped && (resumeLoading || !resumeApplied)
 
-  const [projectName, setProjectName] = useState(resumeProject?.project.name ?? '')
-  const [displayName, setDisplayName] = useState(resumeProject?.project.displayName ?? '')
-  const [domain, setDomain] = useState(resumeProject?.project.canonicalDomain ?? '')
-  const [country, setCountry] = useState(resumeProject?.project.country ?? 'US')
-  const [language, setLanguage] = useState(resumeProject?.project.language ?? 'en')
+  const [projectName, setProjectName] = useState(resumeProject?.project.name ?? draft.projectName ?? '')
+  const [displayName, setDisplayName] = useState(resumeProject?.project.displayName ?? draft.displayName ?? '')
+  const [domain, setDomain] = useState(resumeProject?.project.canonicalDomain ?? draft.domain ?? '')
+  const [country, setCountry] = useState(resumeProject?.project.country ?? draft.country ?? 'US')
+  const [language, setLanguage] = useState(resumeProject?.project.language ?? draft.language ?? 'en')
   const [autoExtractBacklinks, setAutoExtractBacklinks] = useState(resumeProject?.project.autoExtractBacklinks ?? false)
   const [createdProjectName, setCreatedProjectName] = useState<string | null>(resumeProject?.project.name ?? null)
   const [projectError, setProjectError] = useState<string | null>(null)
@@ -423,8 +431,8 @@ function ReadySetupPage({
   }
   const skipToFinish = () => finishSetup(true)
 
-  const [queriesText, setQueriesText] = useState(durableQueries.map(query => query.query).join('\n'))
-  const [queriesSaved, setQueriesSaved] = useState(durableQueryCount > 0)
+  const [queriesText, setQueriesText] = useState(draft.queriesText ?? durableQueries.map(query => query.query).join('\n'))
+  const [queriesSaved, setQueriesSaved] = useState(draft.queriesText === undefined && durableQueryCount > 0)
   const [queriesError, setQueriesError] = useState<string | null>(null)
   const [queriesSaving, setQueriesSaving] = useState(false)
   const [queriesGenerated, setQueriesGenerated] = useState(false)
@@ -518,10 +526,39 @@ function ReadySetupPage({
     }
   }
 
-  const [competitorsText, setCompetitorsText] = useState(durableCompetitors.join('\n'))
-  const [competitorsSaved, setCompetitorsSaved] = useState(durableCompetitors.length > 0)
+  const [competitorsText, setCompetitorsText] = useState(draft.competitorsText ?? durableCompetitors.join('\n'))
+  const [competitorsSaved, setCompetitorsSaved] = useState(draft.competitorsText === undefined && durableCompetitors.length > 0)
   const [competitorsError, setCompetitorsError] = useState<string | null>(null)
   const [competitorsSaving, setCompetitorsSaving] = useState(false)
+
+  useEffect(() => {
+    if (!resumeApplied) return
+    const activeScope = createdProjectName ? `wizard:${createdProjectName}` : draftScope
+    writeOnboardingDraft(activeScope, {
+      ...(!createdProjectName ? { projectName, displayName, domain, country, language } : {}),
+      ...(!queriesSaved && queriesText !== durableQueries.map(query => query.query).join('\n') ? { queriesText } : {}),
+      ...(!competitorsSaved && competitorsText !== durableCompetitors.join('\n') ? { competitorsText } : {}),
+    })
+    if (activeScope !== draftScope) clearOnboardingDraft(draftScope)
+  }, [competitorsSaved, competitorsText, country, createdProjectName, displayName, domain, draftScope, durableCompetitors, durableQueries, language, projectName, queriesSaved, queriesText, resumeApplied])
+
+  const resetDraft = () => {
+    clearOnboardingDraft(draftScope)
+    if (createdProjectName) clearOnboardingDraft(`wizard:${createdProjectName}`)
+    if (!createdProjectName) {
+      setProjectName('')
+      setDisplayName('')
+      setDomain('')
+      setCountry('US')
+      setLanguage('en')
+    }
+    setQueriesText(durableQueries.map(query => query.query).join('\n'))
+    setQueriesSaved(durableQueryCount > 0)
+    setCompetitorsText(durableCompetitors.join('\n'))
+    setCompetitorsSaved(durableCompetitors.length > 0)
+    setQueriesError(null)
+    setCompetitorsError(null)
+  }
 
   // A run THIS onboarding session launched for THIS project and never saw
   // finish. The wizard otherwise treats an already-successful project as
@@ -612,12 +649,12 @@ function ReadySetupPage({
     // Project-scoped setup always starts on queries. Do not reset a fast user
     // who advances during the render/effect boundary after those queries load.
     if (!isProjectScoped) setStep(initialResumeStep)
-    if (durableQueries.length > 0) {
+    if (durableQueries.length > 0 && draft.queriesText === undefined) {
       setQueriesText(durableQueries.map(query => query.query).join('\n'))
       setQueriesSaved(true)
     }
     setResumeApplied(true)
-  }, [durableQueries, initialResumeStep, isProjectScoped, resumeApplied, resumeLoading])
+  }, [draft.queriesText, durableQueries, initialResumeStep, isProjectScoped, resumeApplied, resumeLoading])
 
   useEffect(() => {
     if (runnableApiProviders.length === 0) {
@@ -772,7 +809,8 @@ function ReadySetupPage({
     setQueriesSaving(true)
     setQueriesError(null)
     try {
-      await setQueries(createdProjectName, queries)
+      const savedQueries = await setQueries(createdProjectName, queries)
+      queryClient.setQueryData(['setup', 'resume-queries', createdProjectName], savedQueries)
       setQueriesSaved(true)
       if (isProjectScoped) {
         await Promise.all([
@@ -1734,7 +1772,7 @@ function ReadySetupPage({
 
   return (
     <div className={isProjectScoped ? 'page-container visibility-setup' : 'page-container'}>
-      {siteHealthOnboarding ? <OnboardingProgress current="visibility" /> : null}
+      {siteHealthOnboarding ? <OnboardingProgress current="visibility" outcomes={{ site: scanOutcome, fixes: scanOutcome }} /> : null}
       <div className="page-header">
         <div className="page-header-left">
           <h1
@@ -1764,6 +1802,10 @@ function ReadySetupPage({
         labels={isProjectScoped ? PROJECT_VISIBILITY_STEPS : SETUP_STEPS}
       /> : null}
 
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2 text-[13px] text-secondary">
+        <p>Unsaved fields can be restored in this tab when browser storage is available. Credentials are never retained.</p>
+        <Button type="button" variant="ghost" size="sm" disabled={(Boolean(resumeProjectName) && !resumeQueriesQuery.isSuccess) || projectSaving || queriesSaving || competitorsSaving || runSaving} onClick={resetDraft}>Reset unsaved fields</Button>
+      </div>
       <section className="setup-wizard">
         {providerSetup}
         {stepContent}

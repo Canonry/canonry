@@ -176,6 +176,7 @@ test('checks a market add: its three locations, both checks met and Publish on',
   expect(cell(gym.queryText, 'Query').textContent).toBe(`${gym.queryText}3 locations`)
   expect(screen.queryByText('Publish blocked')).toBeNull()
   expect(within(actions()).getByText('First answers Oct 21')).toBeTruthy()
+  expect(within(actions()).getByText('No sweep on publish').closest('[hidden]')).toBeNull()
   expectNoSentence(reviewRegion())
   expectNoSentence(actions())
   // A row's location list spans all five columns.

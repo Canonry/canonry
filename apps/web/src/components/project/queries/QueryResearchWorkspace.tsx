@@ -52,6 +52,7 @@ export function QueryResearchWorkspace({
   trackedMode,
   sweepActive = false,
   nextSweepDate,
+  paused = false,
 }: {
   projectName: string
   selection: NonNullable<QueriesSectionProps['selection']>
@@ -66,6 +67,8 @@ export function QueryResearchWorkspace({
   /** A sweep is queued or running, so the review holds Publish back. */
   sweepActive?: boolean
   nextSweepDate?: string
+  /** The Tracked workspace is visible; retain drafts but stop background reads and focus changes. */
+  paused?: boolean
 }) {
   const { canWrite } = useAccount()
   const navigate = useNavigate()
@@ -84,8 +87,8 @@ export function QueryResearchWorkspace({
   useEffect(() => {
     const picked = chosen.current === start
     chosen.current = null
-    if (picked) (start === 'find' ? findPane : researchPane).current?.querySelector<HTMLElement>('[role="radio"][aria-checked="true"]')?.focus()
-  }, [start])
+    if (picked && !paused) (start === 'find' ? findPane : researchPane).current?.querySelector<HTMLElement>('[role="radio"][aria-checked="true"]')?.focus()
+  }, [start, paused])
   // Find ideas reads neither the plan nor the saved patterns. On an Advanced project it reads the tracked queries once a run lists results to tick.
   const researchWorkspaceEnabled = start !== 'find'
   const [findListsResults, setFindListsResults] = useState(false)
@@ -93,7 +96,7 @@ export function QueryResearchWorkspace({
   const [knownAdvanced, setKnownAdvanced] = useState(false)
   const workspaceQuery = useQuery({
     ...getApiV1ProjectsByNameQueryTrackingOptions({ client: heyClient, path: { name: projectName } }),
-    enabled: researchWorkspaceEnabled || (findListsResults && (trackedMode === 'advanced' || knownAdvanced)),
+    enabled: !paused && (researchWorkspaceEnabled || (findListsResults && (trackedMode === 'advanced' || knownAdvanced))),
     staleTime: 60_000,
   })
   const workspace = workspaceQuery.data
@@ -124,7 +127,7 @@ export function QueryResearchWorkspace({
   }
   const researchTemplatesQuery = useQuery({
     ...getApiV1ProjectsByNameMeasurementQueryTemplatesOptions({ client: heyClient, path: { name: projectName } }),
-    enabled: researchWorkspaceEnabled,
+    enabled: !paused && researchWorkspaceEnabled,
     staleTime: 60_000,
   })
   // The server's own list of places. One that predates it offers research with no Subject and across search locations.
@@ -160,7 +163,7 @@ export function QueryResearchWorkspace({
         <FindQueriesSection
           projectName={projectName}
           startControl={<ResearchStartControl value="find" onChange={changeStart} findIdeas />}
-          paused={start !== 'find'}
+          paused={paused || start !== 'find'}
           onReviewDiscoveryProbe={advanced ? undefined : (discoveryProbeId) => onReviewSavedSource({ source: 'discovery', discoveryProbeId })}
           tracking={researchTracking?.selection ? { subjects, failed: researchTracking.failed, onRetry: researchTracking.onRetry, workspace, onResultsListed: onFindResultsListed, sweepActive, nextSweepDate } : undefined}
         />
@@ -172,14 +175,14 @@ export function QueryResearchWorkspace({
             start={form}
             onStartChange={changeStart}
             findIdeas={canWrite}
-            paused={start === 'find'}
+            paused={paused || start === 'find'}
             viewerResearchConfig={viewerResearchConfig}
             onReviewForTracking={canWrite && !advanced ? ({ researchRunQueryId, scope }) => onReviewSavedSource({ source: 'research', researchRunQueryId }, scope ?? null) : undefined}
             onConnectEngine={() => { void navigate({ to: '/settings' }) }}
           />
         </ResearchTrackingContext.Provider>
         {/* After the page it rides over, so it comes to rest under Past research. */}
-        {workspace && researchTracking?.selection ? <TrackResearchBar id={barId} projectName={projectName} workspace={workspace} items={picks.items} sweepActive={sweepActive} nextSweepDate={nextSweepDate} onClear={picks.clear} onRemove={items => picks.pick(items, false)} returnFocus={focusResults} /> : null}
+        {!paused && start !== 'find' && workspace && researchTracking?.selection ? <TrackResearchBar id={barId} projectName={projectName} workspace={workspace} items={picks.items} sweepActive={sweepActive} nextSweepDate={nextSweepDate} onClear={picks.clear} onRemove={items => picks.pick(items, false)} returnFocus={focusResults} /> : null}
       </div>}
     </>
   )

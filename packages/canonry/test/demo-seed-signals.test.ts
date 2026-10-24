@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { eq } from 'drizzle-orm'
 import Fastify from 'fastify'
+import { RunKinds, runKindSchema } from '@canonry/canonry-contracts'
 import {
   adsCampaigns,
   adsInsightsDaily,
@@ -13,11 +14,14 @@ import {
   createClient,
   gaAiReferrals,
   gaDailyTotals,
+  gbpDailyMetrics,
   gbpLocations,
   gscDailyTotals,
+  gscQueryDailyTotals,
   insights,
   migrate,
   projects,
+  runs,
   siteCrawlFindings,
   siteCrawlGraphNodes,
   siteCrawlSnapshots,
@@ -54,6 +58,27 @@ beforeEach(() => {
 afterEach(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
 
 describe('seedDemoSignals', () => {
+  it('stores valid jobs and attributes each integration snapshot to its own refresh job', async () => {
+    await seedDemoSignals(db, context)
+    const jobs = db.select().from(runs).all()
+    for (const job of jobs) expect(() => runKindSchema.parse(job.kind), job.id).not.toThrow()
+    const jobsById = new Map(jobs.map(job => [job.id, job]))
+
+    for (const project of [context.simple, context.portfolio]) {
+      const evidence = [
+        [db.select().from(gscQueryDailyTotals).where(eq(gscQueryDailyTotals.projectId, project.id)).get()!.syncRunId, RunKinds['gsc-sync']],
+        [db.select().from(bingCoverageSnapshots).where(eq(bingCoverageSnapshots.projectId, project.id)).get()!.syncRunId, RunKinds['bing-inspect-sitemap']],
+        [db.select().from(gaDailyTotals).where(eq(gaDailyTotals.projectId, project.id)).get()!.syncRunId, RunKinds['ga-sync']],
+        [db.select().from(gaAiReferrals).where(eq(gaAiReferrals.projectId, project.id)).get()!.syncRunId, RunKinds['ga-sync']],
+        [db.select().from(gbpDailyMetrics).where(eq(gbpDailyMetrics.projectId, project.id)).get()!.syncRunId, RunKinds['gbp-sync']],
+        [db.select().from(adsInsightsDaily).where(eq(adsInsightsDaily.projectId, project.id)).get()!.syncRunId, RunKinds['ads-sync']],
+      ] as const
+      for (const [runId, kind] of evidence) {
+        expect(jobsById.get(runId!)).toMatchObject({ projectId: project.id, kind })
+      }
+    }
+  })
+
   it('stores broad synthetic signals and serves them through representative read routes', async () => {
     await seedDemoSignals(db, context)
 

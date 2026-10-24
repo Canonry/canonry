@@ -206,6 +206,12 @@ export function TrackedToolbar({
             ))}
           </div>
         )}
+        {!grouped && filters.result !== 'any' ? (
+          <p aria-live="polite" aria-atomic="true" className="basis-full text-[13px] leading-5 text-secondary">
+            Result: <span className="font-medium text-strong">{TRACKED_FILTER_OPTIONS.result.find(option => option.value === filters.result)?.label}</span>
+            {' · '}{filters.engine === 'any' ? 'Any engine' : providerDisplayName(filters.engine)}
+          </p>
+        ) : null}
         {count || legend || active > 0 ? (
           <div className="flex basis-full flex-wrap items-center justify-between gap-x-4 gap-y-1">
             {count || active > 0 ? (

@@ -119,6 +119,10 @@ export function QueriesSection({
   const showResearchWorkspace = canUseResearchWorkspace(account?.role, viewerResearchConfig)
   const requestedWorkspace = controlledWorkspace ?? uncontrolledWorkspace
   const queryWorkspace = addQueriesPage ? 'tracked' : effectiveQueryWorkspace(requestedWorkspace, showResearchWorkspace)
+  // Keep the current project's Research draft in memory across workspace switches. Its initial destination
+  // belongs to this visit: changing Place on Tracked must not replace a destination chosen in Research.
+  const [researchVisit, setResearchVisit] = useState<{ projectName: string; selection: typeof selection } | null>(null)
+  if (queryWorkspace === 'research' && researchVisit?.projectName !== projectName) setResearchVisit({ projectName, selection })
   const researchMode = controlledResearchMode ?? uncontrolledResearchMode
   const trackedFilters = controlledTrackedFilters ?? uncontrolledTrackedFilters
 
@@ -188,10 +192,13 @@ export function QueriesSection({
             trackedMode={trackedMode}
             actionsSlot={actionsSlot}
           />
-        ) : (
+        ) : null}
+        {showResearchWorkspace && researchVisit?.projectName === projectName ? <div hidden={queryWorkspace !== 'research'}>
           <QueryResearchWorkspace
+            key={projectName}
             projectName={projectName}
-            selection={selection}
+            selection={researchVisit.selection}
+            paused={queryWorkspace !== 'research'}
             mode={researchMode}
             onModeChange={selectResearchMode}
             onReviewSavedSource={reviewSavedSource}
@@ -201,7 +208,7 @@ export function QueriesSection({
             sweepActive={publishGuard?.sweepActive}
             nextSweepDate={nextSweepDate}
           />
-        )}
+        </div> : null}
       </div>
     </section>
   )
