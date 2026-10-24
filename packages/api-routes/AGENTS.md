@@ -34,7 +34,8 @@ Every API operation carries `x-canonry-access` metadata and responses expose the
 | `src/ga.ts` | Google Analytics 4 routes |
 | `src/ga-overview.ts` | Pure builder behind `/ga/overview`: GA4's stored totals for a window and the period before it, their change (`deltaPercent`, relative for rates too), and both periods by day, a day GA4 sent no row for inside a synced period read as zero counts and unknown rates |
 | `src/ga-source-mover.ts` | Pure biggest-mover calculation behind `/ga/social-referral-trend` and `/ga/attribution-trend` (see "GA4 trend movers") |
-| `src/ga-search-landing-pages.ts` | GA4's Search Console landing-page snapshot: the sync's persist / failure writers, the connect / disconnect clears, `resolveCurrentGa4PropertyId` and `GET /ga/search-landing-pages` (see "GA4 Search Console landing pages") |
+| `src/ga-property-data.ts` | The GA tables a sync fills from one GA4 property and the clears every GA4 connection write runs, plus `resolveCurrentGa4PropertyId` (see "GA4 property-bound data") |
+| `src/ga-search-landing-pages.ts` | GA4's Search Console landing-page snapshot: the sync's persist / failure writers and `GET /ga/search-landing-pages` (see "GA4 Search Console landing pages") |
 | `src/ads.ts` / `src/ads-live-delivery.ts` | OpenAI ads (ChatGPT ads) routes; pure live-vs-stored comparison engine |
 | `src/traffic.ts` / `src/ai-referral-status.ts` | Server-side traffic ingestion routes; shared `ai_referral_events_hourly` read conditions |
 | `src/traffic-samples.ts` | Stored diagnostic sample rows with project/source scope, bounded paging, and viewer/embed restrictions. |
@@ -605,6 +606,15 @@ The dimensioned search-data table is valid for RANKING and invalid for TOTALS. R
 - Any new figure added to `/ga/traffic`, and any new route whose numbers are read beside it, must use the same resolved range.
 - Row shares are computed here, never in a surface: each `aiReferrals` / `socialReferrals` row's `share` comes from `breakdownShares`, so a table adds up to 1 (AI rows over their own sum, which can sit below `aiSessionsDeduped` because that total picks the winning lens per day), and each top page's `organicShare` from `shareOf`.
 
+### GA4 property-bound data
+
+`src/ga-property-data.ts`. GA rows record no GA4 property (only the landing-page windows do), so a project's GA data must come from the one property it resolves to now (`resolveCurrentGa4PropertyId`: its service account, then its domain's OAuth `ga4` connection).
+
+- `GA_PROPERTY_TABLES` lists every table a sync fills, `ga_measurement_sync_state` included: its timestamps would turn the new property's first sync into an incremental one. Add a new GA table there; `ga-property-data.test.ts` reads every `ga_*` table from the schema and fails on one a clear leaves behind.
+- `ga disconnect` clears the project with `clearGaPropertyData`. Every other GA4 connection write reads the affected projects' properties first (`readGa4Properties`), then calls `clearGaDataOnPropertyChange` in the transaction that writes its audit entry: `ga connect` (both paths) and the Google routes for `ga4` (OAuth callback, `DELETE /google/connections/ga4`, `PUT .../ga4/property`). A new write path does the same.
+- A project is cleared when its property changed, to another or to none, or when its stored landing-page snapshot names another one. A project still on the same property (a rotated key, a repeated connect, an OAuth change its service account overrides) keeps its data.
+- The OAuth connection is keyed by the exact domain, so its writes reach every project with that canonical domain (`projectsSharingGa4Connection`), and each project that loses rows gets its own `ga4.data-cleared` audit entry. A change made outside these routes (a hand-edited `config.yaml`) clears nothing.
+
 ### GA4 Search Console landing pages
 
 `src/ga-search-landing-pages.ts`: GA4's "Google organic search traffic: Landing page + query string" report, stored by `POST /ga/sync` (or `only: 'search-landing'`) and read by `GET /ga/search-landing-pages`.
@@ -612,8 +622,8 @@ The dimensioned search-data table is valid for RANKING and invalid for TOTALS. R
 - **Window snapshots, GA4 totals only.** One stored snapshot per `7d` / `28d` / `90d` window, each ending yesterday in the property time zone, as GA4's own ranges do. `total` is the window row's GA4 TOTAL, never a sum of the page rows (users are distinct per grain; CTR and position are ratios). There is no `--start` / `--end`: a custom range could not be answered exactly.
 - **One request per window** (`fetchSearchLandingPages` in the GA4 integration). The Search Console metrics reject `date`, `sessionSource`, `sessionMedium` and `sessionDefaultChannelGroup`, so there are no daily rows and no source filter; Active users is GA4's plain `activeUsers` from the same request, which reproduced GA4's report (a google / organic filter did not).
 - **Fail-soft, keep the last good snapshot.** `ready` replaces every window and page row in one transaction. `unavailable` (GA4 refused the Search Console metrics, inferred for an unlinked property and not yet observed live) and `error` write only the `search_landing_*` state; the stored snapshot of the same property and its `syncedAt` stay, and the read returns them beside the status. The run still completes, and `syncedComponents` lists `search-landing` only when the snapshot was stored.
-- **The snapshot belongs to one property.** Window rows carry the GA4 `property_id` they were read from. A failed attempt against a different property (the project was pointed at a new one) drops the old snapshot in the same transaction, so another property's figures are never shown as the last good snapshot. `POST /ga/connect` (both paths) drops the snapshot and resets the state when the property the project resolves to changes, or the stored snapshot names another property; a reconnect to the same property keeps it.
-- **Stored data only, current property only.** The read makes no Google call, so a project that never synced reads `never-synced` with a null `total`. It resolves the project's current property from the stored connection records (`resolveCurrentGa4PropertyId`: service account, then the domain's OAuth `ga4` connection, the sync's order and the property `ga status` reports) and reads a window stored for any other property, or with no connection at all, as `never-synced` with no Total and no rows. A GET never deletes it; the next sync replaces it or drops it. Disconnect deletes the snapshot and resets the state.
+- **The snapshot belongs to one property.** Window rows carry the GA4 `property_id` they were read from. A failed attempt against a different property (the project was pointed at a new one) drops the old snapshot in the same transaction, so another property's figures are never shown as the last good snapshot. A connection write that changes the project's property drops it with the rest of the project's GA data (see "GA4 property-bound data").
+- **Stored data only, current property only.** The read makes no Google call, so a project that never synced reads `never-synced` with a null `total`. It resolves the project's current property from the stored connection records (`resolveCurrentGa4PropertyId`: service account, then the domain's OAuth `ga4` connection, the sync's order and the property `ga status` reports) and reads a window stored for any other property, or with no connection at all, as `never-synced` with no Total and no rows. A GET never deletes it; the next sync replaces it or drops it. Disconnect deletes it with the rest of the project's GA data.
 
 ### GA4 trend movers
 
@@ -879,7 +889,8 @@ retention writes, or rollup changes belong in this route.
 counting the full selection. It never requires a live GA connection. The normalized
 page keeps meaningful query parameters; only the path-prefix filter ignores them.
 `literalPathPrefixCondition` shares boundary-safe, escaped SQL matching with the
-measurement analysis reader. Project-only scope cannot identify older GA properties.
+measurement analysis reader. Rows record no GA4 property; a change of property clears
+them (see "GA4 property-bound data").
 
 ### Window parsing
 

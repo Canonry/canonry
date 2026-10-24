@@ -164,7 +164,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Canonry CLI Reference",
     description: "canonry skill reference: references/canonry-cli.md",
     entryPoint: false,
-    characters: 186446,
+    characters: 186748,
     content: [canonryReferencesCanonryCliPart0, canonryReferencesCanonryCliPart1, canonryReferencesCanonryCliPart2, canonryReferencesCanonryCliPart3].join(''),
   },
   {
