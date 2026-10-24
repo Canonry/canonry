@@ -1,5 +1,7 @@
 # canonry
 
+SEO integration uses `SeoRuntime` for durable explicit refresh dispatch. `commands/seo.ts` and `cli-commands/seo.ts` use only public ApiClient methods. Host-only credentials and financial limits come from `config.seo`; customer DTOs never expose them. See `docs/seo-data.md` for scope, receipt recovery and deployment limits.
+
 ## Purpose
 
 The publishable npm package (`@canonry/canonry`). Bundles the CLI, local Fastify server, in-process job runner, provider registry, scheduler, and pre-built SPA. This is what users install with `npm install -g @canonry/canonry`.
@@ -1059,3 +1061,13 @@ mutations stay write. `get --from doctor` remains live. Access filters apply to
 both help forms, including parent-only roots, and are rejected on normal
 execution. A registered group with no matching access remains a valid empty
 catalog, not an unknown command.
+
+## SEO dispatch
+
+`seo-runtime.ts` executes durable SEO tasks after the listener binds. It reloads
+host configuration before submission, checks current policy and reserved pricing,
+renews task leases, and never resubmits uncertain requests. `JobRunner` skips
+`seo-sync` recovery; only `SeoRepository` owns those receipts and liabilities.
+Fleet tenants run this same `canonry serve` runtime. The lightweight `apps/api`
+entry point has saved reads but reports SEO execution unavailable without a runtime.
+SEO completion does not trigger Aero or another paid workflow.

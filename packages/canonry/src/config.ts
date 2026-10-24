@@ -6,6 +6,7 @@ import { parse, stringify } from 'yaml'
 import { AGENT_REASONING_LEVELS, agentAllowViewersSchema, agentModelSchema, agentProviderSchema, agentReasoningSchema, classificationConfigSchema, dashboardManagedRunKindsSchema, dashboardManagedSweepsSchema, researchAllowViewersSchema, researchViewerDailyRunLimitSchema } from '@canonry/canonry-config'
 import type { AgentReasoningLevel, SentimentInstallConfigInput } from '@canonry/canonry-config'
 import { AGENT_PROVIDER_IDS, isRetiredAgentProviderId } from '@canonry/canonry-contracts'
+import { seoInstallConfigSchema, type SeoInstallConfig } from '@canonry/canonry-config'
 import type { AgentProviderId, EmbedConfigEntry, ProviderBatchConfig, ProviderPricing, ProviderQuotaPolicy, SchedulableRunKind } from '@canonry/canonry-contracts'
 import { isAgentModelAccepted } from './agent/providers.js'
 import { CliError } from './cli-error.js'
@@ -457,6 +458,8 @@ export interface PlacesConfigEntry {
 }
 
 export interface CanonryConfig {
+  /** DataForSEO credentials and operator-set funding policy; config.yaml only. */
+  seo?: SeoInstallConfig
   /** Model for domain classification, separate from the measured sweep engines and Aero. */
   classification?: import('@canonry/canonry-config').ClassificationConfig
   /**
@@ -635,6 +638,9 @@ export function loadConfig(configPath = getConfigPath()): CanonryConfig {
 
   // Validate only the managed fields, without cloning/reordering the dashboard or
   // tightening validation of legacy fields (including blank YAML values).
+  if (parsed.seo !== undefined && !seoInstallConfigSchema.safeParse(parsed.seo).success) {
+    throw new CliError({ code: 'CONFIG_INVALID', message: `Invalid config at ${configPath}: seo requires an explicit funding mode, positive integer budget caps, and connection credentials.` })
+  }
   if (!dashboardManagedSweepsSchema.safeParse(parsed.dashboard?.managedSweeps).success) {
     throw new CliError({
       code: 'CONFIG_INVALID',

@@ -4830,6 +4830,28 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `CREATE INDEX IF NOT EXISTS idx_review_webhook_deliveries_due ON review_webhook_deliveries(state, retry_at)`,
     ],
   },
+  {
+    version: 190,
+    name: 'seo-durable-sync',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS seo_profiles (project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE, id TEXT NOT NULL, revision INTEGER NOT NULL, input TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(project_id,id))`,
+      `CREATE TABLE IF NOT EXISTS seo_jobs (id TEXT PRIMARY KEY, project_id TEXT REFERENCES projects(id) ON DELETE SET NULL, project_key TEXT NOT NULL, run_id TEXT REFERENCES runs(id) ON DELETE SET NULL, profile_id TEXT NOT NULL, profile_revision INTEGER NOT NULL, profile TEXT NOT NULL, scope_snapshot TEXT NOT NULL, request_hash TEXT NOT NULL, idempotency_key TEXT NOT NULL, principal_id TEXT NOT NULL, connection_id TEXT NOT NULL, account_key TEXT NOT NULL, buckets TEXT NOT NULL, status TEXT NOT NULL, cancel_requested INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, started_at TEXT, finished_at TEXT, error TEXT)`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_seo_jobs_idempotency ON seo_jobs(project_key,idempotency_key)`,
+      `CREATE INDEX IF NOT EXISTS idx_seo_jobs_project ON seo_jobs(project_id,created_at)`,
+      `CREATE INDEX IF NOT EXISTS idx_seo_jobs_run ON seo_jobs(run_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_seo_jobs_status ON seo_jobs(status)`,
+      `CREATE TABLE IF NOT EXISTS seo_tasks (id TEXT PRIMARY KEY, job_id TEXT NOT NULL REFERENCES seo_jobs(id), request TEXT NOT NULL, status TEXT NOT NULL, lease_owner TEXT, lease_until TEXT, catalog_revision TEXT NOT NULL, collection_outcome TEXT, reserved_micros INTEGER NOT NULL, actual_micros INTEGER, receipts TEXT NOT NULL DEFAULT '[]', results TEXT NOT NULL, reconciliation TEXT, started_at TEXT, finished_at TEXT, error TEXT)`,
+      `CREATE INDEX IF NOT EXISTS idx_seo_tasks_job ON seo_tasks(job_id)`,
+      `CREATE TABLE IF NOT EXISTS seo_budgets (scope TEXT NOT NULL, period TEXT NOT NULL, reserved_micros INTEGER NOT NULL DEFAULT 0, spent_micros INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(scope,period))`,
+    ],
+  },
+  {
+    version: 191,
+    name: 'seo-intent-replay-lookup',
+    statements: [
+      `CREATE INDEX IF NOT EXISTS idx_seo_jobs_intent ON seo_jobs(project_key,request_hash)`,
+    ],
+  },
 ]
 
 /**

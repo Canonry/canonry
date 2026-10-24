@@ -119,6 +119,7 @@ import type { DiscoveryRoutesOptions } from './discovery/index.js'
 import { technicalAeoRoutes } from './technical-aeo.js'
 import type { TechnicalAeoRoutesOptions } from './technical-aeo.js'
 import { researchRoutes } from './research.js'
+import { seoRoutes, type SeoRoutesOptions } from './seo.js'
 import type { ResearchRoutesOptions } from './research.js'
 import { CheckStatuses, TrafficSourceTypes } from '@canonry/canonry-contracts'
 import type { ScheduledSyncClaim } from './helpers.js'
@@ -428,6 +429,8 @@ export interface ApiRoutesOptions {
   researchAllowViewers?: boolean
   /** Viewer-created research runs allowed per project and UTC day. Defaults to 20. */
   researchViewerDailyRunLimit?: number
+  getSeoRuntime?: SeoRoutesOptions['getSeoRuntime']
+  onSeoRunRequested?: SeoRoutesOptions['onSeoRunRequested']
   /** Discovery harvest seam — extracts issued search queries (fan-out) from a stored probe payload, provider-shaped. Wire to the provider adapter's extractor. */
   harvestSearchQueries?: DiscoveryRoutesOptions['harvestSearchQueries']
   /** Discovery harvest embed seam — embeds query strings for the semantic novelty pass. Wire to the Gemini embedder; unset/rejecting degrades novelty to exact-match. */
@@ -911,6 +914,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       onCompetitorAliasesChanged: opts.onCompetitorAliasesChanged,
       onCompetitorAutoAliasRescan: opts.onCompetitorAutoAliasRescan,
     } satisfies DiscoveryRoutesOptions)
+    await api.register(seoRoutes, { getSeoRuntime: opts.getSeoRuntime, onSeoRunRequested: opts.onSeoRunRequested } satisfies SeoRoutesOptions)
     await api.register(researchRoutes, {
       getCachedProviderModels: opts.getCachedProviderModels,
       getEffectiveProviderModels: opts.getEffectiveProviderModels,
@@ -1343,3 +1347,5 @@ function buildTrafficSourceValidators(opts: ApiRoutesOptions): Record<string, Tr
   }
   return Object.keys(validators).length > 0 ? validators : undefined
 }
+
+export type { SeoRoutesOptions, SeoConnection, SeoPolicy } from './seo.js'

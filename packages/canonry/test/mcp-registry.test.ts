@@ -24,6 +24,22 @@ function compactMeasurementCase(scenario: NativeDispatchCase): NativeDispatchCas
 }
 
 const expectedToolNames = [
+  'canonry_seo_operator_task',
+  'canonry_seo_operator_reconcile',
+  'canonry_seo_context',
+  'canonry_seo_status',
+  'canonry_seo_profiles',
+  'canonry_seo_profile',
+  'canonry_seo_profile_set',
+  'canonry_seo_refresh_intent',
+  'canonry_seo_sync',
+  'canonry_seo_runs',
+  'canonry_seo_run',
+  'canonry_seo_run_cancel',
+  'canonry_seo_overview',
+  'canonry_seo_keyword_metrics',
+  'canonry_seo_domain_intelligence',
+  'canonry_seo_ranked_keywords',
   'canonry_sentiment_settings',
   'canonry_sentiment_configure',
   'canonry_sentiment',
@@ -790,7 +806,7 @@ describe('MCP tool registry', () => {
   })
 
   it('ships the curated v1 surface', () => {
-    expect(canonryMcpTools.filter(tool => tool.access === 'read').length).toBe(177)
+    expect(canonryMcpTools.filter(tool => tool.access === 'read').length).toBe(189)
     expect(canonryMcpTools.map(tool => tool.name)).toEqual(expectedToolNames)
     const readNames = canonryMcpTools.filter(tool => tool.access === 'read' && !tool.requiresOperator).map(tool => tool.name)
     expect(getCanonryMcpTools('read-only').map(tool => tool.name)).toEqual(readNames)
@@ -1476,7 +1492,7 @@ describe('Dynamic tool catalog', () => {
       'canonry_run_cancel',
       'canonry_agent_webhook_attach',
     ])
-    expect(help.toolkits.map(t => t.name)).toEqual(['monitoring', 'setup', 'gsc', 'bing', 'ga', 'gbp', 'ads', 'google-ads', 'gtm', 'conversion-tracking', 'traffic', 'agent', 'discovery'])
+    expect(help.toolkits.map(t => t.name)).toEqual(['seo', 'monitoring', 'setup', 'gsc', 'bing', 'ga', 'gbp', 'ads', 'google-ads', 'gtm', 'conversion-tracking', 'traffic', 'agent', 'discovery'])
     expect(help.toolkits.every(t => !t.loaded)).toBe(true)
 
     const monitoringFirst = catalog.loadToolkit('monitoring')
@@ -1502,7 +1518,7 @@ describe('Dynamic tool catalog', () => {
 
     const help = catalog.helpResult()
     expect(help.eager).toBe(true)
-    expect(help.loadedToolkits.sort()).toEqual(['ads', 'agent', 'bing', 'conversion-tracking', 'discovery', 'ga', 'gbp', 'google-ads', 'gsc', 'gtm', 'monitoring', 'setup', 'traffic'])
+    expect(help.loadedToolkits.sort()).toEqual(['ads', 'agent', 'bing', 'conversion-tracking', 'discovery', 'ga', 'gbp', 'google-ads', 'gsc', 'gtm', 'monitoring', 'seo', 'setup', 'traffic'])
     expect(help.toolkits.every(t => t.loaded)).toBe(true)
   })
 

@@ -949,3 +949,20 @@ Suggestion reads refuse oversized exact workloads before matching: at most
 `competitor-suggestions-work-limit` with narrowing guidance, never a sampled
 result presented as exact. Add/replace competitor inputs validate registrable
 domains; removals stay permissive so legacy invalid rows can be cleaned up.
+
+## SEO data
+
+`seo.ts` owns named project profiles, free refresh intents, durable sync admission,
+and saved evidence reads. `seo.run` authorizes sync/cancel; `seo.write` authorizes
+profile changes; both deny viewer sessions and delegated viewers. Read-semantic
+intents perform no provider I/O and bind identity, profile revision, frozen scope,
+provider account, pricing revision, and host policy. Customer projections exclude
+provider operating costs; CPC and estimated traffic value remain legitimate SEO
+metrics. `/seo/operator/tasks/:id` and its reconciliation write require host
+operator authority, never merely an administrator session. Reconciliation records
+a verified upstream receipt without repeating the paid request.
+
+Advanced non-project domain metrics require exact host footprints; path/entity
+Properties can use explicit keyword metrics. Domain intelligence cannot substitute
+a broader domain for a Property. Saved evidence defaults to the latest completed
+or partial job for the selected profile, independently of the latest refresh state.

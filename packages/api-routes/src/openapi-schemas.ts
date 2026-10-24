@@ -24,6 +24,8 @@ import { gbpLocalPostDtoSchema, gbpLocalPostListSchema, gbpLocalPostAttemptSchem
  *       hatch and TODO it for migration.
  */
 import { z, type ZodType } from 'zod'
+import { seoOperatorTaskSchema, seoReconcileInputSchema, seoReconcileResultSchema } from '@canonry/canonry-contracts'
+import { seoContextSchema, seoStatusSchema, seoProfileSchema, seoProfileListSchema, seoProfileInputSchema, seoQuoteSchema, seoRefreshIntentInputSchema, seoSyncInputSchema, seoRunSchema, seoRunDetailSchema, seoRunListSchema, seoOverviewSchema, seoKeywordMetricsListSchema, seoDomainIntelligenceListSchema, seoRankedKeywordListSchema } from '@canonry/canonry-contracts'
 import { sentimentSummarySchema, sentimentSettingsSchema, sentimentSettingsUpdateSchema, sentimentEvidencePageSchema, sentimentComparisonSchema, sentimentBackfillPreviewSchema, sentimentBackfillRequestSchema, sentimentJobsSchema, sentimentJobSchema } from '@canonry/canonry-contracts'
 import { visibilityReportResponseSchema } from '@canonry/canonry-contracts'
 import { queryTrackingWorkspaceResponseSchema, queryTrackingPreviewRequestSchema, queryTrackingPreviewResponseSchema, queryTrackingCommitRequestSchema, queryTrackingCommitResponseSchema } from '@canonry/canonry-contracts'
@@ -340,6 +342,24 @@ import {
  * obvious in review.
  */
 const SCHEMA_TABLE = {
+  SeoOperatorTask: seoOperatorTaskSchema,
+  SeoReconcileInput: seoReconcileInputSchema,
+  SeoReconcileResult: seoReconcileResultSchema,
+  SeoContext: seoContextSchema,
+  SeoStatus: seoStatusSchema,
+  SeoProfile: seoProfileSchema,
+  SeoProfileList: seoProfileListSchema,
+  SeoProfileInput: seoProfileInputSchema,
+  SeoQuote: seoQuoteSchema,
+  SeoRefreshIntentInput: seoRefreshIntentInputSchema,
+  SeoSyncInput: seoSyncInputSchema,
+  SeoRun: seoRunSchema,
+  SeoRunDetail: seoRunDetailSchema,
+  SeoRunList: seoRunListSchema,
+  SeoOverview: seoOverviewSchema,
+  SeoKeywordMetricsList: seoKeywordMetricsListSchema,
+  SeoDomainIntelligenceList: seoDomainIntelligenceListSchema,
+  SeoRankedKeywordList: seoRankedKeywordListSchema,
   SentimentSummary: sentimentSummarySchema,
   SentimentSettings: sentimentSettingsSchema,
   SentimentSettingsUpdate: sentimentSettingsUpdateSchema,

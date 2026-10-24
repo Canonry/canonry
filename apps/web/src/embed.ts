@@ -49,6 +49,7 @@ export function isEmbedProjectTabAllowed(tab: string, allow: readonly string[] |
 export const EMBED_PROJECT_TABS = [
   'overview',
   'search-console',
+  'seo-data',
   'local',
   'activity',
   'backlinks',

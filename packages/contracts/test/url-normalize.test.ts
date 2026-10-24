@@ -6,10 +6,21 @@ import {
   hostMatchesDomain,
   hostOf,
   normalizeUrlPath,
+  normalizeHostname,
   registrableDomain,
   textContainsDomain,
   URL_PATH_NORMALIZATION_VERSION,
 } from '../src/url-normalize.js'
+
+describe('normalizeHostname', () => {
+  it('preserves every DNS label when normalizing exact-host evidence scope', () => {
+    expect(normalizeHostname(' WWW.Shop.Example.COM ')).toBe('www.shop.example.com')
+    expect(normalizeHostname('shop.example.com')).toBe('shop.example.com')
+  })
+  it.each(['https://example.com', 'example.com/path', 'example.com:443', 'me@example.com', 'example.com?x=1', 'example.com#part', '-bad.example.com', 'example..com', 'example.com.', 'exa mple.com', '%65xample.com', '127.0.0.1', '2130706433'])('rejects non-host scope %s without widening it', input => {
+    expect(normalizeHostname(input)).toBeNull()
+  })
+})
 
 describe('hostOf', () => {
   it('extracts the host from a full URL, www-stripped and lowercased', () => {
