@@ -130,6 +130,7 @@ cnry project create <name> --domain <url> --country US --language en
 cnry project show <name>                       # project detail
 cnry project update <name>                     # update project settings
 cnry project update <name> --add-lead-event book_demo --remove-lead-event old_event
+cnry project update <name> --no-count-key-events   # count only the lead events above, not the GA4 property's key events (--count-key-events turns it back on)
 cnry project update <name> --brand-term "Sample Brand" --add-brand-term "Sample Pro"
 cnry project update <name> --marketing-host offers.example --remove-marketing-host old.example
 cnry project update <name> --display-name "Sample Brand" --expect-revision 4
@@ -151,6 +152,14 @@ flags are repeatable: `--lead-event`, `--brand-term`, and `--marketing-host` rep
 only their named list; `--add-*` and `--remove-*` adjust it. Lead event matching is
 case-sensitive; brand-term and host removals ignore case. Values use the shared
 measurement validation. `project show` includes these lists in human output.
+
+Conversions are the configured lead events plus the events the GA4 property
+marks as key events, read from the GA4 Admin API on each GA sync, so a store's
+`purchase` or a site's own conversion events count without setup. Omitted
+`measurement.countKeyEvents` means on; `--no-count-key-events` (or
+`countKeyEvents: false`) counts only the configured events. When the counted set
+changes, the next GA sync refreshes the full 90-day GA4 window. A failed
+key-event read keeps the previous list and never fails the sync.
 
 The CLI sends the revision it read, or validates an explicit positive
 `--expect-revision`. A stale revision returns `PROJECT_REVISION_CONFLICT` without
@@ -1081,8 +1090,10 @@ cnry ga sync <project> [--days 30] [--only traffic|ai|social|search-landing]
                                                   # (search-landing = the Search Console landing-page snapshot)
                                                   # returns: synced, rowCount, aiReferralCount, socialReferralCount,
                                                   #          measurement.searchLandingPages{status, windows[], rowCount,
-                                                  #          error?}, syncedComponents (lists search-landing only
-                                                  #          when its snapshot was stored), syncedAt
+                                                  #          error?}, measurement.leads{days, status, rowCount,
+                                                  #          eventNames (counted set), keyEvents{status read|error|
+                                                  #          disabled, names, error?}}, syncedComponents (lists
+                                                  #          search-landing only when its snapshot was stored), syncedAt
 cnry ga measurement-analysis <project> [--window 30d|60d|90d]
     [--host-scope marketing|all] [--path-prefix /blog] [--limit 100]
                                                   # fixed 30-day cohorts across native GA4 channels,
@@ -1091,7 +1102,10 @@ cnry ga measurement-analysis <project> [--window 30d|60d|90d]
                                                   # for acquisition and leads; leads.aiEngines splits lead events
                                                   # by AI engine (ChatGPT, Perplexity, Gemini, ...) with the same
                                                   # engine's sessions and lead rate per cohort, organic and paid
-                                                  # clicks apart
+                                                  # clicks apart; leads.countedEvents names the configured events
+                                                  # and the GA4 key events counted (with any read error), and
+                                                  # leads.events gives one series per counted event (origin
+                                                  # configured, key-event or both), zeros included
 cnry ga search-landing-pages <project> [--window 7d|28d|90d] [--limit 50] [--offset 0]
                                                   # GA4's "Google organic search traffic: Landing page + query
                                                   # string" report (needs GA4's Search Console link): clicks,

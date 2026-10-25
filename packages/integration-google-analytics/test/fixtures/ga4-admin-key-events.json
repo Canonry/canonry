@@ -1,0 +1,29 @@
+{
+  "_note": "Response shape of a live GA4 Admin API v1beta capture of GET properties/{id}/keyEvents?pageSize=200 (2026-10-25). Property id, key event ids and createTime values are synthetic; event names are GA4's defaults plus one custom event. A default key event omits the false-valued deletable and custom fields, as live.",
+  "response": {
+    "keyEvents": [
+      {
+        "name": "properties/123456789/keyEvents/10000000001",
+        "eventName": "close_convert_lead",
+        "createTime": "2026-01-02T03:04:05.000001Z",
+        "deletable": true,
+        "custom": true,
+        "countingMethod": "ONCE_PER_EVENT"
+      },
+      {
+        "name": "properties/123456789/keyEvents/10000000002",
+        "eventName": "qualify_lead",
+        "createTime": "2026-01-02T03:04:05.000001Z",
+        "deletable": true,
+        "custom": true,
+        "countingMethod": "ONCE_PER_EVENT"
+      },
+      {
+        "name": "properties/123456789/keyEvents/10000000003",
+        "eventName": "purchase",
+        "createTime": "2026-01-02T03:04:15.000002Z",
+        "countingMethod": "ONCE_PER_EVENT"
+      }
+    ]
+  }
+}

@@ -925,51 +925,7 @@ export async function listProperties(accessToken: string): Promise<GA4PropertySu
         signal: AbortSignal.timeout(GA4_REQUEST_TIMEOUT_MS),
       })
 
-      if (!res.ok) {
-        const raw = await res.text().catch(() => '')
-        let detail = ''
-        let quotaReason = false
-        try {
-          const parsed = JSON.parse(raw) as {
-            error?: { message?: string; status?: string; errors?: { reason?: string }[] }
-          }
-          if (parsed.error?.status === 'SERVICE_DISABLED') {
-            detail =
-              ' The Google Analytics Admin API is not enabled for this GCP project. ' +
-              'Enable it at: https://console.developers.google.com/apis/api/analyticsadmin.googleapis.com/overview'
-          } else if (parsed.error?.message) {
-            detail = ` ${parsed.error.message}`
-          }
-          // Analytics reports quota exhaustion as 403 as often as 429, and a
-          // 403 is otherwise a permanent permission failure. Only the reason
-          // separates "slow down" from "you may not do this", so retry the
-          // former and never the latter.
-          quotaReason = (parsed.error?.errors ?? []).some((e) =>
-            e.reason === 'rateLimitExceeded' || e.reason === 'quotaExceeded' || e.reason === 'userRateLimitExceeded',
-          ) || parsed.error?.status === 'RESOURCE_EXHAUSTED'
-        } catch {
-          if (raw.length < 200) detail = ` ${raw}`
-        }
-        // The token can appear in an upstream echo; never let it reach a log.
-        const sanitized = detail.replace(new RegExp(escapeRegExp(accessToken), 'g'), '***')
-        const retryAfterSeconds =
-          res.status === 429 || res.status >= 500 || (res.status === 403 && quotaReason)
-            ? parseRetryAfter(res.headers.get('retry-after'))
-            : undefined
-        ga4Log('error', 'admin.account-summaries-failed', {
-          httpStatus: res.status,
-          retryAfterSeconds,
-          quotaReason,
-        })
-        throw new GA4ApiError(
-          `Failed to list GA4 properties.${sanitized}`,
-          // A quota 403 is surfaced as 429 so every downstream consumer — the
-          // retry predicate and the route's error mapper — reads it as rate
-          // limiting rather than as a permission denial.
-          res.status === 403 && quotaReason ? 429 : res.status,
-          retryAfterSeconds,
-        )
-      }
+      if (!res.ok) throw await adminApiError(res, accessToken, 'admin.account-summaries-failed', 'Failed to list GA4 properties.')
 
       return await res.json() as GA4AccountSummariesResponse
     }, 'GA4 accountSummaries'))
@@ -991,6 +947,87 @@ export async function listProperties(accessToken: string): Promise<GA4PropertySu
   } while (pageToken)
 
   return properties
+}
+
+/**
+ * Turn a failed Admin API response into a `GA4ApiError`. Analytics reports
+ * quota exhaustion as 403 as often as 429, and a 403 is otherwise a permanent
+ * permission failure, so only the reason separates "slow down" from "you may
+ * not do this": a quota 403 is surfaced as 429 so the retry predicate and the
+ * route's error mapper read it as rate limiting.
+ */
+async function adminApiError(res: Response, accessToken: string, logAction: string, message: string): Promise<GA4ApiError> {
+  const raw = await res.text().catch(() => '')
+  let detail = ''
+  let quotaReason = false
+  try {
+    const parsed = JSON.parse(raw) as {
+      error?: { message?: string; status?: string; errors?: { reason?: string }[] }
+    }
+    if (parsed.error?.status === 'SERVICE_DISABLED') {
+      detail =
+        ' The Google Analytics Admin API is not enabled for this GCP project. ' +
+        'Enable it at: https://console.developers.google.com/apis/api/analyticsadmin.googleapis.com/overview'
+    } else if (parsed.error?.message) {
+      detail = ` ${parsed.error.message}`
+    }
+    quotaReason = (parsed.error?.errors ?? []).some((e) =>
+      e.reason === 'rateLimitExceeded' || e.reason === 'quotaExceeded' || e.reason === 'userRateLimitExceeded',
+    ) || parsed.error?.status === 'RESOURCE_EXHAUSTED'
+  } catch {
+    if (raw.length < 200) detail = ` ${raw}`
+  }
+  // The token can appear in an upstream echo; never let it reach a log.
+  const sanitized = detail.replace(new RegExp(escapeRegExp(accessToken), 'g'), '***')
+  const retryAfterSeconds =
+    res.status === 429 || res.status >= 500 || (res.status === 403 && quotaReason)
+      ? parseRetryAfter(res.headers.get('retry-after'))
+      : undefined
+  ga4Log('error', logAction, { httpStatus: res.status, retryAfterSeconds, quotaReason })
+  return new GA4ApiError(`${message}${sanitized}`, res.status === 403 && quotaReason ? 429 : res.status, retryAfterSeconds)
+}
+
+/**
+ * The event names a GA4 property marks as key events (GA4's conversions),
+ * from the Admin API's `properties/{id}/keyEvents`. Site owners maintain this
+ * list in GA4, so it names a property's conversions (purchase, booking, form)
+ * without any setup in Canonry. Sorted and unique. Needs only
+ * `analytics.readonly`.
+ */
+export async function fetchKeyEventNames(accessToken: string, propertyId: string): Promise<string[]> {
+  validateAccessToken(accessToken)
+  validatePropertyId(propertyId)
+
+  const names = new Set<string>()
+  let pageToken: string | undefined
+  do {
+    const url = new URL(`${GA4_ADMIN_API_BASE}/properties/${propertyId}/keyEvents`)
+    url.searchParams.set('pageSize', '200')
+    if (pageToken) url.searchParams.set('pageToken', pageToken)
+
+    const body: GA4KeyEventsResponse = await withGa4Limit(() => withGa4Retry(async () => {
+      const res = await fetchWithContext(url, {
+        headers: { 'Authorization': `Bearer ${accessToken}` },
+        signal: AbortSignal.timeout(GA4_REQUEST_TIMEOUT_MS),
+      })
+      if (!res.ok) throw await adminApiError(res, accessToken, 'admin.key-events-failed', 'Failed to list GA4 key events.')
+      return await res.json() as GA4KeyEventsResponse
+    }, 'GA4 keyEvents'))
+
+    for (const keyEvent of body.keyEvents ?? []) {
+      const name = keyEvent.eventName?.trim()
+      if (name) names.add(name)
+    }
+    pageToken = body.nextPageToken
+  } while (pageToken)
+
+  return [...names].sort()
+}
+
+/** The fields Canonry reads from `properties/{id}/keyEvents`; the response carries more. */
+interface GA4KeyEventsResponse {
+  keyEvents?: { name?: string; eventName?: string }[]
+  nextPageToken?: string
 }
 
 interface GA4AccountSummariesResponse {

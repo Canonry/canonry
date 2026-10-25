@@ -14,6 +14,7 @@ import {
   gaLeadEventsDaily,
   gaMeasurementSyncStates,
   migrate,
+  projects,
   runs,
 } from '@canonry/canonry-db'
 import { apiRoutes } from '../src/index.js'
@@ -120,6 +121,8 @@ async function mockLegacyGa() {
   vi.spyOn(ga, 'fetchSocialReferrals').mockResolvedValue([])
   // Its own component, covered in ga-search-landing-pages.test.ts.
   vi.spyOn(ga, 'fetchSearchLandingPages').mockResolvedValue({ status: 'ready', windows: [] })
+  // A property with no key events, so the configured lead events are the counted set.
+  vi.spyOn(ga, 'fetchKeyEventNames').mockResolvedValue([])
   return ga
 }
 
@@ -188,7 +191,7 @@ describe('GA measurement ingestion', () => {
     expect(leadsSpy).toHaveBeenCalledWith(
       'fake-token',
       '123456',
-      ['generate_lead', 'book_demo'],
+      ['book_demo', 'generate_lead'],
       90,
     )
     expect(JSON.parse(response.body)).toMatchObject({
@@ -247,6 +250,8 @@ describe('GA measurement ingestion', () => {
       leadStatus: 'ready',
       leadSyncedAt: now,
       leadAttributionScope: 'landing-page',
+      // The same counted set as this sync, so the lead refresh stays incremental.
+      leadEventNames: ['book_demo', 'generate_lead'],
       updatedAt: now,
     }).run()
     ctx.db.insert(gaAcquisitionDaily).values([
@@ -304,7 +309,7 @@ describe('GA measurement ingestion', () => {
     expect(leadsSpy).toHaveBeenCalledWith(
       'fake-token',
       '123456',
-      ['generate_lead', 'book_demo'],
+      ['book_demo', 'generate_lead'],
       30,
     )
     expect(JSON.parse(response.body)).toMatchObject({
@@ -354,6 +359,7 @@ describe('GA measurement ingestion', () => {
       leadStatus: 'ready',
       leadSyncedAt: lastGood,
       leadAttributionScope: 'landing-page',
+      leadEventNames: ['book_demo', 'generate_lead'],
       updatedAt: now,
     }).run()
     ctx.db.insert(gaAcquisitionDaily).values({
@@ -568,6 +574,115 @@ describe('GA measurement ingestion', () => {
       leadError: null,
       leadSyncedAt: null,
       leadAttributionScope: null,
+    })
+  })
+
+  describe('GA4 key events', () => {
+    const emptyLeads = (days: number) => ({ ...measurementRange(days), attributionScope: 'landing-page' as const, rows: [] })
+    const sync = () => ctx.app.inject({
+      method: 'POST',
+      url: '/api/v1/projects/measurement-ingestion/ga/sync',
+      payload: { days: 30 },
+    })
+    const seedLeadState = (fields: Partial<typeof gaMeasurementSyncStates.$inferInsert>) => {
+      const now = new Date().toISOString()
+      ctx.db.insert(gaMeasurementSyncStates).values({
+        projectId: ctx.projectId,
+        acquisitionStatus: 'ready',
+        acquisitionSyncedAt: now,
+        leadStatus: 'ready',
+        leadSyncedAt: now,
+        leadAttributionScope: 'landing-page',
+        updatedAt: now,
+        ...fields,
+      }).run()
+    }
+    const leadState = () => ctx.db.select().from(gaMeasurementSyncStates)
+      .where(eq(gaMeasurementSyncStates.projectId, ctx.projectId)).get()
+
+    it('counts the property key events with the configured lead events and records both', async () => {
+      const ga = await mockLegacyGa()
+      vi.spyOn(ga, 'fetchAcquisitionByChannel').mockResolvedValue({ ...measurementRange(90), rows: [] })
+      vi.spyOn(ga, 'fetchKeyEventNames').mockResolvedValue(['generate_lead', 'purchase'])
+      const leadsSpy = vi.spyOn(ga, 'fetchLeadEvents').mockResolvedValue(emptyLeads(90))
+
+      const response = await sync()
+
+      expect(response.statusCode).toBe(200)
+      expect(leadsSpy).toHaveBeenCalledWith('fake-token', '123456', ['book_demo', 'generate_lead', 'purchase'], 90)
+      expect(JSON.parse(response.body).measurement.leads).toMatchObject({
+        status: 'ready',
+        eventNames: ['book_demo', 'generate_lead', 'purchase'],
+        keyEvents: { status: 'read', names: ['generate_lead', 'purchase'] },
+      })
+      expect(leadState()).toMatchObject({
+        leadEventNames: ['book_demo', 'generate_lead', 'purchase'],
+        keyEventNames: ['generate_lead', 'purchase'],
+        keyEventsError: null,
+      })
+    })
+
+    it('refreshes the whole GA4 window when the counted set changes', async () => {
+      const ga = await mockLegacyGa()
+      vi.spyOn(ga, 'fetchAcquisitionByChannel').mockResolvedValue({ ...measurementRange(30), rows: [] })
+      seedLeadState({ leadEventNames: ['book_demo', 'generate_lead'], keyEventNames: [] })
+      vi.spyOn(ga, 'fetchKeyEventNames').mockResolvedValue(['purchase'])
+      const leadsSpy = vi.spyOn(ga, 'fetchLeadEvents').mockResolvedValue(emptyLeads(90))
+
+      await sync()
+
+      expect(leadsSpy).toHaveBeenCalledWith('fake-token', '123456', ['book_demo', 'generate_lead', 'purchase'], 90)
+    })
+
+    it('refreshes the whole GA4 window once when a past sync recorded no counted set', async () => {
+      const ga = await mockLegacyGa()
+      vi.spyOn(ga, 'fetchAcquisitionByChannel').mockResolvedValue({ ...measurementRange(30), rows: [] })
+      seedLeadState({})
+      const leadsSpy = vi.spyOn(ga, 'fetchLeadEvents').mockResolvedValue(emptyLeads(90))
+
+      await sync()
+      await sync()
+
+      expect(leadsSpy.mock.calls.map(call => call[3])).toEqual([90, 30])
+    })
+
+    it('keeps the previous key events when the read fails, and does not fail the sync', async () => {
+      const ga = await mockLegacyGa()
+      vi.spyOn(ga, 'fetchAcquisitionByChannel').mockResolvedValue({ ...measurementRange(30), rows: [] })
+      seedLeadState({ leadEventNames: ['book_demo', 'generate_lead', 'purchase'], keyEventNames: ['purchase'] })
+      vi.spyOn(ga, 'fetchKeyEventNames').mockRejectedValue(new Error('Failed to list GA4 key events. caller lacks permission'))
+      const leadsSpy = vi.spyOn(ga, 'fetchLeadEvents').mockResolvedValue(emptyLeads(30))
+
+      const response = await sync()
+
+      expect(response.statusCode).toBe(200)
+      // Same counted set as before, so the refresh stays incremental.
+      expect(leadsSpy).toHaveBeenCalledWith('fake-token', '123456', ['book_demo', 'generate_lead', 'purchase'], 30)
+      expect(JSON.parse(response.body).measurement.leads.keyEvents).toEqual({
+        status: 'error',
+        names: ['purchase'],
+        error: 'Failed to list GA4 key events. caller lacks permission',
+      })
+      expect(leadState()).toMatchObject({
+        keyEventNames: ['purchase'],
+        keyEventsError: 'Failed to list GA4 key events. caller lacks permission',
+      })
+    })
+
+    it('counts only the configured lead events when the project turns key events off', async () => {
+      const ga = await mockLegacyGa()
+      vi.spyOn(ga, 'fetchAcquisitionByChannel').mockResolvedValue({ ...measurementRange(90), rows: [] })
+      const keyEventsSpy = vi.spyOn(ga, 'fetchKeyEventNames').mockResolvedValue(['purchase'])
+      const leadsSpy = vi.spyOn(ga, 'fetchLeadEvents').mockResolvedValue(emptyLeads(90))
+      ctx.db.update(projects).set({
+        measurement: { marketingHosts: [], brandTerms: [], leadEventNames: ['generate_lead', 'book_demo'], countKeyEvents: false },
+      }).where(eq(projects.id, ctx.projectId)).run()
+
+      const response = await sync()
+
+      expect(keyEventsSpy).not.toHaveBeenCalled()
+      expect(leadsSpy).toHaveBeenCalledWith('fake-token', '123456', ['book_demo', 'generate_lead'], 90)
+      expect(JSON.parse(response.body).measurement.leads.keyEvents).toEqual({ status: 'disabled', names: [] })
     })
   })
 })

@@ -1,7 +1,7 @@
 import { and, count, eq, isNull } from 'drizzle-orm'
 import { competitors, notifications, projects, queries, querySnapshots, runs, schedules, readNegativeReviewMaxStars, type DatabaseClient } from '@canonry/canonry-db'
 import { redactNotificationUrl } from './notification-redaction.js'
-import { SchedulableRunKinds, type ProjectConfigState } from '@canonry/canonry-contracts'
+import { SchedulableRunKinds, countsKeyEvents, type ProjectConfigState } from '@canonry/canonry-contracts'
 
 export interface ProjectConfigStateOptions {
   managed?: Partial<ProjectConfigState['managed']>
@@ -52,6 +52,7 @@ export function readProjectConfigState(
       'measurement.marketingHosts': project.measurement.marketingHosts,
       'measurement.brandTerms': project.measurement.brandTerms,
       'measurement.leadEventNames': project.measurement.leadEventNames,
+      'measurement.countKeyEvents': countsKeyEvents(project.measurement),
       locations: project.locations,
       defaultLocation: project.defaultLocation,
       autoExtractBacklinks: project.autoExtractBacklinks,

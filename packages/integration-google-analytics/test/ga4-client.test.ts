@@ -1,5 +1,6 @@
+import fs from 'node:fs'
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
-import { createServiceAccountJwt, fetchAiReferrals, fetchTrafficByLandingPage, getAccessToken, verifyConnectionWithToken, listProperties, fetchAggregateSummary, fetchWindowSummary, _resetGa4ConcurrencyStateForTests } from '../src/ga4-client.js'
+import { createServiceAccountJwt, fetchAiReferrals, fetchTrafficByLandingPage, getAccessToken, verifyConnectionWithToken, listProperties, fetchKeyEventNames, fetchAggregateSummary, fetchWindowSummary, _resetGa4ConcurrencyStateForTests } from '../src/ga4-client.js'
 import { GA4_MAX_CONCURRENT_REQUESTS, GA4_MAX_RETRIES } from '../src/constants.js'
 import crypto from 'node:crypto'
 
@@ -816,5 +817,63 @@ describe('listProperties', () => {
     )
 
     await expect(listProperties('super-secret-token')).rejects.toThrow(/\*\*\*/)
+  })
+})
+
+describe('fetchKeyEventNames', () => {
+  let fetchSpy: ReturnType<typeof vi.spyOn>
+  const keyEventsFixture = JSON.parse(
+    fs.readFileSync(new URL('./fixtures/ga4-admin-key-events.json', import.meta.url), 'utf8'),
+  ) as { response: unknown }
+
+  beforeEach(() => {
+    _resetGa4ConcurrencyStateForTests()
+    fetchSpy = vi.spyOn(globalThis, 'fetch')
+  })
+
+  afterEach(() => {
+    fetchSpy.mockRestore()
+  })
+
+  it('reads the property key events from the Admin API as sorted names', async () => {
+    fetchSpy.mockResolvedValueOnce(new Response(JSON.stringify(keyEventsFixture.response), { status: 200 }))
+
+    await expect(fetchKeyEventNames('valid-token', '123456789')).resolves.toEqual(['close_convert_lead', 'purchase', 'qualify_lead'])
+
+    const [url, init] = fetchSpy.mock.calls[0]!
+    expect(String(url)).toBe('https://analyticsadmin.googleapis.com/v1beta/properties/123456789/keyEvents?pageSize=200')
+    expect((init as RequestInit).headers).toMatchObject({ Authorization: 'Bearer valid-token' })
+  })
+
+  it('follows nextPageToken and drops duplicate and blank names', async () => {
+    fetchSpy
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        keyEvents: [{ eventName: 'purchase' }, { eventName: '  ' }], nextPageToken: 'page-2',
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        keyEvents: [{ eventName: 'purchase' }, { eventName: 'book_appointment' }],
+      }), { status: 200 }))
+
+    await expect(fetchKeyEventNames('valid-token', '123456789')).resolves.toEqual(['book_appointment', 'purchase'])
+    expect(String(fetchSpy.mock.calls[1]![0])).toContain('pageToken=page-2')
+  })
+
+  it('returns no names for a property without key events', async () => {
+    fetchSpy.mockResolvedValueOnce(new Response(JSON.stringify({}), { status: 200 }))
+    await expect(fetchKeyEventNames('valid-token', '123456789')).resolves.toEqual([])
+  })
+
+  it('does not retry a permission 403 and keeps the token out of the error', async () => {
+    fetchSpy.mockResolvedValue(
+      new Response(JSON.stringify({ error: { message: 'no access for super-secret-token' } }), { status: 403 }),
+    )
+    await expect(fetchKeyEventNames('super-secret-token', '123456789')).rejects.toThrow(/Failed to list GA4 key events\. no access for \*\*\*/)
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('validates the token and property id before any request', async () => {
+    await expect(fetchKeyEventNames('', '123456789')).rejects.toThrow(/Access token is required/)
+    await expect(fetchKeyEventNames('valid-token', 'not-a-property')).rejects.toThrow()
+    expect(fetchSpy).not.toHaveBeenCalled()
   })
 })

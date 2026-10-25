@@ -16,6 +16,8 @@ import {
   aiReferralEngineLabel,
   AiReferralTrafficClasses,
   classifyAiReferralTrafficClass,
+  countedLeadEventNames,
+  countsKeyEvents,
   filterBrandedSeedCandidates,
   gaMeasurementAnalysisDtoSchema,
   WINDOW_SETS, parseWindowIn,
@@ -614,7 +616,16 @@ export function buildGaMeasurementAnalysis(
     ? 'channel'
     : stateLeadScope ?? firstObservedLeadScope
   const hostAndPathFiltersApplied = attributionScope === 'landing-page'
+  // Count only the events the project counts now: configured lead events,
+  // plus the property's key events when that is on. Stored rows of an event
+  // that left the set stop counting before the next sync rewrites them.
+  const configuredLeadEvents = [...project.measurement.leadEventNames]
+  const keyEventsEnabled = countsKeyEvents(project.measurement)
+  const keyEventNames = keyEventsEnabled ? (state?.keyEventNames ?? null) : null
+  const countedEventNames = countedLeadEventNames(configuredLeadEvents, keyEventNames ?? [])
+  const countedEventSet = new Set(countedEventNames)
   const leads = selectedLeadRows.filter((row) => {
+    if (!countedEventSet.has(row.eventName)) return false
     if (row.attributionScope === 'channel') return true
     const landingPage = normalizeLandingPage(row.landingPageNormalized ?? row.landingPage)
     return hostIsIncluded(row.hostName) && pageIsIncluded(landingPage)
@@ -631,6 +642,19 @@ export function buildGaMeasurementAnalysis(
     row => row.channelGroup,
     row => row.eventCount,
   )
+  // Every counted event is listed, a zero series included, so "measured and
+  // zero" reads differently from "not counted".
+  const leadEvents = aggregateByKey(
+    leads,
+    gaPeriods,
+    row => row.eventName,
+    row => row.eventCount,
+  )
+  for (const eventName of countedEventNames) {
+    if (!leadEvents.has(eventName)) leadEvents.set(eventName, gaPeriods.map(() => 0))
+  }
+  const configuredEventSet = new Set(configuredLeadEvents)
+  const keyEventSet = new Set(keyEventNames ?? [])
   // Channel-scoped lead rows carry no landing page, so the host/path filters
   // that narrow the session side cannot narrow them. A rate is only honest
   // when those filters are no-ops (every host, whole site).
@@ -777,6 +801,21 @@ export function buildGaMeasurementAnalysis(
         periods: eventPeriods(gaPeriods, values),
       })),
       aiEngines: aiEngineLeads,
+      countedEvents: {
+        configured: configuredLeadEvents,
+        keyEventsEnabled,
+        keyEvents: keyEventNames,
+        keyEventsError: keyEventsEnabled ? state?.keyEventsError ?? null : null,
+      },
+      events: gaAnchor && hasLeadTimeline
+        ? rankEntries(leadEvents).map(([eventName, values]) => ({
+            eventName,
+            origin: configuredEventSet.has(eventName) && keyEventSet.has(eventName)
+              ? 'both' as const
+              : keyEventSet.has(eventName) ? 'key-event' as const : 'configured' as const,
+            periods: eventPeriods(gaPeriods, values),
+          }))
+        : [],
     },
     engagement: {
       status: engagementAnchor === null ? 'unavailable' : 'ready',

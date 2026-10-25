@@ -75,6 +75,16 @@ describe('GA measurement analysis contract', () => {
             },
           },
         },
+        countedEvents: {
+          configured: ['generate_lead'],
+          keyEventsEnabled: true,
+          keyEvents: ['generate_lead', 'purchase'],
+          keyEventsError: null,
+        },
+        events: [
+          { eventName: 'purchase', origin: 'key-event', periods: [{ ...period, eventCount: 2 }] },
+          { eventName: 'generate_lead', origin: 'both', periods: [{ ...period, eventCount: 1 }] },
+        ],
       },
       engagement: {
         status: 'ready',
@@ -169,6 +179,8 @@ describe('GA measurement analysis contract', () => {
           organic: { periods: [], engines: [], unattributed: { sources: [], periods: [] } },
           paid: { periods: [], engines: [], unattributed: { sources: [], periods: [] } },
         },
+        countedEvents: { configured: ['generate_lead'], keyEventsEnabled: false, keyEvents: null, keyEventsError: null },
+        events: [],
       },
       engagement: {
         status: 'unavailable',

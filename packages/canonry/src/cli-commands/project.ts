@@ -66,7 +66,7 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['project', 'update'],
     supportsDryRun: true,
-    usage: 'canonry project update <name> [--domain <domain>] [--owned-domain <domain>...] [--add-domain <domain>...] [--remove-domain <domain>...] [--alias <name>...] [--add-alias <name>...] [--remove-alias <name>...] [--add-qualified-alias <name>...] [--remove-qualified-alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--all-providers] [--provider-model provider=model...] [--clear-provider-model <provider>...] [--dispatch-mode provider=sync|batch...] [--clear-dispatch-mode <provider>...] [--negative-review-max-stars <1-4|default>] [--site-audit-max-pages <1-50000|full>] [--competitor-auto-aliases <off|preview|apply>] [--expect-revision <n>] [--lead-event <name>...] [--add-lead-event <name>...] [--remove-lead-event <name>...] [--brand-term <term>...] [--add-brand-term <term>...] [--remove-brand-term <term>...] [--marketing-host <host>...] [--add-marketing-host <host>...] [--remove-marketing-host <host>...] [--format json] [--dry-run]',
+    usage: 'canonry project update <name> [--domain <domain>] [--owned-domain <domain>...] [--add-domain <domain>...] [--remove-domain <domain>...] [--alias <name>...] [--add-alias <name>...] [--remove-alias <name>...] [--add-qualified-alias <name>...] [--remove-qualified-alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--all-providers] [--provider-model provider=model...] [--clear-provider-model <provider>...] [--dispatch-mode provider=sync|batch...] [--clear-dispatch-mode <provider>...] [--negative-review-max-stars <1-4|default>] [--site-audit-max-pages <1-50000|full>] [--competitor-auto-aliases <off|preview|apply>] [--expect-revision <n>] [--lead-event <name>...] [--add-lead-event <name>...] [--remove-lead-event <name>...] [--count-key-events | --no-count-key-events] [--brand-term <term>...] [--add-brand-term <term>...] [--remove-brand-term <term>...] [--marketing-host <host>...] [--add-marketing-host <host>...] [--remove-marketing-host <host>...] [--format json] [--dry-run]',
     accessFor: ({ values, dryRun }) => dryRun && getString(values, 'competitor-auto-aliases') === 'apply' ? OperationAccesses.stored : OperationAccesses.write,
     options: {
       domain: { type: 'string', short: 'd' },
@@ -94,6 +94,8 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
       'lead-event': multiStringOption(),
       'add-lead-event': multiStringOption(),
       'remove-lead-event': multiStringOption(),
+      'count-key-events': { type: 'boolean' },
+      'no-count-key-events': { type: 'boolean' },
       'brand-term': multiStringOption(),
       'add-brand-term': multiStringOption(),
       'remove-brand-term': multiStringOption(),
@@ -106,7 +108,7 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
       const name = requireProject(
         input,
         'project.update',
-        'canonry project update <name> [--domain <domain>] [--owned-domain <domain>...] [--add-domain <domain>...] [--remove-domain <domain>...] [--alias <name>...] [--add-alias <name>...] [--remove-alias <name>...] [--add-qualified-alias <name>...] [--remove-qualified-alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--all-providers] [--provider-model provider=model...] [--clear-provider-model <provider>...] [--dispatch-mode provider=sync|batch...] [--clear-dispatch-mode <provider>...] [--negative-review-max-stars <1-4|default>] [--site-audit-max-pages <1-50000|full>] [--competitor-auto-aliases <off|preview|apply>] [--expect-revision <n>] [--lead-event <name>...] [--add-lead-event <name>...] [--remove-lead-event <name>...] [--brand-term <term>...] [--add-brand-term <term>...] [--remove-brand-term <term>...] [--marketing-host <host>...] [--add-marketing-host <host>...] [--remove-marketing-host <host>...] [--format json]',
+        'canonry project update <name> [--domain <domain>] [--owned-domain <domain>...] [--add-domain <domain>...] [--remove-domain <domain>...] [--alias <name>...] [--add-alias <name>...] [--remove-alias <name>...] [--add-qualified-alias <name>...] [--remove-qualified-alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--all-providers] [--provider-model provider=model...] [--clear-provider-model <provider>...] [--dispatch-mode provider=sync|batch...] [--clear-dispatch-mode <provider>...] [--negative-review-max-stars <1-4|default>] [--site-audit-max-pages <1-50000|full>] [--competitor-auto-aliases <off|preview|apply>] [--expect-revision <n>] [--lead-event <name>...] [--add-lead-event <name>...] [--remove-lead-event <name>...] [--count-key-events | --no-count-key-events] [--brand-term <term>...] [--add-brand-term <term>...] [--remove-brand-term <term>...] [--marketing-host <host>...] [--add-marketing-host <host>...] [--remove-marketing-host <host>...] [--format json]',
       )
       const providers = getStringArray(input.values, 'provider')
       const expectedRevisionRaw = getString(input.values, 'expect-revision')
@@ -355,7 +357,16 @@ function parseCompetitorAutoAliasMode(raw: string | undefined): CompetitorAutoAl
 }
 
 function parseMeasurementFlags(values: CliValues): MeasurementUpdateFlags | undefined {
+  const countKeyEvents = getBoolean(values, 'count-key-events')
+  const noCountKeyEvents = getBoolean(values, 'no-count-key-events')
+  if (countKeyEvents && noCountKeyEvents) {
+    throw usageError('Error: use either --count-key-events or --no-count-key-events, not both', {
+      message: 'use either --count-key-events or --no-count-key-events, not both',
+      details: { command: 'project.update' },
+    })
+  }
   const result: MeasurementUpdateFlags = {
+    countKeyEvents: countKeyEvents ? true : noCountKeyEvents ? false : undefined,
     leadEvents: getStringArray(values, 'lead-event'),
     addLeadEvents: getStringArray(values, 'add-lead-event'),
     removeLeadEvents: getStringArray(values, 'remove-lead-event'),
@@ -367,6 +378,7 @@ function parseMeasurementFlags(values: CliValues): MeasurementUpdateFlags | unde
     removeMarketingHosts: getStringArray(values, 'remove-marketing-host'),
   }
   const touched = [
+    result.countKeyEvents,
     result.leadEvents, result.addLeadEvents, result.removeLeadEvents,
     result.brandTerms, result.addBrandTerms, result.removeBrandTerms,
     result.marketingHosts, result.addMarketingHosts, result.removeMarketingHosts,

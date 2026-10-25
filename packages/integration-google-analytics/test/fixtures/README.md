@@ -3,6 +3,7 @@
 | File | Case |
 |------|------|
 | `ga4-search-console-landing-pages.json` | `runReport` for GA4's "Google organic search traffic: Landing page + query string" report (Search Console collection), last 28 days, on a property linked to Search Console. |
+| `ga4-admin-key-events.json` | Admin API v1beta `properties/{id}/keyEvents` listing: GA4's default key events plus one custom event. |
 | `ga4-ai-referrals-ai-assistant-channel.json` | The three `runReport` passes of `fetchAiReferrals` (session, first user, manual UTM), each request as sent, with GA4's `AI Assistant` channel in the session and first-user filters; plus a live 400 body for a request GA4 cannot combine. |
 
 `ga4-search-console-landing-pages.json` keeps the **response shape of a live
@@ -28,5 +29,11 @@ metric values as integer strings, `metadata` and `kind`. Its rows and values
 are **synthetic**, because no captured property had a grok, deepseek or
 unrecognized source in the AI Assistant channel; `_note` records the
 `checkCompatibility` result and the case-insensitive match.
+
+`ga4-admin-key-events.json` keeps the **response shape of a live capture**
+(GA4 Admin API v1beta, 2026-10-25): resource names, `countingMethod`, and a
+default key event that omits the false-valued `deletable` and `custom`
+fields. The property id, key event ids and `createTime` values are
+**synthetic**.
 
 Keep client and company data out of every file here.

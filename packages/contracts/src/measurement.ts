@@ -50,9 +50,26 @@ export const measurementConfigSchema = z.object({
     .overwrite(values => dedupeStable(values, true)),
   leadEventNames: z.array(ga4EventNameSchema)
     .overwrite(values => dedupeStable(values)),
+  /**
+   * Also count the events the GA4 property marks as key events (its
+   * conversions, read from the GA4 Admin API on each sync) alongside
+   * `leadEventNames`. Omitted means on; set false to count only
+   * `leadEventNames`.
+   */
+  countKeyEvents: z.boolean().optional(),
 })
 
 export type MeasurementConfig = z.infer<typeof measurementConfigSchema>
+
+/** Whether a project counts its GA4 property's key events; omitted means on. */
+export function countsKeyEvents(config: Pick<MeasurementConfig, 'countKeyEvents'>): boolean {
+  return config.countKeyEvents !== false
+}
+
+/** The GA4 events a project counts: configured lead events plus key events, unique and sorted. */
+export function countedLeadEventNames(configured: readonly string[], keyEvents: readonly string[]): string[] {
+  return [...new Set([...configured, ...keyEvents])].sort()
+}
 
 function createDefaultMeasurementConfig(): MeasurementConfig {
   return {
@@ -298,6 +315,28 @@ export const gaMeasurementAnalysisDtoSchema = z.object({
      * engine and pools paid with organic.
      */
     aiEngines: analysisAiEngineLeadsSchema,
+    /**
+     * Which GA4 events count as conversions: the configured
+     * `leadEventNames`, plus the property's key events when `countKeyEvents`
+     * is on. `keyEvents` is the last successful read (null before one), and
+     * `keyEventsError` the latest failed read, which keeps the previous list.
+     */
+    countedEvents: z.object({
+      configured: z.array(z.string()),
+      keyEventsEnabled: z.boolean(),
+      keyEvents: z.array(z.string()).nullable(),
+      keyEventsError: z.string().nullable(),
+    }),
+    /**
+     * Conversions per counted event name, so sales, bookings and form leads
+     * read separately. `origin` says whether the name is configured, a GA4
+     * key event, or both. Ranked like `channels`.
+     */
+    events: z.array(z.object({
+      eventName: z.string(),
+      origin: z.enum(['configured', 'key-event', 'both']),
+      periods: z.array(analysisEventPeriodSchema),
+    })),
   }),
   engagement: z.object({
     status: z.enum(['ready', 'unavailable']),

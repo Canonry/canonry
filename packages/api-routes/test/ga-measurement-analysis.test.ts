@@ -131,6 +131,7 @@ function insertLead(
     attributionScope?: 'landing-page' | 'channel'
     source?: string
     medium?: string
+    eventName?: string
   },
 ) {
   const attributionScope = input.attributionScope ?? 'landing-page'
@@ -138,7 +139,7 @@ function insertLead(
     id: crypto.randomUUID(),
     projectId: ctx.projectId,
     date: daysBefore(GA_ANCHOR, input.daysAgo),
-    eventName: 'generate_lead',
+    eventName: input.eventName ?? 'generate_lead',
     channelGroup: input.channelGroup,
     source: input.source ?? 'google',
     medium: input.medium ?? (input.channelGroup === 'Paid Search' ? 'cpc' : 'organic'),
@@ -1300,6 +1301,63 @@ describe('GET /projects/:name/ga/measurement-analysis', () => {
       })
       expect(invalid.statusCode).toBe(400)
     }
+  })
+
+  it('counts configured lead events plus GA4 key events, one series per event, and drops events outside the set', async () => {
+    insertAcquisition(ctx, { daysAgo: 1, channelGroup: 'Organic Search', hostName: 'harbor-iq.test', landingPage: '/', sessions: 100 })
+    insertLead(ctx, { daysAgo: 1, channelGroup: 'Organic Search', hostName: 'harbor-iq.test', landingPage: '/', eventCount: 3 })
+    insertLead(ctx, { daysAgo: 1, channelGroup: 'Organic Search', hostName: 'harbor-iq.test', landingPage: '/', eventCount: 5, eventName: 'purchase' })
+    // Neither configured nor a key event: stored by an older set, so it no longer counts.
+    insertLead(ctx, { daysAgo: 1, channelGroup: 'Organic Search', hostName: 'harbor-iq.test', landingPage: '/', eventCount: 7, eventName: 'file_download' })
+    ctx.db.insert(gaMeasurementSyncStates).values({
+      projectId: ctx.projectId,
+      acquisitionStatus: 'ready',
+      acquisitionSyncedAt: NOW,
+      leadStatus: 'ready',
+      leadSyncedAt: NOW,
+      leadAttributionScope: 'landing-page',
+      keyEventNames: ['generate_lead', 'purchase'],
+      keyEventsError: null,
+      updatedAt: NOW,
+    }).run()
+    const read = async () => {
+      const response = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/harbor-iq/ga/measurement-analysis?window=30d' })
+      expect(response.statusCode).toBe(200)
+      return gaMeasurementAnalysisDtoSchema.parse(JSON.parse(response.body)).leads
+    }
+
+    const withKeyEvents = await read()
+    expect(withKeyEvents.periods.at(-1)?.eventCount).toBe(8)
+    expect(withKeyEvents.countedEvents).toEqual({
+      configured: ['generate_lead', 'book_demo'],
+      keyEventsEnabled: true,
+      keyEvents: ['generate_lead', 'purchase'],
+      keyEventsError: null,
+    })
+    expect(withKeyEvents.events.map(event => [event.eventName, event.origin, event.periods.at(-1)?.eventCount])).toEqual([
+      ['purchase', 'key-event', 5],
+      ['generate_lead', 'both', 3],
+      // Counted but with no events in the window: listed as zero, not left out.
+      ['book_demo', 'configured', 0],
+    ])
+
+    const patched = await ctx.app.inject({
+      method: 'PATCH',
+      url: '/api/v1/projects/harbor-iq',
+      payload: { measurement: { countKeyEvents: false } },
+    })
+    expect(patched.statusCode).toBe(200)
+    // A one-field measurement patch keeps the other measurement fields.
+    expect(JSON.parse(patched.body).measurement).toEqual({
+      marketingHosts: ['offers.example.net'],
+      brandTerms: ['Harbor Intelligence'],
+      leadEventNames: ['generate_lead', 'book_demo'],
+      countKeyEvents: false,
+    })
+    const configuredOnly = await read()
+    expect(configuredOnly.periods.at(-1)?.eventCount).toBe(3)
+    expect(configuredOnly.countedEvents).toMatchObject({ keyEventsEnabled: false, keyEvents: null })
+    expect(configuredOnly.events.map(event => event.eventName)).toEqual(['generate_lead', 'book_demo'])
   })
 
   it('publishes the endpoint with its typed response schema in OpenAPI', async () => {

@@ -543,6 +543,10 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
           marketingHosts: patch.measurement.marketingHosts ?? existing.measurement.marketingHosts,
           brandTerms: patch.measurement.brandTerms ?? existing.measurement.brandTerms,
           leadEventNames: patch.measurement.leadEventNames ?? existing.measurement.leadEventNames,
+          // Omitted stays omitted, which means on.
+          ...((patch.measurement.countKeyEvents ?? existing.measurement.countKeyEvents) !== undefined
+            ? { countKeyEvents: patch.measurement.countKeyEvents ?? existing.measurement.countKeyEvents }
+            : {}),
         },
       } : {}),
       ...(patch.autoExtractBacklinks !== undefined ? { autoExtractBacklinks: patch.autoExtractBacklinks } : {}),

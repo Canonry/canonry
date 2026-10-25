@@ -2580,6 +2580,10 @@ export type ApplyPreviewDto = {
             before: Array<string> | null;
             after: Array<string> | null;
         };
+        'measurement.countKeyEvents'?: {
+            before: boolean | null;
+            after: boolean | null;
+        };
         locations?: {
             before: Array<{
                 label: string;
@@ -6160,6 +6164,22 @@ export type Ga4MeasurementAnalysisDto = {
                 };
             };
         };
+        countedEvents: {
+            configured: Array<string>;
+            keyEventsEnabled: boolean;
+            keyEvents: Array<string> | null;
+            keyEventsError: string | null;
+        };
+        events: Array<{
+            eventName: string;
+            origin: 'configured' | 'key-event' | 'both';
+            periods: Array<{
+                label: 'earliest' | 'middle' | 'previous' | 'latest';
+                startDate: string;
+                endDate: string;
+                eventCount: number;
+            }>;
+        }>;
     };
     engagement: {
         status: 'ready' | 'unavailable';
@@ -6361,6 +6381,12 @@ export type Ga4SyncResponseDto = {
             rowCount: number;
             attributionScope?: 'landing-page' | 'channel';
             error?: string;
+            eventNames?: Array<string>;
+            keyEvents?: {
+                status: 'read' | 'error' | 'disabled';
+                names: Array<string>;
+                error?: string;
+            };
         };
         searchLandingPages?: {
             status: 'ready' | 'unavailable' | 'error';
@@ -12931,6 +12957,22 @@ export type OrganicEvidenceDto = {
                     };
                 };
             };
+            countedEvents: {
+                configured: Array<string>;
+                keyEventsEnabled: boolean;
+                keyEvents: Array<string> | null;
+                keyEventsError: string | null;
+            };
+            events: Array<{
+                eventName: string;
+                origin: 'configured' | 'key-event' | 'both';
+                periods: Array<{
+                    label: 'earliest' | 'middle' | 'previous' | 'latest';
+                    startDate: string;
+                    endDate: string;
+                    eventCount: number;
+                }>;
+            }>;
         };
         engagement: {
             status: 'ready' | 'unavailable';
@@ -13059,6 +13101,7 @@ export type ProjectCreateRequest = {
         marketingHosts: Array<string>;
         brandTerms: Array<string>;
         leadEventNames: Array<string>;
+        countKeyEvents?: boolean;
     };
     autoExtractBacklinks?: boolean;
     qualifiedAliases?: Array<string>;
@@ -13105,6 +13148,7 @@ export type ProjectDto = {
         marketingHosts: Array<string>;
         brandTerms: Array<string>;
         leadEventNames: Array<string>;
+        countKeyEvents?: boolean;
     };
     autoExtractBacklinks: boolean;
     negativeReviewMaxStars?: number | null;
@@ -13154,6 +13198,7 @@ export type ProjectPatchRequest = {
         marketingHosts?: Array<string>;
         brandTerms?: Array<string>;
         leadEventNames?: Array<string>;
+        countKeyEvents?: boolean;
     };
     autoExtractBacklinks?: boolean;
     qualifiedAliases?: Array<string>;
@@ -13196,6 +13241,7 @@ export type ProjectUpsertRequest = {
         marketingHosts: Array<string>;
         brandTerms: Array<string>;
         leadEventNames: Array<string>;
+        countKeyEvents?: boolean;
     };
     autoExtractBacklinks?: boolean;
     qualifiedAliases?: Array<string>;
@@ -13253,6 +13299,7 @@ export type ProjectConfig = {
             marketingHosts: Array<string>;
             brandTerms: Array<string>;
             leadEventNames: Array<string>;
+            countKeyEvents?: boolean;
         };
         schedule?: {
             preset?: string;
@@ -13336,6 +13383,7 @@ export type ProjectConfigExport = {
             marketingHosts: Array<string>;
             brandTerms: Array<string>;
             leadEventNames: Array<string>;
+            countKeyEvents?: boolean;
         };
         schedule?: {
             preset?: string;
@@ -13675,6 +13723,7 @@ export type ProjectOverviewDto = {
             marketingHosts: Array<string>;
             brandTerms: Array<string>;
             leadEventNames: Array<string>;
+            countKeyEvents?: boolean;
         };
         autoExtractBacklinks: boolean;
         negativeReviewMaxStars?: number | null;

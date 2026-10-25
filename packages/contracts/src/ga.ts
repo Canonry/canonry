@@ -514,7 +514,25 @@ export const ga4SyncResponseDtoSchema = z.object({
   syncedAt: z.string(),
   measurement: z.object({
     acquisition: z.object({ days: z.number().int().nonnegative(), status: z.enum(['ready', 'error']), rowCount: z.number().int().nonnegative(), error: z.string().optional() }),
-    leads: z.object({ days: z.number().int().nonnegative(), status: z.enum(['ready', 'error', 'not-configured']), rowCount: z.number().int().nonnegative(), attributionScope: z.enum(['landing-page', 'channel']).optional(), error: z.string().optional() }),
+    leads: z.object({
+      days: z.number().int().nonnegative(),
+      status: z.enum(['ready', 'error', 'not-configured']),
+      rowCount: z.number().int().nonnegative(),
+      attributionScope: z.enum(['landing-page', 'channel']).optional(),
+      error: z.string().optional(),
+      /** The GA4 events this sync counted: the configured lead events plus the property's key events. */
+      eventNames: z.array(z.string()).optional(),
+      /**
+       * The property's key-event read. `read` lists them; `error` keeps the
+       * previous successful list and names the failure; `disabled` means the
+       * project counts only its configured lead events.
+       */
+      keyEvents: z.object({
+        status: z.enum(['read', 'error', 'disabled']),
+        names: z.array(z.string()),
+        error: z.string().optional(),
+      }).optional(),
+    }),
     /**
      * GA4's Search Console landing-page snapshot. Absent when `only` names
      * another slice, since this sync did not attempt it. Its failure never
