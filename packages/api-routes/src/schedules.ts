@@ -1,9 +1,10 @@
 import crypto from 'node:crypto'
 import { and, asc, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { schedules, trafficSources } from '@canonry/canonry-db'
+import { schedules, seoProfiles, trafficSources } from '@canonry/canonry-db'
 import {
   ProviderWorkflows,
+  SEO_RUN_SCOPE,
   type ScheduleDto,
   type CalendarRecurrence,
   type ProviderName,
@@ -18,6 +19,7 @@ import {
   notFound,
   describeError,
 } from '@canonry/canonry-contracts'
+import { requireAdminSession, requireScope } from './auth.js'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import { assertProviderRouteScope, invalidProviderSelections, providerRouteFamilies } from './provider-models.js'
 import type { ProviderAdapterInfo } from './settings.js'
@@ -109,6 +111,22 @@ export async function scheduleRoutes(app: FastifyInstance, opts: ScheduleRoutesO
     // site-audit (Technical AEO) crawls the sitemap — no answer-engine providers.
     if (kind === SchedulableRunKinds['site-audit'] && providers && providers.length > 0) {
       throw validationError('"providers" is not valid for kind "site-audit"')
+    }
+
+    if (kind === SchedulableRunKinds['seo-sync']) {
+      if (providers && providers.length > 0) {
+        throw validationError('"providers" is not valid for kind "seo-sync"')
+      }
+      // An enabled seo-sync schedule is a standing approval to spend on the
+      // paid SEO source, so it needs the same authority as a manual refresh.
+      // Disabling one only stops spending and needs ordinary write access.
+      if (enabled !== false) {
+        requireScope(request, SEO_RUN_SCOPE)
+        requireAdminSession(request)
+        if (!app.db.select({ id: seoProfiles.id }).from(seoProfiles).where(eq(seoProfiles.projectId, project.id)).get()) {
+          throw validationError('Save an SEO profile before scheduling SEO refreshes.')
+        }
+      }
     }
 
     // Validate provider names against registered adapters

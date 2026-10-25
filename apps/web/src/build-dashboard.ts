@@ -130,6 +130,9 @@ export function toRunListItem(run: ApiRun, projectName: string): RunListItemVm {
     statusDetail: run.error ? formatRunError(run.error) : statusDetailFromRun(run),
     summary: summaryFromRun(run),
     triggerLabel: triggerLabel(run.trigger),
+    // An admitted refresh is always claimed (and started) before it can fail,
+    // so a failed one with no start time was never admitted.
+    opensSeoWorkspace: run.kind === RunKinds['seo-sync'] && !(run.status === RunStatuses.failed && !run.startedAt),
   }
 }
 
@@ -809,6 +812,7 @@ function emptyRunListItem(projectId: string, projectName: string): RunListItemVm
     statusDetail: '',
     summary: 'No runs yet',
     triggerLabel: '',
+    opensSeoWorkspace: false,
   }
 }
 

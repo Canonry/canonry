@@ -24,7 +24,7 @@ const advancedContext = {
 }
 type Surface = 'overview' | 'past checks' | 'run history'
 
-async function mount(surface: Surface, kind: RunKind = RunKinds['seo-sync']) {
+async function mount(surface: Surface, kind: RunKind = RunKinds['seo-sync'], overrides: Partial<Parameters<typeof toRunListItem>[0]> = {}) {
   const fixture = createDashboardFixture()
   const project = fixture.dashboard.portfolioOverview.projects[0]!.project
   project.name = 'canonical-slug'
@@ -33,6 +33,7 @@ async function mount(surface: Surface, kind: RunKind = RunKinds['seo-sync']) {
     id: 'selected-refresh', projectId: project.id, kind,
     status: RunStatuses.completed, trigger: RunTriggers.manual,
     createdAt: '2026-10-20T12:00:00Z', startedAt: '2026-10-20T12:00:00Z', finishedAt: '2026-10-20T12:01:00Z',
+    ...overrides,
   }, project.displayName)
   fixture.dashboard.portfolioOverview.recentRuns = [run]
   const sourcePath = surface === 'overview' ? '/' : surface === 'past checks' ? '/projects/$projectName' : '/runs'
@@ -72,5 +73,16 @@ test('past checks still opens an AI sweep in the current page drawer', async () 
   expect(router.state.location.pathname).toBe(initialPath)
   expect(router.state.location.search).toMatchObject(advancedContext)
   expect(router.state.location.search.evidenceId).toBeUndefined()
+  expect(router.state.location.search.seoRunId).toBeUndefined()
+})
+
+test.each<Surface>(['past checks', 'run history'])('%s opens a scheduled SEO refresh that never started in the run drawer, where its reason is shown', async surface => {
+  const { router, initialPath } = await mount(surface, RunKinds['seo-sync'], {
+    status: RunStatuses.failed, trigger: RunTriggers.scheduled, startedAt: undefined,
+    error: { message: 'Scheduled SEO refresh for profile "main" did not start: SEO refresh is unavailable under the current policy.' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: surface === 'past checks' ? /^View the .* check$/ : 'View run' }))
+  await waitFor(() => expect(router.state.location.search.runId).toBe('selected-refresh'))
+  expect(router.state.location.pathname).toBe(initialPath)
   expect(router.state.location.search.seoRunId).toBeUndefined()
 })

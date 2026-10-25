@@ -13,7 +13,7 @@ export const SCHEDULE_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['schedule', 'set'],
-    usage: 'canonry schedule set <project> (--preset <preset> | --cron <expr> | --every-days <n> --start-date <YYYY-MM-DD> --at <HH:mm>) [--kind answer-visibility|traffic-sync|gbp-sync|data-refresh|backlinks-sync] [--source <id>] [--timezone <tz>] [--provider <name>...] [--format json]',
+    usage: 'canonry schedule set <project> (--preset <preset> | --cron <expr> | --every-days <n> --start-date <YYYY-MM-DD> --at <HH:mm>) [--kind answer-visibility|traffic-sync|gbp-sync|data-refresh|backlinks-sync|site-audit|ads-sync|doctor|seo-sync] [--source <id>] [--timezone <tz>] [--provider <name>...] [--format json]',
     options: {
       preset: stringOption(),
       cron: stringOption(),
@@ -27,7 +27,7 @@ export const SCHEDULE_CLI_COMMANDS: readonly CliCommandSpec[] = [
     },
     run: async (input) => {
       const { setSchedule } = await import('../commands/schedule.js')
-      const usage = 'canonry schedule set <project> (--preset <preset> | --cron <expr> | --every-days <n> --start-date <YYYY-MM-DD> --at <HH:mm>) [--kind answer-visibility|traffic-sync|gbp-sync|data-refresh|backlinks-sync] [--source <id>] [--timezone <tz>] [--provider <name>...] [--format json]'
+      const usage = 'canonry schedule set <project> (--preset <preset> | --cron <expr> | --every-days <n> --start-date <YYYY-MM-DD> --at <HH:mm>) [--kind answer-visibility|traffic-sync|gbp-sync|data-refresh|backlinks-sync|site-audit|ads-sync|doctor|seo-sync] [--source <id>] [--timezone <tz>] [--provider <name>...] [--format json]'
       const project = requireProject(input, 'schedule.set', usage)
       const preset = getString(input.values, 'preset')
       const cron = getString(input.values, 'cron')
@@ -64,7 +64,7 @@ export const SCHEDULE_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['schedule', 'show'],
-    usage: 'canonry schedule show <project> [--kind answer-visibility|traffic-sync|gbp-sync|data-refresh|backlinks-sync] [--format json]',
+    usage: 'canonry schedule show <project> [--kind answer-visibility|traffic-sync|gbp-sync|data-refresh|backlinks-sync|site-audit|ads-sync|doctor|seo-sync] [--format json]',
     options: { kind: stringOption() },
     run: async (input) => {
       const { showSchedule } = await import('../commands/schedule.js')
@@ -74,7 +74,7 @@ export const SCHEDULE_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['schedule', 'enable'],
-    usage: 'canonry schedule enable <project> [--kind answer-visibility|traffic-sync|gbp-sync|data-refresh|backlinks-sync] [--format json]',
+    usage: 'canonry schedule enable <project> [--kind answer-visibility|traffic-sync|gbp-sync|data-refresh|backlinks-sync|site-audit|ads-sync|doctor|seo-sync] [--format json]',
     options: { kind: stringOption() },
     run: async (input) => {
       const { enableSchedule } = await import('../commands/schedule.js')
@@ -84,7 +84,7 @@ export const SCHEDULE_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['schedule', 'disable'],
-    usage: 'canonry schedule disable <project> [--kind answer-visibility|traffic-sync|gbp-sync|data-refresh|backlinks-sync] [--format json]',
+    usage: 'canonry schedule disable <project> [--kind answer-visibility|traffic-sync|gbp-sync|data-refresh|backlinks-sync|site-audit|ads-sync|doctor|seo-sync] [--format json]',
     options: { kind: stringOption() },
     run: async (input) => {
       const { disableSchedule } = await import('../commands/schedule.js')
@@ -94,7 +94,7 @@ export const SCHEDULE_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['schedule', 'remove'],
-    usage: 'canonry schedule remove <project> [--kind answer-visibility|traffic-sync|gbp-sync|data-refresh|backlinks-sync] [--format json]',
+    usage: 'canonry schedule remove <project> [--kind answer-visibility|traffic-sync|gbp-sync|data-refresh|backlinks-sync|site-audit|ads-sync|doctor|seo-sync] [--format json]',
     options: { kind: stringOption() },
     run: async (input) => {
       const { removeSchedule } = await import('../commands/schedule.js')

@@ -5,6 +5,7 @@ import {
   AERO_EXCLUDED_MCP_TOOLS,
   AERO_MANAGED_SWEEP_MCP_TOOLS,
   MANAGED_SWEEP_CANCEL_REFUSAL,
+  SEO_SCHEDULE_REFUSAL,
   buildMcpAgentTools,
   mcpToAgentTool,
 } from '../src/agent/mcp-to-agent-tool.js'
@@ -344,6 +345,30 @@ describe('run cancel on a managed install', () => {
     const calls: CallLog[] = []
     await cancelTool('answer-visibility', false, calls).execute('call-1', { runId: 'run-3' })
     expect(calls.map((c) => c.method)).toEqual(['cancelRun'])
+  })
+})
+
+// Aero cannot start a paid SEO refresh, so it must not be able to schedule one either.
+describe('seo-sync schedules from Aero', () => {
+  function scheduleTool(calls: CallLog[]) {
+    const tool = buildAeroStateTools(ctxFor(recordingClient(calls)), { scope: AeroToolScopes.all, managedSweeps: false })
+      .find((t) => t.name === CanonryMcpToolNames.canonry_schedule_set)
+    if (!tool) throw new Error('canonry_schedule_set missing')
+    return tool
+  }
+
+  it('refuses to create or enable a seo-sync schedule and never calls the API', async () => {
+    const calls: CallLog[] = []
+    await expect(scheduleTool(calls).execute('call-1', { schedule: { kind: 'seo-sync', cron: '0 7 2 * *' } })).rejects.toThrow(SEO_SCHEDULE_REFUSAL)
+    await expect(scheduleTool(calls).execute('call-2', { schedule: { kind: 'seo-sync', cron: '0 7 2 * *', enabled: true } })).rejects.toThrow(SEO_SCHEDULE_REFUSAL)
+    expect(calls.map((c) => c.method)).not.toContain('putSchedule')
+  })
+
+  it('still disables a seo-sync schedule and sets other kinds', async () => {
+    const calls: CallLog[] = []
+    await scheduleTool(calls).execute('call-1', { schedule: { kind: 'seo-sync', cron: '0 7 2 * *', enabled: false } })
+    await scheduleTool(calls).execute('call-2', { schedule: { kind: 'site-audit', preset: 'weekly' } })
+    expect(calls.filter((c) => c.method === 'putSchedule')).toHaveLength(2)
   })
 })
 

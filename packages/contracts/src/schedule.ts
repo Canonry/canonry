@@ -16,6 +16,9 @@ import { providerNameSchema } from './provider.js'
  *   aeo-audit ranking factors, persisting a site-level score + per-page breakdown. No `sourceId`, no `providers`.
  * - `ads-sync` — OpenAI Advertiser API (ChatGPT ads) pull: entity snapshots + daily paid-performance
  *   rollups for the project's connected ad account. No `sourceId`, no `providers`.
+ * - `seo-sync`: paid SEO data refresh, one refresh per saved SEO profile, admitted under the host's SEO
+ *   spending policy. The schedule is the standing approval, so enabling one needs `seo.run`.
+ *   No `sourceId`, no `providers`.
  */
 /**
  * `doctor` is the only kind here that measures the instrument rather than the
@@ -25,7 +28,7 @@ import { providerNameSchema } from './provider.js'
  * reports `run.completed`. Without a scheduled health kind the checks that
  * detect those conditions only run when a human types `canonry doctor`.
  */
-export const schedulableRunKindSchema = z.enum(['answer-visibility', 'traffic-sync', 'gbp-sync', 'data-refresh', 'backlinks-sync', 'site-audit', 'ads-sync', 'doctor'])
+export const schedulableRunKindSchema = z.enum(['answer-visibility', 'traffic-sync', 'gbp-sync', 'data-refresh', 'backlinks-sync', 'site-audit', 'ads-sync', 'doctor', 'seo-sync'])
 export type SchedulableRunKind = z.infer<typeof schedulableRunKindSchema>
 export const SchedulableRunKinds = schedulableRunKindSchema.enum
 

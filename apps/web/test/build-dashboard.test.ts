@@ -14,6 +14,24 @@ test('unrecognized stored job kinds retain a readable type and their reported ou
   expect(item.status).toBe('completed')
 })
 
+// A scheduled SEO refresh that was never admitted has a reason but no SEO
+// results; its link must open the run drawer, not an SEO page that 404s.
+test('only an admitted SEO refresh opens the SEO workspace', () => {
+  const run = (status: ApiRun['status'], startedAt?: string) => toRunListItem({
+    id: `seo-${status}`, projectId: 'project', kind: 'seo-sync', status, trigger: 'scheduled',
+    createdAt: '2026-11-02T07:00:00.000Z', ...(startedAt ? { startedAt } : {}),
+    ...(status === 'failed' && !startedAt ? { error: { message: 'Scheduled SEO refresh for profile "main" did not start: SEO refresh is unavailable under the current policy.' } } : {}),
+  }, 'Sample project')
+
+  expect(run('queued').opensSeoWorkspace).toBe(true)
+  expect(run('completed', '2026-11-02T07:00:01.000Z').opensSeoWorkspace).toBe(true)
+  expect(run('failed', '2026-11-02T07:00:01.000Z').opensSeoWorkspace).toBe(true)
+  const skipped = run('failed')
+  expect(skipped.opensSeoWorkspace).toBe(false)
+  expect(skipped.statusDetail).toContain('did not start: SEO refresh is unavailable under the current policy.')
+  expect(toRunListItem({ id: 'sweep', projectId: 'project', kind: 'answer-visibility', status: 'completed', trigger: 'manual', createdAt: '2026-11-02T07:00:00.000Z' }, 'Sample project').opensSeoWorkspace).toBe(false)
+})
+
 test('buildProjectCommandCenter evidence summary uses canonical mention vocabulary, not legacy "visible"', () => {
   // AGENTS.md vocabulary rule: new UI labels for the answer-text-presence
   // signal must say "mentioned", not "visible". The visibilityEvidenceSummary

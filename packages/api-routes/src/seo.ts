@@ -1,9 +1,9 @@
 import crypto from 'node:crypto'
 import { and, asc, desc, eq, inArray, isNotNull, sql } from 'drizzle-orm'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
-import { SeoRepository, emptySeoResults, seoJobs, seoProfiles, seoTasks, type DatabaseClient, type SeoJobRow, type SeoTaskRow } from '@canonry/canonry-db'
+import { SeoRepository, emptySeoResults, runs, seoJobs, seoProfiles, seoTasks, type DatabaseClient, type SeoJobRow, type SeoTaskRow } from '@canonry/canonry-db'
 import {
-  AppError, SEO_RUN_SCOPE, SEO_WRITE_SCOPE, SeoAdapterOutcomes, SeoAvailability, SeoCapabilities, SeoRunStatuses, SeoScopeKinds, SeoTargetKinds, UserRoles,
+  AppError, RunKinds, RunStatuses, RunTriggers, SEO_RUN_SCOPE, SEO_WRITE_SCOPE, SeoAdapterOutcomes, SeoAvailability, SeoCapabilities, SeoRunStatuses, SeoScopeKinds, SeoTargetKinds, UserRoles,
   matchesMeasurementTargetUrl, normalizeHostname, missingDependency, notFound, validationError, seoProfileInputSchema, seoSyncInputSchema, seoRefreshIntentInputSchema, seoEvidenceQuerySchema, seoReconcileInputSchema,
   type MeasurementPlanV2, type SeoAdapter, type SeoAdapterRequest, type SeoCapability, type SeoContext, type SeoEvidenceQuery, type SeoOverview, type SeoProfile, type SeoProfileInput, type SeoQuote, type SeoResults, type SeoRun, type SeoRunDetail, type SeoRunStatus, type SeoScopeSelection, type SeoStatus, type SeoOperatorTask, type SeoReconcileResult,
 } from '@canonry/canonry-contracts'
@@ -106,6 +106,89 @@ function taskRequests(profile: SeoProfileInput): SeoAdapterRequest[] {
   return profile.capabilities.flatMap(capability => (capability === SeoCapabilities['keyword-metrics'] ? [null] : profile.targets).map(target => ({ capability, target, keywords: capability === SeoCapabilities['keyword-metrics'] ? profile.keywords : [], locationCode: profile.locationCode, languageCode: profile.languageCode, limit: profile.limit, tag: '' })))
 }
 
+/** Price a profile's bounded task set under the host policy. Local configuration only; no provider I/O. */
+function planSeoTasks(opts: SeoRoutesOptions, input: SeoProfileInput) {
+  const runtime = opts.getSeoRuntime?.() ?? null
+  const connection = runtime?.connections.find(connection => connection.id === input.connectionId)
+  if (!runtime || !opts.onSeoRunRequested) throw missingDependency('SEO execution is not configured on this host.')
+  if (!connection) throw validationError('This SEO connection is unavailable. Select a connection listed in SEO context.')
+  if (input.capabilities.some(capability => !connection.adapter.capabilities.includes(capability))) throw validationError('The selected SEO connection does not support every requested capability. Select capabilities listed for this connection in SEO context.')
+  let planned: Array<{ request: SeoAdapterRequest; reservedMicros: number; catalogRevision: string }>
+  try { planned = taskRequests(input).map(request => { const estimate = connection.adapter.estimate(request); return { request, reservedMicros: estimate.maxCostMicros, catalogRevision: estimate.catalogRevision } }) } catch (error) {
+    if (error instanceof AppError && error.code === 'VALIDATION_ERROR') throw error
+    throw validationError('The SEO provider could not prepare this request. Check its input requirements or contact the host operator.')
+  }
+  const total = planned.reduce((sum, task) => sum + task.reservedMicros, 0)
+  if (!planned.length || planned.some(task => !Number.isSafeInteger(task.reservedMicros) || task.reservedMicros <= 0) || !Number.isSafeInteger(total) || total > runtime.policy.maxRunCostMicros) throw validationError('SEO refresh is unavailable under the current policy.')
+  const intentHash = hash(JSON.stringify({ provider: connection.adapter.provider, account: connection.adapter.accountKey, policy: runtime.policy, tasks: planned.map(task => ({ request: task.request, estimate: { maxCostMicros: task.reservedMicros, catalogRevision: task.catalogRevision } })) }))
+  return { ...runtime, connection, planned, intentHash }
+}
+
+/** The account, month and project budgets one admission reserves against. */
+function budgetBuckets(account: string, projectId: string, policy: SeoPolicy, now: string) {
+  return [
+    { scope: `account-day:${account}`, period: now.slice(0, 10), limit: policy.accountDailyLimitMicros },
+    { scope: `account-month:${account}`, period: now.slice(0, 7), limit: policy.accountMonthlyLimitMicros },
+    { scope: `project-month:${projectId}`, period: now.slice(0, 7), limit: policy.projectMonthlyLimitMicros },
+  ]
+}
+
+export interface ScheduledSeoRefreshOutcome {
+  /** Null when the project has no saved profile. */
+  profileId: string | null
+  /** `started` admitted new work; `replayed` found this occurrence already admitted; `skipped` recorded a failed run. */
+  status: 'started' | 'replayed' | 'skipped'
+  runId: string
+  reason?: string
+  /** The unexpected error behind a generic reason, for the host's log only. */
+  detail?: string
+}
+
+/**
+ * Start one refresh per saved SEO profile for a schedule occurrence.
+ *
+ * The schedule is the standing approval, so there is no intent token; the
+ * host's SEO policy still bounds every reservation exactly as for a manual
+ * refresh. The idempotency key names the schedule, the occurrence and the
+ * profile, so a repeated fire of the same occurrence returns the earlier
+ * receipt instead of paying again. A refresh that cannot be admitted (no
+ * profile, policy limit, stale scope, source not configured) leaves a failed
+ * `seo-sync` run carrying the reason, so a skipped month is visible.
+ */
+export function startScheduledSeoRefreshes(
+  db: DatabaseClient,
+  opts: SeoRoutesOptions,
+  input: { projectId: string; scheduleId: string; occurrence: string },
+): ScheduledSeoRefreshOutcome[] {
+  const repository = new SeoRepository(db)
+  const principalId = `schedule:${input.scheduleId}`
+  const recordSkipped = (profileId: string | null, reason: string, detail?: string): ScheduledSeoRefreshOutcome => {
+    const runId = crypto.randomUUID(); const now = new Date().toISOString()
+    const subject = profileId ? `profile "${profileId}"` : 'this project'
+    db.insert(runs).values({ id: runId, projectId: input.projectId, kind: RunKinds['seo-sync'], status: RunStatuses.failed, trigger: RunTriggers.scheduled, createdAt: now, finishedAt: now, error: `Scheduled SEO refresh for ${subject} did not start: ${reason}` }).run()
+    return { profileId, status: 'skipped', runId, reason, ...(detail ? { detail } : {}) }
+  }
+  const saved = db.select().from(seoProfiles).where(eq(seoProfiles.projectId, input.projectId)).orderBy(asc(seoProfiles.id)).all().map(profileDto)
+  if (!saved.length) return [recordSkipped(null, 'Save an SEO profile first.')]
+  return saved.map(profile => {
+    const idempotencyKey = `schedule:${input.scheduleId}:${input.occurrence}:${profile.id}`
+    const prior = db.select().from(seoJobs).where(and(eq(seoJobs.projectKey, input.projectId), eq(seoJobs.idempotencyKey, idempotencyKey))).get()
+    if (prior?.runId) return { profileId: profile.id, status: 'replayed', runId: prior.runId }
+    try {
+      const scopeSnapshot = resolveScope(db, input.projectId, profile)
+      const runtime = planSeoTasks(opts, profile)
+      const now = new Date().toISOString(); const account = runtime.connection.adapter.accountKey; const requestedId = crypto.randomUUID()
+      const id = repository.admit({ id: requestedId, projectId: input.projectId, profileId: profile.id, profileRevision: profile.revision, profile, scopeSnapshot, requestHash: hash(idempotencyKey), idempotencyKey, principalId, accountKey: account, now, trigger: RunTriggers.scheduled, buckets: budgetBuckets(account, input.projectId, runtime.policy, now),
+        tasks: runtime.planned.map(task => { const id = crypto.randomUUID(); return { ...task, id, request: { ...task.request, tag: id } } }) }, tx => writeAuditLog(tx, { projectId: input.projectId, actor: 'scheduler', action: 'seo.sync.requested', entityType: 'run', entityId: requestedId }))
+      if (id === requestedId) opts.onSeoRunRequested?.(id)
+      return { profileId: profile.id, status: id === requestedId ? 'started' : 'replayed', runId: id }
+    } catch (error) {
+      if (error instanceof AppError) return recordSkipped(profile.id, error.message)
+      return recordSkipped(profile.id, 'The SEO refresh could not be admitted.', error instanceof Error ? error.message : String(error))
+    }
+  })
+}
+
 export async function seoRoutes(app: FastifyInstance, opts: SeoRoutesOptions) {
   const repository = new SeoRepository(app.db)
   // Intents are deliberately short-lived across restarts; durable accepted receipts remain replayable.
@@ -148,22 +231,7 @@ export async function seoRoutes(app: FastifyInstance, opts: SeoRoutesOptions) {
     const available = !!runtime?.connections.length && !!opts.onSeoRunRequested
     return { available, reason: available ? null : 'SEO execution is not configured on this host.', capabilities: [...new Set(runtime?.connections.flatMap(connection => [...connection.adapter.capabilities]) ?? [])], profileCount: profiles(projectId).length, latestRunId: latest?.id ?? null, latestRunStatus: latest?.status ?? null, lastCompletedAt: last?.finishedAt ?? null }
   }
-  const planTasks = (input: SeoProfileInput) => {
-    const runtime = getRuntime()
-    const connection = runtime?.connections.find(connection => connection.id === input.connectionId)
-    if (!runtime || !opts.onSeoRunRequested) throw missingDependency('SEO execution is not configured on this host.')
-    if (!connection) throw validationError('This SEO connection is unavailable. Select a connection listed in SEO context.')
-    if (input.capabilities.some(capability => !connection.adapter.capabilities.includes(capability))) throw validationError('The selected SEO connection does not support every requested capability. Select capabilities listed for this connection in SEO context.')
-    let planned: Array<{ request: SeoAdapterRequest; reservedMicros: number; catalogRevision: string }>
-    try { planned = taskRequests(input).map(request => { const estimate = connection.adapter.estimate(request); return { request, reservedMicros: estimate.maxCostMicros, catalogRevision: estimate.catalogRevision } }) } catch (error) {
-      if (error instanceof AppError && error.code === 'VALIDATION_ERROR') throw error
-      throw validationError('The SEO provider could not prepare this request. Check its input requirements or contact the host operator.')
-    }
-    const total = planned.reduce((sum, task) => sum + task.reservedMicros, 0)
-    if (!planned.length || planned.some(task => !Number.isSafeInteger(task.reservedMicros) || task.reservedMicros <= 0) || !Number.isSafeInteger(total) || total > runtime.policy.maxRunCostMicros) throw validationError('SEO refresh is unavailable under the current policy.')
-    const intentHash = hash(JSON.stringify({ provider: connection.adapter.provider, account: connection.adapter.accountKey, policy: runtime.policy, tasks: planned.map(task => ({ request: task.request, estimate: { maxCostMicros: task.reservedMicros, catalogRevision: task.catalogRevision } })) }))
-    return { ...runtime, connection, planned, intentHash }
-  }
+  const planTasks = (input: SeoProfileInput) => planSeoTasks(opts, input)
   app.get<{ Params: { id: string } }>('/seo/operator/tasks/:id', async request => {
     requireOperator(request)
     const task = app.db.select().from(seoTasks).where(eq(seoTasks.id, request.params.id)).get()
@@ -257,11 +325,7 @@ export async function seoRoutes(app: FastifyInstance, opts: SeoRoutesOptions) {
     const runtime = planTasks(saved)
     if (runtime.intentHash !== claims.intentHash) throw validationError('The SEO connection or host policy changed. Create a new refresh intent.')
     const now = new Date().toISOString(); const account = runtime.connection.adapter.accountKey; const requestedId = crypto.randomUUID()
-    const id = repository.admit({ id: requestedId, projectId: project.id, profileId: saved.id, profileRevision: saved.revision, profile: saved, scopeSnapshot, requestHash, idempotencyKey: input.idempotencyKey, principalId: actor(request), accountKey: account, now, buckets: [
-      { scope: `account-day:${account}`, period: now.slice(0, 10), limit: runtime.policy.accountDailyLimitMicros },
-      { scope: `account-month:${account}`, period: now.slice(0, 7), limit: runtime.policy.accountMonthlyLimitMicros },
-      { scope: `project-month:${project.id}`, period: now.slice(0, 7), limit: runtime.policy.projectMonthlyLimitMicros },
-    ], tasks: runtime.planned.map(task => { const id = crypto.randomUUID(); return { ...task, id, request: { ...task.request, tag: id } } }) }, tx => writeAuditLog(tx, { projectId: project.id, actor: 'api', action: 'seo.sync.requested', entityType: 'run', entityId: requestedId }))
+    const id = repository.admit({ id: requestedId, projectId: project.id, profileId: saved.id, profileRevision: saved.revision, profile: saved, scopeSnapshot, requestHash, idempotencyKey: input.idempotencyKey, principalId: actor(request), accountKey: account, now, buckets: budgetBuckets(account, project.id, runtime.policy, now), tasks: runtime.planned.map(task => { const id = crypto.randomUUID(); return { ...task, id, request: { ...task.request, tag: id } } }) }, tx => writeAuditLog(tx, { projectId: project.id, actor: 'api', action: 'seo.sync.requested', entityType: 'run', entityId: requestedId }))
     const accepted = job(project.id, id)
     if (id === requestedId) opts.onSeoRunRequested?.(id)
     return reply.status(id === requestedId ? 202 : 200).send(runSummary(accepted))

@@ -1,6 +1,6 @@
 # SEO data
 
-Phase one adds stored keyword metrics, ranked keywords and domain intelligence through a provider-neutral adapter contract. DataForSEO Labs is the first adapter. Refresh is manual; this does not add Lighthouse, performance audits, a crawler or scheduled rank tracking.
+Phase one adds stored keyword metrics, ranked keywords and domain intelligence through a provider-neutral adapter contract. DataForSEO Labs is the first adapter. Refresh runs on request or on a project schedule; this does not add Lighthouse, performance audits or a crawler.
 
 ## Host configuration
 
@@ -59,6 +59,20 @@ Reuse the same intent and key when retrying a submission. Each intent admits at 
 
 The `seo` MCP toolkit mirrors the CLI through the public API. Use `canonry_help` with intent `seo`. A narrow `seo.run` grant refreshes and cancels; `seo.write` manages profiles. Neither grants general writes. Read-only credentials can inspect data and prepare a local intent but cannot submit it.
 
+## Scheduled refresh
+
+A `seo-sync` schedule refreshes every saved profile of the project on its own cadence. Each refresh is stored, so keyword metrics, ranked keywords and domain intelligence build a history, one snapshot per refresh. Monthly suits most projects: provider volumes update monthly and ranking snapshots are often weeks old.
+
+```bash
+canonry schedule set example --kind seo-sync --cron '0 7 2 * *' --timezone UTC --format json
+canonry schedule show example --kind seo-sync --format json
+canonry schedule disable example --kind seo-sync
+```
+
+The schedule is the standing approval for that paid work, so creating, changing or enabling one requires `seo.run` and, for a signed-in person, an administrator account. Disabling or removing one needs only ordinary write access. It needs at least one saved profile.
+
+Each firing admits one refresh per profile under the same host policy as a manual refresh, with an idempotency key built from the schedule, the firing minute and the profile, so a repeated firing returns the earlier receipt instead of paying twice. A firing is skipped while a `seo-sync` run for the project is queued or running. A profile that cannot be admitted (policy limit, stale Advanced scope, source not configured) leaves a failed `seo-sync` run with the reason; `canonry runs <project> --kind seo-sync` shows it. Profile edits apply from the next firing.
+
 ## Scope and metrics
 
 Simple projects use project scope. Advanced profiles pin `expectedPlanRevision` and a project, group, market or Property key from the context response. The server freezes that plan lineage, rejects stale revisions and never widens a path Property into a domain. Scope selection does not invent targets or keywords.
@@ -75,7 +89,7 @@ Aero can prioritize keyword and ranking opportunities from saved evidence with t
 [SEO analysis playbook](../skills/aero/references/seo-analysis.md).
 It recommends page inspections, content research, or missing-data checks with supporting evidence and scope limits.
 Priorities are qualitative recommendations, not opportunity scores or traffic forecasts.
-Aero cannot edit SEO profiles or start paid SEO refreshes.
+Aero cannot edit SEO profiles, start paid SEO refreshes or schedule them.
 
 ## Execution and recovery
 

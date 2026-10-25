@@ -63,7 +63,7 @@ export function PastSweeps({ runs, projectName, collapsed = false }: { runs: rea
                   return (
                     <tr key={run.id}>
                       <th scope="row" className="av-row-label tabular-nums">
-                        <RunDetailLink run={run} projectName={projectName} className="av-link" label={run.kind === RunKinds['seo-sync'] ? `View SEO refresh from ${run.startedAt}` : `View the ${run.startedAt} check`}>
+                        <RunDetailLink run={run} projectName={projectName} className="av-link" label={run.opensSeoWorkspace ? `View SEO refresh from ${run.startedAt}` : `View the ${run.startedAt} check`}>
                           {run.startedAt}
                         </RunDetailLink>
                       </th>

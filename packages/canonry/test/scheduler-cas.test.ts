@@ -37,6 +37,7 @@ function harness() {
     onDoctorRequested: vi.fn(),
     onBacklinksSyncRequested: vi.fn(),
     onSiteAuditRequested: vi.fn(),
+    onSeoSyncRequested: vi.fn(),
   })
   cleanups.push(() => scheduler.stop())
   return { db, scheduler }
