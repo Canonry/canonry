@@ -39,9 +39,11 @@ subtle borders, no visual noise.
 
 ## Patterns
 
-### SEO data
+### SEO
 
-`components/project/SeoDataSection.tsx` owns `/projects/:name/seo-data`.
+`components/project/SeoDataSection.tsx` owns `/projects/:name/seo-data`, labelled SEO.
+The public demo uses seeded stored evidence and hides execution-configuration
+notices; refresh and profile writes remain unavailable.
 Saved profiles define Simple or Advanced scope; `seoProfileId` selects a profile,
 and `seoRunId` links Activity to a specific refresh. The project context row has
 no separate SEO scope picker. Reads use the generated SDK and pin evidence tables
@@ -710,7 +712,7 @@ Token migration guardrails:
   is unavailable to pointer and assistive-technology interaction while open.
 - **Compact topbar** with breadcrumb, health pills, and primary action button.
 - **Page container** (`max-w-6xl`, centered) for all page content.
-- **Aero bar lane.** While the floating Aero bar shows, `RootLayout` adds `main-area-agent-bar` to `.main-area` (the wrapper holding the page and the footer): bottom padding plus a matching root `scroll-padding-bottom`, so the bar never covers a control or the footer's links. Pages never pad for the bar themselves.
+- **Aero bar lane.** While the floating Aero bar shows, `RootLayout` adds `main-area-agent-bar` to `.main-area` (the wrapper holding the page): bottom padding plus a matching root `scroll-padding-bottom`, so the bar never covers a control. Product links and the version live in the sidebar and mobile navigation, outside the page. Pages never pad for the bar themselves.
 - Pages use a `page-header` (title + subtitle + optional actions) followed by sections separated by `page-section-divider`. Project pages instead use the project context row: identity lives in the topbar breadcrumb (plus one visually hidden `h1`, visible below md), and the sweep action lives in the row's `[data-project-actions]`. Embeds keep `page-header`.
 - Sidebar main nav items use Lucide icons (`LayoutDashboard`, `Globe`, `Play`, `Settings`).
 - The sidebar Projects section shows each project with a colored dot indicating visibility health tone.

@@ -2577,7 +2577,7 @@ function ProjectPageContent({
     // and it appears in saved URLs, so it stays `overview` however the label reads.
     { key: 'overview', label: 'AI Visibility', href: projectTabBase },
     { key: 'search-console', label: 'Search Engines', href: `${projectTabBase}/search-console` },
-    { key: 'seo-data', label: 'SEO data', href: `${projectTabBase}/seo-data` },
+    { key: 'seo-data', label: 'SEO', href: `${projectTabBase}/seo-data` },
     { key: 'activity', label: 'Activity', href: `${projectTabBase}/activity` },
     // `technical-aeo` is a stable route and embed token. Site Health is the product label.
     { key: 'technical-aeo', label: 'Site Health', href: `${projectTabBase}/technical-aeo` },

@@ -142,9 +142,9 @@ export function SeoDataSection({ projectName }: { projectName: string }) {
   const scope = selected && context.data.scopes.find(item => item.kind === selected.scope.kind && item.key === (selected.scope.key ?? null))
 
   return (
-    <section aria-label="SEO data" className="min-w-0 space-y-5">
+    <section aria-label="SEO" className="min-w-0 space-y-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <div><h2 className="text-xl font-semibold tracking-tight text-heading">SEO data</h2><p className="mt-1 text-sm text-secondary">Search demand and organic rankings.</p></div>
+        <div><h2 className="text-xl font-semibold tracking-tight text-heading">SEO</h2><p className="mt-1 text-sm text-secondary">Search demand and organic rankings.</p></div>
         {canWrite && canConfigure && <div className="flex flex-wrap gap-2">
           {selected && <Button variant="ghost" className="min-h-11" onClick={event => { editorOpener.current = event.currentTarget; setEditor({ profile: selected, id: selected.id }) }}>Edit profile</Button>}
           <Button variant="secondary" className="min-h-11" onClick={event => { editorOpener.current = event.currentTarget; setEditor({ id: crypto.randomUUID() }) }}><Plus aria-hidden="true" className="size-4" />New profile</Button>
@@ -160,7 +160,7 @@ export function SeoDataSection({ projectName }: { projectName: string }) {
       </div>}
 
       {editor && <SeoProfileEditor key={editor.id} projectName={projectName} context={context.data} profile={editor.profile} id={editor.id} onClose={closeEditor} onSaved={id => { selectProfile(id); requestAnimationFrame(() => profileSelect.current?.focus()) }} />}
-      {!context.data.available && profiles.data.profiles.length > 0 && <p role="status" className="rounded-md border border-default px-4 py-3 text-sm text-secondary">{context.data.reason ?? 'Configure an SEO data provider to refresh saved profiles.'}</p>}
+      {!isPublicDemo() && !context.data.available && profiles.data.profiles.length > 0 && <p role="status" className="rounded-md border border-default px-4 py-3 text-sm text-secondary">{context.data.reason ?? 'Configure an SEO data provider to refresh saved profiles.'}</p>}
       {search.seoRunId && selectedRun.error ? <div className="space-y-3"><ReadError error={selectedRun.error} retry={() => { void selectedRun.refetch() }} />{selected ? <Button variant="secondary" className="min-h-11" onClick={() => selectProfile(selected.id)}>View latest data</Button> : <p className="text-sm text-secondary">Select a profile to view its latest data.</p>}</div> : search.seoRunId && selectedRun.isPending ? <p role="status" className="py-10 text-sm text-secondary">Loading refresh…</p> : selected && selectedRun.data && selectedRun.data.profileId !== selected.id ? <EmptyEvidence title="Refresh belongs to another profile">Choose the refresh’s profile, or return to the selected profile’s latest data.<Button variant="secondary" className="mt-4 min-h-11" onClick={() => selectProfile(selected.id)}>View latest data</Button></EmptyEvidence> : selected ? <SeoProfileWorkspace key={`${selected.id}:${selected.revision}:${search.seoRunId ?? ''}`} projectName={projectName} profile={selected} context={context.data} selectedRunId={search.seoRunId} onLatest={() => selectProfile(selected.id)} /> : !canConfigure && profiles.data.profiles.length === 0 ? <EmptyEvidence title={sourceConfigured ? 'SEO scope unavailable' : 'Configure an SEO data provider'}>{sourceConfigured ? context.data.scopes.find(item => item.reason)?.reason ?? 'No datasets are available for this project’s measurement scopes.' : 'Connect a provider before creating an SEO profile.'}</EmptyEvidence> : requestedProfileId ? (
         <EmptyEvidence title="Profile unavailable">This saved profile is no longer available. Select another profile to view its data.</EmptyEvidence>
       ) : !editor && <EmptyEvidence title="No SEO data yet">{canWrite ? 'Create a profile to choose the scope, source, and keywords to measure.' : 'An SEO profile is needed before data can be collected.'}</EmptyEvidence>}
@@ -235,7 +235,7 @@ function SeoProfileWorkspace({ projectName, profile, context, selectedRunId, onL
     {error && <p role="alert" className="rounded-md border border-default p-4 text-sm text-secondary">{error}{pendingSync.current && ' Retry uses the same request, so it will not start a duplicate refresh.'}</p>}
     {selectedRunId && <p className="break-all text-[13px] text-secondary">Viewing saved refresh {selectedRunId}.</p>}
     {overview.data?.evidenceRun && overview.data.evidenceRun.profileRevision !== profile.revision && <p role="status" className="text-sm text-secondary">Saved data uses profile revision {overview.data.evidenceRun.profileRevision} · Location {overview.data.evidenceRun.locationCode} · {overview.data.evidenceRun.languageCode}. The current profile has changed.</p>}
-    {scope && !scope.supported && <p role="status" className="text-sm text-secondary">{scope.reason ?? 'This scope is not supported for domain data.'}</p>}
+    {!isPublicDemo() && scope && !scope.supported && <p role="status" className="text-sm text-secondary">{scope.reason ?? 'This scope is not supported for domain data.'}</p>}
     {latest && !active && latest.status !== SeoRunStatuses.completed && <div className="flex flex-wrap items-center gap-3 text-sm text-secondary"><RunBadge status={latest.status} /><span>{latest.error ?? 'Open Activity for refresh details.'}</span></div>}
     {overview.error ? <ReadError error={overview.error} retry={() => { void overview.refetch() }} /> : overview.data?.summary && <div>
       <p className="mb-3 break-words text-[13px] text-secondary">{overview.data.summary.target.value}{overview.data.summary.target.includeSubdomains ? ' · includes subdomains' : ' · exact host'}</p>
@@ -256,7 +256,7 @@ function SeoProfileWorkspace({ projectName, profile, context, selectedRunId, onL
     <details className="border-t border-subtle text-sm text-secondary">
       <summary className="flex min-h-11 cursor-pointer items-center font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400">Data details</summary>
       <div className="space-y-4 pb-3 text-[13px] leading-relaxed">
-        <p>Current profile source: {connection?.label ?? 'Source unavailable'}. Google; device not specified by source.</p>
+        <p>Current profile source: {isPublicDemo() ? 'Fictional demo data' : connection?.label ?? 'Source unavailable'}. Google; device not specified by source.</p>
         {overview.data?.evidenceRun && <p>Saved evidence: {overview.data.evidenceRun.scope.kind}{overview.data.evidenceRun.scope.key ? ` · ${overview.data.evidenceRun.scope.key}` : ''}{overview.data.evidenceRun.scope.expectedPlanRevision !== undefined ? ` · plan revision ${overview.data.evidenceRun.scope.expectedPlanRevision}` : ''}. Location {overview.data.evidenceRun.locationCode} · {overview.data.evidenceRun.languageCode} · profile revision {overview.data.evidenceRun.profileRevision}.</p>}
         <p>These are provider estimates and observed search rankings. Missing values are shown as a dash. Keyword difficulty is a source score out of 100.</p>
         <p>Current profile targets:</p><ul className="space-y-1">{profile.targets.map((target, index) => <li key={index} className="break-words">{target.value} · {target.includeSubdomains ? 'includes subdomains' : 'exact host'}</li>)}</ul>
