@@ -416,6 +416,23 @@ function findNetworkCause(err: unknown): NetworkCause | null {
   return null
 }
 
+/**
+ * Network failures that usually clear within seconds: a DNS lookup the
+ * resolver could not answer right now, or a connection that was refused,
+ * reset or timed out before a response. Many jobs starting in the same second
+ * is enough to cause one. Worth one quick retry for a request that is safe to
+ * repeat; never a reason to retry an HTTP error response.
+ */
+const TRANSIENT_NETWORK_CODES = new Set([
+  'EAI_AGAIN', 'ENOTFOUND', 'ESERVFAIL', 'ETIMEOUT',
+  'ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_SOCKET', 'EHOSTUNREACH', 'ENETUNREACH',
+])
+
+export function isTransientNetworkError(err: unknown): boolean {
+  const cause = findNetworkCause(err)
+  return cause !== null && TRANSIENT_NETWORK_CODES.has(cause.code)
+}
+
 function requestHostname(requestUrl: string | URL | undefined): string | null {
   if (requestUrl === undefined) return null
   try {

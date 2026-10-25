@@ -83,6 +83,26 @@ describe('runChecks', () => {
     expect(report.checks.find(c => c.id === 'demo.auth')).not.toHaveProperty('urgent')
   })
 
+  it('carries a check\'s plain alert wording onto its result, and drops it from a superseded symptom', async () => {
+    const alert = { label: 'Demo sync failing', line: 'The demo sync failed 3 times.', next: null }
+    const symptom: CheckDefinition = {
+      id: 'demo.sync.recent-failures',
+      category: CheckCategories.integrations,
+      scope: CheckScopes.project,
+      title: 'symptom',
+      supersededBy: ['demo.auth'],
+      run: () => ({ status: CheckStatuses.fail, code: 'demo.sync.repeated-failures', summary: 'failed', alert }),
+    }
+    const worded: CheckDefinition = { ...symptom, id: 'demo.data', supersededBy: undefined }
+    const project = fakeCtx({ name: 'demo', canonicalDomain: 'example.com' })
+
+    expect((await runChecks(project, [worded])).checks[0]!.alert).toEqual(alert)
+    // The cause's wording speaks for a superseded symptom; its own would contradict it.
+    const superseded = (await runChecks(project, [symptom, failCheck('demo.auth', 'project')])).checks[0]!
+    expect(superseded.status).toBe('skipped')
+    expect(superseded).not.toHaveProperty('alert')
+  })
+
   it('captures runtime errors as fail with runtime-error code', async () => {
     const broken: CheckDefinition = {
       id: 'broken',

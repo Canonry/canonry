@@ -1,6 +1,7 @@
 import { test, expect } from 'vitest'
+import { HEALTH_NO_LONGER_URGENT } from '@canonry/canonry-contracts'
 import type { HealthWebhookPayload, RatingWebhookPayload, ReviewWebhookPayload, WebhookPayload } from '@canonry/canonry-contracts'
-import { AlertSeverities, AlertFieldLabels, toAlertView } from '../src/notifications/alert.js'
+import { AlertSeverities, AlertFieldLabels, CANONRY_ALERT_CATEGORY, toAlertView } from '../src/notifications/alert.js'
 import {
   DESTINATION_ADAPTERS,
   WebhookDestinations,
@@ -26,7 +27,7 @@ const health = (over: Partial<HealthWebhookPayload['health']> = {}): HealthWebho
     previousStatus: 'warn',
     failing: [
       { id: 'traffic.source.sync-lag', status: 'fail', code: 'traffic.sync-lag.discarding', summary: 'x' },
-      { id: 'content.winnability', status: 'warn', code: 'content.winnability.low-coverage', summary: 'y' },
+      { id: 'content.winnability.coverage', status: 'warn', code: 'content.winnability.low-coverage', summary: 'y' },
     ],
     ...over,
   },
@@ -78,16 +79,44 @@ test('every registered destination is reachable and terminates in first-party', 
 test('the neutral view decides content once, for every destination', () => {
   const view = toAlertView(health())
   expect(view.severity).toBe(AlertSeverities.critical)
-  expect(view.title).toContain('harborline-hotel')
+  expect(view.category).toBe(CANONRY_ALERT_CATEGORY)
+  // No wording from the check: its plain label, and its summary's first sentence.
+  expect(view.title).toBe('harborline-hotel: Traffic sync behind')
   expect(view.body).toContain('discarding')
 
   const labels = view.fields.map(f => f.label)
-  expect(labels).toContain(AlertFieldLabels.status)
-  expect(labels).toContain(AlertFieldLabels.check)
-  expect(labels).toContain(AlertFieldLabels.remediation)
+  expect(labels).toEqual([AlertFieldLabels.next, AlertFieldLabels.alsoOpen])
   // The headline names one check; the rest must still travel, or ranking
   // silently becomes filtering.
-  expect(labels.some(l => l.startsWith(AlertFieldLabels.alsoFailing))).toBe(true)
+  expect(view.fields.at(-1)!.value).toBe('• Content analysis incomplete')
+})
+
+test('an alert shows the check\'s own plain words, and never a check id or code', () => {
+  const payload = health({
+    code: 'google.auth.refresh-unreachable',
+    summary: 'Could not reach Google to refresh the GSC token: fetch failed (EAI_AGAIN resolving oauth2.googleapis.com)',
+    remediation: 'Check that this host can resolve and connect to Google (DNS filtering, firewall, or proxy), then re-run.',
+    failing: [{
+      id: 'google.auth.connection', status: 'fail', code: 'google.auth.refresh-unreachable', summary: 'Could not reach Google…',
+      alert: { label: "Can't reach Google", line: "The server couldn't reach Google, so Search Console data didn't refresh.", next: "Nothing yet. If it repeats, check the server's internet or DNS." },
+    }],
+    added: ['google.auth.refresh-unreachable'],
+  })
+  const view = toAlertView(payload)
+  expect(view.title).toBe("harborline-hotel: Can't reach Google")
+  expect(view.body).toBe("The server couldn't reach Google, so Search Console data didn't refresh.")
+  expect(view.fields).toEqual([{ label: AlertFieldLabels.next, value: "Nothing yet. If it repeats, check the server's internet or DNS." }])
+  const rendered = JSON.stringify(renderDiscord(view))
+  for (const internal of ['google.auth.refresh-unreachable', 'google.auth.connection', 'EAI_AGAIN']) expect(rendered).not.toContain(internal)
+})
+
+test('the category is the first line in both chat renderers', () => {
+  const view = toAlertView(health())
+  const discord = renderDiscord(view).embeds[0]!
+  expect(discord.author).toEqual({ name: CANONRY_ALERT_CATEGORY })
+  // The colour carries the severity, so the title is the problem alone.
+  expect(discord.title).toBe('harborline-hotel: Traffic sync behind')
+  expect(renderSlack(view).attachments[0]!.author_name).toBe(CANONRY_ALERT_CATEGORY)
 })
 
 test('a recovery is a recovery in both renderers, not another alarm', () => {
@@ -124,12 +153,23 @@ test('each renderer clamps to its own limit, because both 400 past it', () => {
 })
 
 test('a long list is truncated with the remainder counted, not silently dropped', () => {
-  const many = Array.from({ length: 25 }, (_, i) => ({
-    id: `check.${i}`, status: 'warn', code: `code.${i}`, summary: 's',
+  const ids = ['ga.data.recent-data', 'gsc.data.recent-data', 'bing.auth.connection', 'gbp.data.recent-sync', 'ga.sync.recent-failures', 'gsc.sync.recent-failures']
+  const many = ids.map((id, i) => ({ id, status: 'warn', code: `code.${i}`, summary: 's' }))
+  const view = toAlertView(health({ failing: [{ id: 'traffic.source.sync-lag', status: 'fail', code: 'traffic.sync-lag.discarding', summary: 's' }, ...many] }))
+  const also = view.fields.find(f => f.label === AlertFieldLabels.alsoOpen)!
+  expect(also.value.split('\n')).toEqual(['• GA4 data stopped', '• Search Console data stopped', '• Bing sign-in', '• and 3 more'])
+})
+
+test('repeated problems are named once with a count', () => {
+  const twice = { label: "Can't reach Google", line: 'x', next: null }
+  const view = toAlertView(health({
+    failing: [
+      { id: 'traffic.source.sync-lag', status: 'fail', code: 'traffic.sync-lag.discarding', summary: 's' },
+      { id: 'ga.auth.connection', status: 'fail', code: 'ga.auth.refresh-unreachable', summary: 's', alert: twice },
+      { id: 'gbp.auth.connection', status: 'fail', code: 'gbp.auth.refresh-unreachable', summary: 's', alert: twice },
+    ],
   }))
-  const view = toAlertView(health({ failing: [{ id: 'a', status: 'fail', code: 'traffic.sync-lag.discarding', summary: 's' }, ...many] }))
-  const also = view.fields.find(f => f.label.startsWith(AlertFieldLabels.alsoFailing))!
-  expect(also.value).toContain('and 15 more')
+  expect(view.fields.find(f => f.label === AlertFieldLabels.alsoOpen)!.value).toBe("• Can't reach Google (2)")
 })
 
 test('run events render too, so this is not health-only', () => {
@@ -300,15 +340,11 @@ test('a rating drop names both values and what to do about it', () => {
 // A degraded alert used to re-list every failing check with nothing saying
 // which one was news. The sections below lead with what changed.
 
-const fieldValues = (payload: HealthWebhookPayload) =>
-  toAlertView(payload).fields.map(field => [field.label, field.value])
+/** The lines of the "Also open" list. */
+const alsoOpen = (payload: HealthWebhookPayload) =>
+  toAlertView(payload).fields.find(field => field.label === AlertFieldLabels.alsoOpen)?.value.split('\n')
 
-/** The codes the "Also failing" list names, one per line. */
-const alsoFailingCodes = (payload: HealthWebhookPayload) =>
-  toAlertView(payload).fields.find(field => field.label.startsWith(AlertFieldLabels.alsoFailing))
-    ?.value.split('\n').map(line => line.split(' ').at(-1))
-
-test('a degraded alert lists what is new and what cleared, ahead of the standing checks', () => {
+test('a degraded alert leads with what is new, keeps the rest, and says what was fixed', () => {
   const payload = health({
     failing: [
       { id: 'traffic.source.sync-lag', status: 'fail', code: 'traffic.sync-lag.discarding', summary: 'x' },
@@ -317,54 +353,69 @@ test('a degraded alert lists what is new and what cleared, ahead of the standing
       { id: 'backlinks.source.connected', status: 'warn', code: 'backlinks.source.none', summary: 'w' },
     ],
     added: ['gsc.sync.repeated-failures', 'ga.data.aging'],
-    cleared: ['gbp.data.stale', 'bing.auth.verification-failed'],
+    cleared: ['traffic.queue-backlog.remaining', 'bing.auth.verification-failed'],
   })
 
-  const lists = fieldValues(payload).slice(-3)
-  expect(lists.slice(0, 2)).toEqual([
-    ['New (2)', '• fail: gsc.sync.repeated-failures\n• warn: ga.data.aging'],
-    ['Cleared (2)', '• gbp.data.stale\n• bing.auth.verification-failed'],
-  ])
-  // Standing only: not the headline, and not the checks listed as new.
-  expect(lists[2]![0]).toBe('Also failing (1)')
-  expect(alsoFailingCodes(payload)).toEqual(['backlinks.source.none'])
-  // `Was` still reports the earlier status alongside them.
-  expect(fieldValues(payload)).toContainEqual([AlertFieldLabels.previously, 'warn'])
+  const view = toAlertView(payload)
+  // The first new problem is the headline, not the worst standing one.
+  expect(view.title).toBe('harborline-hotel: Search Console sync failing')
+  // The other new problem is listed first and marked; the standing ones follow.
+  expect(alsoOpen(payload)).toEqual(['• GA4 data stopped (new)', '• Traffic sync behind', '• Backlinks source'])
+  // What cleared is named when it has plain words, and counted when it has none.
+  expect(view.fields.find(f => f.label === AlertFieldLabels.fixed)!.value).toBe('• The traffic backlog is cleared.\n• 1 other problem fixed.')
 
   // Both chat renderers carry the sections in that order.
-  const view = toAlertView(payload)
-  expect(renderDiscord(view).embeds[0]!.fields!.slice(-3).map(field => field.name)).toEqual(['New (2)', 'Cleared (2)', 'Also failing (1)'])
-  expect(renderSlack(view).attachments[0]!.fields!.slice(-3).map(field => field.title)).toEqual(['New (2)', 'Cleared (2)', 'Also failing (1)'])
+  expect(renderDiscord(view).embeds[0]!.fields!.map(field => field.name)).toEqual(['Also open', 'Fixed'])
+  expect(renderSlack(view).attachments[0]!.fields!.map(field => field.title)).toEqual(['Also open', 'Fixed'])
 })
 
-test('a new headline is listed as new, with its status, and never under also failing', () => {
-  // Nothing cleared, so no "Cleared" section: an empty field value would make
+test('a new problem under a standing one leads, and keeps its own next step', () => {
+  const view = toAlertView(health({
+    failing: [
+      { id: 'traffic.source.sync-lag', status: 'fail', code: 'traffic.sync-lag.discarding', summary: 'x', remediation: 'Backfill the gap.' },
+      { id: 'ga.data.recent-data', status: 'warn', code: 'ga.data.aging', summary: 'No GA4 data since Oct 20.', remediation: 'Run a GA4 sync. Then check its error.' },
+    ],
+    added: ['ga.data.aging'],
+  }))
+  expect(view.title).toBe('harborline-hotel: GA4 data stopped')
+  expect(view.body).toBe('No GA4 data since Oct 20.')
+  expect(view.fields[0]).toEqual({ label: AlertFieldLabels.next, value: 'Run a GA4 sync.' })
+})
+
+test('a new headline is never repeated under also open, and an empty section is never sent', () => {
+  // Nothing cleared, so no "Fixed" section: an empty field value would make
   // Discord reject the whole message.
   const payload = health({ added: ['traffic.sync-lag.discarding'], cleared: [] })
-  expect(fieldValues(payload).slice(-2).map(([label]) => label)).toEqual(['New (1)', 'Also failing (1)'])
-  expect(fieldValues(payload).at(-2)).toEqual(['New (1)', '• fail: traffic.sync-lag.discarding'])
-  expect(alsoFailingCodes(payload)).toEqual(['content.winnability.low-coverage'])
+  expect(toAlertView(payload).fields.map(field => field.label)).toEqual(['Next', 'Also open'])
+  expect(alsoOpen(payload)).toEqual(['• Content analysis incomplete'])
 })
 
-test('a recovery lists what cleared, and has no section for the nothing that is new', () => {
+test('a recovery says what was fixed in plain words, with no empty sections', () => {
   const view = toAlertView({
-    ...health({ status: 'ok', code: 'health.ok', remediation: null, previousStatus: 'fail', failing: [], added: [], cleared: ['traffic.sync-lag.discarding', 'ga.data.aging'] }),
+    ...health({ status: 'ok', code: 'health.ok', remediation: null, previousStatus: 'fail', failing: [], added: [], cleared: ['google.auth.refresh-unreachable', 'ga.data.aging'] }),
     event: 'health.recovered',
   })
-  expect(view.fields.map(field => [field.label, field.value])).toEqual([
-    ['Status', 'recovered'],
-    ['Check', 'health.ok'],
-    ['Was', 'fail'],
-    ['Cleared (2)', '• traffic.sync-lag.discarding\n• ga.data.aging'],
-  ])
+  expect(view.severity).toBe(AlertSeverities.success)
+  expect(view.title).toBe('harborline-hotel: Back to normal')
+  expect(view.body).toBe('Google is reachable again. 1 other problem fixed.')
+  expect(view.fields).toEqual([])
 })
 
-test('a no-signal alert, which has no failing check behind it, still names its status as new', () => {
-  const payload = health({ status: 'warn', code: 'health.no-signal', remediation: null, failing: [], added: ['health.no-signal'], cleared: ['ga.data.aging'] })
-  expect(fieldValues(payload).slice(-2)).toEqual([
-    ['New (1)', '• warn: health.no-signal'],
-    ['Cleared (1)', '• ga.data.aging'],
-  ])
+test('a no-signal alert, which has no failing check behind it, says health is unknown', () => {
+  const payload = health({ status: 'warn', code: 'health.no-signal', summary: 'No health check produced a result (12 skipped).', remediation: null, failing: [], added: ['health.no-signal'], cleared: ['ga.data.aging'] })
+  const view = toAlertView(payload)
+  expect(view.title).toBe('harborline-hotel: Health unknown')
+  expect(view.severity).toBe(AlertSeverities.warning)
+  // Nothing else is named, so the count is not "other" problems.
+  expect(view.fields).toEqual([{ label: AlertFieldLabels.fixed, value: '• 1 problem fixed.' }])
+})
+
+test('a recovery with nothing it can name counts what was fixed', () => {
+  const view = toAlertView({
+    ...health({ status: 'ok', code: 'health.ok', remediation: null, previousStatus: 'warn', failing: [], added: [], cleared: ['ga.data.aging', 'gsc.data.aging'] }),
+    event: 'health.recovered',
+  })
+  expect(view.body).toBe('2 problems fixed.')
 })
 
 test('an urgent alert is critical whatever its check is graded, and says urgent', () => {
@@ -375,17 +426,17 @@ test('an urgent alert is critical whatever its check is graded, and says urgent'
       status: 'warn',
       code: 'ga.data.stale',
       summary: 'GA4 syncs are running but have stored nothing newer than 2026-10-07 (5 days).',
+      remediation: 'Run a GA4 sync and check its error.',
       previousStatus: 'ok',
-      failing: [{ id: 'ga.data.freshness', status: 'warn', code: 'ga.data.stale', summary: 'x' }],
+      failing: [{ id: 'ga.data.recent-data', status: 'warn', code: 'ga.data.stale', summary: 'GA4 syncs are running but have stored nothing newer than 2026-10-07 (5 days).' }],
       added: ['ga.data.stale'],
     }),
     event: 'health.urgent',
   })
   expect(view.severity).toBe(AlertSeverities.critical)
-  expect(view.title).toBe('harborline-hotel: urgent problem')
+  expect(view.title).toBe('harborline-hotel: GA4 data stopped (urgent)')
   expect(view.body).toContain('nothing newer than 2026-10-07')
-  expect(view.fields.find(f => f.label === AlertFieldLabels.status)!.value).toBe('urgent')
-  expect(view.fields.some(f => f.label === AlertFieldLabels.remediation)).toBe(true)
+  expect(view.fields.find(f => f.label === AlertFieldLabels.next)!.value).toBe('Run a GA4 sync and check its error.')
 })
 
 test('an urgent resolution is a success, and is not titled as the whole project recovering', () => {
@@ -402,14 +453,33 @@ test('an urgent resolution is a success, and is not titled as the whole project 
     event: 'health.urgent-resolved',
   })
   expect(view.severity).toBe(AlertSeverities.success)
-  expect(view.title).toBe('harborline-hotel: urgent problem resolved')
-  expect(view.title).not.toContain('recovered')
-  expect(view.fields.find(f => f.label === AlertFieldLabels.status)!.value).toBe('resolved')
-  expect(view.fields.some(f => f.label.startsWith(AlertFieldLabels.cleared))).toBe(true)
+  expect(view.title).toBe('harborline-hotel: Urgent problem fixed')
+  expect(view.title).not.toContain('normal')
+  expect(view.body).toBe('GA4 data is current through 2026-10-12.')
+  // The body is the problem that resolved; a "Fixed" list would count it again.
+  expect(view.fields).toEqual([])
+})
+
+test('an urgent problem that only eased is no longer urgent, never fixed', () => {
+  // The notifier's summary for a check that eased to a plain warning.
+  const resolved = (summary: string, cleared: string[]) => toAlertView({
+    ...health({ status: 'ok', code: 'health.urgent.resolved', summary, remediation: null, previousStatus: 'warn', failing: [], cleared }),
+    event: 'health.urgent-resolved',
+  })
+  const eased = resolved(`${HEALTH_NO_LONGER_URGENT} GA4 syncs are running but have stored nothing newer than 2026-10-10 (2 days). Check the tag.`, ['ga.data.stale'])
+  expect(eased.title).toBe('harborline-hotel: No longer urgent')
+  // What the check says now, not just "No longer urgent."
+  expect(eased.body).toBe('GA4 syncs are running but have stored nothing newer than 2026-10-10 (2 days).')
+  expect(eased.fields).toEqual([])
+
+  // Several at once may include one that eased, so they are not called fixed either.
+  const several = resolved('2 urgent problems are resolved.', ['ga.data.stale', 'gsc.data.stale'])
+  expect(several.title).toBe('harborline-hotel: No longer urgent')
+  expect(several.body).toBe('2 urgent problems are resolved.')
 })
 
 test('a website outage keeps its own title on the urgent events', () => {
   const outage = health({ status: 'fail', code: 'site.reachability.down', summary: 'https://harborline.test/ is not responding: HTTP 503.', previousStatus: 'ok', failing: [] })
-  expect(toAlertView({ ...outage, event: 'health.urgent' }).title).toBe('harborline-hotel website is down')
-  expect(toAlertView({ ...outage, event: 'health.urgent-resolved' }).title).toBe('harborline-hotel website is back up')
+  expect(toAlertView({ ...outage, event: 'health.urgent' }).title).toBe('harborline-hotel: Website down (urgent)')
+  expect(toAlertView({ ...outage, event: 'health.urgent-resolved' }).title).toBe('harborline-hotel: Website is back up')
 })

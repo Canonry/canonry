@@ -136,3 +136,26 @@ test('deliverWebhook passes on how long a rate-limited receiver asked to wait', 
 
   expect(result).toEqual({ status: 429, error: null, requestSent: true, retryAfterSeconds: 120 })
 })
+
+test('resolveWebhookTarget retries a lookup the resolver could not answer right now', async () => {
+  const unavailable = () => Promise.reject(Object.assign(new Error('queryA ESERVFAIL hooks.example.test'), { code: 'ESERVFAIL' }))
+  const resolve4 = vi.spyOn(dns, 'resolve4')
+    .mockImplementationOnce(unavailable)
+    .mockResolvedValueOnce(['203.0.113.10'])
+  vi.spyOn(dns, 'resolve6').mockRejectedValue(Object.assign(new Error('queryAaaa ENODATA hooks.example.test'), { code: 'ENODATA' }))
+
+  const result = await resolveWebhookTarget('https://hooks.example.test/hook')
+
+  expect(result.ok).toBe(true)
+  expect(resolve4).toHaveBeenCalledTimes(2)
+})
+
+test('resolveWebhookTarget reports a name that still does not resolve after the retry', async () => {
+  const resolve4 = vi.spyOn(dns, 'resolve4').mockRejectedValue(Object.assign(new Error('queryA ETIMEOUT hooks.example.test'), { code: 'ETIMEOUT' }))
+  vi.spyOn(dns, 'resolve6').mockRejectedValue(Object.assign(new Error('queryAaaa ETIMEOUT hooks.example.test'), { code: 'ETIMEOUT' }))
+
+  const result = await resolveWebhookTarget('https://hooks.example.test/hook')
+
+  expect(result).toMatchObject({ ok: false, unresolved: true })
+  expect(resolve4).toHaveBeenCalledTimes(2)
+})

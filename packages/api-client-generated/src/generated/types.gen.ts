@@ -5908,6 +5908,23 @@ export type DoctorReportDto = {
             [key: string]: unknown;
         };
         /**
+         * Plain words a health alert shows for this result. Absent when the check has none; alerts then fall back to the summary.
+         */
+        alert?: {
+            /**
+             * The problem in a few words, e.g. "Can't reach Google".
+             */
+            label: string;
+            /**
+             * What happened, in one plain sentence.
+             */
+            line: string;
+            /**
+             * What to do, in one plain sentence; null when nothing needs doing yet.
+             */
+            next: string | null;
+        };
+        /**
          * How long the check took to execute.
          */
         durationMs: number;
@@ -34254,6 +34271,49 @@ export type PostApiV1ProjectsByNameTrafficSourcesByIdResetResponses = {
 };
 
 export type PostApiV1ProjectsByNameTrafficSourcesByIdResetResponse = PostApiV1ProjectsByNameTrafficSourcesByIdResetResponses[keyof PostApiV1ProjectsByNameTrafficSourcesByIdResetResponses];
+
+export type PostApiV1ProjectsByNameTrafficSourcesByIdDeclareGapData = {
+    body: {
+        /**
+         * The source's current `skippedThroughAt`, exactly as read.
+         */
+        skippedThroughAt: string;
+    };
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Traffic source ID.
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/traffic/sources/{id}/declare-gap';
+};
+
+export type PostApiV1ProjectsByNameTrafficSourcesByIdDeclareGapErrors = {
+    /**
+     * No gap is recorded, or `skippedThroughAt` does not match the current one.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project or traffic source not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameTrafficSourcesByIdDeclareGapError = PostApiV1ProjectsByNameTrafficSourcesByIdDeclareGapErrors[keyof PostApiV1ProjectsByNameTrafficSourcesByIdDeclareGapErrors];
+
+export type PostApiV1ProjectsByNameTrafficSourcesByIdDeclareGapResponses = {
+    /**
+     * Gap recorded; the source no longer reports an unrecovered skip.
+     */
+    200: TrafficSourceDetailDto;
+};
+
+export type PostApiV1ProjectsByNameTrafficSourcesByIdDeclareGapResponse = PostApiV1ProjectsByNameTrafficSourcesByIdDeclareGapResponses[keyof PostApiV1ProjectsByNameTrafficSourcesByIdDeclareGapResponses];
 
 export type GetApiV1ProjectsByNameTrafficSourcesData = {
     body?: never;

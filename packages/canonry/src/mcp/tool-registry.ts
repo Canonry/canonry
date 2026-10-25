@@ -958,12 +958,18 @@ const trafficBackfillInputSchema = z.object({
     .describe('Lookback window in days. Default 30, capped by the adapter at 90d. Generic WordPress replace backfill is unavailable because retained coverage is unproven.'),
 })
 
+const trafficDeclareGapInputSchema = z.object({
+  project: projectNameSchema,
+  sourceId: z.string().min(1).describe('Traffic source ID returned by canonry_traffic_sources_list.'),
+  skippedThroughAt: z.string().min(1).describe('The source\'s current skippedThroughAt, exactly as canonry_traffic_sources_list returned it. A newer skip is refused, never cleared.'),
+})
+
 const trafficResetInputSchema = z.object({
   project: projectNameSchema,
   sourceId: z.string().min(1).describe('Traffic source ID returned by canonry_traffic_sources_list.'),
   advanceToNow: z
     .literal(true)
-    .describe('Must be `true`. Explicit gate against accidental resets. Advances lastSyncedAt to NOW and clears the source\'s error state; WordPress also clears its continuation state and records an unrecovered span that needs retention-aware repair.'),
+    .describe('Must be `true`. Explicit gate against accidental resets. Advances lastSyncedAt to NOW and clears the source\'s error state; WordPress also clears its continuation state and records an unrecovered span; once it cannot be recovered, record it with canonry_traffic_declare_gap.'),
 })
 
 const trafficEventsInputSchema = z.object({
@@ -2944,7 +2950,7 @@ const rawCanonryMcpTools = [
   defineTool({
     name: 'canonry_traffic_backfill',
     title: 'Backfill traffic source',
-    description: 'Async one-shot reclassification for Cloud Run or Vercel traffic. It replaces the selected window’s rollups with a fresh bounded pull and current classifier output. WordPress generic replace backfill is unavailable because the endpoint cannot prove retained coverage; use a retention-aware repair that explicitly declares any unrecoverable span. Returns `{ runId, status: "running" }`; poll canonry_run_get for completion.',
+    description: 'Async one-shot reclassification for Cloud Run or Vercel traffic. It replaces the selected window’s rollups with a fresh bounded pull and current classifier output. WordPress generic replace backfill is unavailable because the endpoint cannot prove retained coverage; record a span that cannot be recovered with canonry_traffic_declare_gap. Returns `{ runId, status: "running" }`; poll canonry_run_get for completion.',
     access: 'write',
     tier: 'traffic',
     inputSchema: trafficBackfillInputSchema,
@@ -2955,13 +2961,24 @@ const rawCanonryMcpTools = [
   defineTool({
     name: 'canonry_traffic_reset',
     title: 'Advance traffic source lastSyncedAt to NOW',
-    description: 'Operator recovery for a stuck traffic source. Advances `lastSyncedAt` to NOW, sets `status` back to `connected`, and clears `last_error`. A WordPress reset also clears its continuation state and records an unrecovered span so its next bounded drain cannot combine an old cursor with a new window. That stops replay but is not historical repair. Generic WordPress replace-mode backfill is unavailable because retained coverage is unproven; use a retention-aware repair that explicitly declares any unrecoverable span. Archived sources are rejected; reconnect them with the appropriate canonry_traffic_connect_* tool.',
+    description: 'Operator recovery for a stuck traffic source. Advances `lastSyncedAt` to NOW, sets `status` back to `connected`, and clears `last_error`. A WordPress reset also clears its continuation state and records an unrecovered span so its next bounded drain cannot combine an old cursor with a new window. That stops replay but is not historical repair. Generic WordPress replace-mode backfill is unavailable because retained coverage is unproven; once a span cannot be recovered, record it with canonry_traffic_declare_gap. Archived sources are rejected; reconnect them with the appropriate canonry_traffic_connect_* tool.',
     access: 'write',
     tier: 'traffic',
     inputSchema: trafficResetInputSchema,
     annotations: writeAnnotations({ idempotentHint: true, destructiveHint: true }),
     openApiOperations: ['POST /api/v1/projects/{name}/traffic/sources/{id}/reset'],
     handler: (client, input) => client.trafficReset(input.project, input.sourceId),
+  }),
+  defineTool({
+    name: 'canonry_traffic_declare_gap',
+    title: 'Record a traffic gap as unrecoverable',
+    description: 'Record a traffic source\'s unrecovered skip (its skippedThroughAt) as data that cannot be recovered, and clear it so the traffic.sync-lag.unrecovered-skip doctor check passes. Rollups are untouched; an audit entry keeps the span. For WordPress, whose plugin feed cannot prove a historical repair, or any source whose provider no longer retains the span; backfill a recoverable gap instead. This hides a data-loss warning, so declare only after the person running the project agrees.',
+    access: 'write',
+    tier: 'traffic',
+    inputSchema: trafficDeclareGapInputSchema,
+    annotations: writeAnnotations({ idempotentHint: false, destructiveHint: true }),
+    openApiOperations: ['POST /api/v1/projects/{name}/traffic/sources/{id}/declare-gap'],
+    handler: (client, input) => client.trafficDeclareGap(input.project, input.sourceId, input.skippedThroughAt),
   }),
   defineTool({
     name: 'canonry_snapshot',

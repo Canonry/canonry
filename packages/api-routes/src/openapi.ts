@@ -7464,7 +7464,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/traffic/sources/{id}/reset',
     summary: 'Advance lastSyncedAt to NOW and clear the error state',
     description:
-      'Operator recovery: advances `lastSyncedAt` to NOW, sets `status` back to `connected`, and clears `last_error`. WordPress resets also clear `last_cursor` and the pending-window marker, then record an unrecovered skip through the reset instant so the next drain cannot combine an old cursor with a new window. That prevents replay but is not a historical repair. Generic WordPress replace-mode backfill is unavailable because the plugin feed cannot prove retained coverage; use a retention-aware repair and explicitly declare any unrecoverable span. Common trigger: an idle Vercel/Cloud Run source whose `lastSyncedAt` has aged past upstream retention (`request-logs` ~14d, Cloud Logging 30d) and now throws on every sync. `advanceToNow: true` is required (no implicit reset). Archived sources are rejected with 400 — re-connect them via the appropriate `traffic/connect/*` endpoint instead.',
+      'Operator recovery: advances `lastSyncedAt` to NOW, sets `status` back to `connected`, and clears `last_error`. WordPress resets also clear `last_cursor` and the pending-window marker, then record an unrecovered skip through the reset instant so the next drain cannot combine an old cursor with a new window. That prevents replay but is not a historical repair. Generic WordPress replace-mode backfill is unavailable because the plugin feed cannot prove retained coverage; record the skipped span with `POST /traffic/sources/{id}/declare-gap` once it cannot be recovered. Common trigger: an idle Vercel/Cloud Run source whose `lastSyncedAt` has aged past upstream retention (`request-logs` ~14d, Cloud Logging 30d) and now throws on every sync. `advanceToNow: true` is required (no implicit reset). Archived sources are rejected with 400 — re-connect them via the appropriate `traffic/connect/*` endpoint instead.',
     tags: ['traffic'],
     parameters: [
       nameParameter,
@@ -7487,6 +7487,37 @@ const routeCatalog: OpenApiOperation[] = [
     responses: {
       200: jsonResponse('Source reset; lastSyncedAt advanced to NOW.', 'TrafficSourceDetailDto'),
       400: errorResponse('Missing or invalid `advanceToNow` flag, or the source is archived.'),
+      404: errorResponse('Project or traffic source not found.'),
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/traffic/sources/{id}/declare-gap',
+    summary: 'Record a source\'s unrecovered skip as lost and clear it',
+    description:
+      'Records the span a source skipped, through `skippedThroughAt`, as data that cannot be recovered, clears the marker so the `traffic.sync-lag.unrecovered-skip` doctor check passes, and writes a `traffic.source.gap-declared` audit entry with the span. Rollups are untouched. Meant for WordPress, whose plugin feed cannot prove a historical repair, and for any source whose provider no longer retains the span; a recoverable gap should be backfilled instead. `skippedThroughAt` must repeat the current marker exactly, so a newer skip recorded since the operator looked is refused, not cleared.',
+    tags: ['traffic'],
+    parameters: [
+      nameParameter,
+      { name: 'id', in: 'path', required: true, description: 'Traffic source ID.', schema: stringSchema },
+    ],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            required: ['skippedThroughAt'],
+            properties: {
+              skippedThroughAt: { type: 'string', description: 'The source\'s current `skippedThroughAt`, exactly as read.' },
+            },
+          },
+        },
+      },
+    },
+    responses: {
+      200: jsonResponse('Gap recorded; the source no longer reports an unrecovered skip.', 'TrafficSourceDetailDto'),
+      400: errorResponse('No gap is recorded, or `skippedThroughAt` does not match the current one.'),
       404: errorResponse('Project or traffic source not found.'),
     },
   },

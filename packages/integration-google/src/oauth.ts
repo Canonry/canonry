@@ -1,3 +1,4 @@
+import { isTransientNetworkError, withRetry } from '@canonry/canonry-contracts'
 import { GOOGLE_AUTH_URL, GOOGLE_TOKEN_URL, GOOGLE_REQUEST_TIMEOUT_MS } from './constants.js'
 import type { GoogleTokenResponse } from './types.js'
 import { GoogleAuthError } from './types.js'
@@ -134,6 +135,19 @@ function escapeRegExp(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
+/**
+ * One retry when the refresh request could not reach Google (a DNS lookup the
+ * resolver could not answer, a refused or reset connection). A refresh is safe
+ * to repeat, and these failures usually clear within a second; the wait has a
+ * floor so the retry does not land in the same blip. HTTP errors are never
+ * retried here.
+ */
+const TOKEN_REFRESH_RETRY = {
+  maxRetries: 1,
+  isRetryable: isTransientNetworkError,
+  computeDelayMs: (_attempt: number, _err: unknown, jitteredMs: number) => 500 + jitteredMs,
+}
+
 export async function refreshAccessToken(
   clientId: string,
   clientSecret: string,
@@ -142,7 +156,7 @@ export async function refreshAccessToken(
   validateClientId(clientId)
   validateClientSecret(clientSecret)
   validateRefreshToken(currentRefreshToken)
-  const res = await fetch(GOOGLE_TOKEN_URL, {
+  const res = await withRetry(() => fetch(GOOGLE_TOKEN_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
@@ -152,7 +166,7 @@ export async function refreshAccessToken(
       grant_type: 'refresh_token',
     }),
     signal: AbortSignal.timeout(GOOGLE_REQUEST_TIMEOUT_MS),
-  })
+  }), TOKEN_REFRESH_RETRY)
 
   if (res.status === 429) {
     throw new GoogleAuthError('Google OAuth rate limit exceeded', 429)

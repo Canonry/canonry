@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { AppError, describeError, describeFetchError, isFetchTransportError, notFound, queryTrackingPreviewStale, researchDailyLimitExceeded, validationError } from '../src/errors.js'
+import { AppError, describeError, describeFetchError, isFetchTransportError, isTransientNetworkError, notFound, queryTrackingPreviewStale, researchDailyLimitExceeded, validationError } from '../src/errors.js'
 
 describe('describeError', () => {
   it('returns the message of an Error', () => {
@@ -185,6 +185,21 @@ describe('isFetchTransportError', () => {
     expect(isFetchTransportError(Object.assign(new Error('unsupported key'), { code: 'ERR_OSSL_UNSUPPORTED' }))).toBe(false)
     expect(isFetchTransportError('fetch failed')).toBe(false)
     expect(isFetchTransportError(null)).toBe(false)
+  })
+})
+
+describe('isTransientNetworkError', () => {
+  it('recognizes lookups and connections that usually clear in a second, at any depth', () => {
+    expect(isTransientNetworkError(fetchFailed(Object.assign(new Error('getaddrinfo EAI_AGAIN oauth2.googleapis.com'), { code: 'EAI_AGAIN' })))).toBe(true)
+    expect(isTransientNetworkError(Object.assign(new Error('queryA ESERVFAIL example.com'), { code: 'ESERVFAIL' }))).toBe(true)
+    expect(isTransientNetworkError(fetchFailed(Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' })))).toBe(true)
+  })
+
+  it('never treats an HTTP failure or an unrelated error as worth a retry', () => {
+    expect(isTransientNetworkError(new Error('Token refresh failed (400): invalid_grant'))).toBe(false)
+    expect(isTransientNetworkError(Object.assign(new Error('unsupported key'), { code: 'ERR_OSSL_UNSUPPORTED' }))).toBe(false)
+    expect(isTransientNetworkError(Object.assign(new Error('queryAaaa ENODATA example.com'), { code: 'ENODATA' }))).toBe(false)
+    expect(isTransientNetworkError(null)).toBe(false)
   })
 })
 

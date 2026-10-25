@@ -183,6 +183,13 @@ export type CheckOutput = Pick<CheckResultDto, 'status' | 'code' | 'summary'> & 
   remediation?: string | null
   details?: Record<string, unknown>
   /**
+   * Plain words for a health alert: the problem in a few words, what happened
+   * in one line, and the next step (null when nothing needs doing yet). Write
+   * it from the same facts as `summary`, in words an operator reads at a
+   * glance. Without it an alert falls back to the summary's first sentence.
+   */
+  alert?: CheckResultDto['alert']
+  /**
    * Set on a failing output that a person has to act on now, and on nothing
    * else. It is a property of the output, not of the check: daily data three
    * days old is a warning, the same check at five days is urgent. Urgent

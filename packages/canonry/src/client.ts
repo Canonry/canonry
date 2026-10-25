@@ -575,6 +575,7 @@ import {
   postApiV1ProjectsByNameTrafficSourcesByIdSync,
   postApiV1ProjectsByNameTrafficSourcesByIdBackfill,
   postApiV1ProjectsByNameTrafficSourcesByIdReset,
+  postApiV1ProjectsByNameTrafficSourcesByIdDeclareGap,
   getApiV1ProjectsByNameTrafficSources,
   getApiV1ProjectsByNameTrafficStatus,
   getApiV1ProjectsByNameTrafficSourcesById,
@@ -4096,6 +4097,16 @@ export class ApiClient {
         client: this.heyClient,
         path: { name: project, id: sourceId },
         body: { advanceToNow: true },
+      }),
+    )
+  }
+
+  async trafficDeclareGap(project: string, sourceId: string, skippedThroughAt: string): Promise<TrafficSourceDetailDto> {
+    return this.invoke<TrafficSourceDetailDto>(() =>
+      postApiV1ProjectsByNameTrafficSourcesByIdDeclareGap({
+        client: this.heyClient,
+        path: { name: project, id: sourceId },
+        body: { skippedThroughAt },
       }),
     )
   }

@@ -10,7 +10,9 @@ import {
   RunStatuses,
   TrafficSourceStatuses,
   TrafficSourceTypes,
+  cloudflareQueuePullTrafficSourceConfigSchema,
   describeError,
+  formatCalendarDay,
   type CloudflareQueueDrainStopReason,
 } from '@canonry/canonry-contracts'
 import {
@@ -122,6 +124,35 @@ function loadProbes(ctx: DoctorContext): TrafficSourceProbe[] {
   }))
 }
 
+/**
+ * Plain alert words for unrecovered skips: the latest skipped day, the sources,
+ * and the one way to close each kind. The marker proves data is missing, not
+ * that it is gone: other sources can still be backfilled while their provider
+ * retains the span. Only WordPress, whose feed cannot prove a historical
+ * repair, is called unrecoverable, and its gap is declared.
+ */
+function unrecoveredAlert(
+  projectName: string,
+  unrecovered: ReadonlyArray<{ id: string; sourceType: string; displayName: string; skippedThroughAt: string | null }>,
+): NonNullable<CheckOutput['alert']> {
+  const through = unrecovered.map(m => m.skippedThroughAt!).sort().at(-1)!
+  const day = formatCalendarDay(through.slice(0, 10))
+  const wordpress = unrecovered.filter(m => m.sourceType === TrafficSourceTypes.wordpress)
+  const next = unrecovered.length === 1
+    ? (wordpress.length === 1
+        ? `Record it as lost with \`cnry traffic declare-gap ${projectName} --source ${unrecovered[0]!.id}\`.`
+        : `Backfill it with \`cnry traffic backfill ${projectName} --source ${unrecovered[0]!.id} --days N\`.`)
+    : 'Record each WordPress gap with `cnry traffic declare-gap`, and backfill the others.'
+  const names = unrecovered.map(m => m.displayName).join(', ')
+  return {
+    label: `Traffic gap before ${day}`,
+    line: wordpress.length === unrecovered.length
+      ? `A stretch of traffic before ${day} is missing for ${names}. WordPress can't replay it.`
+      : `A stretch of traffic before ${day} is missing for ${names}.`,
+    next,
+  }
+}
+
 const sourceConnectedCheck: CheckDefinition = {
   id: 'traffic.source.connected',
   category: CheckCategories.integrations,
@@ -173,6 +204,17 @@ const sourceConnectedCheck: CheckDefinition = {
           sourceCount: activeSources.length, pausedCount: sources.length - activeSources.length, erroredIds: errored.map((s) => s.id),
           failuresInARow, lastSyncedAt: lastDataAt,
         },
+        alert: recovering
+          ? {
+              label: 'Traffic sync failed',
+              line: `The last traffic sync for ${errored.map((s) => s.displayName).join(', ')} failed.`,
+              next: 'Nothing yet. The next sync usually recovers.',
+            }
+          : {
+              label: 'Traffic sync failing',
+              line: `Traffic syncs for ${errored.map((s) => s.displayName).join(', ')} failed ${failuresInARow} times in a row${lastDataAt ? `, with no new data since ${formatCalendarDay(lastDataAt.slice(0, 10))}` : ''}.`,
+              next: `Check the source with \`cnry traffic sources ${ctx.project!.name}\`, then reconnect it if needed.`,
+            },
       }
     }
     if (errored.length > 0) {
@@ -659,7 +701,7 @@ const syncLagCheck: CheckDefinition = {
       const unrecoveredOtherSources = unrecovered.filter((m) => m.sourceType !== 'wordpress')
       const remediation = [
         unrecoveredWordpress.length > 0
-          ? 'For WordPress, do not run generic replace-mode backfill: the plugin feed cannot prove it still retains every bucket in the gap. Keep existing rollups intact and use a retention-aware repair that explicitly declares the unrecoverable span.'
+          ? 'For WordPress, do not run generic replace-mode backfill: the plugin feed cannot prove it still retains every bucket in the gap. Once you accept the span is lost, record it with `canonry traffic declare-gap <project> --source <id>`, which keeps existing rollups and clears this check.'
           : null,
         unrecoveredOtherSources.length > 0
           ? 'Recover each non-WordPress gap with `canonry traffic backfill <project> --source <id> --days N --wait`, choosing N so the window reaches back past the skipped instant and stays inside the provider\'s log retention. This clears only when a backfill actually covers the span.'
@@ -674,6 +716,7 @@ const syncLagCheck: CheckDefinition = {
           + 'Current lag may look healthy; the gap does not close on its own.',
         remediation,
         details,
+        alert: unrecoveredAlert(ctx.project!.name, unrecovered),
       }
     }
 
@@ -758,30 +801,42 @@ const QUEUE_NOT_VISIBLE_STOPS: readonly CloudflareQueueDrainStopReason[] = [
   CloudflareQueueDrainStopReasons['unleased-only'],
 ]
 
-/** The cause and fix for a residual above the warn count, from why the last syncs stopped. */
-function queueResidualCause(stopReasons: readonly (CloudflareQueueDrainStopReason | null)[]): { cause: string; remediation: string } {
+/**
+ * The cause and fix for a residual above the warn count, from why the last
+ * syncs stopped. `next` is the same fix in the plain words an alert shows; the
+ * sync command names the source when only one has a backlog.
+ */
+function queueResidualCause(
+  stopReasons: readonly (CloudflareQueueDrainStopReason | null)[],
+  projectName: string,
+  sourceId: string | null,
+): { cause: string; remediation: string; next: string } {
   const readRuns = 'Read why each sync stopped with `canonry runs <project> --kind traffic-sync --format json` (`syncSummary.stopReason`).'
   if (stopReasons.every(reason => reason !== null && QUEUE_LIMIT_STOPS.includes(reason))) {
     return {
       cause: 'The drain stopped at its time limit or pull cap before the Queue was empty.',
       remediation: 'If the backlog keeps growing, messages will pass the Queue\'s retention and be dropped. Shorten the traffic-sync schedule interval, or raise `CANONRY_CLOUDFLARE_QUEUE_SYNC_DEADLINE_MS` (default 4 minutes per sync).',
+      next: 'If it keeps growing, sync more often, or the oldest requests expire from the queue.',
     }
   }
   if (stopReasons.every(reason => reason !== null && QUEUE_NOT_VISIBLE_STOPS.includes(reason))) {
     return {
       cause: 'Cloudflare returned no more messages to pull while still counting them, so they were leased or not yet visible. The drain stopped before its time limit, so raising the limit does not help.',
       remediation: 'Later syncs pull them as they become visible. If the count does not fall across syncs, check the Queue in the Cloudflare dashboard for in-flight or delayed messages before they pass the Queue\'s retention.',
+      next: 'Nothing yet. Later syncs pull them once Cloudflare releases them.',
     }
   }
   if (stopReasons.every(reason => reason === CloudflareQueueDrainStopReasons.error)) {
     return {
       cause: 'The last sync failed before the Queue was empty.',
       remediation: `Fix the sync error, then run \`canonry traffic sync <project> --source <id>\`. ${readRuns}`,
+      next: `Fix the sync error, then run \`cnry traffic sync ${projectName} --source ${sourceId ?? '<id>'}\`.`,
     }
   }
   return {
     cause: 'The last sync stopped before the Queue was empty.',
     remediation: `${readRuns} If it hit its time limit, shorten the traffic-sync schedule interval or raise \`CANONRY_CLOUDFLARE_QUEUE_SYNC_DEADLINE_MS\` (default 4 minutes per sync).`,
+    next: `See why the last sync stopped with \`cnry runs ${projectName} --kind traffic-sync\`.`,
   }
 }
 
@@ -833,13 +888,22 @@ const queueBacklogCheck: CheckDefinition = {
     const remaining = measured.filter(source => (source.queueBacklogCount ?? 0) > 0)
     const total = remaining.reduce((sum, source) => sum + source.queueBacklogCount!, 0)
     if (total > CLOUDFLARE_QUEUE_RESIDUAL_WARN_COUNT) {
-      const { cause, remediation } = queueResidualCause(remaining.map(source => stopReasons.get(source.id) ?? null))
+      const { cause, remediation, next } = queueResidualCause(
+        remaining.map(source => stopReasons.get(source.id) ?? null),
+        ctx.project.name,
+        remaining.length === 1 ? remaining[0]!.id : null,
+      )
       return {
         status: CheckStatuses.warn,
         code: 'traffic.queue-backlog.remaining',
         summary: `${total.toLocaleString('en-US')} message(s) remained across ${remaining.length} Cloudflare Queue source(s) after the last sync, more than the ${CLOUDFLARE_QUEUE_RESIDUAL_WARN_COUNT.toLocaleString('en-US')} that can arrive while a drain runs. ${cause}`,
         remediation,
         details,
+        alert: {
+          label: 'Traffic backlog',
+          line: `${total.toLocaleString('en-US')} site requests are waiting to be processed. Normal is under ${CLOUDFLARE_QUEUE_RESIDUAL_WARN_COUNT.toLocaleString('en-US')}.`,
+          next,
+        },
       }
     }
 
@@ -862,6 +926,35 @@ const queueBacklogCheck: CheckDefinition = {
   },
 }
 
+/**
+ * The connect command that regenerates one Cloudflare source's Worker in its
+ * own delivery mode. Connect defaults to direct push, which reuses a direct-push
+ * source's zone, account and page-view setting, so that source needs no
+ * options. A Queue source needs its mode and Queue options spelled out, or the
+ * command builds a direct-push source instead of repairing it; its zone and
+ * retention are repeated because the Queue path does not keep them. The token
+ * file is the one value the server never knows.
+ */
+function cloudflareReconnectCommand(projectName: string, source: TrafficSourceProbe): string {
+  const base = `cnry traffic connect cloudflare ${projectName}`
+  if (!isCloudflareQueuePull(source)) return `\`${base}\``
+  const parsed = cloudflareQueuePullTrafficSourceConfigSchema.safeParse(source.configJson)
+  if (!parsed.success) {
+    return `\`${base} --delivery-mode queue-pull\` with its Queue options (\`cnry traffic sources ${projectName}\`)`
+  }
+  const config = parsed.data
+  const options = [
+    '--delivery-mode queue-pull',
+    `--account-id ${config.accountId}`,
+    `--queue-id ${config.queueId}`,
+    `--queue-name ${config.queueName}`,
+    `--retention-seconds ${config.retentionSeconds}`,
+    ...(config.zoneId ? [`--zone-id ${config.zoneId}`] : []),
+    '--api-token-file <path>',
+  ]
+  return `\`${base} ${options.join(' ')}\``
+}
+
 const workerVersionCheck: CheckDefinition = {
   id: 'traffic.source.worker-version',
   category: CheckCategories.integrations,
@@ -871,6 +964,7 @@ const workerVersionCheck: CheckDefinition = {
     if (!ctx.project) return skippedNoProject()
 
     const sources = loadProbes(ctx).filter(source => isActiveSource(source) && isCloudflareWorkerSource(source))
+    const probeById = new Map(sources.map(source => [source.id, source]))
     if (sources.length === 0) {
       return {
         status: CheckStatuses.skipped,
@@ -909,6 +1003,13 @@ const workerVersionCheck: CheckDefinition = {
         summary: `${stale.length} Cloudflare Worker source(s) most recently reported a version that differs from the generated version.`,
         remediation: 'Regenerate and redeploy each source\'s Cloudflare Worker from the credential-owning host with `canonry traffic connect cloudflare <project>` and the source\'s existing delivery-mode options; then verify its route or Queue binding.',
         details,
+        alert: {
+          label: 'Cloudflare worker out of date',
+          line: `The Cloudflare traffic worker for ${stale.map(source => source.displayName).join(', ')} doesn't match this server's version.`,
+          next: stale.length === 1
+            ? `Redeploy it with ${cloudflareReconnectCommand(ctx.project.name, probeById.get(stale[0]!.sourceId)!)}.`
+            : `Redeploy each in its own delivery mode: ${stale.map(source => `${source.displayName}: ${cloudflareReconnectCommand(ctx.project!.name, probeById.get(source.sourceId)!)}`).join('; ')}.`,
+        },
       }
     }
 

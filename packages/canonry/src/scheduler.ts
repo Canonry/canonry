@@ -40,6 +40,40 @@ const slotFailed = (reasonCode: OutcomeReasonCode): SlotOutcome => ({ status: Ou
 /** Default cadence for the health schedule seeded for each project. */
 export const DEFAULT_HEALTH_CRON = '0 */6 * * *'
 
+/**
+ * Background work starts up to this long after its cron minute, at a fixed
+ * offset per project and kind. Every project's hourly syncs and the 6-hourly
+ * health pass used to start in the same second; that burst of DNS lookups and
+ * token refreshes is what failed one of them now and then.
+ */
+export const SCHEDULE_SPREAD_MS = 120_000
+
+/** Sweeps keep their exact minute: someone picked it. Everything else spreads. */
+const UNSPREAD_KINDS: ReadonlySet<SchedulableRunKind> = new Set([SchedulableRunKinds['answer-visibility']])
+
+/** A stable offset in [0, spreadMs) for one project's scheduled kind: the same every hour. */
+export function scheduleSpreadMs(projectId: string, kind: string, spreadMs = SCHEDULE_SPREAD_MS): number {
+  if (spreadMs <= 0) return 0
+  return crypto.createHash('sha256').update(`${projectId}:${kind}`).digest().readUInt32BE(0) % spreadMs
+}
+
+/**
+ * The shortest gap between a cron schedule's next few occurrences, or null when
+ * it cannot be read. A spread window wider than this would push one start past
+ * the next tick.
+ */
+function shortestCronGapMs(cronExpr: string, timezone: string, from: Date = new Date()): number | null {
+  let previous = nextRunFromCron(cronExpr, timezone, from)
+  let shortest = Number.POSITIVE_INFINITY
+  for (let i = 0; previous && i < 8; i++) {
+    const next = nextRunFromCron(cronExpr, timezone, new Date(Date.parse(previous) + 1_000))
+    if (!next) break
+    shortest = Math.min(shortest, Date.parse(next) - Date.parse(previous))
+    previous = next
+  }
+  return Number.isFinite(shortest) ? shortest : null
+}
+
 
 /**
  * Ensure one default doctor schedule exists for a project.
@@ -171,10 +205,15 @@ export class Scheduler {
   private tasks = new Map<string, SchedulerTask>()
   /** A cron can fire every minute, so slot outcomes are sampled per status and reason. */
   private readonly sampleSlot = createOutcomeSampler({ burst: 5, refillMs: 30 * 60_000 })
+  /** How far background work may start after its cron minute; 0 starts it on the minute. */
+  private readonly spreadMs: number
+  /** Spread starts waiting to fire, by task key, so stopping a task cancels its start too. */
+  private readonly spreadTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
-  constructor(db: DatabaseClient, callbacks: SchedulerCallbacks) {
+  constructor(db: DatabaseClient, callbacks: SchedulerCallbacks, options: { spreadMs?: number } = {}) {
     this.db = db
     this.callbacks = callbacks
+    this.spreadMs = options.spreadMs ?? 0
   }
 
   /**
@@ -328,6 +367,11 @@ export class Scheduler {
   private stopTask(key: string, task: SchedulerTask, verb: 'Stopped' | 'Removed'): void {
     void task.stop()
     void task.destroy()
+    const pending = this.spreadTimers.get(key)
+    if (pending) {
+      clearTimeout(pending)
+      this.spreadTimers.delete(key)
+    }
     log.info(`task.${verb.toLowerCase()}`, { key })
   }
 
@@ -368,13 +412,32 @@ export class Scheduler {
       return false
     }
 
+    const key = taskKey(projectId, kind)
+    // The window never exceeds half the gap between ticks, so a frequent
+    // schedule's start lands well before its next tick and every occurrence runs.
+    const gapMs = this.spreadMs > 0 && !UNSPREAD_KINDS.has(kind) ? shortestCronGapMs(cronExpr, timezone) : null
+    const spreadMs = gapMs === null ? 0 : scheduleSpreadMs(projectId, kind, Math.min(this.spreadMs, Math.floor(gapMs / 2)))
     const task = cron.schedule(cronExpr, () => {
-      this.triggerRun(scheduleId, projectId, kind)
+      if (spreadMs === 0) {
+        this.triggerRun(scheduleId, projectId, kind)
+        return
+      }
+      // A start still waiting at the next tick (a stalled event loop) runs now
+      // rather than being dropped, so the schedule keeps every occurrence.
+      const overdue = this.spreadTimers.get(key)
+      if (overdue) {
+        clearTimeout(overdue)
+        this.triggerRun(scheduleId, projectId, kind)
+      }
+      this.spreadTimers.set(key, setTimeout(() => {
+        this.spreadTimers.delete(key)
+        this.triggerRun(scheduleId, projectId, kind)
+      }, spreadMs))
     }, {
       timezone,
     })
 
-    this.tasks.set(taskKey(projectId, kind), task)
+    this.tasks.set(key, task)
     if (!options.preserveNextRunAt || !schedule.nextRunAt) {
       this.updateScheduleTiming(scheduleId, {
         nextRunAt: nextRunFromCron(cronExpr, timezone),

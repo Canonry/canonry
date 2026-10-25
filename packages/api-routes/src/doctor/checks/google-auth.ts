@@ -91,6 +91,11 @@ async function resolveAccessToken(ctx: DoctorContext): Promise<{ ok: true; token
           summary: `Could not reach Google to refresh the GSC token: ${error}`,
           remediation: 'Check that this host can resolve and connect to Google (DNS filtering, firewall, or proxy), then re-run. The stored grant was not tested.',
           details: { domain: conn.domain, error },
+          alert: {
+            label: "Can't reach Google",
+            line: "The server couldn't reach Google, so Search Console data didn't refresh.",
+            next: "Nothing yet. If it repeats, check the server's internet or DNS.",
+          },
         },
       }
     }

@@ -271,7 +271,7 @@ import { configuredProviderEntries, DEFAULT_CDP_QUOTA, DEFAULT_PROVIDER_QUOTA, r
 import { assertProviderReloadKeepsPendingBatches } from "./provider-reload-batch-guard.js";
 import { createProviderModelCatalog } from "./provider-model-catalog.js";
 import { openRouterModels } from "./agent/pi-models.js";
-import { Scheduler, ensureDefaultHealthSchedule } from "./scheduler.js";
+import { SCHEDULE_SPREAD_MS, Scheduler, ensureDefaultHealthSchedule } from "./scheduler.js";
 import { startSiteLivenessLoop } from "./site-liveness-loop.js";
 import { startReviewDeliveryLoop } from "./review-webhook-delivery.js";
 import { startProviderBatchPoller } from "./provider-batch-poller.js";
@@ -1019,6 +1019,12 @@ export async function createServer(opts: {
   assetsDir?: string;
   /** Live user-global native Canonry plugin state for agent-skills doctor checks. */
   getAgentPluginState?: () => AgentPluginState;
+  /**
+   * How far scheduled background work may start after its cron minute (see
+   * `SCHEDULE_SPREAD_MS`, the default). 0 starts it on the minute, for a host
+   * that fires schedules by hand and needs the run to follow at once.
+   */
+  scheduleSpreadMs?: number;
 }): Promise<FastifyInstance> {
   const runtimeConfigPath = path.resolve(getConfigPath());
   const runtimeConfigIdentity = runtimePathIdentity(runtimeConfigPath);
@@ -2015,7 +2021,7 @@ export async function createServer(opts: {
       // scheduler's full-site page budget.
       runSiteAudit(runId, projectId, auditOpts);
     },
-  });
+  }, { spreadMs: opts.scheduleSpreadMs ?? SCHEDULE_SPREAD_MS });
 
   // Build provider summary for API routes (dynamic from adapter list)
   const providerSummary = providerSummaries(registry, opts.config);
