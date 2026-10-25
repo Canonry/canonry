@@ -414,6 +414,21 @@ export const gaSearchLandingPageRowSchema = gaSearchLandingMetricsSchema.extend(
 export type GaSearchLandingPageRow = z.infer<typeof gaSearchLandingPageRowSchema>
 
 /**
+ * Whether the GA4 report carries Search Console data, judged against the
+ * Search Console data Canonry stores for the same project and days:
+ *
+ * - `has-data`: GA4 reports Google organic clicks or impressions.
+ * - `not-linked`: GA4 reports none, while Search Console recorded impressions
+ *   for these days, so the GA4 property is not linked to this site's Search
+ *   Console property (or is linked to another one).
+ * - `no-search-data`: neither GA4 nor Search Console has any for these days.
+ * - `unknown`: GA4 reports none and Canonry has no Search Console data for
+ *   these days to compare with.
+ */
+export const gaSearchConsoleLinkStateSchema = z.enum(['has-data', 'not-linked', 'no-search-data', 'unknown'])
+export type GaSearchConsoleLinkState = z.infer<typeof gaSearchConsoleLinkStateSchema>
+
+/**
  * Response of `GET /projects/:name/ga/search-landing-pages`: one stored
  * window of GA4's Search Console landing-page report.
  */
@@ -448,6 +463,16 @@ export const gaSearchLandingPagesResponseSchema = z.object({
   offset: z.number().int().nonnegative(),
   /** Ordered by clicks, then impressions (both descending), then landing page. */
   rows: z.array(gaSearchLandingPageRowSchema),
+  /**
+   * Whether the window's GA4 report has Search Console data, compared with
+   * Canonry's own Search Console data for the same days. Null when no window
+   * is stored.
+   */
+  searchConsoleLink: z.object({
+    state: gaSearchConsoleLinkStateSchema,
+    /** Search Console impressions Canonry stores for the window's days; null when it has none for them. */
+    searchConsoleImpressions: z.number().int().nonnegative().nullable(),
+  }).nullable(),
 })
 export type GaSearchLandingPagesResponse = z.infer<typeof gaSearchLandingPagesResponseSchema>
 

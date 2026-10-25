@@ -975,6 +975,11 @@ export const SEARCH_LANDING_COPY = {
   /** The window's Total has 0 clicks and 0 impressions, whether or not pages are listed. */
   noSearchTraffic: 'No landing pages had Google organic search traffic in this window.',
   noSearchTrafficAction: 'If this property should have some, check its Search Console link in GA4 (Admin, Product links, Search Console links).',
+  /** Search Console's own data confirms the site had no Google search traffic either. */
+  noSearchTrafficConfirmed: 'Search Console also recorded no impressions for these days.',
+  notLinkedBadge: 'Search Console not linked',
+  /** GA4 has 0 clicks and 0 impressions while Canonry's Search Console data has impressions for the same days. */
+  notLinked: (impressions: number) => `GA4 has no Search Console data for this site, but Search Console recorded ${impressions.toLocaleString()} impressions in this window. Link the site's Search Console property in GA4 (Admin, Product links, Search Console links).`,
   thresholded: 'GA4 applied thresholding to this report, so it may withhold some rows.',
   retry: 'Retry',
   refreshFailedBadge: 'Last refresh failed',
@@ -1058,6 +1063,8 @@ export function GoogleOrganicSearchPagesPanel({ projectName }: { projectName: st
   }
 
   const total = data?.total ?? null
+  // GA4 reports no search data while Canonry's own Search Console data has impressions.
+  const searchConsoleNotLinked = data?.searchConsoleLink?.state === 'not-linked'
   const canSync = !isEmbed() && !isPublicDemo()
 
   return (
@@ -1104,8 +1111,14 @@ export function GoogleOrganicSearchPagesPanel({ projectName }: { projectName: st
           </div>
         ) : (
           <>
-            {(data.status === 'error' || data.status === 'unavailable' || data.subjectToThresholding) && (
+            {(data.status === 'error' || data.status === 'unavailable' || data.subjectToThresholding || searchConsoleNotLinked) && (
               <div className="mb-3 flex flex-wrap items-center gap-2" data-testid="ga-search-landing-status">
+                {searchConsoleNotLinked && (
+                  <span className="inline-flex items-center gap-1" data-testid="ga-search-landing-not-linked">
+                    <ToneBadge tone="caution">{SEARCH_LANDING_COPY.notLinkedBadge}</ToneBadge>
+                    <InfoTooltip text={SEARCH_LANDING_COPY.notLinked(data.searchConsoleLink?.searchConsoleImpressions ?? 0)} />
+                  </span>
+                )}
                 {data.status === 'error' && (
                   <span className="inline-flex items-center gap-1">
                     <ToneBadge tone="negative">{SEARCH_LANDING_COPY.refreshFailedBadge}</ToneBadge>
@@ -1206,10 +1219,15 @@ export function GoogleOrganicSearchPagesPanel({ projectName }: { projectName: st
 
                 {/* GA4's Total, not the row count: pages with active users
                     and no clicks or impressions are still listed. */}
-                {!gaSearchLandingHasSearchData(total) && (
+                {/* The not-linked badge above already explains a zero Total. */}
+                {!gaSearchLandingHasSearchData(total) && !searchConsoleNotLinked && (
                   <div className="text-sm text-secondary mt-3 space-y-1">
                     <p>{SEARCH_LANDING_COPY.noSearchTraffic}</p>
-                    <p>{SEARCH_LANDING_COPY.noSearchTrafficAction}</p>
+                    <p>
+                      {data.searchConsoleLink?.state === 'no-search-data'
+                        ? SEARCH_LANDING_COPY.noSearchTrafficConfirmed
+                        : SEARCH_LANDING_COPY.noSearchTrafficAction}
+                    </p>
                   </div>
                 )}
                 {table.totalRows === 0 && table.hasQuery && (
