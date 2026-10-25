@@ -95,6 +95,11 @@ function kindLabel(kind: RunKind): string {
     case RunKinds['google-ads-sync']: return 'Google Ads sync'
     case RunKinds['gtm-sync']: return 'Tag Manager sync'
     case RunKinds['seo-sync']: return 'SEO data refresh'
+    default: {
+      const _exhaustive: never = kind
+      void _exhaustive
+      return 'Unknown job type'
+    }
   }
 }
 

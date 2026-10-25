@@ -6,6 +6,7 @@ import { ManagedSweepStatus, MANAGED_SWEEPS_COPY } from '../components/project/M
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ONBOARDING_FLOW_VERSION,
+  RunKinds,
   bucketOnboardingCount,
   isOpenRouterRoute,
   openRouterRouteModel,
@@ -48,6 +49,8 @@ import { useHealth } from '../queries/use-health.js'
 import { useInitialDashboard } from '../contexts/dashboard-context.js'
 import { useAccount } from '../contexts/account-context.js'
 import { buildSetupModel, serviceStatusTooltip } from '../lib/health-helpers.js'
+import { useOnboardingRunOutcome } from './OnboardingCompletePage.js'
+import { clearOnboardingDraft, readOnboardingDraft, wasOnboardingScanSkipped, writeOnboardingDraft } from '../lib/onboarding-draft.js'
 import { asyncHandler } from '../lib/async-handler.js'
 import { summarizeRunError } from '../lib/format-helpers.js'
 import {
@@ -67,6 +70,9 @@ import {
   readOnboardingLaunchedRun,
 } from '../lib/onboarding-telemetry.js'
 import type { DashboardVm, HealthSnapshot, ProjectCommandCenterVm, RunListItemVm } from '../view-models.js'
+
+/** Compact for a mouse on a desktop; 44px tall for touch and narrow screens. */
+const TOUCH_TARGET = 'pointer-coarse:min-h-11 max-md:min-h-11'
 
 const SETUP_STEPS = [
   { label: 'System check', description: 'Verify your instance is ready' },
@@ -250,7 +256,7 @@ function SetupPageBody({ visibilityProjectName, siteHealthOnboarding, onboarding
   if (visibilityProjectName && !safeDashboard.projects.some(project => project.project.name === visibilityProjectName)) {
     return (
       <div className="page-container">
-        {siteHealthOnboarding ? <OnboardingProgress current="visibility" /> : null}
+        {siteHealthOnboarding ? <OnboardingProgress current="visibility" outcomes={{ site: 'unknown', fixes: 'unknown' }} /> : null}
         <div className="page-header">
           <div className="page-header-left">
             <h1 ref={visibilityHeadingRef} tabIndex={-1} className="page-title outline-none">Set up AI Visibility</h1>
@@ -280,6 +286,7 @@ function SetupPageBody({ visibilityProjectName, siteHealthOnboarding, onboarding
 
   return (
     <ReadySetupPage
+      key={visibilityProjectName ?? 'global'}
       dashboard={safeDashboard}
       initialHealth={contextDashboard?.health}
       enableLiveStatus={!contextDashboard}
@@ -354,6 +361,8 @@ function ReadySetupPage({
   // partial runs may contain fewer snapshots than the project's actual basket.
   const snapshotQueryCount = resumeProject?.queryCounts.total ?? 0
   const resumeProjectName = resumeProject?.project.name
+  const scan = useOnboardingRunOutcome(resumeProjectName ?? '', RunKinds['site-audit'], Boolean(siteHealthOnboarding && resumeProjectName))
+  const scanOutcome = scan.outcome === 'not-started' && resumeProjectName && wasOnboardingScanSkipped(resumeProjectName) ? 'skipped' : scan.outcome
   const resumeQueriesQuery = useQuery({
     queryKey: ['setup', 'resume-queries', resumeProjectName],
     queryFn: () => resumeProjectName ? fetchQueries(resumeProjectName) : Promise.resolve([]),
@@ -385,15 +394,17 @@ function ReadySetupPage({
     hasRunAttempt: resumeProjectRuns.length > 0 || hasExistingSuccessfulBaseline,
   })
 
+  const [draftScope] = useState(() => `wizard:${resumeProjectName ?? 'new'}`)
+  const [draft] = useState(() => readOnboardingDraft(draftScope))
   const [step, setStep] = useState<SetupStep>(initialResumeStep)
   const [resumeApplied, setResumeApplied] = useState(!resumeLoading)
   const queriesHydrating = isProjectScoped && (resumeLoading || !resumeApplied)
 
-  const [projectName, setProjectName] = useState(resumeProject?.project.name ?? '')
-  const [displayName, setDisplayName] = useState(resumeProject?.project.displayName ?? '')
-  const [domain, setDomain] = useState(resumeProject?.project.canonicalDomain ?? '')
-  const [country, setCountry] = useState(resumeProject?.project.country ?? 'US')
-  const [language, setLanguage] = useState(resumeProject?.project.language ?? 'en')
+  const [projectName, setProjectName] = useState(resumeProject?.project.name ?? draft.projectName ?? '')
+  const [displayName, setDisplayName] = useState(resumeProject?.project.displayName ?? draft.displayName ?? '')
+  const [domain, setDomain] = useState(resumeProject?.project.canonicalDomain ?? draft.domain ?? '')
+  const [country, setCountry] = useState(resumeProject?.project.country ?? draft.country ?? 'US')
+  const [language, setLanguage] = useState(resumeProject?.project.language ?? draft.language ?? 'en')
   const [autoExtractBacklinks, setAutoExtractBacklinks] = useState(resumeProject?.project.autoExtractBacklinks ?? false)
   const [createdProjectName, setCreatedProjectName] = useState<string | null>(resumeProject?.project.name ?? null)
   const [setupEngineProject, setSetupEngineProject] = useState(resumeProject?.project ?? null)
@@ -434,8 +445,8 @@ function ReadySetupPage({
   }
   const skipToFinish = () => finishSetup(true)
 
-  const [queriesText, setQueriesText] = useState(durableQueries.map(query => query.query).join('\n'))
-  const [queriesSaved, setQueriesSaved] = useState(durableQueryCount > 0)
+  const [queriesText, setQueriesText] = useState(draft.queriesText ?? durableQueries.map(query => query.query).join('\n'))
+  const [queriesSaved, setQueriesSaved] = useState(draft.queriesText === undefined && durableQueryCount > 0)
   const [queriesError, setQueriesError] = useState<string | null>(null)
   const [queriesSaving, setQueriesSaving] = useState(false)
   const [queriesGenerated, setQueriesGenerated] = useState(false)
@@ -561,10 +572,39 @@ function ReadySetupPage({
     }
   }
 
-  const [competitorsText, setCompetitorsText] = useState(durableCompetitors.join('\n'))
-  const [competitorsSaved, setCompetitorsSaved] = useState(durableCompetitors.length > 0)
+  const [competitorsText, setCompetitorsText] = useState(draft.competitorsText ?? durableCompetitors.join('\n'))
+  const [competitorsSaved, setCompetitorsSaved] = useState(draft.competitorsText === undefined && durableCompetitors.length > 0)
   const [competitorsError, setCompetitorsError] = useState<string | null>(null)
   const [competitorsSaving, setCompetitorsSaving] = useState(false)
+
+  useEffect(() => {
+    if (!resumeApplied) return
+    const activeScope = createdProjectName ? `wizard:${createdProjectName}` : draftScope
+    writeOnboardingDraft(activeScope, {
+      ...(!createdProjectName ? { projectName, displayName, domain, country, language } : {}),
+      ...(!queriesSaved && queriesText !== durableQueries.map(query => query.query).join('\n') ? { queriesText } : {}),
+      ...(!competitorsSaved && competitorsText !== durableCompetitors.join('\n') ? { competitorsText } : {}),
+    })
+    if (activeScope !== draftScope) clearOnboardingDraft(draftScope)
+  }, [competitorsSaved, competitorsText, country, createdProjectName, displayName, domain, draftScope, durableCompetitors, durableQueries, language, projectName, queriesSaved, queriesText, resumeApplied])
+
+  const resetDraft = () => {
+    clearOnboardingDraft(draftScope)
+    if (createdProjectName) clearOnboardingDraft(`wizard:${createdProjectName}`)
+    if (!createdProjectName) {
+      setProjectName('')
+      setDisplayName('')
+      setDomain('')
+      setCountry('US')
+      setLanguage('en')
+    }
+    setQueriesText(durableQueries.map(query => query.query).join('\n'))
+    setQueriesSaved(durableQueryCount > 0)
+    setCompetitorsText(durableCompetitors.join('\n'))
+    setCompetitorsSaved(durableCompetitors.length > 0)
+    setQueriesError(null)
+    setCompetitorsError(null)
+  }
 
   // A run THIS onboarding session launched for THIS project and never saw
   // finish. The wizard otherwise treats an already-successful project as
@@ -655,12 +695,12 @@ function ReadySetupPage({
     // Project-scoped setup always starts on queries. Do not reset a fast user
     // who advances during the render/effect boundary after those queries load.
     if (!isProjectScoped) setStep(initialResumeStep)
-    if (durableQueries.length > 0) {
+    if (durableQueries.length > 0 && draft.queriesText === undefined) {
       setQueriesText(durableQueries.map(query => query.query).join('\n'))
       setQueriesSaved(true)
     }
     setResumeApplied(true)
-  }, [durableQueries, initialResumeStep, isProjectScoped, resumeApplied, resumeLoading])
+  }, [draft.queriesText, durableQueries, initialResumeStep, isProjectScoped, resumeApplied, resumeLoading])
 
   useEffect(() => {
     if (runnableApiProviders.length === 0) {
@@ -816,7 +856,8 @@ function ReadySetupPage({
     setQueriesSaving(true)
     setQueriesError(null)
     try {
-      await setQueries(createdProjectName, queries)
+      const savedQueries = await setQueries(createdProjectName, queries)
+      queryClient.setQueryData(['setup', 'resume-queries', createdProjectName], savedQueries)
       setQueriesSaved(true)
       if (isProjectScoped) {
         await Promise.all([
@@ -1089,7 +1130,7 @@ function ReadySetupPage({
 
   const StepSurface = isProjectScoped ? 'section' : Card
   const providerRefreshAction = providerReadiness !== true || cdpConfigured === true ? (
-    <Button type="button" variant="ghost" size="sm" className="min-h-11" onClick={() => {
+    <Button type="button" variant="ghost" size="sm" className={TOUCH_TARGET} onClick={() => {
       void refetch()
       if (selectionCanUseCdp) void cdpStatusQuery.refetch()
       if (inlineModelPicker) void openRouterSettingsQuery.refetch()
@@ -1123,7 +1164,7 @@ function ReadySetupPage({
           type="button"
           variant="ghost"
           size="sm"
-          className="min-h-11"
+          className={TOUCH_TARGET}
           disabled={projectProviderQuery.isFetching}
           onClick={() => { void projectProviderQuery.refetch() }}
         >
@@ -1444,12 +1485,12 @@ function ReadySetupPage({
                 <div className="min-w-0 space-y-1">
                   <div className="flex items-center gap-2"><h3 className="text-sm font-semibold text-heading">Research queries with your agent</h3><InfoTooltip text="Ask your agent to compare answers and available sources with Canonry Research, then recommend queries. Research does not change your tracked queries." /></div>
                 </div>
-                <Button type="button" variant="outline" size="sm" className="min-h-11 shrink-0 self-start" onClick={asyncHandler(copyResearchPrompt)}>
+                <Button type="button" variant="outline" size="sm" className={`shrink-0 self-start ${TOUCH_TARGET}`} onClick={asyncHandler(copyResearchPrompt)}>
                   {researchPromptCopied ? 'Research prompt copied' : 'Copy research prompt'}
                 </Button>
               </div>
               <details open={researchCopyError || undefined} className="text-sm text-secondary">
-                <summary className="min-h-11 cursor-pointer py-3 text-link">View agent prompt</summary>
+                <summary className={`min-h-9 cursor-pointer py-2 text-link pointer-coarse:py-3 max-md:py-3 ${TOUCH_TARGET}`}>View agent prompt</summary>
                 <textarea aria-label="Agent query research prompt" readOnly className="setup-textarea mt-2 w-full" rows={8} value={researchPrompt} />
               </details>
               {researchCopyError ? <p role="alert" className="text-sm text-negative">Could not copy. Select and copy the prompt above.</p> : null}
@@ -1812,7 +1853,7 @@ function ReadySetupPage({
 
   return (
     <div className={isProjectScoped ? 'page-container visibility-setup' : 'page-container'}>
-      {siteHealthOnboarding ? <OnboardingProgress current="visibility" /> : null}
+      {siteHealthOnboarding ? <OnboardingProgress current="visibility" outcomes={{ site: scanOutcome, fixes: scanOutcome }} /> : null}
       <div className="page-header">
         <div className="page-header-left">
           <h1
@@ -1830,7 +1871,7 @@ function ReadySetupPage({
         </div>
         {siteHealthOnboarding ? (
           <div className="page-header-right">
-            <Button type="button" variant="outline" className="min-h-11" onClick={skipToFinish}>
+            <Button type="button" variant="outline" className={TOUCH_TARGET} onClick={skipToFinish}>
               Skip AI Visibility
             </Button>
           </div>
@@ -1842,6 +1883,10 @@ function ReadySetupPage({
         labels={isProjectScoped ? PROJECT_VISIBILITY_STEPS : SETUP_STEPS}
       /> : null}
 
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2 text-[13px] text-secondary">
+        <p>Draft fields use tab storage when available. Credentials are excluded from drafts.</p>
+        <Button type="button" variant="ghost" size="sm" disabled={(Boolean(resumeProjectName) && !resumeQueriesQuery.isSuccess) || projectSaving || queriesSaving || competitorsSaving || runSaving} onClick={resetDraft}>Reset unsaved fields</Button>
+      </div>
       <section className="setup-wizard">
         {providerSetup}
         {step === 4 && !runTriggered && isAdmin && openRouterConnected && setupEngineProject && !inlineModelPicker && <ProjectEngineSettingsSection project={setupEngineProject} onSave={saveSetupEngines} />}

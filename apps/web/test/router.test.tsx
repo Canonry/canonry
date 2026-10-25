@@ -277,8 +277,10 @@ test.each([false, true])('deleting a project updates the live portfolio before n
       expect(activity().getByRole('button', { name: /Beta.*Backlink extract completed/ })).toBeTruthy()
       expect(activity().queryByRole('button', { name: /Alpha/ })).toBeNull()
     })
-    expect(screen.getByRole('link', { name: 'beta', exact: true })).toBeTruthy()
-    expect(screen.queryByRole('link', { name: 'alpha', exact: true })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }))
+    const navigation = within(await screen.findByRole('dialog', { name: 'Navigation' }))
+    expect(navigation.getByRole('link', { name: 'beta', exact: true })).toBeTruthy()
+    expect(navigation.queryByRole('link', { name: 'alpha', exact: true })).toBeNull()
   }
 })
 

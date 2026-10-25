@@ -25,6 +25,7 @@ import {
   type LivePageHealthPreviewView,
 } from '../src/components/project/SiteHealthSection.js'
 import { compileAppStyles, parseCompiledCss, compiledElementProperty, cssLengthPx } from './compiled-app-css.js'
+import { markOnboardingScanSkipped } from '../src/lib/onboarding-draft.js'
 import { heyClient } from '../src/api.js'
 import { SITE_HEALTH_CHECK_HELP } from '../src/components/project/site-health-check-help.js'
 import type { SiteCrawlPageDto, SiteCrawlSummaryDto } from '@canonry/canonry-contracts'
@@ -546,6 +547,7 @@ function storedNeighbor(edgeKey: string, isTemplate: boolean) {
 }
 
 beforeEach(() => {
+  window.sessionStorage.clear()
   mutationMock.mutate.mockReset()
   mutationMock.isPending = false
   mutationMock.data = undefined
@@ -3704,4 +3706,50 @@ test('the default crawl depth says what it is, and deeper limits exist', async (
   fireEvent.click(screen.getByRole('button', { name: 'Run scan' }))
   expect(mutationMock.mutate).toHaveBeenCalledExactlyOnceWith({ projectName, projectId, body: { checkDeadLinks: false, maxDepth: 100 } })
 
+})
+
+
+test.each([false, true])('returning to an unstarted scan is neutral and recoverable (skipped: %s)', skipped => {
+  const queryClient = makeClient()
+  queryClient.setQueryData(scanHistoryKey(), scanHistory())
+  queryClient.setQueryData(getApiV1ProjectsByNameTechnicalAeoCrawlQueryKey({ client: heyClient, path: { name: projectName } }), {
+    ...summary('unused', 0), hasCrawlData: false, legacyAuditAvailable: false, runId: null, detailsAvailable: false,
+  })
+  if (skipped) markOnboardingScanSkipped(projectName)
+  const onContinueOnboarding = vi.fn()
+  const onSkipOnboarding = vi.fn()
+  renderSection(queryClient, { showOnboardingActions: true, onContinueOnboarding, onSkipOnboarding })
+  expect(screen.getByRole('heading', { name: skipped ? 'Site scan skipped' : 'No site scan yet' })).toBeTruthy()
+  expect(screen.queryByText('This scan did not produce page health results. Run it again to continue setup.')).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Continue without scanning' }))
+  expect(onContinueOnboarding).toHaveBeenCalledOnce()
+  expect(mutationMock.mutate).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button', { name: 'Run first scan' }))
+  expect(mutationMock.mutate).toHaveBeenCalledWith({ projectName, projectId, body: { checkDeadLinks: true, maxPages: 100 } })
+})
+
+
+test('empty onboarding waits for scan history and recovers a failed history read without inventing a failed scan', async () => {
+  const queryClient = makeClient()
+  queryClient.removeQueries({ queryKey: scanHistoryKey() })
+  queryClient.setQueryData(getApiV1ProjectsByNameTechnicalAeoCrawlQueryKey({ client: heyClient, path: { name: projectName } }), {
+    ...summary('unused', 0), hasCrawlData: false, legacyAuditAvailable: false, runId: null, detailsAvailable: false,
+  })
+  const history = deferredResponse()
+  const receipts: Record<string, unknown> = { '/technical-aeo/runs': history.promise }
+  installSiteReads(receipts)
+  const onContinueOnboarding = vi.fn()
+  renderSection(queryClient, { showOnboardingActions: true, onContinueOnboarding })
+  expect(screen.getByRole('heading', { name: 'Checking scan history…' })).toBeTruthy()
+  expect(screen.queryByRole('button', { name: /Run (first )?scan/ })).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Continue setup' }))
+  expect(onContinueOnboarding).toHaveBeenCalledOnce()
+  history.resolve(jsonResponse({ error: { code: 'INTERNAL_ERROR', message: 'History unavailable' } }, 503))
+  expect(await screen.findByRole('heading', { name: 'Scan history could not be loaded' })).toBeTruthy()
+  expect(screen.queryByText('This scan did not produce page health results. Run it again to continue setup.')).toBeNull()
+  expect(mutationMock.mutate).not.toHaveBeenCalled()
+  receipts['/technical-aeo/runs'] = scanHistory()
+  fireEvent.click(screen.getByRole('button', { name: 'Retry scan history' }))
+  expect(await screen.findByRole('heading', { name: 'No site scan yet' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Run first scan' })).toBeTruthy()
 })

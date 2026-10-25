@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, RouterProvider } from '@tanstack/react-router'
 import { afterEach, expect, test, vi } from 'vitest'
-import { SeoRunStatuses, type SeoContext, type SeoOverview, type SeoProfile, type SeoProvenance, type SeoRankedKeyword, type SeoRun } from '@canonry/canonry-contracts'
+import { SeoRunStatuses, type SeoContext, type SeoOverview, type SeoProfile, type SeoProfileInput, type SeoProvenance, type SeoRankedKeyword, type SeoRun } from '@canonry/canonry-contracts'
 import { SeoDataSection } from '../src/components/project/SeoDataSection.js'
 import { createQueryClient } from '../src/queries/query-client.js'
 
@@ -64,7 +64,7 @@ afterEach(() => {
   delete window.__CANONRY_CONFIG__
 })
 
-async function mount(profileId = 'simple', runId?: string) {
+async function mount(profileId: string | null = 'simple', runId?: string) {
   const client = createQueryClient()
   client.setDefaultOptions({ queries: { retry: false, gcTime: 0, staleTime: Infinity }, mutations: { retry: false } })
   clients.push(client)
@@ -72,7 +72,10 @@ async function mount(profileId = 'simple', runId?: string) {
     validateSearch: (search: Record<string, unknown>) => ({ seoProfileId: typeof search.seoProfileId === 'string' ? search.seoProfileId : undefined, seoRunId: typeof search.seoRunId === 'string' ? search.seoRunId : undefined }),
   })
   const route = createRoute({ getParentRoute: () => root, path: '/projects/$projectName/seo-data', component: () => <SeoDataSection projectName="example" /> })
-  const router = createRouter({ routeTree: root.addChildren([route]), history: createMemoryHistory({ initialEntries: [`/projects/example/seo-data?seoProfileId=${profileId}${runId ? `&seoRunId=${runId}` : ''}`] }) })
+  const search = new URLSearchParams()
+  if (profileId) search.set('seoProfileId', profileId)
+  if (runId) search.set('seoRunId', runId)
+  const router = createRouter({ routeTree: root.addChildren([route]), history: createMemoryHistory({ initialEntries: [`/projects/example/seo-data?${search}`] }) })
   await router.load()
   render(<QueryClientProvider client={client}><RouterProvider router={router} /></QueryClientProvider>)
   return { client, router }
@@ -138,6 +141,74 @@ test.each([SeoRunStatuses.completed, SeoRunStatuses.partial, null])('selected pr
   }
 })
 
+test.each([false, true])('an unconfigured source gives a setup next step while preserving saved evidence (%s)', async hasSavedProfile => {
+  const reason = 'SEO execution is not configured on this host.'
+  vi.stubGlobal('fetch', async (request: Request) => {
+    const url = new URL(request.url)
+    if (url.pathname.endsWith('/context')) return json({ ...context, available: false, reason, connections: [], scopes: [{ ...context.scopes[0], supported: false, capabilities: [], reason }] })
+    if (url.pathname.endsWith('/profiles')) return json({ profiles: hasSavedProfile ? [simple] : [] })
+    if (hasSavedProfile && url.pathname.endsWith('/overview')) {
+      const value = overview(simple)
+      return json({ ...value, status: { ...value.status, available: false, reason, capabilities: [] } })
+    }
+    if (hasSavedProfile && url.pathname.endsWith('/ranked-keywords')) return json({ runId: saved.id, total: 1, limit: 25, offset: 0, items: [ranked] })
+    throw new Error(`Unexpected unconfigured-source request ${request.method} ${url.pathname}`)
+  })
+  await mount(hasSavedProfile ? simple.id : null)
+  if (hasSavedProfile) {
+    await screen.findByText('saved keyword')
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Refresh data' }).disabled).toBe(true)
+  } else {
+    await screen.findByRole('heading', { name: 'Configure an SEO data provider' })
+    expect(screen.getByText('Connect a provider before creating an SEO profile.')).toBeTruthy()
+    expect(screen.queryByText(/administrator/i)).toBeNull()
+    expect(screen.queryByRole('combobox', { name: 'SEO profile' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Refresh data' })).toBeNull()
+    expect(screen.queryByRole('table')).toBeNull()
+  }
+  expect(screen.queryByRole('button', { name: 'New profile' })).toBeNull()
+})
+
+test('a configured source with an unavailable Advanced scope shows the plan recovery instruction', async () => {
+  const reason = 'Publish a current Advanced Measurement plan first.'
+  vi.stubGlobal('fetch', async (request: Request) => {
+    const url = new URL(request.url)
+    if (url.pathname.endsWith('/context')) return json({ ...context, scopes: [{ ...context.scopes[0], supported: false, capabilities: [], reason }] })
+    if (url.pathname.endsWith('/profiles')) return json({ profiles: [] })
+    throw new Error(`Unexpected unavailable-scope request ${request.method} ${url.pathname}`)
+  })
+  await mount(null)
+  await screen.findByRole('heading', { name: 'SEO scope unavailable' })
+  expect(screen.getByText(reason)).not.toBeNull()
+  expect(screen.queryByRole('heading', { name: 'Configure an SEO data provider' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'New profile' })).toBeNull()
+})
+
+test.each(['Edit profile', 'New profile'])('%s restores its opener after closing or cancelling the editor', async action => {
+  vi.stubGlobal('fetch', async (request: Request) => {
+    const url = new URL(request.url)
+    if (url.pathname.endsWith('/context')) return json(context)
+    if (url.pathname.endsWith('/profiles')) return json({ profiles: [simple] })
+    if (url.pathname.endsWith('/overview')) return json(overview(simple))
+    if (url.pathname.endsWith('/ranked-keywords')) return json({ runId: saved.id, total: 1, limit: 25, offset: 0, items: [ranked] })
+    throw new Error(`Unexpected editor request ${request.method} ${url.pathname}`)
+  })
+  await mount()
+  await screen.findByText('saved keyword')
+  const opener = screen.getByRole('button', { name: action })
+  for (const closeAction of ['Close profile editor', 'Cancel']) {
+    opener.focus()
+    fireEvent.click(opener)
+    const form = await screen.findByRole('form', { name: action === 'Edit profile' ? 'Edit SEO profile' : 'New SEO profile' })
+    await waitFor(() => expect(document.activeElement).toBe(within(form).getByRole('textbox', { name: 'Profile name' })))
+    const close = within(form).getByRole('button', { name: closeAction })
+    close.focus()
+    fireEvent.click(close)
+    await waitFor(() => expect(document.activeElement).toBe(opener))
+    expect(screen.queryByRole('form')).toBeNull()
+  }
+})
+
 test('profile editing clears unsupported datasets when Advanced scope narrows and saves only the allowed selection', async () => {
   const hostScope = { ...context.scopes[1]!, capabilities: ['keyword-metrics', 'ranked-keywords'] as SeoProfile['capabilities'] }
   const pathScope = { ...hostScope, key: 'property-docs', label: 'Documentation path', capabilities: ['keyword-metrics'] as SeoProfile['capabilities'], reason: 'This scope supports explicit keyword metrics only.' }
@@ -153,7 +224,7 @@ test('profile editing clears unsupported datasets when Advanced scope narrows an
     }
     if (url.pathname.endsWith('/context')) return json({ ...context, scopes: [context.scopes[0], hostScope, pathScope] })
     if (url.pathname.endsWith('/profiles')) return json({ profiles: [current] })
-    if (url.pathname.endsWith('/overview')) return json({ ...overview(current), evidenceRun: saved })
+    if (url.pathname.endsWith('/overview')) return json({ ...overview(current), evidenceRun: saved, summary: overview(simple).summary })
     if (url.pathname.endsWith('/ranked-keywords')) return json({ runId: saved.id, total: 1, limit: 25, offset: 0, items: [ranked] })
     throw new Error(`Unexpected request ${url.pathname}`)
   })
@@ -174,6 +245,55 @@ test('profile editing clears unsupported datasets when Advanced scope narrows an
   fireEvent.click(within(form).getByRole('button', { name: 'Save profile' }))
   await waitFor(() => expect(writes).toHaveLength(1))
   expect(writes[0]).toMatchObject({ capabilities: ['keyword-metrics'], keywords: ['example keyword'], scope: { kind: 'property', key: 'property-docs', expectedPlanRevision: 7 } })
+  await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('combobox', { name: 'SEO profile' })))
+  expect(screen.queryByRole('form', { name: 'Edit SEO profile' })).toBeNull()
+})
+
+test.each(['project', 'path Property'])('a new keyword-only profile for %s saves without unrelated target fields', async scopeLabel => {
+  const pathScope: SeoContext['scopes'][number] = { kind: 'property', key: 'docs', label: 'Documentation path', planRevision: 7, supported: true, capabilities: ['keyword-metrics'], reason: 'Supports explicit keyword metrics only.' }
+  let created: SeoProfile | undefined
+  const writes: SeoProfileInput[] = []
+  vi.stubGlobal('fetch', async (request: Request) => {
+    const url = new URL(request.url)
+    if (request.method === 'PUT') {
+      const input = await request.json() as SeoProfileInput
+      writes.push(input)
+      created = { ...input, id: url.pathname.split('/').at(-1)!, revision: 1, createdAt: source.collectedAt, updatedAt: source.collectedAt }
+      return json(created)
+    }
+    if (url.pathname.endsWith('/context')) return json({ ...context, scopes: [context.scopes[0], pathScope] })
+    if (url.pathname.endsWith('/profiles')) return json({ profiles: created ? [created] : [] })
+    if (created && url.pathname.endsWith('/overview')) return json({
+      status: { available: true, reason: null, capabilities: ['keyword-metrics'], profileCount: 1, latestRunId: null, latestRunStatus: null, lastCompletedAt: null },
+      profiles: [created], latestRun: null, evidenceRun: null, evidenceRunId: null, summary: null,
+      keywordMetricsCount: 0, domainIntelligenceCount: 0, rankedKeywordCount: 0,
+    } satisfies SeoOverview)
+    throw new Error(`Unexpected profile creation request ${request.method} ${url.pathname}`)
+  })
+  await mount(null)
+  fireEvent.click(await screen.findByRole('button', { name: 'New profile' }))
+  const form = screen.getByRole('form', { name: 'New SEO profile' })
+  fireEvent.change(within(form).getByRole('textbox', { name: 'Profile name' }), { target: { value: 'Keyword research' } })
+  if (scopeLabel === 'path Property') {
+    fireEvent.change(within(form).getByRole('combobox', { name: 'Measurement scope' }), { target: { value: 'property:docs' } })
+  }
+  for (const label of ['Ranked keywords', 'Domain comparison']) {
+    const checkbox = within(form).getByRole<HTMLInputElement>('checkbox', { name: label })
+    if (checkbox.checked) fireEvent.click(checkbox)
+  }
+  const keywords = within(form).getByRole<HTMLInputElement>('checkbox', { name: 'Keyword metrics' })
+  if (!keywords.checked) fireEvent.click(keywords)
+  expect(within(form).queryByRole('group', { name: 'Targets' })).toBeNull()
+  expect(within(form).queryByRole('spinbutton', { name: 'Ranked rows per target' })).toBeNull()
+  fireEvent.change(within(form).getByRole('textbox', { name: /^Keywords/ }), { target: { value: 'solar installer\nhome solar cost' } })
+  fireEvent.change(within(form).getByRole('spinbutton', { name: /^Provider location code/ }), { target: { value: '2840' } })
+  fireEvent.click(within(form).getByRole('button', { name: 'Save profile' }))
+  await waitFor(() => expect(writes).toHaveLength(1))
+  expect(writes[0]).toMatchObject({
+    name: 'Keyword research', capabilities: ['keyword-metrics'], targets: [], keywords: ['solar installer', 'home solar cost'], locationCode: 2840, languageCode: 'en',
+    scope: scopeLabel === 'path Property' ? { kind: 'property', key: 'docs', expectedPlanRevision: 7 } : { kind: 'project' },
+  })
+  await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('combobox', { name: 'SEO profile' })))
 })
 
 test('an ambiguous refresh retry reuses its intent and identity while saved evidence remains visible', async () => {
@@ -252,6 +372,31 @@ test('an unavailable saved profile never silently falls back to another scope', 
   await waitFor(() => expect(client.isFetching()).toBe(0))
   expect(reads.some(path => path.endsWith('/overview'))).toBe(false)
   expect(screen.queryByRole('button', { name: 'Refresh data' })).toBeNull()
+})
+
+test.each([404, 503])('an unavailable refresh (%s) keeps navigation and waits for explicit recovery before loading latest evidence', async status => {
+  const reads: URL[] = []
+  vi.stubGlobal('fetch', async (request: Request) => {
+    const url = new URL(request.url)
+    reads.push(url)
+    if (url.pathname.endsWith('/context')) return json(context)
+    if (url.pathname.endsWith('/profiles')) return json({ profiles: [simple, advanced] })
+    if (url.pathname.endsWith('/runs/missing')) return json({ error: { code: status === 404 ? 'NOT_FOUND' : 'SERVICE_UNAVAILABLE', message: status === 404 ? 'SEO refresh not found.' : 'Refresh history is temporarily unavailable.' } }, status)
+    if (url.pathname.endsWith('/overview')) return json(overview(simple))
+    if (url.pathname.endsWith('/ranked-keywords')) return json({ runId: saved.id, total: 1, limit: 25, offset: 0, items: [ranked] })
+    throw new Error(`Unexpected refresh recovery request ${request.method} ${url.pathname}`)
+  })
+  const { client, router } = await mount(simple.id, 'missing')
+  await screen.findByRole('button', { name: 'Retry' })
+  await waitFor(() => expect(client.isFetching()).toBe(0))
+  expect(screen.getByRole<HTMLSelectElement>('combobox', { name: 'SEO profile' }).value).toBe(simple.id)
+  expect(router.state.location.search.seoRunId).toBe('missing')
+  expect(reads.some(url => url.pathname.endsWith('/overview'))).toBe(false)
+  fireEvent.click(screen.getByRole('button', { name: 'View latest data' }))
+  await screen.findByText('saved keyword')
+  expect(router.state.location.search.seoRunId).toBeUndefined()
+  expect(router.state.location.search.seoProfileId).toBe(simple.id)
+  expect(reads.filter(url => url.pathname.endsWith('/overview')).map(url => Object.fromEntries(url.searchParams))).toEqual([{ profileId: 'simple' }])
 })
 
 test('editing a profile preserves the datasets and locale of its prior saved evidence', async () => {

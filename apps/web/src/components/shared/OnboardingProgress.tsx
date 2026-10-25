@@ -24,10 +24,16 @@ const ONBOARDING_STAGES = [
  * `incomplete`: started and failed. `unknown`: the evidence could not be read.
  * None of them may render as complete.
  */
-export type OnboardingStageOutcome = 'skipped' | 'pending' | 'incomplete' | 'unknown'
+export type OnboardingStageOutcome = 'skipped' | 'not-started' | 'queued' | 'running' | 'partial' | 'failed' | 'cancelled' | 'pending' | 'incomplete' | 'unknown'
 
 const OUTCOME_LABELS: Record<OnboardingStageOutcome, string | null> = {
   skipped: 'Skipped',
+  'not-started': 'Not started',
+  queued: 'Queued',
+  running: 'In progress',
+  partial: 'Partial results',
+  failed: 'Failed',
+  cancelled: 'Cancelled',
   pending: 'In progress',
   incomplete: 'Didn’t finish',
   unknown: null,

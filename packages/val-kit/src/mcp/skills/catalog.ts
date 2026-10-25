@@ -11,6 +11,7 @@ import { part as aeroReferencesOrchestrationPart0 } from './aero-references-orch
 import { part as aeroReferencesPortfolioAnalysisPart0 } from './aero-references-portfolio-analysis.0.js'
 import { part as aeroReferencesRegressionPlaybookPart0 } from './aero-references-regression-playbook.0.js'
 import { part as aeroReferencesReportingPart0 } from './aero-references-reporting.0.js'
+import { part as aeroReferencesSeoAnalysisPart0 } from './aero-references-seo-analysis.0.js'
 import { part as aeroReferencesSiteHealthPart0 } from './aero-references-site-health.0.js'
 import { part as aeroReferencesWordpressElementorMcpPart0 } from './aero-references-wordpress-elementor-mcp.0.js'
 import { part as aeroSoulPart0 } from './aero-soul.0.js'
@@ -32,9 +33,9 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     skill: "aero",
     path: "SKILL.md",
     title: "aero skill",
-    description: "Diagnose AEO regressions and interpret Canonry AI visibility, Advanced multi-property portfolios, and Site Health evidence. Use when a mention or citation coverage number moved and needs explaining, when comparing Properties or markets, diagnosing crawl or page findings, preparing a client report or month-over-month comparison, or analyzing a completed `cnry` sweep or site audit. Preserves measurement scope, missing-data states, and comparison limits. Use the canonry skill for setup and operations.",
+    description: "Diagnose AEO regressions and interpret Canonry AI visibility, SEO data, Advanced multi-property portfolios, and Site Health evidence. Use when prioritizing keyword or organic ranking opportunities, explaining mention or citation changes, comparing Properties or markets, diagnosing page findings, preparing reports, or analyzing a completed `cnry` sweep or site audit. Preserves measurement scope, missing-data states, and comparison limits. Use the canonry skill for setup and operations.",
     entryPoint: true,
-    characters: 19031,
+    characters: 19590,
     content: aeroSkillPart0,
   },
   {
@@ -104,8 +105,18 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Reporting Templates",
     description: "Weekly and monthly report templates with metric tables, regression/gain sections, and recommended-actions structure. Read when asked to produce a client-facing summary.",
     entryPoint: false,
-    characters: 10899,
+    characters: 11151,
     content: aeroReferencesReportingPart0,
+  },
+  {
+    uri: "canonry-skill://aero/references/seo-analysis.md",
+    skill: "aero",
+    path: "references/seo-analysis.md",
+    title: "SEO analysis",
+    description: "Prioritize keyword and organic ranking opportunities from saved SEO evidence. Covers profile selection, bounded samples, Advanced scopes, provider estimates, and actionable shortlists.",
+    entryPoint: false,
+    characters: 9287,
+    content: aeroReferencesSeoAnalysisPart0,
   },
   {
     uri: "canonry-skill://aero/references/site-health.md",
@@ -204,7 +215,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Server-side traffic (AI Visibility — Server-Side)",
     description: "canonry skill reference: references/server-side-traffic.md",
     entryPoint: false,
-    characters: 57216,
+    characters: 57421,
     content: canonryReferencesServerSideTrafficPart0,
   },
   {

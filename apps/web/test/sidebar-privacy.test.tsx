@@ -1,5 +1,5 @@
 import { afterEach, beforeAll, beforeEach, expect, onTestFinished, test } from 'vitest'
-import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { RouterProvider } from '@tanstack/react-router'
 
@@ -117,6 +117,46 @@ test('sidebar can be hidden and restored from the desktop topbar', async () => {
   expect(getByRole('button', { name: 'Hide sidebar' }).getAttribute('aria-controls')).toBe('desktop-sidebar')
 })
 
+test('navigation contains keyboard focus and restores the trigger after Escape, Close, and navigation', async () => {
+  const { getByRole, findByRole, queryByRole, router } = await renderRoute('/projects')
+  const trigger = getByRole('button', { name: 'Open navigation' })
+  const background = getByRole('button', { name: 'Hide sidebar' })
+  trigger.focus()
+  fireEvent.click(trigger)
+
+  const close = await findByRole('button', { name: 'Close navigation' })
+  expect(document.activeElement).toBe(close)
+  const navigation = await findByRole('dialog', { name: 'Navigation' })
+  const links = within(navigation).getAllByRole('link')
+  const lastLink = links.at(-1)!
+  expect(queryByRole('main')).toBeNull()
+
+  background.focus()
+  expect(document.activeElement).toBe(close)
+  fireEvent.keyDown(close, { key: 'Tab', shiftKey: true })
+  expect(document.activeElement).toBe(lastLink)
+  fireEvent.keyDown(lastLink, { key: 'Tab' })
+  expect(document.activeElement).toBe(close)
+
+  fireEvent.keyDown(close, { key: 'Escape' })
+  await waitFor(() => expect(queryByRole('dialog', { name: 'Navigation' })).toBeNull())
+  await waitFor(() => expect(document.activeElement).toBe(trigger))
+  expect(trigger.getAttribute('aria-expanded')).toBe('false')
+  expect(getByRole('main')).toBeDefined()
+
+  fireEvent.click(trigger)
+  fireEvent.click(await findByRole('button', { name: 'Close navigation' }))
+  await waitFor(() => expect(document.activeElement).toBe(trigger))
+  expect(queryByRole('dialog', { name: 'Navigation' })).toBeNull()
+
+  fireEvent.click(trigger)
+  const reopened = await findByRole('dialog', { name: 'Navigation' })
+  fireEvent.click(within(reopened).getByRole('link', { name: 'All projects', exact: true }))
+  await waitFor(() => expect(router.state.location.pathname).toBe('/'))
+  await waitFor(() => expect(queryByRole('dialog', { name: 'Navigation' })).toBeNull())
+  await waitFor(() => expect(document.activeElement).toBe(trigger))
+})
+
 test('hidden sidebar preference survives a reload', async () => {
   window.localStorage.setItem('canonry:sidebarHidden', 'true')
 
@@ -125,6 +165,25 @@ test('hidden sidebar preference survives a reload', async () => {
   expect(container.querySelector('#desktop-sidebar')).toBeNull()
   expect(container.querySelector('.app-shell-sidebar-hidden')).not.toBeNull()
   expect(getByRole('button', { name: 'Show sidebar' })).toBeDefined()
+})
+
+test('navigation Escape does not also dismiss an underlying run drawer', async () => {
+  const runId = 'run_citypoint_visibility_20260308'
+  const { getByRole, findByRole, queryByRole, router } = await renderRoute('/')
+  const trigger = getByRole('button', { name: 'Open navigation' })
+  await router.navigate({ to: '/', search: (previous) => ({ ...previous, runId }) })
+  await findByRole('dialog')
+  // Exercise stacked dismissal while the route retains its open run.
+  fireEvent.click(trigger)
+  const navigation = await findByRole('dialog', { name: 'Navigation' })
+
+  fireEvent.keyDown(within(navigation).getByRole('button', { name: 'Close navigation' }), { key: 'Escape' })
+  await waitFor(() => expect(queryByRole('dialog', { name: 'Navigation' })).toBeNull())
+  expect(router.state.location.search.runId).toBe(runId)
+  expect(getByRole('dialog')).toBeDefined()
+
+  fireEvent.keyDown(getByRole('dialog'), { key: 'Escape' })
+  await waitFor(() => expect(router.state.location.search.runId).toBeUndefined())
 })
 
 test('falls back to a visible sidebar when stored preference cannot be read', async () => {
@@ -225,7 +284,7 @@ test('keeps navigation available when an existing operator opens setup', async (
   expect(container.querySelector('#desktop-sidebar')).not.toBeNull()
   expect(getByRole('button', { name: 'Hide sidebar' })).toBeDefined()
   expect(getByRole('button', { name: 'Open navigation' })).toBeDefined()
-  expect(container.querySelector('#mobile-nav')).not.toBeNull()
+  expect(getByRole('button', { name: 'Open navigation' }).getAttribute('aria-expanded')).toBe('false')
   expect(container.querySelector('.app-shell-focus')).toBeNull()
 })
 
@@ -237,7 +296,7 @@ test('keeps navigation available for ordinary project-scoped setup', async () =>
   expect(container.querySelector('#desktop-sidebar')).not.toBeNull()
   expect(getByRole('button', { name: 'Hide sidebar' })).toBeDefined()
   expect(getByRole('button', { name: 'Open navigation' })).toBeDefined()
-  expect(container.querySelector('#mobile-nav')).not.toBeNull()
+  expect(getByRole('button', { name: 'Open navigation' }).getAttribute('aria-expanded')).toBe('false')
   expect(container.querySelector('.app-shell-focus')).toBeNull()
 })
 

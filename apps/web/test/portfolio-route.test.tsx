@@ -2215,7 +2215,7 @@ test('fresh project settings use the empty collection instead of a noisy schedul
   const router = createAppRouter(queryClient, { initialEntries: ['/projects/project_citypoint/settings'] })
   await router.load()
   const page = render(
-    <AccountProvider account={{ name: 'viewer', role: 'viewer' }}>
+    <AccountProvider account={{ name: 'admin', role: 'admin' }}>
       <QueryClientProvider client={queryClient}>
         <DashboardProvider value={{ dashboard: fixture.dashboard, health: fixture.health }}>
           <RouterProvider router={router} />
@@ -3864,7 +3864,7 @@ test.each(['simple', 'advanced'] as const)('managed %s Site Health keeps admin s
   expect(html).not.toContain('Scans are run by your Canonry team')
 })
 
-test.each(['', '/technical-aeo', '/settings', '/history'])('unset managed run kinds preserve serialized Simple and Advanced route markup (%s)', async suffix => {
+test.each(['', '/technical-aeo', '/settings', '/history'])('unset managed run kinds preserve Simple and Advanced viewer routes (%s)', async suffix => {
   for (const mode of ['simple', 'advanced'] as const) {
     const measurement = mode === 'advanced' ? { plan: measurementPlanV2Response(2), overview: measurementOverviewResponse() } : undefined
     const original = await renderAt(`/projects/project_citypoint${suffix}`, undefined, measurement, { accountRole: 'viewer' })
@@ -3876,7 +3876,10 @@ test.each(['', '/technical-aeo', '/settings', '/history'])('unset managed run ki
       expect(html).not.toContain('Checks are run by your Canonry team')
       expect(within(projectActions(html)).getByRole('button', { name: /AI Visibility check running|Checking AI readiness|Set up AI Visibility|Run AI Visibility check/ }).hasAttribute('disabled')).toBe(true)
       if (suffix === '/technical-aeo') expect(within(doc).getByRole('heading', { name: 'Site Health' })).toBeTruthy()
-      if (suffix === '/settings') expect(within(doc).getByRole('heading', { name: 'Project settings' })).toBeTruthy()
+      if (suffix === '/settings') {
+        expect(within(doc).getByRole('heading', { name: 'Project settings unavailable' })).toBeTruthy()
+        expect(within(doc).getByRole('link', { name: 'Return to overview' })).toBeTruthy()
+      }
       if (suffix === '/history') expect(within(within(doc).getByRole('tablist', { name: 'Project history views' })).getByRole('tab', { name: 'Changes' }).getAttribute('aria-selected')).toBe('true')
       if (suffix === '' && mode === 'simple') expectTrendChartFirst(html)
       if (suffix === '' && mode === 'advanced') expect(doc.querySelector('.visibility-scope-trigger')?.textContent).toBe('Whole site')
@@ -3918,10 +3921,31 @@ test.each(['simple', 'advanced'] as const)('%s Settings shows the saved Site Hea
   }
 })
 
-test.each(['simple', 'advanced'] as const)('%s Settings shows the saved page budget read-only to a viewer, a managed project writer and an embed', async mode => {
+test.each(['simple', 'advanced'] as const)('%s project hides Settings navigation and configuration from a viewer', async mode => {
+  const { page, router, observed, projectName } = await renderScopeRoute('/projects/project_citypoint/settings', url => {
+    if (url.pathname.endsWith('/measurement-plan')) return jsonResponse(mode === 'advanced' ? measurementPlanV2Response(2) : { active: null })
+    if (url.pathname.endsWith('/measurement-setup')) return jsonResponse(mode === 'advanced' ? activeMeasurementSetupResponse(2) : simpleMeasurementSetupResponse())
+    if (url.pathname.endsWith('/schedules') || url.pathname.endsWith('/notifications')) return jsonResponse([])
+    return undefined
+  }, { accountRole: 'viewer' })
+
+  expect(await page.findByRole('heading', { name: 'Project settings unavailable' })).toBeTruthy()
+  expect(page.queryByRole('link', { name: 'Settings', exact: true })).toBeNull()
+  expect(page.getByText('Your account has view-only access to this project.')).toBeTruthy()
+  expect(page.queryByRole('heading', { name: 'Project settings', exact: true })).toBeNull()
+  expect(page.queryByRole('region', { name: 'Site Health scans' })).toBeNull()
+  expect(page.queryByRole('heading', { name: 'Scheduled runs' })).toBeNull()
+  expect(page.queryByRole('heading', { name: 'Notifications' })).toBeNull()
+  expect(observed.some(url => url.pathname.endsWith('/notifications'))).toBe(false)
+
+  fireEvent.click(page.getByRole('link', { name: 'Return to overview' }))
+  await waitFor(() => expect(router.state.location.pathname).toBe(`/projects/${projectName}`))
+  expect(page.queryByRole('link', { name: 'Settings', exact: true })).toBeNull()
+})
+
+test.each(['simple', 'advanced'] as const)('%s Settings shows the saved page budget read-only to a managed project writer and an embed', async mode => {
   const projectWriter = { id: 'key-project-writer', scopes: ['*'], projectId: 'project_citypoint', readOnly: false }
   const cases = [
-    { label: 'viewer', embed: undefined, options: { accountRole: 'viewer' as const } },
     { label: 'managed project writer', embed: undefined, options: { apiKey: projectWriter, managedRunKinds: ['site-audit' as const] } },
     { label: 'embed', embed: { enabled: true, projectTabs: ['settings'] }, options: {} },
   ]

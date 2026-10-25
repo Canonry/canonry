@@ -13,9 +13,11 @@ specification.
 
 ## Prerequisite
 
-Install Node.js 22.19 or newer and the global Canonry runtime before you enable
-the plugin. The global install keeps `canonry-mcp` on `PATH`. A one-off `npx`
-invocation is not sufficient. Bootstrap the local runtime after installation:
+Install Node.js in a supported range: `>=22.23.4 <23`, `>=24.22.1 <25`, or
+`>=26.12.1 <27`. Check `node --version` before installing and upgrade Node first
+if it is outside these ranges. Install the global Canonry runtime before you
+enable the plugin. The global install keeps `canonry-mcp` on `PATH`. A one-off
+`npx` invocation is not sufficient. Bootstrap the local runtime after installation:
 
 ```bash
 npm install -g @canonry/canonry
