@@ -3,7 +3,7 @@ import { and, eq, ne, asc, desc, inArray, notInArray, or, sql } from 'drizzle-or
 import type { FastifyInstance } from 'fastify'
 import { runs, querySnapshots, queries, projects, competitors, parseJsonColumn } from '@canonry/canonry-db'
 import { compileCompetitiveSignalResolver } from '@canonry/canonry-intelligence'
-import type { CitationState, LocationContext, MeasurementExecutionIdentity, MeasurementRunScope, ProviderAccountStreak, ProviderDispatchMode, RunDispatchModes, RunListFilterQuery } from '@canonry/canonry-contracts'
+import type { CitationState, LocationContext, MeasurementExecutionIdentity, MeasurementRunScope, ProviderAccountStreak, ProviderDispatchMode, RunDispatchModes, RunListFilterQuery, RunSyncSummary } from '@canonry/canonry-contracts'
 import {
   ProviderWorkflows,
   SEO_RUN_SCOPE,
@@ -945,6 +945,7 @@ export function formatRun(row: {
   measurementExecutionIdentity?: MeasurementExecutionIdentity | null
   providerDispatchModes?: RunDispatchModes | null
   skippedProviders?: Record<string, ProviderAccountStreak> | null
+  syncSummary?: RunSyncSummary | null
   sourceId?: string | null
 }) {
   const measurementManifest = row.measurementManifest !== null
@@ -980,6 +981,8 @@ export function formatRun(row: {
       : {}),
     // Only on a run that skipped a provider, so other runs read as before.
     ...(row.skippedProviders && Object.keys(row.skippedProviders).length > 0 ? { skippedProviders: row.skippedProviders } : {}),
+    // Only on a sync that recorded one, so other runs read as before.
+    ...(row.syncSummary ? { syncSummary: row.syncSummary } : {}),
     createdAt: row.createdAt,
   }
 }

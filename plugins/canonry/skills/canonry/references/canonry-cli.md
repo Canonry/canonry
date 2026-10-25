@@ -1007,10 +1007,14 @@ the explicit activation command. Activation pauses sibling sources and moves the
 one `traffic-sync` schedule for the project. Direct push rejects `traffic sync` and
 does not use this schedule.
 
-Queue pull drains for up to 4 minutes in one sync. The doctor warns when more
-than 1,000 messages remain afterwards: the drain hit its limit. If the operator
-approves a manual drain, run a manual sync. If the backlog recurs, get approval
-to shorten the schedule interval or raise the time limit.
+Queue pull drains for up to 4 minutes in one sync. Each run records why it
+stopped: read `syncSummary.stopReason` with
+`cnry runs <project> --kind traffic-sync --format json`. The doctor warns when
+more than 1,000 messages remain afterwards and names the cause. After
+`deadline` or `batch-cap` the drain hit its limit: if the operator approves a
+manual drain, run a manual sync, and if the backlog recurs, get approval to
+shorten the schedule interval or raise the time limit. After `empty-pulls`
+Cloudflare still counted messages it would not return; later syncs pull them.
 
 Read the [server-side traffic guide](server-side-traffic.md) for token safety,
 route checks, activation order, smoke tests, rollback, and troubleshooting.

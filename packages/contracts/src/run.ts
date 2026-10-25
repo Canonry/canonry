@@ -7,6 +7,7 @@ import { answerEvidenceSchema } from './answer-evidence.js'
 import { mentionIdentitySchema } from './mention-identity.js'
 import { classifyProviderErrorMessage, providerErrorCodeSchema } from './provider-errors.js'
 import { pricingTierSchema, providerBatchStatusSchema, providerDispatchModeSchema, snapshotUsageSchema } from './provider-batch.js'
+import { runSyncSummarySchema } from './run-sync-summary.js'
 
 export const runStatusSchema = z.enum(['queued', 'running', 'completed', 'partial', 'failed', 'cancelled'])
 export type RunStatus = z.infer<typeof runStatusSchema>
@@ -302,6 +303,11 @@ export const runDtoSchema = z.object({
    * finishes. Omitted when the run skips none.
    */
   skippedProviders: z.record(z.string(), providerAccountStreakSchema).optional(),
+  /**
+   * What a sync run did and why it stopped, for syncs that record one (a
+   * Cloudflare Queue traffic sync). Omitted on every other run.
+   */
+  syncSummary: runSyncSummarySchema.optional(),
   createdAt: z.string(),
 })
 

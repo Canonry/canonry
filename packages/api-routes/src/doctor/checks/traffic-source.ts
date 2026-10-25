@@ -1,5 +1,6 @@
-import { and, eq, gte, inArray, ne, sql } from 'drizzle-orm'
+import { and, desc, eq, gte, inArray, isNotNull, ne, sql } from 'drizzle-orm'
 import {
+  CloudflareQueueDrainStopReasons,
   CloudflareTrafficDeliveryModes,
   CheckCategories,
   CheckNotificationPolicies,
@@ -11,11 +12,13 @@ import {
   TrafficSourceTypes,
   describeError,
   formatCalendarDay,
+  type CloudflareQueueDrainStopReason,
 } from '@canonry/canonry-contracts'
 import {
   aiReferralEventsHourly,
   aiUserFetchEventsHourly,
   crawlerEventsHourly,
+  runs,
   trafficSources,
 } from '@canonry/canonry-db'
 import {
@@ -773,6 +776,69 @@ const syncLagCheck: CheckDefinition = {
   },
 }
 
+/** Why the source's most recent recorded Queue sync stopped, or null when none recorded one. */
+function lastQueueStopReason(ctx: DoctorContext, sourceId: string): CloudflareQueueDrainStopReason | null {
+  const row = ctx.db.select({ syncSummary: runs.syncSummary }).from(runs)
+    .where(and(
+      eq(runs.projectId, ctx.project!.id),
+      eq(runs.kind, RunKinds['traffic-sync']),
+      eq(runs.sourceId, sourceId),
+      isNotNull(runs.syncSummary),
+    ))
+    .orderBy(desc(runs.createdAt))
+    .limit(1)
+    .get()
+  return row?.syncSummary?.type === 'cloudflare-queue' ? row.syncSummary.stopReason : null
+}
+
+const QUEUE_LIMIT_STOPS: readonly CloudflareQueueDrainStopReason[] = [
+  CloudflareQueueDrainStopReasons.deadline,
+  CloudflareQueueDrainStopReasons['batch-cap'],
+]
+const QUEUE_NOT_VISIBLE_STOPS: readonly CloudflareQueueDrainStopReason[] = [
+  CloudflareQueueDrainStopReasons['empty-pulls'],
+  CloudflareQueueDrainStopReasons['unleased-only'],
+]
+
+/**
+ * The cause and fix for a residual above the warn count, from why the last
+ * syncs stopped. `next` is the same fix in the plain words an alert shows; the
+ * sync command names the source when only one has a backlog.
+ */
+function queueResidualCause(
+  stopReasons: readonly (CloudflareQueueDrainStopReason | null)[],
+  projectName: string,
+  sourceId: string | null,
+): { cause: string; remediation: string; next: string } {
+  const readRuns = 'Read why each sync stopped with `canonry runs <project> --kind traffic-sync --format json` (`syncSummary.stopReason`).'
+  if (stopReasons.every(reason => reason !== null && QUEUE_LIMIT_STOPS.includes(reason))) {
+    return {
+      cause: 'The drain stopped at its time limit or pull cap before the Queue was empty.',
+      remediation: 'If the backlog keeps growing, messages will pass the Queue\'s retention and be dropped. Shorten the traffic-sync schedule interval, or raise `CANONRY_CLOUDFLARE_QUEUE_SYNC_DEADLINE_MS` (default 4 minutes per sync).',
+      next: 'If it keeps growing, sync more often, or the oldest requests expire from the queue.',
+    }
+  }
+  if (stopReasons.every(reason => reason !== null && QUEUE_NOT_VISIBLE_STOPS.includes(reason))) {
+    return {
+      cause: 'Cloudflare returned no more messages to pull while still counting them, so they were leased or not yet visible. The drain stopped before its time limit, so raising the limit does not help.',
+      remediation: 'Later syncs pull them as they become visible. If the count does not fall across syncs, check the Queue in the Cloudflare dashboard for in-flight or delayed messages before they pass the Queue\'s retention.',
+      next: 'Nothing yet. Later syncs pull them once Cloudflare releases them.',
+    }
+  }
+  if (stopReasons.every(reason => reason === CloudflareQueueDrainStopReasons.error)) {
+    return {
+      cause: 'The last sync failed before the Queue was empty.',
+      remediation: `Fix the sync error, then run \`canonry traffic sync <project> --source <id>\`. ${readRuns}`,
+      next: `Fix the sync error, then run \`cnry traffic sync ${projectName} --source ${sourceId ?? '<id>'}\`.`,
+    }
+  }
+  return {
+    cause: 'The last sync stopped before the Queue was empty.',
+    remediation: `${readRuns} If it hit its time limit, shorten the traffic-sync schedule interval or raise \`CANONRY_CLOUDFLARE_QUEUE_SYNC_DEADLINE_MS\` (default 4 minutes per sync).`,
+    next: `See why the last sync stopped with \`cnry runs ${projectName} --kind traffic-sync\`.`,
+  }
+}
+
 /**
  * A Queue pull sync is intentionally bounded. A successful run can therefore
  * commit useful events while work remains upstream. Persisting and checking
@@ -798,12 +864,14 @@ const queueBacklogCheck: CheckDefinition = {
     }
 
     const measured = sources.filter(source => source.queueBacklogCount !== null && source.queueBacklogCount !== undefined)
+    const stopReasons = new Map(sources.map(source => [source.id, lastQueueStopReason(ctx, source.id)]))
     const details = {
       sources: sources.map(source => ({
         id: source.id,
         displayName: source.displayName,
         queueBacklogCount: source.queueBacklogCount ?? null,
         queueBacklogObservedAt: source.queueBacklogObservedAt ?? null,
+        lastStopReason: stopReasons.get(source.id) ?? null,
       })),
     }
     if (measured.length === 0) {
@@ -819,16 +887,21 @@ const queueBacklogCheck: CheckDefinition = {
     const remaining = measured.filter(source => (source.queueBacklogCount ?? 0) > 0)
     const total = remaining.reduce((sum, source) => sum + source.queueBacklogCount!, 0)
     if (total > CLOUDFLARE_QUEUE_RESIDUAL_WARN_COUNT) {
+      const { cause, remediation, next } = queueResidualCause(
+        remaining.map(source => stopReasons.get(source.id) ?? null),
+        ctx.project.name,
+        remaining.length === 1 ? remaining[0]!.id : null,
+      )
       return {
         status: CheckStatuses.warn,
         code: 'traffic.queue-backlog.remaining',
-        summary: `${total.toLocaleString('en-US')} message(s) remained across ${remaining.length} Cloudflare Queue source(s) after the last sync, more than the ${CLOUDFLARE_QUEUE_RESIDUAL_WARN_COUNT.toLocaleString('en-US')} that can arrive while a drain runs. The drain stopped at its time limit or pull cap before the Queue was empty.`,
-        remediation: 'If the backlog keeps growing, messages will pass the Queue\'s retention and be dropped. Shorten the traffic-sync schedule interval, or raise `CANONRY_CLOUDFLARE_QUEUE_SYNC_DEADLINE_MS` (default 4 minutes per sync).',
+        summary: `${total.toLocaleString('en-US')} message(s) remained across ${remaining.length} Cloudflare Queue source(s) after the last sync, more than the ${CLOUDFLARE_QUEUE_RESIDUAL_WARN_COUNT.toLocaleString('en-US')} that can arrive while a drain runs. ${cause}`,
+        remediation,
         details,
         alert: {
           label: 'Traffic backlog',
           line: `${total.toLocaleString('en-US')} site requests are waiting to be processed. Normal is under ${CLOUDFLARE_QUEUE_RESIDUAL_WARN_COUNT.toLocaleString('en-US')}.`,
-          next: 'If it keeps growing, sync more often, or the oldest requests expire from the queue.',
+          next,
         },
       }
     }

@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm'
 import { check, foreignKey, index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
-import type { CompetitorAutoAlias as StoredCompetitorAutoAlias, CompetitorAutoAliasMode, ConfigSource, ProviderAccountStreak, ProviderBatchRequestOutcome, ProviderBatchStatus, ProviderDispatchMode, ProviderDispatchModesMap, SiteCrawlIssueEvidence, SnapshotUsage } from '@canonry/canonry-contracts'
+import type { CompetitorAutoAlias as StoredCompetitorAutoAlias, CompetitorAutoAliasMode, ConfigSource, ProviderAccountStreak, ProviderBatchRequestOutcome, ProviderBatchStatus, ProviderDispatchMode, ProviderDispatchModesMap, RunSyncSummary, SiteCrawlIssueEvidence, SnapshotUsage } from '@canonry/canonry-contracts'
 import type { CalendarRecurrence, AdsActivationEntityType, AdsActivationGrantState, AdsActivationManifest, AdsOperationStepState, AdsReconcileFields, BacklinkSource, ContentBriefDto, ConversionTrackingContract, DiscoveryCompetitorMapEntry, DiscoveryCompetitorType, AiReferralTrafficClass, LocationContext, ProviderModels, ProviderName, SiteAuditCrossCuttingIssueDto, SiteAuditEffectiveRequest, SiteAuditFactorSummaryDto, SiteAuditPageFactorDto, MeasurementConfig, GaLeadAttributionScope, GaMeasurementComponentStatus, GaSearchLandingStatus, GaSearchLandingWindow, GoogleAdsCustomerStatus, GoogleAdsSnapshotKind, GoogleAdsSnapshotPayload, GtmSnapshotKind, GtmSnapshotPayload, GbpReviewAlertState, GbpReviewOrigin, GbpReviewsAccess, SimpleMeasurementDefinition, TrafficVerificationManifest } from '@canonry/canonry-contracts'
 
 export const projects = sqliteTable('projects', {
@@ -385,6 +385,12 @@ export const runs = sqliteTable('runs', {
    * (`providerAccountAdmission`). Null when it skips none.
    */
   skippedProviders: text('skipped_providers', { mode: 'json' }).$type<Record<string, ProviderAccountStreak>>(),
+  /**
+   * What a sync run did and why it stopped (counts and stop reason), written
+   * when the run finishes. Only syncs that report one set it (a Cloudflare
+   * Queue traffic sync); null on every other run.
+   */
+  syncSummary: text('sync_summary', { mode: 'json' }).$type<RunSyncSummary>(),
   createdAt: text('created_at').notNull(),
 }, (table) => [
   index('idx_runs_project').on(table.projectId),

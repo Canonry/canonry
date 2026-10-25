@@ -890,6 +890,11 @@ lazily at the first batch with events: live retention plus a margin, extended
 when retention rises, floored by the newest non-fallback receipt when it falls,
 and the 14-day fallback when the read fails.
 
+Every exit sets a stop reason (`CloudflareQueueDrainStopReasons`), and every
+finish path (completed, partial, failed) writes `runs.sync_summary` with the
+drain's counts. A new exit from the loop must set its own reason; the
+`queue-backlog` doctor check reads the latest reason to name the cause.
+
 ### Stored traffic samples
 
 `traffic-samples.ts` exposes bounded stored sample rows with project/source scope.

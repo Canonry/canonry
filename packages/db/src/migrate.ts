@@ -4915,6 +4915,16 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `CREATE INDEX IF NOT EXISTS idx_journey_events_ts ON journey_events(ts)`,
     ],
   },
+  {
+    // What a sync run did and why it stopped (a Cloudflare Queue drain's
+    // counts and stop reason). Nullable with no default: every existing run,
+    // and every run an older writer finishes, records none.
+    version: 193,
+    name: 'runs-sync-summary',
+    statements: [
+      `ALTER TABLE runs ADD COLUMN sync_summary TEXT`,
+    ],
+  },
 ]
 
 /**

@@ -13,6 +13,7 @@ import {
   aiUserFetchEventsHourly,
   aiReferralEventsHourly,
 } from '@canonry/canonry-db'
+import type { CloudflareQueueDrainStopReason } from '@canonry/canonry-contracts'
 import { CURRENT_CLOUDFLARE_WORKER_VERSION } from '../src/cloudflare-worker-version.js'
 import { TRAFFIC_SOURCE_CHECKS } from '../src/doctor/checks/traffic-source.js'
 import type { CheckOutput, DoctorContext, ProjectInfo, TrafficSourceProbe, TrafficSourceValidator } from '../src/doctor/types.js'
@@ -619,21 +620,96 @@ describe('traffic.source.queue-backlog', () => {
     expect(result.remediation).toContain('next scheduled sync drains')
   })
 
-  it('warns with drain remediation while messages remain after a bounded sync', async () => {
-    insertTrafficSource(h, {
+  /** A finished Queue sync run that recorded why it stopped. */
+  function recordQueueSync(sourceId: string, stopReason: CloudflareQueueDrainStopReason, minutesAgo: number) {
+    const at = new Date(Date.now() - minutesAgo * 60_000).toISOString()
+    h.db.insert(runs).values({
+      id: crypto.randomUUID(), projectId: h.project.id, kind: 'traffic-sync', status: 'completed', trigger: 'scheduled',
+      sourceId, createdAt: at, startedAt: at, finishedAt: at,
+      syncSummary: {
+        type: 'cloudflare-queue', stopReason, pulls: 8, emptyPulls: 2, messagesPulled: 600, messagesAcknowledged: 600,
+        poisonMessages: 0, skippedUnleasedMessages: 0, acceptedEvents: 600, duplicateEvents: 0,
+        backlogAtFirstPull: 3600, backlogAtLastPull: 3100, elapsedMs: 11_000,
+      },
+    }).run()
+  }
+
+  function insertResidualQueue(): string {
+    return insertTrafficSource(h, {
       sourceType: 'cloudflare',
       displayName: 'Production Queue',
       configJson: queueConfig,
       queueBacklogCount: 1250,
       queueBacklogObservedAt: '2026-08-11T12:00:00.000Z',
     })
+  }
+
+  it('warns and points to the stored stop reason when no sync recorded one', async () => {
+    insertResidualQueue()
 
     const result = await queueBacklogCheck.run(ctxFor(h))
     expect(result.status).toBe('warn')
     expect(result.code).toBe('traffic.queue-backlog.remaining')
     expect(result.summary).toContain('1,250')
+    expect(result.summary).toContain('stopped before the Queue was empty')
+    expect(result.summary).not.toContain('time limit')
+    expect(result.remediation).toContain('canonry runs <project> --kind traffic-sync')
+    expect(result.remediation).toContain('CANONRY_CLOUDFLARE_QUEUE_SYNC_DEADLINE_MS')
+    expect(result.details).toMatchObject({ sources: [{ lastStopReason: null }] })
+    expect(result.alert).toEqual({
+      label: 'Traffic backlog',
+      line: '1,250 site requests are waiting to be processed. Normal is under 1,000.',
+      next: 'See why the last sync stopped with `cnry runs test-project --kind traffic-sync`.',
+    })
+  })
+
+  it.each(['deadline', 'batch-cap'] as const)('blames the drain limit when the last sync stopped at %s', async (stopReason) => {
+    const sourceId = insertResidualQueue()
+    recordQueueSync(sourceId, 'empty-pulls', 20)
+    recordQueueSync(sourceId, stopReason, 10)
+
+    const result = await queueBacklogCheck.run(ctxFor(h))
+    expect(result.status).toBe('warn')
+    expect(result.summary).toContain('stopped at its time limit or pull cap')
     expect(result.remediation).toContain('Shorten the traffic-sync schedule interval')
     expect(result.remediation).toContain('CANONRY_CLOUDFLARE_QUEUE_SYNC_DEADLINE_MS')
+    expect(result.details).toMatchObject({ sources: [{ lastStopReason: stopReason }] })
+    expect(result.alert?.next).toBe('If it keeps growing, sync more often, or the oldest requests expire from the queue.')
+  })
+
+  it.each(['empty-pulls', 'unleased-only'] as const)('says the rest was not visible when the last sync stopped on %s', async (stopReason) => {
+    const sourceId = insertResidualQueue()
+    recordQueueSync(sourceId, 'deadline', 20)
+    recordQueueSync(sourceId, stopReason, 10)
+
+    const result = await queueBacklogCheck.run(ctxFor(h))
+    expect(result.status).toBe('warn')
+    expect(result.summary).toContain('leased or not yet visible')
+    expect(result.summary).not.toContain('time limit or pull cap')
+    expect(result.remediation).toContain('Later syncs pull them as they become visible')
+    expect(result.remediation).not.toContain('CANONRY_CLOUDFLARE_QUEUE_SYNC_DEADLINE_MS')
+    // Syncing more often does not release leased messages, so the alert does not say to.
+    expect(result.alert?.next).toBe('Nothing yet. Later syncs pull them once Cloudflare releases them.')
+  })
+
+  it('points to the sync error when the last sync failed', async () => {
+    const sourceId = insertResidualQueue()
+    recordQueueSync(sourceId, 'error', 10)
+
+    const result = await queueBacklogCheck.run(ctxFor(h))
+    expect(result.summary).toContain('last sync failed')
+    expect(result.remediation).toContain('Fix the sync error')
+    expect(result.alert?.next).toBe(`Fix the sync error, then run \`cnry traffic sync test-project --source ${sourceId}\`.`)
+  })
+
+  it('ignores stop reasons recorded for other sources', async () => {
+    const sourceId = insertResidualQueue()
+    const other = insertTrafficSource(h, { sourceType: 'cloudflare', status: 'paused', configJson: queueConfig })
+    recordQueueSync(other, 'deadline', 5)
+    recordQueueSync(sourceId, 'empty-pulls', 10)
+
+    const result = await queueBacklogCheck.run(ctxFor(h))
+    expect(result.summary).toContain('leased or not yet visible')
   })
 })
 

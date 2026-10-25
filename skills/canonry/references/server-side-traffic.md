@@ -935,10 +935,21 @@ Cloudflare reports a backlog, up to a 4-minute time limit per sync
 while a backlog waits, so a sync stops only when Cloudflare reports no backlog,
 two pulls in a row come back empty, or the limit is reached. If a pull fails
 after earlier batches were saved, the run ends `partial` and keeps them.
+
+Each sync run records what it did and why it stopped in `syncSummary`: pulls,
+empty pulls, messages pulled and acknowledged, redelivered (duplicate) events,
+the backlog Cloudflare reported on the first and last pull, and `stopReason`
+(`backlog-empty`, `empty-pulls`, `unleased-only`, `deadline`, `batch-cap` or
+`error`). Read it with `cnry runs <project> --kind traffic-sync --format json`;
+`cnry traffic status` shows the latest one.
+
 Doctor treats a residual of up to 1,000 messages as normal (they arrived during
-the drain) and warns above that: the drain hit its limit before the Queue was
-empty. Shorten the `traffic-sync` interval or raise the time limit, or messages
-will pass the Queue's retention and be dropped.
+the drain) and warns above that, with the cause taken from the last stop
+reason. After `deadline` or `batch-cap` the drain hit its limit: shorten the
+`traffic-sync` interval or raise the time limit, or messages will pass the
+Queue's retention and be dropped. After `empty-pulls` or `unleased-only`
+Cloudflare still counted messages it would not return (leased or not yet
+visible); later syncs pull them, and raising the time limit does not help.
 
 ## Syncing data
 

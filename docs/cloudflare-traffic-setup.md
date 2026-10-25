@@ -131,7 +131,7 @@ It does not add Worker invocations: the route already runs the Worker on every p
 | Direct push | 100,000 POSTs to Canonry, plus the CPU to sign and send each one (Workers Paid includes 30M CPU-ms a month) |
 | Canonry inbound | about 1-2 KB per event, so roughly 100-200 MB |
 
-Queue pull drains for up to 4 minutes per sync (`CANONRY_CLOUDFLARE_QUEUE_SYNC_DEADLINE_MS`), AI and bot traffic included. If `traffic.source.queue-backlog` reports more than 1,000 messages left after syncs, shorten the interval, raise the time limit or switch to direct push, or the backlog grows until Queue retention drops messages. Direct push is limited to 6,000 events per minute per source.
+Queue pull drains for up to 4 minutes per sync (`CANONRY_CLOUDFLARE_QUEUE_SYNC_DEADLINE_MS`), AI and bot traffic included. If `traffic.source.queue-backlog` reports more than 1,000 messages left after syncs, shorten the interval, raise the time limit or switch to direct push, or the backlog grows until Queue retention drops messages. Each sync records why it stopped (`cnry runs <project> --kind traffic-sync --format json`, `syncSummary.stopReason`), and the doctor names that cause. Direct push is limited to 6,000 events per minute per source.
 
 Canonry stores page views only for AI-touched visitors (AI visitor journeys, capped per visitor per day). Other page views count toward unknown traffic and the capped sample tail; Queue pull also keeps a 14-day delivery receipt per message for replay safety.
 
