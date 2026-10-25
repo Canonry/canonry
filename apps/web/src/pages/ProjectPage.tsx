@@ -1991,6 +1991,13 @@ function ProjectPageContent({
     ...model.movementComparison.addedQueries,
     ...model.movementComparison.removedQueries,
   ])], [visibilityEvidence, model.movementComparison])
+  // The trend splits by query class only when there is something on each side
+  // and a brand name the metrics route can classify with.
+  const trendQueryClassSplit = useMemo(() => {
+    if (!compileQueryClassifier(effectiveBrandNames(model.project))) return false
+    const classes = new Set(visibilityEvidence.map(row => classifyQuery(row.query)))
+    return classes.has('branded') && classes.has('non-brand')
+  }, [model.project, visibilityEvidence, classifyQuery])
   // Real sweeps only, to date the sweep before a model or query change. Every
   // one back from the latest, so newer failed runs never leave a gap.
   const recentSweepTimes = useMemo(() => model.visibilitySweeps.map(run => run.createdAt), [model.visibilitySweeps])
@@ -2968,6 +2975,7 @@ function ProjectPageContent({
               queryTexts={trackedQueryTexts}
               classifyQuery={classifyQuery}
               sweepTimes={recentSweepTimes}
+              queryClassSplit={trendQueryClassSplit}
             />
           </section>
 

@@ -1616,16 +1616,17 @@ const rawCanonryMcpTools = [
     name: 'canonry_analytics_metrics',
     title: 'Get citation & mention trend',
     description:
-      'Citation and mention rates over time for a project, bucketed adaptively (daily → monthly by span) and probe-excluded. Returns overall + per-provider window aggregates AND a per-bucket `byProvider` breakdown so you can read how each engine\'s cited/mentioned rate moved run-over-run — the same data the dashboard\'s "Citations & mentions over time" chart plots. Includes trend direction (improving/declining/stable) for both signals and query-set-change annotations. Filter the range with `window` (7d/30d/90d/all).',
+      'Citation and mention rates over time for a project, bucketed adaptively (daily → monthly by span) and probe-excluded. Returns overall + per-provider window aggregates AND a per-bucket `byProvider` breakdown so you can read how each engine\'s cited/mentioned rate moved run-over-run — the same data the dashboard\'s "Citations & mentions over time" chart plots. Includes trend direction (improving/declining/stable) for both signals and query-set-change annotations. Filter the range with `window` (7d/30d/90d/all). Without `queryClass` every rate pools branded and non-brand answers, where branded queries inflate your own mentions; set `queryClass` non-brand for the competitive read and branded for brand recall, as two calls.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: z.object({
       project: projectNameSchema,
       window: analyticsWindowSchema.optional().describe('Time range: 7d, 30d, 90d, or all (default all).'),
+      queryClass: z.enum(['all', 'branded', 'non-brand']).optional().describe('Branded or non-brand answers only, classified from the query text by the project\'s brand names; all (the default) pools both. Mention share is always non-brand.'),
     }),
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/analytics/metrics'],
-    handler: (client, input) => client.getAnalyticsMetrics(input.project, input.window),
+    handler: (client, input) => client.getAnalyticsMetrics(input.project, input.window, input.queryClass),
   }),
   defineTool({
     name: 'canonry_analytics_sources',

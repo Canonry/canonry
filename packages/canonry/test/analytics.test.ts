@@ -147,6 +147,23 @@ describe('analytics command', () => {
     if (tmpDir) fs.rmSync(tmpDir, { recursive: true, force: true })
   })
 
+  it('sends --query-class through to the server and names the class in the header', async () => {
+    const { showAnalytics } = await import('../src/commands/analytics.js')
+    const json = await captureOutput(() => showAnalytics('test-proj', { feature: 'metrics', queryClass: 'non-brand', format: 'json' }))
+    expect(JSON.parse(json.stdout).metrics.queryClass).toBe('non-brand')
+    const text = await captureOutput(() => showAnalytics('test-proj', { feature: 'metrics', queryClass: 'branded' }))
+    expect(text.stdout).toContain('Citation Rate Trends (all, branded queries)')
+    const pooled = await captureOutput(() => showAnalytics('test-proj', { feature: 'metrics' }))
+    expect(pooled.stdout).toContain('Citation Rate Trends (all, branded + non-brand queries)')
+  })
+
+  it('rejects an unknown --query-class before calling the server', async () => {
+    const { parseAnalyticsQueryClass } = await import('../src/commands/analytics.js')
+    expect(parseAnalyticsQueryClass(undefined)).toBeUndefined()
+    expect(parseAnalyticsQueryClass('non-brand')).toBe('non-brand')
+    expect(() => parseAnalyticsQueryClass('brand')).toThrow(/--query-class must be one of all, branded, non-brand/)
+  })
+
   it('prints metrics section for empty project', async () => {
     const { showAnalytics } = await import('../src/commands/analytics.js')
     const { stdout } = await captureOutput(() => showAnalytics('test-proj', { feature: 'metrics' }))

@@ -6,7 +6,7 @@ import {
   classifySurfaceFromCategory, surfaceClassFromCompetitorType, surfaceClassLabel,
   effectiveDomains, evaluateModelPointerExposure, normalizeProjectDomain, parseWindow, RunKinds, RunStatuses,
   RunTriggers, windowCutoff, validationError, notFound, compileBrandAliases, hostMatchesAnyDomain, hostMatchesDomain,
-  hostOf, matcherMatchesText, normalizeQueryText, sourceBreakdownQuerySchema, answerProseForMentions,
+  hostOf, matcherMatchesText, normalizeQueryText, queryClassFilterSchema, sourceBreakdownQuerySchema, answerProseForMentions,
   prepareBrandMatchText, LATEST_RUN_ID, SOURCE_BREAKDOWN_COUNT_UNITS, RatioUnits, roundRatio,
 } from '@canonry/canonry-contracts'
 import type {
@@ -40,14 +40,38 @@ function measuredWhole(db: DatabaseClient, run: { id: string }): boolean {
 }
 
 export async function analyticsRoutes(app: FastifyInstance) {
-  // GET /projects/:name/analytics/metrics — citation rate trends
+  // GET /projects/:name/analytics/metrics — citation rate trends.
+  // `?queryClass=branded|non-brand` reads one class's answers only, classified
+  // from the query text like mention share; omitted (`all`) pools both.
   app.get<{
     Params: { name: string }
-    Querystring: { window?: string }
+    Querystring: { window?: string; queryClass?: string }
   }>('/projects/:name/analytics/metrics', async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
     const classifyQuery = projectQueryClassifier(project)
     const mentionShareScope = classifyQuery ? 'non-brand' as const : 'pooled' as const
+    const parsedQueryClass = queryClassFilterSchema.safeParse(request.query.queryClass ?? 'all')
+    if (!parsedQueryClass.success) {
+      throw validationError('"queryClass" must be one of: all, branded, non-brand', { issues: parsedQueryClass.error.issues })
+    }
+    const queryClass = parsedQueryClass.data
+    // A published v2 plan stores each query's class on its assignments, and the
+    // class-aware reads count it there. This route classifies text, so it would
+    // disagree with them; the visibility report is that project's split trend.
+    if (queryClass !== 'all' && activeMeasurementPlan(app.db, project.id)?.plan.schemaVersion === 2) {
+      throw validationError(
+        `Query class "${queryClass}" on a published measurement plan follows its assignments. Read the split from GET /projects/${project.name}/visibility-report, or omit queryClass for pooled trends.`,
+      )
+    }
+    if (queryClass !== 'all' && !classifyQuery) {
+      throw validationError(
+        `Query class "${queryClass}" needs a brand name or alias on this project. Add one, or omit queryClass for pooled trends.`,
+      )
+    }
+    // Branded or non-brand only. Every rate below reads this one set, so no
+    // figure in the response pools the two classes unless `all` asked for it.
+    const inQueryClass = (text: string | null | undefined): boolean =>
+      queryClass === 'all' || classifyQuery!(text) === queryClass
 
     const window = parseWindow(request.query.window)
     const cutoff = windowCutoff(window)
@@ -71,6 +95,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
       return reply.send({
         window,
         mentionShareScope,
+        queryClass,
         buckets: [],
         overall: { citationRate: 0, cited: 0, total: 0, mentionRate: 0, mentionedCount: 0 },
         byProvider: {},
@@ -172,6 +197,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
         s.queryId || '',
       runBasketRevision: runBasketRevision.get(s.runId) ?? null,
     }))
+      .filter(s => queryClass === 'all' || s.queryClass === queryClass)
     const mentionShareCompetitors = mentionShareCompetitorsFor(
       app.db
         .select(competitorIdentityColumns)
@@ -448,7 +474,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
     const windowChange = computeWindowChange(buckets)
 
     // Query change annotations
-    const queryChanges = computeQueryChanges(projectQueries, cutoff)
+    const queryChanges = computeQueryChanges(projectQueries.filter(q => inQueryClass(q.query)), cutoff)
     // A real change event, diffed between consecutive recorded revisions rather
     // than inferred from row timestamps. Revision 1 is not a change — it is the
     // first observation of a set that already existed — so the diff starts at 2.
@@ -460,10 +486,13 @@ export async function analyticsRoutes(app: FastifyInstance) {
         return {
           revision: rev.revision,
           at: rev.createdAt,
-          added: rev.members.filter(m => !previous.has(m)),
-          removed: basketRevisions[i]!.members.filter(m => !current.has(m)),
+          added: rev.members.filter(m => !previous.has(m) && inQueryClass(m)),
+          removed: basketRevisions[i]!.members.filter(m => !current.has(m) && inQueryClass(m)),
         }
       })
+      // A change that moved only the other class's queries left this class's
+      // set as it was, so under a class filter it is no change at all.
+      .filter(change => queryClass === 'all' || change.added.length + change.removed.length > 0)
       // A null cutoff is the all-time window, where every recorded change is in scope.
       .filter(change => !cutoff || change.at >= cutoff)
 
@@ -486,7 +515,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
       previousExecutionChecksum = identity.checksum
     }
 
-    return reply.send({ window, mentionShareScope, buckets, overall, byProvider, trend, mentionTrend, windowChange, queryChanges, basketChanges, executionIdentityChanges, referenceBasketRevision: latestBasket?.revision ?? null, modelAttribution, servedModelAttribution, modelServiceMismatch, modelPointerChanges, competitorIdentityChangedAt: readCompetitorIdentityChangedAt(app.db, project.id), competitorSetChangedAt: readCompetitorSetChangedAt(app.db, project.id) } satisfies BrandMetricsDto)
+    return reply.send({ window, mentionShareScope, queryClass, buckets, overall, byProvider, trend, mentionTrend, windowChange, queryChanges, basketChanges, executionIdentityChanges, referenceBasketRevision: latestBasket?.revision ?? null, modelAttribution, servedModelAttribution, modelServiceMismatch, modelPointerChanges, competitorIdentityChangedAt: readCompetitorIdentityChangedAt(app.db, project.id), competitorSetChangedAt: readCompetitorSetChangedAt(app.db, project.id) } satisfies BrandMetricsDto)
   })
 
   // GET /projects/:name/analytics/gaps — brand gap analysis

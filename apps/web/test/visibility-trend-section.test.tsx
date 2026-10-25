@@ -193,13 +193,15 @@ test('defaults to the by-engine view with a per-engine legend, and toggles to al
   expect(allEngines.getAttribute('aria-checked')).toBe('false')
   expect(screen.getByRole('radio', { name: 'All' })).toBeTruthy()
 
-  // The headline pools every answer, with its base beside it, and Details says
-  // it is not an engine average. Mentioned sits at 0.5 in both buckets and the
-  // query set held still, so its change reads as none.
+  // The headline pools every answer; Details opens on its base and says it is
+  // not an engine average. Mentioned sits at 0.5 in both buckets and the query
+  // set held still, so its change reads as none, with no caveat beside it.
   expect(document.querySelector('.visibility-trend-current-delta')?.textContent).toBe('no change')
-  expect(document.querySelector('.visibility-trend-current-detail')?.textContent).toBe('· 2 of 4 answers')
+  expect(document.querySelector('.visibility-trend-current')?.textContent).not.toMatch(/answers|queries/)
+  expect(document.querySelector('.visibility-trend-current .info-tooltip-trigger')).toBeNull()
   expect(screen.getByText('Mentioned rate across 2 checks. Latest 50.0%, no change over the period.')).toBeTruthy()
   expect(detailsText(document.querySelector('.visibility-trend')!)).toEqual([
+    'Latest point: 2 of 4 answers',
     expect.stringMatching(/^Base: Apr 3(, 2026)? point$/),
     '50.0% pools all answers; not an average of engines',
   ])
@@ -335,7 +337,7 @@ test('renders mention-share as a metric view and hides the engine split', async 
   expect(document.querySelector('.visibility-trend-current-value')?.textContent).toBe('75.0%')
   // 0.25 to 0.75 across the two plotted points, in words, over its base.
   expect(document.querySelector('.visibility-trend-current-delta')?.textContent).toBe('up 50.0 points')
-  expect(document.querySelector('.visibility-trend-current-detail')?.textContent).toBe('· 3 of 4 tracked-brand mentions')
+  expect(trendDetails()[0]).toBe('Latest point: 3 of 4 tracked-brand mentions')
   expect(screen.getByText(/Latest 75\.0%, up 50\.0 points over the period\./)).toBeTruthy()
   // The headline names mention share's scope, as it did before the cleanup,
   // and assistive tech hears it with the name.
@@ -836,9 +838,11 @@ test('names a query-set change without counting queries the points only happened
   await screen.findByRole('list', { name: 'Engines' })
 
   expect(changeRows(whatChanged())).toEqual([['Queries', expect.stringMatching(/^Sep 28/), '1 query added']])
-  // The change still shows, qualified in view, with the reason in Details.
-  expect(document.querySelector('.visibility-trend-current-delta')?.textContent).toBe('no change (not the same queries)')
-  expect(trendDetails()[0]).toMatch(/^Not the same queries: 1 query added Sep 28(, 2026)?; first and latest points cover different queries$/)
+  // The change still shows, muted, with a caution icon whose name says why and
+  // the dated reason in Details.
+  expect(document.querySelector('.visibility-trend-current-delta')?.textContent).toBe('no change')
+  expect(screen.getByRole('button', { name: 'Queries changed: 1 query added between the first and latest points, so the change compares different queries.' }).textContent).toBe('Queries changed')
+  expect(trendDetails()[1]).toMatch(/^Not the same queries: 1 query added Sep 28(, 2026)?; first and latest points cover different queries$/)
   expect(document.querySelector('section.visibility-trend')?.textContent).not.toMatch(/\d+ quer(y|ies) (?:and|to|->) /)
 })
 
@@ -854,10 +858,11 @@ test('says the points answered different numbers of queries when no recorded cha
 
   // Shown, never withheld: qualified in view and never tone-coloured as a win.
   const delta = document.querySelector('.visibility-trend-current-delta')!
-  expect(delta.textContent).toBe('up 50.0 points (not the same queries)')
+  expect(delta.textContent).toBe('up 50.0 points')
   expect(delta.className).toContain('text-muted')
   expect(delta.className).not.toContain('text-positive-400')
-  expect(trendDetails()[0]).toBe('Not the same queries: first and latest points have answers for 3 and 2 queries')
+  expect(screen.getByRole('button', { name: 'Queries changed: the first and latest points have answers for 3 and 2 queries, so the change compares different queries.' })).toBeTruthy()
+  expect(trendDetails()[1]).toBe('Not the same queries: first and latest points have answers for 3 and 2 queries')
   expect(screen.getByText('Mentioned rate across 2 checks. Latest 100%, up 50.0 points over the period, not the same queries.')).toBeTruthy()
 })
 
@@ -893,4 +898,97 @@ test('names a query removed and added back inside a point of more than two sweep
   await waitFor(() => expect(document.querySelector('.visibility-trend-current-value')).not.toBeNull())
 
   expect(trendDetails()).toContainEqual(expect.stringMatching(/^Jul 1(, 2026)? point pools 3 checks, with 1 query removed and added back between the first and last$/))
+})
+
+test('opens on non-brand answers with a class toggle, and reads each class from its own server response', async () => {
+  // The server splits the answers; the card only asks for a class and prints
+  // what comes back. Each class gets its own latest rate and base.
+  const point = (mentioned: number, total: number) => ({
+    ...TWO_BUCKETS[1]!, mentionedCount: mentioned, total, mentionRate: mentioned / total, byProvider: { gemini: { ...provider(0.5, mentioned / total), mentionedCount: mentioned, total } },
+  })
+  const byClass: Record<string, unknown> = {
+    'non-brand': { ...metricsDto([point(21, 132)]), queryClass: 'non-brand' },
+    branded: { ...metricsDto([point(22, 24)]), queryClass: 'branded' },
+    all: { ...metricsDto([point(43, 156)]), queryClass: 'all' },
+  }
+  const requested: string[] = []
+  const restore = mockFetch((url) => {
+    const [path, search = ''] = url.split('?')
+    if (path!.endsWith('/projects/test-project/analytics/metrics')) {
+      const queryClass = new URLSearchParams(search).get('queryClass') ?? 'all'
+      requested.push(queryClass)
+      return jsonResponse(byClass[queryClass])
+    }
+    throw new Error(`Unexpected fetch: ${url}`)
+  })
+  onTestFinished(restore)
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(
+    <QueryClientProvider client={queryClient}>
+      <VisibilityTrendSection projectName="test-project" competitorDomains={['competitor.com']} queryClassSplit />
+    </QueryClientProvider>,
+  )
+
+  await screen.findByRole('list', { name: 'Engines' })
+  const classes = screen.getByRole('radiogroup', { name: 'Query type' })
+  expect(within(classes).getAllByRole('radio').map(radio => [radio.textContent, radio.getAttribute('aria-checked')])).toEqual([
+    ['Non-brand', 'true'], ['Branded', 'false'], ['All', 'false'],
+  ])
+  // Leads the controls, ahead of the metric.
+  expect(document.querySelector('.visibility-trend-controls')?.firstElementChild).toBe(classes)
+  expect(requested).toEqual(['non-brand'])
+  expect(document.querySelector('.visibility-trend-current-value')?.textContent).toBe('15.9%')
+  expect(trendDetails()[0]).toBe('Latest point: 21 of 132 answers')
+  expect(screen.getByText(/^Mentioned rate in non-brand answers across 1 check\. Latest 15\.9%\.$/)).toBeTruthy()
+
+  await act(async () => { fireEvent.click(within(classes).getByRole('radio', { name: 'Branded' })) })
+  await waitFor(() => expect(document.querySelector('.visibility-trend-current-value')?.textContent).toBe('91.7%'))
+  expect(trendDetails()[0]).toBe('Latest point: 22 of 24 answers')
+
+  await act(async () => { fireEvent.click(within(classes).getByRole('radio', { name: 'All' })) })
+  await waitFor(() => expect(document.querySelector('.visibility-trend-current-value')?.textContent).toBe('27.6%'))
+  expect(trendDetails()[0]).toBe('Latest point: 43 of 156 answers')
+  expect(requested).toEqual(['non-brand', 'branded', 'all'])
+
+  // Mention share is non-brand already: it reads the unsplit response and the
+  // class toggle steps aside, as the series toggle does.
+  await act(async () => { fireEvent.click(within(classes).getByRole('radio', { name: 'Non-brand' })) })
+  await waitFor(() => expect(document.querySelector('.visibility-trend-current-value')?.textContent).toBe('15.9%'))
+  act(() => { fireEvent.click(screen.getByRole('radio', { name: 'Mention share' })) })
+  expect(screen.queryByRole('radiogroup', { name: 'Query type' })).toBeNull()
+  await waitFor(() => expect(document.querySelector('.visibility-trend-current-label')?.textContent).toBe('Mention share in non-brand answers'))
+  expect(requested.at(-1)).toBe('all')
+})
+
+test('keeps the pooled card, with no class toggle, when the project cannot split its queries', async () => {
+  const urls: string[] = []
+  const restore = mockFetch((url) => {
+    if (url.split('?')[0]!.endsWith('/projects/test-project/analytics/metrics')) {
+      urls.push(url)
+      return jsonResponse(metricsDto(TWO_BUCKETS, 'non-brand', TWO_BUCKETS_CHANGE))
+    }
+    throw new Error(`Unexpected fetch: ${url}`)
+  })
+  onTestFinished(restore)
+  renderSection()
+
+  await screen.findByRole('list', { name: 'Engines' })
+  expect(screen.queryByRole('radiogroup', { name: 'Query type' })).toBeNull()
+  expect(urls.some(url => url.includes('queryClass'))).toBe(false)
+})
+
+test('says a class has no answers in the window instead of asking for a first check', async () => {
+  const restore = mockFetch((url) => {
+    if (url.split('?')[0]!.endsWith('/projects/test-project/analytics/metrics')) return jsonResponse({ ...metricsDto([]), queryClass: 'non-brand' })
+    throw new Error(`Unexpected fetch: ${url}`)
+  })
+  onTestFinished(restore)
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(
+    <QueryClientProvider client={queryClient}>
+      <VisibilityTrendSection projectName="test-project" queryClassSplit />
+    </QueryClientProvider>,
+  )
+  expect(await screen.findByText('No non-brand answers in this window.')).toBeTruthy()
+  expect(screen.getByRole('radiogroup', { name: 'Query type' })).toBeTruthy()
 })

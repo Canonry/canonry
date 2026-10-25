@@ -2522,12 +2522,13 @@ export class ApiClient {
 
   // ── Analytics ───────────────────────────────────────────────────────────
 
-  async getAnalyticsMetrics(project: string, window?: string): Promise<BrandMetricsDto> {
+  /** `queryClass` reads branded or non-brand answers only; omitted pools both (server default). */
+  async getAnalyticsMetrics(project: string, window?: string, queryClass?: 'all' | 'branded' | 'non-brand'): Promise<BrandMetricsDto> {
     return this.invoke<BrandMetricsDto>(() =>
       getApiV1ProjectsByNameAnalyticsMetrics({
         client: this.heyClient,
         path: { name: project },
-        query: { window } as never,
+        query: { window, queryClass } as never,
       }),
     )
   }
