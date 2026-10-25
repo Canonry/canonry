@@ -3942,6 +3942,7 @@ export type BingUrlInspectionDto = {
 export type BrandMetricsDto = {
     window: '7d' | '30d' | '90d' | 'all';
     mentionShareScope: 'non-brand' | 'pooled';
+    queryClass: 'all' | 'branded' | 'non-brand';
     buckets: Array<{
         startDate: string;
         endDate: string;
@@ -24700,11 +24701,19 @@ export type GetApiV1ProjectsByNameAnalyticsMetricsData = {
          * Time window for analytics queries. An unrecognised value is rejected with 400; it is never widened to the full history.
          */
         window?: '7d' | '30d' | '90d' | 'all';
+        /**
+         * Restrict every rate, bucket, change and query-set event to branded or non-brand answers, classified from the query text by the project's brand names (the same split mention share uses). Mention share stays non-brand, so it is empty under branded. Bucket boundaries do not move with the class, so the two classes plot on the same dates. 400 when the project has no brand name or alias to classify with, or has a published v2 measurement plan (its classes live on the plan assignments; read the split from the visibility report). Defaults to all, which pools both classes.
+         */
+        queryClass?: 'all' | 'branded' | 'non-brand';
     };
     url: '/api/v1/projects/{name}/analytics/metrics';
 };
 
 export type GetApiV1ProjectsByNameAnalyticsMetricsErrors = {
+    /**
+     * Invalid query parameters.
+     */
+    400: ErrorEnvelope;
     /**
      * Project not found.
      */

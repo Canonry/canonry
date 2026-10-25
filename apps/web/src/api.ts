@@ -1395,9 +1395,12 @@ export function fetchGscPerformance(
 export function fetchAnalyticsMetrics(
   project: string,
   window?: MetricsWindow,
+  /** Branded or non-brand answers only; omitted or `all` pools both. */
+  queryClass?: 'all' | 'branded' | 'non-brand',
 ): Promise<BrandMetricsDto> {
   const query: Record<string, string> = {}
   if (window && window !== 'all') query.window = window
+  if (queryClass && queryClass !== 'all') query.queryClass = queryClass
   return invokeWeb<BrandMetricsDto>(() =>
     getApiV1ProjectsByNameAnalyticsMetrics({
       client: heyClient,

@@ -223,6 +223,8 @@ describe('brandMetricsDtoSchema', () => {
     }
     expect(brandMetricsDtoSchema.parse(dto)).toEqual({
       ...dto, buckets: [{ ...bucket, modelEvidenceByProvider: {}, basketRevision: null }],
+      // A server that predates the class filter pooled both classes.
+      queryClass: 'all',
       windowChange: { citationRate: null, mentionRate: null, mentionShare: null }, basketChanges: [], executionIdentityChanges: [],
       referenceBasketRevision: null, modelAttribution: {}, servedModelAttribution: {}, modelServiceMismatch: {}, modelPointerChanges: {},
     })
@@ -249,7 +251,7 @@ describe('brandMetricsDtoSchema', () => {
       byProvider: {}, trend: 'stable', mentionTrend: 'stable', queryChanges: [],
     }
     expect(brandMetricsDtoSchema.parse(valid)).toEqual({
-      ...valid, windowChange: { citationRate: null, mentionRate: null, mentionShare: null }, basketChanges: [], executionIdentityChanges: [],
+      ...valid, queryClass: 'all', windowChange: { citationRate: null, mentionRate: null, mentionShare: null }, basketChanges: [], executionIdentityChanges: [],
       referenceBasketRevision: null, modelAttribution: {}, servedModelAttribution: {}, modelServiceMismatch: {}, modelPointerChanges: {},
     })
     const invalid = brandMetricsDtoSchema.safeParse({ ...valid, trend: 'up' })

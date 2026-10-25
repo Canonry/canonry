@@ -391,6 +391,7 @@ cnry analytics <project> --feature metrics     # mention + citation rate trends 
 cnry analytics <project> --feature gaps        # brand gap analysis — mention buckets (mentionedQueries[]/mentionGap[]/notMentioned[]) primary, cited buckets (cited[]/gap[]/uncited[]) secondary
 cnry analytics <project> --feature sources     # source breakdown by category
 cnry analytics <project> --window 7d           # time window: 7d, 30d, 90d, all
+cnry analytics <project> --feature metrics --query-class non-brand  # branded|non-brand answers only (metrics and sources); omitted = all, which pools both
 ```
 
 ### Cited-source rankings (`cnry sources`)

@@ -93,13 +93,16 @@ function changeRows(): string[][] {
   return [...whatChanged().querySelectorAll('.av-change-table tbody tr')].map(row => [...row.children].map(cell => (cell.textContent ?? '').replace(/\u00a0/g, ' ')))
 }
 
-function readout(): Record<'value' | 'change' | 'base', string | null> {
+/** The headline: its rate, its change, and the caution beside a change across different queries (its accessible name). */
+function readout(): Record<'value' | 'change' | 'caveat', string | null> {
   return {
     value: document.querySelector('.visibility-trend-current-value')?.textContent ?? null,
     change: document.querySelector('.visibility-trend-current-delta')?.textContent ?? null,
-    base: document.querySelector('.visibility-trend-current-detail')?.textContent ?? null,
+    caveat: document.querySelector('.visibility-trend-current .info-tooltip-trigger-caution')?.getAttribute('aria-label') ?? null,
   }
 }
+
+const THREE_ADDED = 'Queries changed: 3 queries added between the first and latest points, so the change compares different queries.'
 
 test('reads 25.0% of 100 answers on Sep 29, with its change qualified in view and why in Details', async () => {
   renderAinyc()
@@ -112,10 +115,12 @@ test('reads 25.0% of 100 answers on Sep 29, with its change qualified in view an
     name: 'Mentioned = share of answers that name you. Cited = share that link to your site. Mention share = your share of tracked-brand mentions in non-brand answers.',
   })).toBeTruthy()
 
-  // +4.5 comes partly from the 3 branded queries added Sep 29, so the change
-  // says so where it is read, rather than being withheld.
-  expect(readout()).toEqual({ value: '25.0%', change: 'up 4.5 points (not the same queries)', base: '· 25 of 100 answers' })
+  // +4.5 comes partly from the 3 branded queries added Sep 29, so a caution
+  // sits beside the change where it is read, rather than the change being withheld.
+  expect(readout()).toEqual({ value: '25.0%', change: 'up 4.5 points', caveat: THREE_ADDED })
+  expect(card.querySelector('.visibility-trend-current .info-tooltip-trigger-caution')?.textContent).toBe('Queries changed')
   expect(bullets(card.querySelector(':scope > details.av-details'))).toEqual([
+    'Latest point: 25 of 100 answers',
     'Not the same queries: Sep 29 point mixes the 5:41 AM check and the 5:59 AM check, with 3 queries added between them',
     'Base: Mar 13 to Apr 8 point',
     '25.0% pools all answers; not an average of engines',
@@ -144,11 +149,12 @@ test('qualifies the Cited change too, and keeps mention share\'s plain because o
   await screen.findByRole('list', { name: 'Engines' })
 
   act(() => { fireEvent.click(screen.getByRole('radio', { name: 'Cited' })) })
-  expect(readout()).toEqual({ value: '27.0%', change: 'up 7.0 points (not the same queries)', base: '· 27 of 100 answers' })
+  expect(readout()).toEqual({ value: '27.0%', change: 'up 7.0 points', caveat: THREE_ADDED })
+  expect(bullets(trendCard().querySelector(':scope > details.av-details'))[0]).toBe('Latest point: 27 of 100 answers')
 
   act(() => { fireEvent.click(screen.getByRole('radio', { name: 'Mention share' })) })
-  expect(readout()).toEqual({ value: '31.7%', change: 'down 2.9 points', base: '· 13 of 41 tracked-brand mentions' })
-  expect(bullets(trendCard().querySelector(':scope > details.av-details'))).toEqual(['Base: Mar 13 to Apr 8 point'])
+  expect(readout()).toEqual({ value: '31.7%', change: 'down 2.9 points', caveat: null })
+  expect(bullets(trendCard().querySelector(':scope > details.av-details'))).toEqual(['Latest point: 13 of 41 tracked-brand mentions', 'Base: Mar 13 to Apr 8 point'])
 })
 
 test('collapses What changed to one line and opens a table by engine, newest first', async () => {
@@ -208,6 +214,7 @@ test('dates every model change "on or before" Sep 29 on 7 days, bounded by the J
   expect(trendCard().querySelector('.av-card-meta')?.textContent).toBe('Sep 29 · 2 checks')
   // One point: no change figure to withhold, but the point still mixes two query sets.
   expect(bullets(trendCard().querySelector(':scope > details.av-details'))).toEqual([
+    'Latest point: 25 of 100 answers',
     'Sep 29 point mixes the 5:41 AM check and the 5:59 AM check, with 3 queries added between them',
     '25.0% pools all answers; not an average of engines',
   ])
@@ -231,9 +238,10 @@ test('dates every model change "on or before" Sep 29 on 7 days, bounded by the J
   ])
   expect(within(changes).getByRole('button', { name: /Check before: Jul 14\.$/ })).toBeTruthy()
 
-  // Mention share reads non-brand answers only, which the branded additions left alone.
+  // Mention share reads non-brand answers only, which the branded additions
+  // left alone: Details holds its base and no mix.
   act(() => { fireEvent.click(screen.getByRole('radio', { name: 'Mention share' })) })
-  expect(bullets(trendCard().querySelector(':scope > details.av-details'))).toEqual([])
+  expect(bullets(trendCard().querySelector(':scope > details.av-details'))).toEqual(['Latest point: 13 of 41 tracked-brand mentions'])
 })
 
 test('the first and latest point tooltips carry their own dates, counts and models', async () => {

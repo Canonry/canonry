@@ -4,7 +4,7 @@ import { Fragment, useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
 import { buildModelChangeNotice, describeError, formatPercent, formatPointDelta, normalizeQueryText, parseVisibilityReportScopeErrorDetails, RatioUnits, VisibilityReportComparisonUnavailableReasons, VisibilityReportRateChangeUnavailableReasons, VisibilityReportScopeErrorReasons } from '@canonry/canonry-contracts'
-import type { BasketChangeEvent, BrandMetricsDto, MetricsWindow, ModelEvidenceState, PointDeltaDirection, QueryClass } from '@canonry/canonry-contracts'
+import type { BasketChangeEvent, BrandMetricsDto, MetricsWindow, ModelEvidenceState, PointDeltaDirection, QueryClass, QueryClassFilter } from '@canonry/canonry-contracts'
 import type { VisibilityReportComparison, VisibilityReportQueryRow, VisibilityReportResponse, VisibilityReportRate, VisibilityReportPopulation, VisibilityReportSummary } from '@canonry/canonry-contracts'
 import { getApiV1ProjectsByNameVisibilityReportOptions } from '@canonry/canonry-api-client/react-query'
 import { apiErrorDetails, heyClient } from '../../api.js'
@@ -1049,6 +1049,12 @@ const MODE_OPTIONS: Array<{ value: TrendSeriesMode; label: string }> = [
   { value: 'byProvider', label: 'By engine' },
   { value: 'overall', label: 'All engines' },
 ]
+/** Non-brand first: it is the competitive read, and the card opens on it. */
+const QUERY_CLASS_OPTIONS: Array<{ value: QueryClassFilter; label: string; description: string }> = [
+  { value: 'non-brand', label: 'Non-brand', description: 'Queries that do not name you.' },
+  { value: 'branded', label: 'Branded', description: 'Queries that name you, where a mention is nearly certain.' },
+  { value: 'all', label: 'All', description: 'Branded and non-brand queries pooled.' },
+]
 const METRIC_OPTIONS: Array<{ value: MetricChoice; label: string; description: string }> = [
   {
     value: 'mentioned',
@@ -1254,6 +1260,20 @@ function notSameQueriesReason(shift: QuerySetShift, latest: MetricsBucket, chang
     return <>Not the same queries: {shift.changes.map((entry, index) => <Fragment key={entry.at}>{index > 0 ? ', ' : ''}{querySetChangePhrase(entry)} <strong>{formatObservedDay(observedInstant(entry.at))}</strong></Fragment>)}; first and latest points cover different queries</>
   }
   return <>Not the same queries: first and latest points have answers for <strong>{shift.firstCount}</strong> and <strong>{shift.latestCount}</strong> queries</>
+}
+
+export const QUERIES_CHANGED_LABEL = 'Queries changed'
+
+/**
+ * The headline caveat's bubble and accessible name: which queries moved between
+ * the first and latest points, as plain text. Starts with the visible label.
+ * Details carries the dated reason.
+ */
+function notSameQueriesSummary(shift: QuerySetShift): string {
+  const moved = querySetMovePhrase(shift.moves)
+  return moved
+    ? `${QUERIES_CHANGED_LABEL}: ${moved} between the first and latest points, so the change compares different queries.`
+    : `${QUERIES_CHANGED_LABEL}: the first and latest points have answers for ${shift.firstCount} and ${shift.latestCount} queries, so the change compares different queries.`
 }
 
 // ── What changed ──
@@ -1682,6 +1702,7 @@ export function VisibilityTrendSection({
   queryTexts = [],
   classifyQuery,
   sweepTimes = [],
+  queryClassSplit = false,
 }: {
   projectName: string
   competitorDomains?: readonly string[]
@@ -1695,9 +1716,20 @@ export function VisibilityTrendSection({
   classifyQuery?: (queryText: string) => QueryClass | null
   /** Recent sweep times, probes excluded, to date the sweep before a change. */
   sweepTimes?: readonly string[]
+  /**
+   * The project tracks both branded and non-brand queries and has a brand name
+   * to tell them apart: the card opens on non-brand with a class toggle.
+   * Without it every rate pools both, as it always has.
+   */
+  queryClassSplit?: boolean
 }) {
   const [window, setWindow] = useState<MetricsWindow>('all')
   const [metric, setMetric] = useState<MetricChoice>('mentioned')
+  const [queryClass, setQueryClass] = useState<QueryClassFilter>('non-brand')
+  // Mention share is non-brand by definition, so it reads the unsplit response
+  // and the class toggle steps aside, as the series toggle does.
+  const showsClassControl = queryClassSplit && metric !== 'mentionShare'
+  const requestedClass: QueryClassFilter = showsClassControl ? queryClass : 'all'
   // Default to the per-engine breakdown: the blended line hides that engines
   // disagree wildly (a brand cited heavily by one engine and ignored by
   // another), which is the first thing an operator needs to see.
@@ -1706,8 +1738,9 @@ export function VisibilityTrendSection({
   const metricsFrameKey = useMemo(() => competitorFrameKey(competitorDomains, competitorAliases), [competitorDomains, competitorAliases])
 
   const metricsQuery = useQuery({
-    queryKey: ['analytics-metrics', projectName, window, metricsFrameKey, analyticsRevision],
-    queryFn: () => fetchAnalyticsMetrics(projectName, window),
+    // The class rides last, so the frame key and revision keep their places.
+    queryKey: ['analytics-metrics', projectName, window, metricsFrameKey, analyticsRevision, requestedClass],
+    queryFn: () => fetchAnalyticsMetrics(projectName, window, requestedClass),
     staleTime: STATIC_VISIBILITY_STALE_MS,
   })
   const data = metricsQuery.data ?? null
@@ -1813,6 +1846,7 @@ export function VisibilityTrendSection({
   const competitorCount = competitorDomains.length
 
   const trendDetails: ReactNode[] = []
+  if (latestRate !== null && latestPlotted) trendDetails.push(<>Latest point: <strong>{bucketBase(latestPlotted, metric)}</strong></>)
   if (latestPlotted && windowChange !== null && shift && !sameQueries) trendDetails.push(notSameQueriesReason(shift, latestPlotted, basketChanges))
   // One point has no change figure to withhold, but it can still pool sweeps
   // of two query sets. Said unless the metric reads past that change, as mention
@@ -1841,15 +1875,18 @@ export function VisibilityTrendSection({
       <span className="visibility-trend-current-value">{formatPercent(latestRate)}</span>
       {pointChange !== null && (
         <span className={`visibility-trend-current-delta ${changeQualified ? 'text-muted' : POINT_CHANGE_TONE[pointChange.direction]}`}>
-          {pointChangeWords(pointChange)}{changeQualified ? ' (not the same queries)' : ''}
+          {pointChangeWords(pointChange)}
         </span>
       )}
-      <span className="visibility-trend-current-detail">· {bucketBase(latestPlotted, metric)}</span>
+      {changeQualified && shift ? <InfoTooltip tone="caution" label={QUERIES_CHANGED_LABEL} text={notSameQueriesSummary(shift)} /> : null}
     </div>
   )
 
   const controls = (
     <div className="visibility-trend-controls">
+      {showsClassControl && (
+        <SegmentedRadioGroup options={QUERY_CLASS_OPTIONS} value={queryClass} onChange={setQueryClass} label="Query type" />
+      )}
       <SegmentedRadioGroup options={METRIC_OPTIONS} value={metric} onChange={setMetric} label="Metric" className="visibility-trend-metric-control" />
       {metric !== 'mentionShare' && (
         <SegmentedRadioGroup options={MODE_OPTIONS} value={mode} onChange={setMode} label="Series" />
@@ -1874,7 +1911,9 @@ export function VisibilityTrendSection({
         <p className="text-sm text-secondary">
           {metric === 'mentionShare'
             ? `No answer-text brand mentions for you or tracked competitors in ${mentionShareScopeLabel(mentionShareScope)} in this window yet.`
-            : isDashboardManagedSweeps() ? MANAGED_SWEEPS_COPY : 'Run a check to start tracking citations and mentions over time.'}
+            : requestedClass !== 'all'
+              ? `No ${requestedClass} answers in this window.`
+              : isDashboardManagedSweeps() ? MANAGED_SWEEPS_COPY : 'Run a check to start tracking citations and mentions over time.'}
         </p>
       )
     } else if (byProviderMode && series.length === 0) {
@@ -1884,7 +1923,8 @@ export function VisibilityTrendSection({
         </p>
       )
     } else {
-      const srSummary = `${spokenLabel} rate across ${rows.length} ${rows.length === 1 ? 'check' : 'checks'}. Latest ${formatPercent(latestRate)}${
+      const classPhrase = requestedClass !== 'all' ? ` in ${requestedClass} answers` : ''
+      const srSummary = `${spokenLabel} rate${classPhrase} across ${rows.length} ${rows.length === 1 ? 'check' : 'checks'}. Latest ${formatPercent(latestRate)}${
         pointChange !== null ? `, ${spokenPointChange(pointChange)}${changeQualified ? ', not the same queries' : ''}` : ''
       }.`
       body = (

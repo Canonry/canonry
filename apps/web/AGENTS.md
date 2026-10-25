@@ -222,10 +222,18 @@ it (`coverageTone` in `lib/answer-movement.ts`), never red; branded and
 unclassified counts are never toned.
 
 `VisibilityTrendSection` ("AI answers over time") is an AI Visibility card: the
-latest point's date and sweep count, one headline figure with its base, the
-chart, and a closed Details. It prints no change figure while the first and
-latest points measured different queries (`querySetShift`), except mention
-share when every query they do not share is branded, and says why in Details.
+latest point's date and sweep count, one headline figure, the chart, and a
+closed Details that opens on the latest point's base ("21 of 132 answers").
+When the project tracks both branded and non-brand queries and has a brand
+name (`queryClassSplit`), a Non-brand | Branded | All toggle leads the controls,
+opens on Non-brand, and sends `queryClass` to the metrics route, so every rate,
+point and query-set change reads that class's answers only. Mention share is
+non-brand already: it reads the unsplit response and the toggle steps aside.
+While the first and latest points measured different queries
+(`querySetShift`) the change figure turns muted and a "Queries changed" caution
+icon carries the reason in its tooltip, except mention share when every query
+they do not share is branded; Details says why with dates. Never a sentence in
+the readout itself.
 The server restates every point to the queries tracked now and rejoins a
 query's old answers by its text, so two points differ only when a query tracked
 now is in the set at one and not the other (its membership at the first

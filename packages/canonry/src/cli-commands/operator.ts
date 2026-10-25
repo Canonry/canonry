@@ -144,17 +144,19 @@ export const OPERATOR_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['analytics'],
     windows: WINDOW_SETS.metrics,
-    usage: 'canonry analytics <project> [--feature metrics|gaps|sources] [--window 7d|30d|90d|all] [--format json]',
+    usage: 'canonry analytics <project> [--feature metrics|gaps|sources] [--window 7d|30d|90d|all] [--query-class all|branded|non-brand] [--format json]',
     options: {
       feature: stringOption(),
       window: stringOption(),
+      'query-class': stringOption(),
     },
     run: async (input) => {
-      const { showAnalytics } = await import('../commands/analytics.js')
-      const project = requireProject(input, 'analytics', 'canonry analytics <project> [--feature metrics|gaps|sources] [--window 7d|30d|90d|all] [--format json]')
+      const { ANALYTICS_USAGE, parseAnalyticsQueryClass, showAnalytics } = await import('../commands/analytics.js')
+      const project = requireProject(input, 'analytics', ANALYTICS_USAGE)
       await showAnalytics(project, {
         feature: getString(input.values, 'feature'),
         window: getString(input.values, 'window'),
+        queryClass: parseAnalyticsQueryClass(getString(input.values, 'query-class')),
         format: input.format,
       })
     },

@@ -531,6 +531,13 @@ const sourcesQueryClassParameter: OpenApiParameter = {
   schema: { type: 'string', enum: ['all', 'branded', 'non-brand'] },
 }
 
+const metricsQueryClassParameter: OpenApiParameter = {
+  name: 'queryClass',
+  in: 'query',
+  description: 'Restrict every rate, bucket, change and query-set event to branded or non-brand answers, classified from the query text by the project\'s brand names (the same split mention share uses). Mention share stays non-brand, so it is empty under branded. Bucket boundaries do not move with the class, so the two classes plot on the same dates. 400 when the project has no brand name or alias to classify with, or has a published v2 measurement plan (its classes live on the plan assignments; read the split from the visibility report). Defaults to all, which pools both classes.',
+  schema: { type: 'string', enum: ['all', 'branded', 'non-brand'] },
+}
+
 const sourcesIncludeByQueryParameter: OpenApiParameter = {
   name: 'includeByQuery',
   in: 'query',
@@ -3043,9 +3050,10 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/analytics/metrics',
     summary: 'Get citation trend analytics',
     tags: ['analytics'],
-    parameters: [nameParameter, analyticsWindowParameter],
+    parameters: [nameParameter, analyticsWindowParameter, metricsQueryClassParameter],
     responses: {
       200: jsonResponse('Citation metrics returned.', 'BrandMetricsDto'),
+      400: errorResponse('Invalid query parameters.'),
       404: errorResponse('Project not found.'),
     },
   },

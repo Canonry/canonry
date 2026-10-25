@@ -1170,8 +1170,8 @@
     @apply px-5 pb-4 pt-2;
   }
 
-  /* Headline readout: the latest point of the selected metric, its change
-     when the query set held still, and its base. */
+  /* Headline readout: the latest point of the selected metric and its change.
+     Its base lives in Details. */
   .visibility-trend-current {
     @apply mb-3 flex flex-wrap items-baseline gap-x-2 gap-y-1;
   }
@@ -1190,10 +1190,6 @@
 
   .visibility-trend-current-delta {
     @apply text-[13px] font-medium tabular-nums;
-  }
-
-  .visibility-trend-current-detail {
-    @apply text-[13px] tabular-nums text-secondary;
   }
 
   /* Key for the dashed chart markers, drawn like the marker itself. */
@@ -3490,6 +3486,19 @@
 
   .info-tooltip-icon {
     @apply size-3;
+  }
+
+  /* A caveat beside a figure: icon plus a few words, the sentence in the bubble. */
+  .info-tooltip-trigger-labeled {
+    @apply gap-1 rounded-md px-1 text-[13px] font-medium;
+  }
+
+  .info-tooltip-trigger-labeled .info-tooltip-icon {
+    @apply size-3.5;
+  }
+
+  .info-tooltip-trigger-caution {
+    @apply text-caution-400 hover:text-caution-300;
   }
 
   /* Portal-rendered tooltip uses inline styles — see InfoTooltip.tsx */

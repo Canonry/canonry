@@ -358,6 +358,13 @@ export const brandMetricsDtoSchema = z.object({
   window: metricsWindowSchema,
   /** Scope that applies even when `buckets` is empty. `pooled` means classification was unavailable. */
   mentionShareScope: z.enum(['non-brand', 'pooled']),
+  /**
+   * The answers every rate, bucket, change and query-set event in this response
+   * reads: `branded` or `non-brand` only, or `all` for both pooled. Mention
+   * share is always non-brand, so it is empty under `branded`. A server that
+   * predates the field read `all`.
+   */
+  queryClass: queryClassFilterSchema.default('all'),
   buckets: z.array(timeBucketSchema),
   overall: providerMetricSchema,
   byProvider: z.record(z.string(), providerMetricSchema),
