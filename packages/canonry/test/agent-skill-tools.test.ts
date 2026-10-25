@@ -24,6 +24,7 @@ describe('scanSkillDocs (bundled)', () => {
         'site-health',
         'agent-operations',
         'wordpress-elementor-mcp',
+        'ai-traffic-tracking',
       ]),
     )
     for (const doc of docs) {

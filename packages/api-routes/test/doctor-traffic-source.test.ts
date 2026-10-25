@@ -627,9 +627,9 @@ describe('traffic.source.queue-backlog', () => {
       id: crypto.randomUUID(), projectId: h.project.id, kind: 'traffic-sync', status: 'completed', trigger: 'scheduled',
       sourceId, createdAt: at, startedAt: at, finishedAt: at,
       syncSummary: {
-        type: 'cloudflare-queue', stopReason, pulls: 8, emptyPulls: 2, messagesPulled: 600, messagesAcknowledged: 600,
-        poisonMessages: 0, skippedUnleasedMessages: 0, acceptedEvents: 600, duplicateEvents: 0,
-        backlogAtFirstPull: 3600, backlogAtLastPull: 3100, elapsedMs: 11_000,
+        type: 'cloudflare-queue', stopReason, pulls: 5, emptyPulls: 2, messagesPulled: 300, messagesAcknowledged: 300,
+        poisonMessages: 0, skippedUnleasedMessages: 0, acceptedEvents: 300, duplicateEvents: 0,
+        backlogAtFirstPull: 5000, backlogAtLastPull: 4500, elapsedMs: 8_000,
       },
     }).run()
   }

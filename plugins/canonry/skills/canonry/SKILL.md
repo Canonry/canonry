@@ -258,3 +258,4 @@ Read only references relevant to the requested task. They are not required for M
 - [Server-side traffic setup and diagnosis](references/server-side-traffic.md)
 - [Google Business Profile prerequisites](references/google-business-profile.md)
 - [Google Ads and GTM evidence boundaries](references/google-marketing.md)
+- [Tracking AI traffic to visits and conversions](references/ai-traffic-tracking.md)

@@ -68,8 +68,43 @@ export function syncAgentOperations(root = repoRoot, checkOnly = false) {
   return failures
 }
 
+// Canonry skill references that Aero also needs. Aero's built-in
+// `read_skill_doc` reads only its own references folder, so each one is copied
+// there with the frontmatter Aero lists it by. The Canonry reference is the source.
+export const AERO_MIRRORED_REFERENCES = [
+  {
+    source: 'skills/canonry/references/ai-traffic-tracking.md',
+    target: 'skills/aero/references/ai-traffic-tracking.md',
+    description: 'Crawled, read, clicked, came back, converted: which instrument measures each step, the checks to run before reporting a zero, attribution limits, and user stories such as whether anyone from AI search bought or booked. Read when asked about AI traffic, returning AI visitors, conversions, or broken tracking.',
+  },
+]
+
+export function renderMirroredReference(reference, body) {
+  const slug = path.basename(reference.target, '.md')
+  return `---\nname: ${slug}\ndescription: ${JSON.stringify(reference.description)}\n---\n\n`
+    + `<!-- Generated from ${reference.source} by pnpm guide:sync. Do not edit. -->\n\n`
+    + body
+}
+
+export function syncMirroredReferences(root = repoRoot, checkOnly = false, references = AERO_MIRRORED_REFERENCES) {
+  const failures = []
+  for (const reference of references) {
+    const expected = renderMirroredReference(reference, fs.readFileSync(path.join(root, reference.source), 'utf8'))
+    const target = path.join(root, reference.target)
+    const actual = fs.existsSync(target) ? fs.readFileSync(target, 'utf8') : null
+    if (actual === expected) continue
+    if (checkOnly) failures.push(`${reference.target} differs from ${reference.source}; run pnpm guide:sync`)
+    else {
+      fs.mkdirSync(path.dirname(target), { recursive: true })
+      fs.writeFileSync(target, expected)
+    }
+  }
+  return failures
+}
+
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const failures = syncAgentOperations(repoRoot, process.argv.includes('--check'))
+  const checkOnly = process.argv.includes('--check')
+  const failures = [...syncAgentOperations(repoRoot, checkOnly), ...syncMirroredReferences(repoRoot, checkOnly)]
   if (failures.length) {
     process.stderr.write(failures.join('\n') + '\n')
     process.exitCode = 1

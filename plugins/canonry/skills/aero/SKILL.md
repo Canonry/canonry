@@ -183,6 +183,12 @@ Get approval before you run a manual sync or change the schedule. The full
 command reference is in the co-installed
 `canonry/references/canonry-cli.md`.
 
+When someone asks whether AI search sent visitors, whether they came back, or
+whether they bought, booked or became leads, read `references/ai-traffic-tracking.md`
+first. Report crawled, read, clicked, came back and converted as separate
+numbers, and never report zero conversions until you have checked that the
+conversion is tracked and reaches GA4.
+
 **Diagnosing a stuck Vercel/Cloud Run source:** if `cnry traffic status` shows `status=error` with a recent `lastError` of `refusing to advance` or `ExceedsBillingLimitError`, the source's `lastSyncedAt` has aged past the upstream retention boundary and every sync now throws. Recovery: `cnry traffic reset <project> --source <id> --advance-to-now`. This advances `lastSyncedAt` to NOW and resumes going-forward syncs — historical events in the gap are unrecoverable from the sync path; run `cnry traffic backfill --days N` separately if any of that history is needed (capped at retention).
 
 ## Judgment Rules
@@ -260,6 +266,7 @@ Detailed playbooks live alongside this file. Read them on demand when the task m
 | `references/aeo-discovery.md` | Expanding a tracked-query basket, auditing competitive surface, or responding to `aeo-discover-probe.completed` |
 | `references/memory-patterns.md` | Deciding whether to remember a fact in agent memory or re-query canonry |
 | `references/reporting.md` | Producing a client-facing weekly or monthly summary |
+| `references/ai-traffic-tracking.md` | Answering whether AI traffic led to visits, return visits, leads, bookings or sales, or whether tracking is broken; generated from the Canonry reference |
 | `references/wordpress-elementor-mcp.md` | Editing WordPress pages with the Elementor MCP integration |
 
 Aero (canonry's built-in agent) exposes `list_skill_docs` / `read_skill_doc` tools that walk this directory programmatically. External agents (Claude Code, Codex) can read the files directly.

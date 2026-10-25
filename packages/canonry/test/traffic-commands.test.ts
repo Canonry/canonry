@@ -569,13 +569,13 @@ describe('traffic CLI commands', () => {
     const now = new Date().toISOString()
     db.insert(trafficSources).values({
       id: sourceId, projectId: project.id, sourceType: 'cloudflare', displayName: 'Queue', status: 'connected',
-      configJson: { deliveryMode: 'queue-pull' }, queueBacklogCount: 2668, queueBacklogObservedAt: now,
+      configJson: { deliveryMode: 'queue-pull' }, queueBacklogCount: 4200, queueBacklogObservedAt: now,
       createdAt: now, updatedAt: now,
     }).run()
     const syncSummary = {
-      type: 'cloudflare-queue' as const, stopReason: 'empty-pulls' as const, pulls: 9, emptyPulls: 2, messagesPulled: 762,
-      messagesAcknowledged: 762, poisonMessages: 0, skippedUnleasedMessages: 0, acceptedEvents: 740, duplicateEvents: 22,
-      backlogAtFirstPull: 3180, backlogAtLastPull: 2668, elapsedMs: 11_000,
+      type: 'cloudflare-queue' as const, stopReason: 'empty-pulls' as const, pulls: 7, emptyPulls: 2, messagesPulled: 500,
+      messagesAcknowledged: 500, poisonMessages: 0, skippedUnleasedMessages: 0, acceptedEvents: 480, duplicateEvents: 20,
+      backlogAtFirstPull: 4800, backlogAtLastPull: 4200, elapsedMs: 9_000,
     }
     db.insert(runs).values({
       id: crypto.randomUUID(), projectId: project.id, kind: 'traffic-sync', status: 'completed', trigger: 'scheduled',
@@ -583,7 +583,7 @@ describe('traffic CLI commands', () => {
     }).run()
 
     const text = await invokeCli(['traffic', 'status', 'test-proj'])
-    expect(text.stdout).toContain('Queue drain:   no more messages to pull (the rest is leased or not yet visible); 9 pull(s), 762 message(s), 22 redelivered, 11s')
+    expect(text.stdout).toContain('Queue drain:   no more messages to pull (the rest is leased or not yet visible); 7 pull(s), 500 message(s), 20 redelivered, 9s')
     const json = parseJsonOutput((await invokeCli(['traffic', 'status', 'test-proj', '--format', 'json'])).stdout) as { sources: Array<{ latestRun: { syncSummary?: unknown } }> }
     expect(json.sources[0]!.latestRun.syncSummary).toEqual(syncSummary)
   })
