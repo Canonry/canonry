@@ -31,6 +31,7 @@ import {
   SchedulableRunKinds,
   RunKinds,
   RunStatuses,
+  RunTriggers,
 } from '@canonry/canonry-contracts'
 import type { NormalizedTrafficRequest } from '@canonry/canonry-contracts'
 import type { CloudRunTrafficEventsPage } from '@canonry/canonry-integration-cloud-run'
@@ -3744,6 +3745,128 @@ describe('POST /traffic/sources/:id/backfill', () => {
       expect(source.status).toBe(TrafficSourceStatuses.connected)
       expect(source.lastSyncedAt).toBe(resetSyncedAt)
       expect(h.db.select().from(crawlerEventsHourly).all()).toHaveLength(0)
+    } finally {
+      await h.close()
+    }
+  })
+
+  it('turns away a sync attempted during a backfill, then commits the backfill', async () => {
+    let sourceId = ''
+    let duringBackfill: { statusCode: number; code?: string; leaseHeld: boolean; runsBefore: number; runsAfter: number } | null = null
+    const liveHarness: { current?: Awaited<ReturnType<typeof buildHarness>> } = {}
+    const h = await buildHarness([buildEvent()], {
+      bypassTimeFilter: true,
+      onCloudRunPull: async () => {
+        // Only the backfill's pull reaches here: the sync below is refused before it pulls.
+        if (!sourceId || !liveHarness.current || duringBackfill) return
+        const db = liveHarness.current.db
+        const countRuns = () => db.select().from(runs).where(eq(runs.sourceId, sourceId)).all().length
+        const runsBefore = countRuns()
+        const sync = await liveHarness.current.app.inject({
+          method: 'POST',
+          url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
+          payload: {},
+        })
+        duringBackfill = {
+          statusCode: sync.statusCode,
+          code: (JSON.parse(sync.payload) as { error?: { code?: string } }).error?.code,
+          leaseHeld: db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).get()!.syncLeaseOwner !== null,
+          runsBefore,
+          runsAfter: countRuns(),
+        }
+      },
+    })
+    liveHarness.current = h
+    try {
+      const connected = await h.app.inject({
+        method: 'POST',
+        url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
+        payload: { gcpProjectId: 'gcp-backfill-lease', keyJson: SA_KEY },
+      })
+      sourceId = JSON.parse(connected.payload).id as string
+
+      const submitted = await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/backfill`,
+        payload: { days: 1 },
+      })
+      const finalRun = await waitForRunComplete(h.db, JSON.parse(submitted.payload).runId)
+
+      // The sync saw the backfill's lease: refused with no run row and no pull.
+      expect(duringBackfill).toEqual({ statusCode: 409, code: 'OPERATION_IN_PROGRESS', leaseHeld: true, runsBefore: 1, runsAfter: 1 })
+      expect(finalRun.status).toBe(RunStatuses.completed)
+      expect(h.db.select().from(crawlerEventsHourly).all().length).toBeGreaterThan(0)
+      // Released once the backfill finished.
+      expect(h.db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).get()!.syncLeaseOwner).toBeNull()
+    } finally {
+      await h.close()
+    }
+  })
+
+  it('refuses a backfill while a sync holds the source', async () => {
+    let sourceId = ''
+    let backfillDuringSync: { statusCode: number; code?: string } | null = null
+    const liveHarness: { current?: Awaited<ReturnType<typeof buildHarness>> } = {}
+    const h = await buildHarness([buildEvent()], {
+      bypassTimeFilter: true,
+      onCloudRunPull: async () => {
+        if (!sourceId || !liveHarness.current || backfillDuringSync) return
+        const backfill = await liveHarness.current.app.inject({
+          method: 'POST',
+          url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/backfill`,
+          payload: { days: 1 },
+        })
+        backfillDuringSync = {
+          statusCode: backfill.statusCode,
+          code: (JSON.parse(backfill.payload) as { error?: { code?: string } }).error?.code,
+        }
+      },
+    })
+    liveHarness.current = h
+    try {
+      const connected = await h.app.inject({
+        method: 'POST',
+        url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
+        payload: { gcpProjectId: 'gcp-sync-lease', keyJson: SA_KEY },
+      })
+      sourceId = JSON.parse(connected.payload).id as string
+
+      const sync = await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/sync`,
+        payload: {},
+      })
+
+      expect(sync.statusCode).toBe(200)
+      expect(backfillDuringSync).toEqual({ statusCode: 409, code: 'OPERATION_IN_PROGRESS' })
+      expect(h.db.select().from(runs).where(eq(runs.trigger, RunTriggers.backfill)).all()).toHaveLength(0)
+      expect(h.db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).get()!.syncLeaseOwner).toBeNull()
+    } finally {
+      await h.close()
+    }
+  })
+
+  it('releases the source lease when a backfill fails', async () => {
+    const h = await buildHarness([buildEvent()], {
+      bypassTimeFilter: true,
+      onCloudRunPull: () => { throw new Error('logging API unavailable') },
+    })
+    try {
+      const connected = await h.app.inject({
+        method: 'POST',
+        url: '/api/v1/projects/test-project/traffic/connect/cloud-run',
+        payload: { gcpProjectId: 'gcp-backfill-fail', keyJson: SA_KEY },
+      })
+      const sourceId = JSON.parse(connected.payload).id as string
+      const submitted = await h.app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/test-project/traffic/sources/${sourceId}/backfill`,
+        payload: { days: 1 },
+      })
+      const finalRun = await waitForRunComplete(h.db, JSON.parse(submitted.payload).runId)
+
+      expect(finalRun.status).toBe(RunStatuses.failed)
+      expect(h.db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).get()!.syncLeaseOwner).toBeNull()
     } finally {
       await h.close()
     }

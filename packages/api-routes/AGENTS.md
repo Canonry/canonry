@@ -720,6 +720,7 @@ The backfill route mirrors the same shape — `runBackfillTask` is adapter-agnos
 - WordPress pages through the plugin's `[since, until)` window via opaque cursor.
 - Vercel pulls the `[windowStart, windowEnd]` window with the large `BACKFILL_MAX_PAGES` budget — replace mode, so a budget exhaustion (`hasMore` still true) fails the run loudly rather than wiping the window's rollups and leaving a partial set.
 - All reuse the shared replace-mode rollup transaction and the `lastSyncedAt`-never-rewinds invariant.
+- The route claims the source sync lease before it inserts the run, and `runBackfillTask` renews it on a timer until the task ends, then releases it. Every pull sync (Cloud Run, Vercel, WordPress) claims the same lease before its run row, so a scheduled tick during a backfill gets `OPERATION_IN_PROGRESS` with no run and no provider call (the scheduler logs it as a skip). The commit check (`isSameBackfillSource`) is the source generation plus lease ownership; because syncs cannot move the watermark meanwhile, a moved watermark means an operator reset or reconnect, and the backfill fails without writing.
 
 #### Cross-sync dedupe
 

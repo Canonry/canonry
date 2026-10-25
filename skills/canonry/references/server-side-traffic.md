@@ -295,6 +295,14 @@ Run `cnry traffic backfill <project> --source <id> --days N` (capped at
 history. It's an explicit operator action; the connect flow never pulls
 it implicitly.
 
+A backfill holds the source's sync lease until it finishes, however long the
+pull takes. Scheduled syncs for that source skip while it runs and resume
+from the same watermark afterwards, so nothing commits into the window the
+backfill replaces. A backfill requested while a sync is running returns
+`OPERATION_IN_PROGRESS`; retry when that sync ends. The CLI stops waiting
+after 5 minutes, but the run continues on the server: follow it with
+`cnry runs <project> --kind traffic-sync`.
+
 ## Connecting a Cloudflare source
 
 Both Cloudflare modes run the same small ES-module Worker on the site's exact
