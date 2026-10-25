@@ -131,6 +131,7 @@ function insertLead(
     attributionScope?: 'landing-page' | 'channel'
     source?: string
     medium?: string
+    eventName?: string
   },
 ) {
   const attributionScope = input.attributionScope ?? 'landing-page'
@@ -138,7 +139,7 @@ function insertLead(
     id: crypto.randomUUID(),
     projectId: ctx.projectId,
     date: daysBefore(GA_ANCHOR, input.daysAgo),
-    eventName: 'generate_lead',
+    eventName: input.eventName ?? 'generate_lead',
     channelGroup: input.channelGroup,
     source: input.source ?? 'google',
     medium: input.medium ?? (input.channelGroup === 'Paid Search' ? 'cpc' : 'organic'),
@@ -1020,6 +1021,47 @@ describe('GET /projects/:name/ga/measurement-analysis', () => {
       expect(covered.organic.periods).toEqual([{ ...latest, eventCount: 5, sessions: 70, leadRate: 0.07142857 }])
     })
 
+    it('does not let a channel-scoped row of an excluded event drop landing-page paid evidence for counted events', async () => {
+      // Only utm_campaign on the landing page says these ChatGPT clicks were paid.
+      insertAcquisition(ctx, {
+        daysAgo: 0,
+        channelGroup: 'Unassigned',
+        hostName: MARKETING,
+        landingPage: '/pricing?utm_source=chatgpt&utm_campaign=spring_ads',
+        source: 'chatgpt',
+        medium: '(not set)',
+        sessions: 200,
+      })
+      insertLead(ctx, {
+        daysAgo: 0,
+        channelGroup: 'Unassigned',
+        hostName: MARKETING,
+        landingPage: '/pricing?utm_source=chatgpt&utm_campaign=spring_ads',
+        source: 'chatgpt',
+        medium: '(not set)',
+        eventCount: 3,
+      })
+      // An event outside the counted set, stored channel-scoped by an older sync.
+      insertLead(ctx, {
+        daysAgo: 0,
+        channelGroup: 'Unassigned',
+        hostName: '(not available)',
+        landingPage: '(not available)',
+        source: 'chatgpt',
+        medium: '(not set)',
+        eventCount: 9,
+        attributionScope: 'channel',
+        eventName: 'file_download',
+      })
+      markLeadsSynced('landing-page')
+
+      const { leads } = await analysis('window=30d&hostScope=all')
+
+      expect(leads.attributionScope).toBe('landing-page')
+      expect(leads.aiEngines.paid.periods).toEqual([{ ...latest, eventCount: 3, sessions: 200, leadRate: 0.015 }])
+      expect(leads.aiEngines.organic.periods).toEqual([empty(latest)])
+    })
+
     it('classifies sessions without their landing page when leads are channel-scoped, and withholds the rate when only the landing page said paid', async () => {
       // GA4 has no paid medium or channel for these clicks; only utm_campaign on the landing page says paid.
       insertAcquisition(ctx, {
@@ -1300,6 +1342,93 @@ describe('GET /projects/:name/ga/measurement-analysis', () => {
       })
       expect(invalid.statusCode).toBe(400)
     }
+  })
+
+  it('counts configured lead events plus GA4 key events, one series per event, and drops events outside the set', async () => {
+    insertAcquisition(ctx, { daysAgo: 1, channelGroup: 'Organic Search', hostName: 'harbor-iq.test', landingPage: '/', sessions: 100 })
+    insertLead(ctx, { daysAgo: 1, channelGroup: 'Organic Search', hostName: 'harbor-iq.test', landingPage: '/', eventCount: 3 })
+    insertLead(ctx, { daysAgo: 1, channelGroup: 'Organic Search', hostName: 'harbor-iq.test', landingPage: '/', eventCount: 5, eventName: 'purchase' })
+    // Neither configured nor a key event: stored by an older set, so it no longer counts.
+    insertLead(ctx, { daysAgo: 1, channelGroup: 'Organic Search', hostName: 'harbor-iq.test', landingPage: '/', eventCount: 7, eventName: 'file_download' })
+    ctx.db.insert(gaMeasurementSyncStates).values({
+      projectId: ctx.projectId,
+      acquisitionStatus: 'ready',
+      acquisitionSyncedAt: NOW,
+      leadStatus: 'ready',
+      leadSyncedAt: NOW,
+      leadAttributionScope: 'landing-page',
+      leadEventNames: ['book_demo', 'generate_lead', 'purchase'],
+      keyEventNames: ['generate_lead', 'purchase'],
+      keyEventsError: null,
+      updatedAt: NOW,
+    }).run()
+    const read = async () => {
+      const response = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/harbor-iq/ga/measurement-analysis?window=30d' })
+      expect(response.statusCode).toBe(200)
+      return gaMeasurementAnalysisDtoSchema.parse(JSON.parse(response.body)).leads
+    }
+
+    const withKeyEvents = await read()
+    expect(withKeyEvents.periods.at(-1)?.eventCount).toBe(8)
+    expect(withKeyEvents.countedEvents).toEqual({
+      configured: ['generate_lead', 'book_demo'],
+      keyEventsEnabled: true,
+      keyEvents: ['generate_lead', 'purchase'],
+      keyEventsError: null,
+    })
+    expect(withKeyEvents.events.map(event => [event.eventName, event.origin, event.measured, event.periods.at(-1)?.eventCount])).toEqual([
+      ['purchase', 'key-event', true, 5],
+      ['generate_lead', 'both', true, 3],
+      // Measured, with no events in the window: a real zero, not left out.
+      ['book_demo', 'configured', true, 0],
+    ])
+
+    const patched = await ctx.app.inject({
+      method: 'PATCH',
+      url: '/api/v1/projects/harbor-iq',
+      payload: { measurement: { countKeyEvents: false } },
+    })
+    expect(patched.statusCode).toBe(200)
+    // A one-field measurement patch keeps the other measurement fields.
+    expect(JSON.parse(patched.body).measurement).toEqual({
+      marketingHosts: ['offers.example.net'],
+      brandTerms: ['Harbor Intelligence'],
+      leadEventNames: ['generate_lead', 'book_demo'],
+      countKeyEvents: false,
+    })
+    const configuredOnly = await read()
+    expect(configuredOnly.periods.at(-1)?.eventCount).toBe(3)
+    expect(configuredOnly.countedEvents).toMatchObject({ keyEventsEnabled: false, keyEvents: null })
+    expect(configuredOnly.events.map(event => event.eventName)).toEqual(['generate_lead', 'book_demo'])
+  })
+
+  it('lists a newly counted event that no lead sync has fetched as unmeasured, never as a zero', async () => {
+    insertAcquisition(ctx, { daysAgo: 1, channelGroup: 'Organic Search', hostName: 'harbor-iq.test', landingPage: '/', sessions: 100 })
+    insertLead(ctx, { daysAgo: 1, channelGroup: 'Organic Search', hostName: 'harbor-iq.test', landingPage: '/', eventCount: 3 })
+    // Left from an older set: not in the last synced set, so it is not a measurement of purchases now.
+    insertLead(ctx, { daysAgo: 1, channelGroup: 'Organic Search', hostName: 'harbor-iq.test', landingPage: '/', eventCount: 4, eventName: 'purchase' })
+    // Key event discovery found `purchase`, but the lead sync that would fetch it failed.
+    ctx.db.insert(gaMeasurementSyncStates).values({
+      projectId: ctx.projectId,
+      acquisitionStatus: 'ready',
+      acquisitionSyncedAt: NOW,
+      leadStatus: 'ready',
+      leadSyncedAt: NOW,
+      leadAttributionScope: 'landing-page',
+      leadEventNames: ['book_demo', 'generate_lead'],
+      keyEventNames: ['purchase'],
+      updatedAt: NOW,
+    }).run()
+
+    const response = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/harbor-iq/ga/measurement-analysis?window=30d' })
+    const { leads } = gaMeasurementAnalysisDtoSchema.parse(JSON.parse(response.body))
+
+    expect(leads.periods.at(-1)?.eventCount).toBe(3)
+    expect(leads.events).toEqual([
+      expect.objectContaining({ eventName: 'generate_lead', origin: 'configured', measured: true }),
+      expect.objectContaining({ eventName: 'book_demo', origin: 'configured', measured: true }),
+      { eventName: 'purchase', origin: 'key-event', measured: false, periods: [] },
+    ])
   })
 
   it('publishes the endpoint with its typed response schema in OpenAPI', async () => {

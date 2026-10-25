@@ -2014,6 +2014,16 @@ export const gaMeasurementSyncStates = sqliteTable('ga_measurement_sync_state', 
   leadError: text('lead_error'),
   leadSyncedAt: text('lead_synced_at'),
   leadAttributionScope: text('lead_attribution_scope').$type<GaLeadAttributionScope>(),
+  /**
+   * The GA4 event names the last lead sync counted (configured lead events
+   * plus key events), sorted. A sync whose set differs refreshes the full GA4
+   * window so every stored day counts the same events (v194).
+   */
+  leadEventNames: text('lead_event_names', { mode: 'json' }).$type<string[]>(),
+  /** The property's key events from the last successful Admin API read; null before one (v194). */
+  keyEventNames: text('key_event_names', { mode: 'json' }).$type<string[]>(),
+  /** The latest failed key-event read; cleared by a successful one (v194). */
+  keyEventsError: text('key_events_error'),
   /** GA4 Search Console landing-page snapshot state (v176). */
   searchLandingStatus: text('search_landing_status').$type<GaSearchLandingStatus>()
     .notNull().default('never-synced'),

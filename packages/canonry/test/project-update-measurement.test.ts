@@ -99,6 +99,26 @@ describe('project measurement update flags', () => {
     })
   })
 
+  it('turns GA4 key-event counting off and back on, keeping the other measurement fields', async () => {
+    await run('project', 'update', 'measurement-project', '--no-count-key-events', '--format', 'json')
+    expect(body().measurement).toEqual({
+      marketingHosts: ['offers.measurement.example'],
+      brandTerms: ['Measurement Project'],
+      leadEventNames: ['generate_lead'],
+      countKeyEvents: false,
+    })
+
+    mockPatchProject.mockClear()
+    await run('project', 'update', 'measurement-project', '--count-key-events', '--format', 'json')
+    expect(body().measurement).toMatchObject({ countKeyEvents: true })
+  })
+
+  it('rejects contradictory key-event flags before making a write request', async () => {
+    await expect(run('project', 'update', 'measurement-project', '--count-key-events', '--no-count-key-events'))
+      .rejects.toMatchObject({ code: 'CLI_USAGE_ERROR' })
+    expect(mockPatchProject).not.toHaveBeenCalled()
+  })
+
   it('rejects an invalid event before making a write request', async () => {
     await expect(run('project', 'update', 'measurement-project', '--lead-event', 'bad name!')).rejects.toMatchObject({ code: 'CLI_USAGE_ERROR' })
     expect(mockPatchProject).not.toHaveBeenCalled()

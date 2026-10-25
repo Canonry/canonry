@@ -27,7 +27,7 @@ rarely. Report every step separately; never pool them.
 | Read for a user | An assistant fetches a page live while answering someone (ChatGPT-User, Claude-User, Perplexity-User) | Server-side traffic, `ai-user-fetch` | `cnry traffic events <p> --kind ai-user-fetch` |
 | Clicked | A person follows a link from an AI answer | Server-side `ai-referral` hits; GA4 AI sessions | `cnry traffic events <p> --kind ai-referral`; `cnry ga ai-referral-history <p>` (`canonry_ga_ai_referral_history`) |
 | Came back | That person's later visits, from any channel | AI visitor journeys (server logs) | `cnry journeys summary\|list\|show <p>` (`canonry_journeys_summary`, `canonry_journeys_list`, `canonry_journey_get`) |
-| Converted | Lead, booking or purchase | GA4 events named in `measurement.leadEventNames` | `cnry ga measurement-analysis <p> --window 90d --host-scope all` (`canonry_ga_measurement_analysis`) |
+| Converted | Lead, booking or purchase | GA4 key events plus `measurement.leadEventNames` | `cnry ga measurement-analysis <p> --window 90d --host-scope all` (`canonry_ga_measurement_analysis`) |
 
 Server-side hits are requests and GA4 counts sessions, and each instrument
 misses some visits the other sees, so the two never match exactly. Compare
@@ -38,14 +38,17 @@ their trend, not their totals.
 A zero means nothing until you know the instrument could have seen it. Work
 through these in order and say which one applies.
 
-1. **Is the conversion tracked at all?** Read the project's
-   `measurement.leadEventNames` (`cnry project show <p> --format json`). The
-   default is only `generate_lead`. Online stores report sales as `purchase`,
-   and booking engines often do too. If lead events are zero across every
-   channel, not only AI, the instrument is blind: report "conversions are not
-   measured", never "AI drove no conversions". Adding an event is a setting
-   change (`cnry project update <p> --add-lead-event purchase`) and needs
-   approval; the daily refresh then fills about 30 days.
+1. **Is the conversion tracked at all?** Canonry counts the configured
+   `measurement.leadEventNames` plus the events the GA4 property marks as key
+   events. Read `leads.countedEvents` and `leads.events` in
+   `cnry ga measurement-analysis <p> --format json` to see which events count
+   and each one's total; an event with `measured: false` has not been fetched
+   yet, so it is unknown, not zero. If every counted event is zero across every
+   channel, not only AI, or GA4 lists no key events, the instrument is blind: report
+   "conversions are not measured", never "AI drove no conversions". Adding an
+   event the property does not mark as a key event is a setting change
+   (`cnry project update <p> --add-lead-event <name>`) and needs approval; the
+   next GA sync then refreshes the full window.
 2. **Does GA4 receive the event?** Read the stored GTM snapshot
    (`cnry gtm snapshots <p>`, then `cnry gtm snapshot <p> <id>`;
    `canonry_gtm_snapshot_get`). If the booking or purchase trigger fires only

@@ -217,6 +217,13 @@ export async function gaSync(project: string, opts?: { days?: number; only?: str
   console.log(`  AI rows:     ${result.aiReferralCount}`)
   console.log(`  Social rows: ${result.socialReferralCount}`)
   console.log(`  Period:      ${result.days} days${result.clamped ? ` (requested ${result.requestedDays})` : ''}`)
+  const leadSync = result.measurement?.leads
+  if (leadSync?.eventNames) {
+    console.log(`  Lead events: ${leadSync.eventNames.join(', ') || '(none)'} (${leadSync.days} days, ${leadSync.rowCount} rows)`)
+  }
+  if (leadSync?.keyEvents?.status === 'error') {
+    console.log(`    GA4 key event read failed, kept the previous list: ${leadSync.keyEvents.error ?? 'unknown error'}`)
+  }
   const searchLanding = result.measurement.searchLandingPages
   if (searchLanding) {
     console.log(`  Search Console landing pages: ${searchLanding.status} (${searchLanding.rowCount} rows)`)
@@ -506,6 +513,27 @@ function printAiEngineLeadClass(heading: string, block: AiEngineLeadClass): void
 }
 
 /**
+ * Which GA4 events count, and each one's latest-cohort total, so sales,
+ * bookings and form leads read separately. A server older than
+ * `leads.countedEvents` omits both fields.
+ */
+function printCountedEvents(leads: Partial<Pick<GaMeasurementAnalysisDto['leads'], 'countedEvents' | 'events'>>): void {
+  const counted = leads.countedEvents
+  if (counted) {
+    const keyEvents = !counted.keyEventsEnabled
+      ? 'not counted'
+      : counted.keyEvents === null ? 'not read yet' : (counted.keyEvents.join(', ') || '(none marked in GA4)')
+    console.log(`  Counted events: configured ${counted.configured.join(', ') || '(none)'}; GA4 key events ${keyEvents}`)
+    if (counted.keyEventsError) console.log(`    Key event read failed: ${counted.keyEventsError}`)
+  }
+  for (const event of leads.events ?? []) {
+    console.log(event.measured === false
+      ? `    ${event.eventName} (${event.origin}): not synced yet`
+      : `    ${event.eventName} (${event.origin}): ${event.periods.at(-1)?.eventCount ?? 0} in the latest cohort`)
+  }
+}
+
+/**
  * Organic AI leads by engine, then paid AI clicks only when there are any, then why rates are blank.
  * A server older than `leads.aiEngines` omits the block, so there is nothing to print.
  */
@@ -567,6 +595,7 @@ export async function gaMeasurementAnalysis(project: string, opts?: {
   for (const period of result.leads.periods) {
     console.log(`    ${period.label.padEnd(8)} ${period.eventCount} leads  ${period.startDate} to ${period.endDate}`)
   }
+  printCountedEvents(result.leads)
   printAiEngineLeads(result.leads.aiEngines)
 
   console.log(`  Search demand: ${result.searchDemand.status}`)

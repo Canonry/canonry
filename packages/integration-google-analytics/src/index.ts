@@ -3,6 +3,7 @@ export {
   getAccessToken,
   fetchTrafficByLandingPage,
   fetchAcquisitionByChannel,
+  fetchKeyEventNames,
   fetchLeadEvents,
   fetchAggregateSummary,
   fetchWindowSummary,

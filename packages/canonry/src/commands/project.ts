@@ -1,5 +1,5 @@
 import type { CompetitorAutoAliasMode, MeasurementConfig, ProjectDto, ProjectPatchRequest, ProjectUpsertRequest, ProviderDispatchModesMap } from '@canonry/canonry-contracts'
-import { DEFAULT_MEASUREMENT_CONFIG, formatPercent, RatioUnits, effectiveDomains, measurementConfigSchema, normalizeProjectAliases, normalizeProjectDomain, resolveNegativeReviewMaxStars, formatSiteAuditPageBudget, resolveProjectQualifiedAliases } from '@canonry/canonry-contracts'
+import { DEFAULT_MEASUREMENT_CONFIG, countsKeyEvents, formatPercent, RatioUnits, effectiveDomains, measurementConfigSchema, normalizeProjectAliases, normalizeProjectDomain, resolveNegativeReviewMaxStars, formatSiteAuditPageBudget, resolveProjectQualifiedAliases } from '@canonry/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { CliError, isEndpointMissing, isMachineFormat, usageError } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
@@ -9,6 +9,8 @@ function getClient() {
 }
 
 export interface MeasurementUpdateFlags {
+  /** Count the GA4 property's key events too; undefined keeps the stored setting. */
+  countKeyEvents?: boolean
   leadEvents?: string[]
   addLeadEvents?: string[]
   removeLeadEvents?: string[]
@@ -159,6 +161,7 @@ export async function showProject(name: string, format?: string): Promise<void> 
     console.log(`  Marketing hosts:  ${project.measurement.marketingHosts.length > 0 ? project.measurement.marketingHosts.join(', ') : '(none)'}`)
     console.log(`  Brand terms:      ${project.measurement.brandTerms.length > 0 ? project.measurement.brandTerms.join(', ') : '(none)'}`)
     console.log(`  Lead events:      ${project.measurement.leadEventNames.length > 0 ? project.measurement.leadEventNames.join(', ') : '(none)'}`)
+    console.log(`  GA4 key events:   ${countsKeyEvents(project.measurement) ? 'counted as conversions too' : 'not counted'}`)
   }
   if (project.answerFieldsRecompute !== undefined && project.answerFieldsRecompute !== null) {
     console.log(`  Answer fields recompute: ${project.answerFieldsRecompute}`)
@@ -206,6 +209,9 @@ function resolveMeasurementUpdate(project: ProjectDto, flags: MeasurementUpdateF
     marketingHosts: mergeMeasurementList(current.marketingHosts, flags.marketingHosts, flags.addMarketingHosts, flags.removeMarketingHosts, true, normalizeProjectDomain),
     brandTerms: mergeMeasurementList(current.brandTerms, flags.brandTerms, flags.addBrandTerms, flags.removeBrandTerms, true),
     leadEventNames: mergeMeasurementList(current.leadEventNames, flags.leadEvents, flags.addLeadEvents, flags.removeLeadEvents, false),
+    ...((flags.countKeyEvents ?? current.countKeyEvents) !== undefined
+      ? { countKeyEvents: flags.countKeyEvents ?? current.countKeyEvents }
+      : {}),
   })
   if (!parsed.success) {
     const issue = parsed.error.issues[0]

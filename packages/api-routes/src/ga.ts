@@ -3,7 +3,7 @@ import { eq, desc, and, sql } from 'drizzle-orm'
 import type { SQL, SQLWrapper } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import { gaTrafficSnapshots, gaTrafficSummaries, gaTrafficWindowSummaries, gaWindowMetrics, gaDailyTotals, gaAiReferrals, gaSocialReferrals, gaAcquisitionDaily, gaLeadEventsDaily, gaMeasurementSyncStates, runs } from '@canonry/canonry-db'
-import { breakdownShares, classifyAiReferralTrafficClass, classifyOutcomeError, deltaPercent, formatPercent, GaOverviewPeriods, gaOverviewComparisonRanges, gaSyncOnlySchema, percentOf, shareOf, validationError, notFound, forbidden, quotaExceeded, providerError, AppError, FeatureNames, OutcomeReasonCodes, OutcomeStatuses, RunKinds, RunStatuses, resolveDateRange, normalizeUrlPath, describeError, inclusiveDayCount } from '@canonry/canonry-contracts'
+import { breakdownShares, classifyAiReferralTrafficClass, classifyOutcomeError, deltaPercent, formatPercent, GaOverviewPeriods, gaOverviewComparisonRanges, gaSyncOnlySchema, percentOf, shareOf, validationError, notFound, forbidden, quotaExceeded, providerError, AppError, FeatureNames, OutcomeReasonCodes, OutcomeStatuses, RunKinds, RunStatuses, resolveDateRange, normalizeUrlPath, describeError, inclusiveDayCount, countsKeyEvents, countedLeadEventNames } from '@canonry/canonry-contracts'
 import type { GA4ChannelBreakdownDto, GaAttributionTrendResponse, GaSearchLandingSyncResult, GaSocialReferralTrendResponse, ResolvedDateRange } from '@canonry/canonry-contracts'
 import { resolveProject, syncRunTrigger, writeAuditLog } from './helpers.js'
 import type { ScheduledSyncClaim } from './helpers.js'
@@ -26,6 +26,7 @@ import {
   fetchAiReferrals,
   fetchSocialReferrals,
   fetchAcquisitionByChannel,
+  fetchKeyEventNames,
   fetchLeadEvents,
   fetchSearchLandingPages,
   verifyConnection,
@@ -239,6 +240,8 @@ function persistLeadMeasurement(
     runId: string
     syncedAt: string
     report: Awaited<ReturnType<typeof fetchLeadEvents>>
+    /** The event names this sync counted, sorted. */
+    eventNames: string[]
   },
 ): void {
   const { startDate, endDate } = input.report
@@ -279,6 +282,7 @@ function persistLeadMeasurement(
       leadError: null,
       leadSyncedAt: input.syncedAt,
       leadAttributionScope: input.report.attributionScope,
+      leadEventNames: input.eventNames,
       updatedAt: input.syncedAt,
     }).onConflictDoUpdate({
       target: gaMeasurementSyncStates.projectId,
@@ -287,6 +291,7 @@ function persistLeadMeasurement(
         leadError: null,
         leadSyncedAt: input.syncedAt,
         leadAttributionScope: input.report.attributionScope,
+        leadEventNames: input.eventNames,
         updatedAt: input.syncedAt,
       },
     }).run()
@@ -296,11 +301,37 @@ function persistLeadMeasurement(
 function resetLeadMeasurement(db: GaDatabase, projectId: string, updatedAt: string): void {
   db.transaction((tx) => {
     tx.delete(gaLeadEventsDaily).where(eq(gaLeadEventsDaily.projectId, projectId)).run()
-    tx.insert(gaMeasurementSyncStates).values({ projectId, leadStatus: 'never-synced', leadError: null, leadSyncedAt: null, leadAttributionScope: null, updatedAt }).onConflictDoUpdate({
+    tx.insert(gaMeasurementSyncStates).values({ projectId, leadStatus: 'never-synced', leadError: null, leadSyncedAt: null, leadAttributionScope: null, leadEventNames: null, updatedAt }).onConflictDoUpdate({
       target: gaMeasurementSyncStates.projectId,
-      set: { leadStatus: 'never-synced', leadError: null, leadSyncedAt: null, leadAttributionScope: null, updatedAt },
+      set: { leadStatus: 'never-synced', leadError: null, leadSyncedAt: null, leadAttributionScope: null, leadEventNames: null, updatedAt },
     }).run()
   })
+}
+
+/**
+ * Record the property's key-event read. A failed read keeps the previous
+ * list, so a transient Admin API error does not change what is counted.
+ */
+function persistKeyEventRead(db: GaDatabase, projectId: string, read: KeyEventRead, updatedAt: string): void {
+  if (read.status === 'disabled') return
+  const set = read.status === 'read'
+    ? { keyEventNames: read.names, keyEventsError: null, updatedAt }
+    : { keyEventsError: read.error ?? 'Key event read failed', updatedAt }
+  db.insert(gaMeasurementSyncStates).values({ projectId, ...set }).onConflictDoUpdate({
+    target: gaMeasurementSyncStates.projectId,
+    set,
+  }).run()
+}
+
+/** The property's key events as one sync sees them. */
+interface KeyEventRead {
+  status: 'read' | 'error' | 'disabled'
+  names: string[]
+  error?: string
+}
+
+function sameEventNames(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((name, index) => name === right[index])
 }
 
 function persistMeasurementError(
@@ -865,8 +896,10 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
     // `days` is already bounded, so an incremental refresh reuses it directly;
     // a first-ever measurement sync backfills the full supported window.
     const acquisitionDays = measurementState?.acquisitionSyncedAt != null ? days : GA4_MAX_SYNC_DAYS
-    const leadDays = measurementState?.leadSyncedAt != null ? days : GA4_MAX_SYNC_DAYS
-    const leadEventNames = project.measurement.leadEventNames
+    // Set once the property's key events are read, after the token resolves.
+    let leadDays: number = GA4_MAX_SYNC_DAYS
+    let leadEventNames: string[] = []
+    let keyEventRead: KeyEventRead = { status: 'disabled', names: [] }
 
     const startedAt = new Date().toISOString()
     const runId = crypto.randomUUID()
@@ -887,6 +920,23 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
     try {
       const { accessToken, propertyId } = await resolveGa4AccessToken(opts, project.name, project.canonicalDomain)
       credentialsResolved = true
+
+      // Count the configured lead events plus the property's own key events.
+      // A failed read keeps the last good list and never fails the sync.
+      if (countsKeyEvents(project.measurement)) {
+        try {
+          keyEventRead = { status: 'read', names: await fetchKeyEventNames(accessToken, propertyId) }
+        } catch (error) {
+          keyEventRead = { status: 'error', names: measurementState?.keyEventNames ?? [], error: describeError(error) }
+        }
+        persistKeyEventRead(app.db, project.id, keyEventRead, new Date().toISOString())
+      }
+      leadEventNames = countedLeadEventNames(project.measurement.leadEventNames, keyEventRead.names)
+      // A changed event set refreshes the whole GA4 window, so every stored
+      // day counts the same events. An unknown previous set counts as changed.
+      const previousLeadEvents = measurementState?.leadEventNames ?? null
+      const leadEventsChanged = previousLeadEvents === null || !sameEventNames(previousLeadEvents, leadEventNames)
+      leadDays = measurementState?.leadSyncedAt != null && !leadEventsChanged ? days : GA4_MAX_SYNC_DAYS
 
       let rows: Awaited<ReturnType<typeof fetchTrafficByLandingPage>> = []
       let aiReferrals: Awaited<ReturnType<typeof fetchAiReferrals>> = []
@@ -1208,12 +1258,15 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
             runId,
             syncedAt: measurementNow,
             report: leadsSettled.value,
+            eventNames: leadEventNames,
           })
           return {
             status: 'ready' as const,
             days: leadDays,
             rowCount: leadsSettled.value.rows.length,
             attributionScope: leadsSettled.value.attributionScope,
+            eventNames: leadEventNames,
+            keyEvents: keyEventRead,
           }
         } catch (error) {
           return recordMeasurementFailure('leads', error)

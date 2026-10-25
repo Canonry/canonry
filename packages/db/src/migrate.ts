@@ -4925,6 +4925,18 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `ALTER TABLE runs ADD COLUMN sync_summary TEXT`,
     ],
   },
+  {
+    // Which GA4 events a lead sync counted (configured lead events plus the
+    // property's key events) and the last key-event read. Nullable with no
+    // default: until a sync records them, the configured events are the set.
+    version: 194,
+    name: 'ga-lead-key-events',
+    statements: [
+      `ALTER TABLE ga_measurement_sync_state ADD COLUMN lead_event_names TEXT`,
+      `ALTER TABLE ga_measurement_sync_state ADD COLUMN key_event_names TEXT`,
+      `ALTER TABLE ga_measurement_sync_state ADD COLUMN key_events_error TEXT`,
+    ],
+  },
 ]
 
 /**
