@@ -27,7 +27,7 @@ import { InfoTooltip } from '../components/shared/InfoTooltip.js'
 import { DIFFERENT_SUBJECT_COPY } from '../lib/mention-identity-copy.js'
 import { AnswerMarkdown, ANSWER_SOURCES_LABEL } from '../components/shared/AnswerMarkdown.js'
 import { ToneBadge } from '../components/shared/ToneBadge.js'
-import { excludedAnswersLabel, splitPercentSign, type CoverageSignal } from '../lib/format-helpers.js'
+import { excludedAnswersFlag, splitPercentSign, type CoverageSignal } from '../lib/format-helpers.js'
 import { SourceLink } from '../components/shared/SourceLink.js'
 import { carryVisibilitySearch, parseVisibilitySelection, patchVisibilitySelection, visibilityReportFirstPageQuery } from '../lib/measurement-view-url.js'
 import type { VisibilitySelectionState } from '../lib/measurement-view-url.js'
@@ -269,12 +269,12 @@ function MetricCell({ metric, signal, emphasis = false }: { metric: MetricValue;
   // Answers the server left out of both sides of this rate, named for its own
   // signal: not tied to one property under Mentioned, sources that could not be
   // checked under Cited. The count above already excludes them; this keeps them visible.
-  const excluded = excludedAnswersLabel(metric, signal)
+  const excluded = excludedAnswersFlag(metric, signal)
   return (
     <span className="inline-flex flex-col gap-0.5 tabular-nums">
       <span className={emphasis ? 'text-lg font-semibold text-heading' : 'text-sm font-medium text-primary'}>{percent}</span>
       {counted ? <span className="text-xs text-muted">{counted}</span> : null}
-      {excluded ? <span className="text-xs text-muted">{excluded}</span> : null}
+      {excluded ? <span className="-ml-2 flex"><InfoTooltip tone="caution" placement="bottom" label={excluded.label} text={excluded.text} /></span> : null}
     </span>
   )
 }
@@ -444,7 +444,7 @@ function CoverageHeroRow({ label, metric, signal, failed = false }: { label: str
   const counted = metric.numerator === undefined || metric.denominator === undefined
     ? null
     : `${metric.numerator} of ${metric.denominator}`
-  const excluded = excludedAnswersLabel(metric, signal)
+  const excluded = excludedAnswersFlag(metric, signal)
   return (
     <div className="aeo-hero-row">
       <p className="aeo-hero-row-label">{label}</p>
@@ -454,7 +454,7 @@ function CoverageHeroRow({ label, metric, signal, failed = false }: { label: str
       </div>
       <p className="aeo-hero-row-detail tabular-nums">
         {counted ?? ''}
-        {excluded ? <span className="block">{excluded}</span> : null}
+        {excluded ? <span className="block"><InfoTooltip tone="caution" placement="bottom" label={excluded.label} text={excluded.text} /></span> : null}
       </p>
     </div>
   )

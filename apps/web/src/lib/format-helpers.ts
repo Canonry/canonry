@@ -54,6 +54,21 @@ export function excludedAnswersLabel(
 }
 
 /**
+ * The same caveat as a flag beside the rate: a count and one word to show,
+ * and the full sentence for its bubble. Null when the rate left nothing out.
+ */
+export function excludedAnswersFlag(
+  value: { denominator?: number | null; unattributed?: number; unchecked?: number },
+  signal: CoverageSignal,
+): { label: string; text: string } | null {
+  const sentence = excludedAnswersLabel(value, signal)
+  const count = signal === 'cited' ? value.unchecked : value.unattributed
+  if (sentence === null || count === undefined) return null
+  const label = `${count} ${signal === 'cited' ? 'unchecked' : 'unattributed'}`
+  return { label, text: `${label}. ${sentence}, so this rate leaves ${count === 1 ? 'it' : 'them'} out.` }
+}
+
+/**
  * The older site-wide cited flag (`citationState`: any page on the project's
  * domain in the sources), named for what it reads. Advanced views put it beside
  * per-property numbers, which credit only a property's own pages, so a bare

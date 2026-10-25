@@ -44,7 +44,7 @@ import {
 import { InfoTooltip } from '../shared/InfoTooltip.js'
 import { Disclosure } from '../shared/Disclosure.js'
 import { SegmentedRadioGroup } from '../shared/SegmentedRadioGroup.js'
-import { excludedAnswersLabel, formatSweepInstant, type CoverageSignal } from '../../lib/format-helpers.js'
+import { excludedAnswersFlag, formatSweepInstant, type CoverageSignal } from '../../lib/format-helpers.js'
 import { fetchAnalyticsMetrics, isDashboardManagedSweeps } from '../../api.js'
 import { MANAGED_SWEEPS_COPY } from './ManagedSweepStatus.js'
 import { DataTablePagination, useClientTable } from '../shared/DataTableControls.js'
@@ -172,8 +172,8 @@ function reportRateReason(value: VisibilityReportRate): string {
  */
 function ReportRate({ value, signal }: { value: VisibilityReportRate; signal: CoverageSignal }) {
   if (value.rate === null) return <span className="text-sm text-secondary">{reportRateReason(value)}</span>
-  const excluded = excludedAnswersLabel(value, signal)
-  return <span className="inline-flex flex-col gap-1"><strong className="tabular-nums text-heading">{formatPercent(value.rate)}</strong><span className="text-sm tabular-nums text-secondary">{value.numerator} of {value.denominator}</span>{excluded ? <span className="text-sm tabular-nums text-secondary">{excluded}</span> : null}</span>
+  const excluded = excludedAnswersFlag(value, signal)
+  return <span className="inline-flex flex-col gap-1"><strong className="tabular-nums text-heading">{formatPercent(value.rate)}</strong><span className="text-sm tabular-nums text-secondary">{value.numerator} of {value.denominator}</span>{excluded ? <span className="-ml-2 flex"><InfoTooltip tone="caution" placement="bottom" label={excluded.label} text={excluded.text} /></span> : null}</span>
 }
 
 /** A bounded bar at the server rate. The rate text beside it carries the value for assistive tech. */
@@ -274,7 +274,7 @@ function ReportHeadlineCell({ label, help, value, signal, unit, classNoun, chang
   // answers it could not tie to one property; for a citation rate, answers whose
   // sources could not be checked. The rate's own count already excludes them;
   // this line keeps them visible. Stated by the server, never derived here.
-  const excluded = excludedAnswersLabel(value, signal)
+  const excluded = excludedAnswersFlag(value, signal)
   return <div className="report-headline-tile">
     <dt className="flex items-center gap-1 text-sm text-secondary"><span>{label}</span><InfoTooltip text={help} /></dt>
     {value.rate === null ? <dd className="text-lg text-secondary">{reportRateReason(value)}{queryClassSuffix}</dd> : <>
@@ -284,7 +284,7 @@ function ReportHeadlineCell({ label, help, value, signal, unit, classNoun, chang
         {change ? <span className={`text-sm ${change.tone}`}>{change.text}</span> : null}
       </dd>
       <dd className="text-sm tabular-nums text-secondary">{`${value.numerator} of ${value.denominator} ${unit}`}</dd>
-      {excluded ? <dd className="text-sm tabular-nums text-secondary">{excluded}</dd> : null}
+      {excluded ? <dd className="-ml-2 flex"><InfoTooltip tone="caution" placement="bottom" label={excluded.label} text={excluded.text} /></dd> : null}
     </>}
   </div>
 }
