@@ -76,6 +76,9 @@ export function invalidateQueriesForRunKind(
       return
     case RunKinds['backlink-extract']:
       return
+    case RunKinds['seo-sync']:
+      void invalidateProjectQueryDomain(queryClient, 'seo', { projectName })
+      return
     case RunKinds['site-audit']:
       void invalidateProjectQueryDomain(queryClient, 'technicalAeo')
       return

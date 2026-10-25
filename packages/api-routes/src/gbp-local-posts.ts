@@ -4,6 +4,7 @@ import { and, eq } from 'drizzle-orm'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { auditLog, gbpLocations } from '@canonry/canonry-db'
 import {
+  AppError,
   forbidden,
   validationError,
   providerError,
@@ -23,7 +24,9 @@ import {
   listLocalPosts,
   listReviews,
   GbpApiError,
+  GbpLocalPostResponseError,
 } from '@canonry/canonry-integration-google-business-profile'
+import { GoogleAuthError } from '@canonry/canonry-integration-google'
 import {
   requireScope,
   requireAdminSession,
@@ -37,6 +40,42 @@ export interface GbpLocalPostsOptions {
 }
 const digest = (value: unknown): string =>
   createHash('sha256').update(JSON.stringify(value)).digest('hex')
+const READ_REASONS = new Set([
+  'ACCESS_TOKEN_SCOPE_INSUFFICIENT', 'RATE_LIMIT_EXCEEDED', 'SERVICE_DISABLED',
+  'API_DISABLED', 'CONSUMER_INVALID', 'IAM_PERMISSION_DENIED', 'ACCESS_DENIED',
+  'UNAUTHENTICATED', 'NOT_FOUND', 'INVALID_ARGUMENT', 'QUOTA_EXCEEDED',
+  'PERMISSION_DENIED', 'FAILED_PRECONDITION', 'INTERNAL', 'UNAVAILABLE', 'RESOURCE_EXHAUSTED',
+])
+function localPostReadError(error: unknown, stage: 'token' | 'read', message: string) {
+  let category = stage === 'token' ? 'token' : 'unclassified'
+  let reason = 'UNCLASSIFIED'
+  let upstreamStatus: number | undefined
+  if (stage === 'token') {
+    if (error instanceof GoogleAuthError) {
+      reason = 'REFRESH_FAILED'
+      // Only the controlled refresh prefix is inspected; never return its body.
+      upstreamStatus = error.statusCode ?? Number(error.message.match(/^Token refresh failed \((\d{3})\):/u)?.[1])
+    } else if (error instanceof AppError) {
+      if (error.code === 'NOT_FOUND') reason = 'NOT_CONNECTED'
+      if (error.code === 'VALIDATION_ERROR') reason = 'NOT_CONFIGURED'
+    }
+  } else if (error instanceof GbpApiError) {
+    category = 'google_api'
+    const body = error.body as { error?: { status?: unknown } } | null
+    const code = body?.error?.status
+    reason = error.reason !== null && READ_REASONS.has(error.reason) ? error.reason
+      : typeof code === 'string' && READ_REASONS.has(code) ? code : reason
+    upstreamStatus = error.status
+  } else if (error instanceof GbpLocalPostResponseError) {
+    category = 'response'
+    reason = error.reason
+  }
+  return providerError(message, {
+    category, reason,
+    ...(typeof upstreamStatus === 'number' && Number.isInteger(upstreamStatus) && upstreamStatus >= 100 && upstreamStatus <= 599
+      ? { upstreamStatus } : {}),
+  })
+}
 function readGrant(request: FastifyRequest): void {
   requireAdminSession(request)
   requirePaidReadScope(
@@ -52,6 +91,13 @@ export async function gbpLocalPostsRoutes(
   app: FastifyInstance,
   options: GbpLocalPostsOptions,
 ): Promise<void> {
+  async function readPostResource<T>(domain: string, read: (token: string) => Promise<T>, message: string): Promise<T> {
+    let token: string
+    try { token = await options.token(domain) }
+    catch (error) { throw localPostReadError(error, 'token', message) }
+    try { return await read(token) }
+    catch (error) { throw localPostReadError(error, 'read', message) }
+  }
   function selected(projectId: string, account: unknown, location: unknown) {
     const a = gbpAccountNameSchema.safeParse(account)
     const l = gbpLocationNameSchema.safeParse(location)
@@ -98,18 +144,9 @@ export async function gbpLocalPostsRoutes(
       (page.length > 2000 || /[\p{Cc}\p{Cf}]/u.test(page))
     )
       throw validationError('Invalid GBP page token.')
-    try {
-      return await listLocalPosts(
-        await options.token(project.canonicalDomain),
-        location.accountName,
-        location.locationName,
-        page,
-      )
-    } catch {
-      throw providerError(
-        'Google Local Posts could not be read; coverage is unknown.',
-      )
-    }
+    return readPostResource(project.canonicalDomain,
+      (token) => listLocalPosts(token, location.accountName, location.locationName, page),
+      'Google Local Posts could not be read; coverage is unknown.')
   })
   app.get<{ Params: { name: string }; Querystring: { postName?: string } }>(
     '/projects/:name/gbp/local-post',
@@ -125,16 +162,9 @@ export async function gbpLocalPostsRoutes(
         parts.slice(0, 2).join('/'),
         parts.slice(2, 4).join('/'),
       )
-      try {
-        return await getLocalPost(
-          await options.token(project.canonicalDomain),
-          parsed.data,
-        )
-      } catch {
-        throw providerError(
-          'Google Local Post could not be verified; do not resubmit it.',
-        )
-      }
+      return readPostResource(project.canonicalDomain,
+        (token) => getLocalPost(token, parsed.data),
+        'Google Local Post could not be verified; do not resubmit it.')
     },
   )
   app.get<{

@@ -32,6 +32,7 @@ import {
   type OnboardingSurface as OnboardingTelemetrySurface,
   type OnboardingTelemetryEvent,
 } from '@canonry/canonry-contracts'
+import { clearOnboardingDraft, markOnboardingScanSkipped, readOnboardingDraft, writeOnboardingDraft } from '../lib/onboarding-draft.js'
 import { asyncHandler } from '../lib/async-handler.js'
 import { addToast } from '../lib/toast-store.js'
 import {
@@ -106,6 +107,8 @@ export function resolveOnboardingSurface(
   return 'loading'
 }
 
+/** Compact for a mouse on a desktop; 44px tall for touch and narrow screens. */
+const TOUCH_TARGET = 'pointer-coarse:min-h-11 max-md:min-h-11'
 /** Before any Canonry install could exist: the whole scan history. */
 const AUTO_RESUME_HISTORY_SINCE = '2000-01-01T00:00:00.000Z'
 /** The runs endpoint's own maximum. Newest-first, so older scans fall off last. */
@@ -576,6 +579,7 @@ function SiteHealthOnboardingPageBody({
     })
   }
   const continueOnboarding = () => {
+    if (!initialRunId) markOnboardingScanSkipped(project.name)
     void navigate({
       to: '/setup',
       search: {
@@ -587,6 +591,7 @@ function SiteHealthOnboardingPageBody({
     })
   }
   const skipOnboarding = () => {
+    if (!initialRunId) markOnboardingScanSkipped(project.name)
     // Leaving on purpose is an outcome, not an absence of one. Without this the
     // funnel cannot tell a user who chose to stop from one who vanished.
     emit({
@@ -788,11 +793,12 @@ function PlatformSetupPageBody({
     retry: false,
   })
   const telemetryMutation = useMutation(putApiV1TelemetryMutation())
-  const [domain, setDomain] = useState('')
-  const [projectName, setProjectName] = useState('')
-  const [displayName, setDisplayName] = useState('')
-  const [country, setCountry] = useState('US')
-  const [language, setLanguage] = useState('en')
+  const [draft] = useState(() => readOnboardingDraft('platform'))
+  const [domain, setDomain] = useState(draft.domain ?? '')
+  const [projectName, setProjectName] = useState(draft.projectName ?? '')
+  const [displayName, setDisplayName] = useState(draft.displayName ?? '')
+  const [country, setCountry] = useState(draft.country ?? 'US')
+  const [language, setLanguage] = useState(draft.language ?? 'en')
   const [crawlApproved, setCrawlApproved] = useState(false)
   const [phase, setPhase] = useState<'idle' | 'creating' | 'dispatching' | 'recovery'>('idle')
   const [createdProject, setCreatedProject] = useState<ApiProject | null>(null)
@@ -823,6 +829,23 @@ function PlatformSetupPageBody({
       resumed: false,
     }, 'onboarding.started')
   }, [emit, onboardingSessionId])
+
+  useEffect(() => {
+    if (createdProject) return
+    writeOnboardingDraft('platform', { domain, projectName, displayName, country, language })
+  }, [createdProject, domain, projectName, displayName, country, language])
+
+  const resetDraft = () => {
+    clearOnboardingDraft('platform')
+    setDomain('')
+    setProjectName('')
+    setDisplayName('')
+    setCountry('US')
+    setLanguage('en')
+    setCrawlApproved(false)
+    setCreateError(null)
+    setCreateConflict(false)
+  }
 
   const identity = deriveLaunchpadIdentity(domain)
   const resolvedProjectName = projectName || identity?.projectName || ''
@@ -962,6 +985,7 @@ function PlatformSetupPageBody({
       // dispatch recovery.
       onActivationStarted()
       setCreatedProject(project)
+      clearOnboardingDraft('platform')
       emit({
         flowVersion: ONBOARDING_FLOW_VERSION,
         onboardingSessionId,
@@ -973,6 +997,7 @@ function PlatformSetupPageBody({
         queryKey: getApiV1ProjectsQueryKey({ client: heyClient }),
       })
       if (skipSiteScan) {
+        markOnboardingScanSkipped(project.name)
         await navigate({
           to: '/setup',
           search: {
@@ -1085,12 +1110,16 @@ function PlatformSetupPageBody({
         </p>
       </header>
 
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2 text-[13px] text-secondary">
+        <p>Draft fields use tab storage when available. Scan permission resets on reload.</p>
+        <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={resetDraft}>Reset draft</Button>
+      </div>
       <form aria-labelledby="site-map-setup-title" className="space-y-6" onSubmit={asyncHandler(submit)} noValidate>
         <div className="grid gap-2">
           <label className="text-sm font-medium text-heading" htmlFor="launchpad-domain">Website URL</label>
           <input
             id="launchpad-domain"
-            className="h-11 w-full rounded-md border border-strong bg-bg-elevated/50 px-3 text-base text-heading outline-none transition placeholder:text-muted focus:border-mono-500 focus:ring-1 focus:ring-mono-500"
+            className={`h-10 w-full rounded-md border border-strong bg-bg-elevated/50 px-3 text-base text-heading outline-none transition placeholder:text-muted focus:border-mono-500 focus:ring-1 focus:ring-mono-500 md:h-9 md:text-sm ${TOUCH_TARGET}`}
             type="text"
             inputMode="url"
             autoComplete="url"
@@ -1136,7 +1165,7 @@ function PlatformSetupPageBody({
         </div>
 
         <details className="group border-y border-default">
-          <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-4 py-3 text-sm [&::-webkit-details-marker]:hidden">
+          <summary className={`flex min-h-9 cursor-pointer list-none items-center justify-between gap-4 py-2 text-sm [&::-webkit-details-marker]:hidden ${TOUCH_TARGET}`}>
             {/* Nothing behind this is advanced: it is the project name Canonry
                 is about to create and the locale it will measure in. Both are
                 worth seeing before the scan starts. */}
@@ -1209,6 +1238,7 @@ function PlatformSetupPageBody({
           </div>
         </details>
 
+        {!skipSiteScan ? <p className="text-sm text-secondary">First scan: up to {SITE_AUDIT_ONBOARDING_PAGE_LIMIT} pages. A limited scan describes the pages reached, not the whole site.</p> : null}
         {!skipSiteScan ? (
           <label className="flex min-h-11 cursor-pointer items-start gap-3 py-2">
             <input
@@ -1236,7 +1266,7 @@ function PlatformSetupPageBody({
 
         <div className="grid gap-2">
           <Button
-            className="h-11 w-full"
+            className={`w-full ${TOUCH_TARGET}`}
             type="submit"
             disabled={!identity || (!skipSiteScan && !crawlApproved) || !localeValid || busy}
           >

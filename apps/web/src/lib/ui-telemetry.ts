@@ -160,6 +160,7 @@ export function trackUiSearchInput(value: string, submitNow = false): void {
  * its own keys; any of them changing on the same page is a filter change.
  */
 const FILTER_BY_SEARCH_KEY: Readonly<Record<string, UiFilter>> = {
+  seoProfileId: 'seoProfile',
   measurementProvider: 'provider',
   measurementModel: 'model',
   measurementLocation: 'location',
@@ -254,6 +255,9 @@ function sendVital(metric: VitalMetric, rating: VitalRating): void {
  */
 type ActionRow = readonly [method: string, template: string, action: UiAction, integration?: UiIntegration, onlyStatus?: number]
 const ACTION_BY_ROUTE: ReadonlyArray<ActionRow> = [
+  ['POST', '/api/v1/projects/{name}/seo/sync', 'seo.refresh'],
+  ['PUT', '/api/v1/projects/{name}/seo/profiles/{id}', 'seo.profile.save'],
+  ['POST', '/api/v1/projects/{name}/seo/runs/{id}/cancel', 'seo.cancel'],
   ['POST', '/api/v1/projects/{name}/runs', 'sweep.launch'],
   ['POST', '/api/v1/runs/{id}/cancel', 'sweep.cancel'],
   ['POST', '/api/v1/projects/{name}/technical-aeo/runs', 'site_audit.launch'],

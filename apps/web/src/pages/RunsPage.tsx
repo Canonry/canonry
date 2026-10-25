@@ -207,7 +207,7 @@ export function RunsPage() {
 
         <div className="run-list">
           {!runsQuery.isError && filteredRuns.length > 0 ? (
-            filteredRuns.map((run) => <RunRow key={run.id} run={run} />)
+            filteredRuns.map((run) => <RunRow key={run.id} run={run} projectSlug={projectsQuery.data?.find(project => project.id === run.projectId)?.name} />)
           ) : !runsQuery.isError ? (
             <Card className="surface-card empty-card">
               <h2>No runs match this filter</h2>

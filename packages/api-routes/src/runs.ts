@@ -6,6 +6,7 @@ import { compileCompetitiveSignalResolver } from '@canonry/canonry-intelligence'
 import type { CitationState, LocationContext, MeasurementExecutionIdentity, MeasurementRunScope, ProviderAccountStreak, ProviderDispatchMode, RunDispatchModes, RunListFilterQuery } from '@canonry/canonry-contracts'
 import {
   ProviderWorkflows,
+  SEO_RUN_SCOPE,
   type ProviderRouteFamily,
   AppError as AppErrorClass,
   type AppError,
@@ -39,11 +40,12 @@ import {
 } from '@canonry/canonry-contracts'
 import { z } from 'zod'
 import { notProbeRun, resolveProject, resolveSnapshotAnswerMentioned, resolveSnapshotMentionState, resolveSnapshotVisibilityState, resolveSnapshotMatchedTerms, writeAuditLog } from './helpers.js'
-import { assertProjectScope } from './auth.js'
+import { assertProjectScope, requireScope, requireAdminSession } from './auth.js'
 import { gte } from 'drizzle-orm'
 import { activeRevisionProviders, assertMeasurementRunStampable, hasActiveMeasurementPlan, providerAccountAdmission, providersARunWouldCall, providersFailingError, queueRunIfProjectIdle, resolveRunnableProviderSelection, runAdmissionState } from './run-queue.js'
 import { queueRunFill, readRunCompleteness } from './run-fill.js'
 import { readRunProviderBatches } from './provider-batches.js'
+import { cancelSeoRefresh } from './seo.js'
 import { competitorIdentityColumns } from './competitor-writes.js'
 import { assertProviderRouteScope, invalidProviderSelections, providerRouteFamilies } from './provider-models.js'
 import type { ProviderAdapterInfo } from './settings.js'
@@ -720,6 +722,13 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
     const run = app.db.select().from(runs).where(eq(runs.id, request.params.id)).get()
     if (!run) throw notFound('Run', request.params.id)
     assertProjectScope(request, run.projectId)
+
+    if (run.kind === RunKinds['seo-sync']) {
+      requireScope(request, SEO_RUN_SCOPE)
+      requireAdminSession(request)
+      cancelSeoRefresh(app.db, run.projectId, run.id)
+      return reply.send(formatRun(app.db.select().from(runs).where(eq(runs.id, run.id)).get()!))
+    }
 
     const terminalStatuses = new Set(['completed', 'partial', 'failed', 'cancelled'])
     if (terminalStatuses.has(run.status)) throw runNotCancellable(run.id, run.status)

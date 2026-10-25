@@ -3,7 +3,9 @@ import { visibilityReportRequestSchema, type VisibilityReportResponse } from './
 
 /** A turn's displayed selection, never an authorization grant. */
 export const agentViewContextSchema = z.object({
-  view: z.enum(['project', 'visibility', 'property', 'queries', 'site-health']),
+  view: z.enum(['project', 'visibility', 'property', 'queries', 'site-health', 'seo']),
+  seoProfileId: z.string().trim().min(1).max(128).optional(),
+  seoRunId: z.string().trim().min(1).max(128).optional(),
   unavailableReason: z.string().trim().min(1).max(512).optional(),
   selection: visibilityReportRequestSchema.optional(),
   page: z.object({
@@ -11,6 +13,8 @@ export const agentViewContextSchema = z.object({
     nodeKey: z.string().trim().min(1).max(2048).optional(),
   }).strict().optional(),
 }).strict().superRefine((value, ctx) => {
+  if (value.seoProfileId && value.view !== 'seo') ctx.addIssue({ code: 'custom', message: 'SEO profile context requires the SEO view.' })
+  if (value.seoRunId && value.view !== 'seo') ctx.addIssue({ code: 'custom', message: 'SEO run context requires the SEO view.' })
   if (value.page && value.view !== 'site-health') ctx.addIssue({ code: 'custom', message: 'Page context requires Site Health.' })
   if (value.selection && !['visibility', 'property', 'queries'].includes(value.view)) ctx.addIssue({ code: 'custom', message: 'Measurement selection requires a measurement view.' })
 })

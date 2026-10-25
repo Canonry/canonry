@@ -18,6 +18,7 @@ vi.mock('../src/gbp-hotel-policy.js', () => ({
   hotelEditorialDestination: vi.fn(async () => true),
 }))
 import { hashApiKey } from '../src/auth.js'
+import { gbpLocalPostListSchema } from '@canonry/canonry-contracts'
 
 const NOW = new Date().toISOString()
 const content = {
@@ -45,7 +46,7 @@ const post = {
   updateTime: NOW,
   searchUrl: 'https://local.google.com/place?id=123&use=posts&lpsid=abc',
 }
-async function fixture(options: { tokenExpiresAt?: string } = {}) {
+async function fixture(options: { tokenExpiresAt?: string; connectionMissing?: boolean } = {}) {
   vi.mocked(hotelEditorialDestination).mockResolvedValue(true)
   const root = mkdtempSync(join(tmpdir(), 'cnry-gbp-posts-'))
   const db = createClient(join(root, 'test.db'))
@@ -112,7 +113,7 @@ async function fixture(options: { tokenExpiresAt?: string } = {}) {
     }),
     googleConnectionStore: {
       listConnections: () => [],
-      getConnection: () => ({
+      getConnection: () => options.connectionMissing ? undefined : ({
         domain: 'one.example',
         connectionType: 'gbp',
         accessToken: 'fixture-token',
@@ -143,6 +144,137 @@ async function fixture(options: { tokenExpiresAt?: string } = {}) {
   return { app, db, request }
 }
 describe('GBP API transport authorization and send-once claim', () => {
+  const privateValue = 'CANARY_PRIVATE_TOKEN_AND_CUSTOMER_CONTENT'
+  const reads = [
+    'local-posts?accountName=accounts/111&locationName=locations/222',
+    'local-post?postName=' + post.name,
+  ]
+  const failures = [
+    { name: 'known Google rejection', status: 403,
+      error: { message: privateValue, details: [{ reason: 'ACCESS_TOKEN_SCOPE_INSUFFICIENT', metadata: { token: privateValue } }] },
+      expected: { category: 'google_api', reason: 'ACCESS_TOKEN_SCOPE_INSUFFICIENT', upstreamStatus: 403 } },
+    { name: 'unknown Google reason', status: 401,
+      error: { message: privateValue, details: [{ reason: privateValue }] },
+      expected: { category: 'google_api', reason: 'UNCLASSIFIED', upstreamStatus: 401 } },
+    { name: 'known Google status without details', status: 400,
+      error: { message: privateValue, status: 'INVALID_ARGUMENT' },
+      expected: { category: 'google_api', reason: 'INVALID_ARGUMENT', upstreamStatus: 400 } },
+    { name: 'unsupported media', payload: { ...post, media: [{ mediaFormat: 'VIDEO', googleUrl: privateValue }] },
+      expected: { category: 'response', reason: 'UNSUPPORTED_MEDIA' } },
+    { name: 'invalid provider fields', payload: { ...post, updateTime: privateValue },
+      expected: { category: 'response', reason: 'INVALID_RESPONSE' } },
+    { name: 'wrong provider identity', payload: { ...post, name: 'accounts/999/locations/222/localPosts/333', summary: privateValue },
+      expected: { category: 'response', reason: 'WRONG_IDENTITY' } },
+  ]
+  it.each(reads.flatMap(path => failures
+    .filter(failure => failure.name !== 'unsupported media' || !path.startsWith('local-posts?'))
+    .map(failure => ({ path, ...failure }))))(
+    'returns only safe diagnostics for $name on $path',
+    async (test) => {
+      const f = await fixture()
+      const fetch = vi.fn(async () => new Response(JSON.stringify(
+        'error' in test ? { error: test.error } : test.path.startsWith('local-posts?') ? { localPosts: [test.payload] } : test.payload,
+      ), { status: 'status' in test ? test.status : 200 }))
+      vi.stubGlobal('fetch', fetch)
+      const response = await f.request('GET', test.path)
+      expect(response.statusCode).toBe(502)
+      expect(response.json().error).toMatchObject({ code: 'PROVIDER_ERROR', details: test.expected })
+      expect(response.json().error.details).toEqual(test.expected)
+      expect(response.body).not.toContain(privateValue)
+      expect(fetch).toHaveBeenCalledTimes(1)
+      expect(f.db.select().from(auditLog).all()).toEqual([])
+    },
+  )
+  it.each([
+    { label: 'Google-hosted photo without original source', media: [{ mediaFormat: 'PHOTO', googleUrl: 'https://lh3.googleusercontent.com/historical-photo' }] },
+    { label: 'video with original source', media: [{ mediaFormat: 'VIDEO', sourceUrl: 'https://one.example/old-video.mp4' }] },
+    { label: 'Google-hosted video', media: [{ mediaFormat: 'VIDEO', googleUrl: 'https://lh3.googleusercontent.com/historical-video' }] },
+    { label: 'mixed known and unsupported media', media: [...content.media, { mediaFormat: 'VIDEO', googleUrl: 'https://lh3.googleusercontent.com/historical-video' }] },
+    { label: 'unknown media format', media: [{ mediaFormat: 'FUTURE_FORMAT' }] },
+  ])('retains historical $label and pagination while exact-post verification stays strict', async (test) => {
+    const f = await fixture()
+    const historical = { ...post, media: test.media }
+    const fetch = vi.fn(async (url: string | URL | Request) => new Response(JSON.stringify(
+      String(url).includes('/localPosts?') ? { localPosts: [historical], nextPageToken: 'next-history-page' } : historical,
+    )))
+    vi.stubGlobal('fetch', fetch)
+    const listed = await f.request('GET', reads[0]!)
+    expect(listed.statusCode).toBe(200)
+    expect(gbpLocalPostListSchema.parse(listed.json())).toEqual({ posts: [{
+      name: post.name, languageCode: post.languageCode, summary: post.summary,
+      topicType: post.topicType, state: post.state, actionType: post.callToAction.actionType,
+      articleUrl: post.callToAction.url, imageUrls: [], mediaSourceUrlsComplete: false,
+      createTime: post.createTime, updateTime: post.updateTime, searchUrl: post.searchUrl,
+    }], nextPageToken: 'next-history-page' })
+    const exact = await f.request('GET', reads[1]!)
+    expect(exact.statusCode).toBe(502)
+    expect(exact.json().error.details).toEqual({ category: 'response', reason: 'UNSUPPORTED_MEDIA' })
+    expect(f.db.select().from(auditLog).all()).toEqual([])
+    expect(fetch).toHaveBeenCalledTimes(2)
+  })
+  it.each([{ media: null }, { media: {} }, { media: [null] }, { media: [7] }, { media: [[]] }])('keeps malformed media $media unavailable instead of claiming complete coverage', async ({ media }) => {
+    const f = await fixture()
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ localPosts: [{ ...post, media }] }))))
+    const response = await f.request('GET', reads[0]!)
+    expect(response.statusCode).toBe(502)
+    expect(response.json().error.details).toEqual({ category: 'response', reason: 'INVALID_RESPONSE' })
+    expect(response.json()).not.toHaveProperty('posts')
+  })
+  it('does not retain historical media from another account as complete coverage', async () => {
+    const f = await fixture()
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ localPosts: [{
+      ...post, name: 'accounts/999/locations/222/localPosts/333',
+      media: [{ mediaFormat: 'PHOTO', googleUrl: 'https://lh3.googleusercontent.com/historical' }],
+    }] }))))
+    const response = await f.request('GET', reads[0]!)
+    expect(response.statusCode).toBe(502)
+    expect(response.json().error.details).toEqual({ category: 'response', reason: 'WRONG_IDENTITY' })
+  })
+  it('keeps an unsupported newly-created image result uncertain and never submits it again', async () => {
+    const f = await fixture()
+    const fetch = vi.fn(async () => new Response(JSON.stringify({
+      ...post, media: [...content.media, { mediaFormat: 'VIDEO', googleUrl: 'https://lh3.googleusercontent.com/extra' }],
+    })))
+    vi.stubGlobal('fetch', fetch)
+    const first = await f.request('POST', 'local-posts', body)
+    expect(first.statusCode).toBe(200)
+    expect(first.json()).toMatchObject({ status: 'uncertain', post: null })
+    const replay = await f.request('POST', 'local-posts', body)
+    expect(replay.json()).toEqual(first.json())
+    expect(fetch).toHaveBeenCalledTimes(1)
+  })
+  it.each([
+    { name: 'missing connection', connectionMissing: true, expected: { category: 'token', reason: 'NOT_CONNECTED' } },
+    { name: 'failed refresh', tokenExpiresAt: new Date(0).toISOString(), expected: { category: 'token', reason: 'REFRESH_FAILED', upstreamStatus: 400 } },
+  ])('keeps $name separate from Google post failures without exposing token data', async (test) => {
+    const f = await fixture(test)
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ error: 'invalid_grant', error_description: privateValue }), { status: 400 }))
+    vi.stubGlobal('fetch', fetch)
+    const response = await f.request('GET', reads[0]!)
+    expect(response.statusCode).toBe(502)
+    expect(response.json().error.details).toEqual(test.expected)
+    expect(response.body).not.toContain(privateValue)
+    expect(fetch).toHaveBeenCalledTimes('connectionMissing' in test ? 0 : 1)
+    expect(f.db.select().from(auditLog).all()).toEqual([])
+  })
+  it('does not expose an unexpected transport exception or claim complete duplicate coverage', async () => {
+    const f = await fixture()
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new Error(privateValue) }))
+    const response = await f.request('GET', reads[0]!)
+    expect(response.statusCode).toBe(502)
+    expect(response.json().error.details).toEqual({ category: 'unclassified', reason: 'UNCLASSIFIED' })
+    expect(response.body).not.toContain(privateValue)
+    expect(response.json()).not.toHaveProperty('posts')
+    expect(f.db.select().from(auditLog).all()).toEqual([])
+  })
+  it('does not interpret a malformed top-level array as complete empty duplicate coverage', async () => {
+    const f = await fixture()
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('[]')))
+    const response = await f.request('GET', reads[0]!)
+    expect(response.statusCode).toBe(502)
+    expect(response.json().error.details).toEqual({ category: 'response', reason: 'INVALID_RESPONSE' })
+    expect(response.json()).not.toHaveProperty('posts')
+  })
   it('requires explicit live-read authority and refuses another project before provider access', async () => {
     const f = await fixture()
     const fetch = vi.fn(async () => new Response('{}'))

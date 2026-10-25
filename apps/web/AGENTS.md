@@ -39,6 +39,39 @@ subtle borders, no visual noise.
 
 ## Patterns
 
+### SEO
+
+`components/project/SeoDataSection.tsx` owns `/projects/:name/seo-data`, labelled SEO.
+The public demo uses seeded stored evidence and hides execution-configuration
+notices; refresh and profile writes remain unavailable.
+Saved profiles define Simple or Advanced scope; `seoProfileId` selects a profile,
+and `seoRunId` links Activity to a specific refresh. The project context row has
+no separate SEO scope picker. Reads use the generated SDK and pin evidence tables
+to `overview.evidenceRunId`; the newest job's status can change while the prior
+completed or partial snapshot stays visible. Freshness uses that selected
+`evidenceRun`, never the project-wide last-completed timestamp. Overview Activity,
+Past checks, and run history use `RunDetailLink` to open SEO refreshes through
+`seoRunId`, preserving Advanced context and clearing stale profile/drawer IDs.
+Summary values come from the API,
+including top-ten counts. Evidence pages use the server's total and pagination.
+Profile setup stores source, targets, explicit keywords, locale, capabilities,
+and plan revision; its dataset choices intersect source and scope capabilities
+when the API supplies them. Credentials and internal request accounting remain host-only;
+customer pages may show research metrics such as CPC and estimated traffic value.
+Profile creation requires a configured source with a usable dataset. Unconfigured
+hosts retain saved evidence and show administrator guidance; unavailable Advanced
+scopes show the API's plan recovery instruction. Keyword-only setup
+omits target and ranked-row controls. Editor dismissal restores its opener's
+focus; saving focuses the profile selector. Failed refresh links retain profile
+navigation and require an explicit return to latest data.
+Access uses the context's `canRun` and `canWrite` independently, with embed/demo
+write gates. Refresh first obtains a bounded intent and reuses the same intent
+and idempotency key after an ambiguous transport failure. Definitive validation
+refusals release that pending request so the next explicit action can obtain a
+fresh intent. Only active jobs poll; terminal transitions refresh the SEO query
+domain. `seo-data-section.test.tsx` owns mounted SDK selection and lifecycle
+coverage; API tests own authorization, storage, provider dispatch, and arithmetic.
+
 ### OpenRouter sweep models
 
 Global Settings stores one OpenRouter key and quota. Project Answer engines and
@@ -664,12 +697,22 @@ Token migration guardrails:
   Tailwind v4 `@layer` / `@property` / `color-mix` output reliably, so the
   computed-style spot check is the Tailwind compiler-output assertion.
 
+### Onboarding state and draft recovery
+
+- Public domain/name/locale and unsaved query/competitor inputs restore from allowlisted session storage scoped by base path and project. Scan consent and provider credentials never persist. Saving clears the saved field's draft; Reset restores persisted project/query state, while Skip or leaving preserves unsaved inputs.
+- Completion leads with a compact Project saved heading, one sweep status and Open project. Optional setup is a flat list: Connect your agent opens `/agent-setup`, and the data-source details start closed. Keep promotional demos and repeated explanatory paragraphs off this finish step. It derives scan/sweep outcomes from their latest saved runs. Distinguish never started, skipped, queued, running, partial, failed, cancelled and completed; name previous saved evidence separately. Provider/query readiness determines the next action.
+- Bare setup without a run offers Run first scan and a way to continue without scanning. Show the first scan's 100-page cap at the decision.
+
 ### Layout and navigation
 
 - **Sidebar navigation** (persistent left, `w-56`, hidden on mobile with full-screen overlay fallback).
+- The full-screen navigation uses the shared Radix dialog behavior: focus starts
+  on Close, stays inside while open, and returns to Open navigation after Close,
+  Escape, or route navigation. Closed navigation is unmounted; background content
+  is unavailable to pointer and assistive-technology interaction while open.
 - **Compact topbar** with breadcrumb, health pills, and primary action button.
 - **Page container** (`max-w-6xl`, centered) for all page content.
-- **Aero bar lane.** While the floating Aero bar shows, `RootLayout` adds `main-area-agent-bar` to `.main-area` (the wrapper holding the page and the footer): bottom padding plus a matching root `scroll-padding-bottom`, so the bar never covers a control or the footer's links. Pages never pad for the bar themselves.
+- **Aero bar lane.** While the floating Aero bar shows, `RootLayout` adds `main-area-agent-bar` to `.main-area` (the wrapper holding the page): bottom padding plus a matching root `scroll-padding-bottom`, so the bar never covers a control. Product links and the version live in the sidebar and mobile navigation, outside the page. Pages never pad for the bar themselves.
 - Pages use a `page-header` (title + subtitle + optional actions) followed by sections separated by `page-section-divider`. Project pages instead use the project context row: identity lives in the topbar breadcrumb (plus one visually hidden `h1`, visible below md), and the sweep action lives in the row's `[data-project-actions]`. Embeds keep `page-header`.
 - Sidebar main nav items use Lucide icons (`LayoutDashboard`, `Globe`, `Play`, `Settings`).
 - The sidebar Projects section shows each project with a colored dot indicating visibility health tone.

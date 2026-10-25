@@ -94,6 +94,12 @@ function kindLabel(kind: RunKind): string {
     case RunKinds['ads-sync']: return 'ChatGPT ads sync'
     case RunKinds['google-ads-sync']: return 'Google Ads sync'
     case RunKinds['gtm-sync']: return 'Tag Manager sync'
+    case RunKinds['seo-sync']: return 'SEO data refresh'
+    default: {
+      const _exhaustive: never = kind
+      void _exhaustive
+      return 'Unknown job type'
+    }
   }
 }
 
@@ -133,6 +139,7 @@ function formatRunError(error: RunErrorDto): string {
 }
 
 function statusDetailFromRun(run: ApiRun): string {
+  if (run.kind === RunKinds['seo-sync']) return 'View the saved scope and task results in SEO.'
   switch (run.status) {
     case RunStatuses.queued: return 'Waiting for execution slot.'
     case RunStatuses.running: return 'Provider queries in progress.'

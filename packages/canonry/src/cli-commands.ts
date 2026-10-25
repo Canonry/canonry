@@ -1,4 +1,5 @@
 import { SENTIMENT_CLI_COMMANDS } from './cli-commands/sentiment.js'
+import { SEO_CLI_COMMANDS } from './cli-commands/seo.js'
 import type { CliCommandSpec } from './cli-dispatch.js'
 import { DEMO_CLI_COMMANDS } from './cli-commands/demo.js'
 import { createApiClient } from './client.js'
@@ -46,6 +47,7 @@ import { resolveCliAccess } from './cli-access.js'
 const REGISTERED_COMMANDS: readonly CliCommandSpec[] = [
   ...DEMO_CLI_COMMANDS,
   ...SENTIMENT_CLI_COMMANDS,
+  ...SEO_CLI_COMMANDS,
   ...BACKFILL_CLI_COMMANDS,
   ...BACKLINKS_CLI_COMMANDS,
   ...SYSTEM_CLI_COMMANDS,

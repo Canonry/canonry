@@ -7,7 +7,9 @@ Canonry is an **agent-first (CLI, MCP, API), open-source AEO operating platform 
 
 **Self-hosted, using SQLite, with your own (BYOK) provider keys.** The web UI and your agent see the same evidence.
 
-[Live UI Demo](https://custom-demo.canonry.ai/projects/summit-roofing) · [Quick start](#quick-start) · [Evidence](#explore-the-evidence) · [Actions](#act-on-the-evidence) · [Integrations](#integrations) · [Docs](#documentation) · [Support](#support)
+**[DataForSEO integration](#seo-data-with-dataforseo):** Explore Google keyword metrics, organic rankings, and domain estimates through the dashboard, CLI, MCP, and API.
+
+[Live UI Demo](https://custom-demo.canonry.ai/projects/summit-roofing) · [Quick start](#quick-start) · [DataForSEO SEO](#seo-data-with-dataforseo) · [Evidence](#explore-the-evidence) · [Actions](#act-on-the-evidence) · [Integrations](#integrations) · [Docs](#documentation) · [Support](#support)
 
 <p align="center">
   <a href="https://raw.githubusercontent.com/Canonry/canonry/main/docs/images/measure-act.svg">
@@ -16,6 +18,11 @@ Canonry is an **agent-first (CLI, MCP, API), open-source AEO operating platform 
 </p>
 
 ## Quick start
+
+Local installation requires Node.js in one of these supported ranges:
+`>=22.23.4 <23`, `>=24.22.1 <25`, or `>=26.12.1 <27`.
+Check `node --version` before installing; upgrade Node first if it is outside
+these ranges. An existing hosted MCP connection needs no local Node install.
 
 <a id="or-use-any-shell-capable-coding-agent"></a>
 
@@ -190,6 +197,19 @@ Site audits show technical findings alongside that evidence.
 
 *Map crawlable pages and the internal links that connect them.*
 
+<a id="seo-data"></a>
+
+### SEO data with DataForSEO
+
+Use **DataForSEO Labs** for Google keyword research, organic rankings, and domain comparisons.
+Explore search volume, difficulty, CPC, ranking URLs, and estimated traffic through the dashboard, CLI, MCP, and API.
+
+[Configure DataForSEO](docs/seo-data.md).
+
+![Canonry DataForSEO integration showing domain metrics and ranked keywords](docs/images/seo-data-phase-one/desktop.jpg)
+
+*SEO dashboard with sample data: organic keyword totals, estimated traffic, and ranked keywords.*
+
 ### Portfolios and competitors
 
 Use [versioned measurement plans](docs/mcp.md#tool-surface) for portfolios of locations, products, or site sections.
@@ -220,6 +240,7 @@ Connect the sources you use. Each integration adds evidence or tools to the same
 |---|---|
 | **AI answers** | ChatGPT · Claude · Gemini · Meta (Muse) · Perplexity · OpenAI-compatible local models |
 | **Search and local** | [Google Search Console](docs/google-search-console-setup.md) · [Bing Webmaster Tools](docs/bing-webmaster-setup.md) · [Google Business Profile](skills/canonry/references/google-business-profile.md) |
+| **SEO research** | **[DataForSEO Labs](docs/seo-data.md)**: keyword metrics, ranked keywords, and domain comparison |
 | **Analytics** | [Google Analytics 4](docs/google-analytics-setup.md) |
 | **Conversion measurement** | [Google Ads + Google Tag Manager](docs/google-marketing.md): read-only snapshots and declared conversion contracts |
 | **Server traffic** | [Cloudflare · Vercel · Cloud Run · WordPress](skills/canonry/references/server-side-traffic.md) |
