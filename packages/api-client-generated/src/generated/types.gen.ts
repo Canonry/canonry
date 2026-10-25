@@ -17135,6 +17135,122 @@ export type TrafficSamplesResponse = {
     }>;
 };
 
+export type JourneysResponse = {
+    project: string;
+    windowStart: string;
+    windowEnd: string;
+    lookbackDays: 30;
+    retentionDays: 180;
+    totalVisitors: number;
+    limit: number;
+    offset: number;
+    partialSources: Array<{
+        sourceId: string;
+        sourceType: string;
+        reason: string;
+    }>;
+    visitors: Array<{
+        visitorKey: string;
+        keyBasis: 'ip-ua' | 'ua';
+        device: string;
+        userAgent: string | null;
+        firstAiAt: string;
+        firstAiEngine: string;
+        lastAiAt: string;
+        lastSeenAt: string;
+        visitCount: number;
+        aiVisitCount: number;
+        returned: boolean;
+        returnChannels: Array<'ai' | 'search' | 'social' | 'paid' | 'referral' | 'direct'>;
+        cappedDays: number;
+        visits: Array<{
+            id: string;
+            sourceId: string;
+            startedAt: string;
+            endedAt: string;
+            entryClass: 'ai' | 'search' | 'social' | 'paid' | 'referral' | 'direct';
+            entryName: string | null;
+            entryHost: string | null;
+            paid: boolean;
+            landingPath: string;
+            requestCount: number;
+            pageCount: number;
+        }>;
+    }>;
+};
+
+export type JourneyDetailResponse = {
+    project: string;
+    visitor: {
+        visitorKey: string;
+        keyBasis: 'ip-ua' | 'ua';
+        device: string;
+        userAgent: string | null;
+        firstAiAt: string;
+        firstAiEngine: string;
+        lastAiAt: string;
+        lastSeenAt: string;
+        visitCount: number;
+        aiVisitCount: number;
+        returned: boolean;
+        returnChannels: Array<'ai' | 'search' | 'social' | 'paid' | 'referral' | 'direct'>;
+        cappedDays: number;
+    };
+    totalVisits: number;
+    limit: number;
+    offset: number;
+    visits: Array<{
+        id: string;
+        sourceId: string;
+        startedAt: string;
+        endedAt: string;
+        entryClass: 'ai' | 'search' | 'social' | 'paid' | 'referral' | 'direct';
+        entryName: string | null;
+        entryHost: string | null;
+        paid: boolean;
+        landingPath: string;
+        requestCount: number;
+        pageCount: number;
+        events: Array<{
+            ts: string;
+            method: string | null;
+            path: string;
+            status: number | null;
+            kind: 'page' | 'data';
+            aiTouch: boolean;
+        }>;
+    }>;
+};
+
+export type JourneySummaryResponse = {
+    project: string;
+    windowStart: string;
+    windowEnd: string;
+    lookbackDays: 30;
+    aiVisitors: number;
+    aiVisits: number;
+    returningVisitors: number;
+    returnRate: number | null;
+    returnedVia: {
+        [key: string]: number;
+    };
+    medianDaysToReturn: number | null;
+    byEngine: Array<{
+        engine: string;
+        visitors: number;
+        returningVisitors: number;
+    }>;
+    keyBasis: {
+        ipUa: number;
+        ua: number;
+    };
+    partialSources: Array<{
+        sourceId: string;
+        sourceType: string;
+        reason: string;
+    }>;
+};
+
 export type TrafficSourceDetailDto = {
     id: string;
     projectId: string;
@@ -34237,6 +34353,167 @@ export type GetApiV1ProjectsByNameTrafficSamplesResponses = {
 };
 
 export type GetApiV1ProjectsByNameTrafficSamplesResponse = GetApiV1ProjectsByNameTrafficSamplesResponses[keyof GetApiV1ProjectsByNameTrafficSamplesResponses];
+
+export type GetApiV1ProjectsByNameJourneysSummaryData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Inclusive ISO timestamp or date, default 30 days before until.
+         */
+        since?: string;
+        /**
+         * Inclusive ISO timestamp or date, default now.
+         */
+        until?: string;
+    };
+    url: '/api/v1/projects/{name}/journeys/summary';
+};
+
+export type GetApiV1ProjectsByNameJourneysSummaryErrors = {
+    /**
+     * Invalid selection.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Journeys are unavailable to this principal.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameJourneysSummaryError = GetApiV1ProjectsByNameJourneysSummaryErrors[keyof GetApiV1ProjectsByNameJourneysSummaryErrors];
+
+export type GetApiV1ProjectsByNameJourneysSummaryResponses = {
+    /**
+     * Journey summary for the window.
+     */
+    200: JourneySummaryResponse;
+};
+
+export type GetApiV1ProjectsByNameJourneysSummaryResponse = GetApiV1ProjectsByNameJourneysSummaryResponses[keyof GetApiV1ProjectsByNameJourneysSummaryResponses];
+
+export type GetApiV1ProjectsByNameJourneysData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Inclusive ISO timestamp or date, default 30 days before until.
+         */
+        since?: string;
+        /**
+         * Inclusive ISO timestamp or date, default now.
+         */
+        until?: string;
+        /**
+         * First AI engine, e.g. ChatGPT (case-insensitive).
+         */
+        engine?: string;
+        /**
+         * true: only visitors who came back later; false: only those who did not.
+         */
+        returned?: 'true' | 'false';
+        /**
+         * Page size, default 50.
+         */
+        limit?: number;
+        /**
+         * Visitors to skip, default 0.
+         */
+        offset?: number;
+    };
+    url: '/api/v1/projects/{name}/journeys';
+};
+
+export type GetApiV1ProjectsByNameJourneysErrors = {
+    /**
+     * Invalid selection.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Journeys are unavailable to this principal.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameJourneysError = GetApiV1ProjectsByNameJourneysErrors[keyof GetApiV1ProjectsByNameJourneysErrors];
+
+export type GetApiV1ProjectsByNameJourneysResponses = {
+    /**
+     * Journey page.
+     */
+    200: JourneysResponse;
+};
+
+export type GetApiV1ProjectsByNameJourneysResponse = GetApiV1ProjectsByNameJourneysResponses[keyof GetApiV1ProjectsByNameJourneysResponses];
+
+export type GetApiV1ProjectsByNameJourneysByVisitorKeyData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Visitor key from the journey list.
+         */
+        visitorKey: string;
+    };
+    query?: {
+        /**
+         * Visits per page, default 100.
+         */
+        limit?: number;
+        /**
+         * Visits to skip, default 0.
+         */
+        offset?: number;
+    };
+    url: '/api/v1/projects/{name}/journeys/{visitorKey}';
+};
+
+export type GetApiV1ProjectsByNameJourneysByVisitorKeyErrors = {
+    /**
+     * Invalid selection.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Journeys are unavailable to this principal.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project or journey not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameJourneysByVisitorKeyError = GetApiV1ProjectsByNameJourneysByVisitorKeyErrors[keyof GetApiV1ProjectsByNameJourneysByVisitorKeyErrors];
+
+export type GetApiV1ProjectsByNameJourneysByVisitorKeyResponses = {
+    /**
+     * Journey detail.
+     */
+    200: JourneyDetailResponse;
+};
+
+export type GetApiV1ProjectsByNameJourneysByVisitorKeyResponse = GetApiV1ProjectsByNameJourneysByVisitorKeyResponses[keyof GetApiV1ProjectsByNameJourneysByVisitorKeyResponses];
 
 export type GetApiV1ProjectsByNameTrafficEventsData = {
     body?: never;

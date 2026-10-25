@@ -68,6 +68,9 @@ import {
   siteCrawlSummarySchema,
   trafficSourceDtoSchema,
   trafficSampleDtoSchema,
+  journeyEventDtoSchema,
+  journeyVisitDtoSchema,
+  journeyVisitorDtoSchema,
   conversionTrackingContractSchema,
   gtmConnectionMetadataDtoSchema,
   gtmRawSnapshotMetadataDtoSchema,
@@ -1098,6 +1101,18 @@ const COVERAGE: Record<string, CoverageEntry> = {
   rawEventSamples: {
     kind: 'dto', dto: trafficSampleDtoSchema,
     internal: { ipHash: 'Never exposed, including legacy non-null hashes.', projectId: 'Route scope.', createdAt: 'Ingest bookkeeping.', eventType: 'Exposed as kind with hyphenated wire values.', classifierDetailsJson: 'Exposed as classifier with only declared public fields.' },
+  },
+  journeyVisitors: {
+    kind: 'dto', dto: journeyVisitorDtoSchema,
+    internal: { projectId: 'Route scope.', createdAt: 'Write bookkeeping.', updatedAt: 'Write bookkeeping.' },
+  },
+  journeyVisits: {
+    kind: 'dto', dto: journeyVisitDtoSchema,
+    internal: { projectId: 'Route scope.', visitorKey: 'Visits are nested under the visitor that owns them.', createdAt: 'Write bookkeeping.', updatedAt: 'Write bookkeeping.' },
+  },
+  journeyEvents: {
+    kind: 'dto', dto: journeyEventDtoSchema,
+    internal: { id: 'Row identity only.', projectId: 'Route scope.', visitId: 'Events are nested under their visit.', sourceId: 'The visit carries its source.', sourceEventId: 'Provider event id kept only so writes stay idempotent.', createdAt: 'Write bookkeeping.' },
   },
   migrationsTable: {
     kind: 'internal-only',

@@ -132,6 +132,7 @@ import {
   authRequired,
 } from '@canonry/canonry-contracts'
 import { auditFromRequest, resolveProject, syncRunTrigger, writeAuditLog } from './helpers.js'
+import { enforceJourneyRetention, recordJourneyBatch } from './journeys.js'
 import type { ScheduledSyncClaim } from './helpers.js'
 import { connectionRoute, routeOutcomeFailure, webhookTargetRefusalReason, type ConnectionAttempt, type ConnectionSubject } from './connection-telemetry.js'
 import { createGuardedFetch, EgressFailedError, EgressRefusedError } from './guarded-fetch.js'
@@ -298,6 +299,11 @@ export interface TrafficIngestedEvent {
 
 export interface TrafficRoutesOptions {
   claimScheduledSync?: ScheduledSyncClaim
+  /**
+   * Install secret for AI visitor journey keys (a keyed hash per visitor). When
+   * absent, no journey rows are written; rollups and samples are unchanged.
+   */
+  journeyKeySecret?: string
   cloudRunCredentialStore?: CloudRunCredentialStore
   /** Override the Cloud Run pull function (for tests). Defaults to `listCloudRunTrafficEvents`. */
   pullCloudRunEvents?: (
@@ -1153,6 +1159,8 @@ interface RunBackfillTaskOptions {
    * source type.
    */
   pullErrorPrefix: string
+  /** See `TrafficRoutesOptions.journeyKeySecret`. */
+  journeyKeySecret?: string
 }
 
 async function runBackfillTask(options: RunBackfillTaskOptions): Promise<void> {
@@ -1163,6 +1171,7 @@ async function runBackfillTask(options: RunBackfillTaskOptions): Promise<void> {
     sourceRow,
     windowStart,
     windowEnd,
+    journeyKeySecret,
     pullForBackfill,
     pullErrorPrefix,
   } = options
@@ -1590,6 +1599,13 @@ async function runBackfillTask(options: RunBackfillTaskOptions): Promise<void> {
           .run()
       }
 
+      // AI visitor journeys from the same requests. Idempotent per source event,
+      // so a backfill over an already-synced window adds nothing twice.
+      recordJourneyBatch(tx, { projectId: project.id, sourceId: sourceRow.id, events: allEvents, secret: journeyKeySecret, now: finishedAt }, {
+        onError: () => { app.log.error({ sourceId: sourceRow.id }, 'AI visitor journey write failed during traffic backfill') },
+        outerActive: () => app.db.$client.inTransaction,
+      })
+
       // A backfill that reached back to or past the recorded skip has recovered
       // it, so clear the marker. Cleared only when the window actually covers
       // the span: a shorter backfill leaves it set, which is the point — the
@@ -1671,6 +1687,11 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         // Raw samples are optional debug evidence. Keep route startup and live
         // traffic available if maintenance fails, but make the failure visible.
         app.log.error('Raw traffic sample retention sweep failed')
+      }
+      try {
+        enforceJourneyRetention(app.db, new Date().toISOString())
+      } catch {
+        app.log.error('AI visitor journey retention sweep failed')
       }
     }
     pruneExpiredSamples()
@@ -2769,6 +2790,8 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
     let writeResult: ReturnType<typeof writeTrafficEventBatch>
     try {
       writeResult = writeTrafficEventBatch({
+        journeyKeySecret: opts.journeyKeySecret,
+        onJourneyError: () => { app.log.error({ sourceId }, 'AI visitor journey write failed during traffic ingest') },
         db: app.db,
         projectId: project.id,
         sourceId,
@@ -2991,6 +3014,8 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
           const policy = normalized.length > 0 ? await resolveReceiptPolicy() : null
           committedAt = new Date().toISOString()
           const writeResult = writeTrafficEventBatch({
+            journeyKeySecret: opts.journeyKeySecret,
+            onJourneyError: () => { app.log.error({ sourceId: sourceRow.id }, 'AI visitor journey write failed during queue drain') },
             db: app.db, projectId: project.id, sourceId: sourceRow.id, events: normalized,
             receivedAt: committedAt,
             receiptTtlMs: policy ? policy.ttlMsAt(committedAt) : CLOUDFLARE_QUEUE_RECEIPT_TTL_MS,
@@ -3980,6 +4005,12 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         sampleRows += 1
       }
 
+      // AI visitor journeys from the same deduplicated requests, in the same transaction.
+      recordJourneyBatch(tx, { projectId: project.id, sourceId: sourceRow.id, events: dedupedEvents, secret: opts.journeyKeySecret, now: finishedAt }, {
+        onError: () => { app.log.error({ sourceId: sourceRow.id }, 'AI visitor journey write failed during traffic sync') },
+        outerActive: () => app.db.$client.inTransaction,
+      })
+
       // For WP we persist a continuation cursor and its fixed upper boundary
       // inside the same transaction as rollups. A terminal page clears both;
       // a capped drain retains the lower watermark below until its cursor is
@@ -4309,6 +4340,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       runId,
       project,
       sourceRow,
+      journeyKeySecret: opts.journeyKeySecret,
       windowStart,
       windowEnd,
       pullForBackfill,
