@@ -5,6 +5,8 @@ import {
   DEFAULT_COMPETITOR_AUTO_ALIAS_MODE,
   MeasurementPortfolioLists,
   RunKinds,
+  seoDatasetWithoutVendor,
+  seoProviderSchema,
   truncateUtf16,
   type CompetitorAutoAliasMode,
 } from '@canonry/canonry-contracts'
@@ -80,6 +82,23 @@ function serializeResult(value: unknown): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+/**
+ * An SEO read as Aero sees it: without the vendor behind the host's SEO source.
+ * The source is named by its connection label (`canonry_seo_context`), so a
+ * provider id and the vendor segment of a dataset id never reach the answer.
+ * The API, CLI and MCP keep full provenance for operators.
+ */
+function withoutSeoVendor(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(withoutSeoVendor)
+  if (!isRecord(value)) return value
+  const kept: Record<string, unknown> = {}
+  for (const [key, item] of Object.entries(value)) {
+    if (key === 'provider' && seoProviderSchema.safeParse(item).success) continue
+    kept[key] = key === 'dataset' && typeof item === 'string' ? seoDatasetWithoutVendor(item) : withoutSeoVendor(item)
+  }
+  return kept
 }
 
 interface TruncationSummary {
@@ -954,7 +973,7 @@ export function mcpToAgentTool(
     const handlerInput = hadProject ? { ...params, project: ctx.projectName } : params
     const result = await runWithUsageTags(ctx.client, { mcpTool: tool.name, mcpCall: randomUUID() }, () =>
       tool.handler(ctx.client, handlerInput as never))
-    return textResult(result, responseSchemas)
+    return textResult(tool.tier === 'seo' ? withoutSeoVendor(result) : result, responseSchemas)
   }
 
   const adapted = {

@@ -6,6 +6,17 @@ export type SeoCapability = z.infer<typeof seoCapabilitySchema>
 export const SeoCapabilities = seoCapabilitySchema.enum
 export const seoProviderSchema = z.enum(['dataforseo'])
 export const SeoProviders = seoProviderSchema.enum
+/** A dataset path segment that carries a provider name, such as `dataforseo-labs`. */
+const SEO_PROVIDER_SEGMENT = new RegExp(`^(?:${seoProviderSchema.options.join('|')})(?:[-_].*)?$`, 'i')
+
+/**
+ * A stored dataset id without its provider segment: `dataforseo-labs/google/ranked-keywords`
+ * becomes `google/ranked-keywords`. Customer-facing surfaces name an SEO source by the host's
+ * connection label, never by the vendor behind it.
+ */
+export function seoDatasetWithoutVendor(dataset: string): string {
+  return dataset.split('/').filter(segment => !SEO_PROVIDER_SEGMENT.test(segment)).join('/')
+}
 export const seoTargetKindSchema = z.enum(['domain', 'host'])
 export const SeoTargetKinds = seoTargetKindSchema.enum
 export const seoScopeKindSchema = z.enum(['project', 'group', 'market', 'property'])

@@ -26,6 +26,8 @@ seo:
 
 Amounts are integer microUSD: 1,000,000 equals one US dollar. These are example host limits, not pricing promises. Connections using the same funding account share one ledger.
 
+The dashboard and Aero name a source by its connection `label`, never by the vendor behind it. Provider ids and vendor dataset prefixes stay in API, CLI and MCP provenance for operators; choose the label you want clients to read.
+
 ## Profile and refresh
 
 Read `canonry seo context <project> --format json` for connection IDs and supported scopes. Save an explicit locale and target:

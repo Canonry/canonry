@@ -48,7 +48,7 @@ export const CANONRY_MCP_TOOLKITS: readonly CanonryMcpToolkit[] = [
   {
     name: 'seo',
     title: 'SEO data',
-    description: 'Provider-neutral keyword metrics, ranked keywords, domain intelligence, saved profiles and explicit refreshes. DataForSEO is the first adapter.',
+    description: 'Keyword metrics, ranked keywords, domain intelligence, saved profiles and explicit refreshes from the host\'s SEO source, named by its connection label.',
     whenToLoad: 'Load to inspect saved organic-search estimates, manage exact SEO profiles or explicitly refresh evidence. Search Console observations and AI citation and mention coverage remain separate.',
   },
   {

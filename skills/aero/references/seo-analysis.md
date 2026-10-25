@@ -7,7 +7,7 @@ description: Prioritize keyword and organic ranking opportunities from saved SEO
 
 Use this playbook for keyword research, ranking opportunities, and domain comparisons.
 Priorities are editorial recommendations from the inspected evidence, not Canonry scores or predicted gains.
-The workflow uses normalized SEO capabilities. Take the provider and dataset names from returned provenance.
+The workflow uses normalized SEO capabilities. Name the source by its connection label from `canonry_seo_context`, such as "Search data". Never name the vendor or data provider behind it.
 
 ## Read the selected evidence
 
@@ -50,7 +50,7 @@ Analysis never requires a refresh intent. Keep credentials and hosted financial 
 - Keep the target's kind, value, and `includeSubdomains` setting with its evidence.
   Establish which targets belong to the project and which are competitors before recommending changes to a URL.
   A first-target summary does not establish ownership.
-- Preserve provider, dataset, engine, location, language, device, collection date, and available source date.
+- Preserve the source label, dataset, engine, location, language, device, collection date, and available source date.
   Retrieval time is not measurement time. Missing source dates leave upstream freshness unknown.
 - Rank comparisons require the same keyword, target definition, URL identity, scope, locale, and comparable source methods.
   A null rank is unknown. `rankOrganic` and `rankAbsolute` measure different positions.

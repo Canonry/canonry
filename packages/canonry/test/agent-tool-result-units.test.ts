@@ -142,3 +142,31 @@ describe('Aero tool results', () => {
     expect((result.details as typeof payload).pages[1]!.linkScoreNormalized).toBe(0.85)
   })
 })
+
+describe('SEO reads in Aero', () => {
+  // Stored as the DataForSEO adapter writes it; a client-facing answer named the vendor from these fields.
+  const provenance = {
+    provider: 'dataforseo', dataset: 'dataforseo-labs/google/ranked-keywords', engine: 'google', locationCode: 2840,
+    languageCode: 'en', device: 'unspecified', collectedAt: '2026-10-25T14:10:16.240Z', sourceUpdatedAt: null,
+  }
+  const run = (name: string, payload: unknown) => {
+    const tool = canonryMcpTools.find(entry => entry.name === name)!
+    return mcpToAgentTool({ ...tool, handler: async () => payload }, { client: {} as ApiClient, projectName: 'demo' }).execute('call-1', {})
+  }
+
+  it('names the SEO source by its connection label and never shows the vendor behind it', async () => {
+    const page = { runId: 'run-1', items: [{ keyword: 'cortland', rankOrganic: 1, provenance }], total: 1, limit: 1, offset: 0 }
+    const ranked = await run('canonry_seo_ranked_keywords', page)
+    const rankedText = (ranked.content[0] as { text: string }).text
+    expect(rankedText).not.toMatch(/dataforseo/i)
+    expect(rankedText).toContain('"dataset":"google/ranked-keywords"')
+    expect(rankedText).toContain('"engine":"google"')
+    // The tool trail reads details, so the vendor is gone there too.
+    expect(JSON.stringify(ranked.details)).not.toMatch(/dataforseo/i)
+
+    const context = { available: true, reason: null, connections: [{ id: 'search', label: 'Search data', provider: 'dataforseo', capabilities: ['ranked-keywords'] }], scopes: [] }
+    const contextText = ((await run('canonry_seo_context', context)).content[0] as { text: string }).text
+    expect(contextText).not.toMatch(/dataforseo/i)
+    expect(contextText).toContain('"label":"Search data"')
+  })
+})
