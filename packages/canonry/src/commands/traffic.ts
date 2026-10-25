@@ -96,6 +96,8 @@ export async function trafficConnectCloudflare(project: string, opts: {
   apiTokenFile?: string
   retentionSeconds?: number
   outputDirectory?: string
+  /** Forward page views too; undefined keeps the source's current setting. */
+  forwardPageViews?: boolean
   deploy?: boolean
   confirmRoute?: boolean
   confirmFailOpen?: boolean
@@ -168,7 +170,7 @@ export async function trafficConnectCloudflare(project: string, opts: {
   }
   if (opts.deploy) {
     try {
-      await (deps.preflightWrangler ?? preflightCloudflareWrangler)({ deliveryMode })
+      await (deps.preflightWrangler ?? preflightCloudflareWrangler)({ deliveryMode, forwardPageViews: opts.forwardPageViews === true })
     } catch (error) {
       const message = errorMessage(error)
       throw new CliError({
@@ -201,6 +203,7 @@ export async function trafficConnectCloudflare(project: string, opts: {
         deliveryMode,
         displayName: opts.displayName,
         zoneId: opts.zoneId,
+        ...(opts.forwardPageViews === undefined ? {} : { forwardPageViews: opts.forwardPageViews }),
         ...queuePull!,
       }
       : {
@@ -208,6 +211,7 @@ export async function trafficConnectCloudflare(project: string, opts: {
         displayName: opts.displayName,
         zoneId: opts.zoneId,
         accountId: opts.accountId,
+        ...(opts.forwardPageViews === undefined ? {} : { forwardPageViews: opts.forwardPageViews }),
       },
   )
 
@@ -305,6 +309,7 @@ export async function trafficConnectCloudflare(project: string, opts: {
     deliveryMode: result.deliveryMode,
     activationRequired: result.activationRequired === true,
     workerVersion: result.workerVersion,
+    forwardPageViews: result.forwardPageViews === true,
     outputDirectory: artifacts.outputDirectory,
     files: {
       workerScript: artifacts.workerScriptPath,
@@ -339,6 +344,7 @@ export async function trafficConnectCloudflare(project: string, opts: {
   console.log(`Cloudflare ${result.deliveryMode} traffic source connected for project "${project}".`)
   console.log(`  Source ID:       ${result.sourceId}`)
   console.log(`  Worker version:  ${result.workerVersion}`)
+  console.log(`  Page views:      ${result.forwardPageViews ? 'forwarded (AI visitor journeys record later visits)' : 'not forwarded (AI and bot traffic only)'}`)
   console.log(`  Worker script:   ${artifacts.workerScriptPath}`)
   console.log(`  Wrangler config: ${artifacts.wranglerTomlPath}`)
   console.log(`  Deployment:      ${opts.deploy ? 'Worker deployed; route not attached' : 'not requested'}`)

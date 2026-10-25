@@ -782,6 +782,7 @@ attribution and no provider calls or sync.
 `src/commands/traffic.ts` — server-side traffic commands: pull-source connects for Cloud Run / WordPress / Vercel plus local-only `traffic connect cloudflare` for direct push or Queue pull.
 
 - Cloudflare writes secret-free `worker.js` / `wrangler.toml` artifacts and safely updates recognizable generated files.
+- `--forward-page-views` / `--no-forward-page-views` set the source's page-view forwarding (neither flag keeps it on a reconnect); deploy preflight bundle-checks that Worker variant.
 - Queue tokens are accepted only through `--api-token-file` and remain in local config; direct deployment installs bearer/HMAC through a mode-0600 temporary file, while Queue deployment uses only a producer binding and requires a separate `wrangler queues consumer http add <queue>` step.
 - Both require `--zone-id --confirm-route --confirm-fail-open`, deploy no route, and require explicit `traffic activate` cutover when staged.
 - Other commands: `traffic sync`, async `backfill`, explicit `reset --advance-to-now`, `sources`, `status`, and windowed `events`.

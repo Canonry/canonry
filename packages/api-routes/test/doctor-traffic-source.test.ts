@@ -540,6 +540,22 @@ describe('traffic.source.worker-version', () => {
       }],
     })
   })
+
+  it('expects the page-view version when a source forwards page views', async () => {
+    const pageViewVersion = `${CURRENT_CLOUDFLARE_WORKER_VERSION}+page-views`
+    insertTrafficSource(h, {
+      sourceType: 'cloudflare',
+      configJson: { deliveryMode: 'direct-push', workerVersion: pageViewVersion, forwardPageViews: true },
+      lastWorkerVersion: CURRENT_CLOUDFLARE_WORKER_VERSION,
+    })
+    const stale = await workerVersionCheck.run(ctxFor(h))
+    expect(stale.code).toBe('traffic.worker-version.stale')
+    expect(stale.details).toMatchObject({ sources: [{ expectedVersion: pageViewVersion, observedVersion: CURRENT_CLOUDFLARE_WORKER_VERSION, state: 'stale' }] })
+
+    h.db.update(trafficSources).set({ lastWorkerVersion: pageViewVersion }).run()
+    const current = await workerVersionCheck.run(ctxFor(h))
+    expect(current.code).toBe('traffic.worker-version.current')
+  })
 })
 
 describe('traffic.source.queue-backlog', () => {

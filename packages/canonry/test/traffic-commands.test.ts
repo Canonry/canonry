@@ -214,6 +214,22 @@ describe('traffic CLI commands', () => {
     expect(row?.configJson).toMatchObject({ deliveryMode: 'direct-push' })
   })
 
+  it('connects a page-view Cloudflare Worker end to end and rejects contradictory flags', async () => {
+    const conflicting = await invokeCli(['traffic', 'connect', 'cloudflare', 'test-proj', '--forward-page-views', '--no-forward-page-views', '--format', 'json'])
+    expect(conflicting.exitCode).toBe(1)
+    expect((parseJsonOutput(conflicting.stderr) as { error: { code: string } }).error.code).toBe('CLI_USAGE_ERROR')
+    expect(db.select().from(trafficSources).all()).toHaveLength(0)
+
+    const outputDirectory = path.join(tmpDir, 'page-view-worker')
+    const result = await invokeCli(['traffic', 'connect', 'cloudflare', 'test-proj', '--forward-page-views', '--output-dir', outputDirectory, '--format', 'json'])
+    expect(result.exitCode, result.stderr).toBeUndefined()
+    const summary = parseJsonOutput(result.stdout) as { forwardPageViews: boolean; workerVersion: string; files: { workerScript: string } }
+    expect(summary.forwardPageViews).toBe(true)
+    expect(summary.workerVersion).toMatch(/\+page-views$/)
+    expect(fs.readFileSync(summary.files.workerScript, 'utf-8')).toContain('function isPageView')
+    expect(db.select().from(trafficSources).all()[0]?.configJson).toMatchObject({ forwardPageViews: true })
+  })
+
   it('requires a zone id and explicit route acknowledgement before Cloudflare deploy', async () => {
     const withoutZone = await invokeCli([
       'traffic', 'connect', 'cloudflare', 'test-proj', '--deploy', '--confirm-route',

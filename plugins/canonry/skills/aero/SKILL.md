@@ -177,7 +177,8 @@ estimate; a candidate burst is not confirmed automation. Read the Cloudflare
 `traffic sync`. Queue pull freshness requires an enabled `traffic-sync`
 schedule. Run the `traffic.source.*` doctor checks. Inspect
 `traffic.source.queue-backlog` before you quote current Queue data. If more than
-1,000 messages remain, report that one default tick cannot drain the backlog.
+1,000 messages remain, report that the drain hit its time limit before the Queue
+was empty.
 Get approval before you run a manual sync or change the schedule. The full
 command reference is in the co-installed
 `canonry/references/canonry-cli.md`.

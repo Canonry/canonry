@@ -1198,9 +1198,12 @@ every source and needs no site snippet or goal setup. Read it with
   Read `keyBasis` before quoting a return rate. A key stores at most 300
   requests per UTC day besides AI touches; `cappedDays` counts the days it hit
   that cap.
-- The Cloudflare Worker forwards only AI-referred and bot requests, so journeys
-  from a Cloudflare source record AI landings but not later visits. Reads list
-  such sources in `partialSources`.
+- By default the Cloudflare Worker forwards only AI-referred and bot requests,
+  so journeys from a Cloudflare source record AI landings but not later visits.
+  Reconnect with `--forward-page-views` and redeploy to forward page views too
+  (one Queue message or push per page view; see the Cloudflare setup guide for
+  volume and Queue drain limits). Reads list a source in `partialSources` until
+  its deployed Worker reports the `+page-views` version.
 - Only requests within 30 days after an AI visit are kept, plus the rest of a
   visit already kept; rows are deleted after 180 days. Journeys start from the
   first sync after upgrade; backfill a Cloud Run or Vercel source to seed
