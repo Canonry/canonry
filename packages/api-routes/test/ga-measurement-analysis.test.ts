@@ -1375,6 +1375,7 @@ describe('GET /projects/:name/ga/measurement-analysis', () => {
       keyEventsEnabled: true,
       keyEvents: ['generate_lead', 'purchase'],
       keyEventsError: null,
+      ignoredKeyEvents: [],
     })
     expect(withKeyEvents.events.map(event => [event.eventName, event.origin, event.measured, event.periods.at(-1)?.eventCount])).toEqual([
       ['purchase', 'key-event', true, 5],
@@ -1400,6 +1401,32 @@ describe('GET /projects/:name/ga/measurement-analysis', () => {
     expect(configuredOnly.periods.at(-1)?.eventCount).toBe(3)
     expect(configuredOnly.countedEvents).toMatchObject({ keyEventsEnabled: false, keyEvents: null })
     expect(configuredOnly.events.map(event => event.eventName)).toEqual(['generate_lead', 'book_demo'])
+  })
+
+  it('does not count key events that are funnel or engagement steps, and lists them as ignored', async () => {
+    insertAcquisition(ctx, { daysAgo: 1, channelGroup: 'Organic Search', hostName: 'harbor-iq.test', landingPage: '/', sessions: 100 })
+    insertLead(ctx, { daysAgo: 1, channelGroup: 'Organic Search', hostName: 'harbor-iq.test', landingPage: '/', eventCount: 2, eventName: 'purchase' })
+    insertLead(ctx, { daysAgo: 1, channelGroup: 'Organic Search', hostName: 'harbor-iq.test', landingPage: '/', eventCount: 40, eventName: 'add_to_cart' })
+    insertLead(ctx, { daysAgo: 1, channelGroup: 'Organic Search', hostName: 'harbor-iq.test', landingPage: '/', eventCount: 90, eventName: 'view_item' })
+    ctx.db.insert(gaMeasurementSyncStates).values({
+      projectId: ctx.projectId,
+      acquisitionStatus: 'ready',
+      acquisitionSyncedAt: NOW,
+      leadStatus: 'ready',
+      leadSyncedAt: NOW,
+      leadAttributionScope: 'landing-page',
+      // Stored by a sync from before funnel steps were excluded.
+      leadEventNames: ['add_to_cart', 'book_demo', 'generate_lead', 'purchase', 'view_item'],
+      keyEventNames: ['add_to_cart', 'purchase', 'view_item'],
+      updatedAt: NOW,
+    }).run()
+
+    const response = await ctx.app.inject({ method: 'GET', url: '/api/v1/projects/harbor-iq/ga/measurement-analysis?window=30d' })
+    const { leads } = gaMeasurementAnalysisDtoSchema.parse(JSON.parse(response.body))
+
+    expect(leads.periods.at(-1)?.eventCount).toBe(2)
+    expect(leads.countedEvents.ignoredKeyEvents).toEqual(['add_to_cart', 'view_item'])
+    expect(leads.events.map(event => event.eventName)).toEqual(['purchase', 'book_demo', 'generate_lead'])
   })
 
   it('lists a newly counted event that no lead sync has fetched as unmeasured, never as a zero', async () => {

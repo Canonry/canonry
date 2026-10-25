@@ -6169,6 +6169,7 @@ export type Ga4MeasurementAnalysisDto = {
             keyEventsEnabled: boolean;
             keyEvents: Array<string> | null;
             keyEventsError: string | null;
+            ignoredKeyEvents: Array<string>;
         };
         events: Array<{
             eventName: string;
@@ -12963,6 +12964,7 @@ export type OrganicEvidenceDto = {
                 keyEventsEnabled: boolean;
                 keyEvents: Array<string> | null;
                 keyEventsError: string | null;
+                ignoredKeyEvents: Array<string>;
             };
             events: Array<{
                 eventName: string;

@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_MEASUREMENT_CONFIG,
+  NON_CONVERSION_KEY_EVENTS,
+  countedLeadEventNames,
+  ignoredKeyEventNames,
   measurementConfigSchema,
   projectConfigSchema,
   projectDtoSchema,
@@ -111,5 +114,25 @@ describe('project measurement contract', () => {
       },
     })
     expect(config.spec.measurement).toEqual(measurement)
+  })
+})
+
+describe('counted GA4 conversion events', () => {
+  it('counts configured lead events plus key events that are outcomes, not funnel or engagement steps', () => {
+    expect(countedLeadEventNames(['generate_lead'], ['add_to_cart', 'purchase', 'view_item', 'page_view', 'sign_up']))
+      .toEqual(['generate_lead', 'purchase', 'sign_up'])
+    expect(ignoredKeyEventNames(['generate_lead'], ['add_to_cart', 'purchase', 'view_item', 'page_view', 'sign_up']))
+      .toEqual(['add_to_cart', 'page_view', 'view_item'])
+  })
+
+  it('always counts a configured lead event, even a funnel step', () => {
+    expect(countedLeadEventNames(['begin_checkout'], ['begin_checkout', 'purchase'])).toEqual(['begin_checkout', 'purchase'])
+    expect(ignoredKeyEventNames(['begin_checkout'], ['begin_checkout', 'purchase'])).toEqual([])
+  })
+
+  it('lists only standard GA4 event names, so the rule is the same for every property', () => {
+    for (const name of NON_CONVERSION_KEY_EVENTS) expect(name).toMatch(/^[a-z]+(?:_[a-z]+)*$/)
+    expect(NON_CONVERSION_KEY_EVENTS).not.toContain('purchase')
+    expect(NON_CONVERSION_KEY_EVENTS).not.toContain('generate_lead')
   })
 })

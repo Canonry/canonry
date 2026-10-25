@@ -155,7 +155,11 @@ measurement validation. `project show` includes these lists in human output.
 
 Conversions are the configured lead events plus the events the GA4 property
 marks as key events, read from the GA4 Admin API on each GA sync, so a store's
-`purchase` or a site's own conversion events count without setup. Omitted
+`purchase` or a site's own conversion events count without setup. Key events
+that are funnel or engagement steps (GA4's standard names such as
+`view_item`, `add_to_cart`, `begin_checkout`, `page_view`, `scroll`) are not
+counted and are listed in `leads.countedEvents.ignoredKeyEvents`; configure
+one as a lead event to count it. Omitted
 `measurement.countKeyEvents` means on; `--no-count-key-events` (or
 `countKeyEvents: false`) counts only the configured events. When the counted set
 changes, the next GA sync refreshes the full 90-day GA4 window. A failed

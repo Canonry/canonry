@@ -68,7 +68,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Tracking AI traffic to visits and conversions",
     description: "Crawled, read, clicked, came back, converted: which instrument measures each step, the checks to run before reporting a zero, attribution limits, and user stories such as whether anyone from AI search bought or booked. Read when asked about AI traffic, returning AI visitors, conversions, or broken tracking.",
     entryPoint: false,
-    characters: 9448,
+    characters: 9575,
     content: aeroReferencesAiTrafficTrackingPart0,
   },
   {
@@ -188,7 +188,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Tracking AI traffic to visits and conversions",
     description: "canonry skill reference: references/ai-traffic-tracking.md",
     entryPoint: false,
-    characters: 8982,
+    characters: 9109,
     content: canonryReferencesAiTrafficTrackingPart0,
   },
   {
@@ -198,7 +198,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Canonry CLI Reference",
     description: "canonry skill reference: references/canonry-cli.md",
     entryPoint: false,
-    characters: 192842,
+    characters: 193105,
     content: [canonryReferencesCanonryCliPart0, canonryReferencesCanonryCliPart1, canonryReferencesCanonryCliPart2, canonryReferencesCanonryCliPart3].join(''),
   },
   {
