@@ -362,8 +362,9 @@ test('read-only access keeps source evidence available, exposes scope refusal, a
   expect(screen.queryByRole('button', { name: 'New profile' })).toBeNull()
   fireEvent.click(screen.getByText('Details', { selector: 'summary' }))
   expect(screen.getByText('$2.31', { exact: false })).not.toBeNull()
-  expect(within(screen.getByRole('table')).getByText('DataForSEO · dataforseo_labs/google/ranked_keywords')).not.toBeNull()
-  expect(document.body.textContent).not.toMatch(/request cost|budget|billing|receipt|spend/i)
+  // The dataset is named by its kind; the vendor behind the host's source never reaches the client.
+  expect(within(screen.getByRole('table')).getByText('Dataset').nextElementSibling!.textContent).toBe('Ranked keywords')
+  expect(document.body.textContent).not.toMatch(/request cost|budget|billing|receipt|spend|dataforseo/i)
   expect(methods.every(method => method === 'GET')).toBe(true)
 })
 

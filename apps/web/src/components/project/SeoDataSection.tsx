@@ -3,8 +3,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useSearch } from '@tanstack/react-router'
 import { Loader2, Plus, RefreshCw, X } from 'lucide-react'
 import {
-  RatioUnits, SeoAvailability, SeoCapabilities, SeoProviders, SeoRunStatuses, SeoScopeKinds,
-  SeoTargetKinds, formatDate, formatZonedTimestamp, formatPercent, seoProfileInputSchema,
+  RatioUnits, SeoAvailability, SeoCapabilities, SeoRunStatuses, SeoScopeKinds,
+  SeoTargetKinds, formatDate, formatZonedTimestamp, formatPercent, seoCapabilitySchema, seoDatasetWithoutVendor, seoProfileInputSchema,
   type SeoCapability, type SeoContext, type SeoDomainIntelligence, type SeoKeywordMetrics,
   type SeoProfile, type SeoProfileInput, type SeoProvenance, type SeoRankedKeyword,
   type SeoRun, type SeoRunStatus, type SeoSyncInput, type SeoTarget,
@@ -36,9 +36,6 @@ const CAPABILITY_LABELS: Record<SeoCapability, string> = {
   [SeoCapabilities['keyword-metrics']]: 'Keyword metrics',
   [SeoCapabilities['domain-intelligence']]: 'Domain comparison',
   [SeoCapabilities['ranked-keywords']]: 'Ranked keywords',
-}
-const PROVIDER_LABELS: Record<SeoProvenance['provider'], string> = {
-  [SeoProviders.dataforseo]: 'DataForSEO',
 }
 const STATUS_LABELS: Record<SeoRunStatus, string> = {
   [SeoRunStatuses.queued]: 'Queued',
@@ -74,10 +71,17 @@ function RunBadge({ status }: { status: SeoRunStatus }) {
   return <ToneBadge tone={tone}>{STATUS_LABELS[status]}</ToneBadge>
 }
 
+/** A dataset's kind without the vendor behind the source, e.g. "Ranked keywords". Customers see the connection label, never the vendor. */
+function datasetLabel(dataset: string): string {
+  const kind = seoDatasetWithoutVendor(dataset).split('/').at(-1) ?? dataset
+  const capability = seoCapabilitySchema.safeParse(kind.replaceAll('_', '-'))
+  return capability.success ? CAPABILITY_LABELS[capability.data] : kind.replaceAll(/[-_]/g, ' ')
+}
+
 function DataProvenance({ source }: { source: SeoProvenance }) {
   return (
     <dl className="grid gap-x-8 gap-y-2 text-[13px] sm:grid-cols-2">
-      <div><dt className="text-muted">Source</dt><dd>{PROVIDER_LABELS[source.provider]} · {source.dataset}</dd></div>
+      <div><dt className="text-muted">Dataset</dt><dd>{datasetLabel(source.dataset)}</dd></div>
       <div><dt className="text-muted">Search engine</dt><dd>Google · device not specified by source</dd></div>
       <div><dt className="text-muted">Provider geography</dt><dd>Location {source.locationCode} · {source.languageCode}</dd></div>
       <div><dt className="text-muted">Collected</dt><dd>{formatZonedTimestamp(source.collectedAt, TIME_ZONE)}</dd></div>
@@ -242,7 +246,7 @@ function SeoProfileWorkspace({ projectName, profile, context, selectedRunId, onL
       <dl className="grid grid-cols-1 gap-5 border-b border-subtle pb-5 sm:grid-cols-3">
         <div><dt className="text-[13px] text-secondary">Organic keywords</dt><dd className="mt-2 text-3xl font-semibold tabular-nums tracking-tight text-heading"><Value value={overview.data.summary.organicKeywords} /></dd></div>
         <div><dt className="text-[13px] text-secondary">In the top 10</dt><dd className="mt-2 text-3xl font-semibold tabular-nums tracking-tight text-heading"><Value value={overview.data.summary.inTop10} /></dd></div>
-        <div><dt className="flex items-center gap-1.5 text-[13px] text-secondary">Estimated organic traffic<InfoTooltip text={`${PROVIDER_LABELS[overview.data.summary.provenance.provider]}'s modeled search traffic for this target and provider geography. This is not measured site traffic.`} /></dt><dd className="mt-2 text-3xl font-semibold tabular-nums tracking-tight text-heading"><Value value={overview.data.summary.estimatedOrganicTraffic} /></dd></div>
+        <div><dt className="flex items-center gap-1.5 text-[13px] text-secondary">Estimated organic traffic<InfoTooltip text="Modeled search traffic for this target and provider geography. This is not measured site traffic." /></dt><dd className="mt-2 text-3xl font-semibold tabular-nums tracking-tight text-heading"><Value value={overview.data.summary.estimatedOrganicTraffic} /></dd></div>
       </dl>
     </div>}
     <div>
@@ -399,7 +403,7 @@ function SeoProfileEditor({ projectName, context, profile, id, onClose, onSaved 
       <Button type="button" variant="secondary" className="min-h-11" disabled={targets.length >= 20} onClick={() => setTargets(previous => [...previous, { kind: SeoTargetKinds.domain, value: '', includeSubdomains: true }])}>Add target</Button>
     </fieldset>}
     {selectedCapabilities.includes(SeoCapabilities['keyword-metrics']) && <label className="block space-y-1.5 text-sm"><span>Keywords</span><textarea className={`${FIELD} min-h-28`} value={keywords} onChange={event => setKeywords(event.target.value)} placeholder="One keyword per line" /><span className="block text-[13px] text-secondary">Up to 700 keywords, 10 words and 80 characters each. These are explicit search terms for this profile.</span></label>}
-    <div className={`grid gap-4 ${needsRankedLimit ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}><label className="space-y-1.5 text-sm"><span>Provider location code</span><input className={FIELD} type="number" min={1} step={1} required value={locationCode} onChange={event => setLocationCode(event.target.value)} /><span className="block text-[13px] text-secondary">The {source ? PROVIDER_LABELS[source.provider] : 'source'} location identifier.</span></label><label className="space-y-1.5 text-sm"><span>Language code</span><input className={FIELD} required minLength={2} maxLength={10} value={languageCode} onChange={event => setLanguageCode(event.target.value)} /></label>{needsRankedLimit && <label className="space-y-1.5 text-sm"><span>Ranked rows per target</span><input className={FIELD} type="number" min={1} max={1000} step={1} required value={limit} onChange={event => setLimit(event.target.value)} /></label>}</div>
+    <div className={`grid gap-4 ${needsRankedLimit ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}><label className="space-y-1.5 text-sm"><span>Provider location code</span><input className={FIELD} type="number" min={1} step={1} required value={locationCode} onChange={event => setLocationCode(event.target.value)} /><span className="block text-[13px] text-secondary">The source's location identifier.</span></label><label className="space-y-1.5 text-sm"><span>Language code</span><input className={FIELD} required minLength={2} maxLength={10} value={languageCode} onChange={event => setLanguageCode(event.target.value)} /></label>{needsRankedLimit && <label className="space-y-1.5 text-sm"><span>Ranked rows per target</span><input className={FIELD} type="number" min={1} max={1000} step={1} required value={limit} onChange={event => setLimit(event.target.value)} /></label>}</div>
     {error && <p role="alert" className="text-sm text-secondary">{error}</p>}
     <div className="flex flex-wrap gap-2"><Button type="submit" className="min-h-11" disabled={save.isPending || !source || !selectedCapabilities.length}>{save.isPending ? 'Saving…' : 'Save profile'}</Button><Button type="button" variant="ghost" className="min-h-11" onClick={onClose}>Cancel</Button></div>
   </form>

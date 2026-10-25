@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { seoProfileInputSchema, seoQuoteSchema, seoSyncInputSchema } from '../src/seo.js'
+import { seoDatasetWithoutVendor, seoProfileInputSchema, seoQuoteSchema, seoSyncInputSchema } from '../src/seo.js'
 
 describe('SEO public admission contracts', () => {
   it('requires bounded explicit profile scope and rejects upstream options that could expand spend', () => {
@@ -22,5 +22,19 @@ describe('SEO public admission contracts', () => {
     expect(seoQuoteSchema.safeParse(quote).success).toBe(true)
     expect(seoQuoteSchema.safeParse({ ...quote, maxCostMicros: 123 }).success).toBe(false)
     expect(seoSyncInputSchema.safeParse({ quoteToken: 'opaque', idempotencyKey: 'stable', fundingMode: 'hosted' }).success).toBe(false)
+  })
+})
+
+describe('seoDatasetWithoutVendor', () => {
+  it.each([
+    // Stored ids as the DataForSEO adapter writes them, hyphen and underscore forms.
+    ['dataforseo-labs/google/ranked-keywords', 'google/ranked-keywords'],
+    ['dataforseo_labs/google/ranked_keywords', 'google/ranked_keywords'],
+    ['DataForSEO/google/domain-intelligence', 'google/domain-intelligence'],
+    // Already vendor-free, and a segment that only contains the name, stay as they are.
+    ['google/keyword-metrics', 'google/keyword-metrics'],
+    ['google/notdataforseo-labs', 'google/notdataforseo-labs'],
+  ])('%s -> %s', (stored, shown) => {
+    expect(seoDatasetWithoutVendor(stored)).toBe(shown)
   })
 })

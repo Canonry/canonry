@@ -15,7 +15,6 @@ export const OPERATIONS_GUIDE = {
     "seo": {
       "keywords": [
         "seo",
-        "dataforseo",
         "rankings",
         "ranked",
         "keywords"
