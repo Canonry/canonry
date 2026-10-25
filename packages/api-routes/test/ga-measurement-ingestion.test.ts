@@ -622,6 +622,21 @@ describe('GA measurement ingestion', () => {
       })
     })
 
+    it('does not fetch key events that are funnel or engagement steps', async () => {
+      const ga = await mockLegacyGa()
+      vi.spyOn(ga, 'fetchAcquisitionByChannel').mockResolvedValue({ ...measurementRange(90), rows: [] })
+      vi.spyOn(ga, 'fetchKeyEventNames').mockResolvedValue(['add_to_cart', 'begin_checkout', 'purchase', 'view_item'])
+      const leadsSpy = vi.spyOn(ga, 'fetchLeadEvents').mockResolvedValue(emptyLeads(90))
+
+      const response = await sync()
+
+      expect(leadsSpy).toHaveBeenCalledWith('fake-token', '123456', ['book_demo', 'generate_lead', 'purchase'], 90)
+      expect(JSON.parse(response.body).measurement.leads).toMatchObject({
+        eventNames: ['book_demo', 'generate_lead', 'purchase'],
+        keyEvents: { status: 'read', names: ['add_to_cart', 'begin_checkout', 'purchase', 'view_item'] },
+      })
+    })
+
     it('refreshes the whole GA4 window when the counted set changes', async () => {
       const ga = await mockLegacyGa()
       vi.spyOn(ga, 'fetchAcquisitionByChannel').mockResolvedValue({ ...measurementRange(30), rows: [] })

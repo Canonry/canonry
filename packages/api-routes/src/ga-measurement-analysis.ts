@@ -18,6 +18,7 @@ import {
   classifyAiReferralTrafficClass,
   countedLeadEventNames,
   countsKeyEvents,
+  ignoredKeyEventNames,
   filterBrandedSeedCandidates,
   gaMeasurementAnalysisDtoSchema,
   WINDOW_SETS, parseWindowIn,
@@ -817,6 +818,7 @@ export function buildGaMeasurementAnalysis(
         keyEventsEnabled,
         keyEvents: keyEventNames,
         keyEventsError: keyEventsEnabled ? state?.keyEventsError ?? null : null,
+        ignoredKeyEvents: ignoredKeyEventNames(configuredLeadEvents, keyEventNames ?? []),
       },
       events: [
         ...(gaAnchor && hasLeadTimeline

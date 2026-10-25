@@ -524,6 +524,9 @@ function printCountedEvents(leads: Partial<Pick<GaMeasurementAnalysisDto['leads'
       ? 'not counted'
       : counted.keyEvents === null ? 'not read yet' : (counted.keyEvents.join(', ') || '(none marked in GA4)')
     console.log(`  Counted events: configured ${counted.configured.join(', ') || '(none)'}; GA4 key events ${keyEvents}`)
+    if (counted.ignoredKeyEvents?.length) {
+      console.log(`    Not counted (funnel or engagement steps): ${counted.ignoredKeyEvents.join(', ')}`)
+    }
     if (counted.keyEventsError) console.log(`    Key event read failed: ${counted.keyEventsError}`)
   }
   for (const event of leads.events ?? []) {

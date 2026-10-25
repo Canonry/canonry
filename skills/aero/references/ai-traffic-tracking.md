@@ -40,7 +40,8 @@ through these in order and say which one applies.
 
 1. **Is the conversion tracked at all?** Canonry counts the configured
    `measurement.leadEventNames` plus the events the GA4 property marks as key
-   events. Read `leads.countedEvents` and `leads.events` in
+   events, except funnel and engagement steps such as `view_item` or
+   `add_to_cart` (listed in `leads.countedEvents.ignoredKeyEvents`). Read `leads.countedEvents` and `leads.events` in
    `cnry ga measurement-analysis <p> --format json` to see which events count
    and each one's total; an event with `measured: false` has not been fetched
    yet, so it is unknown, not zero. If every counted event is zero across every

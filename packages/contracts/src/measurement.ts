@@ -66,9 +66,37 @@ export function countsKeyEvents(config: Pick<MeasurementConfig, 'countKeyEvents'
   return config.countKeyEvents !== false
 }
 
-/** The GA4 events a project counts: configured lead events plus key events, unique and sorted. */
+/**
+ * GA4 event names that are steps or engagement, not outcomes. A property may
+ * mark them as key events, but they are not counted as conversions. Every
+ * name is one of Google's own: the ecommerce funnel steps from GA4's
+ * recommended events, and GA4's automatically collected and enhanced
+ * measurement engagement events. A configured lead event always counts, even
+ * when it is on this list.
+ */
+export const NON_CONVERSION_KEY_EVENTS: readonly string[] = Object.freeze([
+  // Recommended ecommerce events that are funnel steps (purchase is the outcome).
+  'view_item_list', 'select_item', 'view_item', 'add_to_wishlist', 'add_to_cart', 'remove_from_cart',
+  'view_cart', 'begin_checkout', 'add_shipping_info', 'add_payment_info', 'view_promotion', 'select_promotion',
+  'refund',
+  // Automatically collected and enhanced measurement engagement events.
+  'page_view', 'session_start', 'first_visit', 'user_engagement', 'scroll', 'view_search_results',
+  'form_start', 'video_start', 'video_progress', 'video_complete',
+])
+const NON_CONVERSION_KEY_EVENT_SET = new Set(NON_CONVERSION_KEY_EVENTS)
+
+/**
+ * The GA4 events a project counts: configured lead events plus the key events
+ * that are outcomes (not funnel or engagement steps), unique and sorted.
+ */
 export function countedLeadEventNames(configured: readonly string[], keyEvents: readonly string[]): string[] {
-  return [...new Set([...configured, ...keyEvents])].sort()
+  return [...new Set([...configured, ...keyEvents.filter(name => !NON_CONVERSION_KEY_EVENT_SET.has(name))])].sort()
+}
+
+/** Key events the property marks that are not counted: funnel or engagement steps nobody configured. */
+export function ignoredKeyEventNames(configured: readonly string[], keyEvents: readonly string[]): string[] {
+  const configuredSet = new Set(configured)
+  return [...new Set(keyEvents.filter(name => NON_CONVERSION_KEY_EVENT_SET.has(name) && !configuredSet.has(name)))].sort()
 }
 
 function createDefaultMeasurementConfig(): MeasurementConfig {
@@ -326,6 +354,12 @@ export const gaMeasurementAnalysisDtoSchema = z.object({
       keyEventsEnabled: z.boolean(),
       keyEvents: z.array(z.string()).nullable(),
       keyEventsError: z.string().nullable(),
+      /**
+       * Key events the property marks that are not counted because they are
+       * funnel or engagement steps (`NON_CONVERSION_KEY_EVENTS`), not outcomes.
+       * Configuring one as a lead event counts it.
+       */
+      ignoredKeyEvents: z.array(z.string()),
     }),
     /**
      * Conversions per counted event name, so sales, bookings and form leads
