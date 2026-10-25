@@ -6,6 +6,7 @@ import type { SkillDocument } from '../skill-types.js'
 import { part as aeroSkillPart0 } from './aero-skill.0.js'
 import { part as aeroReferencesAeoDiscoveryPart0 } from './aero-references-aeo-discovery.0.js'
 import { part as aeroReferencesAgentOperationsPart0 } from './aero-references-agent-operations.0.js'
+import { part as aeroReferencesAiTrafficTrackingPart0 } from './aero-references-ai-traffic-tracking.0.js'
 import { part as aeroReferencesMemoryPatternsPart0 } from './aero-references-memory-patterns.0.js'
 import { part as aeroReferencesOrchestrationPart0 } from './aero-references-orchestration.0.js'
 import { part as aeroReferencesPortfolioAnalysisPart0 } from './aero-references-portfolio-analysis.0.js'
@@ -17,6 +18,7 @@ import { part as aeroReferencesWordpressElementorMcpPart0 } from './aero-referen
 import { part as aeroSoulPart0 } from './aero-soul.0.js'
 import { part as canonrySkillPart0 } from './canonry-skill.0.js'
 import { part as canonryReferencesAeoAnalysisPart0 } from './canonry-references-aeo-analysis.0.js'
+import { part as canonryReferencesAiTrafficTrackingPart0 } from './canonry-references-ai-traffic-tracking.0.js'
 import { part as canonryReferencesCanonryCliPart0 } from './canonry-references-canonry-cli.0.js'
 import { part as canonryReferencesCanonryCliPart1 } from './canonry-references-canonry-cli.1.js'
 import { part as canonryReferencesCanonryCliPart2 } from './canonry-references-canonry-cli.2.js'
@@ -36,7 +38,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "aero skill",
     description: "Diagnose AEO regressions and interpret Canonry AI visibility, SEO data, Advanced multi-property portfolios, and Site Health evidence. Use when prioritizing keyword or organic ranking opportunities, explaining mention or citation changes, comparing Properties or markets, diagnosing page findings, preparing reports, or analyzing a completed `cnry` sweep or site audit. Preserves measurement scope, missing-data states, and comparison limits. Use the canonry skill for setup and operations.",
     entryPoint: true,
-    characters: 19660,
+    characters: 20208,
     content: aeroSkillPart0,
   },
   {
@@ -58,6 +60,16 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     entryPoint: false,
     characters: 15867,
     content: aeroReferencesAgentOperationsPart0,
+  },
+  {
+    uri: "canonry-skill://aero/references/ai-traffic-tracking.md",
+    skill: "aero",
+    path: "references/ai-traffic-tracking.md",
+    title: "Tracking AI traffic to visits and conversions",
+    description: "Crawled, read, clicked, came back, converted: which instrument measures each step, the checks to run before reporting a zero, attribution limits, and user stories such as whether anyone from AI search bought or booked. Read when asked about AI traffic, returning AI visitors, conversions, or broken tracking.",
+    entryPoint: false,
+    characters: 9216,
+    content: aeroReferencesAiTrafficTrackingPart0,
   },
   {
     uri: "canonry-skill://aero/references/memory-patterns.md",
@@ -156,7 +168,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "canonry skill",
     description: "Navigate Canonry through connected MCP tools or the `cnry` CLI to inspect evidence, diagnose changes, plan measurement, review integrations, and report results. Use this optional host-native skill for CLI workflows and detailed references; connected MCP users can operate through canonry_help without installing a local runtime or skill.",
     entryPoint: true,
-    characters: 16085,
+    characters: 16170,
     content: canonrySkillPart0,
   },
   {
@@ -168,6 +180,16 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     entryPoint: false,
     characters: 19144,
     content: canonryReferencesAeoAnalysisPart0,
+  },
+  {
+    uri: "canonry-skill://canonry/references/ai-traffic-tracking.md",
+    skill: "canonry",
+    path: "references/ai-traffic-tracking.md",
+    title: "Tracking AI traffic to visits and conversions",
+    description: "canonry skill reference: references/ai-traffic-tracking.md",
+    entryPoint: false,
+    characters: 8750,
+    content: canonryReferencesAiTrafficTrackingPart0,
   },
   {
     uri: "canonry-skill://canonry/references/canonry-cli.md",

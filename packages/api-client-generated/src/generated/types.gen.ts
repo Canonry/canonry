@@ -6700,6 +6700,7 @@ export type GbpLocalPost = {
     actionType: string | null;
     articleUrl: string | null;
     imageUrls: Array<string>;
+    providerImageUrls?: Array<string>;
     mediaSourceUrlsComplete?: boolean;
     createTime: string;
     updateTime: string;
@@ -6716,6 +6717,7 @@ export type GbpLocalPostList = {
         actionType: string | null;
         articleUrl: string | null;
         imageUrls: Array<string>;
+        providerImageUrls?: Array<string>;
         mediaSourceUrlsComplete?: boolean;
         createTime: string;
         updateTime: string;
@@ -6737,6 +6739,7 @@ export type GbpLocalPostAttempt = {
         actionType: string | null;
         articleUrl: string | null;
         imageUrls: Array<string>;
+        providerImageUrls?: Array<string>;
         mediaSourceUrlsComplete?: boolean;
         createTime: string;
         updateTime: string;

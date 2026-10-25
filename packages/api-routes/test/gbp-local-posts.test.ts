@@ -193,6 +193,7 @@ describe('GBP API transport authorization and send-once claim', () => {
     { label: 'unknown media format', media: [{ mediaFormat: 'FUTURE_FORMAT' }] },
   ])('retains historical $label and pagination while exact-post verification stays strict', async (test) => {
     const f = await fixture()
+    const providerPhoto = test.label === 'Google-hosted photo without original source'
     const historical = { ...post, media: test.media }
     const fetch = vi.fn(async (url: string | URL | Request) => new Response(JSON.stringify(
       String(url).includes('/localPosts?') ? { localPosts: [historical], nextPageToken: 'next-history-page' } : historical,
@@ -204,11 +205,13 @@ describe('GBP API transport authorization and send-once claim', () => {
       name: post.name, languageCode: post.languageCode, summary: post.summary,
       topicType: post.topicType, state: post.state, actionType: post.callToAction.actionType,
       articleUrl: post.callToAction.url, imageUrls: [], mediaSourceUrlsComplete: false,
+      ...(providerPhoto ? { providerImageUrls: ['https://lh3.googleusercontent.com/historical-photo'] } : {}),
       createTime: post.createTime, updateTime: post.updateTime, searchUrl: post.searchUrl,
     }], nextPageToken: 'next-history-page' })
     const exact = await f.request('GET', reads[1]!)
-    expect(exact.statusCode).toBe(502)
-    expect(exact.json().error.details).toEqual({ category: 'response', reason: 'UNSUPPORTED_MEDIA' })
+    expect(exact.statusCode).toBe(providerPhoto ? 200 : 502)
+    if (providerPhoto) expect(exact.json()).toMatchObject({ imageUrls: [], mediaSourceUrlsComplete: false, providerImageUrls: ['https://lh3.googleusercontent.com/historical-photo'] })
+    else expect(exact.json().error.details).toEqual({ category: 'response', reason: 'UNSUPPORTED_MEDIA' })
     expect(f.db.select().from(auditLog).all()).toEqual([])
     expect(fetch).toHaveBeenCalledTimes(2)
   })

@@ -8,6 +8,9 @@ import { describe, expect, it } from 'vitest'
 import { parse } from 'yaml'
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..')
+const { AERO_MIRRORED_REFERENCES } = await import(new URL('../../../scripts/sync-agent-operations.mjs', import.meta.url).href) as {
+  AERO_MIRRORED_REFERENCES: Array<{ source: string }>
+}
 const pluginRoot = path.join(repoRoot, 'plugins', 'canonry')
 const managedSkills = ['aero', 'canonry']
 
@@ -227,6 +230,11 @@ describe('native Canonry plugin bundle', () => {
       const guidePath = path.join(scratch, 'docs/agent-operations/v1.md')
       fs.mkdirSync(path.dirname(guidePath), { recursive: true })
       fs.copyFileSync(path.join(repoRoot, 'docs/agent-operations/v1.md'), guidePath)
+      // The sync also mirrors these Canonry references into Aero's folder.
+      for (const { source } of AERO_MIRRORED_REFERENCES) {
+        fs.mkdirSync(path.dirname(path.join(scratch, source)), { recursive: true })
+        fs.copyFileSync(path.join(repoRoot, source), path.join(scratch, source))
+      }
 
       const sharedPluginMetadata = {
         name: 'canonry',
