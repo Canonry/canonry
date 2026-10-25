@@ -206,6 +206,9 @@ describe('DataForSEO market rankings', () => {
       se_results_count: 1_250_000, pages_count: 5, items_count: items.length, spell: null, refinement_chips: null, items, ...extra,
     }] }])
   }
+  // DataForSEO decodes `%##` and reads `+` as a space before it searches, and returns the keyword as searched.
+  const searchedAs = (keyword: string) => keyword.replaceAll('+', ' ').replace(/%([0-9a-f]{2})/gi, (_match, hex: string) => String.fromCharCode(Number.parseInt(hex, 16)))
+  const serpCatalog = 'dataforseo-google-serp-live-2026-10-25-operators'
 
   it('searches one tracked query from its market location and reports the site\'s best organic position for every market it answers', async () => {
     const fetchMock = vi.fn().mockResolvedValue(serp([
@@ -216,7 +219,7 @@ describe('DataForSEO market rankings', () => {
     ]))
     vi.stubGlobal('fetch', fetchMock)
     const adapter = createDataForSeoAdapter(credentials)
-    expect(adapter.estimate(ranking)).toEqual({ maxCostMicros: 10_000, catalogRevision: 'dataforseo-google-serp-live-2026-10-25' })
+    expect(adapter.estimate(ranking)).toEqual({ maxCostMicros: 10_000, catalogRevision: serpCatalog })
     expect(adapter.estimate({ ...ranking, search: { ...ranking.search!, depth: 10 } }).maxCostMicros).toBe(2_000)
     const result = await adapter.execute(ranking)
     expect(fetchMock.mock.calls[0]?.[0]).toBe('https://api.dataforseo.com/v3/serp/google/organic/live/advanced')
@@ -277,6 +280,41 @@ describe('DataForSEO market rankings', () => {
     // A Labs read is never sent twice this way.
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response([task([info], { status_code: 40101, cost: 0 })])))
     expect((await createDataForSeoAdapter(credentials).execute(request)).retryable).toBeUndefined()
+  })
+
+  it.each([
+    ['55+ apartments', '55%2B apartments'],
+    ['100% pet friendly', '100%25 pet friendly'],
+    // `%` is escaped first, so the `%` that escapes `+` is sent as is.
+    ['50%+ off rent', '50%25%2B off rent'],
+  ])('searches %j as written by sending it as %j', async (searchText, keyword) => {
+    const sent: string[] = []
+    vi.stubGlobal('fetch', vi.fn((_url: string, init: RequestInit) => {
+      const [task] = JSON.parse(init.body as string) as [{ keyword: string }]
+      sent.push(task.keyword)
+      return Promise.resolve(serp([organic(3, 4, 'www.example.com')], { keyword: searchedAs(task.keyword) }))
+    }))
+    const result = await createDataForSeoAdapter(credentials).execute({ ...ranking, keywords: [searchText] })
+    expect(sent).toEqual([keyword])
+    // The page answers the tracked text, so each market the search serves gets its ranking row.
+    expect(result.outcome).toBe(SeoAdapterOutcomes.completed)
+    expect(result.results.marketRankings.map(row => [row.marketKey, row.searchText, row.rankOrganic])).toEqual([['harbor', searchText, 3], ['downtown', searchText, 3]])
+  })
+
+  it.each([
+    ['apartments site:example.com', 50_000],
+    ['INTITLE:apartments Harbor', 50_000],
+    ['apartments near campus: Harbor', 10_000],
+  ])('prices %j at depth 50 as %i micros', (searchText, maxCostMicros) => {
+    expect(createDataForSeoAdapter(credentials).estimate({ ...ranking, keywords: [searchText] })).toEqual({ maxCostMicros, catalogRevision: serpCatalog })
+  })
+
+  it('counts the 700-character limit on the text as searched, not as escaped', () => {
+    const adapter = createDataForSeoAdapter(credentials)
+    // 700 characters as searched; 720 once its `+` signs are escaped.
+    const longest = `${'a'.repeat(690)}${'+'.repeat(10)}`
+    expect(adapter.estimate({ ...ranking, keywords: [longest] }).maxCostMicros).toBe(10_000)
+    expect(() => adapter.estimate({ ...ranking, keywords: [`${longest}+`] })).toThrow('up to 700 characters')
   })
 
   it.each([
