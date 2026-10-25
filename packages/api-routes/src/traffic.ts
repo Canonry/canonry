@@ -43,6 +43,9 @@ import {
   TrafficEventKinds,
   TrafficSeriesGranularities,
   CloudflareTrafficDeliveryModes,
+  CloudflareQueueDrainStopReasons,
+  type CloudflareQueueDrainStopReason,
+  type CloudflareQueueDrainSummary,
   type CloudflareTrafficDeliveryMode,
   cloudflareTrafficSourceConfigSchema,
   trafficConnectWordpressRequestSchema,
@@ -2934,11 +2937,28 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       let remainingBacklogCount = 0
       // Batches committed and acknowledged; a later failure keeps them.
       let completedBatches = 0
+      // What the drain did, recorded on the run so the stop reason can be read later.
+      let pulls = 0
+      let emptyPulls = 0
+      let messagesPulled = 0
+      let messagesAcknowledged = 0
+      let poisonMessages = 0
+      let skippedUnleasedMessages = 0
+      let duplicateEvents = 0
+      let backlogAtFirstPull: number | null = null
+      let backlogAtLastPull: number | null = null
+      const drainSummary = (stopReason: CloudflareQueueDrainStopReason): CloudflareQueueDrainSummary => ({
+        type: 'cloudflare-queue', stopReason, pulls, emptyPulls, messagesPulled, messagesAcknowledged,
+        poisonMessages, skippedUnleasedMessages, acceptedEvents, duplicateEvents,
+        backlogAtFirstPull, backlogAtLastPull, elapsedMs: Date.now() - startedMs,
+      })
       const finishSync = (
         status: (typeof RunStatuses)['completed' | 'partial'],
         error: string | null,
+        stopReason: CloudflareQueueDrainStopReason,
       ): TrafficSyncResponse => {
-        app.db.update(runs).set({ status, finishedAt: committedAt, ...(error ? { error } : {}) })
+        const queueDrain = drainSummary(stopReason)
+        app.db.update(runs).set({ status, finishedAt: committedAt, syncSummary: queueDrain, ...(error ? { error } : {}) })
           .where(eq(runs.id, runId)).run()
         writeAuditLog(app.db, {
           projectId: project.id, actor: 'api', action: 'traffic.cloudflare.queue-synced',
@@ -2957,6 +2977,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
           selfTrafficExcluded, crawlerHits, aiUserFetchHits, aiReferralHits, unknownHits,
           crawlerBucketRows, aiUserFetchBucketRows, aiReferralBucketRows, sampleRows,
           remainingBacklogCount,
+          queueDrain,
           windowStart: startedAt, windowEnd: committedAt,
         }
       }
@@ -2968,6 +2989,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         const canonicalHost = resolveCloudflareWorkerRouteHost(project.canonicalDomain)
         const drainDeadlineMs = startedMs + cloudflareQueueSyncDeadlineMs
         let consecutiveEmptyPulls = 0
+        let stopReason: CloudflareQueueDrainStopReason | null = null
         // Receipt lifetimes matter only once a batch carries events, so the
         // retention read waits for that and runs at most once per sync.
         let receiptPolicy: Promise<QueueReceiptPolicy> | null = null
@@ -2989,6 +3011,12 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
             visibilityTimeoutMs: CLOUDFLARE_QUEUE_VISIBILITY_TIMEOUT_MS,
           })
           remainingBacklogCount = pulled.messageBacklogCount
+          pulls += 1
+          if (pulled.messages.length === 0) emptyPulls += 1
+          messagesPulled += pulled.messages.length
+          skippedUnleasedMessages += pulled.skippedUnleasedMessageCount
+          backlogAtFirstPull ??= pulled.messageBacklogCount
+          backlogAtLastPull = pulled.messageBacklogCount
           if (pulled.skippedUnleasedMessageCount > 0) {
             request.log.warn({
               sourceId: sourceRow.id,
@@ -3039,6 +3067,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
             }
             validLeases.push(message.leaseId)
           }
+          poisonMessages += poisonLeases.length
           const policy = normalized.length > 0 ? await resolveReceiptPolicy() : null
           committedAt = new Date().toISOString()
           const writeResult = writeTrafficEventBatch({
@@ -3081,6 +3110,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
               throw validationError('Cloudflare Queue source was reconfigured before acknowledgement')
             }
             const ackResult = await ackQueueMessages(queueClient, { acks: [...validLeases, ...poisonLeases] })
+            messagesAcknowledged += validLeases.length + poisonLeases.length
             if (ackResult.warningCount > 0) {
               request.log.warn({
                 sourceId: sourceRow.id,
@@ -3089,6 +3119,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
             }
           }
           acceptedEvents += writeResult.acceptedEvents
+          duplicateEvents += writeResult.duplicateEvents
           selfTrafficExcluded += writeResult.selfTrafficExcluded
           crawlerHits += writeResult.crawlerHits
           aiUserFetchHits += writeResult.aiUserFetchHits
@@ -3101,20 +3132,33 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
           completedBatches += 1
           // A short-poll pull can return a partial batch while a large backlog
           // waits, so a partial batch does not end the drain.
-          if (remainingBacklogCount === 0) break
+          if (remainingBacklogCount === 0) {
+            stopReason = CloudflareQueueDrainStopReasons['backlog-empty']
+            break
+          }
           if (pulled.messages.length === 0) {
             // Only unacknowledgeable entries and fewer than a full batch:
             // nothing else is waiting to be leased.
-            if (pulled.skippedUnleasedMessageCount > 0 && pulled.skippedUnleasedMessageCount < CLOUDFLARE_QUEUE_BATCH_SIZE) break
+            if (pulled.skippedUnleasedMessageCount > 0 && pulled.skippedUnleasedMessageCount < CLOUDFLARE_QUEUE_BATCH_SIZE) {
+              stopReason = CloudflareQueueDrainStopReasons['unleased-only']
+              break
+            }
             // A pull can come back empty for a moment while messages wait;
             // two in a row means the rest is leased or not yet visible.
             consecutiveEmptyPulls = pulled.skippedUnleasedMessageCount === 0 ? consecutiveEmptyPulls + 1 : 0
-            if (consecutiveEmptyPulls >= 2) break
+            if (consecutiveEmptyPulls >= 2) {
+              stopReason = CloudflareQueueDrainStopReasons['empty-pulls']
+              break
+            }
           } else {
             consecutiveEmptyPulls = 0
           }
         }
-        return finishSync(RunStatuses.completed, null)
+        // The loop ran out: every pass completed, so either the pull cap or the deadline ended it.
+        stopReason ??= completedBatches >= cloudflareQueueMaxBatches
+          ? CloudflareQueueDrainStopReasons['batch-cap']
+          : CloudflareQueueDrainStopReasons.deadline
+        return finishSync(RunStatuses.completed, null, stopReason)
       } catch (error) {
         const failedAt = new Date().toISOString()
         const safeError = error instanceof CloudflareQueueApiError
@@ -3125,7 +3169,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
           // run is partial, and the next sync continues from the Queue.
           request.log.warn({ sourceId: sourceRow.id, completedBatches, error: safeError },
             'Cloudflare Queue sync stopped after saving some batches')
-          return finishSync(RunStatuses.partial, safeError)
+          return finishSync(RunStatuses.partial, safeError, CloudflareQueueDrainStopReasons.error)
         }
         try {
           opts.onTrafficSynced?.({
@@ -3139,8 +3183,10 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
           })
         } catch { /* telemetry never blocks the failure path */ }
         app.db.transaction((tx) => {
-          tx.update(runs).set({ status: RunStatuses.failed, error: safeError, finishedAt: failedAt })
-            .where(eq(runs.id, runId)).run()
+          tx.update(runs).set({
+            status: RunStatuses.failed, error: safeError, finishedAt: failedAt,
+            syncSummary: drainSummary(CloudflareQueueDrainStopReasons.error),
+          }).where(eq(runs.id, runId)).run()
           const latestSource = tx.select().from(trafficSources)
             .where(eq(trafficSources.id, sourceRow.id)).get()
           if (latestSource
@@ -4505,6 +4551,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
             startedAt: latestRun.startedAt,
             finishedAt: latestRun.finishedAt ?? null,
             error: latestRun.error ?? null,
+            ...(latestRun.syncSummary ? { syncSummary: latestRun.syncSummary } : {}),
           }
         : null,
     }

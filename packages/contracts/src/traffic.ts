@@ -1,6 +1,7 @@
 import { linearTrendSchema } from './statistics.js'
 import { z } from 'zod'
 import { runStatusSchema } from './run.js'
+import { cloudflareQueueDrainSummarySchema, runSyncSummarySchema } from './run-sync-summary.js'
 import { aiReferralTrafficClassSchema } from './traffic-class.js'
 import type { TrafficCrawlerSegments, TrafficPathClass } from './traffic-path.js'
 
@@ -464,6 +465,8 @@ export const trafficSyncResponseSchema = z.object({
   sampleRows: z.number().int().nonnegative(),
   /** Residual upstream Queue depth after a bounded sync; present for Queue pull. */
   remainingBacklogCount: z.number().int().nonnegative().optional(),
+  /** What the Queue drain did and why it stopped; present for Queue pull. */
+  queueDrain: cloudflareQueueDrainSummarySchema.optional(),
   windowStart: z.string(),
   windowEnd: z.string(),
 })
@@ -570,6 +573,8 @@ export const trafficSourceDetailDtoSchema = trafficSourceDtoSchema.extend({
       startedAt: z.string().nullable(),
       finishedAt: z.string().nullable(),
       error: z.string().nullable(),
+      /** What the run did and why it stopped, when the sync records one (Queue pull). */
+      syncSummary: runSyncSummarySchema.optional(),
     })
     .nullable(),
 })

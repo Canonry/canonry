@@ -8681,6 +8681,21 @@ export type LatestProjectRunDto = {
                 retryAfter: string;
             };
         };
+        syncSummary?: {
+            type: 'cloudflare-queue';
+            stopReason: 'backlog-empty' | 'empty-pulls' | 'unleased-only' | 'deadline' | 'batch-cap' | 'error';
+            pulls: number;
+            emptyPulls: number;
+            messagesPulled: number;
+            messagesAcknowledged: number;
+            poisonMessages: number;
+            skippedUnleasedMessages: number;
+            acceptedEvents: number;
+            duplicateEvents: number;
+            backlogAtFirstPull: number | null;
+            backlogAtLastPull: number | null;
+            elapsedMs: number;
+        };
         createdAt: string;
         snapshots?: Array<{
             id: string;
@@ -13710,6 +13725,21 @@ export type ProjectOverviewDto = {
                     retryAfter: string;
                 };
             };
+            syncSummary?: {
+                type: 'cloudflare-queue';
+                stopReason: 'backlog-empty' | 'empty-pulls' | 'unleased-only' | 'deadline' | 'batch-cap' | 'error';
+                pulls: number;
+                emptyPulls: number;
+                messagesPulled: number;
+                messagesAcknowledged: number;
+                poisonMessages: number;
+                skippedUnleasedMessages: number;
+                acceptedEvents: number;
+                duplicateEvents: number;
+                backlogAtFirstPull: number | null;
+                backlogAtLastPull: number | null;
+                elapsedMs: number;
+            };
             createdAt: string;
             snapshots?: Array<{
                 id: string;
@@ -14716,6 +14746,21 @@ export type RunDetailDto = {
             retryAfter: string;
         };
     };
+    syncSummary?: {
+        type: 'cloudflare-queue';
+        stopReason: 'backlog-empty' | 'empty-pulls' | 'unleased-only' | 'deadline' | 'batch-cap' | 'error';
+        pulls: number;
+        emptyPulls: number;
+        messagesPulled: number;
+        messagesAcknowledged: number;
+        poisonMessages: number;
+        skippedUnleasedMessages: number;
+        acceptedEvents: number;
+        duplicateEvents: number;
+        backlogAtFirstPull: number | null;
+        backlogAtLastPull: number | null;
+        elapsedMs: number;
+    };
     createdAt: string;
     snapshots?: Array<{
         id: string;
@@ -15017,6 +15062,21 @@ export type RunDto = {
             latestRunId: string;
             retryAfter: string;
         };
+    };
+    syncSummary?: {
+        type: 'cloudflare-queue';
+        stopReason: 'backlog-empty' | 'empty-pulls' | 'unleased-only' | 'deadline' | 'batch-cap' | 'error';
+        pulls: number;
+        emptyPulls: number;
+        messagesPulled: number;
+        messagesAcknowledged: number;
+        poisonMessages: number;
+        skippedUnleasedMessages: number;
+        acceptedEvents: number;
+        duplicateEvents: number;
+        backlogAtFirstPull: number | null;
+        backlogAtLastPull: number | null;
+        elapsedMs: number;
     };
     createdAt: string;
 };
@@ -17297,6 +17357,21 @@ export type TrafficSourceDetailDto = {
         startedAt: string | null;
         finishedAt: string | null;
         error: string | null;
+        syncSummary?: {
+            type: 'cloudflare-queue';
+            stopReason: 'backlog-empty' | 'empty-pulls' | 'unleased-only' | 'deadline' | 'batch-cap' | 'error';
+            pulls: number;
+            emptyPulls: number;
+            messagesPulled: number;
+            messagesAcknowledged: number;
+            poisonMessages: number;
+            skippedUnleasedMessages: number;
+            acceptedEvents: number;
+            duplicateEvents: number;
+            backlogAtFirstPull: number | null;
+            backlogAtLastPull: number | null;
+            elapsedMs: number;
+        };
     } | null;
 };
 
@@ -17384,6 +17459,21 @@ export type TrafficStatusResponse = {
             startedAt: string | null;
             finishedAt: string | null;
             error: string | null;
+            syncSummary?: {
+                type: 'cloudflare-queue';
+                stopReason: 'backlog-empty' | 'empty-pulls' | 'unleased-only' | 'deadline' | 'batch-cap' | 'error';
+                pulls: number;
+                emptyPulls: number;
+                messagesPulled: number;
+                messagesAcknowledged: number;
+                poisonMessages: number;
+                skippedUnleasedMessages: number;
+                acceptedEvents: number;
+                duplicateEvents: number;
+                backlogAtFirstPull: number | null;
+                backlogAtLastPull: number | null;
+                elapsedMs: number;
+            };
         } | null;
     }>;
 };
@@ -17403,6 +17493,21 @@ export type TrafficSyncResponse = {
     aiReferralBucketRows: number;
     sampleRows: number;
     remainingBacklogCount?: number;
+    queueDrain?: {
+        type: 'cloudflare-queue';
+        stopReason: 'backlog-empty' | 'empty-pulls' | 'unleased-only' | 'deadline' | 'batch-cap' | 'error';
+        pulls: number;
+        emptyPulls: number;
+        messagesPulled: number;
+        messagesAcknowledged: number;
+        poisonMessages: number;
+        skippedUnleasedMessages: number;
+        acceptedEvents: number;
+        duplicateEvents: number;
+        backlogAtFirstPull: number | null;
+        backlogAtLastPull: number | null;
+        elapsedMs: number;
+    };
     windowStart: string;
     windowEnd: string;
 };
