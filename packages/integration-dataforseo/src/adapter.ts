@@ -16,8 +16,33 @@ const ENDPOINTS = {
   [SeoCapabilities['market-rankings']]: 'serp/google/organic/live/advanced',
 } as const
 
-/** DataForSEO accepts a SERP keyword of up to 700 characters. */
+/** DataForSEO accepts a SERP keyword of up to 700 characters, counted after it decodes escapes: the text as searched. */
 const MAX_SEARCH_TEXT_LENGTH = 700
+
+/**
+ * Google search operators that multiply a SERP task's charge by 5, as the `keyword` field of
+ * https://docs.dataforseo.com/v3/serp/google/organic/live/advanced/ lists them (checked 2026-10-25).
+ */
+const SURCHARGED_OPERATORS = [
+  'allinanchor:', 'allintext:', 'allintitle:', 'allinurl:', 'cache:', 'define:', 'definition:', 'filetype:',
+  'id:', 'inanchor:', 'info:', 'intext:', 'intitle:', 'inurl:', 'link:', 'site:',
+] as const
+const OPERATOR_SURCHARGE = 5
+
+/**
+ * Whether a search may be charged as an operator search. DataForSEO does not publish how it matches
+ * operators, so this matches them anywhere, ignoring case, without the help center's `-site:` exemption:
+ * a false match only reserves more than the search spends, while a missed one spends past its reservation.
+ */
+function usesSurchargedOperator(searchText: string): boolean {
+  const text = searchText.toLowerCase()
+  return SURCHARGED_OPERATORS.some(operator => text.includes(operator))
+}
+
+/** DataForSEO decodes `%##` in a SERP keyword and reads `+` as a space, so both are sent escaped, `%` first. */
+function serpKeyword(searchText: string): string {
+  return searchText.replaceAll('%', '%25').replaceAll('+', '%2B')
+}
 
 // https://docs.dataforseo.com/v3/appendix/errors/ documents these request refusals,
 // distinct from execution or timeout
@@ -56,7 +81,7 @@ function marketRankingPayload(request: SeoAdapterRequest): Record<string, unknow
   if (request.tag.length > 255) throw validationError('SEO task identifier is too long.')
   targetHost(request.target)
   return {
-    keyword: text, location_code: request.locationCode, language_code: request.languageCode,
+    keyword: serpKeyword(text), location_code: request.locationCode, language_code: request.languageCode,
     device: search.device, depth: search.depth, tag: request.tag,
   }
 }
@@ -98,9 +123,10 @@ function taskPayload(request: SeoAdapterRequest): Record<string, unknown> {
 function estimate(request: SeoAdapterRequest): SeoAdapterEstimate {
   taskPayload(request)
   if (request.capability === SeoCapabilities['market-rankings']) {
-    // Published live SERP prices checked 2026-10-25: $0.002 for each 10 results
-    // requested. Location and device do not change the price.
-    return { maxCostMicros: 2_000 * (request.search!.depth / 10), catalogRevision: 'dataforseo-google-serp-live-2026-10-25' }
+    // Published live SERP prices checked 2026-10-25: $0.002 for each 10 results requested, five
+    // times that for a search using an operator. Location and device do not change the price.
+    const surcharge = usesSurchargedOperator(request.keywords[0]!) ? OPERATOR_SURCHARGE : 1
+    return { maxCostMicros: 2_000 * (request.search!.depth / 10) * surcharge, catalogRevision: 'dataforseo-google-serp-live-2026-10-25-operators' }
   }
   const rows = request.capability === SeoCapabilities['keyword-metrics']
     ? request.keywords.length
