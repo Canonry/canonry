@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SeoRepository, emptySeoResults, queries, seoTasks } from '@canonry/canonry-db'
-import { SeoCapabilities, SeoProviders, type SeoAdapter, type SeoAdapterResult, type SeoQuote, type SeoRun } from '@canonry/canonry-contracts'
+import { SeoCapabilities, SeoProviders, type SeoAdapter, type SeoAdapterResult, type SeoProfileInput, type SeoQuote, type SeoRun } from '@canonry/canonry-contracts'
 import { startScheduledSeoRefreshes } from '../src/index.js'
 import { ALL_CHECKS, scheduledHealthCheckIds } from '../src/doctor/registry.js'
 import { runChecks } from '../src/doctor/runner.js'
@@ -37,8 +37,8 @@ const grade = async (iso: string) => {
   return check.run({ db: h.db, project })
 }
 
-async function saveProfile(id: string) {
-  const response = await h.app.inject({ method: 'PUT', url: `/api/v1/projects/alpha/seo/profiles/${id}`, payload: seoProfileFixture })
+async function saveProfile(id: string, overrides: Partial<SeoProfileInput> = {}) {
+  const response = await h.app.inject({ method: 'PUT', url: `/api/v1/projects/alpha/seo/profiles/${id}`, payload: { ...seoProfileFixture, ...overrides } })
   expect(response.statusCode, response.body).toBe(200)
 }
 
@@ -80,10 +80,10 @@ function settle(runId: string, outcomeFor: SeoAdapterResult['outcome'] | ((searc
   }, task.leaseOwner!, h.state.policy)
 }
 
-async function refreshByHand(): Promise<string> {
-  const intent = await h.app.inject({ method: 'POST', url: '/api/v1/projects/alpha/seo/refresh-intents', payload: { profileId: 'main' } })
+async function refreshByHand(profileId = 'main'): Promise<string> {
+  const intent = await h.app.inject({ method: 'POST', url: '/api/v1/projects/alpha/seo/refresh-intents', payload: { profileId } })
   expect(intent.statusCode, intent.body).toBe(200)
-  const accepted = await h.app.inject({ method: 'POST', url: '/api/v1/projects/alpha/seo/sync', payload: { quoteToken: intent.json<SeoQuote>().token, idempotencyKey: 'by-hand' } })
+  const accepted = await h.app.inject({ method: 'POST', url: '/api/v1/projects/alpha/seo/sync', payload: { quoteToken: intent.json<SeoQuote>().token, idempotencyKey: `by-hand-${profileId}` } })
   expect(accepted.statusCode, accepted.body).toBe(202)
   return accepted.json<SeoRun>().id
 }
@@ -144,9 +144,9 @@ describe('seo.data.recent-refresh', () => {
       status: 'warn',
       code: 'seo.data.refresh-failed',
       summary: 'The scheduled SEO refresh on 2026-11-02 failed. Reason: Scheduled SEO refresh for profile "main" did not start: SEO refresh is unavailable under the current policy. No SEO refresh has completed yet.',
-      remediation: 'Fix what the reason names, then refresh now with `canonry seo refresh-intent alpha <profile-id>` and `canonry seo sync`, or wait for the next scheduled refresh on 2026-12-02. A completed refresh clears this warning.',
+      remediation: 'Fix what the reason names, then refresh now with `canonry seo refresh-intent alpha <profile-id>` and `canonry seo sync`, or wait for the next scheduled refresh on 2026-12-02. A completed refresh of the same profile clears this warning.',
       details: expect.objectContaining({
-        latestScheduledRuns: [{ id: skipped!.runId, status: 'failed', createdAt: '2026-11-02T07:00:00.000Z', reason: 'Scheduled SEO refresh for profile "main" did not start: SEO refresh is unavailable under the current policy.' }],
+        latestScheduledRuns: [{ id: skipped!.runId, profileId: 'main', status: 'failed', createdAt: '2026-11-02T07:00:00.000Z', reason: 'Scheduled SEO refresh for profile "main" did not start: SEO refresh is unavailable under the current policy.' }],
       }),
       alert: {
         label: 'SEO refresh failed',
@@ -266,7 +266,7 @@ describe('seo.data.recent-refresh', () => {
     expect(await grade('2026-11-04T08:00:00.000Z')).toMatchObject({
       status: 'warn',
       code: 'seo.data.overdue',
-      summary: 'No SEO refresh has completed since the schedule was set up. Its first refresh, due 2026-11-02, did not complete within 2 days. A refresh started 2026-11-02 has not finished, and scheduled refreshes wait for it.',
+      summary: 'No SEO refresh has completed since the schedule was enabled. Its first refresh, due 2026-11-02, did not complete within 2 days. A refresh started 2026-11-02 has not finished, and scheduled refreshes wait for it.',
       remediation: `Check that refresh with \`canonry seo run show alpha ${stuck!.runId}\`, and cancel it with \`canonry seo run cancel alpha ${stuck!.runId}\` if it is stuck.`,
       details: { activeRunId: stuck!.runId },
     })
@@ -281,6 +281,67 @@ describe('seo.data.recent-refresh', () => {
       code: 'seo.data.schedule-invalid',
       summary: 'The SEO refresh schedule has no time it can run, so no scheduled SEO refresh will start.',
       details: { cronExpr: '0 7 31 2 *', dueAt: null },
+    })
+  })
+
+  it('clears a profile\'s failure only with a newer completed refresh of that same profile', async () => {
+    // "wide" adds ranked keywords: two requests, over a 150 run ceiling, so the firing cannot start it.
+    await saveProfile('main')
+    await saveProfile('wide', { capabilities: [SeoCapabilities['keyword-metrics'], SeoCapabilities['ranked-keywords']], targets: [{ kind: 'domain', value: 'alpha.com', includeSubdomains: true }] })
+    const scheduleId = await setSchedule()
+    h.state.policy.maxRunCostMicros = 150
+    const [main, wide] = fire('2026-11-02T07:00:00.000Z', scheduleId)
+    expect([main?.status, wide?.status]).toEqual(['started', 'skipped'])
+    at('2026-11-02T07:10:00.000Z')
+    settle(main!.runId, 'completed')
+    const failing = { status: 'warn', code: 'seo.data.refresh-failed', summary: expect.stringMatching(/^1 of 2 profile refreshes in the scheduled SEO refresh on 2026-11-02 did not fully complete\. Reason: Scheduled SEO refresh for profile "wide" did not start: SEO refresh is unavailable under the current policy\. /) }
+    expect(await grade('2026-11-02T12:00:00.000Z')).toMatchObject(failing)
+
+    // A manual refresh of the other profile does not make good the one that failed.
+    at('2026-11-03T09:00:00.000Z')
+    const otherProfile = await refreshByHand('main')
+    at('2026-11-03T09:05:00.000Z')
+    settle(otherProfile, 'completed')
+    expect(await grade('2026-11-03T10:00:00.000Z')).toMatchObject(failing)
+
+    // The failed profile's own refresh does.
+    h.state.policy.maxRunCostMicros = 1000
+    at('2026-11-04T09:00:00.000Z')
+    const sameProfile = await refreshByHand('wide')
+    at('2026-11-04T09:05:00.000Z')
+    settle(sameProfile, 'completed')
+    settle(sameProfile, 'completed')
+    expect(await grade('2026-11-04T10:00:00.000Z')).toMatchObject({
+      status: 'ok', code: 'seo.data.fresh', summary: 'The last SEO refresh completed on 2026-11-04. The next scheduled refresh is due 2026-12-02.',
+    })
+  })
+
+  it('never counts time the schedule spent disabled as overdue', async () => {
+    await saveProfile('main')
+    // Created disabled on October 25 and enabled on November 25: the first enabled firing is December 2.
+    await setSchedule({ enabled: false })
+    at('2026-11-25T12:00:00.000Z')
+    await setSchedule()
+    expect(await grade('2026-11-26T12:00:00.000Z')).toMatchObject({
+      status: 'ok', code: 'seo.data.awaiting-first-refresh', summary: 'No SEO refresh has completed yet. The first scheduled refresh is due 2026-12-02.',
+    })
+    expect(await grade('2026-12-04T07:00:00.000Z')).toMatchObject({
+      status: 'warn', code: 'seo.data.overdue',
+      summary: 'No SEO refresh has completed since the schedule was enabled. Its first refresh, due 2026-12-02, did not complete within 2 days.',
+    })
+  })
+
+  it('starts a re-enabled schedule fresh, without the failures from before its pause', async () => {
+    await saveProfile('main')
+    const scheduleId = await setSchedule()
+    h.state.policy.projectMonthlyLimitMicros = 50
+    fire('2026-11-02T07:00:00.000Z', scheduleId)
+    at('2026-11-03T09:00:00.000Z')
+    await setSchedule({ enabled: false })
+    at('2026-11-25T12:00:00.000Z')
+    await setSchedule()
+    expect(await grade('2026-11-26T12:00:00.000Z')).toMatchObject({
+      status: 'ok', code: 'seo.data.awaiting-first-refresh', summary: 'No SEO refresh has completed yet. The first scheduled refresh is due 2026-12-02.',
     })
   })
 

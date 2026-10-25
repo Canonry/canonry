@@ -1172,6 +1172,7 @@ function bindTrafficSyncSchedule(
     preset: null,
     timezone: 'UTC',
     enabled: true,
+    enabledAt: now,
     providers: [],
     sourceId,
     createdAt: now,

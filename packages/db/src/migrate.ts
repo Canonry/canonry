@@ -4949,6 +4949,16 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `CREATE INDEX IF NOT EXISTS idx_seo_tasks_retry ON seo_tasks(retry_of)`,
     ],
   },
+  {
+    // When a schedule last turned on, so a schedule enabled long after it was
+    // created is graded from that point. Nullable with no default: existing
+    // rows read as enabled since creation, and an older writer leaves it null.
+    version: 196,
+    name: 'schedules-enabled-at',
+    statements: [
+      `ALTER TABLE schedules ADD COLUMN enabled_at TEXT`,
+    ],
+  },
 ]
 
 /**

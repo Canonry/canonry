@@ -79,10 +79,10 @@ Each firing admits one refresh per profile under the same host policy as a manua
 
 The `seo.data.recent-refresh` doctor check watches an enabled `seo-sync` schedule. It is part of the six-hourly health pass, so a new warning reaches `health.degraded` like any other data check. Both findings are warnings and never urgent:
 
-- `seo.data.refresh-failed` or `seo.data.refresh-partial`: the refreshes of the latest firing did not all complete. The summary gives each one's reason: the stored reason for a profile the firing could not start, or what the refresh's requests reported. A refresh that completes afterwards, including a manual retry, clears it.
-- `seo.data.overdue`: no refresh completed within two days of the firing that was due after the last completed refresh (or after the schedule was created). A refresh that has not finished is named, because scheduled firings wait for it.
+- `seo.data.refresh-failed` or `seo.data.refresh-partial`: the refreshes of the latest firing did not all complete. The summary gives each one's reason: the stored reason for a profile the firing could not start, or what the refresh's requests reported. A completed refresh of the same profile afterwards, including a manual retry, clears that profile's failure; a refresh of another profile does not.
+- `seo.data.overdue`: no refresh completed within two days of the firing that was due after the last completed refresh (or after the schedule was last enabled). A refresh that has not finished is named, because scheduled firings wait for it.
 
-A schedule that has no time it can run (for example a cron for February 31) warns `seo.data.schedule-invalid`. A project without an enabled `seo-sync` schedule is skipped. After a paused schedule is re-enabled, the check can warn until its next refresh completes, because it cannot tell a pause from an outage.
+A schedule that has no time it can run (for example a cron for February 31) warns `seo.data.schedule-invalid`. A project without an enabled `seo-sync` schedule is skipped. Time a schedule spends disabled never counts: once it is turned on, its first firing gets a full cycle and the firings from before the pause are ignored.
 
 ```bash
 canonry doctor --project example --check seo.data.recent-refresh --format json

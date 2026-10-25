@@ -310,7 +310,9 @@ const COVERAGE: Record<string, CoverageEntry> = {
   schedules: {
     kind: 'dto',
     dto: scheduleDtoSchema,
-    internal: {},
+    internal: {
+      enabledAt: 'When the schedule last turned on; the SEO refresh doctor check grades only that enabled period, so time spent disabled is never overdue.',
+    },
   },
   siteAuditSnapshots: {
     kind: 'dto',

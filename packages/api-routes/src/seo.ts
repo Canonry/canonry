@@ -314,6 +314,21 @@ function budgetBuckets(account: string, projectId: string, policy: SeoPolicy, no
   ]
 }
 
+/** The reason a scheduled refresh that could not start stores on its failed run. */
+function skippedRefreshReason(profileId: string | null, reason: string): string {
+  return `Scheduled SEO refresh for ${profileId ? `profile "${profileId}"` : 'this project'} did not start: ${reason}`
+}
+// Profile ids are letters, digits, dots, hyphens and underscores, so a quote ends one.
+const SKIPPED_REFRESH_PROFILE = /^Scheduled SEO refresh for profile "([^"]+)" did not start: /
+
+/**
+ * The profile a scheduled refresh that could not start was for, read back from the reason it
+ * stored (`skippedRefreshReason`): such a run has no SEO job to name it. Null for any other run.
+ */
+export function skippedRefreshProfile(error: string | null): string | null {
+  return error ? SKIPPED_REFRESH_PROFILE.exec(error)?.[1] ?? null : null
+}
+
 export interface ScheduledSeoRefreshOutcome {
   /** Null when the project has no saved profile. */
   profileId: string | null
@@ -345,8 +360,7 @@ export function startScheduledSeoRefreshes(
   const principalId = `schedule:${input.scheduleId}`
   const recordSkipped = (profileId: string | null, reason: string, detail?: string): ScheduledSeoRefreshOutcome => {
     const runId = crypto.randomUUID(); const now = new Date().toISOString()
-    const subject = profileId ? `profile "${profileId}"` : 'this project'
-    db.insert(runs).values({ id: runId, projectId: input.projectId, kind: RunKinds['seo-sync'], status: RunStatuses.failed, trigger: RunTriggers.scheduled, createdAt: now, finishedAt: now, error: `Scheduled SEO refresh for ${subject} did not start: ${reason}` }).run()
+    db.insert(runs).values({ id: runId, projectId: input.projectId, kind: RunKinds['seo-sync'], status: RunStatuses.failed, trigger: RunTriggers.scheduled, createdAt: now, finishedAt: now, error: skippedRefreshReason(profileId, reason) }).run()
     return { profileId, status: 'skipped', runId, reason, ...(detail ? { detail } : {}) }
   }
   const saved = db.select().from(seoProfiles).where(eq(seoProfiles.projectId, input.projectId)).orderBy(asc(seoProfiles.id)).all().map(profileDto)

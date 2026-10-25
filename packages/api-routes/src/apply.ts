@@ -3,7 +3,7 @@ import crypto from 'node:crypto'
 import { and, eq } from 'drizzle-orm'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { projects, schedules, notifications, readNegativeReviewMaxStars, writeNegativeReviewMaxStars } from '@canonry/canonry-db'
-import { competitorAliasProjectIdentity, DEFAULT_COMPETITOR_AUTO_ALIAS_MODE, diffProjectConfigState, forbidden, isRedactedNotificationUrl, nextScheduleUpdatedAt, normalizeProjectAliases, projectConfigSchema, resolveConfigSpecQueries, resolveProjectQualifiedAliases, SchedulableRunKinds, validationError, describeError, type ApplyPreviewDto } from '@canonry/canonry-contracts'
+import { competitorAliasProjectIdentity, DEFAULT_COMPETITOR_AUTO_ALIAS_MODE, diffProjectConfigState, forbidden, isRedactedNotificationUrl, nextScheduleUpdatedAt, normalizeProjectAliases, scheduleEnabledAt, projectConfigSchema, resolveConfigSpecQueries, resolveProjectQualifiedAliases, SchedulableRunKinds, validationError, describeError, type ApplyPreviewDto } from '@canonry/canonry-contracts'
 import { competitorSetChangeAuditFields, competitorAliasAuditFields, competitorIdentityChanged, competitorNames, competitorWritesFromEntries, planCompetitorSet, readStoredCompetitors, syncCompetitorSet } from './competitor-writes.js'
 import type { ProviderAdapterInfo } from './settings.js'
 import { assertProviderRouteScope, invalidProviderSelections, providerRouteFamilies, pruneProviderDispatchModes, pruneProviderModelsForProviders, validateProviderDispatchModes, validateProviderModels } from './provider-models.js'
@@ -406,7 +406,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
             timezone: resolvedSchedule.timezone,
             nextRunAt,
             providers: config.spec.schedule?.providers ?? [],
-            ...(specEnabled === undefined ? {} : { enabled: specEnabled }),
+            ...(specEnabled === undefined ? {} : { enabled: specEnabled, enabledAt: scheduleEnabledAt(existingSched, specEnabled, now) }),
             updatedAt: nextScheduleUpdatedAt(existingSched.updatedAt, Date.parse(now)),
           }).where(eq(schedules.id, existingSched.id)).run()
         } else {
@@ -420,6 +420,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
             timezone: resolvedSchedule.timezone,
             nextRunAt,
             enabled: specEnabled ?? true,
+            enabledAt: scheduleEnabledAt(undefined, specEnabled ?? true, now),
             providers: config.spec.schedule?.providers ?? [],
             createdAt: now,
             updatedAt: now,

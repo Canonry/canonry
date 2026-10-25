@@ -18,6 +18,7 @@ import {
 import { currentSeoTasks, runs, schedules, seoJobs, seoTasks } from '@canonry/canonry-db'
 import { firstSentence } from '../../notifications/health-copy.js'
 import { nextRunFromSchedule, type ScheduleTiming } from '../../schedule-utils.js'
+import { skippedRefreshProfile } from '../../seo.js'
 import type { CheckDefinition, CheckOutput, DoctorContext, ProjectInfo } from '../types.js'
 
 /**
@@ -31,11 +32,13 @@ import type { CheckDefinition, CheckOutput, DoctorContext, ProjectInfo } from '.
  *
  * Two findings, both `warn` (stale SEO data is not an emergency):
  *  - the latest firing did not fully complete, with each run's reason. A
- *    completed refresh started after it, such as a manual retry, clears this.
+ *    completed refresh of the same profile started after it, such as a manual
+ *    retry, clears that profile's part; another profile's refresh does not.
  *  - no refresh completed within two days of the first firing due after the
- *    last completed refresh (or after the schedule was created).
+ *    last completed refresh (or after the schedule was last enabled).
  * A project without an enabled `seo-sync` schedule is skipped: manual
- * refreshes have no cadence to miss.
+ * refreshes have no cadence to miss. Only the schedule's current enabled
+ * period counts, so time spent disabled is never overdue.
  */
 const GRACE_DAYS = 2
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -72,11 +75,11 @@ function scheduleTiming(schedule: ScheduleRow): ScheduleTiming | null {
 }
 
 /**
- * Every run of this schedule's newest firing, oldest first. Runs from before
- * the schedule was created belong to a schedule that was removed.
+ * Every run of this schedule's newest firing, oldest first. Runs from before the
+ * schedule was last enabled belong to a paused period or to a removed schedule.
  */
-function latestFiring(ctx: DoctorContext, projectId: string, schedule: ScheduleRow): RefreshRun[] {
-  const scheduled = and(seoSyncRuns(projectId), eq(runs.trigger, RunTriggers.scheduled), gt(runs.createdAt, schedule.createdAt))
+function latestFiring(ctx: DoctorContext, projectId: string, enabledSince: string): RefreshRun[] {
+  const scheduled = and(seoSyncRuns(projectId), eq(runs.trigger, RunTriggers.scheduled), gt(runs.createdAt, enabledSince))
   const newest = ctx.db.select({ createdAt: runs.createdAt }).from(runs).where(scheduled).orderBy(desc(runs.createdAt)).limit(1).get()
   if (!newest) return []
   const newestMs = Date.parse(newest.createdAt)
@@ -103,6 +106,43 @@ function lastCompleted(ctx: DoctorContext, projectId: string): { id: string; at:
 
 function isIncomplete(run: RefreshRun): boolean {
   return run.status === RunStatuses.failed || run.status === RunStatuses.partial
+}
+
+/**
+ * The profile each run refreshed: its SEO job names it, and a run the firing could not start
+ * names it in its stored reason. Null for a run of a project that had no profile to refresh.
+ */
+function runProfiles(ctx: DoctorContext, firing: RefreshRun[]): Map<string, string | null> {
+  const jobs = firing.length === 0 ? [] : ctx.db
+    .select({ runId: seoJobs.runId, profileId: seoJobs.profileId })
+    .from(seoJobs)
+    .where(inArray(seoJobs.runId, firing.map(run => run.id)))
+    .all()
+  const byRun = new Map(jobs.flatMap(job => (job.runId ? [[job.runId, job.profileId] as const] : [])))
+  return new Map(firing.map(run => [run.id, byRun.get(run.id) ?? skippedRefreshProfile(run.error)]))
+}
+
+/**
+ * The firing's runs that did not fully complete and were not made good since. A completed refresh
+ * of the same profile started after the firing, such as a manual retry, settles that profile's run;
+ * another profile's refresh settles nothing. A run that names no profile (the project had none)
+ * is settled by any completed refresh.
+ */
+function unsettledRuns(ctx: DoctorContext, projectId: string, firing: RefreshRun[], profiles: Map<string, string | null>): RefreshRun[] {
+  const incomplete = firing.filter(isIncomplete)
+  const firedAt = firing[firing.length - 1]?.createdAt
+  if (incomplete.length === 0 || !firedAt) return incomplete
+  const refreshed = new Set(ctx.db
+    .select({ profileId: seoJobs.profileId })
+    .from(runs)
+    .innerJoin(seoJobs, eq(seoJobs.runId, runs.id))
+    .where(and(seoSyncRuns(projectId), eq(runs.status, RunStatuses.completed), gt(runs.createdAt, firedAt)))
+    .all()
+    .map(row => row.profileId))
+  return incomplete.filter(run => {
+    const profile = profiles.get(run.id) ?? null
+    return profile === null ? refreshed.size === 0 : !refreshed.has(profile)
+  })
 }
 
 const COUNT_LIST = new Intl.ListFormat('en', { style: 'long', type: 'conjunction' })
@@ -157,16 +197,20 @@ function gradeSeoRefresh(ctx: DoctorContext, project: ProjectInfo): CheckOutput 
   const now = Date.now()
   const timing = scheduleTiming(schedule)
   const last = lastCompleted(ctx, project.id)
-  // A new schedule gets a full first cycle, counted from its creation.
-  const reference = last && Date.parse(last.at) > Date.parse(schedule.createdAt) ? last.at : schedule.createdAt
+  // Only the current enabled period counts: a schedule turned on today gets a full first cycle,
+  // however long it existed disabled. A row from before `enabledAt` existed counts from creation.
+  const enabledSince = schedule.enabledAt ?? schedule.createdAt
+  const reference = last && Date.parse(last.at) > Date.parse(enabledSince) ? last.at : enabledSince
   const dueAt = timing ? nextRunFromSchedule(timing, new Date(reference)) : null
   const deadlineAt = dueAt ? new Date(Date.parse(dueAt) + GRACE_DAYS * DAY_MS).toISOString() : null
-  const firing = latestFiring(ctx, project.id, schedule)
+  const firing = latestFiring(ctx, project.id, enabledSince)
+  const profiles = runProfiles(ctx, firing)
   const details: Record<string, unknown> = {
     scheduleId: schedule.id,
     cronExpr: schedule.cronExpr || null,
     recurrence: schedule.recurrence ?? null,
     timezone: schedule.timezone,
+    enabledSince,
     graceDays: GRACE_DAYS,
     lastCompletedAt: last?.at ?? null,
     lastCompletedRunId: last?.id ?? null,
@@ -174,6 +218,7 @@ function gradeSeoRefresh(ctx: DoctorContext, project: ProjectInfo): CheckOutput 
     deadlineAt,
     latestScheduledRuns: firing.map(run => ({
       id: run.id,
+      profileId: profiles.get(run.id) ?? null,
       status: run.status,
       createdAt: run.createdAt,
       reason: isIncomplete(run) ? refreshReason(ctx, run) : null,
@@ -197,33 +242,25 @@ function gradeSeoRefresh(ctx: DoctorContext, project: ProjectInfo): CheckOutput 
   }
 
   const nextAt = nextRunFromSchedule(timing, new Date(now))
-  const incomplete = firing.filter(isIncomplete)
+  const unsettled = unsettledRuns(ctx, project.id, firing, profiles)
   const newestFired = firing[firing.length - 1]
-  const retried = newestFired && incomplete.length > 0
-    ? ctx.db
-      .select({ id: runs.id })
-      .from(runs)
-      .where(and(seoSyncRuns(project.id), eq(runs.status, RunStatuses.completed), gt(runs.createdAt, newestFired.createdAt)))
-      .limit(1)
-      .get()
-    : undefined
-  if (newestFired && incomplete.length > 0 && !retried) {
-    const failed = incomplete.some(run => run.status === RunStatuses.failed)
+  if (newestFired && unsettled.length > 0) {
+    const failed = unsettled.some(run => run.status === RunStatuses.failed)
     const firedOn = day(newestFired.createdAt)
-    const reasons = [...new Set(incomplete.map(run => refreshReason(ctx, run)))].join(' ')
+    const reasons = [...new Set(unsettled.map(run => refreshReason(ctx, run)))].join(' ')
     const reason = reasons.length > REASON_LIMIT ? `${truncateUtf16(reasons, REASON_LIMIT)}...` : reasons
     const outcome = firing.length === 1
       ? `The scheduled SEO refresh on ${firedOn} ${failed ? 'failed' : 'only partly completed'}`
-      : `${incomplete.length} of ${firing.length} profile refreshes in the scheduled SEO refresh on ${firedOn} did not fully complete`
+      : `${unsettled.length} of ${firing.length} profile refreshes in the scheduled SEO refresh on ${firedOn} did not fully complete`
     // A refresh that never started stores a full sentence naming the profile
     // and the cause, which says it better than any wrapper would.
-    const line = firing.length > 1 ? `${outcome}.` : incomplete[0]!.error ? reason : `${outcome}: ${reason}`
+    const line = firing.length > 1 ? `${outcome}.` : unsettled[0]!.error ? reason : `${outcome}: ${reason}`
     const next = nextAt ? ` on ${day(nextAt)}` : ''
     return {
       status: CheckStatuses.warn,
       code: failed ? 'seo.data.refresh-failed' : 'seo.data.refresh-partial',
       summary: `${outcome}. Reason: ${reason} ${last ? `The last completed SEO refresh was on ${day(last.at)}.` : 'No SEO refresh has completed yet.'}`,
-      remediation: `Fix what the reason names, then refresh now with \`canonry seo refresh-intent ${name} <profile-id>\` and \`canonry seo sync\`, or wait for the next scheduled refresh${next}. A completed refresh clears this warning.`,
+      remediation: `Fix what the reason names, then refresh now with \`canonry seo refresh-intent ${name} <profile-id>\` and \`canonry seo sync\`, or wait for the next scheduled refresh${next}. A completed refresh of the same profile clears this warning.`,
       details,
       alert: {
         label: failed ? 'SEO refresh failed' : 'SEO refresh incomplete',
@@ -243,7 +280,7 @@ function gradeSeoRefresh(ctx: DoctorContext, project: ProjectInfo): CheckOutput 
       .orderBy(asc(runs.createdAt))
       .limit(1)
       .get()
-    const since = last ? `No SEO refresh has completed since ${day(last.at)}.` : 'No SEO refresh has completed since the schedule was set up.'
+    const since = last ? `No SEO refresh has completed since ${day(last.at)}.` : 'No SEO refresh has completed since the schedule was enabled.'
     const missed = last
       ? `The scheduled refresh due ${day(dueAt)} did not complete within ${GRACE_DAYS} days.`
       : `Its first refresh, due ${day(dueAt)}, did not complete within ${GRACE_DAYS} days.`

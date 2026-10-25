@@ -908,6 +908,12 @@ export const schedules = sqliteTable('schedules', {
   sourceId: text('source_id'),
   lastRunAt: text('last_run_at'),
   nextRunAt: text('next_run_at'),
+  /**
+   * When the schedule last turned on (created enabled, or changed from disabled to enabled);
+   * null while it is disabled. Rows written before migration 196 hold null while enabled:
+   * read those as enabled since `createdAt`.
+   */
+  enabledAt: text('enabled_at'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 }, (table) => [
