@@ -13,6 +13,7 @@ function demoMarketRankings(plan: MeasurementPlanV2, input: SeoProfileInput, tar
   const settings = input.rankings!
   const text = new Map(plan.querySnapshots.map(snapshot => [snapshot.queryId, snapshot.queryText]))
   const nonBrand = new Set(plan.assignments.filter(assignment => assignment.queryClass === queryClassSchema.enum['non-brand']).map(assignment => `${assignment.targetKey}:${assignment.queryId}`))
+  // Every Harbor group pins the two rivals the project tracks, so each market's query is tracked against both.
   const competitors = [...new Set(plan.groups.flatMap(group => group.competitors.map(competitor => competitor.domain)))].sort()
   return (plan.reportingScopes ?? []).flatMap(market => {
     const location = settings.locations.find(item => item.key === market.stableKey)!
@@ -24,7 +25,7 @@ function demoMarketRankings(plan: MeasurementPlanV2, input: SeoProfileInput, tar
       const context = { marketKey: market.stableKey, marketLabel: market.label, regionKey: market.groupKey ?? null, regionLabel: market.groupKey ? plan.groups.find(group => group.stableKey === market.groupKey)?.label ?? null : null, queryId, queryText, queryClass: queryClassSchema.enum['non-brand'] }
       const provenance: SeoProvenance = { provider: SeoProviders.dataforseo, dataset: 'demo-market-rankings', engine: 'google', locationCode: location.locationCode, languageCode: input.languageCode, device: settings.device, collectedAt: capturedAt, sourceUpdatedAt: capturedAt }
       return {
-        request: { capability: SeoCapabilities['market-rankings'], target, keywords: [queryText], locationCode: location.locationCode, languageCode: input.languageCode, limit: input.limit, tag: '', search: { device: settings.device, depth: settings.depth, locationLabel: location.label, competitors, markets: [context] } },
+        request: { capability: SeoCapabilities['market-rankings'], target, keywords: [queryText], locationCode: location.locationCode, languageCode: input.languageCode, limit: input.limit, tag: '', search: { device: settings.device, depth: settings.depth, locationLabel: location.label, markets: [{ context, competitors }] } },
         row: {
           ...context, searchText: queryText, locationLabel: location.label, target, rankOrganic: rank, rankAbsolute: rank === null ? null : rank + 2,
           url: rank === null ? null : `https://${target.value}/destinations/${market.stableKey.replace(/^market-/, '')}/`, depth: settings.depth,

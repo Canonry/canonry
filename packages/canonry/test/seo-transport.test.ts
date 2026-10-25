@@ -126,9 +126,9 @@ describe('SEO public transport parity', () => {
     const repository = new SeoRepository(h.db)
     for (let task = repository.claim(run.id, { ...policy, accountKey: 'account-a' }); task; task = repository.claim(run.id, { ...policy, accountKey: 'account-a' })) {
       const search = task.request.search!
-      const rows: SeoMarketRanking[] = search.markets.map(market => ({
-        ...market, searchText: task.request.keywords[0]!, locationLabel: search.locationLabel, target: { kind: 'domain', value: 'alpha.com', includeSubdomains: true },
-        rankOrganic: market.marketKey === 'Phoenix' ? 3 : null, rankAbsolute: null, url: market.marketKey === 'Phoenix' ? 'https://alpha.com/solar' : null, depth: 50, competitors: [],
+      const rows: SeoMarketRanking[] = search.markets.map(({ context }) => ({
+        ...context, searchText: task.request.keywords[0]!, locationLabel: search.locationLabel, target: { kind: 'domain', value: 'alpha.com', includeSubdomains: true },
+        rankOrganic: context.marketKey === 'Phoenix' ? 3 : null, rankAbsolute: null, url: context.marketKey === 'Phoenix' ? 'https://alpha.com/solar' : null, depth: 50, competitors: [],
         provenance: { provider: 'dataforseo', dataset: 'dataforseo-serp/google/market-rankings', engine: 'google', locationCode: task.request.locationCode, languageCode: 'en', device: 'mobile', collectedAt: '2026-10-25T12:00:00.000Z', sourceUpdatedAt: null },
       }))
       repository.settle(task.id, { outcome: SeoAdapterOutcomes.completed, error: null, fetchedAt: '2026-10-25T12:00:00.000Z', tasks: [{ remoteTaskId: task.id, statusCode: 20000, costMicros: 10_000 }], results: { ...emptySeoResults(), marketRankings: rows } }, task.leaseOwner!)

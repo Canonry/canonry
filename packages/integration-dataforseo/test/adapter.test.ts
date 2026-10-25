@@ -192,7 +192,11 @@ describe('DataForSEO market rankings', () => {
   const market = (marketKey: string, queryId: string): SeoMarketRankingContext => ({ marketKey, marketLabel: `${marketKey}, Metro`, regionKey: 'metro', regionLabel: 'Metro Area', queryId, queryText: 'best apartments in Harbor, Metro', queryClass: 'non-brand' })
   const ranking: SeoAdapterRequest = {
     capability: SeoCapabilities['market-rankings'], target: domain, keywords: ['best apartments in Harbor'], locationCode: 200623, languageCode: 'en', limit: 100, tag: 'local-task-2',
-    search: { device: 'mobile', depth: 50, locationLabel: 'Harbor, TX', competitors: ['rival.com'], markets: [market('harbor', 'q1'), market('downtown', 'q2')] },
+    // Two markets share this search but track different rivals: downtown's query also has a pinned one.
+    search: { device: 'mobile', depth: 50, locationLabel: 'Harbor, TX', markets: [
+      { context: market('harbor', 'q1'), competitors: ['rival.com'] },
+      { context: market('downtown', 'q2'), competitors: ['downtown-rival.com', 'rival.com'] },
+    ] },
   }
   const organic = (rank: number, absolute: number, host: string) => ({ type: 'organic', rank_group: rank, rank_absolute: absolute, domain: host, url: `https://${host}/listing`, title: host })
   function serp(items: unknown[], extra: Record<string, unknown> = {}): Response {
@@ -207,7 +211,7 @@ describe('DataForSEO market rankings', () => {
     const fetchMock = vi.fn().mockResolvedValue(serp([
       // A map block is not an organic position, and its unusual fields must not reject the page.
       { type: 'local_pack', rank_group: 0, rank_absolute: 1, domain: 'example.com', title: 'Map results' },
-      organic(2, 3, 'www.rival.com'), organic(4, 6, 'apartments.example.com'), organic(7, 10, 'www.example.com'),
+      organic(2, 3, 'www.rival.com'), organic(4, 6, 'apartments.example.com'), organic(5, 8, 'www.downtown-rival.com'), organic(7, 10, 'www.example.com'),
       organic(8, 11, 'notexample.com'), organic(9, 12, 'listings.rival.com'),
     ]))
     vi.stubGlobal('fetch', fetchMock)
@@ -221,10 +225,13 @@ describe('DataForSEO market rankings', () => {
     // The map result and a lookalike domain are not the site's organic position; the subdomain is.
     const expected = {
       searchText: 'best apartments in Harbor', locationLabel: 'Harbor, TX', target: domain, rankOrganic: 4, rankAbsolute: 6, url: 'https://apartments.example.com/listing', depth: 50,
-      competitors: [{ domain: 'rival.com', rankOrganic: 2 }],
       provenance: { provider: 'dataforseo', dataset: 'dataforseo-serp/google/market-rankings', engine: 'google', locationCode: 200623, languageCode: 'en', device: 'mobile', sourceUpdatedAt: '2026-10-25 17:10:11 +00:00' },
     }
-    expect(result.results.marketRankings).toMatchObject([{ ...market('harbor', 'q1'), ...expected }, { ...market('downtown', 'q2'), ...expected }])
+    // Each market reports only its own rivals, each at its best position on the page.
+    expect(result.results.marketRankings).toMatchObject([
+      { ...market('harbor', 'q1'), ...expected, competitors: [{ domain: 'rival.com', rankOrganic: 2 }] },
+      { ...market('downtown', 'q2'), ...expected, competitors: [{ domain: 'rival.com', rankOrganic: 2 }, { domain: 'downtown-rival.com', rankOrganic: 5 }] },
+    ])
   })
 
   it('reads a site outside the checked results as not ranked and keeps the charge for a page that answers another search', async () => {

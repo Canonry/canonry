@@ -358,14 +358,23 @@ export type SeoReconcileInput = z.infer<typeof seoReconcileInputSchema>
 export const seoReconcileResultSchema = z.object({ id: z.string(), status: seoRunStatusSchema }).strict()
 export type SeoReconcileResult = z.infer<typeof seoReconcileResultSchema>
 
+/** One market and tracked query a market-rankings search answers, with the competitors its row reports. */
+export interface SeoMarketRankingSearchMarket {
+  context: SeoMarketRankingContext
+  /**
+   * Registrable domains of the competitors tracked for this query in this market: the project's,
+   * plus those pinned to the Advanced groups whose Properties ask it. Markets that share a search
+   * can track different competitors, so each row reports only its own.
+   */
+  competitors: string[]
+}
+
 /** One market-rankings search: how it runs and which markets and queries it answers. */
 export interface SeoMarketRankingSearch {
   device: SeoDevice
   depth: number
   locationLabel: string
-  /** Registrable domains of tracked competitors to look for in the same results. */
-  competitors: string[]
-  markets: SeoMarketRankingContext[]
+  markets: SeoMarketRankingSearchMarket[]
 }
 
 /** Internal adapter boundary. These cost fields never enter customer DTOs. */

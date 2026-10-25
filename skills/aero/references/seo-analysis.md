@@ -75,7 +75,7 @@ Analysis never requires a refresh intent. Keep credentials and hosted financial 
   Lead each finding with `queryText` and its market. `searchText` is the exact text searched on Google; mention it only when it differs in a way that matters.
 - `rankOrganic` is the site's best organic position within the checked `depth`. Null means the site was not in those results, not that the search failed. Say "not in the top 50", never "rank unknown".
 - `locationLabel` and `provenance.device` say where and how the search ran. Compare markets only at the same depth and device.
-- `competitors` lists tracked competitors found in the same results, by position. Absence means not in the checked results.
+- `competitors` lists the competitors tracked for that query in that market (the project's, plus any pinned to the Advanced groups whose Properties ask it) found in the same results, by position. Absence means not in the checked results.
 - One refresh is one sample of Google's results. Rank movement needs two refreshes of the same profile, query, market and location; otherwise state the single observation.
 - Rankings and AI answers for a market are separate instruments. Present them side by side for the same query and market, never as a combined score.
 

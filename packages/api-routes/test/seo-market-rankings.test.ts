@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { eq } from 'drizzle-orm'
 import { SeoRepository, competitors, measurementPlans, measurementPlanVersions, projects, queries, seoTasks } from '@canonry/canonry-db'
 import {
-  SeoCapabilities, SeoProviders, canonicalMeasurementPlanV2Json, emptySeoResults,
+  SeoCapabilities, SeoProviders, canonicalMeasurementPlanV2Json, compareText, emptySeoResults,
   type MeasurementPlanV2, type SeoAdapter, type SeoContext, type SeoMarketRanking, type SeoMarketRankingList, type SeoProfileInput, type SeoQuote, type SeoRun, type SeoRunDetail,
 } from '@canonry/canonry-contracts'
 import { createSeoHarness, seoProfileFixture } from './seo-fixture.js'
@@ -29,14 +29,15 @@ function harness() {
 
 const node = (stableKey: string, queryId: string, queryText: string) => ({ stableKey, queryId, queryText, context: { providers: ['openai' as const], models: {}, location: null }, expectedSnapshots: 1 })
 const snapshot = (queryId: string, queryText: string) => ({ queryId, queryText, provenance: { source: 'manual' as const, sourceId: null, capturedAt: '2026-07-01T00:00:00.000Z' } })
-/** One metro with a neighborhood group and market per Property; `q-shared` is asked in both markets. */
-function metroPlan(): MeasurementPlanV2 {
+/** One metro with a neighborhood group and market per Property; `q-shared` is asked in both markets. `pins` adds competitors to groups by key. */
+function metroPlan(pins: Record<string, string[]> = {}): MeasurementPlanV2 {
   const source = measurementPlanV2Fixture()
+  const pinned = (groupKey: string) => (pins[groupKey] ?? []).map(domain => ({ stableKey: domain.toLowerCase().replace(/[^a-z0-9]+/g, '-'), label: domain, domain, aliases: [] }))
   return measurementPlanV2Fixture({
     groups: [
-      { stableKey: 'metro', label: 'Coast Metro Area', targetKeys: ['harbor', 'bayside'], competitors: [] },
-      { stableKey: 'metro--harbor', label: 'Harbor, Coast', parentGroupKey: 'metro', targetKeys: ['harbor'], competitors: [] },
-      { stableKey: 'metro--bayside', label: 'Bayside, Coast', parentGroupKey: 'metro', targetKeys: ['bayside'], competitors: [] },
+      { stableKey: 'metro', label: 'Coast Metro Area', targetKeys: ['harbor', 'bayside'], competitors: pinned('metro') },
+      { stableKey: 'metro--harbor', label: 'Harbor, Coast', parentGroupKey: 'metro', targetKeys: ['harbor'], competitors: pinned('metro--harbor') },
+      { stableKey: 'metro--bayside', label: 'Bayside, Coast', parentGroupKey: 'metro', targetKeys: ['bayside'], competitors: pinned('metro--bayside') },
     ],
     querySnapshots: [snapshot('q-harbor', 'best homes in Harbor, Coast'), snapshot('q-bayside', 'best  homes in Bayside, coast'), snapshot('q-shared', 'homes near the water'), snapshot('q-brand', 'northstar reviews, Coast')],
     assignments: [
@@ -93,7 +94,7 @@ async function refresh(h: ReturnType<typeof harness>, key: string, id = 'markets
   return response.json<SeoRun>()
 }
 const plannedSearches = (h: ReturnType<typeof harness>, runId: string) => h.db.select().from(seoTasks).where(eq(seoTasks.jobId, runId)).all()
-  .map(task => ({ text: task.request.keywords[0], location: task.request.locationCode, reserved: task.reservedMicros, markets: task.request.search!.markets.map(market => `${market.marketKey}:${market.queryId}`).sort() }))
+  .map(task => ({ text: task.request.keywords[0], location: task.request.locationCode, reserved: task.reservedMicros, markets: task.request.search!.markets.map(market => `${market.context.marketKey}:${market.context.queryId}`).sort() }))
   .sort((a, b) => a.location - b.location || a.text!.localeCompare(b.text!))
 
 describe('SEO market rankings', () => {
@@ -116,8 +117,11 @@ describe('SEO market rankings', () => {
     expect(task.request).toMatchObject({
       capability: 'market-rankings', target: site, locationCode: 200001,
       search: {
-        device: 'mobile', depth: 50, locationLabel: 'Coast Metro', competitors: ['rival.com'],
-        markets: [{ marketKey: 'harbor-market', marketLabel: 'Harbor, Coast', regionKey: 'metro', regionLabel: 'Coast Metro Area', queryId: 'q-harbor', queryText: 'best homes in Harbor, Coast', queryClass: 'non-brand' }],
+        device: 'mobile', depth: 50, locationLabel: 'Coast Metro',
+        markets: [{
+          context: { marketKey: 'harbor-market', marketLabel: 'Harbor, Coast', regionKey: 'metro', regionLabel: 'Coast Metro Area', queryId: 'q-harbor', queryText: 'best homes in Harbor, Coast', queryClass: 'non-brand' },
+          competitors: ['rival.com'],
+        }],
       },
     })
     // A neighborhood group's own location wins over its metro's.
@@ -128,6 +132,29 @@ describe('SEO market rankings', () => {
       [200001, 'homes near the water', ['harbor-market:q-shared']],
       [200002, 'best homes in Bayside', ['bayside-market:q-bayside']],
       [200002, 'homes near the water', ['bayside-market:q-shared']],
+    ])
+  })
+
+  it('tracks each market\'s query against the project\'s competitors and those pinned to the groups whose Properties ask it', async () => {
+    const h = harness()
+    seedPlan(h, metroPlan({ 'metro': ['metro-rival.com', 'shop.alpha.com'], 'metro--harbor': ['www.Harbor-Rival.com'], 'metro--bayside': ['bayside-rival.com'] }))
+    // More project competitors than any fixed cap would keep: every one is tracked.
+    const projectRivals = Array.from({ length: 21 }, (_, index) => `rival-${String(index).padStart(2, '0')}.com`)
+    h.db.insert(competitors).values(projectRivals.map((domain, index) => ({ id: `c${index}`, projectId: 'alpha', domain, createdAt: new Date().toISOString() }))).run()
+    expect((await put(h, rankingProfile([{ key: 'metro', locationCode: 200001, label: 'Coast Metro' }]))).statusCode).toBe(200)
+    const run = await refresh(h, 'pinned')
+    const tracked = h.db.select().from(seoTasks).where(eq(seoTasks.jobId, run.id)).all()
+      .flatMap(task => task.request.search!.markets.map(market => [`${market.context.marketKey}:${market.context.queryId}`, market.competitors]))
+      .sort(([left], [right]) => compareText(String(left), String(right)))
+    const withProject = (...pinned: string[]) => [...pinned, ...projectRivals].sort(compareText)
+    // The metro pin covers every query its Properties ask; a neighborhood pin covers only queries its own Property asks,
+    // so Harbor's query never carries Bayside's rival. Both Properties ask the shared query, so it carries both. The
+    // project's own domain is never a rival, even when a group pins it.
+    expect(tracked).toEqual([
+      ['bayside-market:q-bayside', withProject('bayside-rival.com', 'metro-rival.com')],
+      ['bayside-market:q-shared', withProject('bayside-rival.com', 'harbor-rival.com', 'metro-rival.com')],
+      ['harbor-market:q-harbor', withProject('harbor-rival.com', 'metro-rival.com')],
+      ['harbor-market:q-shared', withProject('bayside-rival.com', 'harbor-rival.com', 'metro-rival.com')],
     ])
   })
 
@@ -191,7 +218,7 @@ describe('SEO market rankings', () => {
     for (let task = repo.claim(run.id, { ...policy, accountKey: 'account-a' }); task; task = repo.claim(run.id, { ...policy, accountKey: 'account-a' })) {
       const search = task.request.search!
       const rows: SeoMarketRanking[] = search.markets.map(market => ({
-        ...market, searchText: task.request.keywords[0]!, locationLabel: search.locationLabel, target: site,
+        ...market.context, searchText: task.request.keywords[0]!, locationLabel: search.locationLabel, target: site,
         rankOrganic: rank[task.request.keywords[0]!] ?? null, rankAbsolute: null, url: null, depth: search.depth, competitors: [],
         provenance: { provider: 'dataforseo', dataset: 'dataforseo-serp/google/market-rankings', engine: 'google', locationCode: task.request.locationCode, languageCode: 'en', device: 'mobile', collectedAt: '2026-10-25T00:00:00.000Z', sourceUpdatedAt: null },
       }))

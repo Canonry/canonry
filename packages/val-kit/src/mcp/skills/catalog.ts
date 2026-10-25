@@ -128,7 +128,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "SEO analysis",
     description: "Prioritize keyword and organic ranking opportunities from saved SEO evidence. Covers profile selection, bounded samples, Advanced scopes, market rankings, provider estimates, and actionable shortlists.",
     entryPoint: false,
-    characters: 11038,
+    characters: 11152,
     content: aeroReferencesSeoAnalysisPart0,
   },
   {

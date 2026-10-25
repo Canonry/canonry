@@ -6,12 +6,13 @@ import {
   AppError, RunKinds, RunStatuses, RunTriggers, SEO_MARKET_RANKING_MAX_SEARCHES, SEO_PROJECT_MARKET_KEY, SEO_RUN_SCOPE, SEO_WRITE_SCOPE, SeoAdapterOutcomes, SeoAvailability, SeoCapabilities, SeoRunStatuses, SeoScopeKinds, SeoTargetKinds, UserRoles,
   compareText, effectiveDomains, matchesMeasurementTargetUrl, normalizeHostname, missingDependency, notFound, queryClassSchema, registrableDomain, seoSearchTextForQuery, validationError,
   seoProfileInputSchema, seoSyncInputSchema, seoRefreshIntentInputSchema, seoEvidenceQuerySchema, seoMarketRankingQuerySchema, seoReconcileInputSchema,
-  type MeasurementPlanV2, type SeoAdapter, type SeoAdapterRequest, type SeoCapability, type SeoContext, type SeoEvidenceQuery, type SeoMarketRanking, type SeoMarketRankingContext, type SeoMarketRankingList, type SeoMarketRankingQuery, type SeoOverview, type SeoProfile, type SeoProfileInput, type SeoQuote, type SeoResults, type SeoRun, type SeoRunDetail, type SeoRunStatus, type SeoScopeSelection, type SeoStatus, type SeoOperatorTask, type SeoReconcileResult,
+  type MeasurementPlanV2, type SeoAdapter, type SeoAdapterRequest, type SeoCapability, type SeoContext, type SeoEvidenceQuery, type SeoMarketRanking, type SeoMarketRankingContext, type SeoMarketRankingList, type SeoMarketRankingQuery, type SeoMarketRankingSearchMarket, type SeoOverview, type SeoProfile, type SeoProfileInput, type SeoQuote, type SeoResults, type SeoRun, type SeoRunDetail, type SeoRunStatus, type SeoScopeSelection, type SeoStatus, type SeoOperatorTask, type SeoReconcileResult,
 } from '@canonry/canonry-contracts'
 import { requireAdminSession, requireScope, requireOperator } from './auth.js'
 import { resolveProject, writeAuditLog } from './helpers.js'
 import { activeMeasurementPlan } from './measurement-overview.js'
 import { planScopeOptions } from './measurement-scope-options.js'
+import { createPlanPinLookup } from './plan-competitors.js'
 import { readQueryClasses } from './query-class-read.js'
 
 export interface SeoConnection { id: string; label: string; adapter: SeoAdapter }
@@ -133,13 +134,13 @@ function normalizeProfile(input: SeoProfileInput): SeoProfileInput {
 }
 
 /** One paid search a market-rankings refresh runs, and the markets and queries it answers. */
-interface PlannedMarketSearch { searchText: string; locationCode: number; locationLabel: string; markets: SeoMarketRankingContext[] }
-interface MarketRankingPlan { searches: PlannedMarketSearch[]; competitors: string[] }
-const NO_MARKET_RANKINGS: MarketRankingPlan = { searches: [], competitors: [] }
-/** Tracked competitors looked for in the same results, at most this many. */
-const MAX_RANKING_COMPETITORS = 20
+interface PlannedMarketSearch { searchText: string; locationCode: number; locationLabel: string; markets: SeoMarketRankingSearchMarket[] }
+interface MarketRankingPlan { searches: PlannedMarketSearch[] }
+const NO_MARKET_RANKINGS: MarketRankingPlan = { searches: [] }
 
-interface MarketQueries { context: Omit<SeoMarketRankingContext, 'queryId' | 'queryText' | 'queryClass'>; locationKeys: string[]; queries: Array<{ id: string | null; text: string }> }
+/** A tracked query in one market. Advanced queries carry the execution nodes that ask them there, whose groups' pinned competitors apply. */
+interface MarketQuery { id: string | null; text: string; executionNodeKeys: string[] }
+interface MarketQueries { context: Omit<SeoMarketRankingContext, 'queryId' | 'queryText' | 'queryClass'>; locationKeys: string[]; queries: MarketQuery[] }
 
 /** Advanced: each market in scope with its non-brand queries, region (top-level group) and location lookup order. */
 function advancedMarketQueries(plan: MeasurementPlanV2, scope: SeoScopeSelection): MarketQueries[] {
@@ -151,12 +152,17 @@ function advancedMarketQueries(plan: MeasurementPlanV2, scope: SeoScopeSelection
   }
   const nonBrandEdge = new Set(plan.assignments.filter(assignment => assignment.queryClass === queryClassSchema.enum['non-brand']).map(assignment => `${assignment.targetKey}\u0000${assignment.queryId}`))
   const queryText = new Map(plan.querySnapshots.map(snapshot => [snapshot.queryId, snapshot.queryText]))
-  const queriesFor = (queryIds: Iterable<string>) => [...new Set(queryIds)].flatMap(id => { const text = queryText.get(id); return text ? [{ id, text }] : [] })
+  // Each query once, in first-seen order, with every execution node that asks it in this market.
+  const queriesFor = (edges: Iterable<{ queryId: string; executionNodeKey: string }>): MarketQuery[] => {
+    const nodes = new Map<string, Set<string>>()
+    for (const edge of edges) nodes.set(edge.queryId, (nodes.get(edge.queryId) ?? new Set<string>()).add(edge.executionNodeKey))
+    return [...nodes].flatMap(([id, keys]) => { const text = queryText.get(id); return text ? [{ id, text, executionNodeKeys: [...keys] }] : [] })
+  }
   const markets = plan.reportingScopes ?? []
   if (!markets.length) {
     // A plan without markets reads as one market: the whole project, or the selected group's Properties.
     const { targetKeys } = scopedPlanTargets(plan, scope)
-    return [{ context: { marketKey: SEO_PROJECT_MARKET_KEY, marketLabel: 'Project', regionKey: null, regionLabel: null }, locationKeys: [SEO_PROJECT_MARKET_KEY], queries: queriesFor(plan.assignments.filter(assignment => targetKeys.includes(assignment.targetKey) && nonBrandEdge.has(`${assignment.targetKey}\u0000${assignment.queryId}`)).map(assignment => assignment.queryId)) }]
+    return [{ context: { marketKey: SEO_PROJECT_MARKET_KEY, marketLabel: 'Project', regionKey: null, regionLabel: null }, locationKeys: [SEO_PROJECT_MARKET_KEY], queries: queriesFor(plan.assignments.filter(assignment => targetKeys.includes(assignment.targetKey) && nonBrandEdge.has(`${assignment.targetKey}\u0000${assignment.queryId}`))) }]
   }
   return markets.flatMap(market => {
     const chain = lineage(market.groupKey)
@@ -166,7 +172,7 @@ function advancedMarketQueries(plan: MeasurementPlanV2, scope: SeoScopeSelection
     return [{
       context: { marketKey: market.stableKey, marketLabel: market.label, regionKey: region ?? null, regionLabel: region ? groups.get(region)?.label ?? region : null },
       locationKeys: [market.stableKey, ...chain],
-      queries: queriesFor(market.usageEdges.filter(edge => nonBrandEdge.has(`${edge.targetKey}\u0000${edge.queryId}`)).map(edge => edge.queryId)),
+      queries: queriesFor(market.usageEdges.filter(edge => nonBrandEdge.has(`${edge.targetKey}\u0000${edge.queryId}`))),
     }]
   })
 }
@@ -178,7 +184,7 @@ function simpleMarketQueries(db: DatabaseClient, project: typeof projects.$infer
   if (rows.length > 0 && rows.every(row => classes.get(row.id) == null)) {
     throw validationError('Canonry cannot tell this project\'s branded queries apart without a brand name. Add one before setting up market rankings.')
   }
-  const nonBrand = rows.filter(row => classes.get(row.id) === queryClassSchema.enum['non-brand']).map(row => ({ id: row.id, text: row.query }))
+  const nonBrand = rows.filter(row => classes.get(row.id) === queryClassSchema.enum['non-brand']).map(row => ({ id: row.id, text: row.query, executionNodeKeys: [] }))
   const locations = project.locations.length > 0 ? project.locations.map(location => ({ key: location.label, label: location.label })) : [{ key: SEO_PROJECT_MARKET_KEY, label: 'Project' }]
   return locations.map(location => ({ context: { marketKey: location.key, marketLabel: location.label, regionKey: null, regionLabel: null }, locationKeys: [location.key], queries: nonBrand }))
 }
@@ -188,7 +194,10 @@ function simpleMarketQueries(db: DatabaseClient, project: typeof projects.$infer
  * the scope, searched from the market's location. A search text asked in two markets that share a
  * location runs once and answers both. Every market must resolve a location, through its own key,
  * its group and that group's parents (Advanced) or its location label (Simple); only the
- * whole-project market falls back to the profile's location.
+ * whole-project market falls back to the profile's location. Each market's row reports the
+ * competitors that query is tracked against: the project's, plus, in an Advanced plan, those pinned
+ * to the groups whose Properties ask it (`createPlanPinLookup`, the scope its AI answers are scored
+ * against), so a pin never shows up in another market's row.
  */
 function marketRankingPlan(db: DatabaseClient, projectId: string, input: SeoProfileInput): MarketRankingPlan {
   if (!input.capabilities.includes(SeoCapabilities['market-rankings']) || !input.rankings) return NO_MARKET_RANKINGS
@@ -199,7 +208,13 @@ function marketRankingPlan(db: DatabaseClient, projectId: string, input: SeoProf
   const target = input.targets[0]
   if (!target || !own.has(registrableDomain(target.value))) throw validationError('The market-rankings Target must be one of this project\'s own domains.')
   const active = activeMeasurementPlan(db, projectId)
-  const markets = active?.plan.schemaVersion === 2 ? advancedMarketQueries(active.plan, input.scope) : simpleMarketQueries(db, project)
+  const advanced = active?.plan.schemaVersion === 2 ? { versionId: active.version.id, plan: active.plan } : null
+  const markets = advanced ? advancedMarketQueries(advanced.plan, input.scope) : simpleMarketQueries(db, project)
+  // Registrable domains, as the results are read; the project's own domains are never a competitor.
+  const rival = (domain: string) => { const registrable = registrableDomain(normalizeHostname(domain) ?? domain); return registrable && !own.has(registrable) ? [registrable] : [] }
+  const projectCompetitors = db.select({ domain: competitors.domain }).from(competitors).where(eq(competitors.projectId, projectId)).all().flatMap(row => rival(row.domain))
+  const pinnedFor = createPlanPinLookup(db)
+  const competitorsFor = (query: MarketQuery) => [...new Set([...projectCompetitors, ...query.executionNodeKeys.flatMap(key => pinnedFor(advanced?.versionId, key)).flatMap(rival)])].sort(compareText)
   const locations = new Map(settings.locations.map(location => [location.key, location]))
   const searches = new Map<string, PlannedMarketSearch>()
   const unmapped: string[] = []
@@ -210,22 +225,20 @@ function marketRankingPlan(db: DatabaseClient, projectId: string, input: SeoProf
     for (const query of market.queries) {
       const searchText = seoSearchTextForQuery(query.text, market.context.marketKey === SEO_PROJECT_MARKET_KEY ? null : market.context.marketLabel, settings.searchText)
       if (!searchText) continue
-      const context: SeoMarketRankingContext = { ...market.context, queryId: query.id, queryText: query.text, queryClass: queryClassSchema.enum['non-brand'] }
+      const answers: SeoMarketRankingSearchMarket = {
+        context: { ...market.context, queryId: query.id, queryText: query.text, queryClass: queryClassSchema.enum['non-brand'] },
+        competitors: competitorsFor(query),
+      }
       const key = `${location.locationCode}\u0000${searchText.toLowerCase()}`
       const existing = searches.get(key)
-      if (existing) existing.markets.push(context)
-      else searches.set(key, { searchText, locationCode: location.locationCode, locationLabel: location.label, markets: [context] })
+      if (existing) existing.markets.push(answers)
+      else searches.set(key, { searchText, locationCode: location.locationCode, locationLabel: location.label, markets: [answers] })
     }
   }
   if (unmapped.length) throw validationError(`Set a search location for ${unmapped.length === 1 ? '1 market' : `${unmapped.length} markets`} or their groups: ${unmapped.slice(0, 5).join('; ')}${unmapped.length > 5 ? '; …' : ''}.`)
   if (!searches.size) throw validationError('There are no non-brand tracked queries to search in this scope.')
   if (searches.size > SEO_MARKET_RANKING_MAX_SEARCHES) throw validationError(`One market-rankings refresh runs at most ${SEO_MARKET_RANKING_MAX_SEARCHES} searches; this scope needs ${searches.size}. Select a narrower scope.`)
-  const competitorDomains = [...new Set(db.select({ domain: competitors.domain }).from(competitors).where(eq(competitors.projectId, projectId)).all()
-    .map(row => registrableDomain(normalizeHostname(row.domain) ?? row.domain)).filter(domain => domain && !own.has(domain)))].sort(compareText).slice(0, MAX_RANKING_COMPETITORS)
-  return {
-    searches: [...searches.values()].sort((a, b) => compareText(a.locationLabel, b.locationLabel) || compareText(a.searchText, b.searchText)),
-    competitors: competitorDomains,
-  }
+  return { searches: [...searches.values()].sort((a, b) => compareText(a.locationLabel, b.locationLabel) || compareText(a.searchText, b.searchText)) }
 }
 
 function taskRequests(profile: SeoProfileInput, rankings: MarketRankingPlan): SeoAdapterRequest[] {
@@ -234,7 +247,7 @@ function taskRequests(profile: SeoProfileInput, rankings: MarketRankingPlan): Se
       const settings = profile.rankings!
       return rankings.searches.map(search => ({
         capability, target: profile.targets[0]!, keywords: [search.searchText], locationCode: search.locationCode, languageCode: profile.languageCode, limit: profile.limit, tag: '',
-        search: { device: settings.device, depth: settings.depth, locationLabel: search.locationLabel, competitors: rankings.competitors, markets: search.markets },
+        search: { device: settings.device, depth: settings.depth, locationLabel: search.locationLabel, markets: search.markets },
       }))
     }
     return (capability === SeoCapabilities['keyword-metrics'] ? [null] : profile.targets).map(target => ({ capability, target, keywords: capability === SeoCapabilities['keyword-metrics'] ? profile.keywords : [], locationCode: profile.locationCode, languageCode: profile.languageCode, limit: profile.limit, tag: '' }))

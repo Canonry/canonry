@@ -83,7 +83,7 @@ function marketRankings(rawResult: unknown, request: SeoAdapterRequest, collecte
     .map(item => serpItemSchema.parse(item)).filter(item => item.rank_group != null)
   let best: z.infer<typeof serpItemSchema> | null = null
   const competitorRanks = new Map<string, number>()
-  const competitors = new Set(search.competitors)
+  const competitors = new Set(search.markets.flatMap(market => market.competitors))
   for (const item of organic) {
     const host = item.domain ? normalizeHostname(item.domain) : null
     if (!host) continue
@@ -98,11 +98,14 @@ function marketRankings(rawResult: unknown, request: SeoAdapterRequest, collecte
   const ranked = [...competitorRanks].map(([domain, rankOrganic]) => ({ domain, rankOrganic }))
     .sort((a, b) => a.rankOrganic - b.rankOrganic || compareText(a.domain, b.domain))
   const source = provenance(request, collectedAt, result.datetime ?? null)
-  return search.markets.map(market => ({
-    ...market, searchText, locationLabel: search.locationLabel, target,
-    rankOrganic: best?.rank_group ?? null, rankAbsolute: best?.rank_absolute ?? null, url: best?.url ?? null,
-    depth: search.depth, competitors: ranked, provenance: source,
-  }))
+  return search.markets.map(market => {
+    const tracked = new Set(market.competitors)
+    return {
+      ...market.context, searchText, locationLabel: search.locationLabel, target,
+      rankOrganic: best?.rank_group ?? null, rankAbsolute: best?.rank_absolute ?? null, url: best?.url ?? null,
+      depth: search.depth, competitors: ranked.filter(competitor => tracked.has(competitor.domain)), provenance: source,
+    }
+  })
 }
 
 function keywordMetrics(

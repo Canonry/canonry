@@ -453,9 +453,12 @@ test.each(['advanced', 'simple'])('a historical link preserves its refresh ident
 
 test('market rankings read as tracked queries by market, and editing keeps their search settings', async () => {
   const markets: SeoProfile = {
-    ...simple, id: 'markets', name: 'Market rankings', capabilities: ['market-rankings'], keywords: [],
+    ...simple, id: 'markets', name: 'Market rankings', capabilities: ['market-rankings'], keywords: [], revision: 2,
     rankings: { locations: [{ key: 'metro', locationCode: 200623, label: 'Dallas-Ft. Worth, TX' }], depth: 50, device: 'mobile', searchText: 'query-without-market-region' },
   }
+  // The saved refresh ran under revision 1, one of its three searches failed.
+  const refresh: SeoRun = { ...saved, id: 'saved-markets', profileId: 'markets', status: 'partial', capabilities: ['market-rankings'], scope: markets.scope, taskCount: 3, completedTasks: 2, failedTasks: 1 }
+  const search = (id: string, status: SeoRun['status'], error: string | null) => ({ id, capability: 'market-rankings' as const, target: markets.targets[0]!, status, error, remoteTaskId: null })
   const marketContext: SeoContext = {
     ...context,
     connections: [{ ...context.connections[0]!, capabilities: ['ranked-keywords', 'keyword-metrics', 'domain-intelligence', 'market-rankings'] }],
@@ -471,12 +474,14 @@ test('market rankings read as tracked queries by market, and editing keeps their
   const writes: unknown[] = []
   vi.stubGlobal('fetch', async (request: Request) => {
     const url = new URL(request.url)
-    if (request.method === 'PUT') { writes.push(await request.json()); return json({ ...markets, revision: 2 }) }
+    if (request.method === 'PUT') { writes.push(await request.json()); return json({ ...markets, revision: 3 }) }
     reads.push(url)
     if (url.pathname.endsWith('/context')) return json(marketContext)
     if (url.pathname.endsWith('/profiles')) return json({ profiles: [markets] })
-    if (url.pathname.endsWith('/overview')) return json({ ...overview(markets), summary: null, marketRankingCount: 2 })
+    if (url.pathname.endsWith('/overview')) return json({ ...overview(markets, refresh), summary: null, marketRankingCount: 2 })
     if (url.pathname.endsWith('/market-rankings')) return json({ runId: 'saved-markets', total: 2, limit: 25, offset: 0, items: [row('best apartments in Dallas, Dallas-Fort Worth', 4, 'https://example.com/dallas'), row('pet friendly apartments Dallas, Dallas-Fort Worth', null, null)] })
+    if (url.pathname.endsWith('/runs/saved-markets')) return json({ ...refresh, tasks: [search('t1', 'completed', null), search('t2', 'failed', 'The source refused this search.'), search('t3', 'completed', null)], results: { keywordMetrics: [], rankedKeywords: [], domainIntelligence: [], marketRankings: [] }, resultCounts: { keywordMetrics: 0, rankedKeywords: 0, domainIntelligence: 0, marketRankings: 2 }, resultsTruncated: false })
+    if (url.pathname.endsWith('/runs')) return json({ runs: [refresh] })
     throw new Error(`Unexpected request ${request.method} ${url.pathname}`)
   })
   await mount('markets')
@@ -487,13 +492,34 @@ test('market rankings read as tracked queries by market, and editing keeps their
   expect(within(rows[1]!).getAllByRole('cell')[0]!.textContent).toBe('Not in top 50')
   expect(within(rows[1]!).getByLabelText('No ranking page')).not.toBeNull()
   expect(within(rows[0]!).getByText('Searched as “best apartments in Dallas” from Dallas-Ft. Worth, TX')).not.toBeNull()
-  expect(within(rows[0]!).getByText('Tracked competitors in these results: rival.com #2')).not.toBeNull()
-  expect(screen.getByText('1 market location · en')).not.toBeNull()
+  // A ranked row states its position counting every result block; an unranked row has none to state.
+  expect(within(rows[0]!).getByText('Position on the page, counting maps and other blocks: 4')).not.toBeNull()
+  expect(within(rows[1]!).queryByText(/Position on the page/)).toBeNull()
+  const tracked = within(rows[0]!).getByText('Tracked competitors in these results').nextElementSibling!
+  expect([...tracked.children].map(item => item.textContent)).toEqual(['rival.com', '#2'])
+  expect(screen.getByText('1 search location · en')).not.toBeNull()
+  // The saved refresh searched from each market's location, never the profile's one location code.
+  expect(screen.getByText('Saved data uses profile revision 1 · Market locations · en. The current profile has changed.')).not.toBeNull()
   const read = reads.find(url => url.pathname.endsWith('/market-rankings'))!
   expect(Object.fromEntries(read.searchParams)).toEqual({ profileId: 'markets', runId: 'saved-markets', limit: '25', offset: '0' })
 
+  // Activity counts searches and lists only the one that did not complete.
+  fireEvent.click(screen.getByRole('button', { name: 'Activity' }))
+  expect(await screen.findByText('2 of 3 searches completed · 1 failed')).not.toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: /^Details\s*for refresh saved-markets$/ }))
+  const details = await screen.findByText('The source refused this search.')
+  const panel = details.closest('[id="seo-run-saved-markets"]') as HTMLElement
+  expect(within(panel).getByText('Profile revision 1 · Market locations · en')).not.toBeNull()
+  expect(within(panel).getAllByRole('listitem')).toHaveLength(1)
+
   fireEvent.click(screen.getByRole('button', { name: 'Edit profile' }))
   const form = screen.getByRole('form', { name: 'Edit SEO profile' })
+  // Market rankings keep their own profile and report one target, so other datasets and a second target are unavailable.
+  const demand = within(form).getByRole<HTMLInputElement>('checkbox', { name: 'Search demand' })
+  expect(demand.disabled).toBe(true)
+  expect(document.getElementById(demand.getAttribute('aria-describedby')!)?.textContent).toBe('Market rankings use their own profile.')
+  expect(within(form).getByRole<HTMLInputElement>('checkbox', { name: 'Market rankings' }).disabled).toBe(false)
+  expect(within(form).getByRole<HTMLButtonElement>('button', { name: 'Add target' }).disabled).toBe(true)
   fireEvent.change(within(form).getByRole('textbox', { name: 'Profile name' }), { target: { value: 'Markets by metro' } })
   fireEvent.click(within(form).getByRole('button', { name: 'Save profile' }))
   await waitFor(() => expect(writes).toHaveLength(1))
@@ -501,6 +527,7 @@ test('market rankings read as tracked queries by market, and editing keeps their
   fireEvent.click(screen.getByRole('button', { name: /New profile/ }))
   const created = screen.getByRole('form', { name: 'New SEO profile' })
   // Market-rankings setup (locations, depth, device) is not in the web editor yet.
-  expect(within(created).getByRole<HTMLInputElement>('checkbox', { name: 'Market rankings' }).disabled).toBe(true)
-  expect(within(created).getByText('Set up market rankings with the CLI or API.')).not.toBeNull()
+  const marketsBox = within(created).getByRole<HTMLInputElement>('checkbox', { name: 'Market rankings' })
+  expect(marketsBox.disabled).toBe(true)
+  expect(document.getElementById(marketsBox.getAttribute('aria-describedby')!)?.textContent).toBe('Set up market rankings with the CLI or API.')
 })
