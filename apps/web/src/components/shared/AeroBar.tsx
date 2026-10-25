@@ -227,6 +227,7 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
   const conversationOperation = useRef(false)
   const [draft, setDraft] = useState('')
   const [streaming, setStreaming] = useState(false)
+  const [turnEnded, setTurnEnded] = useState(false)
   // Live trail for the in-flight turn. Persisted until the next user send so
   // users can see what tools were run while Aero was composing. Past-turn
   // trails are reconstructed from the transcript instead.
@@ -459,6 +460,7 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
     setRetry({ prompt: trimmed, context: turnContext })
     setDraft('')
     setStreaming(true)
+    setTurnEnded(false)
     setStreamingText('')
     partialRef.current = null
     // Wipe the live trail on a new prompt — any prior turn's trail is now
@@ -533,6 +535,7 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
     setRetry({ prompt })
     setDraft('')
     setStreaming(true)
+    setTurnEnded(false)
     setStreamingText('')
     partialRef.current = null
     setLiveTrail([])
@@ -583,11 +586,15 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
         }
         break
       case 'aero_turn_status':
+        setTurnEnded(true)
         if (event.status?.reason === 'tool-limit') setNotice('Tool-call limit reached. Partial response preserved.')
         else if (event.status?.reason === 'time-limit') setNotice('Time limit reached. Partial response preserved.')
         else if (event.status?.reason === 'completed') setRetry(null)
         // A request that threw sends no error event (its failure message is filtered), only this status.
         else if (event.status?.reason === 'error') setError((current) => current ?? 'Aero could not finish this answer. Retry to ask again.')
+        break
+      case 'agent_end':
+        setTurnEnded(true)
         break
       case 'tool_execution_start':
         setLiveTrail((prev) => [
@@ -605,6 +612,7 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
         )
         break
       case 'error':
+        setTurnEnded(true)
         setError(event.message)
         break
     }
@@ -880,15 +888,12 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
                   <StarterButtons onPick={(prompt) => { void send(prompt) }} />
                 </div>
               )}
-              {renderTranscript(messages, projectName, turnProvider ?? null, scope, liveTrail, streaming, Boolean(streamingText.trim()), !viewerMode && !preview, modelOverride)}
-              {streaming && streamingText && (
+              {renderTranscript(messages, projectName, turnProvider ?? null, scope, liveTrail, streaming && !turnEnded, Boolean(streamingText.trim()), !viewerMode && !preview, modelOverride)}
+              {streaming && streamingText.trim() && (
                 <div className="mt-3">
                   <div className="mb-0.5 text-[10px] uppercase tracking-wider text-positive-400">Aero</div>
                   <AeroMarkdown content={streamingText} />
                 </div>
-              )}
-              {streaming && !streamingText && liveTrail.every((t) => t.endedAt !== undefined) && (
-                <TypingIndicator />
               )}
               {/* The preview answers nothing typed, so its starters stay in reach
                   after each answer instead of only in an empty conversation. */}
@@ -1514,6 +1519,9 @@ function renderTranscript(
 ): ReactNode[] {
   const nodes: ReactNode[] = []
   let group: ToolTrail[] = []
+  const lastMessage = messages.at(-1)
+  const answerComplete = lastMessage?.role === 'assistant' && lastMessage.stopReason === 'stop'
+  const awaitingResponse = streaming && !answerStreaming && !answerComplete
   // Only the turn after the last user message can still be running. A call
   // from an earlier turn that never got a result was cut off, so it reads as
   // interrupted even while a later turn streams.
@@ -1532,7 +1540,7 @@ function renderTranscript(
       <ToolRunGroup
         key={`tools:${group[0].id}`}
         trails={group}
-        betweenSteps={trailing && streaming && !answerStreaming}
+        betweenSteps={trailing && awaitingResponse}
       />,
     )
     group = []
@@ -1598,6 +1606,7 @@ function renderTranscript(
     // Standalone toolResult messages (no preceding assistant in this window)
     // are dropped silently — pi's envelope always pairs them.
   }
+  if (group.length === 0 && awaitingResponse) nodes.push(<ThinkingIndicator key="thinking" />)
   closeGroup(true)
   return nodes
 }
@@ -1853,7 +1862,7 @@ function ToolRunGroup({ trails, betweenSteps }: { trails: ToolTrail[]; betweenSt
       ? progressiveLabel(trailLabel(current))
       : setupRunning
         ? 'Loading tools…'
-        : 'Working…'
+        : steps.length > 0 ? 'Reviewing results…' : 'Preparing next step…'
     : steps.length > 0
       ? countLabel(steps.length, 'step', 'steps')
       : countLabel(setup.length, 'setup step', 'setup steps')
@@ -1887,7 +1896,7 @@ function ToolRunGroup({ trails, betweenSteps }: { trails: ToolTrail[]; betweenSt
             <Check className="h-3 w-3 text-muted" aria-hidden="true" />
           )}
         </span>
-        <span className="min-w-0 truncate text-sm font-medium text-heading">{title}</span>
+        <span role={running ? 'status' : undefined} className="min-w-0 truncate text-sm font-medium text-heading">{title}</span>
         {failedCount > 0 && (
           <span className="shrink-0 rounded-md border border-negative-800/50 bg-negative-950/20 px-1.5 py-0.5 text-[10px] text-negative-400">
             {failedCount} failed
@@ -2153,16 +2162,12 @@ function AeroMarkdown({ content }: { content: string }) {
   )
 }
 
-/** Three-dot "Aero is thinking" indicator. Shown pre-first-token and between tool rounds. */
-function TypingIndicator() {
+/** Before the first step; the tool group owns progress once calls arrive. */
+function ThinkingIndicator() {
   return (
-    <div className="mt-3 flex items-center gap-2">
-      <div className="text-[10px] uppercase tracking-wider text-positive-400">Aero</div>
-      <div className="flex items-center gap-1" aria-label="Aero is thinking">
-        <span className="aero-dot h-1.5 w-1.5 rounded-full bg-positive-400/80" />
-        <span className="aero-dot aero-dot-2 h-1.5 w-1.5 rounded-full bg-positive-400/60" />
-        <span className="aero-dot aero-dot-3 h-1.5 w-1.5 rounded-full bg-positive-400/40" />
-      </div>
+    <div role="status" className="mt-3 flex items-center gap-2 py-1.5 text-sm text-secondary">
+      <Loader2 className="h-3 w-3 shrink-0 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+      Thinking…
     </div>
   )
 }

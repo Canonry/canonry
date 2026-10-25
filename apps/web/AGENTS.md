@@ -823,6 +823,10 @@ validates it; it cannot grant tool access. Join tool events by call ID, retain
 intermediate messages, and avoid transcript polling over an active turn. Stop
 preserves partial output; interrupted write-capable turns require prompt review.
 
+The trailing tool group owns progress between calls; never add a second typing
+row in those gaps. Keep its status mounted, name the current phase, and stop
+progress when the final answer arrives, before transcript persistence finishes.
+
 Aero's New conversation action preserves the current transcript; History lists
 and reopens saved conversations. Delete is a separate confirmed action. These
 controls use generated SDK operations and are disabled during context changes
