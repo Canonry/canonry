@@ -6,6 +6,9 @@ export const agentViewContextSchema = z.object({
   view: z.enum(['project', 'visibility', 'property', 'queries', 'site-health', 'seo']),
   seoProfileId: z.string().trim().min(1).max(128).optional(),
   seoRunId: z.string().trim().min(1).max(128).optional(),
+  /** The market-rankings region and market the SEO view is narrowed to. */
+  seoRegionKey: z.string().trim().min(1).max(200).optional(),
+  seoMarketKey: z.string().trim().min(1).max(200).optional(),
   unavailableReason: z.string().trim().min(1).max(512).optional(),
   selection: visibilityReportRequestSchema.optional(),
   page: z.object({
@@ -15,6 +18,7 @@ export const agentViewContextSchema = z.object({
 }).strict().superRefine((value, ctx) => {
   if (value.seoProfileId && value.view !== 'seo') ctx.addIssue({ code: 'custom', message: 'SEO profile context requires the SEO view.' })
   if (value.seoRunId && value.view !== 'seo') ctx.addIssue({ code: 'custom', message: 'SEO run context requires the SEO view.' })
+  if ((value.seoRegionKey || value.seoMarketKey) && value.view !== 'seo') ctx.addIssue({ code: 'custom', message: 'SEO market context requires the SEO view.' })
   if (value.page && value.view !== 'site-health') ctx.addIssue({ code: 'custom', message: 'Page context requires Site Health.' })
   if (value.selection && !['visibility', 'property', 'queries'].includes(value.view)) ctx.addIssue({ code: 'custom', message: 'Measurement selection requires a measurement view.' })
 })

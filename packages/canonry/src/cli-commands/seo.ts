@@ -1,4 +1,4 @@
-import { seoEvidenceQuerySchema, seoMarketRankingQuerySchema, seoSyncInputSchema } from '@canonry/canonry-contracts'
+import { seoEvidenceQuerySchema, seoMarketRankingQuerySchema, seoMarketRankingSummaryQuerySchema, seoSyncInputSchema } from '@canonry/canonry-contracts'
 import type { CliCommandInput, CliCommandSpec } from '../cli-dispatch.js'
 import { getString, requirePositional, requireProject, requireStringOption, stringOption } from '../cli-command-helpers.js'
 import { usageError } from '../cli-error.js'
@@ -6,7 +6,7 @@ import {
   showSeoContext, showSeoStatus, listSeoProfiles, showSeoProfile, setSeoProfile,
   prepareSeoRefresh, syncSeo, listSeoRuns, showSeoRun, cancelSeoRun,
   showSeoOperatorTask, reconcileSeoTask,
-  showSeoOverview, showSeoKeywordMetrics, showSeoDomainIntelligence, showSeoRankedKeywords, showSeoMarketRankings,
+  showSeoOverview, showSeoKeywordMetrics, showSeoDomainIntelligence, showSeoRankedKeywords, showSeoMarketRankings, showSeoMarketSummary,
 } from '../commands/seo.js'
 
 const selectionOptions = { 'profile-id': stringOption(), 'run-id': stringOption(), limit: stringOption(), offset: stringOption() }
@@ -20,10 +20,20 @@ function selection(input: CliCommandInput) {
   if (!result.success) throw usageError(result.error.issues.map(issue => `${issue.path.join('.')}: ${issue.message}`).join('; '))
   return result.data
 }
-const rankingOptions = { ...selectionOptions, market: stringOption(), region: stringOption() }
+const rankingOptions = { ...selectionOptions, market: stringOption(), region: stringOption(), outcome: stringOption(), search: stringOption(), sort: stringOption() }
 function rankingSelection(input: CliCommandInput) {
   const result = seoMarketRankingQuerySchema.safeParse({
     ...selection(input), marketKey: getString(input.values, 'market'), regionKey: getString(input.values, 'region'),
+    outcome: getString(input.values, 'outcome'), q: getString(input.values, 'search'), sort: getString(input.values, 'sort'),
+  })
+  if (!result.success) throw usageError(result.error.issues.map(issue => `${issue.path.join('.')}: ${issue.message}`).join('; '))
+  return result.data
+}
+const summaryOptions = { 'profile-id': stringOption(), 'run-id': stringOption(), market: stringOption(), region: stringOption() }
+function summarySelection(input: CliCommandInput) {
+  const result = seoMarketRankingSummaryQuerySchema.safeParse({
+    profileId: getString(input.values, 'profile-id'), runId: getString(input.values, 'run-id'),
+    marketKey: getString(input.values, 'market'), regionKey: getString(input.values, 'region'),
   })
   if (!result.success) throw usageError(result.error.issues.map(issue => `${issue.path.join('.')}: ${issue.message}`).join('; '))
   return result.data
@@ -76,8 +86,13 @@ export const SEO_CLI_COMMANDS: readonly CliCommandSpec[] = [
   { path: ['seo', 'domain-intelligence'], usage: 'canonry seo domain-intelligence <project> [--profile-id <id>] [--run-id <id>] [--limit <n>] [--offset <n>] [--format json]', access: 'stored', options: selectionOptions, help: evidenceHelp, run: input => showSeoDomainIntelligence(project(input), selection(input), input.format) },
   { path: ['seo', 'ranked-keywords'], usage: 'canonry seo ranked-keywords <project> [--profile-id <id>] [--run-id <id>] [--limit <n>] [--offset <n>] [--format json]', access: 'stored', options: selectionOptions, help: evidenceHelp, run: input => showSeoRankedKeywords(project(input), selection(input), input.format) },
   {
-    path: ['seo', 'market-rankings'], usage: 'canonry seo market-rankings <project> [--profile-id <id>] [--run-id <id>] [--market <key>] [--region <key>] [--limit <n>] [--offset <n>] [--format json]', access: 'stored', options: rankingOptions,
-    help: 'Read saved market rankings only: the site\'s Google position for each tracked non-brand query in each market, searched from that market\'s location. A rank past the checked results reads as not ranked. --market and --region narrow the rows; preserve --run-id when paging.',
+    path: ['seo', 'market-rankings'], usage: 'canonry seo market-rankings <project> [--profile-id <id>] [--run-id <id>] [--market <key>] [--region <key>] [--outcome needs-work|page-1|ranks-11-20|ranks-21-plus|not-ranked|rival-ahead|failed|not-run] [--search <text>] [--sort=market|rank|-rank|query|-query] [--limit <n>] [--offset <n>] [--format json]', access: 'stored', options: rankingOptions,
+    help: 'Read saved market rankings only: the site\'s Google position for each tracked non-brand query in each market, searched from that market\'s location. A rank past the checked results reads as not ranked; a search that failed or never ran still has a row. --market, --region, --outcome and --search narrow the rows; --sort=rank puts the closest to page 1 first and --sort=-rank the furthest (keep the = for an order that starts with a dash). Preserve --run-id when paging.',
     run: input => showSeoMarketRankings(project(input), rankingSelection(input), input.format),
+  },
+  {
+    path: ['seo', 'market-summary'], usage: 'canonry seo market-summary <project> [--profile-id <id>] [--run-id <id>] [--region <key>] [--market <key>] [--format json]', access: 'stored', options: summaryOptions,
+    help: 'Read saved market rankings counted by outcome: page 1, ranks 11-20, 21 and deeper, not ranked, failed, not run, needs work and rival ahead, for the whole profile with a row per region, for one region with a row per market, or for one market.',
+    run: input => showSeoMarketSummary(project(input), summarySelection(input), input.format),
   },
 ]

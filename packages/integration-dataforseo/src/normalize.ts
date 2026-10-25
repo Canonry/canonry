@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import {
   SeoCapabilities, SeoProviders, SeoTargetKinds, compareText, emptySeoResults, normalizeHostname, registrableDomain, type SeoAdapterRequest, type SeoKeywordMetrics,
-  type SeoMarketRanking, type SeoProvenance, type SeoResults, type SeoTarget,
+  type SeoMarketRankingObservation, type SeoProvenance, type SeoResults, type SeoTarget,
 } from '@canonry/canonry-contracts'
 
 const count = z.number().int().nonnegative().nullish()
@@ -43,6 +43,8 @@ const resultSchema = z.object({
 const serpResultSchema = z.object({
   keyword: z.string(), location_code: z.number().int(), language_code: z.string(),
   datetime: z.string().nullish(), items: z.array(z.unknown()).nullish(),
+  /** "total search results pages retrieved": fewer than requested on a partial results page. */
+  pages_count: z.number().int().nonnegative().nullish(),
 })
 // Only organic items are decoded strictly; maps, ads and other blocks are skipped by type.
 const serpItemTypeSchema = z.object({ type: z.string() })
@@ -69,12 +71,16 @@ function hostBelongsTo(host: string, target: SeoTarget): boolean {
 const searchIdentity = (text: string) => text.replace(/\s+/g, ' ').trim().toLowerCase()
 
 /** One results page into one ranking row per market the search answers. */
-function marketRankings(rawResult: unknown, request: SeoAdapterRequest, collectedAt: string): SeoMarketRanking[] {
+function marketRankings(rawResult: unknown, request: SeoAdapterRequest, collectedAt: string, partial: boolean): SeoMarketRankingObservation[] {
   const search = request.search
   const target = request.target
   const searchText = request.keywords[0]
   if (!search || !target || !searchText) throw new Error('Market rankings need a search, a target and search text.')
   const result = serpResultSchema.parse(rawResult)
+  // A partial page checked only the pages that came back (10 results each); without that count its depth is unknown.
+  const pages = result.pages_count ?? 0
+  if (partial && pages <= 0) throw new Error('A partial results page did not say how many pages came back.')
+  const checkedDepth = partial ? Math.min(search.depth, pages * 10) : search.depth
   if (result.location_code !== request.locationCode || result.language_code !== request.languageCode) {
     throw new Error('SEO provider returned a different market.')
   }
@@ -103,7 +109,8 @@ function marketRankings(rawResult: unknown, request: SeoAdapterRequest, collecte
     return {
       ...market.context, searchText, locationLabel: search.locationLabel, target,
       rankOrganic: best?.rank_group ?? null, rankAbsolute: best?.rank_absolute ?? null, url: best?.url ?? null,
-      depth: search.depth, competitors: ranked.filter(competitor => tracked.has(competitor.domain)), provenance: source,
+      depth: search.depth, ...(checkedDepth < search.depth ? { checkedDepth } : {}),
+      competitors: ranked.filter(competitor => tracked.has(competitor.domain)), provenance: source,
     }
   })
 }
@@ -125,12 +132,12 @@ function keywordMetrics(
 }
 
 /** Verify returned identity before attaching request provenance to any observation. */
-export function normalizeDataForSeoResults(rawResults: unknown[], request: SeoAdapterRequest, collectedAt: string): SeoResults {
+export function normalizeDataForSeoResults(rawResults: unknown[], request: SeoAdapterRequest, collectedAt: string, options: { partial?: boolean } = {}): SeoResults {
   const output = emptySeoResults()
   if (request.capability === SeoCapabilities['market-rankings']) {
     // A live search returns exactly one results page; anything else is not this search.
     if (rawResults.length !== 1) throw new Error('SEO provider returned an unexpected number of results pages.')
-    output.marketRankings.push(...marketRankings(rawResults[0], request, collectedAt))
+    output.marketRankings.push(...marketRankings(rawResults[0], request, collectedAt, options.partial === true))
     return output
   }
   for (const raw of rawResults) {

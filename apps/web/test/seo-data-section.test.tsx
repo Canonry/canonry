@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, RouterProvider } from '@tanstack/react-router'
 import { afterEach, expect, test, vi } from 'vitest'
-import { SeoRunStatuses, type SeoContext, type SeoMarketRanking, type SeoOverview, type SeoProfile, type SeoProfileInput, type SeoProvenance, type SeoRankedKeyword, type SeoRun } from '@canonry/canonry-contracts'
+import { SeoRunStatuses, type ScheduleDto, type SeoContext, type SeoMarketRanking, type SeoMarketRankingCounts, type SeoMarketRankingSummary, type SeoOverview, type SeoProfile, type SeoProfileInput, type SeoProvenance, type SeoRankedKeyword, type SeoRun } from '@canonry/canonry-contracts'
 import { SeoDataSection } from '../src/components/project/SeoDataSection.js'
 import { createQueryClient } from '../src/queries/query-client.js'
 
@@ -68,8 +68,9 @@ async function mount(profileId: string | null = 'simple', runId?: string) {
   const client = createQueryClient()
   client.setDefaultOptions({ queries: { retry: false, gcTime: 0, staleTime: Infinity }, mutations: { retry: false } })
   clients.push(client)
+  const text = (value: unknown) => typeof value === 'string' && value ? value : undefined
   const root = createRootRoute({
-    validateSearch: (search: Record<string, unknown>) => ({ seoProfileId: typeof search.seoProfileId === 'string' ? search.seoProfileId : undefined, seoRunId: typeof search.seoRunId === 'string' ? search.seoRunId : undefined }),
+    validateSearch: (search: Record<string, unknown>) => ({ seoProfileId: text(search.seoProfileId), seoRunId: text(search.seoRunId), seoRegion: text(search.seoRegion), seoMarket: text(search.seoMarket) }),
   })
   const route = createRoute({ getParentRoute: () => root, path: '/projects/$projectName/seo-data', component: () => <SeoDataSection projectName="example" /> })
   const search = new URLSearchParams()
@@ -132,12 +133,14 @@ test.each([SeoRunStatuses.completed, SeoRunStatuses.partial, null])('selected pr
   await mount('advanced')
   await screen.findByRole('heading', { name: status ? 'No results returned' : 'No saved data yet' })
   if (status) {
-    const freshness = screen.getByText(status === SeoRunStatuses.partial ? /^Partial refresh finished/ : /^Last completed/)
-    expect(freshness.textContent).toContain('Oct 18, 2026')
+    const freshness = screen.getByText(/^Updated/)
     expect(freshness.querySelector('time')?.getAttribute('datetime')).toBe(selectedFinishedAt)
+    expect(freshness.querySelector('time')?.textContent).toMatch(/^Oct 18\b/)
+    // A partial refresh with no failed task says so in a caveat, the sentence in its tooltip.
+    expect(screen.queryByRole('button', { name: 'Partial results: part of this refresh did not run. Open Activity for details.' }) !== null).toBe(status === SeoRunStatuses.partial)
   } else {
     expect(screen.getByText('No completed refresh')).not.toBeNull()
-    expect(screen.queryByText(/^Last completed/)).toBeNull()
+    expect(screen.queryByText(/^Updated/)).toBeNull()
   }
 })
 
@@ -357,7 +360,6 @@ test('read-only access keeps source evidence available, exposes scope refusal, a
   await mount('advanced')
   await screen.findByText('saved keyword')
   expect(screen.getByText('Exact host cannot be used for domain comparison.')).not.toBeNull()
-  expect(screen.getByText('Read-only access')).not.toBeNull()
   expect(screen.queryByRole('button', { name: 'Refresh data' })).toBeNull()
   expect(screen.queryByRole('button', { name: 'New profile' })).toBeNull()
   fireEvent.click(screen.getByText('Details', { selector: 'summary' }))
@@ -451,61 +453,183 @@ test.each(['advanced', 'simple'])('a historical link preserves its refresh ident
   }
 })
 
-test('market rankings read as tracked queries by market, and editing keeps their search settings', async () => {
-  const markets: SeoProfile = {
-    ...simple, id: 'markets', name: 'Market rankings', capabilities: ['market-rankings'], keywords: [], revision: 2,
-    rankings: { locations: [{ key: 'metro', locationCode: 200623, label: 'Dallas-Ft. Worth, TX' }], depth: 50, device: 'mobile', searchText: 'query-without-market-region' },
+const markets: SeoProfile = {
+  ...simple, id: 'markets', name: 'Market rankings', capabilities: ['market-rankings'], keywords: [], revision: 2,
+  rankings: { locations: [{ key: 'metro', locationCode: 200623, label: 'Dallas-Ft. Worth, TX' }], depth: 50, device: 'mobile', searchText: 'query-without-market-region' },
+}
+const marketContext: SeoContext = {
+  ...context,
+  connections: [{ ...context.connections[0]!, capabilities: ['ranked-keywords', 'keyword-metrics', 'domain-intelligence', 'market-rankings'] }],
+  scopes: [{ ...context.scopes[0]!, capabilities: ['ranked-keywords', 'keyword-metrics', 'domain-intelligence', 'market-rankings'] }],
+}
+// The saved refresh ran under revision 1; two of its ten searches failed.
+const marketRun: SeoRun = { ...saved, id: 'saved-markets', profileId: 'markets', status: 'partial', capabilities: ['market-rankings'], scope: markets.scope, taskCount: 10, completedTasks: 8, failedTasks: 2, finishedAt: '2026-10-25T20:00:00Z' }
+const nextRefresh: ScheduleDto = { id: 'seo-schedule', projectId: 'project-id', kind: 'seo-sync', cronExpr: '', recurrence: { everyDays: 14, startDate: '2026-11-08', time: '09:00' }, timezone: 'UTC', enabled: true, providers: [], nextRunAt: '2026-11-08T09:00:00.000Z', createdAt: source.collectedAt, updatedAt: source.collectedAt }
+const marketSource: SeoProvenance = { ...source, dataset: 'dataforseo-serp/google/market-rankings', locationCode: 200623, device: 'mobile' }
+const counts = (values: Partial<SeoMarketRankingCounts>): SeoMarketRankingCounts => ({ queries: 0, page1: 0, ranks11To20: 0, ranks21Plus: 0, notRanked: 0, failed: 0, notRun: 0, needsWork: 0, rivalAhead: 0, ...values })
+// Every figure differs, so a value shown under the wrong label fails.
+const totals = counts({ queries: 12, page1: 2, ranks11To20: 3, ranks21Plus: 1, notRanked: 4, failed: 2, needsWork: 8, rivalAhead: 5 })
+const regions: SeoMarketRankingSummary['groups'] = ['Coast', 'Desert', 'Lake', 'Mountain', 'Prairie', 'Valley'].map((name, index) => ({
+  key: name.toLowerCase(), label: `${name} Metro`, kind: 'region' as const, counts: counts({ queries: 10 + index, ranks11To20: 6 - index, rivalAhead: index * 2 }),
+}))
+function marketRow(queryText: string, values: Partial<SeoMarketRanking> = {}): SeoMarketRanking {
+  return {
+    marketKey: 'harbor', marketLabel: 'Harbor, Coast', regionKey: 'coast', regionLabel: 'Coast Metro', queryId: queryText, queryText, queryClass: 'non-brand',
+    searchText: queryText, locationLabel: 'Harbor, TX', target: markets.targets[0]!, rankOrganic: null, rankAbsolute: null, url: null, depth: 50, checkedDepth: 50,
+    searchStatus: 'completed', outcome: 'not-ranked', rivalAhead: false, competitors: [], provenance: marketSource, ...values,
   }
-  // The saved refresh ran under revision 1, one of its three searches failed.
-  const refresh: SeoRun = { ...saved, id: 'saved-markets', profileId: 'markets', status: 'partial', capabilities: ['market-rankings'], scope: markets.scope, taskCount: 3, completedTasks: 2, failedTasks: 1 }
-  const search = (id: string, status: SeoRun['status'], error: string | null) => ({ id, capability: 'market-rankings' as const, target: markets.targets[0]!, status, error, remoteTaskId: null })
-  const marketContext: SeoContext = {
-    ...context,
-    connections: [{ ...context.connections[0]!, capabilities: ['ranked-keywords', 'keyword-metrics', 'domain-intelligence', 'market-rankings'] }],
-    scopes: [{ ...context.scopes[0]!, capabilities: ['ranked-keywords', 'keyword-metrics', 'domain-intelligence', 'market-rankings'] }],
-  }
-  const row = (queryText: string, rankOrganic: number | null, url: string | null): SeoMarketRanking => ({
-    marketKey: 'dallas', marketLabel: 'Dallas, Dallas-Fort Worth', regionKey: 'metro', regionLabel: 'Dallas-Fort Worth Metro Area',
-    queryId: queryText, queryText, queryClass: 'non-brand', searchText: queryText.replace(', Dallas-Fort Worth', ''), locationLabel: 'Dallas-Ft. Worth, TX',
-    target: markets.targets[0]!, rankOrganic, rankAbsolute: rankOrganic, url, depth: 50, competitors: [{ domain: 'rival.com', rankOrganic: 2 }],
-    provenance: { ...source, dataset: 'dataforseo-serp/google/market-rankings', locationCode: 200623, device: 'mobile' },
-  })
+}
+const marketRows = [
+  marketRow('apartments near the harbor', { rankOrganic: 11, rankAbsolute: 14, url: 'https://example.com/harbor', outcome: 'ranks-11-20', rivalAhead: true, competitors: [{ domain: 'rival.com', rankOrganic: 3 }, { domain: 'other.com', rankOrganic: 30 }] }),
+  marketRow('lofts with parking', { checkedDepth: 30, searchStatus: 'partial' }),
+  marketRow('pet friendly lofts', { outcome: 'failed', searchStatus: 'failed', checkedDepth: 0, provenance: null }),
+]
+
+/** A market-rankings profile's reads; `summaryFor` answers each summary request, and every read is recorded. */
+function stubMarkets(summaryFor: (url: URL) => SeoMarketRankingSummary, extra: (request: Request, url: URL) => Promise<Response> | null = () => null) {
   const reads: URL[] = []
   const writes: unknown[] = []
   vi.stubGlobal('fetch', async (request: Request) => {
     const url = new URL(request.url)
     if (request.method === 'PUT') { writes.push(await request.json()); return json({ ...markets, revision: 3 }) }
     reads.push(url)
+    const handled = extra(request, url)
+    if (handled) return handled
     if (url.pathname.endsWith('/context')) return json(marketContext)
     if (url.pathname.endsWith('/profiles')) return json({ profiles: [markets] })
-    if (url.pathname.endsWith('/overview')) return json({ ...overview(markets, refresh), summary: null, marketRankingCount: 2 })
-    if (url.pathname.endsWith('/market-rankings')) return json({ runId: 'saved-markets', total: 2, limit: 25, offset: 0, items: [row('best apartments in Dallas, Dallas-Fort Worth', 4, 'https://example.com/dallas'), row('pet friendly apartments Dallas, Dallas-Fort Worth', null, null)] })
-    if (url.pathname.endsWith('/runs/saved-markets')) return json({ ...refresh, tasks: [search('t1', 'completed', null), search('t2', 'failed', 'The source refused this search.'), search('t3', 'completed', null)], results: { keywordMetrics: [], rankedKeywords: [], domainIntelligence: [], marketRankings: [] }, resultCounts: { keywordMetrics: 0, rankedKeywords: 0, domainIntelligence: 0, marketRankings: 2 }, resultsTruncated: false })
-    if (url.pathname.endsWith('/runs')) return json({ runs: [refresh] })
+    if (url.pathname.endsWith('/schedule')) return json(nextRefresh)
+    if (url.pathname.endsWith('/overview')) return json({ ...overview(markets, marketRun), evidenceRunId: marketRun.id, evidenceRun: marketRun, summary: null, marketRankingCount: 12 })
+    if (url.pathname.endsWith('/market-rankings/summary')) return json(summaryFor(url))
+    if (url.pathname.endsWith('/market-rankings')) {
+      const items = url.searchParams.get('q') === 'nothing like this' ? [] : marketRows
+      return json({ runId: marketRun.id, total: items.length, limit: 10, offset: 0, items })
+    }
     throw new Error(`Unexpected request ${request.method} ${url.pathname}`)
   })
+  const lastRead = (path: string) => Object.fromEntries(reads.filter(url => url.pathname.endsWith(path)).at(-1)!.searchParams)
+  return { reads, writes, lastRead }
+}
+const summary = (values: Partial<SeoMarketRankingSummary> = {}): SeoMarketRankingSummary => ({ runId: marketRun.id, depth: 50, regionKey: null, marketKey: null, regionLabel: null, marketLabel: null, totals, groups: regions, ...values })
+
+test('market rankings lead with the refresh, then server counts by outcome and the regions to open', async () => {
+  const { lastRead } = stubMarkets(url => url.searchParams.get('regionKey') === 'coast'
+    ? summary({ regionKey: 'coast', regionLabel: 'Coast Metro', totals: counts({ queries: 3, ranks11To20: 1, notRanked: 1, failed: 1, needsWork: 2, rivalAhead: 1 }), groups: [
+      { key: 'harbor', label: 'Harbor, Coast', kind: 'market', counts: counts({ queries: 2, ranks11To20: 1, notRanked: 1, needsWork: 2, rivalAhead: 1 }) },
+      { key: 'bayside', label: 'Bayside, Coast', kind: 'market', counts: counts({ queries: 1, failed: 1 }) },
+    ] })
+    : summary())
+  const { router } = await mount('markets')
+  const figures = await screen.findByRole('region', { name: 'Google rank' })
+  expect(within(figures).getByText('12 queries')).not.toBeNull()
+  // Freshness, the next scheduled refresh and the failed searches share one line, the sentence behind a caveat.
+  const freshness = screen.getByText(/^Updated/)
+  expect([...freshness.querySelectorAll('time')].map(time => [time.getAttribute('datetime'), /^(?:Oct 25|Nov 8)\b/.test(time.textContent ?? '')])).toEqual([['2026-10-25T20:00:00Z', true], ['2026-11-08T09:00:00.000Z', true]])
+  expect(screen.getByRole('button', { name: '2 searches failed: 2 of 10 searches in this refresh returned no results. Their queries show as Failed.' })).not.toBeNull()
+  expect(lastRead('/schedule')).toEqual({ kind: 'seo-sync' })
+  const values = within(figures).getAllByRole('definition')
+  expect(within(figures).getAllByRole('term').map((term, index) => [term.textContent, values[index]!.textContent])).toEqual([
+    ['Page 1', '2'], ['11-20', '3'], ['21-50', '1'], ['Not in top 50', '4'], ['Rival ahead', '5'],
+  ])
+  expect(lastRead('/market-rankings/summary')).toEqual({ profileId: 'markets', runId: 'saved-markets' })
+
+  // Regions arrive in the API's order, five at a time; a header re-sorts them.
+  const regionTable = screen.getByRole('table', { name: 'Google rank by region' })
+  const regionNames = () => within(regionTable).getAllByRole('rowheader').map(cell => cell.textContent)
+  expect(regionNames()).toEqual(['Coast Metro', 'Desert Metro', 'Lake Metro', 'Mountain Metro', 'Prairie Metro'])
+  expect(within(within(regionTable).getAllByRole('row')[1]!).getAllByRole('cell').map(cell => cell.textContent)).toEqual(['10', '0', '6', '0', '0', '0', ''])
+  expect(screen.getByText('1 to 5 of 6 regions')).not.toBeNull()
+  fireEvent.click(screen.getAllByRole('button', { name: 'Next' })[0]!)
+  expect(regionNames()).toEqual(['Valley Metro'])
+  fireEvent.click(within(regionTable).getByRole('button', { name: 'Rival ahead' }))
+  expect(regionNames()).toEqual(['Valley Metro', 'Prairie Metro', 'Mountain Metro', 'Lake Metro', 'Desert Metro'])
+  expect(within(regionTable).getByRole('button', { name: 'Rival ahead' }).closest('th')!.getAttribute('aria-sort')).toBe('descending')
+
+  // Opening a region puts it in the URL and reads its markets.
+  fireEvent.click(within(regionTable).getByRole('link', { name: 'Desert Metro' }))
+  await waitFor(() => expect(router.state.location.search).toMatchObject({ seoProfileId: 'markets', seoRegion: 'desert' }))
+  fireEvent.click(await screen.findByRole('link', { name: 'All markets' }))
+  await waitFor(() => expect(router.state.location.search.seoRegion).toBeUndefined())
+  await router.navigate({ to: '/projects/$projectName/seo-data', params: { projectName: 'example' }, search: { seoProfileId: 'markets', seoRegion: 'coast' } })
+  const trail = await screen.findByRole('navigation', { name: 'Market rankings scope' })
+  expect(within(trail).getByText('Coast Metro').getAttribute('aria-current')).toBe('page')
+  const marketTable = screen.getByRole('table', { name: 'Google rank by market' })
+  expect(within(marketTable).getAllByRole('rowheader').map(cell => cell.textContent)).toEqual(['Harbor, Coast', 'Bayside, Coast'])
+  expect(screen.getByText('3 queries')).not.toBeNull()
+  await waitFor(() => expect(lastRead('/market-rankings')).toMatchObject({ regionKey: 'coast', outcome: 'needs-work' }))
+  fireEvent.click(within(marketTable).getByRole('link', { name: 'Harbor, Coast' }))
+  await waitFor(() => expect(router.state.location.search).toMatchObject({ seoRegion: 'coast', seoMarket: 'harbor' }))
+})
+
+test('queries open on what needs work, closest to page 1, and every filter, order and search is an API read', async () => {
+  const { lastRead } = stubMarkets(() => summary())
   await mount('markets')
-  const table = await screen.findByRole('table', { name: 'Market rankings from the selected refresh' })
-  const rows = within(table).getAllByRole('row').slice(1)
-  expect(within(rows[0]!).getByRole('rowheader').textContent).toBe('best apartments in Dallas, Dallas-Fort WorthDallas, Dallas-Fort Worth')
-  expect(within(rows[0]!).getAllByRole('cell')[0]!.textContent).toBe('4')
-  expect(within(rows[1]!).getAllByRole('cell')[0]!.textContent).toBe('Not in top 50')
-  expect(within(rows[1]!).getByLabelText('No ranking page')).not.toBeNull()
-  expect(within(rows[0]!).getByText('Searched as “best apartments in Dallas” from Dallas-Ft. Worth, TX')).not.toBeNull()
-  // A ranked row states its position counting every result block; an unranked row has none to state.
-  expect(within(rows[0]!).getByText('Position on the page, counting maps and other blocks: 4')).not.toBeNull()
-  expect(within(rows[1]!).queryByText(/Position on the page/)).toBeNull()
-  const tracked = within(rows[0]!).getByText('Tracked competitors in these results').nextElementSibling!
-  expect([...tracked.children].map(item => item.textContent)).toEqual(['rival.com', '#2'])
+  const table = await screen.findByRole('table', { name: 'Queries: Needs work' })
+  expect(lastRead('/market-rankings')).toEqual({ profileId: 'markets', runId: 'saved-markets', outcome: 'needs-work', sort: 'rank', limit: '10', offset: '0' })
+  const show = screen.getByRole<HTMLSelectElement>('combobox', { name: 'Show queries' })
+  // Not searched has no rows, so it is not offered.
+  expect([...show.options].map(option => option.textContent)).toEqual(['Needs work (8)', 'Page 1 (2)', '11-20 (3)', '21-50 (1)', 'Not in top 50 (4)', 'Rival ahead (5)', 'Failed (2)', 'All (12)'])
+
+  const [ranked, partial, failed] = within(table).getAllByRole('row').slice(1)
+  expect(within(ranked!).getAllByRole('cell')[0]!.textContent).toBe('11')
+  expect(within(ranked!).getAllByRole('cell')[1]!.textContent).toBe('rival.com#3Ahead')
+  expect(within(partial!).getAllByRole('cell')[0]!.textContent).toBe('Not in top 30')
+  expect(within(partial!).getByRole('button', { name: 'Only the top 30 of 50 results came back for this search.' })).not.toBeNull()
+  expect(within(partial!).getAllByRole('cell')[1]!.textContent).toBe('None in top 30')
+  expect(within(failed!).getByRole('button', { name: 'Failed: the source returned no results for this search in this refresh.' })).not.toBeNull()
+  expect(within(failed!).getAllByRole('cell')[1]!.textContent).toBe('—No result')
+  // The ranking page and the rest of the evidence live in Details.
+  fireEvent.click(within(ranked!).getByText('Details', { selector: 'summary' }))
+  expect(within(ranked!).getByText('Ranking page').nextElementSibling!.textContent).toBe('https://example.com/harbor')
+  expect(within(ranked!).getByText('Position on the page, counting maps and other blocks: 14')).not.toBeNull()
+  expect([...within(ranked!).getByText('Tracked competitors in these results').nextElementSibling!.children].map(item => item.textContent)).toEqual(['rival.com', '#3', 'other.com', '#30'])
+  expect(within(ranked!).getByText('Dataset').nextElementSibling!.textContent).toBe('Market rankings')
+  fireEvent.click(within(failed!).getByText('Details', { selector: 'summary' }))
+  expect(within(failed!).getByText('Ranking page').nextElementSibling!.textContent).toBe('No result: the search failed')
+  expect(within(failed!).queryByText('Dataset')).toBeNull()
+  expect(within(partial!).queryByText('Results checked: top 30 of 50')).not.toBeNull()
+
+  fireEvent.click(within(table).getByRole('button', { name: 'Google rank' }))
+  await waitFor(() => expect(lastRead('/market-rankings')).toMatchObject({ sort: '-rank', outcome: 'needs-work' }))
+  expect(within(table).getByRole('button', { name: 'Google rank' }).closest('th')!.getAttribute('aria-sort')).toBe('descending')
+  fireEvent.change(show, { target: { value: 'failed' } })
+  await waitFor(() => expect(lastRead('/market-rankings')).toMatchObject({ outcome: 'failed', sort: '-rank', offset: '0' }))
+  fireEvent.change(screen.getByRole('searchbox', { name: 'Find a query' }), { target: { value: 'nothing like this' } })
+  await screen.findByRole('heading', { name: 'No queries match' })
+  expect(lastRead('/market-rankings')).toMatchObject({ outcome: 'failed', q: 'nothing like this' })
+  fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }))
+  await screen.findByRole('table', { name: 'Queries: All' })
+  expect(lastRead('/market-rankings')).toEqual({ profileId: 'markets', runId: 'saved-markets', sort: '-rank', limit: '10', offset: '0' })
+  expect(screen.getByRole<HTMLInputElement>('searchbox', { name: 'Find a query' }).value).toBe('')
+  // Filtering re-renders the view in place; the region table above it stays a single table.
+  expect(screen.getAllByRole('table', { name: 'Google rank by region' })).toHaveLength(1)
+})
+
+test('a scope with nothing off page 1 opens on every query', async () => {
+  const { lastRead } = stubMarkets(() => summary({ totals: counts({ queries: 3, page1: 3 }), groups: [] }))
+  await mount('markets')
+  await screen.findByRole('table', { name: 'Queries: All' })
+  expect(lastRead('/market-rankings')).toEqual({ profileId: 'markets', runId: 'saved-markets', sort: 'rank', limit: '10', offset: '0' })
+  expect(screen.getByRole<HTMLSelectElement>('combobox', { name: 'Show queries' }).value).toBe('all')
+  // A lone market would only repeat the queries, so there is no table of groups to open.
+  expect(screen.queryByRole('table', { name: /^Google rank by/ })).toBeNull()
+})
+
+test('market-rankings activity counts searches, and editing the profile keeps its search settings', async () => {
+  const search = (id: string, status: SeoRun['status'], error: string | null) => ({ id, capability: 'market-rankings' as const, target: markets.targets[0]!, status, error, remoteTaskId: null })
+  const { writes } = stubMarkets(() => summary(), (_request, url) => {
+    if (url.pathname.endsWith('/runs/saved-markets')) return Promise.resolve(json({ ...marketRun, tasks: [search('t1', 'completed', null), search('t2', 'failed', 'The source refused this search.'), search('t3', 'completed', null)], results: { keywordMetrics: [], rankedKeywords: [], domainIntelligence: [], marketRankings: [] }, resultCounts: { keywordMetrics: 0, rankedKeywords: 0, domainIntelligence: 0, marketRankings: 8 }, resultsTruncated: false }))
+    if (url.pathname.endsWith('/runs')) return Promise.resolve(json({ runs: [marketRun] }))
+    return null
+  })
+  await mount('markets')
+  await screen.findByText('12 queries')
   expect(screen.getByText('1 search location · en')).not.toBeNull()
   // The saved refresh searched from each market's location, never the profile's one location code.
   expect(screen.getByText('Saved data uses profile revision 1 · Market locations · en. The current profile has changed.')).not.toBeNull()
-  const read = reads.find(url => url.pathname.endsWith('/market-rankings'))!
-  expect(Object.fromEntries(read.searchParams)).toEqual({ profileId: 'markets', runId: 'saved-markets', limit: '25', offset: '0' })
 
   // Activity counts searches and lists only the one that did not complete.
   fireEvent.click(screen.getByRole('button', { name: 'Activity' }))
-  expect(await screen.findByText('2 of 3 searches completed · 1 failed')).not.toBeNull()
+  expect(await screen.findByText('8 of 10 searches completed · 2 failed')).not.toBeNull()
   fireEvent.click(screen.getByRole('button', { name: /^Details\s*for refresh saved-markets$/ }))
   const details = await screen.findByText('The source refused this search.')
   const panel = details.closest('[id="seo-run-saved-markets"]') as HTMLElement

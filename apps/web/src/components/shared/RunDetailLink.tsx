@@ -17,7 +17,7 @@ export function RunDetailLink({ run, projectName, children, className, label }: 
     return <Link
       to="/projects/$projectName/seo-data"
       params={{ projectName }}
-      search={previous => ({ ...previous, seoRunId: run.id, seoProfileId: undefined, runId: undefined, evidenceId: undefined })}
+      search={previous => ({ ...previous, seoRunId: run.id, seoProfileId: undefined, seoRegion: undefined, seoMarket: undefined, runId: undefined, evidenceId: undefined })}
       className={className}
       aria-label={label}
     >{children}</Link>

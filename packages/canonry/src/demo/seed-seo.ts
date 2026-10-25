@@ -2,14 +2,14 @@ import { eq } from 'drizzle-orm'
 import {
   RunKinds, RunStatuses, RunTriggers, SeoAdapterOutcomes, SeoCapabilities, SeoProviders,
   SeoRunStatuses, SeoScopeKinds, SeoTargetKinds, emptySeoResults, measurementPlanV2Schema, queryClassSchema,
-  type MeasurementPlanV2, type SeoAdapterRequest, type SeoMarketRanking, type SeoProfileInput, type SeoProvenance, type SeoResults, type SeoTarget,
+  type MeasurementPlanV2, type SeoAdapterRequest, type SeoMarketRankingObservation, type SeoProfileInput, type SeoProvenance, type SeoResults, type SeoTarget,
 } from '@canonry/canonry-contracts'
 import { measurementPlans, measurementPlanVersions, runs, seoJobs, seoProfiles, seoTasks, type DatabaseClient } from '@canonry/canonry-db'
 import { harborProperties } from './portfolio.js'
 import type { DemoSeedContext } from './types.js'
 
 /** Fictional searches and Google positions for each market's non-brand queries, one search per query. */
-function demoMarketRankings(plan: MeasurementPlanV2, input: SeoProfileInput, target: SeoTarget, capturedAt: string, daysAgo: number): Array<{ request: SeoAdapterRequest; row: SeoMarketRanking }> {
+function demoMarketRankings(plan: MeasurementPlanV2, input: SeoProfileInput, target: SeoTarget, capturedAt: string, daysAgo: number): Array<{ request: SeoAdapterRequest; row: SeoMarketRankingObservation }> {
   const settings = input.rankings!
   const text = new Map(plan.querySnapshots.map(snapshot => [snapshot.queryId, snapshot.queryText]))
   const nonBrand = new Set(plan.assignments.filter(assignment => assignment.queryClass === queryClassSchema.enum['non-brand']).map(assignment => `${assignment.targetKey}:${assignment.queryId}`))

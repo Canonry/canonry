@@ -48,6 +48,14 @@ function serpKeyword(searchText: string): string {
 // distinct from execution or timeout
 // failures. Without task receipts, even these require an explicit zero total cost.
 const REQUEST_REFUSALS = new Set([40000, 40006, 40100, 40104, 40200, 40203, 40205, 40206, 40207, 40210, 40501, 40502, 40503, 40506])
+/** "Task completed with partial results": some results pages could not be retrieved, and only the returned pages are charged. */
+const PARTIAL_RESULTS = 40106
+/**
+ * Task failures the source invites a fresh attempt for: 40101 "internal se server error"
+ * (the search engine answered with an error) and 40103 "task execution failed, please try
+ * to resubmit the task". A market-rankings search ending in one of these earns one retry.
+ */
+const RETRY_INVITED = new Set([40101, 40103])
 
 /** The bare hostname a target names, after the shared domain/host scope rules. */
 function targetHost(target: SeoTarget | null): string {
@@ -171,21 +179,29 @@ export function createDataForSeoAdapter(credentials: DataForSeoCredentials): Seo
           remoteTaskId: task.id ?? null, statusCode: task.status_code,
           costMicros: task.cost == null ? null : dollarsToMicros(task.cost),
         }))
+        const rankings = request.capability === SeoCapabilities['market-rankings']
         let successes = 0
+        let partialPages = 0
         for (const task of tasks) {
-          if (task.status_code !== 20000) continue
+          // A partial results page still ranks within the pages that came back; only market rankings can say how deep that was.
+          const partial = rankings && task.status_code === PARTIAL_RESULTS
+          if (task.status_code !== 20000 && !partial) continue
           try {
-            appendResults(results, normalizeDataForSeoResults(task.result ?? [], request, fetchedAt))
+            appendResults(results, normalizeDataForSeoResults(task.result ?? [], request, fetchedAt, { partial }))
             successes++
+            if (partial) partialPages++
           } catch {
             // Preserve the financial receipt even when a changed payload cannot be decoded.
           }
         }
-        const outcome = successes === tasks.length ? SeoAdapterOutcomes.completed
+        const outcome = successes === tasks.length && partialPages === 0 ? SeoAdapterOutcomes.completed
           : successes > 0 ? SeoAdapterOutcomes.partial : SeoAdapterOutcomes.failed
+        const retryable = rankings && successes === 0 && tasks.every(task => RETRY_INVITED.has(task.status_code))
         return {
           outcome, tasks: receipts, results, fetchedAt,
-          error: outcome === SeoAdapterOutcomes.completed ? null : 'Some SEO provider results could not be collected.',
+          error: outcome === SeoAdapterOutcomes.completed ? null
+            : successes === tasks.length ? 'The SEO provider returned only part of the results.' : 'Some SEO provider results could not be collected.',
+          ...(retryable ? { retryable } : {}),
         }
       } catch (error) {
         const unaccepted = error instanceof DataForSeoTransportError && error.unaccepted

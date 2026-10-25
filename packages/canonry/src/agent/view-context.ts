@@ -1,6 +1,6 @@
 import { Type } from '@earendil-works/pi-ai'
 import type { AgentTool } from '@earendil-works/pi-agent-core'
-import { agentVisibilityEvidence, validationError, visibilityReportRequestSchema, type AgentViewContext } from '@canonry/canonry-contracts'
+import { SeoCapabilities, agentVisibilityEvidence, validationError, visibilityReportRequestSchema, type AgentViewContext } from '@canonry/canonry-contracts'
 import type { ApiClient } from '../client.js'
 import { truncateToolResult } from './mcp-to-agent-tool.js'
 
@@ -18,13 +18,21 @@ export async function readAeroViewEvidence(options: AeroViewOptions): Promise<un
   const base = `/${(options.basePath ?? '').replace(/^\/+|\/+$/g, '')}`.replace(/\/$/, '')
   if (context?.view === 'seo') {
     const overview = await client.getSeoOverview(projectName, { profileId: context.seoProfileId, runId: context.seoRunId })
+    // Market rankings on screen: their counts by outcome for the region or market the view is narrowed to.
+    const evidence = overview.evidenceRun
+    const marketRankings = evidence?.capabilities.includes(SeoCapabilities['market-rankings'])
+      ? await client.getSeoMarketRankingSummary(projectName, { profileId: evidence.profileId, runId: evidence.id, regionKey: context.seoRegionKey, marketKey: context.seoMarketKey })
+      : undefined
     const search = new URLSearchParams(context.seoProfileId ? { seoProfileId: context.seoProfileId } : {})
     if (context.seoRunId) search.set('seoRunId', context.seoRunId)
+    if (context.seoRegionKey) search.set('seoRegion', context.seoRegionKey)
+    if (context.seoMarketKey) search.set('seoMarket', context.seoMarketKey)
     return {
       context, retrievedAt: new Date().toISOString(),
       source: { label: 'Open SEO data', href: `${base}/projects/${encodeURIComponent(projectName)}/seo-data?${search}` },
-      overview,
-      interpretation: 'Stored third-party SEO estimates. Preserve profile, scope, locale, dataset and collection date. Estimates are not Search Console observations or AI citation and mention coverage. Missing or partial data is not zero. This read does not refresh data.',
+      overview, ...(marketRankings ? { marketRankings } : {}),
+      interpretation: 'Stored third-party SEO estimates. Preserve profile, scope, locale, dataset and collection date. Estimates are not Search Console observations or AI citation and mention coverage. Missing or partial data is not zero. This read does not refresh data.'
+        + (marketRankings ? ' Market rankings are observed Google positions of tracked non-brand queries, counted by rank band for the region or market on screen; a failed or unsearched query has no rank. Read its rows with canonry_seo_market_rankings and the same keys.' : ''),
     }
   }
   if (context?.view === 'site-health') {

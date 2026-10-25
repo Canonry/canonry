@@ -77,7 +77,7 @@ const PATH_PARAMETERS: Record<string, RecordKind | 'project'> = {
 
 /** Routes whose handlers refuse to run without these query parameters. */
 const REQUIRED_QUERIES: Record<string, (lookup: Lookup) => Promise<Record<string, string>>> = {
-  ...Object.fromEntries(['overview', 'keyword-metrics', 'domain-intelligence', 'ranked-keywords', 'market-rankings'].map(path => [`/api/v1/projects/:name/seo/${path}`, async ({ record }: Lookup) => ({ profileId: await record('seoProfile') })])),
+  ...Object.fromEntries(['overview', 'keyword-metrics', 'domain-intelligence', 'ranked-keywords', 'market-rankings', 'market-rankings/summary'].map(path => [`/api/v1/projects/:name/seo/${path}`, async ({ record }: Lookup) => ({ profileId: await record('seoProfile') })])),
   '/api/v1/projects/:name/measurement-overview': async () => ({ scope: 'all' }),
   '/api/v1/projects/:name/measurement-property-competitors': async ({ record }) => ({ targetKey: await record('measurementProperty') }),
   '/api/v1/projects/:name/measurement-property-evidence': async ({ record }) => ({ targetKey: await record('measurementProperty') }),

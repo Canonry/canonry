@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { eq } from 'drizzle-orm'
-import { SeoRepository, competitors, measurementPlans, measurementPlanVersions, projects, queries, seoTasks } from '@canonry/canonry-db'
+import { SeoRepository, competitors, measurementPlans, measurementPlanVersions, projects, queries, seoTasks, type SeoTaskRow } from '@canonry/canonry-db'
 import {
   SeoCapabilities, SeoProviders, canonicalMeasurementPlanV2Json, compareText, emptySeoResults,
-  type MeasurementPlanV2, type SeoAdapter, type SeoContext, type SeoMarketRanking, type SeoMarketRankingList, type SeoProfileInput, type SeoQuote, type SeoRun, type SeoRunDetail,
+  type MeasurementPlanV2, type SeoAdapter, type SeoAdapterResult, type SeoContext, type SeoMarketRankingList, type SeoMarketRankingObservation, type SeoMarketRankingSummary,
+  type SeoProfileInput, type SeoQuote, type SeoRun, type SeoRunDetail, type SeoRunList,
 } from '@canonry/canonry-contracts'
 import { createSeoHarness, seoProfileFixture } from './seo-fixture.js'
 import { measurementPlanV2Fixture } from './measurement-plan-v2-fixture.js'
@@ -217,7 +218,7 @@ describe('SEO market rankings', () => {
     const rank: Record<string, number | null> = { 'best homes in Harbor': 4, 'best homes in Bayside': null, 'homes near the water': 12 }
     for (let task = repo.claim(run.id, { ...policy, accountKey: 'account-a' }); task; task = repo.claim(run.id, { ...policy, accountKey: 'account-a' })) {
       const search = task.request.search!
-      const rows: SeoMarketRanking[] = search.markets.map(market => ({
+      const rows: SeoMarketRankingObservation[] = search.markets.map(market => ({
         ...market.context, searchText: task.request.keywords[0]!, locationLabel: search.locationLabel, target: site,
         rankOrganic: rank[task.request.keywords[0]!] ?? null, rankAbsolute: null, url: null, depth: search.depth, competitors: [],
         provenance: { provider: 'dataforseo', dataset: 'dataforseo-serp/google/market-rankings', engine: 'google', locationCode: task.request.locationCode, languageCode: 'en', device: 'mobile', collectedAt: '2026-10-25T00:00:00.000Z', sourceUpdatedAt: null },
@@ -242,5 +243,83 @@ describe('SEO market rankings', () => {
     // Results stored before this field existed carry no marketRankings array at all.
     h.db.$client.prepare('UPDATE seo_tasks SET results = ? WHERE job_id = ?').run(JSON.stringify({ keywordMetrics: [], domainIntelligence: [], rankedKeywords: [] }), run.id)
     expect(await read('')).toMatchObject({ runId: run.id, total: 0, items: [] })
+  })
+
+  it('reads each search\'s latest attempt by outcome: a failed search keeps its rows, a retry replaces the failure it retried', async () => {
+    const h = harness(); seedPlan(h, metroPlan())
+    await put(h, rankingProfile([{ key: 'metro', locationCode: 200001, label: 'Coast Metro' }]))
+    const run = await refresh(h, 'outcomes')
+    const repo = new SeoRepository(h.db)
+    const claimAll = (id: string, settle: (task: SeoTaskRow) => SeoAdapterResult) => {
+      for (let task = repo.claim(id, { ...policy, accountKey: 'account-a' }); task; task = repo.claim(id, { ...policy, accountKey: 'account-a' })) repo.settle(task.id, settle(task), task.leaseOwner!)
+    }
+    const found = (task: SeoTaskRow, rankOrganic: number, competitors: Array<{ domain: string; rankOrganic: number }>): SeoAdapterResult => {
+      const search = task.request.search!
+      const marketRankings: SeoMarketRankingObservation[] = search.markets.map(market => ({
+        ...market.context, searchText: task.request.keywords[0]!, locationLabel: search.locationLabel, target: site, rankOrganic, rankAbsolute: rankOrganic + 1,
+        url: 'https://alpha.com/homes', depth: search.depth, competitors,
+        provenance: { provider: 'dataforseo', dataset: 'dataforseo-serp/google/market-rankings', engine: 'google', locationCode: task.request.locationCode, languageCode: 'en', device: 'mobile', collectedAt: '2026-10-25T00:00:00.000Z', sourceUpdatedAt: null },
+      }))
+      return { outcome: 'completed', tasks: [{ remoteTaskId: task.id, statusCode: 20000, costMicros: 10_000 }], results: { ...emptySeoResults(), marketRankings }, error: null, fetchedAt: new Date().toISOString() }
+    }
+    const failed = (task: SeoTaskRow, retryable: boolean): SeoAdapterResult => ({ outcome: 'failed', tasks: [{ remoteTaskId: task.id, statusCode: retryable ? 40101 : 40501, costMicros: 2_000 }], results: emptySeoResults(), error: 'Search failed', fetchedAt: new Date().toISOString(), ...(retryable ? { retryable } : {}) })
+    // Harbor ranks 12 behind a rival at 3; Bayside fails, then its retry ranks 4; the shared search fails for good.
+    claimAll(run.id, task => task.request.keywords[0] === 'best homes in Harbor' ? found(task, 12, [{ domain: 'rival.com', rankOrganic: 3 }])
+      : task.request.keywords[0] === 'best homes in Bayside' ? task.retryOf ? found(task, 4, []) : failed(task, true)
+        : failed(task, false))
+    const read = async (query: string) => (await h.app.inject({ url: `${base}/market-rankings?profileId=markets${query}` })).json<SeoMarketRankingList>()
+    const ranked = await read('&sort=rank')
+    expect(ranked.items.map(row => [row.marketKey, row.queryId, row.outcome, row.rankOrganic, row.rivalAhead])).toEqual([
+      ['bayside-market', 'q-bayside', 'page-1', 4, false],
+      ['harbor-market', 'q-harbor', 'ranks-11-20', 12, true],
+      ['bayside-market', 'q-shared', 'failed', null, false],
+      ['harbor-market', 'q-shared', 'failed', null, false],
+    ])
+    // A failed search answers each of its markets with a row that says what was searched and that nothing came back.
+    expect(ranked.items[2]).toEqual({
+      marketKey: 'bayside-market', marketLabel: 'Bayside, Coast', regionKey: 'metro', regionLabel: 'Coast Metro Area', queryId: 'q-shared', queryText: 'homes near the water', queryClass: 'non-brand',
+      searchText: 'homes near the water', locationLabel: 'Coast Metro', target: site, rankOrganic: null, rankAbsolute: null, url: null, depth: 50, checkedDepth: 0,
+      searchStatus: 'failed', outcome: 'failed', rivalAhead: false, competitors: [], provenance: null,
+    })
+    expect((await read('&outcome=failed')).total).toBe(2)
+    expect((await read('&outcome=needs-work')).items.map(row => row.queryId)).toEqual(['q-harbor'])
+    expect((await read('&outcome=rival-ahead')).items.map(row => row.queryId)).toEqual(['q-harbor'])
+    expect((await read('&q=BAYSIDE')).items.map(row => `${row.marketKey}:${row.queryId}`)).toEqual(['bayside-market:q-bayside', 'bayside-market:q-shared'])
+    expect((await read('&sort=-query&limit=1')).items.map(row => row.queryId)).toEqual(['q-shared'])
+    for (const query of ['&q=%20%20', '&outcome=winning', '&sort=best']) {
+      expect((await h.app.inject({ url: `${base}/market-rankings?profileId=markets${query}` })).statusCode, query).toBe(400)
+    }
+
+    const summary = async (query: string) => (await h.app.inject({ url: `${base}/market-rankings/summary?profileId=markets${query}` })).json<SeoMarketRankingSummary>()
+    const totals = { queries: 4, page1: 1, ranks11To20: 1, ranks21Plus: 0, notRanked: 0, failed: 2, notRun: 0, needsWork: 1, rivalAhead: 1 }
+    expect(await summary('')).toEqual({ runId: run.id, depth: 50, regionKey: null, marketKey: null, regionLabel: null, marketLabel: null, totals, groups: [{ key: 'metro', label: 'Coast Metro Area', kind: 'region', counts: totals }] })
+    // Within the region, its markets, closest to page 1 first.
+    expect(await summary('&regionKey=metro')).toMatchObject({
+      regionKey: 'metro', regionLabel: 'Coast Metro Area', marketLabel: null, totals,
+      groups: [
+        { key: 'harbor-market', label: 'Harbor, Coast', kind: 'market', counts: { queries: 2, page1: 0, ranks11To20: 1, failed: 1, needsWork: 1, rivalAhead: 1 } },
+        { key: 'bayside-market', label: 'Bayside, Coast', kind: 'market', counts: { queries: 2, page1: 1, ranks11To20: 0, failed: 1, needsWork: 0, rivalAhead: 0 } },
+      ],
+    })
+    expect(await summary('&regionKey=metro&marketKey=harbor-market')).toMatchObject({ regionLabel: 'Coast Metro Area', marketLabel: 'Harbor, Coast', totals: { queries: 2, ranks11To20: 1, failed: 1 }, groups: [] })
+    expect(await summary('&regionKey=elsewhere')).toMatchObject({ regionKey: 'elsewhere', regionLabel: null, totals: { queries: 0 }, groups: [] })
+
+    // The run counts each search once, by its latest attempt: the retried failure is gone. Its stored results are
+    // the two searches that came back; the overview counts the rows the read returns, failed searches included.
+    const detail = (await h.app.inject({ url: `${base}/runs/${run.id}` })).json<SeoRunDetail>()
+    expect(detail).toMatchObject({ status: 'partial', taskCount: 3, completedTasks: 2, failedTasks: 1, resultCounts: { marketRankings: 2 } })
+    expect(detail.tasks.map(task => task.status).sort()).toEqual(['completed', 'completed', 'failed'])
+    expect((await h.app.inject({ url: `${base}/runs?profileId=markets` })).json<SeoRunList>().runs[0]).toMatchObject({ id: run.id, taskCount: 3, completedTasks: 2, failedTasks: 1 })
+    expect((await h.app.inject({ url: `${base}/overview?profileId=markets` })).json()).toMatchObject({ evidenceRunId: run.id, marketRankingCount: 4 })
+
+    // A refresh cancelled before its searches ran keeps a row for each, marked not searched; the evidence stays on the earlier refresh.
+    const cancelled = await refresh(h, 'cancelled')
+    repo.cancel(cancelled.id)
+    const skipped = await read(`&runId=${cancelled.id}`)
+    expect(skipped.items.map(row => [row.queryId, row.outcome, row.searchStatus])).toEqual([
+      ['q-bayside', 'not-run', 'not-run'], ['q-shared', 'not-run', 'not-run'], ['q-harbor', 'not-run', 'not-run'], ['q-shared', 'not-run', 'not-run'],
+    ])
+    expect((await summary(`&runId=${cancelled.id}`)).totals).toMatchObject({ queries: 4, notRun: 4, needsWork: 0 })
+    expect((await summary('')).runId).toBe(run.id)
   })
 })

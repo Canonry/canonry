@@ -1,7 +1,7 @@
 import { expect, onTestFinished, test } from 'vitest'
 import { eq } from 'drizzle-orm'
 import { SeoAdapterOutcomes, SeoCapabilities, SeoRunStatuses, emptySeoResults, type SeoAdapterResult, type SeoProfileInput } from '@canonry/canonry-contracts'
-import { createClient, migrate, projects, runs, SeoRepository, seoBudgets, seoJobs, seoProfiles, seoTasks, type SeoAdmission } from '../src/index.js'
+import { createClient, currentSeoTasks, migrate, projects, runs, SeoRepository, seoBudgets, seoJobs, seoProfiles, seoTasks, type SeoAdmission } from '../src/index.js'
 
 function setup() {
   const db = createClient(':memory:'); migrate(db)
@@ -21,6 +21,8 @@ function setup() {
 }
 
 const receipt = (costMicros: number): SeoAdapterResult => ({ outcome: SeoAdapterOutcomes.completed, tasks: [{ remoteTaskId: 'upstream', statusCode: 20000, costMicros }], results: emptySeoResults(), error: null, fetchedAt: '2026-10-22T12:00:00.000Z' })
+/** A charged failure; `retryable` is the source inviting a fresh attempt. */
+const failure = (costMicros: number, retryable: boolean): SeoAdapterResult => ({ outcome: SeoAdapterOutcomes.failed, tasks: [{ remoteTaskId: 'upstream', statusCode: retryable ? 40101 : 40501, costMicros }], results: emptySeoResults(), error: 'Search failed', fetchedAt: '2026-10-22T12:00:00.000Z', ...(retryable ? { retryable } : {}) })
 
 test('an accepted intent reserves once across keys, including after public history deletion', () => {
   const { db, repo, admission } = setup()
@@ -71,4 +73,58 @@ test('a recovered task accepts its original late receipt but cannot overwrite op
   expect(repo.settle(next.id, receipt(80), next.leaseOwner!)).toBe(false)
   expect(db.select().from(seoTasks).where(eq(seoTasks.id, next.id)).get()).toMatchObject({ status: SeoRunStatuses.failed, actualMicros: 40 })
   expect(db.select().from(seoBudgets).all().map(row => [row.reservedMicros, row.spentMicros])).toEqual([[0, 110], [0, 110], [0, 110]])
+})
+
+test('a failure the source invites a retry for runs once more after the other work, under its own hold', () => {
+  const { db, repo, admission, policy } = setup()
+  repo.admit({ ...admission, tasks: [admission.tasks[0]!, { ...admission.tasks[0]!, id: 'task-b' }] })
+  const budgets = () => db.select().from(seoBudgets).all().map(row => [row.reservedMicros, row.spentMicros])
+  const first = repo.claim('run', policy)!
+  repo.settle(first.id, failure(20, true), first.leaseOwner!)
+  // The owed retry keeps the refresh open, and the work not yet tried runs before it.
+  expect(db.select().from(seoJobs).get()?.status).toBe(SeoRunStatuses.running)
+  const second = repo.claim('run', policy)!
+  expect([first.id, second.id]).toEqual(['task', 'task-b'])
+  repo.settle(second.id, receipt(50), second.leaseOwner!)
+  const retry = repo.claim('run', policy)!
+  expect(retry).toMatchObject({ retryOf: 'task', status: SeoRunStatuses.running, reservedMicros: 100, request: { ...admission.tasks[0]!.request, tag: retry.id } })
+  expect(budgets()).toEqual([[100, 70], [100, 70], [100, 70]])
+  repo.settle(retry.id, receipt(30), retry.leaseOwner!)
+  expect(db.select().from(seoJobs).get()?.status).toBe(SeoRunStatuses.completed)
+  expect(budgets()).toEqual([[0, 100], [0, 100], [0, 100]])
+  // Counts and results read the retry in place of the failure it replaced.
+  expect(currentSeoTasks(db.select().from(seoTasks).all()).map(task => task.id).sort()).toEqual([retry.id, 'task-b'].sort())
+  expect(repo.claim('run', policy)).toBeNull()
+})
+
+test('a retry that no longer fits the run limit is declined, and the refresh finishes without it', () => {
+  const { db, repo, admission, policy } = setup()
+  repo.admit(admission)
+  const task = repo.claim('run', policy)!
+  repo.settle(task.id, failure(100, true), task.leaseOwner!)
+  // 100 already spent plus the retry's own 100 hold would pass a 150 run limit.
+  expect(repo.claim('run', { ...policy, maxRunCostMicros: 150 })).toBeNull()
+  expect(db.select().from(seoTasks).all()).toMatchObject([{ id: 'task', status: SeoRunStatuses.failed, retryable: false }])
+  expect(db.select().from(seoJobs).get()?.status).toBe(SeoRunStatuses.failed)
+  expect(db.select().from(seoBudgets).all().map(row => [row.reservedMicros, row.spentMicros])).toEqual([[0, 100], [0, 100], [0, 100]])
+})
+
+test('a failed retry is final, and cancelling drops a retry still owed', () => {
+  const { db, repo, admission, policy } = setup()
+  repo.admit(admission)
+  const task = repo.claim('run', policy)!
+  repo.settle(task.id, failure(20, true), task.leaseOwner!)
+  const retry = repo.claim('run', policy)!
+  repo.settle(retry.id, failure(20, true), retry.leaseOwner!)
+  expect(db.select().from(seoTasks).where(eq(seoTasks.id, retry.id)).get()).toMatchObject({ status: SeoRunStatuses.failed, retryable: false })
+  expect(db.select().from(seoJobs).get()?.status).toBe(SeoRunStatuses.failed)
+  expect(repo.claim('run', policy)).toBeNull()
+
+  repo.admit({ ...admission, id: 'second', requestHash: 'intent-2', idempotencyKey: 'second', tasks: [{ ...admission.tasks[0]!, id: 'second-task' }] })
+  const next = repo.claim('second', policy)!
+  repo.settle(next.id, failure(20, true), next.leaseOwner!)
+  expect(repo.cancel('second')).toBe(true)
+  expect(db.select().from(seoTasks).where(eq(seoTasks.id, 'second-task')).get()?.retryable).toBe(false)
+  expect(db.select().from(seoJobs).where(eq(seoJobs.id, 'second')).get()?.status).toBe(SeoRunStatuses.cancelled)
+  expect(repo.claim('second', policy)).toBeNull()
 })

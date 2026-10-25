@@ -1,12 +1,12 @@
 import crypto from 'node:crypto'
 import { and, asc, desc, eq, inArray, isNotNull, sql } from 'drizzle-orm'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
-import { SeoRepository, competitors, emptySeoResults, projects, queries, runs, seoJobs, seoProfiles, seoTasks, type DatabaseClient, type SeoJobRow, type SeoTaskRow } from '@canonry/canonry-db'
+import { SeoRepository, competitors, currentSeoTasks, emptySeoResults, projects, queries, runs, seoJobs, seoProfiles, seoTasks, type DatabaseClient, type SeoJobRow, type SeoTaskRow } from '@canonry/canonry-db'
 import {
   AppError, RunKinds, RunStatuses, RunTriggers, SEO_MARKET_RANKING_MAX_SEARCHES, SEO_PROJECT_MARKET_KEY, SEO_RUN_SCOPE, SEO_WRITE_SCOPE, SeoAdapterOutcomes, SeoAvailability, SeoCapabilities, SeoRunStatuses, SeoScopeKinds, SeoTargetKinds, UserRoles,
-  compareText, effectiveDomains, matchesMeasurementTargetUrl, normalizeHostname, missingDependency, notFound, queryClassSchema, registrableDomain, seoSearchTextForQuery, validationError,
-  seoProfileInputSchema, seoSyncInputSchema, seoRefreshIntentInputSchema, seoEvidenceQuerySchema, seoMarketRankingQuerySchema, seoReconcileInputSchema,
-  type MeasurementPlanV2, type SeoAdapter, type SeoAdapterRequest, type SeoCapability, type SeoContext, type SeoEvidenceQuery, type SeoMarketRanking, type SeoMarketRankingContext, type SeoMarketRankingList, type SeoMarketRankingQuery, type SeoMarketRankingSearchMarket, type SeoOverview, type SeoProfile, type SeoProfileInput, type SeoQuote, type SeoResults, type SeoRun, type SeoRunDetail, type SeoRunStatus, type SeoScopeSelection, type SeoStatus, type SeoOperatorTask, type SeoReconcileResult,
+  compareMarketRankingsBy, compareText, countMarketRankings, effectiveDomains, groupMarketRankings, marketRankingFromObservation, marketRankingWithoutResult, matchesMarketRankingFilter, matchesMarketRankingText, matchesMeasurementTargetUrl, SeoMarketRankingSearchStatuses, SeoMarketRankingSorts, normalizeHostname, missingDependency, notFound, queryClassSchema, registrableDomain, seoSearchTextForQuery, validationError,
+  seoProfileInputSchema, seoSyncInputSchema, seoRefreshIntentInputSchema, seoEvidenceQuerySchema, seoMarketRankingQuerySchema, seoMarketRankingSummaryQuerySchema, seoReconcileInputSchema,
+  type MeasurementPlanV2, type SeoAdapter, type SeoAdapterRequest, type SeoCapability, type SeoContext, type SeoEvidenceQuery, type SeoMarketRanking, type SeoMarketRankingContext, type SeoMarketRankingList, type SeoMarketRankingObservation, type SeoMarketRankingQuery, type SeoMarketRankingSearchMarket, type SeoMarketRankingSummary, type SeoMarketRankingSummaryQuery, type SeoOverview, type SeoProfile, type SeoProfileInput, type SeoQuote, type SeoResults, type SeoRun, type SeoRunDetail, type SeoRunStatus, type SeoScopeSelection, type SeoStatus, type SeoOperatorTask, type SeoReconcileResult,
 } from '@canonry/canonry-contracts'
 import { requireAdminSession, requireScope, requireOperator } from './auth.js'
 import { resolveProject, writeAuditLog } from './helpers.js'
@@ -38,13 +38,32 @@ function runDto(job: SeoJobRow, counts: Array<{ status: SeoRunStatus; count: num
   return { id: job.id, projectId: job.projectKey, profileId: job.profileId, profileRevision: job.profileRevision, locationCode: job.profile.locationCode, languageCode: job.profile.languageCode, cancelRequested: job.cancelRequested, status: job.status, capabilities: job.profile.capabilities, scope: job.profile.scope, taskCount: counts.reduce((sum, group) => sum + group.count, 0), completedTasks: counts.filter(group => group.status === SeoRunStatuses.completed || group.status === SeoRunStatuses.partial).reduce((sum, group) => sum + group.count, 0), failedTasks: counts.filter(group => group.status === SeoRunStatuses.failed).reduce((sum, group) => sum + group.count, 0), createdAt: job.createdAt, startedAt: job.startedAt, finishedAt: job.finishedAt, error: job.error }
 }
 function resultRows(tasks: SeoTaskRow[]): SeoResults {
-  return tasks.filter(task => task.reconciliation?.outcome !== SeoAdapterOutcomes.failed).reduce<SeoResults>((results, task) => ({ keywordMetrics: results.keywordMetrics.concat(task.results.keywordMetrics), domainIntelligence: results.domainIntelligence.concat(task.results.domainIntelligence), rankedKeywords: results.rankedKeywords.concat(task.results.rankedKeywords), marketRankings: results.marketRankings.concat(task.results.marketRankings ?? []) }), emptySeoResults())
+  return currentSeoTasks(tasks).filter(task => task.reconciliation?.outcome !== SeoAdapterOutcomes.failed).reduce<SeoResults>((results, task) => ({ keywordMetrics: results.keywordMetrics.concat(task.results.keywordMetrics), domainIntelligence: results.domainIntelligence.concat(task.results.domainIntelligence), rankedKeywords: results.rankedKeywords.concat(task.results.rankedKeywords), marketRankings: results.marketRankings.concat(task.results.marketRankings ?? []) }), emptySeoResults())
 }
 
-/** Market-rankings rows in reading order: region, market, then the searched text. */
-function compareMarketRankings(a: SeoMarketRanking, b: SeoMarketRanking): number {
+/** Market-rankings observations in reading order: region, market, then the searched text. */
+function compareMarketRankings(a: SeoMarketRankingObservation, b: SeoMarketRankingObservation): number {
   return compareText(a.regionLabel ?? '', b.regionLabel ?? '') || compareText(a.marketLabel, b.marketLabel)
     || compareText(a.searchText, b.searchText) || compareText(a.queryText, b.queryText)
+}
+
+/**
+ * Every market-rankings row of one refresh, from each search's latest attempt. A search
+ * with no result still has a row per market it answers: failed at the source (including
+ * one reconciled as failed or awaiting reconciliation) or not run (cancelled, or stopped
+ * at a spending limit first). A search still queued or running has no row yet, and a
+ * search that finished without rows (saved before market rankings had any) has none.
+ */
+function marketRankingRows(tasks: SeoTaskRow[]): SeoMarketRanking[] {
+  return currentSeoTasks(tasks).filter(task => task.request.capability === SeoCapabilities['market-rankings']).flatMap(task => {
+    const observations = task.reconciliation?.outcome === SeoAdapterOutcomes.failed ? [] : task.results.marketRankings ?? []
+    if (observations.length) return observations.map(marketRankingFromObservation)
+    const status = task.status === SeoRunStatuses.failed || task.status === SeoRunStatuses['reconciliation-required'] ? SeoMarketRankingSearchStatuses.failed
+      : task.status === SeoRunStatuses.cancelled ? SeoMarketRankingSearchStatuses['not-run'] : null
+    const search = task.request.search; const target = task.request.target; const searchText = task.request.keywords[0]
+    if (status === null || !search || !target || searchText === undefined) return []
+    return search.markets.map(market => marketRankingWithoutResult({ context: market.context, searchText, locationLabel: search.locationLabel, target, depth: search.depth }, status))
+  })
 }
 
 function scopedPlanTargets(plan: MeasurementPlanV2, scope: SeoScopeSelection) {
@@ -349,7 +368,9 @@ export async function seoRoutes(app: FastifyInstance, opts: SeoRoutesOptions) {
     return profileDto(row)
   }
   const tasks = (id: string) => app.db.select().from(seoTasks).where(eq(seoTasks.jobId, id)).orderBy(asc(seoTasks.id)).all()
-  const taskCounts = (ids: string[]) => ids.length ? app.db.select({ jobId: seoTasks.jobId, status: seoTasks.status, count: sql<number>`count(*)` }).from(seoTasks).where(inArray(seoTasks.jobId, ids)).groupBy(seoTasks.jobId, seoTasks.status).all() : []
+  const taskCounts = (ids: string[]) => ids.length ? app.db.select({ jobId: seoTasks.jobId, status: seoTasks.status, count: sql<number>`count(*)` }).from(seoTasks)
+    // A retried task is replaced by its retry.
+    .where(and(inArray(seoTasks.jobId, ids), sql`NOT EXISTS (SELECT 1 FROM seo_tasks AS retry WHERE retry.retry_of = ${seoTasks.id})`)).groupBy(seoTasks.jobId, seoTasks.status).all() : []
   const runSummary = (row: SeoJobRow) => runDto(row, taskCounts([row.id]))
   const job = (projectId: string, id: string) => {
     const row = app.db.select().from(seoJobs).where(and(eq(seoJobs.projectId, projectId), isNotNull(seoJobs.runId), eq(seoJobs.id, id))).get()
@@ -487,7 +508,7 @@ export async function seoRoutes(app: FastifyInstance, opts: SeoRoutesOptions) {
   })
   app.get<{ Params: Params }>('/projects/:name/seo/runs/:id', async request => {
     const row = job(resolveProject(app.db, request.params.name).id, request.params.id)
-    const rows = tasks(row.id); const results = resultRows(rows)
+    const rows = currentSeoTasks(tasks(row.id)); const results = resultRows(rows)
     return { ...runDto(row, rows.map(task => ({ status: task.status, count: 1 }))), tasks: rows.map(task => ({ id: task.id, capability: task.request.capability, target: task.request.target, status: task.status, error: task.error, remoteTaskId: task.receipts[0]?.remoteTaskId ?? null })), results: { keywordMetrics: results.keywordMetrics.slice(0, 20), domainIntelligence: results.domainIntelligence.slice(0, 20), rankedKeywords: results.rankedKeywords.slice(0, 20), marketRankings: [...results.marketRankings].sort(compareMarketRankings).slice(0, 20) }, resultCounts: { keywordMetrics: results.keywordMetrics.length, domainIntelligence: results.domainIntelligence.length, rankedKeywords: results.rankedKeywords.length, marketRankings: results.marketRankings.length }, resultsTruncated: Object.values(results).some(items => items.length > 20) } satisfies SeoRunDetail
   })
   app.post<{ Params: Params }>('/projects/:name/seo/runs/:id/cancel', { config: { paidRead: true, writeScope: SEO_RUN_SCOPE } }, async request => {
@@ -497,10 +518,10 @@ export async function seoRoutes(app: FastifyInstance, opts: SeoRoutesOptions) {
     return runSummary(job(project.id, row.id))
   })
   app.get<{ Params: Params; Querystring: SeoEvidenceQuery }>('/projects/:name/seo/overview', async request => {
-    const project = resolveProject(app.db, request.params.name); const query = queryInput(request.query); const latest = selected(project.id, query); const row = selected(project.id, query, true); const rows = row ? tasks(row.id) : []; const results = resultRows(rows)
+    const project = resolveProject(app.db, request.params.name); const query = queryInput(request.query); const latest = selected(project.id, query); const row = selected(project.id, query, true); const rows = row ? currentSeoTasks(tasks(row.id)) : []; const results = resultRows(rows)
     const primary = row?.profile.targets[0]
     const domain = primary ? results.domainIntelligence.find(result => result.target.kind === primary.kind && result.target.value === primary.value && result.target.includeSubdomains === primary.includeSubdomains) : null
-    return { status: status(project.id), profiles: profiles(project.id), latestRun: latest ? runSummary(latest) : null, evidenceRunId: row?.id ?? null, evidenceRun: row ? runDto(row, rows.map(task => ({ status: task.status, count: 1 }))) : null, keywordMetricsCount: results.keywordMetrics.length, domainIntelligenceCount: results.domainIntelligence.length, rankedKeywordCount: results.rankedKeywords.length, marketRankingCount: results.marketRankings.length, summary: domain ? { target: domain.target, organicKeywords: domain.organicKeywords, inTop10: domain.top1 !== null && domain.top2To3 !== null && domain.top4To10 !== null ? domain.top1 + domain.top2To3 + domain.top4To10 : null, estimatedOrganicTraffic: domain.estimatedOrganicTraffic, provenance: domain.provenance } : null } satisfies SeoOverview
+    return { status: status(project.id), profiles: profiles(project.id), latestRun: latest ? runSummary(latest) : null, evidenceRunId: row?.id ?? null, evidenceRun: row ? runDto(row, rows.map(task => ({ status: task.status, count: 1 }))) : null, keywordMetricsCount: results.keywordMetrics.length, domainIntelligenceCount: results.domainIntelligence.length, rankedKeywordCount: results.rankedKeywords.length, marketRankingCount: marketRankingRows(rows).length, summary: domain ? { target: domain.target, organicKeywords: domain.organicKeywords, inTop10: domain.top1 !== null && domain.top2To3 !== null && domain.top4To10 !== null ? domain.top1 + domain.top2To3 + domain.top4To10 : null, estimatedOrganicTraffic: domain.estimatedOrganicTraffic, provenance: domain.provenance } : null } satisfies SeoOverview
   })
   for (const [path, key] of [['keyword-metrics', 'keywordMetrics'], ['domain-intelligence', 'domainIntelligence'], ['ranked-keywords', 'rankedKeywords']] as const) app.get<{ Params: Params; Querystring: SeoEvidenceQuery }>(`/projects/:name/seo/${path}`, async request => {
     const query = queryInput(request.query); const row = selected(resolveProject(app.db, request.params.name).id, query, true)
@@ -512,10 +533,25 @@ export async function seoRoutes(app: FastifyInstance, opts: SeoRoutesOptions) {
     const parsed = seoMarketRankingQuerySchema.safeParse({ ...raw, ...(raw.limit === undefined ? {} : { limit: Number(raw.limit) }), ...(raw.offset === undefined ? {} : { offset: Number(raw.offset) }) })
     if (!parsed.success) throw validationError('Invalid SEO evidence selection.')
     const query = parsed.data; const row = selected(resolveProject(app.db, request.params.name).id, query, true)
-    const items = (row ? resultRows(tasks(row.id)).marketRankings : [])
-      .filter(item => (query.marketKey === undefined || item.marketKey === query.marketKey) && (query.regionKey === undefined || item.regionKey === query.regionKey))
-      .sort(compareMarketRankings)
+    const items = (row ? marketRankingRows(tasks(row.id)) : [])
+      .filter(item => (query.marketKey === undefined || item.marketKey === query.marketKey) && (query.regionKey === undefined || item.regionKey === query.regionKey)
+        && (query.outcome === undefined || matchesMarketRankingFilter(item, query.outcome)) && (query.q === undefined || matchesMarketRankingText(item, query.q)))
+      .sort(compareMarketRankingsBy(query.sort ?? SeoMarketRankingSorts.market))
     const limit = query.limit ?? 50; const offset = query.offset ?? 0
     return { runId: row?.id ?? null, items: items.slice(offset, offset + limit), total: items.length, limit, offset } satisfies SeoMarketRankingList
+  })
+  app.get<{ Params: Params; Querystring: SeoMarketRankingSummaryQuery }>('/projects/:name/seo/market-rankings/summary', async request => {
+    const parsed = seoMarketRankingSummaryQuerySchema.safeParse(request.query ?? {})
+    if (!parsed.success) throw validationError('Invalid SEO evidence selection.')
+    const query = parsed.data; const row = selected(resolveProject(app.db, request.params.name).id, query, true)
+    const rows = (row ? marketRankingRows(tasks(row.id)) : [])
+      .filter(item => (query.marketKey === undefined || item.marketKey === query.marketKey) && (query.regionKey === undefined || item.regionKey === query.regionKey))
+    return {
+      runId: row?.id ?? null, depth: rows[0]?.depth ?? row?.profile.rankings?.depth ?? null,
+      regionKey: query.regionKey ?? null, marketKey: query.marketKey ?? null,
+      regionLabel: query.regionKey === undefined ? null : rows[0]?.regionLabel ?? null,
+      marketLabel: query.marketKey === undefined ? null : rows[0]?.marketLabel ?? null,
+      totals: countMarketRankings(rows), groups: groupMarketRankings(rows, { regionKey: query.regionKey, marketKey: query.marketKey }),
+    } satisfies SeoMarketRankingSummary
   })
 }

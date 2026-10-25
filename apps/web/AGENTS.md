@@ -72,6 +72,25 @@ fresh intent. Only active jobs poll; terminal transitions refresh the SEO query
 domain. `seo-data-section.test.tsx` owns mounted SDK selection and lifecycle
 coverage; API tests own authorization, storage, provider dispatch, and arithmetic.
 
+The status line reads `Updated <date>` from the evidence run, `Next refresh <date>`
+from the project's `seo-sync` schedule (none when it is missing or paused), and at
+most one caution caveat (`refreshCaveat`): the newest refresh ending without data,
+else the shown refresh's failed searches ("2 searches failed"), else a partial
+refresh, each with its sentence in the tooltip. It hides while a refresh runs.
+Market rankings (`MarketRankingsView`) are an outcome view, every figure the API's:
+`GET market-rankings/summary` gives the Google rank counts (bands and labels from
+`marketRankingBands(depth, totals)`, so a 10- or 20-result depth drops the bands it
+cannot fill) and the regions or markets under the scope. Their table shows five
+at a time in the API's needs-work order; its headers re-sort that complete list in
+the browser, and a row opens its region or market through `seoRegion` /
+`seoMarket` (both kept when a region's market opens; the trail leads back to All
+markets; a lone market gets no table). The queries read `GET market-rankings` ten
+at a time with the scope, `outcome` (Needs work by default, All when nothing needs
+work), `q` from Find a query (settled after typing pauses, cleared at once) and
+`sort` (`rank` by default; the Query and Google rank headers toggle). Failed and
+Not searched rows say so, a partial row reads "Not in top <checkedDepth>", and the
+ranking page lives in Details. A new filter, order or search returns to page 1.
+
 ### OpenRouter sweep models
 
 Global Settings stores one OpenRouter key and quota. Project Answer engines and

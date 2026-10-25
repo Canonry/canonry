@@ -41,6 +41,7 @@ const expectedToolNames = [
   'canonry_seo_domain_intelligence',
   'canonry_seo_ranked_keywords',
   'canonry_seo_market_rankings',
+  'canonry_seo_market_summary',
   'canonry_sentiment_settings',
   'canonry_sentiment_configure',
   'canonry_sentiment',
@@ -811,7 +812,7 @@ describe('MCP tool registry', () => {
   })
 
   it('ships the curated v1 surface', () => {
-    expect(canonryMcpTools.filter(tool => tool.access === 'read').length).toBe(193)
+    expect(canonryMcpTools.filter(tool => tool.access === 'read').length).toBe(194)
     expect(canonryMcpTools.map(tool => tool.name)).toEqual(expectedToolNames)
     const readNames = canonryMcpTools.filter(tool => tool.access === 'read' && !tool.requiresOperator).map(tool => tool.name)
     expect(getCanonryMcpTools('read-only').map(tool => tool.name)).toEqual(readNames)

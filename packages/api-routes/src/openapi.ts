@@ -13,6 +13,8 @@ import {
   runKindSchema,
   runStatusSchema,
   sentimentOutcomeSchema,
+  seoMarketRankingFilterSchema,
+  seoMarketRankingSortSchema,
   operationAccess,
 } from '@canonry/canonry-contracts'
 import {
@@ -998,14 +1000,36 @@ const routeCatalog: OpenApiOperation[] = [
   {
     method: 'get', path: '/api/v1/projects/{name}/seo/market-rankings',
     summary: 'Read stored market rankings', tags: ['seo'],
-    description: "Stored evidence only; never calls a provider. The project's position for each tracked non-brand query, searched on Google from its market's location, ordered by region, market and search text. A null rank means the site was not in the checked results.",
+    description: "Stored evidence only; never calls a provider. The project's position for each tracked non-brand query, searched on Google from its market's location. Each row carries how its search ended and where it landed (`outcome`, `rivalAhead`); a null rank means the site was not in the checked results, and a search that failed or never ran still has a row with no result.",
     parameters: [
       nameParameter, ...seoEvidenceParameters,
       { name: 'marketKey', in: 'query', description: 'Only rows for this market (an Advanced market key or a Simple location label).', schema: stringSchema },
       { name: 'regionKey', in: 'query', description: "Only rows whose market sits under this top-level group.", schema: stringSchema },
+      { name: 'outcome', in: 'query', description: 'Only rows with this outcome. `needs-work` is ranks 11 and deeper or not ranked; `rival-ahead` is rows where a tracked competitor ranks above the site.', schema: { type: 'string', enum: [...seoMarketRankingFilterSchema.options] } },
+      { name: 'q', in: 'query', description: 'Only rows whose query, searched text or market label contains this text, ignoring case.', schema: { type: 'string', minLength: 1, maxLength: 200 } },
+      { name: 'sort', in: 'query', description: '`market` (default): region, market, search text. `rank`: best rank first, then queries not in the results with the strongest rival first, then searches with no result. `-rank`: queries not in the results first, then the worst rank. `query` / `-query`: by query text.', schema: { type: 'string', enum: [...seoMarketRankingSortSchema.options], default: 'market' } },
     ],
     responses: {
       200: jsonResponse('SEO response.', 'SeoMarketRankingList'),
+      400: errorResponse('Invalid scope or input.'),
+      403: errorResponse('Insufficient authority.'),
+      404: errorResponse('Project or selected evidence not found.'),
+      409: errorResponse('Selection, intent or execution identity changed.'),
+    },
+  },
+  {
+    method: 'get', path: '/api/v1/projects/{name}/seo/market-rankings/summary',
+    summary: 'Summarize stored market rankings by outcome', tags: ['seo'],
+    description: 'Stored evidence only; never calls a provider. Outcome counts for the selected scope (the whole profile, one region or one market) and for the groups under it: regions for the whole profile, markets within one region, none within one market. Groups come in needs-work order: most ranks 11-20, then most ranks 21 and deeper.',
+    parameters: [
+      nameParameter,
+      { name: 'profileId', in: 'query', description: 'Exact saved profile. Required when multiple profiles exist.', schema: stringSchema },
+      { name: 'runId', in: 'query', description: 'Exact historical refresh. Omit for latest saved evidence for the selected profile.', schema: stringSchema },
+      { name: 'marketKey', in: 'query', description: 'Summarize one market (an Advanced market key or a Simple location label).', schema: stringSchema },
+      { name: 'regionKey', in: 'query', description: 'Summarize one top-level group and the markets under it.', schema: stringSchema },
+    ],
+    responses: {
+      200: jsonResponse('SEO response.', 'SeoMarketRankingSummary'),
       400: errorResponse('Invalid scope or input.'),
       403: errorResponse('Insufficient authority.'),
       404: errorResponse('Project or selected evidence not found.'),

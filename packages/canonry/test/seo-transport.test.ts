@@ -5,7 +5,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SeoRepository, projects, queries } from '@canonry/canonry-db'
-import { SeoAdapterOutcomes, SeoCapabilities, SeoProviders, emptySeoResults, seoKeywordMetricsListSchema, seoQuoteSchema, seoRunSchema, type SeoAdapter, type SeoMarketRanking } from '@canonry/canonry-contracts'
+import { SeoAdapterOutcomes, SeoCapabilities, SeoProviders, emptySeoResults, seoKeywordMetricsListSchema, seoQuoteSchema, seoRunSchema, type SeoAdapter, type SeoMarketRankingObservation } from '@canonry/canonry-contracts'
 import { eq } from 'drizzle-orm'
 import type { ApiRoutesOptions } from '@canonry/canonry-api-routes'
 import { createSeoHarness, seedSeoKey, seoProfileFixture } from '../../api-routes/test/seo-fixture.js'
@@ -126,7 +126,7 @@ describe('SEO public transport parity', () => {
     const repository = new SeoRepository(h.db)
     for (let task = repository.claim(run.id, { ...policy, accountKey: 'account-a' }); task; task = repository.claim(run.id, { ...policy, accountKey: 'account-a' })) {
       const search = task.request.search!
-      const rows: SeoMarketRanking[] = search.markets.map(({ context }) => ({
+      const rows: SeoMarketRankingObservation[] = search.markets.map(({ context }) => ({
         ...context, searchText: task.request.keywords[0]!, locationLabel: search.locationLabel, target: { kind: 'domain', value: 'alpha.com', includeSubdomains: true },
         rankOrganic: context.marketKey === 'Phoenix' ? 3 : null, rankAbsolute: null, url: context.marketKey === 'Phoenix' ? 'https://alpha.com/solar' : null, depth: 50, competitors: [],
         provenance: { provider: 'dataforseo', dataset: 'dataforseo-serp/google/market-rankings', engine: 'google', locationCode: task.request.locationCode, languageCode: 'en', device: 'mobile', collectedAt: '2026-10-25T12:00:00.000Z', sourceUpdatedAt: null },
@@ -147,6 +147,33 @@ describe('SEO public transport parity', () => {
     await dispatchRegisteredCommand(['seo', 'market-rankings', 'alpha', '--profile-id', 'markets', '--market', 'Tucson', '--format', 'json'], 'json', SEO_CLI_COMMANDS)
     expect(JSON.parse(String(output.mock.calls.at(-1)?.[0]))).toEqual(expected)
     await dispatchRegisteredCommand(['seo', 'market-rankings', 'alpha', '--profile-id', 'markets', '--market', 'Phoenix'], 'text', SEO_CLI_COMMANDS)
-    expect(String(output.mock.calls.at(-1)?.[0])).toBe('Phoenix\tbest solar installer\tGoogle rank 3\thttps://alpha.com/solar\tSearched as "best solar installer" from Phoenix, AZ · mobile · 2026-10-25T12:00:00.000Z')
+    expect(String(output.mock.calls.at(-1)?.[0])).toBe('Phoenix\tbest solar installer\tGoogle rank 3\thttps://alpha.com/solar\tNo tracked rival in the results\tSearched as "best solar installer" from Phoenix, AZ · mobile · 2026-10-25T12:00:00.000Z')
+
+    // Outcome, text and order filters, and the outcome summary, read the same through every surface.
+    const filtered = { profileId: 'markets', outcome: 'needs-work' as const, q: 'SOLAR', sort: '-rank' as const }
+    const expectedFiltered = await h.api(h.reader).getSeoMarketRankings('alpha', filtered)
+    expect(expectedFiltered.items.map(row => [row.marketKey, row.outcome])).toEqual([['Tucson', 'not-ranked']])
+    expect((await client.callTool({ name: 'canonry_seo_market_rankings', arguments: { project: 'alpha', ...filtered } })).structuredContent).toEqual(expectedFiltered)
+    await dispatchRegisteredCommand(['seo', 'market-rankings', 'alpha', '--profile-id', 'markets', '--outcome', 'needs-work', '--search', 'SOLAR', '--sort=-rank', '--format', 'json'], 'json', SEO_CLI_COMMANDS)
+    expect(JSON.parse(String(output.mock.calls.at(-1)?.[0]))).toEqual(expectedFiltered)
+    const summary = await h.api(h.reader).getSeoMarketRankingSummary('alpha', { profileId: 'markets' })
+    expect(summary).toMatchObject({
+      runId: run.id, depth: 50, totals: { queries: 2, page1: 1, notRanked: 1, needsWork: 1, rivalAhead: 0 },
+      groups: [{ key: 'Phoenix', kind: 'market', counts: { queries: 1, page1: 1 } }, { key: 'Tucson', kind: 'market', counts: { queries: 1, notRanked: 1 } }],
+    })
+    expect((await client.callTool({ name: 'canonry_seo_market_summary', arguments: { project: 'alpha', profileId: 'markets' } })).structuredContent).toEqual(summary)
+    await dispatchRegisteredCommand(['seo', 'market-summary', 'alpha', '--profile-id', 'markets', '--format', 'json'], 'json', SEO_CLI_COMMANDS)
+    expect(JSON.parse(String(output.mock.calls.at(-1)?.[0]))).toEqual(summary)
+    output.mockClear()
+    await dispatchRegisteredCommand(['seo', 'market-summary', 'alpha', '--profile-id', 'markets', '--market', 'Tucson'], 'text', SEO_CLI_COMMANDS)
+    expect(output.mock.calls.map(call => String(call[0]))).toEqual([
+      `Market rankings summary · run ${run.id} · market Tucson · 1 query`,
+      'Page 1 0 · 11-20 0 · 21-50 0 · Not in top 50 1 · Failed 0 · Not searched 0 · Needs work 1 · Rival ahead 0',
+    ])
+    // Aero reads the same summary for the market on screen, and links back to it.
+    const tucson = await h.api(h.reader).getSeoMarketRankingSummary('alpha', { profileId: 'markets', runId: run.id, marketKey: 'Tucson' })
+    expect(await readAeroViewEvidence({ client: h.api(h.reader), projectName: 'alpha', basePath: '/canonry/', context: { view: 'seo', seoProfileId: 'markets', seoMarketKey: 'Tucson' } })).toMatchObject({
+      marketRankings: tucson, source: { href: '/canonry/projects/alpha/seo-data?seoProfileId=markets&seoMarket=Tucson' },
+    })
   })
 })

@@ -207,10 +207,49 @@ export const seoMarketRankingContextSchema = z.object({
 }).strict()
 export type SeoMarketRankingContext = z.infer<typeof seoMarketRankingContextSchema>
 
+const seoMarketRankingCompetitorSchema = z.object({ domain: z.string(), rankOrganic: z.number().int().positive() }).strict()
+
 /**
- * The target's position for one tracked query, searched on Google from the
- * market's location. A null rank means the target was not in the checked
- * results (`depth`), never that the search failed: a failed search has no row.
+ * The target's position for one tracked query, searched on Google from the market's
+ * location, as the adapter records it. A null rank means the target was not in the
+ * checked results. `checkedDepth` is present only when fewer results came back than
+ * `depth` asked for (a partial results page).
+ */
+export const seoMarketRankingObservationSchema = seoMarketRankingContextSchema.extend({
+  /** The exact text searched on Google for `queryText` (see `seoSearchTextSchema`). */
+  searchText: z.string(), locationLabel: z.string(), target: seoTargetSchema,
+  rankOrganic: z.number().int().positive().nullable(),
+  rankAbsolute: z.number().int().positive().nullable(),
+  url: z.string().nullable(),
+  depth: z.number().int().positive(),
+  checkedDepth: z.number().int().positive().optional(),
+  /** Tracked competitors found in the same results, by their best organic position. */
+  competitors: z.array(seoMarketRankingCompetitorSchema),
+  provenance: seoProvenanceSchema,
+}).strict()
+export type SeoMarketRankingObservation = z.infer<typeof seoMarketRankingObservationSchema>
+
+/**
+ * How one market-rankings search ended: its whole results page came back, part of it
+ * came back (fewer results than `depth`), it failed at the source, or it never ran
+ * because the refresh was cancelled or stopped at a spending limit first.
+ */
+export const seoMarketRankingSearchStatusSchema = z.enum(['completed', 'partial', 'failed', 'not-run'])
+export const SeoMarketRankingSearchStatuses = seoMarketRankingSearchStatusSchema.enum
+export type SeoMarketRankingSearchStatus = z.infer<typeof seoMarketRankingSearchStatusSchema>
+
+/**
+ * Where a query landed: page 1 (ranks 1 to 10), ranks 11 to 20, rank 21 or deeper
+ * within the checked results, not in the checked results, or no result.
+ */
+export const seoMarketRankingOutcomeSchema = z.enum(['page-1', 'ranks-11-20', 'ranks-21-plus', 'not-ranked', 'failed', 'not-run'])
+export const SeoMarketRankingOutcomes = seoMarketRankingOutcomeSchema.enum
+export type SeoMarketRankingOutcome = z.infer<typeof seoMarketRankingOutcomeSchema>
+
+/**
+ * One market-rankings row as reads return it: the observation plus how its search
+ * ended and where it landed. Failed and not-run searches have rows too, with no rank,
+ * no competitors and no provenance, so a missing result is never a missing row.
  */
 export const seoMarketRankingSchema = seoMarketRankingContextSchema.extend({
   /** The exact text searched on Google for `queryText` (see `seoSearchTextSchema`). */
@@ -219,9 +258,16 @@ export const seoMarketRankingSchema = seoMarketRankingContextSchema.extend({
   rankAbsolute: z.number().int().positive().nullable(),
   url: z.string().nullable(),
   depth: z.number().int().positive(),
-  /** Tracked competitors found in the same results, by their best organic position. */
-  competitors: z.array(z.object({ domain: z.string(), rankOrganic: z.number().int().positive() }).strict()),
-  provenance: seoProvenanceSchema,
+  /** Results actually checked: `depth` for a whole page, fewer for a partial one, 0 with no result. */
+  checkedDepth: z.number().int().nonnegative(),
+  searchStatus: seoMarketRankingSearchStatusSchema,
+  outcome: seoMarketRankingOutcomeSchema,
+  /** A tracked competitor ranks above the target in these results, or ranks while the target is not in them. */
+  rivalAhead: z.boolean(),
+  /** Tracked competitors found in the same results at their best organic position, best first. */
+  competitors: z.array(seoMarketRankingCompetitorSchema),
+  /** Null when the search produced no result (failed or not run). */
+  provenance: seoProvenanceSchema.nullable(),
 }).strict()
 export type SeoMarketRanking = z.infer<typeof seoMarketRankingSchema>
 
@@ -229,7 +275,7 @@ export const seoResultsSchema = z.object({
   keywordMetrics: z.array(seoKeywordMetricsSchema),
   domainIntelligence: z.array(seoDomainIntelligenceSchema),
   rankedKeywords: z.array(seoRankedKeywordSchema),
-  marketRankings: z.array(seoMarketRankingSchema),
+  marketRankings: z.array(seoMarketRankingObservationSchema),
 }).strict()
 export type SeoResults = z.infer<typeof seoResultsSchema>
 
@@ -313,15 +359,78 @@ export const seoRankedKeywordListSchema = z.object({ ...seoPageShape, items: z.a
 export type SeoKeywordMetricsList = z.infer<typeof seoKeywordMetricsListSchema>
 export type SeoDomainIntelligenceList = z.infer<typeof seoDomainIntelligenceListSchema>
 export type SeoRankedKeywordList = z.infer<typeof seoRankedKeywordListSchema>
-/** Market-rankings evidence narrows to one market or one region; both filters apply when given. */
+/**
+ * Market-rankings outcome filters: one outcome, `needs-work` (ranks 11 and deeper or
+ * not ranked: everything off page 1 that has a result), or `rival-ahead`.
+ */
+export const seoMarketRankingFilterSchema = z.enum(['needs-work', 'page-1', 'ranks-11-20', 'ranks-21-plus', 'not-ranked', 'rival-ahead', 'failed', 'not-run'])
+export const SeoMarketRankingFilters = seoMarketRankingFilterSchema.enum
+export type SeoMarketRankingFilter = z.infer<typeof seoMarketRankingFilterSchema>
+/**
+ * Market-rankings row order. `market` (the default) reads region, market, then search
+ * text. `rank` puts the best rank first, then queries not in the results with the
+ * strongest rival first, then searches with no result; `-rank` puts queries not in the
+ * results first, then the worst rank. `query` and `-query` order by query text.
+ */
+export const seoMarketRankingSortSchema = z.enum(['market', 'rank', '-rank', 'query', '-query'])
+export const SeoMarketRankingSorts = seoMarketRankingSortSchema.enum
+export type SeoMarketRankingSort = z.infer<typeof seoMarketRankingSortSchema>
+/** Market-rankings evidence narrows to one market or one region (both apply when given), an outcome and query text. */
 export const seoMarketRankingQuerySchema = seoEvidenceQuerySchema.extend({
   marketKey: z.string().min(1).max(200).optional(),
   regionKey: z.string().min(1).max(200).optional(),
+  outcome: seoMarketRankingFilterSchema.optional(),
+  /** Case-insensitive text found in the query, its searched text or its market label. */
+  q: z.string().trim().min(1).max(200).optional(),
+  sort: seoMarketRankingSortSchema.optional(),
 }).strict()
 export type SeoMarketRankingQuery = z.infer<typeof seoMarketRankingQuerySchema>
-/** Rows ordered by region, market and keyword. */
+/** One page of rows in the requested order (region, market and search text by default). */
 export const seoMarketRankingListSchema = z.object({ ...seoPageShape, items: z.array(seoMarketRankingSchema) }).strict()
 export type SeoMarketRankingList = z.infer<typeof seoMarketRankingListSchema>
+
+/** Rows by outcome. The outcome counts add up to `queries`; `needsWork` is ranks 11-20 plus 21 and deeper plus not ranked. */
+export const seoMarketRankingCountsSchema = z.object({
+  queries: z.number().int().nonnegative(),
+  page1: z.number().int().nonnegative(),
+  ranks11To20: z.number().int().nonnegative(),
+  ranks21Plus: z.number().int().nonnegative(),
+  notRanked: z.number().int().nonnegative(),
+  failed: z.number().int().nonnegative(),
+  notRun: z.number().int().nonnegative(),
+  needsWork: z.number().int().nonnegative(),
+  /** Rows where a tracked competitor ranks above the target; overlaps the outcome counts. */
+  rivalAhead: z.number().int().nonnegative(),
+}).strict()
+export type SeoMarketRankingCounts = z.infer<typeof seoMarketRankingCountsSchema>
+export const seoMarketRankingGroupKindSchema = z.enum(['region', 'market'])
+export const SeoMarketRankingGroupKinds = seoMarketRankingGroupKindSchema.enum
+export type SeoMarketRankingGroupKind = z.infer<typeof seoMarketRankingGroupKindSchema>
+/** One region (a metro) or one market with its rows' counts. */
+export const seoMarketRankingGroupSchema = z.object({
+  key: z.string(), label: z.string(), kind: seoMarketRankingGroupKindSchema, counts: seoMarketRankingCountsSchema,
+}).strict()
+export type SeoMarketRankingGroup = z.infer<typeof seoMarketRankingGroupSchema>
+/** A summary narrows to one region or one market; with neither it covers the whole profile. */
+export const seoMarketRankingSummaryQuerySchema = seoEvidenceQuerySchema.pick({ profileId: true, runId: true }).extend({
+  marketKey: z.string().min(1).max(200).optional(),
+  regionKey: z.string().min(1).max(200).optional(),
+}).strict()
+export type SeoMarketRankingSummaryQuery = z.infer<typeof seoMarketRankingSummaryQuerySchema>
+/**
+ * Outcome counts for the selected scope and the groups under it: regions for the
+ * whole profile (markets without a region stand alone), markets within one region,
+ * none within one market. Groups come in needs-work order: most ranks 11-20, then
+ * most ranks 21 and deeper, then label. `depth` is the results each search checks.
+ */
+export const seoMarketRankingSummarySchema = z.object({
+  runId: z.string().nullable(), depth: z.number().int().positive().nullable(),
+  regionKey: z.string().nullable(), marketKey: z.string().nullable(),
+  /** Names of the selected region and market; null when none is selected or the refresh has no rows for it. */
+  regionLabel: z.string().nullable(), marketLabel: z.string().nullable(),
+  totals: seoMarketRankingCountsSchema, groups: z.array(seoMarketRankingGroupSchema),
+}).strict()
+export type SeoMarketRankingSummary = z.infer<typeof seoMarketRankingSummarySchema>
 export const seoOverviewSchema = z.object({
   status: seoStatusSchema, profiles: z.array(seoProfileSchema), latestRun: seoRunSchema.nullable(),
   evidenceRunId: z.string().nullable(),
@@ -336,6 +445,7 @@ export const seoOverviewSchema = z.object({
   keywordMetricsCount: z.number().int().nonnegative(),
   domainIntelligenceCount: z.number().int().nonnegative(),
   rankedKeywordCount: z.number().int().nonnegative(),
+  /** Rows the market-rankings read returns for the evidence refresh, searches that failed or never ran included. */
   marketRankingCount: z.number().int().nonnegative(),
 }).strict()
 export type SeoOverview = z.infer<typeof seoOverviewSchema>
@@ -406,6 +516,12 @@ export interface SeoAdapterResult {
   results: SeoResults
   error: string | null
   fetchedAt: string
+  /**
+   * A failed request the source says may succeed if sent again (a search engine error
+   * on its side). The repository runs one new, separately reserved attempt at the end
+   * of the refresh; never set for an uncertain or partly accepted request.
+   */
+  retryable?: boolean
 }
 export interface SeoAdapter {
   readonly provider: z.infer<typeof seoProviderSchema>

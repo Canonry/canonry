@@ -24,6 +24,15 @@ export interface SeoAdmission {
   trigger?: RunTrigger
 }
 
+/**
+ * The tasks that stand for a job's work: a failed task that was retried is replaced by
+ * its retry, so counts, statuses and results read each request's latest attempt.
+ */
+export function currentSeoTasks<T extends Pick<SeoTaskRow, 'id' | 'retryOf'>>(tasks: readonly T[]): T[] {
+  const retried = new Set(tasks.flatMap(task => task.retryOf ? [task.retryOf] : []))
+  return tasks.filter(task => !retried.has(task.id))
+}
+
 /** Durable admission and settlement; all amounts are private integer microUSD. */
 export class SeoRepository {
   constructor(private readonly db: DatabaseClient) {}
@@ -71,8 +80,11 @@ export class SeoRepository {
       if (policy.accountKey !== job.accountKey) { this.cancel(jobId); return null }
       if (tx.select({ id: seoTasks.id }).from(seoTasks).innerJoin(seoJobs, eq(seoTasks.jobId, seoJobs.id)).where(and(eq(seoJobs.accountKey, job.accountKey), inArray(seoTasks.status, [SeoRunStatuses.running, SeoRunStatuses['reconciliation-required']]))).get()) return null
       const allTasks = tx.select().from(seoTasks).where(eq(seoTasks.jobId, jobId)).orderBy(asc(seoTasks.id)).all()
-      const task = allTasks.find(row => row.status === SeoRunStatuses.queued)
-      if (!task) return null
+      const current = currentSeoTasks(allTasks)
+      // Original work first; an owed retry runs only once nothing else is queued, at the end of the refresh.
+      const task = current.find(row => row.status === SeoRunStatuses.queued)
+      const owed = task ? undefined : current.find(row => row.status === SeoRunStatuses.failed && row.retryable)
+      if (!task && !owed) return null
       const now = new Date().toISOString()
       const outstanding = allTasks.filter(row => row.status === SeoRunStatuses.queued).reduce((sum, row) => sum + row.reservedMicros, 0)
       const limits = new Map([
@@ -99,10 +111,30 @@ export class SeoRepository {
       tx.update(seoJobs).set({ buckets }).where(eq(seoJobs.id, jobId)).run()
       const leaseOwner = crypto.randomUUID()
       const leaseUntil = new Date(Date.now() + 120_000).toISOString()
-      tx.update(seoTasks).set({ status: SeoRunStatuses.running, startedAt: now, leaseOwner, leaseUntil }).where(eq(seoTasks.id, task.id)).run()
+      if (owed) {
+        // The retry is a new paid request with its own hold, under the same run and account limits.
+        const fits = runMaximum + owed.reservedMicros <= policy.maxRunCostMicros && buckets.every(bucket => {
+          const current = tx.select().from(seoBudgets).where(and(eq(seoBudgets.scope, bucket.scope), eq(seoBudgets.period, bucket.period))).get()
+          const held = tx.select({ total: sql<number>`coalesce(sum(${seoBudgets.reservedMicros}),0)` }).from(seoBudgets).where(eq(seoBudgets.scope, bucket.scope)).get()!.total
+          return (current?.spentMicros ?? 0) + held + owed.reservedMicros <= bucket.limit
+        })
+        tx.update(seoTasks).set({ retryable: false }).where(eq(seoTasks.id, owed.id)).run()
+        if (!fits) { this.finish(jobId); return null }
+        for (const bucket of buckets) {
+          tx.insert(seoBudgets).values({ scope: bucket.scope, period: bucket.period }).onConflictDoNothing().run()
+          tx.update(seoBudgets).set({ reservedMicros: sql`${seoBudgets.reservedMicros} + ${owed.reservedMicros}` }).where(and(eq(seoBudgets.scope, bucket.scope), eq(seoBudgets.period, bucket.period))).run()
+        }
+        const id = crypto.randomUUID()
+        const retry = { id, jobId, request: { ...owed.request, tag: id }, status: SeoRunStatuses.running, catalogRevision: owed.catalogRevision, reservedMicros: owed.reservedMicros, results: emptySeoResults(), retryOf: owed.id, startedAt: now, leaseOwner, leaseUntil }
+        tx.insert(seoTasks).values(retry).run()
+        tx.update(seoJobs).set({ status: SeoRunStatuses.running }).where(eq(seoJobs.id, jobId)).run()
+        tx.update(runs).set({ status: RunStatuses.running }).where(eq(runs.id, job.runId)).run()
+        return tx.select().from(seoTasks).where(eq(seoTasks.id, id)).get()!
+      }
+      tx.update(seoTasks).set({ status: SeoRunStatuses.running, startedAt: now, leaseOwner, leaseUntil }).where(eq(seoTasks.id, task!.id)).run()
       tx.update(seoJobs).set({ status: SeoRunStatuses.running, startedAt: job.startedAt ?? now }).where(eq(seoJobs.id, jobId)).run()
       tx.update(runs).set({ status: RunStatuses.running, startedAt: job.startedAt ?? now }).where(eq(runs.id, job.runId)).run()
-      return { ...task, status: SeoRunStatuses.running, startedAt: now, leaseOwner, leaseUntil }
+      return { ...task!, status: SeoRunStatuses.running, startedAt: now, leaseOwner, leaseUntil }
     }, { behavior: 'immediate' })
   }
 
@@ -121,7 +153,9 @@ export class SeoRepository {
       const status = known && actual <= task.reservedMicros ? result.outcome === SeoAdapterOutcomes.completed ? SeoRunStatuses.completed : result.outcome === SeoAdapterOutcomes.partial ? SeoRunStatuses.partial : SeoRunStatuses.failed : SeoRunStatuses['reconciliation-required']
       if (known) for (const bucket of job.buckets) tx.update(seoBudgets).set({ reservedMicros: sql`${seoBudgets.reservedMicros} - ${task.reservedMicros}`, spentMicros: sql`${seoBudgets.spentMicros} + ${actual}` }).where(and(eq(seoBudgets.scope, bucket.scope), eq(seoBudgets.period, bucket.period))).run()
       const error = status === SeoRunStatuses['reconciliation-required'] ? 'The upstream outcome needs operator reconciliation. This request will not be retried.' : status === SeoRunStatuses.failed ? 'The SEO provider could not complete this task.' : null
-      tx.update(seoTasks).set({ status, collectionOutcome: result.outcome, actualMicros: known ? actual : null, receipts: result.tasks, results: result.results, error, leaseOwner: null, leaseUntil: null, finishedAt: new Date().toISOString() }).where(eq(seoTasks.id, taskId)).run()
+      // Only a definite failure the source invited a retry for earns one, and a retry never earns another.
+      const retryable = status === SeoRunStatuses.failed && result.retryable === true && task.retryOf === null && !job.cancelRequested
+      tx.update(seoTasks).set({ status, collectionOutcome: result.outcome, actualMicros: known ? actual : null, receipts: result.tasks, results: result.results, error, retryable, leaseOwner: null, leaseUntil: null, finishedAt: new Date().toISOString() }).where(eq(seoTasks.id, taskId)).run()
       this.finish(job.id)
       return true
     }, { behavior: 'immediate' })
@@ -132,6 +166,8 @@ export class SeoRepository {
       const job = tx.select().from(seoJobs).where(eq(seoJobs.id, jobId)).get()
       if (!job || (job.status !== SeoRunStatuses.queued && job.status !== SeoRunStatuses.running && job.status !== SeoRunStatuses['reconciliation-required'])) return false
       tx.update(seoJobs).set({ cancelRequested: true }).where(eq(seoJobs.id, jobId)).run()
+      // A cancelled refresh owes no retries.
+      tx.update(seoTasks).set({ retryable: false }).where(and(eq(seoTasks.jobId, jobId), eq(seoTasks.retryable, true))).run()
       for (const task of tx.select().from(seoTasks).where(and(eq(seoTasks.jobId, jobId), eq(seoTasks.status, SeoRunStatuses.queued))).all()) {
         for (const bucket of job.buckets) tx.update(seoBudgets).set({ reservedMicros: sql`${seoBudgets.reservedMicros} - ${task.reservedMicros}` }).where(and(eq(seoBudgets.scope, bucket.scope), eq(seoBudgets.period, bucket.period))).run()
         tx.update(seoTasks).set({ status: SeoRunStatuses.cancelled, actualMicros: 0, finishedAt: new Date().toISOString() }).where(eq(seoTasks.id, task.id)).run()
@@ -176,8 +212,9 @@ export class SeoRepository {
 
   private finish(jobId: string): void {
     const job = this.db.select().from(seoJobs).where(eq(seoJobs.id, jobId)).get()!
-    const tasks = this.db.select().from(seoTasks).where(eq(seoTasks.jobId, jobId)).all()
-    const pending = tasks.some(task => task.status === SeoRunStatuses.queued || task.status === SeoRunStatuses.running)
+    const tasks = currentSeoTasks(this.db.select().from(seoTasks).where(eq(seoTasks.jobId, jobId)).all())
+    // An owed retry keeps the job open so dispatch returns to run or decline it.
+    const pending = tasks.some(task => task.status === SeoRunStatuses.queued || task.status === SeoRunStatuses.running || (task.status === SeoRunStatuses.failed && task.retryable))
     const unknown = tasks.some(task => task.status === SeoRunStatuses['reconciliation-required'])
     const completed = tasks.some(task => task.status === SeoRunStatuses.completed || task.status === SeoRunStatuses.partial)
     const status = unknown ? SeoRunStatuses['reconciliation-required'] : pending ? SeoRunStatuses.running : tasks.every(task => task.status === SeoRunStatuses.completed) ? SeoRunStatuses.completed : completed ? SeoRunStatuses.partial : job.cancelRequested ? SeoRunStatuses.cancelled : SeoRunStatuses.failed

@@ -76,6 +76,9 @@ type SearchParams = {
   siteHealthRunId?: string
   seoProfileId?: string
   seoRunId?: string
+  /** Market rankings drill-in: one region (a top-level group of markets), one market, or both. */
+  seoRegion?: string
+  seoMarket?: string
   evidenceId?: string
   runStatus?: string
   runKind?: string
@@ -135,6 +138,8 @@ export const rootRoute = createRootRouteWithContext<RouterContext>()({
     siteHealthRunId: typeof search.siteHealthRunId === 'string' ? search.siteHealthRunId : undefined,
     seoProfileId: typeof search.seoProfileId === 'string' ? search.seoProfileId : undefined,
     seoRunId: typeof search.seoRunId === 'string' ? search.seoRunId : undefined,
+    seoRegion: typeof search.seoRegion === 'string' && search.seoRegion ? search.seoRegion : undefined,
+    seoMarket: typeof search.seoMarket === 'string' && search.seoMarket ? search.seoMarket : undefined,
     evidenceId: typeof search.evidenceId === 'string' ? search.evidenceId : undefined,
     runStatus: typeof search.runStatus === 'string' ? search.runStatus : undefined,
     runKind: typeof search.runKind === 'string' ? search.runKind : undefined,

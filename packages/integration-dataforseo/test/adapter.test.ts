@@ -199,8 +199,8 @@ describe('DataForSEO market rankings', () => {
     ] },
   }
   const organic = (rank: number, absolute: number, host: string) => ({ type: 'organic', rank_group: rank, rank_absolute: absolute, domain: host, url: `https://${host}/listing`, title: host })
-  function serp(items: unknown[], extra: Record<string, unknown> = {}): Response {
-    return response([{ id: 'serp-task', status_code: 20000, cost: 0.01, result: [{
+  function serp(items: unknown[], extra: Record<string, unknown> = {}, receipt: Record<string, unknown> = {}): Response {
+    return response([{ id: 'serp-task', status_code: 20000, cost: 0.01, ...receipt, result: [{
       keyword: 'best apartments in harbor', type: 'organic', se_domain: 'google.com', location_code: 200623, language_code: 'en',
       check_url: 'https://www.google.com/search?q=best+apartments+in+harbor', datetime: '2026-10-25 17:10:11 +00:00', item_types: ['local_pack', 'organic'],
       se_results_count: 1_250_000, pages_count: 5, items_count: items.length, spell: null, refinement_chips: null, items, ...extra,
@@ -244,6 +244,33 @@ describe('DataForSEO market rankings', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(serp([organic(3, 3, 'www.example.com')], { keyword: 'apartments in another city' })))
     const other = await createDataForSeoAdapter(credentials).execute(ranking)
     expect(other).toMatchObject({ outcome: SeoAdapterOutcomes.failed, tasks: [{ costMicros: 10_000 }], results: { marketRankings: [] } })
+  })
+
+  it('ranks within the pages a partial results page returned, and keeps its charge', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(serp([organic(2, 2, 'www.rival.com')], { pages_count: 3 }, { status_code: 40106, cost: 0.006 }))))
+    const partial = await createDataForSeoAdapter(credentials).execute(ranking)
+    expect(partial).toMatchObject({ outcome: SeoAdapterOutcomes.partial, error: 'The SEO provider returned only part of the results.', tasks: [{ statusCode: 40106, costMicros: 6_000 }] })
+    // Three pages of 10 came back, so the site is known to be outside the top 30, not the top 50.
+    expect(partial.results.marketRankings.map(row => [row.marketKey, row.rankOrganic, row.checkedDepth, row.competitors])).toEqual([
+      ['harbor', null, 30, [{ domain: 'rival.com', rankOrganic: 2 }]],
+      ['downtown', null, 30, [{ domain: 'rival.com', rankOrganic: 2 }]],
+    ])
+    expect(partial.retryable).toBeUndefined()
+    // Without the count of pages that came back, how deep the page was checked is unknown, so it records nothing.
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(serp([organic(2, 2, 'www.rival.com')], { pages_count: null }, { status_code: 40106, cost: 0.006 }))))
+    expect(await createDataForSeoAdapter(credentials).execute(ranking)).toMatchObject({ outcome: SeoAdapterOutcomes.failed, tasks: [{ costMicros: 6_000 }], results: { marketRankings: [] } })
+  })
+
+  it.each([
+    [40101, true], [40103, true], [40102, false], [40501, false],
+  ])('marks a search that failed with task status %i retryable: %s', async (statusCode, retryable) => {
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(response([{ id: 'serp-task', status_code: statusCode, status_message: 'Task failed.', cost: 0.002, result: null }]))))
+    const adapter = createDataForSeoAdapter(credentials)
+    const result = await adapter.execute(ranking)
+    expect(result).toMatchObject({ outcome: SeoAdapterOutcomes.failed, tasks: [{ statusCode, costMicros: 2_000 }], results: { marketRankings: [] } })
+    expect(result.retryable === true).toBe(retryable)
+    // Only a market-rankings search earns a retry.
+    expect((await adapter.execute(request)).retryable).toBeUndefined()
   })
 
   it.each([

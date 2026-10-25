@@ -4937,6 +4937,18 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `ALTER TABLE ga_measurement_sync_state ADD COLUMN key_events_error TEXT`,
     ],
   },
+  {
+    // A search that failed on the search engine's side earns one new, separately
+    // reserved attempt at the end of its refresh: `retryable` marks a failed task whose
+    // retry is still owed, `retry_of` links the attempt to the task it retries.
+    version: 195,
+    name: 'seo-task-retries',
+    statements: [
+      `ALTER TABLE seo_tasks ADD COLUMN retry_of TEXT`,
+      `ALTER TABLE seo_tasks ADD COLUMN retryable INTEGER NOT NULL DEFAULT 0`,
+      `CREATE INDEX IF NOT EXISTS idx_seo_tasks_retry_of ON seo_tasks(retry_of)`,
+    ],
+  },
 ]
 
 /**
