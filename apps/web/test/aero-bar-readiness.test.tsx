@@ -688,16 +688,22 @@ test('an expanded run merges same-label calls in first-seen order and folds tool
   expect(steps.getAllByText('Read insights')).toHaveLength(3)
 })
 
-test('the run header names the step in flight and keeps its open state while the turn streams', async () => {
+test('the run header names each phase without duplicating progress or losing its open state', async () => {
   const transcript = vi.spyOn(aero, 'fetchAeroTranscript').mockResolvedValue(EMPTY_TRANSCRIPT)
+  const thinking = gate()
   const loading = gate()
   const between = gate()
   const reading = gate()
+  const reviewing = gate()
+  const nextReading = gate()
   const answering = gate()
+  const saving = gate()
   const read = readSentiment('step-1', 900)
+  const nextRead = readInsights('step-2', 100)
   // Whitespace ahead of a message's calls is not text: it neither closes the run nor ends it.
-  const rounds: ScriptedRound[] = [{ calls: [LOAD_TOOLKIT] }, { text: '\n\n', calls: [read] }]
+  const rounds: ScriptedRound[] = [{ calls: [LOAD_TOOLKIT] }, { text: '\n\n', calls: [read] }, { calls: [nextRead] }]
   vi.spyOn(aero, 'promptAero').mockImplementation(async ({ onEvent }) => {
+    await thinking.wait
     onEvent({ type: 'message_end', message: scriptedAssistant(rounds[0], 10) })
     startCall(onEvent, LOAD_TOOLKIT)
     await loading.wait
@@ -708,46 +714,76 @@ test('the run header names the step in flight and keeps its open state while the
     startCall(onEvent, read)
     await reading.wait
     endCall(onEvent, read, 21)
+    await reviewing.wait
+    onEvent({ type: 'message_end', message: scriptedAssistant(rounds[2], 30) })
+    startCall(onEvent, nextRead)
+    await nextReading.wait
+    endCall(onEvent, nextRead, 31)
     onEvent(partialAnswer('Two insights'))
     await answering.wait
     onEvent({ type: 'message_end', message: finalAnswer(MULTI_ROUND_ANSWER) })
-    transcript.mockResolvedValue({ ...EMPTY_TRANSCRIPT, messages: scriptedMessages(rounds, MULTI_ROUND_ANSWER), updatedAt: SAVED_AT })
+    transcript.mockImplementation(async () => {
+      await saving.wait
+      return { ...EMPTY_TRANSCRIPT, messages: scriptedMessages(rounds, MULTI_ROUND_ANSWER), updatedAt: SAVED_AT }
+    })
   })
   await askAero()
+  const expectProgress = (text: string) => {
+    expect(screen.queryByLabelText('Aero is thinking')).toBeNull()
+    const statuses = screen.getAllByRole('status')
+    expect(statuses).toHaveLength(1)
+    expect(statuses[0].textContent).toContain(text)
+    return statuses[0]
+  }
+  expectProgress('Thinking…')
 
   // Only toolkit setup is running: no step yet.
+  await act(async () => { thinking.open() })
   const header = await screen.findByRole('button', { name: /^Loading tools…/ })
+  const progress = expectProgress('Loading tools…')
   expect(header.getAttribute('aria-expanded')).toBe('false')
   expect(within(header).queryByText(/^step/)).toBeNull()
 
-  // Between steps the run still reads as working, whitespace streaming or not.
+  // Whitespace and gaps keep one progress owner, without a second typing row.
   await act(async () => { loading.open() })
-  await waitFor(() => expect(within(header).getByText('Working…')).toBeTruthy())
+  expect(expectProgress('Preparing next step…')).toBe(progress)
   fireEvent.click(header)
   expect(header.getAttribute('aria-expanded')).toBe('true')
 
   await act(async () => { between.open() })
-  await waitFor(() => expect(within(header).getByText('Reading sentiment evidence…')).toBeTruthy())
+  expect(expectProgress('Reading sentiment evidence…')).toBe(progress)
   // The ticking clock is shown but kept out of the button's name.
   expect(screen.getByRole('button', { name: /^Reading sentiment evidence…\s*step 1$/ })).toBe(header)
   expect(within(header).getByText(/^\d+s$/)).toBeTruthy()
   expect(runHeaders()).toHaveLength(1)
-  // A new step does not close the open run.
   expect(header.getAttribute('aria-expanded')).toBe('true')
   expect(runPanel(header).getByText('running…')).toBeTruthy()
 
-  // Once the answer streams, the run before it is done.
   await act(async () => { reading.open() })
-  await screen.findByText('Two insights')
-  await waitFor(() => expect(header.textContent).toBe('1 step900ms'))
+  expect(expectProgress('Reviewing results…')).toBe(progress)
+  await act(async () => { reviewing.open() })
+  expect(expectProgress('Reading insights…')).toBe(progress)
   expect(header.getAttribute('aria-expanded')).toBe('true')
 
+  // Once the answer streams, the run before it is done.
+  await act(async () => { nextReading.open() })
+  await screen.findByText('Two insights')
+  expect(screen.queryAllByRole('status')).toHaveLength(0)
+  expect(header.textContent).toBe('2 steps1.0s')
+  expect(header.getAttribute('aria-expanded')).toBe('true')
+
+  const reloads = transcript.mock.calls.length
   await act(async () => { answering.open() })
   await screen.findByText(MULTI_ROUND_ANSWER)
+  await waitFor(() => expect(transcript.mock.calls.length).toBeGreaterThan(reloads))
+  // A final message must not restart progress while its saved transcript is loading.
+  expect(screen.getByRole('button', { name: 'Stop Aero' })).toBeTruthy()
+  expect(screen.queryAllByRole('status')).toHaveLength(0)
+  await act(async () => { saving.open() })
   await waitFor(() => expect(screen.queryByRole('button', { name: 'Stop Aero' })).toBeNull())
   // The saved transcript's reload keeps the same run, still open.
   const [saved] = runHeaders()
-  expect(saved.textContent).toBe('1 step900ms')
+  expect(saved.textContent).toBe('2 steps1.0s')
   expect(saved.getAttribute('aria-expanded')).toBe('true')
 })
 
@@ -837,7 +873,7 @@ test('a step row keeps its place, open and focused, when a same-label call joins
   })
   await askAero()
 
-  const header = await screen.findByRole('button', { name: /^Working…/ })
+  const header = await screen.findByRole('button', { name: /^Reviewing results…/ })
   fireEvent.click(header)
   // One call so far: its own card, opened and focused to read its inputs.
   const card = runPanel(header).getByRole('button', { name: /^Read insights/ })
@@ -977,7 +1013,7 @@ test('runs from earlier turns stay settled while a new turn streams', async () =
   expect(expectEarlierRunsSettled().textContent).toMatch(/^Reading insights…step 1\d+s$/)
 
   await act(async () => { inFlight.open() })
-  await waitFor(() => expect(expectEarlierRunsSettled().textContent).toMatch(/^Working…\d+s$/))
+  await waitFor(() => expect(expectEarlierRunsSettled().textContent).toMatch(/^Reviewing results…\d+s$/))
 
   await act(async () => { between.open() })
   await screen.findByText('The market held.')
@@ -987,9 +1023,11 @@ test('runs from earlier turns stay settled while a new turn streams', async () =
 
 test('shows an error when a turn ends with an error status and no error event', async () => {
   vi.spyOn(aero, 'fetchAeroTranscript').mockResolvedValue(EMPTY_TRANSCRIPT)
+  const settling = gate()
   vi.spyOn(aero, 'promptAero').mockImplementation(async ({ onEvent }) => {
     // A wrap-up request that threw: its failure message is filtered, only the status arrives.
     onEvent({ type: 'aero_turn_status', status: { reason: 'error', toolCalls: 30, modelCalls: 12, durationMs: 9 } })
+    await settling.wait
   })
   await renderWithProviderReadiness(READY_AERO)
   fireEvent.click(screen.getByRole('button', { name: /Ask Aero/ }))
@@ -997,6 +1035,9 @@ test('shows an error when a turn ends with an error status and no error event', 
   fireEvent.click(screen.getByRole('button', { name: 'Send' }))
   await screen.findByText('Aero could not finish this answer. Retry to ask again.')
   expect(screen.queryByText(/Tool-call limit reached/)).toBeNull()
+  expect(screen.queryAllByRole('status')).toHaveLength(0)
+  await act(async () => { settling.open() })
+  await waitFor(() => expect(screen.queryByRole('button', { name: 'Stop Aero' })).toBeNull())
 })
 
 test('Stop preserves a partial answer and offers an explicit retry', async () => {
