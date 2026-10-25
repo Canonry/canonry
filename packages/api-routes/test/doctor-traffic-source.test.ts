@@ -521,6 +521,45 @@ describe('traffic.source.worker-version', () => {
     },
   )
 
+  // Connect defaults to direct push. A Queue source redeployed with the plain
+  // command would become a different source instead of being repaired.
+  const queueSource = {
+    schemaVersion: 1, deliveryMode: 'queue-pull', workerVersion: '1.0.0', expectedBotListVersion: 'v1',
+    zoneId: 'zone-1', forwardPageViews: false, accountId: 'acct-1', queueId: 'queue-1',
+    queueName: 'canonry-traffic', retentionSeconds: 345600,
+  }
+  const queueCommand = '`cnry traffic connect cloudflare test-project --delivery-mode queue-pull --account-id acct-1'
+    + ' --queue-id queue-1 --queue-name canonry-traffic --retention-seconds 345600 --zone-id zone-1 --api-token-file <path>`'
+
+  it('tells a stale Queue source to reconnect in Queue mode with its own Queue options', async () => {
+    insertTrafficSource(h, { sourceType: 'cloudflare', configJson: queueSource, lastWorkerVersion: '1.0.0' })
+    const r = await workerVersionCheck.run(ctxFor(h))
+    expect(r.alert?.next).toBe(`Redeploy it with ${queueCommand}.`)
+  })
+
+  it('tells a stale direct-push source the plain command, which keeps its zone and account', async () => {
+    insertTrafficSource(h, { sourceType: 'cloudflare', configJson: { deliveryMode: 'direct-push', workerVersion: '1.0.0' }, lastWorkerVersion: '1.0.0' })
+    const r = await workerVersionCheck.run(ctxFor(h))
+    expect(r.alert?.next).toBe('Redeploy it with `cnry traffic connect cloudflare test-project`.')
+  })
+
+  it('still names Queue mode when a Queue source\'s stored options are incomplete', async () => {
+    insertTrafficSource(h, { sourceType: 'cloudflare', configJson: { deliveryMode: 'queue-pull', workerVersion: '1.0.0' }, lastWorkerVersion: '1.0.0' })
+    const r = await workerVersionCheck.run(ctxFor(h))
+    expect(r.alert?.next).toBe(
+      'Redeploy it with `cnry traffic connect cloudflare test-project --delivery-mode queue-pull` with its Queue options (`cnry traffic sources test-project`).',
+    )
+  })
+
+  it('gives each stale source its own command when there are several', async () => {
+    insertTrafficSource(h, { sourceType: 'cloudflare', displayName: 'Queue', configJson: queueSource, lastWorkerVersion: '1.0.0' })
+    insertTrafficSource(h, { sourceType: 'cloudflare', displayName: 'Edge', configJson: { deliveryMode: 'direct-push', workerVersion: '1.0.0' }, lastWorkerVersion: '1.0.0' })
+    const next = (await workerVersionCheck.run(ctxFor(h))).alert?.next ?? ''
+    expect(next.startsWith('Redeploy each in its own delivery mode: ')).toBe(true)
+    expect(next).toContain(`Queue: ${queueCommand}`)
+    expect(next).toContain('Edge: `cnry traffic connect cloudflare test-project`')
+  })
+
   it.each([
     ['legacy direct-push', { workerVersion: '1.0.0' }],
     ['queue-pull', { deliveryMode: 'queue-pull', workerVersion: '1.0.0' }],

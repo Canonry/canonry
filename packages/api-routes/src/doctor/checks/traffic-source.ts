@@ -10,6 +10,7 @@ import {
   RunStatuses,
   TrafficSourceStatuses,
   TrafficSourceTypes,
+  cloudflareQueuePullTrafficSourceConfigSchema,
   describeError,
   formatCalendarDay,
   type CloudflareQueueDrainStopReason,
@@ -925,6 +926,35 @@ const queueBacklogCheck: CheckDefinition = {
   },
 }
 
+/**
+ * The connect command that regenerates one Cloudflare source's Worker in its
+ * own delivery mode. Connect defaults to direct push, which reuses a direct-push
+ * source's zone, account and page-view setting, so that source needs no
+ * options. A Queue source needs its mode and Queue options spelled out, or the
+ * command builds a direct-push source instead of repairing it; its zone and
+ * retention are repeated because the Queue path does not keep them. The token
+ * file is the one value the server never knows.
+ */
+function cloudflareReconnectCommand(projectName: string, source: TrafficSourceProbe): string {
+  const base = `cnry traffic connect cloudflare ${projectName}`
+  if (!isCloudflareQueuePull(source)) return `\`${base}\``
+  const parsed = cloudflareQueuePullTrafficSourceConfigSchema.safeParse(source.configJson)
+  if (!parsed.success) {
+    return `\`${base} --delivery-mode queue-pull\` with its Queue options (\`cnry traffic sources ${projectName}\`)`
+  }
+  const config = parsed.data
+  const options = [
+    '--delivery-mode queue-pull',
+    `--account-id ${config.accountId}`,
+    `--queue-id ${config.queueId}`,
+    `--queue-name ${config.queueName}`,
+    `--retention-seconds ${config.retentionSeconds}`,
+    ...(config.zoneId ? [`--zone-id ${config.zoneId}`] : []),
+    '--api-token-file <path>',
+  ]
+  return `\`${base} ${options.join(' ')}\``
+}
+
 const workerVersionCheck: CheckDefinition = {
   id: 'traffic.source.worker-version',
   category: CheckCategories.integrations,
@@ -934,6 +964,7 @@ const workerVersionCheck: CheckDefinition = {
     if (!ctx.project) return skippedNoProject()
 
     const sources = loadProbes(ctx).filter(source => isActiveSource(source) && isCloudflareWorkerSource(source))
+    const probeById = new Map(sources.map(source => [source.id, source]))
     if (sources.length === 0) {
       return {
         status: CheckStatuses.skipped,
@@ -975,7 +1006,9 @@ const workerVersionCheck: CheckDefinition = {
         alert: {
           label: 'Cloudflare worker out of date',
           line: `The Cloudflare traffic worker for ${stale.map(source => source.displayName).join(', ')} doesn't match this server's version.`,
-          next: `Redeploy it with \`cnry traffic connect cloudflare ${ctx.project!.name}\`.`,
+          next: stale.length === 1
+            ? `Redeploy it with ${cloudflareReconnectCommand(ctx.project.name, probeById.get(stale[0]!.sourceId)!)}.`
+            : `Redeploy each in its own delivery mode: ${stale.map(source => `${source.displayName}: ${cloudflareReconnectCommand(ctx.project!.name, probeById.get(source.sourceId)!)}`).join('; ')}.`,
         },
       }
     }
