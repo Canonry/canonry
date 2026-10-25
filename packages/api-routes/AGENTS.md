@@ -923,7 +923,10 @@ keys, stores and reads. Rules:
 - AI touches are marked on `journey_events.ai_touch`; the lookback reads them,
   not visit starts, so touches inside a visit count.
 - Reads name `partialSources` (`JOURNEY_PARTIAL_SOURCE_TYPES`): sources whose
-  logs miss later visits, such as the Cloudflare Worker.
+  logs miss later visits, such as the Cloudflare Worker. A Cloudflare source
+  with `forwardPageViews` drops out once `lastWorkerVersion` equals
+  `cloudflareWorkerVersionFor({ forwardPageViews: true })`; before that it shows
+  the pending reason.
 - `recordJourneyBatch` rethrows when the outer transaction is gone (some SQLite
   errors roll back more than the savepoint), so the traffic write still fails
   as one unit.

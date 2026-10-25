@@ -16906,11 +16906,13 @@ export type TrafficBackfillResponse = {
 export type TrafficConnectCloudflareRequest = {
     displayName?: string;
     zoneId?: string;
+    forwardPageViews?: boolean;
     deliveryMode: 'direct-push';
     accountId?: string;
 } | {
     displayName?: string;
     zoneId?: string;
+    forwardPageViews?: boolean;
     deliveryMode: 'queue-pull';
     accountId: string;
     queueId: string;
@@ -16924,6 +16926,7 @@ export type TrafficConnectCloudflareResponse = {
     workerScript: string;
     wranglerToml: string;
     workerVersion: string;
+    forwardPageViews: boolean;
     instructions: string;
     deliveryMode: 'direct-push';
     activationRequired: boolean;
@@ -16932,6 +16935,7 @@ export type TrafficConnectCloudflareResponse = {
     workerScript: string;
     wranglerToml: string;
     workerVersion: string;
+    forwardPageViews: boolean;
     instructions: string;
     deliveryMode: 'queue-pull';
     activationRequired: boolean;

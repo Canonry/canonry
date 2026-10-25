@@ -21,7 +21,7 @@ import {
   CLOUDFLARE_QUEUE_RESIDUAL_WARN_COUNT,
   TRAFFIC_SOURCE_MAX_CATCHUP_MS,
 } from '../../traffic-limits.js'
-import { CURRENT_CLOUDFLARE_WORKER_VERSION } from '../../cloudflare-worker-version.js'
+import { cloudflareWorkerVersionFor } from '../../cloudflare-worker-version.js'
 import { SYNC_FAILURE_WINDOW, readSyncRunState } from './integration-sync.js'
 import type { CheckDefinition, CheckOutput, DoctorContext, TrafficSourceProbe } from '../types.js'
 
@@ -823,7 +823,9 @@ const workerVersionCheck: CheckDefinition = {
     }
 
     const measured = sources.map((source) => {
-      const expectedVersion = CURRENT_CLOUDFLARE_WORKER_VERSION
+      // A Worker set to forward page views reports a suffixed version, so a
+      // source switched on but not redeployed reads as stale.
+      const expectedVersion = cloudflareWorkerVersionFor({ forwardPageViews: source.configJson.forwardPageViews === true })
       const observedVersion = source.lastWorkerVersion
       const state = observedVersion === null
         ? 'waiting-for-first-event'

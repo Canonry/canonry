@@ -45,6 +45,12 @@ interface GenerateWorkerScriptBaseOptions {
   botList: CloudflareWorkerBotList
   /** Optional `cf.botManagement.score` threshold below which to forward. */
   botScoreMaxForward?: number
+  /**
+   * Also forward people's full-page loads and form posts (document requests),
+   * so AI visitor journeys see later visits. Off by default: the generated
+   * Worker is then unchanged and forwards only AI and bot traffic.
+   */
+  forwardPageViews?: boolean
 }
 
 export type GenerateWorkerScriptOptions = GenerateWorkerScriptBaseOptions & (

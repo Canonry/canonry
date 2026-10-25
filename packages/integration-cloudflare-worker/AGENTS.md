@@ -40,6 +40,13 @@ instance, never to a canonry-hosted SaaS relay.
   decisions happen in `packages/integration-traffic` once the event lands
   server-side. Updating the strict list does not require a Worker
   redeploy; updating the generic list does.
+- **Page views are opt-in and leave the default Worker unchanged.**
+  `forwardPageViews` adds an `isPageView` filter (document loads and form posts
+  from browsers; no assets, data calls, prefetches or non-browser clients) only
+  when set, so a default Worker is byte-identical and existing deployments stay
+  current. The page-view Worker reports `<version>+page-views`
+  (`CLOUDFLARE_PAGE_VIEWS_VERSION_SUFFIX`), which the doctor check and journey
+  reads compare with the source config.
 - **Versioned bot list.** `CloudflareWorkerBotList.version` is baked into
   the generated script and stored on the source row as
   `configJson.expectedBotListVersion`. The Worker reports its

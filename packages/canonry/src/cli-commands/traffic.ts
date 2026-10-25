@@ -1,6 +1,7 @@
 import { WINDOW_SETS } from '@canonry/canonry-contracts'
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import { getBoolean, getString, parseIntegerOption, requireProject, stringOption, unknownSubcommand } from '../cli-command-helpers.js'
+import { usageError } from '../cli-error.js'
 
 export const TRAFFIC_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
@@ -37,7 +38,7 @@ export const TRAFFIC_CLI_COMMANDS: readonly CliCommandSpec[] = [
 
   {
     path: ['traffic', 'connect', 'cloudflare'],
-    usage: 'canonry traffic connect cloudflare <project> [--delivery-mode direct-push|queue-pull] [--display-name <name>] [--zone-id <id>] [--account-id <id>] [--queue-id <id> --queue-name <name> --api-token-file <path> --retention-seconds 345600] [--output-dir <dir>] [--deploy --confirm-route --confirm-fail-open] [--format json]',
+    usage: 'canonry traffic connect cloudflare <project> [--delivery-mode direct-push|queue-pull] [--display-name <name>] [--zone-id <id>] [--account-id <id>] [--queue-id <id> --queue-name <name> --api-token-file <path> --retention-seconds 345600] [--forward-page-views | --no-forward-page-views] [--output-dir <dir>] [--deploy --confirm-route --confirm-fail-open] [--format json]',
     options: {
       'display-name': stringOption(),
       'zone-id': stringOption(),
@@ -48,12 +49,22 @@ export const TRAFFIC_CLI_COMMANDS: readonly CliCommandSpec[] = [
       'api-token-file': stringOption(),
       'retention-seconds': stringOption(),
       'output-dir': stringOption(),
+      'forward-page-views': { type: 'boolean' },
+      'no-forward-page-views': { type: 'boolean' },
       deploy: { type: 'boolean' },
       'confirm-route': { type: 'boolean' },
       'confirm-fail-open': { type: 'boolean' },
     },
     run: async (input) => {
       const { trafficConnectCloudflare, DEFAULT_CLOUDFLARE_QUEUE_RETENTION_SECONDS } = await import('../commands/traffic.js')
+      const forwardPageViews = getBoolean(input.values, 'forward-page-views')
+      const noForwardPageViews = getBoolean(input.values, 'no-forward-page-views')
+      if (forwardPageViews && noForwardPageViews) {
+        throw usageError('Error: use either --forward-page-views or --no-forward-page-views, not both', {
+          message: 'use either --forward-page-views or --no-forward-page-views, not both',
+          details: { command: 'traffic.connect.cloudflare' },
+        })
+      }
       const project = requireProject(
         input,
         'traffic.connect.cloudflare',
@@ -78,6 +89,8 @@ export const TRAFFIC_CLI_COMMANDS: readonly CliCommandSpec[] = [
         apiTokenFile: getString(input.values, 'api-token-file'),
         retentionSeconds: retentionSeconds ?? DEFAULT_CLOUDFLARE_QUEUE_RETENTION_SECONDS,
         outputDirectory: getString(input.values, 'output-dir'),
+        // Neither flag keeps the source's current setting on a reconnect.
+        forwardPageViews: forwardPageViews ? true : noForwardPageViews ? false : undefined,
         deploy: getBoolean(input.values, 'deploy'),
         confirmRoute: getBoolean(input.values, 'confirm-route'),
         confirmFailOpen: getBoolean(input.values, 'confirm-fail-open'),

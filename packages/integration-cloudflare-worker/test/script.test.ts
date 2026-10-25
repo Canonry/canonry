@@ -450,6 +450,73 @@ describe('generateWorkerScript', () => {
   })
 })
 
+describe('generateWorkerScript page views', () => {
+  const PAGE_VIEW_OPTS = { ...BASE_OPTS, workerVersion: '1.0.0+page-views', forwardPageViews: true }
+
+  function pageViewPredicate(): (request: unknown) => boolean {
+    const scope: { shouldForward?: (request: unknown) => boolean } = {}
+    new Function('globalThis', `${executableModuleSource(generateWorkerScript(PAGE_VIEW_OPTS))}\nglobalThis.shouldForward = shouldForward`)(scope)
+    return scope.shouldForward!
+  }
+
+  function browserRequest(url: string, headers: Record<string, string>, method = 'GET') {
+    const all: Record<string, string> = { 'user-agent': 'Mozilla/5.0 (Macintosh) Chrome/155.0.0.0 Safari/537.36', ...headers }
+    return { url, method, headers: { get: (name: string) => all[name.toLowerCase()] ?? null }, cf: null }
+  }
+
+  it('leaves the default Worker without any page-view code', () => {
+    for (const deliveryMode of ['direct-push', 'queue-pull'] as const) {
+      const script = generateWorkerScript({ ...BASE_OPTS, deliveryMode })
+      expect(script).not.toContain('isPageView')
+      expect(script).not.toContain('page views')
+    }
+    expect(generatedShouldForward()(request('https://example.com/rooms'))).toBe(false)
+  })
+
+  it('forwards document loads and form posts from browsers', () => {
+    const shouldForward = pageViewPredicate()
+    expect(shouldForward(browserRequest('https://example.com/rooms', { 'sec-fetch-dest': 'document' }))).toBe(true)
+    expect(shouldForward(browserRequest('https://example.com/book', { 'sec-fetch-dest': 'document' }, 'POST'))).toBe(true)
+    expect(shouldForward(browserRequest('https://example.com/rooms', { accept: 'text/html,application/xhtml+xml' }))).toBe(true)
+  })
+
+  it('does not forward assets, data calls, prefetches or non-browser clients as page views', () => {
+    const shouldForward = pageViewPredicate()
+    expect(shouldForward(browserRequest('https://example.com/hero.png', { 'sec-fetch-dest': 'image' }))).toBe(false)
+    expect(shouldForward(browserRequest('https://example.com/api/cart', { 'sec-fetch-dest': 'empty' }, 'POST'))).toBe(false)
+    expect(shouldForward(browserRequest('https://example.com/app.css', { accept: 'text/html,*/*' }))).toBe(false)
+    expect(shouldForward(browserRequest('https://example.com/rooms', { 'sec-fetch-dest': 'document', 'sec-purpose': 'prefetch;prerender' }))).toBe(false)
+    expect(shouldForward(browserRequest('https://example.com/rooms', { 'sec-fetch-dest': 'document' }, 'PUT'))).toBe(false)
+    expect(shouldForward(browserRequest('https://example.com/rooms', { 'user-agent': 'curl/8.7.1', accept: 'text/html' }))).toBe(false)
+  })
+
+  it('still forwards AI evidence and names the variant in the header', () => {
+    const script = generateWorkerScript(PAGE_VIEW_OPTS)
+    expect(script).toContain('// page views: forwarded')
+    expect(script).toContain('// worker version: 1.0.0+page-views')
+    expect(pageViewPredicate()(request('https://example.com/?utm_source=chatgpt.com'))).toBe(true)
+    expect(() => new Function('globalThis', executableModuleSource(script))).not.toThrow()
+  })
+
+  it('delivers a plain page view to the Queue binding', async () => {
+    const queueSend = vi.fn(async () => {})
+    const scope: { generatedWorker?: GeneratedWorker } = {}
+    new Function('globalThis', 'fetch', 'crypto', 'console', 'setTimeout',
+      executableModuleSource(generateWorkerScript({ ...PAGE_VIEW_OPTS, deliveryMode: 'queue-pull' })),
+    )(scope, vi.fn(async () => new Response('origin')), globalThis.crypto, { warn: vi.fn() }, setTimeout)
+    const waitUntilTasks: Promise<unknown>[] = []
+    const generatedRequest = new Request('https://example.com/rooms', {
+      headers: { 'cf-ray': 'evt_page_view', 'user-agent': 'Mozilla/5.0 Chrome/155', 'sec-fetch-dest': 'document', referer: 'https://www.google.com/' },
+    })
+    Object.defineProperty(generatedRequest, 'cf', { value: null })
+    await scope.generatedWorker!.fetch(generatedRequest, { ...QUEUE_WORKER_ENV, CANONRY_TRAFFIC_QUEUE: { send: queueSend } }, { waitUntil: task => { waitUntilTasks.push(task) } })
+    await Promise.all(waitUntilTasks)
+    expect(queueSend).toHaveBeenCalledWith(expect.objectContaining({
+      events: [expect.objectContaining({ eventId: 'evt_page_view', path: '/rooms', referer: 'https://www.google.com/' })],
+    }), { contentType: 'json' })
+  })
+})
+
 describe('DEFAULT_BOT_LIST', () => {
   it('includes the canonical AI UA tokens', () => {
     expect(DEFAULT_BOT_LIST.uaKeywords).toEqual(

@@ -119,6 +119,24 @@ grep -iE 'bearer|secret|token|hmac' canonry-cloudflare-<project>/worker.js
 
 The only matches should be the AI-referrer matching list.
 
+### Optional: forward page views for AI visitor journeys
+
+By default the Worker forwards only AI-referred and bot requests, so AI visitor journeys from a Cloudflare source record the AI landing but not the visitor's later visits. Add `--forward-page-views` to `traffic connect cloudflare` to also forward people's page views: document loads and form posts from browsers (Sec-Fetch-Dest `document`, or a GET that accepts HTML on older browsers). Assets, API and data calls, prefetches and non-browser clients are never page views. A reconnect without the flag keeps the current setting; `--no-forward-page-views` turns it off.
+
+It does not add Worker invocations: the route already runs the Worker on every page. It adds one delivery per page view:
+
+| | Per 100,000 page views |
+|---|---|
+| Queue pull | 100,000 messages = 300,000 Queue operations ($0.12 on Workers Paid after the 1M monthly operations included; the Free plan includes 10,000 operations a day, about 3,300 messages) |
+| Direct push | 100,000 POSTs to Canonry, plus the CPU to sign and send each one (Workers Paid includes 30M CPU-ms a month) |
+| Canonry inbound | about 1-2 KB per event, so roughly 100-200 MB |
+
+Queue pull drains for up to 4 minutes per sync (`CANONRY_CLOUDFLARE_QUEUE_SYNC_DEADLINE_MS`), AI and bot traffic included. If `traffic.source.queue-backlog` reports more than 1,000 messages left after syncs, shorten the interval, raise the time limit or switch to direct push, or the backlog grows until Queue retention drops messages. Direct push is limited to 6,000 events per minute per source.
+
+Canonry stores page views only for AI-touched visitors (AI visitor journeys, capped per visitor per day). Other page views count toward unknown traffic and the capped sample tail; Queue pull also keeps a 14-day delivery receipt per message for replay safety.
+
+The page-view Worker reports a version ending in `+page-views`. `canonry doctor` warns until the deployed Worker reports it, and journey reads list the source in `partialSources` until then.
+
 ---
 
 ## Step 4 — Deploy the Worker

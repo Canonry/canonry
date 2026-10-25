@@ -963,7 +963,19 @@ cnry traffic connect cloudflare <project> \
   --api-token-file <mode-0600-token-file> \
   --retention-seconds <actual-queue-retention-seconds> \
   --deploy --confirm-route --confirm-fail-open
+
+# Optional: also forward page views so AI visitor journeys see later visits.
+# A reconnect without the flag keeps the setting; --no-forward-page-views turns it off.
+cnry traffic connect cloudflare <project> --forward-page-views [same delivery options]
 ```
+
+`--forward-page-views` adds people's document loads and form posts to what the
+Worker forwards. It adds one Queue message (3 operations) or one push per page
+view, not Worker invocations. Queue pull drains for up to 4 minutes per sync;
+if doctor reports more than 1,000 messages left after syncs, shorten the
+interval, raise `CANONRY_CLOUDFLARE_QUEUE_SYNC_DEADLINE_MS` or use direct push.
+The Worker then reports a `+page-views` version; `cnry doctor` warns until the
+deployed Worker matches.
 
 Workers Free retention is fixed at `86400` seconds. Workers Paid defaults to
 `345600` seconds. If you change paid retention with `wrangler queues update`,
@@ -994,10 +1006,10 @@ the explicit activation command. Activation pauses sibling sources and moves the
 one `traffic-sync` schedule for the project. Direct push rejects `traffic sync` and
 does not use this schedule.
 
-Queue pull drains at most 1,000 messages in one default sync. The doctor warns
-when the remaining backlog is more than 1,000 messages. If the operator approves
-a manual drain, run a manual sync. If the backlog recurs, get approval to shorten
-the schedule interval.
+Queue pull drains for up to 4 minutes in one sync. The doctor warns when more
+than 1,000 messages remain afterwards: the drain hit its limit. If the operator
+approves a manual drain, run a manual sync. If the backlog recurs, get approval
+to shorten the schedule interval or raise the time limit.
 
 Read the [server-side traffic guide](server-side-traffic.md) for token safety,
 route checks, activation order, smoke tests, rollback, and troubleshooting.
@@ -1897,7 +1909,9 @@ at most 300 requests per UTC day besides AI touches; `cappedDays` counts the day
 that cap. `partialSources` names sources whose logs miss later visits (the
 Cloudflare Worker forwards only AI and bot requests). Query
 strings keep only `utm_*`, and path segments that look like secrets (tokens,
-UUIDs, emails) are masked. Stored reads only, no provider call. Viewers and embeds cannot
+UUIDs, emails) are masked. A Cloudflare source records later visits only when
+connected with `--forward-page-views` and redeployed; until then it is listed in
+`partialSources`. Stored reads only, no provider call. Viewers and embeds cannot
 read journeys.
 
 ### Stored GA acquisition

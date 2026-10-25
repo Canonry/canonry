@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import Fastify from 'fastify'
 import { eq, sql } from 'drizzle-orm'
 import { apiKeys, createClient, journeyEvents, journeyVisitors, journeyVisits, migrate, projects, trafficSources } from '@canonry/canonry-db'
-import { JOURNEY_MAX_REQUESTS_PER_VISITOR_DAY, JOURNEY_PARTIAL_SOURCE_TYPES, type NormalizedTrafficRequest } from '@canonry/canonry-contracts'
+import { JOURNEY_MAX_REQUESTS_PER_VISITOR_DAY, JOURNEY_PAGE_VIEWS_PENDING_REASON, JOURNEY_PARTIAL_SOURCE_TYPES, type NormalizedTrafficRequest } from '@canonry/canonry-contracts'
+import { CURRENT_CLOUDFLARE_WORKER_VERSION } from '../src/cloudflare-worker-version.js'
 import { apiRoutes } from '../src/index.js'
 import { hashApiKey } from '../src/auth.js'
 import { enforceJourneyRetention, journeyVisitorKey, persistJourneyBatch, recordJourneyBatch } from '../src/journeys.js'
@@ -274,6 +275,20 @@ describe('AI visitor journeys', () => {
       const expected = [{ sourceId: 'edge', sourceType: 'cloudflare', reason: JOURNEY_PARTIAL_SOURCE_TYPES.cloudflare }]
       expect((await app.inject({ method: 'GET', url: '/api/v1/projects/example/journeys/summary' })).json().partialSources).toEqual(expected)
       expect((await app.inject({ method: 'GET', url: '/api/v1/projects/example/journeys' })).json().partialSources).toEqual(expected)
+    })
+
+    it('stops naming a Cloudflare source once its Worker reports page-view forwarding', async () => {
+      const pageViewVersion = `${CURRENT_CLOUDFLARE_WORKER_VERSION}+page-views`
+      db.insert(trafficSources).values({
+        id: 'edge', projectId: 'project', sourceType: 'cloudflare', displayName: 'Edge', status: 'connected',
+        configJson: { schemaVersion: 1, deliveryMode: 'direct-push', workerVersion: pageViewVersion, expectedBotListVersion: 'v', zoneId: null, accountId: null, forwardPageViews: true },
+        lastWorkerVersion: CURRENT_CLOUDFLARE_WORKER_VERSION,
+        createdAt: created, updatedAt: created,
+      }).run()
+      const read = async () => (await app.inject({ method: 'GET', url: '/api/v1/projects/example/journeys/summary' })).json().partialSources
+      expect(await read()).toEqual([{ sourceId: 'edge', sourceType: 'cloudflare', reason: JOURNEY_PAGE_VIEWS_PENDING_REASON }])
+      db.update(trafficSources).set({ lastWorkerVersion: pageViewVersion }).where(eq(trafficSources.id, 'edge')).run()
+      expect(await read()).toEqual([])
     })
 
     it('lists visitors newest first with filters and paging', async () => {

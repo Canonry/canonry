@@ -172,6 +172,31 @@ describe('POST /traffic/connect/cloudflare', () => {
     expect(credential?.hmacSecret).toMatch(/.+/)
   })
 
+  it('generates a page-view Worker on request and keeps the setting across reconnects', async () => {
+    const connect = (payload: Record<string, unknown>) => h.app.inject({ method: 'POST', url: '/api/v1/projects/test-project/traffic/connect/cloudflare', payload })
+    const sourceConfig = () => h.db.select().from(trafficSources).get()!.configJson as Record<string, unknown>
+
+    const plain = JSON.parse((await connect({})).payload) as Record<string, unknown>
+    expect(plain).toMatchObject({ forwardPageViews: false, workerVersion: CURRENT_CLOUDFLARE_WORKER_VERSION })
+    expect(plain.workerScript).not.toContain('isPageView')
+    expect(sourceConfig()).toMatchObject({ forwardPageViews: false, workerVersion: CURRENT_CLOUDFLARE_WORKER_VERSION })
+
+    const on = JSON.parse((await connect({ forwardPageViews: true })).payload) as Record<string, unknown>
+    const pageViewVersion = `${CURRENT_CLOUDFLARE_WORKER_VERSION}+page-views`
+    expect(on).toMatchObject({ sourceId: plain.sourceId, forwardPageViews: true, workerVersion: pageViewVersion })
+    expect(on.workerScript).toContain('function isPageView')
+    expect(on.wranglerToml).toContain(`CANONRY_WORKER_VERSION = "${pageViewVersion}"`)
+    expect(on.instructions).toContain('also forwards page views')
+    expect(sourceConfig()).toMatchObject({ forwardPageViews: true, workerVersion: pageViewVersion })
+    expect(h.cloudflareCredentials.get('test-project')?.workerVersion).toBe(pageViewVersion)
+
+    // Omitted keeps the current setting; an explicit false turns it off.
+    expect(JSON.parse((await connect({})).payload)).toMatchObject({ forwardPageViews: true, workerVersion: pageViewVersion })
+    expect(JSON.parse((await connect({ forwardPageViews: false })).payload)).toMatchObject({ forwardPageViews: false, workerVersion: CURRENT_CLOUDFLARE_WORKER_VERSION })
+    expect(sourceConfig()).toMatchObject({ forwardPageViews: false })
+    expect(h.db.select().from(trafficSources).all()).toHaveLength(1)
+  })
+
   it('keeps credentials out of generated Worker source and Wrangler config', async () => {
     const res = await h.app.inject({
       method: 'POST',

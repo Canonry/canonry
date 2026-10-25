@@ -193,6 +193,20 @@ describe('Cloudflare Queue pull lifecycle', () => {
     await h.app.close()
   })
 
+  it('generates a page-view Queue Worker and keeps the setting on reconnect', async () => {
+    const h = await harness({ includeDirectIngestUrl: false })
+    const connect = (payload: Record<string, unknown>) => h.app.inject({ method: 'POST', url: '/api/v1/projects/test-project/traffic/connect/cloudflare', payload })
+    const on = JSON.parse((await connect({ ...queuePayload, forwardPageViews: true })).payload) as Record<string, unknown>
+    expect(on).toMatchObject({ deliveryMode: 'queue-pull', forwardPageViews: true })
+    expect(String(on.workerVersion)).toMatch(/\+page-views$/)
+    expect(on.workerScript).toContain('function isPageView')
+    expect(on.wranglerToml).toContain(`CANONRY_WORKER_VERSION = "${String(on.workerVersion)}"`)
+    expect(on.instructions).toContain('Each sync drains for up to 4 minutes by default')
+    expect(JSON.parse((await connect(queuePayload)).payload)).toMatchObject({ forwardPageViews: true })
+    expect(h.db.select().from(trafficSources).get()!.configJson).toMatchObject({ forwardPageViews: true })
+    await h.app.close()
+  })
+
   it('connects Queue pull without configuring the direct-push ingest URL', async () => {
     const h = await harness({ includeDirectIngestUrl: false })
     const connected = await h.app.inject({

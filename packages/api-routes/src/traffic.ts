@@ -5,7 +5,7 @@ import { countableReferralCondition, referralLandedCondition } from './ai-referr
 import { and, desc, eq, gt, gte, inArray, lt, lte, sql } from 'drizzle-orm'
 import type { SQLiteColumn } from 'drizzle-orm/sqlite-core'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
-import { CURRENT_CLOUDFLARE_WORKER_VERSION } from './cloudflare-worker-version.js'
+import { cloudflareWorkerVersionFor } from './cloudflare-worker-version.js'
 import {
   CLOUDFLARE_QUEUE_BATCH_SIZE,
   DEFAULT_CLOUDFLARE_QUEUE_MAX_BATCHES,
@@ -43,6 +43,7 @@ import {
   TrafficEventKinds,
   TrafficSeriesGranularities,
   CloudflareTrafficDeliveryModes,
+  type CloudflareTrafficDeliveryMode,
   cloudflareTrafficSourceConfigSchema,
   trafficConnectWordpressRequestSchema,
   trafficConnectVercelRequestSchema,
@@ -570,6 +571,21 @@ async function loadQueueReceiptPolicy(
     .where(and(alive, sql`${lifetimeMs} < ${CLOUDFLARE_QUEUE_RECEIPT_TTL_MS - 1_000}`)).get()?.at ?? null
   const floorMs = floorExpiry ? Date.parse(floorExpiry) : 0
   return { ttlMsAt: receivedAt => Math.max(ttlMs, floorMs - Date.parse(receivedAt)) }
+}
+
+/** Setup lines for a Worker that forwards page views: what it adds and what it costs. */
+function cloudflarePageViewInstructions(forwardPageViews: boolean, deliveryMode: CloudflareTrafficDeliveryMode): string[] {
+  if (!forwardPageViews) return []
+  const lines = [
+    'This Worker also forwards page views (document loads and form posts), so AI visitor journeys record later visits.',
+    'Each page view becomes one Worker delivery: expect more Worker CPU and Canonry ingest volume on busy sites.',
+  ]
+  if (deliveryMode === CloudflareTrafficDeliveryModes['queue-pull']) {
+    lines.push(
+      'Each page view is one Queue message (3 Queue operations). Each sync drains for up to 4 minutes by default; if doctor reports more than 1,000 messages left after syncs, shorten the traffic-sync interval or raise CANONRY_CLOUDFLARE_QUEUE_SYNC_DEADLINE_MS.',
+    )
+  }
+  return lines
 }
 
 function parseDirectPushCloudflareSourceConfig(config: unknown) {
@@ -2277,9 +2293,13 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       if (sameModeSource) attempt.update({ action: 'reauth' })
       const sourceId = sameModeSource?.id ?? crypto.randomUUID()
       const previousCredential = credentialStore.getConnectionBySourceId(sourceId)
-      const workerVersion = CURRENT_CLOUDFLARE_WORKER_VERSION
+      // Omitted on a reconnect keeps the source's current setting.
+      const forwardPageViews = parsed.data.forwardPageViews
+        ?? (sameModeSource ? parseQueuePullCloudflareSourceConfig(sameModeSource.configJson)?.forwardPageViews : undefined)
+        ?? false
+      const workerVersion = cloudflareWorkerVersionFor({ forwardPageViews })
       const workerScript = generateWorkerScript({
-        deliveryMode: 'queue-pull', workerVersion, botList: DEFAULT_BOT_LIST,
+        deliveryMode: 'queue-pull', workerVersion, botList: DEFAULT_BOT_LIST, forwardPageViews,
       })
       const wranglerToml = generateWranglerToml({
         deliveryMode: 'queue-pull', sourceId, hostname: workerRouteHost, workerVersion,
@@ -2291,6 +2311,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         workerVersion,
         expectedBotListVersion: DEFAULT_BOT_LIST.version,
         zoneId: zoneId ?? null,
+        forwardPageViews,
         accountId,
         queueId,
         queueName,
@@ -2362,13 +2383,14 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       return {
         sourceId, deliveryMode: 'queue-pull' as const,
         activationRequired: sourceRow.status !== TrafficSourceStatuses.connected,
-        accountId, queueId, queueName, retentionSeconds, workerScript, wranglerToml, workerVersion,
+        accountId, queueId, queueName, retentionSeconds, workerScript, wranglerToml, workerVersion, forwardPageViews,
         instructions: [
           'Deploy this Worker to your Cloudflare zone:',
           '  1. Save worker.js and wrangler.toml; neither file contains Queue credentials',
           `  2. Enable the Queue HTTP pull consumer: wrangler queues consumer http add ${queueName}`,
           `  3. Attach ${workerRouteHost}/* in the Cloudflare Dashboard with Fail open`,
           `  4. Canonry pulls Queue ${queueName}; activate this source after the route is live.`,
+          ...cloudflarePageViewInstructions(forwardPageViews, CloudflareTrafficDeliveryModes['queue-pull']),
           `Source id: ${sourceRow.id}`,
         ].join('\n'),
       }
@@ -2417,6 +2439,8 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       ?? null
     const effectiveZoneId = zoneId ?? previousZoneId
     const effectiveAccountId = accountId ?? previousAccountId
+    // Omitted on a reconnect keeps the source's current setting.
+    const forwardPageViews = parsed.data.forwardPageViews ?? parsedActiveConfig?.forwardPageViews ?? false
     const bearerToken = reusableCredential?.bearerToken
       ?? `cnry_cfw_${crypto.randomBytes(32).toString('hex')}`
     const hmacSecret = reusableCredential?.hmacSecret
@@ -2426,11 +2450,12 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
     assertCloudflareIngestUrlIsPublicHttps(ingestUrl)
     assertCloudflareIngestUrlOutsideWorkerRoute(ingestUrl, workerRouteHost)
 
-    const workerVersion = CURRENT_CLOUDFLARE_WORKER_VERSION
+    const workerVersion = cloudflareWorkerVersionFor({ forwardPageViews })
     const workerScript = generateWorkerScript({
       deliveryMode,
       workerVersion,
       botList: DEFAULT_BOT_LIST,
+      forwardPageViews,
     })
     const wranglerToml = generateWranglerToml({
       deliveryMode,
@@ -2449,6 +2474,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       expectedBotListVersion: DEFAULT_BOT_LIST.version,
       zoneId: effectiveZoneId,
       accountId: effectiveAccountId,
+      forwardPageViews,
     }
     const fallbackName = displayName
       ?? activeSource?.displayName
@@ -2588,6 +2614,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       `  5. In the Cloudflare Dashboard route form, select \`${workerRouteHost}/*\` and this Worker`,
       '  6. Set Request limit failure mode to Fail open, then save the route; Wrangler cannot set this toggle',
       '  7. Keep the Canonry ingest hostname outside this Worker route to avoid recursion',
+      ...cloudflarePageViewInstructions(forwardPageViews, CloudflareTrafficDeliveryModes['direct-push']),
       '',
       `Source id: ${sourceRow.id}`,
       'After deploy, check `canonry doctor --project ' + project.name + '` to confirm events are arriving.',
@@ -2600,6 +2627,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       workerScript,
       wranglerToml,
       workerVersion,
+      forwardPageViews,
       instructions,
     }
   }))
