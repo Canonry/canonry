@@ -1,6 +1,6 @@
 import crypto from 'node:crypto'
 import { and, asc, eq, inArray, sql } from 'drizzle-orm'
-import { RunKinds, RunStatuses, RunTriggers, SeoAdapterOutcomes, SeoRunStatuses, validationError, type SeoAdapterResult, type SeoProfileInput, emptySeoResults } from '@canonry/canonry-contracts'
+import { RunKinds, RunStatuses, RunTriggers, SeoAdapterOutcomes, SeoRunStatuses, validationError, type RunTrigger, type SeoAdapterResult, type SeoProfileInput, emptySeoResults } from '@canonry/canonry-contracts'
 import type { DatabaseClient } from './client.js'
 import { measurementPlans, runs } from './schema.js'
 import { seoBudgets, seoJobs, seoProfiles, seoTasks, type SeoBudgetBucket } from './seo-schema.js'
@@ -20,6 +20,8 @@ export interface SeoAdmission {
   scopeSnapshot: Record<string, unknown>; requestHash: string; idempotencyKey: string; principalId: string
   accountKey: string; buckets: SeoBudgetBucket[]; tasks: Array<Pick<SeoTaskRow, 'id' | 'request' | 'reservedMicros' | 'catalogRevision'>>
   now: string
+  /** Who started the refresh: a person or key (manual, the default) or a schedule. */
+  trigger?: RunTrigger
 }
 
 /** Durable admission and settlement; all amounts are private integer microUSD. */
@@ -54,7 +56,7 @@ export class SeoRepository {
         )).run()
         if (!claim.changes) throw validationError('SEO refresh is unavailable under the current policy.')
       }
-      tx.insert(runs).values({ id: input.id, projectId: input.projectId, kind: RunKinds['seo-sync'], status: RunStatuses.queued, trigger: RunTriggers.manual, createdAt: input.now }).run()
+      tx.insert(runs).values({ id: input.id, projectId: input.projectId, kind: RunKinds['seo-sync'], status: RunStatuses.queued, trigger: input.trigger ?? RunTriggers.manual, createdAt: input.now }).run()
       tx.insert(seoJobs).values({ id: input.id, projectId: input.projectId, projectKey: input.projectId, runId: input.id, profileId: input.profileId, profileRevision: input.profileRevision, profile: input.profile, scopeSnapshot: input.scopeSnapshot, requestHash: input.requestHash, idempotencyKey: input.idempotencyKey, principalId: input.principalId, connectionId: input.profile.connectionId, accountKey: input.accountKey, buckets: input.buckets, status: SeoRunStatuses.queued, createdAt: input.now }).run()
       for (const task of input.tasks) tx.insert(seoTasks).values({ ...task, jobId: input.id, status: SeoRunStatuses.queued, results: emptySeoResults() }).run()
       audit?.(tx)

@@ -184,6 +184,16 @@ export interface SchedulerCallbacks {
    * a full-site crawl can run for minutes. Fire-and-forget.
    */
   onSiteAuditRequested?: (runId: string, projectId: string, opts: { maxPages: number }) => void
+  /**
+   * Fired when a seo-sync schedule triggers. The host starts one paid SEO
+   * refresh per saved profile under the host's SEO spending policy; each
+   * admitted refresh creates its own `seo-sync` run, and one that cannot be
+   * admitted leaves a failed run with the reason. `occurrence` identifies this
+   * firing (UTC minute), so a repeated fire of the same slot replays the
+   * earlier receipts instead of paying twice. Skipped while a seo-sync run is
+   * queued or running for the project. Fire-and-forget.
+   */
+  onSeoSyncRequested?: (input: { scheduleId: string; projectId: string; occurrence: string }) => void
 }
 
 /** Scheduler tasks are keyed by `(projectId, kind)` so a project can run an
@@ -677,6 +687,38 @@ export class Scheduler {
         })
         log.info('ads-sync.triggered', { runId, projectName: project.name })
         this.callbacks.onAdsSyncRequested(runId, projectId)
+        return SLOT_FIRED
+      }
+
+      if (kind === SchedulableRunKinds['seo-sync']) {
+        // Paid SEO refresh. The host admits one refresh per saved profile and
+        // each admitted refresh owns its run row, so the scheduler creates none.
+        if (!this.callbacks.onSeoSyncRequested) {
+          log.warn('seo-sync.no-callback', { scheduleId, projectId, msg: 'host did not register onSeoSyncRequested' })
+          return slotFailed(OutcomeReasonCodes.UNSUPPORTED)
+        }
+        // A refresh still in flight (including one waiting on an operator to
+        // reconcile an ambiguous paid response) must not be stacked on.
+        const activeSeoRun = this.db
+          .select({ id: runs.id })
+          .from(runs)
+          .where(and(
+            eq(runs.projectId, projectId),
+            eq(runs.kind, RunKinds['seo-sync']),
+            inArray(runs.status, [RunStatuses.queued, RunStatuses.running]),
+          ))
+          .get()
+        if (activeSeoRun) {
+          log.info('seo-sync.skipped-active', { projectName: project.name, activeRunId: activeSeoRun.id })
+          this.updateScheduleTiming(currentSchedule.id, { nextRunAt })
+          return slotSkipped(OutcomeReasonCodes.OPERATION_IN_PROGRESS)
+        }
+        this.updateScheduleTiming(currentSchedule.id, {
+          lastRunAt: now,
+          nextRunAt,
+        })
+        log.info('seo-sync.triggered', { projectName: project.name })
+        this.callbacks.onSeoSyncRequested({ scheduleId, projectId, occurrence: now.slice(0, 16) })
         return SLOT_FIRED
       }
 

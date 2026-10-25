@@ -2,7 +2,6 @@ import type { RunListItemVm } from '../../view-models.js'
 import { Button } from '../ui/button.js'
 import { StatusBadge } from './StatusBadge.js'
 import { RunDetailLink } from './RunDetailLink.js'
-import { RunKinds } from '@canonry/canonry-contracts'
 
 export function RunRow({
   run,
@@ -39,7 +38,7 @@ export function RunRow({
           <dd>{run.triggerLabel}</dd>
         </div>
       </dl>
-      <Button variant="outline" size="sm" asChild><RunDetailLink run={run} projectName={projectSlug}>{run.kind === RunKinds['seo-sync'] ? 'View refresh' : 'View run'}</RunDetailLink></Button>
+      <Button variant="outline" size="sm" asChild><RunDetailLink run={run} projectName={projectSlug}>{run.opensSeoWorkspace ? 'View refresh' : 'View run'}</RunDetailLink></Button>
     </article>
   )
 }

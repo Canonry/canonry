@@ -130,6 +130,7 @@ function createRun(input: {
     statusDetail: input.statusDetail,
     summary: input.summary,
     triggerLabel: input.triggerLabel,
+    opensSeoWorkspace: false,
   }
 }
 

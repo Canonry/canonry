@@ -21,7 +21,7 @@ const { version: PKG_VERSION } = _require("../package.json") as {
 };
 import Fastify from "fastify";
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
-import { anyUsersExist, apiRoutes, auditFromRequest, createProjectPassQueue, hashApiKey, hasProxyHeaders, previewCompetitorAutoAliases, resolveTrustProxy, resolveCloudflareQueueSyncDeadlineMs, resolveVercelSyncDeadlineMs, runChecks, scheduledHealthCheckIds, SITE_REACHABILITY_CHECK_ID, SITE_REACHABILITY_CHECKS, syncRunClaimKey, writeAuditLog, type ApiRoutesOptions } from "@canonry/canonry-api-routes";
+import { anyUsersExist, apiRoutes, auditFromRequest, createProjectPassQueue, hashApiKey, hasProxyHeaders, previewCompetitorAutoAliases, resolveTrustProxy, resolveCloudflareQueueSyncDeadlineMs, resolveVercelSyncDeadlineMs, runChecks, scheduledHealthCheckIds, SITE_REACHABILITY_CHECK_ID, SITE_REACHABILITY_CHECKS, startScheduledSeoRefreshes, syncRunClaimKey, writeAuditLog, type ApiRoutesOptions } from "@canonry/canonry-api-routes";
 import {
   apiKeys,
   auditLog,
@@ -2026,6 +2026,26 @@ export async function createServer(opts: {
       // worker the manual POST /technical-aeo/runs route uses, with the
       // scheduler's full-site page budget.
       runSiteAudit(runId, projectId, auditOpts);
+    },
+    onSeoSyncRequested: ({ scheduleId, projectId, occurrence }) => {
+      // Same admission and spending policy as a manual refresh. Each profile
+      // that could not start is already recorded as a failed seo-sync run.
+      try {
+        const outcomes = startScheduledSeoRefreshes(
+          opts.db,
+          { getSeoRuntime: seoRuntime.getRuntime, onSeoRunRequested: () => seoRuntime.wake() },
+          { scheduleId, projectId, occurrence },
+        );
+        for (const outcome of outcomes) {
+          if (outcome.status === "skipped") {
+            app.log.warn({ projectId, profileId: outcome.profileId, runId: outcome.runId, reason: outcome.reason, detail: outcome.detail }, "Scheduled SEO refresh did not start");
+          } else {
+            app.log.info({ projectId, profileId: outcome.profileId, runId: outcome.runId, status: outcome.status }, "Scheduled SEO refresh admitted");
+          }
+        }
+      } catch (err: unknown) {
+        app.log.error({ projectId, err: describeError(err) }, "Scheduled SEO refresh failed");
+      }
     },
   }, { spreadMs: opts.scheduleSpreadMs ?? SCHEDULE_SPREAD_MS });
 

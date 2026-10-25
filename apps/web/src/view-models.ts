@@ -72,6 +72,8 @@ export interface RunListItemVm extends RunDto {
   statusDetail: string
   summary: string
   triggerLabel: string
+  /** True for an SEO refresh with results to open in SEO. A scheduled refresh that never started has only its reason. */
+  opensSeoWorkspace: boolean
 }
 
 export interface PortfolioProjectVm {

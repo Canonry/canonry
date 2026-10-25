@@ -5,6 +5,7 @@ import {
   DEFAULT_COMPETITOR_AUTO_ALIAS_MODE,
   MeasurementPortfolioLists,
   RunKinds,
+  SchedulableRunKinds,
   seoDatasetWithoutVendor,
   seoProviderSchema,
   truncateUtf16,
@@ -1062,6 +1063,26 @@ function refuseManagedSweepCancel(tool: AgentTool, ctx: AgentMcpAdapterContext):
   } as AgentTool
 }
 
+export const SEO_SCHEDULE_REFUSAL =
+  'Aero cannot schedule paid SEO refreshes. Ask the operator to set the seo-sync schedule.'
+
+/**
+ * Aero may not start a paid SEO refresh (`canonry_seo_sync` is excluded), and an
+ * enabled seo-sync schedule is standing approval for exactly that work. Refuse
+ * creating, changing or enabling one; disabling it only stops spending.
+ */
+function refuseSeoScheduleWrite(tool: AgentTool): AgentTool {
+  const write = tool.execute
+  return {
+    ...tool,
+    execute: async (toolCallId, params, ...rest) => {
+      const schedule = isRecord(params) && isRecord(params.schedule) ? params.schedule : {}
+      if (schedule.kind === SchedulableRunKinds['seo-sync'] && schedule.enabled !== false) throw new Error(SEO_SCHEDULE_REFUSAL)
+      return write(toolCallId, params, ...rest)
+    },
+  } as AgentTool
+}
+
 export const COMPETITOR_AUTO_ALIAS_MODE_REFUSAL =
   'Aero cannot change a project\'s competitorAutoAliases mode. Omit competitorAutoAliases to keep the stored mode, or ask the operator to change it.'
 
@@ -1172,6 +1193,7 @@ export function buildMcpAgentTools(
       const agentTool = mcpToAgentTool(tool, ctx)
       if (COMPETITOR_AUTO_ALIAS_MODE_WRITES.has(tool.name)) return refuseCompetitorAutoAliasModeChange(agentTool, ctx)
       if (tool.name === 'canonry_competitors_add') return refuseCompetitorBulkAddAcknowledgement(agentTool)
+      if (tool.name === CanonryMcpToolNames.canonry_schedule_set) return refuseSeoScheduleWrite(agentTool)
       return opts.managedSweeps && tool.name === CanonryMcpToolNames.canonry_run_cancel
         ? refuseManagedSweepCancel(agentTool, ctx)
         : agentTool

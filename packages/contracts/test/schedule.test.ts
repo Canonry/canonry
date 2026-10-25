@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest'
 import { calendarRecurrenceSchema, nextScheduleUpdatedAt, schedulableRunKindSchema, scheduleUpsertRequestSchema, SchedulableRunKinds } from '../src/schedule.js'
 
 describe('schedulableRunKindSchema', () => {
-  it('accepts all eight public schedulable run kinds', () => {
-    const kinds = ['answer-visibility', 'traffic-sync', 'gbp-sync', 'data-refresh', 'backlinks-sync', 'site-audit', 'ads-sync', 'doctor']
+  it('accepts all nine public schedulable run kinds', () => {
+    const kinds = ['answer-visibility', 'traffic-sync', 'gbp-sync', 'data-refresh', 'backlinks-sync', 'site-audit', 'ads-sync', 'doctor', 'seo-sync']
     expect(schedulableRunKindSchema.options).toEqual(kinds)
     for (const kind of kinds) expect(schedulableRunKindSchema.safeParse(kind).success).toBe(true)
   })

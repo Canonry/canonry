@@ -1361,4 +1361,5 @@ function buildTrafficSourceValidators(opts: ApiRoutesOptions): Record<string, Tr
   return Object.keys(validators).length > 0 ? validators : undefined
 }
 
-export type { SeoRoutesOptions, SeoConnection, SeoPolicy } from './seo.js'
+export type { SeoRoutesOptions, SeoConnection, SeoPolicy, ScheduledSeoRefreshOutcome } from './seo.js'
+export { startScheduledSeoRefreshes } from './seo.js'
