@@ -893,3 +893,19 @@ test('each failing check carries its own plain wording into the alert payload', 
 
   expect(sent[0]!.health.failing.map(entry => entry.alert ?? null)).toEqual([alert, null])
 })
+
+test('each failing check carries its own remediation, so a new headline keeps its next step', async () => {
+  const { notifier, projectId } = harness()
+  const sent: HealthWebhookPayload[] = []
+  vi.spyOn(notifier as never, 'sendWebhook').mockImplementation(async (...args: unknown[]) => { sent.push(args[1] as HealthWebhookPayload); return true })
+
+  await notifier.onHealthChecked(projectId, {
+    checks: [
+      { ...check('traffic.source.sync-lag', 'fail', 'traffic.sync-lag.discarding'), remediation: 'Backfill the gap.' },
+      { ...check('ga.data.recent-data', 'warn', 'ga.data.aging'), remediation: 'Run a GA4 sync.' },
+    ],
+    ...at('2026-10-24T18:00:00.000Z'),
+  })
+
+  expect(sent[0]!.health.failing.map(entry => entry.remediation)).toEqual(['Backfill the gap.', 'Run a GA4 sync.'])
+})

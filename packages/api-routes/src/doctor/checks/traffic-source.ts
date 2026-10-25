@@ -122,8 +122,10 @@ function loadProbes(ctx: DoctorContext): TrafficSourceProbe[] {
 
 /**
  * Plain alert words for unrecovered skips: the latest skipped day, the sources,
- * and the one way to close each kind. WordPress cannot prove a historical
- * repair, so its gap is declared; other sources are backfilled.
+ * and the one way to close each kind. The marker proves data is missing, not
+ * that it is gone: other sources can still be backfilled while their provider
+ * retains the span. Only WordPress, whose feed cannot prove a historical
+ * repair, is called unrecoverable, and its gap is declared.
  */
 function unrecoveredAlert(
   projectName: string,
@@ -137,9 +139,12 @@ function unrecoveredAlert(
         ? `Record it as lost with \`cnry traffic declare-gap ${projectName} --source ${unrecovered[0]!.id}\`.`
         : `Backfill it with \`cnry traffic backfill ${projectName} --source ${unrecovered[0]!.id} --days N\`.`)
     : 'Record each WordPress gap with `cnry traffic declare-gap`, and backfill the others.'
+  const names = unrecovered.map(m => m.displayName).join(', ')
   return {
     label: `Traffic gap before ${day}`,
-    line: `A stretch of traffic before ${day} can't be recovered for ${unrecovered.map(m => m.displayName).join(', ')}.`,
+    line: wordpress.length === unrecovered.length
+      ? `A stretch of traffic before ${day} is missing for ${names}. WordPress can't replay it.`
+      : `A stretch of traffic before ${day} is missing for ${names}.`,
     next,
   }
 }
@@ -896,7 +901,7 @@ const workerVersionCheck: CheckDefinition = {
         details,
         alert: {
           label: 'Cloudflare worker out of date',
-          line: `The Cloudflare traffic worker for ${stale.map(source => source.displayName).join(', ')} runs an older version.`,
+          line: `The Cloudflare traffic worker for ${stale.map(source => source.displayName).join(', ')} doesn't match this server's version.`,
           next: `Redeploy it with \`cnry traffic connect cloudflare ${ctx.project!.name}\`.`,
         },
       }

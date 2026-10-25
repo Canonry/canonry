@@ -779,9 +779,8 @@ export async function trafficSync(project: string, opts: {
  * `canonry traffic connect ...` instead.
  *
  * For Cloud Run and Vercel, skipped history may be recoverable with a bounded
- * backfill. WordPress generic replace-mode backfill is unavailable: use a
- * retention-aware repair that declares any
- * unrecoverable history instead.
+ * backfill. WordPress generic replace-mode backfill is unavailable: record a
+ * span that cannot be recovered with `canonry traffic declare-gap` instead.
  *
  * `--advance-to-now` must be passed — no implicit reset.
  */
@@ -843,7 +842,7 @@ export async function trafficReset(project: string, opts: {
       code: 'TRAFFIC_RESET_REQUIRES_FLAG',
       message: '--advance-to-now is required',
       displayMessage:
-        'Error: --advance-to-now is required. This skips history between the source\'s current lastSyncedAt and now. For WordPress, generic replace-mode backfill is unavailable; use a retention-aware repair that declares any unrecoverable span.',
+        'Error: --advance-to-now is required. This skips history between the source\'s current lastSyncedAt and now. For WordPress, generic replace-mode backfill is unavailable; record a span that cannot be recovered with `canonry traffic declare-gap <project> --source <id>`.',
       details: { project, source: opts.source },
     })
   }
@@ -861,7 +860,7 @@ export async function trafficReset(project: string, opts: {
   console.log(`  Last synced:   ${updated.lastSyncedAt ?? 'never'}  (advanced to NOW)`)
   console.log(`  Last error:    ${updated.lastError ?? 'none'}`)
   if (updated.skippedThroughAt) {
-    console.log('  Historical repair: generic WordPress replace-mode backfill is unavailable until a retention-aware repair proves coverage.')
+    console.log(`  Skipped span:  WordPress can't replay it. Once you accept it is lost, run \`canonry traffic declare-gap ${project} --source ${opts.source}\`.`)
   }
   console.log('')
   console.log('Next scheduled sync will resume from this timestamp.')

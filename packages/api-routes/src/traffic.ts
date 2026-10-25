@@ -1233,7 +1233,7 @@ async function runBackfillTask(options: RunBackfillTaskOptions): Promise<void> {
   // newer retained tail. A dedicated repair workflow must establish coverage
   // and record any unrecoverable span before it can replace WordPress data.
   if (sourceRow.sourceType === TrafficSourceTypes.wordpress) {
-    markFailed('Generic WordPress replace backfill is unavailable because retained coverage is unproven. Use a retention-aware repair that declares the unrecoverable span.')
+    markFailed(`Generic WordPress replace backfill is unavailable because retained coverage is unproven. Record a span that cannot be recovered with \`canonry traffic declare-gap ${project.name} --source ${sourceRow.id}\`.`)
     reportBackfill({ status: OutcomeStatuses.failed, reasonCode: OutcomeReasonCodes.UNSUPPORTED })
     return
   }
@@ -4198,7 +4198,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       && sourceRow.sourceType !== TrafficSourceTypes.vercel
     ) {
       throw validationError(
-        `Backfill for source type "${sourceRow.sourceType}" is not implemented yet — generic replace backfill supports only cloud-run and vercel; WordPress requires a retention-aware repair.`,
+        `Backfill for source type "${sourceRow.sourceType}" is not implemented yet — generic replace backfill supports only cloud-run and vercel; a WordPress gap is recorded with \`canonry traffic declare-gap\`.`,
       )
     }
     if (!isAuthoritativeTrafficSource(app.db, sourceRow)) {
@@ -4206,7 +4206,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
     }
     if (sourceRow.sourceType === TrafficSourceTypes.wordpress) {
       throw validationError(
-        'Generic WordPress replace backfill is unavailable because retained coverage is unproven. Use a retention-aware repair that declares the unrecoverable span.',
+        `Generic WordPress replace backfill is unavailable because retained coverage is unproven. Record a span that cannot be recovered with \`canonry traffic declare-gap ${project.name} --source ${sourceRow.id}\`.`,
       )
     }
 

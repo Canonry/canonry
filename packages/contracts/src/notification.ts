@@ -139,8 +139,12 @@ export interface HealthWebhookPayload {
     checkedAt: string
     /** What the status was before this pass, so the transition is explicit. */
     previousStatus: 'ok' | 'warn' | 'fail' | null
-    /** Every non-ok check on this pass, worst first. `alert` is the check's plain wording, when it has one. */
-    failing: Array<{ id: string; status: string; code: string; summary: string; alert?: { label: string; line: string; next: string | null } }>
+    /**
+     * Every non-ok check on this pass, worst first, each with its own next step
+     * so whichever one an alert leads with keeps it. `alert` is the check's
+     * plain wording, when it has one.
+     */
+    failing: Array<{ id: string; status: string; code: string; summary: string; remediation?: string | null; alert?: { label: string; line: string; next: string | null } }>
     /**
      * Codes of the checks that are new or worse, worst first: a check that
      * started failing, got more severe, or reports a different problem at the
@@ -163,6 +167,13 @@ export interface HealthWebhookPayload {
   }
   dashboardUrl: string
 }
+
+/**
+ * How a `health.urgent-resolved` summary starts when its one problem only
+ * eased (still a warning, no longer urgent) rather than cleared, so an alert
+ * never calls it fixed.
+ */
+export const HEALTH_NO_LONGER_URGENT = 'No longer urgent.'
 
 export interface WebhookPayload {
   source: 'canonry'

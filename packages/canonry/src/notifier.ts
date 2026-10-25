@@ -4,7 +4,7 @@ import { deliverWebhook, measurementRunCompleteness, notProbeRun, redactNotifica
 import type { DatabaseClient } from '@canonry/canonry-db'
 import { auditLog, doctorHealthState, siteLivenessState, gbpLocations, gbpReviewRatings, gbpReviews, groupRunsByCreatedAt, insightNotifyState, notifications, projects, queries, querySnapshots, readNegativeReviewMaxStars, runs } from '@canonry/canonry-db'
 import type { GbpReviewAlertState, HealthAlertCopy, NotificationEvent, WebhookPayload, InsightWebhookPayload, HealthWebhookPayload, RatingWebhookPayload, ReviewAlertLocation, ReviewWebhookPayload } from '@canonry/canonry-contracts'
-import { businessProfileReviewsCover, isNegativeReviewRating, resolveNegativeReviewMaxStars } from '@canonry/canonry-contracts'
+import { HEALTH_NO_LONGER_URGENT, businessProfileReviewsCover, isNegativeReviewRating, resolveNegativeReviewMaxStars } from '@canonry/canonry-contracts'
 import type { RunCompletionOrigin } from '@canonry/canonry-contracts'
 import type { AnalysisResult, Insight } from '@canonry/canonry-intelligence'
 import crypto from 'node:crypto'
@@ -662,7 +662,7 @@ export class Notifier {
       // is no longer urgent, not fixed, and says so.
       const onlyCleared = urgentCleared.length === 1 ? graded.find(c => c.id === urgentCleared[0]!.id) : undefined
       const resolvedSummary = onlyCleared
-        ? (onlyCleared.status === 'ok' ? onlyCleared.summary : `No longer urgent. ${onlyCleared.summary}`)
+        ? (onlyCleared.status === 'ok' ? onlyCleared.summary : `${HEALTH_NO_LONGER_URGENT} ${onlyCleared.summary}`)
         : `${urgentCleared.length} urgent problems are resolved.`
       const urgentHealth: HealthWebhookPayload['health'] = urgentEvent === 'health.urgent' && lead
         ? {
@@ -672,7 +672,7 @@ export class Notifier {
             remediation: lead.remediation,
             checkedAt: now,
             previousStatus: previousUrgent,
-            failing: urgentItems.map(item => ({ id: item.id, status: item.status, code: item.code, summary: item.summary, ...(item.alert ? { alert: item.alert } : {}) })),
+            failing: urgentItems.map(item => ({ id: item.id, status: item.status, code: item.code, summary: item.summary, remediation: item.remediation, ...(item.alert ? { alert: item.alert } : {}) })),
             added: breachCodes(urgentNew),
             ...(urgentCleared.length > 0 ? { cleared: breachCodes(urgentCleared) } : {}),
           }
@@ -733,7 +733,7 @@ export class Notifier {
         remediation: worst?.remediation ?? null,
         checkedAt: now,
         previousStatus,
-        failing: failing.map(c => ({ id: c.id, status: c.status, code: c.code, summary: c.summary, ...(c.alert ? { alert: c.alert } : {}) })),
+        failing: failing.map(c => ({ id: c.id, status: c.status, code: c.code, summary: c.summary, remediation: c.remediation ?? null, ...(c.alert ? { alert: c.alert } : {}) })),
         ...(added ? { added } : {}),
         ...(cleared ? { cleared } : {}),
       },

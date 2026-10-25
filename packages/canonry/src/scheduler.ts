@@ -57,6 +57,23 @@ export function scheduleSpreadMs(projectId: string, kind: string, spreadMs = SCH
   return crypto.createHash('sha256').update(`${projectId}:${kind}`).digest().readUInt32BE(0) % spreadMs
 }
 
+/**
+ * The shortest gap between a cron schedule's next few occurrences, or null when
+ * it cannot be read. A spread window wider than this would push one start past
+ * the next tick.
+ */
+function shortestCronGapMs(cronExpr: string, timezone: string, from: Date = new Date()): number | null {
+  let previous = nextRunFromCron(cronExpr, timezone, from)
+  let shortest = Number.POSITIVE_INFINITY
+  for (let i = 0; previous && i < 8; i++) {
+    const next = nextRunFromCron(cronExpr, timezone, new Date(Date.parse(previous) + 1_000))
+    if (!next) break
+    shortest = Math.min(shortest, Date.parse(next) - Date.parse(previous))
+    previous = next
+  }
+  return Number.isFinite(shortest) ? shortest : null
+}
+
 
 /**
  * Ensure one default doctor schedule exists for a project.
@@ -396,15 +413,22 @@ export class Scheduler {
     }
 
     const key = taskKey(projectId, kind)
-    const spreadMs = UNSPREAD_KINDS.has(kind) ? 0 : scheduleSpreadMs(projectId, kind, this.spreadMs)
+    // The window never exceeds half the gap between ticks, so a frequent
+    // schedule's start lands well before its next tick and every occurrence runs.
+    const gapMs = this.spreadMs > 0 && !UNSPREAD_KINDS.has(kind) ? shortestCronGapMs(cronExpr, timezone) : null
+    const spreadMs = gapMs === null ? 0 : scheduleSpreadMs(projectId, kind, Math.min(this.spreadMs, Math.floor(gapMs / 2)))
     const task = cron.schedule(cronExpr, () => {
       if (spreadMs === 0) {
         this.triggerRun(scheduleId, projectId, kind)
         return
       }
-      // A start still waiting from an earlier tick keeps its turn: replacing it
-      // would starve a schedule that ticks more often than its offset.
-      if (this.spreadTimers.has(key)) return
+      // A start still waiting at the next tick (a stalled event loop) runs now
+      // rather than being dropped, so the schedule keeps every occurrence.
+      const overdue = this.spreadTimers.get(key)
+      if (overdue) {
+        clearTimeout(overdue)
+        this.triggerRun(scheduleId, projectId, kind)
+      }
       this.spreadTimers.set(key, setTimeout(() => {
         this.spreadTimers.delete(key)
         this.triggerRun(scheduleId, projectId, kind)

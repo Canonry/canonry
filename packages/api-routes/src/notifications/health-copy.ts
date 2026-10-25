@@ -81,7 +81,7 @@ export const HEALTH_FIXED_LINES: Readonly<Record<string, string>> = {
   'google.auth.refresh-unreachable': 'Google is reachable again.',
   'ga.auth.refresh-unreachable': 'Google is reachable again.',
   'gbp.auth.refresh-unreachable': 'Google is reachable again.',
-  'traffic.sync-lag.unrecovered-skip': 'The traffic gap is recorded and closed.',
+  'traffic.sync-lag.unrecovered-skip': 'The traffic gap is closed.',
   'traffic.source.all-errored-recently': 'Traffic syncs are working again.',
   'traffic.queue-backlog.remaining': 'The traffic backlog is cleared.',
   'traffic.worker-version.stale': 'The Cloudflare worker is up to date.',

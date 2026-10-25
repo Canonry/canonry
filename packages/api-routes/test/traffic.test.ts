@@ -4304,7 +4304,7 @@ describe('POST /traffic/sources/:id/backfill — WordPress', () => {
         payload: { days: 30 },
       })
       expect(backfill.statusCode).toBe(400)
-      expect(JSON.parse(backfill.payload).error.message).toMatch(/retention-aware repair/)
+      expect(JSON.parse(backfill.payload).error.message).toContain(`canonry traffic declare-gap test-project --source ${sourceId}`)
       expect(h.db.select().from(runs).all()).toHaveLength(0)
     } finally {
       await h.close()

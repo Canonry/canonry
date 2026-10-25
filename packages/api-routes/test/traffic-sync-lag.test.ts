@@ -208,7 +208,7 @@ describe('unrecovered skips', () => {
       expect(out.remediation).toContain('canonry traffic declare-gap <project> --source <id>')
       expect(out.alert).toEqual({
         label: 'Traffic gap before Aug 20',
-        line: "A stretch of traffic before Aug 20 can't be recovered for Vercel (example.com).",
+        line: "A stretch of traffic before Aug 20 is missing for Vercel (example.com). WordPress can't replay it.",
         next: `Record it as lost with \`cnry traffic declare-gap lagproj --source ${sourceId}\`.`,
       })
     } finally { cleanup() }
@@ -218,6 +218,8 @@ describe('unrecovered skips', () => {
     const { ctx, sourceId, cleanup } = seed({ lagMs: 5 * 60_000, skippedThroughAt: '2026-07-30T04:00:00.000Z' })
     try {
       const out = await syncLagCheck.run(ctx)
+      // Missing, not lost: a provider that still retains the span can replay it.
+      expect(out.alert?.line).toBe('A stretch of traffic before Jul 30 is missing for Vercel (example.com).')
       expect(out.alert?.next).toBe(`Backfill it with \`cnry traffic backfill lagproj --source ${sourceId} --days N\`.`)
     } finally { cleanup() }
   })

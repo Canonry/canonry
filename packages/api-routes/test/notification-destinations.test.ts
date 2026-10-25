@@ -1,4 +1,5 @@
 import { test, expect } from 'vitest'
+import { HEALTH_NO_LONGER_URGENT } from '@canonry/canonry-contracts'
 import type { HealthWebhookPayload, RatingWebhookPayload, ReviewWebhookPayload, WebhookPayload } from '@canonry/canonry-contracts'
 import { AlertSeverities, AlertFieldLabels, CANONRY_ALERT_CATEGORY, toAlertView } from '../src/notifications/alert.js'
 import {
@@ -368,6 +369,19 @@ test('a degraded alert leads with what is new, keeps the rest, and says what was
   expect(renderSlack(view).attachments[0]!.fields!.map(field => field.title)).toEqual(['Also open', 'Fixed'])
 })
 
+test('a new problem under a standing one leads, and keeps its own next step', () => {
+  const view = toAlertView(health({
+    failing: [
+      { id: 'traffic.source.sync-lag', status: 'fail', code: 'traffic.sync-lag.discarding', summary: 'x', remediation: 'Backfill the gap.' },
+      { id: 'ga.data.recent-data', status: 'warn', code: 'ga.data.aging', summary: 'No GA4 data since Oct 20.', remediation: 'Run a GA4 sync. Then check its error.' },
+    ],
+    added: ['ga.data.aging'],
+  }))
+  expect(view.title).toBe('harborline-hotel: GA4 data stopped')
+  expect(view.body).toBe('No GA4 data since Oct 20.')
+  expect(view.fields[0]).toEqual({ label: AlertFieldLabels.next, value: 'Run a GA4 sync.' })
+})
+
 test('a new headline is never repeated under also open, and an empty section is never sent', () => {
   // Nothing cleared, so no "Fixed" section: an empty field value would make
   // Discord reject the whole message.
@@ -392,7 +406,16 @@ test('a no-signal alert, which has no failing check behind it, says health is un
   const view = toAlertView(payload)
   expect(view.title).toBe('harborline-hotel: Health unknown')
   expect(view.severity).toBe(AlertSeverities.warning)
-  expect(view.fields).toEqual([{ label: AlertFieldLabels.fixed, value: '• 1 other problem fixed.' }])
+  // Nothing else is named, so the count is not "other" problems.
+  expect(view.fields).toEqual([{ label: AlertFieldLabels.fixed, value: '• 1 problem fixed.' }])
+})
+
+test('a recovery with nothing it can name counts what was fixed', () => {
+  const view = toAlertView({
+    ...health({ status: 'ok', code: 'health.ok', remediation: null, previousStatus: 'warn', failing: [], added: [], cleared: ['ga.data.aging', 'gsc.data.aging'] }),
+    event: 'health.recovered',
+  })
+  expect(view.body).toBe('2 problems fixed.')
 })
 
 test('an urgent alert is critical whatever its check is graded, and says urgent', () => {
@@ -433,7 +456,26 @@ test('an urgent resolution is a success, and is not titled as the whole project 
   expect(view.title).toBe('harborline-hotel: Urgent problem fixed')
   expect(view.title).not.toContain('normal')
   expect(view.body).toBe('GA4 data is current through 2026-10-12.')
-  expect(view.fields).toEqual([{ label: AlertFieldLabels.fixed, value: '• 1 other problem fixed.' }])
+  // The body is the problem that resolved; a "Fixed" list would count it again.
+  expect(view.fields).toEqual([])
+})
+
+test('an urgent problem that only eased is no longer urgent, never fixed', () => {
+  // The notifier's summary for a check that eased to a plain warning.
+  const resolved = (summary: string, cleared: string[]) => toAlertView({
+    ...health({ status: 'ok', code: 'health.urgent.resolved', summary, remediation: null, previousStatus: 'warn', failing: [], cleared }),
+    event: 'health.urgent-resolved',
+  })
+  const eased = resolved(`${HEALTH_NO_LONGER_URGENT} GA4 syncs are running but have stored nothing newer than 2026-10-10 (2 days). Check the tag.`, ['ga.data.stale'])
+  expect(eased.title).toBe('harborline-hotel: No longer urgent')
+  // What the check says now, not just "No longer urgent."
+  expect(eased.body).toBe('GA4 syncs are running but have stored nothing newer than 2026-10-10 (2 days).')
+  expect(eased.fields).toEqual([])
+
+  // Several at once may include one that eased, so they are not called fixed either.
+  const several = resolved('2 urgent problems are resolved.', ['ga.data.stale', 'gsc.data.stale'])
+  expect(several.title).toBe('harborline-hotel: No longer urgent')
+  expect(several.body).toBe('2 urgent problems are resolved.')
 })
 
 test('a website outage keeps its own title on the urgent events', () => {

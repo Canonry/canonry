@@ -75,32 +75,38 @@ describe('a spread scheduler', () => {
     scheduler.stop()
   })
 
-  it('keeps one waiting start per schedule, and stopping cancels it', async () => {
+  it('never drops a tick: a start still waiting at the next one runs then', async () => {
     const scheduler = new Scheduler(db, { onRunCreated: () => {}, onTrafficSyncRequested: (name, source) => synced.push(`${name}:${source}`) }, { spreadMs: SCHEDULE_SPREAD_MS })
     scheduler.start()
     trafficTick()()
     trafficTick()()
-    await vi.advanceTimersByTimeAsync(SCHEDULE_SPREAD_MS)
     expect(synced).toEqual(['spread:src_1'])
+    await vi.advanceTimersByTimeAsync(SCHEDULE_SPREAD_MS)
+    expect(synced).toEqual(['spread:src_1', 'spread:src_1'])
+  })
 
+  it('cancels a waiting start when the scheduler stops', async () => {
+    const scheduler = new Scheduler(db, { onRunCreated: () => {}, onTrafficSyncRequested: (name, source) => synced.push(`${name}:${source}`) }, { spreadMs: SCHEDULE_SPREAD_MS })
+    scheduler.start()
     trafficTick()()
     scheduler.stop()
     await vi.advanceTimersByTimeAsync(SCHEDULE_SPREAD_MS)
-    expect(synced).toEqual(['spread:src_1'])
+    expect(synced).toEqual([])
   })
 
-  it('still starts a schedule that ticks more often than its offset', async () => {
-    const spreadMs = 600_000
-    // The case this guards: an offset longer than the gap between ticks, where
-    // replacing the waiting start on every tick would mean it never ran.
-    expect(scheduleSpreadMs('proj_1', 'traffic-sync', spreadMs)).toBeGreaterThan(60_000)
-    const scheduler = new Scheduler(db, { onRunCreated: () => {}, onTrafficSyncRequested: (name, source) => synced.push(`${name}:${source}`) }, { spreadMs })
+  it('keeps every occurrence of a schedule that ticks faster than the spread window', async () => {
+    // A one-minute schedule with a ten-minute window: the offset is capped at
+    // half the gap between ticks, so each start lands before the next tick.
+    db.update(schedules).set({ cronExpr: '* * * * *' }).run()
+    const scheduler = new Scheduler(db, { onRunCreated: () => {}, onTrafficSyncRequested: (name, source) => synced.push(`${name}:${source}`) }, { spreadMs: 600_000 })
     scheduler.start()
+    const minuteTick = [...cron.tasks.entries()].find(([key]) => key.startsWith('* * * * *#'))![1]
     for (let minute = 0; minute < 4; minute++) {
-      trafficTick()()
+      minuteTick()
       await vi.advanceTimersByTimeAsync(60_000)
     }
-    expect(synced).toEqual(['spread:src_1'])
+    expect(synced).toHaveLength(4)
+    expect(scheduleSpreadMs('proj_1', 'traffic-sync', 30_000)).toBeLessThan(30_000)
     scheduler.stop()
   })
 

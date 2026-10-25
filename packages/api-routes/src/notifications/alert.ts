@@ -1,4 +1,4 @@
-import { googleBusinessReviewUrl } from '@canonry/canonry-contracts'
+import { HEALTH_NO_LONGER_URGENT, googleBusinessReviewUrl } from '@canonry/canonry-contracts'
 import { z } from 'zod'
 import { HEALTH_FIXED_LINES, firstSentence, plainHealthCopy } from './health-copy.js'
 import type {
@@ -111,7 +111,8 @@ const MAX_ALSO_OPEN = 3
 function fixedLines(cleared: readonly string[]): string[] {
   const named = [...new Set(cleared.map(code => HEALTH_FIXED_LINES[code]).filter((line): line is string => line !== undefined))]
   const unnamed = cleared.filter(code => HEALTH_FIXED_LINES[code] === undefined).length
-  return [...named, ...(unnamed > 0 ? [`${unnamed} other problem${unnamed === 1 ? '' : 's'} fixed.`] : [])]
+  if (unnamed === 0) return named
+  return [...named, `${unnamed} ${named.length > 0 ? 'other ' : ''}problem${unnamed === 1 ? '' : 's'} fixed.`]
 }
 
 /** Labels for a list, each once with a count when repeated, capped with the rest counted. */
@@ -145,13 +146,18 @@ function healthView(payload: HealthWebhookPayload): AlertView {
     }
     if (urgentEvent) {
       // Only the urgent problems resolved; others may still be open, so this
-      // is never titled as the whole project being back to normal.
+      // is never titled as the whole project being back to normal. "Fixed" is
+      // said only for one problem that cleared: a check that eased back to a
+      // warning is still open, and a count of several may include one. The
+      // body already names what resolved, so no "Fixed" list repeats it.
+      const eased = health.summary.startsWith(HEALTH_NO_LONGER_URGENT)
+      const several = (health.cleared?.length ?? 0) > 1
       return {
         ...base,
         severity: AlertSeverities.success,
-        title: `${project.name}: Urgent problem fixed`,
-        body: firstSentence(health.summary) ?? 'The urgent problem is resolved.',
-        fields: fixed.length > 0 ? [{ label: AlertFieldLabels.fixed, value: fixed.map(line => `• ${line}`).join('\n') }] : [],
+        title: `${project.name}: ${eased || several ? 'No longer urgent' : 'Urgent problem fixed'}`,
+        body: firstSentence(eased ? health.summary.slice(HEALTH_NO_LONGER_URGENT.length) : health.summary) ?? 'The urgent problem is resolved.',
+        fields: [],
       }
     }
     return {
@@ -169,11 +175,12 @@ function healthView(payload: HealthWebhookPayload): AlertView {
   const added = health.added ?? []
   const newest = added.map(code => failing.find(check => check.code === code)).find(check => check !== undefined)
   const lead = newest ?? failing.find(check => check.code === health.code) ?? failing.at(0)
-  // The headline check's summary and remediation travel on the payload itself.
+  // Each failing check carries its own remediation; the payload's own summary
+  // and remediation are the worst check's, for payloads from before that.
   const copy = lead
     ? (lead.code === health.code
-        ? plainHealthCopy({ ...lead, summary: health.summary }, health.remediation)
-        : plainHealthCopy(lead, null))
+        ? plainHealthCopy({ ...lead, summary: health.summary }, lead.remediation ?? health.remediation)
+        : plainHealthCopy(lead, lead.remediation ?? null))
     : plainHealthCopy({ id: '', status: health.status, code: health.code, summary: health.summary }, health.remediation)
   const leadStatus = lead?.status ?? health.status
   // An urgent alert is critical whatever its check's status: stale daily data

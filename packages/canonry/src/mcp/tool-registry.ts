@@ -969,7 +969,7 @@ const trafficResetInputSchema = z.object({
   sourceId: z.string().min(1).describe('Traffic source ID returned by canonry_traffic_sources_list.'),
   advanceToNow: z
     .literal(true)
-    .describe('Must be `true`. Explicit gate against accidental resets. Advances lastSyncedAt to NOW and clears the source\'s error state; WordPress also clears its continuation state and records an unrecovered span that needs retention-aware repair.'),
+    .describe('Must be `true`. Explicit gate against accidental resets. Advances lastSyncedAt to NOW and clears the source\'s error state; WordPress also clears its continuation state and records an unrecovered span; once it cannot be recovered, record it with canonry_traffic_declare_gap.'),
 })
 
 const trafficEventsInputSchema = z.object({
@@ -2950,7 +2950,7 @@ const rawCanonryMcpTools = [
   defineTool({
     name: 'canonry_traffic_backfill',
     title: 'Backfill traffic source',
-    description: 'Async one-shot reclassification for Cloud Run or Vercel traffic. It replaces the selected window’s rollups with a fresh bounded pull and current classifier output. WordPress generic replace backfill is unavailable because the endpoint cannot prove retained coverage; use a retention-aware repair that explicitly declares any unrecoverable span. Returns `{ runId, status: "running" }`; poll canonry_run_get for completion.',
+    description: 'Async one-shot reclassification for Cloud Run or Vercel traffic. It replaces the selected window’s rollups with a fresh bounded pull and current classifier output. WordPress generic replace backfill is unavailable because the endpoint cannot prove retained coverage; record a span that cannot be recovered with canonry_traffic_declare_gap. Returns `{ runId, status: "running" }`; poll canonry_run_get for completion.',
     access: 'write',
     tier: 'traffic',
     inputSchema: trafficBackfillInputSchema,
