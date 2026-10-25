@@ -137,7 +137,14 @@ canonry seo market-rankings example --profile-id market-rankings --format json
 canonry seo market-rankings example --profile-id market-rankings --region north-metro --limit 100 --format json
 ```
 
-A row's `rankOrganic` is the best organic position of the Target within `depth`; null means the site was not in the checked results, never that the search failed (a failed search writes no row). `regionKey` and `regionLabel` name the market's top-level group. Rows read in region, market and search-text order. The web SEO tab shows the latest refresh by query and market; market-rankings profiles are set up through the API, CLI or MCP for now, and the web editor keeps their settings when editing other fields.
+Every search the refresh planned has a row in each market it answers, and `searchStatus` says how the search ended:
+
+- `completed`: `depth` is the requested depth. `rankOrganic` is the best organic position of the Target within it; null means the site was not in the checked results.
+- `partial`: the source could not retrieve some results pages and returned the rest, charging only for those. The rows keep them, and `depth` is the deepest organic position they reached, so an unranked site reads "Not in top 30" rather than claiming the requested 50.
+- `failed`: the search returned no usable results, so the rows have no rank, `depth` 0 and no `provenance`. The table shows "Search failed" instead of leaving the query out of its market, and the refresh's Activity names each failed search by its search text and location.
+- `cancelled`: the search never ran because the refresh stopped first (cancelled, a spending limit, or the source became unavailable). The table shows "Not searched".
+
+A failed search is not retried within the refresh; the next refresh searches it again. `regionKey` and `regionLabel` name the market's top-level group. Rows read in region, market and search-text order. The web SEO tab shows the latest refresh by query and market; market-rankings profiles are set up through the API, CLI or MCP for now, and the web editor keeps their settings when editing other fields.
 
 A refresh runs its searches one at a time, so a large one takes a while. Restarting the server mid-search leaves that search for operator reconciliation, as with any paid request; avoid restarts while a market-rankings refresh runs.
 

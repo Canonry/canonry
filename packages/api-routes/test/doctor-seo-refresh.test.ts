@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { SeoRepository, emptySeoResults } from '@canonry/canonry-db'
-import type { SeoAdapterResult, SeoQuote, SeoRun } from '@canonry/canonry-contracts'
+import { SeoRepository, emptySeoResults, queries } from '@canonry/canonry-db'
+import { SeoCapabilities, SeoProviders, type SeoAdapter, type SeoAdapterResult, type SeoQuote, type SeoRun } from '@canonry/canonry-contracts'
 import { startScheduledSeoRefreshes } from '../src/index.js'
 import { ALL_CHECKS, scheduledHealthCheckIds } from '../src/doctor/registry.js'
 import { runChecks } from '../src/doctor/runner.js'
@@ -50,20 +50,21 @@ async function setSchedule(payload: Record<string, unknown> = {}): Promise<strin
 }
 
 /** One schedule firing, as the scheduler's host callback runs it. */
-function fire(occurrence: string, scheduleId: string, projectId = 'alpha') {
+function fire(occurrence: string, scheduleId: string, projectId = 'alpha', adapter: SeoAdapter = h.adapter) {
   at(occurrence)
   const runtime = {
-    getSeoRuntime: () => ({ connections: [{ id: 'primary', label: 'SEO provider', adapter: h.adapter }], policy: h.state.policy }),
+    getSeoRuntime: () => ({ connections: [{ id: 'primary', label: 'SEO provider', adapter }], policy: h.state.policy }),
     onSeoRunRequested: (id: string) => { h.requested.push(id) },
   }
   return startScheduledSeoRefreshes(h.db, runtime, { projectId, scheduleId, occurrence: occurrence.slice(0, 16) })
 }
 
-/** The SEO runtime executing an admitted refresh and storing what came back. */
-function settle(runId: string, outcome: SeoAdapterResult['outcome']) {
+/** The SEO runtime executing an admitted refresh's next request and storing what came back. */
+function settle(runId: string, outcomeFor: SeoAdapterResult['outcome'] | ((searchText: string) => SeoAdapterResult['outcome'])) {
   const repository = new SeoRepository(h.db)
   const task = repository.claim(runId, { ...h.state.policy, accountKey: h.state.accountKey })
   if (!task) throw new Error(`refresh ${runId} had nothing to claim`)
+  const outcome = typeof outcomeFor === 'function' ? outcomeFor(task.request.keywords[0] ?? '') : outcomeFor
   repository.settle(task.id, {
     outcome,
     tasks: [{ remoteTaskId: task.id, statusCode: outcome === 'completed' ? 20000 : 40000, costMicros: 10 }],
@@ -186,6 +187,29 @@ describe('seo.data.recent-refresh', () => {
       code: 'seo.data.refresh-partial',
       summary: 'The scheduled SEO refresh on 2026-12-02 only partly completed. Reason: Some SEO results could not be collected. No SEO refresh has completed yet.',
       alert: { label: 'SEO refresh incomplete', line: 'The scheduled SEO refresh on 2026-12-02 only partly completed: Some SEO results could not be collected.' },
+    })
+  })
+
+  it('counts how a market-rankings refresh\'s searches ended, since each search is one request', async () => {
+    // A source that can rank tracked queries, priced like the live results-page catalog.
+    const rankings: SeoAdapter = { provider: SeoProviders.dataforseo, accountKey: h.state.accountKey, capabilities: [...h.adapter.capabilities, SeoCapabilities['market-rankings']], estimate: () => ({ maxCostMicros: 100, catalogRevision: 'prices-1' }), execute: h.adapter.execute }
+    await h.close()
+    h = createSeoHarness({ getSeoRuntime: () => ({ connections: [{ id: 'primary', label: 'SEO provider', adapter: rankings }], policy: h.state.policy }) })
+    h.db.insert(queries).values(['best solar installer', 'solar panel cost', 'home battery backup'].map((query, index) => ({ id: `q${index}`, projectId: 'alpha', query, createdAt: new Date().toISOString() }))).run()
+    const profile = await h.app.inject({ method: 'PUT', url: '/api/v1/projects/alpha/seo/profiles/main', payload: {
+      ...seoProfileFixture, name: 'Market rankings', capabilities: [SeoCapabilities['market-rankings']], keywords: [], targets: [{ kind: 'domain', value: 'alpha.com', includeSubdomains: true }],
+      scope: { kind: 'project' }, rankings: { locations: [], depth: 50, device: 'mobile', searchText: 'query' },
+    } })
+    expect(profile.statusCode, profile.body).toBe(200)
+    const scheduleId = await setSchedule()
+    const [refresh] = fire('2026-11-02T07:00:00.000Z', scheduleId, 'alpha', rankings)
+    at('2026-11-02T07:10:00.000Z')
+    const ended: Record<string, SeoAdapterResult['outcome']> = { 'best solar installer': 'completed', 'solar panel cost': 'failed', 'home battery backup': 'partial' }
+    for (let searches = 0; searches < 3; searches++) settle(refresh!.runId, text => ended[text]!)
+    expect(await grade('2026-11-02T12:00:00.000Z')).toMatchObject({
+      status: 'warn',
+      code: 'seo.data.refresh-partial',
+      summary: 'The scheduled SEO refresh on 2026-11-02 only partly completed. Reason: Of 3 searches, 1 failed and 1 returned only part of their results. The SEO provider could not complete this task. No SEO refresh has completed yet.',
     })
   })
 

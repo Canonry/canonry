@@ -73,8 +73,8 @@ Analysis never requires a refresh intent. Keep credentials and hosted financial 
 
 - Market rankings measure the project's own tracked non-brand queries, the same queries AI visibility reports. Call them queries, never keywords, so the two views read as one set.
   Lead each finding with `queryText` and its market. `searchText` is the exact text searched on Google; mention it only when it differs in a way that matters.
-- `rankOrganic` is the site's best organic position within the checked `depth`. Null means the site was not in those results, not that the search failed. Say "not in the top 50", never "rank unknown".
-- `locationLabel` and `provenance.device` say where and how the search ran. Compare markets only at the same depth and device.
+- Read `searchStatus` first. In a `completed` or `partial` row, `rankOrganic` is the site's best organic position within the checked `depth`, and null means the site was not in those results: say "not in the top 50" with the row's own `depth`, never "rank unknown". A `partial` row checked fewer results than requested, so its `depth` is lower. A `failed` or `cancelled` row has no rank because the search returned nothing: say the search failed or did not run, never that the site does not rank.
+- `locationLabel` and `provenance.device` say where and how the search ran (`provenance` is null for a search that returned nothing). Compare markets only at the same depth and device.
 - `competitors` lists the competitors tracked for that query in that market (the project's, plus any pinned to the Advanced groups whose Properties ask it) found in the same results, by position. Absence means not in the checked results.
 - One refresh is one sample of Google's results. Rank movement needs two refreshes of the same profile, query, market and location; otherwise state the single observation.
 - Rankings and AI answers for a market are separate instruments. Present them side by side for the same query and market, never as a combined score.

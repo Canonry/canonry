@@ -1435,7 +1435,7 @@ const rawCanonryMcpTools = [
   }),
   defineTool({
     name: 'canonry_seo_market_rankings', title: 'SEO market rankings',
-    description: "Read stored SEO data only. No provider calls. The site's Google position for each tracked non-brand query in each market, searched from that market's location; these are the same tracked queries AI visibility measures, and searchText is the exact text searched. A null rank means not in the checked results (depth), not a failed search. Filter with marketKey or regionKey and keep runId fixed while paging.",
+    description: "Read stored SEO data only. No provider calls. The site's Google position for each tracked non-brand query in each market, searched from that market's location; these are the same tracked queries AI visibility measures, and searchText is the exact text searched. searchStatus says how each search ended: a null rank in a completed or partial row means not in the checked results (depth, lower when only part of the results came back); a failed or cancelled row has no rank because the search returned nothing. Filter with marketKey or regionKey and keep runId fixed while paging.",
     access: 'read', tier: 'seo',
     inputSchema: seoMarketRankingInputSchema, outputSchema: seoMarketRankingListSchema,
     annotations: readAnnotations(),

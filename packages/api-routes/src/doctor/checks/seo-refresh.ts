@@ -7,6 +7,7 @@ import {
   RunStatuses,
   RunTriggers,
   SchedulableRunKinds,
+  SeoCapabilities,
   SeoRunStatuses,
   calendarRecurrenceSchema,
   formatIsoDateInTimeZone,
@@ -104,25 +105,40 @@ function isIncomplete(run: RefreshRun): boolean {
   return run.status === RunStatuses.failed || run.status === RunStatuses.partial
 }
 
+const COUNT_LIST = new Intl.ListFormat('en', { style: 'long', type: 'conjunction' })
+
 /**
  * Why a refresh did not fully complete. One that never started stores the
- * reason on its run; one that ran keeps it on its requests. A partial result
- * stores no text, so it is named from the outcome.
+ * reason on its run; one that ran keeps it on its requests, and a partial
+ * result stores no text, so it is named from the outcome. A refresh of many
+ * requests (market rankings run one search each) says how many ended how.
  */
 function refreshReason(ctx: DoctorContext, run: RefreshRun): string {
   const stored = parseRunError(run.error)
   if (stored) return formatRunErrorOneLine(stored)
   const tasks = ctx.db
-    .select({ status: seoTasks.status, error: seoTasks.error })
+    .select({ status: seoTasks.status, error: seoTasks.error, request: seoTasks.request })
     .from(seoTasks)
     .innerJoin(seoJobs, eq(seoTasks.jobId, seoJobs.id))
     .where(eq(seoJobs.runId, run.id))
     .all()
-  const errors = [...new Set(tasks.flatMap(task => (task.error ? [task.error] : [])))]
-  if (errors.length > 0) return errors.join(' ')
-  if (tasks.some(task => task.status === SeoRunStatuses.partial)) return 'Some SEO results could not be collected.'
-  if (tasks.some(task => task.status === SeoRunStatuses.cancelled)) return 'Part of the refresh was cancelled.'
-  return 'No reason was recorded.'
+  const failed = tasks.filter(task => task.status === SeoRunStatuses.failed || task.status === SeoRunStatuses['reconciliation-required'])
+  const partial = tasks.filter(task => task.status === SeoRunStatuses.partial).length
+  const cancelled = tasks.filter(task => task.status === SeoRunStatuses.cancelled).length
+  const errors = [...new Set(failed.flatMap(task => (task.error ? [task.error] : [])))].join(' ')
+  if (tasks.length <= 1) {
+    if (errors) return errors
+    if (partial > 0) return 'Some SEO results could not be collected.'
+    return cancelled > 0 ? 'The refresh was cancelled.' : 'No reason was recorded.'
+  }
+  const unit = tasks.every(task => task.request.capability === SeoCapabilities['market-rankings']) ? 'searches' : 'requests'
+  const counts = [
+    ...(failed.length > 0 ? [`${failed.length} failed`] : []),
+    ...(partial > 0 ? [`${partial} returned only part of their results`] : []),
+    ...(cancelled > 0 ? [`${cancelled} did not run`] : []),
+  ]
+  if (counts.length === 0) return 'No reason was recorded.'
+  return `Of ${tasks.length} ${unit}, ${COUNT_LIST.format(counts)}.${errors ? ` ${errors}` : ''}`
 }
 
 function gradeSeoRefresh(ctx: DoctorContext, project: ProjectInfo): CheckOutput {

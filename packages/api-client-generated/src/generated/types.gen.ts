@@ -245,6 +245,8 @@ export type SeoRunDetail = {
         status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | 'reconciliation-required';
         error: string | null;
         remoteTaskId: string | null;
+        searchText: string | null;
+        locationLabel: string | null;
     }>;
     results: {
         keywordMetrics: Array<{
@@ -342,6 +344,7 @@ export type SeoRunDetail = {
                 value: string;
                 includeSubdomains: boolean;
             };
+            searchStatus: 'completed' | 'partial' | 'failed' | 'cancelled';
             rankOrganic: number | null;
             rankAbsolute: number | null;
             url: string | null;
@@ -359,7 +362,7 @@ export type SeoRunDetail = {
                 device: 'unspecified' | 'desktop' | 'mobile';
                 collectedAt: string;
                 sourceUpdatedAt: string | null;
-            };
+            } | null;
         }>;
     };
     resultCounts: {
@@ -634,6 +637,7 @@ export type SeoMarketRankingList = {
             value: string;
             includeSubdomains: boolean;
         };
+        searchStatus: 'completed' | 'partial' | 'failed' | 'cancelled';
         rankOrganic: number | null;
         rankAbsolute: number | null;
         url: string | null;
@@ -651,7 +655,7 @@ export type SeoMarketRankingList = {
             device: 'unspecified' | 'desktop' | 'mobile';
             collectedAt: string;
             sourceUpdatedAt: string | null;
-        };
+        } | null;
     }>;
 };
 

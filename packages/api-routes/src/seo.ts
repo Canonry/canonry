@@ -1,9 +1,9 @@
 import crypto from 'node:crypto'
 import { and, asc, desc, eq, inArray, isNotNull, sql } from 'drizzle-orm'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
-import { SeoRepository, competitors, emptySeoResults, projects, queries, runs, seoJobs, seoProfiles, seoTasks, type DatabaseClient, type SeoJobRow, type SeoTaskRow } from '@canonry/canonry-db'
+import { SeoRepository, competitors, projects, queries, runs, seoJobs, seoProfiles, seoTasks, type DatabaseClient, type SeoJobRow, type SeoTaskRow } from '@canonry/canonry-db'
 import {
-  AppError, RunKinds, RunStatuses, RunTriggers, SEO_MARKET_RANKING_MAX_SEARCHES, SEO_PROJECT_MARKET_KEY, SEO_RUN_SCOPE, SEO_WRITE_SCOPE, SeoAdapterOutcomes, SeoAvailability, SeoCapabilities, SeoRunStatuses, SeoScopeKinds, SeoTargetKinds, UserRoles,
+  AppError, RunKinds, RunStatuses, RunTriggers, SEO_MARKET_RANKING_MAX_SEARCHES, SEO_PROJECT_MARKET_KEY, SEO_RUN_SCOPE, SEO_WRITE_SCOPE, SeoAdapterOutcomes, SeoAvailability, SeoCapabilities, SeoMarketRankingSearchStatuses, SeoRunStatuses, SeoScopeKinds, SeoTargetKinds, UserRoles,
   compareText, effectiveDomains, matchesMeasurementTargetUrl, normalizeHostname, missingDependency, notFound, queryClassSchema, registrableDomain, seoSearchTextForQuery, validationError,
   seoProfileInputSchema, seoSyncInputSchema, seoRefreshIntentInputSchema, seoEvidenceQuerySchema, seoMarketRankingQuerySchema, seoReconcileInputSchema,
   type MeasurementPlanV2, type SeoAdapter, type SeoAdapterRequest, type SeoCapability, type SeoContext, type SeoEvidenceQuery, type SeoMarketRanking, type SeoMarketRankingContext, type SeoMarketRankingList, type SeoMarketRankingQuery, type SeoMarketRankingSearchMarket, type SeoOverview, type SeoProfile, type SeoProfileInput, type SeoQuote, type SeoResults, type SeoRun, type SeoRunDetail, type SeoRunStatus, type SeoScopeSelection, type SeoStatus, type SeoOperatorTask, type SeoReconcileResult,
@@ -38,7 +38,40 @@ function runDto(job: SeoJobRow, counts: Array<{ status: SeoRunStatus; count: num
   return { id: job.id, projectId: job.projectKey, profileId: job.profileId, profileRevision: job.profileRevision, locationCode: job.profile.locationCode, languageCode: job.profile.languageCode, cancelRequested: job.cancelRequested, status: job.status, capabilities: job.profile.capabilities, scope: job.profile.scope, taskCount: counts.reduce((sum, group) => sum + group.count, 0), completedTasks: counts.filter(group => group.status === SeoRunStatuses.completed || group.status === SeoRunStatuses.partial).reduce((sum, group) => sum + group.count, 0), failedTasks: counts.filter(group => group.status === SeoRunStatuses.failed).reduce((sum, group) => sum + group.count, 0), createdAt: job.createdAt, startedAt: job.startedAt, finishedAt: job.finishedAt, error: job.error }
 }
 function resultRows(tasks: SeoTaskRow[]): SeoResults {
-  return tasks.filter(task => task.reconciliation?.outcome !== SeoAdapterOutcomes.failed).reduce<SeoResults>((results, task) => ({ keywordMetrics: results.keywordMetrics.concat(task.results.keywordMetrics), domainIntelligence: results.domainIntelligence.concat(task.results.domainIntelligence), rankedKeywords: results.rankedKeywords.concat(task.results.rankedKeywords), marketRankings: results.marketRankings.concat(task.results.marketRankings ?? []) }), emptySeoResults())
+  // A task reconciled as failed contributes no evidence. A failed search still keeps its rows, saying so.
+  const kept = tasks.filter(task => task.reconciliation?.outcome !== SeoAdapterOutcomes.failed)
+  return {
+    keywordMetrics: kept.flatMap(task => task.results.keywordMetrics),
+    domainIntelligence: kept.flatMap(task => task.results.domainIntelligence),
+    rankedKeywords: kept.flatMap(task => task.results.rankedKeywords),
+    marketRankings: tasks.flatMap(marketRankingRows),
+  }
+}
+
+/**
+ * A market-rankings search's rows. A search with results stored one row per market it answers.
+ * One that failed or never ran stored none, so it reads as the same rows saying so: without them
+ * a market silently lists fewer queries. Rows saved before `searchStatus` existed were complete.
+ */
+function marketRankingRows(task: SeoTaskRow): SeoMarketRanking[] {
+  const stored = task.reconciliation?.outcome === SeoAdapterOutcomes.failed ? [] : task.results.marketRankings ?? []
+  if (stored.length > 0) return stored.map(row => ({ ...row, searchStatus: row.searchStatus ?? SeoMarketRankingSearchStatuses.completed }))
+  const { search, target } = task.request
+  if (task.request.capability !== SeoCapabilities['market-rankings'] || !search || !target) return []
+  const searchStatus = task.status === SeoRunStatuses.cancelled ? SeoMarketRankingSearchStatuses.cancelled
+    : task.status === SeoRunStatuses.failed || task.status === SeoRunStatuses['reconciliation-required'] ? SeoMarketRankingSearchStatuses.failed : null
+  if (!searchStatus) return []
+  return search.markets.map(market => ({
+    ...market.context, searchText: task.request.keywords[0] ?? '', locationLabel: search.locationLabel, target, searchStatus,
+    rankOrganic: null, rankAbsolute: null, url: null, depth: 0, competitors: [], provenance: null,
+  }))
+}
+
+/** What a market-rankings task searched, so Activity can name a search that failed. */
+function taskSearch(task: SeoTaskRow): { searchText: string | null; locationLabel: string | null } {
+  return task.request.capability === SeoCapabilities['market-rankings']
+    ? { searchText: task.request.keywords[0] ?? null, locationLabel: task.request.search?.locationLabel ?? null }
+    : { searchText: null, locationLabel: null }
 }
 
 /** Market-rankings rows in reading order: region, market, then the searched text. */
@@ -488,7 +521,7 @@ export async function seoRoutes(app: FastifyInstance, opts: SeoRoutesOptions) {
   app.get<{ Params: Params }>('/projects/:name/seo/runs/:id', async request => {
     const row = job(resolveProject(app.db, request.params.name).id, request.params.id)
     const rows = tasks(row.id); const results = resultRows(rows)
-    return { ...runDto(row, rows.map(task => ({ status: task.status, count: 1 }))), tasks: rows.map(task => ({ id: task.id, capability: task.request.capability, target: task.request.target, status: task.status, error: task.error, remoteTaskId: task.receipts[0]?.remoteTaskId ?? null })), results: { keywordMetrics: results.keywordMetrics.slice(0, 20), domainIntelligence: results.domainIntelligence.slice(0, 20), rankedKeywords: results.rankedKeywords.slice(0, 20), marketRankings: [...results.marketRankings].sort(compareMarketRankings).slice(0, 20) }, resultCounts: { keywordMetrics: results.keywordMetrics.length, domainIntelligence: results.domainIntelligence.length, rankedKeywords: results.rankedKeywords.length, marketRankings: results.marketRankings.length }, resultsTruncated: Object.values(results).some(items => items.length > 20) } satisfies SeoRunDetail
+    return { ...runDto(row, rows.map(task => ({ status: task.status, count: 1 }))), tasks: rows.map(task => ({ id: task.id, capability: task.request.capability, target: task.request.target, status: task.status, error: task.error, remoteTaskId: task.receipts[0]?.remoteTaskId ?? null, ...taskSearch(task) })), results: { keywordMetrics: results.keywordMetrics.slice(0, 20), domainIntelligence: results.domainIntelligence.slice(0, 20), rankedKeywords: results.rankedKeywords.slice(0, 20), marketRankings: [...results.marketRankings].sort(compareMarketRankings).slice(0, 20) }, resultCounts: { keywordMetrics: results.keywordMetrics.length, domainIntelligence: results.domainIntelligence.length, rankedKeywords: results.rankedKeywords.length, marketRankings: results.marketRankings.length }, resultsTruncated: Object.values(results).some(items => items.length > 20) } satisfies SeoRunDetail
   })
   app.post<{ Params: Params }>('/projects/:name/seo/runs/:id/cancel', { config: { paidRead: true, writeScope: SEO_RUN_SCOPE } }, async request => {
     requireScope(request, SEO_RUN_SCOPE); requireAdminSession(request)

@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { eq } from 'drizzle-orm'
-import { SeoRepository, competitors, measurementPlans, measurementPlanVersions, projects, queries, seoTasks } from '@canonry/canonry-db'
+import { SeoRepository, competitors, measurementPlans, measurementPlanVersions, projects, queries, seoTasks, type SeoTaskRow } from '@canonry/canonry-db'
 import {
   SeoCapabilities, SeoProviders, canonicalMeasurementPlanV2Json, compareText, emptySeoResults,
-  type MeasurementPlanV2, type SeoAdapter, type SeoContext, type SeoMarketRanking, type SeoMarketRankingList, type SeoProfileInput, type SeoQuote, type SeoRun, type SeoRunDetail,
+  type MeasurementPlanV2, type SeoAdapter, type SeoContext, type SeoMarketRanking, type SeoMarketRankingList, type SeoMarketRankingSearchStatus, type SeoProfileInput, type SeoQuote, type SeoRun, type SeoRunDetail,
 } from '@canonry/canonry-contracts'
 import { createSeoHarness, seoProfileFixture } from './seo-fixture.js'
 import { measurementPlanV2Fixture } from './measurement-plan-v2-fixture.js'
@@ -92,6 +92,15 @@ async function refresh(h: ReturnType<typeof harness>, key: string, id = 'markets
   const response = await h.app.inject({ method: 'POST', url: `${base}/sync`, payload: { quoteToken: intent.token, idempotencyKey: key } })
   expect(response.statusCode, response.body).toBe(202)
   return response.json<SeoRun>()
+}
+/** The rows the adapter stores for a search that returned results: one per market it answers. */
+function collectedRows(task: SeoTaskRow, searchStatus: SeoMarketRankingSearchStatus, rankOrganic: number | null, depth: number): SeoMarketRanking[] {
+  const search = task.request.search!
+  return search.markets.map(market => ({
+    ...market.context, searchText: task.request.keywords[0]!, locationLabel: search.locationLabel, target: site, searchStatus,
+    rankOrganic, rankAbsolute: null, url: null, depth, competitors: [],
+    provenance: { provider: 'dataforseo', dataset: 'dataforseo-serp/google/market-rankings', engine: 'google', locationCode: task.request.locationCode, languageCode: 'en', device: 'mobile', collectedAt: '2026-10-25T00:00:00.000Z', sourceUpdatedAt: null },
+  }))
 }
 const plannedSearches = (h: ReturnType<typeof harness>, runId: string) => h.db.select().from(seoTasks).where(eq(seoTasks.jobId, runId)).all()
   .map(task => ({ text: task.request.keywords[0], location: task.request.locationCode, reserved: task.reservedMicros, markets: task.request.search!.markets.map(market => `${market.context.marketKey}:${market.context.queryId}`).sort() }))
@@ -216,12 +225,7 @@ describe('SEO market rankings', () => {
     const repo = new SeoRepository(h.db)
     const rank: Record<string, number | null> = { 'best homes in Harbor': 4, 'best homes in Bayside': null, 'homes near the water': 12 }
     for (let task = repo.claim(run.id, { ...policy, accountKey: 'account-a' }); task; task = repo.claim(run.id, { ...policy, accountKey: 'account-a' })) {
-      const search = task.request.search!
-      const rows: SeoMarketRanking[] = search.markets.map(market => ({
-        ...market.context, searchText: task.request.keywords[0]!, locationLabel: search.locationLabel, target: site,
-        rankOrganic: rank[task.request.keywords[0]!] ?? null, rankAbsolute: null, url: null, depth: search.depth, competitors: [],
-        provenance: { provider: 'dataforseo', dataset: 'dataforseo-serp/google/market-rankings', engine: 'google', locationCode: task.request.locationCode, languageCode: 'en', device: 'mobile', collectedAt: '2026-10-25T00:00:00.000Z', sourceUpdatedAt: null },
-      }))
+      const rows = collectedRows(task, 'completed', rank[task.request.keywords[0]!] ?? null, task.request.search!.depth)
       repo.settle(task.id, { outcome: 'completed', tasks: [{ remoteTaskId: task.id, statusCode: 20000, costMicros: 10_000 }], results: { ...emptySeoResults(), marketRankings: rows }, error: null, fetchedAt: new Date().toISOString() }, task.leaseOwner!)
     }
     const read = async (query: string) => (await h.app.inject({ url: `${base}/market-rankings?profileId=markets${query}` })).json<SeoMarketRankingList>()
@@ -242,5 +246,67 @@ describe('SEO market rankings', () => {
     // Results stored before this field existed carry no marketRankings array at all.
     h.db.$client.prepare('UPDATE seo_tasks SET results = ? WHERE job_id = ?').run(JSON.stringify({ keywordMetrics: [], domainIntelligence: [], rankedKeywords: [] }), run.id)
     expect(await read('')).toMatchObject({ runId: run.id, total: 0, items: [] })
+  })
+
+  it('keeps a row for every planned search, saying which failed, came back partial or never ran, and names each search in its refresh', async () => {
+    const h = harness(); seedPlan(h, metroPlan())
+    await put(h, rankingProfile([{ key: 'metro', locationCode: 200001, label: 'Coast Metro' }]))
+    const run = await refresh(h, 'mixed')
+    const repo = new SeoRepository(h.db)
+    for (let task = repo.claim(run.id, { ...policy, accountKey: 'account-a' }); task; task = repo.claim(run.id, { ...policy, accountKey: 'account-a' })) {
+      const text = task.request.keywords[0]!
+      // Harbor's search completes, Google errors on Bayside's, and the shared search gets back only its first pages.
+      const settled = text === 'best homes in Bayside'
+        ? { outcome: 'failed' as const, statusCode: 40101, results: emptySeoResults() }
+        : text === 'homes near the water'
+          ? { outcome: 'partial' as const, statusCode: 40106, results: { ...emptySeoResults(), marketRankings: collectedRows(task, 'partial', null, 27) } }
+          : { outcome: 'completed' as const, statusCode: 20000, results: { ...emptySeoResults(), marketRankings: collectedRows(task, 'completed', 4, 50) } }
+      repo.settle(task.id, { outcome: settled.outcome, results: settled.results, tasks: [{ remoteTaskId: task.id, statusCode: settled.statusCode, costMicros: 6_000 }], error: null, fetchedAt: new Date().toISOString() }, task.leaseOwner!)
+    }
+    const read = async (query = '') => (await h.app.inject({ url: `${base}/market-rankings?profileId=markets${query}` })).json<SeoMarketRankingList>()
+    const rows = await read()
+    // A failed search keeps its row in its market: no rank, nothing checked, no source to cite.
+    expect(rows.items.map(row => [row.marketKey, row.searchText, row.searchStatus, row.rankOrganic, row.depth])).toEqual([
+      ['bayside-market', 'best homes in Bayside', 'failed', null, 0],
+      ['bayside-market', 'homes near the water', 'partial', null, 27],
+      ['harbor-market', 'best homes in Harbor', 'completed', 4, 50],
+      ['harbor-market', 'homes near the water', 'partial', null, 27],
+    ])
+    expect(rows.items[0]).toEqual({
+      marketKey: 'bayside-market', marketLabel: 'Bayside, Coast', regionKey: 'metro', regionLabel: 'Coast Metro Area', queryId: 'q-bayside', queryText: 'best  homes in Bayside, coast', queryClass: 'non-brand',
+      searchText: 'best homes in Bayside', locationLabel: 'Coast Metro', target: site, searchStatus: 'failed',
+      rankOrganic: null, rankAbsolute: null, url: null, depth: 0, competitors: [], provenance: null,
+    })
+    expect(rows.total).toBe(4)
+    expect((await h.app.inject({ url: `${base}/overview?profileId=markets` })).json()).toMatchObject({ evidenceRunId: run.id, marketRankingCount: 4 })
+
+    // The refresh names each search, so a failed one can be found in Activity.
+    const detail = (await h.app.inject({ url: `${base}/runs/${run.id}` })).json<SeoRunDetail>()
+    expect(detail.status).toBe('partial')
+    expect(detail.tasks.map(task => [task.searchText, task.locationLabel, task.status, task.error]).sort((a, b) => compareText(String(a[0]), String(b[0])))).toEqual([
+      ['best homes in Bayside', 'Coast Metro', 'failed', 'The SEO provider could not complete this task.'],
+      ['best homes in Harbor', 'Coast Metro', 'completed', null],
+      ['homes near the water', 'Coast Metro', 'partial', null],
+    ])
+    expect(detail.resultCounts.marketRankings).toBe(4)
+
+    // Rows saved before searchStatus existed were complete searches.
+    const harbor = h.db.select().from(seoTasks).where(eq(seoTasks.jobId, run.id)).all().find(task => task.request.keywords[0] === 'best homes in Harbor')!
+    const legacy = (harbor.results.marketRankings ?? []).map(({ searchStatus: _searchStatus, ...row }) => row)
+    h.db.$client.prepare('UPDATE seo_tasks SET results = ? WHERE id = ?').run(JSON.stringify({ ...emptySeoResults(), marketRankings: legacy }), harbor.id)
+    expect((await read('&marketKey=harbor-market')).items[0]).toMatchObject({ searchText: 'best homes in Harbor', searchStatus: 'completed', rankOrganic: 4 })
+
+    // A refresh cancelled before it searched lists every search as never run, and the earlier refresh stays the evidence.
+    const stopped = await refresh(h, 'stopped')
+    repo.cancel(stopped.id)
+    const cancelled = (await h.app.inject({ url: `${base}/runs/${stopped.id}` })).json<SeoRunDetail>()
+    expect(cancelled.status).toBe('cancelled')
+    expect(cancelled.results.marketRankings.map(row => [row.marketKey, row.searchText, row.searchStatus, row.depth])).toEqual([
+      ['bayside-market', 'best homes in Bayside', 'cancelled', 0],
+      ['bayside-market', 'homes near the water', 'cancelled', 0],
+      ['harbor-market', 'best homes in Harbor', 'cancelled', 0],
+      ['harbor-market', 'homes near the water', 'cancelled', 0],
+    ])
+    expect((await read()).runId).toBe(run.id)
   })
 })

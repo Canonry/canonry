@@ -162,7 +162,7 @@ const COVERAGE: Record<string, CoverageEntry> = {
     dto: seoTaskSchema,
     internal: {
       jobId: 'Implied by the run detail containing the task.',
-      request: 'Projects capability and target only; the frozen provider request is not exposed as raw storage.',
+      request: 'Projects capability, target and, for market rankings, the search text and location label; the frozen provider request is not exposed as raw storage.',
       leaseOwner: 'Private dispatch ownership token.',
       leaseUntil: 'Internal crash recovery deadline.',
       catalogRevision: 'Private pricing catalog identity for admission and dispatch validation.',

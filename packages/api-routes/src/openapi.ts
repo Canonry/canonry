@@ -998,7 +998,7 @@ const routeCatalog: OpenApiOperation[] = [
   {
     method: 'get', path: '/api/v1/projects/{name}/seo/market-rankings',
     summary: 'Read stored market rankings', tags: ['seo'],
-    description: "Stored evidence only; never calls a provider. The project's position for each tracked non-brand query, searched on Google from its market's location, ordered by region, market and search text. A null rank means the site was not in the checked results.",
+    description: "Stored evidence only; never calls a provider. The project's position for each tracked non-brand query, searched on Google from its market's location, ordered by region, market and search text. searchStatus says how each search ended: in a completed or partial row a null rank means the site was not in the checked results (depth, which is lower when only part of the results came back); a failed or cancelled search keeps its rows with no rank.",
     parameters: [
       nameParameter, ...seoEvidenceParameters,
       { name: 'marketKey', in: 'query', description: 'Only rows for this market (an Advanced market key or a Simple location label).', schema: stringSchema },

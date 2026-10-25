@@ -458,17 +458,18 @@ test('market rankings read as tracked queries by market, and editing keeps their
   }
   // The saved refresh ran under revision 1, one of its three searches failed.
   const refresh: SeoRun = { ...saved, id: 'saved-markets', profileId: 'markets', status: 'partial', capabilities: ['market-rankings'], scope: markets.scope, taskCount: 3, completedTasks: 2, failedTasks: 1 }
-  const search = (id: string, status: SeoRun['status'], error: string | null) => ({ id, capability: 'market-rankings' as const, target: markets.targets[0]!, status, error, remoteTaskId: null })
+  const search = (id: string, status: SeoRun['status'], error: string | null, searchText: string) => ({ id, capability: 'market-rankings' as const, target: markets.targets[0]!, status, error, remoteTaskId: null, searchText, locationLabel: 'Dallas-Ft. Worth, TX' })
   const marketContext: SeoContext = {
     ...context,
     connections: [{ ...context.connections[0]!, capabilities: ['ranked-keywords', 'keyword-metrics', 'domain-intelligence', 'market-rankings'] }],
     scopes: [{ ...context.scopes[0]!, capabilities: ['ranked-keywords', 'keyword-metrics', 'domain-intelligence', 'market-rankings'] }],
   }
-  const row = (queryText: string, rankOrganic: number | null, url: string | null): SeoMarketRanking => ({
+  const row = (queryText: string, rankOrganic: number | null, url: string | null, outcome: Partial<SeoMarketRanking> = {}): SeoMarketRanking => ({
     marketKey: 'dallas', marketLabel: 'Dallas, Dallas-Fort Worth', regionKey: 'metro', regionLabel: 'Dallas-Fort Worth Metro Area',
     queryId: queryText, queryText, queryClass: 'non-brand', searchText: queryText.replace(', Dallas-Fort Worth', ''), locationLabel: 'Dallas-Ft. Worth, TX',
-    target: markets.targets[0]!, rankOrganic, rankAbsolute: rankOrganic, url, depth: 50, competitors: [{ domain: 'rival.com', rankOrganic: 2 }],
+    target: markets.targets[0]!, searchStatus: 'completed', rankOrganic, rankAbsolute: rankOrganic, url, depth: 50, competitors: [{ domain: 'rival.com', rankOrganic: 2 }],
     provenance: { ...source, dataset: 'dataforseo-serp/google/market-rankings', locationCode: 200623, device: 'mobile' },
+    ...outcome,
   })
   const reads: URL[] = []
   const writes: unknown[] = []
@@ -479,8 +480,14 @@ test('market rankings read as tracked queries by market, and editing keeps their
     if (url.pathname.endsWith('/context')) return json(marketContext)
     if (url.pathname.endsWith('/profiles')) return json({ profiles: [markets] })
     if (url.pathname.endsWith('/overview')) return json({ ...overview(markets, refresh), summary: null, marketRankingCount: 2 })
-    if (url.pathname.endsWith('/market-rankings')) return json({ runId: 'saved-markets', total: 2, limit: 25, offset: 0, items: [row('best apartments in Dallas, Dallas-Fort Worth', 4, 'https://example.com/dallas'), row('pet friendly apartments Dallas, Dallas-Fort Worth', null, null)] })
-    if (url.pathname.endsWith('/runs/saved-markets')) return json({ ...refresh, tasks: [search('t1', 'completed', null), search('t2', 'failed', 'The source refused this search.'), search('t3', 'completed', null)], results: { keywordMetrics: [], rankedKeywords: [], domainIntelligence: [], marketRankings: [] }, resultCounts: { keywordMetrics: 0, rankedKeywords: 0, domainIntelligence: 0, marketRankings: 2 }, resultsTruncated: false })
+    if (url.pathname.endsWith('/market-rankings')) return json({ runId: 'saved-markets', total: 4, limit: 25, offset: 0, items: [
+      row('best apartments in Dallas, Dallas-Fort Worth', 4, 'https://example.com/dallas'),
+      row('pet friendly apartments Dallas, Dallas-Fort Worth', null, null),
+      // A failed search keeps its row; a partial one says how deep it checked.
+      row('cheap apartments Dallas, Dallas-Fort Worth', null, null, { searchStatus: 'failed', depth: 0, competitors: [], provenance: null }),
+      row('luxury apartments Dallas, Dallas-Fort Worth', null, null, { searchStatus: 'partial', depth: 30 }),
+    ] })
+    if (url.pathname.endsWith('/runs/saved-markets')) return json({ ...refresh, tasks: [search('t1', 'completed', null, 'best apartments in Dallas'), search('t2', 'failed', 'The source refused this search.', 'cheap apartments Dallas'), search('t3', 'completed', null, 'pet friendly apartments Dallas')], results: { keywordMetrics: [], rankedKeywords: [], domainIntelligence: [], marketRankings: [] }, resultCounts: { keywordMetrics: 0, rankedKeywords: 0, domainIntelligence: 0, marketRankings: 4 }, resultsTruncated: false })
     if (url.pathname.endsWith('/runs')) return json({ runs: [refresh] })
     throw new Error(`Unexpected request ${request.method} ${url.pathname}`)
   })
@@ -497,6 +504,14 @@ test('market rankings read as tracked queries by market, and editing keeps their
   expect(within(rows[1]!).queryByText(/Position on the page/)).toBeNull()
   const tracked = within(rows[0]!).getByText('Tracked competitors in these results').nextElementSibling!
   expect([...tracked.children].map(item => item.textContent)).toEqual(['rival.com', '#2'])
+  // A failed search reads as failed, never as "not in the top"; it has no competitors or source to show.
+  expect(within(rows[2]!).getAllByRole('cell')[0]!.textContent).toBe('Search failed')
+  expect(within(rows[2]!).getByText('This search failed, so it has no Google rank. Activity lists why.')).not.toBeNull()
+  expect(within(rows[2]!).queryByText(/tracked competitors/i)).toBeNull()
+  expect(within(rows[2]!).queryByText('Dataset')).toBeNull()
+  // A partial search reports the depth it reached.
+  expect(within(rows[3]!).getAllByRole('cell')[0]!.textContent).toBe('Not in top 30')
+  expect(within(rows[3]!).getByText('Only part of the results came back, so this search checked the top 30.')).not.toBeNull()
   expect(screen.getByText('1 search location · en')).not.toBeNull()
   // The saved refresh searched from each market's location, never the profile's one location code.
   expect(screen.getByText('Saved data uses profile revision 1 · Market locations · en. The current profile has changed.')).not.toBeNull()
@@ -511,6 +526,8 @@ test('market rankings read as tracked queries by market, and editing keeps their
   const panel = details.closest('[id="seo-run-saved-markets"]') as HTMLElement
   expect(within(panel).getByText('Profile revision 1 · Market locations · en')).not.toBeNull()
   expect(within(panel).getAllByRole('listitem')).toHaveLength(1)
+  // The failed search is named by what was searched and where, not by the target every search shares.
+  expect(within(panel).getByText('Market rankings · “cheap apartments Dallas” from Dallas-Ft. Worth, TX')).not.toBeNull()
 
   fireEvent.click(screen.getByRole('button', { name: 'Edit profile' }))
   const form = screen.getByRole('form', { name: 'Edit SEO profile' })

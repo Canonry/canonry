@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useSearch } from '@tanstack/react-router'
 import { Loader2, Plus, RefreshCw, X } from 'lucide-react'
 import {
-  RatioUnits, SeoAvailability, SeoCapabilities, SeoRunStatuses, SeoScopeKinds,
+  RatioUnits, SeoAvailability, SeoCapabilities, SeoMarketRankingSearchStatuses, SeoRunStatuses, SeoScopeKinds,
   SeoTargetKinds, formatDate, formatZonedTimestamp, formatPercent, seoCapabilitySchema, seoDatasetWithoutVendor, seoProfileInputSchema,
   type SeoCapability, type SeoContext, type SeoDevice, type SeoDomainIntelligence, type SeoKeywordMetrics, type SeoMarketRanking,
   type SeoProfile, type SeoProfileInput, type SeoProvenance, type SeoRankedKeyword,
@@ -119,13 +119,14 @@ function DataProvenance({ source }: { source: SeoProvenance }) {
   )
 }
 
-function EvidenceDetails({ label, source, children }: { label: string; source: SeoProvenance; children?: ReactNode }) {
+/** A row's details. `source` is null for a search that returned nothing, which has no provenance to show. */
+function EvidenceDetails({ label, source, children }: { label: string; source: SeoProvenance | null; children?: ReactNode }) {
   return (
     <details className="text-left">
       <summary className="flex min-h-11 cursor-pointer items-center text-[13px] text-secondary hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400">Details<span className="sr-only"> for {label}</span></summary>
       <div className="min-w-56 space-y-4 pb-3 text-[13px] leading-relaxed text-secondary">
         {children}
-        <DataProvenance source={source} />
+        {source && <DataProvenance source={source} />}
       </div>
     </details>
   )
@@ -345,22 +346,35 @@ function DomainTable({ rows }: { rows: SeoDomainIntelligence[] }) {
   </tr>)}</tbody></table>
 }
 
+/** The Google rank cell: the rank, how deep a search that missed the site checked, or why a search has no rank. */
+function MarketRank({ row }: { row: SeoMarketRanking }) {
+  if (row.searchStatus === SeoMarketRankingSearchStatuses.failed) return <span className="text-secondary">Search failed</span>
+  if (row.searchStatus === SeoMarketRankingSearchStatuses.cancelled) return <span className="text-secondary">Not searched</span>
+  return row.rankOrganic === null ? <span className="text-secondary">Not in top {row.depth}</span> : <>{row.rankOrganic}</>
+}
+
 /** One row per tracked query and market: the same queries AI visibility measures, ranked on Google from the market's location. */
 function MarketRankingTable({ rows }: { rows: SeoMarketRanking[] }) {
-  return <table className="w-full text-sm"><caption className="sr-only">Market rankings from the selected refresh</caption><thead className="bg-surface text-[13px] text-secondary"><tr><th className="px-4 py-3 text-left font-medium">Query</th><th className={`${CELL} font-medium`}>Google rank</th><th className="px-4 py-3 text-left font-medium">Ranking page</th><th className="px-4"><span className="sr-only">Evidence</span></th></tr></thead><tbody className="divide-y divide-subtle">{rows.map((row, index) => <tr key={`${row.marketKey}:${row.queryId ?? row.queryText}:${index}`}>
-    <th scope="row" className={ROW_HEADER}><p className="text-primary">{row.queryText}</p><p className="mt-1 text-[13px] text-secondary">{row.marketLabel}</p></th>
-    <td className={CELL}>{row.rankOrganic === null ? <span className="text-secondary">Not in top {row.depth}</span> : row.rankOrganic}</td>
-    <td className="max-w-80 px-4 py-3 align-top text-[13px] text-secondary">{row.url ? <MiddleTruncatedText value={row.url} /> : <span className="text-muted" aria-label="No ranking page">—</span>}</td>
-    <td className="px-4 align-top"><EvidenceDetails label={row.queryText} source={row.provenance}>
-      <p>Searched as “{row.searchText}” from {row.locationLabel}</p>
-      <p>Target: {row.target.value} · {row.target.includeSubdomains ? 'includes subdomains' : 'exact host'}</p>
-      {row.rankOrganic !== null && <p>{PAGE_POSITION}: <Value value={row.rankAbsolute} /></p>}
-      {row.competitors.length ? <div>
-        <p>Tracked competitors in these results</p>
-        <dl className="mt-1 grid grid-cols-[minmax(0,1fr)_auto] gap-x-6 gap-y-1">{row.competitors.map(competitor => <Fragment key={competitor.domain}><dt className="break-all text-primary">{competitor.domain}</dt><dd className="text-right tabular-nums text-primary">#{competitor.rankOrganic}</dd></Fragment>)}</dl>
-      </div> : <p>No tracked competitors in the top {row.depth}</p>}
-    </EvidenceDetails></td>
-  </tr>)}</tbody></table>
+  return <table className="w-full text-sm"><caption className="sr-only">Market rankings from the selected refresh</caption><thead className="bg-surface text-[13px] text-secondary"><tr><th className="px-4 py-3 text-left font-medium">Query</th><th className={`${CELL} font-medium`}>Google rank</th><th className="px-4 py-3 text-left font-medium">Ranking page</th><th className="px-4"><span className="sr-only">Evidence</span></th></tr></thead><tbody className="divide-y divide-subtle">{rows.map((row, index) => {
+    const searched = row.searchStatus === SeoMarketRankingSearchStatuses.completed || row.searchStatus === SeoMarketRankingSearchStatuses.partial
+    return <tr key={`${row.marketKey}:${row.queryId ?? row.queryText}:${index}`}>
+      <th scope="row" className={ROW_HEADER}><p className="text-primary">{row.queryText}</p><p className="mt-1 text-[13px] text-secondary">{row.marketLabel}</p></th>
+      <td className={CELL}><MarketRank row={row} /></td>
+      <td className="max-w-80 px-4 py-3 align-top text-[13px] text-secondary">{row.url ? <MiddleTruncatedText value={row.url} /> : <span className="text-muted" aria-label="No ranking page">—</span>}</td>
+      <td className="px-4 align-top"><EvidenceDetails label={row.queryText} source={row.provenance}>
+        <p>Searched as “{row.searchText}” from {row.locationLabel}</p>
+        <p>Target: {row.target.value} · {row.target.includeSubdomains ? 'includes subdomains' : 'exact host'}</p>
+        {row.searchStatus === SeoMarketRankingSearchStatuses.failed && <p>This search failed, so it has no Google rank. Activity lists why.</p>}
+        {row.searchStatus === SeoMarketRankingSearchStatuses.cancelled && <p>This search did not run, so it has no Google rank.</p>}
+        {row.searchStatus === SeoMarketRankingSearchStatuses.partial && <p>Only part of the results came back, so this search checked the top {row.depth}.</p>}
+        {row.rankOrganic !== null && <p>{PAGE_POSITION}: <Value value={row.rankAbsolute} /></p>}
+        {searched && (row.competitors.length ? <div>
+          <p>Tracked competitors in these results</p>
+          <dl className="mt-1 grid grid-cols-[minmax(0,1fr)_auto] gap-x-6 gap-y-1">{row.competitors.map(competitor => <Fragment key={competitor.domain}><dt className="break-all text-primary">{competitor.domain}</dt><dd className="text-right tabular-nums text-primary">#{competitor.rankOrganic}</dd></Fragment>)}</dl>
+        </div> : <p>No tracked competitors in the top {row.depth}</p>)}
+      </EvidenceDetails></td>
+    </tr>
+  })}</tbody></table>
 }
 
 function SeoActivity({ projectName, profileId, canRun, selectedRunId }: { projectName: string; profileId: string; canRun: boolean; selectedRunId?: string }) {
@@ -384,7 +398,7 @@ function SeoActivity({ projectName, profileId, canRun, selectedRunId }: { projec
       <div className="flex flex-wrap items-center justify-between gap-3"><div className="space-y-2"><div className="flex flex-wrap items-center gap-3"><RunBadge status={run.status} /><span className="text-sm">{formatZonedTimestamp(run.createdAt, TIME_ZONE)}</span></div><p className="text-[13px] text-secondary">{run.completedTasks} of {run.taskCount} {taskNoun(run)} completed{run.failedTasks > 0 ? ` · ${run.failedTasks} failed` : ''}</p></div><div className="flex gap-2"><Button variant="ghost" className="min-h-11" aria-expanded={detailId === run.id} aria-controls={`seo-run-${run.id}`} onClick={() => setDetailId(detailId === run.id ? null : run.id)}>Details<span className="sr-only"> for refresh {run.id}</span></Button>{canRun && isActive(run) && <Button variant="secondary" className="min-h-11" disabled={cancel.isPending || run.cancelRequested} onClick={asyncHandler(() => stop(run.id))}>{run.cancelRequested ? 'Cancellation requested' : 'Cancel refresh'}</Button>}</div></div>
       {detailId === run.id && <div id={`seo-run-${run.id}`} className="mt-4 space-y-3 rounded-md bg-surface p-4 text-[13px] text-secondary">
         <p className="break-all">Refresh {run.id}</p><p>Profile revision {run.profileRevision} · {runLocation(run)} · {run.languageCode}</p><p>Scope: {run.scope.kind}{run.scope.key ? ` · ${run.scope.key}` : ''}{run.scope.expectedPlanRevision !== undefined ? ` · plan revision ${run.scope.expectedPlanRevision}` : ''}</p>{run.error && <p>{run.error}</p>}
-        {detail.error ? <ReadError error={detail.error} retry={() => { void detail.refetch() }} /> : detail.data ? detail.data.tasks.some(listedTask) && <ul className="space-y-3">{detail.data.tasks.filter(listedTask).map(task => <li key={task.id}><div className="flex flex-wrap items-center justify-between gap-2"><span>{CAPABILITY_LABELS[task.capability]}{task.target ? ` · ${task.target.value}` : ''}</span><RunBadge status={task.status} /></div>{task.error && <p className="mt-1">{task.error}</p>}</li>)}</ul> : <p role="status">Loading refresh details…</p>}
+        {detail.error ? <ReadError error={detail.error} retry={() => { void detail.refetch() }} /> : detail.data ? detail.data.tasks.some(listedTask) && <ul className="space-y-3">{detail.data.tasks.filter(listedTask).map(task => <li key={task.id}><div className="flex flex-wrap items-center justify-between gap-2"><span>{CAPABILITY_LABELS[task.capability]}{task.searchText !== null ? ` · “${task.searchText}” from ${task.locationLabel ?? 'its market'}` : task.target ? ` · ${task.target.value}` : ''}</span><RunBadge status={task.status} /></div>{task.error && <p className="mt-1">{task.error}</p>}</li>)}</ul> : <p role="status">Loading refresh details…</p>}
       </div>}
     </div>)}
   </div>
