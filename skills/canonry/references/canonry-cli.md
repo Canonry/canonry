@@ -1105,7 +1105,10 @@ cnry ga measurement-analysis <project> [--window 30d|60d|90d]
                                                   # clicks apart; leads.countedEvents names the configured events
                                                   # and the GA4 key events counted (with any read error), and
                                                   # leads.events gives one series per counted event (origin
-                                                  # configured, key-event or both), zeros included
+                                                  # configured, key-event or both); a measured event with no
+                                                  # events reads as zero, and measured: false marks a counted
+                                                  # event no lead sync has fetched yet (no series). Totals and
+                                                  # attribution use only counted, measured events
 cnry ga search-landing-pages <project> [--window 7d|28d|90d] [--limit 50] [--offset 0]
                                                   # GA4's "Google organic search traffic: Landing page + query
                                                   # string" report (needs GA4's Search Console link): clicks,

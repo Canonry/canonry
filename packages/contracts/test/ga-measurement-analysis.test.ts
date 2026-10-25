@@ -78,12 +78,13 @@ describe('GA measurement analysis contract', () => {
         countedEvents: {
           configured: ['generate_lead'],
           keyEventsEnabled: true,
-          keyEvents: ['generate_lead', 'purchase'],
+          keyEvents: ['generate_lead', 'purchase', 'qualify_lead'],
           keyEventsError: null,
         },
         events: [
-          { eventName: 'purchase', origin: 'key-event', periods: [{ ...period, eventCount: 2 }] },
-          { eventName: 'generate_lead', origin: 'both', periods: [{ ...period, eventCount: 1 }] },
+          { eventName: 'purchase', origin: 'key-event', measured: true, periods: [{ ...period, eventCount: 2 }] },
+          { eventName: 'generate_lead', origin: 'both', measured: true, periods: [{ ...period, eventCount: 1 }] },
+          { eventName: 'qualify_lead', origin: 'key-event', measured: false, periods: [] },
         ],
       },
       engagement: {

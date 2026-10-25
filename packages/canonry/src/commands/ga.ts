@@ -527,7 +527,9 @@ function printCountedEvents(leads: Partial<Pick<GaMeasurementAnalysisDto['leads'
     if (counted.keyEventsError) console.log(`    Key event read failed: ${counted.keyEventsError}`)
   }
   for (const event of leads.events ?? []) {
-    console.log(`    ${event.eventName} (${event.origin}): ${event.periods.at(-1)?.eventCount ?? 0} in the latest cohort`)
+    console.log(event.measured === false
+      ? `    ${event.eventName} (${event.origin}): not synced yet`
+      : `    ${event.eventName} (${event.origin}): ${event.periods.at(-1)?.eventCount ?? 0} in the latest cohort`)
   }
 }
 

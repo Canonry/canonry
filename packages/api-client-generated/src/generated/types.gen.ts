@@ -6173,6 +6173,7 @@ export type Ga4MeasurementAnalysisDto = {
         events: Array<{
             eventName: string;
             origin: 'configured' | 'key-event' | 'both';
+            measured: boolean;
             periods: Array<{
                 label: 'earliest' | 'middle' | 'previous' | 'latest';
                 startDate: string;
@@ -12966,6 +12967,7 @@ export type OrganicEvidenceDto = {
             events: Array<{
                 eventName: string;
                 origin: 'configured' | 'key-event' | 'both';
+                measured: boolean;
                 periods: Array<{
                     label: 'earliest' | 'middle' | 'previous' | 'latest';
                     startDate: string;

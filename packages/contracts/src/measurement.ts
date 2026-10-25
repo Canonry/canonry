@@ -330,11 +330,14 @@ export const gaMeasurementAnalysisDtoSchema = z.object({
     /**
      * Conversions per counted event name, so sales, bookings and form leads
      * read separately. `origin` says whether the name is configured, a GA4
-     * key event, or both. Ranked like `channels`.
+     * key event, or both. Measured events come first, ranked like
+     * `channels`; `measured: false` is a counted event no lead sync has
+     * fetched yet, listed without `periods` rather than as a zero.
      */
     events: z.array(z.object({
       eventName: z.string(),
       origin: z.enum(['configured', 'key-event', 'both']),
+      measured: z.boolean(),
       periods: z.array(analysisEventPeriodSchema),
     })),
   }),

@@ -42,8 +42,9 @@ through these in order and say which one applies.
    `measurement.leadEventNames` plus the events the GA4 property marks as key
    events. Read `leads.countedEvents` and `leads.events` in
    `cnry ga measurement-analysis <p> --format json` to see which events count
-   and each one's total. If every counted event is zero across every channel,
-   not only AI, or GA4 lists no key events, the instrument is blind: report
+   and each one's total; an event with `measured: false` has not been fetched
+   yet, so it is unknown, not zero. If every counted event is zero across every
+   channel, not only AI, or GA4 lists no key events, the instrument is blind: report
    "conversions are not measured", never "AI drove no conversions". Adding an
    event the property does not mark as a key event is a setting change
    (`cnry project update <p> --add-lead-event <name>`) and needs approval; the
