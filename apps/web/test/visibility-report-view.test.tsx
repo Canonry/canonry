@@ -772,19 +772,21 @@ describe('shared production visibility view', () => {
     population.queries.items[0] = { ...population.queries.items[0]!, answerCount: 3, mentionCoverage: { numerator: 1, denominator: 3, rate: 1 / 3 }, citationCoverage: { numerator: 1, denominator: 2, rate: 0.5, unchecked: 1 } }
     population.competitors = [{ domain: 'rival.example', answerCount: 3, mentionCoverage: { numerator: 2, denominator: 3, rate: 2 / 3 }, citationCoverage: { numerator: 0, denominator: 2, rate: 0, unchecked: 1 } }]
     render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
-    const line = '1 of 3 answers had sources that could not be checked'
+    const flag = '1 unchecked. 1 of 3 answers had sources that could not be checked, so this rate leaves it out.'
 
     fireEvent.click(screen.getByText('Query results', { selector: 'span' }).closest('summary')!)
     const engine = within(screen.getByRole('table', { name: 'Non-brand queries engine results' })).getByRole('button', { name: 'View answers for apartments near transit · gemini' }).closest('tr')!
     const [, mentioned, cited] = [...engine.querySelectorAll('td')]
     expect(mentioned!.textContent).toBe('Mentioned33.3%1 of 3')
-    expect(cited!.textContent).toBe(`Cited50.0%1 of 2${line}`)
+    expect(cited!.textContent).toBe('Cited50.0%1 of 21 unchecked')
+    expect(within(cited!).getByRole('button', { name: flag })).toBeTruthy()
 
     const competitors = screen.getByRole('group', { name: 'Non-brand queries competitors' })
     fireEvent.click(within(competitors).getByText('Competitors', { selector: 'span' }).closest('summary')!)
     const [, competitorMentioned, competitorCited] = [...within(competitors).getByText('rival.example').closest('tr')!.querySelectorAll('td')]
     expect(competitorMentioned!.textContent).toBe('66.7%2 of 3')
-    expect(competitorCited!.textContent).toBe(`0%0 of 2${line}`)
+    expect(competitorCited!.textContent).toBe('0%0 of 21 unchecked')
+    expect(within(competitorCited!).getByRole('button', { name: flag })).toBeTruthy()
   })
 
   it('shows what a partly saved answer cited on its engine row and explains why it is out of Cited', () => {
@@ -809,7 +811,7 @@ describe('shared production visibility view', () => {
     const cited = (provider: string) => [...within(table).getByRole('button', { name: `View answers for apartments near transit · ${provider}` }).closest('tr')!.querySelectorAll('td')][2]!
     expect(cited('gemini').textContent).toBe(`CitedNot measured${UNCHECKED_SOURCES_COPY.partlySaved(1)}Saved links cite Park House`)
     expect(cited('openai').textContent).toBe(`CitedNot measured${UNCHECKED_SOURCES_COPY.partlySaved(1)}No saved link cites Lake House`)
-    expect(cited('claude').textContent).toBe('Cited50.0%1 of 21 of 3 answers had sources that could not be checkedSaved links cite Park House')
+    expect(cited('claude').textContent).toBe('Cited50.0%1 of 21 uncheckedSaved links cite Park House')
     // "Unchecked" is explained in plain words instead of the missing-evidence note.
     for (const provider of ['gemini', 'openai', 'claude']) {
       expect(within(cited(provider)).getByRole('button', { name: UNCHECKED_SOURCES_COPY.help })).toBeTruthy()

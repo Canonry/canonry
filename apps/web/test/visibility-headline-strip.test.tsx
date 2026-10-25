@@ -39,6 +39,8 @@ const CLASS_LABEL = { 'non-brand': 'Non-brand queries', branded: 'Branded querie
 
 const VALUE_CLASS = 'text-3xl font-semibold tabular-nums text-heading'
 const DETAIL_CLASS = 'text-sm tabular-nums text-secondary'
+// The left-out answers flag, pulled back so its icon lines up with the count above.
+const FLAG_CLASS = '-ml-2 flex'
 const REASON_CLASS = 'text-lg text-secondary'
 
 function rate(numerator: number, denominator: number): VisibilityReportRate {
@@ -295,8 +297,9 @@ describe('headline strip', () => {
     expect(cell(MENTION_LABEL, 'branded')).toEqual([
       [`92.5% · ${REPORT_CLASS_NOUN.branded}`, 'report-headline-value'],
       ['1055 of 1140 answers', DETAIL_CLASS],
-      ['12 of 1152 answers could not be tied to one property', DETAIL_CLASS],
+      ['12 unattributed', FLAG_CLASS],
     ])
+    expect(within(tile(MENTION_LABEL, 'branded')).getByRole('button', { name: '12 unattributed. 12 of 1152 answers could not be tied to one property, so this rate leaves them out.' })).toBeTruthy()
     expect(visibleText(tile(MENTION_LABEL, 'branded'))).not.toContain(VISIBILITY_DISPLAY_COPY.ambiguous)
     // Cited is a separate signal with its own denominator and no such line.
     expect(cell(CITATION_LABEL, 'branded')).toEqual(figure(CITATION_LABEL, 'branded'))
@@ -310,8 +313,9 @@ describe('headline strip', () => {
     expect(cell(CITATION_LABEL)).toEqual([
       [`50.0% · ${REPORT_CLASS_NOUN['non-brand']}`, 'report-headline-value'],
       ['1397 of 2794 answers', DETAIL_CLASS],
-      ['2 of 2796 answers had sources that could not be checked', DETAIL_CLASS],
+      ['2 unchecked', FLAG_CLASS],
     ])
+    expect(within(tile(CITATION_LABEL)).getByRole('button', { name: '2 unchecked. 2 of 2796 answers had sources that could not be checked, so this rate leaves them out.' })).toBeTruthy()
     // Mention reads the answer text, so its tile carries no source-check line.
     expect(cell(MENTION_LABEL)).toEqual([
       [`50.0% · ${REPORT_CLASS_NOUN['non-brand']}`, 'report-headline-value'],
@@ -460,7 +464,8 @@ describe('headline strip', () => {
     const breakdown = screen.getByRole('region', { name: 'Scope breakdown' })
     fireEvent.click(within(breakdown).getByRole('button', { name: 'Properties' }))
     const [, , mentioned, cited] = [...within(breakdown).getByRole('button', { name: 'Harbor House' }).closest('tr')!.querySelectorAll('td')]
-    expect(mentioned!.textContent).toBe('75.0%3 of 41 of 5 answers could not be tied to one property')
+    expect(mentioned!.textContent).toBe('75.0%3 of 41 unattributed')
+    expect(within(mentioned!).getByRole('button', { name: '1 unattributed. 1 of 5 answers could not be tied to one property, so this rate leaves it out.' })).toBeTruthy()
     expect(cited!.textContent).toBe('50.0%2 of 4')
   })
 
@@ -472,7 +477,8 @@ describe('headline strip', () => {
     fireEvent.click(within(breakdown).getByRole('button', { name: 'Properties' }))
     const [, , mentioned, cited] = [...within(breakdown).getByRole('button', { name: 'Harbor House' }).closest('tr')!.querySelectorAll('td')]
     expect(mentioned!.textContent).toBe('75.0%3 of 4')
-    expect(cited!.textContent).toBe('66.7%2 of 31 of 4 answers had sources that could not be checked')
+    expect(cited!.textContent).toBe('66.7%2 of 31 unchecked')
+    expect(within(cited!).getByRole('button', { name: '1 unchecked. 1 of 4 answers had sources that could not be checked, so this rate leaves it out.' })).toBeTruthy()
   })
 
   it.each([
@@ -496,7 +502,8 @@ describe('headline strip', () => {
     const history = within(screen.getByRole('table', { name: 'Non-brand queries trend data' })).getAllByRole('row')
     const [, mentionedCell, citedCell] = [...history[2]!.querySelectorAll('td')]
     expect(mentionedCell!.textContent).toBe('50.0%1398 of 2796')
-    expect(citedCell!.textContent).toBe('50.0%1397 of 27942 of 2796 answers had sources that could not be checked')
+    expect(citedCell!.textContent).toBe('50.0%1397 of 27942 unchecked')
+    expect(within(citedCell!).getByRole('button', { name: '2 unchecked. 2 of 2796 answers had sources that could not be checked, so this rate leaves them out.' })).toBeTruthy()
   })
 
   it('orders the strip, trend chart, breakdown, Property outcomes, and query results', () => {

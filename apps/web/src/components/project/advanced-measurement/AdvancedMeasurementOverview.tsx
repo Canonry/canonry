@@ -3,7 +3,7 @@ import { ChevronDown } from 'lucide-react'
 import type { KeyboardEvent, ReactNode } from 'react'
 import { formatPercent, UNATTRIBUTED_MENTION_REASON } from '@canonry/canonry-contracts'
 import type { MetricTone } from '../../../view-models.js'
-import { excludedAnswersLabel, type CoverageSignal } from '../../../lib/format-helpers.js'
+import { excludedAnswersFlag, type CoverageSignal } from '../../../lib/format-helpers.js'
 import { providerDisplayName } from '../../../lib/visibility-trend-helpers.js'
 
 import { InfoTooltip } from '../../shared/InfoTooltip.js'
@@ -326,14 +326,14 @@ function MetricValue({
     ? isMeasured(metric) ? 'text-sm font-medium text-primary' : 'text-sm font-medium text-secondary'
     : isMeasured(metric) ? 'text-lg font-semibold text-heading' : 'text-lg font-semibold text-secondary'
   // Answers the server left out of this rate, named for its own signal only.
-  const excluded = isMeasured(metric) ? excludedAnswersLabel(metric, signal) : null
+  const excluded = isMeasured(metric) ? excludedAnswersFlag(metric, signal) : null
   return (
     <span
       className="inline-flex flex-wrap items-baseline gap-x-1.5 gap-y-1 tabular-nums"
       {...(!isMeasured(metric) ? { title: metricReason(metric) } : {})}
     >
       <span className={valueClassName}>{metricLabel(metric)}</span>
-      {excluded ? <span className="text-xs text-secondary">{excluded}</span> : null}
+      {excluded ? <InfoTooltip tone="caution" placement="bottom" label={excluded.label} text={excluded.text} /> : null}
     </span>
   )
 }

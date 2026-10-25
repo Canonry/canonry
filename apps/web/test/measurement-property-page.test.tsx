@@ -836,24 +836,25 @@ describe('Property page', () => {
       }),
     })
 
-    const line = '9 of 10 answers could not be tied to one property'
+    const flag = '9 unattributed. 9 of 10 answers could not be tied to one property, so this rate leaves them out.'
     const hero = await screen.findByRole('region', { name: 'Coverage for this Property' })
     const nonBrandMention = within(hero).getAllByText('Mentioned')[0]!.closest('.aeo-hero-row')!
     expect(within(nonBrandMention as HTMLElement).getByText('1 of 1')).toBeTruthy()
-    expect(within(nonBrandMention as HTMLElement).getByText(line)).toBeTruthy()
+    expect(within(nonBrandMention as HTMLElement).getByRole('button', { name: flag })).toBeTruthy()
 
     const contrast = screen.getByRole('table', { name: 'Mention and citation coverage for this Property, split by query class' })
     const nonBrand = within(contrast).getByText('When they don\'t').closest('tr')!
     const [, mentioned, cited] = [...nonBrand.querySelectorAll('td')]
-    expect([...mentioned!.querySelectorAll('span span')].map(node => node.textContent)).toEqual(['100%', '1 of 1', line])
-    expect(cited!.textContent).not.toContain('could not be tied')
+    expect(mentioned!.textContent).toBe('100%1 of 19 unattributed')
+    expect(within(mentioned!).getByRole('button', { name: flag })).toBeTruthy()
+    expect(cited!.textContent).not.toContain('unattributed')
     // Every answer ambiguous: the reason is named instead of a bare "Not measured".
     const branded = within(contrast).getByText('When they know your name').closest('tr')!
     expect(within(branded).getByText('No answer could be tied to one property')).toBeTruthy()
 
     const providers = screen.getByRole('table', { name: 'Per-engine mention and citation coverage' })
     const gemini = within(providers).getByText('gemini').closest('tr')!
-    expect(within(gemini).getByText('4 of 5 answers could not be tied to one property')).toBeTruthy()
+    expect(within(gemini).getByRole('button', { name: '4 unattributed. 4 of 5 answers could not be tied to one property, so this rate leaves them out.' })).toBeTruthy()
     const openai = within(providers).getByText('openai').closest('tr')!
     expect(within(openai).getByText('No answer could be tied to one property')).toBeTruthy()
   })
@@ -878,17 +879,19 @@ describe('Property page', () => {
       }),
     })
 
-    const line = '2 of 10 answers had sources that could not be checked'
+    const flag = '2 unchecked. 2 of 10 answers had sources that could not be checked, so this rate leaves them out.'
     const hero = await screen.findByRole('region', { name: 'Coverage for this Property' })
     const nonBrandCited = within(hero).getAllByText('Cited')[0]!.closest('.aeo-hero-row')!
-    expect(nonBrandCited.querySelector('.aeo-hero-row-detail')!.textContent).toBe(`2 of 8${line}`)
+    expect(nonBrandCited.querySelector('.aeo-hero-row-detail')!.textContent).toBe('2 of 82 unchecked')
+    expect(within(nonBrandCited as HTMLElement).getByRole('button', { name: flag })).toBeTruthy()
     const nonBrandMentioned = within(hero).getAllByText('Mentioned')[0]!.closest('.aeo-hero-row')!
     expect(nonBrandMentioned.querySelector('.aeo-hero-row-detail')!.textContent).toBe('5 of 10')
 
     const contrast = screen.getByRole('table', { name: 'Mention and citation coverage for this Property, split by query class' })
     const nonBrand = within(contrast).getByText('When they don\'t').closest('tr')!
     const [, mentioned, cited] = [...nonBrand.querySelectorAll('td')]
-    expect([...cited!.querySelectorAll('span span')].map(node => node.textContent)).toEqual(['25.0%', '2 of 8', line])
+    expect(cited!.textContent).toBe('25.0%2 of 82 unchecked')
+    expect(within(cited!).getByRole('button', { name: flag })).toBeTruthy()
     expect([...mentioned!.querySelectorAll('span span')].map(node => node.textContent)).toEqual(['50.0%', '5 of 10'])
     // Every branded answer unchecked: unavailable, with its reason and no count line.
     const branded = within(contrast).getByText('When they know your name').closest('tr')!
@@ -896,7 +899,8 @@ describe('Property page', () => {
 
     const providers = screen.getByRole('table', { name: 'Per-engine mention and citation coverage' })
     const gemini = within(providers).getByText('gemini').closest('tr')!
-    expect(gemini.querySelectorAll('td')[2]!.textContent).toBe('33.3%1 of 32 of 5 answers had sources that could not be checked')
+    expect(gemini.querySelectorAll('td')[2]!.textContent).toBe('33.3%1 of 32 unchecked')
+    expect(within(gemini.querySelectorAll('td')[2]!).getByRole('button', { name: '2 unchecked. 2 of 5 answers had sources that could not be checked, so this rate leaves them out.' })).toBeTruthy()
     expect(gemini.querySelectorAll('td')[1]!.textContent).toBe('40.0%2 of 5')
     const openai = within(providers).getByText('openai').closest('tr')!
     expect(openai.querySelectorAll('td')[2]!.textContent).toBe('20.0%1 of 5')

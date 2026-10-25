@@ -408,11 +408,13 @@ describe('property row detail', () => {
     render(<AdvancedMeasurementOverview report={report} canEdit onViewChange={vi.fn()} onLoadMore={vi.fn()} onPropertyExpand={vi.fn()} />)
     const row = screen.getByRole('button', { name: 'Show details for Property 1' }).closest('tr')!
     const [, mention, citation] = [...row.querySelectorAll('td')]
-    expect(mention!.textContent).toBe('1 of 1 (100%)9 of 10 answers could not be tied to one property')
+    expect(mention!.textContent).toBe('1 of 1 (100%)9 unattributed')
+    expect(within(mention!).getByRole('button', { name: '9 unattributed. 9 of 10 answers could not be tied to one property, so this rate leaves them out.' })).toBeTruthy()
     expect(citation!.textContent).toBe('0 of 10 (0%)')
     fireEvent.click(row)
     const openai = screen.getByText('OpenAI').closest('tr')!
-    expect(openai.querySelectorAll('td')[1]!.textContent).toBe('1 of 1 (100%)4 of 5 answers could not be tied to one property')
+    expect(openai.querySelectorAll('td')[1]!.textContent).toBe('1 of 1 (100%)4 unattributed')
+    expect(within(openai.querySelectorAll('td')[1]!).getByRole('button', { name: '4 unattributed. 4 of 5 answers could not be tied to one property, so this rate leaves them out.' })).toBeTruthy()
     const gemini = screen.getByText('Gemini').closest('tr')!
     expect(gemini.querySelectorAll('td')[1]!.querySelector('[title]')!.getAttribute('title')).toBe('No answer could be tied to one property.')
     const ambiguousRow = screen.getByRole('button', { name: 'Show details for Property 2' }).closest('tr')!
@@ -448,7 +450,8 @@ describe('property row detail', () => {
     const row = screen.getByRole('button', { name: 'Show details for Property 1' }).closest('tr')!
     const [, mention, citation] = [...row.querySelectorAll('td')]
     expect(mention!.textContent).toBe('1 of 2 (50.0%)')
-    expect(citation!.textContent).toBe('1 of 1 (100%)1 of 2 answers had sources that could not be checked')
+    expect(citation!.textContent).toBe('1 of 1 (100%)1 unchecked')
+    expect(within(citation!).getByRole('button', { name: '1 unchecked. 1 of 2 answers had sources that could not be checked, so this rate leaves it out.' })).toBeTruthy()
     fireEvent.click(row)
     const openai = screen.getByText('OpenAI').closest('tr')!
     expect(openai.querySelectorAll('td')[2]!.textContent).toBe('1 of 1 (100%)')
