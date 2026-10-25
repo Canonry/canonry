@@ -994,6 +994,7 @@ cnry traffic status <project> --format json
 cnry traffic analytics <project> --period 30 --format json    # complete 7|14|30|90-day totals, prior-period changes and breakdowns
 cnry traffic events <project> --source <source-id> --format json
 cnry traffic referral-assessment <project> --start-date 2026-08-01 --end-date 2026-08-31 --burst-threshold 100 --ratio-threshold 3 --limit 100 --format json
+cnry traffic declare-gap <project> --source <source-id>   # record an unrecovered skip as lost (WordPress, or past provider retention); clears the doctor check
 
 cnry doctor --project <project> --check 'traffic.source.*' --format json
 cnry schedule show <project> --kind traffic-sync --format json

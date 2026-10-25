@@ -496,6 +496,20 @@ export const trafficResetRequestSchema = z.object({
 export type TrafficResetRequest = z.infer<typeof trafficResetRequestSchema>
 
 /**
+ * `POST /projects/:name/traffic/sources/:id/declare-gap` — record a source's
+ * unrecovered skip as data that cannot be recovered, and clear it.
+ *
+ * `skippedThroughAt` must repeat the source's current marker exactly, so a
+ * newer skip recorded after the operator looked is never cleared by accident.
+ * Meant for WordPress, whose plugin feed cannot prove a historical repair, and
+ * for any source whose provider no longer retains the skipped span.
+ */
+export const trafficDeclareGapRequestSchema = z.object({
+  skippedThroughAt: z.string().min(1),
+})
+export type TrafficDeclareGapRequest = z.infer<typeof trafficDeclareGapRequestSchema>
+
+/**
  * Async backfill response — returned as soon as the run row is created and the
  * background pull starts. Poll `GET /runs/:runId` for completion. Concrete
  * counts are not in this response; once the run is `completed`, query

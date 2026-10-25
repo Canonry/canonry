@@ -36,7 +36,8 @@ it('stores scheduled host refreshes and manual CLI syncs, including after a refu
   const config: CanonryConfig = { apiUrl: `http://127.0.0.1:${address.port}`, database, apiKey, providers: {}, google: { connections: [connection] } }
   fs.writeFileSync(path.join(tmp, 'config.yaml'), JSON.stringify(config))
   vi.stubEnv('CANONRY_CONFIG_DIR', tmp); vi.stubEnv('DO_NOT_TRACK', '1'); vi.stubEnv('CANONRY_DISABLE_UPDATE_CHECK', '1'); vi.stubEnv('CANONRY_AGENT_DISABLED', '1')
-  const app = await createServer({ config, db, logger: false })
+  // Fired by hand below, so the run must follow at once rather than at its spread offset.
+  const app = await createServer({ config, db, logger: false, scheduleSpreadMs: 0 })
   let scheduledResponses = 0
   app.addHook('onResponse', async request => { if (request.method === 'POST' && request.headers['x-canonry-surface'] === 'system') scheduledResponses++ })
   try {

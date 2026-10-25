@@ -876,3 +876,20 @@ test('a pass an older release graded as unknown is not announced again', async (
   expect(await notifier.onHealthChecked(projectId, { checks: [ungraded], ...at('2026-09-01T12:00:00.000Z') })).toBeNull()
   expect(sent).toHaveLength(0)
 })
+
+test('each failing check carries its own plain wording into the alert payload', async () => {
+  const { notifier, projectId } = harness()
+  const sent: HealthWebhookPayload[] = []
+  vi.spyOn(notifier as never, 'sendWebhook').mockImplementation(async (...args: unknown[]) => { sent.push(args[1] as HealthWebhookPayload); return true })
+  const alert = { label: "Can't reach Google", line: "The server couldn't reach Google, so Search Console data didn't refresh.", next: null }
+
+  await notifier.onHealthChecked(projectId, {
+    checks: [
+      { ...check('google.auth.connection', 'fail', 'google.auth.refresh-unreachable', 'Could not reach Google'), alert },
+      check('traffic.source.sync-lag', 'warn', 'traffic.sync-lag.discarding'),
+    ],
+    ...at('2026-10-24T18:00:00.000Z'),
+  })
+
+  expect(sent[0]!.health.failing.map(entry => entry.alert ?? null)).toEqual([alert, null])
+})

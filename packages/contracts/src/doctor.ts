@@ -55,6 +55,19 @@ export function gradedReportMonths(months: readonly string[], now: Date = new Da
   return new Set(months.length > 1 ? months.filter(month => month !== current) : months)
 }
 
+/**
+ * Plain words for an alert about one check result, written by the check that
+ * knows the facts: a few-word name for the problem, what happened in one line,
+ * and the next step (null when there is nothing to do yet). Alerts show these
+ * instead of the summary and remediation, which stay the full explanation.
+ */
+export const healthAlertCopySchema = z.object({
+  label: z.string().describe('The problem in a few words, e.g. "Can\'t reach Google".'),
+  line: z.string().describe('What happened, in one plain sentence.'),
+  next: z.string().nullable().describe('What to do, in one plain sentence; null when nothing needs doing yet.'),
+})
+export type HealthAlertCopy = z.infer<typeof healthAlertCopySchema>
+
 export const checkResultSchema = z.object({
   id: z.string(),
   category: checkCategorySchema,
@@ -67,6 +80,7 @@ export const checkResultSchema = z.object({
   summary: z.string(),
   remediation: z.string().nullable().optional().describe('Operator-facing next step. Null when status is "ok" or no specific remediation applies.'),
   details: z.record(z.string(), z.unknown()).optional().describe('Structured context — principal email, redirect URI, missing scopes, etc. Stable per check id.'),
+  alert: healthAlertCopySchema.optional().describe('Plain words a health alert shows for this result. Absent when the check has none; alerts then fall back to the summary.'),
   durationMs: z.number().int().nonnegative().describe('How long the check took to execute.'),
 })
 export type CheckResultDto = z.infer<typeof checkResultSchema>

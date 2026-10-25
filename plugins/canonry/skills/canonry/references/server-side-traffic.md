@@ -232,9 +232,12 @@ bounded-window-capable Canonry traffic logger before syncing again.
 Do not run generic replace-mode backfill for a WordPress source. The plugin
 prunes retained events and cannot prove that it covers every bucket a replace
 transaction would delete, even when no continuation is pending. Canonry
-rejects that generic path universally. Keep existing rollups intact, use a
-retention-aware repair, and explicitly declare any unrecoverable portion before
-reporting a historical trend.
+rejects that generic path universally. Keep existing rollups intact. Once a
+skipped span cannot be recovered, record it with
+`cnry traffic declare-gap <project> --source <id>`: the span goes into the audit
+log, the unrecovered marker clears, and the `traffic.sync-lag.unrecovered-skip`
+doctor check stops failing. Mention the gap before reporting a historical trend
+across it.
 
 After upgrading from the former unbounded WordPress sync, a source with an old
 continuation cursor is intentionally rejected rather than guessed at. Keep its

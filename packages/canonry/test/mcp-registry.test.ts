@@ -170,6 +170,7 @@ const expectedToolNames = [
   'canonry_traffic_sync',
   'canonry_traffic_backfill',
   'canonry_traffic_reset',
+  'canonry_traffic_declare_gap',
   'canonry_snapshot',
   'canonry_project_upsert',
   'canonry_project_update',
@@ -857,7 +858,7 @@ describe('MCP tool registry', () => {
     expect(counts.get('google-ads')).toBe(6)
     expect(counts.get('gtm')).toBe(7)
     expect(counts.get('conversion-tracking')).toBe(3)
-    expect(counts.get('traffic')).toBe(16)
+    expect(counts.get('traffic')).toBe(17)
     expect(counts.get('agent')).toBe(10)
     expect(counts.get('discovery')).toBe(11)
   })

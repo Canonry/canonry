@@ -100,6 +100,11 @@ async function resolveGbpToken(
         code: 'gbp.auth.no-connection',
         summary: `No Google Business Profile connection for ${ctx.project.canonicalDomain}, but ${ctx.project.name} still has selected locations.`,
         remediation: `Run \`canonry gbp connect ${ctx.project.name}\` to authorize.`,
+        alert: {
+          label: 'Business Profile not connected',
+          line: `Business Profile isn't connected for ${ctx.project.canonicalDomain}, but locations are still selected.`,
+          next: `Connect it with \`cnry gbp connect ${ctx.project.name}\`, or deselect its locations.`,
+        },
       },
     }
   }
@@ -130,6 +135,11 @@ async function resolveGbpToken(
           summary: `Could not reach Google to refresh the GBP token: ${error}`,
           remediation: 'Check that this host can resolve and connect to Google (DNS filtering, firewall, or proxy), then re-run. The stored grant was not tested.',
           details: { domain: conn.domain, error },
+          alert: {
+            label: "Can't reach Google",
+            line: "The server couldn't reach Google, so Business Profile data didn't refresh.",
+            next: "Nothing yet. If it repeats, check the server's internet or DNS.",
+          },
         },
       }
     }

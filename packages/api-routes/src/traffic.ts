@@ -48,6 +48,7 @@ import {
   trafficConnectWordpressRequestSchema,
   trafficConnectVercelRequestSchema,
   trafficResetRequestSchema,
+  trafficDeclareGapRequestSchema,
   classifyTrafficPath,
   linearTrend,
   TrafficPathClasses,
@@ -4596,6 +4597,65 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
     })
     return buildSourceDetail(project.id, updatedRow, new Date(Date.now() - 24 * 60 * 60_000).toISOString())
   }))
+
+  // POST /projects/:name/traffic/sources/:id/declare-gap
+  //
+  // Records the source's unrecovered skip as lost for good and clears the
+  // marker, so `traffic.sync-lag.unrecovered-skip` stops failing. WordPress
+  // needs this because its plugin feed cannot prove a historical repair, and
+  // any source can need it once its provider no longer retains the span. The
+  // rollups are untouched; the audit entry keeps the span on record.
+  app.post<{
+    Params: { name: string; id: string }
+    Body: unknown
+  }>('/projects/:name/traffic/sources/:id/declare-gap', async (request) => {
+    const project = resolveProject(app.db, request.params.name)
+    const parsed = trafficDeclareGapRequestSchema.safeParse(request.body ?? {})
+    if (!parsed.success) {
+      throw validationError('`skippedThroughAt` must repeat the source\'s recorded skip.')
+    }
+
+    let updatedRow!: typeof trafficSources.$inferSelect
+    app.db.transaction((tx) => {
+      const sourceRow = tx
+        .select()
+        .from(trafficSources)
+        .where(and(eq(trafficSources.projectId, project.id), eq(trafficSources.id, request.params.id)))
+        .get()
+      if (!sourceRow) {
+        throw notFound('traffic source', request.params.id)
+      }
+      if (!sourceRow.skippedThroughAt) {
+        throw validationError(`Traffic source "${sourceRow.id}" has no unrecovered gap to declare.`)
+      }
+      // The marker moves forward when a later skip happens. Declaring the one
+      // the operator saw must not clear a newer one they have not seen.
+      if (sourceRow.skippedThroughAt !== parsed.data.skippedThroughAt) {
+        throw validationError(
+          `Traffic source "${sourceRow.id}" now records a gap through ${sourceRow.skippedThroughAt}, not ${parsed.data.skippedThroughAt}. Look at it again before declaring it.`,
+        )
+      }
+      const now = new Date().toISOString()
+      tx.update(trafficSources)
+        .set({ skippedThroughAt: null, updatedAt: now })
+        .where(eq(trafficSources.id, sourceRow.id))
+        .run()
+      writeAuditLog(tx, auditFromRequest(request, {
+        projectId: project.id,
+        actor: 'api',
+        action: 'traffic.source.gap-declared',
+        entityType: 'traffic_source',
+        entityId: sourceRow.id,
+        diff: { skippedThroughAt: sourceRow.skippedThroughAt, sourceType: sourceRow.sourceType },
+      }))
+      updatedRow = tx
+        .select()
+        .from(trafficSources)
+        .where(eq(trafficSources.id, sourceRow.id))
+        .get()!
+    })
+    return buildSourceDetail(project.id, updatedRow, new Date(Date.now() - 24 * 60 * 60_000).toISOString())
+  })
 
   // GET /projects/:name/traffic/sources
   app.get<{ Params: { name: string } }>('/projects/:name/traffic/sources', async (request) => {

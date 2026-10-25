@@ -71,6 +71,7 @@ export async function runChecks(
       summary: output.summary,
       remediation: output.remediation ?? null,
       details: output.details,
+      ...(output.alert ? { alert: output.alert } : {}),
       durationMs: Date.now() - checkStarted,
     })
   }
@@ -118,8 +119,10 @@ function supersede(definition: CheckDefinition, result: CheckResultDto, failedCa
   if (threw(definition, result)) return result
   const causes = (definition.supersededBy ?? []).filter(id => failedCauses.has(id))
   if (causes.length === 0) return result
+  // The cause's alert wording speaks for it; the symptom's would contradict it.
+  const { alert: _symptomAlert, ...symptom } = result
   return {
-    ...result,
+    ...symptom,
     status: CheckStatuses.skipped,
     code: `${definition.id}.superseded`,
     summary: `Superseded by failing ${causes.join(', ')}, which names the cause. ${result.summary}`,

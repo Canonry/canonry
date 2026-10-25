@@ -310,6 +310,25 @@ export const TRAFFIC_CLI_COMMANDS: readonly CliCommandSpec[] = [
     },
   },
   {
+    path: ['traffic', 'declare-gap'],
+    usage: 'canonry traffic declare-gap <project> --source <id> [--format json]',
+    options: {
+      source: stringOption(),
+    },
+    run: async (input) => {
+      const { trafficDeclareGap } = await import('../commands/traffic.js')
+      const project = requireProject(
+        input,
+        'traffic.declare-gap',
+        'canonry traffic declare-gap <project> --source <id>',
+      )
+      const source = getString(input.values, 'source')
+      if (!source) throw new Error('--source <id> is required')
+
+      await trafficDeclareGap(project, { source, format: input.format })
+    },
+  },
+  {
     path: ['traffic', 'sources'],
     usage: 'canonry traffic sources <project> [--format json]',
     run: async (input) => {

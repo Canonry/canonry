@@ -1,5 +1,6 @@
 import { googleBusinessReviewUrl } from '@canonry/canonry-contracts'
 import { z } from 'zod'
+import { HEALTH_FIXED_LINES, firstSentence, plainHealthCopy } from './health-copy.js'
 import type {
   HealthWebhookPayload,
   InsightWebhookPayload,
@@ -28,13 +29,10 @@ export const AlertSeverities = alertSeveritySchema.enum
 
 /** Labels are declared once so no renderer invents its own wording. */
 export const AlertFieldLabels = {
-  status: 'Status',
-  check: 'Check',
-  previously: 'Was',
   remediation: 'What to do',
-  newlyFailing: 'New',
-  cleared: 'Cleared',
-  alsoFailing: 'Also failing',
+  next: 'Next',
+  alsoOpen: 'Also open',
+  fixed: 'Fixed',
   event: 'Event',
   run: 'Run',
   changes: 'Changes',
@@ -54,8 +52,17 @@ export interface AlertField {
   compact?: boolean
 }
 
+/**
+ * Every engine alert names where it came from. The same channel also carries
+ * server and Brain alerts, and the category is what tells them apart at a
+ * glance.
+ */
+export const CANONRY_ALERT_CATEGORY = '📈 Canonry'
+
 export interface AlertView {
   severity: AlertSeverity
+  /** Which part of the system is speaking, shown above the title. */
+  category?: string
   title: string
   /** Longer prose body. Renderers clamp to their own limits. */
   body?: string
@@ -93,82 +100,112 @@ function bulletList(lines: readonly string[]): string {
   return omitted > 0 ? `${body}\n• …and ${omitted} more` : body
 }
 
+/** How many other problems an alert names before it just counts the rest. */
+const MAX_ALSO_OPEN = 3
+
+/**
+ * What cleared, in plain words. A cleared problem is known only by its code, so
+ * the ones with a plain line are named and the rest are counted, never shown
+ * as codes.
+ */
+function fixedLines(cleared: readonly string[]): string[] {
+  const named = [...new Set(cleared.map(code => HEALTH_FIXED_LINES[code]).filter((line): line is string => line !== undefined))]
+  const unnamed = cleared.filter(code => HEALTH_FIXED_LINES[code] === undefined).length
+  return [...named, ...(unnamed > 0 ? [`${unnamed} other problem${unnamed === 1 ? '' : 's'} fixed.`] : [])]
+}
+
+/** Labels for a list, each once with a count when repeated, capped with the rest counted. */
+function labelList(labels: readonly string[]): string {
+  const counts = new Map<string, number>()
+  for (const label of labels) counts.set(label, (counts.get(label) ?? 0) + 1)
+  const entries = [...counts].map(([label, count]) => (count > 1 ? `${label} (${count})` : label))
+  const shown = entries.slice(0, MAX_ALSO_OPEN)
+  const more = entries.length - shown.length
+  return [...shown.map(entry => `• ${entry}`), ...(more > 0 ? [`• and ${more} more`] : [])].join('\n')
+}
+
 function healthView(payload: HealthWebhookPayload): AlertView {
   const { health, project } = payload
   const urgentEvent = payload.event === 'health.urgent' || payload.event === 'health.urgent-resolved'
   const recovered = payload.event === 'health.recovered' || payload.event === 'health.urgent-resolved'
-  // An urgent alert is critical whatever its check's status: stale daily data
-  // is graded `warn`, and it is still the alert someone has to act on.
-  const severity: AlertSeverity = recovered
-    ? AlertSeverities.success
-    : urgentEvent || health.status === 'fail'
-      ? AlertSeverities.critical
-      : AlertSeverities.warning
-
-  const fields: AlertField[] = [
-    {
-      label: AlertFieldLabels.status,
-      value: recovered ? (urgentEvent ? 'resolved' : 'recovered') : urgentEvent ? 'urgent' : health.status,
-      compact: true,
-    },
-    { label: AlertFieldLabels.check, value: health.code, compact: true },
-  ]
-  if (health.previousStatus) {
-    fields.push({ label: AlertFieldLabels.previously, value: health.previousStatus, compact: true })
-  }
-  if (health.remediation) {
-    fields.push({ label: AlertFieldLabels.remediation, value: health.remediation })
-  }
-  // What changed leads the lists, so a reader can tell the new breach from the
-  // standing ones the last alert already reported.
-  const added = health.added ?? []
-  if (added.length > 0) {
-    // `failing` is worst first, so a code two checks report keeps its worse status.
-    const statusOf = new Map<string, string>()
-    for (const check of health.failing) if (!statusOf.has(check.code)) statusOf.set(check.code, check.status)
-    fields.push({
-      label: `${AlertFieldLabels.newlyFailing} (${added.length})`,
-      value: bulletList(added.map(code => `${statusOf.get(code) ?? health.status}: ${code}`)),
-    })
-  }
-  const cleared = health.cleared ?? []
-  if (cleared.length > 0) {
-    fields.push({
-      label: `${AlertFieldLabels.cleared} (${cleared.length})`,
-      value: bulletList(cleared),
-    })
-  }
-  // The headline names one check. Without the rest, the ranking decision
-  // silently becomes a filtering decision. Checks already listed as new are
-  // left out, so this is the standing set and nothing is listed twice.
-  const newlyFailing = new Set(added)
-  const others = health.failing.filter(check => check.code !== health.code && !newlyFailing.has(check.code))
-  if (others.length > 0) {
-    fields.push({
-      label: `${AlertFieldLabels.alsoFailing} (${others.length})`,
-      value: bulletList(others.map(check => `${check.status} — ${check.code}`)),
-    })
-  }
-
   // A website outage and a degraded measurement are different news, and the
-  // liveness loop sends both through this payload. Titling a site-down alert
-  // "measurement degraded", or its recovery as the whole project recovering,
-  // is the one thing the separate liveness state exists to prevent.
+  // liveness loop sends both through this payload, so it keeps its own words.
   const website = health.code.startsWith('site.reachability.')
-  return {
-    severity,
-    title: website
-      ? (recovered ? `${project.name} website is back up` : `${project.name} website is down`)
-      : urgentEvent
-        ? (recovered ? `${project.name}: urgent problem resolved` : `${project.name}: urgent problem`)
-        : recovered
-          ? `${project.name} recovered`
-          : `${project.name} — measurement degraded`,
-    body: health.summary,
-    fields,
+  const base = {
+    category: CANONRY_ALERT_CATEGORY,
     url: payload.dashboardUrl,
     footer: project.canonicalDomain,
     timestamp: health.checkedAt,
+  }
+
+  if (recovered) {
+    const fixed = fixedLines(health.cleared ?? [])
+    if (website) {
+      return { ...base, severity: AlertSeverities.success, title: `${project.name}: Website is back up`, body: 'The website answers again.', fields: [] }
+    }
+    if (urgentEvent) {
+      // Only the urgent problems resolved; others may still be open, so this
+      // is never titled as the whole project being back to normal.
+      return {
+        ...base,
+        severity: AlertSeverities.success,
+        title: `${project.name}: Urgent problem fixed`,
+        body: firstSentence(health.summary) ?? 'The urgent problem is resolved.',
+        fields: fixed.length > 0 ? [{ label: AlertFieldLabels.fixed, value: fixed.map(line => `• ${line}`).join('\n') }] : [],
+      }
+    }
+    return {
+      ...base,
+      severity: AlertSeverities.success,
+      title: `${project.name}: Back to normal`,
+      body: fixed.length > 0 ? fixed.join(' ') : 'Every check passes again.',
+      fields: [],
+    }
+  }
+
+  // Lead with the news: the first problem that is new or worse. Everything
+  // else stays listed, the other new problems first and marked as new.
+  const failing = health.failing
+  const added = health.added ?? []
+  const newest = added.map(code => failing.find(check => check.code === code)).find(check => check !== undefined)
+  const lead = newest ?? failing.find(check => check.code === health.code) ?? failing.at(0)
+  // The headline check's summary and remediation travel on the payload itself.
+  const copy = lead
+    ? (lead.code === health.code
+        ? plainHealthCopy({ ...lead, summary: health.summary }, health.remediation)
+        : plainHealthCopy(lead, null))
+    : plainHealthCopy({ id: '', status: health.status, code: health.code, summary: health.summary }, health.remediation)
+  const leadStatus = lead?.status ?? health.status
+  // An urgent alert is critical whatever its check's status: stale daily data
+  // is graded `warn`, and it is still the alert someone has to act on.
+  const severity: AlertSeverity = urgentEvent || leadStatus === 'fail'
+    ? AlertSeverities.critical
+    : AlertSeverities.warning
+
+  const fields: AlertField[] = []
+  if (copy.next) fields.push({ label: AlertFieldLabels.next, value: copy.next })
+  const others = failing.filter(check => check !== lead)
+  const otherNew = others.filter(check => added.includes(check.code))
+  const standing = others.filter(check => !added.includes(check.code))
+  if (others.length > 0) {
+    fields.push({
+      label: AlertFieldLabels.alsoOpen,
+      value: labelList([
+        ...otherNew.map(check => `${plainHealthCopy(check, null).label} (new)`),
+        ...standing.map(check => plainHealthCopy(check, null).label),
+      ]),
+    })
+  }
+  const fixed = fixedLines(health.cleared ?? [])
+  if (fixed.length > 0) fields.push({ label: AlertFieldLabels.fixed, value: fixed.map(line => `• ${line}`).join('\n') })
+
+  const label = website ? 'Website down' : copy.label
+  return {
+    ...base,
+    severity,
+    title: `${project.name}: ${label}${urgentEvent ? ' (urgent)' : ''}`,
+    body: copy.line,
+    fields,
   }
 }
 
@@ -196,6 +233,7 @@ function runView(payload: WebhookPayload | InsightWebhookPayload): AlertView {
 
   return {
     severity: failed ? AlertSeverities.critical : AlertSeverities.info,
+    category: CANONRY_ALERT_CATEGORY,
     title: payload.project.name,
     fields,
     url: payload.dashboardUrl,
@@ -242,6 +280,7 @@ function reviewView(payload: ReviewWebhookPayload): AlertView {
     fields.push(sourceField)
     return {
       severity: AlertSeverities.warning,
+      category: CANONRY_ALERT_CATEGORY,
       title: `${project.name}: new ${review.starRating}-star review`,
       body: review.comment
         ? (review.comment.length > 500 ? `${review.comment.slice(0, 499)}…` : review.comment)
@@ -255,6 +294,7 @@ function reviewView(payload: ReviewWebhookPayload): AlertView {
 
   return {
     severity: AlertSeverities.warning,
+    category: CANONRY_ALERT_CATEGORY,
     title: `${project.name}: ${reviews.length} new negative reviews`,
     body: bulletList(reviews.map(r => {
       const text = r.comment ? ` "${snippet(r.comment)}"` : ''
@@ -279,6 +319,7 @@ function ratingView(payload: RatingWebhookPayload): AlertView {
   const single = ratings.length === 1 ? ratings[0]! : null
   return {
     severity: AlertSeverities.warning,
+    category: CANONRY_ALERT_CATEGORY,
     title: single
       ? `${project.name}: Google rating fell to ${single.rating}`
       : `${project.name}: Google rating fell at ${ratings.length} locations`,

@@ -6292,3 +6292,66 @@ describe('AI visitor journeys from pulled traffic', () => {
     }
   })
 })
+
+describe('declaring an unrecoverable traffic gap', () => {
+  const SKIPPED = '2026-08-20T20:39:49.403Z'
+
+  function seedGap(h: Awaited<ReturnType<typeof buildHarness>>, skippedThroughAt: string | null = SKIPPED): string {
+    const projectRow = h.db.select().from(projects).all()[0]!
+    const now = new Date().toISOString()
+    h.db.insert(trafficSources).values({
+      id: 'src_wp_gap',
+      projectId: projectRow.id,
+      sourceType: TrafficSourceTypes.wordpress,
+      displayName: 'WordPress · site.example',
+      status: TrafficSourceStatuses.connected,
+      configJson: { baseUrl: 'https://site.example' },
+      skippedThroughAt,
+      createdAt: now,
+      updatedAt: now,
+    }).run()
+    return 'src_wp_gap'
+  }
+
+  const declare = (h: Awaited<ReturnType<typeof buildHarness>>, payload: unknown) => h.app.inject({
+    method: 'POST',
+    url: '/api/v1/projects/test-project/traffic/sources/src_wp_gap/declare-gap',
+    payload: payload as Record<string, unknown>,
+  })
+
+  it('clears the marker it was shown and keeps the span in the audit log', async () => {
+    const h = await buildHarness([])
+    try {
+      seedGap(h)
+      const response = await declare(h, { skippedThroughAt: SKIPPED })
+      expect(response.statusCode).toBe(200)
+      expect(JSON.parse(response.payload).skippedThroughAt).toBeNull()
+      expect(h.db.select().from(trafficSources).get()!.skippedThroughAt).toBeNull()
+      const audit = h.db.select().from(auditLog).where(eq(auditLog.action, 'traffic.source.gap-declared')).all()
+      expect(audit).toHaveLength(1)
+      expect(JSON.parse(audit[0]!.diff!)).toEqual({ skippedThroughAt: SKIPPED, sourceType: 'wordpress' })
+    } finally {
+      await h.close()
+    }
+  })
+
+  it('refuses a marker that has moved on, or a source with no gap, and changes nothing', async () => {
+    const h = await buildHarness([])
+    try {
+      seedGap(h)
+      const stale = await declare(h, { skippedThroughAt: '2026-08-01T00:00:00.000Z' })
+      expect(stale.statusCode).toBe(400)
+      expect(JSON.parse(stale.payload).error.message).toContain(`now records a gap through ${SKIPPED}`)
+      expect((await declare(h, {})).statusCode).toBe(400)
+      expect(h.db.select().from(trafficSources).get()!.skippedThroughAt).toBe(SKIPPED)
+
+      h.db.update(trafficSources).set({ skippedThroughAt: null }).run()
+      const none = await declare(h, { skippedThroughAt: SKIPPED })
+      expect(none.statusCode).toBe(400)
+      expect(JSON.parse(none.payload).error.message).toContain('has no unrecovered gap')
+      expect(h.db.select().from(auditLog).where(eq(auditLog.action, 'traffic.source.gap-declared')).all()).toEqual([])
+    } finally {
+      await h.close()
+    }
+  })
+})

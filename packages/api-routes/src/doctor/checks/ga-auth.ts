@@ -31,6 +31,11 @@ function unreachable(
     summary: `Could not reach Google to ${step.action}: ${error}`,
     remediation: 'Check that this host can resolve and connect to Google (DNS filtering, firewall, or proxy), then re-run. The credential was not tested.',
     details: { ...details, error },
+    alert: {
+      label: "Can't reach Google",
+      line: "The server couldn't reach Google, so GA4 data didn't refresh.",
+      next: "Nothing yet. If it repeats, check the server's internet or DNS.",
+    },
   }
 }
 

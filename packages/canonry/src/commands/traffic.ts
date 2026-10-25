@@ -785,6 +785,46 @@ export async function trafficSync(project: string, opts: {
  *
  * `--advance-to-now` must be passed — no implicit reset.
  */
+/**
+ * Record a source's unrecovered skip as lost for good and clear it. Reads the
+ * marker first and sends it back, so the server refuses if a newer skip was
+ * recorded in between. For WordPress, this is the only way to clear one.
+ */
+export async function trafficDeclareGap(project: string, opts: {
+  source: string
+  format?: string
+}): Promise<void> {
+  const client = getClient()
+  const { sources } = await client.trafficListSources(project)
+  const source = sources.find(entry => entry.id === opts.source)
+  if (!source) {
+    throw new CliError({
+      code: 'TRAFFIC_SOURCE_NOT_FOUND',
+      message: `traffic source ${opts.source} not found`,
+      displayMessage: `Error: no traffic source "${opts.source}" on "${project}" (run \`canonry traffic sources ${project}\` to list them)`,
+      details: { project, source: opts.source },
+    })
+  }
+  if (!source.skippedThroughAt) {
+    throw new CliError({
+      code: 'TRAFFIC_NO_GAP',
+      message: `traffic source ${opts.source} has no unrecovered gap`,
+      displayMessage: `Error: "${source.displayName}" has no unrecovered gap to declare.`,
+      details: { project, source: opts.source },
+    })
+  }
+
+  const updated = await client.trafficDeclareGap(project, opts.source, source.skippedThroughAt)
+
+  if (isMachineFormat(opts.format)) {
+    console.log(JSON.stringify(updated, null, 2))
+    return
+  }
+
+  console.log(`Recorded the gap through ${source.skippedThroughAt} on "${source.displayName}" as lost for good.`)
+  console.log('The traffic gap warning clears at the next health check. Existing traffic data is unchanged.')
+}
+
 export async function trafficReset(project: string, opts: {
   source: string
   advanceToNow?: boolean

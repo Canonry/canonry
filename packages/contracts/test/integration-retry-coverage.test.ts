@@ -32,7 +32,6 @@ const KNOWN_WITHOUT_RETRY = new Set([
   // Each of these predates the rule. They are exposed to exactly the failure
   // mode that motivated it, and are worth fixing in their own PRs.
   'integration-cloud-run',
-  'integration-google', // Google Search Console — same dashboard refresh as Bing
   'integration-openai-ads',
   'integration-vercel',
   'integration-wordpress',

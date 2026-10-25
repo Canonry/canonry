@@ -40,6 +40,23 @@ const slotFailed = (reasonCode: OutcomeReasonCode): SlotOutcome => ({ status: Ou
 /** Default cadence for the health schedule seeded for each project. */
 export const DEFAULT_HEALTH_CRON = '0 */6 * * *'
 
+/**
+ * Background work starts up to this long after its cron minute, at a fixed
+ * offset per project and kind. Every project's hourly syncs and the 6-hourly
+ * health pass used to start in the same second; that burst of DNS lookups and
+ * token refreshes is what failed one of them now and then.
+ */
+export const SCHEDULE_SPREAD_MS = 120_000
+
+/** Sweeps keep their exact minute: someone picked it. Everything else spreads. */
+const UNSPREAD_KINDS: ReadonlySet<SchedulableRunKind> = new Set([SchedulableRunKinds['answer-visibility']])
+
+/** A stable offset in [0, spreadMs) for one project's scheduled kind: the same every hour. */
+export function scheduleSpreadMs(projectId: string, kind: string, spreadMs = SCHEDULE_SPREAD_MS): number {
+  if (spreadMs <= 0) return 0
+  return crypto.createHash('sha256').update(`${projectId}:${kind}`).digest().readUInt32BE(0) % spreadMs
+}
+
 
 /**
  * Ensure one default doctor schedule exists for a project.
@@ -171,10 +188,15 @@ export class Scheduler {
   private tasks = new Map<string, SchedulerTask>()
   /** A cron can fire every minute, so slot outcomes are sampled per status and reason. */
   private readonly sampleSlot = createOutcomeSampler({ burst: 5, refillMs: 30 * 60_000 })
+  /** How far background work may start after its cron minute; 0 starts it on the minute. */
+  private readonly spreadMs: number
+  /** Spread starts waiting to fire, by task key, so stopping a task cancels its start too. */
+  private readonly spreadTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
-  constructor(db: DatabaseClient, callbacks: SchedulerCallbacks) {
+  constructor(db: DatabaseClient, callbacks: SchedulerCallbacks, options: { spreadMs?: number } = {}) {
     this.db = db
     this.callbacks = callbacks
+    this.spreadMs = options.spreadMs ?? 0
   }
 
   /**
@@ -328,6 +350,11 @@ export class Scheduler {
   private stopTask(key: string, task: SchedulerTask, verb: 'Stopped' | 'Removed'): void {
     void task.stop()
     void task.destroy()
+    const pending = this.spreadTimers.get(key)
+    if (pending) {
+      clearTimeout(pending)
+      this.spreadTimers.delete(key)
+    }
     log.info(`task.${verb.toLowerCase()}`, { key })
   }
 
@@ -368,13 +395,25 @@ export class Scheduler {
       return false
     }
 
+    const key = taskKey(projectId, kind)
+    const spreadMs = UNSPREAD_KINDS.has(kind) ? 0 : scheduleSpreadMs(projectId, kind, this.spreadMs)
     const task = cron.schedule(cronExpr, () => {
-      this.triggerRun(scheduleId, projectId, kind)
+      if (spreadMs === 0) {
+        this.triggerRun(scheduleId, projectId, kind)
+        return
+      }
+      // A start still waiting from an earlier tick keeps its turn: replacing it
+      // would starve a schedule that ticks more often than its offset.
+      if (this.spreadTimers.has(key)) return
+      this.spreadTimers.set(key, setTimeout(() => {
+        this.spreadTimers.delete(key)
+        this.triggerRun(scheduleId, projectId, kind)
+      }, spreadMs))
     }, {
       timezone,
     })
 
-    this.tasks.set(taskKey(projectId, kind), task)
+    this.tasks.set(key, task)
     if (!options.preserveNextRunAt || !schedule.nextRunAt) {
       this.updateScheduleTiming(scheduleId, {
         nextRunAt: nextRunFromCron(cronExpr, timezone),

@@ -392,6 +392,7 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'POST /api/v1/projects/{name}/traffic/sources/{id}/sync': 'included',
   'POST /api/v1/projects/{name}/traffic/sources/{id}/backfill': 'included',
   'POST /api/v1/projects/{name}/traffic/sources/{id}/reset': 'included',
+  'POST /api/v1/projects/{name}/traffic/sources/{id}/declare-gap': 'included',
   'GET /api/v1/projects/{name}/traffic/sources': 'included',
   'GET /api/v1/projects/{name}/traffic/status': 'included',
   'GET /api/v1/projects/{name}/traffic/analytics': 'included',

@@ -3,6 +3,7 @@ import dns from 'node:dns/promises'
 import http from 'node:http'
 import https from 'node:https'
 import net from 'node:net'
+import { isTransientNetworkError } from '@canonry/canonry-contracts'
 import { blockedAddressReason, stripIpv6Brackets } from './egress-policy.js'
 
 const REQUEST_TIMEOUT_MS = 10_000
@@ -238,27 +239,42 @@ async function resolveHostAddresses(
   if (isLocalhostName(hostname)) return LOCALHOST_ADDRESSES
   if (resolveAddresses) return await resolveAddresses(hostname)
 
-  try {
-    // Use dns.resolve4/dns.resolve6 instead of dns.lookup to bypass
-    // stub resolvers (e.g. systemd-resolved) that may time out for
-    // external CDN domains.
-    const [ipv4, ipv6] = await Promise.allSettled([dns.resolve4(hostname), dns.resolve6(hostname)])
-    const unique = new Map<string, { address: string; family: 4 | 6 }>()
+  // A resolver that cannot answer right now (every hourly job starting in the
+  // same second, an upstream blip) usually answers a moment later. One retry
+  // keeps that from failing a sync or a check; a name that resolves to nothing
+  // twice is reported as unresolved.
+  const first = await queryHostAddresses(hostname)
+  if (first.addresses.length > 0 || !first.transient) return first.addresses
+  await new Promise(resolve => setTimeout(resolve, DNS_RETRY_DELAY_MS + Math.random() * DNS_RETRY_DELAY_MS))
+  return (await queryHostAddresses(hostname)).addresses
+}
 
-    if (ipv4.status === 'fulfilled') {
-      for (const address of ipv4.value) {
-        unique.set(`4:${address}`, { address, family: 4 })
-      }
-    }
-    if (ipv6.status === 'fulfilled') {
-      for (const address of ipv6.value) {
-        unique.set(`6:${address}`, { address, family: 6 })
-      }
-    }
+/** Floor of the wait before the one DNS retry; up to twice this with jitter. */
+const DNS_RETRY_DELAY_MS = 500
 
-    return [...unique.values()]
-  } catch {
-    return []
+async function queryHostAddresses(
+  hostname: string,
+): Promise<{ addresses: Array<{ address: string; family: 4 | 6 }>; transient: boolean }> {
+  // Use dns.resolve4/dns.resolve6 instead of dns.lookup to bypass
+  // stub resolvers (e.g. systemd-resolved) that may time out for
+  // external CDN domains.
+  const [ipv4, ipv6] = await Promise.allSettled([dns.resolve4(hostname), dns.resolve6(hostname)])
+  const unique = new Map<string, { address: string; family: 4 | 6 }>()
+
+  if (ipv4.status === 'fulfilled') {
+    for (const address of ipv4.value) {
+      unique.set(`4:${address}`, { address, family: 4 })
+    }
+  }
+  if (ipv6.status === 'fulfilled') {
+    for (const address of ipv6.value) {
+      unique.set(`6:${address}`, { address, family: 6 })
+    }
+  }
+
+  return {
+    addresses: [...unique.values()],
+    transient: [ipv4, ipv6].some(result => result.status === 'rejected' && isTransientNetworkError(result.reason)),
   }
 }
 

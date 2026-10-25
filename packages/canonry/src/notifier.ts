@@ -3,7 +3,7 @@ import { eq, desc, and, inArray, or, isNull } from 'drizzle-orm'
 import { deliverWebhook, measurementRunCompleteness, notProbeRun, redactNotificationUrl, resolveDestination, resolveWebhookTarget, toAlertView, webhookOutcomeTarget, webhookResponseReason, webhookTargetRefusalReason } from '@canonry/canonry-api-routes'
 import type { DatabaseClient } from '@canonry/canonry-db'
 import { auditLog, doctorHealthState, siteLivenessState, gbpLocations, gbpReviewRatings, gbpReviews, groupRunsByCreatedAt, insightNotifyState, notifications, projects, queries, querySnapshots, readNegativeReviewMaxStars, runs } from '@canonry/canonry-db'
-import type { GbpReviewAlertState, NotificationEvent, WebhookPayload, InsightWebhookPayload, HealthWebhookPayload, RatingWebhookPayload, ReviewAlertLocation, ReviewWebhookPayload } from '@canonry/canonry-contracts'
+import type { GbpReviewAlertState, HealthAlertCopy, NotificationEvent, WebhookPayload, InsightWebhookPayload, HealthWebhookPayload, RatingWebhookPayload, ReviewAlertLocation, ReviewWebhookPayload } from '@canonry/canonry-contracts'
 import { businessProfileReviewsCover, isNegativeReviewRating, resolveNegativeReviewMaxStars } from '@canonry/canonry-contracts'
 import type { RunCompletionOrigin } from '@canonry/canonry-contracts'
 import type { AnalysisResult, Insight } from '@canonry/canonry-intelligence'
@@ -188,6 +188,7 @@ interface UrgentItem extends Breach {
   status: 'warn' | 'fail'
   summary: string
   remediation: string | null
+  alert?: HealthAlertCopy
 }
 
 /** Stands in for a check code on `health.urgent-resolved`, which names no failing check. */
@@ -375,7 +376,7 @@ export class Notifier {
   async onHealthChecked(
     projectId: string,
     report: {
-      checks: Array<{ id: string; status: string; code: string; summary: string; remediation?: string | null; category?: string; notificationPolicy?: CheckNotificationPolicy; urgent?: boolean; details?: Record<string, unknown> }>
+      checks: Array<{ id: string; status: string; code: string; summary: string; remediation?: string | null; category?: string; notificationPolicy?: CheckNotificationPolicy; urgent?: boolean; details?: Record<string, unknown>; alert?: HealthAlertCopy }>
       checkedAt: string
     },
   ): Promise<'health.degraded' | 'health.recovered' | null> {
@@ -560,7 +561,7 @@ export class Notifier {
     const urgentItems: UrgentItem[] = []
     for (const c of failing) {
       if (c.urgent !== true) continue
-      urgentItems.push({ id: c.id, code: c.code, rank: rank(c.status), status: c.status as 'warn' | 'fail', summary: c.summary, remediation: c.remediation ?? null })
+      urgentItems.push({ id: c.id, code: c.code, rank: rank(c.status), status: c.status as 'warn' | 'fail', summary: c.summary, remediation: c.remediation ?? null, ...(c.alert ? { alert: c.alert } : {}) })
     }
     for (const c of healthChecks) {
       const supersededCode = c.details?.supersededCode
@@ -568,7 +569,7 @@ export class Notifier {
       const causeIds = Array.isArray(c.details?.supersededBy) ? c.details.supersededBy as unknown[] : []
       const cause = failing.find(f => causeIds.includes(f.id))
       const status = c.details?.supersededStatus === 'warn' ? 'warn' : 'fail'
-      urgentItems.push({ id: c.id, code: supersededCode, rank: rank(status), status, summary: cause?.summary ?? c.summary, remediation: cause?.remediation ?? null })
+      urgentItems.push({ id: c.id, code: supersededCode, rank: rank(status), status, summary: cause?.summary ?? c.summary, remediation: cause?.remediation ?? null, ...(cause?.alert ? { alert: cause.alert } : {}) })
     }
     urgentItems.sort((a, b) => b.rank - a.rank)
     const urgentById = new Map(urgentItems.map(item => [item.id, item]))
@@ -671,7 +672,7 @@ export class Notifier {
             remediation: lead.remediation,
             checkedAt: now,
             previousStatus: previousUrgent,
-            failing: urgentItems.map(item => ({ id: item.id, status: item.status, code: item.code, summary: item.summary })),
+            failing: urgentItems.map(item => ({ id: item.id, status: item.status, code: item.code, summary: item.summary, ...(item.alert ? { alert: item.alert } : {}) })),
             added: breachCodes(urgentNew),
             ...(urgentCleared.length > 0 ? { cleared: breachCodes(urgentCleared) } : {}),
           }
@@ -732,7 +733,7 @@ export class Notifier {
         remediation: worst?.remediation ?? null,
         checkedAt: now,
         previousStatus,
-        failing: failing.map(c => ({ id: c.id, status: c.status, code: c.code, summary: c.summary })),
+        failing: failing.map(c => ({ id: c.id, status: c.status, code: c.code, summary: c.summary, ...(c.alert ? { alert: c.alert } : {}) })),
         ...(added ? { added } : {}),
         ...(cleared ? { cleared } : {}),
       },

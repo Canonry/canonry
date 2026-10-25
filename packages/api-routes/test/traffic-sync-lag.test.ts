@@ -70,7 +70,7 @@ function seed(opts: {
   }
 
   const ctx = { db, project: { id: projectId, name: 'lagproj' } } as unknown as DoctorContext
-  return { ctx, cleanup: () => fs.rmSync(tmp, { recursive: true, force: true }) }
+  return { ctx, sourceId, cleanup: () => fs.rmSync(tmp, { recursive: true, force: true }) }
 }
 
 describe('traffic sync lag', () => {
@@ -197,6 +197,28 @@ describe('unrecovered skips', () => {
       expect(out.remediation).toMatch(/--days N/)
       const first = (out.details as { sources: { skippedThroughAt: string | null }[] }).sources[0]!
       expect(first.skippedThroughAt).toBe('2026-07-30T04:00:00.000Z')
+    } finally { cleanup() }
+  })
+
+  it('tells the operator to declare a WordPress gap, naming the exact source, in plain words', async () => {
+    const { ctx, sourceId, cleanup } = seed({ lagMs: 5 * 60_000, sourceType: 'wordpress', skippedThroughAt: '2026-08-20T20:39:49.403Z' })
+    try {
+      const out = await syncLagCheck.run(ctx)
+      expect(out.code).toBe('traffic.sync-lag.unrecovered-skip')
+      expect(out.remediation).toContain('canonry traffic declare-gap <project> --source <id>')
+      expect(out.alert).toEqual({
+        label: 'Traffic gap before Aug 20',
+        line: "A stretch of traffic before Aug 20 can't be recovered for Vercel (example.com).",
+        next: `Record it as lost with \`cnry traffic declare-gap lagproj --source ${sourceId}\`.`,
+      })
+    } finally { cleanup() }
+  })
+
+  it('tells the operator to backfill a gap a provider can still replay', async () => {
+    const { ctx, sourceId, cleanup } = seed({ lagMs: 5 * 60_000, skippedThroughAt: '2026-07-30T04:00:00.000Z' })
+    try {
+      const out = await syncLagCheck.run(ctx)
+      expect(out.alert?.next).toBe(`Backfill it with \`cnry traffic backfill lagproj --source ${sourceId} --days N\`.`)
     } finally { cleanup() }
   })
 
