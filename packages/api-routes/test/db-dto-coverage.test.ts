@@ -174,6 +174,7 @@ const COVERAGE: Record<string, CoverageEntry> = {
       reconciliation: 'Private operator verification note and settlement receipt.',
       startedAt: 'Internal per-task dispatch time; parent run exposes lifecycle timestamps.',
       finishedAt: 'Internal per-task completion time; parent run exposes lifecycle timestamps.',
+      retryOf: 'Links a retry to the first attempt it replaces; the public task shows only the attempt that counts, flagged `retried`.',
     },
   },
   seoBudgets: {

@@ -301,6 +301,8 @@ export const seoTaskSchema = z.object({
   status: seoRunStatusSchema, error: z.string().nullable(), remoteTaskId: z.string().nullable(),
   /** Market rankings: the text searched on Google and where from, so a failed search can be named. Null for other datasets. */
   searchText: z.string().nullable(), locationLabel: z.string().nullable(),
+  /** A second attempt at a search whose first attempt hit a search-engine error. It replaces that attempt, which is not listed. */
+  retried: z.boolean(),
 }).strict()
 export type SeoTask = z.infer<typeof seoTaskSchema>
 export const seoResultCountsSchema = z.object({
@@ -425,6 +427,12 @@ export interface SeoAdapterResult {
   results: SeoResults
   error: string | null
   fetchedAt: string
+  /**
+   * The search engine itself returned an error: nothing was collected, the cost is known, and
+   * the same request may succeed when sent again. The refresh sends it once more at its end.
+   * Never set for an uncertain outcome, which must not be paid for twice.
+   */
+  retryable?: boolean
 }
 export interface SeoAdapter {
   readonly provider: z.infer<typeof seoProviderSchema>

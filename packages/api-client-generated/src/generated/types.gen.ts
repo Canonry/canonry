@@ -247,6 +247,7 @@ export type SeoRunDetail = {
         remoteTaskId: string | null;
         searchText: string | null;
         locationLabel: string | null;
+        retried: boolean;
     }>;
     results: {
         keywordMetrics: Array<{

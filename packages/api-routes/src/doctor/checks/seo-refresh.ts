@@ -15,7 +15,7 @@ import {
   parseRunError,
   truncateUtf16,
 } from '@canonry/canonry-contracts'
-import { runs, schedules, seoJobs, seoTasks } from '@canonry/canonry-db'
+import { currentSeoTasks, runs, schedules, seoJobs, seoTasks } from '@canonry/canonry-db'
 import { firstSentence } from '../../notifications/health-copy.js'
 import { nextRunFromSchedule, type ScheduleTiming } from '../../schedule-utils.js'
 import type { CheckDefinition, CheckOutput, DoctorContext, ProjectInfo } from '../types.js'
@@ -116,12 +116,13 @@ const COUNT_LIST = new Intl.ListFormat('en', { style: 'long', type: 'conjunction
 function refreshReason(ctx: DoctorContext, run: RefreshRun): string {
   const stored = parseRunError(run.error)
   if (stored) return formatRunErrorOneLine(stored)
-  const tasks = ctx.db
-    .select({ status: seoTasks.status, error: seoTasks.error, request: seoTasks.request })
+  // A retried search counts once, as its retry ended.
+  const tasks = currentSeoTasks(ctx.db
+    .select({ id: seoTasks.id, retryOf: seoTasks.retryOf, status: seoTasks.status, error: seoTasks.error, request: seoTasks.request })
     .from(seoTasks)
     .innerJoin(seoJobs, eq(seoTasks.jobId, seoJobs.id))
     .where(eq(seoJobs.runId, run.id))
-    .all()
+    .all())
   const failed = tasks.filter(task => task.status === SeoRunStatuses.failed || task.status === SeoRunStatuses['reconciliation-required'])
   const partial = tasks.filter(task => task.status === SeoRunStatuses.partial).length
   const cancelled = tasks.filter(task => task.status === SeoRunStatuses.cancelled).length

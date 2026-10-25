@@ -113,7 +113,7 @@ export async function showSeoRun(project: string, id: string, format: CliFormat)
   for (const task of value.tasks) {
     // A market-rankings task is one search; its text names it, where the target is the same on every line.
     const subject = task.searchText !== null ? ` · "${task.searchText}" from ${task.locationLabel ?? 'its market'}` : task.target ? ` · ${task.target.value}` : ''
-    console.log(`  ${task.capability}${subject}: ${task.status}${task.error ? ` · ${task.error}` : ''}`)
+    console.log(`  ${task.capability}${subject}${task.retried ? ' · retried once' : ''}: ${task.status}${task.error ? ` · ${task.error}` : ''}`)
   }
   if (value.resultsTruncated) console.log('Result preview is partial. Read the evidence commands with this run ID for all saved rows.')
 }

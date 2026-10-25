@@ -458,7 +458,7 @@ test('market rankings read as tracked queries by market, and editing keeps their
   }
   // The saved refresh ran under revision 1, one of its three searches failed.
   const refresh: SeoRun = { ...saved, id: 'saved-markets', profileId: 'markets', status: 'partial', capabilities: ['market-rankings'], scope: markets.scope, taskCount: 3, completedTasks: 2, failedTasks: 1 }
-  const search = (id: string, status: SeoRun['status'], error: string | null, searchText: string) => ({ id, capability: 'market-rankings' as const, target: markets.targets[0]!, status, error, remoteTaskId: null, searchText, locationLabel: 'Dallas-Ft. Worth, TX' })
+  const search = (id: string, status: SeoRun['status'], error: string | null, searchText: string, retried = false) => ({ id, capability: 'market-rankings' as const, target: markets.targets[0]!, status, error, remoteTaskId: null, searchText, locationLabel: 'Dallas-Ft. Worth, TX', retried })
   const marketContext: SeoContext = {
     ...context,
     connections: [{ ...context.connections[0]!, capabilities: ['ranked-keywords', 'keyword-metrics', 'domain-intelligence', 'market-rankings'] }],
@@ -487,7 +487,7 @@ test('market rankings read as tracked queries by market, and editing keeps their
       row('cheap apartments Dallas, Dallas-Fort Worth', null, null, { searchStatus: 'failed', depth: 0, competitors: [], provenance: null }),
       row('luxury apartments Dallas, Dallas-Fort Worth', null, null, { searchStatus: 'partial', depth: 30 }),
     ] })
-    if (url.pathname.endsWith('/runs/saved-markets')) return json({ ...refresh, tasks: [search('t1', 'completed', null, 'best apartments in Dallas'), search('t2', 'failed', 'The source refused this search.', 'cheap apartments Dallas'), search('t3', 'completed', null, 'pet friendly apartments Dallas')], results: { keywordMetrics: [], rankedKeywords: [], domainIntelligence: [], marketRankings: [] }, resultCounts: { keywordMetrics: 0, rankedKeywords: 0, domainIntelligence: 0, marketRankings: 4 }, resultsTruncated: false })
+    if (url.pathname.endsWith('/runs/saved-markets')) return json({ ...refresh, tasks: [search('t1', 'completed', null, 'best apartments in Dallas'), search('t2', 'failed', 'The source refused this search.', 'cheap apartments Dallas', true), search('t3', 'completed', null, 'pet friendly apartments Dallas')], results: { keywordMetrics: [], rankedKeywords: [], domainIntelligence: [], marketRankings: [] }, resultCounts: { keywordMetrics: 0, rankedKeywords: 0, domainIntelligence: 0, marketRankings: 4 }, resultsTruncated: false })
     if (url.pathname.endsWith('/runs')) return json({ runs: [refresh] })
     throw new Error(`Unexpected request ${request.method} ${url.pathname}`)
   })
@@ -526,8 +526,8 @@ test('market rankings read as tracked queries by market, and editing keeps their
   const panel = details.closest('[id="seo-run-saved-markets"]') as HTMLElement
   expect(within(panel).getByText('Profile revision 1 · Market locations · en')).not.toBeNull()
   expect(within(panel).getAllByRole('listitem')).toHaveLength(1)
-  // The failed search is named by what was searched and where, not by the target every search shares.
-  expect(within(panel).getByText('Market rankings · “cheap apartments Dallas” from Dallas-Ft. Worth, TX')).not.toBeNull()
+  // The failed search is named by what was searched and where, not by the target every search shares, and says it was already retried.
+  expect(within(panel).getByText('Market rankings · “cheap apartments Dallas” from Dallas-Ft. Worth, TX · retried once')).not.toBeNull()
 
   fireEvent.click(screen.getByRole('button', { name: 'Edit profile' }))
   const form = screen.getByRole('form', { name: 'Edit SEO profile' })

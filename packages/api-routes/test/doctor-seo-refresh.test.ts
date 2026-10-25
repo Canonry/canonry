@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { SeoRepository, emptySeoResults, queries } from '@canonry/canonry-db'
+import { SeoRepository, emptySeoResults, queries, seoTasks } from '@canonry/canonry-db'
 import { SeoCapabilities, SeoProviders, type SeoAdapter, type SeoAdapterResult, type SeoQuote, type SeoRun } from '@canonry/canonry-contracts'
 import { startScheduledSeoRefreshes } from '../src/index.js'
 import { ALL_CHECKS, scheduledHealthCheckIds } from '../src/doctor/registry.js'
@@ -60,18 +60,24 @@ function fire(occurrence: string, scheduleId: string, projectId = 'alpha', adapt
 }
 
 /** The SEO runtime executing an admitted refresh's next request and storing what came back. */
-function settle(runId: string, outcomeFor: SeoAdapterResult['outcome'] | ((searchText: string) => SeoAdapterResult['outcome'])) {
+/**
+ * The SEO runtime executing an admitted refresh's next request and storing what came back, under
+ * the host's limits. `'google-error'` is a failure the search engine itself returned, which earns a retry.
+ */
+function settle(runId: string, outcomeFor: SeoAdapterResult['outcome'] | ((searchText: string) => SeoAdapterResult['outcome'] | 'google-error')) {
   const repository = new SeoRepository(h.db)
   const task = repository.claim(runId, { ...h.state.policy, accountKey: h.state.accountKey })
   if (!task) throw new Error(`refresh ${runId} had nothing to claim`)
-  const outcome = typeof outcomeFor === 'function' ? outcomeFor(task.request.keywords[0] ?? '') : outcomeFor
+  const ended = typeof outcomeFor === 'function' ? outcomeFor(task.request.keywords[0] ?? '') : outcomeFor
+  const outcome = ended === 'google-error' ? 'failed' : ended
   repository.settle(task.id, {
     outcome,
-    tasks: [{ remoteTaskId: task.id, statusCode: outcome === 'completed' ? 20000 : 40000, costMicros: 10 }],
+    ...(ended === 'google-error' ? { retryable: true } : {}),
+    tasks: [{ remoteTaskId: task.id, statusCode: outcome === 'completed' ? 20000 : ended === 'google-error' ? 40101 : 40000, costMicros: 10 }],
     results: emptySeoResults(),
     error: outcome === 'completed' ? null : 'Some SEO provider results could not be collected.',
     fetchedAt: new Date().toISOString(),
-  }, task.leaseOwner!)
+  }, task.leaseOwner!, h.state.policy)
 }
 
 async function refreshByHand(): Promise<string> {
@@ -204,8 +210,10 @@ describe('seo.data.recent-refresh', () => {
     const scheduleId = await setSchedule()
     const [refresh] = fire('2026-11-02T07:00:00.000Z', scheduleId, 'alpha', rankings)
     at('2026-11-02T07:10:00.000Z')
-    const ended: Record<string, SeoAdapterResult['outcome']> = { 'best solar installer': 'completed', 'solar panel cost': 'failed', 'home battery backup': 'partial' }
-    for (let searches = 0; searches < 3; searches++) settle(refresh!.runId, text => ended[text]!)
+    // Google errors on one search; its one retry, at the end of the refresh, errors again.
+    const ended: Record<string, SeoAdapterResult['outcome'] | 'google-error'> = { 'best solar installer': 'completed', 'solar panel cost': 'google-error', 'home battery backup': 'partial' }
+    for (let attempts = 0; attempts < 4; attempts++) settle(refresh!.runId, text => ended[text]!)
+    expect(h.db.select().from(seoTasks).all()).toHaveLength(4)
     expect(await grade('2026-11-02T12:00:00.000Z')).toMatchObject({
       status: 'warn',
       code: 'seo.data.refresh-partial',

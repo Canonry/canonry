@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import { and, asc, desc, eq, inArray, isNotNull, sql } from 'drizzle-orm'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
-import { SeoRepository, competitors, projects, queries, runs, seoJobs, seoProfiles, seoTasks, type DatabaseClient, type SeoJobRow, type SeoTaskRow } from '@canonry/canonry-db'
+import { SeoRepository, competitors, currentSeoTaskCondition, currentSeoTasks, projects, queries, runs, seoJobs, seoProfiles, seoTasks, type DatabaseClient, type SeoJobRow, type SeoTaskRow } from '@canonry/canonry-db'
 import {
   AppError, RunKinds, RunStatuses, RunTriggers, SEO_MARKET_RANKING_MAX_SEARCHES, SEO_PROJECT_MARKET_KEY, SEO_RUN_SCOPE, SEO_WRITE_SCOPE, SeoAdapterOutcomes, SeoAvailability, SeoCapabilities, SeoMarketRankingSearchStatuses, SeoRunStatuses, SeoScopeKinds, SeoTargetKinds, UserRoles,
   compareText, effectiveDomains, matchesMeasurementTargetUrl, normalizeHostname, missingDependency, notFound, queryClassSchema, registrableDomain, seoSearchTextForQuery, validationError,
@@ -381,8 +381,9 @@ export async function seoRoutes(app: FastifyInstance, opts: SeoRoutesOptions) {
     if (!row) throw notFound('SEO profile', id)
     return profileDto(row)
   }
-  const tasks = (id: string) => app.db.select().from(seoTasks).where(eq(seoTasks.jobId, id)).orderBy(asc(seoTasks.id)).all()
-  const taskCounts = (ids: string[]) => ids.length ? app.db.select({ jobId: seoTasks.jobId, status: seoTasks.status, count: sql<number>`count(*)` }).from(seoTasks).where(inArray(seoTasks.jobId, ids)).groupBy(seoTasks.jobId, seoTasks.status).all() : []
+  // A retried search reads as its retry: customers see each search once, with the attempt that counts.
+  const tasks = (id: string) => currentSeoTasks(app.db.select().from(seoTasks).where(eq(seoTasks.jobId, id)).orderBy(asc(seoTasks.id)).all())
+  const taskCounts = (ids: string[]) => ids.length ? app.db.select({ jobId: seoTasks.jobId, status: seoTasks.status, count: sql<number>`count(*)` }).from(seoTasks).where(and(inArray(seoTasks.jobId, ids), currentSeoTaskCondition())).groupBy(seoTasks.jobId, seoTasks.status).all() : []
   const runSummary = (row: SeoJobRow) => runDto(row, taskCounts([row.id]))
   const job = (projectId: string, id: string) => {
     const row = app.db.select().from(seoJobs).where(and(eq(seoJobs.projectId, projectId), isNotNull(seoJobs.runId), eq(seoJobs.id, id))).get()
@@ -521,7 +522,7 @@ export async function seoRoutes(app: FastifyInstance, opts: SeoRoutesOptions) {
   app.get<{ Params: Params }>('/projects/:name/seo/runs/:id', async request => {
     const row = job(resolveProject(app.db, request.params.name).id, request.params.id)
     const rows = tasks(row.id); const results = resultRows(rows)
-    return { ...runDto(row, rows.map(task => ({ status: task.status, count: 1 }))), tasks: rows.map(task => ({ id: task.id, capability: task.request.capability, target: task.request.target, status: task.status, error: task.error, remoteTaskId: task.receipts[0]?.remoteTaskId ?? null, ...taskSearch(task) })), results: { keywordMetrics: results.keywordMetrics.slice(0, 20), domainIntelligence: results.domainIntelligence.slice(0, 20), rankedKeywords: results.rankedKeywords.slice(0, 20), marketRankings: [...results.marketRankings].sort(compareMarketRankings).slice(0, 20) }, resultCounts: { keywordMetrics: results.keywordMetrics.length, domainIntelligence: results.domainIntelligence.length, rankedKeywords: results.rankedKeywords.length, marketRankings: results.marketRankings.length }, resultsTruncated: Object.values(results).some(items => items.length > 20) } satisfies SeoRunDetail
+    return { ...runDto(row, rows.map(task => ({ status: task.status, count: 1 }))), tasks: rows.map(task => ({ id: task.id, capability: task.request.capability, target: task.request.target, status: task.status, error: task.error, remoteTaskId: task.receipts[0]?.remoteTaskId ?? null, ...taskSearch(task), retried: task.retryOf !== null })), results: { keywordMetrics: results.keywordMetrics.slice(0, 20), domainIntelligence: results.domainIntelligence.slice(0, 20), rankedKeywords: results.rankedKeywords.slice(0, 20), marketRankings: [...results.marketRankings].sort(compareMarketRankings).slice(0, 20) }, resultCounts: { keywordMetrics: results.keywordMetrics.length, domainIntelligence: results.domainIntelligence.length, rankedKeywords: results.rankedKeywords.length, marketRankings: results.marketRankings.length }, resultsTruncated: Object.values(results).some(items => items.length > 20) } satisfies SeoRunDetail
   })
   app.post<{ Params: Params }>('/projects/:name/seo/runs/:id/cancel', { config: { paidRead: true, writeScope: SEO_RUN_SCOPE } }, async request => {
     requireScope(request, SEO_RUN_SCOPE); requireAdminSession(request)

@@ -232,3 +232,12 @@ Migration 191 indexes accepted intent hashes. Admission consumes an intent once
 across idempotency keys, including after its public run is deleted. Settlement
 may accept a late receipt from the same lease owner after recovery, but never
 overwrite operator reconciliation.
+Migration 195 adds nullable `seo_tasks.retry_of`. When the runtime settles a
+`retryable` failure with its current limits, `settle` queues one new task that
+points at the first attempt and reserves the same amount, only if the run ceiling
+and every bucket still have room. Claims take first attempts before retries, so a
+retry runs at the end of its refresh, and a retry is never retried.
+`currentSeoTasks` (and `currentSeoTaskCondition` for SQL counts) is the one rule
+for which attempt counts: a retry replaces its first attempt unless it was
+cancelled. Status, counts and evidence read through it; operator receipts still
+see every paid attempt.

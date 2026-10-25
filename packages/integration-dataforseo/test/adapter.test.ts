@@ -265,6 +265,20 @@ describe('DataForSEO market rankings', () => {
     expect(await createDataForSeoAdapter(credentials).execute(request)).toMatchObject({ outcome: SeoAdapterOutcomes.failed, results: { keywordMetrics: [] } })
   })
 
+  it('marks only a definite search-engine error with a known charge as worth one more try', async () => {
+    const answered = (status_code: number, cost: number | null) => response([{ id: 'serp-task', status_code, cost, result: null }])
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(answered(40101, 0)))
+    expect(await createDataForSeoAdapter(credentials).execute(ranking)).toMatchObject({ outcome: SeoAdapterOutcomes.failed, retryable: true, tasks: [{ statusCode: 40101, costMicros: 0 }] })
+    // An unknown charge may already be paid for, "no results" is an answer, and 40103 failed on the source's side, not Google's.
+    for (const [status, cost] of [[40101, null], [40102, 0], [40103, 0]] as const) {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(answered(status, cost)))
+      expect((await createDataForSeoAdapter(credentials).execute(ranking)).retryable, `status ${status}`).toBeUndefined()
+    }
+    // A Labs read is never sent twice this way.
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response([task([info], { status_code: 40101, cost: 0 })])))
+    expect((await createDataForSeoAdapter(credentials).execute(request)).retryable).toBeUndefined()
+  })
+
   it.each([
     ['two search texts', { keywords: ['one', 'two'] }],
     ['a depth outside steps of 10', { search: { ...ranking.search!, depth: 55 } }],

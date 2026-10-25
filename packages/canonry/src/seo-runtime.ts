@@ -95,7 +95,8 @@ export class SeoRuntime {
     for (const [id, entry] of this.pending) {
       try {
         if (!entry.settled) {
-          if (!this.repository.settle(id, entry.result, entry.owner)) {
+          // The host's current limits bound the one retry a search-engine error earns; without them none is queued.
+          if (!this.repository.settle(id, entry.result, entry.owner, this.getRuntime()?.policy)) {
             createLogger('SeoRuntime').error('seo.receipt.superseded', { message: 'SEO receipt could not replace an already reconciled or differently owned task.' })
             clearInterval(entry.heartbeat)
             this.pending.delete(id)

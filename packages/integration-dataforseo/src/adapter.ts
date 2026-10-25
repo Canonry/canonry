@@ -29,6 +29,11 @@ const REQUEST_REFUSALS = new Set([40000, 40006, 40100, 40104, 40200, 40203, 4020
  * kept; discarding them lost a rank already paid for.
  */
 const PARTIAL_RESULTS = 40106
+/**
+ * "Internal SE server error": the search engine itself answered with an error (same appendix).
+ * Nothing was collected, so the search is worth sending once more at the end of the refresh.
+ */
+const SEARCH_ENGINE_ERROR = 40101
 
 /** The bare hostname a target names, after the shared domain/host scope rules. */
 function targetHost(target: SeoTarget | null): string {
@@ -167,9 +172,13 @@ export function createDataForSeoAdapter(credentials: DataForSeoCredentials): Seo
         }
         const outcome = complete === tasks.length ? SeoAdapterOutcomes.completed
           : complete + partial > 0 ? SeoAdapterOutcomes.partial : SeoAdapterOutcomes.failed
+        // Only a definite search-engine error with a known charge may be sent again; anything uncertain may already be paid for.
+        const retryable = request.capability === SeoCapabilities['market-rankings'] && outcome === SeoAdapterOutcomes.failed
+          && receipts.every(receipt => receipt.statusCode === SEARCH_ENGINE_ERROR && receipt.costMicros !== null)
         return {
           outcome, tasks: receipts, results, fetchedAt,
           error: outcome === SeoAdapterOutcomes.completed ? null : 'Some SEO provider results could not be collected.',
+          ...(retryable ? { retryable: true } : {}),
         }
       } catch (error) {
         const unaccepted = error instanceof DataForSeoTransportError && error.unaccepted

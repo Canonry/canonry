@@ -39,7 +39,9 @@ export const seoTasks = sqliteTable('seo_tasks', {
   results: text('results', { mode: 'json' }).$type<StoredSeoResults>().notNull(),
   reconciliation: text('reconciliation', { mode: 'json' }).$type<{ actualCostMicros: number; remoteTaskId: string; outcome: 'completed' | 'failed'; note: string }>(),
   startedAt: text('started_at'), finishedAt: text('finished_at'), error: text('error'),
-}, t => [index('idx_seo_tasks_job').on(t.jobId)])
+  /** Set on a second attempt: the task whose search-engine error it repeats. A retry is never retried. */
+  retryOf: text('retry_of'),
+}, t => [index('idx_seo_tasks_job').on(t.jobId), index('idx_seo_tasks_retry').on(t.retryOf)])
 export const seoBudgets = sqliteTable('seo_budgets', {
   scope: text('scope').notNull(), period: text('period').notNull(),
   reservedMicros: integer('reserved_micros').notNull().default(0), spentMicros: integer('spent_micros').notNull().default(0),
