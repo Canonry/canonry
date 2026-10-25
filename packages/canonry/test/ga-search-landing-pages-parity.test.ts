@@ -3,7 +3,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { apiKeys, createClient, gaMeasurementSyncStates, gaSearchLandingPages, gaSearchLandingWindows, migrate, projects } from '@canonry/canonry-db'
+import { apiKeys, createClient, gaMeasurementSyncStates, gaSearchLandingPages, gaSearchLandingWindows, gscDailyTotals, migrate, projects } from '@canonry/canonry-db'
 import type { DatabaseClient } from '@canonry/canonry-db'
 import { gaSearchLandingPagesResponseSchema } from '@canonry/canonry-contracts'
 import type { GaSearchLandingPagesResponse } from '@canonry/canonry-contracts'
@@ -247,6 +247,31 @@ describe('ga search-landing-pages parity', () => {
     expect(tableRows.find(cells => cells[0] === 'Total')).toEqual(['Total', '0', '0', 'n/a', 'n/a', '0'])
     expect(lines).toContain('  No landing pages had Google organic search traffic in this window.')
     expect(lines).toContain('  If the property should have some, check its Search Console link in GA4 (Admin, Product links, Search Console links).')
+  })
+
+  it('says Search Console is not linked when GA4 has no search data and Search Console has impressions', async () => {
+    db.insert(gaSearchLandingWindows).values({
+      id: crypto.randomUUID(),
+      projectId,
+      propertyId: '123456',
+      windowKey: '28d',
+      periodStart: '2026-09-10',
+      periodEnd: '2026-10-07',
+      timeZone: 'America/Los_Angeles',
+      totalActiveUsers: 87,
+      syncedAt: SYNCED_AT,
+      createdAt: SYNCED_AT,
+    }).run()
+    db.insert(gaMeasurementSyncStates).values({ projectId, searchLandingStatus: 'ready', searchLandingSyncedAt: SYNCED_AT, searchLandingAttemptedAt: SYNCED_AT, updatedAt: SYNCED_AT }).run()
+    db.insert(gscDailyTotals).values({
+      id: crypto.randomUUID(), projectId, date: '2026-09-20', clicks: 59, impressions: 3342, position: '9', createdAt: SYNCED_AT,
+    }).run()
+
+    const lines = await captureCli({})
+
+    expect(lines).toContain('  Search Console not linked: GA4 has no Search Console data for this site, but Search Console recorded 3,342 impressions in this window.')
+    expect(lines).toContain("  Link the site's Search Console property in GA4 (Admin, Product links, Search Console links).")
+    expect(lines).not.toContain('  No landing pages had Google organic search traffic in this window.')
   })
 
   it('prints the Search Console link hint when pages are listed but GA4\'s Total has no clicks or impressions', async () => {

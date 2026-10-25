@@ -1,16 +1,18 @@
 import crypto from 'node:crypto'
-import { and, asc, count, desc, eq } from 'drizzle-orm'
+import { and, asc, count, desc, eq, gte, lte, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import {
   gaMeasurementSyncStates,
   gaSearchLandingPages,
   gaSearchLandingWindows,
+  gscDailyTotals,
 } from '@canonry/canonry-db'
 import {
   GA_SEARCH_LANDING_DEFAULT_LIMIT,
   GA_SEARCH_LANDING_DEFAULT_WINDOW,
   GA_SEARCH_LANDING_MAX_LIMIT,
   RatioUnits,
+  gaSearchLandingHasSearchData,
   gaSearchLandingPagesResponseSchema,
   WINDOW_SETS, parseWindowIn,
   inclusiveDayCount,
@@ -18,6 +20,7 @@ import {
   validationError,
 } from '@canonry/canonry-contracts'
 import type {
+  GaSearchConsoleLinkState,
   GaSearchLandingMetrics,
   GaSearchLandingPagesResponse,
   GaSearchLandingSyncResult,
@@ -252,6 +255,15 @@ export function buildGaSearchLandingPages(
       .offset(offset)
       .all()
 
+  const total = stored
+    ? toWireMetrics({
+        clicks: stored.totalClicks,
+        impressions: stored.totalImpressions,
+        ctr: stored.totalCtr,
+        averagePosition: stored.totalAveragePosition,
+        activeUsers: stored.totalActiveUsers,
+      })
+    : null
   return gaSearchLandingPagesResponseSchema.parse({
     source: 'ga4-search-console-link',
     status: state?.searchLandingStatus ?? 'never-synced',
@@ -265,15 +277,7 @@ export function buildGaSearchLandingPages(
     timeZone: stored?.timeZone ?? null,
     subjectToThresholding: stored?.subjectToThresholding ?? false,
     dataLossFromOtherRow: stored?.dataLossFromOtherRow ?? false,
-    total: stored
-      ? toWireMetrics({
-          clicks: stored.totalClicks,
-          impressions: stored.totalImpressions,
-          ctr: stored.totalCtr,
-          averagePosition: stored.totalAveragePosition,
-          activeUsers: stored.totalActiveUsers,
-        })
-      : null,
+    total,
     reportRowCount: stored?.reportRowCount ?? null,
     rowsCapped: stored?.rowsCapped ?? false,
     totalRows,
@@ -283,7 +287,36 @@ export function buildGaSearchLandingPages(
       landingPage: row.landingPage,
       ...toWireMetrics(row),
     })),
+    searchConsoleLink: stored && total
+      ? searchConsoleLinkFor(db, project.id, total, stored.periodStart, stored.periodEnd)
+      : null,
   })
+}
+
+/**
+ * Compare a window's GA4 Total with the Search Console data Canonry stores for
+ * the same days. GA4 lists pages with active users and 0 clicks and 0
+ * impressions both when the site had no Google search traffic and when the
+ * property has no Search Console link; only Search Console's own numbers tell
+ * the two apart.
+ */
+function searchConsoleLinkFor(
+  db: Database,
+  projectId: string,
+  total: GaSearchLandingMetrics,
+  windowStart: string,
+  windowEnd: string,
+): { state: GaSearchConsoleLinkState; searchConsoleImpressions: number | null } {
+  const stored = db.select({
+    days: count(),
+    impressions: sql<number | null>`sum(${gscDailyTotals.impressions})`,
+  }).from(gscDailyTotals)
+    .where(and(eq(gscDailyTotals.projectId, projectId), gte(gscDailyTotals.date, windowStart), lte(gscDailyTotals.date, windowEnd)))
+    .get()
+  const searchConsoleImpressions = stored && stored.days > 0 ? Number(stored.impressions ?? 0) : null
+  if (gaSearchLandingHasSearchData(total)) return { state: 'has-data', searchConsoleImpressions }
+  if (searchConsoleImpressions === null) return { state: 'unknown', searchConsoleImpressions }
+  return { state: searchConsoleImpressions > 0 ? 'not-linked' : 'no-search-data', searchConsoleImpressions }
 }
 
 export async function gaSearchLandingPagesRoutes(app: FastifyInstance, opts: GaSearchLandingRoutesOptions) {

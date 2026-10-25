@@ -6541,6 +6541,10 @@ export type GaSearchLandingPagesResponse = {
         activeUsers: number;
         landingPage: string;
     }>;
+    searchConsoleLink: {
+        state: 'has-data' | 'not-linked' | 'no-search-data' | 'unknown';
+        searchConsoleImpressions: number | null;
+    } | null;
 };
 
 export type GaSocialReferralTrendResponse = {

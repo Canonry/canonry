@@ -336,9 +336,15 @@ export async function gaSearchLandingPages(project: string, opts?: {
   }
   // GA4's Total, not the row count, as the dashboard reads it: pages with
   // active users and no clicks or impressions are still listed.
-  if (!gaSearchLandingHasSearchData(result.total)) {
+  const link = result.searchConsoleLink
+  if (link?.state === 'not-linked') {
+    console.log(`  Search Console not linked: GA4 has no Search Console data for this site, but Search Console recorded ${(link.searchConsoleImpressions ?? 0).toLocaleString('en-US')} impressions in this window.`)
+    console.log('  Link the site\'s Search Console property in GA4 (Admin, Product links, Search Console links).')
+  } else if (!gaSearchLandingHasSearchData(result.total)) {
     console.log('  No landing pages had Google organic search traffic in this window.')
-    console.log('  If the property should have some, check its Search Console link in GA4 (Admin, Product links, Search Console links).')
+    console.log(link?.state === 'no-search-data'
+      ? '  Search Console also recorded no impressions for these days.'
+      : '  If the property should have some, check its Search Console link in GA4 (Admin, Product links, Search Console links).')
   }
   if (result.rowsCapped && result.reportRowCount !== null) {
     console.log(`  GA4 reported ${result.reportRowCount} rows; the ${result.totalRows} with the most clicks are stored.`)

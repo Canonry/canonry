@@ -11,6 +11,7 @@ import {
   gaMeasurementSyncStates,
   gaSearchLandingPages,
   gaSearchLandingWindows,
+  gscDailyTotals,
   migrate,
   runs,
 } from '@canonry/canonry-db'
@@ -287,6 +288,67 @@ describe('GA4 Search Console landing pages', () => {
     expect(ninetyDay).toMatchObject({ window: '90d', windowStart: '2026-07-10', windowDays: 90, rowsCapped: true, reportRowCount: 87, totalRows: 7 })
   })
 
+  describe('Search Console link check', () => {
+    /** GA4 lists pages with active users but no Google search data, as for a property with no Search Console link. */
+    function zeroSearchReport(): GA4SearchLandingReport {
+      const report = readyReport()
+      return {
+        ...report,
+        windows: report.windows.map(window => ({
+          ...window,
+          total: { clicks: 0, impressions: 0, ctr: null, averagePosition: null, activeUsers: 87 },
+          rows: window.rows.map(row => ({ ...row, clicks: 0, impressions: 0, ctr: null, averagePosition: null })),
+        })),
+      }
+    }
+    function searchConsoleDay(date: string, impressions: number) {
+      ctx.db.insert(gscDailyTotals).values({
+        id: `gsc-${date}`, projectId: ctx.projectId, date, clicks: Math.floor(impressions / 50), impressions,
+        position: '9', createdAt: new Date().toISOString(),
+      }).run()
+    }
+    async function link() {
+      const body = gaSearchLandingPagesResponseSchema.parse(JSON.parse((await read(ctx)).body))
+      return body.searchConsoleLink
+    }
+
+    it('reads not-linked when GA4 has no search data and Search Console has impressions for the same days', async () => {
+      await mockGa(async () => zeroSearchReport())
+      await sync(ctx)
+      // Inside the 28d window (2026-09-10 to 2026-10-07), and one day outside it that must not count.
+      searchConsoleDay('2026-09-20', 1200)
+      searchConsoleDay('2026-10-07', 142)
+      searchConsoleDay('2026-10-08', 999)
+
+      expect(await link()).toEqual({ state: 'not-linked', searchConsoleImpressions: 1342 })
+    })
+
+    it('reads no-search-data when Search Console also recorded no impressions', async () => {
+      await mockGa(async () => zeroSearchReport())
+      await sync(ctx)
+      searchConsoleDay('2026-09-20', 0)
+
+      expect(await link()).toEqual({ state: 'no-search-data', searchConsoleImpressions: 0 })
+    })
+
+    it('reads unknown when Canonry has no Search Console data for those days', async () => {
+      await mockGa(async () => zeroSearchReport())
+      await sync(ctx)
+      searchConsoleDay('2026-10-20', 500)
+
+      expect(await link()).toEqual({ state: 'unknown', searchConsoleImpressions: null })
+    })
+
+    it('reads has-data when GA4 reports search data, and null before any snapshot', async () => {
+      expect(await link()).toBeNull()
+      await mockGa(async () => readyReport())
+      await sync(ctx)
+      searchConsoleDay('2026-09-20', 1200)
+
+      expect(await link()).toEqual({ state: 'has-data', searchConsoleImpressions: 1200 })
+    })
+  })
+
   it('pages rows with limit and offset while totalRows counts the whole window', async () => {
     await mockGa(async () => readyReport())
     expect((await sync(ctx)).statusCode).toBe(200)
@@ -423,6 +485,7 @@ describe('GA4 Search Console landing pages', () => {
         limit: 50,
         offset: 0,
         rows: [],
+        searchConsoleLink: null,
       })
     }
 
@@ -549,6 +612,7 @@ describe('GA4 Search Console landing pages', () => {
       limit: 50,
       offset: 0,
       rows: [],
+      searchConsoleLink: null,
     })
   })
 

@@ -48,6 +48,7 @@ function readyWindow(overrides: Partial<GaSearchLandingPagesResponse> = {}): GaS
       { landingPage: '/pricing', organicGoogleSearchClicks: 57, organicGoogleSearchImpressions: 3120, organicGoogleSearchClickThroughRate: 0.01826923, organicGoogleSearchAveragePosition: 5.1301282051282051, activeUsers: 71 },
       { landingPage: '/members?ref=newsletter', organicGoogleSearchClicks: 0, organicGoogleSearchImpressions: 0, organicGoogleSearchClickThroughRate: null, organicGoogleSearchAveragePosition: null, activeUsers: 4 },
     ],
+    searchConsoleLink: { state: 'has-data', searchConsoleImpressions: 52000 },
     ...overrides,
   }
 }
@@ -65,6 +66,7 @@ function neverSynced(): GaSearchLandingPagesResponse {
     reportRowCount: null,
     totalRows: 0,
     rows: [],
+    searchConsoleLink: null,
   })
 }
 
@@ -248,6 +250,42 @@ test('gives the Search Console link hint when pages are listed but the Total has
     ['/', '0', '0', 'n/a', 'n/a', '6'],
     ['/members?ref=newsletter', '0', '0', 'n/a', 'n/a', '3'],
   ])
+})
+
+const NO_SEARCH_TOTAL = { organicGoogleSearchClicks: 0, organicGoogleSearchImpressions: 0, organicGoogleSearchClickThroughRate: null, organicGoogleSearchAveragePosition: null, activeUsers: 87 }
+const NO_SEARCH_ROWS = [
+  { landingPage: '/', organicGoogleSearchClicks: 0, organicGoogleSearchImpressions: 0, organicGoogleSearchClickThroughRate: null, organicGoogleSearchAveragePosition: null, activeUsers: 51 },
+]
+
+test('flags a missing Search Console link at the top when Search Console has impressions GA4 lacks', async () => {
+  serve(() => jsonResponse(readyWindow({
+    total: NO_SEARCH_TOTAL, reportRowCount: 1, totalRows: 1, rows: NO_SEARCH_ROWS,
+    searchConsoleLink: { state: 'not-linked', searchConsoleImpressions: 3342 },
+  })))
+
+  renderPanel()
+
+  const status = await screen.findByTestId('ga-search-landing-not-linked')
+  expect(within(status).getByText(SEARCH_LANDING_COPY.notLinkedBadge)).toBeTruthy()
+  expect(within(status).getByLabelText(SEARCH_LANDING_COPY.notLinked(3342))).toBeTruthy()
+  expect(SEARCH_LANDING_COPY.notLinked(3342)).toContain('3,342 impressions')
+  // The badge explains the zero Total, so the hedged hint below the table is gone.
+  expect(screen.queryByText(SEARCH_LANDING_COPY.noSearchTraffic)).toBeNull()
+  expect(screen.queryByText(SEARCH_LANDING_COPY.noSearchTrafficAction)).toBeNull()
+})
+
+test('confirms no Google search traffic when Search Console also recorded none', async () => {
+  serve(() => jsonResponse(readyWindow({
+    total: NO_SEARCH_TOTAL, reportRowCount: 1, totalRows: 1, rows: NO_SEARCH_ROWS,
+    searchConsoleLink: { state: 'no-search-data', searchConsoleImpressions: 0 },
+  })))
+
+  renderPanel()
+
+  expect(await screen.findByText(SEARCH_LANDING_COPY.noSearchTraffic)).toBeTruthy()
+  expect(screen.getByText(SEARCH_LANDING_COPY.noSearchTrafficConfirmed)).toBeTruthy()
+  expect(screen.queryByText(SEARCH_LANDING_COPY.noSearchTrafficAction)).toBeNull()
+  expect(screen.queryByTestId('ga-search-landing-not-linked')).toBeNull()
 })
 
 test('gives no Search Console link hint when the Total has search data but no pages are stored', async () => {
