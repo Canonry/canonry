@@ -901,13 +901,28 @@ describe('server embed mode (#716)', () => {
         expect(res.statusCode, `${url} should be hidden by overview-only embed tabs`).toBe(403)
       }
 
+      // A write with a FULL key and NO embed header is the control plane, not the
+      // iframe, and must go through. Asserting 403 here is what made every embed
+      // instance refuse its own client provisioning once tabs were configured
+      // ("client provisioning failed: This endpoint is not available in embed
+      // mode"). The iframe is still covered, twice over: the read-only key it
+      // carries is gated by the regression test above, and a write that actually
+      // carries the tab header is refused below.
       const write = await app.inject({
         method: 'POST',
         url: `/api/v1/projects/${name}/queries`,
         headers: auth,
         payload: { queries: ['best roofer'] },
       })
-      expect(write.statusCode).toBe(403)
+      expect(write.statusCode).not.toBe(403)
+
+      const iframeWrite = await app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/${name}/queries`,
+        headers: { ...auth, 'x-canonry-embed-tabs': 'overview' },
+        payload: { queries: ['best roofer'] },
+      })
+      expect(iframeWrite.statusCode).toBe(403)
     } finally {
       await cleanup()
     }
