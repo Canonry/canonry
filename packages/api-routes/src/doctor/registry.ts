@@ -10,6 +10,7 @@ import { CONTENT_CHECKS } from './checks/content.js'
 import { ADS_CHECKS } from './checks/ads.js'
 import { GA_AUTH_CHECKS } from './checks/ga-auth.js'
 import { DATA_FRESHNESS_CHECKS } from './checks/data-freshness.js'
+import { SEO_REFRESH_CHECKS } from './checks/seo-refresh.js'
 import { SITE_REACHABILITY_CHECKS } from './checks/site-reachability.js'
 import { API_HOST_CHECKS } from './checks/api-hosts.js'
 import { GBP_AUTH_CHECKS } from './checks/gbp-auth.js'
@@ -38,6 +39,7 @@ export const ALL_CHECKS: readonly CheckDefinition[] = [
   ...WORDPRESS_PUBLISH_CHECKS,
   ...GA_AUTH_CHECKS,
   ...DATA_FRESHNESS_CHECKS,
+  ...SEO_REFRESH_CHECKS,
   reportSweepsCheck,
   reportModelsCheck,
   reportDailyDataCheck,
