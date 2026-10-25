@@ -166,7 +166,7 @@ describe('dedicated public demo server', () => {
 
   it('labels synthetic data, supports deep links and serves only built public assets', async () => {
     const { app } = await fixture()
-    for (const url of ['/', '/projects/summit-roofing', '/projects/summit-roofing/technical-aeo']) {
+    for (const url of ['/', '/projects/summit-roofing', '/projects/summit-roofing/technical-aeo', '/projects/summit-roofing/seo-data', '/projects/harbor-resorts/seo-data?queryClass=non-brand']) {
       const response = await app.inject(url)
       expect(response.statusCode).toBe(200)
       expect(response.body).toContain('"demo":{"enabled":true,"readOnly":true,"sampleData":true}')

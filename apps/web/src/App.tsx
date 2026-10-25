@@ -555,6 +555,34 @@ export function RootLayout() {
     )
   }
 
+  const footer = (
+    <footer className="footer">
+      <span className="footer-brand">
+        <span><a href='https://canonry.ai'>Canonry</a></span>
+        {healthSnapshot.apiStatus.version && healthSnapshot.apiStatus.version !== 'unknown' ? (
+          <span className="footer-version">v{healthSnapshot.apiStatus.version}</span>
+        ) : null}
+      </span>
+      {resourceLinksVisible ? (
+        <div className="footer-links">
+          {resources.map(({ label, href, Icon }) => (
+            <a
+              key={href}
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={label}
+              aria-label={label}
+              className="footer-icon"
+            >
+              <Icon className="size-3.5" />
+            </a>
+          ))}
+        </div>
+      ) : null}
+    </footer>
+  )
+
   return (
     <Dialog.Root open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
     <a className="skip-link" href="#content">
@@ -719,23 +747,7 @@ export function RootLayout() {
           </div>
         )}
 
-        {resourceLinksVisible ? (
-          <div className="sidebar-footer">
-            {resources.map(({ label, href, Icon }) => (
-              <a
-                key={href}
-                className="sidebar-footer-icon"
-                href={href}
-                target="_blank"
-                rel="noopener noreferrer"
-                title={label}
-                aria-label={label}
-              >
-                <Icon className="size-4" />
-              </a>
-            ))}
-          </div>
-        ) : null}
+        {footer}
       </aside>
       )}
 
@@ -895,6 +907,7 @@ export function RootLayout() {
               </div>
             </div>
           )}
+          {footer}
           </Dialog.Content>
           </Dialog.Portal>
         ) : null}
@@ -936,32 +949,6 @@ export function RootLayout() {
             <Outlet />
           )}
         </main>
-
-        <footer className="footer">
-          <span className="footer-brand">
-            <span><a href='https://canonry.ai'>Canonry</a></span>
-            {healthSnapshot.apiStatus.version && healthSnapshot.apiStatus.version !== 'unknown' ? (
-              <span className="footer-version">v{healthSnapshot.apiStatus.version}</span>
-            ) : null}
-          </span>
-          {resourceLinksVisible ? (
-            <div className="footer-links">
-              {resources.map(({ label, href, Icon }) => (
-                <a
-                  key={href}
-                  href={href}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  title={label}
-                  aria-label={label}
-                  className="footer-icon"
-                >
-                  <Icon className="size-3.5" />
-                </a>
-              ))}
-            </div>
-          ) : null}
-        </footer>
       </div>
 
       {/* ── Drawers ── */}

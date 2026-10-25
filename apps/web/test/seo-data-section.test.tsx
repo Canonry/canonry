@@ -141,7 +141,8 @@ test.each([SeoRunStatuses.completed, SeoRunStatuses.partial, null])('selected pr
   }
 })
 
-test.each([false, true])('an unconfigured source gives a setup next step while preserving saved evidence (%s)', async hasSavedProfile => {
+test.each([{ hasSavedProfile: false, demo: false }, { hasSavedProfile: true, demo: false }, { hasSavedProfile: true, demo: true }])('unconfigured SEO preserves evidence and offers setup only outside demos ($hasSavedProfile, $demo)', async ({ hasSavedProfile, demo }) => {
+  if (demo) window.__CANONRY_CONFIG__ = { demo: { enabled: true, readOnly: true, sampleData: true } }
   const reason = 'SEO execution is not configured on this host.'
   vi.stubGlobal('fetch', async (request: Request) => {
     const url = new URL(request.url)
@@ -157,7 +158,15 @@ test.each([false, true])('an unconfigured source gives a setup next step while p
   await mount(hasSavedProfile ? simple.id : null)
   if (hasSavedProfile) {
     await screen.findByText('saved keyword')
-    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Refresh data' }).disabled).toBe(true)
+    expect(screen.getByRole('heading', { name: 'SEO', exact: true })).toBeTruthy()
+    if (demo) {
+      expect(screen.queryByRole('button', { name: 'Refresh data' })).toBeNull()
+      expect(screen.queryByText(reason)).toBeNull()
+      expect(screen.getByText(/Fictional demo data/)).toBeTruthy()
+    } else {
+      expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Refresh data' }).disabled).toBe(true)
+      expect(screen.getAllByText(reason).length).toBeGreaterThan(0)
+    }
   } else {
     await screen.findByRole('heading', { name: 'Configure an SEO data provider' })
     expect(screen.getByText('Connect a provider before creating an SEO profile.')).toBeTruthy()

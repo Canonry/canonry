@@ -139,7 +139,7 @@ function formatRunError(error: RunErrorDto): string {
 }
 
 function statusDetailFromRun(run: ApiRun): string {
-  if (run.kind === RunKinds['seo-sync']) return 'View the saved scope and task results in SEO data.'
+  if (run.kind === RunKinds['seo-sync']) return 'View the saved scope and task results in SEO.'
   switch (run.status) {
     case RunStatuses.queued: return 'Waiting for execution slot.'
     case RunStatuses.running: return 'Provider queries in progress.'

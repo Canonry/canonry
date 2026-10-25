@@ -7,6 +7,7 @@ import { seedDemoMarketing } from './demo/seed-marketing.js'
 import { seedDemoExploration } from './demo/seed-exploration.js'
 import { seedDemoCore } from './demo/seed-core.js'
 import { seedDemoSignals } from './demo/seed-signals.js'
+import { seedDemoSeo } from './demo/seed-seo.js'
 import { demoReadOptions } from './demo/stores.js'
 import { createDemoSeedContext } from './demo/types.js'
 
@@ -20,6 +21,7 @@ export async function createDemoServer(options: { assetsDir?: string; now?: Date
     await seedDemoSignals(db, context)
     seedDemoExploration(db, context)
     seedDemoMarketing(db, context)
+    seedDemoSeo(db, context)
     // Scripted Aero turns, read from the rows just seeded. A seed change that
     // breaks a turn fails startup here instead of serving contradicting numbers.
     const aeroPreviews = buildDemoAeroPreviews(db, context)

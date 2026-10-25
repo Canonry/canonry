@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { createDemoServer } from '../src/demo-server.js'
+import { seoContextSchema, seoProfileListSchema, seoOverviewSchema, seoRunDetailSchema, seoKeywordMetricsListSchema, seoRankedKeywordListSchema } from '@canonry/canonry-contracts'
 
 const dir = mkdtempSync(join(tmpdir(), 'canonry-demo-integration-'))
 let app: Awaited<ReturnType<typeof createDemoServer>>
@@ -15,6 +16,48 @@ beforeAll(async () => {
 afterAll(async () => { await app?.close(); network.mockRestore(); rmSync(dir, { recursive: true, force: true }) })
 
 describe('populated demo integration', () => {
+  it.each(['summit-roofing', 'harbor-resorts'])('serves saved SEO evidence for %s while keeping refreshes closed', async name => {
+    const read = async (path: string) => {
+      const response = await app.inject(`/api/v1/projects/${name}/seo/${path}`)
+      expect(response.statusCode, response.body).toBe(200)
+      return response.json()
+    }
+    const context = seoContextSchema.parse(await read('context'))
+    expect(context.access).toEqual({ canRun: false, canWrite: false })
+    expect(context.available).toBe(false)
+    const { profiles } = seoProfileListSchema.parse(await read('profiles'))
+    const advanced = name === 'harbor-resorts'
+    expect(profiles).toHaveLength(advanced ? 19 : 1)
+    expect(profiles[0]!.scope.kind).toBe('project')
+    const overview = seoOverviewSchema.parse(await read('overview?profileId=all-site'))
+    expect(overview).toMatchObject({ keywordMetricsCount: advanced ? 12 : 8, rankedKeywordCount: advanced ? 12 : 8, domainIntelligenceCount: 1, summary: { organicKeywords: advanced ? 3240 : 486, inTop10: advanced ? 1222 : 176, estimatedOrganicTraffic: advanced ? 18400 : 2750 } })
+    const run = seoRunDetailSchema.parse(await read(`runs/${overview.evidenceRunId}`))
+    expect(run).toMatchObject({ status: 'completed', taskCount: 3, completedTasks: 3, failedTasks: 0, profileId: 'all-site' })
+    const ranked = seoRankedKeywordListSchema.parse(await read(`ranked-keywords?profileId=all-site&runId=${run.id}&limit=2&offset=1`))
+    expect(ranked).toMatchObject({ total: advanced ? 12 : 8, offset: 1, limit: 2 })
+    expect(ranked.items.map(item => item.rankOrganic)).toEqual([3, 4])
+    expect(ranked.items.every(item => new URL(item.url!).hostname === `${name}.example`)).toBe(true)
+    for (const profile of profiles.filter(item => item.scope.kind !== 'project')) {
+      expect(profile.scope.expectedPlanRevision).toBe(2)
+      expect(context.scopes.some(scope => scope.kind === profile.scope.kind && scope.key === profile.scope.key)).toBe(true)
+      const scoped = seoOverviewSchema.parse(await read(`overview?profileId=${profile.id}`))
+      expect(scoped.summary).toBeNull()
+      expect(scoped.rankedKeywordCount).toBe(0)
+      expect(scoped.keywordMetricsCount).toBe(profile.scope.kind === 'property' ? 1 : 4)
+      const demand = seoKeywordMetricsListSchema.parse(await read(`keyword-metrics?profileId=${profile.id}`))
+      expect(demand.items.map(item => item.keyword)).toEqual(profile.keywords)
+    }
+    for (const [method, path, payload] of [
+      ['PUT', 'profiles/all-site', {}], ['POST', 'refresh-intents', { profileId: 'all-site' }],
+      ['POST', 'sync', {}], ['POST', `runs/${run.id}/cancel`, {}],
+    ] as const) {
+      const response = await app.inject({ method, url: `/api/v1/projects/${name}/seo/${path}`, payload })
+      expect(response.statusCode).toBe(403)
+      expect(response.json().error.code).toBe('DEMO_READ_ONLY')
+    }
+    expect((await app.inject(`/api/v1/seo/operator/tasks/${run.tasks[0]!.id}`)).statusCode).toBe(403)
+    expect(network).not.toHaveBeenCalled()
+  })
   it.each(['summit-roofing', 'harbor-resorts'])('serves populated feature reads for %s without any provider call', async name => {
     const paths = [
       'overview', 'visibility-report', 'traffic/analytics', 'queries', 'runs', 'google/connections',
