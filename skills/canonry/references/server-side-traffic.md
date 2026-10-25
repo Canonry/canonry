@@ -299,7 +299,9 @@ A backfill holds the source's sync lease until it finishes, however long the
 pull takes. Scheduled syncs for that source skip while it runs and resume
 from the same watermark afterwards, so nothing commits into the window the
 backfill replaces. A backfill requested while a sync is running returns
-`OPERATION_IN_PROGRESS`; retry when that sync ends. The CLI stops waiting
+`OPERATION_IN_PROGRESS`; retry when that sync ends. A reset, reconnect or
+deactivation during a backfill stops it within a minute: it releases the
+source, stops pulling, and fails without writing. The CLI stops waiting
 after 5 minutes, but the run continues on the server: follow it with
 `cnry runs <project> --kind traffic-sync`.
 

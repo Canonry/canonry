@@ -398,6 +398,12 @@ export interface TrafficRoutesOptions {
    * tiny value to exercise the deadline path.
    */
   vercelSyncDeadlineMs?: number
+  /**
+   * How often a running backfill renews the source lease and re-checks the
+   * source. Defaults to `TRAFFIC_BACKFILL_LEASE_RENEW_MS`; tests pass a tiny
+   * value to exercise a reset during a backfill.
+   */
+  trafficBackfillLeaseRenewMs?: number
   /** Fire-and-forget hook called after every sync completes (success OR failure). Used by canonry to emit telemetry. */
   onTrafficSynced?: (event: TrafficSyncedEvent) => void
   /** Fire-and-forget hook called after every authenticated ingest push (success OR failure). Used by canonry to emit telemetry. */
@@ -1056,7 +1062,12 @@ export async function defaultResolveAccessToken(record: CloudRunCredentialRecord
  * a "pull failed" run failure with the adapter-specific prefix from the
  * route's closure.
  */
-type BackfillPullFn = () => Promise<NormalizedTrafficRequest[]>
+/**
+ * Pulls the backfill window. `signal` aborts once the source is reset,
+ * reconnected or deactivated, because the commit would be refused; a pull
+ * that loops checks it between provider calls.
+ */
+type BackfillPullFn = (signal: AbortSignal) => Promise<NormalizedTrafficRequest[]>
 
 type TrafficTransaction = Parameters<Parameters<DatabaseClient['transaction']>[0]>[0]
 
@@ -1192,6 +1203,8 @@ interface RunBackfillTaskOptions {
   runId: string
   /** The source lease the route claimed for this backfill; the task renews and releases it. */
   leaseOwner: string
+  /** Lease renewal and source re-check interval. */
+  leaseRenewMs: number
   project: { id: string; name: string }
   sourceRow: typeof trafficSources.$inferSelect
   windowStart: Date
@@ -1214,10 +1227,28 @@ interface RunBackfillTaskOptions {
 
 async function runBackfillTask(options: RunBackfillTaskOptions): Promise<void> {
   const { app, sourceRow, leaseOwner } = options
+  const stopped = new AbortController()
+  const releaseLease = () => {
+    try {
+      releaseTrafficSyncLease({ db: app.db, sourceId: sourceRow.id, owner: leaseOwner, now: new Date().toISOString() })
+    } catch {
+      // The lease expires on its own if this cleanup cannot run.
+    }
+  }
   // Keep the source lease for the whole run, however long the pull takes, so
-  // scheduled syncs skip instead of committing into the replaced window.
+  // scheduled syncs skip instead of committing into the replaced window. Each
+  // renewal first re-checks the source: once a reset, reconnect or
+  // deactivation changed it, the commit would be refused, so the backfill
+  // stops holding the source and stops pulling instead of blocking syncs.
   const renewLease = setInterval(() => {
     try {
+      const latest = app.db.select().from(trafficSources).where(eq(trafficSources.id, sourceRow.id)).get()
+      if (!latest || !isAuthoritativeTrafficSource(app.db, latest) || !isSameTrafficSourceGeneration(latest, sourceRow)) {
+        clearInterval(renewLease)
+        stopped.abort()
+        releaseLease()
+        return
+      }
       tryClaimTrafficSyncLease({
         db: app.db, sourceId: sourceRow.id, owner: leaseOwner,
         now: new Date().toISOString(), ttlMs: TRAFFIC_BACKFILL_LEASE_TTL_MS,
@@ -1225,21 +1256,17 @@ async function runBackfillTask(options: RunBackfillTaskOptions): Promise<void> {
     } catch {
       // A missed renewal is caught at commit: the owner check refuses to write.
     }
-  }, TRAFFIC_BACKFILL_LEASE_RENEW_MS)
+  }, options.leaseRenewMs)
   renewLease.unref?.()
   try {
-    await runBackfillTaskHoldingLease(options)
+    await runBackfillTaskHoldingLease(options, stopped.signal)
   } finally {
     clearInterval(renewLease)
-    try {
-      releaseTrafficSyncLease({ db: app.db, sourceId: sourceRow.id, owner: leaseOwner, now: new Date().toISOString() })
-    } catch {
-      // The lease expires on its own if this cleanup cannot run.
-    }
+    releaseLease()
   }
 }
 
-async function runBackfillTaskHoldingLease(options: RunBackfillTaskOptions): Promise<void> {
+async function runBackfillTaskHoldingLease(options: RunBackfillTaskOptions, signal: AbortSignal): Promise<void> {
   const {
     app,
     runId,
@@ -1300,8 +1327,14 @@ async function runBackfillTaskHoldingLease(options: RunBackfillTaskOptions): Pro
 
   let allEvents: NormalizedTrafficRequest[]
   try {
-    allEvents = await pullForBackfill()
+    allEvents = await pullForBackfill(signal)
   } catch (e) {
+    if (signal.aborted) {
+      // Stopped because the source changed under it; leave the source as the reset or reconnect set it.
+      markFailed('Backfill stopped: the traffic source was reset, reconnected or deactivated while it ran', true)
+      reportBackfill({ status: OutcomeStatuses.failed, reasonCode: OutcomeReasonCodes.NOT_CONNECTED })
+      return
+    }
     // A Vercel retention miss is a rejected optional historical recovery, not
     // a problem with the already-connected source. The failed run records the
     // exact range, while the existing source state is left intact so its
@@ -4404,7 +4437,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         ?? credential.environment
 
       pullErrorPrefix = 'Vercel pull failed'
-      pullForBackfill = async () => {
+      pullForBackfill = async (signal) => {
         const collected: NormalizedTrafficRequest[] = []
         const seenEventIds = new Set<string>()
         const backfillEndMs = windowEnd.getTime()
@@ -4413,6 +4446,8 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
           chunkStartMs < backfillEndMs;
           chunkStartMs += VERCEL_BACKFILL_CHUNK_MS
         ) {
+          // The source changed under the backfill: stop calling Vercel.
+          signal.throwIfAborted()
           const chunkEndMs = Math.min(chunkStartMs + VERCEL_BACKFILL_CHUNK_MS, backfillEndMs)
           // Backfill is replace mode — a truncated sample would overwrite a
           // full prior rollup with a partial one. `abortOnTruncation` makes the
@@ -4488,6 +4523,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       app,
       runId,
       leaseOwner,
+      leaseRenewMs: opts.trafficBackfillLeaseRenewMs ?? TRAFFIC_BACKFILL_LEASE_RENEW_MS,
       project,
       sourceRow,
       journeyKeySecret: opts.journeyKeySecret,
