@@ -142,7 +142,7 @@ import {
 } from './schema.js'
 import type { CanonryMcpTier } from './toolkits.js'
 import { seoOperatorTaskSchema, seoReconcileInputSchema, seoReconcileResultSchema } from '@canonry/canonry-contracts'
-import { seoContextSchema, seoStatusSchema, seoProfileListSchema, seoProfileSchema, seoQuoteSchema, seoRunSchema, seoRunListSchema, seoRunDetailSchema, seoOverviewSchema, seoKeywordMetricsListSchema, seoDomainIntelligenceListSchema, seoRankedKeywordListSchema, seoEvidenceQuerySchema, seoProfileInputSchema, seoRefreshIntentInputSchema, seoSyncInputSchema, SEO_RUN_SCOPE, SEO_WRITE_SCOPE } from '@canonry/canonry-contracts'
+import { seoContextSchema, seoStatusSchema, seoProfileListSchema, seoProfileSchema, seoQuoteSchema, seoRunSchema, seoRunListSchema, seoRunDetailSchema, seoOverviewSchema, seoKeywordMetricsListSchema, seoDomainIntelligenceListSchema, seoRankedKeywordListSchema, seoMarketRankingListSchema, seoMarketRankingQuerySchema, seoEvidenceQuerySchema, seoProfileInputSchema, seoRefreshIntentInputSchema, seoSyncInputSchema, SEO_RUN_SCOPE, SEO_WRITE_SCOPE } from '@canonry/canonry-contracts'
 
 export type McpToolAccess = 'read' | 'write'
 
@@ -1288,6 +1288,7 @@ const sentimentBackfillInputSchema = sentimentBackfillRequestSchema.extend({ pro
 
 const seoIdInputSchema = projectInputSchema.extend({ id: z.string().min(1) })
 const seoEvidenceInputSchema = seoEvidenceQuerySchema.extend({ project: projectNameSchema })
+const seoMarketRankingInputSchema = seoMarketRankingQuerySchema.extend({ project: projectNameSchema })
 
 const rawCanonryMcpTools = [
   defineTool({
@@ -1431,6 +1432,15 @@ const rawCanonryMcpTools = [
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/seo/ranked-keywords'],
     handler: (client, input) => { const { project, ...query } = input; return client.getSeoRankedKeywords(project, query) },
+  }),
+  defineTool({
+    name: 'canonry_seo_market_rankings', title: 'SEO market rankings',
+    description: "Read stored SEO data only. No provider calls. The site's Google position for each tracked non-brand query in each market, searched from that market's location; these are the same tracked queries AI visibility measures, and searchText is the exact text searched. A null rank means not in the checked results (depth), not a failed search. Filter with marketKey or regionKey and keep runId fixed while paging.",
+    access: 'read', tier: 'seo',
+    inputSchema: seoMarketRankingInputSchema, outputSchema: seoMarketRankingListSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/seo/market-rankings'],
+    handler: (client, input) => { const { project, ...query } = input; return client.getSeoMarketRankings(project, query) },
   }),
   defineTool({
     name: 'canonry_sentiment_settings', title: 'Read sentiment readiness and settings',

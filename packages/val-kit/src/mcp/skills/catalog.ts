@@ -126,9 +126,9 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     skill: "aero",
     path: "references/seo-analysis.md",
     title: "SEO analysis",
-    description: "Prioritize keyword and organic ranking opportunities from saved SEO evidence. Covers profile selection, bounded samples, Advanced scopes, provider estimates, and actionable shortlists.",
+    description: "Prioritize keyword and organic ranking opportunities from saved SEO evidence. Covers profile selection, bounded samples, Advanced scopes, market rankings, provider estimates, and actionable shortlists.",
     entryPoint: false,
-    characters: 9374,
+    characters: 11038,
     content: aeroReferencesSeoAnalysisPart0,
   },
   {
@@ -198,7 +198,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Canonry CLI Reference",
     description: "canonry skill reference: references/canonry-cli.md",
     entryPoint: false,
-    characters: 194107,
+    characters: 194405,
     content: [canonryReferencesCanonryCliPart0, canonryReferencesCanonryCliPart1, canonryReferencesCanonryCliPart2, canonryReferencesCanonryCliPart3].join(''),
   },
   {

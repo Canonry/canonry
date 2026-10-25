@@ -25,7 +25,7 @@ import { gbpLocalPostDtoSchema, gbpLocalPostListSchema, gbpLocalPostAttemptSchem
  */
 import { z, type ZodType } from 'zod'
 import { seoOperatorTaskSchema, seoReconcileInputSchema, seoReconcileResultSchema } from '@canonry/canonry-contracts'
-import { seoContextSchema, seoStatusSchema, seoProfileSchema, seoProfileListSchema, seoProfileInputSchema, seoQuoteSchema, seoRefreshIntentInputSchema, seoSyncInputSchema, seoRunSchema, seoRunDetailSchema, seoRunListSchema, seoOverviewSchema, seoKeywordMetricsListSchema, seoDomainIntelligenceListSchema, seoRankedKeywordListSchema } from '@canonry/canonry-contracts'
+import { seoContextSchema, seoStatusSchema, seoProfileSchema, seoProfileListSchema, seoProfileInputSchema, seoQuoteSchema, seoRefreshIntentInputSchema, seoSyncInputSchema, seoRunSchema, seoRunDetailSchema, seoRunListSchema, seoOverviewSchema, seoKeywordMetricsListSchema, seoDomainIntelligenceListSchema, seoRankedKeywordListSchema, seoMarketRankingListSchema } from '@canonry/canonry-contracts'
 import { sentimentSummarySchema, sentimentSettingsSchema, sentimentSettingsUpdateSchema, sentimentEvidencePageSchema, sentimentComparisonSchema, sentimentBackfillPreviewSchema, sentimentBackfillRequestSchema, sentimentJobsSchema, sentimentJobSchema } from '@canonry/canonry-contracts'
 import { visibilityReportResponseSchema } from '@canonry/canonry-contracts'
 import { queryTrackingWorkspaceResponseSchema, queryTrackingPreviewRequestSchema, queryTrackingPreviewResponseSchema, queryTrackingCommitRequestSchema, queryTrackingCommitResponseSchema } from '@canonry/canonry-contracts'
@@ -363,6 +363,7 @@ const SCHEMA_TABLE = {
   SeoKeywordMetricsList: seoKeywordMetricsListSchema,
   SeoDomainIntelligenceList: seoDomainIntelligenceListSchema,
   SeoRankedKeywordList: seoRankedKeywordListSchema,
+  SeoMarketRankingList: seoMarketRankingListSchema,
   SentimentSummary: sentimentSummarySchema,
   SentimentSettings: sentimentSettingsSchema,
   SentimentSettingsUpdate: sentimentSettingsUpdateSchema,

@@ -1,12 +1,40 @@
 import { eq } from 'drizzle-orm'
 import {
   RunKinds, RunStatuses, RunTriggers, SeoAdapterOutcomes, SeoCapabilities, SeoProviders,
-  SeoRunStatuses, SeoScopeKinds, SeoTargetKinds, emptySeoResults, measurementPlanV2Schema,
-  type SeoProfileInput, type SeoProvenance, type SeoResults,
+  SeoRunStatuses, SeoScopeKinds, SeoTargetKinds, emptySeoResults, measurementPlanV2Schema, queryClassSchema,
+  type MeasurementPlanV2, type SeoAdapterRequest, type SeoMarketRanking, type SeoProfileInput, type SeoProvenance, type SeoResults, type SeoTarget,
 } from '@canonry/canonry-contracts'
 import { measurementPlans, measurementPlanVersions, runs, seoJobs, seoProfiles, seoTasks, type DatabaseClient } from '@canonry/canonry-db'
 import { harborProperties } from './portfolio.js'
 import type { DemoSeedContext } from './types.js'
+
+/** Fictional searches and Google positions for each market's non-brand queries, one search per query. */
+function demoMarketRankings(plan: MeasurementPlanV2, input: SeoProfileInput, target: SeoTarget, capturedAt: string, daysAgo: number): Array<{ request: SeoAdapterRequest; row: SeoMarketRanking }> {
+  const settings = input.rankings!
+  const text = new Map(plan.querySnapshots.map(snapshot => [snapshot.queryId, snapshot.queryText]))
+  const nonBrand = new Set(plan.assignments.filter(assignment => assignment.queryClass === queryClassSchema.enum['non-brand']).map(assignment => `${assignment.targetKey}:${assignment.queryId}`))
+  const competitors = [...new Set(plan.groups.flatMap(group => group.competitors.map(competitor => competitor.domain)))].sort()
+  return (plan.reportingScopes ?? []).flatMap(market => {
+    const location = settings.locations.find(item => item.key === market.stableKey)!
+    const queryIds = [...new Set(market.usageEdges.filter(edge => nonBrand.has(`${edge.targetKey}:${edge.queryId}`)).map(edge => edge.queryId))]
+    return queryIds.map((queryId, index) => {
+      const queryText = text.get(queryId)!
+      // The resort ranks near the top, villas lower, the last villa outside the checked results; the older refresh ranked lower.
+      const rank = index === 3 ? null : [3, 7, 14][index]! + (daysAgo === 1 ? 0 : 2)
+      const context = { marketKey: market.stableKey, marketLabel: market.label, regionKey: market.groupKey ?? null, regionLabel: market.groupKey ? plan.groups.find(group => group.stableKey === market.groupKey)?.label ?? null : null, queryId, queryText, queryClass: queryClassSchema.enum['non-brand'] }
+      const provenance: SeoProvenance = { provider: SeoProviders.dataforseo, dataset: 'demo-market-rankings', engine: 'google', locationCode: location.locationCode, languageCode: input.languageCode, device: settings.device, collectedAt: capturedAt, sourceUpdatedAt: capturedAt }
+      return {
+        request: { capability: SeoCapabilities['market-rankings'], target, keywords: [queryText], locationCode: location.locationCode, languageCode: input.languageCode, limit: input.limit, tag: '', search: { device: settings.device, depth: settings.depth, locationLabel: location.label, competitors, markets: [context] } },
+        row: {
+          ...context, searchText: queryText, locationLabel: location.label, target, rankOrganic: rank, rankAbsolute: rank === null ? null : rank + 2,
+          url: rank === null ? null : `https://${target.value}/destinations/${market.stableKey.replace(/^market-/, '')}/`, depth: settings.depth,
+          competitors: competitors.map((domain, competitorIndex) => ({ domain, rankOrganic: 2 + competitorIndex * 3 + index })),
+          provenance,
+        },
+      }
+    })
+  })
+}
 
 /** Fictional saved SEO observations. No adapter, credentials, or provider work. */
 export function seedDemoSeo(db: DatabaseClient, context: DemoSeedContext): void {
@@ -39,6 +67,11 @@ export function seedDemoSeo(db: DatabaseClient, context: DemoSeedContext): void 
             scope: { kind: scope.kind, key: scope.key, expectedPlanRevision: version.revision },
           } })
         }
+        const city = new Map(properties.map(property => [`market-${property.market.key}`, `${property.market.city}, ${property.market.region}`]))
+        profiles.push({ id: 'market-rankings', input: {
+          ...base, name: 'Market rankings', capabilities: [SeoCapabilities['market-rankings']], keywords: [],
+          rankings: { locations: (plan.reportingScopes ?? []).map((market, index) => ({ key: market.stableKey, locationCode: 900_001 + index, label: city.get(market.stableKey) ?? market.label })), depth: 50, device: 'mobile', searchText: 'query' },
+        } })
       }
       for (const { id: profileId, input } of profiles) {
         const createdAt = new Date(context.now.getTime() - 8 * 86_400_000).toISOString()
@@ -54,6 +87,16 @@ export function seedDemoSeo(db: DatabaseClient, context: DemoSeedContext): void 
             connectionId: input.connectionId, accountKey: 'demo-no-provider-account', buckets: [],
             status: SeoRunStatuses.completed, createdAt: capturedAt, startedAt: capturedAt, finishedAt: capturedAt,
           }).run()
+          if (input.capabilities.includes(SeoCapabilities['market-rankings']) && plan && input.targets[0]) {
+            for (const [index, { request, row }] of demoMarketRankings(plan, input, input.targets[0], capturedAt, daysAgo).entries()) {
+              tx.insert(seoTasks).values({
+                id: `${runId}-search-${index}`, jobId: runId, request: { ...request, tag: runId },
+                status: SeoRunStatuses.completed, catalogRevision: 'demo', collectionOutcome: SeoAdapterOutcomes.completed,
+                reservedMicros: 0, actualMicros: 0, receipts: [], results: { ...emptySeoResults(), marketRankings: [row] }, startedAt: capturedAt, finishedAt: capturedAt,
+              }).run()
+            }
+            continue
+          }
           for (const capability of input.capabilities) {
             const provenance: SeoProvenance = { provider: SeoProviders.dataforseo, dataset: `demo-${capability}`, engine: 'google', locationCode: input.locationCode, languageCode: input.languageCode, device: 'unspecified', collectedAt: capturedAt, sourceUpdatedAt: capturedAt }
             const results: SeoResults = emptySeoResults()

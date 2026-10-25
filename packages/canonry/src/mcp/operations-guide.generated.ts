@@ -30,7 +30,7 @@ export const OPERATIONS_GUIDE = {
         "canonry_seo_sync",
         "canonry_seo_run_cancel"
       ],
-      "guidance": "Read saved SEO evidence first. Preserve profile, exact domain or host, market, language, plan revision, dataset and collection date. SEO traffic and keyword metrics are third-party estimates, separate from Search Console observations and AI citation and mention coverage. Refresh requires explicit approval for the profile and work, a fresh refresh intent and an idempotency key. Hosted financial controls are internal; no credential or billing information belongs in the response."
+      "guidance": "Read saved SEO evidence first. Preserve profile, exact domain or host, market, language, plan revision, dataset and collection date. Market rankings (canonry_seo_market_rankings) are the site's Google position for its tracked queries by market, the same queries AI visibility measures. SEO traffic and keyword metrics are third-party estimates, separate from Search Console observations and AI citation and mention coverage. Refresh requires explicit approval for the profile and work, a fresh refresh intent and an idempotency key. Hosted financial controls are internal; no credential or billing information belongs in the response."
     },
     "operations": {
       "keywords": [

@@ -36,7 +36,7 @@ export type SeoContext = {
         id: string;
         label: string;
         provider: 'dataforseo';
-        capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords'>;
+        capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings'>;
     }>;
     scopes: Array<{
         kind: 'project' | 'group' | 'market' | 'property';
@@ -45,7 +45,7 @@ export type SeoContext = {
         planRevision?: number;
         supported: boolean;
         reason: string | null;
-        capabilities?: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords'>;
+        capabilities?: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings'>;
     }>;
     access: {
         canRun: boolean;
@@ -56,7 +56,7 @@ export type SeoContext = {
 export type SeoStatus = {
     available: boolean;
     reason: string | null;
-    capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords'>;
+    capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings'>;
     profileCount: number;
     latestRunId: string | null;
     latestRunStatus: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | 'reconciliation-required' | null;
@@ -66,7 +66,7 @@ export type SeoStatus = {
 export type SeoProfile = {
     name: string;
     connectionId: string;
-    capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords'>;
+    capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings'>;
     targets: Array<{
         kind: 'domain' | 'host';
         value: string;
@@ -81,6 +81,16 @@ export type SeoProfile = {
         key?: string;
         expectedPlanRevision?: number;
     };
+    rankings?: {
+        locations: Array<{
+            key: string;
+            locationCode: number;
+            label: string;
+        }>;
+        depth: number;
+        device: 'desktop' | 'mobile';
+        searchText: 'query' | 'query-without-market-region';
+    };
     id: string;
     revision: number;
     createdAt: string;
@@ -91,7 +101,7 @@ export type SeoProfileList = {
     profiles: Array<{
         name: string;
         connectionId: string;
-        capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords'>;
+        capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings'>;
         targets: Array<{
             kind: 'domain' | 'host';
             value: string;
@@ -106,6 +116,16 @@ export type SeoProfileList = {
             key?: string;
             expectedPlanRevision?: number;
         };
+        rankings?: {
+            locations: Array<{
+                key: string;
+                locationCode: number;
+                label: string;
+            }>;
+            depth: number;
+            device: 'desktop' | 'mobile';
+            searchText: 'query' | 'query-without-market-region';
+        };
         id: string;
         revision: number;
         createdAt: string;
@@ -116,7 +136,7 @@ export type SeoProfileList = {
 export type SeoProfileInput = {
     name: string;
     connectionId: string;
-    capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords'>;
+    capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings'>;
     targets: Array<{
         kind: 'domain' | 'host';
         value: string;
@@ -131,6 +151,16 @@ export type SeoProfileInput = {
         key?: string;
         expectedPlanRevision?: number;
     };
+    rankings?: {
+        locations: Array<{
+            key: string;
+            locationCode: number;
+            label: string;
+        }>;
+        depth: number;
+        device: 'desktop' | 'mobile';
+        searchText: 'query' | 'query-without-market-region';
+    };
 };
 
 export type SeoQuote = {
@@ -144,7 +174,7 @@ export type SeoQuote = {
         value: string;
         includeSubdomains: boolean;
     }>;
-    capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords'>;
+    capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings'>;
     availability: 'ready' | 'unavailable';
     reason: string | null;
 };
@@ -167,7 +197,7 @@ export type SeoRun = {
     languageCode: string;
     cancelRequested: boolean;
     status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | 'reconciliation-required';
-    capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords'>;
+    capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings'>;
     scope: {
         kind: 'project' | 'group' | 'market' | 'property';
         key?: string;
@@ -191,7 +221,7 @@ export type SeoRunDetail = {
     languageCode: string;
     cancelRequested: boolean;
     status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | 'reconciliation-required';
-    capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords'>;
+    capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings'>;
     scope: {
         kind: 'project' | 'group' | 'market' | 'property';
         key?: string;
@@ -206,7 +236,7 @@ export type SeoRunDetail = {
     error: string | null;
     tasks: Array<{
         id: string;
-        capability: 'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords';
+        capability: 'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings';
         target: {
             kind: 'domain' | 'host';
             value: string;
@@ -239,7 +269,7 @@ export type SeoRunDetail = {
                 engine: 'google';
                 locationCode: number;
                 languageCode: string;
-                device: 'unspecified';
+                device: 'unspecified' | 'desktop' | 'mobile';
                 collectedAt: string;
                 sourceUpdatedAt: string | null;
             };
@@ -263,7 +293,7 @@ export type SeoRunDetail = {
                 engine: 'google';
                 locationCode: number;
                 languageCode: string;
-                device: 'unspecified';
+                device: 'unspecified' | 'desktop' | 'mobile';
                 collectedAt: string;
                 sourceUpdatedAt: string | null;
             };
@@ -292,7 +322,41 @@ export type SeoRunDetail = {
                 engine: 'google';
                 locationCode: number;
                 languageCode: string;
-                device: 'unspecified';
+                device: 'unspecified' | 'desktop' | 'mobile';
+                collectedAt: string;
+                sourceUpdatedAt: string | null;
+            };
+        }>;
+        marketRankings: Array<{
+            marketKey: string;
+            marketLabel: string;
+            regionKey: string | null;
+            regionLabel: string | null;
+            queryId: string | null;
+            queryText: string;
+            queryClass: 'branded' | 'non-brand';
+            searchText: string;
+            locationLabel: string;
+            target: {
+                kind: 'domain' | 'host';
+                value: string;
+                includeSubdomains: boolean;
+            };
+            rankOrganic: number | null;
+            rankAbsolute: number | null;
+            url: string | null;
+            depth: number;
+            competitors: Array<{
+                domain: string;
+                rankOrganic: number;
+            }>;
+            provenance: {
+                provider: 'dataforseo';
+                dataset: string;
+                engine: 'google';
+                locationCode: number;
+                languageCode: string;
+                device: 'unspecified' | 'desktop' | 'mobile';
                 collectedAt: string;
                 sourceUpdatedAt: string | null;
             };
@@ -302,6 +366,7 @@ export type SeoRunDetail = {
         keywordMetrics: number;
         domainIntelligence: number;
         rankedKeywords: number;
+        marketRankings: number;
     };
     resultsTruncated: boolean;
 };
@@ -316,7 +381,7 @@ export type SeoRunList = {
         languageCode: string;
         cancelRequested: boolean;
         status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | 'reconciliation-required';
-        capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords'>;
+        capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings'>;
         scope: {
             kind: 'project' | 'group' | 'market' | 'property';
             key?: string;
@@ -336,7 +401,7 @@ export type SeoOverview = {
     status: {
         available: boolean;
         reason: string | null;
-        capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords'>;
+        capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings'>;
         profileCount: number;
         latestRunId: string | null;
         latestRunStatus: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | 'reconciliation-required' | null;
@@ -345,7 +410,7 @@ export type SeoOverview = {
     profiles: Array<{
         name: string;
         connectionId: string;
-        capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords'>;
+        capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings'>;
         targets: Array<{
             kind: 'domain' | 'host';
             value: string;
@@ -359,6 +424,16 @@ export type SeoOverview = {
             kind: 'project' | 'group' | 'market' | 'property';
             key?: string;
             expectedPlanRevision?: number;
+        };
+        rankings?: {
+            locations: Array<{
+                key: string;
+                locationCode: number;
+                label: string;
+            }>;
+            depth: number;
+            device: 'desktop' | 'mobile';
+            searchText: 'query' | 'query-without-market-region';
         };
         id: string;
         revision: number;
@@ -374,7 +449,7 @@ export type SeoOverview = {
         languageCode: string;
         cancelRequested: boolean;
         status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | 'reconciliation-required';
-        capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords'>;
+        capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings'>;
         scope: {
             kind: 'project' | 'group' | 'market' | 'property';
             key?: string;
@@ -398,7 +473,7 @@ export type SeoOverview = {
         languageCode: string;
         cancelRequested: boolean;
         status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | 'reconciliation-required';
-        capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords'>;
+        capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings'>;
         scope: {
             kind: 'project' | 'group' | 'market' | 'property';
             key?: string;
@@ -427,7 +502,7 @@ export type SeoOverview = {
             engine: 'google';
             locationCode: number;
             languageCode: string;
-            device: 'unspecified';
+            device: 'unspecified' | 'desktop' | 'mobile';
             collectedAt: string;
             sourceUpdatedAt: string | null;
         };
@@ -435,6 +510,7 @@ export type SeoOverview = {
     keywordMetricsCount: number;
     domainIntelligenceCount: number;
     rankedKeywordCount: number;
+    marketRankingCount: number;
 };
 
 export type SeoKeywordMetricsList = {
@@ -464,7 +540,7 @@ export type SeoKeywordMetricsList = {
             engine: 'google';
             locationCode: number;
             languageCode: string;
-            device: 'unspecified';
+            device: 'unspecified' | 'desktop' | 'mobile';
             collectedAt: string;
             sourceUpdatedAt: string | null;
         };
@@ -495,7 +571,7 @@ export type SeoDomainIntelligenceList = {
             engine: 'google';
             locationCode: number;
             languageCode: string;
-            device: 'unspecified';
+            device: 'unspecified' | 'desktop' | 'mobile';
             collectedAt: string;
             sourceUpdatedAt: string | null;
         };
@@ -531,7 +607,48 @@ export type SeoRankedKeywordList = {
             engine: 'google';
             locationCode: number;
             languageCode: string;
-            device: 'unspecified';
+            device: 'unspecified' | 'desktop' | 'mobile';
+            collectedAt: string;
+            sourceUpdatedAt: string | null;
+        };
+    }>;
+};
+
+export type SeoMarketRankingList = {
+    runId: string | null;
+    total: number;
+    limit: number;
+    offset: number;
+    items: Array<{
+        marketKey: string;
+        marketLabel: string;
+        regionKey: string | null;
+        regionLabel: string | null;
+        queryId: string | null;
+        queryText: string;
+        queryClass: 'branded' | 'non-brand';
+        searchText: string;
+        locationLabel: string;
+        target: {
+            kind: 'domain' | 'host';
+            value: string;
+            includeSubdomains: boolean;
+        };
+        rankOrganic: number | null;
+        rankAbsolute: number | null;
+        url: string | null;
+        depth: number;
+        competitors: Array<{
+            domain: string;
+            rankOrganic: number;
+        }>;
+        provenance: {
+            provider: 'dataforseo';
+            dataset: string;
+            engine: 'google';
+            locationCode: number;
+            languageCode: string;
+            device: 'unspecified' | 'desktop' | 'mobile';
             collectedAt: string;
             sourceUpdatedAt: string | null;
         };
@@ -18694,6 +18811,73 @@ export type GetApiV1ProjectsByNameSeoRankedKeywordsResponses = {
 };
 
 export type GetApiV1ProjectsByNameSeoRankedKeywordsResponse = GetApiV1ProjectsByNameSeoRankedKeywordsResponses[keyof GetApiV1ProjectsByNameSeoRankedKeywordsResponses];
+
+export type GetApiV1ProjectsByNameSeoMarketRankingsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Exact saved profile. Required when multiple profiles exist.
+         */
+        profileId?: string;
+        /**
+         * Exact historical refresh. Omit for latest saved evidence for the selected profile.
+         */
+        runId?: string;
+        /**
+         * Page size only. Never changes the evidence scope or denominator.
+         */
+        limit?: number;
+        /**
+         * Evidence page offset.
+         */
+        offset?: number;
+        /**
+         * Only rows for this market (an Advanced market key or a Simple location label).
+         */
+        marketKey?: string;
+        /**
+         * Only rows whose market sits under this top-level group.
+         */
+        regionKey?: string;
+    };
+    url: '/api/v1/projects/{name}/seo/market-rankings';
+};
+
+export type GetApiV1ProjectsByNameSeoMarketRankingsErrors = {
+    /**
+     * Invalid scope or input.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Insufficient authority.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project or selected evidence not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Selection, intent or execution identity changed.
+     */
+    409: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameSeoMarketRankingsError = GetApiV1ProjectsByNameSeoMarketRankingsErrors[keyof GetApiV1ProjectsByNameSeoMarketRankingsErrors];
+
+export type GetApiV1ProjectsByNameSeoMarketRankingsResponses = {
+    /**
+     * SEO response.
+     */
+    200: SeoMarketRankingList;
+};
+
+export type GetApiV1ProjectsByNameSeoMarketRankingsResponse = GetApiV1ProjectsByNameSeoMarketRankingsResponses[keyof GetApiV1ProjectsByNameSeoMarketRankingsResponses];
 
 export type PostApiV1ProjectsByNameSeoRefreshIntentsData = {
     body: SeoRefreshIntentInput;

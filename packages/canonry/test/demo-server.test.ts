@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { createDemoServer } from '../src/demo-server.js'
-import { seoContextSchema, seoProfileListSchema, seoOverviewSchema, seoRunDetailSchema, seoKeywordMetricsListSchema, seoRankedKeywordListSchema } from '@canonry/canonry-contracts'
+import { seoContextSchema, seoProfileListSchema, seoOverviewSchema, seoRunDetailSchema, seoKeywordMetricsListSchema, seoMarketRankingListSchema, seoRankedKeywordListSchema } from '@canonry/canonry-contracts'
 
 const dir = mkdtempSync(join(tmpdir(), 'canonry-demo-integration-'))
 let app: Awaited<ReturnType<typeof createDemoServer>>
@@ -27,7 +27,7 @@ describe('populated demo integration', () => {
     expect(context.available).toBe(false)
     const { profiles } = seoProfileListSchema.parse(await read('profiles'))
     const advanced = name === 'harbor-resorts'
-    expect(profiles).toHaveLength(advanced ? 19 : 1)
+    expect(profiles).toHaveLength(advanced ? 20 : 1)
     expect(profiles[0]!.scope.kind).toBe('project')
     const overview = seoOverviewSchema.parse(await read('overview?profileId=all-site'))
     expect(overview).toMatchObject({ keywordMetricsCount: advanced ? 12 : 8, rankedKeywordCount: advanced ? 12 : 8, domainIntelligenceCount: 1, summary: { organicKeywords: advanced ? 3240 : 486, inTop10: advanced ? 1222 : 176, estimatedOrganicTraffic: advanced ? 18400 : 2750 } })
@@ -37,6 +37,18 @@ describe('populated demo integration', () => {
     expect(ranked).toMatchObject({ total: advanced ? 12 : 8, offset: 1, limit: 2 })
     expect(ranked.items.map(item => item.rankOrganic)).toEqual([3, 4])
     expect(ranked.items.every(item => new URL(item.url!).hostname === `${name}.example`)).toBe(true)
+    if (advanced) {
+      // 3 markets x 4 non-brand queries; each market's last query is outside the checked results.
+      expect(seoOverviewSchema.parse(await read('overview?profileId=market-rankings')).marketRankingCount).toBe(12)
+      const markets = seoMarketRankingListSchema.parse(await read('market-rankings?profileId=market-rankings&limit=100'))
+      expect(markets.total).toBe(12)
+      expect([...new Set(markets.items.map(item => item.marketLabel))]).toEqual(['Coastal Maine market', 'Key West market', 'Pacific Northwest market'])
+      expect(markets.items.filter(item => item.rankOrganic === null)).toHaveLength(3)
+      expect(markets.items.every(item => item.queryClass === 'non-brand' && item.provenance.device === 'mobile')).toBe(true)
+      const keyWest = seoMarketRankingListSchema.parse(await read('market-rankings?profileId=market-rankings&marketKey=market-key-west'))
+      // Rows read in search-text order within a market.
+      expect(keyWest.items.map(item => [item.searchText.split(' for ')[1], item.rankOrganic, item.locationLabel])).toEqual([['family suites', 7, 'Key West, FL'], ['oceanfront pools', 3, 'Key West, FL'], ['spa weekends', 14, 'Key West, FL'], ['sunset dining', null, 'Key West, FL']])
+    }
     for (const profile of profiles.filter(item => item.scope.kind !== 'project')) {
       expect(profile.scope.expectedPlanRevision).toBe(2)
       expect(context.scopes.some(scope => scope.kind === profile.scope.kind && scope.key === profile.scope.key)).toBe(true)

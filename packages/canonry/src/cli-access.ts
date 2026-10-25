@@ -324,6 +324,7 @@ const CLI_ACCESS_BY_ID: Readonly<Record<string, OperationAccess>> = Object.freez
   'seo.context': 'stored',
   'seo.domain-intelligence': 'stored',
   'seo.keyword-metrics': 'stored',
+  'seo.market-rankings': 'stored',
   'seo.operator.reconcile': 'write',
   'seo.operator.task': 'stored',
   'seo.overview': 'stored',

@@ -7,8 +7,8 @@ import { getApiV1ProjectsByNameGbpLocalPosts, getApiV1ProjectsByNameGbpLocalPost
 import type { TrafficSamplesQuery, TrafficSamplesResponse } from '@canonry/canonry-contracts'
 import type { SeoOperatorTask, SeoReconcileInput, SeoReconcileResult } from '@canonry/canonry-contracts'
 import { getApiV1SeoOperatorTasksById, postApiV1SeoOperatorTasksByIdReconcile } from '@canonry/canonry-api-client'
-import type { SeoContext, SeoStatus, SeoProfileList, SeoProfile, SeoQuote, SeoRun, SeoRunList, SeoRunDetail, SeoOverview, SeoKeywordMetricsList, SeoDomainIntelligenceList, SeoRankedKeywordList, SeoProfileInput, SeoRefreshIntentInput, SeoSyncInput, SeoEvidenceQuery } from '@canonry/canonry-contracts'
-import { getApiV1ProjectsByNameSeoContext, getApiV1ProjectsByNameSeoStatus, getApiV1ProjectsByNameSeoProfiles, getApiV1ProjectsByNameSeoProfilesById, putApiV1ProjectsByNameSeoProfilesById, postApiV1ProjectsByNameSeoRefreshIntents, postApiV1ProjectsByNameSeoSync, getApiV1ProjectsByNameSeoRuns, getApiV1ProjectsByNameSeoRunsById, postApiV1ProjectsByNameSeoRunsByIdCancel, getApiV1ProjectsByNameSeoOverview, getApiV1ProjectsByNameSeoKeywordMetrics, getApiV1ProjectsByNameSeoDomainIntelligence, getApiV1ProjectsByNameSeoRankedKeywords } from '@canonry/canonry-api-client'
+import type { SeoContext, SeoStatus, SeoProfileList, SeoProfile, SeoQuote, SeoRun, SeoRunList, SeoRunDetail, SeoOverview, SeoKeywordMetricsList, SeoDomainIntelligenceList, SeoRankedKeywordList, SeoMarketRankingList, SeoMarketRankingQuery, SeoProfileInput, SeoRefreshIntentInput, SeoSyncInput, SeoEvidenceQuery } from '@canonry/canonry-contracts'
+import { getApiV1ProjectsByNameSeoContext, getApiV1ProjectsByNameSeoStatus, getApiV1ProjectsByNameSeoProfiles, getApiV1ProjectsByNameSeoProfilesById, putApiV1ProjectsByNameSeoProfilesById, postApiV1ProjectsByNameSeoRefreshIntents, postApiV1ProjectsByNameSeoSync, getApiV1ProjectsByNameSeoRuns, getApiV1ProjectsByNameSeoRunsById, postApiV1ProjectsByNameSeoRunsByIdCancel, getApiV1ProjectsByNameSeoOverview, getApiV1ProjectsByNameSeoKeywordMetrics, getApiV1ProjectsByNameSeoDomainIntelligence, getApiV1ProjectsByNameSeoRankedKeywords, getApiV1ProjectsByNameSeoMarketRankings } from '@canonry/canonry-api-client'
 import { getApiV1ProjectsByNameTrafficSamples } from '@canonry/canonry-api-client'
 
 import type { GaAcquisitionQuery, GaAcquisitionResponse } from '@canonry/canonry-contracts'
@@ -4340,6 +4340,12 @@ export class ApiClient {
 
   async getSeoRankedKeywords(project: string, query?: SeoEvidenceQuery): Promise<SeoRankedKeywordList> {
     return this.invoke<SeoRankedKeywordList>(() => getApiV1ProjectsByNameSeoRankedKeywords({
+      client: this.heyClient, path: { name: project }, query,
+    }))
+  }
+
+  async getSeoMarketRankings(project: string, query?: SeoMarketRankingQuery): Promise<SeoMarketRankingList> {
+    return this.invoke<SeoMarketRankingList>(() => getApiV1ProjectsByNameSeoMarketRankings({
       client: this.heyClient, path: { name: project }, query,
     }))
   }

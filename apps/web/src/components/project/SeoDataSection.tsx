@@ -5,7 +5,7 @@ import { Loader2, Plus, RefreshCw, X } from 'lucide-react'
 import {
   RatioUnits, SeoAvailability, SeoCapabilities, SeoRunStatuses, SeoScopeKinds,
   SeoTargetKinds, formatDate, formatZonedTimestamp, formatPercent, seoCapabilitySchema, seoDatasetWithoutVendor, seoProfileInputSchema,
-  type SeoCapability, type SeoContext, type SeoDomainIntelligence, type SeoKeywordMetrics,
+  type SeoCapability, type SeoContext, type SeoDevice, type SeoDomainIntelligence, type SeoKeywordMetrics, type SeoMarketRanking,
   type SeoProfile, type SeoProfileInput, type SeoProvenance, type SeoRankedKeyword,
   type SeoRun, type SeoRunStatus, type SeoSyncInput, type SeoTarget,
 } from '@canonry/canonry-contracts'
@@ -16,6 +16,7 @@ import {
   getApiV1ProjectsByNameSeoRankedKeywordsOptions,
   getApiV1ProjectsByNameSeoKeywordMetricsOptions,
   getApiV1ProjectsByNameSeoDomainIntelligenceOptions,
+  getApiV1ProjectsByNameSeoMarketRankingsOptions,
   getApiV1ProjectsByNameSeoRunsOptions,
   getApiV1ProjectsByNameSeoRunsByIdOptions,
   postApiV1ProjectsByNameSeoRefreshIntentsMutation,
@@ -33,9 +34,10 @@ import { ToneBadge } from '../shared/ToneBadge.js'
 import { InfoTooltip } from '../shared/InfoTooltip.js'
 
 const CAPABILITY_LABELS: Record<SeoCapability, string> = {
-  [SeoCapabilities['keyword-metrics']]: 'Keyword metrics',
+  [SeoCapabilities['keyword-metrics']]: 'Search demand',
   [SeoCapabilities['domain-intelligence']]: 'Domain comparison',
-  [SeoCapabilities['ranked-keywords']]: 'Ranked keywords',
+  [SeoCapabilities['ranked-keywords']]: 'Searches you rank for',
+  [SeoCapabilities['market-rankings']]: 'Market rankings',
 }
 const STATUS_LABELS: Record<SeoRunStatus, string> = {
   [SeoRunStatuses.queued]: 'Queued',
@@ -71,18 +73,23 @@ function RunBadge({ status }: { status: SeoRunStatus }) {
   return <ToneBadge tone={tone}>{STATUS_LABELS[status]}</ToneBadge>
 }
 
-/** A dataset's kind without the vendor behind the source, e.g. "Ranked keywords". Customers see the connection label, never the vendor. */
+/** A dataset's kind without the vendor behind the source, e.g. "Searches you rank for". Customers see the connection label, never the vendor. */
 function datasetLabel(dataset: string): string {
   const kind = seoDatasetWithoutVendor(dataset).split('/').at(-1) ?? dataset
   const capability = seoCapabilitySchema.safeParse(kind.replaceAll('_', '-'))
   return capability.success ? CAPABILITY_LABELS[capability.data] : kind.replaceAll(/[-_]/g, ' ')
 }
 
+/** What device a results page was collected for, in plain words. */
+function deviceLabel(device: SeoDevice | 'unspecified'): string {
+  return device === 'mobile' ? 'phone results' : device === 'desktop' ? 'computer results' : 'device not specified by source'
+}
+
 function DataProvenance({ source }: { source: SeoProvenance }) {
   return (
     <dl className="grid gap-x-8 gap-y-2 text-[13px] sm:grid-cols-2">
       <div><dt className="text-muted">Dataset</dt><dd>{datasetLabel(source.dataset)}</dd></div>
-      <div><dt className="text-muted">Search engine</dt><dd>Google · device not specified by source</dd></div>
+      <div><dt className="text-muted">Search engine</dt><dd>Google · {deviceLabel(source.device)}</dd></div>
       <div><dt className="text-muted">Provider geography</dt><dd>Location {source.locationCode} · {source.languageCode}</dd></div>
       <div><dt className="text-muted">Collected</dt><dd>{formatZonedTimestamp(source.collectedAt, TIME_ZONE)}</dd></div>
       <div><dt className="text-muted">Source updated</dt><dd>{source.sourceUpdatedAt ? formatDate(source.sourceUpdatedAt) : 'Not supplied'}</dd></div>
@@ -160,14 +167,14 @@ export function SeoDataSection({ projectName }: { projectName: string }) {
           {!selected && <option value="" disabled>Profile unavailable</option>}
           {profiles.data.profiles.map(profile => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
         </select></label>
-        {selected && <div className="min-w-0 text-[13px] text-secondary"><p className="break-words font-medium text-primary">{scope?.label ?? `${selected.scope.kind}${selected.scope.key ? `: ${selected.scope.key}` : ''}`}</p><p>Location {selected.locationCode} · {selected.languageCode}</p></div>}
+        {selected && <div className="min-w-0 text-[13px] text-secondary"><p className="break-words font-medium text-primary">{scope?.label ?? `${selected.scope.kind}${selected.scope.key ? `: ${selected.scope.key}` : ''}`}</p><p>{selected.rankings ? `${selected.rankings.locations.length} market location${selected.rankings.locations.length === 1 ? '' : 's'}` : `Location ${selected.locationCode}`} · {selected.languageCode}</p></div>}
       </div>}
 
       {editor && <SeoProfileEditor key={editor.id} projectName={projectName} context={context.data} profile={editor.profile} id={editor.id} onClose={closeEditor} onSaved={id => { selectProfile(id); requestAnimationFrame(() => profileSelect.current?.focus()) }} />}
       {!isPublicDemo() && !context.data.available && profiles.data.profiles.length > 0 && <p role="status" className="rounded-md border border-default px-4 py-3 text-sm text-secondary">{context.data.reason ?? 'Configure an SEO data provider to refresh saved profiles.'}</p>}
       {search.seoRunId && selectedRun.error ? <div className="space-y-3"><ReadError error={selectedRun.error} retry={() => { void selectedRun.refetch() }} />{selected ? <Button variant="secondary" className="min-h-11" onClick={() => selectProfile(selected.id)}>View latest data</Button> : <p className="text-sm text-secondary">Select a profile to view its latest data.</p>}</div> : search.seoRunId && selectedRun.isPending ? <p role="status" className="py-10 text-sm text-secondary">Loading refresh…</p> : selected && selectedRun.data && selectedRun.data.profileId !== selected.id ? <EmptyEvidence title="Refresh belongs to another profile">Choose the refresh’s profile, or return to the selected profile’s latest data.<Button variant="secondary" className="mt-4 min-h-11" onClick={() => selectProfile(selected.id)}>View latest data</Button></EmptyEvidence> : selected ? <SeoProfileWorkspace key={`${selected.id}:${selected.revision}:${search.seoRunId ?? ''}`} projectName={projectName} profile={selected} context={context.data} selectedRunId={search.seoRunId} onLatest={() => selectProfile(selected.id)} /> : !canConfigure && profiles.data.profiles.length === 0 ? <EmptyEvidence title={sourceConfigured ? 'SEO scope unavailable' : 'Configure an SEO data provider'}>{sourceConfigured ? context.data.scopes.find(item => item.reason)?.reason ?? 'No datasets are available for this project’s measurement scopes.' : 'Connect a provider before creating an SEO profile.'}</EmptyEvidence> : requestedProfileId ? (
         <EmptyEvidence title="Profile unavailable">This saved profile is no longer available. Select another profile to view its data.</EmptyEvidence>
-      ) : !editor && <EmptyEvidence title="No SEO data yet">{canWrite ? 'Create a profile to choose the scope, source, and keywords to measure.' : 'An SEO profile is needed before data can be collected.'}</EmptyEvidence>}
+      ) : !editor && <EmptyEvidence title="No SEO data yet">{canWrite ? 'Create a profile to choose the scope, source, and searches to measure.' : 'An SEO profile is needed before data can be collected.'}</EmptyEvidence>}
     </section>
   )
 }
@@ -244,7 +251,7 @@ function SeoProfileWorkspace({ projectName, profile, context, selectedRunId, onL
     {overview.error ? <ReadError error={overview.error} retry={() => { void overview.refetch() }} /> : overview.data?.summary && <div>
       <p className="mb-3 break-words text-[13px] text-secondary">{overview.data.summary.target.value}{overview.data.summary.target.includeSubdomains ? ' · includes subdomains' : ' · exact host'}</p>
       <dl className="grid grid-cols-1 gap-5 border-b border-subtle pb-5 sm:grid-cols-3">
-        <div><dt className="text-[13px] text-secondary">Organic keywords</dt><dd className="mt-2 text-3xl font-semibold tabular-nums tracking-tight text-heading"><Value value={overview.data.summary.organicKeywords} /></dd></div>
+        <div><dt className="text-[13px] text-secondary">Searches you rank for</dt><dd className="mt-2 text-3xl font-semibold tabular-nums tracking-tight text-heading"><Value value={overview.data.summary.organicKeywords} /></dd></div>
         <div><dt className="text-[13px] text-secondary">In the top 10</dt><dd className="mt-2 text-3xl font-semibold tabular-nums tracking-tight text-heading"><Value value={overview.data.summary.inTop10} /></dd></div>
         <div><dt className="flex items-center gap-1.5 text-[13px] text-secondary">Estimated organic traffic<InfoTooltip text="Modeled search traffic for this target and provider geography. This is not measured site traffic." /></dt><dd className="mt-2 text-3xl font-semibold tabular-nums tracking-tight text-heading"><Value value={overview.data.summary.estimatedOrganicTraffic} /></dd></div>
       </dl>
@@ -260,9 +267,9 @@ function SeoProfileWorkspace({ projectName, profile, context, selectedRunId, onL
     <details className="border-t border-subtle text-sm text-secondary">
       <summary className="flex min-h-11 cursor-pointer items-center font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400">Data details</summary>
       <div className="space-y-4 pb-3 text-[13px] leading-relaxed">
-        <p>Current profile source: {isPublicDemo() ? 'Fictional demo data' : connection?.label ?? 'Source unavailable'}. Google; device not specified by source.</p>
+        <p>Current profile source: {isPublicDemo() ? 'Fictional demo data' : connection?.label ?? 'Source unavailable'}. Google; {deviceLabel(profile.rankings?.device ?? 'unspecified')}.</p>
         {overview.data?.evidenceRun && <p>Saved evidence: {overview.data.evidenceRun.scope.kind}{overview.data.evidenceRun.scope.key ? ` · ${overview.data.evidenceRun.scope.key}` : ''}{overview.data.evidenceRun.scope.expectedPlanRevision !== undefined ? ` · plan revision ${overview.data.evidenceRun.scope.expectedPlanRevision}` : ''}. Location {overview.data.evidenceRun.locationCode} · {overview.data.evidenceRun.languageCode} · profile revision {overview.data.evidenceRun.profileRevision}.</p>}
-        <p>These are provider estimates and observed search rankings. Missing values are shown as a dash. Keyword difficulty is a source score out of 100.</p>
+        <p>These are provider estimates and observed search rankings. Missing values are shown as a dash. Difficulty is a source score out of 100.</p>
         <p>Current profile targets:</p><ul className="space-y-1">{profile.targets.map((target, index) => <li key={index} className="break-words">{target.value} · {target.includeSubdomains ? 'includes subdomains' : 'exact host'}</li>)}</ul>
         {profile.scope.expectedPlanRevision !== undefined && <p>Saved measurement plan revision {profile.scope.expectedPlanRevision}.</p>}
         {overview.data?.summary && <DataProvenance source={overview.data.summary.provenance} />}
@@ -277,7 +284,8 @@ function SeoEvidence({ projectName, profileId, runId, view, active }: { projectN
   const ranked = useQuery({ ...getApiV1ProjectsByNameSeoRankedKeywordsOptions(args), enabled: Boolean(runId) && view === SeoCapabilities['ranked-keywords'] })
   const keywords = useQuery({ ...getApiV1ProjectsByNameSeoKeywordMetricsOptions(args), enabled: Boolean(runId) && view === SeoCapabilities['keyword-metrics'] })
   const domains = useQuery({ ...getApiV1ProjectsByNameSeoDomainIntelligenceOptions(args), enabled: Boolean(runId) && view === SeoCapabilities['domain-intelligence'] })
-  const selected = view === SeoCapabilities['ranked-keywords'] ? ranked : view === SeoCapabilities['keyword-metrics'] ? keywords : domains
+  const markets = useQuery({ ...getApiV1ProjectsByNameSeoMarketRankingsOptions(args), enabled: Boolean(runId) && view === SeoCapabilities['market-rankings'] })
+  const selected = view === SeoCapabilities['ranked-keywords'] ? ranked : view === SeoCapabilities['keyword-metrics'] ? keywords : view === SeoCapabilities['market-rankings'] ? markets : domains
   if (!runId) return <EmptyEvidence title="No saved data yet">Refresh this profile to collect {CAPABILITY_LABELS[view].toLowerCase()} for its saved scope.</EmptyEvidence>
   if (selected.error) return <div className="py-4"><ReadError error={selected.error} retry={() => { void selected.refetch() }} /></div>
   if (!selected.data) return <p role="status" className="py-8 text-sm text-secondary">Loading {CAPABILITY_LABELS[view].toLowerCase()}…</p>
@@ -287,30 +295,41 @@ function SeoEvidence({ projectName, profileId, runId, view, active }: { projectN
       {view === SeoCapabilities['ranked-keywords'] && ranked.data && <RankedTable rows={ranked.data.items} />}
       {view === SeoCapabilities['keyword-metrics'] && keywords.data && <KeywordTable rows={keywords.data.items} />}
       {view === SeoCapabilities['domain-intelligence'] && domains.data && <DomainTable rows={domains.data.items} />}
+      {view === SeoCapabilities['market-rankings'] && markets.data && <MarketRankingTable rows={markets.data.items} />}
     </div>
     <DataTablePagination page={page} pageSize={PAGE_SIZE} visibleRows={selected.data.items.length} totalRows={selected.data.total} onPageChange={setPage} disabled={selected.isFetching} className="text-[13px] [&_button]:min-h-11" />
   </div>
 }
 
 function RankedTable({ rows }: { rows: SeoRankedKeyword[] }) {
-  return <table className="w-full text-sm"><caption className="sr-only">Ranked keywords from the selected refresh</caption><thead className="bg-surface text-[13px] text-secondary"><tr><th className="px-4 py-3 text-left font-medium">Keyword</th><th className={`${CELL} font-medium`}>Position</th><th className={`${CELL} font-medium`}>Volume</th><th className={`${CELL} font-medium`}>Est. traffic</th><th className={`${CELL} font-medium`}>Difficulty /100</th><th className="px-4"><span className="sr-only">Evidence</span></th></tr></thead><tbody className="divide-y divide-subtle">{rows.map((row, index) => <tr key={`${row.target.value}:${row.keyword}:${index}`}>
+  return <table className="w-full text-sm"><caption className="sr-only">Searches you rank for, from the selected refresh</caption><thead className="bg-surface text-[13px] text-secondary"><tr><th className="px-4 py-3 text-left font-medium">Search</th><th className={`${CELL} font-medium`}>Position</th><th className={`${CELL} font-medium`}>Monthly searches</th><th className={`${CELL} font-medium`}>Est. traffic</th><th className={`${CELL} font-medium`}>Difficulty /100</th><th className="px-4"><span className="sr-only">Evidence</span></th></tr></thead><tbody className="divide-y divide-subtle">{rows.map((row, index) => <tr key={`${row.target.value}:${row.keyword}:${index}`}>
     <th scope="row" className="min-w-56 px-4 py-3 text-left font-normal"><p className="text-primary">{row.keyword}</p><p className="mt-1 text-[13px] text-secondary"><MiddleTruncatedText value={row.url ?? row.target.value} /></p></th>
     <td className={CELL}><Value value={row.rankOrganic} /></td><td className={CELL}><Value value={row.searchVolume} /></td><td className={CELL}><Value value={row.estimatedTraffic} /></td><td className={CELL}><Value value={row.keywordDifficulty} /></td>
-    <td className="px-4 align-top"><EvidenceDetails label={row.keyword} source={row.provenance}><p className="break-all">{row.url ?? 'Ranking URL not supplied'}</p><p>Target: {row.target.value} · {row.target.includeSubdomains ? 'includes subdomains' : 'exact host'}</p><p>Absolute position: <Value value={row.rankAbsolute} /> · CPC: <Value value={row.cpcUsd} currency /></p><p>SERP features: {row.serpFeatures.length ? row.serpFeatures.join(', ') : 'Not supplied'}</p></EvidenceDetails></td>
+    <td className="px-4 align-top"><EvidenceDetails label={row.keyword} source={row.provenance}><p className="break-all">{row.url ?? 'Ranking URL not supplied'}</p><p>Target: {row.target.value} · {row.target.includeSubdomains ? 'includes subdomains' : 'exact host'}</p><p>Absolute position: <Value value={row.rankAbsolute} /> · CPC: <Value value={row.cpcUsd} currency /></p><p>Results page features: {row.serpFeatures.length ? row.serpFeatures.join(', ') : 'Not supplied'}</p></EvidenceDetails></td>
   </tr>)}</tbody></table>
 }
 
 function KeywordTable({ rows }: { rows: SeoKeywordMetrics[] }) {
-  return <table className="w-full text-sm"><caption className="sr-only">Keyword metrics from the selected refresh</caption><thead className="bg-surface text-[13px] text-secondary"><tr><th className="px-4 py-3 text-left font-medium">Keyword</th><th className={`${CELL} font-medium`}>Volume</th><th className={`${CELL} font-medium`}>CPC</th><th className={`${CELL} font-medium`}>Difficulty /100</th><th className="px-4 py-3 text-left font-medium">Intent</th><th className="px-4"><span className="sr-only">Evidence</span></th></tr></thead><tbody className="divide-y divide-subtle">{rows.map((row, index) => <tr key={`${row.keyword}:${index}`}>
+  return <table className="w-full text-sm"><caption className="sr-only">Search demand from the selected refresh</caption><thead className="bg-surface text-[13px] text-secondary"><tr><th className="px-4 py-3 text-left font-medium">Search</th><th className={`${CELL} font-medium`}>Monthly searches</th><th className={`${CELL} font-medium`}>CPC</th><th className={`${CELL} font-medium`}>Difficulty /100</th><th className="px-4 py-3 text-left font-medium">Intent</th><th className="px-4"><span className="sr-only">Evidence</span></th></tr></thead><tbody className="divide-y divide-subtle">{rows.map((row, index) => <tr key={`${row.keyword}:${index}`}>
     <th scope="row" className="min-w-56 px-4 py-3 text-left font-normal text-primary">{row.keyword}</th><td className={CELL}><Value value={row.searchVolume} /></td><td className={CELL}><Value value={row.cpcUsd} currency /></td><td className={CELL}><Value value={row.keywordDifficulty} /></td><td className="px-4 py-3">{row.searchIntent ?? 'Not supplied'}</td>
-    <td className="px-4 align-top"><EvidenceDetails label={row.keyword} source={row.provenance}><p>Ad competition: {row.adCompetition === null ? 'Not supplied' : formatPercent(row.adCompetition, RatioUnits.fraction)}</p><p>Core keyword: {row.coreKeyword ?? 'Not supplied'}</p>{row.monthlySearches.length > 0 && <dl>{row.monthlySearches.map(month => <div key={`${month.year}-${month.month}`} className="flex justify-between gap-5"><dt>{month.year}-{String(month.month).padStart(2, '0')}</dt><dd><Value value={month.searchVolume} /></dd></div>)}</dl>}</EvidenceDetails></td>
+    <td className="px-4 align-top"><EvidenceDetails label={row.keyword} source={row.provenance}><p>Ad competition: {row.adCompetition === null ? 'Not supplied' : formatPercent(row.adCompetition, RatioUnits.fraction)}</p><p>Core search: {row.coreKeyword ?? 'Not supplied'}</p>{row.monthlySearches.length > 0 && <dl>{row.monthlySearches.map(month => <div key={`${month.year}-${month.month}`} className="flex justify-between gap-5"><dt>{month.year}-{String(month.month).padStart(2, '0')}</dt><dd><Value value={month.searchVolume} /></dd></div>)}</dl>}</EvidenceDetails></td>
   </tr>)}</tbody></table>
 }
 
 function DomainTable({ rows }: { rows: SeoDomainIntelligence[] }) {
-  return <table className="w-full text-sm"><caption className="sr-only">Domain comparison from the selected refresh</caption><thead className="bg-surface text-[13px] text-secondary"><tr><th className="px-4 py-3 text-left font-medium">Domain</th><th className={`${CELL} font-medium`}>Organic keywords</th><th className={`${CELL} font-medium`}>Est. organic traffic</th><th className="px-4"><span className="sr-only">Evidence</span></th></tr></thead><tbody className="divide-y divide-subtle">{rows.map((row, index) => <tr key={`${row.target.value}:${index}`}>
+  return <table className="w-full text-sm"><caption className="sr-only">Domain comparison from the selected refresh</caption><thead className="bg-surface text-[13px] text-secondary"><tr><th className="px-4 py-3 text-left font-medium">Domain</th><th className={`${CELL} font-medium`}>Searches ranked for</th><th className={`${CELL} font-medium`}>Est. organic traffic</th><th className="px-4"><span className="sr-only">Evidence</span></th></tr></thead><tbody className="divide-y divide-subtle">{rows.map((row, index) => <tr key={`${row.target.value}:${index}`}>
     <th scope="row" className="min-w-56 px-4 py-3 text-left font-normal"><p className="text-primary">{row.target.value}</p><p className="mt-1 text-[13px] text-secondary">{row.target.includeSubdomains ? 'Includes subdomains' : 'Exact host'}</p></th><td className={CELL}><Value value={row.organicKeywords} /></td><td className={CELL}><Value value={row.estimatedOrganicTraffic} /></td>
     <td className="px-4 align-top"><EvidenceDetails label={row.target.value} source={row.provenance}><dl className="grid grid-cols-2 gap-2"><dt>Position 1</dt><dd><Value value={row.top1} /></dd><dt>Positions 2–3</dt><dd><Value value={row.top2To3} /></dd><dt>Positions 4–10</dt><dd><Value value={row.top4To10} /></dd><dt>Positions 11–20</dt><dd><Value value={row.top11To20} /></dd><dt>Est. traffic value</dt><dd><Value value={row.estimatedOrganicTrafficValueUsd} currency /></dd></dl></EvidenceDetails></td>
+  </tr>)}</tbody></table>
+}
+
+/** One row per tracked query and market: the same queries AI visibility measures, ranked on Google from the market's location. */
+function MarketRankingTable({ rows }: { rows: SeoMarketRanking[] }) {
+  return <table className="w-full text-sm"><caption className="sr-only">Market rankings from the selected refresh</caption><thead className="bg-surface text-[13px] text-secondary"><tr><th className="px-4 py-3 text-left font-medium">Query</th><th className={`${CELL} font-medium`}>Google rank</th><th className="px-4 py-3 text-left font-medium">Ranking page</th><th className="px-4"><span className="sr-only">Evidence</span></th></tr></thead><tbody className="divide-y divide-subtle">{rows.map((row, index) => <tr key={`${row.marketKey}:${row.queryId ?? row.queryText}:${index}`}>
+    <th scope="row" className="min-w-56 px-4 py-3 text-left font-normal"><p className="text-primary">{row.queryText}</p><p className="mt-1 text-[13px] text-secondary">{row.marketLabel}</p></th>
+    <td className={CELL}>{row.rankOrganic === null ? <span className="text-muted">Not in top {row.depth}</span> : row.rankOrganic}</td>
+    <td className="max-w-80 px-4 py-3 text-[13px] text-secondary">{row.url ? <MiddleTruncatedText value={row.url} /> : <span className="text-muted" aria-label="No ranking page">—</span>}</td>
+    <td className="px-4 align-top"><EvidenceDetails label={row.queryText} source={row.provenance}><p>Searched as “{row.searchText}” from {row.locationLabel}</p><p>Target: {row.target.value} · {row.target.includeSubdomains ? 'includes subdomains' : 'exact host'} · absolute position <Value value={row.rankAbsolute} /></p><p>{row.competitors.length ? `Tracked competitors in these results: ${row.competitors.map(competitor => `${competitor.domain} #${competitor.rankOrganic}`).join(', ')}` : `No tracked competitors in the top ${row.depth}`}</p></EvidenceDetails></td>
   </tr>)}</tbody></table>
 }
 
@@ -358,7 +377,7 @@ function SeoProfileEditor({ projectName, context, profile, id, onClose, onSaved 
   const scope = context.scopes.find(item => `${item.kind}:${item.key ?? ''}` === selectedScope)
   const availableCapabilities = source?.capabilities.filter(capability => scope?.capabilities?.includes(capability) ?? true) ?? []
   const selectedCapabilities = capabilities.filter(capability => availableCapabilities.includes(capability))
-  const needsTargets = selectedCapabilities.includes(SeoCapabilities['ranked-keywords']) || selectedCapabilities.includes(SeoCapabilities['domain-intelligence'])
+  const needsTargets = selectedCapabilities.includes(SeoCapabilities['ranked-keywords']) || selectedCapabilities.includes(SeoCapabilities['domain-intelligence']) || selectedCapabilities.includes(SeoCapabilities['market-rankings'])
   const needsRankedLimit = selectedCapabilities.includes(SeoCapabilities['ranked-keywords'])
   const submit = async () => {
     if (!context.access.canWrite || isEmbed() || isPublicDemo() || save.isPending) return
@@ -367,6 +386,8 @@ function SeoProfileEditor({ projectName, context, profile, id, onClose, onSaved 
       name, connectionId, capabilities: selectedCapabilities, targets: needsTargets ? targets : [], keywords: keywords.split('\n').map(keyword => keyword.trim()).filter(Boolean),
       locationCode: Number(locationCode), languageCode, limit: needsRankedLimit ? Number(limit) : profile?.limit ?? 100,
       scope: { kind: scope.kind, ...(scope.key ? { key: scope.key } : {}), ...(scope.planRevision !== undefined ? { expectedPlanRevision: scope.planRevision } : {}) },
+      // Market-rankings settings (locations, depth, device) are kept as saved; the editor does not change them.
+      ...(selectedCapabilities.includes(SeoCapabilities['market-rankings']) && profile?.rankings ? { rankings: profile.rankings } : {}),
     }
     const parsed = seoProfileInputSchema.safeParse(input)
     if (!parsed.success) { setError(parsed.error.issues.map(issue => `${issue.path.join('.')}: ${issue.message}`).join(' ')); return }
@@ -393,7 +414,7 @@ function SeoProfileEditor({ projectName, context, profile, id, onClose, onSaved 
         setCapabilities(previous => previous.filter(capability => nextScope?.capabilities?.includes(capability) ?? true))
       }}><option value="" disabled>Select a scope</option>{context.scopes.map(item => <option key={`${item.kind}:${item.key}`} value={`${item.kind}:${item.key ?? ''}`}>{item.label}</option>)}</select>{scope?.reason ? <span className="block text-[13px] text-secondary">{scope.reason}</span> : scope && !scope.supported && <span className="block text-[13px] text-secondary">Domain data is not supported for this scope.</span>}</label>
     </div>
-    <fieldset><legend className="mb-2 text-sm">Collect</legend><div className="flex flex-wrap gap-x-6 gap-y-2">{Object.values(SeoCapabilities).map(capability => <label key={capability} className="flex min-h-11 items-center gap-2 text-sm"><input type="checkbox" checked={selectedCapabilities.includes(capability)} disabled={!availableCapabilities.includes(capability)} onChange={event => setCapabilities(previous => event.target.checked ? [...previous, capability] : previous.filter(item => item !== capability))} />{CAPABILITY_LABELS[capability]}</label>)}</div>{scope?.capabilities && <p className="mt-1 text-[13px] text-secondary">Available datasets follow this scope and source. Changing scope clears unsupported selections.</p>}</fieldset>
+    <fieldset><legend className="mb-2 text-sm">Collect</legend><div className="flex flex-wrap gap-x-6 gap-y-2">{Object.values(SeoCapabilities).map(capability => <label key={capability} className="flex min-h-11 items-center gap-2 text-sm"><input type="checkbox" checked={selectedCapabilities.includes(capability)} disabled={!availableCapabilities.includes(capability) || (capability === SeoCapabilities['market-rankings'] && !profile?.rankings)} onChange={event => setCapabilities(previous => event.target.checked ? [...previous, capability] : previous.filter(item => item !== capability))} />{CAPABILITY_LABELS[capability]}</label>)}</div>{scope?.capabilities && <p className="mt-1 text-[13px] text-secondary">Available datasets follow this scope and source. Changing scope clears unsupported selections.</p>}{!profile?.rankings && availableCapabilities.includes(SeoCapabilities['market-rankings']) && <p className="mt-1 text-[13px] text-secondary">Set up market rankings with the CLI or API.</p>}</fieldset>
     {needsTargets && <fieldset className="space-y-3"><legend className="mb-2 text-sm">Targets</legend><p className="text-[13px] text-secondary">Domain comparison requires a domain including its subdomains. Exact hosts are supported only by compatible datasets.</p>
       {targets.map((target, index) => <div key={index} className="grid items-end gap-3 sm:grid-cols-[1fr_13rem_auto]">
         <label className="space-y-1 text-sm"><span className="sr-only">Target {index + 1}</span><input className={FIELD} value={target.value} placeholder="example.com" aria-label={`Target ${index + 1}`} onChange={event => updateTarget(index, { value: event.target.value })} required maxLength={253} /></label>
@@ -402,8 +423,8 @@ function SeoProfileEditor({ projectName, context, profile, id, onClose, onSaved 
       </div>)}
       <Button type="button" variant="secondary" className="min-h-11" disabled={targets.length >= 20} onClick={() => setTargets(previous => [...previous, { kind: SeoTargetKinds.domain, value: '', includeSubdomains: true }])}>Add target</Button>
     </fieldset>}
-    {selectedCapabilities.includes(SeoCapabilities['keyword-metrics']) && <label className="block space-y-1.5 text-sm"><span>Keywords</span><textarea className={`${FIELD} min-h-28`} value={keywords} onChange={event => setKeywords(event.target.value)} placeholder="One keyword per line" /><span className="block text-[13px] text-secondary">Up to 700 keywords, 10 words and 80 characters each. These are explicit search terms for this profile.</span></label>}
-    <div className={`grid gap-4 ${needsRankedLimit ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}><label className="space-y-1.5 text-sm"><span>Provider location code</span><input className={FIELD} type="number" min={1} step={1} required value={locationCode} onChange={event => setLocationCode(event.target.value)} /><span className="block text-[13px] text-secondary">The source's location identifier.</span></label><label className="space-y-1.5 text-sm"><span>Language code</span><input className={FIELD} required minLength={2} maxLength={10} value={languageCode} onChange={event => setLanguageCode(event.target.value)} /></label>{needsRankedLimit && <label className="space-y-1.5 text-sm"><span>Ranked rows per target</span><input className={FIELD} type="number" min={1} max={1000} step={1} required value={limit} onChange={event => setLimit(event.target.value)} /></label>}</div>
+    {selectedCapabilities.includes(SeoCapabilities['keyword-metrics']) && <label className="block space-y-1.5 text-sm"><span>Searches</span><textarea className={`${FIELD} min-h-28`} value={keywords} onChange={event => setKeywords(event.target.value)} placeholder="One search per line" /><span className="block text-[13px] text-secondary">Up to 700 searches to measure, each at most 10 words and 80 characters.</span></label>}
+    <div className={`grid gap-4 ${needsRankedLimit ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}><label className="space-y-1.5 text-sm"><span>Provider location code</span><input className={FIELD} type="number" min={1} step={1} required value={locationCode} onChange={event => setLocationCode(event.target.value)} /><span className="block text-[13px] text-secondary">The source's location identifier.</span></label><label className="space-y-1.5 text-sm"><span>Language code</span><input className={FIELD} required minLength={2} maxLength={10} value={languageCode} onChange={event => setLanguageCode(event.target.value)} /></label>{needsRankedLimit && <label className="space-y-1.5 text-sm"><span>Ranked searches per target</span><input className={FIELD} type="number" min={1} max={1000} step={1} required value={limit} onChange={event => setLimit(event.target.value)} /></label>}</div>
     {error && <p role="alert" className="text-sm text-secondary">{error}</p>}
     <div className="flex flex-wrap gap-2"><Button type="submit" className="min-h-11" disabled={save.isPending || !source || !selectedCapabilities.length}>{save.isPending ? 'Saving…' : 'Save profile'}</Button><Button type="button" variant="ghost" className="min-h-11" onClick={onClose}>Cancel</Button></div>
   </form>

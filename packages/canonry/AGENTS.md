@@ -1,6 +1,6 @@
 # canonry
 
-SEO integration uses `SeoRuntime` for durable explicit refresh dispatch. `commands/seo.ts` and `cli-commands/seo.ts` use only public ApiClient methods. Host-only credentials and financial limits come from `config.seo`; customer DTOs never expose them. See `docs/seo-data.md` for scope, receipt recovery and deployment limits.
+SEO integration uses `SeoRuntime` for durable explicit refresh dispatch. `commands/seo.ts` and `cli-commands/seo.ts` use only public ApiClient methods; `seo market-rankings` reads the rows api-routes plans from the project's markets and tracked queries. Host-only credentials and financial limits come from `config.seo`; customer DTOs never expose them. See `docs/seo-data.md` for scope, receipt recovery and deployment limits.
 
 ## Purpose
 

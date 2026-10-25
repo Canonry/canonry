@@ -2,7 +2,7 @@
 
 ## SEO data
 
-`cnry seo context <project>` lists configured sources, exact scopes and permissions. Use `seo profile list/show/set` to manage profiles, `seo overview`, `seo keyword-metrics`, `seo domain-intelligence` and `seo ranked-keywords` for stored evidence. Preserve `--profile-id` and `--run-id` when paging with `--limit` and `--offset`.
+`cnry seo context <project>` lists configured sources, exact scopes and permissions. Use `seo profile list/show/set` to manage profiles, `seo overview`, `seo keyword-metrics`, `seo domain-intelligence`, `seo ranked-keywords` and `seo market-rankings` for stored evidence. Preserve `--profile-id` and `--run-id` when paging with `--limit` and `--offset`. `seo market-rankings` is the site's Google position for its tracked non-brand queries in each market (the same queries AI visibility measures), searched from that market's location; `--market` and `--region` narrow the rows, and a null rank means not in the checked results.
 
 After explicit approval for the profile and bounded work, prepare `seo refresh-intent <project> <profile-id>`, then pass its token and a stable retry key to `seo sync --intent-token ... --idempotency-key ...`. A `seo-sync` schedule (`schedule set <project> --kind seo-sync --cron '0 7 2 * *'`) refreshes every saved profile on its cadence; it is standing approval for recurring paid work, so set one only when the operator asked for that cadence. Enabling it needs `seo.run`. Inspect `seo runs` and `seo run show`; `seo run cancel` stops undispatched work. Use `--format json` for API-shaped output. Hosted budgets are internal. Never infer actual traffic from provider estimates or broaden a Property into a domain.
 

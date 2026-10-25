@@ -1,6 +1,6 @@
 ---
 name: seo-analysis
-description: Prioritize keyword and organic ranking opportunities from saved SEO evidence. Covers profile selection, bounded samples, Advanced scopes, provider estimates, and actionable shortlists.
+description: Prioritize keyword and organic ranking opportunities from saved SEO evidence. Covers profile selection, bounded samples, Advanced scopes, market rankings, provider estimates, and actionable shortlists.
 ---
 
 # SEO analysis
@@ -8,6 +8,8 @@ description: Prioritize keyword and organic ranking opportunities from saved SEO
 Use this playbook for keyword research, ranking opportunities, and domain comparisons.
 Priorities are editorial recommendations from the inspected evidence, not Canonry scores or predicted gains.
 The workflow uses normalized SEO capabilities. Name the source by its connection label from `canonry_seo_context`, such as "Search data". Never name the vendor or data provider behind it.
+Call datasets what the SEO tab calls them: Searches you rank for (`ranked-keywords`), Search demand (`keyword-metrics`), Domain comparison and Market rankings.
+Say searches for what people type into Google and queries for the project's tracked queries; never call tracked queries keywords.
 
 ## Read the selected evidence
 
@@ -28,9 +30,11 @@ The workflow uses normalized SEO capabilities. Name the source by its connection
    | `canonry_seo_keyword_metrics` | Explicit keywords, demand estimates, difficulty, intent, and monthly estimates |
    | `canonry_seo_ranked_keywords` | Observed positions, ranking URLs, target identity, and traffic estimates |
    | `canonry_seo_domain_intelligence` | Per-target keyword totals, position buckets, and traffic estimates |
+   | `canonry_seo_market_rankings` | The site's Google position for each tracked query in each market, searched from that market's location |
 
 6. Page with `limit` and `offset` until the relevant stored rows are covered, or disclose the inspected sample.
    These tools accept no keyword filter, target filter, or sort parameter. Do not invent them.
+   Market rankings alone take `marketKey` or `regionKey` to narrow the rows.
    `total` counts stored rows, not the complete search market.
    Run detail returns at most 20 rows per dataset. Check `resultsTruncated` and `resultCounts`, then use the dataset tools.
 
@@ -64,6 +68,16 @@ Analysis never requires a refresh intent. Keep credentials and hosted financial 
   Group related findings for presentation without adding overlapping volume, traffic, or domain totals.
   Multiple URLs for one keyword are not proof of cannibalization.
   `coreKeyword` can suggest a topic group, but it does not make synonym demand additive.
+
+## Read market rankings
+
+- Market rankings measure the project's own tracked non-brand queries, the same queries AI visibility reports. Call them queries, never keywords, so the two views read as one set.
+  Lead each finding with `queryText` and its market. `searchText` is the exact text searched on Google; mention it only when it differs in a way that matters.
+- `rankOrganic` is the site's best organic position within the checked `depth`. Null means the site was not in those results, not that the search failed. Say "not in the top 50", never "rank unknown".
+- `locationLabel` and `provenance.device` say where and how the search ran. Compare markets only at the same depth and device.
+- `competitors` lists tracked competitors found in the same results, by position. Absence means not in the checked results.
+- One refresh is one sample of Google's results. Rank movement needs two refreshes of the same profile, query, market and location; otherwise state the single observation.
+- Rankings and AI answers for a market are separate instruments. Present them side by side for the same query and market, never as a combined score.
 
 ## Prioritize the work
 

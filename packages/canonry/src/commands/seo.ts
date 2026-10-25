@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { formatNumber, seoProfileInputSchema, type SeoEvidenceQuery, type SeoRun, type SeoSyncInput } from '@canonry/canonry-contracts'
+import { formatNumber, seoProfileInputSchema, type SeoEvidenceQuery, type SeoMarketRankingQuery, type SeoRun, type SeoSyncInput } from '@canonry/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { isMachineFormat, usageError, type CliFormat } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
@@ -125,7 +125,7 @@ export async function showSeoOverview(project: string, query: SeoEvidenceQuery, 
   console.log(`SEO data: ${value.status.available ? 'available' : 'unavailable'}`)
   if (value.status.reason) console.log(value.status.reason)
   if (value.latestRun) printSeoRun(value.latestRun)
-  console.log(`Saved rows: ${value.keywordMetricsCount} keyword metrics · ${value.rankedKeywordCount} ranked keywords · ${value.domainIntelligenceCount} domain summaries`)
+  console.log(`Saved rows: ${value.keywordMetricsCount} keyword metrics · ${value.rankedKeywordCount} ranked keywords · ${value.domainIntelligenceCount} domain summaries · ${value.marketRankingCount} market rankings`)
   if (value.summary) console.log(`${value.summary.target.value}: ${value.summary.organicKeywords ?? 'Unavailable'} organic keywords · ${value.summary.inTop10 ?? 'Unavailable'} in top 10 · ${value.summary.estimatedOrganicTraffic ?? 'Unavailable'} estimated monthly traffic`)
   if (value.evidenceRunId) console.log(`Evidence run: ${value.evidenceRunId}`)
 }
@@ -150,4 +150,14 @@ export async function showSeoRankedKeywords(project: string, query: SeoEvidenceQ
   if (printSeoJson(value, format)) return
   console.log(`Ranked keywords · run ${value.runId ?? 'none'} · ${value.items.length} of ${value.total} rows · offset ${value.offset}`)
   for (const row of value.items) console.log(`${row.keyword}\tOrganic rank ${row.rankOrganic ?? 'Not available'}\tVolume ${row.searchVolume === null ? 'Not available' : formatNumber(row.searchVolume)}\t${row.url ?? 'URL unavailable'}\t${row.provenance.provider} · ${row.provenance.locationCode}/${row.provenance.languageCode} · ${row.provenance.collectedAt}`)
+}
+
+export async function showSeoMarketRankings(project: string, query: SeoMarketRankingQuery, format: CliFormat): Promise<void> {
+  const value = await createApiClient().getSeoMarketRankings(project, query)
+  if (printSeoJson(value, format)) return
+  console.log(`Market rankings · run ${value.runId ?? 'none'} · ${value.items.length} of ${value.total} rows · offset ${value.offset}`)
+  for (const row of value.items) {
+    const rank = row.rankOrganic === null ? `Not in the top ${row.depth}` : `Google rank ${row.rankOrganic}`
+    console.log(`${row.marketLabel}\t${row.queryText}\t${rank}\t${row.url ?? 'No ranking page'}\tSearched as "${row.searchText}" from ${row.locationLabel} · ${row.provenance.device} · ${row.provenance.collectedAt}`)
+  }
 }
