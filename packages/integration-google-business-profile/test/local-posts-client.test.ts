@@ -153,3 +153,35 @@ describe('Google Local Posts fixed transport', () => {
     },
   )
 })
+
+describe('provider-hosted Local Post media', () => {
+  it('exposes explicit rejection even when Google no longer supplies photo evidence', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ ...post(), state: 'REJECTED', media: [{ mediaFormat: 'PHOTO' }] }))))
+    await expect(getLocalPost('secret', name)).resolves.toMatchObject({ name, state: 'REJECTED', imageUrls: [], mediaSourceUrlsComplete: false })
+  })
+  it('exposes exact-resource Google image evidence without inventing source URLs', async () => {
+    const googleUrl = 'https://lh3.googleusercontent.com/geougc/exact-photo'
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ ...post(), media: [{ mediaFormat: 'PHOTO', googleUrl }] })))
+    vi.stubGlobal('fetch', fetch)
+    const observed = await getLocalPost('secret', name)
+    expect(observed).toMatchObject({ name, imageUrls: [], mediaSourceUrlsComplete: false, providerImageUrls: [googleUrl] })
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(fetch.mock.calls[0]?.[0]).toBe('https://mybusiness.googleapis.com/v4/' + name)
+  })
+  it.each([
+    'https://lh3.googleusercontent.com.evil.test/photo',
+    'http://lh3.googleusercontent.com/photo',
+    'https://secret@lh3.googleusercontent.com/photo',
+    'https://lh3.googleusercontent.com:444/photo',
+  ])('refuses unsupported provider image destination %s', async (googleUrl) => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ ...post(), media: [{ mediaFormat: 'PHOTO', googleUrl }] }))))
+    await expect(getLocalPost('secret', name)).rejects.toThrow('media')
+  })
+  it('never partially admits a mixed photo/video exact read', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ ...post(), media: [
+      { mediaFormat: 'PHOTO', googleUrl: 'https://lh3.googleusercontent.com/photo' },
+      { mediaFormat: 'VIDEO', googleUrl: 'https://lh3.googleusercontent.com/video' },
+    ] }))))
+    await expect(getLocalPost('secret', name)).rejects.toThrow('media')
+  })
+})

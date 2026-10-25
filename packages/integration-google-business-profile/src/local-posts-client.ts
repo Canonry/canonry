@@ -42,9 +42,18 @@ function post(value: unknown, mediaMode: 'exact' | 'discovery' = 'exact'): GbpLo
   const mediaSourceUrlsComplete = media.every(
     item => item.mediaFormat === 'PHOTO' && typeof item.sourceUrl === 'string',
   )
-  // Discovery retains the post and all article links, never partial image proof.
-  // Exact GET/create verification still refuses any unsupported attachment.
-  if (!mediaSourceUrlsComplete && mediaMode === 'exact')
+  const providerImageUrls = media.map(item => {
+    if (item.mediaFormat !== 'PHOTO' || typeof item.googleUrl !== 'string') return null
+    try {
+      const url = new URL(item.googleUrl)
+      return url.protocol === 'https:' && /^lh\d+\.googleusercontent\.com$/u.test(url.hostname) &&
+        !url.username && !url.password && !url.port && !url.hash ? url.href : null
+    } catch { return null }
+  })
+  const providerImagesComplete = providerImageUrls.length > 0 && providerImageUrls.every(url => url !== null)
+  // A provider URL identifies pixels to compare, never the approved source image.
+  // Older consumers still see no imageUrls and cannot mistakenly verify this form.
+  if (!mediaSourceUrlsComplete && !providerImagesComplete && mediaMode === 'exact' && raw.state !== GbpLocalPostStates.REJECTED)
     throw new GbpLocalPostResponseError('UNSUPPORTED_MEDIA')
   const parsed = gbpLocalPostDtoSchema.safeParse({
     name: raw.name,
@@ -55,7 +64,8 @@ function post(value: unknown, mediaMode: 'exact' | 'discovery' = 'exact'): GbpLo
     actionType: action?.actionType ?? null,
     articleUrl: action?.url ?? null,
     imageUrls: mediaSourceUrlsComplete ? media.map((item) => item.sourceUrl) : [],
-    ...(mediaMode === 'discovery' ? { mediaSourceUrlsComplete } : {}),
+    ...(mediaMode === 'discovery' || !mediaSourceUrlsComplete ? { mediaSourceUrlsComplete } : {}),
+    ...(providerImagesComplete ? { providerImageUrls } : {}),
     createTime: raw.createTime,
     updateTime: raw.updateTime,
     searchUrl: raw.searchUrl ?? null,

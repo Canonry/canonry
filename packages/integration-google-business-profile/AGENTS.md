@@ -47,3 +47,11 @@ Every GBP sub-API this package calls lives on a v1 host (one host per sub-API �
 - `packages/api-routes/src/google.ts` — OAuth flow + token storage; calls into this package
 - `packages/integration-google/src/oauth.ts` — shared Google OAuth helpers (used by api-routes)
 - `skills/canonry/references/google-business-profile.md` — user-facing setup guide
+
+Local Post exact reads can return `providerImageUrls` for documented PHOTO `googleUrl`
+values on Google's image host when `sourceUrl` is absent. These are pixel-fetch evidence,
+not source identity: `imageUrls` stays empty and `mediaSourceUrlsComplete` is false.
+Consumers must compare the returned image against approved pixels before producing a receipt.
+Mixed/unsupported LIVE media still fails exact reads. An explicit REJECTED state remains
+observable without photo evidence; it cannot become a verified publication receipt.
+No provider POST retry is introduced.
