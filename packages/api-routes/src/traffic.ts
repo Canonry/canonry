@@ -398,6 +398,12 @@ export interface TrafficRoutesOptions {
    * tiny value to exercise the deadline path.
    */
   vercelSyncDeadlineMs?: number
+  /**
+   * How often a running backfill renews the source lease and re-checks the
+   * source. Defaults to `TRAFFIC_BACKFILL_LEASE_RENEW_MS`; tests pass a tiny
+   * value to exercise a reset during a backfill.
+   */
+  trafficBackfillLeaseRenewMs?: number
   /** Fire-and-forget hook called after every sync completes (success OR failure). Used by canonry to emit telemetry. */
   onTrafficSynced?: (event: TrafficSyncedEvent) => void
   /** Fire-and-forget hook called after every authenticated ingest push (success OR failure). Used by canonry to emit telemetry. */
@@ -500,6 +506,18 @@ const CLOUDFLARE_QUEUE_SYNC_LEASE_TTL_MS = 5 * 60_000
 // A WordPress page request has a 30-second client timeout. Renew before every
 // page and keep the lease comfortably beyond that one-request bound.
 const WORDPRESS_SYNC_LEASE_TTL_MS = 5 * 60_000
+/**
+ * Lease for a Cloud Run or Vercel incremental sync. It outlasts the drain
+ * deadline plus the commit; if it ever lapses, the commit's owner check
+ * still refuses to write over a backfill that took the source.
+ */
+const PULL_SYNC_LEASE_TTL_MS = 10 * 60_000
+/**
+ * A backfill holds the source's sync lease for its whole run, renewing it on
+ * a timer, so no incremental sync can commit into the window it replaces.
+ */
+const TRAFFIC_BACKFILL_LEASE_TTL_MS = 5 * 60_000
+const TRAFFIC_BACKFILL_LEASE_RENEW_MS = 60_000
 const DEFAULT_CLOUDFLARE_INGEST_RATE_LIMIT_MAX = 6_000
 const SHA256_HEX_PATTERN = /^[0-9a-f]{64}$/i
 
@@ -1044,7 +1062,12 @@ export async function defaultResolveAccessToken(record: CloudRunCredentialRecord
  * a "pull failed" run failure with the adapter-specific prefix from the
  * route's closure.
  */
-type BackfillPullFn = () => Promise<NormalizedTrafficRequest[]>
+/**
+ * Pulls the backfill window. `signal` aborts once the source is reset,
+ * reconnected or deactivated, because the commit would be refused; a pull
+ * that loops checks it between provider calls.
+ */
+type BackfillPullFn = (signal: AbortSignal) => Promise<NormalizedTrafficRequest[]>
 
 type TrafficTransaction = Parameters<Parameters<DatabaseClient['transaction']>[0]>[0]
 
@@ -1076,6 +1099,21 @@ function trafficConnectStatus(
     || hasConnectedTrafficSourceSibling(tx, projectId, existingSource?.id ?? '')
     ? TrafficSourceStatuses.paused
     : TrafficSourceStatuses.connected
+}
+
+/**
+ * A backfill's source is unchanged when the backfill still holds the source
+ * lease and the source generation is the one it started from. Holding the
+ * lease keeps scheduled syncs from moving the watermark during the pull, so
+ * a moved watermark now means an operator reset or a reconnect, never a
+ * routine sync.
+ */
+function isSameBackfillSource(
+  current: typeof trafficSources.$inferSelect,
+  started: typeof trafficSources.$inferSelect,
+  leaseOwner: string,
+): boolean {
+  return current.syncLeaseOwner === leaseOwner && isSameTrafficSourceGeneration(current, started)
 }
 
 function isSameTrafficSourceGeneration(
@@ -1163,6 +1201,10 @@ function vercelRetentionClampError(
 interface RunBackfillTaskOptions {
   app: FastifyInstance
   runId: string
+  /** The source lease the route claimed for this backfill; the task renews and releases it. */
+  leaseOwner: string
+  /** Lease renewal and source re-check interval. */
+  leaseRenewMs: number
   project: { id: string; name: string }
   sourceRow: typeof trafficSources.$inferSelect
   windowStart: Date
@@ -1184,6 +1226,47 @@ interface RunBackfillTaskOptions {
 }
 
 async function runBackfillTask(options: RunBackfillTaskOptions): Promise<void> {
+  const { app, sourceRow, leaseOwner } = options
+  const stopped = new AbortController()
+  const releaseLease = () => {
+    try {
+      releaseTrafficSyncLease({ db: app.db, sourceId: sourceRow.id, owner: leaseOwner, now: new Date().toISOString() })
+    } catch {
+      // The lease expires on its own if this cleanup cannot run.
+    }
+  }
+  // Keep the source lease for the whole run, however long the pull takes, so
+  // scheduled syncs skip instead of committing into the replaced window. Each
+  // renewal first re-checks the source: once a reset, reconnect or
+  // deactivation changed it, the commit would be refused, so the backfill
+  // stops holding the source and stops pulling instead of blocking syncs.
+  const renewLease = setInterval(() => {
+    try {
+      const latest = app.db.select().from(trafficSources).where(eq(trafficSources.id, sourceRow.id)).get()
+      if (!latest || !isAuthoritativeTrafficSource(app.db, latest) || !isSameTrafficSourceGeneration(latest, sourceRow)) {
+        clearInterval(renewLease)
+        stopped.abort()
+        releaseLease()
+        return
+      }
+      tryClaimTrafficSyncLease({
+        db: app.db, sourceId: sourceRow.id, owner: leaseOwner,
+        now: new Date().toISOString(), ttlMs: TRAFFIC_BACKFILL_LEASE_TTL_MS,
+      })
+    } catch {
+      // A missed renewal is caught at commit: the owner check refuses to write.
+    }
+  }, options.leaseRenewMs)
+  renewLease.unref?.()
+  try {
+    await runBackfillTaskHoldingLease(options, stopped.signal)
+  } finally {
+    clearInterval(renewLease)
+    releaseLease()
+  }
+}
+
+async function runBackfillTaskHoldingLease(options: RunBackfillTaskOptions, signal: AbortSignal): Promise<void> {
   const {
     app,
     runId,
@@ -1194,6 +1277,7 @@ async function runBackfillTask(options: RunBackfillTaskOptions): Promise<void> {
     journeyKeySecret,
     pullForBackfill,
     pullErrorPrefix,
+    leaseOwner,
   } = options
   const backfillStartedAt = Date.now()
   // Reported after the request that started it, so who asked is read now, before the first await.
@@ -1216,7 +1300,7 @@ async function runBackfillTask(options: RunBackfillTaskOptions): Promise<void> {
         if (!preserveSourceState
           && latestSource
           && isAuthoritativeTrafficSource(tx, latestSource)
-          && isSameTrafficSourceGeneration(latestSource, sourceRow)) {
+          && isSameBackfillSource(latestSource, sourceRow, leaseOwner)) {
           tx
             .update(trafficSources)
             .set({ status: TrafficSourceStatuses.error, lastError: msg, updatedAt: failedAt })
@@ -1243,8 +1327,14 @@ async function runBackfillTask(options: RunBackfillTaskOptions): Promise<void> {
 
   let allEvents: NormalizedTrafficRequest[]
   try {
-    allEvents = await pullForBackfill()
+    allEvents = await pullForBackfill(signal)
   } catch (e) {
+    if (signal.aborted) {
+      // Stopped because the source changed under it; leave the source as the reset or reconnect set it.
+      markFailed('Backfill stopped: the traffic source was reset, reconnected or deactivated while it ran', true)
+      reportBackfill({ status: OutcomeStatuses.failed, reasonCode: OutcomeReasonCodes.NOT_CONNECTED })
+      return
+    }
     // A Vercel retention miss is a rejected optional historical recovery, not
     // a problem with the already-connected source. The failed run records the
     // exact range, while the existing source state is left intact so its
@@ -1270,7 +1360,7 @@ async function runBackfillTask(options: RunBackfillTaskOptions): Promise<void> {
           .where(eq(trafficSources.id, sourceRow.id)).get()
         const stillAuthoritative = latestSource
           && isAuthoritativeTrafficSource(tx, latestSource)
-          && isSameTrafficSourceGeneration(latestSource, sourceRow)
+          && isSameBackfillSource(latestSource, sourceRow, leaseOwner)
         if (stillAuthoritative) {
           enforceRawEventSampleRetention(tx, sourceRow.id, finishedAt)
         }
@@ -1342,7 +1432,7 @@ async function runBackfillTask(options: RunBackfillTaskOptions): Promise<void> {
       }
       if (!latestSource
         || !isAuthoritativeTrafficSource(tx, latestSource)
-        || !isSameTrafficSourceGeneration(latestSource, sourceRow)) {
+        || !isSameBackfillSource(latestSource, sourceRow, leaseOwner)) {
         tx.update(runs).set({
           status: RunStatuses.failed,
           error: 'Traffic source was deactivated or reconfigured during backfill',
@@ -3230,22 +3320,27 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       throw validationError('Traffic source must be active before it can sync')
     }
 
-    // WordPress continuation state is durable, but it is not a lease: a
-    // scheduler tick and a manual retry could otherwise both resume the same
-    // cursor/window. Claim before inserting the run or reserving a window so
-    // a loser performs no provider I/O and cannot poison the winner's source
-    // generation on failure.
-    const wordpressLeaseOwner = sourceRow.sourceType === TrafficSourceTypes.wordpress
-      ? crypto.randomUUID()
-      : undefined
-    if (wordpressLeaseOwner && !tryClaimTrafficSyncLease({
+    // Every pull sync claims the source lease before inserting the run or
+    // reserving a window, so a loser performs no provider I/O and cannot
+    // poison the winner's source generation on failure. WordPress needs it
+    // because its continuation state is durable; Cloud Run and Vercel need it
+    // so a scheduled tick waits out a running backfill, which holds the same
+    // lease, instead of committing into the window the backfill replaces.
+    const isWordpressSource = sourceRow.sourceType === TrafficSourceTypes.wordpress
+    const syncLeaseOwner = crypto.randomUUID()
+    if (!tryClaimTrafficSyncLease({
       db: app.db,
       sourceId: sourceRow.id,
-      owner: wordpressLeaseOwner,
+      owner: syncLeaseOwner,
       now: new Date().toISOString(),
-      ttlMs: WORDPRESS_SYNC_LEASE_TTL_MS,
+      ttlMs: isWordpressSource ? WORDPRESS_SYNC_LEASE_TTL_MS : PULL_SYNC_LEASE_TTL_MS,
     })) {
-      throw operationInProgress('WordPress source sync is already in progress', { sourceId: sourceRow.id })
+      throw operationInProgress(
+        isWordpressSource
+          ? 'WordPress source sync is already in progress'
+          : 'A sync or backfill is already running for this traffic source',
+        { sourceId: sourceRow.id },
+      )
     }
 
     try {
@@ -3285,7 +3380,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         // provider call was in flight. Preserve that newer lifecycle state.
         if (latestSource?.status === TrafficSourceStatuses.connected
           && isSameTrafficSourceGeneration(latestSource, sourceRow)
-          && (wordpressLeaseOwner === undefined || latestSource.syncLeaseOwner === wordpressLeaseOwner)) {
+          && latestSource.syncLeaseOwner === syncLeaseOwner) {
           tx
             .update(trafficSources)
             .set({ status: TrafficSourceStatuses.error, lastError: msg, updatedAt: failedAt })
@@ -3313,11 +3408,11 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
     }
 
     const renewWordpressLease = () => {
-      if (!wordpressLeaseOwner) return
+      if (!isWordpressSource) return
       if (!tryClaimTrafficSyncLease({
         db: app.db,
         sourceId: sourceRow.id,
-        owner: wordpressLeaseOwner,
+        owner: syncLeaseOwner,
         now: new Date().toISOString(),
         ttlMs: WORDPRESS_SYNC_LEASE_TTL_MS,
       })) {
@@ -3489,7 +3584,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
           if (!latestSource
             || !isAuthoritativeTrafficSource(tx, latestSource)
             || !isSameTrafficSourceGeneration(latestSource, sourceRow)
-            || latestSource.syncLeaseOwner !== wordpressLeaseOwner
+            || latestSource.syncLeaseOwner !== syncLeaseOwner
             || latestSource.lastCursor
             || latestSource.wordpressPendingUntil) return undefined
           tx.update(trafficSources)
@@ -3778,7 +3873,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       if (!latestRow
         || (latestRow.status !== TrafficSourceStatuses.connected && latestRow.status !== TrafficSourceStatuses.error)
         || latestHasConnectedSibling
-        || (wordpressLeaseOwner !== undefined && latestRow.syncLeaseOwner !== wordpressLeaseOwner)
+        || latestRow.syncLeaseOwner !== syncLeaseOwner
         || !isSameTrafficSourceGeneration(latestRow, sourceRow)) {
         const abortedAt = new Date().toISOString()
         tx.update(runs).set({
@@ -4198,20 +4293,18 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
     }
     return response
     } finally {
-      if (wordpressLeaseOwner) {
-        try {
-          releaseTrafficSyncLease({
-            db: app.db,
-            sourceId: sourceRow.id,
-            owner: wordpressLeaseOwner,
-            now: new Date().toISOString(),
-          })
-        } catch (error) {
-          // A released response must not turn into a 500 just because an
-          // ephemeral lease cleanup raced a DB shutdown. The expiry remains
-          // the safe recovery path if this write could not complete.
-          request.log.warn({ sourceId: sourceRow.id, error: describeError(error) }, 'Failed to release WordPress sync lease')
-        }
+      try {
+        releaseTrafficSyncLease({
+          db: app.db,
+          sourceId: sourceRow.id,
+          owner: syncLeaseOwner,
+          now: new Date().toISOString(),
+        })
+      } catch (error) {
+        // A released response must not turn into a 500 just because an
+        // ephemeral lease cleanup raced a DB shutdown. The expiry remains
+        // the safe recovery path if this write could not complete.
+        request.log.warn({ sourceId: sourceRow.id, error: describeError(error) }, 'Failed to release traffic sync lease')
       }
     }
   })
@@ -4344,7 +4437,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         ?? credential.environment
 
       pullErrorPrefix = 'Vercel pull failed'
-      pullForBackfill = async () => {
+      pullForBackfill = async (signal) => {
         const collected: NormalizedTrafficRequest[] = []
         const seenEventIds = new Set<string>()
         const backfillEndMs = windowEnd.getTime()
@@ -4353,6 +4446,8 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
           chunkStartMs < backfillEndMs;
           chunkStartMs += VERCEL_BACKFILL_CHUNK_MS
         ) {
+          // The source changed under the backfill: stop calling Vercel.
+          signal.throwIfAborted()
           const chunkEndMs = Math.min(chunkStartMs + VERCEL_BACKFILL_CHUNK_MS, backfillEndMs)
           // Backfill is replace mode — a truncated sample would overwrite a
           // full prior rollup with a partial one. `abortOnTruncation` makes the
@@ -4386,25 +4481,39 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
 
     const startedAt = windowEnd.toISOString()
     const runId = crypto.randomUUID()
-    app.db.transaction((tx) => {
-      const latestSource = tx.select().from(trafficSources)
-        .where(eq(trafficSources.id, sourceRow.id)).get()
-      if (!latestSource
-        || !isAuthoritativeTrafficSource(tx, latestSource)
-        || !isSameTrafficSourceGeneration(latestSource, sourceRow)) {
-        throw validationError('Traffic source must remain active and unchanged before it can backfill')
-      }
-      tx.insert(runs).values({
-        id: runId,
-        projectId: project.id,
-        kind: RunKinds['traffic-sync'],
-        status: RunStatuses.running,
-        trigger: RunTriggers.backfill,
-        sourceId: sourceRow.id,
-        startedAt,
-        createdAt: startedAt,
-      }).run()
-    })
+    // The backfill holds the source lease until it finishes. A sync that is
+    // running now holds it, so the caller retries once that sync ends.
+    const leaseOwner = crypto.randomUUID()
+    if (!tryClaimTrafficSyncLease({
+      db: app.db, sourceId: sourceRow.id, owner: leaseOwner,
+      now: new Date().toISOString(), ttlMs: TRAFFIC_BACKFILL_LEASE_TTL_MS,
+    })) {
+      throw operationInProgress('A sync or backfill is already running for this traffic source; retry when it finishes', { sourceId: sourceRow.id })
+    }
+    try {
+      app.db.transaction((tx) => {
+        const latestSource = tx.select().from(trafficSources)
+          .where(eq(trafficSources.id, sourceRow.id)).get()
+        if (!latestSource
+          || !isAuthoritativeTrafficSource(tx, latestSource)
+          || !isSameTrafficSourceGeneration(latestSource, sourceRow)) {
+          throw validationError('Traffic source must remain active and unchanged before it can backfill')
+        }
+        tx.insert(runs).values({
+          id: runId,
+          projectId: project.id,
+          kind: RunKinds['traffic-sync'],
+          status: RunStatuses.running,
+          trigger: RunTriggers.backfill,
+          sourceId: sourceRow.id,
+          startedAt,
+          createdAt: startedAt,
+        }).run()
+      })
+    } catch (error) {
+      releaseTrafficSyncLease({ db: app.db, sourceId: sourceRow.id, owner: leaseOwner, now: new Date().toISOString() })
+      throw error
+    }
 
     // Fire-and-forget. The route returns immediately; the run row carries
     // status until the background task finishes. Errors inside the task are
@@ -4413,6 +4522,8 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
     void runBackfillTask({
       app,
       runId,
+      leaseOwner,
+      leaseRenewMs: opts.trafficBackfillLeaseRenewMs ?? TRAFFIC_BACKFILL_LEASE_RENEW_MS,
       project,
       sourceRow,
       journeyKeySecret: opts.journeyKeySecret,

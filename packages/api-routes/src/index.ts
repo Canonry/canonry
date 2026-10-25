@@ -404,6 +404,7 @@ export interface ApiRoutesOptions {
   pullVercelTrafficEvents?: TrafficRoutesOptions['pullVercelTrafficEvents']
   /** Wall-clock budget (ms) for a Vercel sync's adaptive drain — see `TrafficRoutesOptions` */
   vercelSyncDeadlineMs?: TrafficRoutesOptions['vercelSyncDeadlineMs']
+  trafficBackfillLeaseRenewMs?: TrafficRoutesOptions['trafficBackfillLeaseRenewMs']
   /** Cloudflare Worker traffic credentials — direct-push secrets or Queue API tokens in config, not DB. */
   cloudflareTrafficCredentialStore?: TrafficRoutesOptions['cloudflareTrafficCredentialStore']
   /** Override Cloudflare Queue pull (tests/hosts). */
@@ -888,6 +889,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       vercelTrafficCredentialStore: opts.vercelTrafficCredentialStore,
       pullVercelTrafficEvents: opts.pullVercelTrafficEvents,
       vercelSyncDeadlineMs: opts.vercelSyncDeadlineMs,
+      trafficBackfillLeaseRenewMs: opts.trafficBackfillLeaseRenewMs,
       cloudflareTrafficCredentialStore: opts.cloudflareTrafficCredentialStore,
       pullCloudflareQueueMessages: opts.pullCloudflareQueueMessages,
       ackCloudflareQueueMessages: opts.ackCloudflareQueueMessages,

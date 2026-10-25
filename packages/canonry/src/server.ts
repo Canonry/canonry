@@ -1949,6 +1949,12 @@ export async function createServer(opts: {
       schedulerClient.trafficSync(projectName, sourceId).finally(() => {
         scheduledSyncClaims.delete(syncRunClaimKey(projectName, RunKinds['traffic-sync'], sourceId));
       }).catch((err: unknown) => {
+        // Another sync or a backfill holds the source: this tick is skipped,
+        // and the next one picks up from the same watermark.
+        if (err instanceof CliError && err.code === 'OPERATION_IN_PROGRESS') {
+          app.log.info({ projectName, sourceId }, "Scheduled traffic sync skipped: the source is busy");
+          return;
+        }
         app.log.error(
           {
             projectName,
