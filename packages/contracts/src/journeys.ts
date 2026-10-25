@@ -177,7 +177,14 @@ export function classifyJourneyEntry(signal: JourneyEntrySignal): JourneyEntry {
 }
 
 /**
- * A short device label for display ("iPhone · iOS 18.7 · Safari",
+ * Safari major version from which the iOS version in the user agent is
+ * frozen (iOS 26 reports "OS 18_6", later "18_7"). From then on Safari's
+ * Version token carries the real iOS major version.
+ */
+const SAFARI_FROZEN_IOS_VERSION_FROM = 26
+
+/**
+ * A short device label for display ("iPhone · iOS 27 · Safari",
  * "Mac · Chrome 155"). The full user agent is stored; interfaces show this.
  */
 export function journeyDeviceLabel(userAgent: string | null | undefined): string {
@@ -198,8 +205,11 @@ export function journeyDeviceLabel(userAgent: string | null | undefined): string
   })()
   const ios = /(iPhone|iPad|iPod).*?OS (\d+)_(\d+)/.exec(ua)
   if (ios) {
-    const iosBrowser = /CriOS|FxiOS|EdgiOS/.test(ua) ? browser : 'Safari'
-    return [ios[1], `iOS ${ios[2]}.${ios[3]}`, iosBrowser].filter(Boolean).join(' · ')
+    const thirdParty = /CriOS|FxiOS|EdgiOS/.test(ua)
+    // Chrome, Firefox and Edge on iOS still report the real OS version.
+    const safariMajor = thirdParty ? NaN : Number(/Version\/(\d+)/.exec(ua)?.[1])
+    const iosVersion = safariMajor >= SAFARI_FROZEN_IOS_VERSION_FROM ? String(safariMajor) : `${ios[2]}.${ios[3]}`
+    return [ios[1], `iOS ${iosVersion}`, thirdParty ? browser : 'Safari'].filter(Boolean).join(' · ')
   }
   const android = /Android (\d+(?:\.\d+)?)/.exec(ua)
   if (android) return ['Android ' + android[1], browser].filter(Boolean).join(' · ')
