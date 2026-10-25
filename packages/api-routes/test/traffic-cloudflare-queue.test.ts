@@ -85,6 +85,20 @@ function queueMessages(count: number, prefix: string, options: { valid?: boolean
   }))
 }
 
+/** The drain summary stored on the source's latest sync run. */
+function storedDrain(h: Awaited<ReturnType<typeof harness>>, sourceId: string) {
+  return h.db.select().from(runs).where(eq(runs.sourceId, sourceId)).all().at(-1)?.syncSummary
+}
+
+/** A drain summary with zero counts, overridden per test. */
+function drain(fields: Record<string, unknown>) {
+  return {
+    type: 'cloudflare-queue', pulls: 0, emptyPulls: 0, messagesPulled: 0, messagesAcknowledged: 0, poisonMessages: 0,
+    skippedUnleasedMessages: 0, acceptedEvents: 0, duplicateEvents: 0, backlogAtFirstPull: null, backlogAtLastPull: null,
+    elapsedMs: expect.any(Number), ...fields,
+  }
+}
+
 async function connectAndSync(h: Awaited<ReturnType<typeof harness>>) {
   const connected = await h.app.inject({ method: 'POST', url: '/api/v1/projects/test-project/traffic/connect/cloudflare', payload: queuePayload })
   const sourceId = JSON.parse(connected.payload).sourceId as string
@@ -336,6 +350,13 @@ describe('Cloudflare Queue pull lifecycle', () => {
     expect(second.statusCode).toBe(200)
     expect(JSON.parse(first.payload)).toMatchObject({ pulledEvents: 1, crawlerHits: 1 })
     expect(JSON.parse(second.payload)).toMatchObject({ pulledEvents: 0, crawlerHits: 0 })
+    // The redelivery is pulled and acknowledged again, and counted as a duplicate.
+    const redelivery = drain({
+      stopReason: 'backlog-empty', pulls: 1, messagesPulled: 1, messagesAcknowledged: 1, duplicateEvents: 1,
+      backlogAtFirstPull: 0, backlogAtLastPull: 0,
+    })
+    expect(JSON.parse(second.payload).queueDrain).toEqual(redelivery)
+    expect(storedDrain(h, sourceId)).toEqual(redelivery)
     expect(ackSawCommittedReceipt).toBe(true)
     expect(h.db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).get()?.lastWorkerVersion)
       .toBe(CURRENT_CLOUDFLARE_WORKER_VERSION)
@@ -668,11 +689,15 @@ describe('Cloudflare Queue pull lifecycle', () => {
         return { acknowledgedLeaseIds: options.acks, retriedLeaseIds: [], warningCount: 0 }
       },
     })
-    const { synced } = await connectAndSync(h)
+    const { synced, sourceId } = await connectAndSync(h)
 
     expect(synced.statusCode).toBe(200)
     expect(acknowledgedBatchSizes).toEqual([100, 1])
     expect(acknowledgedBatchSizes.every(size => size <= 100)).toBe(true)
+    expect(storedDrain(h, sourceId)).toEqual(drain({
+      stopReason: 'backlog-empty', pulls: 2, messagesPulled: 101, messagesAcknowledged: 101, poisonMessages: 101,
+      backlogAtFirstPull: 1, backlogAtLastPull: 0,
+    }))
     await h.app.close()
   })
 
@@ -692,12 +717,23 @@ describe('Cloudflare Queue pull lifecycle', () => {
         return { acknowledgedLeaseIds: options.acks, retriedLeaseIds: [], warningCount: 0 }
       },
     })
-    const { synced } = await connectAndSync(h)
+    const { synced, sourceId } = await connectAndSync(h)
     expect(synced.statusCode).toBe(200)
     // Partial batches (37, 52, 8) no longer end the drain; the cap of 4 does.
     expect(acknowledged).toEqual([37, 52, 100, 8])
     expect(JSON.parse(synced.payload)).toMatchObject({ pulledEvents: 197, remainingBacklogCount: 60_000 })
     expect(h.db.select().from(trafficEventReceipts).all()).toHaveLength(197)
+    const capped = drain({
+      stopReason: 'batch-cap', pulls: 4, messagesPulled: 197, messagesAcknowledged: 197, acceptedEvents: 197,
+      backlogAtFirstPull: 60_000, backlogAtLastPull: 60_000,
+    })
+    expect(JSON.parse(synced.payload).queueDrain).toEqual(capped)
+    expect(storedDrain(h, sourceId)).toEqual(capped)
+    // Readable later from the runs list and the source status.
+    const listed = JSON.parse((await h.app.inject({ method: 'GET', url: '/api/v1/projects/test-project/runs' })).payload) as Array<Record<string, unknown>>
+    expect(listed.find(run => run.kind === 'traffic-sync')?.syncSummary).toEqual(capped)
+    const status = JSON.parse((await h.app.inject({ method: 'GET', url: '/api/v1/projects/test-project/traffic/status' })).payload)
+    expect(status.sources[0].latestRun.syncSummary).toEqual(capped)
     await h.app.close()
   })
 
@@ -712,10 +748,14 @@ describe('Cloudflare Queue pull lifecycle', () => {
       },
       queueAck: async (_client, options) => ({ acknowledgedLeaseIds: options.acks, retriedLeaseIds: [], warningCount: 0 }),
     })
-    const { synced } = await connectAndSync(h)
+    const { synced, sourceId } = await connectAndSync(h)
     expect(synced.statusCode).toBe(200)
     expect(pulls).toBe(1)
     expect(JSON.parse(synced.payload)).toMatchObject({ pulledEvents: 10, remainingBacklogCount: 60_000 })
+    expect(storedDrain(h, sourceId)).toEqual(drain({
+      stopReason: 'deadline', pulls: 1, messagesPulled: 10, messagesAcknowledged: 10, acceptedEvents: 10,
+      backlogAtFirstPull: 60_000, backlogAtLastPull: 60_000,
+    }))
     await h.app.close()
   })
 
@@ -730,10 +770,14 @@ describe('Cloudflare Queue pull lifecycle', () => {
       },
       queueAck: async (_client, options) => ({ acknowledgedLeaseIds: options.acks, retriedLeaseIds: [], warningCount: 0 }),
     })
-    const { synced } = await connectAndSync(h)
+    const { synced, sourceId } = await connectAndSync(h)
     expect(synced.statusCode).toBe(200)
     expect(pulls).toBe(5)
     expect(JSON.parse(synced.payload)).toMatchObject({ pulledEvents: 20 })
+    expect(storedDrain(h, sourceId)).toEqual(drain({
+      stopReason: 'empty-pulls', pulls: 5, emptyPulls: 3, messagesPulled: 20, messagesAcknowledged: 20, acceptedEvents: 20,
+      backlogAtFirstPull: 500, backlogAtLastPull: 500,
+    }))
     await h.app.close()
   })
 
@@ -745,9 +789,13 @@ describe('Cloudflare Queue pull lifecycle', () => {
         return { messageBacklogCount: 3, messages: [], skippedUnleasedMessageCount: 3 }
       },
     })
-    const { synced } = await connectAndSync(h)
+    const { synced, sourceId } = await connectAndSync(h)
     expect(synced.statusCode).toBe(200)
     expect(pulls).toBe(1)
+    expect(storedDrain(h, sourceId)).toEqual(drain({
+      stopReason: 'unleased-only', pulls: 1, emptyPulls: 1, skippedUnleasedMessages: 3,
+      backlogAtFirstPull: 3, backlogAtLastPull: 3,
+    }))
     await h.app.close()
   })
 
@@ -772,6 +820,11 @@ describe('Cloudflare Queue pull lifecycle', () => {
     expect(h.synced.at(-1)).toMatchObject({ status: 'completed', pulledEvents: 5 })
     const run = h.db.select().from(runs).where(eq(runs.sourceId, sourceId)).all().at(-1)
     expect(run).toMatchObject({ status: RunStatuses.partial, error: 'Cloudflare Queue pull failed with HTTP 503' })
+    // The failed pull is not counted; the saved batch is.
+    expect(run?.syncSummary).toEqual(drain({
+      stopReason: 'error', pulls: 1, messagesPulled: 5, messagesAcknowledged: 5, acceptedEvents: 5,
+      backlogAtFirstPull: 100, backlogAtLastPull: 100,
+    }))
     expect(h.db.select().from(trafficSources).where(eq(trafficSources.id, sourceId)).get()?.lastError).toBeNull()
     await h.app.close()
   })
@@ -878,6 +931,11 @@ describe('Cloudflare Queue pull lifecycle', () => {
       { ...failed, errorCode: 'PROVIDER_PULL' },
       { ...failed, errorCode: 'INTERNAL' },
     ])
+    // A sync that failed before any pull returned still records why it stopped.
+    const failedRuns = h.db.select().from(runs).where(eq(runs.sourceId, sourceId)).all()
+    expect(failedRuns.map(run => [run.status, run.syncSummary])).toEqual(
+      Array.from({ length: 3 }, () => [RunStatuses.failed, drain({ stopReason: 'error' })]),
+    )
     await h.app.close()
   })
 })

@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { parse } from 'yaml'
-import { createClient, migrate, apiKeys, trafficSources, rawEventSamples, projects } from '@canonry/canonry-db'
+import { createClient, migrate, apiKeys, runs, trafficSources, rawEventSamples, projects } from '@canonry/canonry-db'
 import { createServer } from '../src/server.js'
 import { ApiClient } from '../src/client.js'
 import { invokeCli, parseJsonOutput } from './cli-test-utils.js'
@@ -561,5 +561,30 @@ describe('traffic CLI commands', () => {
     expect(result.exitCode).toBeUndefined()
     const body = parseJsonOutput(result.stdout) as { sources: unknown[] }
     expect(body.sources.length).toBe(0)
+  })
+
+  it('shows why the latest Queue sync stopped in `traffic status`', async () => {
+    const project = db.select().from(projects).all().find(row => row.name === 'test-proj')!
+    const sourceId = crypto.randomUUID()
+    const now = new Date().toISOString()
+    db.insert(trafficSources).values({
+      id: sourceId, projectId: project.id, sourceType: 'cloudflare', displayName: 'Queue', status: 'connected',
+      configJson: { deliveryMode: 'queue-pull' }, queueBacklogCount: 2668, queueBacklogObservedAt: now,
+      createdAt: now, updatedAt: now,
+    }).run()
+    const syncSummary = {
+      type: 'cloudflare-queue' as const, stopReason: 'empty-pulls' as const, pulls: 9, emptyPulls: 2, messagesPulled: 762,
+      messagesAcknowledged: 762, poisonMessages: 0, skippedUnleasedMessages: 0, acceptedEvents: 740, duplicateEvents: 22,
+      backlogAtFirstPull: 3180, backlogAtLastPull: 2668, elapsedMs: 11_000,
+    }
+    db.insert(runs).values({
+      id: crypto.randomUUID(), projectId: project.id, kind: 'traffic-sync', status: 'completed', trigger: 'scheduled',
+      sourceId, startedAt: now, finishedAt: now, createdAt: now, syncSummary,
+    }).run()
+
+    const text = await invokeCli(['traffic', 'status', 'test-proj'])
+    expect(text.stdout).toContain('Queue drain:   no more messages to pull (the rest is leased or not yet visible); 9 pull(s), 762 message(s), 22 redelivered, 11s')
+    const json = parseJsonOutput((await invokeCli(['traffic', 'status', 'test-proj', '--format', 'json'])).stdout) as { sources: Array<{ latestRun: { syncSummary?: unknown } }> }
+    expect(json.sources[0]!.latestRun.syncSummary).toEqual(syncSummary)
   })
 })

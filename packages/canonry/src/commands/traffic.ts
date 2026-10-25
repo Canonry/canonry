@@ -1,5 +1,7 @@
 import { formatValidationIssues, trafficSamplesQuerySchema, type TrafficSamplesQuery, referralAssessmentQuerySchema, type ReferralAssessmentQuery } from '@canonry/canonry-contracts'
 import type {
+  CloudflareQueueDrainStopReason,
+  CloudflareQueueDrainSummary,
   RunDetailDto,
   TrafficBackfillResponse,
   TrafficConnectCloudflareResponse,
@@ -765,7 +767,28 @@ export async function trafficSync(project: string, opts: {
   console.log(`  AI referral hits: ${result.aiReferralHits}  (${result.aiReferralBucketRows} hourly bucket${result.aiReferralBucketRows === 1 ? '' : 's'})`)
   console.log(`  Unknown hits:     ${result.unknownHits}`)
   console.log(`  Sample rows:      ${result.sampleRows}`)
+  if (result.queueDrain) {
+    console.log(`  Queue drain:      ${describeQueueDrain(result.queueDrain)}`)
+    if (result.remainingBacklogCount !== undefined) {
+      console.log(`  Queue backlog:    ${result.remainingBacklogCount} message(s) reported after the sync`)
+    }
+  }
   console.log(`  Synced at:        ${result.syncedAt}`)
+}
+
+const QUEUE_STOP_LABELS: Record<CloudflareQueueDrainStopReason, string> = {
+  'backlog-empty': 'Queue empty',
+  'empty-pulls': 'no more messages to pull (the rest is leased or not yet visible)',
+  'unleased-only': 'only unleased entries left',
+  deadline: 'time limit reached',
+  'batch-cap': 'pull cap reached',
+  error: 'failed',
+}
+
+/** One line: why a Queue sync stopped and what it pulled. */
+export function describeQueueDrain(drain: CloudflareQueueDrainSummary): string {
+  const redelivered = drain.duplicateEvents > 0 ? `, ${drain.duplicateEvents} redelivered` : ''
+  return `${QUEUE_STOP_LABELS[drain.stopReason]}; ${drain.pulls} pull(s), ${drain.messagesPulled} message(s)${redelivered}, ${Math.round(drain.elapsedMs / 1000)}s`
 }
 
 /**
@@ -947,6 +970,9 @@ export async function trafficStatus(project: string, opts: { format?: string }):
       console.log(`    Started:       ${d.latestRun.startedAt}`)
       if (d.latestRun.finishedAt) console.log(`    Finished:      ${d.latestRun.finishedAt}`)
       if (d.latestRun.error) console.log(`    Error:         ${d.latestRun.error}`)
+      if (d.latestRun.syncSummary?.type === 'cloudflare-queue') {
+        console.log(`    Queue drain:   ${describeQueueDrain(d.latestRun.syncSummary)}`)
+      }
     } else {
       console.log(`  Latest run:      (none)`)
     }
