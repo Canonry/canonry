@@ -1925,7 +1925,7 @@ days to return. `list` returns those visitors newest first with their first 20
 visits (`visitCount` is the total) and marks user-agent-only keys; `show` pages
 through one visitor's visits and requests. A visit ends after 30 idle minutes
 or when the visitor arrives again from another outside source; a same-site,
-sign-in or payment referer is a step inside the visit.
+sign-in, payment or booking-engine referer is a step inside the visit.
 
 Visits are stored when they fall within 30 days after one of the visitor's AI visits;
 rows are deleted after 180 days. A visitor key is a keyed hash, never an IP.

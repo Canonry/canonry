@@ -1232,8 +1232,9 @@ every source and needs no site snippet or goal setup. Read it with
   visit already kept; rows are deleted after 180 days. Journeys start from the
   first sync after upgrade; backfill a Cloud Run or Vercel source to seed
   history it still retains.
-- Sign-in and payment return pages (Google accounts, Stripe, PayPal and the
-  like) are steps inside a visit, not new arrivals. Query strings keep only
+- Sign-in, payment and booking-engine return pages (Google accounts, Stripe,
+  PayPal, hosted hotel booking engines and the like) are steps inside a
+  visit, not new arrivals. Listing marketplaces still count as referrals. Query strings keep only
   `utm_*`; path segments that look like secrets are masked.
 
 ### Inspect stored samples

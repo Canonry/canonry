@@ -25,15 +25,24 @@ const KEPT_QUERY_PARAMETERS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_
 const AD_CLICK_ID_PARAMETERS = ['gclid', 'gbraid', 'wbraid', 'dclid', 'msclkid', 'ttclid', 'li_fat_id']
 // Click ids platforms also add to unpaid links: they name the network, not a payment.
 const NETWORK_CLICK_ID_PARAMETERS: Readonly<Record<string, string>> = { fbclid: 'Facebook', twclid: 'X' }
-// Sign-in and payment pages that send a visitor straight back. Their referer
-// is a step inside the visit, not a new arrival.
+// Hosted pages that send a visitor straight back to the site: sign-in,
+// payment and checkout, and hotel and lodging booking engines (the guest
+// books and pays there, then returns to a confirmation page). Their referer
+// is a step inside the visit, not a new arrival. Only hosts that do nothing
+// but the transaction belong here: a marketplace where people also discover
+// a business (a restaurant or event listing site) sends real referrals.
 const STEP_REFERER_HOSTS = [
-  'accounts.google.com', 'accounts.youtube.com', 'pay.google.com', 'appleid.apple.com',
+  // Sign-in.
+  'accounts.google.com', 'accounts.youtube.com', 'appleid.apple.com',
   'login.microsoftonline.com', 'login.live.com', 'login.microsoft.com', 'github.com/login',
-  'checkout.stripe.com', 'js.stripe.com', 'hooks.stripe.com', 'pay.stripe.com', 'connect.stripe.com',
-  'paypal.com', 'pay.amazon.com', 'checkout.shopify.com', 'shop.app', 'klarna.com', 'afterpay.com',
-  'squareup.com', 'checkout.square.site', 'adyen.com', 'braintreegateway.com', 'auth0.com', 'okta.com',
-  'onelogin.com', 'amazoncognito.com', 'clerk.accounts.dev',
+  'auth0.com', 'okta.com', 'onelogin.com', 'amazoncognito.com', 'clerk.accounts.dev',
+  // Payment and checkout.
+  'pay.google.com', 'checkout.stripe.com', 'js.stripe.com', 'hooks.stripe.com', 'pay.stripe.com', 'connect.stripe.com',
+  'paypal.com', 'pay.amazon.com', 'checkout.shopify.com', 'pay.shopify.com', 'shop.app', 'klarna.com', 'afterpay.com',
+  'squareup.com', 'checkout.square.site', 'adyen.com', 'braintreegateway.com',
+  // Hotel and lodging booking engines.
+  'mews.com', 'cloudbeds.com', 'synxis.com', 'travelclick.com', 'thebookingbutton.com', 'webrezpro.com',
+  'littlehotelier.com', 'book-directonline.com', 'beds24.com', 'resnexus.com', 'thinkreservations.com',
 ]
 const MAX_PATH_LENGTH = 512
 const UUID_SEGMENT = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
