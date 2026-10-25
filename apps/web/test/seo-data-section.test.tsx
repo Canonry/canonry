@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, RouterProvider } from '@tanstack/react-router'
 import { afterEach, expect, test, vi } from 'vitest'
-import { SeoRunStatuses, type SeoContext, type SeoOverview, type SeoProfile, type SeoProfileInput, type SeoProvenance, type SeoRankedKeyword, type SeoRun } from '@canonry/canonry-contracts'
+import { SeoRunStatuses, type SeoContext, type SeoMarketRanking, type SeoOverview, type SeoProfile, type SeoProfileInput, type SeoProvenance, type SeoRankedKeyword, type SeoRun } from '@canonry/canonry-contracts'
 import { SeoDataSection } from '../src/components/project/SeoDataSection.js'
 import { createQueryClient } from '../src/queries/query-client.js'
 
@@ -50,7 +50,7 @@ function overview(profile: SeoProfile, latestRun: SeoRun = { ...saved, id: `save
     profiles: [profile], latestRun, evidenceRunId: `saved-${profile.id}`, evidenceRun: { ...saved, id: `saved-${profile.id}`, profileId: profile.id, capabilities: profile.capabilities, scope: profile.scope, locationCode: profile.locationCode, languageCode: profile.languageCode },
     status: { available: true, reason: null, capabilities: profile.capabilities, profileCount: 2, latestRunId: latestRun.id, latestRunStatus: latestRun.status, lastCompletedAt: source.collectedAt },
     summary: { target: profile.targets[0], organicKeywords: 721, inTop10: 123, estimatedOrganicTraffic: 98.4, provenance: source },
-    keywordMetricsCount: 1, domainIntelligenceCount: 1, rankedKeywordCount: 1,
+    keywordMetricsCount: 1, domainIntelligenceCount: 1, rankedKeywordCount: 1, marketRankingCount: 0,
   }
 }
 function json(value: unknown, status = 200) {
@@ -94,7 +94,7 @@ test('profile selection pins SDK evidence and renders server values, zero, and m
     throw new Error(`Unexpected request ${request.method} ${url.pathname}`)
   })
   const { router } = await mount()
-  const table = await screen.findByRole('table', { name: 'Ranked keywords from the selected refresh' })
+  const table = await screen.findByRole('table', { name: 'Searches you rank for, from the selected refresh' })
   expect(within(table).getByText('saved keyword')).not.toBeNull()
   expect(screen.getByText('123')).not.toBeNull()
   expect(screen.getByText('721')).not.toBeNull()
@@ -245,11 +245,11 @@ test('profile editing clears unsupported datasets when Advanced scope narrows an
   fireEvent.change(within(form).getByRole('combobox', { name: 'Measurement scope' }), { target: { value: 'property:property-fr' } })
   expect(dataset('Domain comparison').disabled).toBe(true)
   expect(dataset('Domain comparison').checked).toBe(false)
-  expect(dataset('Ranked keywords').checked).toBe(true)
+  expect(dataset('Searches you rank for').checked).toBe(true)
   fireEvent.change(within(form).getByRole('combobox', { name: 'Measurement scope' }), { target: { value: 'property:property-docs' } })
-  expect(dataset('Ranked keywords').disabled).toBe(true)
-  expect(dataset('Ranked keywords').checked).toBe(false)
-  expect(dataset('Keyword metrics').checked).toBe(true)
+  expect(dataset('Searches you rank for').disabled).toBe(true)
+  expect(dataset('Searches you rank for').checked).toBe(false)
+  expect(dataset('Search demand').checked).toBe(true)
   expect(within(form).getByText('This scope supports explicit keyword metrics only.')).not.toBeNull()
   fireEvent.click(within(form).getByRole('button', { name: 'Save profile' }))
   await waitFor(() => expect(writes).toHaveLength(1))
@@ -275,7 +275,7 @@ test.each(['project', 'path Property'])('a new keyword-only profile for %s saves
     if (created && url.pathname.endsWith('/overview')) return json({
       status: { available: true, reason: null, capabilities: ['keyword-metrics'], profileCount: 1, latestRunId: null, latestRunStatus: null, lastCompletedAt: null },
       profiles: [created], latestRun: null, evidenceRun: null, evidenceRunId: null, summary: null,
-      keywordMetricsCount: 0, domainIntelligenceCount: 0, rankedKeywordCount: 0,
+      keywordMetricsCount: 0, domainIntelligenceCount: 0, rankedKeywordCount: 0, marketRankingCount: 0,
     } satisfies SeoOverview)
     throw new Error(`Unexpected profile creation request ${request.method} ${url.pathname}`)
   })
@@ -286,15 +286,15 @@ test.each(['project', 'path Property'])('a new keyword-only profile for %s saves
   if (scopeLabel === 'path Property') {
     fireEvent.change(within(form).getByRole('combobox', { name: 'Measurement scope' }), { target: { value: 'property:docs' } })
   }
-  for (const label of ['Ranked keywords', 'Domain comparison']) {
+  for (const label of ['Searches you rank for', 'Domain comparison']) {
     const checkbox = within(form).getByRole<HTMLInputElement>('checkbox', { name: label })
     if (checkbox.checked) fireEvent.click(checkbox)
   }
-  const keywords = within(form).getByRole<HTMLInputElement>('checkbox', { name: 'Keyword metrics' })
+  const keywords = within(form).getByRole<HTMLInputElement>('checkbox', { name: 'Search demand' })
   if (!keywords.checked) fireEvent.click(keywords)
   expect(within(form).queryByRole('group', { name: 'Targets' })).toBeNull()
-  expect(within(form).queryByRole('spinbutton', { name: 'Ranked rows per target' })).toBeNull()
-  fireEvent.change(within(form).getByRole('textbox', { name: /^Keywords/ }), { target: { value: 'solar installer\nhome solar cost' } })
+  expect(within(form).queryByRole('spinbutton', { name: 'Ranked searches per target' })).toBeNull()
+  fireEvent.change(within(form).getByRole('textbox', { name: /^Searches/ }), { target: { value: 'solar installer\nhome solar cost' } })
   fireEvent.change(within(form).getByRole('spinbutton', { name: /^Provider location code/ }), { target: { value: '2840' } })
   fireEvent.click(within(form).getByRole('button', { name: 'Save profile' }))
   await waitFor(() => expect(writes).toHaveLength(1))
@@ -363,7 +363,7 @@ test('read-only access keeps source evidence available, exposes scope refusal, a
   fireEvent.click(screen.getByText('Details', { selector: 'summary' }))
   expect(screen.getByText('$2.31', { exact: false })).not.toBeNull()
   // The dataset is named by its kind; the vendor behind the host's source never reaches the client.
-  expect(within(screen.getByRole('table')).getByText('Dataset').nextElementSibling!.textContent).toBe('Ranked keywords')
+  expect(within(screen.getByRole('table')).getByText('Dataset').nextElementSibling!.textContent).toBe('Searches you rank for')
   expect(document.body.textContent).not.toMatch(/request cost|budget|billing|receipt|spend|dataforseo/i)
   expect(methods.every(method => method === 'GET')).toBe(true)
 })
@@ -421,7 +421,7 @@ test('editing a profile preserves the datasets and locale of its prior saved evi
   })
   await mount()
   await screen.findByText('saved keyword')
-  expect(screen.getByRole('button', { name: 'Ranked keywords' }).getAttribute('aria-pressed')).toBe('true')
+  expect(screen.getByRole('button', { name: 'Searches you rank for' }).getAttribute('aria-pressed')).toBe('true')
   expect(screen.queryByRole('button', { name: 'Domain comparison' })).toBeNull()
   expect(screen.getByRole('status').textContent).toBe('Saved data uses profile revision 1 · Location 2840 · en. The current profile has changed.')
 })
@@ -434,7 +434,7 @@ test.each(['advanced', 'simple'])('a historical link preserves its refresh ident
     reads.push(url)
     if (url.pathname.endsWith('/context')) return json(context)
     if (url.pathname.endsWith('/profiles')) return json({ profiles: [simple, advanced] })
-    if (url.pathname.endsWith('/runs/historic')) return json({ ...historic, tasks: [], results: { keywordMetrics: [], rankedKeywords: [], domainIntelligence: [] }, resultCounts: { keywordMetrics: 0, rankedKeywords: 0, domainIntelligence: 0 }, resultsTruncated: false })
+    if (url.pathname.endsWith('/runs/historic')) return json({ ...historic, tasks: [], results: { keywordMetrics: [], rankedKeywords: [], domainIntelligence: [], marketRankings: [] }, resultCounts: { keywordMetrics: 0, rankedKeywords: 0, domainIntelligence: 0, marketRankings: 0 }, resultsTruncated: false })
     if (url.pathname.endsWith('/overview')) return json({ ...overview(advanced, historic), evidenceRunId: historic.id, evidenceRun: historic })
     if (url.pathname.endsWith('/runs')) return json({ runs: [historic] })
     throw new Error(`Unexpected request ${url.pathname}`)
@@ -449,4 +449,85 @@ test.each(['advanced', 'simple'])('a historical link preserves its refresh ident
     expect(screen.queryByRole('button', { name: 'Refresh data' })).toBeNull()
     expect(reads.find(url => url.pathname.endsWith('/overview'))?.searchParams.get('runId')).toBe('historic')
   }
+})
+
+test('market rankings read as tracked queries by market, and editing keeps their search settings', async () => {
+  const markets: SeoProfile = {
+    ...simple, id: 'markets', name: 'Market rankings', capabilities: ['market-rankings'], keywords: [], revision: 2,
+    rankings: { locations: [{ key: 'metro', locationCode: 200623, label: 'Dallas-Ft. Worth, TX' }], depth: 50, device: 'mobile', searchText: 'query-without-market-region' },
+  }
+  // The saved refresh ran under revision 1, one of its three searches failed.
+  const refresh: SeoRun = { ...saved, id: 'saved-markets', profileId: 'markets', status: 'partial', capabilities: ['market-rankings'], scope: markets.scope, taskCount: 3, completedTasks: 2, failedTasks: 1 }
+  const search = (id: string, status: SeoRun['status'], error: string | null) => ({ id, capability: 'market-rankings' as const, target: markets.targets[0]!, status, error, remoteTaskId: null })
+  const marketContext: SeoContext = {
+    ...context,
+    connections: [{ ...context.connections[0]!, capabilities: ['ranked-keywords', 'keyword-metrics', 'domain-intelligence', 'market-rankings'] }],
+    scopes: [{ ...context.scopes[0]!, capabilities: ['ranked-keywords', 'keyword-metrics', 'domain-intelligence', 'market-rankings'] }],
+  }
+  const row = (queryText: string, rankOrganic: number | null, url: string | null): SeoMarketRanking => ({
+    marketKey: 'dallas', marketLabel: 'Dallas, Dallas-Fort Worth', regionKey: 'metro', regionLabel: 'Dallas-Fort Worth Metro Area',
+    queryId: queryText, queryText, queryClass: 'non-brand', searchText: queryText.replace(', Dallas-Fort Worth', ''), locationLabel: 'Dallas-Ft. Worth, TX',
+    target: markets.targets[0]!, rankOrganic, rankAbsolute: rankOrganic, url, depth: 50, competitors: [{ domain: 'rival.com', rankOrganic: 2 }],
+    provenance: { ...source, dataset: 'dataforseo-serp/google/market-rankings', locationCode: 200623, device: 'mobile' },
+  })
+  const reads: URL[] = []
+  const writes: unknown[] = []
+  vi.stubGlobal('fetch', async (request: Request) => {
+    const url = new URL(request.url)
+    if (request.method === 'PUT') { writes.push(await request.json()); return json({ ...markets, revision: 3 }) }
+    reads.push(url)
+    if (url.pathname.endsWith('/context')) return json(marketContext)
+    if (url.pathname.endsWith('/profiles')) return json({ profiles: [markets] })
+    if (url.pathname.endsWith('/overview')) return json({ ...overview(markets, refresh), summary: null, marketRankingCount: 2 })
+    if (url.pathname.endsWith('/market-rankings')) return json({ runId: 'saved-markets', total: 2, limit: 25, offset: 0, items: [row('best apartments in Dallas, Dallas-Fort Worth', 4, 'https://example.com/dallas'), row('pet friendly apartments Dallas, Dallas-Fort Worth', null, null)] })
+    if (url.pathname.endsWith('/runs/saved-markets')) return json({ ...refresh, tasks: [search('t1', 'completed', null), search('t2', 'failed', 'The source refused this search.'), search('t3', 'completed', null)], results: { keywordMetrics: [], rankedKeywords: [], domainIntelligence: [], marketRankings: [] }, resultCounts: { keywordMetrics: 0, rankedKeywords: 0, domainIntelligence: 0, marketRankings: 2 }, resultsTruncated: false })
+    if (url.pathname.endsWith('/runs')) return json({ runs: [refresh] })
+    throw new Error(`Unexpected request ${request.method} ${url.pathname}`)
+  })
+  await mount('markets')
+  const table = await screen.findByRole('table', { name: 'Market rankings from the selected refresh' })
+  const rows = within(table).getAllByRole('row').slice(1)
+  expect(within(rows[0]!).getByRole('rowheader').textContent).toBe('best apartments in Dallas, Dallas-Fort WorthDallas, Dallas-Fort Worth')
+  expect(within(rows[0]!).getAllByRole('cell')[0]!.textContent).toBe('4')
+  expect(within(rows[1]!).getAllByRole('cell')[0]!.textContent).toBe('Not in top 50')
+  expect(within(rows[1]!).getByLabelText('No ranking page')).not.toBeNull()
+  expect(within(rows[0]!).getByText('Searched as “best apartments in Dallas” from Dallas-Ft. Worth, TX')).not.toBeNull()
+  // A ranked row states its position counting every result block; an unranked row has none to state.
+  expect(within(rows[0]!).getByText('Position on the page, counting maps and other blocks: 4')).not.toBeNull()
+  expect(within(rows[1]!).queryByText(/Position on the page/)).toBeNull()
+  const tracked = within(rows[0]!).getByText('Tracked competitors in these results').nextElementSibling!
+  expect([...tracked.children].map(item => item.textContent)).toEqual(['rival.com', '#2'])
+  expect(screen.getByText('1 search location · en')).not.toBeNull()
+  // The saved refresh searched from each market's location, never the profile's one location code.
+  expect(screen.getByText('Saved data uses profile revision 1 · Market locations · en. The current profile has changed.')).not.toBeNull()
+  const read = reads.find(url => url.pathname.endsWith('/market-rankings'))!
+  expect(Object.fromEntries(read.searchParams)).toEqual({ profileId: 'markets', runId: 'saved-markets', limit: '25', offset: '0' })
+
+  // Activity counts searches and lists only the one that did not complete.
+  fireEvent.click(screen.getByRole('button', { name: 'Activity' }))
+  expect(await screen.findByText('2 of 3 searches completed · 1 failed')).not.toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: /^Details\s*for refresh saved-markets$/ }))
+  const details = await screen.findByText('The source refused this search.')
+  const panel = details.closest('[id="seo-run-saved-markets"]') as HTMLElement
+  expect(within(panel).getByText('Profile revision 1 · Market locations · en')).not.toBeNull()
+  expect(within(panel).getAllByRole('listitem')).toHaveLength(1)
+
+  fireEvent.click(screen.getByRole('button', { name: 'Edit profile' }))
+  const form = screen.getByRole('form', { name: 'Edit SEO profile' })
+  // Market rankings keep their own profile and report one target, so other datasets and a second target are unavailable.
+  const demand = within(form).getByRole<HTMLInputElement>('checkbox', { name: 'Search demand' })
+  expect(demand.disabled).toBe(true)
+  expect(document.getElementById(demand.getAttribute('aria-describedby')!)?.textContent).toBe('Market rankings use their own profile.')
+  expect(within(form).getByRole<HTMLInputElement>('checkbox', { name: 'Market rankings' }).disabled).toBe(false)
+  expect(within(form).getByRole<HTMLButtonElement>('button', { name: 'Add target' }).disabled).toBe(true)
+  fireEvent.change(within(form).getByRole('textbox', { name: 'Profile name' }), { target: { value: 'Markets by metro' } })
+  fireEvent.click(within(form).getByRole('button', { name: 'Save profile' }))
+  await waitFor(() => expect(writes).toHaveLength(1))
+  expect(writes[0]).toMatchObject({ name: 'Markets by metro', capabilities: ['market-rankings'], targets: markets.targets, rankings: markets.rankings })
+  fireEvent.click(screen.getByRole('button', { name: /New profile/ }))
+  const created = screen.getByRole('form', { name: 'New SEO profile' })
+  // Market-rankings setup (locations, depth, device) is not in the web editor yet.
+  const marketsBox = within(created).getByRole<HTMLInputElement>('checkbox', { name: 'Market rankings' })
+  expect(marketsBox.disabled).toBe(true)
+  expect(document.getElementById(marketsBox.getAttribute('aria-describedby')!)?.textContent).toBe('Set up market rankings with the CLI or API.')
 })

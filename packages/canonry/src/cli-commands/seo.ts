@@ -1,4 +1,4 @@
-import { seoEvidenceQuerySchema, seoSyncInputSchema } from '@canonry/canonry-contracts'
+import { seoEvidenceQuerySchema, seoMarketRankingQuerySchema, seoSyncInputSchema } from '@canonry/canonry-contracts'
 import type { CliCommandInput, CliCommandSpec } from '../cli-dispatch.js'
 import { getString, requirePositional, requireProject, requireStringOption, stringOption } from '../cli-command-helpers.js'
 import { usageError } from '../cli-error.js'
@@ -6,7 +6,7 @@ import {
   showSeoContext, showSeoStatus, listSeoProfiles, showSeoProfile, setSeoProfile,
   prepareSeoRefresh, syncSeo, listSeoRuns, showSeoRun, cancelSeoRun,
   showSeoOperatorTask, reconcileSeoTask,
-  showSeoOverview, showSeoKeywordMetrics, showSeoDomainIntelligence, showSeoRankedKeywords,
+  showSeoOverview, showSeoKeywordMetrics, showSeoDomainIntelligence, showSeoRankedKeywords, showSeoMarketRankings,
 } from '../commands/seo.js'
 
 const selectionOptions = { 'profile-id': stringOption(), 'run-id': stringOption(), limit: stringOption(), offset: stringOption() }
@@ -16,6 +16,14 @@ function selection(input: CliCommandInput) {
     profileId: getString(input.values, 'profile-id'), runId: getString(input.values, 'run-id'),
     limit: getString(input.values, 'limit') === undefined ? undefined : Number(getString(input.values, 'limit')),
     offset: getString(input.values, 'offset') === undefined ? undefined : Number(getString(input.values, 'offset')),
+  })
+  if (!result.success) throw usageError(result.error.issues.map(issue => `${issue.path.join('.')}: ${issue.message}`).join('; '))
+  return result.data
+}
+const rankingOptions = { ...selectionOptions, market: stringOption(), region: stringOption() }
+function rankingSelection(input: CliCommandInput) {
+  const result = seoMarketRankingQuerySchema.safeParse({
+    ...selection(input), marketKey: getString(input.values, 'market'), regionKey: getString(input.values, 'region'),
   })
   if (!result.success) throw usageError(result.error.issues.map(issue => `${issue.path.join('.')}: ${issue.message}`).join('; '))
   return result.data
@@ -67,4 +75,9 @@ export const SEO_CLI_COMMANDS: readonly CliCommandSpec[] = [
   { path: ['seo', 'keyword-metrics'], usage: 'canonry seo keyword-metrics <project> [--profile-id <id>] [--run-id <id>] [--limit <n>] [--offset <n>] [--format json]', access: 'stored', options: selectionOptions, help: evidenceHelp, run: input => showSeoKeywordMetrics(project(input), selection(input), input.format) },
   { path: ['seo', 'domain-intelligence'], usage: 'canonry seo domain-intelligence <project> [--profile-id <id>] [--run-id <id>] [--limit <n>] [--offset <n>] [--format json]', access: 'stored', options: selectionOptions, help: evidenceHelp, run: input => showSeoDomainIntelligence(project(input), selection(input), input.format) },
   { path: ['seo', 'ranked-keywords'], usage: 'canonry seo ranked-keywords <project> [--profile-id <id>] [--run-id <id>] [--limit <n>] [--offset <n>] [--format json]', access: 'stored', options: selectionOptions, help: evidenceHelp, run: input => showSeoRankedKeywords(project(input), selection(input), input.format) },
+  {
+    path: ['seo', 'market-rankings'], usage: 'canonry seo market-rankings <project> [--profile-id <id>] [--run-id <id>] [--market <key>] [--region <key>] [--limit <n>] [--offset <n>] [--format json]', access: 'stored', options: rankingOptions,
+    help: 'Read saved market rankings only: the site\'s Google position for each tracked non-brand query in each market, searched from that market\'s location. A rank past the checked results reads as not ranked. --market and --region narrow the rows; preserve --run-id when paging.',
+    run: input => showSeoMarketRankings(project(input), rankingSelection(input), input.format),
+  },
 ]

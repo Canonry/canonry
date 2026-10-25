@@ -82,6 +82,7 @@ export const STORED_READ_OPERATIONS: ReadonlySet<string> = new Set([
   'GET /api/v1/projects/{name}/seo/keyword-metrics',
   'GET /api/v1/projects/{name}/seo/domain-intelligence',
   'GET /api/v1/projects/{name}/seo/ranked-keywords',
+  'GET /api/v1/projects/{name}/seo/market-rankings',
   'GET /api/v1/projects/{name}/gbp/local-post-attempt',
   'GET /api/v1/openapi.json',
   'GET /api/v1/screenshots/{snapshotId}',

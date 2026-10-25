@@ -1,25 +1,68 @@
 import { createHash } from 'node:crypto'
 import {
   SeoAdapterOutcomes, SeoCapabilities, SeoProviders, SeoTargetKinds,
-  dollarsToMicros, emptySeoResults, normalizeHostname, registrableDomain, seoProfileInputSchema, validationError,
+  dollarsToMicros, emptySeoResults, normalizeHostname, registrableDomain, seoDeviceSchema, seoProfileInputSchema, seoRankingSettingsSchema, validationError,
   type SeoAdapter, type SeoAdapterEstimate, type SeoAdapterRequest, type SeoAdapterResult,
-  type SeoResults,
+  type SeoResults, type SeoTarget,
 } from '@canonry/canonry-contracts'
 import { dataForSeoFetch, DataForSeoTransportError, type DataForSeoCredentials } from './client.js'
 import { normalizeDataForSeoResults } from './normalize.js'
 
+/** API paths under `/v3/`. Labs reads DataForSEO's stored database; SERP collects a live results page. */
 const ENDPOINTS = {
-  [SeoCapabilities['keyword-metrics']]: 'keyword_overview',
-  [SeoCapabilities['domain-intelligence']]: 'domain_rank_overview',
-  [SeoCapabilities['ranked-keywords']]: 'ranked_keywords',
+  [SeoCapabilities['keyword-metrics']]: 'dataforseo_labs/google/keyword_overview/live',
+  [SeoCapabilities['domain-intelligence']]: 'dataforseo_labs/google/domain_rank_overview/live',
+  [SeoCapabilities['ranked-keywords']]: 'dataforseo_labs/google/ranked_keywords/live',
+  [SeoCapabilities['market-rankings']]: 'serp/google/organic/live/advanced',
 } as const
+
+/** DataForSEO accepts a SERP keyword of up to 700 characters. */
+const MAX_SEARCH_TEXT_LENGTH = 700
 
 // https://docs.dataforseo.com/v3/appendix/errors/ documents these request refusals,
 // distinct from execution or timeout
 // failures. Without task receipts, even these require an explicit zero total cost.
 const REQUEST_REFUSALS = new Set([40000, 40006, 40100, 40104, 40200, 40203, 40205, 40206, 40207, 40210, 40501, 40502, 40503, 40506])
 
+/** The bare hostname a target names, after the shared domain/host scope rules. */
+function targetHost(target: SeoTarget | null): string {
+  const host = target ? normalizeHostname(target.value) : null
+  if (!target || !host || !registrableDomain(host)) {
+    throw validationError('SEO requires a bare public domain or hostname.')
+  }
+  const domain = registrableDomain(host)
+  if (target.kind === SeoTargetKinds.domain && (host !== domain || !target.includeSubdomains)) {
+    throw validationError('Use the root domain with subdomains included, or choose exact host scope.')
+  }
+  if (target.kind === SeoTargetKinds.host && target.includeSubdomains) {
+    throw validationError('Exact host scope cannot include subdomains.')
+  }
+  return host
+}
+
+function marketRankingPayload(request: SeoAdapterRequest): Record<string, unknown> {
+  const search = request.search
+  const text = request.keywords[0]?.trim() ?? ''
+  if (!search || request.keywords.length !== 1 || !text || text.length > MAX_SEARCH_TEXT_LENGTH) {
+    throw validationError('Market rankings search one tracked query of up to 700 characters at a time.')
+  }
+  if (!seoRankingSettingsSchema.shape.depth.safeParse(search.depth).success || !seoDeviceSchema.safeParse(search.device).success) {
+    throw validationError('Market rankings need a result depth from 10 to 100 in steps of 10 and a device.')
+  }
+  if (search.markets.length === 0) throw validationError('Market rankings need at least one market for each search.')
+  if (!Number.isSafeInteger(request.locationCode) || request.locationCode <= 0 || request.languageCode.length < 2 || request.languageCode.length > 10) {
+    throw validationError('Check the SEO provider location and language.')
+  }
+  if (request.tag.length > 255) throw validationError('SEO task identifier is too long.')
+  targetHost(request.target)
+  return {
+    keyword: text, location_code: request.locationCode, language_code: request.languageCode,
+    device: search.device, depth: search.depth, tag: request.tag,
+  }
+}
+
 function taskPayload(request: SeoAdapterRequest): Record<string, unknown> {
+  if (request.capability === SeoCapabilities['market-rankings']) return marketRankingPayload(request)
   const parsed = seoProfileInputSchema.pick({ keywords: true, locationCode: true, languageCode: true, limit: true }).safeParse({
     keywords: request.keywords, locationCode: request.locationCode,
     languageCode: request.languageCode, limit: request.limit,
@@ -33,18 +76,9 @@ function taskPayload(request: SeoAdapterRequest): Record<string, unknown> {
     }
     return { ...common, keywords: request.keywords, include_clickstream_data: false, include_serp_info: true }
   }
-  const target = request.target
-  const host = target ? normalizeHostname(target.value) : null
-  if (!target || !host || !registrableDomain(host)) {
-    throw validationError('SEO requires a bare public domain or hostname.')
-  }
+  const target = request.target!
+  const host = targetHost(target)
   const domain = registrableDomain(host)
-  if (target.kind === SeoTargetKinds.domain && (host !== domain || !target.includeSubdomains)) {
-    throw validationError('Use the root domain with subdomains included, or choose exact host scope.')
-  }
-  if (target.kind === SeoTargetKinds.host && target.includeSubdomains) {
-    throw validationError('Exact host scope cannot include subdomains.')
-  }
   switch (request.capability) {
     case SeoCapabilities['domain-intelligence']:
       if (target.kind !== SeoTargetKinds.domain) throw validationError('Domain intelligence requires a whole-domain scope.')
@@ -63,6 +97,11 @@ function taskPayload(request: SeoAdapterRequest): Record<string, unknown> {
 
 function estimate(request: SeoAdapterRequest): SeoAdapterEstimate {
   taskPayload(request)
+  if (request.capability === SeoCapabilities['market-rankings']) {
+    // Published live SERP prices checked 2026-10-25: $0.002 for each 10 results
+    // requested. Location and device do not change the price.
+    return { maxCostMicros: 2_000 * (request.search!.depth / 10), catalogRevision: 'dataforseo-google-serp-live-2026-10-25' }
+  }
   const rows = request.capability === SeoCapabilities['keyword-metrics']
     ? request.keywords.length
     : request.capability === SeoCapabilities['domain-intelligence'] ? 1 : request.limit
@@ -74,6 +113,7 @@ function appendResults(target: SeoResults, source: SeoResults): void {
   target.keywordMetrics.push(...source.keywordMetrics)
   target.domainIntelligence.push(...source.domainIntelligence)
   target.rankedKeywords.push(...source.rankedKeywords)
+  target.marketRankings.push(...source.marketRankings)
 }
 
 /** Construction is local and free. Configuration never probes the account. */

@@ -1,7 +1,8 @@
 import { z } from 'zod'
+import { queryClassSchema } from './query-class.js'
 import { fraction } from './ratio-unit.js'
 
-export const seoCapabilitySchema = z.enum(['keyword-metrics', 'domain-intelligence', 'ranked-keywords'])
+export const seoCapabilitySchema = z.enum(['keyword-metrics', 'domain-intelligence', 'ranked-keywords', 'market-rankings'])
 export type SeoCapability = z.infer<typeof seoCapabilitySchema>
 export const SeoCapabilities = seoCapabilitySchema.enum
 export const seoProviderSchema = z.enum(['dataforseo'])
@@ -40,17 +41,63 @@ export const seoScopeSelectionSchema = z.object({
 }).strict()
 export type SeoScopeSelection = z.infer<typeof seoScopeSelectionSchema>
 
+/** The device a Google results page was collected for. Labs datasets do not say, so they read `unspecified`. */
+export const seoDeviceSchema = z.enum(['desktop', 'mobile'])
+export type SeoDevice = z.infer<typeof seoDeviceSchema>
+export const SeoDevices = seoDeviceSchema.enum
+
+/**
+ * What a market-rankings profile searches on Google for each tracked query. Market
+ * rankings always measure the project's tracked queries, never a separate keyword list.
+ * `query` searches the query as written. `query-without-market-region` drops a trailing
+ * ", <region>" when it names the market's region (the part of the market label after
+ * its last comma), so "best apartments in Dallas, Dallas-Fort Worth" in the market
+ * "Dallas, Dallas-Fort Worth" is searched as "best apartments in Dallas".
+ */
+export const seoSearchTextSchema = z.enum(['query', 'query-without-market-region'])
+export type SeoSearchText = z.infer<typeof seoSearchTextSchema>
+export const SeoSearchTexts = seoSearchTextSchema.enum
+
+/**
+ * Where one market's searches run. `key` names an Advanced market or one of its
+ * groups (a market uses the first match among itself, its group and that group's
+ * parents), or a Simple project location by label. `project` is the whole project.
+ */
+export const seoMarketLocationSchema = z.object({
+  key: z.string().trim().min(1).max(200),
+  locationCode: z.number().int().positive(),
+  /** The provider's name for the location, shown beside results. */
+  label: z.string().trim().min(1).max(200),
+}).strict()
+export type SeoMarketLocation = z.infer<typeof seoMarketLocationSchema>
+
+/** One market-rankings refresh may run at most this many searches. */
+export const SEO_MARKET_RANKING_MAX_SEARCHES = 1000
+/** The key a project with no markets or locations uses for its one market. */
+export const SEO_PROJECT_MARKET_KEY = 'project'
+
+/** Market-rankings settings: required with that capability, rejected without it. */
+export const seoRankingSettingsSchema = z.object({
+  locations: z.array(seoMarketLocationSchema).max(500),
+  /** How many organic results to check per search, in steps of 10. A target past this reads as not ranked. */
+  depth: z.number().int().min(10).max(100).multipleOf(10),
+  device: seoDeviceSchema,
+  searchText: seoSearchTextSchema,
+}).strict()
+export type SeoRankingSettings = z.infer<typeof seoRankingSettingsSchema>
+
 /** A saved scope is explicit. An omitted API field never silently selects a market. */
 export const seoProfileInputSchema = z.object({
   name: z.string().trim().min(1).max(120),
   connectionId: z.string().min(1).max(100),
-  capabilities: z.array(seoCapabilitySchema).min(1).max(3),
+  capabilities: z.array(seoCapabilitySchema).min(1).max(4),
   targets: z.array(seoTargetSchema).max(20),
   keywords: z.array(z.string().trim().min(1).max(80).regex(/^\S+(?:\s+\S+){0,9}$/, 'Use at most 10 words per keyword.')).max(700),
   locationCode: z.number().int().positive(),
   languageCode: z.string().min(2).max(10),
   limit: z.number().int().min(1).max(1000),
   scope: seoScopeSelectionSchema,
+  rankings: seoRankingSettingsSchema.optional(),
 }).strict()
 export type SeoProfileInput = z.infer<typeof seoProfileInputSchema>
 export const seoProfileSchema = seoProfileInputSchema.extend({
@@ -109,7 +156,7 @@ export type SeoSyncInput = z.infer<typeof seoSyncInputSchema>
 export const seoProvenanceSchema = z.object({
   provider: seoProviderSchema, dataset: z.string(), engine: z.literal('google'),
   locationCode: z.number().int().positive(), languageCode: z.string(),
-  device: z.literal('unspecified'),
+  device: z.union([z.literal('unspecified'), seoDeviceSchema]),
   collectedAt: z.string(), sourceUpdatedAt: z.string().nullable(),
 }).strict()
 export type SeoProvenance = z.infer<typeof seoProvenanceSchema>
@@ -150,16 +197,74 @@ export const seoRankedKeywordSchema = z.object({
   serpFeatures: z.array(z.string()), provenance: seoProvenanceSchema,
 }).strict()
 export type SeoRankedKeyword = z.infer<typeof seoRankedKeywordSchema>
+
+/** The market and tracked query one market-rankings search answers. */
+export const seoMarketRankingContextSchema = z.object({
+  marketKey: z.string(), marketLabel: z.string(),
+  /** The market's top-level group (a metro, say), or null when it has none. */
+  regionKey: z.string().nullable(), regionLabel: z.string().nullable(),
+  queryId: z.string().nullable(), queryText: z.string(), queryClass: queryClassSchema,
+}).strict()
+export type SeoMarketRankingContext = z.infer<typeof seoMarketRankingContextSchema>
+
+/**
+ * The target's position for one tracked query, searched on Google from the
+ * market's location. A null rank means the target was not in the checked
+ * results (`depth`), never that the search failed: a failed search has no row.
+ */
+export const seoMarketRankingSchema = seoMarketRankingContextSchema.extend({
+  /** The exact text searched on Google for `queryText` (see `seoSearchTextSchema`). */
+  searchText: z.string(), locationLabel: z.string(), target: seoTargetSchema,
+  rankOrganic: z.number().int().positive().nullable(),
+  rankAbsolute: z.number().int().positive().nullable(),
+  url: z.string().nullable(),
+  depth: z.number().int().positive(),
+  /** Tracked competitors found in the same results, by their best organic position. */
+  competitors: z.array(z.object({ domain: z.string(), rankOrganic: z.number().int().positive() }).strict()),
+  provenance: seoProvenanceSchema,
+}).strict()
+export type SeoMarketRanking = z.infer<typeof seoMarketRankingSchema>
+
 export const seoResultsSchema = z.object({
   keywordMetrics: z.array(seoKeywordMetricsSchema),
   domainIntelligence: z.array(seoDomainIntelligenceSchema),
   rankedKeywords: z.array(seoRankedKeywordSchema),
+  marketRankings: z.array(seoMarketRankingSchema),
 }).strict()
 export type SeoResults = z.infer<typeof seoResultsSchema>
 
+/** SEO results as a task stores them: tasks saved before market rankings existed have no `marketRankings`. */
+export type StoredSeoResults = Omit<SeoResults, 'marketRankings'> & Partial<Pick<SeoResults, 'marketRankings'>>
+
 /** A fresh accumulator for normalized SEO observations. */
 export function emptySeoResults(): SeoResults {
-  return { keywordMetrics: [], domainIntelligence: [], rankedKeywords: [] }
+  return { keywordMetrics: [], domainIntelligence: [], rankedKeywords: [], marketRankings: [] }
+}
+
+/**
+ * The region a market label names: the part after its last comma, so
+ * "Buckhead, Atlanta" is "Atlanta". Null for a label without a comma.
+ */
+export function marketRegionName(marketLabel: string): string | null {
+  const comma = marketLabel.lastIndexOf(',')
+  if (comma < 0) return null
+  const region = marketLabel.slice(comma + 1).trim()
+  return region || null
+}
+
+/**
+ * The text a tracked query is searched as on Google. Whitespace is collapsed. With
+ * `query-without-market-region`, a trailing ", <region>" is dropped only when it is
+ * exactly the market label's region, ignoring case; any other query is kept as written.
+ */
+export function seoSearchTextForQuery(queryText: string, marketLabel: string | null, rule: SeoSearchText): string {
+  const text = queryText.replace(/\s+/g, ' ').trim()
+  if (rule === SeoSearchTexts.query || marketLabel === null) return text
+  const region = marketRegionName(marketLabel.replace(/\s+/g, ' '))
+  if (!region) return text
+  const suffix = `, ${region}`
+  if (text.length <= suffix.length || text.slice(-suffix.length).toLowerCase() !== suffix.toLowerCase()) return text
+  return text.slice(0, -suffix.length).trim()
 }
 
 export const seoRunSchema = z.object({
@@ -183,6 +288,7 @@ export const seoResultCountsSchema = z.object({
   keywordMetrics: z.number().int().nonnegative(),
   domainIntelligence: z.number().int().nonnegative(),
   rankedKeywords: z.number().int().nonnegative(),
+  marketRankings: z.number().int().nonnegative(),
 }).strict()
 export const seoRunDetailSchema = seoRunSchema.extend({
   tasks: z.array(seoTaskSchema), results: seoResultsSchema,
@@ -207,6 +313,15 @@ export const seoRankedKeywordListSchema = z.object({ ...seoPageShape, items: z.a
 export type SeoKeywordMetricsList = z.infer<typeof seoKeywordMetricsListSchema>
 export type SeoDomainIntelligenceList = z.infer<typeof seoDomainIntelligenceListSchema>
 export type SeoRankedKeywordList = z.infer<typeof seoRankedKeywordListSchema>
+/** Market-rankings evidence narrows to one market or one region; both filters apply when given. */
+export const seoMarketRankingQuerySchema = seoEvidenceQuerySchema.extend({
+  marketKey: z.string().min(1).max(200).optional(),
+  regionKey: z.string().min(1).max(200).optional(),
+}).strict()
+export type SeoMarketRankingQuery = z.infer<typeof seoMarketRankingQuerySchema>
+/** Rows ordered by region, market and keyword. */
+export const seoMarketRankingListSchema = z.object({ ...seoPageShape, items: z.array(seoMarketRankingSchema) }).strict()
+export type SeoMarketRankingList = z.infer<typeof seoMarketRankingListSchema>
 export const seoOverviewSchema = z.object({
   status: seoStatusSchema, profiles: z.array(seoProfileSchema), latestRun: seoRunSchema.nullable(),
   evidenceRunId: z.string().nullable(),
@@ -221,6 +336,7 @@ export const seoOverviewSchema = z.object({
   keywordMetricsCount: z.number().int().nonnegative(),
   domainIntelligenceCount: z.number().int().nonnegative(),
   rankedKeywordCount: z.number().int().nonnegative(),
+  marketRankingCount: z.number().int().nonnegative(),
 }).strict()
 export type SeoOverview = z.infer<typeof seoOverviewSchema>
 
@@ -242,6 +358,25 @@ export type SeoReconcileInput = z.infer<typeof seoReconcileInputSchema>
 export const seoReconcileResultSchema = z.object({ id: z.string(), status: seoRunStatusSchema }).strict()
 export type SeoReconcileResult = z.infer<typeof seoReconcileResultSchema>
 
+/** One market and tracked query a market-rankings search answers, with the competitors its row reports. */
+export interface SeoMarketRankingSearchMarket {
+  context: SeoMarketRankingContext
+  /**
+   * Registrable domains of the competitors tracked for this query in this market: the project's,
+   * plus those pinned to the Advanced groups whose Properties ask it. Markets that share a search
+   * can track different competitors, so each row reports only its own.
+   */
+  competitors: string[]
+}
+
+/** One market-rankings search: how it runs and which markets and queries it answers. */
+export interface SeoMarketRankingSearch {
+  device: SeoDevice
+  depth: number
+  locationLabel: string
+  markets: SeoMarketRankingSearchMarket[]
+}
+
 /** Internal adapter boundary. These cost fields never enter customer DTOs. */
 export interface SeoAdapterRequest {
   capability: SeoCapability
@@ -251,6 +386,8 @@ export interface SeoAdapterRequest {
   languageCode: string
   limit: number
   tag: string
+  /** Market rankings only: `keywords` holds the one search text, searched at `locationCode`. */
+  search?: SeoMarketRankingSearch
 }
 export interface SeoAdapterEstimate {
   maxCostMicros: number

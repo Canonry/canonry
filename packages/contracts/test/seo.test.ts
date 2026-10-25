@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { seoDatasetWithoutVendor, seoProfileInputSchema, seoQuoteSchema, seoSyncInputSchema } from '../src/seo.js'
+import { seoDatasetWithoutVendor, seoProfileInputSchema, seoQuoteSchema, seoSearchTextForQuery, seoSyncInputSchema } from '../src/seo.js'
 
 describe('SEO public admission contracts', () => {
   it('requires bounded explicit profile scope and rejects upstream options that could expand spend', () => {
@@ -36,5 +36,34 @@ describe('seoDatasetWithoutVendor', () => {
     ['google/notdataforseo-labs', 'google/notdataforseo-labs'],
   ])('%s -> %s', (stored, shown) => {
     expect(seoDatasetWithoutVendor(stored)).toBe(shown)
+  })
+})
+
+describe('seoSearchTextForQuery', () => {
+  it.each([
+    // The trailing region repeats the market label's region, so it is dropped, ignoring case and spacing.
+    ['best apartments in Dallas, Dallas-Fort Worth', 'Dallas, Dallas-Fort Worth', 'query-without-market-region', 'best apartments in Dallas'],
+    ['pet friendly  apartments Denver,   denver', 'Denver, Denver', 'query-without-market-region', 'pet friendly apartments Denver'],
+    // Anything else is the tracked query as written.
+    ['best apartments in Dallas, Texas', 'Dallas, Dallas-Fort Worth', 'query-without-market-region', 'best apartments in Dallas, Texas'],
+    ['apartments in Fort Worth', 'Dallas, Dallas-Fort Worth', 'query-without-market-region', 'apartments in Fort Worth'],
+    ['best apartments in Plano, Plano', 'Plano', 'query-without-market-region', 'best apartments in Plano, Plano'],
+    [', Plano', 'Downtown, Plano', 'query-without-market-region', ', Plano'],
+    ['best apartments in Dallas, Dallas-Fort Worth', 'Dallas, Dallas-Fort Worth', 'query', 'best apartments in Dallas, Dallas-Fort Worth'],
+    ['best apartments in Dallas, Dallas-Fort Worth', null, 'query-without-market-region', 'best apartments in Dallas, Dallas-Fort Worth'],
+  ] as const)('%s in %s (%s) is searched as %s', (query, market, rule, searched) => {
+    expect(seoSearchTextForQuery(query, market, rule)).toBe(searched)
+  })
+
+  it('accepts market-rankings settings only in steps of 10 results with a known device', () => {
+    const input = {
+      name: 'Market rankings', connectionId: 'primary', capabilities: ['market-rankings'], targets: [], keywords: [],
+      locationCode: 2840, languageCode: 'en', limit: 100, scope: { kind: 'project' },
+      rankings: { locations: [{ key: 'metro', locationCode: 200623, label: 'Dallas-Ft. Worth, TX' }], depth: 50, device: 'mobile', searchText: 'query' },
+    }
+    expect(seoProfileInputSchema.parse(input).rankings).toEqual(input.rankings)
+    for (const rankings of [{ ...input.rankings, depth: 55 }, { ...input.rankings, depth: 110 }, { ...input.rankings, device: 'tablet' }, { ...input.rankings, searchText: 'keyword' }]) {
+      expect(seoProfileInputSchema.safeParse({ ...input, rankings }).success).toBe(false)
+    }
   })
 })

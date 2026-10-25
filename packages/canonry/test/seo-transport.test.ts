@@ -4,8 +4,10 @@ import path from 'node:path'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { SeoRepository } from '@canonry/canonry-db'
-import { SeoAdapterOutcomes, emptySeoResults, seoKeywordMetricsListSchema, seoQuoteSchema, seoRunSchema } from '@canonry/canonry-contracts'
+import { SeoRepository, projects, queries } from '@canonry/canonry-db'
+import { SeoAdapterOutcomes, SeoCapabilities, SeoProviders, emptySeoResults, seoKeywordMetricsListSchema, seoQuoteSchema, seoRunSchema, type SeoAdapter, type SeoMarketRanking } from '@canonry/canonry-contracts'
+import { eq } from 'drizzle-orm'
+import type { ApiRoutesOptions } from '@canonry/canonry-api-routes'
 import { createSeoHarness, seedSeoKey, seoProfileFixture } from '../../api-routes/test/seo-fixture.js'
 import { ApiClient } from '../src/client.js'
 import { SEO_CLI_COMMANDS } from '../src/cli-commands/seo.js'
@@ -20,8 +22,8 @@ afterEach(async () => {
   vi.unstubAllEnvs()
 })
 
-async function fixture() {
-  const h = createSeoHarness({ skipAuth: false, routePrefix: '/canonry/api/v1' })
+async function fixture(options: Partial<ApiRoutesOptions> = {}) {
+  const h = createSeoHarness({ skipAuth: false, routePrefix: '/canonry/api/v1', ...options })
   cleanup.push(h.close)
   const root = seedSeoKey(h.db, 'root', ['*'])
   const runner = seedSeoKey(h.db, 'runner', ['read', 'seo.run'], 'alpha')
@@ -103,5 +105,48 @@ describe('SEO public transport parity', () => {
     await expect(h.api(h.reader).syncSeo('alpha', { quoteToken: readIntent.token, idempotencyKey: 'denied' })).rejects.toMatchObject({ code: 'FORBIDDEN' })
     expect(h.requested).toEqual([run.id])
     expect(h.state.executions).toBe(0)
+  })
+
+  it('filters saved market rankings identically through API, CLI and MCP', async () => {
+    const policy = { maxRunCostMicros: 1_000_000, accountDailyLimitMicros: 1_000_000, accountMonthlyLimitMicros: 1_000_000, projectMonthlyLimitMicros: 1_000_000 }
+    const adapter: SeoAdapter = {
+      provider: SeoProviders.dataforseo, accountKey: 'account-a', capabilities: [SeoCapabilities['keyword-metrics'], SeoCapabilities['market-rankings']],
+      estimate: () => ({ maxCostMicros: 10_000, catalogRevision: 'prices-1' }), execute: () => Promise.reject(new Error('Unexpected live request')),
+    }
+    const h = await fixture({ getSeoRuntime: () => ({ connections: [{ id: 'primary', label: 'Search data', adapter }], policy }) })
+    h.db.insert(queries).values({ id: 'q1', projectId: 'alpha', query: 'best solar installer', createdAt: new Date().toISOString() }).run()
+    h.db.update(projects).set({ locations: [{ label: 'Phoenix', city: 'Phoenix', region: 'AZ', country: 'US' }, { label: 'Tucson', city: 'Tucson', region: 'AZ', country: 'US' }] }).where(eq(projects.id, 'alpha')).run()
+    const api = h.api(h.root)
+    await api.putSeoProfile('alpha', 'markets', {
+      ...seoProfileFixture, name: 'Market rankings', capabilities: [SeoCapabilities['market-rankings']], keywords: [], targets: [{ kind: 'domain', value: 'alpha.com', includeSubdomains: true }],
+      rankings: { locations: [{ key: 'Phoenix', locationCode: 1013462, label: 'Phoenix, AZ' }, { key: 'Tucson', locationCode: 1013463, label: 'Tucson, AZ' }], depth: 50, device: 'mobile', searchText: 'query' },
+    })
+    const intent = await api.createSeoRefreshIntent('alpha', { profileId: 'markets' })
+    const run = await api.syncSeo('alpha', { quoteToken: intent.token, idempotencyKey: 'market-rankings' })
+    const repository = new SeoRepository(h.db)
+    for (let task = repository.claim(run.id, { ...policy, accountKey: 'account-a' }); task; task = repository.claim(run.id, { ...policy, accountKey: 'account-a' })) {
+      const search = task.request.search!
+      const rows: SeoMarketRanking[] = search.markets.map(({ context }) => ({
+        ...context, searchText: task.request.keywords[0]!, locationLabel: search.locationLabel, target: { kind: 'domain', value: 'alpha.com', includeSubdomains: true },
+        rankOrganic: context.marketKey === 'Phoenix' ? 3 : null, rankAbsolute: null, url: context.marketKey === 'Phoenix' ? 'https://alpha.com/solar' : null, depth: 50, competitors: [],
+        provenance: { provider: 'dataforseo', dataset: 'dataforseo-serp/google/market-rankings', engine: 'google', locationCode: task.request.locationCode, languageCode: 'en', device: 'mobile', collectedAt: '2026-10-25T12:00:00.000Z', sourceUpdatedAt: null },
+      }))
+      repository.settle(task.id, { outcome: SeoAdapterOutcomes.completed, error: null, fetchedAt: '2026-10-25T12:00:00.000Z', tasks: [{ remoteTaskId: task.id, statusCode: 20000, costMicros: 10_000 }], results: { ...emptySeoResults(), marketRankings: rows } }, task.leaseOwner!)
+    }
+    const query = { profileId: 'markets', marketKey: 'Tucson' }
+    const expected = await h.api(h.reader).getSeoMarketRankings('alpha', query)
+    expect(expected).toMatchObject({ runId: run.id, total: 1, items: [{ marketKey: 'Tucson', queryText: 'best solar installer', searchText: 'best solar installer', rankOrganic: null, locationLabel: 'Tucson, AZ' }] })
+    const client = await h.mcp(h.reader, ['read'])
+    expect((await client.callTool({ name: 'canonry_seo_market_rankings', arguments: { project: 'alpha', ...query } })).structuredContent).toEqual(expected)
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'seo-cli-'))
+    cleanup.push(async () => { fs.rmSync(dir, { recursive: true, force: true }) })
+    fs.writeFileSync(path.join(dir, 'config.yaml'), JSON.stringify({ apiUrl: h.url, apiKey: h.reader, basePath: '/canonry/', database: path.join(dir, 'unused.db'), providers: {} }))
+    vi.stubEnv('CANONRY_CONFIG_DIR', dir)
+    vi.stubEnv('CANONRY_BASE_PATH', '/canonry/')
+    const output = vi.spyOn(console, 'log').mockImplementation(() => {})
+    await dispatchRegisteredCommand(['seo', 'market-rankings', 'alpha', '--profile-id', 'markets', '--market', 'Tucson', '--format', 'json'], 'json', SEO_CLI_COMMANDS)
+    expect(JSON.parse(String(output.mock.calls.at(-1)?.[0]))).toEqual(expected)
+    await dispatchRegisteredCommand(['seo', 'market-rankings', 'alpha', '--profile-id', 'markets', '--market', 'Phoenix'], 'text', SEO_CLI_COMMANDS)
+    expect(String(output.mock.calls.at(-1)?.[0])).toBe('Phoenix\tbest solar installer\tGoogle rank 3\thttps://alpha.com/solar\tSearched as "best solar installer" from Phoenix, AZ · mobile · 2026-10-25T12:00:00.000Z')
   })
 })

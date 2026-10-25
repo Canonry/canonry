@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { SeoAdapterOutcomes, SeoCapabilities, SeoTargetKinds, type SeoAdapterRequest } from '@canonry/canonry-contracts'
+import { SeoAdapterOutcomes, SeoCapabilities, SeoTargetKinds, type SeoAdapterRequest, type SeoMarketRankingContext } from '@canonry/canonry-contracts'
 import { createDataForSeoAdapter } from '../src/index.js'
 
 // Redacted shapes from the official v3 Google Labs keyword_overview,
@@ -184,5 +184,74 @@ describe('DataForSEO paid adapter boundary', () => {
     expect(createDataForSeoAdapter({ login: ' OPERATOR@EXAMPLE.COM ', password: 'rotated' }).accountKey).toBe(first)
     expect(createDataForSeoAdapter({ login: 'another@example.com', password: credentials.password }).accountKey).not.toBe(first)
     expect(first).not.toContain(credentials.login)
+  })
+})
+
+// Shape of a live v3 SERP Google Organic Live Advanced response (one results page per task), checked against a real call 2026-10-25.
+describe('DataForSEO market rankings', () => {
+  const market = (marketKey: string, queryId: string): SeoMarketRankingContext => ({ marketKey, marketLabel: `${marketKey}, Metro`, regionKey: 'metro', regionLabel: 'Metro Area', queryId, queryText: 'best apartments in Harbor, Metro', queryClass: 'non-brand' })
+  const ranking: SeoAdapterRequest = {
+    capability: SeoCapabilities['market-rankings'], target: domain, keywords: ['best apartments in Harbor'], locationCode: 200623, languageCode: 'en', limit: 100, tag: 'local-task-2',
+    // Two markets share this search but track different rivals: downtown's query also has a pinned one.
+    search: { device: 'mobile', depth: 50, locationLabel: 'Harbor, TX', markets: [
+      { context: market('harbor', 'q1'), competitors: ['rival.com'] },
+      { context: market('downtown', 'q2'), competitors: ['downtown-rival.com', 'rival.com'] },
+    ] },
+  }
+  const organic = (rank: number, absolute: number, host: string) => ({ type: 'organic', rank_group: rank, rank_absolute: absolute, domain: host, url: `https://${host}/listing`, title: host })
+  function serp(items: unknown[], extra: Record<string, unknown> = {}): Response {
+    return response([{ id: 'serp-task', status_code: 20000, cost: 0.01, result: [{
+      keyword: 'best apartments in harbor', type: 'organic', se_domain: 'google.com', location_code: 200623, language_code: 'en',
+      check_url: 'https://www.google.com/search?q=best+apartments+in+harbor', datetime: '2026-10-25 17:10:11 +00:00', item_types: ['local_pack', 'organic'],
+      se_results_count: 1_250_000, pages_count: 5, items_count: items.length, spell: null, refinement_chips: null, items, ...extra,
+    }] }])
+  }
+
+  it('searches one tracked query from its market location and reports the site\'s best organic position for every market it answers', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(serp([
+      // A map block is not an organic position, and its unusual fields must not reject the page.
+      { type: 'local_pack', rank_group: 0, rank_absolute: 1, domain: 'example.com', title: 'Map results' },
+      organic(2, 3, 'www.rival.com'), organic(4, 6, 'apartments.example.com'), organic(5, 8, 'www.downtown-rival.com'), organic(7, 10, 'www.example.com'),
+      organic(8, 11, 'notexample.com'), organic(9, 12, 'listings.rival.com'),
+    ]))
+    vi.stubGlobal('fetch', fetchMock)
+    const adapter = createDataForSeoAdapter(credentials)
+    expect(adapter.estimate(ranking)).toEqual({ maxCostMicros: 10_000, catalogRevision: 'dataforseo-google-serp-live-2026-10-25' })
+    expect(adapter.estimate({ ...ranking, search: { ...ranking.search!, depth: 10 } }).maxCostMicros).toBe(2_000)
+    const result = await adapter.execute(ranking)
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://api.dataforseo.com/v3/serp/google/organic/live/advanced')
+    expect(JSON.parse(fetchMock.mock.calls[0]?.[1].body as string)).toEqual([{ keyword: 'best apartments in Harbor', location_code: 200623, language_code: 'en', device: 'mobile', depth: 50, tag: 'local-task-2' }])
+    expect(result).toMatchObject({ outcome: SeoAdapterOutcomes.completed, tasks: [{ remoteTaskId: 'serp-task', statusCode: 20000, costMicros: 10_000 }] })
+    // The map result and a lookalike domain are not the site's organic position; the subdomain is.
+    const expected = {
+      searchText: 'best apartments in Harbor', locationLabel: 'Harbor, TX', target: domain, rankOrganic: 4, rankAbsolute: 6, url: 'https://apartments.example.com/listing', depth: 50,
+      provenance: { provider: 'dataforseo', dataset: 'dataforseo-serp/google/market-rankings', engine: 'google', locationCode: 200623, languageCode: 'en', device: 'mobile', sourceUpdatedAt: '2026-10-25 17:10:11 +00:00' },
+    }
+    // Each market reports only its own rivals, each at its best position on the page.
+    expect(result.results.marketRankings).toMatchObject([
+      { ...market('harbor', 'q1'), ...expected, competitors: [{ domain: 'rival.com', rankOrganic: 2 }] },
+      { ...market('downtown', 'q2'), ...expected, competitors: [{ domain: 'rival.com', rankOrganic: 2 }, { domain: 'downtown-rival.com', rankOrganic: 5 }] },
+    ])
+  })
+
+  it('reads a site outside the checked results as not ranked and keeps the charge for a page that answers another search', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(serp([organic(1, 1, 'www.rival.com')])))
+    const unranked = await createDataForSeoAdapter(credentials).execute(ranking)
+    expect(unranked.results.marketRankings[0]).toMatchObject({ rankOrganic: null, rankAbsolute: null, url: null, competitors: [{ domain: 'rival.com', rankOrganic: 1 }] })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(serp([organic(3, 3, 'www.example.com')], { keyword: 'apartments in another city' })))
+    const other = await createDataForSeoAdapter(credentials).execute(ranking)
+    expect(other).toMatchObject({ outcome: SeoAdapterOutcomes.failed, tasks: [{ costMicros: 10_000 }], results: { marketRankings: [] } })
+  })
+
+  it.each([
+    ['two search texts', { keywords: ['one', 'two'] }],
+    ['a depth outside steps of 10', { search: { ...ranking.search!, depth: 55 } }],
+    ['no markets', { search: { ...ranking.search!, markets: [] } }],
+    ['no target', { target: null }],
+  ])('refuses %s before any request', (_label, change) => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    expect(() => createDataForSeoAdapter(credentials).estimate({ ...ranking, ...change })).toThrow()
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 })

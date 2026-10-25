@@ -137,6 +137,7 @@ const DEMO_READ_ROUTES: ReadonlySet<string> = new Set([
   '/api/v1/projects/:name/seo/keyword-metrics',
   '/api/v1/projects/:name/seo/domain-intelligence',
   '/api/v1/projects/:name/seo/ranked-keywords',
+  '/api/v1/projects/:name/seo/market-rankings',
   '/api/v1/projects/:name/seo/runs',
   '/api/v1/projects/:name/seo/runs/:id',
   '/api/v1/projects/:name/snapshots',

@@ -1,6 +1,6 @@
 # SEO data
 
-Phase one adds stored keyword metrics, ranked keywords and domain intelligence through a provider-neutral adapter contract. DataForSEO Labs is the first adapter. Refresh runs on request or on a project schedule; this does not add Lighthouse, performance audits or a crawler.
+Phase one adds stored keyword metrics, ranked keywords and domain intelligence through a provider-neutral adapter contract. DataForSEO Labs is the first adapter. Market rankings add the project's Google position for its tracked queries, searched from each market's location (DataForSEO's live Google results). Refresh runs on request or on a project schedule; this does not add Lighthouse, performance audits or a crawler.
 
 ## Host configuration
 
@@ -27,6 +27,8 @@ seo:
 Amounts are integer microUSD: 1,000,000 equals one US dollar. These are example host limits, not pricing promises. Connections using the same funding account share one ledger.
 
 The dashboard and Aero name a source by its connection `label`, never by the vendor behind it. Provider ids and vendor dataset prefixes stay in API, CLI and MCP provenance for operators; choose the label you want clients to read.
+
+The SEO tab and Aero call the datasets Searches you rank for (`ranked-keywords`), Search demand (`keyword-metrics`), Domain comparison (`domain-intelligence`) and Market rankings (`market-rankings`). A term people type into Google is a search there, never a keyword, so it does not read as one of the project's tracked queries. Wire names stay as they are.
 
 ## Profile and refresh
 
@@ -83,6 +85,49 @@ Overview metrics describe the first target in the profile. They do not sum overl
 
 Search volume, difficulty, CPC and traffic are vendor estimates. CPC and estimated traffic value are SEO research metrics; their currency is unrelated to execution costs. Search Console observations, analytics and AI citation and mention coverage retain their own metrics and denominators.
 
+## Market rankings
+
+Market rankings report where the project's site ranks on Google for its own tracked non-brand queries, the same queries AI visibility measures, with each query searched from its market's location. They never use a separate keyword list, so a market's rankings and its AI answers describe the same queries.
+
+```json
+{
+  "name": "Market rankings",
+  "connectionId": "search",
+  "capabilities": ["market-rankings"],
+  "targets": [{"kind": "domain", "value": "example.com", "includeSubdomains": true}],
+  "keywords": [],
+  "locationCode": 2840,
+  "languageCode": "en",
+  "limit": 100,
+  "scope": {"kind": "project", "expectedPlanRevision": 12},
+  "rankings": {
+    "locations": [
+      {"key": "north-metro", "locationCode": 200623, "label": "Dallas-Ft. Worth, TX"},
+      {"key": "south-metro", "locationCode": 200618, "label": "Houston, TX"}
+    ],
+    "depth": 50,
+    "device": "mobile",
+    "searchText": "query-without-market-region"
+  }
+}
+```
+
+- **Markets.** Advanced projects use the plan's markets in the selected project, group or market scope; a plan without markets is one project-wide market. Simple projects use their configured locations, or one project-wide market when they have none. Property scope does not support market rankings.
+- **Locations.** `locations[].key` names an Advanced market or one of its groups: a market searches from the first match among itself, its group and that group's parents, so one entry per metro covers every market under it. Simple projects key locations by location label. Only the project-wide market falls back to the profile's `locationCode`. Every other market must resolve a location, or the profile is refused with the markets that lack one. Location codes come from the provider's location list (DataForSEO: metro areas, cities and neighborhoods).
+- **Search text.** `query` searches each tracked query as written. `query-without-market-region` drops a trailing ", <region>" that repeats the market label's region (the part after its last comma), so "best apartments in Dallas, Dallas-Fort Worth" in the market "Dallas, Dallas-Fort Worth" is searched as "best apartments in Dallas". Every row keeps the tracked `queryText` beside the `searchText` actually searched.
+- **Searches.** One refresh runs one search per distinct search text and location, at most 1,000; markets sharing a search reuse its result. Each search checks `depth` organic results (10 to 100, in steps of 10) on the chosen `device`. The live price scales with depth, and location and device do not change it.
+- **Competitors.** Each row lists the competitors tracked for its query in its market that appear in the checked results, at their best organic position: the project's competitors, plus, in an Advanced plan, those pinned to the groups whose Properties ask the query, the same competitors its AI answers are scored against. A pin never appears in another market's row, even when two markets share one search. No tracked competitor is dropped.
+- **Profile rules.** Market rankings sit in their own profile with exactly one Target, which must be one of the project's own domains, and no keywords. Tracked competitors (up to 20) are looked for in the same results.
+
+```bash
+canonry seo market-rankings example --profile-id market-rankings --format json
+canonry seo market-rankings example --profile-id market-rankings --region north-metro --limit 100 --format json
+```
+
+A row's `rankOrganic` is the best organic position of the Target within `depth`; null means the site was not in the checked results, never that the search failed (a failed search writes no row). `regionKey` and `regionLabel` name the market's top-level group. Rows read in region, market and search-text order. The web SEO tab shows the latest refresh by query and market; market-rankings profiles are set up through the API, CLI or MCP for now, and the web editor keeps their settings when editing other fields.
+
+A refresh runs its searches one at a time, so a large one takes a while. Restarting the server mid-search leaves that search for operator reconciliation, as with any paid request; avoid restarts while a market-rankings refresh runs.
+
 ## Aero analysis
 
 Aero can prioritize keyword and ranking opportunities from saved evidence with the
@@ -99,4 +144,4 @@ Only documented rejection permits retry. Explicit zero-cost provider refusals re
 
 Operator receipt endpoints require a direct bearer key ID listed in host-only `CANONRY_OPERATOR_KEY_IDS`. Reconciliation also requires `seo.run`. Customer roles, wildcard scope alone, browser sessions, delegated tokens and project keys cannot grant operator authority. Operator tools are excluded from Aero; ordinary audit events contain safe identifiers only.
 
-Phase one does not synthesize visibility share, rank movement, keyword gaps, backlink coverage or SERP-feature opportunity scores. Those require their own data and comparable snapshots. Existing Search Console, backlinks and Site Health surfaces remain the sources for their current metrics.
+Phase one does not synthesize visibility share, rank movement, keyword gaps, backlink coverage or SERP-feature opportunity scores. Those require their own data and comparable snapshots; market rankings store each refresh so rank movement can be compared later. Existing Search Console, backlinks and Site Health surfaces remain the sources for their current metrics.

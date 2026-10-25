@@ -996,6 +996,23 @@ const routeCatalog: OpenApiOperation[] = [
     },
   },
   {
+    method: 'get', path: '/api/v1/projects/{name}/seo/market-rankings',
+    summary: 'Read stored market rankings', tags: ['seo'],
+    description: "Stored evidence only; never calls a provider. The project's position for each tracked non-brand query, searched on Google from its market's location, ordered by region, market and search text. A null rank means the site was not in the checked results.",
+    parameters: [
+      nameParameter, ...seoEvidenceParameters,
+      { name: 'marketKey', in: 'query', description: 'Only rows for this market (an Advanced market key or a Simple location label).', schema: stringSchema },
+      { name: 'regionKey', in: 'query', description: "Only rows whose market sits under this top-level group.", schema: stringSchema },
+    ],
+    responses: {
+      200: jsonResponse('SEO response.', 'SeoMarketRankingList'),
+      400: errorResponse('Invalid scope or input.'),
+      403: errorResponse('Insufficient authority.'),
+      404: errorResponse('Project or selected evidence not found.'),
+      409: errorResponse('Selection, intent or execution identity changed.'),
+    },
+  },
+  {
     method: 'put', path: '/api/v1/projects/{name}/seo/profiles/{id}',
     summary: 'Save an SEO profile', tags: ['seo'],
     description: "Requires seo.write and an administrator session. Saving never starts provider work. Scope, locale, targets, capabilities, keywords and row limit are identity parameters.",

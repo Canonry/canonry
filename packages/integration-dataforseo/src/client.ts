@@ -24,10 +24,11 @@ export class DataForSeoTransportError extends Error {
   }
 }
 
+/** `path` is the API path under `/v3/`, such as `dataforseo_labs/google/keyword_overview/live`. */
 async function fetchOnce(
-  credentials: DataForSeoCredentials, endpoint: string, task: Record<string, unknown>, signal?: AbortSignal,
+  credentials: DataForSeoCredentials, path: string, task: Record<string, unknown>, signal?: AbortSignal,
 ): Promise<DataForSeoEnvelope> {
-  const response = await fetch(`https://api.dataforseo.com/v3/dataforseo_labs/google/${endpoint}/live`, {
+  const response = await fetch(`https://api.dataforseo.com/v3/${path}`, {
     method: 'POST',
     headers: {
       Authorization: `Basic ${Buffer.from(`${credentials.login}:${credentials.password}`).toString('base64')}`,
@@ -57,12 +58,12 @@ async function fetchOnce(
 
 /** The only retry owner. Callers must persist ambiguity rather than retrying a paid submission. */
 export async function dataForSeoFetch(
-  credentials: DataForSeoCredentials, endpoint: string, task: Record<string, unknown>, signal?: AbortSignal,
+  credentials: DataForSeoCredentials, path: string, task: Record<string, unknown>, signal?: AbortSignal,
 ): Promise<DataForSeoEnvelope> {
   let refusal: DataForSeoTransportError | null = null
   return withRetry(() => {
     if (signal?.aborted) throw refusal ?? new Error('SEO request was cancelled.')
-    return fetchOnce(credentials, endpoint, task, signal)
+    return fetchOnce(credentials, path, task, signal)
   }, {
     maxRetries: 2, baseDelayMs: 2000, maxDelayMs: 30_000,
     isRetryable: error => !signal?.aborted && error instanceof DataForSeoTransportError

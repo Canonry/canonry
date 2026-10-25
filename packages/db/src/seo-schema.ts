@@ -1,5 +1,5 @@
 import { index, integer, primaryKey, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
-import type { SeoAdapterReceipt, SeoAdapterRequest, SeoAdapterResult, SeoProfileInput, SeoResults, SeoRunStatus } from '@canonry/canonry-contracts'
+import type { SeoAdapterReceipt, SeoAdapterRequest, SeoAdapterResult, SeoProfileInput, SeoRunStatus, StoredSeoResults } from '@canonry/canonry-contracts'
 import { projects, runs } from './schema.js'
 
 export interface SeoBudgetBucket { scope: string; period: string; limit: number }
@@ -36,7 +36,7 @@ export const seoTasks = sqliteTable('seo_tasks', {
   collectionOutcome: text('collection_outcome').$type<SeoAdapterResult['outcome']>(),
   reservedMicros: integer('reserved_micros').notNull(), actualMicros: integer('actual_micros'),
   receipts: text('receipts', { mode: 'json' }).$type<SeoAdapterReceipt[]>().notNull().default([]),
-  results: text('results', { mode: 'json' }).$type<SeoResults>().notNull(),
+  results: text('results', { mode: 'json' }).$type<StoredSeoResults>().notNull(),
   reconciliation: text('reconciliation', { mode: 'json' }).$type<{ actualCostMicros: number; remoteTaskId: string; outcome: 'completed' | 'failed'; note: string }>(),
   startedAt: text('started_at'), finishedAt: text('finished_at'), error: text('error'),
 }, t => [index('idx_seo_tasks_job').on(t.jobId)])

@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import {
-  SeoCapabilities, SeoProviders, SeoTargetKinds, emptySeoResults, registrableDomain, type SeoAdapterRequest, type SeoKeywordMetrics,
-  type SeoProvenance, type SeoResults,
+  SeoCapabilities, SeoProviders, SeoTargetKinds, compareText, emptySeoResults, normalizeHostname, registrableDomain, type SeoAdapterRequest, type SeoKeywordMetrics,
+  type SeoMarketRanking, type SeoProvenance, type SeoResults, type SeoTarget,
 } from '@canonry/canonry-contracts'
 
 const count = z.number().int().nonnegative().nullish()
@@ -39,13 +39,73 @@ const resultSchema = z.object({
   location_code: z.number().int(), language_code: z.string(), target: z.string().optional(),
   items: z.array(z.unknown()).nullable(),
 })
+// A live SERP result: one Google results page for one keyword.
+const serpResultSchema = z.object({
+  keyword: z.string(), location_code: z.number().int(), language_code: z.string(),
+  datetime: z.string().nullish(), items: z.array(z.unknown()).nullish(),
+})
+// Only organic items are decoded strictly; maps, ads and other blocks are skipped by type.
+const serpItemTypeSchema = z.object({ type: z.string() })
+const serpItemSchema = z.object({
+  type: z.literal('organic'), domain: z.string().nullish(), url: z.string().nullish(),
+  rank_group: z.number().int().positive().nullish(), rank_absolute: z.number().int().positive().nullish(),
+})
 
 function provenance(request: SeoAdapterRequest, collectedAt: string, sourceUpdatedAt: string | null): SeoProvenance {
+  const serp = request.capability === SeoCapabilities['market-rankings']
   return {
-    provider: SeoProviders.dataforseo, dataset: `dataforseo-labs/google/${request.capability}`,
+    provider: SeoProviders.dataforseo, dataset: `${serp ? 'dataforseo-serp' : 'dataforseo-labs'}/google/${request.capability}`,
     engine: 'google', locationCode: request.locationCode, languageCode: request.languageCode,
-    device: 'unspecified', collectedAt, sourceUpdatedAt,
+    device: serp && request.search ? request.search.device : 'unspecified', collectedAt, sourceUpdatedAt,
   }
+}
+
+/** Whether a result's host belongs to the target: the exact host, or any subdomain of a whole-domain target. */
+function hostBelongsTo(host: string, target: SeoTarget): boolean {
+  const value = target.value.toLowerCase()
+  return host === value || (target.kind === SeoTargetKinds.domain && target.includeSubdomains && host.endsWith(`.${value}`))
+}
+
+const searchIdentity = (text: string) => text.replace(/\s+/g, ' ').trim().toLowerCase()
+
+/** One results page into one ranking row per market the search answers. */
+function marketRankings(rawResult: unknown, request: SeoAdapterRequest, collectedAt: string): SeoMarketRanking[] {
+  const search = request.search
+  const target = request.target
+  const searchText = request.keywords[0]
+  if (!search || !target || !searchText) throw new Error('Market rankings need a search, a target and search text.')
+  const result = serpResultSchema.parse(rawResult)
+  if (result.location_code !== request.locationCode || result.language_code !== request.languageCode) {
+    throw new Error('SEO provider returned a different market.')
+  }
+  if (searchIdentity(result.keyword) !== searchIdentity(searchText)) throw new Error('SEO provider returned a different search.')
+  const organic = (result.items ?? []).filter(item => serpItemTypeSchema.safeParse(item).data?.type === 'organic')
+    .map(item => serpItemSchema.parse(item)).filter(item => item.rank_group != null)
+  let best: z.infer<typeof serpItemSchema> | null = null
+  const competitorRanks = new Map<string, number>()
+  const competitors = new Set(search.markets.flatMap(market => market.competitors))
+  for (const item of organic) {
+    const host = item.domain ? normalizeHostname(item.domain) : null
+    if (!host) continue
+    if (hostBelongsTo(host, target)) {
+      if (!best || item.rank_group! < best.rank_group!) best = item
+      continue
+    }
+    const domain = registrableDomain(host)
+    const seen = competitorRanks.get(domain)
+    if (domain && competitors.has(domain) && (seen === undefined || item.rank_group! < seen)) competitorRanks.set(domain, item.rank_group!)
+  }
+  const ranked = [...competitorRanks].map(([domain, rankOrganic]) => ({ domain, rankOrganic }))
+    .sort((a, b) => a.rankOrganic - b.rankOrganic || compareText(a.domain, b.domain))
+  const source = provenance(request, collectedAt, result.datetime ?? null)
+  return search.markets.map(market => {
+    const tracked = new Set(market.competitors)
+    return {
+      ...market.context, searchText, locationLabel: search.locationLabel, target,
+      rankOrganic: best?.rank_group ?? null, rankAbsolute: best?.rank_absolute ?? null, url: best?.url ?? null,
+      depth: search.depth, competitors: ranked.filter(competitor => tracked.has(competitor.domain)), provenance: source,
+    }
+  })
 }
 
 function keywordMetrics(
@@ -67,6 +127,12 @@ function keywordMetrics(
 /** Verify returned identity before attaching request provenance to any observation. */
 export function normalizeDataForSeoResults(rawResults: unknown[], request: SeoAdapterRequest, collectedAt: string): SeoResults {
   const output = emptySeoResults()
+  if (request.capability === SeoCapabilities['market-rankings']) {
+    // A live search returns exactly one results page; anything else is not this search.
+    if (rawResults.length !== 1) throw new Error('SEO provider returned an unexpected number of results pages.')
+    output.marketRankings.push(...marketRankings(rawResults[0], request, collectedAt))
+    return output
+  }
   for (const raw of rawResults) {
     const result = resultSchema.parse(raw)
     if (result.location_code !== request.locationCode || result.language_code !== request.languageCode) {
