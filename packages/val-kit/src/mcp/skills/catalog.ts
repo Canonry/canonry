@@ -215,7 +215,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Server-side traffic (AI Visibility — Server-Side)",
     description: "canonry skill reference: references/server-side-traffic.md",
     entryPoint: false,
-    characters: 56851,
+    characters: 57421,
     content: canonryReferencesServerSideTrafficPart0,
   },
   {

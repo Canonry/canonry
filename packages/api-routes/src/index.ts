@@ -154,7 +154,7 @@ export { runChecks } from './doctor/runner.js'
 export { scheduledHealthCheckIds } from './doctor/registry.js'
 export * from './notifications/alert.js'
 export * from './notifications/destinations.js'
-export { resolveVercelSyncDeadlineMs, VERCEL_MAX_SYNC_WINDOW_MS, DEFAULT_VERCEL_SYNC_DEADLINE_MS, TRAFFIC_SOURCE_MAX_CATCHUP_MS } from './traffic-limits.js'
+export { resolveVercelSyncDeadlineMs, resolveCloudflareQueueSyncDeadlineMs, VERCEL_MAX_SYNC_WINDOW_MS, DEFAULT_VERCEL_SYNC_DEADLINE_MS, DEFAULT_CLOUDFLARE_QUEUE_SYNC_DEADLINE_MS, TRAFFIC_SOURCE_MAX_CATCHUP_MS } from './traffic-limits.js'
 export interface ApiRoutesOptions {
   db: DatabaseClient
   /** Host-reported MCP prerequisites; never starts a connection or provider probe. */
@@ -407,8 +407,12 @@ export interface ApiRoutesOptions {
   pullCloudflareQueueMessages?: TrafficRoutesOptions['pullCloudflareQueueMessages']
   /** Override Cloudflare Queue acknowledgement (tests/hosts). */
   ackCloudflareQueueMessages?: TrafficRoutesOptions['ackCloudflareQueueMessages']
+  /** Injectable live Queue retention read for tests; see `TrafficRoutesOptions`. */
+  getCloudflareQueueRetentionSeconds?: TrafficRoutesOptions['getCloudflareQueueRetentionSeconds']
   /** Bounded Cloudflare Queue short-poll batches per traffic sync. */
   cloudflareQueueMaxBatches?: TrafficRoutesOptions['cloudflareQueueMaxBatches']
+  /** Wall-clock budget for one Cloudflare Queue sync's drain; see `resolveCloudflareQueueSyncDeadlineMs`. */
+  cloudflareQueueSyncDeadlineMs?: TrafficRoutesOptions['cloudflareQueueSyncDeadlineMs']
   /** Override the canonry ingest URL embedded into generated Worker scripts (tests) */
   cloudflareTrafficIngestUrl?: TrafficRoutesOptions['cloudflareTrafficIngestUrl']
   /** Per-source Cloudflare direct-push request budget per minute (tests/hosts). */
@@ -882,7 +886,9 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       cloudflareTrafficCredentialStore: opts.cloudflareTrafficCredentialStore,
       pullCloudflareQueueMessages: opts.pullCloudflareQueueMessages,
       ackCloudflareQueueMessages: opts.ackCloudflareQueueMessages,
+      getCloudflareQueueRetentionSeconds: opts.getCloudflareQueueRetentionSeconds,
       cloudflareQueueMaxBatches: opts.cloudflareQueueMaxBatches,
+      cloudflareQueueSyncDeadlineMs: opts.cloudflareQueueSyncDeadlineMs,
       cloudflareTrafficIngestUrl: opts.cloudflareTrafficIngestUrl,
       cloudflareIngestRateLimitMax: opts.cloudflareIngestRateLimitMax,
       cloudflareIngestIpRateLimitMax: opts.cloudflareIngestIpRateLimitMax,

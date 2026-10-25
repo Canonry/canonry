@@ -56,6 +56,6 @@ describe('canonry skill metadata', () => {
     expect(trafficReference).toContain('wrangler queues consumer http remove')
     expect(trafficReference).toContain('Workers Free, where retention is fixed at one')
     expect(trafficReference).toContain('wrangler queues delete')
-    expect(trafficReference).toMatch(/1,000\s+messages per tick/)
+    expect(trafficReference).toContain('CANONRY_CLOUDFLARE_QUEUE_SYNC_DEADLINE_MS')
   })
 })
