@@ -516,7 +516,7 @@ test('the overview embed tab permits stored competitor history but no competitor
     const write = await embedded.inject({
       method: 'POST',
       url: '/api/v1/projects/sample/measurement-plan/draft/actions/pin-competitor',
-      headers: { ...withKey(ROOT_KEY), 'idempotency-key': 'embed-mutation-is-forbidden' },
+      headers: { ...withKey(ROOT_KEY), 'idempotency-key': 'embed-mutation-is-forbidden', 'x-canonry-embed-tabs': 'overview' },
       payload: { expectedActiveRevision: 1, groupKey: 'north', domain: 'rival.example' },
     })
     expect(write.statusCode).toBe(403)
@@ -531,9 +531,76 @@ test('the overview embed reads measured visibility but cannot read or change the
     const report = await embedded.inject({ method: 'GET', url: '/api/v1/projects/sample/visibility-report', headers: withKey(ROOT_KEY) })
     expect(report.statusCode).toBe(200)
     for (const [method, suffix] of [['GET', ''], ['POST', '/preview'], ['POST', '/commit']] as const) {
-      const denied = await embedded.inject({ method, url: `/api/v1/projects/sample/query-tracking${suffix}`, headers: withKey(ROOT_KEY) })
+      const denied = await embedded.inject({ method, url: `/api/v1/projects/sample/query-tracking${suffix}`, headers: { ...withKey(ROOT_KEY), 'x-canonry-embed-tabs': 'overview' } })
       expect(denied.statusCode).toBe(403)
     }
+  } finally {
+    await embedded.close()
+  }
+})
+
+/**
+ * The tab allowlist must not refuse the CONTROL PLANE's writes.
+ *
+ * The install-wide allowlist is a default for what an iframe may READ. Keying
+ * the write refusal on it alone meant every write to an embed instance was
+ * refused, including the control plane's own provisioning with a full key and no
+ * header, so no client could be created on any embed instance that had tabs
+ * configured. Observed live: "client provisioning failed: This endpoint is not
+ * available in embed mode."
+ */
+test('a server-side write with no embed header is not treated as an iframe request', async () => {
+  const embedded = await bootEmbedApp(['overview', 'technical-aeo'])
+  try {
+    const res = await embedded.inject({
+      method: 'POST',
+      url: '/api/v1/projects',
+      headers: { ...withKey(ROOT_KEY), 'content-type': 'application/json' },
+      payload: {},
+    })
+    // It may fail validation, but it must NOT be refused as an embed surface.
+    expect(res.statusCode).not.toBe(403)
+    expect(res.body).not.toContain('not available in embed mode')
+  } finally {
+    await embedded.close()
+  }
+})
+
+test('a write that DOES carry the embed header is still refused', async () => {
+  const embedded = await bootEmbedApp(['overview', 'technical-aeo'])
+  try {
+    const res = await embedded.inject({
+      method: 'POST',
+      url: '/api/v1/projects',
+      headers: { ...withKey(ROOT_KEY), 'content-type': 'application/json', 'x-canonry-embed-tabs': 'overview' },
+      payload: {},
+    })
+    expect(res.statusCode).toBe(403)
+    expect(res.body).toContain('not available in embed mode')
+  } finally {
+    await embedded.close()
+  }
+})
+
+test('read scoping still applies without a header, so an iframe on the install default stays narrow', async () => {
+  // The regression to avoid while fixing the write path: a dashboard with no
+  // per-dashboard allowlist relies on the install default to narrow what it can
+  // read. Losing that would widen the surface rather than fix anything.
+  const embedded = await bootEmbedApp(['overview'])
+  try {
+    const refused = await embedded.inject({
+      method: 'GET',
+      url: '/api/v1/projects/sample/technical-aeo',
+      headers: withKey(ROOT_KEY),
+    })
+    expect(refused.statusCode).toBe(403)
+
+    const allowed = await embedded.inject({
+      method: 'GET',
+      url: '/api/v1/projects/sample/overview',
+      headers: withKey(ROOT_KEY),
+    })
+    expect(allowed.statusCode).toBe(200)
   } finally {
     await embedded.close()
   }

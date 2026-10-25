@@ -564,16 +564,31 @@ function queryValue(request: FastifyRequest, key: string): string | undefined {
  * and `[]` must still be treated as an ACTIVE (maximally narrow) restriction
  * by the caller, not as "nothing to enforce".
  */
+interface EmbedTabPolicy {
+  tabs: string[]
+  /**
+   * True when THIS request carried the tab header, which only the embed render
+   * proxy sets. It is the one signal that a request is actually the public
+   * iframe rather than a trusted server-side caller, and the write refusal keys
+   * on it.
+   *
+   * The instance env is an install-wide DEFAULT for what an iframe may read. It
+   * says nothing about who is calling, so it must never on its own turn a
+   * request into an embed-surface request.
+   */
+  fromEmbedSurface: boolean
+}
+
 function requestEmbedProjectTabs(
   request: FastifyRequest,
   configuredTabs: readonly string[] | undefined,
-): string[] | undefined {
+): EmbedTabPolicy | undefined {
   const headerTabs = normalizeIdTokens(splitList(request.headers['x-canonry-embed-tabs']))
   const configured = configuredTabs && configuredTabs.length > 0 ? configuredTabs : undefined
 
-  if (!configured) return headerTabs
-  if (!headerTabs) return [...configured]
-  return headerTabs.filter((tab) => configured.includes(tab))
+  if (!configured) return headerTabs ? { tabs: headerTabs, fromEmbedSurface: true } : undefined
+  if (!headerTabs) return { tabs: [...configured], fromEmbedSurface: false }
+  return { tabs: headerTabs.filter((tab) => configured.includes(tab)), fromEmbedSurface: true }
 }
 
 function projectRouteRest(url: string): string | null {
@@ -666,21 +681,34 @@ function isTechnicalAeoRead(request: FastifyRequest, url: string): boolean {
 }
 
 function enforceEmbedProjectTabs(request: FastifyRequest, configuredTabs: readonly string[] | undefined): void {
-  const tabs = requestEmbedProjectTabs(request, configuredTabs)
+  const policy = requestEmbedProjectTabs(request, configuredTabs)
   // `undefined` is the only "nothing to enforce" value now. An empty ARRAY is
   // a real, maximally-narrow restriction (a header that named no tab the
   // install permits) and must fall through to the checks below, where an
   // empty `tabs.includes(...)` never matches and the request is refused
   // rather than waved through as if no allowlist applied.
-  if (tabs === undefined) return
+  if (policy === undefined) return
   if (request.method === 'OPTIONS') return
+  const { tabs } = policy
 
-  // In embed mode with a tab allowlist, the public iframe is a read surface.
-  // The read-only key already blocks writes, but this makes the tab policy
-  // independent of key shape and future write routes.
-  if (WRITE_METHODS.has(request.method)) {
+  // In embed mode with a tab allowlist, the public IFRAME is a read surface. The
+  // read-only key it carries already blocks writes; refusing them here as well
+  // keeps the policy independent of key shape and of future write routes.
+  //
+  // Only for a request that IS the iframe, though. Keying this on the configured
+  // allowlist alone made an install-wide default refuse every write to the
+  // instance, including the control plane's own provisioning calls with a full
+  // key and no header, so no client could be created on any embed instance that
+  // had tabs configured. The header is what identifies the render proxy; nothing
+  // else sets it.
+  if (policy.fromEmbedSurface && WRITE_METHODS.has(request.method)) {
     throw forbidden('This endpoint is not available in embed mode.')
   }
+
+  // Read scoping still applies to BOTH sources: a dashboard with no per-dashboard
+  // allowlist relies on the install default to narrow what its iframe can read,
+  // and losing that would widen the surface rather than fix anything.
+  if (WRITE_METHODS.has(request.method)) return
 
   const url = request.url.split('?')[0]!
   if (isProjectShellRead(request, url)) return
