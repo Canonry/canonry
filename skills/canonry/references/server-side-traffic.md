@@ -918,16 +918,24 @@ Cloudflare to redeliver after the visibility timeout.
 
 The source lease rejects concurrent scheduler and operator drains. A stale
 lease can be recovered after its expiry, and only its owner can release it.
-Receipts remain for Cloudflare's current 14-day platform maximum plus a replay
-margin. This stays safe even when the locally recorded retention is stale or
-lower than the Queue's actual setting.
+Each sync reads the Queue's live message retention from Cloudflare and keeps
+receipts for that long plus a 10-minute replay margin, since a message can only
+be redelivered while it is retained. When the retention goes up, live receipts
+are extended to it; when it goes down, new receipts never expire before the
+newest receipt from the longer retention. If the read fails or returns no
+usable value, receipts keep Cloudflare's 14-day maximum plus the margin.
 
-Each default Queue sync drains at most 10 batches of 100 messages: **1,000
-messages per tick**. Doctor reports a residual of 1–1,000 messages as within
-that budget. If no new messages arrive, the next scheduled sync can clear it.
-Doctor warns when more than 1,000 messages remain because one default tick
-cannot drain the residual. Run a manual sync to accelerate the drain. If the
-backlog remains above 1,000, shorten the `traffic-sync` schedule interval.
+Each Queue sync drains in batches of up to 100 messages for as long as
+Cloudflare reports a backlog, up to a 4-minute time limit per sync
+(`CANONRY_CLOUDFLARE_QUEUE_SYNC_DEADLINE_MS`, 30 seconds to 15 minutes) and a
+300-pull safety cap. Cloudflare can return a partial or briefly empty batch
+while a backlog waits, so a sync stops only when Cloudflare reports no backlog,
+two pulls in a row come back empty, or the limit is reached. If a pull fails
+after earlier batches were saved, the run ends `partial` and keeps them.
+Doctor treats a residual of up to 1,000 messages as normal (they arrived during
+the drain) and warns above that: the drain hit its limit before the Queue was
+empty. Shorten the `traffic-sync` interval or raise the time limit, or messages
+will pass the Queue's retention and be dropped.
 
 ## Syncing data
 
@@ -1075,9 +1083,9 @@ schedule. Recurring syncs are safe because of the adapter's overlap ring or
 durable Queue receipts.
 
 Keep the auto-created 30-minute schedule for Queue pull. The Worker sends one
-selected event in each Queue message. At its 1,000-message limit, this cadence
-drains about 0.56 selected events per second. If the Queue backlog remains
-above 1,000, run a manual sync. Then shorten the interval:
+selected event in each Queue message, and each sync drains for up to 4 minutes.
+If doctor reports more than 1,000 messages remaining after syncs, shorten the
+interval:
 
 ```bash
 cnry schedule set <project> --kind traffic-sync \

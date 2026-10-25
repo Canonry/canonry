@@ -587,7 +587,7 @@ describe('traffic.source.queue-backlog', () => {
     })
   })
 
-  it('reports the residual Queue backlog as within one default drain budget', async () => {
+  it('reports a residual Queue backlog of up to 1,000 as normal inflow during a drain', async () => {
     insertTrafficSource(h, {
       sourceType: 'cloudflare',
       displayName: 'Production Queue',
@@ -600,7 +600,7 @@ describe('traffic.source.queue-backlog', () => {
     expect(result.status).toBe('ok')
     expect(result.code).toBe('traffic.queue-backlog.within-drain-budget')
     expect(result.summary).toContain('1,000')
-    expect(result.remediation).toContain('next scheduled sync')
+    expect(result.remediation).toContain('next scheduled sync drains')
   })
 
   it('warns with drain remediation while messages remain after a bounded sync', async () => {
@@ -616,8 +616,8 @@ describe('traffic.source.queue-backlog', () => {
     expect(result.status).toBe('warn')
     expect(result.code).toBe('traffic.queue-backlog.remaining')
     expect(result.summary).toContain('1,250')
-    expect(result.remediation).toContain('traffic sync <project> --source <id>')
-    expect(result.remediation).toContain('shorten the traffic-sync schedule interval')
+    expect(result.remediation).toContain('Shorten the traffic-sync schedule interval')
+    expect(result.remediation).toContain('CANONRY_CLOUDFLARE_QUEUE_SYNC_DEADLINE_MS')
   })
 })
 

@@ -2,13 +2,14 @@ import crypto from 'node:crypto'
 import { isIP } from 'node:net'
 import { isDeepStrictEqual } from 'node:util'
 import { countableReferralCondition, referralLandedCondition } from './ai-referral-status.js'
-import { and, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm'
+import { and, desc, eq, gt, gte, inArray, lt, lte, sql } from 'drizzle-orm'
 import type { SQLiteColumn } from 'drizzle-orm/sqlite-core'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { CURRENT_CLOUDFLARE_WORKER_VERSION } from './cloudflare-worker-version.js'
 import {
   CLOUDFLARE_QUEUE_BATCH_SIZE,
   DEFAULT_CLOUDFLARE_QUEUE_MAX_BATCHES,
+  DEFAULT_CLOUDFLARE_QUEUE_SYNC_DEADLINE_MS,
   DEFAULT_VERCEL_SYNC_DEADLINE_MS,
   VERCEL_MAX_SYNC_WINDOW_MS,
 } from './traffic-limits.js'
@@ -22,6 +23,7 @@ import {
   rawEventSamples,
   runs,
   schedules,
+  trafficEventReceipts,
   type DatabaseClient,
 } from '@canonry/canonry-db'
 import {
@@ -112,7 +114,9 @@ import {
 } from '@canonry/canonry-integration-cloudflare-worker'
 import {
   ackCloudflareQueueMessages,
+  CLOUDFLARE_QUEUE_MAX_RETENTION_SECONDS,
   CloudflareQueueApiError,
+  getCloudflareQueueRetentionSeconds,
   pullCloudflareQueueMessages,
 } from '@canonry/canonry-integration-cloudflare-queue'
 import type {
@@ -350,8 +354,12 @@ export interface TrafficRoutesOptions {
     client: CloudflareQueueClientOptions,
     options: AckCloudflareQueueMessagesOptions,
   ) => Promise<CloudflareQueueAckResult>
-  /** Bounded short-poll batches per sync invocation. */
+  /** Injectable live Queue retention read (seconds, or null) so route tests never call Cloudflare. */
+  getCloudflareQueueRetentionSeconds?: (client: CloudflareQueueClientOptions) => Promise<number | null>
+  /** Safety cap on short-poll pulls per sync invocation, behind the drain deadline. */
   cloudflareQueueMaxBatches?: number
+  /** Wall-clock budget for one Queue sync's drain (default 4 minutes). */
+  cloudflareQueueSyncDeadlineMs?: number
   /** Override the canonry ingest URL embedded into generated Worker scripts (for tests). */
   cloudflareTrafficIngestUrl?: string
   /** Per-source direct-push request budget per minute. Invalid auth is budgeted by caller IP. */
@@ -466,11 +474,18 @@ const MAX_BACKFILL_DAYS = 90
 const BACKFILL_MAX_PAGES = 1_000
 const BACKFILL_SAMPLE_LIMIT = 500
 const CLOUDFLARE_INGEST_BODY_LIMIT = 256 * 1024
-// Queue retention is configured outside Canonry and this v1 connection only
-// records the operator-provided value. Keep dedupe receipts through the
-// current Cloudflare maximum (14 days) plus a replay margin, so a lower or
-// stale local value can never shorten the redelivery safety window.
-const CLOUDFLARE_QUEUE_RECEIPT_TTL_MS = 14 * 24 * 60 * 60_000 + 10 * 60_000
+// A Queue message can be redelivered only while Cloudflare retains it. Syncs
+// read the Queue's live retention and keep dedupe receipts for that long plus
+// a replay margin (see `loadQueueReceiptPolicy` for retention changes).
+// Retention is configured outside Canonry and the connect-time value can be
+// stale, so when the live read fails receipts fall back to Cloudflare's
+// maximum retention plus the margin.
+const CLOUDFLARE_QUEUE_RECEIPT_REPLAY_MARGIN_MS = 10 * 60_000
+const CLOUDFLARE_QUEUE_RECEIPT_TTL_MS = CLOUDFLARE_QUEUE_MAX_RETENTION_SECONDS * 1_000 + CLOUDFLARE_QUEUE_RECEIPT_REPLAY_MARGIN_MS
+const DAY_MS = 24 * 60 * 60_000
+// The retention read is an optimization: one quick attempt, no retries, so it
+// never eats into the sync lease.
+const CLOUDFLARE_QUEUE_RETENTION_READ_TIMEOUT_MS = 10_000
 // The Queue client can spend up to 210 seconds on one transient ACK sequence
 // (four 30-second requests plus three capped waits). Keep the upstream message
 // lease beyond that budget so a second consumer cannot receive the same batch
@@ -497,6 +512,64 @@ function timingSafeEqualHex(a: string | null | undefined, b: string | null | und
   const left = Buffer.from(a, 'hex')
   const right = Buffer.from(b, 'hex')
   return left.length === right.length && crypto.timingSafeEqual(left, right)
+}
+
+interface QueueReceiptPolicy {
+  /** Receipt TTL for events received at `receivedAt`. */
+  ttlMsAt: (receivedAt: string) => number
+}
+
+/**
+ * How long a Queue source's dedupe receipts must last, from the live retention
+ * read once per sync. Receipts never end before a redelivery is possible,
+ * however Cloudflare treats messages queued before a retention change:
+ *
+ * - Retention went up: live receipts shorter than the new retention are
+ *   extended, in case already-queued messages now live longer.
+ * - Retention went down: messages queued under the longer retention can be
+ *   redelivered until the newest receipt from that period expires, so new
+ *   receipts never expire before it. Receipts written by the fallback (the
+ *   maximum, because a read failed) set no such floor.
+ *
+ * A failed or unusable read falls back to the maximum retention.
+ */
+async function loadQueueReceiptPolicy(
+  db: DatabaseClient,
+  sourceId: string,
+  readRetentionSeconds: () => Promise<number | null>,
+  warn: (fields: Record<string, unknown>, message: string) => void,
+): Promise<QueueReceiptPolicy> {
+  let liveTtlMs: number | null = null
+  try {
+    const seconds = await readRetentionSeconds()
+    if (seconds === null) {
+      warn({}, 'Cloudflare reported no usable Queue retention; keeping dedupe receipts for the maximum retention')
+    } else {
+      liveTtlMs = seconds * 1_000 + CLOUDFLARE_QUEUE_RECEIPT_REPLAY_MARGIN_MS
+    }
+  } catch (error) {
+    // Queue client errors are secret-free; anything else is not repeated.
+    warn(
+      error instanceof CloudflareQueueApiError ? { status: error.status, error: error.message } : { error: 'unexpected error' },
+      'Could not read Cloudflare Queue retention; keeping dedupe receipts for the maximum retention',
+    )
+  }
+  if (liveTtlMs === null) return { ttlMsAt: () => CLOUDFLARE_QUEUE_RECEIPT_TTL_MS }
+  const ttlMs = liveTtlMs
+
+  const now = new Date().toISOString()
+  const alive = and(eq(trafficEventReceipts.sourceId, sourceId), gt(trafficEventReceipts.expiresAt, now))
+  const lifetimeMs = sql<number>`(julianday(${trafficEventReceipts.expiresAt}) - julianday(${trafficEventReceipts.receivedAt})) * ${DAY_MS}`
+  const shortest = db.select({ ms: sql<number | null>`min(${lifetimeMs})` }).from(trafficEventReceipts).where(alive).get()?.ms ?? null
+  if (shortest !== null && shortest < ttlMs - 1_000) {
+    const extended = sql`strftime('%Y-%m-%dT%H:%M:%fZ', julianday(${trafficEventReceipts.receivedAt}) + ${ttlMs / DAY_MS})`
+    db.update(trafficEventReceipts).set({ expiresAt: extended })
+      .where(and(alive, lt(trafficEventReceipts.expiresAt, extended))).run()
+  }
+  const floorExpiry = db.select({ at: sql<string | null>`max(${trafficEventReceipts.expiresAt})` }).from(trafficEventReceipts)
+    .where(and(alive, sql`${lifetimeMs} < ${CLOUDFLARE_QUEUE_RECEIPT_TTL_MS - 1_000}`)).get()?.at ?? null
+  const floorMs = floorExpiry ? Date.parse(floorExpiry) : 0
+  return { ttlMsAt: receivedAt => Math.max(ttlMs, floorMs - Date.parse(receivedAt)) }
 }
 
 function parseDirectPushCloudflareSourceConfig(config: unknown) {
@@ -1597,9 +1670,11 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
   const pullVercelEvents = opts.pullVercelTrafficEvents ?? listVercelTrafficEvents
   const pullQueueMessages = opts.pullCloudflareQueueMessages ?? pullCloudflareQueueMessages
   const ackQueueMessages = opts.ackCloudflareQueueMessages ?? ackCloudflareQueueMessages
+  const readQueueRetentionSeconds = opts.getCloudflareQueueRetentionSeconds ?? getCloudflareQueueRetentionSeconds
   const cloudflareQueueMaxBatches = opts.cloudflareQueueMaxBatches ?? DEFAULT_CLOUDFLARE_QUEUE_MAX_BATCHES
-  if (!Number.isInteger(cloudflareQueueMaxBatches) || cloudflareQueueMaxBatches < 1 || cloudflareQueueMaxBatches > 50) {
-    throw new RangeError('cloudflareQueueMaxBatches must be an integer from 1 to 50')
+  const cloudflareQueueSyncDeadlineMs = opts.cloudflareQueueSyncDeadlineMs ?? DEFAULT_CLOUDFLARE_QUEUE_SYNC_DEADLINE_MS
+  if (!Number.isInteger(cloudflareQueueMaxBatches) || cloudflareQueueMaxBatches < 1 || cloudflareQueueMaxBatches > 1_000) {
+    throw new RangeError('cloudflareQueueMaxBatches must be an integer from 1 to 1000')
   }
   const allowLoopback = opts.allowLoopbackWebhooks === true
 
@@ -2817,25 +2892,66 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       const runId = crypto.randomUUID()
       const startedAt = new Date().toISOString()
       const startedMs = Date.now()
+      let acceptedEvents = 0
+      let selfTrafficExcluded = 0
+      let crawlerHits = 0
+      let aiUserFetchHits = 0
+      let aiReferralHits = 0
+      let unknownHits = 0
+      let crawlerBucketRows = 0
+      let aiUserFetchBucketRows = 0
+      let aiReferralBucketRows = 0
+      let sampleRows = 0
+      let committedAt = startedAt
+      let remainingBacklogCount = 0
+      // Batches committed and acknowledged; a later failure keeps them.
+      let completedBatches = 0
+      const finishSync = (
+        status: (typeof RunStatuses)['completed' | 'partial'],
+        error: string | null,
+      ): TrafficSyncResponse => {
+        app.db.update(runs).set({ status, finishedAt: committedAt, ...(error ? { error } : {}) })
+          .where(eq(runs.id, runId)).run()
+        writeAuditLog(app.db, {
+          projectId: project.id, actor: 'api', action: 'traffic.cloudflare.queue-synced',
+          entityType: 'traffic_source', entityId: sourceRow.id,
+        })
+        try {
+          opts.onTrafficSynced?.({
+            status: 'completed', sourceType: sourceRow.sourceType, sourceId: sourceRow.id,
+            pulledEvents: acceptedEvents, selfTrafficExcluded,
+            crawlerHits, aiUserFetchHits, aiReferralHits,
+            durationMs: Date.now() - startedMs,
+          })
+        } catch { /* telemetry never blocks Queue acknowledgement */ }
+        return {
+          sourceId: sourceRow.id, runId, syncedAt: committedAt, pulledEvents: acceptedEvents,
+          selfTrafficExcluded, crawlerHits, aiUserFetchHits, aiReferralHits, unknownHits,
+          crawlerBucketRows, aiUserFetchBucketRows, aiReferralBucketRows, sampleRows,
+          remainingBacklogCount,
+          windowStart: startedAt, windowEnd: committedAt,
+        }
+      }
       try {
         app.db.insert(runs).values({
           id: runId, projectId: project.id, kind: RunKinds['traffic-sync'], status: RunStatuses.running,
           trigger: syncRunTrigger(opts.claimScheduledSync, project.name, RunKinds['traffic-sync'], sourceRow.id), sourceId: sourceRow.id, startedAt, createdAt: startedAt,
         }).run()
-        let acceptedEvents = 0
-        let selfTrafficExcluded = 0
-        let crawlerHits = 0
-        let aiUserFetchHits = 0
-        let aiReferralHits = 0
-        let unknownHits = 0
-        let crawlerBucketRows = 0
-        let aiUserFetchBucketRows = 0
-        let aiReferralBucketRows = 0
-        let sampleRows = 0
-        let committedAt = startedAt
-        let remainingBacklogCount = 0
         const canonicalHost = resolveCloudflareWorkerRouteHost(project.canonicalDomain)
-        for (let batch = 0; batch < cloudflareQueueMaxBatches; batch += 1) {
+        const drainDeadlineMs = startedMs + cloudflareQueueSyncDeadlineMs
+        let consecutiveEmptyPulls = 0
+        // Receipt lifetimes matter only once a batch carries events, so the
+        // retention read waits for that and runs at most once per sync.
+        let receiptPolicy: Promise<QueueReceiptPolicy> | null = null
+        const resolveReceiptPolicy = () => receiptPolicy ??= loadQueueReceiptPolicy(
+          app.db,
+          sourceRow.id,
+          () => readQueueRetentionSeconds({ ...queueClient, maxRetries: 0, timeoutMs: CLOUDFLARE_QUEUE_RETENTION_READ_TIMEOUT_MS }),
+          (fields, message) => request.log.warn({ sourceId: sourceRow.id, ...fields }, message),
+        )
+        // Drain while Cloudflare reports a backlog, until the deadline; the
+        // pull cap is only a safety net behind it.
+        for (let batch = 0; batch < cloudflareQueueMaxBatches && (batch === 0 || Date.now() < drainDeadlineMs); batch += 1) {
           if (!tryClaimTrafficSyncLease({
             db: app.db, sourceId: sourceRow.id, owner: leaseOwner, now: new Date().toISOString(),
             ttlMs: CLOUDFLARE_QUEUE_SYNC_LEASE_TTL_MS,
@@ -2895,13 +3011,14 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
             }
             validLeases.push(message.leaseId)
           }
+          const policy = normalized.length > 0 ? await resolveReceiptPolicy() : null
           committedAt = new Date().toISOString()
           const writeResult = writeTrafficEventBatch({
             journeyKeySecret: opts.journeyKeySecret,
             onJourneyError: () => { app.log.error({ sourceId: sourceRow.id }, 'AI visitor journey write failed during queue drain') },
             db: app.db, projectId: project.id, sourceId: sourceRow.id, events: normalized,
             receivedAt: committedAt,
-            receiptTtlMs: CLOUDFLARE_QUEUE_RECEIPT_TTL_MS,
+            receiptTtlMs: policy ? policy.ttlMsAt(committedAt) : CLOUDFLARE_QUEUE_RECEIPT_TTL_MS,
             sampleLimit,
             validateSource: latest => {
               if (!latest || latest.projectId !== project.id
@@ -2953,36 +3070,35 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
           aiUserFetchBucketRows += writeResult.aiUserFetchBucketRows
           aiReferralBucketRows += writeResult.aiReferralBucketRows
           sampleRows += writeResult.sampleRows
-          const pulledEnvelopeCount = pulled.messages.length + pulled.skippedUnleasedMessageCount
-          if (pulledEnvelopeCount < CLOUDFLARE_QUEUE_BATCH_SIZE || remainingBacklogCount === 0) break
+          completedBatches += 1
+          // A short-poll pull can return a partial batch while a large backlog
+          // waits, so a partial batch does not end the drain.
+          if (remainingBacklogCount === 0) break
+          if (pulled.messages.length === 0) {
+            // Only unacknowledgeable entries and fewer than a full batch:
+            // nothing else is waiting to be leased.
+            if (pulled.skippedUnleasedMessageCount > 0 && pulled.skippedUnleasedMessageCount < CLOUDFLARE_QUEUE_BATCH_SIZE) break
+            // A pull can come back empty for a moment while messages wait;
+            // two in a row means the rest is leased or not yet visible.
+            consecutiveEmptyPulls = pulled.skippedUnleasedMessageCount === 0 ? consecutiveEmptyPulls + 1 : 0
+            if (consecutiveEmptyPulls >= 2) break
+          } else {
+            consecutiveEmptyPulls = 0
+          }
         }
-        app.db.update(runs).set({ status: RunStatuses.completed, finishedAt: committedAt })
-          .where(eq(runs.id, runId)).run()
-        writeAuditLog(app.db, {
-          projectId: project.id, actor: 'api', action: 'traffic.cloudflare.queue-synced',
-          entityType: 'traffic_source', entityId: sourceRow.id,
-        })
-        try {
-          opts.onTrafficSynced?.({
-            status: 'completed', sourceType: sourceRow.sourceType, sourceId: sourceRow.id,
-            pulledEvents: acceptedEvents, selfTrafficExcluded,
-            crawlerHits, aiUserFetchHits, aiReferralHits,
-            durationMs: Date.now() - startedMs,
-          })
-        } catch { /* telemetry never blocks Queue acknowledgement */ }
-        const response: TrafficSyncResponse = {
-          sourceId: sourceRow.id, runId, syncedAt: committedAt, pulledEvents: acceptedEvents,
-          selfTrafficExcluded, crawlerHits, aiUserFetchHits, aiReferralHits, unknownHits,
-          crawlerBucketRows, aiUserFetchBucketRows, aiReferralBucketRows, sampleRows,
-          remainingBacklogCount,
-          windowStart: startedAt, windowEnd: committedAt,
-        }
-        return response
+        return finishSync(RunStatuses.completed, null)
       } catch (error) {
         const failedAt = new Date().toISOString()
         const safeError = error instanceof CloudflareQueueApiError
           ? error.message
           : 'Cloudflare Queue sync failed; retry the active source.'
+        if (completedBatches > 0) {
+          // Earlier batches were committed and acknowledged. Keep them: the
+          // run is partial, and the next sync continues from the Queue.
+          request.log.warn({ sourceId: sourceRow.id, completedBatches, error: safeError },
+            'Cloudflare Queue sync stopped after saving some batches')
+          return finishSync(RunStatuses.partial, safeError)
+        }
         try {
           opts.onTrafficSynced?.({
             status: 'failed', sourceType: sourceRow.sourceType, sourceId: sourceRow.id,

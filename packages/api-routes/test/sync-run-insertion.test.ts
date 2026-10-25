@@ -203,6 +203,7 @@ async function buildApp() {
     },
     pullCloudflareQueueMessages: async () => ({ messageBacklogCount: 0, messages: [], skippedUnleasedMessageCount: 0 }),
     ackCloudflareQueueMessages: async () => ({ acknowledgedLeaseIds: [], retriedLeaseIds: [], warningCount: 0 }),
+    getCloudflareQueueRetentionSeconds: async () => null,
     claimScheduledSync: (projectName: string, kind: RunKind, sourceId?: string) => claims.delete(syncRunClaimKey(projectName, kind, sourceId)),
     googleStateSecret: 'b3-test-secret-32-bytes-long-enough',
   })

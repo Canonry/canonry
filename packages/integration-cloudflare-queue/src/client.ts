@@ -87,9 +87,13 @@ function resolveOptions(options: CloudflareQueueClientOptions): ResolvedClientOp
   }
 }
 
-function queueMessagesUrl(options: ResolvedClientOptions, action: 'pull' | 'ack'): string {
+function queueUrl(options: ResolvedClientOptions): string {
   return `${options.apiBaseUrl}/accounts/${encodeURIComponent(options.accountId)}` +
-    `/queues/${encodeURIComponent(options.queueId)}/messages/${action}`
+    `/queues/${encodeURIComponent(options.queueId)}`
+}
+
+function queueMessagesUrl(options: ResolvedClientOptions, action: 'pull' | 'ack'): string {
+  return `${queueUrl(options)}/messages/${action}`
 }
 
 function requestSignal(timeoutMs: number, signal?: AbortSignal): AbortSignal {
@@ -150,16 +154,25 @@ async function postJson<T>(
   body: Record<string, unknown>,
   signal?: AbortSignal,
 ): Promise<T> {
+  return requestJson<T>(options, { method: 'POST', url: queueMessagesUrl(options, action), label: action, body }, signal)
+}
+
+async function requestJson<T>(
+  options: ResolvedClientOptions,
+  request: { method: 'GET' | 'POST'; url: string; label: string; body?: Record<string, unknown> },
+  signal?: AbortSignal,
+): Promise<T> {
+  const { label: action } = request
   return withQueueRetry(async () => {
     let response: Response
     try {
-      response = await options.fetchImpl(queueMessagesUrl(options, action), {
-        method: 'POST',
+      response = await options.fetchImpl(request.url, {
+        method: request.method,
         headers: {
           Authorization: `Bearer ${options.apiToken}`,
-          'Content-Type': 'application/json',
+          ...(request.body ? { 'Content-Type': 'application/json' } : {}),
         },
-        body: JSON.stringify(body),
+        ...(request.body ? { body: JSON.stringify(request.body) } : {}),
         signal: requestSignal(options.timeoutMs, signal),
       })
     } catch (error) {
@@ -182,7 +195,11 @@ async function postJson<T>(
 
     try {
       return await response.json() as T
-    } catch {
+    } catch (error) {
+      // A timeout while reading the body is a timeout, not a bad payload.
+      if (isAbortError(error)) {
+        throw new CloudflareQueueApiError('Cloudflare Queue request timed out or was aborted', 408)
+      }
       throw new CloudflareQueueApiError(`Cloudflare Queue ${action} returned invalid JSON`, 502)
     }
   }, {
@@ -408,6 +425,38 @@ function normalizeRetries(retries: readonly CloudflareQueueRetry[] | undefined):
     }
     return { leaseId, ...(retry.delaySeconds === undefined ? {} : { delaySeconds: retry.delaySeconds }) }
   })
+}
+
+/** Cloudflare's longest configurable Queue message retention today: 14 days, in seconds. */
+export const CLOUDFLARE_QUEUE_MAX_RETENTION_SECONDS = 14 * 24 * 60 * 60
+// Cloudflare's shortest configurable retention, in seconds.
+const MIN_RETENTION_SECONDS = 60
+// A reported retention above today's maximum is used as is (Cloudflare may
+// raise the limit); this sanity cap only rejects nonsense values.
+const SANITY_MAX_RETENTION_SECONDS = 10 * 365 * 24 * 60 * 60
+
+function recordOrNull(value: unknown): Record<string, unknown> | null {
+  return value != null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null
+}
+
+/**
+ * The Queue's message retention in seconds, as Cloudflare reports it now
+ * (`GET /queues/{id}`, `result.settings.message_retention_period`). A message
+ * can only be redelivered while it is retained, so this bounds how long a
+ * consumer must remember what it already processed. Null when the response
+ * is not a success or carries no usable value; HTTP and transport failures throw.
+ */
+export async function getCloudflareQueueRetentionSeconds(
+  client: CloudflareQueueClientOptions,
+  signal?: AbortSignal,
+): Promise<number | null> {
+  const resolved = resolveOptions(client)
+  const envelope = recordOrNull(await requestJson<unknown>(resolved, { method: 'GET', url: queueUrl(resolved), label: 'read' }, signal))
+  if (envelope?.success !== true) return null
+  const seconds = recordOrNull(recordOrNull(envelope.result)?.settings)?.message_retention_period
+  return typeof seconds === 'number' && Number.isInteger(seconds) && seconds >= MIN_RETENTION_SECONDS && seconds <= SANITY_MAX_RETENTION_SECONDS
+    ? seconds
+    : null
 }
 
 /** Pull one short-poll batch. The caller owns draining, persistence, and ack ordering. */

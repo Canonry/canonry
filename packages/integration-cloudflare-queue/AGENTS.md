@@ -12,7 +12,7 @@ Database writes, source lifecycle, leases, and traffic normalization remain in
 
 | File | Role |
 |------|------|
-| `src/client.ts` | Injected-fetch pull/ack client, bounded retries, envelope decoding, poison handling, and acknowledgement validation. |
+| `src/client.ts` | Injected-fetch pull/ack client, bounded retries, envelope decoding, poison handling, and acknowledgement validation. `getCloudflareQueueRetentionSeconds` reads the Queue's live `settings.message_retention_period` (null when unusable) so the consumer can size dedupe receipts. |
 | `src/types.ts` | Public client options and decoded message/result types. |
 | `src/index.ts` | Public exports. |
 | `test/client.test.ts` | Wire-contract, retry, timeout, redaction, poison, and partial-ack regressions. |
