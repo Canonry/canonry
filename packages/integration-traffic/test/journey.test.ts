@@ -266,6 +266,33 @@ describe('sessionizeJourneyRequests', () => {
     expect(result.visits.map(v => [v.entry.entryClass, v.requestCount])).toEqual([['ai', 4]])
   })
 
+  it('keeps a booking engine return inside the booking visit, not a new referral visit', () => {
+    // The guest arrives from search, books on the hotel's hosted booking
+    // engine, and returns to the confirmation page and its survey.
+    const result = sessionizeJourneyRequests(requests('2026-10-18T12:00:00Z', [
+      [0, fromChatGpt],
+      [2, internal('/booking')],
+      [7, { path: '/booking/confirmation', referer: 'https://api.mews.com/' }],
+      [7.1, { path: '/api/hear-about-us', method: 'POST', referer: 'https://example.com/booking/confirmation' }],
+    ]), new Map(), { ...OPTIONS, newId: ids() })
+    expect(result.visits.map(v => [v.entry.entryClass, v.requestCount])).toEqual([['ai', 4]])
+  })
+
+  it.each([
+    'https://api.mews.com/',
+    'https://hotels.cloudbeds.com/reservation/abc',
+    'https://be.synxis.com/?hotel=1',
+    'https://pay.shopify.com/',
+  ])('treats a return from %s as a step', (referer) => {
+    const [request] = extractJourneyRequests([event({ eventId: 'r', observedAt: '2026-10-18T12:00:00.000Z', path: '/thanks', referer })])
+    expect(request!.stepReferer).toBe(true)
+  })
+
+  it('still treats a listing marketplace as a referral, not a step', () => {
+    const [request] = extractJourneyRequests([event({ eventId: 'r', observedAt: '2026-10-18T12:00:00.000Z', path: '/', referer: 'https://www.opentable.com/r/some-place' })])
+    expect(request!.stepReferer).toBe(false)
+  })
+
   it('treats a referer on the project domain as a step when the provider reports no host', () => {
     const events = [
       event({ eventId: 'a', observedAt: '2026-10-18T12:00:00.000Z', ...fromChatGpt, host: null, requestUrl: '/' }),
