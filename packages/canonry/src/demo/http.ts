@@ -23,7 +23,7 @@ const INLINE_SCRIPT = /<script(?<attributes>[^>]*)>(?<body>[\s\S]*?)<\/script>/g
 // never receive the document. The workspace backlink admin page is not part of
 // the demo, so it is not served.
 // Legacy Report documents reach the SPA's AI Visibility redirect; its APIs stay denied.
-const DEMO_DOCUMENT_PATH = /^\/(?:projects(?:\/[^/.]+(?:\/(?:portfolio|discovery|search-console|activity|technical-aeo|conversions|local|queries|backlinks|report|history|settings|properties)(?:\/[^/.]+)*)?)?|runs|history|traffic(?:\/[^/.]+(?:\/[^/.]+)?)?)\/?$/
+const DEMO_DOCUMENT_PATH = /^\/(?:projects(?:\/[^/.]+(?:\/(?:portfolio|discovery|search-console|seo-data|activity|technical-aeo|conversions|local|queries|backlinks|report|history|settings|properties)(?:\/[^/.]+)*)?)?|runs|history|traffic(?:\/[^/.]+(?:\/[^/.]+)?)?)\/?$/
 // The link preview that chat apps and social sites show for a demo URL. They
 // read only the static document, so the tags are written into it here.
 const DEMO_TITLE = 'Canonry live demo'

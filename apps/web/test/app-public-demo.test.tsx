@@ -94,6 +94,8 @@ test.each([false, true])('agent setup navigation is available only outside the p
   const view = render(await demoAppElement(undefined, { config }))
   fireEvent.click(view.getByRole('button', { name: 'Open navigation' }))
   const navigation = await view.findByRole('dialog', { name: 'Navigation' })
+  expect(within(navigation).getByRole('link', { name: 'Canonry' })).toBeTruthy()
+  expect(within(navigation).getByRole('link', { name: 'Docs' })).toBeTruthy()
   const mobileLinks = within(navigation).queryAllByRole('link', { name: 'Agent setup' })
   expect(mobileLinks).toHaveLength(demo ? 0 : 1)
   if (!demo) expect(mobileLinks[0]!.getAttribute('href')).toBe('/agent-setup')
@@ -124,11 +126,12 @@ test('a demo project page offers the Aero preview to the read-only visitor', asy
   // The shell reserves room for the bar, so it never covers the page's end,
   // and the page scroller keeps the same lane clear when focus or
   // scrollIntoView brings a control into view, so the bar never sits on it.
-  // The lane is on the wrapper that holds the page AND the footer, so the bar
-  // never covers the footer's links at the end of the page either.
   const area = document.querySelector('.main-area')!
   expect(area.classList.contains('main-area-agent-bar')).toBe(true)
-  expect(area.querySelector('footer')).toBeTruthy()
+  expect(area.querySelector('footer')).toBeNull()
+  const footer = document.querySelector('aside footer')!
+  expect(footer.querySelector('a[href="https://canonry.ai"]')?.textContent).toBe('Canonry')
+  expect(footer.querySelector('a[aria-label="Docs"]')).toBeTruthy()
   const rules = parseCompiledCss(await compileAppStyles([...area.classList]))
   expect(compiledElementProperty(rules, area, 'padding-bottom')).toBe('6rem')
   expect(compiledDeclarations(rules, 'html:has(.main-area-agent-bar)')['scroll-padding-bottom']).toBe('6rem')

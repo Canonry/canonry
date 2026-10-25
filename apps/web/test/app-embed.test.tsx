@@ -192,7 +192,6 @@ function visibilityReportResponse(selection: VisibilitySelectionState): Visibili
 test('without embed config the full application chrome renders', async () => {
   const html = await renderAt('/')
   expect(html).toContain('class="sidebar"')
-  expect(html).toContain('class="sidebar-footer"')
   expect(html).toContain('class="footer-links"')
   expect(html).toContain('aria-label="GitHub"')
   expect(html).toContain('aria-label="Docs"')
@@ -208,7 +207,6 @@ test('dashboard resource-link opt-out removes the sidebar and footer icon cluste
   expect(html).toContain('class="sidebar"')
   expect(html).toContain('class="footer"')
   expect(html).toContain('class="footer-brand"')
-  expect(html).not.toContain('class="sidebar-footer"')
   expect(html).not.toContain('class="footer-links"')
   expect(html).not.toContain('aria-label="GitHub"')
   expect(html).not.toContain('aria-label="Docs"')

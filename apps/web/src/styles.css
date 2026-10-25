@@ -807,14 +807,6 @@
     @apply text-xs text-muted;
   }
 
-  .sidebar-footer {
-    @apply flex items-center gap-1 border-t border-default px-4 py-3;
-  }
-
-  .sidebar-footer-icon {
-    @apply inline-flex size-7 items-center justify-center rounded-md text-muted transition hover:bg-surface-inset-hover hover:text-strong;
-  }
-
   .main-area {
     @apply flex min-h-screen min-w-0 flex-1 flex-col lg:pl-56;
   }
@@ -1004,9 +996,8 @@
      page scroller keeps the same lane clear when focus or scrollIntoView
      brings a control into view, so the bar never sits on a button the
      operator is about to press (it once hid Save engines and took the click).
-     RootLayout sets the class on .main-area, which holds the page and the
-     footer, so the lane sits after the footer's links too; pages never pad
-     for the bar. */
+     RootLayout sets the class on .main-area; pages never pad for the bar.
+     Product links and the version live in navigation, outside this lane. */
   .main-area-agent-bar {
     padding-bottom: 6rem;
   }
@@ -3428,7 +3419,7 @@
   /* ── Footer ── */
 
   .footer {
-    @apply mx-auto flex max-w-6xl flex-col gap-3 border-t border-subtle px-4 py-5 text-sm md:flex-row md:items-center md:justify-between md:px-6;
+    @apply flex shrink-0 flex-col gap-2 border-t border-subtle px-4 py-3 text-sm;
   }
 
   .footer-brand {
