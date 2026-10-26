@@ -133,18 +133,44 @@ Market rankings report where the project's site ranks on Google for its own trac
 - **Profile rules.** Market rankings sit in their own profile with exactly one Target, which must be one of the project's own domains, and no keywords. Tracked competitors (up to 20) are looked for in the same results.
 
 ```bash
-canonry seo market-rankings example --profile-id market-rankings --format json
-canonry seo market-rankings example --profile-id market-rankings --region north-metro --limit 100 --format json
+canonry seo market-summary example --profile-id market-rankings --format json
+canonry seo market-summary example --profile-id market-rankings --region north-metro --format json
+canonry seo market-rankings example --profile-id market-rankings --outcome needs-work --sort=rank --format json
+canonry seo market-rankings example --profile-id market-rankings --region north-metro --search "pet friendly" --limit 100 --format json
 ```
 
 Every search the refresh planned has a row in each market it answers, and `searchStatus` says how the search ended:
 
 - `completed`: `depth` is the requested depth. `rankOrganic` is the best organic position of the Target within it; null means the site was not in the checked results.
-- `partial`: the source could not retrieve some results pages and returned the rest, charging only for those. The rows keep them, and `depth` is the deepest organic position they reached, so an unranked site reads "Not in top 30" rather than claiming the requested 50.
-- `failed`: the search returned no usable results, so the rows have no rank, `depth` 0 and no `provenance`. The table shows "Search failed" instead of leaving the query out of its market, and the refresh's Activity names each failed search by its search text and location.
-- `cancelled`: the search never ran because the refresh stopped first (cancelled, a spending limit, or the source became unavailable). The table shows "Not searched".
+- `partial`: the source could not retrieve some results pages and returned the rest, charging only for those. The rows keep them, and `depth` is the deepest organic position they reached, so an unranked site reads "Not in top 30" (partly checked) rather than claiming the requested 50.
+- `failed`: the search returned no usable results, so the rows have no rank, `depth` 0 and no `provenance`. The dashboard shows "Failed" and the CLI "Search failed" instead of leaving the query out of its market, and the refresh's Activity names each failed search by its search text and location.
+- `cancelled`: the search never ran because the refresh stopped first (cancelled, a spending limit, or the source became unavailable). The dashboard and the CLI show "Not searched".
 
-A search that Google itself answered with an error is sent once more at the end of the refresh, after every other search, under the same spending limits. Its row then shows how the retry ended, and Activity marks it "retried once". A retry is never retried, other failures are not retried, and a retry that would pass a spending limit is skipped; the next refresh searches every failed search again. `regionKey` and `regionLabel` name the market's top-level group. Rows read in region, market and search-text order. The web SEO tab shows the latest refresh by query and market; market-rankings profiles are set up through the API, CLI or MCP for now, and the web editor keeps their settings when editing other fields.
+A search that Google itself answered with an error is sent once more at the end of the refresh, after every other search, under the same spending limits. Its row then shows how the retry ended, and Activity marks it "retried once". A retry is never retried, other failures are not retried, and a retry that would pass a spending limit is skipped; the next refresh searches every failed search again. `regionKey` and `regionLabel` name the market's top-level group. Rows read in region, market and search-text order.
+
+### Reading the results by outcome
+
+The list read also says where each query landed (`outcome`) and whether a tracked rival ranks ahead of the site (`rivalAhead`):
+
+| Outcome | Meaning |
+|---|---|
+| `page-1` | Google rank 1 to 10 |
+| `ranks-11-20` | Rank 11 to 20, the closest to page 1 |
+| `ranks-21-plus` | Rank 21 or deeper within the checked results |
+| `not-ranked` | A completed search, and the site is not in the requested depth |
+| `partly-checked` | A partial search that did not reach the site: ranks past its `depth` were never checked, so it never counts as not ranked |
+| `failed` | The search returned no usable results |
+| `cancelled` | The search never ran |
+
+A rank found in a partial search stands. `rivalAhead` is true when a tracked competitor ranks above the site, or ranks while the site is not in the checked results. `needs-work` is the filter for ranks 11 and deeper, not ranked and partly checked: everything off page 1 that came back.
+
+`canonry seo market-summary` (`GET /projects/:name/seo/market-rankings/summary`, MCP `canonry_seo_market_summary`) counts the rows by outcome. The outcome counts add up to `queries`; `needsWork` and `rivalAhead` overlap them. With no region or market it adds one group per region (a market without a region stands alone); with `--region` one group per market; with `--market` none. Groups come in needs-work order: most ranks 11-20, then most ranks 21 and deeper, then name. `regionLabel` and `marketLabel` name the selected region and market, and `depth` is the depth each search asked for.
+
+`canonry seo market-rankings` (`GET /projects/:name/seo/market-rankings`, MCP `canonry_seo_market_rankings`) returns the rows. `--market` and `--region` narrow them (both apply when given), `--outcome` takes one outcome, `needs-work` or `rival-ahead`, and `--search` (`q`) matches the query, the searched text or the market label, ignoring case. `--sort` orders them: `market` (the default) by region, market and searched text; `rank` best first, then partly checked rows, then rows not in the results with the strongest rival first, then searches with no result; `-rank` rows not in the results first, then partly checked rows, then the worst rank; `query` and `-query` by query text. Write a dash-led order as `--sort=-rank`.
+
+### Dashboard
+
+The web SEO tab leads with the refresh line (`Updated` date, the next scheduled refresh from the project's `seo-sync` schedule, and a caveat such as "2 searches failed" with its sentence in a tooltip), then the Google rank counts with a caption naming the queries they leave out (partly checked, failed, not searched), a table of regions or markets five at a time that opens each one (`seoRegion` and `seoMarket` in the URL), and the queries ten at a time. The queries open on Needs work, closest to page 1 first; Show picks another outcome, Find a query searches, and the Query and Google rank headers re-sort, all kept in the URL (`seoShow`, `seoQ`, `seoSort`) so a link reopens the same view. Each row's Details opens a full-width row with the ranking page (linked), the searched text and location, the position on the page, the tracked competitors and the source. Every count, filter and order is the API's. Market-rankings profiles are set up through the API, CLI or MCP for now, and the web editor keeps their settings when editing other fields.
 
 A refresh runs its searches one at a time, so a large one takes a while. Restarting the server mid-search leaves that search for operator reconciliation, as with any paid request; avoid restarts while a market-rankings refresh runs.
 

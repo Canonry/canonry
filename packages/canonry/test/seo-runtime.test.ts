@@ -256,4 +256,19 @@ describe('market-rankings retries with the real upstream adapter', () => {
     expect(h.db.select().from(seoTasks).all()).toHaveLength(2)
     expect(h.holds()).toEqual([[0, 4000], [0, 4000], [0, 4000]])
   })
+
+  it('prices a queued retry again before sending it, and withdraws it when the price changed', async () => {
+    // Both first attempts error, so each earns a retry. While the second is in flight the pricing catalog
+    // moves on under the first one's queued retry, which then must not be sent on its old reservation.
+    const h = await rankingRefresh(keyword => {
+      if (h.fetch.mock.calls.length === 2) h.db.update(seoTasks).set({ catalogRevision: 'superseded' }).where(eq(seoTasks.status, 'queued')).run()
+      return googleError(keyword)
+    })
+    h.runtime.start()
+    await vi.waitFor(() => expect(h.status()).toBe('cancelled'), { timeout: 5000 })
+    expect(h.searched()).toHaveLength(2)
+    expect(h.db.select().from(seoTasks).all().filter(task => task.retryOf !== null).map(task => task.status)).toEqual(['cancelled', 'cancelled'])
+    // The errors were free, and the withdrawn retries hold nothing.
+    expect(h.holds()).toEqual([[0, 0], [0, 0], [0, 0]])
+  })
 })

@@ -161,6 +161,9 @@ export function trackUiSearchInput(value: string, submitNow = false): void {
  */
 const FILTER_BY_SEARCH_KEY: Readonly<Record<string, UiFilter>> = {
   seoProfileId: 'seoProfile',
+  seoRegion: 'other',
+  seoMarket: 'other',
+  seoShow: 'other',
   measurementProvider: 'provider',
   measurementModel: 'model',
   measurementLocation: 'location',

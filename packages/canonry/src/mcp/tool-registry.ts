@@ -142,7 +142,7 @@ import {
 } from './schema.js'
 import type { CanonryMcpTier } from './toolkits.js'
 import { seoOperatorTaskSchema, seoReconcileInputSchema, seoReconcileResultSchema } from '@canonry/canonry-contracts'
-import { seoContextSchema, seoStatusSchema, seoProfileListSchema, seoProfileSchema, seoQuoteSchema, seoRunSchema, seoRunListSchema, seoRunDetailSchema, seoOverviewSchema, seoKeywordMetricsListSchema, seoDomainIntelligenceListSchema, seoRankedKeywordListSchema, seoMarketRankingListSchema, seoMarketRankingQuerySchema, seoEvidenceQuerySchema, seoProfileInputSchema, seoRefreshIntentInputSchema, seoSyncInputSchema, SEO_RUN_SCOPE, SEO_WRITE_SCOPE } from '@canonry/canonry-contracts'
+import { seoContextSchema, seoStatusSchema, seoProfileListSchema, seoProfileSchema, seoQuoteSchema, seoRunSchema, seoRunListSchema, seoRunDetailSchema, seoOverviewSchema, seoKeywordMetricsListSchema, seoDomainIntelligenceListSchema, seoRankedKeywordListSchema, seoMarketRankingListSchema, seoMarketRankingQuerySchema, seoMarketRankingSummaryQuerySchema, seoMarketRankingSummarySchema, seoEvidenceQuerySchema, seoProfileInputSchema, seoRefreshIntentInputSchema, seoSyncInputSchema, SEO_RUN_SCOPE, SEO_WRITE_SCOPE } from '@canonry/canonry-contracts'
 
 export type McpToolAccess = 'read' | 'write'
 
@@ -1289,6 +1289,7 @@ const sentimentBackfillInputSchema = sentimentBackfillRequestSchema.extend({ pro
 const seoIdInputSchema = projectInputSchema.extend({ id: z.string().min(1) })
 const seoEvidenceInputSchema = seoEvidenceQuerySchema.extend({ project: projectNameSchema })
 const seoMarketRankingInputSchema = seoMarketRankingQuerySchema.extend({ project: projectNameSchema })
+const seoMarketRankingSummaryInputSchema = seoMarketRankingSummaryQuerySchema.extend({ project: projectNameSchema })
 
 const rawCanonryMcpTools = [
   defineTool({
@@ -1435,12 +1436,21 @@ const rawCanonryMcpTools = [
   }),
   defineTool({
     name: 'canonry_seo_market_rankings', title: 'SEO market rankings',
-    description: "Read stored SEO data only. No provider calls. The site's Google position for each tracked non-brand query in each market, searched from that market's location; these are the same tracked queries AI visibility measures, and searchText is the exact text searched. searchStatus says how each search ended: a null rank in a completed or partial row means not in the checked results (depth, lower when only part of the results came back); a failed or cancelled row has no rank because the search returned nothing. Filter with marketKey or regionKey and keep runId fixed while paging.",
+    description: "Read stored SEO data only. No provider calls. The site's Google position for each tracked non-brand query in each market, searched from that market's location; these are the same tracked queries AI visibility measures, and searchText is the exact text searched. searchStatus says how each search ended: a null rank in a completed or partial row means not in the checked results (depth, lower when only part of the results came back); a failed or cancelled row has no rank because the search returned nothing. outcome says where each row landed (page-1, ranks-11-20, ranks-21-plus, not-ranked, partly-checked for a partial search without the site, failed, cancelled) and rivalAhead whether a tracked competitor ranks above the site. Filter with marketKey, regionKey, outcome (needs-work = off page 1 with a result) and q; sort=rank puts the closest to page 1 first. Keep runId fixed while paging.",
     access: 'read', tier: 'seo',
     inputSchema: seoMarketRankingInputSchema, outputSchema: seoMarketRankingListSchema,
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/seo/market-rankings'],
     handler: (client, input) => { const { project, ...query } = input; return client.getSeoMarketRankings(project, query) },
+  }),
+  defineTool({
+    name: 'canonry_seo_market_summary', title: 'SEO market rankings by outcome',
+    description: "Read stored SEO data only. No provider calls. Market-rankings rows counted by outcome (page 1, ranks 11-20, 21 and deeper, not ranked, partly checked, failed, cancelled, needs work, rival ahead) for the whole profile with one group per region, for one region (regionKey) with one group per market, or for one market (marketKey). Groups come in needs-work order. Start here to see what needs work, then read the rows with canonry_seo_market_rankings.",
+    access: 'read', tier: 'seo',
+    inputSchema: seoMarketRankingSummaryInputSchema, outputSchema: seoMarketRankingSummarySchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/seo/market-rankings/summary'],
+    handler: (client, input) => { const { project, ...query } = input; return client.getSeoMarketRankingSummary(project, query) },
   }),
   defineTool({
     name: 'canonry_sentiment_settings', title: 'Read sentiment readiness and settings',

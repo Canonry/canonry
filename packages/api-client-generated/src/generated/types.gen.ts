@@ -657,6 +657,46 @@ export type SeoMarketRankingList = {
             collectedAt: string;
             sourceUpdatedAt: string | null;
         } | null;
+        outcome: 'page-1' | 'ranks-11-20' | 'ranks-21-plus' | 'not-ranked' | 'partly-checked' | 'failed' | 'cancelled';
+        rivalAhead: boolean;
+    }>;
+};
+
+export type SeoMarketRankingSummary = {
+    runId: string | null;
+    depth: number | null;
+    regionKey: string | null;
+    marketKey: string | null;
+    regionLabel: string | null;
+    marketLabel: string | null;
+    totals: {
+        queries: number;
+        page1: number;
+        ranks11To20: number;
+        ranks21Plus: number;
+        notRanked: number;
+        partlyChecked: number;
+        failed: number;
+        cancelled: number;
+        needsWork: number;
+        rivalAhead: number;
+    };
+    groups: Array<{
+        key: string;
+        label: string;
+        kind: 'region' | 'market';
+        counts: {
+            queries: number;
+            page1: number;
+            ranks11To20: number;
+            ranks21Plus: number;
+            notRanked: number;
+            partlyChecked: number;
+            failed: number;
+            cancelled: number;
+            needsWork: number;
+            rivalAhead: number;
+        };
     }>;
 };
 
@@ -2537,6 +2577,8 @@ export type AgentPromptRequest = {
         view: 'project' | 'visibility' | 'property' | 'queries' | 'site-health' | 'seo';
         seoProfileId?: string;
         seoRunId?: string;
+        seoRegionKey?: string;
+        seoMarketKey?: string;
         unavailableReason?: string;
         selection?: {
             mode: 'auto' | 'simple' | 'advanced';
@@ -18850,6 +18892,18 @@ export type GetApiV1ProjectsByNameSeoMarketRankingsData = {
          * Only rows whose market sits under this top-level group.
          */
         regionKey?: string;
+        /**
+         * Only rows with this outcome. `partly-checked` is a partial search that did not reach the site, so ranks past its depth are unknown; `needs-work` is ranks 11 and deeper, not ranked or partly checked; `rival-ahead` is rows where a tracked competitor ranks above the site.
+         */
+        outcome?: 'needs-work' | 'page-1' | 'ranks-11-20' | 'ranks-21-plus' | 'not-ranked' | 'partly-checked' | 'rival-ahead' | 'failed' | 'cancelled';
+        /**
+         * Only rows whose query, searched text or market label contains this text, ignoring case.
+         */
+        q?: string;
+        /**
+         * `market` (default): region, market, search text. `rank`: best rank first, then partly checked rows, then rows not in the results with the strongest rival first, then searches with no result. `-rank`: rows not in the results first, then partly checked rows, then the worst rank. `query` / `-query`: by query text.
+         */
+        sort?: 'market' | 'rank' | '-rank' | 'query' | '-query';
     };
     url: '/api/v1/projects/{name}/seo/market-rankings';
 };
@@ -18883,6 +18937,65 @@ export type GetApiV1ProjectsByNameSeoMarketRankingsResponses = {
 };
 
 export type GetApiV1ProjectsByNameSeoMarketRankingsResponse = GetApiV1ProjectsByNameSeoMarketRankingsResponses[keyof GetApiV1ProjectsByNameSeoMarketRankingsResponses];
+
+export type GetApiV1ProjectsByNameSeoMarketRankingsSummaryData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Exact saved profile. Required when multiple profiles exist.
+         */
+        profileId?: string;
+        /**
+         * Exact historical refresh. Omit for latest saved evidence for the selected profile.
+         */
+        runId?: string;
+        /**
+         * Summarize one market (an Advanced market key or a Simple location label).
+         */
+        marketKey?: string;
+        /**
+         * Summarize one top-level group and the markets under it.
+         */
+        regionKey?: string;
+    };
+    url: '/api/v1/projects/{name}/seo/market-rankings/summary';
+};
+
+export type GetApiV1ProjectsByNameSeoMarketRankingsSummaryErrors = {
+    /**
+     * Invalid scope or input.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Insufficient authority.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project or selected evidence not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Selection, intent or execution identity changed.
+     */
+    409: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameSeoMarketRankingsSummaryError = GetApiV1ProjectsByNameSeoMarketRankingsSummaryErrors[keyof GetApiV1ProjectsByNameSeoMarketRankingsSummaryErrors];
+
+export type GetApiV1ProjectsByNameSeoMarketRankingsSummaryResponses = {
+    /**
+     * SEO response.
+     */
+    200: SeoMarketRankingSummary;
+};
+
+export type GetApiV1ProjectsByNameSeoMarketRankingsSummaryResponse = GetApiV1ProjectsByNameSeoMarketRankingsSummaryResponses[keyof GetApiV1ProjectsByNameSeoMarketRankingsSummaryResponses];
 
 export type PostApiV1ProjectsByNameSeoRefreshIntentsData = {
     body: SeoRefreshIntentInput;

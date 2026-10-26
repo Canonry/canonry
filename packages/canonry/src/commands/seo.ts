@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { SeoMarketRankingSearchStatuses, formatNumber, seoProfileInputSchema, type SeoEvidenceQuery, type SeoMarketRankingQuery, type SeoRun, type SeoSyncInput } from '@canonry/canonry-contracts'
+import { SeoMarketRankingOutcomes, formatNumber, marketRankingBands, seoProfileInputSchema, type SeoEvidenceQuery, type SeoMarketRankingCounts, type SeoMarketRankingQuery, type SeoMarketRankingRow, type SeoMarketRankingSummaryQuery, type SeoRun, type SeoSyncInput } from '@canonry/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { isMachineFormat, usageError, type CliFormat } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
@@ -161,10 +161,44 @@ export async function showSeoMarketRankings(project: string, query: SeoMarketRan
   if (printSeoJson(value, format)) return
   console.log(`Market rankings · run ${value.runId ?? 'none'} · ${value.items.length} of ${value.total} rows · offset ${value.offset}`)
   for (const row of value.items) {
-    const rank = row.searchStatus === SeoMarketRankingSearchStatuses.failed ? 'Search failed'
-      : row.searchStatus === SeoMarketRankingSearchStatuses.cancelled ? 'Not searched'
-        : row.rankOrganic === null ? `Not in the top ${row.depth}${row.searchStatus === SeoMarketRankingSearchStatuses.partial ? ' (partial results)' : ''}` : `Google rank ${row.rankOrganic}`
+    const rival = row.competitors[0]
+    const rivalText = row.outcome === SeoMarketRankingOutcomes.failed || row.outcome === SeoMarketRankingOutcomes.cancelled ? 'No result'
+      : rival ? `Top rival ${rival.domain} #${rival.rankOrganic}${row.rivalAhead ? ' (ahead)' : ''}` : 'No tracked rival in the results'
     const source = row.provenance ? ` · ${row.provenance.device} · ${row.provenance.collectedAt}` : ''
-    console.log(`${row.marketLabel}\t${row.queryText}\t${rank}\t${row.url ?? 'No ranking page'}\tSearched as "${row.searchText}" from ${row.locationLabel}${source}`)
+    console.log(`${row.marketLabel}\t${row.queryText}\t${rankText(row)}\t${row.url ?? 'No ranking page'}\t${rivalText}\tSearched as "${row.searchText}" from ${row.locationLabel}${source}`)
   }
+}
+
+/** One row's rank in words: its Google rank, not in the results it checked, or why there is no result. */
+function rankText(row: SeoMarketRankingRow): string {
+  switch (row.outcome) {
+    case SeoMarketRankingOutcomes.failed: return 'Search failed'
+    case SeoMarketRankingOutcomes.cancelled: return 'Not searched'
+    case SeoMarketRankingOutcomes['partly-checked']: return `Not in the top ${row.depth} (partial results)`
+    case SeoMarketRankingOutcomes['not-ranked']: return `Not in the top ${row.depth}`
+    case SeoMarketRankingOutcomes['page-1']:
+    case SeoMarketRankingOutcomes['ranks-11-20']:
+    case SeoMarketRankingOutcomes['ranks-21-plus']:
+      return `Google rank ${row.rankOrganic}`
+    default: {
+      const unknown: never = row.outcome
+      return unknown
+    }
+  }
+}
+
+function countsText(counts: SeoMarketRankingCounts, depth: number | null, totals: SeoMarketRankingCounts): string {
+  return [...marketRankingBands(depth, totals).map(band => `${band.label} ${counts[band.count]}`),
+    `Partly checked ${counts.partlyChecked}`, `Failed ${counts.failed}`, `Not searched ${counts.cancelled}`, `Needs work ${counts.needsWork}`, `Rival ahead ${counts.rivalAhead}`].join(' · ')
+}
+
+export async function showSeoMarketSummary(project: string, query: SeoMarketRankingSummaryQuery, format: CliFormat): Promise<void> {
+  const value = await createApiClient().getSeoMarketRankingSummary(project, query)
+  if (printSeoJson(value, format)) return
+  const scope = [value.regionKey === null ? null : `region ${value.regionLabel ?? value.regionKey}`, value.marketKey === null ? null : `market ${value.marketLabel ?? value.marketKey}`]
+    .filter(part => part !== null).join(' · ') || 'all markets'
+  const queries = (count: number) => `${count} ${count === 1 ? 'query' : 'queries'}`
+  console.log(`Market rankings summary · run ${value.runId ?? 'none'} · ${scope} · ${queries(value.totals.queries)}`)
+  console.log(countsText(value.totals, value.depth, value.totals))
+  for (const group of value.groups) console.log(`${group.label}\t${group.kind}\t${queries(group.counts.queries)}\t${countsText(group.counts, value.depth, value.totals)}`)
 }

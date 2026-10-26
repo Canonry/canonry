@@ -150,8 +150,36 @@ describe('SEO public transport parity', () => {
     await dispatchRegisteredCommand(['seo', 'market-rankings', 'alpha', '--profile-id', 'markets', '--market', 'Tucson', '--format', 'json'], 'json', SEO_CLI_COMMANDS)
     expect(JSON.parse(String(output.mock.calls.at(-1)?.[0]))).toEqual(expected)
     await dispatchRegisteredCommand(['seo', 'market-rankings', 'alpha', '--profile-id', 'markets', '--market', 'Tucson'], 'text', SEO_CLI_COMMANDS)
-    expect(String(output.mock.calls.at(-1)?.[0])).toBe('Tucson\tbest solar installer\tSearch failed\tNo ranking page\tSearched as "best solar installer" from Tucson, AZ')
+    expect(String(output.mock.calls.at(-1)?.[0])).toBe('Tucson\tbest solar installer\tSearch failed\tNo ranking page\tNo result\tSearched as "best solar installer" from Tucson, AZ')
     await dispatchRegisteredCommand(['seo', 'market-rankings', 'alpha', '--profile-id', 'markets', '--market', 'Phoenix'], 'text', SEO_CLI_COMMANDS)
-    expect(String(output.mock.calls.at(-1)?.[0])).toBe('Phoenix\tbest solar installer\tGoogle rank 3\thttps://alpha.com/solar\tSearched as "best solar installer" from Phoenix, AZ · mobile · 2026-10-25T12:00:00.000Z')
+    expect(String(output.mock.calls.at(-1)?.[0])).toBe('Phoenix\tbest solar installer\tGoogle rank 3\thttps://alpha.com/solar\tNo tracked rival in the results\tSearched as "best solar installer" from Phoenix, AZ · mobile · 2026-10-25T12:00:00.000Z')
+
+    // Outcome, text and order filters, and the outcome summary, read the same through every surface.
+    const filtered = { profileId: 'markets', outcome: 'failed' as const, q: 'SOLAR', sort: '-rank' as const }
+    const expectedFiltered = await h.api(h.reader).getSeoMarketRankings('alpha', filtered)
+    expect(expectedFiltered.items.map(row => [row.marketKey, row.outcome, row.rivalAhead])).toEqual([['Tucson', 'failed', false]])
+    expect((await client.callTool({ name: 'canonry_seo_market_rankings', arguments: { project: 'alpha', ...filtered } })).structuredContent).toEqual(expectedFiltered)
+    await dispatchRegisteredCommand(['seo', 'market-rankings', 'alpha', '--profile-id', 'markets', '--outcome', 'failed', '--search', 'SOLAR', '--sort=-rank', '--format', 'json'], 'json', SEO_CLI_COMMANDS)
+    expect(JSON.parse(String(output.mock.calls.at(-1)?.[0]))).toEqual(expectedFiltered)
+    const summary = await h.api(h.reader).getSeoMarketRankingSummary('alpha', { profileId: 'markets' })
+    // The failed search is counted as failed, never as a query that does not rank.
+    expect(summary).toMatchObject({
+      runId: run.id, depth: 50, totals: { queries: 2, page1: 1, notRanked: 0, failed: 1, needsWork: 0, rivalAhead: 0 },
+      groups: [{ key: 'Phoenix', kind: 'market', counts: { queries: 1, page1: 1 } }, { key: 'Tucson', kind: 'market', counts: { queries: 1, notRanked: 0, failed: 1 } }],
+    })
+    expect((await client.callTool({ name: 'canonry_seo_market_summary', arguments: { project: 'alpha', profileId: 'markets' } })).structuredContent).toEqual(summary)
+    await dispatchRegisteredCommand(['seo', 'market-summary', 'alpha', '--profile-id', 'markets', '--format', 'json'], 'json', SEO_CLI_COMMANDS)
+    expect(JSON.parse(String(output.mock.calls.at(-1)?.[0]))).toEqual(summary)
+    output.mockClear()
+    await dispatchRegisteredCommand(['seo', 'market-summary', 'alpha', '--profile-id', 'markets', '--market', 'Tucson'], 'text', SEO_CLI_COMMANDS)
+    expect(output.mock.calls.map(call => String(call[0]))).toEqual([
+      `Market rankings summary · run ${run.id} · market Tucson · 1 query`,
+      'Page 1 0 · 11-20 0 · 21-50 0 · Not in top 50 0 · Partly checked 0 · Failed 1 · Not searched 0 · Needs work 0 · Rival ahead 0',
+    ])
+    // Aero reads the same summary for the market on screen, and links back to it.
+    const tucson = await h.api(h.reader).getSeoMarketRankingSummary('alpha', { profileId: 'markets', runId: run.id, marketKey: 'Tucson' })
+    expect(await readAeroViewEvidence({ client: h.api(h.reader), projectName: 'alpha', basePath: '/canonry/', context: { view: 'seo', seoProfileId: 'markets', seoMarketKey: 'Tucson' } })).toMatchObject({
+      marketRankings: tucson, source: { href: '/canonry/projects/alpha/seo-data?seoProfileId=markets&seoMarket=Tucson' },
+    })
   })
 })

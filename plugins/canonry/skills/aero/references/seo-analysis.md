@@ -30,11 +30,12 @@ Say searches for what people type into Google and queries for the project's trac
    | `canonry_seo_keyword_metrics` | Explicit keywords, demand estimates, difficulty, intent, and monthly estimates |
    | `canonry_seo_ranked_keywords` | Observed positions, ranking URLs, target identity, and traffic estimates |
    | `canonry_seo_domain_intelligence` | Per-target keyword totals, position buckets, and traffic estimates |
+   | `canonry_seo_market_summary` | Market rankings counted by outcome for the profile, one region or one market, with a group per region or market |
    | `canonry_seo_market_rankings` | The site's Google position for each tracked query in each market, searched from that market's location |
 
 6. Page with `limit` and `offset` until the relevant stored rows are covered, or disclose the inspected sample.
    These tools accept no keyword filter, target filter, or sort parameter. Do not invent them.
-   Market rankings alone take `marketKey` or `regionKey` to narrow the rows.
+   Market rankings alone take `marketKey` and `regionKey` to narrow the rows, `outcome` (one outcome, `needs-work` or `rival-ahead`), `q` (text in the query, searched text or market) and `sort` (`market`, `rank`, `-rank`, `query`, `-query`).
    `total` counts stored rows, not the complete search market.
    Run detail returns at most 20 rows per dataset. Check `resultsTruncated` and `resultCounts`, then use the dataset tools.
 
@@ -74,8 +75,15 @@ Analysis never requires a refresh intent. Keep credentials and hosted financial 
 - Market rankings measure the project's own tracked non-brand queries, the same queries AI visibility reports. Call them queries, never keywords, so the two views read as one set.
   Lead each finding with `queryText` and its market. `searchText` is the exact text searched on Google; mention it only when it differs in a way that matters.
 - Read `searchStatus` first. In a `completed` or `partial` row, `rankOrganic` is the site's best organic position within the checked `depth`, and null means the site was not in those results: say "not in the top 50" with the row's own `depth`, never "rank unknown". A `partial` row checked fewer results than requested, so its `depth` is lower. A `failed` or `cancelled` row has no rank because the search returned nothing: say the search failed or did not run, never that the site does not rank.
+- Start with the outcome counts: the `marketRankings` summary `aero_inspect_view` returns for the region or market on screen, or `canonry_seo_market_summary`.
+  Lead with what needs work: `ranks11To20` is closest to page 1, then `ranks21Plus`, then `notRanked`; `rivalAhead` counts rows where a tracked competitor outranks the site.
+  The outcome counts (page 1, the rank bands, not ranked, partly checked, failed, cancelled) add up to `queries`; `needsWork` and `rivalAhead` overlap them, so never add them together.
+  Groups come in needs-work order. Name the regions or markets with the most queries at 11-20 before reading rows.
+- Then read the rows with `outcome: needs-work` and `sort: rank` for the same region or market: the queries closest to page 1 come first.
+- A `partly-checked` row is a partial search that did not reach the site (`partlyChecked` in the counts): say "not in the top 30" with its `depth`, and never count it as not ranked, since the deeper results were never checked. `failed` and `cancelled` rows are missing data: report how many there are before recommendations and leave them out of every rank claim.
 - `locationLabel` and `provenance.device` say where and how the search ran (`provenance` is null for a search that returned nothing). Compare markets only at the same depth and device.
-- `competitors` lists the competitors tracked for that query in that market (the project's, plus any pinned to the Advanced groups whose Properties ask it) found in the same results, by position. Absence means not in the checked results.
+- `competitors` lists the competitors tracked for that query in that market (the project's, plus any pinned to the Advanced groups whose Properties ask it) found in the same results, best position first. Absence means not in the checked results.
+  `rivalAhead` is true when one of them ranks above the site, or ranks while the site is not in the checked results.
 - One refresh is one sample of Google's results. Rank movement needs two refreshes of the same profile, query, market and location; otherwise state the single observation.
 - Rankings and AI answers for a market are separate instruments. Present them side by side for the same query and market, never as a combined score.
 

@@ -3,10 +3,10 @@ import { and, asc, desc, eq, inArray, isNotNull, sql } from 'drizzle-orm'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { SeoRepository, competitors, currentSeoTaskCondition, currentSeoTasks, projects, queries, runs, seoJobs, seoProfiles, seoTasks, type DatabaseClient, type SeoJobRow, type SeoTaskRow } from '@canonry/canonry-db'
 import {
-  AppError, RunKinds, RunStatuses, RunTriggers, SEO_MARKET_RANKING_MAX_SEARCHES, SEO_PROJECT_MARKET_KEY, SEO_RUN_SCOPE, SEO_WRITE_SCOPE, SeoAdapterOutcomes, SeoAvailability, SeoCapabilities, SeoMarketRankingSearchStatuses, SeoRunStatuses, SeoScopeKinds, SeoTargetKinds, UserRoles,
-  compareText, effectiveDomains, matchesMeasurementTargetUrl, normalizeHostname, missingDependency, notFound, queryClassSchema, registrableDomain, seoSearchTextForQuery, validationError,
-  seoProfileInputSchema, seoSyncInputSchema, seoRefreshIntentInputSchema, seoEvidenceQuerySchema, seoMarketRankingQuerySchema, seoReconcileInputSchema,
-  type MeasurementPlanV2, type SeoAdapter, type SeoAdapterRequest, type SeoCapability, type SeoContext, type SeoEvidenceQuery, type SeoMarketRanking, type SeoMarketRankingContext, type SeoMarketRankingList, type SeoMarketRankingQuery, type SeoMarketRankingSearchMarket, type SeoOverview, type SeoProfile, type SeoProfileInput, type SeoQuote, type SeoResults, type SeoRun, type SeoRunDetail, type SeoRunStatus, type SeoScopeSelection, type SeoStatus, type SeoOperatorTask, type SeoReconcileResult,
+  AppError, RunKinds, RunStatuses, RunTriggers, SEO_MARKET_RANKING_MAX_SEARCHES, SEO_PROJECT_MARKET_KEY, SEO_RUN_SCOPE, SEO_WRITE_SCOPE, SeoAdapterOutcomes, SeoAvailability, SeoCapabilities, SeoMarketRankingSearchStatuses, SeoMarketRankingSorts, SeoRunStatuses, SeoScopeKinds, SeoTargetKinds, UserRoles,
+  compareMarketRankingsBy, compareText, countMarketRankings, effectiveDomains, groupMarketRankings, marketRankingRow, matchesMarketRankingFilter, matchesMarketRankingText, matchesMeasurementTargetUrl, normalizeHostname, missingDependency, notFound, queryClassSchema, registrableDomain, seoSearchTextForQuery, validationError,
+  seoProfileInputSchema, seoSyncInputSchema, seoRefreshIntentInputSchema, seoEvidenceQuerySchema, seoMarketRankingQuerySchema, seoMarketRankingSummaryQuerySchema, seoReconcileInputSchema,
+  type MeasurementPlanV2, type SeoAdapter, type SeoAdapterRequest, type SeoCapability, type SeoContext, type SeoEvidenceQuery, type SeoMarketRanking, type SeoMarketRankingContext, type SeoMarketRankingList, type SeoMarketRankingQuery, type SeoMarketRankingSearchMarket, type SeoMarketRankingSummary, type SeoMarketRankingSummaryQuery, type SeoOverview, type SeoProfile, type SeoProfileInput, type SeoQuote, type SeoResults, type SeoRun, type SeoRunDetail, type SeoRunStatus, type SeoScopeSelection, type SeoStatus, type SeoOperatorTask, type SeoReconcileResult,
 } from '@canonry/canonry-contracts'
 import { requireAdminSession, requireScope, requireOperator } from './auth.js'
 import { resolveProject, writeAuditLog } from './helpers.js'
@@ -560,10 +560,26 @@ export async function seoRoutes(app: FastifyInstance, opts: SeoRoutesOptions) {
     const parsed = seoMarketRankingQuerySchema.safeParse({ ...raw, ...(raw.limit === undefined ? {} : { limit: Number(raw.limit) }), ...(raw.offset === undefined ? {} : { offset: Number(raw.offset) }) })
     if (!parsed.success) throw validationError('Invalid SEO evidence selection.')
     const query = parsed.data; const row = selected(resolveProject(app.db, request.params.name).id, query, true)
-    const items = (row ? resultRows(tasks(row.id)).marketRankings : [])
-      .filter(item => (query.marketKey === undefined || item.marketKey === query.marketKey) && (query.regionKey === undefined || item.regionKey === query.regionKey))
-      .sort(compareMarketRankings)
+    const items = (row ? resultRows(tasks(row.id)).marketRankings.map(marketRankingRow) : [])
+      .filter(item => (query.marketKey === undefined || item.marketKey === query.marketKey) && (query.regionKey === undefined || item.regionKey === query.regionKey)
+        && (query.outcome === undefined || matchesMarketRankingFilter(item, query.outcome)) && (query.q === undefined || matchesMarketRankingText(item, query.q)))
+      .sort(compareMarketRankingsBy(query.sort ?? SeoMarketRankingSorts.market))
     const limit = query.limit ?? 50; const offset = query.offset ?? 0
     return { runId: row?.id ?? null, items: items.slice(offset, offset + limit), total: items.length, limit, offset } satisfies SeoMarketRankingList
+  })
+  app.get<{ Params: Params; Querystring: SeoMarketRankingSummaryQuery }>('/projects/:name/seo/market-rankings/summary', async request => {
+    const parsed = seoMarketRankingSummaryQuerySchema.safeParse(request.query ?? {})
+    if (!parsed.success) throw validationError('Invalid SEO evidence selection.')
+    const query = parsed.data; const row = selected(resolveProject(app.db, request.params.name).id, query, true)
+    const rows = (row ? resultRows(tasks(row.id)).marketRankings.map(marketRankingRow) : [])
+      .filter(item => (query.marketKey === undefined || item.marketKey === query.marketKey) && (query.regionKey === undefined || item.regionKey === query.regionKey))
+    return {
+      // The depth each search asked for; a partial search's rows say how far they reached.
+      runId: row?.id ?? null, depth: row?.profile.rankings?.depth ?? null,
+      regionKey: query.regionKey ?? null, marketKey: query.marketKey ?? null,
+      regionLabel: query.regionKey === undefined ? null : rows[0]?.regionLabel ?? null,
+      marketLabel: query.marketKey === undefined ? null : rows[0]?.marketLabel ?? null,
+      totals: countMarketRankings(rows), groups: groupMarketRankings(rows, { regionKey: query.regionKey, marketKey: query.marketKey }),
+    } satisfies SeoMarketRankingSummary
   })
 }

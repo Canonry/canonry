@@ -38,6 +38,9 @@ it('uses only applied assignment filters for tracked queries', () => {
   expect(aeroViewFromLocation('/projects/demo/queries', { measurementScope: 'property', measurementScopeKey: 'hotel', measurementMarketKey: 'london', measurementRunId: 'old-run', measurementProvider: 'openai', queryClass: 'branded' })).toEqual({ view: 'queries', selection: { mode: 'auto', scope: 'property', scopeKey: 'hotel', queryClass: 'branded', limit: 25 } })
 })
 
-it('carries the SEO profile and historical refresh independently of measurement filters', () => {
+it('carries the SEO profile, historical refresh and market-rankings drill-in independently of measurement filters', () => {
   expect(aeroViewFromLocation('/projects/demo/seo-data', { seoProfileId: 'france', seoRunId: 'saved-refresh', measurementScope: 'property', measurementScopeKey: 'other' })).toEqual({ view: 'seo', seoProfileId: 'france', seoRunId: 'saved-refresh' })
+  expect(aeroViewFromLocation('/projects/demo/seo-data', { seoProfileId: 'markets', seoRegion: 'atlanta', seoMarket: 'decatur', measurementMarketKey: 'london' })).toEqual({ view: 'seo', seoProfileId: 'markets', seoRegionKey: 'atlanta', seoMarketKey: 'decatur' })
+  // The drill-in belongs to the SEO view only.
+  expect(aeroViewFromLocation('/projects/demo/technical-aeo', { seoRegion: 'atlanta' })).toEqual({ view: 'site-health' })
 })
