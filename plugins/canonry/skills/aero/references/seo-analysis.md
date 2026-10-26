@@ -76,11 +76,11 @@ Analysis never requires a refresh intent. Keep credentials and hosted financial 
   Lead each finding with `queryText` and its market. `searchText` is the exact text searched on Google; mention it only when it differs in a way that matters.
 - Start with the outcome counts: the `marketRankings` summary `aero_inspect_view` returns for the region or market on screen, or `canonry_seo_market_summary`.
   Lead with what needs work: `ranks11To20` is closest to page 1, then `ranks21Plus`, then `notRanked`; `rivalAhead` counts rows where a tracked competitor outranks the site.
-  The outcome counts add up to `queries`; `needsWork` and `rivalAhead` overlap them, so never add them together.
+  The outcome counts (page 1, the rank bands, not ranked, partly checked, failed, not run) add up to `queries`; `needsWork` and `rivalAhead` overlap them, so never add them together.
   Groups come in needs-work order. Name the regions or markets with the most queries at 11-20 before reading rows.
 - Then read the rows with `outcome: needs-work` and `sort: rank` for the same region or market: the queries closest to page 1 come first.
 - `outcome` says where a row landed. For `page-1`, `ranks-11-20`, `ranks-21-plus` and `not-ranked`, `rankOrganic` is the site's best organic position within the checked results, and null means the site was not in them. Say "not in the top 50", never "rank unknown".
-  `checkedDepth` is how deep the results were checked: below `depth` when the source returned only part of the page (`searchStatus: partial`), so say "not in the top 30", never "not in the top 50".
+  `checkedDepth` is how deep the results were checked: below `depth` when the source returned only part of the page (`searchStatus: partial`). A rank found there stands; without one the row is `partly-checked` (`partlyChecked` in the counts): say "not in the top 30", never "not in the top 50", and never count it as not ranked, since ranks past `checkedDepth` were not checked.
 - `failed` and `not-run` rows have no result: the search failed at the source, or the refresh was cancelled or reached a spending limit before it ran. They are missing data, never "not ranked". Report how many there are before recommendations and leave them out of every rank claim.
 - `locationLabel` and `provenance.device` say where and how the search ran. Compare markets only at the same depth and device.
 - `competitors` lists the competitors tracked for that query in that market (the project's, plus any pinned to the Advanced groups whose Properties ask it) found in the same results, best position first. Absence means not in the checked results.

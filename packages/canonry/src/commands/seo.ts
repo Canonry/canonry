@@ -173,7 +173,7 @@ function rankText(row: SeoMarketRanking): string {
 
 function countsText(counts: SeoMarketRankingCounts, depth: number | null, totals: SeoMarketRankingCounts): string {
   return [...marketRankingBands(depth, totals).map(band => `${band.label} ${counts[band.count]}`),
-    `Failed ${counts.failed}`, `Not searched ${counts.notRun}`, `Needs work ${counts.needsWork}`, `Rival ahead ${counts.rivalAhead}`].join(' · ')
+    `Partly checked ${counts.partlyChecked}`, `Failed ${counts.failed}`, `Not searched ${counts.notRun}`, `Needs work ${counts.needsWork}`, `Rival ahead ${counts.rivalAhead}`].join(' · ')
 }
 
 export async function showSeoMarketSummary(project: string, query: SeoMarketRankingSummaryQuery, format: CliFormat): Promise<void> {

@@ -1005,7 +1005,7 @@ const routeCatalog: OpenApiOperation[] = [
       nameParameter, ...seoEvidenceParameters,
       { name: 'marketKey', in: 'query', description: 'Only rows for this market (an Advanced market key or a Simple location label).', schema: stringSchema },
       { name: 'regionKey', in: 'query', description: "Only rows whose market sits under this top-level group.", schema: stringSchema },
-      { name: 'outcome', in: 'query', description: 'Only rows with this outcome. `needs-work` is ranks 11 and deeper or not ranked; `rival-ahead` is rows where a tracked competitor ranks above the site.', schema: { type: 'string', enum: [...seoMarketRankingFilterSchema.options] } },
+      { name: 'outcome', in: 'query', description: 'Only rows with this outcome. `partly-checked` is a partial results page without the site, so ranks past `checkedDepth` are unknown; `needs-work` is ranks 11 and deeper, not ranked or partly checked; `rival-ahead` is rows where a tracked competitor ranks above the site.', schema: { type: 'string', enum: [...seoMarketRankingFilterSchema.options] } },
       { name: 'q', in: 'query', description: 'Only rows whose query, searched text or market label contains this text, ignoring case.', schema: { type: 'string', minLength: 1, maxLength: 200 } },
       { name: 'sort', in: 'query', description: '`market` (default): region, market, search text. `rank`: best rank first, then queries not in the results with the strongest rival first, then searches with no result. `-rank`: queries not in the results first, then the worst rank. `query` / `-query`: by query text.', schema: { type: 'string', enum: [...seoMarketRankingSortSchema.options], default: 'market' } },
     ],

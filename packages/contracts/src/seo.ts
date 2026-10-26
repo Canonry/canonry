@@ -239,10 +239,11 @@ export const SeoMarketRankingSearchStatuses = seoMarketRankingSearchStatusSchema
 export type SeoMarketRankingSearchStatus = z.infer<typeof seoMarketRankingSearchStatusSchema>
 
 /**
- * Where a query landed: page 1 (ranks 1 to 10), ranks 11 to 20, rank 21 or deeper
- * within the checked results, not in the checked results, or no result.
+ * Where a query landed: page 1 (ranks 1 to 10), ranks 11 to 20, rank 21 or deeper, not
+ * in the top `depth`, partly checked (only part of the results came back and the site is
+ * not in that part, so ranks past `checkedDepth` are unknown), or no result.
  */
-export const seoMarketRankingOutcomeSchema = z.enum(['page-1', 'ranks-11-20', 'ranks-21-plus', 'not-ranked', 'failed', 'not-run'])
+export const seoMarketRankingOutcomeSchema = z.enum(['page-1', 'ranks-11-20', 'ranks-21-plus', 'not-ranked', 'partly-checked', 'failed', 'not-run'])
 export const SeoMarketRankingOutcomes = seoMarketRankingOutcomeSchema.enum
 export type SeoMarketRankingOutcome = z.infer<typeof seoMarketRankingOutcomeSchema>
 
@@ -360,10 +361,10 @@ export type SeoKeywordMetricsList = z.infer<typeof seoKeywordMetricsListSchema>
 export type SeoDomainIntelligenceList = z.infer<typeof seoDomainIntelligenceListSchema>
 export type SeoRankedKeywordList = z.infer<typeof seoRankedKeywordListSchema>
 /**
- * Market-rankings outcome filters: one outcome, `needs-work` (ranks 11 and deeper or
- * not ranked: everything off page 1 that has a result), or `rival-ahead`.
+ * Market-rankings outcome filters: one outcome, `needs-work` (ranks 11 and deeper, not
+ * ranked or partly checked: everything off page 1 that has a result), or `rival-ahead`.
  */
-export const seoMarketRankingFilterSchema = z.enum(['needs-work', 'page-1', 'ranks-11-20', 'ranks-21-plus', 'not-ranked', 'rival-ahead', 'failed', 'not-run'])
+export const seoMarketRankingFilterSchema = z.enum(['needs-work', 'page-1', 'ranks-11-20', 'ranks-21-plus', 'not-ranked', 'partly-checked', 'rival-ahead', 'failed', 'not-run'])
 export const SeoMarketRankingFilters = seoMarketRankingFilterSchema.enum
 export type SeoMarketRankingFilter = z.infer<typeof seoMarketRankingFilterSchema>
 /**
@@ -389,13 +390,19 @@ export type SeoMarketRankingQuery = z.infer<typeof seoMarketRankingQuerySchema>
 export const seoMarketRankingListSchema = z.object({ ...seoPageShape, items: z.array(seoMarketRankingSchema) }).strict()
 export type SeoMarketRankingList = z.infer<typeof seoMarketRankingListSchema>
 
-/** Rows by outcome. The outcome counts add up to `queries`; `needsWork` is ranks 11-20 plus 21 and deeper plus not ranked. */
+/**
+ * Rows by outcome. The outcome counts add up to `queries`; `needsWork` is ranks 11-20 plus
+ * 21 and deeper plus not ranked plus partly checked (a partial page holds at least the top 10).
+ */
 export const seoMarketRankingCountsSchema = z.object({
   queries: z.number().int().nonnegative(),
   page1: z.number().int().nonnegative(),
   ranks11To20: z.number().int().nonnegative(),
   ranks21Plus: z.number().int().nonnegative(),
+  /** Not in the top `depth`: only whole results pages, never a partial one. */
   notRanked: z.number().int().nonnegative(),
+  /** Not in the part of the results a partial page returned; ranks past it are unknown. */
+  partlyChecked: z.number().int().nonnegative(),
   failed: z.number().int().nonnegative(),
   notRun: z.number().int().nonnegative(),
   needsWork: z.number().int().nonnegative(),

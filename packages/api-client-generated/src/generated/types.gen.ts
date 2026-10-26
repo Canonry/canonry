@@ -641,7 +641,7 @@ export type SeoMarketRankingList = {
         depth: number;
         checkedDepth: number;
         searchStatus: 'completed' | 'partial' | 'failed' | 'not-run';
-        outcome: 'page-1' | 'ranks-11-20' | 'ranks-21-plus' | 'not-ranked' | 'failed' | 'not-run';
+        outcome: 'page-1' | 'ranks-11-20' | 'ranks-21-plus' | 'not-ranked' | 'partly-checked' | 'failed' | 'not-run';
         rivalAhead: boolean;
         competitors: Array<{
             domain: string;
@@ -673,6 +673,7 @@ export type SeoMarketRankingSummary = {
         ranks11To20: number;
         ranks21Plus: number;
         notRanked: number;
+        partlyChecked: number;
         failed: number;
         notRun: number;
         needsWork: number;
@@ -688,6 +689,7 @@ export type SeoMarketRankingSummary = {
             ranks11To20: number;
             ranks21Plus: number;
             notRanked: number;
+            partlyChecked: number;
             failed: number;
             notRun: number;
             needsWork: number;
@@ -18889,9 +18891,9 @@ export type GetApiV1ProjectsByNameSeoMarketRankingsData = {
          */
         regionKey?: string;
         /**
-         * Only rows with this outcome. `needs-work` is ranks 11 and deeper or not ranked; `rival-ahead` is rows where a tracked competitor ranks above the site.
+         * Only rows with this outcome. `partly-checked` is a partial results page without the site, so ranks past `checkedDepth` are unknown; `needs-work` is ranks 11 and deeper, not ranked or partly checked; `rival-ahead` is rows where a tracked competitor ranks above the site.
          */
-        outcome?: 'needs-work' | 'page-1' | 'ranks-11-20' | 'ranks-21-plus' | 'not-ranked' | 'rival-ahead' | 'failed' | 'not-run';
+        outcome?: 'needs-work' | 'page-1' | 'ranks-11-20' | 'ranks-21-plus' | 'not-ranked' | 'partly-checked' | 'rival-ahead' | 'failed' | 'not-run';
         /**
          * Only rows whose query, searched text or market label contains this text, ignoring case.
          */

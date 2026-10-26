@@ -64,18 +64,22 @@ afterEach(() => {
   delete window.__CANONRY_CONFIG__
 })
 
-async function mount(profileId: string | null = 'simple', runId?: string) {
+async function mount(profileId: string | null = 'simple', runId?: string, extra: Record<string, string> = {}) {
   const client = createQueryClient()
   client.setDefaultOptions({ queries: { retry: false, gcTime: 0, staleTime: Infinity }, mutations: { retry: false } })
   clients.push(client)
   const text = (value: unknown) => typeof value === 'string' && value ? value : undefined
   const root = createRootRoute({
-    validateSearch: (search: Record<string, unknown>) => ({ seoProfileId: text(search.seoProfileId), seoRunId: text(search.seoRunId), seoRegion: text(search.seoRegion), seoMarket: text(search.seoMarket) }),
+    validateSearch: (search: Record<string, unknown>) => ({
+      seoProfileId: text(search.seoProfileId), seoRunId: text(search.seoRunId), seoRegion: text(search.seoRegion), seoMarket: text(search.seoMarket),
+      seoShow: text(search.seoShow), seoSort: text(search.seoSort), seoQ: text(search.seoQ),
+    }),
   })
   const route = createRoute({ getParentRoute: () => root, path: '/projects/$projectName/seo-data', component: () => <SeoDataSection projectName="example" /> })
   const search = new URLSearchParams()
   if (profileId) search.set('seoProfileId', profileId)
   if (runId) search.set('seoRunId', runId)
+  for (const [key, value] of Object.entries(extra)) search.set(key, value)
   const router = createRouter({ routeTree: root.addChildren([route]), history: createMemoryHistory({ initialEntries: [`/projects/example/seo-data?${search}`] }) })
   await router.load()
   render(<QueryClientProvider client={client}><RouterProvider router={router} /></QueryClientProvider>)
@@ -137,7 +141,7 @@ test.each([SeoRunStatuses.completed, SeoRunStatuses.partial, null])('selected pr
     expect(freshness.querySelector('time')?.getAttribute('datetime')).toBe(selectedFinishedAt)
     expect(freshness.querySelector('time')?.textContent).toMatch(/^Oct 18\b/)
     // A partial refresh with no failed task says so in a caveat, the sentence in its tooltip.
-    expect(screen.queryByRole('button', { name: 'Partial results: part of this refresh did not run. Open Activity for details.' }) !== null).toBe(status === SeoRunStatuses.partial)
+    expect(screen.queryByRole('button', { name: 'Partial results: some tasks returned only part of their results or did not run. Open Activity for details.' }) !== null).toBe(status === SeoRunStatuses.partial)
   } else {
     expect(screen.getByText('No completed refresh')).not.toBeNull()
     expect(screen.queryByText(/^Updated/)).toBeNull()
@@ -466,9 +470,9 @@ const marketContext: SeoContext = {
 const marketRun: SeoRun = { ...saved, id: 'saved-markets', profileId: 'markets', status: 'partial', capabilities: ['market-rankings'], scope: markets.scope, taskCount: 10, completedTasks: 8, failedTasks: 2, finishedAt: '2026-10-25T20:00:00Z' }
 const nextRefresh: ScheduleDto = { id: 'seo-schedule', projectId: 'project-id', kind: 'seo-sync', cronExpr: '', recurrence: { everyDays: 14, startDate: '2026-11-08', time: '09:00' }, timezone: 'UTC', enabled: true, providers: [], nextRunAt: '2026-11-08T09:00:00.000Z', createdAt: source.collectedAt, updatedAt: source.collectedAt }
 const marketSource: SeoProvenance = { ...source, dataset: 'dataforseo-serp/google/market-rankings', locationCode: 200623, device: 'mobile' }
-const counts = (values: Partial<SeoMarketRankingCounts>): SeoMarketRankingCounts => ({ queries: 0, page1: 0, ranks11To20: 0, ranks21Plus: 0, notRanked: 0, failed: 0, notRun: 0, needsWork: 0, rivalAhead: 0, ...values })
+const counts = (values: Partial<SeoMarketRankingCounts>): SeoMarketRankingCounts => ({ queries: 0, page1: 0, ranks11To20: 0, ranks21Plus: 0, notRanked: 0, partlyChecked: 0, failed: 0, notRun: 0, needsWork: 0, rivalAhead: 0, ...values })
 // Every figure differs, so a value shown under the wrong label fails.
-const totals = counts({ queries: 12, page1: 2, ranks11To20: 3, ranks21Plus: 1, notRanked: 4, failed: 2, needsWork: 8, rivalAhead: 5 })
+const totals = counts({ queries: 18, page1: 2, ranks11To20: 3, ranks21Plus: 1, notRanked: 4, partlyChecked: 6, failed: 2, needsWork: 14, rivalAhead: 5 })
 const regions: SeoMarketRankingSummary['groups'] = ['Coast', 'Desert', 'Lake', 'Mountain', 'Prairie', 'Valley'].map((name, index) => ({
   key: name.toLowerCase(), label: `${name} Metro`, kind: 'region' as const, counts: counts({ queries: 10 + index, ranks11To20: 6 - index, rivalAhead: index * 2 }),
 }))
@@ -481,7 +485,7 @@ function marketRow(queryText: string, values: Partial<SeoMarketRanking> = {}): S
 }
 const marketRows = [
   marketRow('apartments near the harbor', { rankOrganic: 11, rankAbsolute: 14, url: 'https://example.com/harbor', outcome: 'ranks-11-20', rivalAhead: true, competitors: [{ domain: 'rival.com', rankOrganic: 3 }, { domain: 'other.com', rankOrganic: 30 }] }),
-  marketRow('lofts with parking', { checkedDepth: 30, searchStatus: 'partial' }),
+  marketRow('lofts with parking', { checkedDepth: 30, searchStatus: 'partial', outcome: 'partly-checked' }),
   marketRow('pet friendly lofts', { outcome: 'failed', searchStatus: 'failed', checkedDepth: 0, provenance: null }),
 ]
 
@@ -498,7 +502,7 @@ function stubMarkets(summaryFor: (url: URL) => SeoMarketRankingSummary, extra: (
     if (url.pathname.endsWith('/context')) return json(marketContext)
     if (url.pathname.endsWith('/profiles')) return json({ profiles: [markets] })
     if (url.pathname.endsWith('/schedule')) return json(nextRefresh)
-    if (url.pathname.endsWith('/overview')) return json({ ...overview(markets, marketRun), evidenceRunId: marketRun.id, evidenceRun: marketRun, summary: null, marketRankingCount: 12 })
+    if (url.pathname.endsWith('/overview')) return json({ ...overview(markets, marketRun), evidenceRunId: marketRun.id, evidenceRun: marketRun, summary: null, marketRankingCount: 18 })
     if (url.pathname.endsWith('/market-rankings/summary')) return json(summaryFor(url))
     if (url.pathname.endsWith('/market-rankings')) {
       const items = url.searchParams.get('q') === 'nothing like this' ? [] : marketRows
@@ -520,7 +524,8 @@ test('market rankings lead with the refresh, then server counts by outcome and t
     : summary())
   const { router } = await mount('markets')
   const figures = await screen.findByRole('region', { name: 'Google rank' })
-  expect(within(figures).getByText('12 queries')).not.toBeNull()
+  // The caption names what the rank figures leave out, so they reconcile with the total.
+  expect(within(figures).getByText('18 queries · 6 partly checked · 2 failed')).not.toBeNull()
   // Freshness, the next scheduled refresh and the failed searches share one line, the sentence behind a caveat.
   const freshness = screen.getByText(/^Updated/)
   expect([...freshness.querySelectorAll('time')].map(time => [time.getAttribute('datetime'), /^(?:Oct 25|Nov 8)\b/.test(time.textContent ?? '')])).toEqual([['2026-10-25T20:00:00Z', true], ['2026-11-08T09:00:00.000Z', true]])
@@ -554,39 +559,50 @@ test('market rankings lead with the refresh, then server counts by outcome and t
   expect(within(trail).getByText('Coast Metro').getAttribute('aria-current')).toBe('page')
   const marketTable = screen.getByRole('table', { name: 'Google rank by market' })
   expect(within(marketTable).getAllByRole('rowheader').map(cell => cell.textContent)).toEqual(['Harbor, Coast', 'Bayside, Coast'])
-  expect(screen.getByText('3 queries')).not.toBeNull()
+  expect(screen.getByText('3 queries · 1 failed')).not.toBeNull()
   await waitFor(() => expect(lastRead('/market-rankings')).toMatchObject({ regionKey: 'coast', outcome: 'needs-work' }))
   fireEvent.click(within(marketTable).getByRole('link', { name: 'Harbor, Coast' }))
   await waitFor(() => expect(router.state.location.search).toMatchObject({ seoRegion: 'coast', seoMarket: 'harbor' }))
 })
 
-test('queries open on what needs work, closest to page 1, and every filter, order and search is an API read', async () => {
+test('queries open on what needs work, closest to page 1, and every filter, order and search is an API read kept in the URL', async () => {
   const { lastRead } = stubMarkets(() => summary())
-  await mount('markets')
+  const { router } = await mount('markets')
   const table = await screen.findByRole('table', { name: 'Queries: Needs work' })
   expect(lastRead('/market-rankings')).toEqual({ profileId: 'markets', runId: 'saved-markets', outcome: 'needs-work', sort: 'rank', limit: '10', offset: '0' })
   const show = screen.getByRole<HTMLSelectElement>('combobox', { name: 'Show queries' })
   // Not searched has no rows, so it is not offered.
-  expect([...show.options].map(option => option.textContent)).toEqual(['Needs work (8)', 'Page 1 (2)', '11-20 (3)', '21-50 (1)', 'Not in top 50 (4)', 'Rival ahead (5)', 'Failed (2)', 'All (12)'])
+  expect([...show.options].map(option => option.textContent)).toEqual(['Needs work (14)', 'Page 1 (2)', '11-20 (3)', '21-50 (1)', 'Not in top 50 (4)', 'Rival ahead (5)', 'Partly checked (6)', 'Failed (2)', 'All (18)'])
+  // A settled result is announced once, politely.
+  const announced = () => screen.getAllByRole('status').map(status => status.textContent)
+  expect(announced()).toContain('3 queries: Needs work')
 
   const [ranked, partial, failed] = within(table).getAllByRole('row').slice(1)
   expect(within(ranked!).getAllByRole('cell')[0]!.textContent).toBe('11')
   expect(within(ranked!).getAllByRole('cell')[1]!.textContent).toBe('rival.com#3Ahead')
   expect(within(partial!).getAllByRole('cell')[0]!.textContent).toBe('Not in top 30')
-  expect(within(partial!).getByRole('button', { name: 'Only the top 30 of 50 results came back for this search.' })).not.toBeNull()
+  expect(within(partial!).getByRole('button', { name: 'Only the top 30 of 50 results came back for this search, so ranks past 30 are unknown.' })).not.toBeNull()
   expect(within(partial!).getAllByRole('cell')[1]!.textContent).toBe('None in top 30')
   expect(within(failed!).getByRole('button', { name: 'Failed: the source returned no results for this search in this refresh.' })).not.toBeNull()
   expect(within(failed!).getAllByRole('cell')[1]!.textContent).toBe('—No result')
-  // The ranking page and the rest of the evidence live in Details.
-  fireEvent.click(within(ranked!).getByText('Details', { selector: 'summary' }))
-  expect(within(ranked!).getByText('Ranking page').nextElementSibling!.textContent).toBe('https://example.com/harbor')
-  expect(within(ranked!).getByText('Position on the page, counting maps and other blocks: 14')).not.toBeNull()
-  expect([...within(ranked!).getByText('Tracked competitors in these results').nextElementSibling!.children].map(item => item.textContent)).toEqual(['rival.com', '#3', 'other.com', '#30'])
-  expect(within(ranked!).getByText('Dataset').nextElementSibling!.textContent).toBe('Market rankings')
-  fireEvent.click(within(failed!).getByText('Details', { selector: 'summary' }))
-  expect(within(failed!).getByText('Ranking page').nextElementSibling!.textContent).toBe('No result: the search failed')
-  expect(within(failed!).queryByText('Dataset')).toBeNull()
-  expect(within(partial!).queryByText('Results checked: top 30 of 50')).not.toBeNull()
+  // Details open in a full-width row under the query, the ranking page first and linked.
+  const open = (row: HTMLElement, query: string) => {
+    const button = within(row).getByRole('button', { name: new RegExp(`^Details\\s*for ${query} in Harbor, Coast$`) })
+    fireEvent.click(button)
+    expect(button.getAttribute('aria-expanded')).toBe('true')
+    const details = document.getElementById(button.getAttribute('aria-controls')!)!
+    expect(details.querySelector('td')!.getAttribute('colspan')).toBe('4')
+    return details
+  }
+  const rankedDetails = open(ranked!, 'apartments near the harbor')
+  expect(within(rankedDetails).getByRole('link', { name: 'https://example.com/harbor' }).getAttribute('href')).toBe('https://example.com/harbor')
+  expect(within(rankedDetails).getByText('Position on the page, counting maps and other blocks').nextElementSibling!.textContent).toBe('14')
+  expect([...within(rankedDetails).getByText('Tracked competitors in these results').nextElementSibling!.children].map(item => item.textContent)).toEqual(['rival.com', '#3', 'other.com', '#30'])
+  expect(within(rankedDetails).getByText('Dataset').nextElementSibling!.textContent).toBe('Market rankings')
+  const failedDetails = open(failed!, 'pet friendly lofts')
+  expect(within(failedDetails).getByText('Ranking page').nextElementSibling!.textContent).toBe('No result: the search failed')
+  expect(within(failedDetails).queryByText('Dataset')).toBeNull()
+  expect(within(open(partial!, 'lofts with parking')).getByText('Results checked').nextElementSibling!.textContent).toBe('Top 30 of 50')
 
   fireEvent.click(within(table).getByRole('button', { name: 'Google rank' }))
   await waitFor(() => expect(lastRead('/market-rankings')).toMatchObject({ sort: '-rank', outcome: 'needs-work' }))
@@ -596,12 +612,37 @@ test('queries open on what needs work, closest to page 1, and every filter, orde
   fireEvent.change(screen.getByRole('searchbox', { name: 'Find a query' }), { target: { value: 'nothing like this' } })
   await screen.findByRole('heading', { name: 'No queries match' })
   expect(lastRead('/market-rankings')).toMatchObject({ outcome: 'failed', q: 'nothing like this' })
+  expect(announced()).toContain('No queries match')
+  // The investigation is in the URL, without a history entry per change.
+  await waitFor(() => expect(router.state.location.search).toMatchObject({ seoProfileId: 'markets', seoShow: 'failed', seoSort: '-rank', seoQ: 'nothing like this' }))
+  expect(router.history.length).toBe(1)
   fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }))
   await screen.findByRole('table', { name: 'Queries: All' })
   expect(lastRead('/market-rankings')).toEqual({ profileId: 'markets', runId: 'saved-markets', sort: '-rank', limit: '10', offset: '0' })
   expect(screen.getByRole<HTMLInputElement>('searchbox', { name: 'Find a query' }).value).toBe('')
+  await waitFor(() => expect(router.state.location.search).toMatchObject({ seoShow: 'all', seoSort: '-rank' }))
+  expect('seoQ' in router.state.location.search).toBe(false)
   // Filtering re-renders the view in place; the region table above it stays a single table.
   expect(screen.getAllByRole('table', { name: 'Google rank by region' })).toHaveLength(1)
+})
+
+test('a saved link reopens the same filter, order and search, and a new filter starts at the first page', async () => {
+  const { lastRead } = stubMarkets(() => summary(), (_request, url) => url.pathname.endsWith('/market-rankings')
+    ? Promise.resolve(json({ runId: marketRun.id, total: 25, limit: 10, offset: Number(url.searchParams.get('offset')), items: marketRows }))
+    : null)
+  await mount('markets', undefined, { seoShow: 'rival-ahead', seoSort: '-rank', seoQ: 'harbor' })
+  await screen.findByRole('table', { name: 'Queries: Rival ahead' })
+  expect(lastRead('/market-rankings')).toEqual({ profileId: 'markets', runId: 'saved-markets', outcome: 'rival-ahead', sort: '-rank', q: 'harbor', limit: '10', offset: '0' })
+  expect(screen.getByRole<HTMLSelectElement>('combobox', { name: 'Show queries' }).value).toBe('rival-ahead')
+  expect(screen.getByRole<HTMLInputElement>('searchbox', { name: 'Find a query' }).value).toBe('harbor')
+  fireEvent.click(screen.getAllByRole('button', { name: 'Next' }).at(-1)!)
+  await waitFor(() => expect(lastRead('/market-rankings')).toMatchObject({ outcome: 'rival-ahead', offset: '10' }))
+  fireEvent.change(screen.getByRole('combobox', { name: 'Show queries' }), { target: { value: 'failed' } })
+  await waitFor(() => expect(lastRead('/market-rankings')).toMatchObject({ outcome: 'failed', offset: '0' }))
+  // Returning to the earlier filter starts over too, rather than reopening its old page.
+  fireEvent.change(screen.getByRole('combobox', { name: 'Show queries' }), { target: { value: 'rival-ahead' } })
+  await waitFor(() => expect(lastRead('/market-rankings')).toMatchObject({ outcome: 'rival-ahead', offset: '0' }))
+  expect(screen.getByText('1 to 3 of 25 queries')).not.toBeNull()
 })
 
 test('a scope with nothing off page 1 opens on every query', async () => {
@@ -622,7 +663,7 @@ test('market-rankings activity counts searches, and editing the profile keeps it
     return null
   })
   await mount('markets')
-  await screen.findByText('12 queries')
+  await screen.findByText('18 queries · 6 partly checked · 2 failed')
   expect(screen.getByText('1 search location · en')).not.toBeNull()
   // The saved refresh searched from each market's location, never the profile's one location code.
   expect(screen.getByText('Saved data uses profile revision 1 · Market locations · en. The current profile has changed.')).not.toBeNull()

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { and, eq } from 'drizzle-orm'
-import { seoBudgets, seoJobs, seoTasks } from '@canonry/canonry-db'
+import { queries, seoBudgets, seoJobs, seoTasks } from '@canonry/canonry-db'
 import type { SeoInstallConfig } from '@canonry/canonry-config'
 import { SeoRuntime } from '../src/seo-runtime.js'
 import { createSeoHarness, seoProfileFixture } from '../../api-routes/test/seo-fixture.js'
@@ -22,6 +22,27 @@ async function setup(dailyLimit = 1_000_000, read?: (config: SeoInstallConfig) =
   return { ...h, runtime, config, id: accepted.json().id as string, base }
 }
 const success = () => Response.json({ status_code: 20000, tasks: [{ id: 'remote-1', status_code: 20000, cost: 0.01212, result: [{ location_code: 2840, language_code: 'en', items: [{ keyword: 'solar installer', keyword_info: { search_volume: 0, cpc: null }, keyword_properties: { keyword_difficulty: 25 } }] }] }] })
+/** A market-rankings refresh of one tracked query, searched from the profile location: one $0.002 search. */
+async function setupRankings() {
+  const config: SeoInstallConfig = { enabled: true, fundingMode: 'hosted', policy: { maxRunCostMicros: 100_000, accountDailyLimitMicros: 1_000_000, accountMonthlyLimitMicros: 1_000_000, projectMonthlyLimitMicros: 1_000_000 }, connections: { primary: { provider: 'dataforseo', label: 'SEO data', enabled: true, login: 'operator@example.com', password: 'test-secret' } } }
+  const h = createSeoHarness({ getSeoRuntime: () => runtime.getRuntime(), onSeoRunRequested: () => runtime.wake() })
+  const runtime = new SeoRuntime(h.db, () => config)
+  cleanups.push(async () => { await runtime.stop(); await h.close() })
+  h.db.insert(queries).values({ id: 'q1', projectId: 'alpha', query: 'best solar installer', createdAt: new Date().toISOString() }).run()
+  const base = '/api/v1/projects/alpha/seo'
+  const saved = await h.app.inject({ method: 'PUT', url: `${base}/profiles/markets`, payload: {
+    ...seoProfileFixture, name: 'Market rankings', capabilities: ['market-rankings'], keywords: [], targets: [{ kind: 'domain', value: 'alpha.com', includeSubdomains: true }],
+    rankings: { locations: [], depth: 10, device: 'mobile', searchText: 'query' },
+  } })
+  expect(saved.statusCode, saved.body).toBe(200)
+  const intent = (await h.app.inject({ method: 'POST', url: `${base}/refresh-intents`, payload: { profileId: 'markets' } })).json()
+  const accepted = await h.app.inject({ method: 'POST', url: `${base}/sync`, payload: { quoteToken: intent.token, idempotencyKey: 'rankings-one' } })
+  expect(accepted.statusCode, accepted.body).toBe(202)
+  return { ...h, runtime, id: accepted.json().id as string }
+}
+const serp = (statusCode: number) => Response.json({ status_code: 20000, cost: 0.002, tasks: [{ id: `serp-${statusCode}`, status_code: statusCode, status_message: 'Task status', cost: 0.002, result: statusCode === 20000
+  ? [{ keyword: 'best solar installer', location_code: 2840, language_code: 'en', datetime: '2026-10-26 09:00:00 +00:00', pages_count: 1, items: [{ type: 'organic', rank_group: 4, rank_absolute: 5, domain: 'www.alpha.com', url: 'https://www.alpha.com/solar' }] }]
+  : null }] })
 
 describe('durable SEO runtime with the real upstream adapter', () => {
   it('reuses unchanged configuration and pauses accepted work across a failed reload until repair', async () => {
@@ -145,6 +166,25 @@ describe('durable SEO runtime with the real upstream adapter', () => {
     await vi.waitFor(() => expect(h.db.select().from(seoJobs).where(eq(seoJobs.id, h.id)).get()?.status).toBe('cancelled'))
     expect(fetch).not.toHaveBeenCalled()
     expect(h.db.select().from(seoBudgets).all().map(row => [row.reservedMicros, row.spentMicros])).toEqual([[0, 0], [0, 0], [0, 0]])
+  })
+
+  it('sends a retry the source invited at the end of the refresh, and only at the price it was accepted at', async () => {
+    const fetch = vi.fn().mockResolvedValueOnce(serp(40101)).mockImplementation(() => Promise.resolve(serp(20000))); vi.stubGlobal('fetch', fetch)
+    const h = await setupRankings(); h.runtime.start()
+    await vi.waitFor(() => expect(h.db.select().from(seoJobs).where(eq(seoJobs.id, h.id)).get()?.status).toBe('completed'))
+    expect(fetch).toHaveBeenCalledTimes(2)
+    expect(h.db.select().from(seoTasks).all().map(task => [task.status, task.retryOf === null ? 'original' : 'retry'])).toEqual([['failed', 'original'], ['completed', 'retry']])
+    expect(h.db.select().from(seoBudgets).all().map(row => [row.reservedMicros, row.spentMicros])).toEqual([[0, 4000], [0, 4000], [0, 4000]])
+
+    // A release that changes the price list while the first attempt is out voids the retry, as it would any unsent work.
+    const second = await setupRankings()
+    const repriced = vi.fn(() => { second.db.update(seoTasks).set({ catalogRevision: 'previous-release-catalog' }).run(); return Promise.resolve(serp(40101)) })
+    vi.stubGlobal('fetch', repriced)
+    second.runtime.start()
+    await vi.waitFor(() => expect(second.db.select().from(seoJobs).where(eq(seoJobs.id, second.id)).get()?.status).toBe('cancelled'))
+    expect(repriced).toHaveBeenCalledTimes(1)
+    expect(second.db.select().from(seoTasks).all()).toMatchObject([{ status: 'failed', retryable: false, retryOf: null }])
+    expect(second.db.select().from(seoBudgets).all().map(row => [row.reservedMicros, row.spentMicros])).toEqual([[0, 2000], [0, 2000], [0, 2000]])
   })
 
   it('records an unexpected charge without clamping it and blocks further account admission', async () => {

@@ -79,6 +79,10 @@ type SearchParams = {
   /** Market rankings drill-in: one region (a top-level group of markets), one market, or both. */
   seoRegion?: string
   seoMarket?: string
+  /** Market rankings queries: the Show filter, the order and the search. The view validates the values. */
+  seoShow?: string
+  seoSort?: string
+  seoQ?: string
   evidenceId?: string
   runStatus?: string
   runKind?: string
@@ -140,6 +144,9 @@ export const rootRoute = createRootRouteWithContext<RouterContext>()({
     seoRunId: typeof search.seoRunId === 'string' ? search.seoRunId : undefined,
     seoRegion: typeof search.seoRegion === 'string' && search.seoRegion ? search.seoRegion : undefined,
     seoMarket: typeof search.seoMarket === 'string' && search.seoMarket ? search.seoMarket : undefined,
+    seoShow: typeof search.seoShow === 'string' && search.seoShow ? search.seoShow : undefined,
+    seoSort: typeof search.seoSort === 'string' && search.seoSort ? search.seoSort : undefined,
+    seoQ: typeof search.seoQ === 'string' && search.seoQ ? search.seoQ : undefined,
     evidenceId: typeof search.evidenceId === 'string' ? search.evidenceId : undefined,
     runStatus: typeof search.runStatus === 'string' ? search.runStatus : undefined,
     runKind: typeof search.runKind === 'string' ? search.runKind : undefined,

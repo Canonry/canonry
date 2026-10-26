@@ -149,8 +149,10 @@ export class SeoRuntime {
           continue
         }
         const heldTasks = this.db.select().from(seoTasks).where(eq(seoTasks.jobId, job.id)).all()
+        // Work not yet sent, at the price it was accepted at: queued tasks, and a retry still owed (it reuses its failure's request and hold).
+        const unsent = heldTasks.filter(task => task.status === SeoRunStatuses.queued || (task.status === SeoRunStatuses.failed && task.retryable))
         let pricesSafe = false
-        try { pricesSafe = heldTasks.filter(task => task.status === SeoRunStatuses.queued).every(task => { const estimate = connection.adapter.estimate(task.request); return estimate.maxCostMicros <= task.reservedMicros && estimate.catalogRevision === task.catalogRevision }) } catch { pricesSafe = false }
+        try { pricesSafe = unsent.every(task => { const estimate = connection.adapter.estimate(task.request); return estimate.maxCostMicros <= task.reservedMicros && estimate.catalogRevision === task.catalogRevision }) } catch { pricesSafe = false }
         if (!pricesSafe) { this.repository.cancel(job.id); continue }
         const task = this.repository.claim(job.id, { ...runtime.policy, accountKey: connection.adapter.accountKey })
         if (!task) continue

@@ -13,25 +13,29 @@ function bestCompetitorRank(competitors: ReadonlyArray<{ rankOrganic: number }>)
   return competitors.reduce<number | null>((best, competitor) => best === null || competitor.rankOrganic < best ? competitor.rankOrganic : best, null)
 }
 
-function outcomeFor(rank: number | null): SeoMarketRankingOutcome {
-  if (rank === null) return SeoMarketRankingOutcomes['not-ranked']
+/** A rank's band, or, with no rank, not in the top `depth` for a whole page and partly checked for a partial one. */
+function outcomeFor(rank: number | null, partial: boolean): SeoMarketRankingOutcome {
+  if (rank === null) return partial ? SeoMarketRankingOutcomes['partly-checked'] : SeoMarketRankingOutcomes['not-ranked']
   if (rank <= PAGE_ONE_LAST_RANK) return SeoMarketRankingOutcomes['page-1']
   return rank <= CLOSE_LAST_RANK ? SeoMarketRankingOutcomes['ranks-11-20'] : SeoMarketRankingOutcomes['ranks-21-plus']
 }
 
 /**
  * The read row for a search that came back: whole (`checkedDepth` absent or equal to
- * `depth`) or partial. A tracked competitor is ahead when it ranks above the target,
- * or ranks while the target is not in the checked results.
+ * `depth`) or partial. A rank found in a partial page is a real rank; no rank there leaves
+ * ranks past `checkedDepth` unknown, so the row is partly checked, never not ranked. A
+ * tracked competitor is ahead when it ranks above the target, or ranks while the target
+ * is not in the checked results.
  */
 export function marketRankingFromObservation(observation: SeoMarketRankingObservation): SeoMarketRanking {
   const { checkedDepth: partialDepth, ...rest } = observation
   const checkedDepth = Math.min(partialDepth ?? observation.depth, observation.depth)
+  const partial = checkedDepth < observation.depth
   const best = bestCompetitorRank(observation.competitors)
   return {
     ...rest, checkedDepth,
-    searchStatus: checkedDepth < observation.depth ? SeoMarketRankingSearchStatuses.partial : SeoMarketRankingSearchStatuses.completed,
-    outcome: outcomeFor(observation.rankOrganic),
+    searchStatus: partial ? SeoMarketRankingSearchStatuses.partial : SeoMarketRankingSearchStatuses.completed,
+    outcome: outcomeFor(observation.rankOrganic, partial),
     rivalAhead: best !== null && (observation.rankOrganic === null || best < observation.rankOrganic),
   }
 }
@@ -60,13 +64,15 @@ export function marketRankingWithoutResult(intent: MarketRankingSearchIntent, st
 export function matchesMarketRankingFilter(row: SeoMarketRanking, filter: SeoMarketRankingFilter): boolean {
   switch (filter) {
     case SeoMarketRankingFilters['needs-work']:
-      return row.outcome === SeoMarketRankingOutcomes['ranks-11-20'] || row.outcome === SeoMarketRankingOutcomes['ranks-21-plus'] || row.outcome === SeoMarketRankingOutcomes['not-ranked']
+      return row.outcome === SeoMarketRankingOutcomes['ranks-11-20'] || row.outcome === SeoMarketRankingOutcomes['ranks-21-plus']
+        || row.outcome === SeoMarketRankingOutcomes['not-ranked'] || row.outcome === SeoMarketRankingOutcomes['partly-checked']
     case SeoMarketRankingFilters['rival-ahead']:
       return row.rivalAhead
     case SeoMarketRankingFilters['page-1']:
     case SeoMarketRankingFilters['ranks-11-20']:
     case SeoMarketRankingFilters['ranks-21-plus']:
     case SeoMarketRankingFilters['not-ranked']:
+    case SeoMarketRankingFilters['partly-checked']:
     case SeoMarketRankingFilters.failed:
     case SeoMarketRankingFilters['not-run']:
       return row.outcome === filter
@@ -86,8 +92,34 @@ export function matchesMarketRankingText(row: SeoMarketRanking, text: string): b
 const byMarket = (a: SeoMarketRanking, b: SeoMarketRanking) => compareText(a.regionLabel ?? '', b.regionLabel ?? '')
   || compareText(a.marketLabel, b.marketLabel) || compareText(a.searchText, b.searchText) || compareText(a.queryText, b.queryText)
 const byQuery = (a: SeoMarketRanking, b: SeoMarketRanking) => compareText(a.queryText.toLowerCase(), b.queryText.toLowerCase()) || byMarket(a, b)
-/** Ranked rows, then rows not in the results, then failed searches, then searches that never ran. */
-const tier = (row: SeoMarketRanking) => row.rankOrganic !== null ? 0 : row.outcome === SeoMarketRankingOutcomes['not-ranked'] ? 1 : row.outcome === SeoMarketRankingOutcomes.failed ? 2 : 3
+/**
+ * Closest to page 1 first: ranked rows, then partly checked rows (they may rank just past
+ * the part checked), then rows not in the top `depth`, then failed searches, then searches
+ * that never ran.
+ */
+function tier(row: SeoMarketRanking): number {
+  switch (row.outcome) {
+    case SeoMarketRankingOutcomes['page-1']:
+    case SeoMarketRankingOutcomes['ranks-11-20']:
+    case SeoMarketRankingOutcomes['ranks-21-plus']:
+      return 0
+    case SeoMarketRankingOutcomes['partly-checked']: return 1
+    case SeoMarketRankingOutcomes['not-ranked']: return 2
+    case SeoMarketRankingOutcomes.failed: return 3
+    case SeoMarketRankingOutcomes['not-run']: return 4
+    default: {
+      const unknown: never = row.outcome
+      return unknown
+    }
+  }
+}
+/** Furthest from page 1 first: rows not in the top `depth`, then partly checked rows, then ranked rows; searches with no result stay last. */
+function worst(row: SeoMarketRanking): number {
+  const order = tier(row)
+  return order === 2 ? 0 : order === 0 ? 2 : order
+}
+/** Rows without a rank in the results checked: their rank is unknown, so they keep rival order. */
+const unranked = (row: SeoMarketRanking) => tier(row) === 1 || tier(row) === 2
 /** Within rows not in the results, the strongest tracked rival first and rows with no rival last. */
 const rivalOrder = (a: SeoMarketRanking, b: SeoMarketRanking) => (bestCompetitorRank(a.competitors) ?? Number.MAX_SAFE_INTEGER) - (bestCompetitorRank(b.competitors) ?? Number.MAX_SAFE_INTEGER)
 
@@ -99,14 +131,10 @@ export function compareMarketRankingsBy(sort: SeoMarketRankingSort): (a: SeoMark
     case SeoMarketRankingSorts['-query']: return (a, b) => byQuery(b, a)
     case SeoMarketRankingSorts.rank: return (a, b) => tier(a) - tier(b)
       || (a.rankOrganic !== null && b.rankOrganic !== null ? a.rankOrganic - b.rankOrganic : 0)
-      || (tier(a) === 1 ? rivalOrder(a, b) : 0) || byQuery(a, b)
-    case SeoMarketRankingSorts['-rank']: {
-      // Queries not in the results first, then the worst rank; searches with no result stay last.
-      const worst = (row: SeoMarketRanking) => row.outcome === SeoMarketRankingOutcomes['not-ranked'] ? 0 : row.rankOrganic !== null ? 1 : tier(row)
-      return (a, b) => worst(a) - worst(b)
-        || (a.rankOrganic !== null && b.rankOrganic !== null ? b.rankOrganic - a.rankOrganic : 0)
-        || (worst(a) === 0 ? rivalOrder(a, b) : 0) || byQuery(a, b)
-    }
+      || (unranked(a) ? rivalOrder(a, b) : 0) || byQuery(a, b)
+    case SeoMarketRankingSorts['-rank']: return (a, b) => worst(a) - worst(b)
+      || (a.rankOrganic !== null && b.rankOrganic !== null ? b.rankOrganic - a.rankOrganic : 0)
+      || (unranked(a) ? rivalOrder(a, b) : 0) || byQuery(a, b)
     default: {
       const unknown: never = sort
       return unknown
@@ -139,13 +167,14 @@ export function marketRankingBands(depth: number | null, totals?: SeoMarketRanki
 
 /** Rows counted by outcome. The outcome counts add up to `queries`; `needsWork` and `rivalAhead` overlap them. */
 export function countMarketRankings(rows: readonly SeoMarketRanking[]): SeoMarketRankingCounts {
-  const counts: SeoMarketRankingCounts = { queries: rows.length, page1: 0, ranks11To20: 0, ranks21Plus: 0, notRanked: 0, failed: 0, notRun: 0, needsWork: 0, rivalAhead: 0 }
+  const counts: SeoMarketRankingCounts = { queries: rows.length, page1: 0, ranks11To20: 0, ranks21Plus: 0, notRanked: 0, partlyChecked: 0, failed: 0, notRun: 0, needsWork: 0, rivalAhead: 0 }
   for (const row of rows) {
     switch (row.outcome) {
       case SeoMarketRankingOutcomes['page-1']: counts.page1++; break
       case SeoMarketRankingOutcomes['ranks-11-20']: counts.ranks11To20++; break
       case SeoMarketRankingOutcomes['ranks-21-plus']: counts.ranks21Plus++; break
       case SeoMarketRankingOutcomes['not-ranked']: counts.notRanked++; break
+      case SeoMarketRankingOutcomes['partly-checked']: counts.partlyChecked++; break
       case SeoMarketRankingOutcomes.failed: counts.failed++; break
       case SeoMarketRankingOutcomes['not-run']: counts.notRun++; break
       default: {
@@ -155,7 +184,7 @@ export function countMarketRankings(rows: readonly SeoMarketRanking[]): SeoMarke
     }
     if (row.rivalAhead) counts.rivalAhead++
   }
-  counts.needsWork = counts.ranks11To20 + counts.ranks21Plus + counts.notRanked
+  counts.needsWork = counts.ranks11To20 + counts.ranks21Plus + counts.notRanked + counts.partlyChecked
   return counts
 }
 

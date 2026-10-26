@@ -39,8 +39,10 @@ describe('market-ranking rows', () => {
   })
 
   it('reads a whole page as completed at its depth and a partial page at the depth that came back', () => {
-    expect(row('whole', null)).toMatchObject({ searchStatus: 'completed', checkedDepth: 50, depth: 50 })
-    expect(row('partial', null, { checkedDepth: 30 })).toMatchObject({ searchStatus: 'partial', checkedDepth: 30, depth: 50, outcome: 'not-ranked' })
+    expect(row('whole', null)).toMatchObject({ searchStatus: 'completed', checkedDepth: 50, depth: 50, outcome: 'not-ranked' })
+    // Ranks 31-50 were never checked, so the site is partly checked, never "not in the top 50"; a rank the page did return stands.
+    expect(row('partial', null, { checkedDepth: 30 })).toMatchObject({ searchStatus: 'partial', checkedDepth: 30, depth: 50, outcome: 'partly-checked' })
+    expect(row('partial ranked', 12, { checkedDepth: 30 })).toMatchObject({ searchStatus: 'partial', checkedDepth: 30, outcome: 'ranks-11-20' })
     // The stored partial depth never reads deeper than the search asked for.
     expect(row('clamped', 7, { checkedDepth: 60 })).toMatchObject({ searchStatus: 'completed', checkedDepth: 50, outcome: 'page-1' })
   })
@@ -61,14 +63,14 @@ describe('countMarketRankings', () => {
       failedRow('l'), failedRow('m'), failedRow('n', 'not-run'),
     ]
     const counts = countMarketRankings(rows)
-    expect(counts).toEqual({ queries: 14, page1: 2, ranks11To20: 3, ranks21Plus: 2, notRanked: 4, failed: 2, notRun: 1, needsWork: 9, rivalAhead: 3 })
-    // The outcomes partition the rows; needs work is everything off page 1 that came back.
-    expect(counts.page1 + counts.ranks11To20 + counts.ranks21Plus + counts.notRanked + counts.failed + counts.notRun).toBe(counts.queries)
-    expect(counts.needsWork).toBe(counts.ranks11To20 + counts.ranks21Plus + counts.notRanked)
+    expect(counts).toEqual({ queries: 14, page1: 2, ranks11To20: 3, ranks21Plus: 2, notRanked: 3, partlyChecked: 1, failed: 2, notRun: 1, needsWork: 9, rivalAhead: 3 })
+    // The outcomes partition the rows; needs work is everything off page 1 that came back, a partial page included.
+    expect(counts.page1 + counts.ranks11To20 + counts.ranks21Plus + counts.notRanked + counts.partlyChecked + counts.failed + counts.notRun).toBe(counts.queries)
+    expect(counts.needsWork).toBe(counts.ranks11To20 + counts.ranks21Plus + counts.notRanked + counts.partlyChecked)
   })
 
   it('counts nothing for no rows', () => {
-    expect(countMarketRankings([])).toEqual({ queries: 0, page1: 0, ranks11To20: 0, ranks21Plus: 0, notRanked: 0, failed: 0, notRun: 0, needsWork: 0, rivalAhead: 0 })
+    expect(countMarketRankings([])).toEqual({ queries: 0, page1: 0, ranks11To20: 0, ranks21Plus: 0, notRanked: 0, partlyChecked: 0, failed: 0, notRun: 0, needsWork: 0, rivalAhead: 0 })
   })
 })
 
@@ -76,14 +78,14 @@ describe('market-ranking filters, text and order', () => {
   const rows = [
     row('page one', 4), row('close', 12, { competitors: [{ domain: 'rival.com', rankOrganic: 5 }] }), row('deeper', 33),
     row('missing', null), row('missing behind a rival', null, { competitors: [{ domain: 'rival.com', rankOrganic: 2 }] }),
-    failedRow('lost'), failedRow('skipped', 'not-run'),
+    row('missing past page 3', null, { checkedDepth: 30 }), failedRow('lost'), failedRow('skipped', 'not-run'),
   ]
   const kept = (filter: SeoMarketRankingFilter) => rows.filter(item => matchesMarketRankingFilter(item, filter)).map(item => item.queryText)
 
   it.each([
-    ['needs-work', ['close', 'deeper', 'missing', 'missing behind a rival']],
+    ['needs-work', ['close', 'deeper', 'missing', 'missing behind a rival', 'missing past page 3']],
     ['page-1', ['page one']], ['ranks-11-20', ['close']], ['ranks-21-plus', ['deeper']],
-    ['not-ranked', ['missing', 'missing behind a rival']], ['rival-ahead', ['close', 'missing behind a rival']],
+    ['not-ranked', ['missing', 'missing behind a rival']], ['partly-checked', ['missing past page 3']], ['rival-ahead', ['close', 'missing behind a rival']],
     ['failed', ['lost']], ['not-run', ['skipped']],
   ] as const)('%s keeps %j', (filter, queries) => {
     expect(kept(filter)).toEqual(queries)
@@ -97,12 +99,13 @@ describe('market-ranking filters, text and order', () => {
   })
 
   it.each([
-    // Best rank first, then rows not in the results with the strongest rival first, then no result.
-    ['rank', ['page one', 'close', 'deeper', 'missing behind a rival', 'missing', 'lost', 'skipped']],
-    // Rows not in the results first, then the worst rank; searches with no result stay last.
-    ['-rank', ['missing behind a rival', 'missing', 'deeper', 'close', 'page one', 'lost', 'skipped']],
-    ['query', ['close', 'deeper', 'lost', 'missing', 'missing behind a rival', 'page one', 'skipped']],
-    ['-query', ['skipped', 'page one', 'missing behind a rival', 'missing', 'lost', 'deeper', 'close']],
+    // Best rank first, then a partly checked row (it may rank just past the part checked), then rows not in the
+    // top 50 with the strongest rival first, then no result.
+    ['rank', ['page one', 'close', 'deeper', 'missing past page 3', 'missing behind a rival', 'missing', 'lost', 'skipped']],
+    // Rows not in the top 50 first, then partly checked, then the worst rank; searches with no result stay last.
+    ['-rank', ['missing behind a rival', 'missing', 'missing past page 3', 'deeper', 'close', 'page one', 'lost', 'skipped']],
+    ['query', ['close', 'deeper', 'lost', 'missing', 'missing behind a rival', 'missing past page 3', 'page one', 'skipped']],
+    ['-query', ['skipped', 'page one', 'missing past page 3', 'missing behind a rival', 'missing', 'lost', 'deeper', 'close']],
   ] as const)('orders by %s', (sort: SeoMarketRankingSort, order) => {
     expect([...rows].reverse().sort(compareMarketRankingsBy(sort)).map(item => item.queryText)).toEqual(order)
   })
@@ -147,7 +150,7 @@ describe('groupMarketRankings', () => {
 })
 
 describe('marketRankingBands', () => {
-  const totals = (overrides: Partial<SeoMarketRankingCounts> = {}): SeoMarketRankingCounts => ({ queries: 0, page1: 0, ranks11To20: 0, ranks21Plus: 0, notRanked: 0, failed: 0, notRun: 0, needsWork: 0, rivalAhead: 0, ...overrides })
+  const totals = (overrides: Partial<SeoMarketRankingCounts> = {}): SeoMarketRankingCounts => ({ queries: 0, page1: 0, ranks11To20: 0, ranks21Plus: 0, notRanked: 0, partlyChecked: 0, failed: 0, notRun: 0, needsWork: 0, rivalAhead: 0, ...overrides })
   const labels = (depth: number | null, counts?: SeoMarketRankingCounts) => marketRankingBands(depth, counts).map(band => `${band.count}:${band.filter}:${band.label}`)
 
   it.each([

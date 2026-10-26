@@ -1436,7 +1436,7 @@ const rawCanonryMcpTools = [
   }),
   defineTool({
     name: 'canonry_seo_market_rankings', title: 'SEO market rankings',
-    description: "Read stored SEO data only. No provider calls. The site's Google position for each tracked non-brand query in each market, searched from that market's location; these are the same tracked queries AI visibility measures, and searchText is the exact text searched. Each row's outcome says where it landed (page-1, ranks-11-20, ranks-21-plus, not-ranked within checkedDepth) or why it has no result (failed, not-run); rivalAhead means a tracked competitor ranks above the site. Filter with marketKey, regionKey, outcome (needs-work = off page 1 with a result) and q; sort=rank puts the closest to page 1 first. Keep runId fixed while paging.",
+    description: "Read stored SEO data only. No provider calls. The site's Google position for each tracked non-brand query in each market, searched from that market's location; these are the same tracked queries AI visibility measures, and searchText is the exact text searched. Each row's outcome says where it landed (page-1, ranks-11-20, ranks-21-plus, not-ranked in the top depth, or partly-checked: only the top checkedDepth came back and the site is not in it, so deeper ranks are unknown) or why it has no result (failed, not-run); rivalAhead means a tracked competitor ranks above the site. Filter with marketKey, regionKey, outcome (needs-work = off page 1 with a result) and q; sort=rank puts the closest to page 1 first. Keep runId fixed while paging.",
     access: 'read', tier: 'seo',
     inputSchema: seoMarketRankingInputSchema, outputSchema: seoMarketRankingListSchema,
     annotations: readAnnotations(),
@@ -1445,7 +1445,7 @@ const rawCanonryMcpTools = [
   }),
   defineTool({
     name: 'canonry_seo_market_summary', title: 'SEO market rankings by outcome',
-    description: "Read stored SEO data only. No provider calls. Market-rankings rows counted by outcome (page 1, ranks 11-20, 21 and deeper, not ranked, failed, not run, needs work, rival ahead) for the whole profile with one group per region, for one region (regionKey) with one group per market, or for one market (marketKey). Groups come in needs-work order. Start here to see what needs work, then read the rows with canonry_seo_market_rankings.",
+    description: "Read stored SEO data only. No provider calls. Market-rankings rows counted by outcome (page 1, ranks 11-20, 21 and deeper, not ranked, partly checked, failed, not run, needs work, rival ahead) for the whole profile with one group per region, for one region (regionKey) with one group per market, or for one market (marketKey). Groups come in needs-work order. Start here to see what needs work, then read the rows with canonry_seo_market_rankings.",
     access: 'read', tier: 'seo',
     inputSchema: seoMarketRankingSummaryInputSchema, outputSchema: seoMarketRankingSummarySchema,
     annotations: readAnnotations(),

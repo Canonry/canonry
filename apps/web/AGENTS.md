@@ -87,9 +87,18 @@ the browser, and a row opens its region or market through `seoRegion` /
 markets; a lone market gets no table). The queries read `GET market-rankings` ten
 at a time with the scope, `outcome` (Needs work by default, All when nothing needs
 work), `q` from Find a query (settled after typing pauses, cleared at once) and
-`sort` (`rank` by default; the Query and Google rank headers toggle). Failed and
-Not searched rows say so, a partial row reads "Not in top <checkedDepth>", and the
-ranking page lives in Details. A new filter, order or search returns to page 1.
+`sort` (`rank` by default; the Query and Google rank headers toggle). Show, order
+and search live in the URL (`seoShow`, `seoSort`, `seoQ`, written with `replace`,
+one update per change: two in a row would build the second from the stale URL), so
+a reload or shared link reopens the investigation, and a sr-only status line
+announces each settled result count. The figures' caption names what they leave
+out (partly checked, failed, not searched) so they reconcile with the total, and
+Rival ahead sits apart because it overlaps them. Details open in a full-width row
+under the query, the ranking page first as a `SourceLink`. Tooltips here use the
+clamped bottom placement. Failed and
+Not searched rows say so, a partly checked row reads "Not in top <checkedDepth>"
+(the API never counts it under Not in top <depth>; Show offers Partly checked, like
+Failed and Not searched, only when there are some), and the ranking page lives in Details. A new filter, order or search returns to page 1.
 
 ### OpenRouter sweep models
 

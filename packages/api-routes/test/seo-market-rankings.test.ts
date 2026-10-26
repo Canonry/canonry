@@ -291,7 +291,7 @@ describe('SEO market rankings', () => {
     }
 
     const summary = async (query: string) => (await h.app.inject({ url: `${base}/market-rankings/summary?profileId=markets${query}` })).json<SeoMarketRankingSummary>()
-    const totals = { queries: 4, page1: 1, ranks11To20: 1, ranks21Plus: 0, notRanked: 0, failed: 2, notRun: 0, needsWork: 1, rivalAhead: 1 }
+    const totals = { queries: 4, page1: 1, ranks11To20: 1, ranks21Plus: 0, notRanked: 0, partlyChecked: 0, failed: 2, notRun: 0, needsWork: 1, rivalAhead: 1 }
     expect(await summary('')).toEqual({ runId: run.id, depth: 50, regionKey: null, marketKey: null, regionLabel: null, marketLabel: null, totals, groups: [{ key: 'metro', label: 'Coast Metro Area', kind: 'region', counts: totals }] })
     // Within the region, its markets, closest to page 1 first.
     expect(await summary('&regionKey=metro')).toMatchObject({
