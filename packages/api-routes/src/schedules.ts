@@ -12,6 +12,7 @@ import {
   SchedulableRunKinds,
   schedulableRunKindSchema,
   nextScheduleUpdatedAt,
+  scheduleEnabledAt,
   scheduleExpectedUpdatedAtSchema,
   scheduleUpsertRequestSchema,
   scheduleVersionConflict,
@@ -190,6 +191,7 @@ export async function scheduleRoutes(app: FastifyInstance, opts: ScheduleRoutesO
         providers: (providers ?? []) as ProviderName[],
         sourceId: sourceId ?? null,
         enabled: enabledBool,
+        enabledAt: scheduleEnabledAt(existing, enabledBool, now),
         updatedAt: now,
       }
 

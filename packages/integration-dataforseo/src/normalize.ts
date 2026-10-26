@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import {
-  SeoCapabilities, SeoProviders, SeoTargetKinds, compareText, emptySeoResults, normalizeHostname, registrableDomain, type SeoAdapterRequest, type SeoKeywordMetrics,
+  SeoCapabilities, SeoMarketRankingSearchStatuses, SeoProviders, SeoTargetKinds, compareText, emptySeoResults, normalizeHostname, registrableDomain, type SeoAdapterRequest, type SeoKeywordMetrics,
   type SeoMarketRanking, type SeoProvenance, type SeoResults, type SeoTarget,
 } from '@canonry/canonry-contracts'
 
@@ -68,8 +68,12 @@ function hostBelongsTo(host: string, target: SeoTarget): boolean {
 
 const searchIdentity = (text: string) => text.replace(/\s+/g, ' ').trim().toLowerCase()
 
-/** One results page into one ranking row per market the search answers. */
-function marketRankings(rawResult: unknown, request: SeoAdapterRequest, collectedAt: string): SeoMarketRanking[] {
+/**
+ * One results page into one ranking row per market the search answers. A `partial` page set
+ * holds only the first pages the source could collect, so the check reached only as deep as its
+ * last organic result, and the rows say so rather than claiming the requested depth.
+ */
+function marketRankings(rawResult: unknown, request: SeoAdapterRequest, collectedAt: string, partial: boolean): SeoMarketRanking[] {
   const search = request.search
   const target = request.target
   const searchText = request.keywords[0]
@@ -81,6 +85,8 @@ function marketRankings(rawResult: unknown, request: SeoAdapterRequest, collecte
   if (searchIdentity(result.keyword) !== searchIdentity(searchText)) throw new Error('SEO provider returned a different search.')
   const organic = (result.items ?? []).filter(item => serpItemTypeSchema.safeParse(item).data?.type === 'organic')
     .map(item => serpItemSchema.parse(item)).filter(item => item.rank_group != null)
+  const depth = partial ? Math.min(search.depth, organic.reduce((deepest, item) => Math.max(deepest, item.rank_group!), 0)) : search.depth
+  if (depth === 0) throw new Error('SEO provider returned no organic results for a partly collected search.')
   let best: z.infer<typeof serpItemSchema> | null = null
   const competitorRanks = new Map<string, number>()
   const competitors = new Set(search.markets.flatMap(market => market.competitors))
@@ -102,8 +108,9 @@ function marketRankings(rawResult: unknown, request: SeoAdapterRequest, collecte
     const tracked = new Set(market.competitors)
     return {
       ...market.context, searchText, locationLabel: search.locationLabel, target,
+      searchStatus: partial ? SeoMarketRankingSearchStatuses.partial : SeoMarketRankingSearchStatuses.completed,
       rankOrganic: best?.rank_group ?? null, rankAbsolute: best?.rank_absolute ?? null, url: best?.url ?? null,
-      depth: search.depth, competitors: ranked.filter(competitor => tracked.has(competitor.domain)), provenance: source,
+      depth, competitors: ranked.filter(competitor => tracked.has(competitor.domain)), provenance: source,
     }
   })
 }
@@ -124,13 +131,16 @@ function keywordMetrics(
   }
 }
 
-/** Verify returned identity before attaching request provenance to any observation. */
-export function normalizeDataForSeoResults(rawResults: unknown[], request: SeoAdapterRequest, collectedAt: string): SeoResults {
+/**
+ * Verify returned identity before attaching request provenance to any observation. `partial`
+ * marks a market-rankings result the source collected only in part.
+ */
+export function normalizeDataForSeoResults(rawResults: unknown[], request: SeoAdapterRequest, collectedAt: string, options: { partial?: boolean } = {}): SeoResults {
   const output = emptySeoResults()
   if (request.capability === SeoCapabilities['market-rankings']) {
     // A live search returns exactly one results page; anything else is not this search.
     if (rawResults.length !== 1) throw new Error('SEO provider returned an unexpected number of results pages.')
-    output.marketRankings.push(...marketRankings(rawResults[0], request, collectedAt))
+    output.marketRankings.push(...marketRankings(rawResults[0], request, collectedAt, options.partial === true))
     return output
   }
   for (const raw of rawResults) {

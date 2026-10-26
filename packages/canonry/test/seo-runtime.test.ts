@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { and, eq } from 'drizzle-orm'
-import { seoBudgets, seoJobs, seoTasks } from '@canonry/canonry-db'
+import { queries, seoBudgets, seoJobs, seoTasks } from '@canonry/canonry-db'
+import type { SeoMarketRanking, SeoTask } from '@canonry/canonry-contracts'
 import type { SeoInstallConfig } from '@canonry/canonry-config'
 import { SeoRuntime } from '../src/seo-runtime.js'
 import { createSeoHarness, seoProfileFixture } from '../../api-routes/test/seo-fixture.js'
@@ -167,5 +168,92 @@ describe('durable SEO runtime with the real upstream adapter', () => {
     await h.runtime.stop()
     expect(fetch).toHaveBeenCalledTimes(1)
     expect(h.db.select().from(seoBudgets).all().map(row => [row.reservedMicros, row.spentMicros])).toEqual([[12120, 0], [12120, 0], [12120, 0]])
+  })
+})
+
+// A Google results page for one search, and what comes back when Google itself errors on it (status 40101).
+const ranked = (keyword: string) => Response.json({ status_code: 20000, cost: 0.002, tasks: [{ id: `serp-${keyword}`, status_code: 20000, cost: 0.002, result: [{
+  keyword, type: 'organic', se_domain: 'google.com', location_code: 2840, language_code: 'en', datetime: '2026-10-25 17:10:11 +00:00', item_types: ['organic'],
+  se_results_count: 1000, pages_count: 1, items_count: 1, items: [{ type: 'organic', rank_group: 3, rank_absolute: 3, domain: 'www.alpha.com', url: 'https://www.alpha.com/solar' }],
+}] }] })
+const googleError = (keyword: string, cost = 0) => Response.json({ status_code: 20000, cost, tasks: [{ id: `serp-${keyword}`, status_code: 40101, cost, result: null }] })
+
+describe('market-rankings retries with the real upstream adapter', () => {
+  /** A market-rankings refresh of two tracked queries at depth 10 (2,000 microUSD a search), answered by `answer`. */
+  async function rankingRefresh(answer: (keyword: string, attempt: number) => Response, policy: Partial<SeoInstallConfig['policy']> = {}) {
+    const config: SeoInstallConfig = { enabled: true, fundingMode: 'hosted', policy: { maxRunCostMicros: 100_000, accountDailyLimitMicros: 1_000_000, accountMonthlyLimitMicros: 1_000_000, projectMonthlyLimitMicros: 1_000_000, ...policy }, connections: { primary: { provider: 'dataforseo', label: 'SEO data', enabled: true, login: 'operator@example.com', password: 'test-secret' } } }
+    const attempts = new Map<string, number>()
+    const searched = (init?: RequestInit) => (JSON.parse(String(init?.body)) as Array<{ keyword: string }>)[0]!.keyword
+    const fetch = vi.fn(async (_url: string, init?: RequestInit) => {
+      const keyword = searched(init)
+      const attempt = (attempts.get(keyword) ?? 0) + 1
+      attempts.set(keyword, attempt)
+      return answer(keyword, attempt)
+    })
+    vi.stubGlobal('fetch', fetch)
+    const h = createSeoHarness({ getSeoRuntime: () => runtime.getRuntime(), onSeoRunRequested: () => runtime.wake() })
+    const runtime = new SeoRuntime(h.db, () => config)
+    cleanups.push(async () => { await runtime.stop(); await h.close() })
+    const now = new Date().toISOString()
+    h.db.insert(queries).values([{ id: 'q1', projectId: 'alpha', query: 'solar installer', createdAt: now }, { id: 'q2', projectId: 'alpha', query: 'home battery', createdAt: now }]).run()
+    const base = '/api/v1/projects/alpha/seo'
+    const saved = await h.app.inject({ method: 'PUT', url: `${base}/profiles/markets`, payload: {
+      ...seoProfileFixture, name: 'Market rankings', capabilities: ['market-rankings'], keywords: [], targets: [{ kind: 'domain', value: 'alpha.com', includeSubdomains: true }],
+      scope: { kind: 'project' }, rankings: { locations: [], depth: 10, device: 'mobile', searchText: 'query' },
+    } })
+    expect(saved.statusCode, saved.body).toBe(200)
+    const intent = (await h.app.inject({ method: 'POST', url: `${base}/refresh-intents`, payload: { profileId: 'markets' } })).json()
+    const accepted = await h.app.inject({ method: 'POST', url: `${base}/sync`, payload: { quoteToken: intent.token, idempotencyKey: 'rankings' } })
+    expect(accepted.statusCode, accepted.body).toBe(202)
+    const id = accepted.json().id as string
+    return {
+      ...h, runtime, fetch, id,
+      searched: () => fetch.mock.calls.map(([, init]) => searched(init)),
+      status: () => h.db.select().from(seoJobs).where(eq(seoJobs.id, id)).get()?.status,
+      holds: () => h.db.select().from(seoBudgets).all().map(row => [row.reservedMicros, row.spentMicros]),
+      detail: async () => (await h.app.inject({ url: `${base}/runs/${id}` })).json(),
+      listed: async () => (await h.app.inject({ url: `${base}/runs?profileId=markets` })).json().runs[0],
+      rows: async () => (await h.app.inject({ url: `${base}/market-rankings?profileId=markets` })).json().items as SeoMarketRanking[],
+    }
+  }
+  const byText = (tasks: SeoTask[]) => tasks.map(task => [task.searchText, task.status, task.retried]).sort((a, b) => String(a[0]).localeCompare(String(b[0])))
+
+  it('sends a search Google errored on once more after every first attempt, and the retry decides its row', async () => {
+    const h = await rankingRefresh((keyword, attempt) => keyword === 'home battery' && attempt === 1 ? googleError(keyword) : ranked(keyword))
+    h.runtime.start()
+    await vi.waitFor(() => expect(h.status()).toBe('completed'), { timeout: 5000 })
+    expect(h.searched()).toHaveLength(3)
+    expect(h.searched().slice(0, 2).sort()).toEqual(['home battery', 'solar installer'])
+    expect(h.searched()[2]).toBe('home battery')
+    // The search reads once, as its retry ended.
+    const detail = await h.detail()
+    expect(detail).toMatchObject({ status: 'completed', taskCount: 2, completedTasks: 2, failedTasks: 0 })
+    expect(byText(detail.tasks)).toEqual([['home battery', 'completed', true], ['solar installer', 'completed', false]])
+    expect(await h.listed()).toMatchObject({ taskCount: 2, completedTasks: 2, failedTasks: 0 })
+    expect((await h.rows()).map(row => [row.searchText, row.searchStatus, row.rankOrganic])).toEqual([['home battery', 'completed', 3], ['solar installer', 'completed', 3]])
+    // The error was free; each page that came back cost 2,000.
+    expect(h.holds()).toEqual([[0, 4000], [0, 4000], [0, 4000]])
+  })
+
+  it('retries a search only once', async () => {
+    const h = await rankingRefresh(keyword => keyword === 'home battery' ? googleError(keyword) : ranked(keyword))
+    h.runtime.start()
+    await vi.waitFor(() => expect(h.status()).toBe('partial'), { timeout: 5000 })
+    expect(h.searched().filter(keyword => keyword === 'home battery')).toHaveLength(2)
+    const detail = await h.detail()
+    expect(detail).toMatchObject({ status: 'partial', taskCount: 2, completedTasks: 1, failedTasks: 1 })
+    expect(byText(detail.tasks)).toEqual([['home battery', 'failed', true], ['solar installer', 'completed', false]])
+    expect((await h.rows()).map(row => [row.searchText, row.searchStatus])).toEqual([['home battery', 'failed'], ['solar installer', 'completed']])
+    expect(h.holds()).toEqual([[0, 2000], [0, 2000], [0, 2000]])
+  })
+
+  it('does not retry past the host spending limits', async () => {
+    // A charged error leaves no room under a 4,000 daily limit for another 2,000 search.
+    const h = await rankingRefresh(keyword => keyword === 'home battery' ? googleError(keyword, 0.002) : ranked(keyword), { accountDailyLimitMicros: 4000 })
+    h.runtime.start()
+    await vi.waitFor(() => expect(h.status()).toBe('partial'), { timeout: 5000 })
+    expect(h.fetch).toHaveBeenCalledTimes(2)
+    expect(h.db.select().from(seoTasks).all()).toHaveLength(2)
+    expect(h.holds()).toEqual([[0, 4000], [0, 4000], [0, 4000]])
   })
 })

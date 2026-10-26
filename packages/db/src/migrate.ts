@@ -4937,6 +4937,28 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `ALTER TABLE ga_measurement_sync_state ADD COLUMN key_events_error TEXT`,
     ],
   },
+  {
+    // A market-rankings search that hit a search-engine error is sent once
+    // more at the end of its refresh, as a new task that points at the first
+    // attempt. Nullable with no default: existing tasks and every task an
+    // older writer adds are first attempts.
+    version: 195,
+    name: 'seo-task-retry',
+    statements: [
+      `ALTER TABLE seo_tasks ADD COLUMN retry_of TEXT`,
+      `CREATE INDEX IF NOT EXISTS idx_seo_tasks_retry ON seo_tasks(retry_of)`,
+    ],
+  },
+  {
+    // When a schedule last turned on, so a schedule enabled long after it was
+    // created is graded from that point. Nullable with no default: existing
+    // rows read as enabled since creation, and an older writer leaves it null.
+    version: 196,
+    name: 'schedules-enabled-at',
+    statements: [
+      `ALTER TABLE schedules ADD COLUMN enabled_at TEXT`,
+    ],
+  },
 ]
 
 /**

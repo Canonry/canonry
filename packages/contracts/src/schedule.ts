@@ -66,6 +66,16 @@ export type ScheduleDto = z.infer<typeof scheduleDtoSchema>
 
 export const scheduleExpectedUpdatedAtSchema = z.string().datetime()
 
+/**
+ * The `enabledAt` a schedule write stores: when the schedule last turned on. It is kept while the
+ * schedule stays enabled (a row from before the column keeps its null, read as its creation time),
+ * set to `now` when the schedule is created enabled or turns on, and null while it is disabled.
+ */
+export function scheduleEnabledAt(previous: { enabled: boolean; enabledAt: string | null } | undefined, enabled: boolean, now: string): string | null {
+  if (!enabled) return null
+  return previous?.enabled ? previous.enabledAt : now
+}
+
 /** Advance the schedule's compare-and-swap version even when wall time stalls or moves backwards. */
 export function nextScheduleUpdatedAt(previous: string | undefined, nowMs = Date.now()): string {
   const previousMs = previous === undefined ? Number.NaN : Date.parse(previous)

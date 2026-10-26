@@ -75,6 +75,19 @@ The schedule is the standing approval for that paid work, so creating, changing 
 
 Each firing admits one refresh per profile under the same host policy as a manual refresh, with an idempotency key built from the schedule, the firing minute and the profile, so a repeated firing returns the earlier receipt instead of paying twice. A firing is skipped while a `seo-sync` run for the project is queued or running. A profile that cannot be admitted (policy limit, stale Advanced scope, source not configured) leaves a failed `seo-sync` run with the reason; `canonry runs <project> --kind seo-sync` shows it. Profile edits apply from the next firing.
 
+### Alerts
+
+The `seo.data.recent-refresh` doctor check watches an enabled `seo-sync` schedule. It is part of the six-hourly health pass, so a new warning reaches `health.degraded` like any other data check. Both findings are warnings and never urgent:
+
+- `seo.data.refresh-failed` or `seo.data.refresh-partial`: the refreshes of the latest firing did not all complete. The summary gives each one's reason: the stored reason for a profile the firing could not start, or what the refresh's requests reported. A completed refresh of the same profile afterwards, including a manual retry, clears that profile's failure; a refresh of another profile does not.
+- `seo.data.overdue`: no refresh completed within two days of the firing that was due after the last completed refresh (or after the schedule was last enabled). A refresh that has not finished is named, because scheduled firings wait for it.
+
+A schedule that has no time it can run (for example a cron for February 31) warns `seo.data.schedule-invalid`. A project without an enabled `seo-sync` schedule is skipped. Time a schedule spends disabled never counts: once it is turned on, its first firing gets a full cycle and the firings from before the pause are ignored.
+
+```bash
+canonry doctor --project example --check seo.data.recent-refresh --format json
+```
+
 ## Scope and metrics
 
 Simple projects use project scope. Advanced profiles pin `expectedPlanRevision` and a project, group, market or Property key from the context response. The server freezes that plan lineage, rejects stale revisions and never widens a path Property into a domain. Scope selection does not invent targets or keywords.
@@ -124,7 +137,14 @@ canonry seo market-rankings example --profile-id market-rankings --format json
 canonry seo market-rankings example --profile-id market-rankings --region north-metro --limit 100 --format json
 ```
 
-A row's `rankOrganic` is the best organic position of the Target within `depth`; null means the site was not in the checked results, never that the search failed (a failed search writes no row). `regionKey` and `regionLabel` name the market's top-level group. Rows read in region, market and search-text order. The web SEO tab shows the latest refresh by query and market; market-rankings profiles are set up through the API, CLI or MCP for now, and the web editor keeps their settings when editing other fields.
+Every search the refresh planned has a row in each market it answers, and `searchStatus` says how the search ended:
+
+- `completed`: `depth` is the requested depth. `rankOrganic` is the best organic position of the Target within it; null means the site was not in the checked results.
+- `partial`: the source could not retrieve some results pages and returned the rest, charging only for those. The rows keep them, and `depth` is the deepest organic position they reached, so an unranked site reads "Not in top 30" rather than claiming the requested 50.
+- `failed`: the search returned no usable results, so the rows have no rank, `depth` 0 and no `provenance`. The table shows "Search failed" instead of leaving the query out of its market, and the refresh's Activity names each failed search by its search text and location.
+- `cancelled`: the search never ran because the refresh stopped first (cancelled, a spending limit, or the source became unavailable). The table shows "Not searched".
+
+A search that Google itself answered with an error is sent once more at the end of the refresh, after every other search, under the same spending limits. Its row then shows how the retry ended, and Activity marks it "retried once". A retry is never retried, other failures are not retried, and a retry that would pass a spending limit is skipped; the next refresh searches every failed search again. `regionKey` and `regionLabel` name the market's top-level group. Rows read in region, market and search-text order. The web SEO tab shows the latest refresh by query and market; market-rankings profiles are set up through the API, CLI or MCP for now, and the web editor keeps their settings when editing other fields.
 
 A refresh runs its searches one at a time, so a large one takes a while. Restarting the server mid-search leaves that search for operator reconciliation, as with any paid request; avoid restarts while a market-rankings refresh runs.
 
@@ -140,7 +160,7 @@ Aero cannot edit SEO profiles, start paid SEO refreshes or schedule them.
 
 Admission reserves the bounded task set atomically against account and project policy. Durable tasks record submission before HTTP work. Exact retries do not dispatch again. Partial results, failed tasks, cancellation and unknown outcomes remain distinct. A refresh keeps previous completed or partial evidence visible.
 
-Only documented rejection permits retry. Explicit zero-cost provider refusals release their reservations. Ambiguous paid responses retain the reservation and block that account until a host operator verifies the upstream receipt. If a received result cannot be saved temporarily, the runtime retains it and retries persistence without another provider call; losing that process before persistence still requires reconciliation. Restart recovery does not resubmit accepted work. Deleting project or run history does not erase outstanding liability.
+Only documented rejection permits retry, with one exception: a market-rankings search that failed because the search engine returned an error, with a known charge, gets one new attempt with its own reservation at the end of its refresh (see "Market rankings"). Explicit zero-cost provider refusals release their reservations. Ambiguous paid responses retain the reservation and block that account until a host operator verifies the upstream receipt. If a received result cannot be saved temporarily, the runtime retains it and retries persistence without another provider call; losing that process before persistence still requires reconciliation. Restart recovery does not resubmit accepted work. Deleting project or run history does not erase outstanding liability.
 
 Operator receipt endpoints require a direct bearer key ID listed in host-only `CANONRY_OPERATOR_KEY_IDS`. Reconciliation also requires `seo.run`. Customer roles, wildcard scope alone, browser sessions, delegated tokens and project keys cannot grant operator authority. Operator tools are excluded from Aero; ordinary audit events contain safe identifiers only.
 

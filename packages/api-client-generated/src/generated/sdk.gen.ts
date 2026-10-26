@@ -172,7 +172,7 @@ export const getApiV1ProjectsByNameSeoRankedKeywords = <ThrowOnError extends boo
 /**
  * Read stored market rankings
  *
- * Stored evidence only; never calls a provider. The project's position for each tracked non-brand query, searched on Google from its market's location, ordered by region, market and search text. A null rank means the site was not in the checked results.
+ * Stored evidence only; never calls a provider. The project's position for each tracked non-brand query, searched on Google from its market's location, ordered by region, market and search text. searchStatus says how each search ended: in a completed or partial row a null rank means the site was not in the checked results (depth, which is lower when only part of the results came back); a failed or cancelled search keeps its rows with no rank.
  */
 export const getApiV1ProjectsByNameSeoMarketRankings = <ThrowOnError extends boolean = false>(options: Options<GetApiV1ProjectsByNameSeoMarketRankingsData, ThrowOnError>): RequestResult<GetApiV1ProjectsByNameSeoMarketRankingsResponses, GetApiV1ProjectsByNameSeoMarketRankingsErrors, ThrowOnError> => (options.client ?? client).get<GetApiV1ProjectsByNameSeoMarketRankingsResponses, GetApiV1ProjectsByNameSeoMarketRankingsErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],

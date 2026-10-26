@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { formatNumber, seoProfileInputSchema, type SeoEvidenceQuery, type SeoMarketRankingQuery, type SeoRun, type SeoSyncInput } from '@canonry/canonry-contracts'
+import { SeoMarketRankingSearchStatuses, formatNumber, seoProfileInputSchema, type SeoEvidenceQuery, type SeoMarketRankingQuery, type SeoRun, type SeoSyncInput } from '@canonry/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { isMachineFormat, usageError, type CliFormat } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
@@ -110,7 +110,11 @@ export async function showSeoRun(project: string, id: string, format: CliFormat)
   const value = await createApiClient().getSeoRun(project, id)
   if (printSeoJson(value, format)) return
   printSeoRun(value)
-  for (const task of value.tasks) console.log(`  ${task.capability}${task.target ? ` · ${task.target.value}` : ''}: ${task.status}${task.error ? ` · ${task.error}` : ''}`)
+  for (const task of value.tasks) {
+    // A market-rankings task is one search; its text names it, where the target is the same on every line.
+    const subject = task.searchText !== null ? ` · "${task.searchText}" from ${task.locationLabel ?? 'its market'}` : task.target ? ` · ${task.target.value}` : ''
+    console.log(`  ${task.capability}${subject}${task.retried ? ' · retried once' : ''}: ${task.status}${task.error ? ` · ${task.error}` : ''}`)
+  }
   if (value.resultsTruncated) console.log('Result preview is partial. Read the evidence commands with this run ID for all saved rows.')
 }
 
@@ -157,7 +161,10 @@ export async function showSeoMarketRankings(project: string, query: SeoMarketRan
   if (printSeoJson(value, format)) return
   console.log(`Market rankings · run ${value.runId ?? 'none'} · ${value.items.length} of ${value.total} rows · offset ${value.offset}`)
   for (const row of value.items) {
-    const rank = row.rankOrganic === null ? `Not in the top ${row.depth}` : `Google rank ${row.rankOrganic}`
-    console.log(`${row.marketLabel}\t${row.queryText}\t${rank}\t${row.url ?? 'No ranking page'}\tSearched as "${row.searchText}" from ${row.locationLabel} · ${row.provenance.device} · ${row.provenance.collectedAt}`)
+    const rank = row.searchStatus === SeoMarketRankingSearchStatuses.failed ? 'Search failed'
+      : row.searchStatus === SeoMarketRankingSearchStatuses.cancelled ? 'Not searched'
+        : row.rankOrganic === null ? `Not in the top ${row.depth}${row.searchStatus === SeoMarketRankingSearchStatuses.partial ? ' (partial results)' : ''}` : `Google rank ${row.rankOrganic}`
+    const source = row.provenance ? ` · ${row.provenance.device} · ${row.provenance.collectedAt}` : ''
+    console.log(`${row.marketLabel}\t${row.queryText}\t${rank}\t${row.url ?? 'No ranking page'}\tSearched as "${row.searchText}" from ${row.locationLabel}${source}`)
   }
 }

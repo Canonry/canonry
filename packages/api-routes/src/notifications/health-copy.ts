@@ -27,6 +27,7 @@ export const HEALTH_CHECK_LABELS: Readonly<Record<string, string>> = {
   'ga.auth.connection': 'GA4 sign-in',
   'ga.data.recent-data': 'GA4 data stopped',
   'gsc.data.recent-data': 'Search Console data stopped',
+  'seo.data.recent-refresh': 'SEO refresh stalled',
   'report.sweeps': 'Monthly report sweeps',
   'report.models': 'Monthly report models',
   'report.daily-data': 'Monthly report data gaps',
@@ -86,6 +87,10 @@ export const HEALTH_FIXED_LINES: Readonly<Record<string, string>> = {
   'traffic.queue-backlog.remaining': 'The traffic backlog is cleared.',
   'traffic.worker-version.stale': 'The Cloudflare worker is up to date.',
   'gbp.auth.no-connection': 'Business Profile is connected.',
+  'seo.data.refresh-failed': 'SEO refreshes complete again.',
+  'seo.data.refresh-partial': 'SEO refreshes complete again.',
+  'seo.data.overdue': 'SEO data is current again.',
+  'seo.data.schedule-invalid': 'The SEO refresh schedule can run again.',
 }
 
 /** The first sentence of a check's prose, so a fallback line stays one line. */
