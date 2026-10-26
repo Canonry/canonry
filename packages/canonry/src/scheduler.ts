@@ -95,6 +95,7 @@ export function ensureDefaultHealthSchedule(
     cronExpr: DEFAULT_HEALTH_CRON,
     timezone: 'UTC',
     enabled: true,
+    enabledAt: now,
     providers: [],
     nextRunAt: nextRunFromCron(DEFAULT_HEALTH_CRON, 'UTC'),
     createdAt: now,

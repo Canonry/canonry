@@ -5,7 +5,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SeoRepository, projects, queries } from '@canonry/canonry-db'
-import { SeoAdapterOutcomes, SeoCapabilities, SeoProviders, emptySeoResults, seoKeywordMetricsListSchema, seoQuoteSchema, seoRunSchema, type SeoAdapter, type SeoMarketRankingObservation } from '@canonry/canonry-contracts'
+import { SeoAdapterOutcomes, SeoCapabilities, SeoProviders, emptySeoResults, seoKeywordMetricsListSchema, seoQuoteSchema, seoRunSchema, type SeoAdapter, type SeoMarketRanking } from '@canonry/canonry-contracts'
 import { eq } from 'drizzle-orm'
 import type { ApiRoutesOptions } from '@canonry/canonry-api-routes'
 import { createSeoHarness, seedSeoKey, seoProfileFixture } from '../../api-routes/test/seo-fixture.js'
@@ -126,18 +126,19 @@ describe('SEO public transport parity', () => {
     const repository = new SeoRepository(h.db)
     for (let task = repository.claim(run.id, { ...policy, accountKey: 'account-a' }); task; task = repository.claim(run.id, { ...policy, accountKey: 'account-a' })) {
       const search = task.request.search!
-      const rows: SeoMarketRankingObservation[] = search.markets.map(({ context }) => ({
+      // Phoenix's search ranks the site; Tucson's fails and stores nothing.
+      const failed = search.markets.some(({ context }) => context.marketKey === 'Tucson')
+      const rows: SeoMarketRanking[] = failed ? [] : search.markets.map(({ context }) => ({
         ...context, searchText: task.request.keywords[0]!, locationLabel: search.locationLabel, target: { kind: 'domain', value: 'alpha.com', includeSubdomains: true },
-        rankOrganic: context.marketKey === 'Phoenix' ? 3 : null, rankAbsolute: null, url: context.marketKey === 'Phoenix' ? 'https://alpha.com/solar' : null, depth: 50, competitors: [],
-        // Tucson's results page came back in part: only the top 30 of 50.
-        ...(context.marketKey === 'Tucson' ? { checkedDepth: 30 } : {}),
+        searchStatus: 'completed', rankOrganic: 3, rankAbsolute: null, url: 'https://alpha.com/solar', depth: 50, competitors: [],
         provenance: { provider: 'dataforseo', dataset: 'dataforseo-serp/google/market-rankings', engine: 'google', locationCode: task.request.locationCode, languageCode: 'en', device: 'mobile', collectedAt: '2026-10-25T12:00:00.000Z', sourceUpdatedAt: null },
       }))
-      repository.settle(task.id, { outcome: SeoAdapterOutcomes.completed, error: null, fetchedAt: '2026-10-25T12:00:00.000Z', tasks: [{ remoteTaskId: task.id, statusCode: 20000, costMicros: 10_000 }], results: { ...emptySeoResults(), marketRankings: rows } }, task.leaseOwner!)
+      repository.settle(task.id, { outcome: failed ? SeoAdapterOutcomes.failed : SeoAdapterOutcomes.completed, error: null, fetchedAt: '2026-10-25T12:00:00.000Z', tasks: [{ remoteTaskId: task.id, statusCode: failed ? 40101 : 20000, costMicros: 10_000 }], results: { ...emptySeoResults(), marketRankings: rows } }, task.leaseOwner!)
     }
     const query = { profileId: 'markets', marketKey: 'Tucson' }
     const expected = await h.api(h.reader).getSeoMarketRankings('alpha', query)
-    expect(expected).toMatchObject({ runId: run.id, total: 1, items: [{ marketKey: 'Tucson', queryText: 'best solar installer', searchText: 'best solar installer', rankOrganic: null, locationLabel: 'Tucson, AZ' }] })
+    // The failed search still answers its market, with nothing checked and no source.
+    expect(expected).toMatchObject({ runId: run.id, total: 1, items: [{ marketKey: 'Tucson', queryText: 'best solar installer', searchText: 'best solar installer', searchStatus: 'failed', rankOrganic: null, depth: 0, provenance: null, locationLabel: 'Tucson, AZ' }] })
     const client = await h.mcp(h.reader, ['read'])
     expect((await client.callTool({ name: 'canonry_seo_market_rankings', arguments: { project: 'alpha', ...query } })).structuredContent).toEqual(expected)
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'seo-cli-'))
@@ -148,21 +149,23 @@ describe('SEO public transport parity', () => {
     const output = vi.spyOn(console, 'log').mockImplementation(() => {})
     await dispatchRegisteredCommand(['seo', 'market-rankings', 'alpha', '--profile-id', 'markets', '--market', 'Tucson', '--format', 'json'], 'json', SEO_CLI_COMMANDS)
     expect(JSON.parse(String(output.mock.calls.at(-1)?.[0]))).toEqual(expected)
+    await dispatchRegisteredCommand(['seo', 'market-rankings', 'alpha', '--profile-id', 'markets', '--market', 'Tucson'], 'text', SEO_CLI_COMMANDS)
+    expect(String(output.mock.calls.at(-1)?.[0])).toBe('Tucson\tbest solar installer\tSearch failed\tNo ranking page\tNo result\tSearched as "best solar installer" from Tucson, AZ')
     await dispatchRegisteredCommand(['seo', 'market-rankings', 'alpha', '--profile-id', 'markets', '--market', 'Phoenix'], 'text', SEO_CLI_COMMANDS)
     expect(String(output.mock.calls.at(-1)?.[0])).toBe('Phoenix\tbest solar installer\tGoogle rank 3\thttps://alpha.com/solar\tNo tracked rival in the results\tSearched as "best solar installer" from Phoenix, AZ · mobile · 2026-10-25T12:00:00.000Z')
 
     // Outcome, text and order filters, and the outcome summary, read the same through every surface.
-    const filtered = { profileId: 'markets', outcome: 'needs-work' as const, q: 'SOLAR', sort: '-rank' as const }
+    const filtered = { profileId: 'markets', outcome: 'failed' as const, q: 'SOLAR', sort: '-rank' as const }
     const expectedFiltered = await h.api(h.reader).getSeoMarketRankings('alpha', filtered)
-    expect(expectedFiltered.items.map(row => [row.marketKey, row.outcome, row.checkedDepth])).toEqual([['Tucson', 'partly-checked', 30]])
+    expect(expectedFiltered.items.map(row => [row.marketKey, row.outcome, row.rivalAhead])).toEqual([['Tucson', 'failed', false]])
     expect((await client.callTool({ name: 'canonry_seo_market_rankings', arguments: { project: 'alpha', ...filtered } })).structuredContent).toEqual(expectedFiltered)
-    await dispatchRegisteredCommand(['seo', 'market-rankings', 'alpha', '--profile-id', 'markets', '--outcome', 'needs-work', '--search', 'SOLAR', '--sort=-rank', '--format', 'json'], 'json', SEO_CLI_COMMANDS)
+    await dispatchRegisteredCommand(['seo', 'market-rankings', 'alpha', '--profile-id', 'markets', '--outcome', 'failed', '--search', 'SOLAR', '--sort=-rank', '--format', 'json'], 'json', SEO_CLI_COMMANDS)
     expect(JSON.parse(String(output.mock.calls.at(-1)?.[0]))).toEqual(expectedFiltered)
     const summary = await h.api(h.reader).getSeoMarketRankingSummary('alpha', { profileId: 'markets' })
-    // A partial page that did not show the site is partly checked, never counted as not in the top 50.
+    // The failed search is counted as failed, never as a query that does not rank.
     expect(summary).toMatchObject({
-      runId: run.id, depth: 50, totals: { queries: 2, page1: 1, notRanked: 0, partlyChecked: 1, needsWork: 1, rivalAhead: 0 },
-      groups: [{ key: 'Phoenix', kind: 'market', counts: { queries: 1, page1: 1 } }, { key: 'Tucson', kind: 'market', counts: { queries: 1, notRanked: 0, partlyChecked: 1 } }],
+      runId: run.id, depth: 50, totals: { queries: 2, page1: 1, notRanked: 0, failed: 1, needsWork: 0, rivalAhead: 0 },
+      groups: [{ key: 'Phoenix', kind: 'market', counts: { queries: 1, page1: 1 } }, { key: 'Tucson', kind: 'market', counts: { queries: 1, notRanked: 0, failed: 1 } }],
     })
     expect((await client.callTool({ name: 'canonry_seo_market_summary', arguments: { project: 'alpha', profileId: 'markets' } })).structuredContent).toEqual(summary)
     await dispatchRegisteredCommand(['seo', 'market-summary', 'alpha', '--profile-id', 'markets', '--format', 'json'], 'json', SEO_CLI_COMMANDS)
@@ -171,7 +174,7 @@ describe('SEO public transport parity', () => {
     await dispatchRegisteredCommand(['seo', 'market-summary', 'alpha', '--profile-id', 'markets', '--market', 'Tucson'], 'text', SEO_CLI_COMMANDS)
     expect(output.mock.calls.map(call => String(call[0]))).toEqual([
       `Market rankings summary · run ${run.id} · market Tucson · 1 query`,
-      'Page 1 0 · 11-20 0 · 21-50 0 · Not in top 50 0 · Partly checked 1 · Failed 0 · Not searched 0 · Needs work 1 · Rival ahead 0',
+      'Page 1 0 · 11-20 0 · 21-50 0 · Not in top 50 0 · Partly checked 0 · Failed 1 · Not searched 0 · Needs work 0 · Rival ahead 0',
     ])
     // Aero reads the same summary for the market on screen, and links back to it.
     const tucson = await h.api(h.reader).getSeoMarketRankingSummary('alpha', { profileId: 'markets', runId: run.id, marketKey: 'Tucson' })

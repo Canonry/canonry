@@ -7,8 +7,8 @@ import {
   SeoMarketRankingSearchStatuses, SeoMarketRankingSorts, SeoRunStatuses, SeoScopeKinds, SeoTargetKinds,
   compareText, formatCalendarDay, formatDate, formatIsoDateInTimeZone, formatZonedTimestamp, formatPercent, marketRankingBands,
   seoCapabilitySchema, seoDatasetWithoutVendor, seoMarketRankingFilterSchema, seoMarketRankingSortSchema, seoProfileInputSchema,
-  type MarketRankingBand, type SeoCapability, type SeoContext, type SeoDevice, type SeoDomainIntelligence, type SeoKeywordMetrics, type SeoMarketRanking,
-  type SeoMarketRankingCounts, type SeoMarketRankingFilter, type SeoMarketRankingGroup, type SeoMarketRankingSort,
+  type MarketRankingBand, type SeoCapability, type SeoContext, type SeoDevice, type SeoDomainIntelligence, type SeoKeywordMetrics,
+  type SeoMarketRankingCounts, type SeoMarketRankingFilter, type SeoMarketRankingGroup, type SeoMarketRankingRow, type SeoMarketRankingSort,
   type SeoProfile, type SeoProfileInput, type SeoProvenance, type SeoRankedKeyword,
   type SeoRun, type SeoRunStatus, type SeoSyncInput, type SeoTarget, type SeoTask,
 } from '@canonry/canonry-contracts'
@@ -161,6 +161,7 @@ function DataProvenance({ source }: { source: SeoProvenance }) {
   )
 }
 
+/** A row's details. `source` is null for a search that returned nothing, which has no provenance to show. */
 function EvidenceDetails({ label, source, children }: { label: string; source: SeoProvenance | null; children?: ReactNode }) {
   return (
     <details className="text-left">
@@ -515,7 +516,7 @@ function MarketRankingsView({ projectName, profileId, runId, active }: { project
     `${NUMBER.format(totals.queries)} ${totals.queries === 1 ? 'query' : 'queries'}`,
     ...(totals.partlyChecked > 0 ? [`${NUMBER.format(totals.partlyChecked)} partly checked`] : []),
     ...(totals.failed > 0 ? [`${NUMBER.format(totals.failed)} failed`] : []),
-    ...(totals.notRun > 0 ? [`${NUMBER.format(totals.notRun)} not searched`] : []),
+    ...(totals.cancelled > 0 ? [`${NUMBER.format(totals.cancelled)} not searched`] : []),
   ].join(' · ')
   return <div className="space-y-6 pt-4">
     {trail}
@@ -651,11 +652,11 @@ function MarketQueries({ projectName, profileId, runId, regionKey, marketKey, to
     { value: SeoMarketRankingFilters['rival-ahead'], label: 'Rival ahead', count: totals.rivalAhead },
     { value: SeoMarketRankingFilters['partly-checked'], label: 'Partly checked', count: totals.partlyChecked },
     { value: SeoMarketRankingFilters.failed, label: 'Failed', count: totals.failed },
-    { value: SeoMarketRankingFilters['not-run'], label: 'Not searched', count: totals.notRun },
+    { value: SeoMarketRankingFilters.cancelled, label: 'Not searched', count: totals.cancelled },
     { value: SHOW_ALL, label: 'All', count: totals.queries },
   ]
   // Searches with an incomplete or no result are offered only when there are some, or when one is the current choice.
-  const occasional: MarketShow[] = [SeoMarketRankingFilters['partly-checked'], SeoMarketRankingFilters.failed, SeoMarketRankingFilters['not-run']]
+  const occasional: MarketShow[] = [SeoMarketRankingFilters['partly-checked'], SeoMarketRankingFilters.failed, SeoMarketRankingFilters.cancelled]
   const offered = options.filter(option => option.value === show || option.count > 0 || !occasional.includes(option.value))
   const showLabel = offered.find(option => option.value === show)?.label ?? 'All'
   const rankSort = sort === SeoMarketRankingSorts.rank ? 'ascending' : sort === SeoMarketRankingSorts['-rank'] ? 'descending' : null
@@ -700,7 +701,7 @@ function MarketQueries({ projectName, profileId, runId, regionKey, marketKey, to
                   <th className="px-4 py-3 text-left font-medium whitespace-nowrap">Top rival</th>
                   <th className="px-4"><span className="sr-only">Evidence</span></th>
                 </tr></thead>
-                <tbody className="divide-y divide-subtle">{items.map((row, index) => <MarketRankingRow key={`${row.marketKey}\u0000${row.queryId ?? row.queryText}\u0000${index}`} row={row} />)}</tbody>
+                <tbody className="divide-y divide-subtle">{items.map((row, index) => <MarketRankingRow key={`${row.marketKey}\u0000${row.queryId ?? row.queryText}\u0000${index}`} row={row} requested={depth} />)}</tbody>
               </table>
             </div>
             <DataTablePagination page={page} pageSize={QUERY_PAGE_SIZE} visibleRows={items.length} totalRows={rows.data.total} onPageChange={next => setPaging({ filterKey, page: next })} disabled={rows.isFetching} itemLabel="queries" className="text-[13px] [&_button]:min-h-11" />
@@ -708,14 +709,18 @@ function MarketQueries({ projectName, profileId, runId, regionKey, marketKey, to
   </div>
 }
 
-/** One tracked query in one market, searched on Google from the market's location; its evidence opens in a full-width row below it. */
-function MarketRankingRow({ row }: { row: SeoMarketRanking }) {
+/**
+ * One tracked query in one market, searched on Google from the market's location; its evidence
+ * opens in a full-width row below it. `requested` is the depth the refresh asked for, so a
+ * partial search can say how much of it came back.
+ */
+function MarketRankingRow({ row, requested }: { row: SeoMarketRankingRow; requested: number | null }) {
   const [open, setOpen] = useState(false)
   const detailsId = useId()
   return <>
     <tr className={open ? 'border-b-0' : undefined}>
       <th scope="row" className={ROW_HEADER}><p className="text-primary">{row.queryText}</p><p className="mt-1 text-[13px] text-secondary">{row.marketLabel}</p></th>
-      <td className={CELL}><MarketRank row={row} /></td>
+      <td className={CELL}><MarketRank row={row} requested={requested} /></td>
       <td className="px-4 py-3 align-top text-[13px]"><TopRival row={row} /></td>
       <td className="px-4 text-right align-top">
         <button type="button" aria-expanded={open} aria-controls={detailsId} onClick={() => setOpen(value => !value)} className="inline-flex min-h-11 items-center whitespace-nowrap rounded-sm text-[13px] text-secondary hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400">
@@ -724,29 +729,29 @@ function MarketRankingRow({ row }: { row: SeoMarketRanking }) {
       </td>
     </tr>
     <tr id={detailsId} hidden={!open}>
-      <td colSpan={4} className="bg-surface-subtle px-4 pb-4 pt-3"><MarketRankingDetails row={row} /></td>
+      <td colSpan={4} className="bg-surface-subtle px-4 pb-4 pt-3"><MarketRankingDetails row={row} requested={requested} /></td>
     </tr>
   </>
 }
 
-function noResult(row: SeoMarketRanking): boolean {
-  return row.outcome === SeoMarketRankingOutcomes.failed || row.outcome === SeoMarketRankingOutcomes['not-run']
+function noResult(row: SeoMarketRankingRow): boolean {
+  return row.outcome === SeoMarketRankingOutcomes.failed || row.outcome === SeoMarketRankingOutcomes.cancelled
 }
 
-function MarketRank({ row }: { row: SeoMarketRanking }) {
+function MarketRank({ row, requested }: { row: SeoMarketRankingRow; requested: number | null }) {
   if (row.outcome === SeoMarketRankingOutcomes.failed) return <InfoTooltip tone="caution" label="Failed" placement="bottom" text="Failed: the source returned no results for this search in this refresh." />
-  if (row.outcome === SeoMarketRankingOutcomes['not-run']) return <span className="inline-flex items-center gap-1.5 text-secondary">Not searched<InfoTooltip placement="bottom" text="The refresh was cancelled, or reached a spending limit, before this search ran." /></span>
+  if (row.outcome === SeoMarketRankingOutcomes.cancelled) return <span className="inline-flex items-center gap-1.5 text-secondary">Not searched<InfoTooltip placement="bottom" text="The refresh was cancelled, or reached a spending limit, before this search ran." /></span>
   if (row.rankOrganic !== null) return <>{row.rankOrganic}</>
   return row.outcome === SeoMarketRankingOutcomes['partly-checked']
-    ? <span className="inline-flex items-center gap-1.5 text-secondary">Not in top {row.checkedDepth}<InfoTooltip placement="bottom" text={`Only the top ${row.checkedDepth} of ${row.depth} results came back for this search, so ranks past ${row.checkedDepth} are unknown.`} /></span>
+    ? <span className="inline-flex items-center gap-1.5 text-secondary">Not in top {row.depth}<InfoTooltip placement="bottom" text={`Only the top ${row.depth}${requested === null ? '' : ` of ${requested}`} results came back for this search, so ranks past ${row.depth} are unknown.`} /></span>
     : <span className="text-secondary">Not in top {row.depth}</span>
 }
 
 /** The best-ranked tracked competitor in the same results, marked when it ranks above the site. */
-function TopRival({ row }: { row: SeoMarketRanking }) {
+function TopRival({ row }: { row: SeoMarketRankingRow }) {
   if (noResult(row)) return <span className="text-muted"><span aria-hidden="true">—</span><span className="sr-only">No result</span></span>
   const rival = row.competitors[0]
-  if (!rival) return <span className="text-secondary">None in top {row.checkedDepth}</span>
+  if (!rival) return <span className="text-secondary">None in top {row.depth}</span>
   return <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-1">
     <span className="text-primary">{rival.domain}</span><span className="tabular-nums text-secondary">#{rival.rankOrganic}</span>
     {row.rivalAhead && <ToneBadge tone="caution">Ahead</ToneBadge>}
@@ -754,22 +759,22 @@ function TopRival({ row }: { row: SeoMarketRanking }) {
 }
 
 /** A row's evidence in compact groups: the ranking page first, then the search, the position, the rivals and the source. */
-function MarketRankingDetails({ row }: { row: SeoMarketRanking }) {
+function MarketRankingDetails({ row, requested }: { row: SeoMarketRankingRow; requested: number | null }) {
   const label = 'text-muted'
   const value = 'mt-0.5 text-primary'
   const noPage = row.outcome === SeoMarketRankingOutcomes.failed ? 'No result: the search failed'
-    : row.outcome === SeoMarketRankingOutcomes['not-run'] ? 'No result: not searched' : `Not in the top ${row.checkedDepth}`
+    : row.outcome === SeoMarketRankingOutcomes.cancelled ? 'No result: not searched' : `Not in the top ${row.depth}`
   return <div className="grid gap-x-8 gap-y-3 text-[13px] leading-relaxed text-secondary sm:grid-cols-2 lg:grid-cols-4">
     <div className="sm:col-span-2 lg:col-span-4"><p className={label}>Ranking page</p>{row.url ? <SourceLink url={row.url} /> : <p className={value}>{noPage}</p>}</div>
     <div className="lg:col-span-2"><p className={label}>Searched as</p><p className={value}>“{row.searchText}” from {row.locationLabel}</p></div>
     <div><p className={label}>Target</p><p className={`${value} break-words`}>{row.target.value} · {row.target.includeSubdomains ? 'includes subdomains' : 'exact host'}</p></div>
     {row.rankOrganic !== null && <div><p className={label}>{PAGE_POSITION}</p><p className={`${value} tabular-nums`}><Value value={row.rankAbsolute} /></p></div>}
-    {row.searchStatus === SeoMarketRankingSearchStatuses.partial && <div><p className={label}>Results checked</p><p className={`${value} tabular-nums`}>Top {row.checkedDepth} of {row.depth}</p></div>}
+    {row.searchStatus === SeoMarketRankingSearchStatuses.partial && <div><p className={label}>Results checked</p><p className={`${value} tabular-nums`}>Top {row.depth}{requested === null ? '' : ` of ${requested}`}</p></div>}
     {!noResult(row) && <div className="sm:col-span-2 lg:col-span-2">
       <p className={label}>Tracked competitors in these results</p>
       {row.competitors.length
         ? <dl className="mt-0.5 grid grid-cols-[minmax(0,1fr)_auto] gap-x-6 gap-y-1">{row.competitors.map(competitor => <Fragment key={competitor.domain}><dt className="break-all text-primary">{competitor.domain}</dt><dd className="text-right tabular-nums text-primary">#{competitor.rankOrganic}</dd></Fragment>)}</dl>
-        : <p className={value}>None in the top {row.checkedDepth}</p>}
+        : <p className={value}>None in the top {row.depth}</p>}
     </div>}
     {row.provenance && <div className="sm:col-span-2 lg:col-span-4"><DataProvenance source={row.provenance} /></div>}
   </div>
@@ -796,7 +801,7 @@ function SeoActivity({ projectName, profileId, canRun, selectedRunId }: { projec
       <div className="flex flex-wrap items-center justify-between gap-3"><div className="space-y-2"><div className="flex flex-wrap items-center gap-3"><RunBadge status={run.status} /><span className="text-sm">{formatZonedTimestamp(run.createdAt, TIME_ZONE)}</span></div><p className="text-[13px] text-secondary">{run.completedTasks} of {run.taskCount} {taskNoun(run)} completed{run.failedTasks > 0 ? ` · ${run.failedTasks} failed` : ''}</p></div><div className="flex gap-2"><Button variant="ghost" className="min-h-11" aria-expanded={detailId === run.id} aria-controls={`seo-run-${run.id}`} onClick={() => setDetailId(detailId === run.id ? null : run.id)}>Details<span className="sr-only"> for refresh {run.id}</span></Button>{canRun && isActive(run) && <Button variant="secondary" className="min-h-11" disabled={cancel.isPending || run.cancelRequested} onClick={asyncHandler(() => stop(run.id))}>{run.cancelRequested ? 'Cancellation requested' : 'Cancel refresh'}</Button>}</div></div>
       {detailId === run.id && <div id={`seo-run-${run.id}`} className="mt-4 space-y-3 rounded-md bg-surface p-4 text-[13px] text-secondary">
         <p className="break-all">Refresh {run.id}</p><p>Profile revision {run.profileRevision} · {runLocation(run)} · {run.languageCode}</p><p>Scope: {run.scope.kind}{run.scope.key ? ` · ${run.scope.key}` : ''}{run.scope.expectedPlanRevision !== undefined ? ` · plan revision ${run.scope.expectedPlanRevision}` : ''}</p>{run.error && <p>{run.error}</p>}
-        {detail.error ? <ReadError error={detail.error} retry={() => { void detail.refetch() }} /> : detail.data ? detail.data.tasks.some(listedTask) && <ul className="space-y-3">{detail.data.tasks.filter(listedTask).map(task => <li key={task.id}><div className="flex flex-wrap items-center justify-between gap-2"><span>{CAPABILITY_LABELS[task.capability]}{task.target ? ` · ${task.target.value}` : ''}</span><RunBadge status={task.status} /></div>{task.error && <p className="mt-1">{task.error}</p>}</li>)}</ul> : <p role="status">Loading refresh details…</p>}
+        {detail.error ? <ReadError error={detail.error} retry={() => { void detail.refetch() }} /> : detail.data ? detail.data.tasks.some(listedTask) && <ul className="space-y-3">{detail.data.tasks.filter(listedTask).map(task => <li key={task.id}><div className="flex flex-wrap items-center justify-between gap-2"><span>{CAPABILITY_LABELS[task.capability]}{task.searchText !== null ? ` · “${task.searchText}” from ${task.locationLabel ?? 'its market'}` : task.target ? ` · ${task.target.value}` : ''}{task.retried ? ' · retried once' : ''}</span><RunBadge status={task.status} /></div>{task.error && <p className="mt-1">{task.error}</p>}</li>)}</ul> : <p role="status">Loading refresh details…</p>}
       </div>}
     </div>)}
   </div>

@@ -20,7 +20,7 @@ Drizzle ORM schema, migrations, and database client. SQLite locally (via better-
 
 - **Core domain**: projects, queries, competitors, runs, querySnapshots, auditLog
 - **Simple measurement provenance**: `simpleMeasurementDefinitions` stores dispatch inputs for new official simple runs. Migration 150 leaves historical runs untouched. A composite project/run foreign key prevents cross-project captures. An UPDATE trigger protects the frozen definition. Run deletion cascades to its definition.
-- **Scheduling**: schedules, notifications, webhooks
+- **Scheduling**: schedules, notifications, webhooks. Migration 196 adds nullable `schedules.enabled_at`: when the schedule last turned on, null while disabled. The schedule routes and config apply write it through `scheduleEnabledAt` (contracts); the traffic-sync and health-schedule inserts, always enabled, write their creation time. Rows from before it hold null while enabled and read as enabled since `created_at`
 - **Integrations**: googleConnections (metadata only — credentials in config.yaml), gscData, gscDailyTotals (property-level daily totals — headline/trend source), gscQueryDailyTotals (per-query daily totals — the accurate per-query impressions/position source), urlInspections, gscCoverage, gscTraffic, bingConnections, bingUrlInspections, bingKeywordStats, ga4Connections (metadata only — credentials in config.yaml), ga4TrafficSnapshots, gaDailyTotals (property-level daily totals — deduplicated `users`, unlike the per-page snapshots; migration 188 adds the GA4 overview's daily figures), gaWindowMetrics (migration 188: GA4's totals per overview window and the period before it), ga4AiReferrals, ga4Summaries, gaSocialReferrals, gaSearchLandingWindows + gaSearchLandingPages (migration 176: GA4's Search Console landing-page report as one snapshot per `7d` / `28d` / `90d` window; the window row holds GA4's own Total, never a sum of the page rows, and a sync replaces every window together; its state is the defaulted `search_landing_*` columns on `ga_measurement_sync_state`)
 - **System**: apiKeys, usageCounters, dataRepairCompletions. Migration 173 adds `dashboardSessions`: token digests bound to live API keys, with key-deletion cascade and expiry indexes. Migration 174 binds sessions to the key hash and, for password sign-ins, the configured password hash's digest. Key rotation and revocation writers delete bound sessions in the same transaction; restoring a key cannot restore its old sessions. Native shared-password/API-key logins use this storage to survive ordinary restarts; named-account sessions remain in `userSessions`.
 - **Competitor aliases**: migration 168 adds `competitors.aliases` (native JSON `string[]`, default `[]`), the operator-curated answer-text names of a competitor. Inserts and alias changes go through `api-routes/src/competitor-writes.ts` so validation (`planCompetitorAliases` in contracts) holds on every surface; the DELETE routes remove rows directly and audit the discarded aliases. A domain-only replace keeps the aliases of rows that stay.
@@ -232,10 +232,12 @@ Migration 191 indexes accepted intent hashes. Admission consumes an intent once
 across idempotency keys, including after its public run is deleted. Settlement
 may accept a late receipt from the same lease owner after recovery, but never
 overwrite operator reconciliation.
-Migration 195 adds `seo_tasks.retry_of` and `retryable`. A definite failure the
-adapter marks `retryable` (never a retry, never in a cancelled job) earns one
-retry: `claim` runs it only after every queued task, as a new row with
-`retry_of` set and its own hold, checked against the run and bucket limits; a
-retry that does not fit is declined and the failure stands. An owed retry keeps
-the job running, and cancel clears it. Counts, statuses and results read
-`currentSeoTasks`, which drops a task once a retry replaces it.
+Migration 195 adds nullable `seo_tasks.retry_of`. When the runtime settles a
+`retryable` failure with its current limits, `settle` queues one new task that
+points at the first attempt and reserves the same amount, only if the run ceiling
+and every bucket still have room. Claims take first attempts before retries, so a
+retry runs at the end of its refresh, and a retry is never retried.
+`currentSeoTasks` (and `currentSeoTaskCondition` for SQL counts) is the one rule
+for which attempt counts: a retry replaces its first attempt unless it was
+cancelled. Status, counts and evidence read through it; operator receipts still
+see every paid attempt.

@@ -492,7 +492,7 @@ Multiple projects can be defined in one file using `---` document separators. Ap
 
 ### Schedules
 
-One row per (project, kind), where kind ∈ {answer-visibility, traffic-sync, gbp-sync, data-refresh, backlinks-sync, site-audit, ads-sync, doctor, seo-sync}. An enabled `seo-sync` schedule is standing approval for paid SEO refreshes: creating, changing or enabling one requires `seo.run` plus an admin session and a saved SEO profile; disabling needs only write access. The host admits one refresh per profile per firing through `startScheduledSeoRefreshes` (idempotency key `schedule:<id>:<UTC minute>:<profile>`), and a profile that cannot be admitted leaves a failed `seo-sync` run with the reason. `--every-days` / `--start-date` schedules are a calendar recurrence, anchored to the local date/time.
+One row per (project, kind), where kind ∈ {answer-visibility, traffic-sync, gbp-sync, data-refresh, backlinks-sync, site-audit, ads-sync, doctor, seo-sync}. An enabled `seo-sync` schedule is standing approval for paid SEO refreshes: creating, changing or enabling one requires `seo.run` plus an admin session and a saved SEO profile; disabling needs only write access. The host admits one refresh per profile per firing through `startScheduledSeoRefreshes` (idempotency key `schedule:<id>:<UTC minute>:<profile>`), and a profile that cannot be admitted leaves a failed `seo-sync` run with the reason. The `seo.data.recent-refresh` doctor check warns when the latest firing did not fully complete or no refresh completed in time (`src/doctor/AGENTS.md`). `--every-days` / `--start-date` schedules are a calendar recurrence, anchored to the local date/time.
 
 ### Measurement plan property reads
 

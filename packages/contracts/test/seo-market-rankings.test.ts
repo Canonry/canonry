@@ -1,26 +1,26 @@
 import { describe, expect, it } from 'vitest'
 import {
-  compareMarketRankingsBy, countMarketRankings, groupMarketRankings, marketRankingBands, marketRankingFromObservation,
-  marketRankingWithoutResult, matchesMarketRankingFilter, matchesMarketRankingText,
+  compareMarketRankingsBy, countMarketRankings, groupMarketRankings, marketRankingBands, marketRankingRow,
+  matchesMarketRankingFilter, matchesMarketRankingText,
 } from '../src/seo-market-rankings.js'
-import type { SeoMarketRankingCounts, SeoMarketRankingFilter, SeoMarketRankingObservation, SeoMarketRankingSort } from '../src/seo.js'
+import type { SeoMarketRanking, SeoMarketRankingCounts, SeoMarketRankingFilter, SeoMarketRankingSort } from '../src/seo.js'
 
 const target = { kind: 'domain' as const, value: 'example.com', includeSubdomains: true }
 const provenance = { provider: 'dataforseo' as const, dataset: 'serp/market-rankings', engine: 'google' as const, locationCode: 1, languageCode: 'en', device: 'mobile' as const, collectedAt: '2026-10-25T00:00:00.000Z', sourceUpdatedAt: null }
 
-/** One observation as the adapter stores it; market `m1` sits in region `r1` unless told otherwise. */
-function observation(queryText: string, rankOrganic: number | null, overrides: Partial<SeoMarketRankingObservation> = {}): SeoMarketRankingObservation {
+/** One completed search's row as the results read returns it; market `m1` sits in region `r1` unless told otherwise. */
+function ranking(queryText: string, rankOrganic: number | null, overrides: Partial<SeoMarketRanking> = {}): SeoMarketRanking {
   return {
     marketKey: 'm1', marketLabel: 'Harbor, Coast', regionKey: 'r1', regionLabel: 'Coast Metro', queryId: queryText, queryText, queryClass: 'non-brand',
-    searchText: queryText, locationLabel: 'Harbor, TX', target, rankOrganic, rankAbsolute: rankOrganic === null ? null : rankOrganic + 2,
+    searchText: queryText, locationLabel: 'Harbor, TX', target, searchStatus: 'completed', rankOrganic, rankAbsolute: rankOrganic === null ? null : rankOrganic + 2,
     url: rankOrganic === null ? null : 'https://example.com/listing', depth: 50, competitors: [], provenance, ...overrides,
   }
 }
-const row = (queryText: string, rankOrganic: number | null, overrides: Partial<SeoMarketRankingObservation> = {}) => marketRankingFromObservation(observation(queryText, rankOrganic, overrides))
-const failedRow = (queryText: string, status: 'failed' | 'not-run' = 'failed', marketKey = 'm1') => marketRankingWithoutResult({
-  context: { marketKey, marketLabel: 'Harbor, Coast', regionKey: 'r1', regionLabel: 'Coast Metro', queryId: queryText, queryText, queryClass: 'non-brand' },
-  searchText: queryText, locationLabel: 'Harbor, TX', target, depth: 50,
-}, status)
+const row = (queryText: string, rankOrganic: number | null, overrides: Partial<SeoMarketRanking> = {}) => marketRankingRow(ranking(queryText, rankOrganic, overrides))
+/** A search that came back with only its first `depth` results. */
+const partial = (depth: number) => ({ searchStatus: 'partial' as const, depth })
+/** A search with no result: it failed, or the refresh was cancelled before it ran. */
+const failedRow = (queryText: string, status: 'failed' | 'cancelled' = 'failed', marketKey = 'm1') => row(queryText, null, { marketKey, searchStatus: status, depth: 0, provenance: null })
 
 describe('market-ranking rows', () => {
   it.each([
@@ -38,18 +38,16 @@ describe('market-ranking rows', () => {
     expect(row('q', rank, { competitors: [...competitors] }).rivalAhead).toBe(ahead)
   })
 
-  it('reads a whole page as completed at its depth and a partial page at the depth that came back', () => {
-    expect(row('whole', null)).toMatchObject({ searchStatus: 'completed', checkedDepth: 50, depth: 50, outcome: 'not-ranked' })
-    // Ranks 31-50 were never checked, so the site is partly checked, never "not in the top 50"; a rank the page did return stands.
-    expect(row('partial', null, { checkedDepth: 30 })).toMatchObject({ searchStatus: 'partial', checkedDepth: 30, depth: 50, outcome: 'partly-checked' })
-    expect(row('partial ranked', 12, { checkedDepth: 30 })).toMatchObject({ searchStatus: 'partial', checkedDepth: 30, outcome: 'ranks-11-20' })
-    // The stored partial depth never reads deeper than the search asked for.
-    expect(row('clamped', 7, { checkedDepth: 60 })).toMatchObject({ searchStatus: 'completed', checkedDepth: 50, outcome: 'page-1' })
+  it('reads a partial search without the site as partly checked, and a rank it did return as that rank', () => {
+    expect(row('whole', null)).toMatchObject({ searchStatus: 'completed', depth: 50, outcome: 'not-ranked' })
+    // Ranks 31-50 were never checked, so the site is partly checked, never "not in the top 50".
+    expect(row('partial', null, partial(30))).toMatchObject({ searchStatus: 'partial', depth: 30, outcome: 'partly-checked' })
+    expect(row('partial ranked', 12, partial(30))).toMatchObject({ searchStatus: 'partial', depth: 30, outcome: 'ranks-11-20' })
   })
 
-  it('keeps a row for a search with no result, with nothing measured', () => {
-    expect(failedRow('lost')).toMatchObject({ outcome: 'failed', searchStatus: 'failed', rankOrganic: null, url: null, checkedDepth: 0, rivalAhead: false, competitors: [], provenance: null, depth: 50 })
-    expect(failedRow('skipped', 'not-run')).toMatchObject({ outcome: 'not-run', searchStatus: 'not-run', checkedDepth: 0, provenance: null })
+  it('reads a search with no result as failed or cancelled, never as not ranked', () => {
+    expect(failedRow('lost')).toMatchObject({ outcome: 'failed', searchStatus: 'failed', rankOrganic: null, depth: 0, rivalAhead: false, provenance: null })
+    expect(failedRow('skipped', 'cancelled')).toMatchObject({ outcome: 'cancelled', searchStatus: 'cancelled', depth: 0, rivalAhead: false })
   })
 })
 
@@ -59,18 +57,18 @@ describe('countMarketRankings', () => {
       row('a', 3), row('b', 9, { competitors: [{ domain: 'rival.com', rankOrganic: 2 }] }),
       row('c', 11), row('d', 14, { competitors: [{ domain: 'rival.com', rankOrganic: 1 }] }), row('e', 19),
       row('f', 22), row('g', 48),
-      row('h', null, { competitors: [{ domain: 'rival.com', rankOrganic: 30 }] }), row('i', null), row('j', null), row('k', null, { checkedDepth: 20 }),
-      failedRow('l'), failedRow('m'), failedRow('n', 'not-run'),
+      row('h', null, { competitors: [{ domain: 'rival.com', rankOrganic: 30 }] }), row('i', null), row('j', null), row('k', null, partial(20)),
+      failedRow('l'), failedRow('m'), failedRow('n', 'cancelled'),
     ]
     const counts = countMarketRankings(rows)
-    expect(counts).toEqual({ queries: 14, page1: 2, ranks11To20: 3, ranks21Plus: 2, notRanked: 3, partlyChecked: 1, failed: 2, notRun: 1, needsWork: 9, rivalAhead: 3 })
+    expect(counts).toEqual({ queries: 14, page1: 2, ranks11To20: 3, ranks21Plus: 2, notRanked: 3, partlyChecked: 1, failed: 2, cancelled: 1, needsWork: 9, rivalAhead: 3 })
     // The outcomes partition the rows; needs work is everything off page 1 that came back, a partial page included.
-    expect(counts.page1 + counts.ranks11To20 + counts.ranks21Plus + counts.notRanked + counts.partlyChecked + counts.failed + counts.notRun).toBe(counts.queries)
+    expect(counts.page1 + counts.ranks11To20 + counts.ranks21Plus + counts.notRanked + counts.partlyChecked + counts.failed + counts.cancelled).toBe(counts.queries)
     expect(counts.needsWork).toBe(counts.ranks11To20 + counts.ranks21Plus + counts.notRanked + counts.partlyChecked)
   })
 
   it('counts nothing for no rows', () => {
-    expect(countMarketRankings([])).toEqual({ queries: 0, page1: 0, ranks11To20: 0, ranks21Plus: 0, notRanked: 0, partlyChecked: 0, failed: 0, notRun: 0, needsWork: 0, rivalAhead: 0 })
+    expect(countMarketRankings([])).toEqual({ queries: 0, page1: 0, ranks11To20: 0, ranks21Plus: 0, notRanked: 0, partlyChecked: 0, failed: 0, cancelled: 0, needsWork: 0, rivalAhead: 0 })
   })
 })
 
@@ -78,7 +76,7 @@ describe('market-ranking filters, text and order', () => {
   const rows = [
     row('page one', 4), row('close', 12, { competitors: [{ domain: 'rival.com', rankOrganic: 5 }] }), row('deeper', 33),
     row('missing', null), row('missing behind a rival', null, { competitors: [{ domain: 'rival.com', rankOrganic: 2 }] }),
-    row('missing past page 3', null, { checkedDepth: 30 }), failedRow('lost'), failedRow('skipped', 'not-run'),
+    row('missing past page 3', null, partial(30)), failedRow('lost'), failedRow('skipped', 'cancelled'),
   ]
   const kept = (filter: SeoMarketRankingFilter) => rows.filter(item => matchesMarketRankingFilter(item, filter)).map(item => item.queryText)
 
@@ -86,7 +84,7 @@ describe('market-ranking filters, text and order', () => {
     ['needs-work', ['close', 'deeper', 'missing', 'missing behind a rival', 'missing past page 3']],
     ['page-1', ['page one']], ['ranks-11-20', ['close']], ['ranks-21-plus', ['deeper']],
     ['not-ranked', ['missing', 'missing behind a rival']], ['partly-checked', ['missing past page 3']], ['rival-ahead', ['close', 'missing behind a rival']],
-    ['failed', ['lost']], ['not-run', ['skipped']],
+    ['failed', ['lost']], ['cancelled', ['skipped']],
   ] as const)('%s keeps %j', (filter, queries) => {
     expect(kept(filter)).toEqual(queries)
   })
@@ -150,7 +148,7 @@ describe('groupMarketRankings', () => {
 })
 
 describe('marketRankingBands', () => {
-  const totals = (overrides: Partial<SeoMarketRankingCounts> = {}): SeoMarketRankingCounts => ({ queries: 0, page1: 0, ranks11To20: 0, ranks21Plus: 0, notRanked: 0, partlyChecked: 0, failed: 0, notRun: 0, needsWork: 0, rivalAhead: 0, ...overrides })
+  const totals = (overrides: Partial<SeoMarketRankingCounts> = {}): SeoMarketRankingCounts => ({ queries: 0, page1: 0, ranks11To20: 0, ranks21Plus: 0, notRanked: 0, partlyChecked: 0, failed: 0, cancelled: 0, needsWork: 0, rivalAhead: 0, ...overrides })
   const labels = (depth: number | null, counts?: SeoMarketRankingCounts) => marketRankingBands(depth, counts).map(band => `${band.count}:${band.filter}:${band.label}`)
 
   it.each([

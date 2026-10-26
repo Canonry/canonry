@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { SeoMarketRankingOutcomes, formatNumber, marketRankingBands, seoProfileInputSchema, type SeoEvidenceQuery, type SeoMarketRanking, type SeoMarketRankingCounts, type SeoMarketRankingQuery, type SeoMarketRankingSummaryQuery, type SeoRun, type SeoSyncInput } from '@canonry/canonry-contracts'
+import { SeoMarketRankingOutcomes, formatNumber, marketRankingBands, seoProfileInputSchema, type SeoEvidenceQuery, type SeoMarketRankingCounts, type SeoMarketRankingQuery, type SeoMarketRankingRow, type SeoMarketRankingSummaryQuery, type SeoRun, type SeoSyncInput } from '@canonry/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { isMachineFormat, usageError, type CliFormat } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
@@ -110,7 +110,11 @@ export async function showSeoRun(project: string, id: string, format: CliFormat)
   const value = await createApiClient().getSeoRun(project, id)
   if (printSeoJson(value, format)) return
   printSeoRun(value)
-  for (const task of value.tasks) console.log(`  ${task.capability}${task.target ? ` · ${task.target.value}` : ''}: ${task.status}${task.error ? ` · ${task.error}` : ''}`)
+  for (const task of value.tasks) {
+    // A market-rankings task is one search; its text names it, where the target is the same on every line.
+    const subject = task.searchText !== null ? ` · "${task.searchText}" from ${task.locationLabel ?? 'its market'}` : task.target ? ` · ${task.target.value}` : ''
+    console.log(`  ${task.capability}${subject}${task.retried ? ' · retried once' : ''}: ${task.status}${task.error ? ` · ${task.error}` : ''}`)
+  }
   if (value.resultsTruncated) console.log('Result preview is partial. Read the evidence commands with this run ID for all saved rows.')
 }
 
@@ -158,22 +162,34 @@ export async function showSeoMarketRankings(project: string, query: SeoMarketRan
   console.log(`Market rankings · run ${value.runId ?? 'none'} · ${value.items.length} of ${value.total} rows · offset ${value.offset}`)
   for (const row of value.items) {
     const rival = row.competitors[0]
-    const rivalText = rival ? `Top rival ${rival.domain} #${rival.rankOrganic}${row.rivalAhead ? ' (ahead)' : ''}` : 'No tracked rival in the results'
+    const rivalText = row.outcome === SeoMarketRankingOutcomes.failed || row.outcome === SeoMarketRankingOutcomes.cancelled ? 'No result'
+      : rival ? `Top rival ${rival.domain} #${rival.rankOrganic}${row.rivalAhead ? ' (ahead)' : ''}` : 'No tracked rival in the results'
     const source = row.provenance ? ` · ${row.provenance.device} · ${row.provenance.collectedAt}` : ''
     console.log(`${row.marketLabel}\t${row.queryText}\t${rankText(row)}\t${row.url ?? 'No ranking page'}\t${rivalText}\tSearched as "${row.searchText}" from ${row.locationLabel}${source}`)
   }
 }
 
 /** One row's rank in words: its Google rank, not in the results it checked, or why there is no result. */
-function rankText(row: SeoMarketRanking): string {
-  if (row.outcome === SeoMarketRankingOutcomes.failed) return 'Search failed'
-  if (row.outcome === SeoMarketRankingOutcomes['not-run']) return 'Not searched'
-  return row.rankOrganic === null ? `Not in the top ${row.checkedDepth}` : `Google rank ${row.rankOrganic}`
+function rankText(row: SeoMarketRankingRow): string {
+  switch (row.outcome) {
+    case SeoMarketRankingOutcomes.failed: return 'Search failed'
+    case SeoMarketRankingOutcomes.cancelled: return 'Not searched'
+    case SeoMarketRankingOutcomes['partly-checked']: return `Not in the top ${row.depth} (partial results)`
+    case SeoMarketRankingOutcomes['not-ranked']: return `Not in the top ${row.depth}`
+    case SeoMarketRankingOutcomes['page-1']:
+    case SeoMarketRankingOutcomes['ranks-11-20']:
+    case SeoMarketRankingOutcomes['ranks-21-plus']:
+      return `Google rank ${row.rankOrganic}`
+    default: {
+      const unknown: never = row.outcome
+      return unknown
+    }
+  }
 }
 
 function countsText(counts: SeoMarketRankingCounts, depth: number | null, totals: SeoMarketRankingCounts): string {
   return [...marketRankingBands(depth, totals).map(band => `${band.label} ${counts[band.count]}`),
-    `Partly checked ${counts.partlyChecked}`, `Failed ${counts.failed}`, `Not searched ${counts.notRun}`, `Needs work ${counts.needsWork}`, `Rival ahead ${counts.rivalAhead}`].join(' · ')
+    `Partly checked ${counts.partlyChecked}`, `Failed ${counts.failed}`, `Not searched ${counts.cancelled}`, `Needs work ${counts.needsWork}`, `Rival ahead ${counts.rivalAhead}`].join(' · ')
 }
 
 export async function showSeoMarketSummary(project: string, query: SeoMarketRankingSummaryQuery, format: CliFormat): Promise<void> {

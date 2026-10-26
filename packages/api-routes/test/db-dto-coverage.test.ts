@@ -162,7 +162,7 @@ const COVERAGE: Record<string, CoverageEntry> = {
     dto: seoTaskSchema,
     internal: {
       jobId: 'Implied by the run detail containing the task.',
-      request: 'Projects capability and target only; the frozen provider request is not exposed as raw storage.',
+      request: 'Projects capability, target and, for market rankings, the search text and location label; the frozen provider request is not exposed as raw storage.',
       leaseOwner: 'Private dispatch ownership token.',
       leaseUntil: 'Internal crash recovery deadline.',
       catalogRevision: 'Private pricing catalog identity for admission and dispatch validation.',
@@ -174,8 +174,7 @@ const COVERAGE: Record<string, CoverageEntry> = {
       reconciliation: 'Private operator verification note and settlement receipt.',
       startedAt: 'Internal per-task dispatch time; parent run exposes lifecycle timestamps.',
       finishedAt: 'Internal per-task completion time; parent run exposes lifecycle timestamps.',
-      retryOf: 'Internal retry lineage; reads project each search by its latest attempt, so a replaced failure never appears.',
-      retryable: 'Internal dispatch flag for a retry still owed; the public run stays running until it runs or is declined.',
+      retryOf: 'Links a retry to the first attempt it replaces; the public task shows only the attempt that counts, flagged `retried`.',
     },
   },
   seoBudgets: {
@@ -311,7 +310,9 @@ const COVERAGE: Record<string, CoverageEntry> = {
   schedules: {
     kind: 'dto',
     dto: scheduleDtoSchema,
-    internal: {},
+    internal: {
+      enabledAt: 'When the schedule last turned on; the SEO refresh doctor check grades only that enabled period, so time spent disabled is never overdue.',
+    },
   },
   siteAuditSnapshots: {
     kind: 'dto',

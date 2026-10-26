@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import {
-  SeoCapabilities, SeoProviders, SeoTargetKinds, compareText, emptySeoResults, normalizeHostname, registrableDomain, type SeoAdapterRequest, type SeoKeywordMetrics,
-  type SeoMarketRankingObservation, type SeoProvenance, type SeoResults, type SeoTarget,
+  SeoCapabilities, SeoMarketRankingSearchStatuses, SeoProviders, SeoTargetKinds, compareText, emptySeoResults, normalizeHostname, registrableDomain, type SeoAdapterRequest, type SeoKeywordMetrics,
+  type SeoMarketRanking, type SeoProvenance, type SeoResults, type SeoTarget,
 } from '@canonry/canonry-contracts'
 
 const count = z.number().int().nonnegative().nullish()
@@ -43,8 +43,6 @@ const resultSchema = z.object({
 const serpResultSchema = z.object({
   keyword: z.string(), location_code: z.number().int(), language_code: z.string(),
   datetime: z.string().nullish(), items: z.array(z.unknown()).nullish(),
-  /** "total search results pages retrieved": fewer than requested on a partial results page. */
-  pages_count: z.number().int().nonnegative().nullish(),
 })
 // Only organic items are decoded strictly; maps, ads and other blocks are skipped by type.
 const serpItemTypeSchema = z.object({ type: z.string() })
@@ -70,23 +68,25 @@ function hostBelongsTo(host: string, target: SeoTarget): boolean {
 
 const searchIdentity = (text: string) => text.replace(/\s+/g, ' ').trim().toLowerCase()
 
-/** One results page into one ranking row per market the search answers. */
-function marketRankings(rawResult: unknown, request: SeoAdapterRequest, collectedAt: string, partial: boolean): SeoMarketRankingObservation[] {
+/**
+ * One results page into one ranking row per market the search answers. A `partial` page set
+ * holds only the first pages the source could collect, so the check reached only as deep as its
+ * last organic result, and the rows say so rather than claiming the requested depth.
+ */
+function marketRankings(rawResult: unknown, request: SeoAdapterRequest, collectedAt: string, partial: boolean): SeoMarketRanking[] {
   const search = request.search
   const target = request.target
   const searchText = request.keywords[0]
   if (!search || !target || !searchText) throw new Error('Market rankings need a search, a target and search text.')
   const result = serpResultSchema.parse(rawResult)
-  // A partial page checked only the pages that came back (10 results each); without that count its depth is unknown.
-  const pages = result.pages_count ?? 0
-  if (partial && pages <= 0) throw new Error('A partial results page did not say how many pages came back.')
-  const checkedDepth = partial ? Math.min(search.depth, pages * 10) : search.depth
   if (result.location_code !== request.locationCode || result.language_code !== request.languageCode) {
     throw new Error('SEO provider returned a different market.')
   }
   if (searchIdentity(result.keyword) !== searchIdentity(searchText)) throw new Error('SEO provider returned a different search.')
   const organic = (result.items ?? []).filter(item => serpItemTypeSchema.safeParse(item).data?.type === 'organic')
     .map(item => serpItemSchema.parse(item)).filter(item => item.rank_group != null)
+  const depth = partial ? Math.min(search.depth, organic.reduce((deepest, item) => Math.max(deepest, item.rank_group!), 0)) : search.depth
+  if (depth === 0) throw new Error('SEO provider returned no organic results for a partly collected search.')
   let best: z.infer<typeof serpItemSchema> | null = null
   const competitorRanks = new Map<string, number>()
   const competitors = new Set(search.markets.flatMap(market => market.competitors))
@@ -108,9 +108,9 @@ function marketRankings(rawResult: unknown, request: SeoAdapterRequest, collecte
     const tracked = new Set(market.competitors)
     return {
       ...market.context, searchText, locationLabel: search.locationLabel, target,
+      searchStatus: partial ? SeoMarketRankingSearchStatuses.partial : SeoMarketRankingSearchStatuses.completed,
       rankOrganic: best?.rank_group ?? null, rankAbsolute: best?.rank_absolute ?? null, url: best?.url ?? null,
-      depth: search.depth, ...(checkedDepth < search.depth ? { checkedDepth } : {}),
-      competitors: ranked.filter(competitor => tracked.has(competitor.domain)), provenance: source,
+      depth, competitors: ranked.filter(competitor => tracked.has(competitor.domain)), provenance: source,
     }
   })
 }
@@ -131,7 +131,10 @@ function keywordMetrics(
   }
 }
 
-/** Verify returned identity before attaching request provenance to any observation. */
+/**
+ * Verify returned identity before attaching request provenance to any observation. `partial`
+ * marks a market-rankings result the source collected only in part.
+ */
 export function normalizeDataForSeoResults(rawResults: unknown[], request: SeoAdapterRequest, collectedAt: string, options: { partial?: boolean } = {}): SeoResults {
   const output = emptySeoResults()
   if (request.capability === SeoCapabilities['market-rankings']) {

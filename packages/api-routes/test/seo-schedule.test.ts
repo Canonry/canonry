@@ -3,6 +3,7 @@ import { and, eq } from 'drizzle-orm'
 import { auditLog, runs, seoBudgets, seoJobs } from '@canonry/canonry-db'
 import { RunKinds, RunStatuses, RunTriggers } from '@canonry/canonry-contracts'
 import { startScheduledSeoRefreshes } from '../src/index.js'
+import { skippedRefreshProfile } from '../src/seo.js'
 import { createSeoHarness, seedSeoKey, seoProfileFixture } from './seo-fixture.js'
 
 const harnesses: ReturnType<typeof createSeoHarness>[] = []
@@ -56,6 +57,8 @@ describe('scheduled SEO refresh', () => {
     const [run] = seoRuns(h)
     expect(run).toMatchObject({ id: outcome!.runId, status: RunStatuses.failed, trigger: RunTriggers.scheduled, startedAt: null })
     expect(run!.error).toBe('Scheduled SEO refresh for profile "main" did not start: SEO refresh is unavailable under the current policy.')
+    // The reason is the only record of which profile a run that never started was for.
+    expect(skippedRefreshProfile(run!.error)).toBe('main')
     expect(h.db.select().from(seoJobs).all()).toEqual([])
     expect(reserved(h).every(value => value === 0)).toBe(true)
     expect(h.requested).toEqual([])
@@ -65,6 +68,7 @@ describe('scheduled SEO refresh', () => {
     const h = harness()
     const [noProfile] = startScheduledSeoRefreshes(h.db, runtimeOptions(h), { projectId: 'alpha', scheduleId: 'sched-1', occurrence: '2026-11-02T07:00' })
     expect(noProfile).toMatchObject({ profileId: null, status: 'skipped', reason: 'Save an SEO profile first.' })
+    expect(skippedRefreshProfile(seoRuns(h)[0]!.error)).toBeNull()
 
     await saveProfile(h, 'main')
     const [noSource] = startScheduledSeoRefreshes(h.db, { getSeoRuntime: () => null }, { projectId: 'alpha', scheduleId: 'sched-1', occurrence: '2026-11-02T07:01' })

@@ -1,15 +1,15 @@
 import { eq } from 'drizzle-orm'
 import {
-  RunKinds, RunStatuses, RunTriggers, SeoAdapterOutcomes, SeoCapabilities, SeoProviders,
+  RunKinds, RunStatuses, RunTriggers, SeoAdapterOutcomes, SeoCapabilities, SeoMarketRankingSearchStatuses, SeoProviders,
   SeoRunStatuses, SeoScopeKinds, SeoTargetKinds, emptySeoResults, measurementPlanV2Schema, queryClassSchema,
-  type MeasurementPlanV2, type SeoAdapterRequest, type SeoMarketRankingObservation, type SeoProfileInput, type SeoProvenance, type SeoResults, type SeoTarget,
+  type MeasurementPlanV2, type SeoAdapterRequest, type SeoMarketRanking, type SeoProfileInput, type SeoProvenance, type SeoResults, type SeoTarget,
 } from '@canonry/canonry-contracts'
 import { measurementPlans, measurementPlanVersions, runs, seoJobs, seoProfiles, seoTasks, type DatabaseClient } from '@canonry/canonry-db'
 import { harborProperties } from './portfolio.js'
 import type { DemoSeedContext } from './types.js'
 
 /** Fictional searches and Google positions for each market's non-brand queries, one search per query. */
-function demoMarketRankings(plan: MeasurementPlanV2, input: SeoProfileInput, target: SeoTarget, capturedAt: string, daysAgo: number): Array<{ request: SeoAdapterRequest; row: SeoMarketRankingObservation }> {
+function demoMarketRankings(plan: MeasurementPlanV2, input: SeoProfileInput, target: SeoTarget, capturedAt: string, daysAgo: number): Array<{ request: SeoAdapterRequest; row: SeoMarketRanking }> {
   const settings = input.rankings!
   const text = new Map(plan.querySnapshots.map(snapshot => [snapshot.queryId, snapshot.queryText]))
   const nonBrand = new Set(plan.assignments.filter(assignment => assignment.queryClass === queryClassSchema.enum['non-brand']).map(assignment => `${assignment.targetKey}:${assignment.queryId}`))
@@ -27,7 +27,7 @@ function demoMarketRankings(plan: MeasurementPlanV2, input: SeoProfileInput, tar
       return {
         request: { capability: SeoCapabilities['market-rankings'], target, keywords: [queryText], locationCode: location.locationCode, languageCode: input.languageCode, limit: input.limit, tag: '', search: { device: settings.device, depth: settings.depth, locationLabel: location.label, markets: [{ context, competitors }] } },
         row: {
-          ...context, searchText: queryText, locationLabel: location.label, target, rankOrganic: rank, rankAbsolute: rank === null ? null : rank + 2,
+          ...context, searchText: queryText, locationLabel: location.label, target, searchStatus: SeoMarketRankingSearchStatuses.completed, rankOrganic: rank, rankAbsolute: rank === null ? null : rank + 2,
           url: rank === null ? null : `https://${target.value}/destinations/${market.stableKey.replace(/^market-/, '')}/`, depth: settings.depth,
           competitors: competitors.map((domain, competitorIndex) => ({ domain, rankOrganic: 2 + competitorIndex * 3 + index })),
           provenance,

@@ -210,78 +210,67 @@ export type SeoMarketRankingContext = z.infer<typeof seoMarketRankingContextSche
 const seoMarketRankingCompetitorSchema = z.object({ domain: z.string(), rankOrganic: z.number().int().positive() }).strict()
 
 /**
- * The target's position for one tracked query, searched on Google from the market's
- * location, as the adapter records it. A null rank means the target was not in the
- * checked results. `checkedDepth` is present only when fewer results came back than
- * `depth` asked for (a partial results page).
+ * How one market-rankings search ended. `completed` checked the requested depth. `partial`
+ * got back only some of its results pages, so `depth` is how far it reached. `failed` got no
+ * usable results, and `cancelled` never ran: both keep their rows, so a market shows which of
+ * its queries have no rank instead of silently listing fewer.
  */
-export const seoMarketRankingObservationSchema = seoMarketRankingContextSchema.extend({
-  /** The exact text searched on Google for `queryText` (see `seoSearchTextSchema`). */
-  searchText: z.string(), locationLabel: z.string(), target: seoTargetSchema,
-  rankOrganic: z.number().int().positive().nullable(),
-  rankAbsolute: z.number().int().positive().nullable(),
-  url: z.string().nullable(),
-  depth: z.number().int().positive(),
-  checkedDepth: z.number().int().positive().optional(),
-  /** Tracked competitors found in the same results, by their best organic position. */
-  competitors: z.array(seoMarketRankingCompetitorSchema),
-  provenance: seoProvenanceSchema,
-}).strict()
-export type SeoMarketRankingObservation = z.infer<typeof seoMarketRankingObservationSchema>
-
-/**
- * How one market-rankings search ended: its whole results page came back, part of it
- * came back (fewer results than `depth`), it failed at the source, or it never ran
- * because the refresh was cancelled or stopped at a spending limit first.
- */
-export const seoMarketRankingSearchStatusSchema = z.enum(['completed', 'partial', 'failed', 'not-run'])
-export const SeoMarketRankingSearchStatuses = seoMarketRankingSearchStatusSchema.enum
+export const seoMarketRankingSearchStatusSchema = z.enum(['completed', 'partial', 'failed', 'cancelled'])
 export type SeoMarketRankingSearchStatus = z.infer<typeof seoMarketRankingSearchStatusSchema>
+export const SeoMarketRankingSearchStatuses = seoMarketRankingSearchStatusSchema.enum
 
 /**
- * Where a query landed: page 1 (ranks 1 to 10), ranks 11 to 20, rank 21 or deeper, not
- * in the top `depth`, partly checked (only part of the results came back and the site is
- * not in that part, so ranks past `checkedDepth` are unknown), or no result.
- */
-export const seoMarketRankingOutcomeSchema = z.enum(['page-1', 'ranks-11-20', 'ranks-21-plus', 'not-ranked', 'partly-checked', 'failed', 'not-run'])
-export const SeoMarketRankingOutcomes = seoMarketRankingOutcomeSchema.enum
-export type SeoMarketRankingOutcome = z.infer<typeof seoMarketRankingOutcomeSchema>
-
-/**
- * One market-rankings row as reads return it: the observation plus how its search
- * ended and where it landed. Failed and not-run searches have rows too, with no rank,
- * no competitors and no provenance, so a missing result is never a missing row.
+ * The target's position for one tracked query, searched on Google from the
+ * market's location. In a `completed` or `partial` row a null rank means the
+ * target was not in the checked results (`depth`); a `failed` or `cancelled`
+ * row has no rank because the search returned nothing.
  */
 export const seoMarketRankingSchema = seoMarketRankingContextSchema.extend({
   /** The exact text searched on Google for `queryText` (see `seoSearchTextSchema`). */
   searchText: z.string(), locationLabel: z.string(), target: seoTargetSchema,
+  searchStatus: seoMarketRankingSearchStatusSchema,
   rankOrganic: z.number().int().positive().nullable(),
   rankAbsolute: z.number().int().positive().nullable(),
   url: z.string().nullable(),
-  depth: z.number().int().positive(),
-  /** Results actually checked: `depth` for a whole page, fewer for a partial one, 0 with no result. */
-  checkedDepth: z.number().int().nonnegative(),
-  searchStatus: seoMarketRankingSearchStatusSchema,
-  outcome: seoMarketRankingOutcomeSchema,
-  /** A tracked competitor ranks above the target in these results, or ranks while the target is not in them. */
-  rivalAhead: z.boolean(),
+  /** Organic results the search checked: the requested depth, less when partial, 0 when it failed or never ran. */
+  depth: z.number().int().nonnegative(),
   /** Tracked competitors found in the same results at their best organic position, best first. */
   competitors: z.array(seoMarketRankingCompetitorSchema),
-  /** Null when the search produced no result (failed or not run). */
+  /** Where the results came from; null when the search returned none. */
   provenance: seoProvenanceSchema.nullable(),
 }).strict()
 export type SeoMarketRanking = z.infer<typeof seoMarketRankingSchema>
+
+/**
+ * Where a query landed: page 1 (ranks 1 to 10), ranks 11 to 20, rank 21 or deeper, not in the
+ * requested depth, partly checked (a partial search that did not reach the site, so ranks past
+ * its `depth` are unknown), or no result because the search failed or was cancelled.
+ */
+export const seoMarketRankingOutcomeSchema = z.enum(['page-1', 'ranks-11-20', 'ranks-21-plus', 'not-ranked', 'partly-checked', 'failed', 'cancelled'])
+export const SeoMarketRankingOutcomes = seoMarketRankingOutcomeSchema.enum
+export type SeoMarketRankingOutcome = z.infer<typeof seoMarketRankingOutcomeSchema>
+
+/** One market-rankings row as the list read returns it: the stored row, where it landed, and whether a tracked rival ranks ahead. */
+export const seoMarketRankingRowSchema = seoMarketRankingSchema.extend({
+  outcome: seoMarketRankingOutcomeSchema,
+  /** A tracked competitor ranks above the target in these results, or ranks while the target is not in them. */
+  rivalAhead: z.boolean(),
+}).strict()
+export type SeoMarketRankingRow = z.infer<typeof seoMarketRankingRowSchema>
 
 export const seoResultsSchema = z.object({
   keywordMetrics: z.array(seoKeywordMetricsSchema),
   domainIntelligence: z.array(seoDomainIntelligenceSchema),
   rankedKeywords: z.array(seoRankedKeywordSchema),
-  marketRankings: z.array(seoMarketRankingObservationSchema),
+  marketRankings: z.array(seoMarketRankingSchema),
 }).strict()
 export type SeoResults = z.infer<typeof seoResultsSchema>
 
+/** A market-rankings row as stored: rows saved before `searchStatus` existed are completed searches without it. */
+export type StoredSeoMarketRanking = Omit<SeoMarketRanking, 'searchStatus'> & Partial<Pick<SeoMarketRanking, 'searchStatus'>>
+
 /** SEO results as a task stores them: tasks saved before market rankings existed have no `marketRankings`. */
-export type StoredSeoResults = Omit<SeoResults, 'marketRankings'> & Partial<Pick<SeoResults, 'marketRankings'>>
+export type StoredSeoResults = Omit<SeoResults, 'marketRankings'> & { marketRankings?: StoredSeoMarketRanking[] }
 
 /** A fresh accumulator for normalized SEO observations. */
 export function emptySeoResults(): SeoResults {
@@ -329,6 +318,10 @@ export type SeoRun = z.infer<typeof seoRunSchema>
 export const seoTaskSchema = z.object({
   id: z.string(), capability: seoCapabilitySchema, target: seoTargetSchema.nullable(),
   status: seoRunStatusSchema, error: z.string().nullable(), remoteTaskId: z.string().nullable(),
+  /** Market rankings: the text searched on Google and where from, so a failed search can be named. Null for other datasets. */
+  searchText: z.string().nullable(), locationLabel: z.string().nullable(),
+  /** A second attempt at a search whose first attempt hit a search-engine error. It replaces that attempt, which is not listed. */
+  retried: z.boolean(),
 }).strict()
 export type SeoTask = z.infer<typeof seoTaskSchema>
 export const seoResultCountsSchema = z.object({
@@ -364,14 +357,15 @@ export type SeoRankedKeywordList = z.infer<typeof seoRankedKeywordListSchema>
  * Market-rankings outcome filters: one outcome, `needs-work` (ranks 11 and deeper, not
  * ranked or partly checked: everything off page 1 that has a result), or `rival-ahead`.
  */
-export const seoMarketRankingFilterSchema = z.enum(['needs-work', 'page-1', 'ranks-11-20', 'ranks-21-plus', 'not-ranked', 'partly-checked', 'rival-ahead', 'failed', 'not-run'])
+export const seoMarketRankingFilterSchema = z.enum(['needs-work', 'page-1', 'ranks-11-20', 'ranks-21-plus', 'not-ranked', 'partly-checked', 'rival-ahead', 'failed', 'cancelled'])
 export const SeoMarketRankingFilters = seoMarketRankingFilterSchema.enum
 export type SeoMarketRankingFilter = z.infer<typeof seoMarketRankingFilterSchema>
 /**
  * Market-rankings row order. `market` (the default) reads region, market, then search
- * text. `rank` puts the best rank first, then queries not in the results with the
- * strongest rival first, then searches with no result; `-rank` puts queries not in the
- * results first, then the worst rank. `query` and `-query` order by query text.
+ * text. `rank` puts the best rank first, then partly checked rows, then rows not in the
+ * results with the strongest rival first, then searches with no result; `-rank` puts rows
+ * not in the results first, then partly checked rows, then the worst rank. `query` and
+ * `-query` order by query text.
  */
 export const seoMarketRankingSortSchema = z.enum(['market', 'rank', '-rank', 'query', '-query'])
 export const SeoMarketRankingSorts = seoMarketRankingSortSchema.enum
@@ -387,7 +381,7 @@ export const seoMarketRankingQuerySchema = seoEvidenceQuerySchema.extend({
 }).strict()
 export type SeoMarketRankingQuery = z.infer<typeof seoMarketRankingQuerySchema>
 /** One page of rows in the requested order (region, market and search text by default). */
-export const seoMarketRankingListSchema = z.object({ ...seoPageShape, items: z.array(seoMarketRankingSchema) }).strict()
+export const seoMarketRankingListSchema = z.object({ ...seoPageShape, items: z.array(seoMarketRankingRowSchema) }).strict()
 export type SeoMarketRankingList = z.infer<typeof seoMarketRankingListSchema>
 
 /**
@@ -399,12 +393,12 @@ export const seoMarketRankingCountsSchema = z.object({
   page1: z.number().int().nonnegative(),
   ranks11To20: z.number().int().nonnegative(),
   ranks21Plus: z.number().int().nonnegative(),
-  /** Not in the top `depth`: only whole results pages, never a partial one. */
+  /** Not in the requested depth: only searches that checked all of it, never a partial one. */
   notRanked: z.number().int().nonnegative(),
-  /** Not in the part of the results a partial page returned; ranks past it are unknown. */
+  /** A partial search that did not reach the site; ranks past what it checked are unknown. */
   partlyChecked: z.number().int().nonnegative(),
   failed: z.number().int().nonnegative(),
-  notRun: z.number().int().nonnegative(),
+  cancelled: z.number().int().nonnegative(),
   needsWork: z.number().int().nonnegative(),
   /** Rows where a tracked competitor ranks above the target; overlaps the outcome counts. */
   rivalAhead: z.number().int().nonnegative(),
@@ -428,7 +422,8 @@ export type SeoMarketRankingSummaryQuery = z.infer<typeof seoMarketRankingSummar
  * Outcome counts for the selected scope and the groups under it: regions for the
  * whole profile (markets without a region stand alone), markets within one region,
  * none within one market. Groups come in needs-work order: most ranks 11-20, then
- * most ranks 21 and deeper, then label. `depth` is the results each search checks.
+ * most ranks 21 and deeper, then label. `depth` is the results each search asked for
+ * (a partial search's rows say how far they reached).
  */
 export const seoMarketRankingSummarySchema = z.object({
   runId: z.string().nullable(), depth: z.number().int().positive().nullable(),
@@ -524,9 +519,9 @@ export interface SeoAdapterResult {
   error: string | null
   fetchedAt: string
   /**
-   * A failed request the source says may succeed if sent again (a search engine error
-   * on its side). The repository runs one new, separately reserved attempt at the end
-   * of the refresh; never set for an uncertain or partly accepted request.
+   * The search engine itself returned an error: nothing was collected, the cost is known, and
+   * the same request may succeed when sent again. The refresh sends it once more at its end.
+   * Never set for an uncertain outcome, which must not be paid for twice.
    */
   retryable?: boolean
 }

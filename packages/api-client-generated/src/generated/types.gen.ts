@@ -245,6 +245,9 @@ export type SeoRunDetail = {
         status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | 'reconciliation-required';
         error: string | null;
         remoteTaskId: string | null;
+        searchText: string | null;
+        locationLabel: string | null;
+        retried: boolean;
     }>;
     results: {
         keywordMetrics: Array<{
@@ -342,11 +345,11 @@ export type SeoRunDetail = {
                 value: string;
                 includeSubdomains: boolean;
             };
+            searchStatus: 'completed' | 'partial' | 'failed' | 'cancelled';
             rankOrganic: number | null;
             rankAbsolute: number | null;
             url: string | null;
             depth: number;
-            checkedDepth?: number;
             competitors: Array<{
                 domain: string;
                 rankOrganic: number;
@@ -360,7 +363,7 @@ export type SeoRunDetail = {
                 device: 'unspecified' | 'desktop' | 'mobile';
                 collectedAt: string;
                 sourceUpdatedAt: string | null;
-            };
+            } | null;
         }>;
     };
     resultCounts: {
@@ -635,14 +638,11 @@ export type SeoMarketRankingList = {
             value: string;
             includeSubdomains: boolean;
         };
+        searchStatus: 'completed' | 'partial' | 'failed' | 'cancelled';
         rankOrganic: number | null;
         rankAbsolute: number | null;
         url: string | null;
         depth: number;
-        checkedDepth: number;
-        searchStatus: 'completed' | 'partial' | 'failed' | 'not-run';
-        outcome: 'page-1' | 'ranks-11-20' | 'ranks-21-plus' | 'not-ranked' | 'partly-checked' | 'failed' | 'not-run';
-        rivalAhead: boolean;
         competitors: Array<{
             domain: string;
             rankOrganic: number;
@@ -657,6 +657,8 @@ export type SeoMarketRankingList = {
             collectedAt: string;
             sourceUpdatedAt: string | null;
         } | null;
+        outcome: 'page-1' | 'ranks-11-20' | 'ranks-21-plus' | 'not-ranked' | 'partly-checked' | 'failed' | 'cancelled';
+        rivalAhead: boolean;
     }>;
 };
 
@@ -675,7 +677,7 @@ export type SeoMarketRankingSummary = {
         notRanked: number;
         partlyChecked: number;
         failed: number;
-        notRun: number;
+        cancelled: number;
         needsWork: number;
         rivalAhead: number;
     };
@@ -691,7 +693,7 @@ export type SeoMarketRankingSummary = {
             notRanked: number;
             partlyChecked: number;
             failed: number;
-            notRun: number;
+            cancelled: number;
             needsWork: number;
             rivalAhead: number;
         };
@@ -18891,15 +18893,15 @@ export type GetApiV1ProjectsByNameSeoMarketRankingsData = {
          */
         regionKey?: string;
         /**
-         * Only rows with this outcome. `partly-checked` is a partial results page without the site, so ranks past `checkedDepth` are unknown; `needs-work` is ranks 11 and deeper, not ranked or partly checked; `rival-ahead` is rows where a tracked competitor ranks above the site.
+         * Only rows with this outcome. `partly-checked` is a partial search that did not reach the site, so ranks past its depth are unknown; `needs-work` is ranks 11 and deeper, not ranked or partly checked; `rival-ahead` is rows where a tracked competitor ranks above the site.
          */
-        outcome?: 'needs-work' | 'page-1' | 'ranks-11-20' | 'ranks-21-plus' | 'not-ranked' | 'partly-checked' | 'rival-ahead' | 'failed' | 'not-run';
+        outcome?: 'needs-work' | 'page-1' | 'ranks-11-20' | 'ranks-21-plus' | 'not-ranked' | 'partly-checked' | 'rival-ahead' | 'failed' | 'cancelled';
         /**
          * Only rows whose query, searched text or market label contains this text, ignoring case.
          */
         q?: string;
         /**
-         * `market` (default): region, market, search text. `rank`: best rank first, then queries not in the results with the strongest rival first, then searches with no result. `-rank`: queries not in the results first, then the worst rank. `query` / `-query`: by query text.
+         * `market` (default): region, market, search text. `rank`: best rank first, then partly checked rows, then rows not in the results with the strongest rival first, then searches with no result. `-rank`: rows not in the results first, then partly checked rows, then the worst rank. `query` / `-query`: by query text.
          */
         sort?: 'market' | 'rank' | '-rank' | 'query' | '-query';
     };

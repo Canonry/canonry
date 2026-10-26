@@ -96,9 +96,10 @@ out (partly checked, failed, not searched) so they reconcile with the total, and
 Rival ahead sits apart because it overlaps them. Details open in a full-width row
 under the query, the ranking page first as a `SourceLink`. Tooltips here use the
 clamped bottom placement. Failed and
-Not searched rows say so, a partly checked row reads "Not in top <checkedDepth>"
-(the API never counts it under Not in top <depth>; Show offers Partly checked, like
-Failed and Not searched, only when there are some), and the ranking page lives in Details. A new filter, order or search returns to page 1.
+Not searched rows say so, a partly checked row reads "Not in top <row depth>" with
+the summary's requested depth in its tooltip (the API never counts it under Not in
+top <requested depth>; Show offers Partly checked, like Failed and Not searched, only
+when there are some), and the ranking page lives in Details. A new filter, order or search returns to page 1.
 
 ### OpenRouter sweep models
 

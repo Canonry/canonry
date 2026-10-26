@@ -4938,15 +4938,25 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
     ],
   },
   {
-    // A search that failed on the search engine's side earns one new, separately
-    // reserved attempt at the end of its refresh: `retryable` marks a failed task whose
-    // retry is still owed, `retry_of` links the attempt to the task it retries.
+    // A market-rankings search that hit a search-engine error is sent once
+    // more at the end of its refresh, as a new task that points at the first
+    // attempt. Nullable with no default: existing tasks and every task an
+    // older writer adds are first attempts.
     version: 195,
-    name: 'seo-task-retries',
+    name: 'seo-task-retry',
     statements: [
       `ALTER TABLE seo_tasks ADD COLUMN retry_of TEXT`,
-      `ALTER TABLE seo_tasks ADD COLUMN retryable INTEGER NOT NULL DEFAULT 0`,
-      `CREATE INDEX IF NOT EXISTS idx_seo_tasks_retry_of ON seo_tasks(retry_of)`,
+      `CREATE INDEX IF NOT EXISTS idx_seo_tasks_retry ON seo_tasks(retry_of)`,
+    ],
+  },
+  {
+    // When a schedule last turned on, so a schedule enabled long after it was
+    // created is graded from that point. Nullable with no default: existing
+    // rows read as enabled since creation, and an older writer leaves it null.
+    version: 196,
+    name: 'schedules-enabled-at',
+    statements: [
+      `ALTER TABLE schedules ADD COLUMN enabled_at TEXT`,
     ],
   },
 ]
