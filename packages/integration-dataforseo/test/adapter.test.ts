@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { SeoAdapterOutcomes, SeoCapabilities, SeoTargetKinds, type SeoAdapterRequest, type SeoMarketRankingContext } from '@canonry/canonry-contracts'
+import { SeoAdapterOutcomes, SeoCapabilities, SeoKeywordGapModes, SeoTargetKinds, type SeoAdapterRequest, type SeoMarketRankingContext } from '@canonry/canonry-contracts'
 import { createDataForSeoAdapter } from '../src/index.js'
 
 // Redacted shapes from the official v3 Google Labs keyword_overview,
@@ -25,6 +25,108 @@ function task(items: unknown[], extra: Record<string, unknown> = {}): Record<str
   return { id: 'remote-task', status_code: 20000, cost: 0.01224, result: [{ location_code: 2840, language_code: 'en', items }], ...extra }
 }
 afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers() })
+
+// Redacted shapes from the official Google competitors_domain and domain_intersection
+// examples, checked 2026-10-27. The competitor is always target1 in the gap request.
+const competitor = { kind: SeoTargetKinds.domain, value: 'rival.com', includeSubdomains: true }
+const gapRequest: SeoAdapterRequest = {
+  ...request, capability: SeoCapabilities['keyword-gaps'], target: domain, keywords: [], limit: 10,
+  comparison: { competitor, mode: SeoKeywordGapModes.shared },
+}
+const sharedGap = {
+  keyword_data: { ...info, serp_info: { last_updated_time: '2026-10-20 00:00:00 +00:00' } },
+  first_domain_serp_element: { type: 'organic', domain: 'www.rival.com', url: 'https://www.rival.com/coffee', rank_group: 3 },
+  second_domain_serp_element: { type: 'organic', domain: 'example.com', url: 'https://example.com/coffee', rank_group: 12 },
+}
+function gapTask(items: readonly unknown[], identity: Record<string, unknown> = {}) {
+  return task([], { result: [{ target1: 'rival.com', target2: 'example.com', location_code: 2840, language_code: 'en', items, ...identity }] })
+}
+
+describe('organic competitor research', () => {
+  it('collects organic competitor metrics, removes the target and duplicate domains, and keeps unknown metrics null', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response([task([], { result: [{
+      target: 'example.com', location_code: 2840, language_code: 'en', items: [
+        { domain: 'example.com', intersections: 100 },
+        { domain: 'rival.com', intersections: 8, avg_position: 3.5, full_domain_metrics: { organic: { count: 25, etv: 0 }, paid: { count: 900 } } },
+        { domain: 'RIVAL.COM', intersections: 8 },
+        { domain: 'other.com', intersections: null, avg_position: null, full_domain_metrics: null },
+      ],
+    }] })]))
+    vi.stubGlobal('fetch', fetchMock)
+    const input = { ...request, capability: SeoCapabilities['competitor-discovery'], target: domain, keywords: [], limit: 10 }
+    const adapter = createDataForSeoAdapter(credentials)
+    expect(adapter.estimate(input).maxCostMicros).toBe(13_200)
+    expect(fetchMock).not.toHaveBeenCalled()
+    const result = await adapter.execute(input)
+    expect(result.outcome).toBe(SeoAdapterOutcomes.completed)
+    expect(result.results.competitors).toEqual([
+      expect.objectContaining({ domain: 'rival.com', sharedKeywords: 8, averagePosition: 3.5, organicKeywords: 25, estimatedOrganicTraffic: 0, provenance: expect.objectContaining({ sourceUpdatedAt: null }) }),
+      expect.objectContaining({ domain: 'other.com', sharedKeywords: null, averagePosition: null, organicKeywords: null, estimatedOrganicTraffic: null }),
+    ])
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://api.dataforseo.com/v3/dataforseo_labs/google/competitors_domain/live')
+    expect(JSON.parse(fetchMock.mock.calls[0]?.[1].body as string)[0]).toEqual({
+      target: 'example.com', location_code: 2840, language_code: 'en', tag: 'local-task-1', limit: 10, offset: 0,
+      item_types: ['organic'], include_clickstream_data: false, ignore_synonyms: false, exclude_domains: ['example.com'], order_by: ['intersections,desc'],
+    })
+  })
+
+  it('preserves the direction, positions, URLs and ranking timestamp of shared and provider-missing searches', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response([gapTask([sharedGap, sharedGap])]))
+      .mockResolvedValueOnce(response([gapTask([{ ...sharedGap, keyword_data: info, second_domain_serp_element: null }])]))
+    vi.stubGlobal('fetch', fetchMock)
+    const adapter = createDataForSeoAdapter(credentials)
+    expect(adapter.estimate(gapRequest).maxCostMicros).toBe(13_200)
+    const shared = await adapter.execute(gapRequest)
+    expect(shared.results.keywordGaps).toEqual([expect.objectContaining({
+      target: domain, competitor, keyword: 'coffee', targetRankOrganic: 12, competitorRankOrganic: 3,
+      targetUrl: 'https://example.com/coffee', competitorUrl: 'https://www.rival.com/coffee', searchVolume: 0,
+      kind: 'outranked', rankGap: 9, provenance: expect.objectContaining({ sourceUpdatedAt: '2026-10-20 00:00:00 +00:00' }),
+    })])
+    const missing = await adapter.execute({ ...gapRequest, comparison: { competitor, mode: SeoKeywordGapModes.missing } })
+    expect(missing.outcome).toBe(SeoAdapterOutcomes.completed)
+    expect(missing.results.keywordGaps).toEqual([expect.objectContaining({
+      targetRankOrganic: null, targetUrl: null, competitorRankOrganic: 3, kind: 'missing', rankGap: null,
+      provenance: expect.objectContaining({ sourceUpdatedAt: null }),
+    })])
+    for (const [index, intersections] of [[0, true], [1, false]] as const) {
+      expect(fetchMock.mock.calls[index]?.[0]).toBe('https://api.dataforseo.com/v3/dataforseo_labs/google/domain_intersection/live')
+      expect(JSON.parse(fetchMock.mock.calls[index]?.[1].body as string)[0]).toMatchObject({
+        target1: 'rival.com', target2: 'example.com', intersections, item_types: ['organic'], include_serp_info: true,
+        include_clickstream_data: false, limit: 10,
+      })
+    }
+  })
+
+  it.each([
+    ['wrong pair', [sharedGap], { target2: 'another.com' }, SeoKeywordGapModes.shared],
+    ['wrong locale', [sharedGap], { location_code: 2826 }, SeoKeywordGapModes.shared],
+    ['foreign ranking', [{ ...sharedGap, second_domain_serp_element: { ...sharedGap.second_domain_serp_element, domain: 'another.com' } }], {}, SeoKeywordGapModes.shared],
+    ['paid ranking', [{ ...sharedGap, first_domain_serp_element: { ...sharedGap.first_domain_serp_element, type: 'paid' } }], {}, SeoKeywordGapModes.shared],
+    ['missing shared rank', [{ ...sharedGap, second_domain_serp_element: null }], {}, SeoKeywordGapModes.shared],
+    ['present missing rank', [sharedGap], {}, SeoKeywordGapModes.missing],
+  ] as const)('retains the paid receipt but rejects %s evidence', async (_label, items, identity, mode) => {
+    const fetchMock = vi.fn().mockResolvedValue(response([gapTask(items, identity)]))
+    vi.stubGlobal('fetch', fetchMock)
+    const result = await createDataForSeoAdapter(credentials).execute({ ...gapRequest, comparison: { competitor, mode } })
+    expect(result.outcome).toBe(SeoAdapterOutcomes.failed)
+    expect(result.results.keywordGaps).toEqual([])
+    expect(result.tasks).toEqual([{ remoteTaskId: 'remote-task', statusCode: 20000, costMicros: 12_240 }])
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('refuses exact-host scopes and self-comparisons before paid dispatch', () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    const adapter = createDataForSeoAdapter(credentials)
+    const host = { kind: SeoTargetKinds.host, value: 'shop.example.com', includeSubdomains: false }
+    expect(() => adapter.estimate({ ...gapRequest, capability: SeoCapabilities['competitor-discovery'], target: host })).toThrow('whole-domain')
+    expect(() => adapter.estimate({ ...gapRequest, target: host })).toThrow('whole-domain')
+    expect(() => adapter.estimate({ ...gapRequest, comparison: { competitor: host, mode: SeoKeywordGapModes.missing } })).toThrow('whole-domain')
+    expect(() => adapter.estimate({ ...gapRequest, comparison: { competitor: domain, mode: SeoKeywordGapModes.shared } })).toThrow('different')
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+})
 
 describe('DataForSEO paid adapter boundary', () => {
   it('quotes the bounded request without network access and decodes zero separately from absent metrics', async () => {

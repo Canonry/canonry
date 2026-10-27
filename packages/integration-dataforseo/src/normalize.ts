@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import {
-  SeoCapabilities, SeoMarketRankingSearchStatuses, SeoProviders, SeoTargetKinds, compareText, emptySeoResults, normalizeHostname, registrableDomain, type SeoAdapterRequest, type SeoKeywordMetrics,
+  SeoCapabilities, SeoKeywordGapModes, SeoMarketRankingSearchStatuses, SeoProviders, SeoTargetKinds, compareText, emptySeoResults, normalizeHostname, normalizeQueryText, registrableDomain, seoKeywordGapComparison, type SeoAdapterRequest, type SeoKeywordMetrics,
   type SeoMarketRanking, type SeoProvenance, type SeoResults, type SeoTarget,
 } from '@canonry/canonry-contracts'
 
@@ -37,7 +37,20 @@ const rankedItemSchema = z.object({
 })
 const resultSchema = z.object({
   location_code: z.number().int(), language_code: z.string(), target: z.string().optional(),
+  target1: z.string().optional(), target2: z.string().optional(),
   items: z.array(z.unknown()).nullable(),
+})
+const competitorItemSchema = z.object({
+  domain: z.string(), intersections: count, avg_position: amount,
+  full_domain_metrics: z.object({ organic: z.object({ count, etv: amount }).nullish() }).nullish(),
+})
+const comparisonSerpSchema = z.object({
+  type: z.literal('organic'), domain: z.string(), url: z.string().nullish(), rank_group: z.number().int().positive(),
+})
+const gapItemSchema = z.object({
+  keyword_data: keywordDataSchema,
+  first_domain_serp_element: comparisonSerpSchema,
+  second_domain_serp_element: comparisonSerpSchema.nullish(),
 })
 // A live SERP result: one Google results page for one keyword.
 const serpResultSchema = z.object({
@@ -149,11 +162,66 @@ export function normalizeDataForSeoResults(rawResults: unknown[], request: SeoAd
       throw new Error('SEO provider returned a different market.')
     }
     const providerTarget = request.target?.kind === SeoTargetKinds.host ? registrableDomain(request.target.value) : request.target?.value.toLowerCase()
-    if (request.target && result.target?.toLowerCase() !== providerTarget) {
+    if (request.capability === SeoCapabilities['keyword-gaps']) {
+      if (result.target1?.toLowerCase() !== request.comparison?.competitor.value.toLowerCase() || result.target2?.toLowerCase() !== providerTarget) {
+        throw new Error('SEO provider returned a different comparison pair.')
+      }
+    } else if (request.target && result.target?.toLowerCase() !== providerTarget) {
       throw new Error('SEO provider returned a different target.')
     }
     const items = result.items ?? []
     switch (request.capability) {
+      case SeoCapabilities['competitor-discovery']: {
+        if (!request.target) throw new Error('SEO target is required.')
+        const seen = new Set<string>()
+        for (const rawItem of items) {
+          const item = competitorItemSchema.parse(rawItem)
+          const domain = normalizeHostname(item.domain)
+          if (!domain || !registrableDomain(domain)) throw new Error('SEO provider returned an invalid competitor domain.')
+          if (registrableDomain(domain) === request.target.value.toLowerCase() || seen.has(domain)) continue
+          seen.add(domain)
+          output.competitors.push({
+            target: request.target, domain, sharedKeywords: item.intersections ?? null,
+            averagePosition: item.avg_position ?? null, organicKeywords: item.full_domain_metrics?.organic?.count ?? null,
+            estimatedOrganicTraffic: item.full_domain_metrics?.organic?.etv ?? null,
+            // The endpoint does not return its weekly dataset timestamp.
+            provenance: provenance(request, collectedAt, null),
+          })
+        }
+        break
+      }
+      case SeoCapabilities['keyword-gaps']: {
+        if (!request.target || !request.comparison) throw new Error('SEO comparison is required.')
+        const { competitor, mode } = request.comparison
+        const seen = new Set<string>()
+        for (const rawItem of items) {
+          const item = gapItemSchema.parse(rawItem)
+          const rival = item.first_domain_serp_element
+          const own = item.second_domain_serp_element
+          const rivalHost = normalizeHostname(rival.domain)
+          const ownHost = own ? normalizeHostname(own.domain) : null
+          if (!rivalHost || !hostBelongsTo(rivalHost, competitor) || (own && (!ownHost || !hostBelongsTo(ownHost, request.target)))) {
+            throw new Error('SEO provider returned rankings outside the comparison pair.')
+          }
+          if ((mode === SeoKeywordGapModes.shared && !own) || (mode === SeoKeywordGapModes.missing && own)) {
+            throw new Error('SEO provider returned a different comparison population.')
+          }
+          const key = normalizeQueryText(item.keyword_data.keyword)
+          if (seen.has(key)) continue
+          seen.add(key)
+          const metric = keywordMetrics(item.keyword_data, request, collectedAt)
+          const targetRankOrganic = own?.rank_group ?? null
+          output.keywordGaps.push({
+            target: request.target, competitor, keyword: metric.keyword,
+            targetRankOrganic, competitorRankOrganic: rival.rank_group,
+            targetUrl: own?.url ?? null, competitorUrl: rival.url ?? null,
+            searchVolume: metric.searchVolume, keywordDifficulty: metric.keywordDifficulty, cpcUsd: metric.cpcUsd,
+            ...seoKeywordGapComparison(targetRankOrganic, rival.rank_group),
+            provenance: provenance(request, collectedAt, item.keyword_data.serp_info?.last_updated_time ?? null),
+          })
+        }
+        break
+      }
       case SeoCapabilities['keyword-metrics']: {
         const requested = new Map(request.keywords.map(keyword => [keyword.toLowerCase(), keyword]))
         for (const rawItem of items) {

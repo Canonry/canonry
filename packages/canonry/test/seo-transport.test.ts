@@ -5,14 +5,14 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SeoRepository, projects, queries } from '@canonry/canonry-db'
-import { SeoAdapterOutcomes, SeoCapabilities, SeoProviders, emptySeoResults, seoKeywordMetricsListSchema, seoQuoteSchema, seoRunSchema, type SeoAdapter, type SeoMarketRanking } from '@canonry/canonry-contracts'
+import { SeoAdapterOutcomes, SeoCapabilities, SeoCompetitorSorts, SeoProviders, SeoKeywordGapKinds, SeoKeywordGapModes, SeoKeywordGapSorts, emptySeoResults, seoCompetitorListSchema, seoKeywordGapListSchema, seoKeywordMetricsListSchema, seoQuoteSchema, seoRunSchema, type SeoAdapter, type SeoMarketRanking } from '@canonry/canonry-contracts'
 import { eq } from 'drizzle-orm'
 import type { ApiRoutesOptions } from '@canonry/canonry-api-routes'
 import { createSeoHarness, seedSeoKey, seoProfileFixture } from '../../api-routes/test/seo-fixture.js'
 import { ApiClient } from '../src/client.js'
 import { SEO_CLI_COMMANDS } from '../src/cli-commands/seo.js'
 import { dispatchRegisteredCommand } from '../src/cli-dispatch.js'
-import { createCanonryMcpServer } from '../src/mcp/server.js'
+import { createCanonryMcpServer, type CanonryMcpScope } from '../src/mcp/server.js'
 import { readAeroViewEvidence } from '../src/agent/view-context.js'
 
 const cleanup: Array<() => Promise<void>> = []
@@ -34,8 +34,8 @@ async function fixture(options: Partial<ApiRoutesOptions> = {}) {
   const url = `http://127.0.0.1:${address.port}/canonry`
   const api = (token: string) => new ApiClient(url, token, { skipProbe: true })
   await api(root).putSeoProfile('alpha', 'us', seoProfileFixture)
-  async function mcp(token: string, credentialScopes: string[]) {
-    const server = createCanonryMcpServer({ tiers: ['core', 'seo'], credentialScopes, clientFactory: () => api(token) })
+  async function mcp(token: string, credentialScopes: string[], scope: CanonryMcpScope = 'all') {
+    const server = createCanonryMcpServer({ tiers: ['core', 'seo'], credentialScopes, scope, clientFactory: () => api(token) })
     const client = new Client({ name: 'seo-transport', version: '1' })
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
     await server.connect(serverTransport)
@@ -44,6 +44,15 @@ async function fixture(options: Partial<ApiRoutesOptions> = {}) {
     return client
   }
   return { ...h, root, runner, reader, url, api, mcp }
+}
+
+function configureCli(url: string, apiKey: string) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'seo-cli-'))
+  cleanup.push(async () => { fs.rmSync(dir, { recursive: true, force: true }) })
+  fs.writeFileSync(path.join(dir, 'config.yaml'), JSON.stringify({ apiUrl: url, apiKey, basePath: '/canonry/', database: path.join(dir, 'unused.db'), providers: {} }))
+  vi.stubEnv('CANONRY_CONFIG_DIR', dir)
+  vi.stubEnv('CANONRY_BASE_PATH', '/canonry/')
+  return vi.spyOn(console, 'log').mockImplementation(() => {})
 }
 
 describe('SEO public transport parity', () => {
@@ -91,12 +100,7 @@ describe('SEO public transport parity', () => {
     expect(seoKeywordMetricsListSchema.parse(expected).items[0]).toMatchObject({ searchVolume: 0, cpcUsd: null, keywordDifficulty: 37 })
     const client = await h.mcp(h.reader, ['read'])
     expect((await client.callTool({ name: 'canonry_seo_keyword_metrics', arguments: { project: 'alpha', ...query } })).structuredContent).toEqual(expected)
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'seo-cli-'))
-    cleanup.push(async () => { fs.rmSync(dir, { recursive: true, force: true }) })
-    fs.writeFileSync(path.join(dir, 'config.yaml'), JSON.stringify({ apiUrl: h.url, apiKey: h.reader, basePath: '/canonry/', database: path.join(dir, 'unused.db'), providers: {} }))
-    vi.stubEnv('CANONRY_CONFIG_DIR', dir)
-    vi.stubEnv('CANONRY_BASE_PATH', '/canonry/')
-    const output = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const output = configureCli(h.url, h.reader)
     await dispatchRegisteredCommand(['seo', 'keyword-metrics', 'alpha', '--profile-id', 'us', '--run-id', run.id, '--limit', '1', '--offset', '0', '--format', 'json'], 'json', SEO_CLI_COMMANDS)
     expect(JSON.parse(String(output.mock.calls.at(-1)?.[0]))).toEqual(expected)
     const overview = await api.getSeoOverview('alpha', { profileId: 'us' })
@@ -105,6 +109,103 @@ describe('SEO public transport parity', () => {
     await expect(h.api(h.reader).syncSeo('alpha', { quoteToken: readIntent.token, idempotencyKey: 'denied' })).rejects.toMatchObject({ code: 'FORBIDDEN' })
     expect(h.requested).toEqual([run.id])
     expect(h.state.executions).toBe(0)
+  })
+
+  it('preserves scoped competitor evidence and gap filters across stored-only HTTP, CLI and MCP reads', async () => {
+    const policy = { maxRunCostMicros: 1_000_000, accountDailyLimitMicros: 1_000_000, accountMonthlyLimitMicros: 1_000_000, projectMonthlyLimitMicros: 1_000_000 }
+    const execute = vi.fn<SeoAdapter['execute']>().mockRejectedValue(new Error('Stored reads must not spend'))
+    const adapter: SeoAdapter = {
+      provider: SeoProviders.dataforseo, accountKey: 'account-a',
+      capabilities: [SeoCapabilities['keyword-metrics'], SeoCapabilities['competitor-discovery'], SeoCapabilities['keyword-gaps']],
+      estimate: () => ({ maxCostMicros: 10_000, catalogRevision: 'prices-1' }), execute,
+    }
+    const h = await fixture({ getSeoRuntime: () => ({ connections: [{ id: 'primary', label: 'Search data', adapter }], policy }) })
+    const api = h.api(h.root)
+    const target = { kind: 'domain', value: 'alpha.com', includeSubdomains: true } as const
+    const competitor = { kind: 'domain', value: 'rival.com', includeSubdomains: true } as const
+    await api.putSeoProfile('alpha', 'competition', {
+      ...seoProfileFixture, name: 'Organic competitors', capabilities: [SeoCapabilities['competitor-discovery'], SeoCapabilities['keyword-gaps']],
+      targets: [target], competitors: [competitor], keywords: [],
+    })
+    const intent = await api.createSeoRefreshIntent('alpha', { profileId: 'competition' })
+    const run = await api.syncSeo('alpha', { quoteToken: intent.token, idempotencyKey: 'competitor-transport' })
+    const repository = new SeoRepository(h.db)
+    const provenance = { provider: SeoProviders.dataforseo, dataset: 'dataforseo-labs/google/domain-intersection', engine: 'google', locationCode: 2840, languageCode: 'en', device: 'unspecified', collectedAt: '2026-10-27T12:00:00.000Z', sourceUpdatedAt: null } as const
+    for (let task = repository.claim(run.id, { ...policy, accountKey: 'account-a' }); task; task = repository.claim(run.id, { ...policy, accountKey: 'account-a' })) {
+      const results = emptySeoResults()
+      if (task.request.capability === SeoCapabilities['competitor-discovery']) {
+        results.competitors = [
+          { target, domain: competitor.value, sharedKeywords: 7, averagePosition: 3.5, organicKeywords: 0, estimatedOrganicTraffic: null, provenance },
+          { target, domain: 'bright.com', sharedKeywords: 20, averagePosition: 2, organicKeywords: 100, estimatedOrganicTraffic: 150, provenance },
+          { target, domain: 'unknown.com', sharedKeywords: null, averagePosition: null, organicKeywords: null, estimatedOrganicTraffic: null, provenance },
+        ]
+      } else if (task.request.comparison?.mode === SeoKeywordGapModes.shared) {
+        results.keywordGaps = [
+          { target, competitor, keyword: 'solar installer', targetRankOrganic: 8, competitorRankOrganic: 3, targetUrl: 'https://alpha.com/solar', competitorUrl: 'https://rival.com/solar', searchVolume: 0, keywordDifficulty: null, cpcUsd: null, kind: SeoKeywordGapKinds.outranked, rankGap: 5, provenance },
+          { target, competitor, keyword: 'roof panels', targetRankOrganic: 2, competitorRankOrganic: 6, targetUrl: 'https://alpha.com/roof', competitorUrl: 'https://rival.com/roof', searchVolume: 100, keywordDifficulty: 10, cpcUsd: 2, kind: SeoKeywordGapKinds.shared, rankGap: -4, provenance },
+        ]
+      } else {
+        results.keywordGaps = [{ target, competitor, keyword: 'solar battery', targetRankOrganic: null, competitorRankOrganic: 2, targetUrl: null, competitorUrl: 'https://rival.com/battery', searchVolume: null, keywordDifficulty: 40, cpcUsd: null, kind: SeoKeywordGapKinds.missing, rankGap: null, provenance }]
+      }
+      repository.settle(task.id, { outcome: SeoAdapterOutcomes.completed, error: null, fetchedAt: provenance.collectedAt, tasks: [{ remoteTaskId: task.id, statusCode: 20000, costMicros: 100 }], results }, task.leaseOwner!)
+    }
+    vi.stubEnv('CANONRY_STORED_ONLY', '1')
+    const selection = { profileId: 'competition', runId: run.id, limit: 1, offset: 0 }
+    const reader = h.api(h.reader)
+    const client = await h.mcp(h.reader, ['read'], 'stored-only')
+    const output = configureCli(h.url, h.reader)
+    await dispatchRegisteredCommand(['seo', 'run', 'show', 'alpha', run.id], 'text', SEO_CLI_COMMANDS)
+    expect(output.mock.calls.map(call => call[0])).toEqual(expect.arrayContaining([
+      '  keyword-gaps · alpha.com vs rival.com · shared: completed',
+      '  keyword-gaps · alpha.com vs rival.com · missing: completed',
+    ]))
+    const headers = { authorization: `Bearer ${h.reader}`, 'x-canonry-stored-only': '1' }
+    const query = new URLSearchParams({ profileId: 'competition', runId: run.id, limit: '1', offset: '0' })
+    const competitorResponse = await fetch(`${h.url}/api/v1/projects/alpha/seo/competitors?${query}`, { headers })
+    expect(competitorResponse.status).toBe(200)
+    expect(competitorResponse.headers.get('x-canonry-access')).toBe('stored')
+    const competitors = seoCompetitorListSchema.parse(await competitorResponse.json())
+    expect(competitors).toMatchObject({ total: 3, items: [{ domain: 'rival.com', organicKeywords: 0, estimatedOrganicTraffic: null, target, provenance }] })
+    expect((await client.callTool({ name: 'canonry_seo_competitors', arguments: { project: 'alpha', ...selection } })).structuredContent).toEqual(competitors)
+    await dispatchRegisteredCommand(['seo', 'competitors', 'alpha', '--profile-id', 'competition', '--run-id', run.id, '--limit', '1', '--offset', '0', '--format', 'json'], 'json', SEO_CLI_COMMANDS)
+    expect(JSON.parse(String(output.mock.calls.at(-1)?.[0]))).toEqual(competitors)
+
+    const selected = { ...selection, kind: SeoKeywordGapKinds.shared }
+    const gapResponse = await fetch(`${h.url}/api/v1/projects/alpha/seo/keyword-gaps?${query}&kind=shared`, { headers })
+    expect(gapResponse.status).toBe(200)
+    expect(gapResponse.headers.get('x-canonry-access')).toBe('stored')
+    const gaps = seoKeywordGapListSchema.parse(await gapResponse.json())
+    expect(gaps).toMatchObject({ total: 2, items: [{ keyword: 'solar installer', kind: SeoKeywordGapKinds.outranked, rankGap: 5, searchVolume: 0, keywordDifficulty: null, competitor, provenance }] })
+    expect((await client.callTool({ name: 'canonry_seo_keyword_gaps', arguments: { project: 'alpha', ...selected } })).structuredContent).toEqual(gaps)
+    await dispatchRegisteredCommand(['seo', 'keyword-gaps', 'alpha', '--profile-id', 'competition', '--run-id', run.id, '--kind', 'shared', '--limit', '1', '--offset', '0', '--format', 'json'], 'json', SEO_CLI_COMMANDS)
+    expect(JSON.parse(String(output.mock.calls.at(-1)?.[0]))).toEqual(gaps)
+    await dispatchRegisteredCommand(['seo', 'keyword-gaps', 'alpha', '--profile-id', 'competition', '--kind', 'missing'], 'text', SEO_CLI_COMMANDS)
+    expect(String(output.mock.calls.at(-1)?.[0])).toContain('solar battery\talpha.com Not found\trival.com #2\tmissing\tRank gap Unavailable\tVolume Not available')
+
+    const sortedCompetitorSelection = { ...selection, sort: SeoCompetitorSorts['-shared'], offset: 1 }
+    const sortedCompetitors = await reader.getSeoCompetitors('alpha', sortedCompetitorSelection)
+    expect(sortedCompetitors).toMatchObject({ runId: run.id, total: 3, limit: 1, offset: 1, items: [{ domain: 'rival.com', sharedKeywords: 7 }] })
+    expect((await client.callTool({ name: 'canonry_seo_competitors', arguments: { project: 'alpha', ...sortedCompetitorSelection } })).structuredContent).toEqual(sortedCompetitors)
+    await dispatchRegisteredCommand(['seo', 'competitors', 'alpha', '--profile-id', 'competition', '--run-id', run.id, '--sort=-shared', '--limit', '1', '--offset', '1', '--format', 'json'], 'json', SEO_CLI_COMMANDS)
+    expect(JSON.parse(String(output.mock.calls.at(-1)?.[0]))).toEqual(sortedCompetitors)
+
+    const sortedGapSelection = { ...selected, sort: SeoKeywordGapSorts['-volume'], offset: 1 }
+    const sortedGaps = await reader.getSeoKeywordGaps('alpha', sortedGapSelection)
+    expect(sortedGaps).toMatchObject({ runId: run.id, total: 2, limit: 1, offset: 1, items: [{ keyword: 'solar installer', searchVolume: 0 }] })
+    expect((await client.callTool({ name: 'canonry_seo_keyword_gaps', arguments: { project: 'alpha', ...sortedGapSelection } })).structuredContent).toEqual(sortedGaps)
+    await dispatchRegisteredCommand(['seo', 'keyword-gaps', 'alpha', '--profile-id', 'competition', '--run-id', run.id, '--kind', 'shared', '--sort=-volume', '--limit', '1', '--offset', '1', '--format', 'json'], 'json', SEO_CLI_COMMANDS)
+    expect(JSON.parse(String(output.mock.calls.at(-1)?.[0]))).toEqual(sortedGaps)
+
+    const next = { ...sortedGapSelection, offset: 2 }
+    const empty = await reader.getSeoKeywordGaps('alpha', next)
+    expect(empty).toEqual({ runId: run.id, total: 2, items: [], limit: 1, offset: 2 })
+    expect((await client.callTool({ name: 'canonry_seo_keyword_gaps', arguments: { project: 'alpha', ...next } })).structuredContent).toEqual(empty)
+    await expect(reader.getSeoCompetitors('beta', selection)).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    expect((await client.callTool({ name: 'canonry_seo_keyword_gaps', arguments: { project: 'beta', ...selected } })).structuredContent).toMatchObject({ error: { code: 'FORBIDDEN' } })
+    await expect(dispatchRegisteredCommand(['seo', 'keyword-gaps', 'alpha', '--kind', 'paid'], 'text', SEO_CLI_COMMANDS)).rejects.toMatchObject({ exitCode: 1 })
+    await expect(dispatchRegisteredCommand(['seo', 'competitors', 'alpha', '--sort=volume'], 'text', SEO_CLI_COMMANDS)).rejects.toMatchObject({ exitCode: 1 })
+    await expect(dispatchRegisteredCommand(['seo', 'keyword-gaps', 'alpha', '--sort=traffic'], 'text', SEO_CLI_COMMANDS)).rejects.toMatchObject({ exitCode: 1 })
+    expect(execute).not.toHaveBeenCalled()
   })
 
   it('filters saved market rankings identically through API, CLI and MCP', async () => {
@@ -130,7 +231,7 @@ describe('SEO public transport parity', () => {
       const failed = search.markets.some(({ context }) => context.marketKey === 'Tucson')
       const rows: SeoMarketRanking[] = failed ? [] : search.markets.map(({ context }) => ({
         ...context, searchText: task.request.keywords[0]!, locationLabel: search.locationLabel, target: { kind: 'domain', value: 'alpha.com', includeSubdomains: true },
-        searchStatus: 'completed', rankOrganic: 3, rankAbsolute: null, url: 'https://alpha.com/solar', depth: 50, competitors: [],
+        searchStatus: 'completed', rankOrganic: 3, rankAbsolute: null, url: 'https://alpha.com/solar', depth: 50, competitors: [{ domain: 'rival.com', rankOrganic: 1 }],
         provenance: { provider: 'dataforseo', dataset: 'dataforseo-serp/google/market-rankings', engine: 'google', locationCode: task.request.locationCode, languageCode: 'en', device: 'mobile', collectedAt: '2026-10-25T12:00:00.000Z', sourceUpdatedAt: null },
       }))
       repository.settle(task.id, { outcome: failed ? SeoAdapterOutcomes.failed : SeoAdapterOutcomes.completed, error: null, fetchedAt: '2026-10-25T12:00:00.000Z', tasks: [{ remoteTaskId: task.id, statusCode: failed ? 40101 : 20000, costMicros: 10_000 }], results: { ...emptySeoResults(), marketRankings: rows } }, task.leaseOwner!)
@@ -141,18 +242,13 @@ describe('SEO public transport parity', () => {
     expect(expected).toMatchObject({ runId: run.id, total: 1, items: [{ marketKey: 'Tucson', queryText: 'best solar installer', searchText: 'best solar installer', searchStatus: 'failed', rankOrganic: null, depth: 0, provenance: null, locationLabel: 'Tucson, AZ' }] })
     const client = await h.mcp(h.reader, ['read'])
     expect((await client.callTool({ name: 'canonry_seo_market_rankings', arguments: { project: 'alpha', ...query } })).structuredContent).toEqual(expected)
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'seo-cli-'))
-    cleanup.push(async () => { fs.rmSync(dir, { recursive: true, force: true }) })
-    fs.writeFileSync(path.join(dir, 'config.yaml'), JSON.stringify({ apiUrl: h.url, apiKey: h.reader, basePath: '/canonry/', database: path.join(dir, 'unused.db'), providers: {} }))
-    vi.stubEnv('CANONRY_CONFIG_DIR', dir)
-    vi.stubEnv('CANONRY_BASE_PATH', '/canonry/')
-    const output = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const output = configureCli(h.url, h.reader)
     await dispatchRegisteredCommand(['seo', 'market-rankings', 'alpha', '--profile-id', 'markets', '--market', 'Tucson', '--format', 'json'], 'json', SEO_CLI_COMMANDS)
     expect(JSON.parse(String(output.mock.calls.at(-1)?.[0]))).toEqual(expected)
     await dispatchRegisteredCommand(['seo', 'market-rankings', 'alpha', '--profile-id', 'markets', '--market', 'Tucson'], 'text', SEO_CLI_COMMANDS)
     expect(String(output.mock.calls.at(-1)?.[0])).toBe('Tucson\tbest solar installer\tSearch failed\tNo ranking page\tNo result\tSearched as "best solar installer" from Tucson, AZ')
     await dispatchRegisteredCommand(['seo', 'market-rankings', 'alpha', '--profile-id', 'markets', '--market', 'Phoenix'], 'text', SEO_CLI_COMMANDS)
-    expect(String(output.mock.calls.at(-1)?.[0])).toBe('Phoenix\tbest solar installer\tGoogle rank 3\thttps://alpha.com/solar\tNo tracked rival in the results\tSearched as "best solar installer" from Phoenix, AZ · mobile · 2026-10-25T12:00:00.000Z')
+    expect(String(output.mock.calls.at(-1)?.[0])).toBe('Phoenix\tbest solar installer\tGoogle rank 3\thttps://alpha.com/solar\tTop rival rival.com #1 (ahead) · rank gap 2\tSearched as "best solar installer" from Phoenix, AZ · mobile · 2026-10-25T12:00:00.000Z')
 
     // Outcome, text and order filters, and the outcome summary, read the same through every surface.
     const filtered = { profileId: 'markets', outcome: 'failed' as const, q: 'SOLAR', sort: '-rank' as const }
@@ -164,7 +260,7 @@ describe('SEO public transport parity', () => {
     const summary = await h.api(h.reader).getSeoMarketRankingSummary('alpha', { profileId: 'markets' })
     // The failed search is counted as failed, never as a query that does not rank.
     expect(summary).toMatchObject({
-      runId: run.id, depth: 50, totals: { queries: 2, page1: 1, notRanked: 0, failed: 1, needsWork: 0, rivalAhead: 0 },
+      runId: run.id, depth: 50, totals: { queries: 2, page1: 1, notRanked: 0, failed: 1, needsWork: 0, rivalAhead: 1 },
       groups: [{ key: 'Phoenix', kind: 'market', counts: { queries: 1, page1: 1 } }, { key: 'Tucson', kind: 'market', counts: { queries: 1, notRanked: 0, failed: 1 } }],
     })
     expect((await client.callTool({ name: 'canonry_seo_market_summary', arguments: { project: 'alpha', profileId: 'markets' } })).structuredContent).toEqual(summary)
