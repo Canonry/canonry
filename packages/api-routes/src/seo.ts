@@ -3,10 +3,10 @@ import { and, asc, desc, eq, inArray, isNotNull, sql } from 'drizzle-orm'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { SeoRepository, competitors, currentSeoTaskCondition, currentSeoTasks, projects, queries, runs, seoJobs, seoProfiles, seoTasks, type DatabaseClient, type SeoJobRow, type SeoTaskRow } from '@canonry/canonry-db'
 import {
-  AppError, RunKinds, RunStatuses, RunTriggers, SEO_MARKET_RANKING_MAX_SEARCHES, SEO_PROJECT_MARKET_KEY, SEO_RUN_SCOPE, SEO_WRITE_SCOPE, SeoAdapterOutcomes, SeoAvailability, SeoCapabilities, SeoMarketRankingSearchStatuses, SeoMarketRankingSorts, SeoRunStatuses, SeoScopeKinds, SeoTargetKinds, UserRoles,
-  compareMarketRankingsBy, compareText, countMarketRankings, effectiveDomains, groupMarketRankings, marketRankingRow, matchesMarketRankingFilter, matchesMarketRankingText, matchesMeasurementTargetUrl, normalizeHostname, missingDependency, notFound, queryClassSchema, registrableDomain, seoSearchTextForQuery, validationError,
-  seoProfileInputSchema, seoSyncInputSchema, seoRefreshIntentInputSchema, seoEvidenceQuerySchema, seoMarketRankingQuerySchema, seoMarketRankingSummaryQuerySchema, seoReconcileInputSchema,
-  type MeasurementPlanV2, type SeoAdapter, type SeoAdapterRequest, type SeoCapability, type SeoContext, type SeoEvidenceQuery, type SeoMarketRanking, type SeoMarketRankingContext, type SeoMarketRankingList, type SeoMarketRankingQuery, type SeoMarketRankingSearchMarket, type SeoMarketRankingSummary, type SeoMarketRankingSummaryQuery, type SeoOverview, type SeoProfile, type SeoProfileInput, type SeoQuote, type SeoResults, type SeoRun, type SeoRunDetail, type SeoRunStatus, type SeoScopeSelection, type SeoStatus, type SeoOperatorTask, type SeoReconcileResult,
+  AppError, RunKinds, RunStatuses, RunTriggers, SEO_MARKET_RANKING_MAX_SEARCHES, SEO_PROJECT_MARKET_KEY, SEO_RUN_SCOPE, SEO_WRITE_SCOPE, SeoAdapterOutcomes, SeoAvailability, SeoCapabilities, SeoKeywordGapKinds, SeoKeywordGapModes, SeoMarketRankingSearchStatuses, SeoMarketRankingSorts, SeoRunStatuses, SeoScopeKinds, SeoTargetKinds, UserRoles,
+  compareSeoCompetitorsBy, compareSeoKeywordGapsBy, compareMarketRankingsBy, compareText, countMarketRankings, effectiveDomains, groupMarketRankings, marketRankingRow, matchesMarketRankingFilter, matchesMarketRankingText, matchesMeasurementTargetUrl, normalizeHostname, missingDependency, notFound, queryClassSchema, registrableDomain, seoSearchTextForQuery, validationError,
+  seoProfileInputSchema, seoSyncInputSchema, seoRefreshIntentInputSchema, seoEvidenceQuerySchema, seoCompetitorQuerySchema, seoKeywordGapQuerySchema, seoMarketRankingQuerySchema, seoMarketRankingSummaryQuerySchema, seoReconcileInputSchema,
+  type MeasurementPlanV2, type SeoAdapter, type SeoAdapterRequest, type SeoCapability, type SeoCompetitorList, type SeoCompetitorQuery, type SeoContext, type SeoEvidenceQuery, type SeoKeywordGapList, type SeoKeywordGapQuery, type SeoMarketRanking, type SeoMarketRankingContext, type SeoMarketRankingList, type SeoMarketRankingQuery, type SeoMarketRankingSearchMarket, type SeoMarketRankingSummary, type SeoMarketRankingSummaryQuery, type SeoOverview, type SeoProfile, type SeoProfileInput, type SeoQuote, type SeoResults, type SeoRun, type SeoRunDetail, type SeoRunStatus, type SeoScopeSelection, type SeoStatus, type SeoOperatorTask, type SeoReconcileResult,
 } from '@canonry/canonry-contracts'
 import { requireAdminSession, requireScope, requireOperator } from './auth.js'
 import { resolveProject, writeAuditLog } from './helpers.js'
@@ -45,6 +45,8 @@ function resultRows(tasks: SeoTaskRow[]): SeoResults {
     domainIntelligence: kept.flatMap(task => task.results.domainIntelligence),
     rankedKeywords: kept.flatMap(task => task.results.rankedKeywords),
     marketRankings: tasks.flatMap(marketRankingRows),
+    competitors: kept.flatMap(task => task.results.competitors ?? []),
+    keywordGaps: kept.flatMap(task => task.results.keywordGaps ?? []),
   }
 }
 
@@ -87,7 +89,7 @@ function scopedPlanTargets(plan: MeasurementPlanV2, scope: SeoScopeSelection) {
 }
 
 function scopeCapabilities(kind: SeoScopeSelection['kind'], targets: MeasurementPlanV2['targets']): SeoCapability[] {
-  if (kind === SeoScopeKinds.project) return [SeoCapabilities['keyword-metrics'], SeoCapabilities['domain-intelligence'], SeoCapabilities['ranked-keywords'], SeoCapabilities['market-rankings']]
+  if (kind === SeoScopeKinds.project) return Object.values(SeoCapabilities)
   const exactHosts = targets.length > 0 && targets.every(target => target.urlMatchers.length > 0 && target.urlMatchers.every(matcher => matcher.kind === 'host'))
   // Market rankings report where the project's site ranks for a market's tracked queries, so they follow
   // markets and groups; a single Property has no market of its own.
@@ -99,8 +101,8 @@ function scopeCapabilities(kind: SeoScopeSelection['kind'], targets: Measurement
 function scopeReason(capabilities: SeoCapability[]): string {
   const markets = capabilities.includes(SeoCapabilities['market-rankings'])
   return capabilities.includes(SeoCapabilities['ranked-keywords'])
-    ? `Supports explicit keyword metrics${markets ? ', market rankings' : ''} and exact-host ranked keywords. Whole-domain intelligence requires project scope.`
-    : `Supports explicit keyword metrics${markets ? ' and market rankings' : ' only'}. Path and entity Properties cannot be replaced by whole-domain data.`
+    ? `Supports explicit keyword metrics${markets ? ', market rankings' : ''} and exact-host ranked keywords. Use project scope for domain intelligence, competitor discovery and keyword gaps.`
+    : `Supports explicit keyword metrics${markets ? ' and market rankings' : ' only'}. Use project scope for domain research; path and entity Properties cannot be replaced by whole-domain data.`
 }
 
 /** Both run surfaces share cancellation semantics and write one truthful audit receipt. */
@@ -129,6 +131,7 @@ function resolveScope(db: DatabaseClient, projectId: string, input: SeoProfileIn
   const { market, targetKeys, targets } = scopedPlanTargets(plan, input.scope)
   const supported = scopeCapabilities(input.scope.kind, targets)
   if (input.capabilities.some(capability => !supported.includes(capability))) {
+    if (input.capabilities.includes(SeoCapabilities['competitor-discovery']) || input.capabilities.includes(SeoCapabilities['keyword-gaps'])) throw validationError('Competitor discovery and keyword gaps compare whole domains. Select project scope with an explicit domain Target; Property, group and market scope cannot be broadened automatically.')
     if (supported.includes(SeoCapabilities['ranked-keywords'])) throw validationError('Domain intelligence requires project scope with a whole-domain Target. This Advanced scope supports exact-host ranked keywords and explicit keyword metrics.')
     throw validationError('This Advanced scope contains path or entity Properties and supports explicit keyword metrics only. Select a host-only scope for ranked keywords, or project scope for whole-domain intelligence.')
   }
@@ -143,13 +146,24 @@ function resolveScope(db: DatabaseClient, projectId: string, input: SeoProfileIn
 
 function normalizeProfile(input: SeoProfileInput): SeoProfileInput {
   if (new Set(input.capabilities).size !== input.capabilities.length) throw validationError('Select each SEO capability once.')
-  const targets = input.targets.map(target => {
+  const normalized = [...input.targets, ...(input.competitors ?? [])].map(target => {
     const host = normalizeHostname(target.value)
     if (!host) throw validationError('SEO Targets must be plain hostnames without paths or ports.')
     if (target.kind === SeoTargetKinds.host && target.includeSubdomains) throw validationError('Exact host Targets cannot include subdomains.')
     return { ...target, value: host }
   })
+  const targets = normalized.slice(0, input.targets.length)
+  const comparisonTargets = normalized.slice(input.targets.length)
   if (new Set(targets.map(target => `${target.kind}:${target.value}:${target.includeSubdomains}`)).size !== targets.length) throw validationError('SEO Targets must be distinct.')
+  const competitive = input.capabilities.includes(SeoCapabilities['competitor-discovery']) || input.capabilities.includes(SeoCapabilities['keyword-gaps'])
+  if (competitive && [...targets, ...comparisonTargets].some(target => target.kind !== SeoTargetKinds.domain || !target.includeSubdomains || registrableDomain(target.value) !== target.value)) throw validationError('Competitor discovery and keyword gaps require root domain Targets with subdomains included. Exact host comparisons are not supported by this source.')
+  if (input.capabilities.includes(SeoCapabilities['keyword-gaps'])) {
+    if (!comparisonTargets.length) throw validationError('Keyword gaps requires at least one explicit competitor domain.')
+    if (new Set(comparisonTargets.map(target => target.value)).size !== comparisonTargets.length) throw validationError('Competitor domains must be distinct.')
+    if (comparisonTargets.some(competitor => targets.some(target => target.value === competitor.value))) throw validationError('A keyword-gap competitor must differ from every Target domain.')
+  } else if (input.competitors !== undefined) {
+    throw validationError('Comparison competitors apply only to keyword gaps.')
+  }
   const keywords = [...new Set(input.keywords)]
   if (input.capabilities.includes(SeoCapabilities['keyword-metrics']) && !keywords.length) throw validationError('Keyword metrics requires at least one explicit keyword.')
   if (input.capabilities.some(capability => capability !== SeoCapabilities['keyword-metrics']) && !targets.length) throw validationError('Domain capabilities require at least one explicit Target.')
@@ -163,7 +177,7 @@ function normalizeProfile(input: SeoProfileInput): SeoProfileInput {
   } else if (input.rankings) {
     throw validationError('Search settings apply only to market rankings.')
   }
-  return { ...input, targets, keywords }
+  return { ...input, targets, keywords, ...(input.competitors === undefined ? {} : { competitors: comparisonTargets }) }
 }
 
 /** One paid search a market-rankings refresh runs, and the markets and queries it answers. */
@@ -276,6 +290,11 @@ function marketRankingPlan(db: DatabaseClient, projectId: string, input: SeoProf
 
 function taskRequests(profile: SeoProfileInput, rankings: MarketRankingPlan): SeoAdapterRequest[] {
   return profile.capabilities.flatMap((capability): SeoAdapterRequest[] => {
+    if (capability === SeoCapabilities['keyword-gaps']) {
+      return profile.targets.flatMap(target => (profile.competitors ?? []).flatMap(competitor => Object.values(SeoKeywordGapModes).map(mode => ({
+        capability, target, keywords: [], locationCode: profile.locationCode, languageCode: profile.languageCode, limit: profile.limit, tag: '', comparison: { competitor, mode },
+      }))))
+    }
     if (capability === SeoCapabilities['market-rankings']) {
       const settings = profile.rankings!
       return rankings.searches.map(search => ({
@@ -536,7 +555,7 @@ export async function seoRoutes(app: FastifyInstance, opts: SeoRoutesOptions) {
   app.get<{ Params: Params }>('/projects/:name/seo/runs/:id', async request => {
     const row = job(resolveProject(app.db, request.params.name).id, request.params.id)
     const rows = tasks(row.id); const results = resultRows(rows)
-    return { ...runDto(row, rows.map(task => ({ status: task.status, count: 1 }))), tasks: rows.map(task => ({ id: task.id, capability: task.request.capability, target: task.request.target, status: task.status, error: task.error, remoteTaskId: task.receipts[0]?.remoteTaskId ?? null, ...taskSearch(task), retried: task.retryOf !== null })), results: { keywordMetrics: results.keywordMetrics.slice(0, 20), domainIntelligence: results.domainIntelligence.slice(0, 20), rankedKeywords: results.rankedKeywords.slice(0, 20), marketRankings: [...results.marketRankings].sort(compareMarketRankings).slice(0, 20) }, resultCounts: { keywordMetrics: results.keywordMetrics.length, domainIntelligence: results.domainIntelligence.length, rankedKeywords: results.rankedKeywords.length, marketRankings: results.marketRankings.length }, resultsTruncated: Object.values(results).some(items => items.length > 20) } satisfies SeoRunDetail
+    return { ...runDto(row, rows.map(task => ({ status: task.status, count: 1 }))), tasks: rows.map(task => ({ id: task.id, capability: task.request.capability, target: task.request.target, comparison: task.request.comparison ?? null, status: task.status, error: task.error, remoteTaskId: task.receipts[0]?.remoteTaskId ?? null, ...taskSearch(task), retried: task.retryOf !== null })), results: { keywordMetrics: results.keywordMetrics.slice(0, 20), domainIntelligence: results.domainIntelligence.slice(0, 20), rankedKeywords: results.rankedKeywords.slice(0, 20), marketRankings: [...results.marketRankings].sort(compareMarketRankings).slice(0, 20), competitors: results.competitors.slice(0, 20), keywordGaps: results.keywordGaps.slice(0, 20) }, resultCounts: { keywordMetrics: results.keywordMetrics.length, domainIntelligence: results.domainIntelligence.length, rankedKeywords: results.rankedKeywords.length, marketRankings: results.marketRankings.length, competitors: results.competitors.length, keywordGaps: results.keywordGaps.length }, resultsTruncated: Object.values(results).some(items => items.length > 20) } satisfies SeoRunDetail
   })
   app.post<{ Params: Params }>('/projects/:name/seo/runs/:id/cancel', { config: { paidRead: true, writeScope: SEO_RUN_SCOPE } }, async request => {
     requireScope(request, SEO_RUN_SCOPE); requireAdminSession(request)
@@ -548,12 +567,32 @@ export async function seoRoutes(app: FastifyInstance, opts: SeoRoutesOptions) {
     const project = resolveProject(app.db, request.params.name); const query = queryInput(request.query); const latest = selected(project.id, query); const row = selected(project.id, query, true); const rows = row ? tasks(row.id) : []; const results = resultRows(rows)
     const primary = row?.profile.targets[0]
     const domain = primary ? results.domainIntelligence.find(result => result.target.kind === primary.kind && result.target.value === primary.value && result.target.includeSubdomains === primary.includeSubdomains) : null
-    return { status: status(project.id), profiles: profiles(project.id), latestRun: latest ? runSummary(latest) : null, evidenceRunId: row?.id ?? null, evidenceRun: row ? runDto(row, rows.map(task => ({ status: task.status, count: 1 }))) : null, keywordMetricsCount: results.keywordMetrics.length, domainIntelligenceCount: results.domainIntelligence.length, rankedKeywordCount: results.rankedKeywords.length, marketRankingCount: results.marketRankings.length, summary: domain ? { target: domain.target, organicKeywords: domain.organicKeywords, inTop10: domain.top1 !== null && domain.top2To3 !== null && domain.top4To10 !== null ? domain.top1 + domain.top2To3 + domain.top4To10 : null, estimatedOrganicTraffic: domain.estimatedOrganicTraffic, provenance: domain.provenance } : null } satisfies SeoOverview
+    return { status: status(project.id), profiles: profiles(project.id), latestRun: latest ? runSummary(latest) : null, evidenceRunId: row?.id ?? null, evidenceRun: row ? runDto(row, rows.map(task => ({ status: task.status, count: 1 }))) : null, keywordMetricsCount: results.keywordMetrics.length, domainIntelligenceCount: results.domainIntelligence.length, rankedKeywordCount: results.rankedKeywords.length, marketRankingCount: results.marketRankings.length, competitorCount: results.competitors.length, keywordGapCount: results.keywordGaps.length, summary: domain ? { target: domain.target, organicKeywords: domain.organicKeywords, inTop10: domain.top1 !== null && domain.top2To3 !== null && domain.top4To10 !== null ? domain.top1 + domain.top2To3 + domain.top4To10 : null, estimatedOrganicTraffic: domain.estimatedOrganicTraffic, provenance: domain.provenance } : null } satisfies SeoOverview
   })
   for (const [path, key] of [['keyword-metrics', 'keywordMetrics'], ['domain-intelligence', 'domainIntelligence'], ['ranked-keywords', 'rankedKeywords']] as const) app.get<{ Params: Params; Querystring: SeoEvidenceQuery }>(`/projects/:name/seo/${path}`, async request => {
     const query = queryInput(request.query); const row = selected(resolveProject(app.db, request.params.name).id, query, true)
     const items = row ? resultRows(tasks(row.id))[key] : []; const limit = query.limit ?? 50; const offset = query.offset ?? 0
     return { runId: row?.id ?? null, items: items.slice(offset, offset + limit), total: items.length, limit, offset }
+  })
+  app.get<{ Params: Params; Querystring: SeoCompetitorQuery }>('/projects/:name/seo/competitors', async request => {
+    const raw = request.query as Record<string, unknown>
+    const parsed = seoCompetitorQuerySchema.safeParse({ ...raw, ...(raw.limit === undefined ? {} : { limit: Number(raw.limit) }), ...(raw.offset === undefined ? {} : { offset: Number(raw.offset) }) })
+    if (!parsed.success) throw validationError('Invalid SEO competitor selection.')
+    const query = parsed.data; const row = selected(resolveProject(app.db, request.params.name).id, query, true)
+    const items = row ? resultRows(tasks(row.id)).competitors : []
+    if (query.sort) items.sort(compareSeoCompetitorsBy(query.sort))
+    const limit = query.limit ?? 50; const offset = query.offset ?? 0
+    return { runId: row?.id ?? null, items: items.slice(offset, offset + limit), total: items.length, limit, offset } satisfies SeoCompetitorList
+  })
+  app.get<{ Params: Params; Querystring: SeoKeywordGapQuery }>('/projects/:name/seo/keyword-gaps', async request => {
+    const raw = request.query as Record<string, unknown>
+    const parsed = seoKeywordGapQuerySchema.safeParse({ ...raw, ...(raw.limit === undefined ? {} : { limit: Number(raw.limit) }), ...(raw.offset === undefined ? {} : { offset: Number(raw.offset) }) })
+    if (!parsed.success) throw validationError('Invalid SEO keyword-gap selection.')
+    const query = parsed.data; const row = selected(resolveProject(app.db, request.params.name).id, query, true)
+    const items = (row ? resultRows(tasks(row.id)).keywordGaps : []).filter(item => !query.kind || (query.kind === SeoKeywordGapKinds.shared ? item.kind !== SeoKeywordGapKinds.missing : item.kind === query.kind))
+    if (query.sort) items.sort(compareSeoKeywordGapsBy(query.sort))
+    const limit = query.limit ?? 50; const offset = query.offset ?? 0
+    return { runId: row?.id ?? null, items: items.slice(offset, offset + limit), total: items.length, limit, offset } satisfies SeoKeywordGapList
   })
   app.get<{ Params: Params; Querystring: SeoMarketRankingQuery }>('/projects/:name/seo/market-rankings', async request => {
     const raw = (request.query ?? {}) as Record<string, unknown>

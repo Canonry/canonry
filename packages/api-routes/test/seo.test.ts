@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { eq } from 'drizzle-orm'
 import { SeoRepository, auditLog, emptySeoResults, measurementPlans, measurementPlanVersions, projects, runs, seoBudgets, seoJobs, seoTasks } from '@canonry/canonry-db'
-import { canonicalMeasurementPlanV2Json, SeoCapabilities, SeoRunStatuses, validationError, type MeasurementPlanV2, type SeoContext, type SeoDomainIntelligence, type SeoQuote, type SeoRun } from '@canonry/canonry-contracts'
+import { canonicalMeasurementPlanV2Json, compareText, seoCompetitorListSchema, seoKeywordGapListSchema, SeoCapabilities, SeoRunStatuses, validationError, type MeasurementPlanV2, type SeoContext, type SeoDomainIntelligence, type SeoProfileInput, type SeoQuote, type SeoRun, type SeoRunDetail } from '@canonry/canonry-contracts'
 import { createSeoHarness, seedSeoKey, seoProfileFixture } from './seo-fixture.js'
 import { measurementPlanV2Fixture } from './measurement-plan-v2-fixture.js'
 
@@ -154,12 +154,17 @@ describe('SEO durable API', () => {
     for (let task = repo.claim(id, { ...h.state.policy, accountKey: h.state.accountKey }); task; task = repo.claim(id, { ...h.state.policy, accountKey: h.state.accountKey })) {
       const domain: SeoDomainIntelligence = { target: task.request.target!, organicKeywords: task.request.target!.value === 'alpha.com' ? 43 : 900, estimatedOrganicTraffic: 1200, estimatedOrganicTrafficValueUsd: 77, top1: 2, top2To3: 5, top4To10: 10, top11To20: 4, provenance: { provider: 'dataforseo', dataset: 'google-labs', engine: 'google', locationCode: 2840, languageCode: 'en', device: 'unspecified', collectedAt: new Date().toISOString(), sourceUpdatedAt: null } }
       repo.settle(task.id, { outcome: 'completed', tasks: [{ remoteTaskId: task.id, statusCode: 20000, costMicros: 35 }], results: { ...emptySeoResults(), domainIntelligence: [domain] }, error: null, fetchedAt: new Date().toISOString() }, task.leaseOwner!)
+      // A historical task has no result arrays for capabilities added after it was collected.
+      h.db.update(seoTasks).set({ results: { keywordMetrics: [], rankedKeywords: [], domainIntelligence: [domain] } }).where(eq(seoTasks.id, task.id)).run()
     }
     const next = await sync(h, 'next')
     const overview = (await h.app.inject({ url: `${base}/overview?profileId=main` })).json()
     expect(overview).toMatchObject({ evidenceRunId: id, latestRun: { id: next.json().id, status: 'queued' }, summary: { target, organicKeywords: 43, inTop10: 17, estimatedOrganicTraffic: 1200 } })
     const page = (await h.app.inject({ url: `${base}/domain-intelligence?profileId=main&limit=1&offset=1` })).json()
     expect(page).toMatchObject({ runId: id, total: 2, limit: 1, offset: 1 }); expect(page.items).toHaveLength(1)
+    for (const endpoint of ['competitors', 'keyword-gaps']) {
+      expect((await h.app.inject({ url: `${base}/${endpoint}?profileId=main` })).json()).toMatchObject({ runId: id, total: 0, items: [] })
+    }
     expect(h.db.select().from(seoBudgets).all().map(row => [row.reservedMicros, row.spentMicros])).toEqual([[200, 70], [200, 70], [200, 70]])
   })
 
@@ -295,8 +300,137 @@ describe('SEO durable API', () => {
     expect((await h.app.inject({ method: 'POST', url: `${base}/sync`, headers: reader, payload: { quoteToken: intent.token, idempotencyKey: 'denied' } })).statusCode).toBe(403)
     expect((await h.app.inject({ method: 'PUT', url: `${base}/profiles/main`, headers: runner, payload: seoProfileFixture })).statusCode).toBe(403)
     expect((await h.app.inject({ url: '/api/v1/projects/beta/seo/context', headers: runner })).statusCode).toBe(403)
+    for (const endpoint of ['competitors', 'keyword-gaps']) {
+      expect((await h.app.inject({ url: `${base}/${endpoint}?profileId=main`, headers: reader })).statusCode).toBe(200)
+      expect((await h.app.inject({ url: `/api/v1/projects/beta/seo/${endpoint}`, headers: reader })).statusCode).toBe(403)
+    }
     const runIntent = await quote(h, runner)
     expect((await h.app.inject({ method: 'POST', url: `${base}/sync`, headers: runner, payload: { quoteToken: runIntent.token, idempotencyKey: 'allowed' } })).statusCode).toBe(202)
     expect((await h.app.inject({ method: 'POST', url: `${base}/sync`, headers: admin, payload: { quoteToken: runIntent.token, idempotencyKey: 'other-principal' } })).statusCode).toBe(400)
+  })
+
+  it('freezes each explicit competitor pair and both gap populations under one bounded intent', async () => {
+    const h = harness()
+    const target = { kind: 'domain' as const, value: 'ALPHA.com', includeSubdomains: true }
+    const competitors = ['BETA.com', 'gamma.com'].map(value => ({ ...target, value }))
+    const input: SeoProfileInput = { ...seoProfileFixture, capabilities: [SeoCapabilities['competitor-discovery'], SeoCapabilities['keyword-gaps']], targets: [target], competitors, keywords: [] }
+    await save(h, input)
+    const intent = await quote(h)
+    expect(intent.taskCount).toBe(5)
+    expect(h.requested).toEqual([])
+    const response = await h.app.inject({ method: 'POST', url: `${base}/sync`, payload: { quoteToken: intent.token, idempotencyKey: 'competitive' } })
+    expect(response.statusCode, response.body).toBe(202)
+    const stored = h.db.select().from(seoTasks).all()
+    expect(stored.map(task => [task.request.capability, task.request.target?.value, task.request.comparison?.competitor.value, task.request.comparison?.mode].join('|')).sort()).toEqual([
+      'competitor-discovery|alpha.com||',
+      'keyword-gaps|alpha.com|beta.com|missing',
+      'keyword-gaps|alpha.com|beta.com|shared',
+      'keyword-gaps|alpha.com|gamma.com|missing',
+      'keyword-gaps|alpha.com|gamma.com|shared',
+    ])
+    const detail = (await h.app.inject({ url: `${base}/runs/${response.json<SeoRun>().id}` })).json<SeoRunDetail>()
+    expect(detail.tasks.map(task => task.comparison).sort((a, b) => compareText(a?.competitor.value ?? '', b?.competitor.value ?? '') || compareText(a?.mode ?? '', b?.mode ?? ''))).toEqual([
+      null,
+      { competitor: { kind: 'domain', value: 'beta.com', includeSubdomains: true }, mode: 'missing' },
+      { competitor: { kind: 'domain', value: 'beta.com', includeSubdomains: true }, mode: 'shared' },
+      { competitor: { kind: 'domain', value: 'gamma.com', includeSubdomains: true }, mode: 'missing' },
+      { competitor: { kind: 'domain', value: 'gamma.com', includeSubdomains: true }, mode: 'shared' },
+    ])
+    expect(h.db.select().from(seoBudgets).all().map(row => row.reservedMicros)).toEqual([500, 500, 500])
+    expect(h.db.select().from(seoJobs).get()?.profile.competitors?.map(competitor => competitor.value)).toEqual(['beta.com', 'gamma.com'])
+    const staleIntent = await quote(h)
+    await save(h, { ...input, competitors: [competitors[0]!] })
+    const stale = await h.app.inject({ method: 'POST', url: `${base}/sync`, payload: { quoteToken: staleIntent.token, idempotencyKey: 'stale-comparison' } })
+    expect(stale.statusCode).toBe(400)
+    expect(h.requested).toEqual([response.json<SeoRun>().id])
+    expect(h.state.executions).toBe(0)
+  })
+
+  it('filters and sorts all saved comparison rows before pagination while retaining the last evidence during refresh', async () => {
+    const h = harness()
+    const target = { kind: 'domain' as const, value: 'alpha.com', includeSubdomains: true }
+    const competitor = { ...target, value: 'beta.com' }
+    await save(h, { ...seoProfileFixture, capabilities: [SeoCapabilities['competitor-discovery'], SeoCapabilities['keyword-gaps']], targets: [target], competitors: [competitor], keywords: [] })
+    const accepted = await sync(h, 'facts'); const id = accepted.json<SeoRun>().id
+    const repo = new SeoRepository(h.db)
+    const provenance = { provider: 'dataforseo' as const, dataset: 'google-labs', engine: 'google' as const, locationCode: 2840, languageCode: 'en', device: 'unspecified' as const, collectedAt: '2026-10-27T12:00:00.000Z', sourceUpdatedAt: null }
+    const gap = { target, competitor, keyword: 'shared search', targetRankOrganic: 2, competitorRankOrganic: 5, targetUrl: 'https://alpha.com/page', competitorUrl: 'https://beta.com/page', searchVolume: 100, keywordDifficulty: 25, cpcUsd: 1.25, kind: 'shared' as const, rankGap: -3, provenance }
+    for (let task = repo.claim(id, { ...h.state.policy, accountKey: h.state.accountKey }); task; task = repo.claim(id, { ...h.state.policy, accountKey: h.state.accountKey })) {
+      const results = emptySeoResults()
+      if (task.request.capability === SeoCapabilities['competitor-discovery']) results.competitors = [
+        { target, domain: 'gamma.com', sharedKeywords: 12, averagePosition: 2, organicKeywords: 200, estimatedOrganicTraffic: 500, provenance },
+        { target, domain: 'delta.com', sharedKeywords: null, averagePosition: null, organicKeywords: null, estimatedOrganicTraffic: null, provenance },
+        { target, domain: 'beta.com', sharedKeywords: 88, averagePosition: 4.5, organicKeywords: 500, estimatedOrganicTraffic: 1200, provenance },
+      ]
+      else if (task.request.comparison?.mode === 'shared') results.keywordGaps = [gap, { ...gap, keyword: 'outranked search', targetRankOrganic: 9, kind: 'outranked', rankGap: 4 }]
+      else results.keywordGaps = [{ ...gap, keyword: 'missing search', targetRankOrganic: null, targetUrl: null, kind: 'missing', rankGap: null }]
+      repo.settle(task.id, { outcome: 'completed', tasks: [{ remoteTaskId: task.id, statusCode: 20000, costMicros: 10 }], results, error: null, fetchedAt: provenance.collectedAt }, task.leaseOwner!)
+    }
+    const next = await sync(h, 'next-facts')
+    const shared = seoKeywordGapListSchema.parse((await h.app.inject({ url: `${base}/keyword-gaps?profileId=main&kind=shared&offset=1&limit=1` })).json())
+    expect(shared).toMatchObject({ runId: id, total: 2, limit: 1, offset: 1, items: [{ keyword: 'outranked search', targetRankOrganic: 9, competitorRankOrganic: 5, rankGap: 4 }] })
+    for (const kind of ['missing', 'outranked']) {
+      const page = seoKeywordGapListSchema.parse((await h.app.inject({ url: `${base}/keyword-gaps?runId=${id}&kind=${kind}` })).json())
+      expect(page.total).toBe(1)
+      expect(page.items.map(row => row.kind)).toEqual([kind])
+    }
+    const discovered = seoCompetitorListSchema.parse((await h.app.inject({ url: `${base}/competitors?profileId=main` })).json())
+    expect(discovered).toMatchObject({ runId: id, total: 3 })
+    expect(discovered.items.map(row => [row.domain, row.estimatedOrganicTraffic])).toEqual([['gamma.com', 500], ['delta.com', null], ['beta.com', 1200]])
+    for (const [sort, expected] of [['traffic', ['gamma.com', 'beta.com', 'delta.com']], ['-traffic', ['beta.com', 'gamma.com', 'delta.com']]] as const) {
+      const pages = await Promise.all([0, 1, 2].map(offset => h.app.inject({ url: `${base}/competitors?runId=${id}&sort=${sort}&limit=1&offset=${offset}` })))
+      const parsed = pages.map(page => seoCompetitorListSchema.parse(page.json()))
+      expect(parsed.map(page => page.total)).toEqual([3, 3, 3])
+      expect(parsed.flatMap(page => page.items.map(row => row.domain))).toEqual(expected)
+    }
+    for (const [sort, expected] of [['target-rank', ['shared search', 'outranked search']], ['-target-rank', ['outranked search', 'shared search']]] as const) {
+      const pages = await Promise.all([0, 1].map(offset => h.app.inject({ url: `${base}/keyword-gaps?runId=${id}&kind=shared&sort=${sort}&limit=1&offset=${offset}` })))
+      const parsed = pages.map(page => seoKeywordGapListSchema.parse(page.json()))
+      expect(parsed.map(page => page.total)).toEqual([2, 2])
+      expect(parsed.flatMap(page => page.items.map(row => row.keyword))).toEqual(expected)
+      const nullPage = seoKeywordGapListSchema.parse((await h.app.inject({ url: `${base}/keyword-gaps?runId=${id}&sort=${sort}&limit=1&offset=2` })).json())
+      expect(nullPage).toMatchObject({ total: 3, items: [{ keyword: 'missing search', targetRankOrganic: null }] })
+    }
+    const overview = (await h.app.inject({ url: `${base}/overview?profileId=main` })).json()
+    expect(overview).toMatchObject({ latestRun: { id: next.json().id }, evidenceRunId: id, competitorCount: 3, keywordGapCount: 3 })
+    const detail = (await h.app.inject({ url: `${base}/runs/${id}` })).json()
+    expect(detail.resultCounts).toMatchObject({ competitors: 3, keywordGaps: 3 })
+    expect((await h.app.inject({ url: `${base}/keyword-gaps?kind=invalid` })).statusCode).toBe(400)
+    expect((await h.app.inject({ url: `${base}/keyword-gaps?limit=101` })).statusCode).toBe(400)
+    for (const endpoint of ['competitors', 'keyword-gaps']) expect((await h.app.inject({ url: `${base}/${endpoint}?sort=invalid` })).statusCode).toBe(400)
+    expect(h.state.executions).toBe(0)
+  })
+
+  it('keeps whole-domain research available in Advanced project scope without substituting it for Properties or markets', async () => {
+    const h = harness()
+    seedPlan(h, measurementPlanV2Fixture({ reportingScopes: [{ stableKey: 'north', label: 'North', kind: 'market', usageEdges: [{ executionNodeKey: 'exec-nearby', targetKey: 'harbor', queryId: 'q-nearby' }] }] }))
+    const input: SeoProfileInput = { ...seoProfileFixture, capabilities: [SeoCapabilities['competitor-discovery'], SeoCapabilities['keyword-gaps']], targets: [{ kind: 'domain', value: 'alpha.com', includeSubdomains: true }], competitors: [{ kind: 'domain', value: 'beta.com', includeSubdomains: true }], keywords: [], scope: { kind: 'project', expectedPlanRevision: 1 } }
+    await save(h, input)
+    expect((await sync(h, 'advanced-domain')).statusCode).toBe(202)
+    expect(h.db.select().from(seoJobs).get()?.scopeSnapshot).toMatchObject({ mode: 'advanced', planRevision: 1, scope: input.scope })
+    const context = (await h.app.inject({ url: `${base}/context` })).json<SeoContext>()
+    expect(context.scopes.find(scope => scope.kind === 'project')?.capabilities).toEqual(expect.arrayContaining(input.capabilities))
+    for (const scope of [{ kind: 'property' as const, key: 'harbor' }, { kind: 'group' as const, key: 'regional' }, { kind: 'market' as const, key: 'north' }]) {
+      const scoped = { ...scope, expectedPlanRevision: 1 }
+      const response = await h.app.inject({ method: 'PUT', url: `${base}/profiles/${scope.kind}`, payload: { ...input, scope: scoped } })
+      expect(response.statusCode, response.body).toBe(400)
+      expect(response.json().error.message).toContain('Select project scope')
+      expect(context.scopes.find(option => option.kind === scope.kind && option.key === scope.key)?.capabilities).not.toContain(SeoCapabilities['competitor-discovery'])
+    }
+  })
+
+  it.each([
+    { label: 'no competitors', patch: { competitors: [] }, message: 'at least one explicit competitor' },
+    { label: 'duplicate competitors', patch: { competitors: [{ kind: 'domain', value: 'beta.com', includeSubdomains: true }, { kind: 'domain', value: 'BETA.com', includeSubdomains: true }] }, message: 'must be distinct' },
+    { label: 'self comparison', patch: { competitors: [{ kind: 'domain', value: 'alpha.com', includeSubdomains: true }] }, message: 'must differ' },
+    { label: 'exact host target', patch: { targets: [{ kind: 'host', value: 'alpha.com', includeSubdomains: false }] }, message: 'root domain Targets' },
+    { label: 'competitors without gaps', patch: { capabilities: [SeoCapabilities['competitor-discovery']] }, message: 'apply only to keyword gaps' },
+  ])('rejects $label before saving or admitting comparison work', async ({ patch, message }) => {
+    const h = harness()
+    const response = await h.app.inject({ method: 'PUT', url: `${base}/profiles/invalid`, payload: { ...seoProfileFixture, capabilities: [SeoCapabilities['keyword-gaps']], targets: [{ kind: 'domain', value: 'alpha.com', includeSubdomains: true }], competitors: [{ kind: 'domain', value: 'beta.com', includeSubdomains: true }], ...patch } })
+    expect(response.statusCode, response.body).toBe(400)
+    expect(response.json().error.message).toContain(message)
+    expect(h.db.select().from(seoJobs).all()).toEqual([])
+    expect(h.requested).toEqual([])
   })
 })

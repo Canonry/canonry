@@ -13,6 +13,9 @@ import {
   runKindSchema,
   runStatusSchema,
   sentimentOutcomeSchema,
+  seoKeywordGapKindSchema,
+  seoKeywordGapSortSchema,
+  seoCompetitorSortSchema,
   seoMarketRankingFilterSchema,
   seoMarketRankingSortSchema,
   operationAccess,
@@ -998,9 +1001,33 @@ const routeCatalog: OpenApiOperation[] = [
     },
   },
   {
+    method: 'get', path: '/api/v1/projects/{name}/seo/competitors',
+    summary: 'Read stored organic search competitors', tags: ['seo'],
+    description: 'Stored whole-domain organic competitor discovery only; never calls a provider. Available for Simple and Advanced project profiles. Each row names its target and source locale. Results are bounded provider database observations, not an exhaustive competitor inventory or a market/Property measurement.',
+    parameters: [nameParameter, ...seoEvidenceParameters, { name: 'sort', in: 'query', description: 'Sort the complete saved result before pagination: domain, shared searches, average position or estimated traffic. Prefix with - for descending. Missing values stay last in both directions. Omitted preserves stored order.', schema: { type: 'string', enum: [...seoCompetitorSortSchema.options] } }],
+    responses: {
+      200: jsonResponse('Saved organic competitor evidence.', 'SeoCompetitorList'),
+      400: errorResponse('Invalid scope or input.'),
+      403: errorResponse('Insufficient authority.'),
+      404: errorResponse('Project or selected evidence not found.'),
+    },
+  },
+  {
+    method: 'get', path: '/api/v1/projects/{name}/seo/keyword-gaps',
+    summary: 'Read stored organic keyword comparisons', tags: ['seo'],
+    description: 'Stored whole-domain comparisons only; never calls a provider. Missing means the source database has a competitor ranking and no target ranking, not absence from Google. Shared includes outranked searches where both domains rank; outranked selects only those with the competitor ahead. Filters apply before pagination; total counts saved rows, not the full provider keyword universe. A signed rankGap is target position minus competitor position and is null when the target is missing.',
+    parameters: [nameParameter, ...seoEvidenceParameters, { name: 'kind', in: 'query', description: 'shared includes outranked; missing and outranked select that exact kind. Omitted returns all saved comparisons.', schema: { type: 'string', enum: [...seoKeywordGapKindSchema.options] } }, { name: 'sort', in: 'query', description: 'Sort after filtering and before pagination: keyword, kind, target rank, competitor rank, rank gap or monthly search volume. Prefix with - for descending. Missing values stay last in both directions. Omitted preserves stored order.', schema: { type: 'string', enum: [...seoKeywordGapSortSchema.options] } }],
+    responses: {
+      200: jsonResponse('Saved keyword comparison evidence.', 'SeoKeywordGapList'),
+      400: errorResponse('Invalid scope or input.'),
+      403: errorResponse('Insufficient authority.'),
+      404: errorResponse('Project or selected evidence not found.'),
+    },
+  },
+  {
     method: 'get', path: '/api/v1/projects/{name}/seo/market-rankings',
     summary: 'Read stored market rankings', tags: ['seo'],
-    description: "Stored evidence only; never calls a provider. The project's position for each tracked non-brand query, searched on Google from its market's location. searchStatus says how each search ended: in a completed or partial row a null rank means the site was not in the checked results (depth, which is lower when only part of the results came back); a failed or cancelled search keeps its rows with no rank. outcome says where each row landed (a partial search without the site is partly-checked, never not-ranked) and rivalAhead whether a tracked competitor ranks above the site.",
+    description: "Stored evidence only; never calls a provider. The project's position for each tracked non-brand query, searched on Google from its market's location. searchStatus says how each search ended: in a completed or partial row a null rank means the site was not in the checked results (depth, which is lower when only part of the results came back); a failed or cancelled search keeps its rows with no rank. outcome says where each row landed (a partial search without the site is partly-checked, never not-ranked) and rivalAhead whether a tracked competitor ranks above the site. topCompetitor is the best tracked rival, and rankGap is the target position minus that rival position, null when either rank is unavailable.",
     parameters: [
       nameParameter, ...seoEvidenceParameters,
       { name: 'marketKey', in: 'query', description: 'Only rows for this market (an Advanced market key or a Simple location label).', schema: stringSchema },
@@ -1039,7 +1066,7 @@ const routeCatalog: OpenApiOperation[] = [
   {
     method: 'put', path: '/api/v1/projects/{name}/seo/profiles/{id}',
     summary: 'Save an SEO profile', tags: ['seo'],
-    description: "Requires seo.write and an administrator session. Saving never starts provider work. Scope, locale, targets, capabilities, keywords and row limit are identity parameters.",
+    description: "Requires seo.write and an administrator session. Saving never starts provider work. Scope, locale, targets, comparison competitors, capabilities, keywords and row limit are identity parameters. Keyword gaps requires one to five explicit competitor root domains; shared and missing datasets are reserved separately for each target/competitor pair. Competitor discovery and keyword gaps support project scope with whole-domain targets only, including Advanced projects.",
     parameters: [nameParameter, { name: 'id', in: 'path', required: true, description: 'Exact project-scoped identifier.', schema: stringSchema }],
     requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/SeoProfileInput' } } } },
     responses: {

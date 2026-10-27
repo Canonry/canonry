@@ -24,7 +24,7 @@ export function createSeoHarness(options: Partial<ApiRoutesOptions> = {}) {
   const adapter: SeoAdapter = {
     provider: SeoProviders.dataforseo,
     get accountKey() { return state.accountKey },
-    capabilities: [SeoCapabilities['keyword-metrics'], SeoCapabilities['domain-intelligence'], SeoCapabilities['ranked-keywords']],
+    capabilities: [SeoCapabilities['keyword-metrics'], SeoCapabilities['domain-intelligence'], SeoCapabilities['ranked-keywords'], SeoCapabilities['competitor-discovery'], SeoCapabilities['keyword-gaps']],
     estimate: () => ({ maxCostMicros: state.costMicros, catalogRevision: state.catalogRevision }),
     execute: async () => { state.executions++; throw new Error('Unexpected live request in a stored-read fixture') },
   }

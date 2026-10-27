@@ -72,6 +72,19 @@ fresh intent. Only active jobs poll; terminal transitions refresh the SEO query
 domain. `seo-data-section.test.tsx` owns mounted SDK selection and lifecycle
 coverage; API tests own authorization, storage, provider dispatch, and arithmetic.
 
+Organic competitors and Search gaps are opt-in whole-domain datasets at project
+scope, including Advanced projects. The editor uses the API's scope capabilities;
+it never widens a Property or market selection. Search gaps require up to five
+explicit comparison domains. The saved-run gap filter resets pagination and stays
+available on empty results; Shared includes searches where the competitor ranks
+higher. Missing describes the source database, not a live Google absence. Rival
+positions and signed gaps render server values. Activity identifies each comparison
+domain and its shared or missing population so partial failures remain actionable.
+All visible discovery and gap columns sort through the API before pagination,
+with missing values last in either direction. Headers toggle ascending/descending,
+show `aria-sort`, and reset to page 1 while retaining the selected refresh and
+gap filter. The prior rows stay mounted during sorting so keyboard focus survives.
+
 The status line reads `Updated <date>` from the evidence run, `Next refresh <date>`
 from the project's `seo-sync` schedule (none when it is missing or paused), and at
 most one caution caveat (`refreshCaveat`): the newest refresh ending without data,
