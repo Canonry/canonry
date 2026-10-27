@@ -40,7 +40,15 @@ import { viewerRoleLabel,
   type ApiRun,
 } from './api.js'
 import { useAccount } from './contexts/account-context.js'
-import { embedThemeMode, embedThemeStyle, embedViewIdForPath } from './embed.js'
+import {
+  embedTabToRemember,
+  embedTabToRestore,
+  embedThemeMode,
+  embedThemeStyle,
+  embedViewIdForPath,
+  readEmbedTabMemory,
+  writeEmbedTabMemory,
+} from './embed.js'
 import { getApiV1ProjectsOptions, getApiV1RunsOptions } from '@canonry/canonry-api-client/react-query'
 import { serviceStatusTooltip } from './lib/health-helpers.js'
 import { addToast, type ToastTone } from './lib/toast-store.js'
@@ -84,7 +92,7 @@ import type {
   ServiceStatus,
 } from './view-models.js'
 
-import { Outlet, Link, useLocation } from '@tanstack/react-router'
+import { Outlet, Link, useLocation, useNavigate } from '@tanstack/react-router'
 
 const resources: { label: string; href: string; Icon: LucideIcon }[] = [
   { label: 'GitHub', href: 'https://github.com/Canonry/canonry', Icon: CodeXml },
@@ -322,6 +330,24 @@ export function RootLayout() {
   // mutation and invalidates the list itself, so the global zero-project poll
   // would only duplicate that request every two seconds while the form is open.
   const location = useLocation()
+
+  // The host page re-loads an embedded dashboard every few minutes to refresh its
+  // access, and each reload lands on the project's first tab. Reopen the tab the
+  // client was on, then keep remembering where they are.
+  const navigate = useNavigate()
+  const embedTabRestored = useRef(false)
+  useEffect(() => {
+    if (!embed) return
+    if (!embedTabRestored.current) {
+      embedTabRestored.current = true
+      const target = embedTabToRestore(location.pathname, readEmbedTabMemory())
+      if (target) {
+        void navigate({ to: target, replace: true })
+        return
+      }
+    }
+    writeEmbedTabMemory(embedTabToRemember(location.pathname))
+  }, [embed, location.pathname, navigate])
 
   // ── Data fetching via TanStack Query ──
   const { dashboard, isLoading, refetch: refreshData } = useDashboard(undefined, {

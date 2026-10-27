@@ -112,6 +112,9 @@ each choice.
 - Recharts is the only chart library and is consumed through
   `ChartPrimitives.tsx`.
 - Embed mode remains read-only and may hide chrome, actions, or disallowed tabs.
+  The one exception is the client Queries tab: when the agency lets a
+  dashboard's clients manage their own queries, they can add and remove that
+  project's queries there, and nothing else.
 
 ## Review checklist
 

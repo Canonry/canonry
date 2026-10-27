@@ -301,6 +301,13 @@ export const projectQueriesRoute = createRoute({
   component: () => <LazyProjectPage tab="queries" />,
 })
 
+/** The embedded client's Queries tab. Present only when the embed grants query editing. */
+export const projectClientQueriesRoute = createRoute({
+  getParentRoute: () => projectLayoutRoute,
+  path: '/client-queries',
+  component: () => <LazyProjectPage tab="client-queries" />,
+})
+
 // One Property has its own page rather than an inline row expansion: it is a
 // destination an operator links to and comes back to, and the row cannot hold
 // the class comparison, the per-engine split, and paged evidence at once.
@@ -417,6 +424,7 @@ export const routeTree = rootRoute.addChildren([
     projectLocalRoute,
     projectDiscoveryRoute,
     projectQueriesRoute,
+    projectClientQueriesRoute,
     projectMeasurementPropertyRoute,
     projectReportRoute,
     projectActivityRoute,

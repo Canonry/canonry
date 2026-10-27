@@ -54,6 +54,7 @@ import {
   compareText,
   normalizeIdentityText as normalizeText,
   type ProviderRouteFamily,
+  EMBED_QUERIES_WRITE_SCOPE,
 } from '@canonry/canonry-contracts'
 import {
   discoveryProbes,
@@ -92,6 +93,12 @@ import {
   measurementRunExpectedSlots,
 } from './measurement-report-adapter.js'
 import { MEASUREMENT_PLAN_WRITE_SCOPE } from './measurement-plan.js'
+import {
+  assertEmbedQueryChange,
+  assertEmbedQueryWorkspace,
+  assertWithinEmbedQueryLimit,
+  embedQueryWriteLimit,
+} from './embed-queries.js'
 import { planScopeOptions, simpleScopeOptions } from './measurement-scope-options.js'
 import { assertNoActivePlanlessSweep, preserveSnapshotQueryText, replaceProjectQueries } from './query-replace.js'
 import { resolveRunProviderSelection } from './run-queue.js'
@@ -2057,17 +2064,25 @@ export async function queryTrackingRoutes(app: FastifyInstance, opts: QueryTrack
     return workspaceDto(app.db, readWorkspace(app.db, project), opts)
   })
 
-  app.post<{ Params: { name: string } }>('/projects/:name/query-tracking/preview', async request => {
-    requireScope(request, MEASUREMENT_PLAN_WRITE_SCOPE)
+  // The declared write scope lets an embedded dashboard's restricted query
+  // key reach review and save. `embedQueryWriteLimit` then holds that key to
+  // one plain change within the dashboard's limit; every other caller still
+  // needs measurement-plan.write.
+  app.post<{ Params: { name: string } }>('/projects/:name/query-tracking/preview', { config: { writeScope: EMBED_QUERIES_WRITE_SCOPE } }, async request => {
+    const embedLimit = embedQueryWriteLimit(request)
+    if (embedLimit === undefined) requireScope(request, MEASUREMENT_PLAN_WRITE_SCOPE)
     const parsed = queryTrackingPreviewRequestSchema.safeParse(request.body)
     if (!parsed.success) throw validationError('Invalid query tracking preview payload', { issues: parsed.error.issues })
+    if (embedLimit !== undefined) assertEmbedQueryChange(parsed.data)
     const project = resolveProject(app.db, request.params.name)
     const state = readWorkspace(app.db, project)
+    if (embedLimit !== undefined) assertEmbedQueryWorkspace(state.mode)
     if (parsed.data.expectedWorkspaceVersion !== state.workspaceVersion) {
       throw queryTrackingPreviewStale(parsed.data.expectedWorkspaceVersion, state.workspaceVersion)
     }
     const reviewedAt = new Date().toISOString()
     const candidate = buildCandidate(app.db, state, parsed.data, opts, reviewedAt)
+    if (embedLimit !== undefined) assertWithinEmbedQueryLimit(state.queryRows.length, candidate.queryRows.size, embedLimit)
     return queryTrackingPreviewResponseSchema.parse({
       mode: state.mode,
       workspaceVersion: state.workspaceVersion,
@@ -2080,10 +2095,12 @@ export async function queryTrackingRoutes(app: FastifyInstance, opts: QueryTrack
     })
   })
 
-  app.post<{ Params: { name: string } }>('/projects/:name/query-tracking/commit', async (request, reply) => {
-    requireScope(request, MEASUREMENT_PLAN_WRITE_SCOPE)
+  app.post<{ Params: { name: string } }>('/projects/:name/query-tracking/commit', { config: { writeScope: EMBED_QUERIES_WRITE_SCOPE } }, async (request, reply) => {
+    const embedLimit = embedQueryWriteLimit(request)
+    if (embedLimit === undefined) requireScope(request, MEASUREMENT_PLAN_WRITE_SCOPE)
     const parsed = queryTrackingCommitRequestSchema.safeParse(request.body)
     if (!parsed.success) throw validationError('Invalid query tracking commit payload', { issues: parsed.error.issues })
+    if (embedLimit !== undefined) assertEmbedQueryChange(parsed.data)
     const project = resolveProject(app.db, request.params.name)
     // The review token already identifies one exact operation. Replaying its
     // receipt recovers a lost response without requiring a separate client key.
@@ -2098,6 +2115,7 @@ export async function queryTrackingRoutes(app: FastifyInstance, opts: QueryTrack
       const currentProject = tx.select().from(projects).where(eq(projects.id, project.id)).get()
       if (!currentProject) throw notFound('Project', project.name)
       const state = readWorkspace(tx, currentProject)
+      if (embedLimit !== undefined) assertEmbedQueryWorkspace(state.mode)
       if (parsed.data.expectedWorkspaceVersion !== state.workspaceVersion) {
         throw queryTrackingPreviewStale(parsed.data.expectedWorkspaceVersion, state.workspaceVersion)
       }
@@ -2105,6 +2123,9 @@ export async function queryTrackingRoutes(app: FastifyInstance, opts: QueryTrack
       if (parsed.data.previewToken !== mutationPreviewToken(candidate, parsed.data, reviewedAt)) {
         throw queryTrackingPreviewStale(parsed.data.expectedWorkspaceVersion, state.workspaceVersion)
       }
+      // Checked again at save: the limit header reflects the plan now, which can
+      // be lower than when the change was reviewed.
+      if (embedLimit !== undefined) assertWithinEmbedQueryLimit(state.queryRows.length, candidate.queryRows.size, embedLimit)
       if (!candidate.diff.noOp && !rowsEqual(new Map(state.queryRows.map(row => [row.id, row])), candidate.queryRows)) {
         assertNoActivePlanlessSweep(tx, { projectId: project.id, projectName: project.name })
       }
@@ -2117,7 +2138,12 @@ export async function queryTrackingRoutes(app: FastifyInstance, opts: QueryTrack
           actor: 'api',
           action: 'query-tracking.updated',
           entityType: 'query',
-          diff: { added: candidate.diff.added.length, removed: candidate.diff.removed.length, reused: candidate.diff.reused.length },
+          diff: {
+            added: candidate.diff.added.length,
+            removed: candidate.diff.removed.length,
+            reused: candidate.diff.reused.length,
+            ...(embedLimit !== undefined ? { via: 'embed' } : {}),
+          },
         }))
         active = null
       } else if (!candidate.diff.noOp) {

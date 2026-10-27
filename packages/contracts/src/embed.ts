@@ -68,6 +68,30 @@ export interface EmbedClientConfig {
    * project-scoped engine key server-side.
    */
   renderToken?: string
+  /**
+   * Present when the agency lets this dashboard's clients manage their own
+   * queries. `limit` is the plan's query limit. Presentational only: the
+   * engine enforces the limit on every write, from the proxy's header.
+   */
+  queries?: { limit: number }
+}
+
+/**
+ * Set by the Embed v2 render proxy when the agency lets a dashboard's clients
+ * manage their own queries. Its value is the plan's query limit. The end
+ * client cannot reach the loopback engine to set it.
+ */
+export const EMBED_QUERY_LIMIT_HEADER = 'x-canonry-embed-query-limit'
+
+/** Upper bound for a header-supplied query limit. Larger values are refused, not clamped. */
+export const EMBED_QUERY_LIMIT_MAX = 1000
+
+/** Parse the query-limit header: a whole number from 1 to EMBED_QUERY_LIMIT_MAX, else undefined. */
+export function parseEmbedQueryLimit(raw: unknown): number | undefined {
+  const value: unknown = Array.isArray(raw) ? raw[0] : raw
+  if (typeof value !== 'string' || !/^[1-9]\d{0,3}$/.test(value)) return undefined
+  const limit = Number(value)
+  return limit <= EMBED_QUERY_LIMIT_MAX ? limit : undefined
 }
 
 /** Retired tab grants require an explicit replacement rather than an automatic fallback. */
@@ -256,16 +280,19 @@ export function embedClientConfigForRequest(
   projectTabsOverride: string | string[] | undefined,
   themeOverride?: string | string[],
   renderTokenOverride?: string | string[],
+  queryLimitOverride?: string | string[],
 ): EmbedClientConfig | undefined {
   const base = buildEmbedClientConfig(resolved)
   if (!base) return undefined
   const tabs = normalizeIdTokens(splitList(projectTabsOverride))
   const theme = parseThemeOverride(themeOverride)
   const renderToken = parseRenderTokenOverride(renderTokenOverride)
+  const queryLimit = parseEmbedQueryLimit(queryLimitOverride)
   let out = base
   if (tabs) out = { ...out, projectTabs: tabs }
   if (theme) out = { ...out, theme }
   if (renderToken) out = { ...out, renderToken }
+  if (queryLimit !== undefined) out = { ...out, queries: { limit: queryLimit } }
   return out
 }
 

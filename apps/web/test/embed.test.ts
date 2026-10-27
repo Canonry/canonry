@@ -2,12 +2,16 @@ import { describe, it, expect, afterEach } from 'vitest'
 import {
   EMBED_PROJECT_TABS,
   effectiveEmbedProjectTabs,
+  embedQueryLimit,
+  embedTabToRemember,
+  embedTabToRestore,
   embedViewIdForPath,
   embedThemeStyle,
   embedThemeMode,
   filterEmbedProjectTabs,
   isEmbedProjectTabAllowed,
   resolveEmbedProjectTab,
+  resolveProjectPageTab,
 } from '../src/embed.js'
 import { getEmbedConfig } from '../src/api.js'
 
@@ -216,4 +220,48 @@ it('keeps the technical-aeo tab id on the wire however the Site Health label rea
   expect(isEmbedProjectTabAllowed('technical-aeo', ['technical-aeo'])).toBe(true)
   expect(resolveEmbedProjectTab('technical-aeo', ['overview', 'technical-aeo'])).toBe('technical-aeo')
   expect(isEmbedProjectTabAllowed('site-health', ['technical-aeo'])).toBe(false)
+})
+
+describe('embedQueryLimit', () => {
+  it('reads a positive whole limit from the grant and nothing else', () => {
+    expect(embedQueryLimit({ queries: { limit: 10 } })).toBe(10)
+    for (const embed of [null, undefined, {}, { queries: {} }, { queries: { limit: 0 } }, { queries: { limit: 2.5 } }, { queries: { limit: '10' } }]) {
+      expect(embedQueryLimit(embed as never)).toBeUndefined()
+    }
+  })
+})
+
+describe('resolveProjectPageTab', () => {
+  it('opens the client Queries tab only under the grant', () => {
+    expect(resolveProjectPageTab('client-queries', { queries: { limit: 10 } })).toBe('client-queries')
+    // An embed without the grant falls back like any hidden tab, even if it lists the key.
+    expect(resolveProjectPageTab('client-queries', { projectTabs: ['overview', 'client-queries'] })).toBe('overview')
+    expect(resolveProjectPageTab('client-queries', { projectTabs: ['technical-aeo'] })).toBe('technical-aeo')
+    // Operators have no client Queries tab; theirs is the operator Queries tab.
+    expect(resolveProjectPageTab('client-queries', null)).toBe('queries')
+  })
+
+  it('leaves every other tab to the embed allowlist', () => {
+    expect(resolveProjectPageTab('technical-aeo', { projectTabs: ['overview'] })).toBe('overview')
+    expect(resolveProjectPageTab('technical-aeo', null)).toBe('technical-aeo')
+  })
+})
+
+describe('embed tab memory', () => {
+  it('remembers project tabs and forgets on the first tab', () => {
+    expect(embedTabToRemember('/projects/summit/client-queries')).toBe('/projects/summit/client-queries')
+    expect(embedTabToRemember('/projects/summit/technical-aeo/')).toBe('/projects/summit/technical-aeo')
+    expect(embedTabToRemember('/projects/summit')).toBeNull()
+    expect(embedTabToRemember('/projects/summit/properties/north')).toBeNull()
+    expect(embedTabToRemember('/settings')).toBeNull()
+  })
+
+  it('reopens a remembered tab only when a reload lands on the same project', () => {
+    expect(embedTabToRestore('/projects/summit', '/projects/summit/client-queries')).toBe('/projects/summit/client-queries')
+    expect(embedTabToRestore('/projects/summit/', '/projects/summit/client-queries')).toBe('/projects/summit/client-queries')
+    expect(embedTabToRestore('/projects/other', '/projects/summit/client-queries')).toBeNull()
+    expect(embedTabToRestore('/projects/summit/technical-aeo', '/projects/summit/client-queries')).toBeNull()
+    expect(embedTabToRestore('/projects/summit', null)).toBeNull()
+    expect(embedTabToRestore('/projects/summit', '/projects/summit/../settings')).toBeNull()
+  })
 })
