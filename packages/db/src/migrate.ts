@@ -4959,6 +4959,45 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `ALTER TABLE schedules ADD COLUMN enabled_at TEXT`,
     ],
   },
+  {
+    version: 197,
+    name: 'agent-journey-events',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS agent_journey_events (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        source_id TEXT NOT NULL REFERENCES traffic_sources(id) ON DELETE CASCADE,
+        source_event_id TEXT NOT NULL,
+        ts TEXT NOT NULL,
+        correlation_key TEXT NOT NULL,
+        correlation_basis TEXT NOT NULL,
+        agent_id TEXT NOT NULL,
+        operator TEXT NOT NULL,
+        product TEXT NOT NULL,
+        verification_status TEXT NOT NULL,
+        verification_manifest TEXT,
+        host TEXT,
+        path TEXT NOT NULL,
+        method TEXT,
+        status INTEGER,
+        latency_ms REAL,
+        created_at TEXT NOT NULL
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_journey_events_source_event ON agent_journey_events(project_id, source_id, source_event_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_agent_journey_events_project_ts ON agent_journey_events(project_id, ts)`,
+      `CREATE INDEX IF NOT EXISTS idx_agent_journey_events_correlation ON agent_journey_events(project_id, source_id, correlation_key, ts)`,
+      `CREATE INDEX IF NOT EXISTS idx_agent_journey_events_ts ON agent_journey_events(ts)`,
+      `CREATE TABLE IF NOT EXISTS agent_journey_capture_days (
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        source_id TEXT NOT NULL REFERENCES traffic_sources(id) ON DELETE CASCADE,
+        day TEXT NOT NULL,
+        stored_events INTEGER NOT NULL DEFAULT 0,
+        capped INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY(project_id, source_id, day)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_agent_journey_capture_days_day ON agent_journey_capture_days(day)`,
+    ],
+  },
 ]
 
 /**

@@ -46,6 +46,7 @@ import {
 import { requireAdminSession } from './auth.js'
 import { cloudflareWorkerVersionFor } from './cloudflare-worker-version.js'
 import { resolveProject } from './helpers.js'
+import { enforceAgentJourneyRetention } from './agent-journey-capture.js'
 
 const DAY_MS = 24 * 60 * 60_000
 const IDLE_MS = JOURNEY_VISIT_IDLE_MINUTES * 60_000
@@ -364,6 +365,7 @@ export function recordJourneyBatch(
 
 /** Delete journey rows older than the retention window, across every project. */
 export function enforceJourneyRetention(db: Pick<DatabaseClient, 'delete'>, referenceAt: string): void {
+  enforceAgentJourneyRetention(db, referenceAt)
   const cutoff = new Date(Date.parse(referenceAt) - JOURNEY_RETENTION_MS).toISOString()
   db.delete(journeyEvents).where(lt(journeyEvents.ts, cutoff)).run()
   db.delete(journeyVisits).where(lt(journeyVisits.endedAt, cutoff)).run()

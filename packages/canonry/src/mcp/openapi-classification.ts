@@ -22,6 +22,8 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'GET /api/v1/projects/{name}/ga/acquisition': 'included',
   'GET /api/v1/projects/{name}/traffic/referral-assessment': 'included',
   'GET /api/v1/projects/{name}/traffic/samples': 'included',
+  'GET /api/v1/projects/{name}/traffic/agent-journeys': 'included',
+  'GET /api/v1/projects/{name}/traffic/agent-journeys/{journeyId}': 'included',
   'GET /api/v1/projects/{name}/journeys/summary': 'included',
   'GET /api/v1/projects/{name}/journeys': 'included',
   'GET /api/v1/projects/{name}/journeys/{visitorKey}': 'included',
