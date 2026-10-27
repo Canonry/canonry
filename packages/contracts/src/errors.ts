@@ -31,6 +31,7 @@ export type ErrorCode =
   | 'MEASUREMENT_IDEMPOTENCY_KEY_REQUIRED'
   | 'MEASUREMENT_IDEMPOTENCY_KEY_CONFLICT'
   | 'QUERY_TRACKING_PREVIEW_STALE'
+  | 'EMBED_QUESTION_LIMIT'
   | 'RESEARCH_DAILY_LIMIT_EXCEEDED'
   | 'RUN_FILL_REFUSED'
   | 'RUN_FILL_IN_PROGRESS'
@@ -291,6 +292,16 @@ export function queryTrackingPreviewStale(
     'The query workspace changed after this preview. Reload the review and publish again.',
     409,
     { expectedWorkspaceVersion, actualWorkspaceVersion },
+  )
+}
+
+/** An embedded dashboard's change would track more questions than its plan allows. */
+export function embedQuestionLimitReached(limit: number, attempted: number): AppError {
+  return new AppError(
+    'EMBED_QUESTION_LIMIT',
+    `This dashboard can track up to ${limit} questions. Remove one to add another.`,
+    409,
+    { limit, attempted },
   )
 }
 

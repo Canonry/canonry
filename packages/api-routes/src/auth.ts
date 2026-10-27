@@ -8,10 +8,13 @@ import {
   ADS_WRITE_SCOPE,
   authRequired,
   authInvalid,
+  EMBED_QUESTION_LIMIT_HEADER,
+  EMBED_QUESTIONS_WRITE_SCOPE,
   forbidden,
   isReadOnlyKey,
   intersectScopes,
   normalizeIdTokens,
+  parseEmbedQuestionLimit,
   READ_ONLY_SCOPE,
   READ_SEMANTIC_OPERATIONS,
   matchOperationTemplate,
@@ -680,6 +683,28 @@ function isTechnicalAeoRead(request: FastifyRequest, url: string): boolean {
     || rest === 'technical-aeo/dead-links'
 }
 
+/**
+ * A question write from an embedded dashboard's own restricted key. The key's
+ * restricted grant and the route's declared write scope already pin it to the
+ * two query-tracking writes (see `applyScopedWriteGates`), and those routes
+ * apply the dashboard's limit. Any other write from the iframe stays refused.
+ */
+function isEmbedQuestionWrite(request: FastifyRequest): boolean {
+  return request.routeOptions.config.writeScope === EMBED_QUESTIONS_WRITE_SCOPE
+    && (principalScopes(request) ?? []).includes(EMBED_QUESTIONS_WRITE_SCOPE)
+}
+
+/**
+ * The Questions tab reads its workspace and the check schedule only when the
+ * render proxy says the agency lets this dashboard's clients manage their own
+ * questions. The header comes from the proxy, never from the end client.
+ */
+function isEmbedQuestionRead(request: FastifyRequest, url: string): boolean {
+  if (parseEmbedQuestionLimit(request.headers[EMBED_QUESTION_LIMIT_HEADER]) === undefined) return false
+  const rest = projectRouteRest(url)
+  return rest === 'query-tracking' || rest === 'schedule'
+}
+
 function enforceEmbedProjectTabs(request: FastifyRequest, configuredTabs: readonly string[] | undefined): void {
   const policy = requestEmbedProjectTabs(request, configuredTabs)
   // `undefined` is the only "nothing to enforce" value now. An empty ARRAY is
@@ -701,7 +726,7 @@ function enforceEmbedProjectTabs(request: FastifyRequest, configuredTabs: readon
   // key and no header, so no client could be created on any embed instance that
   // had tabs configured. The header is what identifies the render proxy; nothing
   // else sets it.
-  if (policy.fromEmbedSurface && WRITE_METHODS.has(request.method)) {
+  if (policy.fromEmbedSurface && WRITE_METHODS.has(request.method) && !isEmbedQuestionWrite(request)) {
     throw forbidden('This endpoint is not available in embed mode.')
   }
 
@@ -712,6 +737,7 @@ function enforceEmbedProjectTabs(request: FastifyRequest, configuredTabs: readon
 
   const url = request.url.split('?')[0]!
   if (isProjectShellRead(request, url)) return
+  if (isEmbedQuestionRead(request, url)) return
   if (tabs.includes('overview') && isOverviewRead(url)) return
   if (tabs.includes('technical-aeo') && isTechnicalAeoRead(request, url)) return
 

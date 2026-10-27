@@ -704,6 +704,36 @@ describe('server embed mode (#716)', () => {
     }
   })
 
+  it('ON: a per-request X-Canonry-Embed-Question-Limit header turns on the Questions tab', async () => {
+    const { app, cleanup } = await buildServer({ enabled: true, allowOrigins: ['https://host.example'] })
+    try {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/projects/acme',
+        headers: { 'x-canonry-embed-question-limit': '10' },
+      })
+      expect(res.body).toContain('"questions":{"limit":10}')
+      const bad = await app.inject({
+        method: 'GET',
+        url: '/projects/acme',
+        headers: { 'x-canonry-embed-question-limit': '10; drop' },
+      })
+      expect(bad.body).not.toContain('"questions"')
+    } finally {
+      await cleanup()
+    }
+  })
+
+  it('OFF: the X-Canonry-Embed-Question-Limit header is ignored (no embed block)', async () => {
+    const { app, cleanup } = await buildServer()
+    try {
+      const res = await app.inject({ method: 'GET', url: '/', headers: { 'x-canonry-embed-question-limit': '10' } })
+      expect(res.body).toContain('<script>window.__CANONRY_CONFIG__={}</script>')
+    } finally {
+      await cleanup()
+    }
+  })
+
   it('OFF: the X-Canonry-Embed-Render-Token header is ignored (no embed block)', async () => {
     const { app, cleanup } = await buildServer()
     try {

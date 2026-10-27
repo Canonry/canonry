@@ -314,6 +314,39 @@ All dashboards use the bundled Geist fonts. They do not load Google Fonts or
 fonts from the host page. The `mode`, `bg`, `fg`, and `accent` theme keys remain
 available.
 
+### Embedded question editing
+
+An embedded dashboard is read-only, with one exception. When the fronting proxy
+lets a dashboard's clients manage their own questions, the dashboard can add,
+edit, and remove that project's tracked questions.
+
+Two things turn this on:
+
+- The proxy sends `X-Canonry-Embed-Question-Limit: <n>` on the dashboard's
+  requests. The value is the plan's question limit, a whole number from 1 to
+  1000. With this header, the dashboard shows its Questions tab, and the embed
+  tab allowlist lets it read `/projects/:name/query-tracking` and
+  `/projects/:name/schedule`.
+- The proxy sends question changes with an API key that holds only the
+  `embed.questions.write` scope and is scoped to that one project.
+
+A key with `embed.questions.write` can call only
+`POST /projects/:name/query-tracking/preview` and
+`POST /projects/:name/query-tracking/commit`. Every write it sends must carry
+the limit header. Canonry then applies these rules:
+
+- Each request is one change: add one written question, remove one question by
+  id, or change one question's wording. Saved research, discovery results,
+  templates, audiences, contexts, and classification are refused.
+- Only simple projects accept these changes. An advanced portfolio stays with
+  the operator.
+- A change cannot take the question list past the limit. Canonry checks the
+  limit at review and again at save. Removals and edits stay allowed when the
+  list is already over the limit.
+
+A caller that holds `*` or `measurement-plan.write` keeps full authority on
+these routes, and the embed rules do not apply to it.
+
 ---
 
 ## Behind a Reverse Proxy

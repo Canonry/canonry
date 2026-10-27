@@ -7,6 +7,7 @@ import {
   embedProjectTabsError,
   embedClientConfigForRequest,
   normalizeIdTokens,
+  parseEmbedQuestionLimit,
   serializeForInlineScript,
   type ResolvedEmbedConfig,
 } from '../src/embed.js'
@@ -167,6 +168,20 @@ describe('normalizeIdTokens', () => {
   })
 })
 
+describe('parseEmbedQuestionLimit', () => {
+  it('reads a whole number from 1 to 1000, including a multi-value header', () => {
+    expect(parseEmbedQuestionLimit('10')).toBe(10)
+    expect(parseEmbedQuestionLimit('1000')).toBe(1000)
+    expect(parseEmbedQuestionLimit(['30', '5'])).toBe(30)
+  })
+
+  it('refuses anything else rather than clamping it', () => {
+    for (const bad of [undefined, '', '0', '010', '-3', '2.5', '1001', '99999', 'ten', ' 10', 10]) {
+      expect(parseEmbedQuestionLimit(bad), String(bad)).toBeUndefined()
+    }
+  })
+})
+
 describe('embedClientConfigForRequest', () => {
   const enabled: ResolvedEmbedConfig = {
     enabled: true,
@@ -252,6 +267,18 @@ describe('embedClientConfigForRequest', () => {
       enabled: true,
       projectTabs: ['overview', 'technical-aeo', 'report'],
       theme: { mode: 'light' },
+    })
+  })
+
+  it('adds the question limit when the proxy grants editing, and nothing for a bad value', () => {
+    expect(embedClientConfigForRequest(enabled, undefined, undefined, undefined, '10')).toEqual({
+      enabled: true,
+      projectTabs: ['overview', 'technical-aeo', 'report'],
+      questions: { limit: 10 },
+    })
+    expect(embedClientConfigForRequest(enabled, undefined, undefined, undefined, '0')).toEqual({
+      enabled: true,
+      projectTabs: ['overview', 'technical-aeo', 'report'],
     })
   })
 
