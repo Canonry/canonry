@@ -59,6 +59,16 @@ function toRawQueryResult(raw: GeminiRawResult): RawQueryResult {
   }
 }
 
+/**
+ * The most prompt tokens an answer can report and still read as unsearched.
+ * The request carries only the query (plus an optional location clause), so an
+ * unsearched answer reports only the query's tokens; a query alone took at most
+ * 20 in stored answers. Gemini 3.5 and 3.6 never report
+ * `toolUsePromptTokenCount` and count search input as prompt tokens instead:
+ * every stored answer of theirs that listed its searches reported at least 95.
+ */
+const QUERY_ONLY_PROMPT_TOKEN_LIMIT = 60
+
 function readRetrievalStatus(rawResponse: Record<string, unknown>): RetrievalStatus {
   const response = rawResponse as Partial<GenerateContentResponse>
   // Google Search is the only offered tool; result tokens prove execution
@@ -77,7 +87,12 @@ function readRetrievalStatus(rawResponse: Record<string, unknown>): RetrievalSta
   // unfinished response does not establish that a search was never executed.
   const parts = candidate.content?.parts
   const hasAnswer = Array.isArray(parts) && parts.some(part => !part.thought && typeof part.text === 'string' && part.text.trim().length > 0)
-  return candidate.finishReason === FinishReason.STOP && hasAnswer
+  if (candidate.finishReason !== FinishReason.STOP || !hasAnswer) return RetrievalStatuses.unknown
+  // Gemini can also search without returning grounding metadata. Only a
+  // prompt count no larger than a query alone rules that out; a larger count
+  // (most likely search input) or a missing one leaves retrieval undetermined.
+  const promptTokens = usageCount(response.usageMetadata?.promptTokenCount)
+  return promptTokens > 0 && promptTokens <= QUERY_ONLY_PROMPT_TOKEN_LIMIT
     ? RetrievalStatuses['not-used']
     : RetrievalStatuses.unknown
 }

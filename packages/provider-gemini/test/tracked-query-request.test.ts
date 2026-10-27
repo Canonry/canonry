@@ -81,6 +81,47 @@ const EXPECTED_CAPTURED_ID_RESULT = {
   retrievalStatus: 'used', retrievalContract: 'native-auto-v1', usage: { inputTokens: 12, cachedInputTokens: 0, cacheWriteTokens: 0, outputTokens: 34, searchCount: 1 }, stopReason: 'STOP',
 } satisfies RawQueryResult
 
+/**
+ * A Gemini 3.6 answer shaped like stored October 2026 answers: one text part
+ * with a thought signature, `STOP`, no grounding metadata, and no
+ * `toolUsePromptTokenCount` (Gemini 3.5 and 3.6 never report it). Usage
+ * besides the prompt count is from a stored answer; text and IDs are constructed.
+ */
+function gemini36Answer(promptTokenCount: number) {
+  return {
+    candidates: [{
+      content: { parts: [{ text: 'Most newer mid-rise buildings include an in-unit washer and dryer.', thoughtSignature: 'CtIFAXLI2nzAh1d0mKeLq9Ux' }], role: 'model' },
+      finishReason: 'STOP',
+    }],
+    usageMetadata: {
+      promptTokenCount,
+      candidatesTokenCount: 800,
+      totalTokenCount: promptTokenCount + 800 + 501,
+      promptTokensDetails: [{ modality: 'TEXT', tokenCount: promptTokenCount }],
+      thoughtsTokenCount: 501,
+      serviceTier: 'standard',
+    },
+    modelVersion: 'gemini-3.6-flash',
+    responseId: 'k3sFaYbQMtqU1dkPnZ7xqA0',
+  }
+}
+
+function gemini36Evidence(promptTokenCount: number) {
+  const { candidates: [candidate], usageMetadata } = gemini36Answer(promptTokenCount)
+  return { candidate, usageMetadata }
+}
+
+// 251 prompt tokens and no grounding metadata: a stored answer's counts.
+const HIDDEN_SEARCH_RESPONSE = gemini36Answer(251)
+const EXPECTED_HIDDEN_SEARCH_RESULT = {
+  provider: 'gemini', model: 'gemini-3.5-flash', servedModel: 'gemini-3.6-flash',
+  rawResponse: { candidates: [{ content: HIDDEN_SEARCH_RESPONSE.candidates[0]!.content, finishReason: 'STOP', groundingMetadata: undefined }],
+    usageMetadata: HIDDEN_SEARCH_RESPONSE.usageMetadata, modelVersion: 'gemini-3.6-flash', responseId: 'k3sFaYbQMtqU1dkPnZ7xqA0' },
+  groundingSources: [], searchQueries: [], retrievalStatus: 'unknown', retrievalContract: 'native-auto-v1',
+  // The prompt points to a search, but only listed queries are counted.
+  usage: { inputTokens: 251, cachedInputTokens: 0, cacheWriteTokens: 0, outputTokens: 1301, searchCount: 0 }, stopReason: 'STOP',
+} satisfies RawQueryResult
+
 interface CapturedRequest {
   url: string
   body: Record<string, unknown>
@@ -105,23 +146,30 @@ afterEach(() => {
 test.each<{
   name: string
   candidate?: Record<string, unknown>
-  toolUsePromptTokenCount?: number
+  usageMetadata?: Record<string, unknown>
   expected: RawQueryResult['retrievalStatus']
 }>([
   { name: 'executed search without citations', candidate: { finishReason: 'STOP', groundingMetadata: { webSearchQueries: ['crm'] } }, expected: 'used' },
   { name: 'retrieved web source without query disclosure', candidate: { finishReason: 'STOP', groundingMetadata: { groundingChunks: [{ web: { uri: 'https://example.com' } }] } }, expected: 'used' },
-  { name: 'tool-result tokens without grounding metadata', candidate: { finishReason: 'STOP' }, toolUsePromptTokenCount: 5372, expected: 'used' },
-  { name: 'tool-result tokens with an unfinished answer', candidate: { finishReason: 'MAX_TOKENS' }, toolUsePromptTokenCount: 5372, expected: 'used' },
-  { name: 'tool-result tokens without a candidate', toolUsePromptTokenCount: 5372, expected: 'used' },
-  { name: 'completed answer with zero tool-result tokens', candidate: { finishReason: 'STOP' }, toolUsePromptTokenCount: 0, expected: 'not-used' },
-  { name: 'completed answer without search', candidate: { finishReason: 'STOP' }, expected: 'not-used' },
-  { name: 'completed answer with empty search arrays', candidate: { finishReason: 'STOP', groundingMetadata: { webSearchQueries: [], groundingChunks: [] } }, expected: 'not-used' },
+  { name: 'tool-result tokens without grounding metadata', candidate: { finishReason: 'STOP' }, usageMetadata: { toolUsePromptTokenCount: 5372 }, expected: 'used' },
+  { name: 'tool-result tokens with an unfinished answer', candidate: { finishReason: 'MAX_TOKENS' }, usageMetadata: { toolUsePromptTokenCount: 5372 }, expected: 'used' },
+  { name: 'tool-result tokens without a candidate', usageMetadata: { toolUsePromptTokenCount: 5372 }, expected: 'used' },
+  { name: 'completed answer with zero tool-result tokens', candidate: { finishReason: 'STOP' }, usageMetadata: { promptTokenCount: 9, toolUsePromptTokenCount: 0 }, expected: 'not-used' },
+  { name: 'completed answer without search', candidate: { finishReason: 'STOP' }, usageMetadata: { promptTokenCount: 9 }, expected: 'not-used' },
+  { name: 'completed answer with empty search arrays', candidate: { finishReason: 'STOP', groundingMetadata: { webSearchQueries: [], groundingChunks: [] } }, usageMetadata: { promptTokenCount: 9 }, expected: 'not-used' },
+  // Gemini 3.6 can search without returning grounding metadata; only the
+  // prompt count, which then includes the search input, shows it.
+  { name: 'Gemini 3.6 answer with a query-sized prompt', ...gemini36Evidence(13), expected: 'not-used' },
+  { name: 'Gemini 3.6 answer at the query-only prompt limit', ...gemini36Evidence(60), expected: 'not-used' },
+  { name: 'Gemini 3.6 answer just past the query-only prompt limit', ...gemini36Evidence(61), expected: 'unknown' },
+  { name: 'Gemini 3.6 answer whose prompt carries unlisted search input', ...gemini36Evidence(251), expected: 'unknown' },
+  { name: 'completed answer without a prompt token count', candidate: { finishReason: 'STOP' }, expected: 'unknown' },
   { name: 'unfinished answer', candidate: { finishReason: 'MAX_TOKENS' }, expected: 'unknown' },
   { name: 'missing completion marker', candidate: {}, expected: 'unknown' },
-])('retrieval distinguishes $name in sync, batch and stored responses', async ({ candidate, toolUsePromptTokenCount, expected }) => {
+])('retrieval distinguishes $name in sync, batch and stored responses', async ({ candidate, usageMetadata, expected }) => {
   const response = {
     candidates: candidate ? [{ content: { parts: [{ text: 'Example CRM.' }], role: 'model' }, ...candidate }] : [],
-    ...(toolUsePromptTokenCount === undefined ? {} : { usageMetadata: { toolUsePromptTokenCount } }),
+    ...(usageMetadata === undefined ? {} : { usageMetadata }),
   }
   stubGenerateContent(response)
   const raw = await geminiAdapter.executeTrackedQuery(QUERY, CONFIG)
@@ -194,15 +242,17 @@ test('the endpoint names the Vertex AI resource path for a Vertex config', () =>
 
 test('the sync result is exactly parseTrackedQueryResponse of the response received', async () => {
   for (const row of [
-    { label: 'grounded divergent served identity', response: RESPONSE, model: 'gemini-2.5-flash', expected: EXPECTED_TRACKED_RESULT },
-    { label: 'captured identities with constructed answer', response: CAPTURED_ID_RESPONSE, model: 'gemini-3.5-flash', expected: EXPECTED_CAPTURED_ID_RESULT },
+    { label: 'grounded divergent served identity', response: RESPONSE, model: 'gemini-2.5-flash', expected: EXPECTED_TRACKED_RESULT,
+      normalized: { provider: 'gemini', answerText: 'Example CRM is popular with agencies.', citedDomains: ['example.com'], groundingSources: [{ uri: 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/AbC123', title: 'example.com' }], searchQueries: ['best crm for agencies 2026', 'agency crm comparison'], retrievalStatus: 'used' } },
+    { label: 'captured identities with constructed answer', response: CAPTURED_ID_RESPONSE, model: 'gemini-3.5-flash', expected: EXPECTED_CAPTURED_ID_RESULT,
+      normalized: { provider: 'gemini', answerText: 'Harborline Hotel is a harbor-side boutique inn.', citedDomains: ['harborline.example.com'], groundingSources: [{ uri: 'https://harborline.example.com/', title: 'harborline.example.com' }], searchQueries: ['"Harborline Hotel" harbor-side'], retrievalStatus: 'used' } },
+    { label: 'search hidden from grounding metadata', response: HIDDEN_SEARCH_RESPONSE, model: 'gemini-3.5-flash', expected: EXPECTED_HIDDEN_SEARCH_RESULT,
+      normalized: { provider: 'gemini', answerText: 'Most newer mid-rise buildings include an in-unit washer and dryer.', citedDomains: [], groundingSources: [], searchQueries: [], retrievalStatus: 'unknown' } },
   ]) {
     const sent = stubGenerateContent(row.response)
     expect(await geminiAdapter.executeTrackedQuery(QUERY, { ...CONFIG, model: row.model }), row.label).toEqual(row.expected)
     expect(geminiAdapter.parseTrackedQueryResponse!(structuredClone(row.response), row.model), row.label).toEqual(row.expected)
-    expect(geminiAdapter.normalizeResult(row.expected), row.label).toEqual(row.model === 'gemini-3.5-flash'
-      ? { provider: 'gemini', answerText: 'Harborline Hotel is a harbor-side boutique inn.', citedDomains: ['harborline.example.com'], groundingSources: [{ uri: 'https://harborline.example.com/', title: 'harborline.example.com' }], searchQueries: ['"Harborline Hotel" harbor-side'], retrievalStatus: 'used' }
-      : { provider: 'gemini', answerText: 'Example CRM is popular with agencies.', citedDomains: ['example.com'], groundingSources: [{ uri: 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/AbC123', title: 'example.com' }], searchQueries: ['best crm for agencies 2026', 'agency crm comparison'], retrievalStatus: 'used' })
+    expect(geminiAdapter.normalizeResult(row.expected), row.label).toEqual(row.normalized)
     expect(sent, row.label).toHaveLength(1)
   }
   // These identities are constructed, not captured. Missing, blank and null
