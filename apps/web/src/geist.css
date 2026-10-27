@@ -46,6 +46,7 @@
   --color-negative-border: var(--ds-red-400);
   --color-negative-bg-soft: var(--ds-red-200);
   --color-negative-fill: var(--ds-red-700);
+  --color-info-bg-soft: var(--ds-blue-200);
   --color-neutral-text: var(--ds-gray-900);
   --color-neutral-border: var(--ds-gray-400);
   --color-neutral-bg-soft: var(--ds-gray-200);
@@ -406,6 +407,7 @@
   --color-negative-border: var(--ds-red-400);
   --color-negative-bg-soft: var(--ds-red-200);
   --color-negative-fill: var(--ds-red-700);
+  --color-info-bg-soft: var(--ds-blue-200);
   --color-neutral-text: var(--ds-gray-900);
   --color-neutral-border: var(--ds-gray-400);
   --color-neutral-bg-soft: var(--ds-gray-200);

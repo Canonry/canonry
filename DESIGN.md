@@ -75,6 +75,10 @@ each choice.
 - `text-muted` and `text-faint` are only for nonessential metadata, timestamps,
   table labels, and disabled context. Never put instructions or recovery steps
   in them.
+- `text-secondary`, `text-muted`, and `text-faint` are semantic roles that all
+  resolve to Geist gray-900 in both themes to preserve readable contrast.
+  They are not three visual contrast levels; use the typography presets,
+  placement, and spacing to distinguish supporting copy from metadata.
 - Body prose is capped at 65-75 characters per line.
 
 ## Color and themes

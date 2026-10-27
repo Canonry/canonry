@@ -240,12 +240,12 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
       </div>
 
       {error && (
-        <Card className="surface-card p-4 mb-4 border-negative-800/60">
+        <Card className="surface-card p-4 mb-4 bg-negative-soft">
           <p className="text-copy-14 text-negative">{error}</p>
         </Card>
       )}
       {activeRun && (
-        <Card className="surface-card p-4 mb-4 border-info-800/60">
+        <Card className="surface-card p-4 mb-4 bg-info-soft">
           <div className="flex items-start gap-3">
             <Loader2 className="h-5 w-5 text-info-400 animate-spin shrink-0 mt-0.5" aria-hidden />
             <div className="flex-1 min-w-0">
@@ -265,7 +265,7 @@ export function BacklinksSection({ projectName }: { projectName: string }) {
         </Card>
       )}
       {justCompletedRun && !activeRun && (
-        <Card className={`surface-card p-4 mb-4 ${justCompletedRun.status === 'failed' ? 'border-negative-800/60' : 'border-positive-800/60'}`}>
+        <Card className={`surface-card p-4 mb-4 ${justCompletedRun.status === 'failed' ? 'bg-negative-soft' : 'bg-positive-soft'}`}>
           <div className="flex items-start gap-3">
             {justCompletedRun.status === 'failed' ? (
               <span className="h-5 w-5 shrink-0 mt-0.5 text-negative-400 text-label-18" aria-hidden>!</span>

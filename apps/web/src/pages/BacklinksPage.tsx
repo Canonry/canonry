@@ -166,12 +166,12 @@ export function BacklinksPage() {
       </div>
 
       {error && (
-        <Card className="surface-card p-4 mb-4 border-negative-800/60">
+        <Card className="surface-card p-4 mb-4 bg-negative-soft">
           <p className="text-copy-14 text-negative">{error}</p>
         </Card>
       )}
       {notice && (
-        <Card className="surface-card p-4 mb-4 border-positive-800/60">
+        <Card className="surface-card p-4 mb-4 bg-positive-soft">
           <p className="text-copy-14 text-positive">{notice}</p>
         </Card>
       )}

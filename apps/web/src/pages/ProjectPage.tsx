@@ -3223,7 +3223,7 @@ function ProjectPageContent({
                 Permanently deletes this project and all its queries, competitors, runs, and snapshots.
               </p>
               {showDeleteConfirm ? (
-                <Card className="surface-card p-6 border-negative-800/60">
+                <Card className="surface-card p-6 bg-negative-soft">
                   <h3 className="text-heading-16 text-negative-400 mb-2">Delete project?</h3>
                   <p className="text-copy-14 text-secondary mb-4">
                     This will permanently delete <strong className="text-strong">{model.project.displayName || model.project.name}</strong> and

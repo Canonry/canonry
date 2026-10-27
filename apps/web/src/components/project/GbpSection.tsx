@@ -334,7 +334,7 @@ export function GbpSection({ projectName, projectId }: { projectName: string; pr
               <div className="mb-6 grid gap-2">
                 <p className="eyebrow eyebrow-soft">Needs attention</p>
                 {attentionInsights.map((ins) => (
-                  <div key={ins.id} className={['insight-card', insightCardToneClass(ins.severity), 'rounded-r-lg border border-default bg-surface p-3 pl-4'].filter(Boolean).join(' ')}>
+                  <div key={ins.id} className={['surface-card insight-card', insightCardToneClass(ins.severity), 'p-3'].filter(Boolean).join(' ')}>
                     <p className="flex items-center gap-2 text-copy-14-strong text-strong">
                       {ins.title}
                       {ins.recommendation?.reason && <InfoTooltip text={ins.recommendation.reason} />}

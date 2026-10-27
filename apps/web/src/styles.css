@@ -263,6 +263,10 @@
   background-color: var(--color-negative-bg-soft);
 }
 
+@utility bg-info-soft {
+  background-color: var(--color-info-bg-soft);
+}
+
 @utility bg-neutral-soft {
   background-color: var(--color-neutral-bg-soft);
 }
@@ -2112,7 +2116,11 @@
   }
 
   .attention-item {
-    @apply material-base flex items-start justify-between gap-4 px-3.5 py-2.5 transition hover:bg-surface-hover;
+    @apply material-base flex items-start justify-between gap-4 px-3.5 py-2.5;
+  }
+
+  a.attention-item {
+    @apply transition hover:bg-surface-hover;
   }
 
   .attention-item-negative {
@@ -2127,10 +2135,9 @@
     @apply bg-positive-soft;
   }
 
-  /* Non-actionable status row (e.g. "All projects stable") — not a link, so
-     drop the hover affordance and pointer cursor the linked variant carries. */
+  /* Non-actionable status rows keep their tone when hovered. */
   .attention-item-static {
-    @apply cursor-default hover:border-subtle hover:bg-surface-subtle;
+    @apply cursor-default;
   }
 
   .attention-title,
