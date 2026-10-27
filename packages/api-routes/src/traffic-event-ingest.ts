@@ -18,6 +18,7 @@ import {
   retainedRawEventSampleTimestamp,
 } from './raw-event-sample-retention.js'
 import { recordJourneyBatch } from './journeys.js'
+import { recordAgentJourneyBatch } from './agent-journey-capture.js'
 
 // Signatures expire after five minutes. Keep receipts for one additional
 // replay window so clock skew and an edge retry cannot double-count, without
@@ -162,6 +163,10 @@ export function writeTrafficEventBatch(
       const report = buildTrafficProbeReport(claimedEvents, { sampleLimit: claimedEvents.length })
       // AI visitor journeys from the newly claimed events, in this transaction.
       recordJourneyBatch(tx, { projectId: opts.projectId, sourceId: opts.sourceId, events: claimedEvents, secret: opts.journeyKeySecret, now: opts.receivedAt }, {
+        onError: error => opts.onJourneyError?.(error),
+        outerActive: () => opts.db.$client.inTransaction,
+      })
+      recordAgentJourneyBatch(tx, { projectId: opts.projectId, sourceId: opts.sourceId, events: claimedEvents, secret: opts.journeyKeySecret, now: opts.receivedAt }, {
         onError: error => opts.onJourneyError?.(error),
         outerActive: () => opts.db.$client.inTransaction,
       })

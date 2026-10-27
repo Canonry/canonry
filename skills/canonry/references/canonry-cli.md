@@ -1913,7 +1913,32 @@ attribution applies equally to Simple and Advanced portfolios; Property, Target,
 and market attribution is unavailable. No provider call or write. Signed-in
 viewers and embeds cannot read samples; API read keys retain project scope.
 
-### AI visitor journeys
+### Agent request journeys
+
+```bash
+cnry traffic agent-journeys <project> --since 2026-10-20 --until 2026-10-27 --source <source-id> --format json
+cnry traffic agent-journey <project> <journey-id> --since 2026-10-20 --until 2026-10-27 --source <source-id> --limit 50 --offset 0
+```
+
+These commands follow recorded user-triggered agent requests, separately from
+AI-referred browser visitors. Both accept `--agent <id>`, `--verification
+verified|claimed_unverified|unknown_ai_like`, and `--target-key <key>` in addition
+to the window/source selectors. The default window is 24 hours; the maximum is
+31 days. Keep selectors unchanged when opening a detail or requesting another
+page. Reads over 20,000 selected source/agent events require a narrower window.
+Limits are 1 to 200. JSON matches the API response;
+JSONL streams a `journey` or an `event` with its full scope and coverage context.
+
+IP and user-agent grouping is inferred and can merge tasks. Requests without
+an IP stay unlinked; operator verification does not prove a user session.
+The API reports retention, inactivity gap, daily caps and source gaps. Advanced
+Properties match the current plan's URL coverage, not the historical user's
+intent. Keep its plan revision and unavailable dimensions with the evidence.
+HTTP status and paths do not prove a completed purchase, booking or other task.
+Stored reads only. Viewers and embeds are denied; API read keys retain project
+scope.
+
+### AI-referred visitor journeys
 
 ```bash
 cnry journeys summary <project> --since 2026-10-01 --format json

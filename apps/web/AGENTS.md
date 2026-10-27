@@ -39,6 +39,32 @@ subtle borders, no visual noise.
 
 ## Patterns
 
+### Journeys
+
+`JourneysPage` owns `/journeys`, with Visitor journeys and Agent journeys tabs.
+The URL carries the selected project and tab; only the active tab reads journey
+data. `TrafficPage` remains source administration. Both tabs use generated SDK
+reads and render server values without calculating metrics in the browser.
+
+Visitor summary dates select first-AI-arrival cohorts; return behavior includes
+their later retained visits. Engine and returned filters affect the visitor list
+only, so place them below the summary. Detail paginates retained visits, not requests,
+and is labelled as retained history, independent of the list's cohort window.
+Keep secondary metrics and filters in disclosures. Visits start collapsed;
+opening one shows ordered requests, with request metadata disclosed separately.
+Keep null metrics unavailable, IP/UA and UA-only identity uncertainty explicit,
+and source gaps and capped days visible. Visitor reads are project-wide for both
+Simple and Advanced portfolios; they do not establish Property or market scope.
+
+The Agent tab uses the generated list/detail reads and renders their counts without
+recomputing them. Detail pagination keeps the list response's exact time window
+and source, agent, verification and Property filters. Operator verification is
+separate from inferred request correlation; paths and HTTP status never prove
+clicks or task completion. Current-plan URL attribution names its revision and
+does not invent market, query, class or model scope. Capture limits and source
+gaps remain available in the coverage disclosure. Hide journey navigation and reads for viewer
+accounts and embeds, but retain it for scoped read keys; the API owns authority.
+
 ### SEO
 
 `components/project/SeoDataSection.tsx` owns `/projects/:name/seo-data`, labelled SEO.

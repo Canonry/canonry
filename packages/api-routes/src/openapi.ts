@@ -177,6 +177,18 @@ const nameParameter: OpenApiParameter = {
   schema: stringSchema,
 }
 
+const agentJourneyParameters: OpenApiParameter[] = [
+  nameParameter,
+  { name: 'since', in: 'query', description: 'Inclusive timestamp or UTC date. Defaults to 24 hours before until; maximum window 31 days.', schema: stringSchema },
+  { name: 'until', in: 'query', description: 'Inclusive timestamp or UTC date (end of day). Defaults to now. Pin both bounds from the list when opening detail.', schema: stringSchema },
+  { name: 'sourceId', in: 'query', description: 'Project-owned source. Sequences never link across sources.', schema: stringSchema },
+  { name: 'agentId', in: 'query', description: 'Classified user-triggered agent ID.', schema: stringSchema },
+  { name: 'verificationStatus', in: 'query', description: 'Keep requests with this operator verification status; does not verify session continuity.', schema: { type: 'string', enum: ['verified', 'claimed_unverified', 'unknown_ai_like'] } },
+  { name: 'targetKey', in: 'query', description: 'Keep requests attributed to this Property using current-plan URL matchers. Market, query, and model attribution are unavailable.', schema: stringSchema },
+  { name: 'limit', in: 'query', description: 'Page size: sequences on list, requests on detail. Defaults to 50 and 100 respectively.', schema: { type: 'integer', minimum: 1, maximum: 200 } },
+  { name: 'offset', in: 'query', description: 'Items to skip, default 0.', schema: { type: 'integer', minimum: 0 } },
+]
+
 const userNameParameter: OpenApiParameter = {
   name: 'name',
   in: 'path',
@@ -7638,6 +7650,24 @@ const routeCatalog: OpenApiOperation[] = [
       { name: 'offset', in: 'query', description: 'Rows to skip, default 0.', schema: { type: 'integer', minimum: 0 } },
     ],
     responses: { 200: jsonResponse('Stored sample page and sampling limits.', 'TrafficSamplesResponse'), 400: errorResponse('Invalid selection.'), 403: errorResponse('Samples are unavailable to this principal.'), 404: errorResponse('Project not found.') },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/traffic/agent-journeys',
+    summary: 'List observed agent request sequences',
+    description: 'Stored user-triggered agent requests only. Source-local IP+UA continuity is inferred, never a confirmed user session; requests without an IP stay unlinked. Thirty-minute idle gaps split sequences. Operator verification is independent. Both portfolio modes work; Advanced attribution uses the current plan and retained URLs. Bounds and selectors are read identity; pagination is tuning. Refuses selections exceeding 20,000 requests before Property/verification filtering. No provider calls or writes; requires administrator session authority and excludes embeds.',
+    tags: ['traffic'],
+    parameters: agentJourneyParameters,
+    responses: { 200: jsonResponse('Agent request sequences with scope and capture limits.', 'AgentJourneysResponse'), 400: errorResponse('Invalid or oversized selection.'), 403: errorResponse('Agent journeys are unavailable to this principal.'), 404: errorResponse('Project or source not found.') },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/traffic/agent-journeys/{journeyId}',
+    summary: 'Read an observed agent request timeline',
+    description: 'Use the list window and selectors to keep the same scope. The ID anchors a stored event and remains resolvable after late arrivals change the head of its sequence. Requests are ordered by timestamp then event ID; same-time order is not causal. Property and verification selectors retain matching requests only. HTTP outcomes do not establish business success. Same authority, read limit, retention and coverage as the list.',
+    tags: ['traffic'],
+    parameters: [...agentJourneyParameters, { name: 'journeyId', in: 'path', required: true, description: 'Event anchor from the agent journey list.', schema: stringSchema }],
+    responses: { 200: jsonResponse('Chronological retained requests and source limitations.', 'AgentJourneyDetailResponse'), 400: errorResponse('Invalid or oversized selection.'), 403: errorResponse('Agent journeys are unavailable to this principal.'), 404: errorResponse('Project, source, or journey not found in this selection.') },
   },
   {
     method: 'get',

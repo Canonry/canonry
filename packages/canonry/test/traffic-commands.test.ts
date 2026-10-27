@@ -3,20 +3,28 @@ import os from 'node:os'
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
+import { Client } from '@modelcontextprotocol/sdk/client/index.js'
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { parse } from 'yaml'
-import { createClient, migrate, apiKeys, runs, trafficSources, rawEventSamples, projects } from '@canonry/canonry-db'
+import { agentJourneyDetailResponseSchema, agentJourneysResponseSchema } from '@canonry/canonry-contracts'
+import { createClient, migrate, apiKeys, runs, trafficSources, rawEventSamples, projects, agentJourneyEvents } from '@canonry/canonry-db'
 import { createServer } from '../src/server.js'
 import { ApiClient } from '../src/client.js'
+import { createCanonryMcpServer } from '../src/mcp/server.js'
 import { invokeCli, parseJsonOutput } from './cli-test-utils.js'
 
 describe('traffic CLI commands', () => {
   let tmpDir: string
   let origConfigDir: string | undefined
+  let origStoredOnly: string | undefined
   let client: ApiClient
   let db: ReturnType<typeof createClient>
   let close: () => Promise<void>
+  let serverUrl: string
 
   beforeEach(async () => {
+    origStoredOnly = process.env.CANONRY_STORED_ONLY
+    delete process.env.CANONRY_STORED_ONLY
     tmpDir = path.join(os.tmpdir(), `canonry-cli-traffic-${crypto.randomUUID()}`)
     fs.mkdirSync(tmpDir, { recursive: true })
     origConfigDir = process.env.CANONRY_CONFIG_DIR
@@ -56,7 +64,7 @@ describe('traffic CLI commands', () => {
 
     const addr = app.server.address()
     const port = typeof addr === 'object' && addr ? addr.port : 0
-    const serverUrl = `http://127.0.0.1:${port}`
+    serverUrl = `http://127.0.0.1:${port}`
     config.apiUrl = serverUrl
     fs.writeFileSync(configPath, JSON.stringify(config), 'utf-8')
 
@@ -73,9 +81,136 @@ describe('traffic CLI commands', () => {
 
   afterEach(async () => {
     await close()
+    vi.restoreAllMocks()
+    if (origStoredOnly === undefined) delete process.env.CANONRY_STORED_ONLY
+    else process.env.CANONRY_STORED_ONLY = origStoredOnly
     if (origConfigDir === undefined) delete process.env.CANONRY_CONFIG_DIR
     else process.env.CANONRY_CONFIG_DIR = origConfigDir
     fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  async function seedAgentRequests(mode: 'simple' | 'advanced'): Promise<string> {
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-10-21T00:00:00.000Z'))
+    const project = db.select().from(projects).all()[0]!
+    const at = '2026-10-20T12:00:00.000Z'
+    db.insert(trafficSources).values({ id: 'agent-source', projectId: project.id, sourceType: 'cloudflare', displayName: 'Edge', status: 'connected', createdAt: at, updatedAt: at }).run()
+    const common = {
+      projectId: project.id, sourceId: 'agent-source', correlationKey: 'private-correlation-key', correlationBasis: 'ip-ua',
+      agentId: 'chatgpt-user', operator: 'OpenAI', product: 'ChatGPT', verificationStatus: 'claimed_unverified',
+      host: 'example.com', latencyMs: 12, createdAt: at,
+    }
+    db.insert(agentJourneyEvents).values([
+      { ...common, id: 'agent-event-1', sourceEventId: 'raw-1', ts: at, method: 'GET', path: '/rooms', status: 200 },
+      { ...common, id: 'agent-event-2', sourceEventId: 'raw-2', ts: '2026-10-20T12:01:00.000Z', method: 'GET', path: '/api/availability', status: 200 },
+      { ...common, id: 'agent-event-3', sourceEventId: 'raw-3', ts: '2026-10-20T12:02:00.000Z', method: 'POST', path: '/api/booking', status: 409 },
+    ]).run()
+    if (mode === 'advanced') {
+      await client.publishMeasurementPlan('test-proj', {
+        expectedActiveRevision: null,
+        plan: {
+          schemaVersion: 1,
+          targets: [{
+            stableKey: 'booking', label: 'Booking', aliases: ['Booking'],
+            urls: [
+              { kind: 'exact', url: 'https://example.com/rooms', pathCase: 'sensitive' },
+              { kind: 'prefix', host: 'example.com', pathPrefix: '/api', pathCase: 'sensitive' },
+            ],
+          }],
+        },
+      })
+      // A dropped Property selector must change the response, not pass because
+      // the fixture happens to contain only matching requests.
+      db.insert(agentJourneyEvents).values({ ...common, id: 'agent-other-property', sourceEventId: 'raw-other', ts: '2026-10-20T12:03:00.000Z', method: 'GET', path: '/unrelated', status: 200 }).run()
+    }
+    return project.id
+  }
+
+  it.each(['simple', 'advanced'] as const)('preserves %s agent request evidence and uncertainty through CLI JSON, JSONL and paged text', async mode => {
+    await seedAgentRequests(mode)
+    const targetKey = mode === 'advanced' ? 'booking' : undefined
+    const query = { since: '2026-10-20', until: '2026-10-20', sourceId: 'agent-source', agentId: 'chatgpt-user', verificationStatus: 'claimed_unverified' as const, targetKey }
+    const args = ['--since', query.since, '--until', query.until, '--source', query.sourceId, '--agent', query.agentId, '--verification', query.verificationStatus]
+    if (targetKey) args.push('--target-key', targetKey)
+    const expected = await client.trafficAgentJourneys('test-proj', query)
+    const listing = await invokeCli(['--stored-only', 'traffic', 'agent-journeys', 'test-proj', ...args, '--format', 'json'])
+    expect(listing.exitCode, listing.stderr).toBeUndefined()
+    expect(parseJsonOutput(listing.stdout)).toEqual(expected)
+    expect(expected.scope).toMatchObject({ mode, targetKey: targetKey ?? null, planRevision: mode === 'advanced' ? 1 : null, attribution: mode === 'advanced' ? 'current-plan-url' : 'project' })
+    expect(expected.journeys).toHaveLength(1)
+    expect(expected.journeys[0]).toMatchObject({ requestCount: 3, errorCount: 1, correlation: 'inferred', verificationStatuses: ['claimed_unverified'] })
+    const id = expected.journeys[0]!.id
+    const detail = await client.trafficAgentJourney('test-proj', id, { ...query, limit: 1, offset: 1 })
+    const detailArgs = ['traffic', 'agent-journey', 'test-proj', id, ...args, '--limit', '1', '--offset', '1']
+    const json = await invokeCli([...detailArgs, '--format', 'json'])
+    expect(parseJsonOutput(json.stdout)).toEqual(detail)
+    expect(detail.events.map(event => event.path)).toEqual(['/api/availability'])
+    expect(json.stdout).not.toContain('private-correlation-key')
+    const text = await invokeCli(detailArgs)
+    expect(text.stdout).toContain('Inferred sequence from IP and user agent')
+    expect(text.stdout).toContain('claimed_unverified')
+    expect(text.stdout).toContain('GET  200  example.com/api/availability')
+    expect(text.stdout).toContain('More: --offset 2')
+    expect(text.stdout).toContain('do not establish task success')
+    expect(text.stdout).not.toContain('POST  409')
+    if (targetKey) {
+      expect(text.stdout).toContain('Property: booking; attribution current-plan-url, revision 1')
+      expect(text.stdout).toContain('Property booking (matched)')
+    }
+    let streamed = ''
+    const write = vi.spyOn(process.stdout, 'write').mockImplementation(chunk => { streamed += String(chunk); return true })
+    try {
+      const jsonl = await invokeCli([...detailArgs, '--format', 'jsonl'])
+      expect(jsonl.exitCode, jsonl.stderr).toBeUndefined()
+    } finally { write.mockRestore() }
+    const { events, ...context } = detail
+    expect(streamed.trim().split('\n').map(line => JSON.parse(line))).toEqual([{ ...context, event: events[0] }])
+    streamed = ''
+    const listWrite = vi.spyOn(process.stdout, 'write').mockImplementation(chunk => { streamed += String(chunk); return true })
+    try {
+      const jsonl = await invokeCli(['traffic', 'agent-journeys', 'test-proj', ...args, '--format', 'jsonl'])
+      expect(jsonl.exitCode, jsonl.stderr).toBeUndefined()
+    } finally { listWrite.mockRestore() }
+    const { journeys, ...listContext } = expected
+    expect(streamed.trim().split('\n').map(line => JSON.parse(line))).toEqual([{ ...listContext, journey: journeys[0] }])
+  })
+
+  it.each(['simple', 'advanced'] as const)('reads %s agent journeys through stored-only MCP and preserves the API project boundary', async mode => {
+    const projectId = await seedAgentRequests(mode)
+    await client.putProject('other-project', { displayName: 'Other', canonicalDomain: 'other.example', country: 'US', language: 'en' })
+    const key = `cnry_${crypto.randomBytes(16).toString('hex')}`
+    db.insert(apiKeys).values({ id: crypto.randomUUID(), name: 'agent-journey-reader', projectId, scopes: ['read'], keyHash: crypto.createHash('sha256').update(key).digest('hex'), keyPrefix: key.slice(0, 8), createdAt: new Date().toISOString() }).run()
+    const scoped = new ApiClient(serverUrl, key, { skipProbe: true })
+    const server = createCanonryMcpServer({ scope: 'stored-only', tiers: ['core', 'traffic'], clientFactory: () => scoped })
+    const mcp = new Client({ name: 'agent-journey-test', version: '1' })
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
+    await server.connect(serverTransport)
+    await mcp.connect(clientTransport)
+    try {
+      const targetKey = mode === 'advanced' ? 'booking' : undefined
+      const query = { since: '2026-10-20', until: '2026-10-20', sourceId: 'agent-source', agentId: 'chatgpt-user', verificationStatus: 'claimed_unverified' as const, targetKey }
+      const result = await mcp.callTool({ name: 'canonry_traffic_agent_journeys', arguments: { project: 'test-proj', ...query } })
+      expect(result.isError).not.toBe(true)
+      const listing = agentJourneysResponseSchema.parse(result.structuredContent)
+      expect(listing).toEqual(await scoped.trafficAgentJourneys('test-proj', query))
+      expect(listing.scope).toMatchObject({ mode, targetKey: targetKey ?? null, planRevision: mode === 'advanced' ? 1 : null, attribution: mode === 'advanced' ? 'current-plan-url' : 'project' })
+      const journeyId = listing.journeys[0]!.id
+      const detail = await mcp.callTool({ name: 'canonry_traffic_agent_journey', arguments: { project: 'test-proj', journeyId, ...query, limit: 1, offset: 2 } })
+      expect(detail.isError).not.toBe(true)
+      expect(agentJourneyDetailResponseSchema.parse(detail.structuredContent)).toEqual(await scoped.trafficAgentJourney('test-proj', journeyId, { ...query, limit: 1, offset: 2 }))
+      const forbidden = await mcp.callTool({ name: 'canonry_traffic_agent_journeys', arguments: { project: 'other-project', ...query } })
+      expect(forbidden.isError).toBe(true)
+      expect(forbidden.structuredContent).toMatchObject({ error: { code: 'FORBIDDEN' } })
+    } finally { await mcp.close(); await server.close() }
+  })
+
+  it.each([
+    [['agent-journeys', 'test-proj', '--verification', 'probably']],
+    [['agent-journeys', 'test-proj', '--limit', '201']],
+    [['agent-journey', 'test-proj']],
+  ])('rejects invalid agent journey arguments %j', async args => {
+    const result = await invokeCli(['traffic', ...args, '--format', 'json'])
+    expect(result.exitCode).toBe(1)
+    expect(parseJsonOutput(result.stderr)).toMatchObject({ error: { code: 'CLI_USAGE_ERROR' } })
   })
 
   it('reads sample JSON and JSONL from the stored API with exact timestamps and no private hash', async () => {

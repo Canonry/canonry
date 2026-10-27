@@ -12861,15 +12861,15 @@ export type OnboardingTelemetryEvent = {
 export type UiTelemetryEvent = {
     eventId: string;
     uiSessionId: string;
-    page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/seo-data' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/agent-setup' | '/backlinks' | '/traffic' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
+    page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/seo-data' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/agent-setup' | '/backlinks' | '/traffic' | '/journeys' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
     event: 'ui.page_viewed';
     tab?: 'overview' | 'portfolio' | 'search-console' | 'seo-data' | 'conversions' | 'local' | 'discovery' | 'queries' | 'properties' | 'report' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings' | 'other';
 } | {
     eventId: string;
     uiSessionId: string;
-    page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/seo-data' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/agent-setup' | '/backlinks' | '/traffic' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
+    page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/seo-data' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/agent-setup' | '/backlinks' | '/traffic' | '/journeys' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
     event: 'ui.action';
-    action: 'sweep.launch' | 'sweep.cancel' | 'site_audit.launch' | 'project.create' | 'project.update' | 'project.delete' | 'query.add' | 'query.delete' | 'query.generate' | 'competitor.save' | 'competitor.delete' | 'schedule.save' | 'schedule.delete' | 'provider.save' | 'settings.save' | 'integration.connect_started' | 'integration.connect' | 'integration.disconnect' | 'traffic.sync' | 'seo.refresh' | 'seo.profile.save' | 'seo.cancel' | 'notification.save' | 'notification.test' | 'measurement_plan.publish' | 'property_names.save' | 'discovery.run' | 'api_key.create' | 'api_key.revoke' | 'export.download' | 'report.download' | 'aero.open' | 'aero.send' | 'agent_setup.copy' | 'agent_setup.verify_copy' | 'filter.change' | 'search.submit';
+    action: 'sweep.launch' | 'sweep.cancel' | 'site_audit.launch' | 'project.create' | 'project.update' | 'project.delete' | 'query.add' | 'query.delete' | 'query.generate' | 'competitor.save' | 'competitor.delete' | 'schedule.save' | 'schedule.delete' | 'provider.save' | 'settings.save' | 'integration.connect_started' | 'integration.connect' | 'integration.disconnect' | 'traffic.sync' | 'journeys.visitor_open' | 'journeys.agent_open' | 'seo.refresh' | 'seo.profile.save' | 'seo.cancel' | 'notification.save' | 'notification.test' | 'measurement_plan.publish' | 'property_names.save' | 'discovery.run' | 'api_key.create' | 'api_key.revoke' | 'export.download' | 'report.download' | 'aero.open' | 'aero.send' | 'agent_setup.copy' | 'agent_setup.verify_copy' | 'filter.change' | 'search.submit';
     tab?: 'overview' | 'portfolio' | 'search-console' | 'seo-data' | 'conversions' | 'local' | 'discovery' | 'queries' | 'properties' | 'report' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings' | 'other';
     integration?: 'google' | 'gsc' | 'ga' | 'bing' | 'gbp' | 'wordpress' | 'openai_ads' | 'google_ads' | 'gtm' | 'traffic_cloudflare' | 'traffic_vercel' | 'traffic_cloud_run' | 'traffic_wordpress';
     format?: 'csv' | 'json' | 'html';
@@ -12877,7 +12877,7 @@ export type UiTelemetryEvent = {
 } | {
     eventId: string;
     uiSessionId: string;
-    page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/seo-data' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/agent-setup' | '/backlinks' | '/traffic' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
+    page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/seo-data' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/agent-setup' | '/backlinks' | '/traffic' | '/journeys' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
     event: 'ui.error';
     kind: 'render' | 'unhandled' | 'api';
     tab?: 'overview' | 'portfolio' | 'search-console' | 'seo-data' | 'conversions' | 'local' | 'discovery' | 'queries' | 'properties' | 'report' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings' | 'other';
@@ -12890,7 +12890,7 @@ export type UiTelemetryEvent = {
 } | {
     eventId: string;
     uiSessionId: string;
-    page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/seo-data' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/agent-setup' | '/backlinks' | '/traffic' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
+    page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/seo-data' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/agent-setup' | '/backlinks' | '/traffic' | '/journeys' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
     event: 'ui.vitals';
     metric: 'LCP' | 'INP' | 'CLS' | 'FCP' | 'TTFB';
     rating: 'good' | 'needs-improvement' | 'poor';
@@ -17482,6 +17482,142 @@ export type JourneysResponse = {
             requestCount: number;
             pageCount: number;
         }>;
+    }>;
+};
+
+export type AgentJourneysResponse = {
+    scope: {
+        project: string;
+        sourceId: string | null;
+        agentId: string | null;
+        verificationStatus: 'verified' | 'claimed_unverified' | 'unknown_ai_like' | null;
+        targetKey: string | null;
+        mode: 'simple' | 'advanced';
+        planRevision: number | null;
+        attribution: 'project' | 'current-plan-url';
+        unavailableDimensions: Array<'market' | 'query' | 'query-class' | 'model' | 'task'>;
+    };
+    windowStart: string;
+    windowEnd: string;
+    properties: Array<{
+        key: string;
+        label: string;
+    }>;
+    coverage: {
+        recordingEnabled: boolean;
+        retentionDays: number;
+        idleMinutes: number;
+        dailyEventLimit: number;
+        windowBounded: true;
+        cappedSourceDays: Array<{
+            sourceId: string;
+            day: string;
+        }>;
+        sources: Array<{
+            sourceId: string;
+            sourceType: 'cloud-run' | 'wordpress' | 'cloudflare' | 'vercel' | 'generic-log';
+            label: string;
+            limitations: Array<string>;
+        }>;
+        limitations: Array<string>;
+    };
+    observedRequests: number;
+    totalJourneys: number;
+    limit: number;
+    offset: number;
+    journeys: Array<{
+        id: string;
+        sourceId: string;
+        agentId: string;
+        operator: string;
+        product: string;
+        correlationBasis: 'ip-ua' | 'unlinked';
+        correlation: 'inferred' | 'unlinked';
+        startedAt: string;
+        endedAt: string;
+        firstHost: string | null;
+        firstPath: string;
+        lastPath: string;
+        requestCount: number;
+        errorCount: number;
+        verificationStatuses: Array<'verified' | 'claimed_unverified' | 'unknown_ai_like'>;
+        targetKeys: Array<string>;
+    }>;
+};
+
+export type AgentJourneyDetailResponse = {
+    scope: {
+        project: string;
+        sourceId: string | null;
+        agentId: string | null;
+        verificationStatus: 'verified' | 'claimed_unverified' | 'unknown_ai_like' | null;
+        targetKey: string | null;
+        mode: 'simple' | 'advanced';
+        planRevision: number | null;
+        attribution: 'project' | 'current-plan-url';
+        unavailableDimensions: Array<'market' | 'query' | 'query-class' | 'model' | 'task'>;
+    };
+    windowStart: string;
+    windowEnd: string;
+    properties: Array<{
+        key: string;
+        label: string;
+    }>;
+    coverage: {
+        recordingEnabled: boolean;
+        retentionDays: number;
+        idleMinutes: number;
+        dailyEventLimit: number;
+        windowBounded: true;
+        cappedSourceDays: Array<{
+            sourceId: string;
+            day: string;
+        }>;
+        sources: Array<{
+            sourceId: string;
+            sourceType: 'cloud-run' | 'wordpress' | 'cloudflare' | 'vercel' | 'generic-log';
+            label: string;
+            limitations: Array<string>;
+        }>;
+        limitations: Array<string>;
+    };
+    journey: {
+        id: string;
+        sourceId: string;
+        agentId: string;
+        operator: string;
+        product: string;
+        correlationBasis: 'ip-ua' | 'unlinked';
+        correlation: 'inferred' | 'unlinked';
+        startedAt: string;
+        endedAt: string;
+        firstHost: string | null;
+        firstPath: string;
+        lastPath: string;
+        requestCount: number;
+        errorCount: number;
+        verificationStatuses: Array<'verified' | 'claimed_unverified' | 'unknown_ai_like'>;
+        targetKeys: Array<string>;
+    };
+    totalEvents: number;
+    limit: number;
+    offset: number;
+    events: Array<{
+        id: string;
+        ts: string;
+        host: string | null;
+        path: string;
+        method: string | null;
+        status: number | null;
+        latencyMs: number | null;
+        verificationStatus: 'verified' | 'claimed_unverified' | 'unknown_ai_like';
+        verificationManifest: {
+            id: string;
+            source: string;
+            version: string;
+        } | null;
+        targetKey: string | null;
+        attribution: 'matched' | 'unmatched' | 'ambiguous' | 'unknown-host' | 'redacted' | 'not-configured';
     }>;
 };
 
@@ -34893,6 +35029,152 @@ export type GetApiV1ProjectsByNameTrafficSamplesResponses = {
 };
 
 export type GetApiV1ProjectsByNameTrafficSamplesResponse = GetApiV1ProjectsByNameTrafficSamplesResponses[keyof GetApiV1ProjectsByNameTrafficSamplesResponses];
+
+export type GetApiV1ProjectsByNameTrafficAgentJourneysData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Inclusive timestamp or UTC date. Defaults to 24 hours before until; maximum window 31 days.
+         */
+        since?: string;
+        /**
+         * Inclusive timestamp or UTC date (end of day). Defaults to now. Pin both bounds from the list when opening detail.
+         */
+        until?: string;
+        /**
+         * Project-owned source. Sequences never link across sources.
+         */
+        sourceId?: string;
+        /**
+         * Classified user-triggered agent ID.
+         */
+        agentId?: string;
+        /**
+         * Keep requests with this operator verification status; does not verify session continuity.
+         */
+        verificationStatus?: 'verified' | 'claimed_unverified' | 'unknown_ai_like';
+        /**
+         * Keep requests attributed to this Property using current-plan URL matchers. Market, query, and model attribution are unavailable.
+         */
+        targetKey?: string;
+        /**
+         * Page size: sequences on list, requests on detail. Defaults to 50 and 100 respectively.
+         */
+        limit?: number;
+        /**
+         * Items to skip, default 0.
+         */
+        offset?: number;
+    };
+    url: '/api/v1/projects/{name}/traffic/agent-journeys';
+};
+
+export type GetApiV1ProjectsByNameTrafficAgentJourneysErrors = {
+    /**
+     * Invalid or oversized selection.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Agent journeys are unavailable to this principal.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project or source not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameTrafficAgentJourneysError = GetApiV1ProjectsByNameTrafficAgentJourneysErrors[keyof GetApiV1ProjectsByNameTrafficAgentJourneysErrors];
+
+export type GetApiV1ProjectsByNameTrafficAgentJourneysResponses = {
+    /**
+     * Agent request sequences with scope and capture limits.
+     */
+    200: AgentJourneysResponse;
+};
+
+export type GetApiV1ProjectsByNameTrafficAgentJourneysResponse = GetApiV1ProjectsByNameTrafficAgentJourneysResponses[keyof GetApiV1ProjectsByNameTrafficAgentJourneysResponses];
+
+export type GetApiV1ProjectsByNameTrafficAgentJourneysByJourneyIdData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Event anchor from the agent journey list.
+         */
+        journeyId: string;
+    };
+    query?: {
+        /**
+         * Inclusive timestamp or UTC date. Defaults to 24 hours before until; maximum window 31 days.
+         */
+        since?: string;
+        /**
+         * Inclusive timestamp or UTC date (end of day). Defaults to now. Pin both bounds from the list when opening detail.
+         */
+        until?: string;
+        /**
+         * Project-owned source. Sequences never link across sources.
+         */
+        sourceId?: string;
+        /**
+         * Classified user-triggered agent ID.
+         */
+        agentId?: string;
+        /**
+         * Keep requests with this operator verification status; does not verify session continuity.
+         */
+        verificationStatus?: 'verified' | 'claimed_unverified' | 'unknown_ai_like';
+        /**
+         * Keep requests attributed to this Property using current-plan URL matchers. Market, query, and model attribution are unavailable.
+         */
+        targetKey?: string;
+        /**
+         * Page size: sequences on list, requests on detail. Defaults to 50 and 100 respectively.
+         */
+        limit?: number;
+        /**
+         * Items to skip, default 0.
+         */
+        offset?: number;
+    };
+    url: '/api/v1/projects/{name}/traffic/agent-journeys/{journeyId}';
+};
+
+export type GetApiV1ProjectsByNameTrafficAgentJourneysByJourneyIdErrors = {
+    /**
+     * Invalid or oversized selection.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Agent journeys are unavailable to this principal.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project, source, or journey not found in this selection.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameTrafficAgentJourneysByJourneyIdError = GetApiV1ProjectsByNameTrafficAgentJourneysByJourneyIdErrors[keyof GetApiV1ProjectsByNameTrafficAgentJourneysByJourneyIdErrors];
+
+export type GetApiV1ProjectsByNameTrafficAgentJourneysByJourneyIdResponses = {
+    /**
+     * Chronological retained requests and source limitations.
+     */
+    200: AgentJourneyDetailResponse;
+};
+
+export type GetApiV1ProjectsByNameTrafficAgentJourneysByJourneyIdResponse = GetApiV1ProjectsByNameTrafficAgentJourneysByJourneyIdResponses[keyof GetApiV1ProjectsByNameTrafficAgentJourneysByJourneyIdResponses];
 
 export type GetApiV1ProjectsByNameJourneysSummaryData = {
     body?: never;

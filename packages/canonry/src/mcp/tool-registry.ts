@@ -1,4 +1,4 @@
-import { journeyDetailQuerySchema, journeySummaryQuerySchema, journeysQuerySchema, trafficSamplesQuerySchema, gaAcquisitionQuerySchema, auditHistoryQuerySchema, visibilityCompareSelectionSchema, reportMonthSchema, referralAssessmentQuerySchema, instanceStatusDtoSchema, maxOperationAccess, operationAccess, OperationAccesses, type OperationAccess } from '@canonry/canonry-contracts'
+import { agentJourneysQuerySchema, journeyDetailQuerySchema, journeySummaryQuerySchema, journeysQuerySchema, trafficSamplesQuerySchema, gaAcquisitionQuerySchema, auditHistoryQuerySchema, visibilityCompareSelectionSchema, reportMonthSchema, referralAssessmentQuerySchema, instanceStatusDtoSchema, maxOperationAccess, operationAccess, OperationAccesses, type OperationAccess } from '@canonry/canonry-contracts'
 
 import {
   sentimentSelectionSchema, sentimentEvidenceRequestSchema, sentimentCompareRequestSchema, sentimentSettingsUpdateSchema,
@@ -2878,6 +2878,22 @@ const rawCanonryMcpTools = [
     access: 'read', tier: 'traffic', inputSchema: trafficSamplesQuerySchema.extend({ project: projectNameSchema }), annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/traffic/samples'],
     handler: (client, input) => { const { project, ...query } = input; return client.trafficListSamples(project, query) },
+  }),
+  defineTool({
+    name: 'canonry_traffic_agent_journeys',
+    title: 'List agent journeys',
+    description: 'Read stored user-triggered agent request sequences with operator verification, inferred or unlinked correlation, and source/retention/cap limits. IP and user-agent grouping does not prove a single user task. Simple and Advanced projects use the same evidence; targetKey filters URL matches against the current plan, not historical task intent. No provider calls or writes.',
+    access: 'read', tier: 'traffic', inputSchema: agentJourneysQuerySchema.extend({ project: projectNameSchema }), annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/traffic/agent-journeys'],
+    handler: (client, input) => { const { project, ...query } = input; return client.trafficAgentJourneys(project, query) },
+  }),
+  defineTool({
+    name: 'canonry_traffic_agent_journey',
+    title: 'Read an agent journey',
+    description: 'Read the ordered request timeline for an id from canonry_traffic_agent_journeys. Preserve the list window and selectors. Requests include time, host, masked path, method, status, latency, verification and Property attribution. HTTP responses do not prove business outcomes; no prompt, private reasoning or off-site browsing is recorded. No provider calls or writes.',
+    access: 'read', tier: 'traffic', inputSchema: agentJourneysQuerySchema.extend({ project: projectNameSchema, journeyId: z.string().min(1) }), annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/traffic/agent-journeys/{journeyId}'],
+    handler: (client, input) => { const { project, journeyId, ...query } = input; return client.trafficAgentJourney(project, journeyId, query) },
   }),
   defineTool({
     name: 'canonry_journeys_summary',

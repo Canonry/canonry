@@ -138,6 +138,7 @@ import {
 } from '@canonry/canonry-contracts'
 import { auditFromRequest, resolveProject, syncRunTrigger, writeAuditLog } from './helpers.js'
 import { enforceJourneyRetention, recordJourneyBatch } from './journeys.js'
+import { recordAgentJourneyBatch } from './agent-journey-capture.js'
 import type { ScheduledSyncClaim } from './helpers.js'
 import { connectionRoute, routeOutcomeFailure, webhookTargetRefusalReason, type ConnectionAttempt, type ConnectionSubject } from './connection-telemetry.js'
 import { createGuardedFetch, EgressFailedError, EgressRefusedError } from './guarded-fetch.js'
@@ -1714,6 +1715,10 @@ async function runBackfillTaskHoldingLease(options: RunBackfillTaskOptions, sign
       // so a backfill over an already-synced window adds nothing twice.
       recordJourneyBatch(tx, { projectId: project.id, sourceId: sourceRow.id, events: allEvents, secret: journeyKeySecret, now: finishedAt }, {
         onError: () => { app.log.error({ sourceId: sourceRow.id }, 'AI visitor journey write failed during traffic backfill') },
+        outerActive: () => app.db.$client.inTransaction,
+      })
+      recordAgentJourneyBatch(tx, { projectId: project.id, sourceId: sourceRow.id, events: allEvents, secret: journeyKeySecret, now: finishedAt }, {
+        onError: () => { app.log.error({ sourceId: sourceRow.id }, 'Agent journey capture failed during traffic backfill') },
         outerActive: () => app.db.$client.inTransaction,
       })
 
@@ -4179,6 +4184,10 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       // AI visitor journeys from the same deduplicated requests, in the same transaction.
       recordJourneyBatch(tx, { projectId: project.id, sourceId: sourceRow.id, events: dedupedEvents, secret: opts.journeyKeySecret, now: finishedAt }, {
         onError: () => { app.log.error({ sourceId: sourceRow.id }, 'AI visitor journey write failed during traffic sync') },
+        outerActive: () => app.db.$client.inTransaction,
+      })
+      recordAgentJourneyBatch(tx, { projectId: project.id, sourceId: sourceRow.id, events: dedupedEvents, secret: opts.journeyKeySecret, now: finishedAt }, {
+        onError: () => { app.log.error({ sourceId: sourceRow.id }, 'Agent journey capture failed during traffic sync') },
         outerActive: () => app.db.$client.inTransaction,
       })
 

@@ -122,6 +122,13 @@ The longer-term direction is to migrate the remaining JSON columns to `mode: 'js
 
 ### Traffic event receipts
 
+Migration 197 adds `agent_journey_events` and `agent_journey_capture_days` for
+user-triggered agent requests. Events are unique by project/source/source event
+and contain no raw IP or user agent. `correlation_key` is a private HMAC, never
+an API field or a verified session identity. Daily source counters enforce the
+capture cap atomically; replayed events consume no capacity. Both tables cascade
+with the source/project and are pruned after 30 days by the traffic retention sweep.
+
 Traffic delivery adapters use `traffic_event_receipts` for durable idempotency.
 Claim `(source_id, event_id)` in the same transaction as rollup writes and
 acknowledge an upstream buffer only after commit. Set `expires_at` to cover the

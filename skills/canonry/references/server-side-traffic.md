@@ -1203,7 +1203,39 @@ request coverage. The `traffic.source.cache-blindspot` doctor check is a static
 warning; it does not request or impersonate traffic against the public origin,
 and it never sends a `health.degraded` alert.
 
+### Agent request journeys
+
+In the dashboard, open **Journeys** and select **Agent journeys**. The sibling
+**Visitor journeys** tab shows browser visitors who arrived through AI, return
+metrics, and their retained visit/request histories. The selected project and
+tab stay in the page URL. Traffic sources remains the connection-management page.
+
+`cnry traffic agent-journeys <project>` lists recorded user-triggered agent
+request sequences. Open one with `cnry traffic agent-journey <project> <id>`;
+keep the list's window, source, agent, verification and Property filters. MCP
+equivalents are `canonry_traffic_agent_journeys` and
+`canonry_traffic_agent_journey` in the traffic toolkit.
+
+Each timeline preserves time, hostname, masked path, method, status, available
+latency, operator verification and current-plan Property attribution. IP/UA
+grouping is inferred and can combine different tasks on shared infrastructure;
+without an IP the requests stay unlinked. Neither grouping nor operator
+verification identifies a person or establishes their task. Preserve the
+response's retention, daily-cap and source limitations; missing requests do
+not prove the agent stopped. HTTP status alone does not prove business success.
+Simple and Advanced projects use the same stored instrument. A Property filter
+uses current-plan URL coverage with its revision; no market, query class, model
+or task intent is inferred. No site snippet or provider call is required to
+read stored events. New recording cannot recover discarded historical samples.
+
 ### AI visitor journeys
+
+The dashboard's **Journeys → Visitor journeys** tab uses the same summary,
+list and detail reads as the CLI. Its period selects visitors by first AI
+arrival; return behavior can include later retained visits beyond that period.
+Engine and returned-status controls filter the list, not the summary. An expanded
+visitor shows retained history. These are approximate visitor keys, not unique
+people, and the scope is project-wide in Simple and Advanced portfolios.
 
 Every sync, backfill and push also follows visitors who arrived from an AI
 engine: their later visits, how they came back (search, direct, social, paid,

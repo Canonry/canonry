@@ -39,6 +39,7 @@ Every API operation carries `x-canonry-access` metadata and responses expose the
 | `src/ads.ts` / `src/ads-live-delivery.ts` | OpenAI ads (ChatGPT ads) routes; pure live-vs-stored comparison engine |
 | `src/traffic.ts` / `src/ai-referral-status.ts` | Server-side traffic ingestion routes; shared `ai_referral_events_hourly` read conditions |
 | `src/traffic-samples.ts` | Stored diagnostic sample rows with project/source scope, bounded paging, and viewer/embed restrictions. |
+| `src/agent-journey-capture.ts` / `src/agent-journeys.ts` | Retained user-triggered agent requests and inferred sequences; bounded list/detail reads with independent operator verification and current-plan Property attribution. |
 | `src/journeys.ts` | AI visitor journeys: `recordJourneyBatch` (a savepoint inside every traffic write: pull sync, backfill and push) around `persistJourneyBatch`, `enforceJourneyRetention`, `journeyVisitorKey`, and the stored `/journeys`, `/journeys/summary` and `/journeys/:visitorKey` reads (see "AI visitor journeys"). |
 | `src/traffic-analytics.ts` | Full-window stored crawler, user-fetch and referral aggregates, exposed through `/traffic/analytics`; detail-row caps do not limit totals, operator/path/product breakdowns or history. `period` is read-selection identity, not execution tuning. |
 | `src/referral-assessment.ts` | DB-only project/source burst diagnostic. Raw headlines unchanged; grouped candidate counts and separate adjusted estimate, with GA quotient coverage limits. |
@@ -906,6 +907,18 @@ retention writes, or rollup changes belong in this route.
 
 ### AI visitor journeys
 
+`agent-journeys.ts` separately exposes user-triggered agent request sequences.
+It groups source-bound correlation keys inside the selected window before filtering
+Property/verification; idle gaps of 30 minutes split groups. No-IP requests remain
+independent. List/detail are administrator-session reads, allowed to equivalent
+project read keys but excluded from embeds. They never call providers or write.
+Reads refuse more than 20,000 selected source/agent events rather than truncate;
+list/detail counts describe retained requests, with source caps and gaps disclosed.
+Detail ids anchor events, so late arrivals do not invalidate an existing anchor.
+Advanced URL attribution uses `resolveMeasurementTarget` against the current plan,
+never guesses markets, query classes or models, and leaves redacted/ambiguous URLs
+unattributed. Keep source options available across source filters for the UI.
+
 `journeys.ts` follows visitors who arrived from an AI engine. The pure core
 (extract, sessionize) lives in `@canonry/canonry-integration-traffic`; this file
 keys, stores and reads. Rules:
@@ -938,6 +951,21 @@ keys, stores and reads. Rules:
   as one unit.
 - Reads require admin session authority, never allow embed access, and make no
   provider call.
+
+### Agent journey capture
+
+`agent-journey-capture.ts` stores user-triggered agent requests separately from
+human AI visitor journeys. Every traffic writer invokes `recordAgentJourneyBatch`
+beside `recordJourneyBatch`, using the same normalized batch and install secret.
+Its savepoint rolls back capture alone on failure, except when SQLite has already
+lost the outer transaction. A source event is retained at most once; the source's
+UTC-day counter permits 10,000 events and marks truncation only when a new event
+would exceed that cap. Missing secret means no capture. Missing IP means an
+event-specific unlinked correlation key, never a UA cohort. Raw IP/UA never enter
+the tables or response DTOs. Provider event IDs may contain private URLs; dedupe
+lookup and storage use a domain-separated HMAC scoped to the project and source,
+with raw IDs kept transient. `enforceJourneyRetention` also sweeps the dedicated
+30-day agent event and daily-counter retention.
 
 ### Stored acquisition rows
 

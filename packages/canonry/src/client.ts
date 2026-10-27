@@ -1,5 +1,5 @@
-import type { JourneyDetailQuery, JourneyDetailResponse, JourneySummaryQuery, JourneySummaryResponse, JourneysQuery, JourneysResponse } from '@canonry/canonry-contracts'
-import { getApiV1ProjectsByNameJourneys, getApiV1ProjectsByNameJourneysByVisitorKey, getApiV1ProjectsByNameJourneysSummary } from '@canonry/canonry-api-client'
+import type { AgentJourneyDetailResponse, AgentJourneysQuery, AgentJourneysResponse, JourneyDetailQuery, JourneyDetailResponse, JourneySummaryQuery, JourneySummaryResponse, JourneysQuery, JourneysResponse } from '@canonry/canonry-contracts'
+import { getApiV1ProjectsByNameTrafficAgentJourneys, getApiV1ProjectsByNameTrafficAgentJourneysByJourneyId, getApiV1ProjectsByNameJourneys, getApiV1ProjectsByNameJourneysByVisitorKey, getApiV1ProjectsByNameJourneysSummary } from '@canonry/canonry-api-client'
 
 import { getApiV1ProjectsByNameGbpLocalPostAttempt } from '@canonry/canonry-api-client'
 import type { GbpLocalPostList, GbpLocalPostDto, GbpLocalPostCreate, GbpLocalPostAttempt, GbpLiveReviews } from '@canonry/canonry-contracts'
@@ -4144,6 +4144,14 @@ export class ApiClient {
 
   async trafficListSamples(project: string, query?: TrafficSamplesQuery): Promise<TrafficSamplesResponse> {
     return this.invoke<TrafficSamplesResponse>(() => getApiV1ProjectsByNameTrafficSamples({ client: this.heyClient, path: { name: project }, query }))
+  }
+
+  async trafficAgentJourneys(project: string, query?: AgentJourneysQuery): Promise<AgentJourneysResponse> {
+    return this.invoke<AgentJourneysResponse>(() => getApiV1ProjectsByNameTrafficAgentJourneys({ client: this.heyClient, path: { name: project }, query }))
+  }
+
+  async trafficAgentJourney(project: string, journeyId: string, query?: AgentJourneysQuery): Promise<AgentJourneyDetailResponse> {
+    return this.invoke<AgentJourneyDetailResponse>(() => getApiV1ProjectsByNameTrafficAgentJourneysByJourneyId({ client: this.heyClient, path: { name: project, journeyId }, query }))
   }
 
   async journeysSummary(project: string, query?: JourneySummaryQuery): Promise<JourneySummaryResponse> {
