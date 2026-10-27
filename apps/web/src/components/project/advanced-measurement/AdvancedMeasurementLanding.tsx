@@ -75,7 +75,7 @@ export function AdvancedMeasurementLanding({
       {reportState === 'loading' ? (
         <div className="h-32 animate-pulse rounded-md bg-surface-subtle" aria-label="Loading advanced measurement report" />
       ) : reportState === 'error' && !report ? (
-        <div role="alert" className="border-y border-negative-800/40 bg-negative-950/20 py-4 text-sm text-negative">
+        <div role="alert" className="border-y border-negative-800/40 bg-negative-950/20 py-4 text-label-14 text-negative">
           <p>Could not load the advanced measurement report.</p>
           {onRetryReport ? <Button className="mt-3" type="button" size="sm" variant="outline" onClick={onRetryReport}>Retry report</Button> : null}
         </div>
@@ -98,7 +98,7 @@ export function AdvancedMeasurementLanding({
           viewSearch={viewSearch}
         />
       ) : (
-        <div role="status" className="border-y border-caution-800/40 bg-caution-950/20 py-4 text-sm text-secondary">
+        <div role="status" className="border-y border-caution-800/40 bg-caution-950/20 py-4 text-label-14 text-secondary">
           No advanced measurement report is available yet.
         </div>
       )}

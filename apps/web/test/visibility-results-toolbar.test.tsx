@@ -8,6 +8,7 @@ import type { VisibilityReportResponse } from '@canonry/canonry-contracts'
 import { parseVisibilitySelection, patchVisibilitySelection } from '../src/lib/measurement-view-url.js'
 import { VISIBILITY_TOOLBAR_COPY, VisibilityOverview, VisibilityResultsToolbar } from '../src/components/project/VisibilityTrendSection.js'
 import { jsonResponse, mockFetch } from './mock-fetch.js'
+import { compileAppStyles, compiledElementProperty, cssLengthPx, parseCompiledCss } from './compiled-app-css.js'
 
 afterEach(cleanup)
 
@@ -443,23 +444,25 @@ describe('URL-bound toolbar controls', () => {
     expect(document.activeElement).toBe(filtersButton())
   })
 
-  it('sizes toolbar buttons and tokens at 44px with 14px text, never 12px text or pills', () => {
+  it('uses 36px toolbar buttons with 14px text and 44px touch targets, keeping filter tokens rectangular', async () => {
     renderToolbar(FILTERED, toolbarReport(), { onManageQueries: () => {} })
     fireEvent.click(filtersButton())
-    const classes = (element: Element) => element.className.split(/\s+/)
     const buttons = [filtersButton(), ...filterTokens(), screen.getByRole('button', { name: 'Clear filters' }), screen.getByRole('button', { name: 'Manage queries' })]
+    const queryType = screen.getByRole('combobox', { name: 'Query type' })
+    const rules = parseCompiledCss(await compileAppStyles([...buttons, queryType].flatMap(element => [...element.classList])))
     expect(buttons).toHaveLength(8)
     for (const button of buttons) {
-      expect(classes(button)).toEqual(expect.arrayContaining(['min-h-11', 'text-sm']))
-      expect(classes(button)).not.toContain('text-xs')
+      expect(cssLengthPx(compiledElementProperty(rules, button, 'height')!, rules)).toBe(36)
+      expect(compiledElementProperty(rules, button, 'min-height')).toBeUndefined()
+      expect(cssLengthPx(compiledElementProperty(rules, button, 'min-height', '@media (pointer: coarse)')!, rules)).toBe(44)
+      expect(cssLengthPx(compiledElementProperty(rules, button, 'font-size')!, rules)).toBe(14)
     }
     for (const token of filterTokens()) {
-      // Default Button size, rectangular, and the token rule that caps its width.
-      expect(classes(token)).toEqual(expect.arrayContaining(['visibility-filter-token', 'rounded-md', 'h-10', 'md:h-9', 'px-4']))
-      expect(classes(token)).not.toContain('rounded-full')
-      expect(classes(token)).not.toContain('h-9')
+      expect(compiledElementProperty(rules, token, 'border-radius')).toBe('var(--radius-md)')
+      expect(compiledElementProperty(rules, token, 'max-width')).toBe('100%')
     }
-    expect(classes(screen.getByRole('combobox', { name: 'Query type' }))).toEqual(expect.arrayContaining(['min-h-11', 'text-sm']))
+    expect(cssLengthPx(compiledElementProperty(rules, queryType, 'min-height')!, rules)).toBe(44)
+    expect(cssLengthPx(compiledElementProperty(rules, queryType, 'font-size')!, rules)).toBe(14)
   })
 
   it('lets both toolbar groups shrink so a phone-width row wraps instead of widening the page', () => {

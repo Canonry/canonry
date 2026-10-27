@@ -422,7 +422,7 @@ function BingSection({
   if (loading) {
     return (
       <Card className="surface-card">
-        <div className="text-sm text-secondary">Loading Bing data...</div>
+        <div className="text-label-14 text-secondary">Loading Bing data...</div>
       </Card>
     )
   }
@@ -438,7 +438,7 @@ function BingSection({
             </div>
             <ToneBadge tone="caution">Not connected</ToneBadge>
           </div>
-          <p className="text-sm text-neutral">Bing Webmaster Tools is not connected for this project.</p>
+          <p className="text-copy-14 text-neutral">Bing Webmaster Tools is not connected for this project.</p>
         </Card>
       )
     }
@@ -451,16 +451,16 @@ function BingSection({
           </div>
           <ToneBadge tone="caution">Not connected</ToneBadge>
         </div>
-        <p className="text-sm text-neutral">
+        <p className="text-copy-14 text-neutral">
           Connect Bing Webmaster Tools to inspect URLs, monitor index coverage, and submit pages for indexing.
         </p>
         <div className="mt-3">
-          <label className="text-xs text-muted" htmlFor="bing-api-key">API Key</label>
+          <label className="text-label-12 text-muted" htmlFor="bing-api-key">API Key</label>
           <div className="flex items-center gap-2 mt-1">
             <input
               id="bing-api-key"
               type="password"
-              className="flex-1 rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
+              className="flex-1 rounded border border-strong bg-transparent px-2 py-1.5 text-label-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none"
               placeholder="Bing Webmaster Tools API key"
               value={apiKeyInput}
               onChange={(e) => setApiKeyInput(e.target.value)}
@@ -470,7 +470,7 @@ function BingSection({
               Connect
             </WriteButton>
           </div>
-          <p className="mt-1 text-sm text-secondary">
+          <p className="mt-1 text-copy-14 text-secondary">
             Get your API key from{' '}
             <a
               href="https://www.bing.com/webmasters/"
@@ -482,7 +482,7 @@ function BingSection({
             </a>
           </p>
         </div>
-        {error && <p className="mt-3 text-xs text-negative-400">{error}</p>}
+        {error && <p className="mt-3 text-copy-13 text-negative-400">{error}</p>}
       </Card>
     )
   }
@@ -501,32 +501,32 @@ function BingSection({
           </div>
         </div>
         <div className="space-y-3">
-          <div className="rounded-lg border border-default bg-surface px-4 py-3">
+          <div className="material-base px-4 py-3">
             <div className="flex items-center gap-3">
               <span className="h-2 w-2 rounded-full bg-positive-500" />
-              <span className="text-sm text-strong">Authorized for this project domain</span>
-              <span className="text-xs text-muted">{connection.domain}</span>
+              <span className="text-label-14 text-strong">Authorized for this project domain</span>
+              <span className="text-label-12 text-muted">{connection.domain}</span>
             </div>
-            <p className="mt-2 text-xs text-muted">
+            <p className="mt-2 text-copy-13 text-muted">
               The API key is connected, but no Bing site is selected yet. Pick the verified site that should receive inspections and indexing requests.
             </p>
           </div>
           <div className="grid gap-3 lg:grid-cols-2">
-            <div className="rounded-lg border border-default bg-surface-subtle p-3">
-              <p className="text-xs uppercase tracking-wide text-muted">Registered domain</p>
-              <p className="mt-1 text-sm text-strong">{connection.domain}</p>
+            <div className="material-base p-3">
+              <p className="text-label-12 normal-case text-muted">Registered domain</p>
+              <p className="mt-1 text-copy-14 text-strong">{connection.domain}</p>
             </div>
-            <div className="rounded-lg border border-default bg-surface-subtle p-3">
-              <p className="text-xs uppercase tracking-wide text-muted">Last auth update</p>
-              <p className="mt-1 text-sm text-strong">{connection.updatedAt ? formatTimestamp(connection.updatedAt) : '\u2014'}</p>
+            <div className="material-base p-3">
+              <p className="text-label-12 normal-case text-muted">Last auth update</p>
+              <p className="mt-1 text-copy-14 text-strong">{connection.updatedAt ? formatTimestamp(connection.updatedAt) : '\u2014'}</p>
             </div>
           </div>
-          <div className="rounded-lg border border-default bg-surface-subtle p-3">
-            <p className="text-xs uppercase tracking-wide text-muted">Select site</p>
+          <div className="material-base p-3">
+            <p className="text-label-12 normal-case text-muted">Select site</p>
             {sites.length > 0 ? (
               <div className="mt-3 flex flex-col gap-2 lg:flex-row">
                 <select
-                  className="flex-1 rounded border border-strong bg-bg-elevated px-2 py-1.5 text-sm text-strong focus:border-mono-500 focus:outline-none"
+                  className="flex-1 rounded border border-strong bg-bg-elevated px-2 py-1.5 text-label-14 text-strong focus:border-mono-500 focus:outline-none"
                   value={selectedSite}
                   onChange={(e) => setSelectedSite(e.target.value)}
                 >
@@ -538,13 +538,13 @@ function BingSection({
                 {!isEmbed() && <WriteButton size="sm" disabled={!selectedSite} onClick={asyncHandler(handleSetSite)}>Set Site</WriteButton>}
               </div>
             ) : (
-              <p className="mt-3 text-xs text-muted">
+              <p className="mt-3 text-copy-13 text-muted">
                 No verified Bing sites are available yet. Verify the domain in Bing Webmaster Tools, then use the page-level refresh to reload everything.
               </p>
             )}
           </div>
         </div>
-        {error && <p className="mt-3 text-xs text-negative-400">{error}</p>}
+        {error && <p className="mt-3 text-copy-13 text-negative-400">{error}</p>}
       </Card>
     )
   }
@@ -569,24 +569,24 @@ function BingSection({
             {!isEmbed() && <WriteButton size="sm" variant="ghost" onClick={asyncHandler(handleDisconnect)}>Disconnect</WriteButton>}
           </div>
         </div>
-        {error && <p className="mb-3 text-xs text-negative-400">{error}</p>}
+        {error && <p className="mb-3 text-copy-13 text-negative-400">{error}</p>}
         <div className="space-y-3">
-          <div className="rounded-lg border border-default bg-surface px-4 py-3">
+          <div className="material-base px-4 py-3">
             <div className="flex items-center gap-3">
               <span className="h-2 w-2 rounded-full bg-positive-500" />
-              <span className="text-sm text-strong">Authorized for this project domain</span>
-              <span className="text-xs text-muted">{connection.domain}</span>
+              <span className="text-label-14 text-strong">Authorized for this project domain</span>
+              <span className="text-label-12 text-muted">{connection.domain}</span>
             </div>
-            <p className="mt-2 text-sm text-secondary">This project uses <code>{connection.siteUrl}</code>.</p>
+            <p className="mt-2 text-copy-14 text-secondary">This project uses <code>{connection.siteUrl}</code>.</p>
           </div>
           <div className="grid gap-3 lg:grid-cols-2">
-            <div className="rounded-lg border border-default bg-surface-subtle p-3">
-              <p className="text-xs uppercase tracking-wide text-muted">Selected site</p>
-              <p className="mt-1 text-sm text-strong">{connection.siteUrl}</p>
+            <div className="material-base p-3">
+              <p className="text-label-12 normal-case text-muted">Selected site</p>
+              <p className="mt-1 text-copy-14 text-strong">{connection.siteUrl}</p>
             </div>
-            <div className="rounded-lg border border-default bg-surface-subtle p-3">
-              <p className="text-xs uppercase tracking-wide text-muted">Last auth update</p>
-              <p className="mt-1 text-sm text-strong">{connection.updatedAt ? formatTimestamp(connection.updatedAt) : '\u2014'}</p>
+            <div className="material-base p-3">
+              <p className="text-label-12 normal-case text-muted">Last auth update</p>
+              <p className="mt-1 text-copy-14 text-strong">{connection.updatedAt ? formatTimestamp(connection.updatedAt) : '\u2014'}</p>
             </div>
           </div>
         </div>
@@ -598,7 +598,7 @@ function BingSection({
             <p className="eyebrow eyebrow-soft">{activeTabMeta.eyebrow}</p>
             <h3>{activeTabMeta.title}</h3>
           </div>
-          <p className="text-xs text-muted">
+          <p className="text-copy-13 text-muted">
             {coverage?.lastInspectedAt ? `Last inspected ${formatTimestamp(coverage.lastInspectedAt)}` : 'No inspection history yet'}
           </p>
         </div>
@@ -607,7 +607,7 @@ function BingSection({
           {tabs.map((t) => (
             <button
               key={t.key}
-              className={`px-3 py-1.5 text-xs font-medium border-b-2 transition-colors ${
+              className={`px-3 py-1.5 text-button-14 border-b-2 transition-colors ${
                 activeTab === t.key
                   ? 'border-mono-200 text-strong'
                   : 'border-transparent text-muted hover:text-neutral'
@@ -631,20 +631,20 @@ function BingSection({
             {coverage.notIndexed.length > 0 && (
               <div>
                 <div className="mb-2 flex items-center justify-between gap-3">
-                  <h4 className="text-xs font-medium text-secondary">Not Indexed ({coverage.notIndexed.length})</h4>
+                  <h4 className="text-heading-14 text-secondary">Not Indexed ({coverage.notIndexed.length})</h4>
                   {!isEmbed() && (
                     <WriteButton size="sm" variant="ghost" disabled={requestingIndexing} onClick={asyncHandler(handleSubmitAllUnindexed)}>
                       {requestingIndexing ? 'Submitting…' : 'Submit all to Bing'}
                     </WriteButton>
                   )}
                 </div>
-                <div className="overflow-x-auto rounded-lg border border-default">
-                  <table className="w-full text-xs">
+                <div className="overflow-x-auto material-base">
+                  <table className="w-full text-label-12">
                     <thead>
                       <tr className="border-b border-base">
-                        <th className="text-left py-1.5 px-3 text-muted font-medium">URL</th>
-                        <th className="text-left py-1.5 px-3 text-muted font-medium w-16">HTTP</th>
-                        {!isEmbed() && <th className="text-right py-1.5 px-3 text-muted font-medium w-20">Action</th>}
+                        <th className="text-left py-1.5 px-3 text-muted text-label-12-strong">URL</th>
+                        <th className="text-left py-1.5 px-3 text-muted text-label-12-strong w-16">HTTP</th>
+                        {!isEmbed() && <th className="text-right py-1.5 px-3 text-muted text-label-12-strong w-20">Action</th>}
                       </tr>
                     </thead>
                     <tbody>
@@ -655,7 +655,7 @@ function BingSection({
                           {!isEmbed() && (
                             <td className="py-1.5 px-3 text-right">
                               <button
-                                className="text-sm text-secondary hover:text-strong underline underline-offset-2"
+                                className="text-button-14 text-secondary hover:text-strong underline underline-offset-2"
                                 disabled={requestingIndexing}
                                 onClick={() => { void handleSubmitUrl(row.url) }}
                               >
@@ -674,20 +674,20 @@ function BingSection({
             {(coverage.unknown ?? []).length > 0 && (
               <div>
                 <div className="mb-2 flex items-center justify-between gap-3">
-                  <h4 className="text-sm font-medium text-secondary">Unknown, not yet confirmed ({(coverage.unknown ?? []).length})</h4>
+                  <h4 className="text-heading-14 text-secondary">Unknown, not yet confirmed ({(coverage.unknown ?? []).length})</h4>
                   {!isEmbed() && (
                     <WriteButton size="sm" variant="ghost" disabled={requestingIndexing} onClick={asyncHandler(handleSubmitAllUnindexed)}>
                       {requestingIndexing ? 'Submitting…' : 'Submit all to Bing'}
                     </WriteButton>
                   )}
                 </div>
-                <div className="overflow-x-auto rounded-lg border border-default">
-                  <table className="w-full text-xs">
+                <div className="overflow-x-auto material-base">
+                  <table className="w-full text-label-12">
                     <thead>
                       <tr className="border-b border-base">
-                        <th className="text-left py-1.5 px-3 text-muted font-medium">URL</th>
-                        <th className="text-left py-1.5 px-3 text-muted font-medium w-32">Last Crawled</th>
-                        {!isEmbed() && <th className="text-right py-1.5 px-3 text-muted font-medium w-20">Action</th>}
+                        <th className="text-left py-1.5 px-3 text-muted text-label-12-strong">URL</th>
+                        <th className="text-left py-1.5 px-3 text-muted text-label-12-strong w-32">Last Crawled</th>
+                        {!isEmbed() && <th className="text-right py-1.5 px-3 text-muted text-label-12-strong w-20">Action</th>}
                       </tr>
                     </thead>
                     <tbody>
@@ -698,7 +698,7 @@ function BingSection({
                           {!isEmbed() && (
                             <td className="py-1.5 px-3 text-right">
                               <button
-                                className="text-sm text-secondary hover:text-strong underline underline-offset-2"
+                                className="text-button-14 text-secondary hover:text-strong underline underline-offset-2"
                                 disabled={requestingIndexing}
                                 onClick={() => { void handleSubmitUrl(row.url) }}
                               >
@@ -716,13 +716,13 @@ function BingSection({
 
             {coverage.indexed.length > 0 && (
               <div>
-                <h4 className="mb-2 text-xs font-medium text-secondary">Indexed ({coverage.indexed.length})</h4>
-                <div className="overflow-x-auto rounded-lg border border-default">
-                  <table className="w-full text-xs">
+                <h4 className="mb-2 text-heading-14 text-secondary">Indexed ({coverage.indexed.length})</h4>
+                <div className="overflow-x-auto material-base">
+                  <table className="w-full text-label-12">
                     <thead>
                       <tr className="border-b border-base">
-                        <th className="text-left py-1.5 px-3 text-muted font-medium">URL</th>
-                        <th className="text-left py-1.5 px-3 text-muted font-medium w-32">Last Crawled</th>
+                        <th className="text-left py-1.5 px-3 text-muted text-label-12-strong">URL</th>
+                        <th className="text-left py-1.5 px-3 text-muted text-label-12-strong w-32">Last Crawled</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -741,7 +741,7 @@ function BingSection({
         )}
 
         {activeTab === 'coverage' && !coverage && (
-          <p className="mt-4 text-xs text-muted">No coverage data yet. Inspect URLs to build coverage data.</p>
+          <p className="mt-4 text-copy-13 text-muted">No coverage data yet. Inspect URLs to build coverage data.</p>
         )}
 
         {activeTab === 'inspections' && (
@@ -750,7 +750,7 @@ function BingSection({
               <div className="flex flex-col gap-2 lg:flex-row">
                 <input
                   type="text"
-                  className="flex-1 rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
+                  className="flex-1 rounded border border-strong bg-transparent px-2 py-1.5 text-label-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none"
                   placeholder="URL to inspect"
                   value={inspectionUrl}
                   onChange={(e) => setInspectionUrl(e.target.value)}
@@ -763,8 +763,8 @@ function BingSection({
             )}
 
             {inspectionResult && (
-              <div className="rounded border border-base bg-bg-elevated/40 p-3 text-xs space-y-1">
-                <div className="font-medium text-strong">{inspectionResult.url}</div>
+              <div className="material-base p-3 text-label-12 space-y-1">
+                <div className="text-label-12-strong text-strong">{inspectionResult.url}</div>
                 <div className="text-secondary">
                   In Index: <span className={inspectionResult.inIndex ? 'text-positive-400' : 'text-negative-400'}>
                     {inspectionResult.inIndex ? 'Yes' : 'No'}
@@ -776,14 +776,14 @@ function BingSection({
             )}
 
             {inspections.length > 0 && (
-              <div className="overflow-x-auto rounded-lg border border-default">
-                <table className="w-full text-xs">
+              <div className="overflow-x-auto material-base">
+                <table className="w-full text-label-12">
                   <thead>
                     <tr className="border-b border-base">
-                      <th className="text-left py-1.5 px-3 text-muted font-medium">URL</th>
-                      <th className="text-left py-1.5 px-3 text-muted font-medium w-16">Index</th>
-                      <th className="text-left py-1.5 px-3 text-muted font-medium w-14">HTTP</th>
-                      <th className="text-left py-1.5 px-3 text-muted font-medium w-32">Inspected</th>
+                      <th className="text-left py-1.5 px-3 text-muted text-label-12-strong">URL</th>
+                      <th className="text-left py-1.5 px-3 text-muted text-label-12-strong w-16">Index</th>
+                      <th className="text-left py-1.5 px-3 text-muted text-label-12-strong w-14">HTTP</th>
+                      <th className="text-left py-1.5 px-3 text-muted text-label-12-strong w-32">Inspected</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -807,17 +807,17 @@ function BingSection({
         {activeTab === 'performance' && (
           <div className="mt-4">
             {performance.length === 0 ? (
-              <p className="text-xs text-muted">No Bing performance data available.</p>
+              <p className="text-copy-13 text-muted">No Bing performance data available.</p>
             ) : (
-              <div className="overflow-x-auto rounded-lg border border-default">
-                <table className="w-full text-xs">
+              <div className="overflow-x-auto material-base">
+                <table className="w-full text-label-12">
                   <thead>
                     <tr className="border-b border-base">
-                      <th className="text-left py-1.5 px-3 text-muted font-medium">Query</th>
-                      <th className="text-right py-1.5 px-3 text-muted font-medium w-16">{SEARCH_METRIC_SHORT_LABELS[SearchMetric.Clicks]}</th>
-                      <th className="text-right py-1.5 px-3 text-muted font-medium w-16">{SEARCH_METRIC_SHORT_LABELS[SearchMetric.Impressions]}</th>
-                      <th className="text-right py-1.5 px-3 text-muted font-medium w-14">{SEARCH_METRIC_SHORT_LABELS[SearchMetric.CTR]}</th>
-                      <th className="text-right py-1.5 px-3 text-muted font-medium w-14">{SEARCH_METRIC_SHORT_LABELS[SearchMetric.Position]}</th>
+                      <th className="text-left py-1.5 px-3 text-muted text-label-12-strong">Query</th>
+                      <th className="text-right py-1.5 px-3 text-muted text-label-12-strong w-16">{SEARCH_METRIC_SHORT_LABELS[SearchMetric.Clicks]}</th>
+                      <th className="text-right py-1.5 px-3 text-muted text-label-12-strong w-16">{SEARCH_METRIC_SHORT_LABELS[SearchMetric.Impressions]}</th>
+                      <th className="text-right py-1.5 px-3 text-muted text-label-12-strong w-14">{SEARCH_METRIC_SHORT_LABELS[SearchMetric.CTR]}</th>
+                      <th className="text-right py-1.5 px-3 text-muted text-label-12-strong w-14">{SEARCH_METRIC_SHORT_LABELS[SearchMetric.Position]}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1101,7 +1101,7 @@ function SearchConsoleSection({
       </div>
 
       {error && (
-        <div className="rounded-lg border border-negative-800/40 bg-negative-950/20 px-3 py-2 text-sm text-negative">
+        <div className="rounded-md border border-negative-800/40 bg-negative-950/20 px-3 py-2 text-label-14 text-negative">
           {error}
         </div>
       )}
@@ -1220,22 +1220,22 @@ function OverviewSignals({
     <div key={insight.id} className="py-3">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <p className="text-sm font-medium text-heading">{insight.title}</p>
-          {insight.detail ? <p className="mt-1 max-w-3xl text-sm leading-6 text-secondary">{insight.detail}</p> : null}
+          <p className="text-copy-14-strong text-heading">{insight.title}</p>
+          {insight.detail ? <p className="mt-1 max-w-3xl text-copy-14 text-secondary">{insight.detail}</p> : null}
         </div>
         <ToneBadge tone={insight.tone}>{insight.actionLabel}</ToneBadge>
       </div>
 
       {insight.affectedPhrases.length > 0 ? (
         <details className="mt-2">
-          <summary className="w-fit cursor-pointer text-sm font-medium text-secondary transition-colors hover:text-heading focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-500/60">
+          <summary className="w-fit cursor-pointer text-label-14-strong text-secondary transition-colors hover:text-heading focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-500/60">
             Evidence · {insight.affectedPhrases.length} affected {insight.affectedPhrases.length === 1 ? 'query' : 'queries'}
           </summary>
           <ul className="mt-2 divide-y divide-subtle border-y border-subtle">
             {insight.affectedPhrases.map((phrase, index) => (
               <li key={phrase.evidenceId || `${insight.id}-${index}`} className="flex flex-wrap items-center gap-2 py-2">
                 <CitationBadge state={phrase.citationState} {...(siteDomain && phrase.siteCitation !== false ? { label: siteCitationLabel(siteDomain, phrase.citationState) } : {})} />
-                <span className="min-w-0 flex-1 text-sm text-strong">{phrase.query}</span>
+                <span className="min-w-0 flex-1 text-label-14 text-strong">{phrase.query}</span>
                 {phrase.provider ? <ProviderBadge provider={phrase.provider} /> : null}
                 {!isEmbed() && phrase.evidenceId ? (
                   <Button type="button" variant="ghost" size="sm" onClick={() => { void openEvidence(phrase.evidenceId) }}>
@@ -1253,9 +1253,9 @@ function OverviewSignals({
   const renderSuggestion = (suggestion: ProjectCommandCenterVm['suggestedQueries']['rows'][number]) => (
     <div key={suggestion.query} className="flex items-start justify-between gap-4 py-3">
       <div className="min-w-0">
-        <p className="text-xs font-medium uppercase tracking-wide text-muted">Suggested query</p>
-        <p className="mt-1 text-sm font-medium text-strong">{suggestion.query}</p>
-        <p className="mt-1 text-sm text-secondary">{suggestion.reason}</p>
+        <p className="text-label-12-strong normal-case text-muted">Suggested query</p>
+        <p className="mt-1 text-copy-14-strong text-strong">{suggestion.query}</p>
+        <p className="mt-1 text-copy-14 text-secondary">{suggestion.reason}</p>
       </div>
       {onManageQueries ? <Button type="button" variant="outline" size="sm" onClick={onManageQueries}>Review in Queries</Button> : null}
     </div>
@@ -1279,7 +1279,7 @@ function OverviewSignals({
       </div>
       {remainingCount > 0 ? (
         <details className="mt-2">
-          <summary className="w-fit cursor-pointer text-sm font-medium text-secondary transition-colors hover:text-heading focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-500/60">
+          <summary className="w-fit cursor-pointer text-label-14-strong text-secondary transition-colors hover:text-heading focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-500/60">
             {remainingCount} more {remainingCount === 1 ? 'signal' : 'signals'}
           </summary>
           <div className="mt-2 divide-y divide-default border-y border-default">
@@ -2630,7 +2630,7 @@ function ProjectPageContent({
         onSelectionChange={updateVisibilitySearch}
         onManageQueries={!isEmbed() ? () => { void navigate({ to: '/projects/$projectName/queries', params: { projectName }, search: previous => ({ ...previous, queryWorkspace: 'tracked', trackingQueryId: undefined, measurementMarketKey: undefined }) }) } : undefined}
         renderPropertyLink={!isEmbed() ? ({ id, label }) => (
-          <Link to="/projects/$projectName/properties/$targetKey" params={{ projectName, targetKey: id }} search={carryVisibilitySearch} aria-label={`Property details for ${label}`} className="inline-flex min-h-11 items-center text-sm text-link hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400">
+          <Link to="/projects/$projectName/properties/$targetKey" params={{ projectName, targetKey: id }} search={carryVisibilitySearch} aria-label={`Property details for ${label}`} className="inline-flex min-h-11 items-center text-label-14 text-link hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400">
             Property details
           </Link>
         ) : undefined}
@@ -2658,7 +2658,7 @@ function ProjectPageContent({
         if (reportScopeQuery.error) {
           // Any other failure belongs to the workspace alert below.
           return parseVisibilityReportScopeErrorDetails(apiErrorDetails(reportScopeQuery.error))
-            ? <p className="text-[13px] text-secondary">{PROJECT_SCOPE_COPY.savedScopeUnavailable}</p>
+            ? <p className="text-copy-13 text-secondary">{PROJECT_SCOPE_COPY.savedScopeUnavailable}</p>
             : null
         }
         const report = reportScopeQuery.data
@@ -2691,11 +2691,11 @@ function ProjectPageContent({
         ) : null
       }
       case 'scope-unavailable':
-        return <p className="text-[13px] text-secondary">{PROJECT_SCOPE_COPY.savedScopeUnavailable}</p>
+        return <p className="text-copy-13 text-secondary">{PROJECT_SCOPE_COPY.savedScopeUnavailable}</p>
       case 'project-wide':
         return (
           <span className="flex items-center gap-1">
-            <span className="text-[13px] text-secondary">{PROJECT_SCOPE_COPY.projectWide}</span>
+            <span className="text-label-13 text-secondary">{PROJECT_SCOPE_COPY.projectWide}</span>
             <InfoTooltip text={PROJECT_SCOPE_COPY.projectWideHelp} />
           </span>
         )
@@ -2760,15 +2760,15 @@ function ProjectPageContent({
     </>
   )
   const evidenceQueryEditor = !isEmbed() && managingQueries ? (
-    <div className="mb-3 rounded-lg border border-base bg-bg-elevated/40 p-3">
+    <div className="mb-3 material-base p-3">
       {trackedQueries.length > 0 ? (
-        <ul className="mb-3 max-h-64 divide-y divide-mono-800/60 overflow-y-auto rounded border border-default">
+        <ul className="mb-3 max-h-64 divide-y divide-mono-800/60 overflow-y-auto material-base">
           {trackedQueries.map((q) => (
             <li key={q} className="flex items-center justify-between gap-3 px-3 py-2">
-              <span className="min-w-0 truncate text-sm text-strong" title={q}>{q}</span>
+              <span className="min-w-0 truncate text-label-14 text-strong" title={q}>{q}</span>
               <button
                 type="button"
-                className="shrink-0 rounded px-1.5 py-0.5 text-xs text-muted transition-colors hover:text-negative-400 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-negative-500 disabled:opacity-50"
+                className="shrink-0 rounded px-1.5 py-0.5 text-button-14 text-muted transition-colors hover:text-negative-400 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-negative-500 disabled:opacity-50"
                 aria-label={`Remove query ${q}`}
                 title={`Stop tracking "${q}"`}
                 disabled={removingQuery !== null}
@@ -2780,17 +2780,17 @@ function ProjectPageContent({
           ))}
         </ul>
       ) : (
-        <p className="mb-3 text-xs text-muted">No queries tracked yet. Add some below.</p>
+        <p className="mb-3 text-copy-13 text-muted">No queries tracked yet. Add some below.</p>
       )}
       <textarea
-        className="w-full resize-none rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
+        className="w-full resize-none rounded border border-strong bg-transparent px-2 py-1.5 text-copy-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none"
         rows={3}
         placeholder="Enter queries to add, one per line"
         value={newQueryText}
         onChange={(e) => setNewQueryText(e.target.value)}
       />
       <div className="mt-2 flex items-center justify-between">
-        <p className="text-xs text-muted">{newQueryText.split('\n').filter(k => k.trim()).length} to add</p>
+        <p className="text-copy-13 text-muted">{newQueryText.split('\n').filter(k => k.trim()).length} to add</p>
         <WriteButton type="button" size="sm" disabled={!newQueryText.trim() || querySaving} onClick={asyncHandler(handleAddQueries)}>
           {querySaving ? 'Adding...' : 'Add queries'}
         </WriteButton>
@@ -2811,7 +2811,7 @@ function ProjectPageContent({
             </p>
           </div>
           <div className={isDashboardManagedSweeps() ? 'page-header-right min-w-0 flex-wrap sm:shrink sm:justify-end' : 'page-header-right'}>
-            {overviewRangeLabel !== null ? <p className="text-sm text-muted">{overviewRangeLabel}</p> : null}
+            {overviewRangeLabel !== null ? <p className="text-copy-14 text-muted">{overviewRangeLabel}</p> : null}
           </div>
         </div>
       ) : (
@@ -2832,7 +2832,7 @@ function ProjectPageContent({
               <ManagedSweepStatus projectName={projectName} running={hasActiveVisibilitySweep} portfolio={!isSimpleOverview} />
             ) : (
               <>
-                {nextSweepLabel ? <p className="text-sm text-secondary">{nextSweepLabel}</p> : null}
+                {nextSweepLabel ? <p className="text-copy-14 text-secondary">{nextSweepLabel}</p> : null}
                 {showMapSite ? (
                   <WriteButton type="button" onClick={openSiteHealth}>
                     Map site
@@ -2959,7 +2959,7 @@ function ProjectPageContent({
         ) : (
         <>
           {isActiveMeasurementPlanError ? (
-            <div role="alert" className="mb-5 flex flex-wrap items-center gap-3 border-y border-negative-800/40 bg-negative-950/20 py-4 text-sm text-negative">
+            <div role="alert" className="mb-5 flex flex-wrap items-center gap-3 border-y border-negative-800/40 bg-negative-950/20 py-4 text-label-14 text-negative">
               <span>Could not check the advanced measurement setup. Existing project-wide results remain available.</span>
               <Button type="button" size="sm" variant="outline" onClick={() => { void activeMeasurementPlanQuery.refetch() }}>
                 Retry setup check
@@ -3019,7 +3019,7 @@ function ProjectPageContent({
                 </div>
               </div>
             ) : (
-              <p className="text-sm text-secondary">
+              <p className="text-copy-14 text-secondary">
                 Competitive mention and citation gaps appear after the first AI Visibility check.
               </p>
             )}
@@ -3085,9 +3085,9 @@ function ProjectPageContent({
                 {evidenceActions && <QueryEvidenceSummary actions={evidenceActions} />}
                 {evidenceQueryEditor}
                 {evidenceDashboard.evidenceLoading ? (
-                  <p role="status" className="text-sm text-secondary">Loading query evidence…</p>
+                  <p role="status" className="text-copy-14 text-secondary">Loading query evidence…</p>
                 ) : (
-                  <div role="alert" className="text-sm text-secondary">
+                  <div role="alert" className="text-label-14 text-secondary">
                     <p>Could not load query evidence.</p>
                     <Button type="button" variant="outline" onClick={() => { void evidenceDashboard.refetch() }}>Retry</Button>
                   </div>
@@ -3147,9 +3147,9 @@ function ProjectPageContent({
           }}>
             <summary className="visibility-disclosure-summary"><span className="visibility-disclosure-label">Project signals</span></summary>
             {!overviewRequested || overviewLoading ? (
-              <p role="status" className="text-sm text-secondary">Loading project signals…</p>
+              <p role="status" className="text-copy-14 text-secondary">Loading project signals…</p>
             ) : overviewError ? (
-              <div role="alert" className="text-sm text-secondary">
+              <div role="alert" className="text-label-14 text-secondary">
                 <p>Could not load project signals.</p>
                 <Button type="button" variant="outline" onClick={() => { void refetch() }}>Retry</Button>
               </div>
@@ -3186,14 +3186,14 @@ function ProjectPageContent({
           <SiteHealthScanSettingsSection key={model.project.id} project={model.project} onSave={async siteAuditMaxPages => { await handleUpdateProject(model.project.name, { siteAuditMaxPages }) }} />
           {canWrite && !isEmbed() ? (
             <section className="page-section-divider">
-              <h2 className="text-lg font-semibold text-heading">Advanced measurement</h2>
+              <h2 className="text-heading-20 text-heading">Advanced measurement</h2>
               <p className="supporting-copy mt-1 mb-3">
                 Measure individual properties, locations, or site sections with separate query sets.
               </p>
               {measurementSetupDisplayState === 'pending' ? (
-                <p role="status" className="text-sm text-secondary">Loading setup…</p>
+                <p role="status" className="text-copy-14 text-secondary">Loading setup…</p>
               ) : measurementSetupDisplayState === 'error' ? (
-                <div role="alert" className="flex flex-wrap items-center gap-3 text-sm text-negative">
+                <div role="alert" className="flex flex-wrap items-center gap-3 text-label-14 text-negative">
                   <span>Could not load advanced measurement setup.</span>
                   <Button type="button" size="sm" variant="outline" onClick={() => { void measurementSetupQuery.refetch() }}>
                     Retry
@@ -3218,14 +3218,14 @@ function ProjectPageContent({
               confirm dialog was the only thing standing between the two. */}
           {canWrite && !isEmbed() ? (
             <section className="page-section-divider">
-              <h2 className="text-lg font-semibold text-negative-400">Delete project</h2>
+              <h2 className="text-heading-20 text-negative-400">Delete project</h2>
               <p className="supporting-copy mt-1 mb-3">
                 Permanently deletes this project and all its queries, competitors, runs, and snapshots.
               </p>
               {showDeleteConfirm ? (
-                <Card className="surface-card p-6 border-negative-800/60">
-                  <h3 className="text-base font-semibold text-negative-400 mb-2">Delete project?</h3>
-                  <p className="text-sm text-secondary mb-4">
+                <Card className="surface-card p-6 bg-negative-soft">
+                  <h3 className="text-heading-16 text-negative-400 mb-2">Delete project?</h3>
+                  <p className="text-copy-14 text-secondary mb-4">
                     This will permanently delete <strong className="text-strong">{model.project.displayName || model.project.name}</strong> and
                     all its queries, competitors, runs, and snapshots. This cannot be undone.
                   </p>

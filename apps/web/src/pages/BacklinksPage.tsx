@@ -166,13 +166,13 @@ export function BacklinksPage() {
       </div>
 
       {error && (
-        <Card className="surface-card p-4 mb-4 border-negative-800/60">
-          <p className="text-sm text-negative">{error}</p>
+        <Card className="surface-card p-4 mb-4 bg-negative-soft">
+          <p className="text-copy-14 text-negative">{error}</p>
         </Card>
       )}
       {notice && (
-        <Card className="surface-card p-4 mb-4 border-positive-800/60">
-          <p className="text-sm text-positive">{notice}</p>
+        <Card className="surface-card p-4 mb-4 bg-positive-soft">
+          <p className="text-copy-14 text-positive">{notice}</p>
         </Card>
       )}
 
@@ -190,12 +190,12 @@ export function BacklinksPage() {
         </div>
         <Card className="surface-card p-4">
           {loading ? (
-            <p className="text-sm text-muted">Checking…</p>
+            <p className="text-copy-14 text-muted">Checking…</p>
           ) : status?.duckdbInstalled ? (
-            <p className="text-sm text-secondary">Ready to sync a Common Crawl release.</p>
+            <p className="text-copy-14 text-secondary">Ready to sync a Common Crawl release.</p>
           ) : (
             <div className="flex items-center justify-between gap-4">
-              <p className="text-sm text-secondary">Install the local query engine to enable release syncs.</p>
+              <p className="text-copy-14 text-secondary">Install the local query engine to enable release syncs.</p>
               {!isEmbed() && <Button type="button" size="sm" disabled={installing} onClick={asyncHandler(handleInstall)}><Download className="h-4 w-4 mr-1.5" aria-hidden />{installing ? 'Installing…' : 'Install DuckDB'}</Button>}
             </div>
           )}
@@ -217,20 +217,20 @@ export function BacklinksPage() {
         </div>
         <Card className="surface-card p-5">
           {latest ? (
-            <div className="space-y-2 text-sm">
+            <div className="space-y-2 text-label-14">
               <p className="text-strong">
                 Release <code className="text-neutral">{latest.release}</code>
               </p>
               {latest.phaseDetail && (
                 <p className="text-secondary">{latest.phaseDetail}</p>
               )}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs text-muted pt-2">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-label-12 text-muted pt-2">
                 <div>
-                  <p className="text-faint uppercase tracking-wide">Projects</p>
+                  <p className="text-faint normal-case text-label-12">Projects</p>
                   <p className="text-neutral mt-0.5">{latest.projectsProcessed ?? '—'}</p>
                 </div>
                 <div>
-                  <p className="text-faint uppercase tracking-wide flex items-center gap-1">
+                  <p className="text-faint normal-case text-label-12 flex items-center gap-1">
                     Rows
                     <Hint label="What are rows?">
                       Total number of (project, referring domain) pairs persisted in SQLite from this sync, across every project in the workspace.
@@ -239,27 +239,27 @@ export function BacklinksPage() {
                   <p className="text-neutral mt-0.5">{latest.domainsDiscovered ?? '—'}</p>
                 </div>
                 <div>
-                  <p className="text-faint uppercase tracking-wide">Started</p>
+                  <p className="text-faint normal-case text-label-12">Started</p>
                   <p className="text-neutral mt-0.5">{relativeTime(latest.downloadStartedAt ?? latest.createdAt)}</p>
                 </div>
                 <div>
-                  <p className="text-faint uppercase tracking-wide">Finished</p>
+                  <p className="text-faint normal-case text-label-12">Finished</p>
                   <p className="text-neutral mt-0.5">{relativeTime(latest.queryFinishedAt)}</p>
                 </div>
               </div>
               {latest.error && (
-                <p className="text-sm text-negative-400 pt-2">{latest.error}</p>
+                <p className="text-copy-14 text-negative-400 pt-2">{latest.error}</p>
               )}
             </div>
           ) : (
-            <p className="text-sm text-muted">No release sync has run in this workspace yet.</p>
+            <p className="text-copy-14 text-muted">No release sync has run in this workspace yet.</p>
           )}
           {latestReadyButCacheMissing && (
             <div className="mt-4 rounded border border-caution-800/60 bg-caution-950/20 p-3">
               <div className="flex items-start gap-2">
                 <AlertTriangle className="h-4 w-4 text-caution-400 shrink-0 mt-0.5" aria-hidden />
-                <div className="text-sm text-neutral leading-relaxed">
-                  <p className="font-medium text-caution-200">Cached files for this release are missing.</p>
+                <div className="text-label-14 text-neutral">
+                  <p className="text-copy-14-strong text-caution-200">Cached files for this release are missing.</p>
                   <p className="mt-1 text-secondary">
                     Sync this release again, or sync the newest release, before refreshing individual projects.
                   </p>
@@ -267,21 +267,21 @@ export function BacklinksPage() {
               </div>
             </div>
           )}
-          <div className="mt-4 rounded border border-base bg-bg-elevated/40 p-3">
+          <div className="mt-4 material-base p-3">
             <div className="flex items-start justify-between gap-3 mb-3">
               <div>
-                <p className="text-[10px] uppercase tracking-wide text-muted">
+                <p className="text-label-12 normal-case text-muted">
                   Auto-detected release
                 </p>
                 {latestAvailable ? (
-                  <p className="text-sm text-strong mt-0.5">
+                  <p className="text-copy-14 text-strong mt-0.5">
                     <code className="text-heading">{latestAvailable.release}</code>
-                    <span className="ml-2 text-xs text-muted">
+                    <span className="ml-2 text-label-12 text-muted">
                       Vertex {formatBytes(latestAvailable.vertexBytes)}, edges {formatBytes(latestAvailable.edgesBytes)}
                     </span>
                   </p>
                 ) : (
-                  <p className="text-sm text-muted mt-0.5">
+                  <p className="text-copy-14 text-muted mt-0.5">
                     {loading ? 'Checking Common Crawl…' : 'Could not find a release. Choose one below.'}
                   </p>
                 )}
@@ -289,7 +289,7 @@ export function BacklinksPage() {
                   href={COMMON_CRAWL_RELEASES_URL}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="mt-1 inline-flex items-center gap-1 text-xs text-secondary hover:text-strong focus:text-strong focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-500 rounded"
+                  className="mt-1 inline-flex items-center gap-1 text-label-12 text-secondary hover:text-strong focus:text-strong focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-500 rounded"
                 >
                   Browse all Common Crawl web-graph releases
                   <ExternalLink className="h-3 w-3" aria-hidden />
@@ -321,7 +321,7 @@ export function BacklinksPage() {
             {isEmbed() ? null : !showOverride ? (
               <button
                 type="button"
-                className="text-sm text-secondary hover:text-neutral focus:text-neutral focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-500 rounded"
+                className="text-button-14 text-secondary hover:text-neutral focus:text-neutral focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-500 rounded"
                 onClick={() => setShowOverride(true)}
                 disabled={syncing}
               >
@@ -331,7 +331,7 @@ export function BacklinksPage() {
               <div className="flex flex-wrap items-center gap-2">
                 <input
                   type="text"
-                  className="flex-1 min-w-[240px] rounded border border-strong bg-transparent px-2.5 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
+                  className="flex-1 min-w-[240px] rounded border border-strong bg-transparent px-2.5 py-1.5 text-label-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none"
                   placeholder="cc-main-2026-jan-feb-mar"
                   value={releaseInput}
                   onChange={(e) => setReleaseInput(e.target.value)}
@@ -340,7 +340,7 @@ export function BacklinksPage() {
                 />
                 <button
                   type="button"
-                  className="text-sm text-secondary hover:text-neutral focus:text-neutral focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-500 rounded"
+                  className="text-button-14 text-secondary hover:text-neutral focus:text-neutral focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-500 rounded"
                   onClick={() => { setReleaseInput(''); setShowOverride(false) }}
                   disabled={syncing}
                 >
@@ -350,24 +350,24 @@ export function BacklinksPage() {
             )}
           </div>
           {!status?.duckdbInstalled && (
-            <p className="text-sm text-secondary mt-2">Install DuckDB first to enable sync.</p>
+            <p className="text-copy-14 text-secondary mt-2">Install DuckDB first to enable sync.</p>
           )}
         </Card>
       </section>
 
       <details className="page-section-divider group">
-        <summary className="cursor-pointer text-sm font-medium text-secondary hover:text-strong focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-500 rounded">Technical details and cache</summary>
+        <summary className="cursor-pointer text-label-14-strong text-secondary hover:text-strong focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-500 rounded">Technical details and cache</summary>
         <div className="mt-4">
-          <p className="text-sm text-secondary mb-3">Cached releases support project re-extracts. Pruning a release does not remove saved backlink results.</p>
+          <p className="text-copy-14 text-secondary mb-3">Cached releases support project re-extracts. Pruning a release does not remove saved backlink results.</p>
         <Card className="surface-card overflow-hidden">
-          <table className="w-full text-sm">
+          <table className="w-full text-label-14">
             <thead>
-              <tr className="border-b border-base text-left text-xs uppercase tracking-wide text-faint">
-                <th className="px-4 py-2 font-medium">Release</th>
-                <th className="px-4 py-2 font-medium">Sync status</th>
-                <th className="px-4 py-2 text-right font-medium">Size</th>
-                <th className="px-4 py-2 font-medium">Last used</th>
-                {!isEmbed() && <th className="px-4 py-2 font-medium sr-only">Actions</th>}
+              <tr className="border-b border-base text-left text-label-12 normal-case text-faint">
+                <th className="px-4 py-2 text-label-12-strong">Release</th>
+                <th className="px-4 py-2 text-label-12-strong">Sync status</th>
+                <th className="px-4 py-2 text-right text-label-12-strong">Size</th>
+                <th className="px-4 py-2 text-label-12-strong">Last used</th>
+                {!isEmbed() && <th className="px-4 py-2 text-label-12-strong sr-only">Actions</th>}
               </tr>
             </thead>
             <tbody>
@@ -399,14 +399,14 @@ export function BacklinksPage() {
                 </tr>
               ))}
               {cached.length === 0 && (
-                <tr><td className="px-4 py-4 text-sm text-muted" colSpan={isEmbed() ? 4 : 5}>
+                <tr><td className="px-4 py-4 text-label-14 text-muted" colSpan={isEmbed() ? 4 : 5}>
                   No cached releases on this machine. If you ran a sync from a different machine (or deleted the cache), the backlink data is still in the database — but you&rsquo;ll need to re-sync a release to run new extracts.
                 </td></tr>
               )}
             </tbody>
           </table>
         </Card>
-          <p className="mt-3 text-xs text-muted">Common Crawl files are stored locally. DuckDB reads them; Canonry stores results in its normal database.</p>
+          <p className="mt-3 text-copy-13 text-muted">Common Crawl files are stored locally. DuckDB reads them; Canonry stores results in its normal database.</p>
         </div>
       </details>
 
@@ -419,14 +419,14 @@ export function BacklinksPage() {
             </div>
           </div>
           <Card className="surface-card overflow-hidden">
-            <table className="w-full text-sm">
+            <table className="w-full text-label-14">
               <thead>
-                <tr className="border-b border-base text-left text-xs uppercase tracking-wide text-faint">
-                  <th className="px-4 py-2 font-medium">Release</th>
-                  <th className="px-4 py-2 font-medium">Status</th>
-                  <th className="px-4 py-2 text-right font-medium">Projects</th>
-                  <th className="px-4 py-2 text-right font-medium">Rows</th>
-                  <th className="px-4 py-2 font-medium">Finished</th>
+                <tr className="border-b border-base text-left text-label-12 normal-case text-faint">
+                  <th className="px-4 py-2 text-label-12-strong">Release</th>
+                  <th className="px-4 py-2 text-label-12-strong">Status</th>
+                  <th className="px-4 py-2 text-right text-label-12-strong">Projects</th>
+                  <th className="px-4 py-2 text-right text-label-12-strong">Rows</th>
+                  <th className="px-4 py-2 text-label-12-strong">Finished</th>
                 </tr>
               </thead>
               <tbody>

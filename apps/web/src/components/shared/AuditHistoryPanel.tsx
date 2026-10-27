@@ -120,13 +120,13 @@ export function AuditHistoryPanel({ projectName }: { projectName?: string }) {
           value={search}
           onChange={(event) => setSearch(event.target.value)}
           placeholder="Search actions, entities, or details"
-          className="min-h-11 rounded-md border border-base bg-bg px-3 text-sm text-strong placeholder-mono-600 focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-600"
+          className="min-h-11 rounded-md border border-base bg-bg px-3 text-label-14 text-strong placeholder-mono-400 focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-600"
         />
         <select
           aria-label="Filter change history by actor"
           value={actor}
           onChange={(event) => resetPage(() => setActor(event.target.value))}
-          className="min-h-11 rounded-md border border-base bg-bg px-3 text-sm text-strong focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-600"
+          className="min-h-11 rounded-md border border-base bg-bg px-3 text-label-14 text-strong focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-600"
         >
           <option value="">All actors</option>
           <option value="api">API and dashboard</option>
@@ -139,7 +139,7 @@ export function AuditHistoryPanel({ projectName }: { projectName?: string }) {
           aria-label="Filter change history by date range"
           value={window}
           onChange={(event) => resetPage(() => setWindow(event.target.value as HistoryWindow))}
-          className="min-h-11 rounded-md border border-base bg-bg px-3 text-sm text-strong focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-600"
+          className="min-h-11 rounded-md border border-base bg-bg px-3 text-label-14 text-strong focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-600"
         >
           <option value="30d">Last 30 days</option>
           <option value="90d">Last 90 days</option>
@@ -185,17 +185,17 @@ export function AuditHistoryPanel({ projectName }: { projectName?: string }) {
                   <td><ToneBadge tone={actionTone(entry.action)}>{entry.action}</ToneBadge></td>
                   <td>
                     <span className="text-strong">{entry.entityType}</span>
-                    {entry.entityId ? <span className="mt-0.5 block max-w-48 truncate font-mono text-[11px] text-faint" title={entry.entityId}>{entry.entityId}</span> : null}
+                    {entry.entityId ? <span className="mt-0.5 block max-w-48 truncate text-label-12-mono text-faint" title={entry.entityId}>{entry.entityId}</span> : null}
                   </td>
                   <td>
                     <span className="text-secondary">{clientLabel(entry)}</span>
-                    {entry.actorSession ? <span className="mt-0.5 block max-w-40 truncate font-mono text-[11px] text-faint" title={entry.actorSession}>Session {entry.actorSession}</span> : null}
+                    {entry.actorSession ? <span className="mt-0.5 block max-w-40 truncate text-label-12-mono text-faint" title={entry.actorSession}>Session {entry.actorSession}</span> : null}
                   </td>
                   <td>
                     {entry.diff == null ? <span className="text-faint">No field diff</span> : (
                       <details>
-                        <summary className="min-h-11 cursor-pointer py-3 text-sm text-secondary hover:text-strong">View diff</summary>
-                        <pre className="max-h-72 max-w-xl overflow-auto whitespace-pre-wrap break-words rounded-md bg-bg-elevated p-3 text-xs text-secondary">{JSON.stringify(entry.diff, null, 2)}</pre>
+                        <summary className="min-h-11 cursor-pointer py-3 text-label-14 text-secondary hover:text-strong">View diff</summary>
+                        <pre className="max-h-72 max-w-xl overflow-auto whitespace-pre-wrap break-words rounded-md bg-bg-elevated p-3 text-copy-13 text-secondary">{JSON.stringify(entry.diff, null, 2)}</pre>
                       </details>
                     )}
                   </td>
@@ -209,7 +209,7 @@ export function AuditHistoryPanel({ projectName }: { projectName?: string }) {
       {!historyQuery.isError && (page > 0 || entries.length === PAGE_SIZE) ? (
         <div className="mt-4 flex items-center justify-between gap-3">
           <Button type="button" variant="outline" size="sm" disabled={page === 0} onClick={() => setPage((value) => Math.max(0, value - 1))}>Previous</Button>
-          <span className="text-xs tabular-nums text-muted">Page {page + 1}</span>
+          <span className="text-label-12 tabular-nums text-muted">Page {page + 1}</span>
           <Button type="button" variant="outline" size="sm" disabled={entries.length < PAGE_SIZE} onClick={() => setPage((value) => value + 1)}>Next</Button>
         </div>
       ) : null}

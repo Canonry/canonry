@@ -121,13 +121,13 @@ export function RunAdmissionNoticeView({ admission, canFix, selection }: { admis
   return (
     <section
       aria-labelledby={headingId}
-      className={`mb-5 flex flex-wrap items-start justify-between gap-3 rounded-md border px-4 py-3 text-sm ${
+      className={`mb-5 flex flex-wrap items-start justify-between gap-3 rounded-md border px-4 py-3 text-label-14 ${
         admission.refused ? 'border-negative bg-negative-soft' : 'border-caution bg-caution-soft'
       }`}
     >
       {/* About 74 characters a line at 14px. */}
       <div className="min-w-0 max-w-[29rem] space-y-1">
-        <h2 id={headingId} className={`text-sm font-medium ${admission.refused ? 'text-negative' : 'text-caution'}`}>{title}</h2>
+        <h2 id={headingId} className={`text-heading-14 ${admission.refused ? 'text-negative' : 'text-caution'}`}>{title}</h2>
         <p className="text-secondary">{summary}</p>
         {single ? null : (
           <ul className="text-secondary">

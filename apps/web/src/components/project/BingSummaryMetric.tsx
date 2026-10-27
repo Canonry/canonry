@@ -14,9 +14,9 @@ export function BingSummaryMetric({
       : 'text-strong'
 
   return (
-    <div className="rounded-lg border border-default bg-surface-subtle p-3">
-      <p className="text-xs uppercase tracking-wide text-muted">{label}</p>
-      <p className={`mt-2 text-2xl font-semibold ${valueClass}`}>{value}</p>
+    <div className="material-base p-3">
+      <p className="text-label-12 normal-case text-muted">{label}</p>
+      <p className={`mt-2 text-copy-24-strong ${valueClass}`}>{value}</p>
     </div>
   )
 }

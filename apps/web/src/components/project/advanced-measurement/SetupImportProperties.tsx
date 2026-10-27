@@ -65,9 +65,9 @@ function PropertyUrls({ property }: { property: AdvancedMeasurementProperty }) {
   if (urls.length <= 1) return <span>{urls[0] ?? 'No URL'}</span>
   return (
     <details>
-      <summary className="cursor-pointer text-xs font-medium text-primary">{urls.length} URLs</summary>
+      <summary className="cursor-pointer text-label-12-strong text-primary">{urls.length} URLs</summary>
       <ul className="mt-2 space-y-1">
-        {urls.map(url => <li key={url} className="break-all font-mono text-xs text-secondary">{url}</li>)}
+        {urls.map(url => <li key={url} className="break-all text-label-12-mono text-secondary">{url}</li>)}
       </ul>
     </details>
   )
@@ -98,12 +98,12 @@ function ImportStep({
   return (
     <section aria-labelledby="advanced-measurement-import-heading" aria-busy={reviewState === 'reviewing'}>
       <div>
-        <h2 id="advanced-measurement-import-heading" className="text-lg font-semibold text-heading">Import Properties</h2>
-        <p className="mt-1 max-w-2xl text-sm text-secondary">Review sitemap entries before choosing the Properties to measure.</p>
+        <h2 id="advanced-measurement-import-heading" className="text-heading-20 text-heading">Import Properties</h2>
+        <p className="mt-1 max-w-2xl text-copy-14 text-secondary">Review sitemap entries before choosing the Properties to measure.</p>
       </div>
 
       {!canEdit ? (
-        <div className="mt-4 flex items-center gap-2 text-sm text-secondary">
+        <div className="mt-4 flex items-center gap-2 text-label-14 text-secondary">
           <ToneBadge tone="neutral">Viewer access</ToneBadge>
           <span>You can inspect this setup.</span>
         </div>
@@ -118,7 +118,7 @@ function ImportStep({
         }}
       >
         <div>
-          <label htmlFor="advanced-measurement-sitemap-url" className="text-sm font-medium text-heading">Sitemap URL</label>
+          <label htmlFor="advanced-measurement-sitemap-url" className="text-label-14-strong text-heading">Sitemap URL</label>
           <input
             id="advanced-measurement-sitemap-url"
             type="url"
@@ -126,12 +126,12 @@ function ImportStep({
             disabled={inputDisabled}
             onChange={event => updateDraft('sitemapUrl', event.target.value)}
             placeholder="https://example.com/sitemap.xml"
-            className="mt-1 block w-full rounded-md border border-default bg-surface px-3 py-2 text-sm text-primary outline-none placeholder-mono-600 focus:border-strong focus:ring-2 focus:ring-mono-400 disabled:cursor-not-allowed disabled:opacity-60"
+            className="mt-1 block w-full rounded-md border border-default bg-surface px-3 py-2 text-label-14 text-primary outline-none placeholder-mono-400 focus:border-strong focus:ring-2 focus:ring-mono-400 disabled:cursor-not-allowed disabled:opacity-60"
           />
         </div>
 
         <div>
-          <label htmlFor="advanced-measurement-example-property-url" className="text-sm font-medium text-heading">Example Property page</label>
+          <label htmlFor="advanced-measurement-example-property-url" className="text-label-14-strong text-heading">Example Property page</label>
           <input
             id="advanced-measurement-example-property-url"
             type="url"
@@ -140,66 +140,66 @@ function ImportStep({
             disabled={inputDisabled}
             onChange={event => updateDraft('examplePropertyUrl', event.target.value)}
             placeholder="https://example.com/locations/example"
-            className="mt-1 block w-full rounded-md border border-default bg-surface px-3 py-2 text-sm text-primary outline-none placeholder-mono-600 focus:border-strong focus:ring-2 focus:ring-mono-400 disabled:cursor-not-allowed disabled:opacity-60"
+            className="mt-1 block w-full rounded-md border border-default bg-surface px-3 py-2 text-label-14 text-primary outline-none placeholder-mono-400 focus:border-strong focus:ring-2 focus:ring-mono-400 disabled:cursor-not-allowed disabled:opacity-60"
           />
-          <p className="mt-1 text-xs text-secondary">This shows Canonry the Property URL pattern. Or enter the pattern under More import options.</p>
+          <p className="mt-1 text-copy-13 text-secondary">This shows Canonry the Property URL pattern. Or enter the pattern under More import options.</p>
         </div>
 
-        <details className="rounded-md border border-default bg-surface-subtle p-3">
-          <summary className="cursor-pointer text-sm font-medium text-heading">More import options</summary>
+        <details className="material-base p-3">
+          <summary className="cursor-pointer text-label-14-strong text-heading">More import options</summary>
           <div className="mt-4 space-y-4">
             <div>
-              <label htmlFor="advanced-measurement-preferred-host" className="text-sm font-medium text-heading">Use URLs from this domain</label>
+              <label htmlFor="advanced-measurement-preferred-host" className="text-label-14-strong text-heading">Use URLs from this domain</label>
               <input
                 id="advanced-measurement-preferred-host"
                 value={draft.preferredHost}
                 disabled={inputDisabled}
                 onChange={event => updateDraft('preferredHost', event.target.value)}
                 placeholder="example.com"
-                className="mt-1 block w-full rounded-md border border-default bg-surface px-3 py-2 text-sm text-primary outline-none placeholder-mono-600 focus:border-strong focus:ring-2 focus:ring-mono-400 disabled:cursor-not-allowed disabled:opacity-60"
+                className="mt-1 block w-full rounded-md border border-default bg-surface px-3 py-2 text-label-14 text-primary outline-none placeholder-mono-400 focus:border-strong focus:ring-2 focus:ring-mono-400 disabled:cursor-not-allowed disabled:opacity-60"
               />
             </div>
 
             <div>
-              <label htmlFor="advanced-measurement-property-path-pattern" className="text-sm font-medium text-heading">Property URL pattern</label>
+              <label htmlFor="advanced-measurement-property-path-pattern" className="text-label-14-strong text-heading">Property URL pattern</label>
               <input
                 id="advanced-measurement-property-path-pattern"
                 value={draft.propertyPathPattern}
                 disabled={inputDisabled}
                 onChange={event => updateDraft('propertyPathPattern', event.target.value)}
                 placeholder="/locations/*"
-                className="mt-1 block w-full rounded-md border border-default bg-surface px-3 py-2 text-sm text-primary outline-none placeholder-mono-600 focus:border-strong focus:ring-2 focus:ring-mono-400 disabled:cursor-not-allowed disabled:opacity-60"
+                className="mt-1 block w-full rounded-md border border-default bg-surface px-3 py-2 text-label-14 text-primary outline-none placeholder-mono-400 focus:border-strong focus:ring-2 focus:ring-mono-400 disabled:cursor-not-allowed disabled:opacity-60"
               />
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">
               <div>
-                <label htmlFor="advanced-measurement-additional-host" className="text-sm font-medium text-heading">Additional URL domain</label>
+                <label htmlFor="advanced-measurement-additional-host" className="text-label-14-strong text-heading">Additional URL domain</label>
                 <input
                   id="advanced-measurement-additional-host"
                   value={draft.additionalHost}
                   disabled={inputDisabled}
                   onChange={event => updateDraft('additionalHost', event.target.value)}
                   placeholder="properties.example.com"
-                  className="mt-1 block w-full rounded-md border border-default bg-surface px-3 py-2 text-sm text-primary outline-none placeholder-mono-600 focus:border-strong focus:ring-2 focus:ring-mono-400 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="mt-1 block w-full rounded-md border border-default bg-surface px-3 py-2 text-label-14 text-primary outline-none placeholder-mono-400 focus:border-strong focus:ring-2 focus:ring-mono-400 disabled:cursor-not-allowed disabled:opacity-60"
                 />
               </div>
               <div>
-                <label htmlFor="advanced-measurement-additional-path-pattern" className="text-sm font-medium text-heading">Additional URL pattern</label>
+                <label htmlFor="advanced-measurement-additional-path-pattern" className="text-label-14-strong text-heading">Additional URL pattern</label>
                 <input
                   id="advanced-measurement-additional-path-pattern"
                   value={draft.additionalPathPattern}
                   disabled={inputDisabled}
                   onChange={event => updateDraft('additionalPathPattern', event.target.value)}
                   placeholder="/*"
-                  className="mt-1 block w-full rounded-md border border-default bg-surface px-3 py-2 text-sm text-primary outline-none placeholder-mono-600 focus:border-strong focus:ring-2 focus:ring-mono-400 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="mt-1 block w-full rounded-md border border-default bg-surface px-3 py-2 text-label-14 text-primary outline-none placeholder-mono-400 focus:border-strong focus:ring-2 focus:ring-mono-400 disabled:cursor-not-allowed disabled:opacity-60"
                 />
               </div>
-              <p className="text-sm text-secondary md:col-span-2">Use both fields when each Property also has a matching page on another domain.</p>
+              <p className="text-copy-14 text-secondary md:col-span-2">Use both fields when each Property also has a matching page on another domain.</p>
             </div>
 
             <div>
-              <label htmlFor="advanced-measurement-excluded-paths" className="text-sm font-medium text-heading">Ignore these URL paths</label>
+              <label htmlFor="advanced-measurement-excluded-paths" className="text-label-14-strong text-heading">Ignore these URL paths</label>
               <textarea
                 id="advanced-measurement-excluded-paths"
                 value={draft.excludedPaths}
@@ -207,9 +207,9 @@ function ImportStep({
                 onChange={event => updateDraft('excludedPaths', event.target.value)}
                 placeholder="/locations/archive"
                 rows={3}
-                className="mt-1 block w-full rounded-md border border-default bg-surface px-3 py-2 text-sm text-primary outline-none placeholder-mono-600 focus:border-strong focus:ring-2 focus:ring-mono-400 disabled:cursor-not-allowed disabled:opacity-60"
+                className="mt-1 block w-full rounded-md border border-default bg-surface px-3 py-2 text-copy-14 text-primary outline-none placeholder-mono-400 focus:border-strong focus:ring-2 focus:ring-mono-400 disabled:cursor-not-allowed disabled:opacity-60"
               />
-              <p className="mt-1 text-xs text-secondary">One path per line. Use * at the beginning or end to match similar pages.</p>
+              <p className="mt-1 text-copy-13 text-secondary">One path per line. Use * at the beginning or end to match similar pages.</p>
             </div>
           </div>
         </details>
@@ -278,31 +278,31 @@ function PropertiesStep({
   return (
     <section aria-labelledby="advanced-measurement-properties-heading" aria-busy={propertiesState === 'loading' || isContinuing}>
       <div>
-        <h2 id="advanced-measurement-properties-heading" className="text-lg font-semibold text-heading">Properties</h2>
-        <p className="mt-1 max-w-2xl text-sm text-secondary">Choose the Properties to include, then continue.</p>
+        <h2 id="advanced-measurement-properties-heading" className="text-heading-20 text-heading">Properties</h2>
+        <p className="mt-1 max-w-2xl text-copy-14 text-secondary">Choose the Properties to include, then continue.</p>
       </div>
 
-      {!canEdit ? <p className="mt-4 text-sm text-secondary">Viewing only. Property changes are unavailable.</p> : null}
+      {!canEdit ? <p className="mt-4 text-copy-14 text-secondary">Viewing only. Property changes are unavailable.</p> : null}
 
       {propertiesState === 'loading' ? (
-        <div className="mt-5 rounded-md border border-default bg-surface-subtle p-4">
-          <p role="status" className="text-sm text-secondary">Loading Properties…</p>
-          <p className="mt-1 text-sm text-secondary">If this does not finish, refresh the list.</p>
+        <div className="mt-5 material-base p-4">
+          <p role="status" className="text-copy-14 text-secondary">Loading Properties…</p>
+          <p className="mt-1 text-copy-14 text-secondary">If this does not finish, refresh the list.</p>
           <Button type="button" variant="outline" size="sm" className="mt-3" onClick={onRetryProperties}>Refresh Properties</Button>
         </div>
       ) : null}
 
       {propertiesState === 'error' ? (
-        <div className="mt-5 rounded-md border border-default bg-surface-subtle p-4">
-          <p role="alert" className="text-sm text-negative">Could not load Properties. Retry to request the current list.</p>
+        <div className="mt-5 material-base p-4">
+          <p role="alert" className="text-copy-14 text-negative">Could not load Properties. Retry to request the current list.</p>
           <Button type="button" variant="outline" size="sm" className="mt-3" onClick={onRetryProperties}>Retry</Button>
         </div>
       ) : null}
 
       {propertiesState === 'ready' && properties.length === 0 ? (
-        <div className="mt-5 rounded-md border border-default bg-surface-subtle p-4">
-          <p className="text-sm text-secondary">No Properties were found.</p>
-          <p className="mt-1 text-sm text-secondary">Check the sitemap and review it again.</p>
+        <div className="mt-5 material-base p-4">
+          <p className="text-copy-14 text-secondary">No Properties were found.</p>
+          <p className="mt-1 text-copy-14 text-secondary">Check the sitemap and review it again.</p>
           <Button type="button" variant="outline" size="sm" className="mt-3" disabled={!canEdit} onClick={onReturnToImport}>Review sitemap</Button>
         </div>
       ) : null}
@@ -311,13 +311,13 @@ function PropertiesStep({
         <div className="mt-5">
           <div className="flex flex-wrap items-end justify-between gap-3">
             <label className="block min-w-48 flex-1">
-              <span className="text-sm font-medium text-heading">Search Properties</span>
+              <span className="text-label-14-strong text-heading">Search Properties</span>
               <input
                 type="search"
                 value={propertiesSearch}
                 disabled={isContinuing}
                 onChange={event => onPropertiesSearchChange(event.target.value)}
-                className="mt-1 block w-full rounded-md border border-default bg-surface px-3 py-2 text-sm text-primary outline-none placeholder-mono-600 focus:border-strong focus:ring-2 focus:ring-mono-400"
+                className="mt-1 block w-full rounded-md border border-default bg-surface px-3 py-2 text-label-14 text-primary outline-none placeholder-mono-400 focus:border-strong focus:ring-2 focus:ring-mono-400"
               />
             </label>
             {canEdit ? (
@@ -329,20 +329,20 @@ function PropertiesStep({
           </div>
 
           {filteredProperties.length === 0 ? (
-            <div className="mt-4 rounded-md border border-default bg-surface-subtle p-4">
-              <p className="text-sm text-secondary">No Properties match this search.</p>
-              <p className="mt-1 text-sm text-secondary">Clear the search or review the sitemap again.</p>
+            <div className="mt-4 material-base p-4">
+              <p className="text-copy-14 text-secondary">No Properties match this search.</p>
+              <p className="mt-1 text-copy-14 text-secondary">Clear the search or review the sitemap again.</p>
               <Button type="button" variant="outline" size="sm" className="mt-3" disabled={!canEdit} onClick={onReturnToImport}>Review sitemap</Button>
             </div>
           ) : (
             <>
-              <div className="mt-4 flex flex-wrap items-center justify-between gap-2 text-sm text-secondary">
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-2 text-label-14 text-secondary">
                 <p>Showing {visibleProperties.length} of {filteredProperties.length} Properties</p>
                 <p>{selectedIds.length} of {properties.length} selected</p>
               </div>
               <div className="mt-2 overflow-x-auto rounded-md border border-default">
-                <table className="w-full min-w-150 text-left text-sm" aria-label="Properties to review">
-                  <thead className="bg-surface-subtle text-xs font-medium uppercase tracking-wide text-secondary">
+                <table className="w-full min-w-150 text-left text-label-14" aria-label="Properties to review">
+                  <thead className="bg-surface-subtle text-label-12-strong normal-case text-secondary">
                     <tr>
                       <th scope="col" className="px-3 py-2">Property</th>
                       <th scope="col" className="px-3 py-2">URL</th>
@@ -355,8 +355,8 @@ function PropertiesStep({
                       const presentation = propertyStatePresentation[property.state]
                       return (
                         <tr key={property.id} className="border-t border-subtle">
-                          <td className="px-3 py-3 font-medium text-heading">{property.name}</td>
-                          <td className="max-w-96 px-3 py-3 font-mono text-xs text-secondary"><PropertyUrls property={property} /></td>
+                          <td className="px-3 py-3 text-label-14-strong text-heading">{property.name}</td>
+                          <td className="max-w-96 px-3 py-3 text-label-12-mono text-secondary"><PropertyUrls property={property} /></td>
                           <td className="px-3 py-3"><ToneBadge tone={presentation.tone}>{presentation.label}</ToneBadge></td>
                           {canEdit ? <td className="p-0 text-right">
                             <label className="ml-auto flex min-h-11 min-w-11 cursor-pointer items-center justify-center">

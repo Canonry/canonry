@@ -323,8 +323,8 @@ function MetricValue({
   compact?: boolean
 }) {
   const valueClassName = compact
-    ? isMeasured(metric) ? 'text-sm font-medium text-primary' : 'text-sm font-medium text-secondary'
-    : isMeasured(metric) ? 'text-lg font-semibold text-heading' : 'text-lg font-semibold text-secondary'
+    ? isMeasured(metric) ? 'text-label-14-strong text-primary' : 'text-label-14-strong text-secondary'
+    : isMeasured(metric) ? 'text-label-18-strong text-heading' : 'text-label-18-strong text-secondary'
   // Answers the server left out of this rate, named for its own signal only.
   const excluded = isMeasured(metric) ? excludedAnswersFlag(metric, signal) : null
   return (
@@ -351,7 +351,7 @@ function Truncation({
 }) {
   if (shown >= total) return null
   return (
-    <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-secondary">
+    <div className="mt-2 flex flex-wrap items-center gap-3 text-label-14 text-secondary">
       <span>Showing {shown} of {total}</span>
       <Button size="sm" variant="outline" onClick={onShowAll}>Show all {total} {itemLabel}</Button>
     </div>
@@ -374,10 +374,10 @@ function CappedStringList({
 
   return (
     <section aria-label={title}>
-      <h4 className="text-sm font-medium text-heading">{title}</h4>
-      {values.length === 0 ? <p className="mt-2 text-sm text-secondary">{emptyLabel}</p> : (
+      <h4 className="text-heading-14 text-heading">{title}</h4>
+      {values.length === 0 ? <p className="mt-2 text-copy-14 text-secondary">{emptyLabel}</p> : (
         <>
-          <ul className="mt-2 space-y-1.5 text-sm">
+          <ul className="mt-2 space-y-1.5 text-label-14">
             {shown.map((value, index) => <li key={`${value}:${index}`} className={valueClassName}>{value}</li>)}
           </ul>
           <Truncation
@@ -406,15 +406,15 @@ function CappedEvidenceList({
 
   return (
     <section aria-label="Evidence">
-      <h4 className="text-sm font-medium text-heading">Evidence</h4>
-      {state === 'loading' ? <p className="mt-2 text-sm text-secondary">Loading evidence…</p>
+      <h4 className="text-heading-14 text-heading">Evidence</h4>
+      {state === 'loading' ? <p className="mt-2 text-copy-14 text-secondary">Loading evidence…</p>
         : state === 'error' ? (
-            <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-secondary">
+            <div className="mt-2 flex flex-wrap items-center gap-3 text-label-14 text-secondary">
               <span>Evidence could not be loaded.</span>
               {onRetry ? <Button type="button" size="sm" variant="outline" onClick={onRetry}>Retry evidence</Button> : null}
             </div>
           )
-          : evidence.length === 0 ? <p className="mt-2 text-sm text-secondary">No source evidence is available.</p> : (
+          : evidence.length === 0 ? <p className="mt-2 text-copy-14 text-secondary">No source evidence is available.</p> : (
         <>
           <div className="mt-2 overflow-x-auto rounded-md border border-default">
             <table className="evidence-table min-w-[640px]">
@@ -430,7 +430,7 @@ function CappedEvidenceList({
                   <td className="text-secondary">
                     <span className="block">{item.query}</span>
                     {item.provider || item.location ? (
-                      <span className="mt-1 block text-xs text-muted">
+                      <span className="mt-1 block text-label-12 text-muted">
                         {[item.provider, item.location].filter(Boolean).join(' · ')}
                       </span>
                     ) : null}
@@ -465,13 +465,13 @@ function PropertyDetails({ property, onRetryEvidence }: { property: AdvancedMeas
 function CompetitorShareOfVoice({ values }: { values: readonly AdvancedMeasurementShareOfVoice[] }) {
   return (
     <section aria-labelledby="advanced-measurement-share-of-voice" className="border-y border-default py-4">
-      <h2 id="advanced-measurement-share-of-voice" className="text-sm font-medium text-heading">Brand share of voice</h2>
+      <h2 id="advanced-measurement-share-of-voice" className="text-heading-14 text-heading">Brand share of voice</h2>
       <div className="mt-3 overflow-x-auto">
         <table className="evidence-table min-w-[420px]">
           <thead><tr><th>Name</th><th>Share of voice</th></tr></thead>
           <tbody>{values.map(value => (
             <tr key={value.name}>
-              <td className="font-medium text-heading">{value.name}</td>
+              <td className="text-label-14-strong text-heading">{value.name}</td>
               <td className="text-secondary"><MetricValue metric={value.coverage} signal="mentioned" compact /></td>
             </tr>
           ))}</tbody>
@@ -594,8 +594,8 @@ function OutcomeCounts({ outcomes }: {
     <div aria-label="Property outcomes" className="flex flex-wrap gap-x-8 gap-y-3 py-3">
       {entries.map(entry => (
         <div key={entry.key} className="whitespace-nowrap">
-          <p className={`font-mono text-xl font-semibold leading-none tabular-nums ${entry.tone}`}>{entry.count}</p>
-          <p className="mt-1 text-[13px] text-secondary">
+          <p className={`font-mono text-copy-20-strong tabular-nums ${entry.tone}`}>{entry.count}</p>
+          <p className="mt-1 text-copy-13 text-secondary">
             {entry.label}
             {entry.key === 'not-measured' ? (
               <InfoTooltip text="One or both signals missing. Not the same as neither." />
@@ -771,13 +771,13 @@ export function AdvancedMeasurementOverview({
     <section aria-label="Advanced measurement overview" aria-busy={isViewLoading} className="space-y-5">
       <header className="border-b border-default pb-4">
         <div role="status" aria-label="Measurement status and next action" className="flex flex-wrap items-center gap-x-3 gap-y-2">
-          {isViewLoading ? <span className="text-sm text-secondary">Updating results…</span> : (
+          {isViewLoading ? <span className="text-label-14 text-secondary">Updating results…</span> : (
             <>
               <ToneBadge tone={report.latestMeasurement.status.tone}>{report.latestMeasurement.status.label}</ToneBadge>
               {report.latestMeasurement.includesBridgedHistory ? <ToneBadge tone="caution">Includes historical data</ToneBadge> : null}
-              {progressLabel ? <span className="text-sm text-secondary tabular-nums">{progressLabel}</span> : null}
-              {measurementDate ? <span className="text-sm text-secondary">{measurementDate}</span> : null}
-              {statusMessage ? <span className="text-sm text-secondary">{statusMessage}</span> : null}
+              {progressLabel ? <span className="text-label-14 text-secondary tabular-nums">{progressLabel}</span> : null}
+              {measurementDate ? <span className="text-label-14 text-secondary">{measurementDate}</span> : null}
+              {statusMessage ? <span className="text-label-14 text-secondary">{statusMessage}</span> : null}
               {canEdit && classReportingAvailable && onRunMeasurement ? (
                 <Button className="ml-auto" size="sm" onClick={() => { void onRunMeasurement() }} disabled={isRunningMeasurement}>
                   {isRunningMeasurement ? 'Starting measurement…' : 'Run measurement'}
@@ -797,7 +797,7 @@ export function AdvancedMeasurementOverview({
           <label
             id="advanced-measurement-group-label"
             htmlFor={useGroupSelect ? 'advanced-measurement-group' : undefined}
-            className="block text-sm font-medium text-heading"
+            className="block text-label-14-strong text-heading"
           >
             Group
           </label>
@@ -806,7 +806,7 @@ export function AdvancedMeasurementOverview({
               id="advanced-measurement-group"
               value={selectedView}
               onChange={event => handleGroupChange(event.target.value)}
-              className="h-9 rounded-md border border-default bg-surface px-3 text-sm text-primary focus:outline-none focus:ring-2 focus:ring-mono-400"
+              className="h-9 rounded-md border border-default bg-surface px-3 text-label-14 text-primary focus:outline-none focus:ring-2 focus:ring-mono-400"
             >
               {groupSegmentOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
             </select>
@@ -820,7 +820,7 @@ export function AdvancedMeasurementOverview({
           )}
         </div>
         <div className="space-y-1">
-          <label id="advanced-measurement-class-label" className="block text-sm font-medium text-heading">Query type</label>
+          <label id="advanced-measurement-class-label" className="block text-label-14-strong text-heading">Query type</label>
           <SegmentedControl
             ariaLabelledBy="advanced-measurement-class-label"
             value={selectedClass}
@@ -830,14 +830,14 @@ export function AdvancedMeasurementOverview({
           />
         </div>
         <div className="ml-auto min-w-52 max-w-xs flex-1 space-y-1">
-          <label htmlFor="advanced-measurement-search" className="block text-sm font-medium text-heading">Search properties</label>
+          <label htmlFor="advanced-measurement-search" className="block text-label-14-strong text-heading">Search properties</label>
           <input
             id="advanced-measurement-search"
             type="search"
             value={search}
             onChange={event => setSearch(event.target.value)}
             placeholder="Search properties"
-            className="h-9 w-full rounded-md border border-default bg-surface px-3 text-sm text-primary placeholder-mono-600 focus:outline-none focus:ring-2 focus:ring-mono-400"
+            className="h-9 w-full rounded-md border border-default bg-surface px-3 text-label-14 text-primary placeholder-mono-400 focus:outline-none focus:ring-2 focus:ring-mono-400"
           />
         </div>
       </div>
@@ -846,11 +846,11 @@ export function AdvancedMeasurementOverview({
 
       {!isViewLoading ? <section aria-labelledby="advanced-measurement-properties-title">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <h2 id="advanced-measurement-properties-title" className="text-base font-semibold text-heading">
+          <h2 id="advanced-measurement-properties-title" className="text-heading-16 text-heading">
             Properties
             <InfoTooltip text={ADVANCED_PROPERTIES_SIGNAL_HELP} />
           </h2>
-          <span className="text-sm text-secondary">{report.currentView?.propertyTotal ?? filteredProperties.length} {(report.currentView?.propertyTotal ?? filteredProperties.length) === 1 ? 'property' : 'properties'}</span>
+          <span className="text-label-14 text-secondary">{report.currentView?.propertyTotal ?? filteredProperties.length} {(report.currentView?.propertyTotal ?? filteredProperties.length) === 1 ? 'property' : 'properties'}</span>
         </div>
         {/* Directly under the count it partitions, so the unit is stated once
             and the row visibly sums to it. */}
@@ -904,7 +904,7 @@ export function AdvancedMeasurementOverview({
                         if (!isInteractiveTarget(event.target)) toggleProperty(property.id)
                       }}
                     >
-                      <td className="font-medium text-heading">
+                      <td className="text-label-14-strong text-heading">
                         {renderPropertyLink
                           ? renderPropertyLink({ id: property.id, name: property.name })
                           : property.name}
@@ -923,7 +923,7 @@ export function AdvancedMeasurementOverview({
                           </span>
                         ) : null}
                         {propertySubtitle(property) ? (
-                          <div className="mt-0.5 text-xs font-normal text-faint">{propertySubtitle(property)}</div>
+                          <div className="mt-0.5 text-label-12 text-faint">{propertySubtitle(property)}</div>
                         ) : null}
                       </td>
                       <td className="text-secondary"><MetricValue metric={property.mentionCoverage} signal="mentioned" compact /></td>
@@ -942,12 +942,12 @@ export function AdvancedMeasurementOverview({
                   </Fragment>
                 )
               })}
-              {shownProperties.length === 0 ? <tr><td colSpan={4} className="py-8 text-center text-sm text-secondary">No properties match this search.</td></tr> : null}
+              {shownProperties.length === 0 ? <tr><td colSpan={4} className="py-8 text-center text-label-14 text-secondary">No properties match this search.</td></tr> : null}
             </tbody>
           </table>
         </div>
         {usesServerView && report.currentView!.nextCursor && onLoadMore ? (
-          <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-secondary">
+          <div className="mt-2 flex flex-wrap items-center gap-3 text-label-14 text-secondary">
             <span>Showing {shownProperties.length} of {report.currentView!.propertyTotal}</span>
             {isLoadMoreError ? <span role="alert">Could not load more properties.</span> : null}
             <Button size="sm" variant="outline" disabled={isLoadingMore} onClick={() => onLoadMore(report.currentView!.nextCursor!)}>
@@ -956,7 +956,7 @@ export function AdvancedMeasurementOverview({
           </div>
         ) : usesServerView ? (
           shownProperties.length < report.currentView!.propertyTotal
-            ? <p className="mt-2 text-sm text-secondary">Showing {shownProperties.length} of {report.currentView!.propertyTotal}</p>
+            ? <p className="mt-2 text-copy-14 text-secondary">Showing {shownProperties.length} of {report.currentView!.propertyTotal}</p>
             : null
         ) : (
           <Truncation
@@ -971,23 +971,23 @@ export function AdvancedMeasurementOverview({
       {!isViewLoading && !normalizedSearch && flaggedResultsTotal > 0 ? (
         <section aria-label="Flagged results" className="border-t border-default pt-4">
           <details>
-            <summary className="cursor-pointer text-sm font-medium text-heading">Flagged results ({flaggedResultsTotal})</summary>
+            <summary className="cursor-pointer text-label-14-strong text-heading">Flagged results ({flaggedResultsTotal})</summary>
             <ul className="mt-3 space-y-3">
               {report.flaggedResults.slice(0, flaggedLimit).map(result => (
-                <li key={result.id} className="flex flex-wrap items-start gap-2 text-sm">
+                <li key={result.id} className="flex flex-wrap items-start gap-2 text-label-14">
                   <ToneBadge tone={result.tone}>Flagged</ToneBadge>
-                  <span className="font-medium text-heading">{result.property}</span>
+                  <span className="text-label-14-strong text-heading">{result.property}</span>
                   <span className="text-secondary">{result.summary}</span>
                 </li>
               ))}
             </ul>
             {flaggedLimit < report.flaggedResults.length ? (
-              <div className="mt-3 flex items-center gap-3 text-sm text-secondary">
+              <div className="mt-3 flex items-center gap-3 text-label-14 text-secondary">
                 <span>Showing details for {report.flaggedResults.slice(0, flaggedLimit).reduce((total, result) => total + (result.count ?? 1), 0)} of {flaggedResultsTotal} flagged results</span>
                 <Button size="sm" variant="outline" onClick={() => setFlaggedLimit(limit => Math.min(report.flaggedResults.length, limit + FLAGGED_RESULTS_INCREMENT))}>Show 50 more</Button>
               </div>
             ) : loadedFlaggedCount < flaggedResultsTotal ? (
-              <div className="mt-3 flex items-center gap-3 text-sm text-secondary">
+              <div className="mt-3 flex items-center gap-3 text-label-14 text-secondary">
                 <span>Showing details for {loadedFlaggedCount} of {flaggedResultsTotal} flagged results</span>
                 {usesServerView && report.currentView!.nextCursor && onLoadMore ? (
                   <Button size="sm" variant="outline" disabled={isLoadingMore} onClick={() => onLoadMore(report.currentView!.nextCursor!)}>

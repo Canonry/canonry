@@ -2,7 +2,8 @@ import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 
 import { escapeRegExp } from '@canonry/canonry-contracts'
-import { compileAppStyles } from './compiled-app-css.js'
+import { buttonVariants } from '../src/components/ui/button.js'
+import { compileAppStyles, compiledDeclarations, parseCompiledCss } from './compiled-app-css.js'
 import { expect, test } from 'vitest'
 
 const stylesPath = resolve(import.meta.dirname, '../src/styles.css')
@@ -63,8 +64,8 @@ test('the headline strip separates its tiles instead of sharing one frame', asyn
   // `divide-*` compiles to a child rule, which never appears in the block above.
   expect(css).not.toMatch(/\.report-headline\s*>/)
   const tile = ruleFor(css, '.report-headline-tile')
-  expect(tile).toContain('border-color: var(--color-border)')
-  expect(tile).toContain('background-color: var(--color-surface)')
+  expect(tile).toContain('box-shadow: var(--shadow-material-base)')
+  expect(tile).toContain('background-color: var(--color-bg)')
 })
 
 // Five collapsed rows end the AI Visibility tab, and they come from two
@@ -172,10 +173,10 @@ test('shared stylesheet primitives consume semantic tokens', async () => {
   // bg-bg/95 — assert the alpha step so the match can't pass on --color-bg-elevated
   expect(ruleFor(css, '.topbar')).toContain('var(--color-bg) 95%')
   expect(ruleFor(css, '.page-title')).toContain('color: var(--color-text-heading)')
-  expect(ruleFor(css, '.metric-card')).toContain('border-color: var(--color-border)')
-  expect(ruleFor(css, '.metric-card')).toContain('background-color: var(--color-surface)')
-  expect(ruleFor(css, '.surface-card')).toContain('border-color: var(--color-border)')
-  expect(ruleFor(css, '.surface-card')).toContain('background-color: var(--color-surface)')
+  for (const selector of ['.metric-card', '.surface-card']) {
+    expect(ruleFor(css, selector)).toContain('box-shadow: var(--shadow-material-base)')
+    expect(ruleFor(css, selector)).toContain('background-color: var(--color-bg)')
+  }
   expect(ruleFor(css, '.page-section-divider')).toContain('border-color: var(--color-border-subtle)')
   expect(ruleFor(css, '.sidebar-link')).toContain('background-color: var(--color-surface-inset-hover)')
   expect(ruleFor(css, '.sidebar-link-active')).toContain('background-color: var(--color-surface-active)')
@@ -219,7 +220,7 @@ test('neutral, tone, and info scale utilities compile through CSS variables', as
   expect(css).toContain('color: var(--color-on-inverse)')
   expect(css).toContain('.text-on-emphasis')
   expect(css).toContain('color: var(--color-on-emphasis)')
-  expect(css).toContain('--color-on-inverse: rgb(0 0 0)')
+  expect(css).toContain('--color-on-inverse: var(--ds-background-100)')
   expect(css).toContain('--color-on-emphasis: rgb(255 255 255)')
   expect(css).toContain('.text-link')
   expect(css).toContain('color: var(--color-link)')
@@ -240,8 +241,7 @@ test('neutral, tone, and info scale utilities compile through CSS variables', as
   expect(css).toContain('color-mix(in oklab, var(--color-overlay-scrim) 70%, transparent)')
   expect(css).toContain('color-mix(in oklab, var(--color-mono-950) 75%, transparent)')
   expect(css).toContain('color-mix(in oklab, var(--color-info-800) 40%, transparent)')
-  // the chart tokens are emitted unconditionally from @theme (the chart bridge
-  // consumes them in a later phase)
+  // Chart defaults remain available even without a corresponding utility.
   expect(css).toContain('--chart-series-1: #34d399')
   expect(css).toContain('--chart-neutral-track-subtle: rgb(255 255 255 / 0.04)')
 })
@@ -257,7 +257,7 @@ test('highlight and effect primitives consume tokens', async () => {
   expect(ruleFor(css, '.brand-update-bubble')).toContain('var(--color-caution-glow-inset)')
   // effect tokens consumed via raw properties in their real rules (not just the
   // standalone utility) — a literal regression in these rules must fail here
-  expect(ruleFor(css, '.toast-card')).toContain('var(--color-shadow-panel)')
+  expect(ruleFor(css, '.toast-card')).toContain('var(--shadow-material-small)')
   expect(ruleFor(css, '.toast-action')).toContain('var(--color-overlay-hover)')
   expect(css).toContain('background: var(--color-scrollbar-thumb)')
 })
@@ -279,7 +279,7 @@ test('filter chips preserve a 44px touch target and visible keyboard focus', asy
   const chipFocus = ruleFor(css, '.filter-chip:focus-visible')
 
   expect(chip).toContain('min-height: calc(var(--spacing) * 11)')
-  expect(chip).toContain('font-size: var(--text-sm)')
+  expect(chip).toContain('font-size: 14px')
   expect(chip).toContain('&:focus-visible')
   expect(chip).toContain('--tw-ring-shadow:')
   expect(chipFocus).toContain('outline: 2px solid transparent')
@@ -289,17 +289,14 @@ test('filter chips preserve a 44px touch target and visible keyboard focus', asy
   expect(css).toContain('outline-color: CanvasText')
 })
 
-test('styles.css carries no literal palette utilities or raw hex outside the @theme block', async () => {
-  // @theme token definitions legitimately reference the raw Tailwind palette
-  // (var(--color-zinc-800)) and literal rgb()/hex; every rule OUTSIDE @theme
-  // must resolve through a semantic/scale token. Strip the @theme blocks and CSS
-  // comments, then assert the remaining source is clean. This is the guard that
-  // keeps the "fully tokenized" invariant honest — a stray literal in any rule,
-  // even one no positive assertion covers, fails here.
+test('component rules carry no literal palette utilities or raw colors', async () => {
+  // Literal colors belong to token declarations. The guard spans every shared
+  // component rule, so a new hardcoded value fails even without a positive case.
   const source = await readFile(stylesPath, 'utf8')
   const body = source
     .replace(/@theme\b[^{]*\{[\s\S]*?\n\}/g, '')
     .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/--[\w-]+\s*:[^;]+;/g, '')
 
   const PALETTES = [
     'zinc', 'slate', 'gray', 'neutral', 'stone', 'red', 'orange', 'amber',
@@ -316,24 +313,183 @@ test('styles.css carries no literal palette utilities or raw hex outside the @th
   expect(body.match(/\brgba?\(/g) ?? []).toEqual([])
 })
 
-test('the light theme deepens the tone-scale foreground steps (no bright tone text on white)', async () => {
-  const source = await readFile(stylesPath, 'utf8')
-  // The main [data-theme='light'] token block (not the .provider-badge-- rules).
-  const light = source.match(/\[data-theme='light'\]\s*\{([\s\S]*?)\n\}/)?.[1] ?? ''
-  expect(light, 'light theme block not found').not.toBe('')
-  // Tone SCALE steps used as bright foreground text on the dark canvas must be
-  // re-pointed to dark inks so they stay AA-legible on the light canvas
-  // (regression guard for the invisible tone-colored text the review caught).
-  for (const decl of [
-    '--color-positive-400: var(--color-emerald-700)',
-    '--color-caution-400: var(--color-amber-700)',
-    '--color-negative-400: var(--color-rose-700)',
-    '--color-info-400: var(--color-sky-700)',
-    '--color-info-100: var(--color-sky-800)',
-    '--color-caution-100: var(--color-amber-800)',
-  ]) {
-    expect(light, `light theme must re-point "${decl}"`).toContain(decl)
+// CSS custom properties resolve at their defining element. Resolve each scope
+// before inheriting it; flattening the raw declarations would miss stale aliases
+// when an embedded theme differs from its host.
+function computedTokens(local: Record<string, string>, inherited: Record<string, string> = {}) {
+  const computed: Record<string, string> = { ...inherited }
+  const resolving = new Set<string>()
+  function resolveToken(name: string): string {
+    if (!Object.hasOwn(local, name)) return inherited[name] ?? ''
+    if (resolving.has(name)) throw new Error(`Circular CSS token: ${name}`)
+    resolving.add(name)
+    const value = local[name]!.replace(/var\((--[\w-]+)\)/g, (_match, dependency: string) => resolveToken(dependency))
+    resolving.delete(name)
+    return value
   }
+  for (const name of Object.keys(local).filter(name => name.startsWith('--'))) computed[name] = resolveToken(name)
+  return computed
+}
+
+function colorChannels(color: string): number[] {
+  let rgb: number[]
+  const hsl = color.match(/^hsl\(([\d.]+) ([\d.]+)% ([\d.]+)%\)$/)
+  if (hsl) {
+    const hue = Number(hsl[1]) / 30, saturation = Number(hsl[2]) / 100, lightness = Number(hsl[3]) / 100
+    const amplitude = saturation * Math.min(lightness, 1 - lightness)
+    rgb = [0, 8, 4].map(offset => {
+      const channel = (offset + hue) % 12
+      return lightness - amplitude * Math.max(-1, Math.min(channel - 3, 9 - channel, 1))
+    })
+  } else if (/^#[\da-f]{6}$/i.test(color)) {
+    rgb = [1, 3, 5].map(offset => Number.parseInt(color.slice(offset, offset + 2), 16) / 255)
+  } else if (/^rgb\((?:[\d.]+ ){2}[\d.]+\)$/.test(color)) {
+    rgb = color.slice(4, -1).split(' ').map(value => Number(value) / 255)
+  } else {
+    throw new Error(`Unsupported contrast color: ${color}`)
+  }
+  return rgb
+}
+
+function colorLuminance(color: string, background?: string): number {
+  const mix = color.match(/^color-mix\(in oklab, (.+) ([\d.]+)%, transparent\)$/)
+  let rgb: number[]
+  if (mix && background) {
+    // Mixing one color with transparent preserves its channels and changes
+    // alpha. Composite it over the actual toast canvas before measuring text.
+    const alpha = Number(mix[2]) / 100
+    const canvas = colorChannels(background)
+    rgb = colorChannels(mix[1]!).map((channel, index) => channel * alpha + canvas[index]! * (1 - alpha))
+  } else {
+    rgb = colorChannels(color)
+  }
+  const linear = rgb.map(value => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4)
+  return 0.2126 * linear[0]! + 0.7152 * linear[1]! + 0.0722 * linear[2]!
+}
+
+function contrast(foreground: string, background: string): number {
+  const values = [colorLuminance(foreground, background), colorLuminance(background)].sort((left, right) => right - left)
+  return (values[0]! + 0.05) / (values[1]! + 0.05)
+}
+
+test('nested themes resolve their own surfaces, readable tone text, materials and chart/provider palettes', async () => {
+  const actions = (['default', 'destructive'] as const).map(variant => ({
+    variant, classes: buttonVariants({ variant }).split(/\s+/),
+  }))
+  const css = await compileAppStyles(actions.flatMap(action => action.classes))
+  const rules = parseCompiledCss(css)
+  // Supported color-mix declarations override their fallback in modern browsers.
+  // The bounded parser retains that context but does not evaluate its cascade.
+  const supportedDetailColor = rules
+    .filter(rule => rule.selector === '.toast-detail' && rule.context.includes('@supports (color: color-mix(in lab, red, red))'))
+    .flatMap(rule => rule.declarations)
+    .filter(([property]) => property === 'color').at(-1)?.[1]
+  const detailColor = supportedDetailColor ?? compiledDeclarations(rules, '.toast-detail').color!
+  const root = computedTokens(compiledDeclarations(rules, ':root'))
+  const boundary = compiledDeclarations(rules, '[data-theme]')
+  const scope = (theme: 'light' | 'dark', parent: Record<string, string>) => computedTokens({
+    ...compiledDeclarations(rules, `[data-theme='${theme}']`), ...boundary,
+  }, parent)
+  const light = scope('light', root), dark = scope('dark', light)
+
+  expect(root['--color-bg']).toBe('hsl(0 0% 4%)')
+  expect(light['--color-bg']).toBe('hsl(0 0% 100%)')
+  expect(dark['--color-bg']).toBe(root['--color-bg'])
+  for (const provider of ['gemini', 'openai', 'claude', 'perplexity', 'muse', 'local']) {
+    for (const property of ['text', 'bg', 'border']) {
+      const token = `--provider-${provider}-${property}`
+      expect(light[token], `light ${provider} ${property}`).not.toBe(root[token])
+      expect(dark[token], `nested dark ${provider} ${property}`).toBe(root[token])
+    }
+    expect(compiledDeclarations(rules, `.provider-badge--${provider}`)).toMatchObject({
+      color: `var(--provider-${provider}-text)`, background: `var(--provider-${provider}-bg)`,
+      'border-color': `var(--provider-${provider}-border)`,
+    })
+  }
+  expect(light['--chart-series-2']).toBe('#3b82f6')
+  expect(light['--color-chart-series-2']).toBe(light['--chart-series-2'])
+  expect(dark['--chart-series-2']).toBe(root['--chart-series-2'])
+  expect(dark['--color-chart-series-2']).toBe(root['--chart-series-2'])
+  expect(light['--shadow-material-base']).toBe('0 0 0 1px #00000014, 0 0 0 1px hsl(0 0% 98%)')
+  expect(dark['--shadow-material-base']).toBe('0 0 0 1px #ffffff25, 0 0 0 1px hsl(0 0% 0%)')
+  for (const [name, tokens] of [['dark', dark], ['light', light]] as const) {
+    for (const foreground of ['text-primary', 'text-secondary', 'text-faint', 'positive-400', 'caution-400', 'negative-400', 'info-400']) {
+      expect(contrast(tokens[`--color-${foreground}`]!, tokens['--color-bg']!), `${name}: ${foreground}`).toBeGreaterThanOrEqual(4.5)
+    }
+    for (const tone of ['positive', 'caution', 'negative', 'neutral']) {
+      expect(contrast(tokens[`--color-${tone}-text`]!, tokens[`--color-${tone}-bg-soft`]!), `${name}: ${tone} notice`).toBeGreaterThanOrEqual(4.5)
+      const toast = compiledDeclarations(rules, `.toast-card-${tone}`)
+      const resolveColor = (value: string) => value.replace(/var\((--[\w-]+)\)/g, (_match, token: string) => tokens[token]!)
+      const inherited = resolveColor(toast.color!)
+      const detail = resolveColor(detailColor).replace(/currentcolor/gi, inherited)
+      expect(contrast(detail, resolveColor(toast['background-color']!)), `${name}: ${tone} toast detail`).toBeGreaterThanOrEqual(4.5)
+    }
+    for (const action of actions) {
+      const background = (prefix: string) => {
+        const candidate = action.classes.find(value => value.startsWith(prefix))!
+        const selector = `.${candidate.replace(/([^\w-])/g, '\\$1')}`
+        const declaration = ruleFor(css, selector).match(/background-color: ([^;]+);/)?.[1]
+        if (!declaration) throw new Error(`Missing ${action.variant} ${prefix} background`)
+        return declaration.replace(/var\((--[\w-]+)\)/g, (_match, token: string) => tokens[token]!)
+      }
+      const base = background('bg-'), hover = background('hover:bg-')
+      const foreground = tokens[action.variant === 'default' ? '--color-on-inverse' : '--color-on-emphasis']!
+      expect(hover, `${name}: ${action.variant} hover is visible`).not.toBe(base)
+      for (const color of [base, hover]) {
+        expect(contrast(foreground, color), `${name}: ${action.variant} action`).toBeGreaterThanOrEqual(4.5)
+      }
+    }
+  }
+})
+
+// Independently sourced from vercel.com/geist/typography: the named roles are
+// the public design contract. Compiling catches @apply/utility ordering and
+// inherited line-height regressions that DOM text assertions cannot observe.
+test('named Geist typography retains the published metrics and strong weights', async () => {
+  const roles = [
+    ['heading-72', 72, 72, 600, '-4.32px'], ['heading-64', 64, 64, 600, '-3.84px'],
+    ['heading-56', 56, 56, 600, '-3.36px'], ['heading-48', 48, 56, 600, '-2.88px'],
+    ['heading-40', 40, 48, 600, '-2.4px'], ['heading-32', 32, 40, 600, '-1.28px'],
+    ['heading-24', 24, 32, 600, '-0.96px'], ['heading-20', 20, 26, 600, '-0.4px'],
+    ['heading-16', 16, 24, 600, '-0.32px'], ['heading-14', 14, 20, 600, '-0.28px'],
+    ['label-20', 20, 32, 400, 'normal'], ['label-18', 18, 20, 400, 'normal'],
+    ['label-16', 16, 20, 400, 'normal'], ['label-14', 14, 20, 400, 'normal'],
+    ['label-13', 13, 16, 400, 'normal'], ['label-12', 12, 16, 400, 'normal'],
+    ['copy-24', 24, 36, 400, 'normal'], ['copy-20', 20, 36, 400, 'normal'],
+    ['copy-18', 18, 28, 400, 'normal'], ['copy-16', 16, 24, 400, 'normal'],
+    ['copy-14', 14, 20, 400, 'normal'], ['copy-13', 13, 18, 400, 'normal'],
+    ['button-16', 16, 20, 500, 'normal'], ['button-14', 14, 20, 500, 'normal'],
+    ['button-12', 12, 16, 500, 'normal'],
+    ['label-13-mono', 13, 20, 400, 'normal'], ['copy-13-mono', 13, 18, 400, 'normal'],
+    ['label-14-strong', 14, 20, 500, 'normal'], ['copy-14-strong', 14, 20, 550, 'normal'],
+  ] as const
+  const rules = parseCompiledCss(await compileAppStyles(roles.map(([role]) => `text-${role}`)))
+  for (const [role, size, lineHeight, weight, tracking] of roles) {
+    expect(compiledDeclarations(rules, `.text-${role}`), role).toMatchObject({
+      'font-family': `var(--font-${role.includes('mono') ? 'mono' : 'sans'})`,
+      'font-size': `${size}px`, 'line-height': `${lineHeight}px`,
+      'font-weight': String(weight),
+    })
+    const actualTracking = compiledDeclarations(rules, `.text-${role}`)['letter-spacing']!
+    if (tracking === 'normal') expect(actualTracking, role).toBe('normal')
+    else expect(Number.parseFloat(actualTracking), role).toBe(Number.parseFloat(tracking))
+  }
+})
+
+test('Geist materials keep their role radius, opaque fill and layered elevation', async () => {
+  const roles = [['base', 6], ['small', 6], ['medium', 12], ['large', 12], ['tooltip', 6], ['menu', 12], ['modal', 12], ['fullscreen', 16]] as const
+  const rules = parseCompiledCss(await compileAppStyles(roles.map(([role]) => `material-${role}`)))
+  const root = computedTokens(compiledDeclarations(rules, ':root'))
+  for (const [role, radius] of roles) {
+    const material = compiledDeclarations(rules, `.material-${role}`)
+    expect(material, role).toMatchObject({
+      'background-color': 'var(--color-bg)', 'border-radius': `var(--radius-material-${role})`,
+      'box-shadow': `var(--shadow-material-${role})`,
+    })
+    expect(root[`--radius-material-${role}`]).toBe(`${radius}px`)
+  }
+  expect(root['--shadow-material-menu']).toBe('0 0 0 1px #ffffff25, 0px 1px 1px #00000005, 0px 4px 8px -4px #0000000a, 0px 16px 24px -8px #0000000f, 0 0 0 1px hsl(0 0% 0%)')
+  expect(root['--shadow-material-modal']).toBe('0 0 0 1px #ffffff25, 0px 1px 1px #00000005, 0px 8px 16px -4px #0000000a, 0px 24px 32px -8px #0000000f, 0 0 0 1px hsl(0 0% 0%)')
 })
 
 test('Site Health uses a color-vision-safe graph palette in both themes', async () => {
@@ -360,18 +516,6 @@ test('Site Health uses a color-vision-safe graph palette in both themes', async 
     '--chart-site-health-redirect: #4b5563',
   ]) {
     expect(light, `light graph palette must contain "${declaration}"`).toContain(declaration)
-  }
-
-  const channel = (hex: string, offset: number) => Number.parseInt(hex.slice(offset, offset + 2), 16) / 255
-  const luminance = (hex: string) => {
-    const linear = [channel(hex, 1), channel(hex, 3), channel(hex, 5)].map((value) => (
-      value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
-    ))
-    return 0.2126 * linear[0]! + 0.7152 * linear[1]! + 0.0722 * linear[2]!
-  }
-  const contrast = (foreground: string, background: string) => {
-    const values = [luminance(foreground), luminance(background)].sort((left, right) => right - left)
-    return (values[0]! + 0.05) / (values[1]! + 0.05)
   }
 
   for (const color of ['#56b4e9', '#e69f00', '#d55e00', '#a1a1aa', '#d4d4d8', '#9aa7b8']) {

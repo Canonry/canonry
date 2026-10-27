@@ -1755,7 +1755,7 @@ describe('sentiment bar styles', () => {
     expect(compiledDeclarationValues(css, '.sentiment-class', 'grid-template-columns')).toContain(headlines['grid-template-columns'])
     expect(compiledDeclarations(css, '.sentiment-headlines-columns')).toMatchObject({ display: 'grid', 'grid-column': '1 / -1', 'grid-template-columns': 'subgrid' })
     for (const selector of ['.sentiment-headlines-columns', '.mention-share-row-head']) {
-      expect(compiledDeclarations(css, selector)).toMatchObject({ 'text-transform': 'uppercase', 'font-size': '10px', 'letter-spacing': '0.08em', color: 'var(--color-text-muted)' })
+      expect(compiledDeclarations(css, selector)).toMatchObject({ 'text-transform': 'none', 'font-size': '12px', 'line-height': '16px', 'letter-spacing': 'normal', color: 'var(--color-text-muted)' })
       expect(resolvedCompiledProperty(css, selector, 'font-weight')).toBe('500')
     }
     for (const [name, column] of [['favorable', '3'], ['ratings', '4']] as const) {
@@ -1810,7 +1810,7 @@ describe('sentiment bar styles', () => {
   it('floats the Details panel under its button, on screen and past the section clip', async () => {
     const css = parseCompiledCss(await compileAppStyles([]))
     const panel = compiledDeclarations(css, '.sentiment-class-details')
-    expect(panel).toMatchObject({ position: 'absolute', top: '100%', 'z-index': '10', 'max-width': '100%', 'background-color': 'var(--color-bg-elevated)' })
+    expect(panel).toMatchObject({ position: 'absolute', top: '100%', 'z-index': '10', 'max-width': '100%', 'background-color': 'var(--color-bg)', 'border-radius': 'var(--radius-material-menu)', 'box-shadow': 'var(--shadow-material-menu)' })
     expect(cssLengthPx(panel.right!, css)).toBe(0)
     expect(cssLengthPx(panel.width!, css)).toBeGreaterThan(0)
     expect(panel).not.toHaveProperty('display')

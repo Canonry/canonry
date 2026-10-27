@@ -67,7 +67,7 @@ export function OnboardingProgress({
           >
             <span
               aria-hidden="true"
-              className={`flex size-6 shrink-0 items-center justify-center rounded-full border text-xs font-semibold tabular-nums ${
+              className={`flex size-6 shrink-0 items-center justify-center rounded-full border text-label-12-strong tabular-nums ${
                 active
                   ? 'border-accent bg-accent text-on-inverse'
                   : complete
@@ -78,12 +78,12 @@ export function OnboardingProgress({
               {complete ? '✓' : outcome === 'skipped' || outcome === 'incomplete' ? '–' : index + 1}
             </span>
             <span className="flex min-w-0 flex-wrap items-baseline gap-x-2">
-              <span className={`text-sm font-medium ${active || complete ? 'text-heading' : 'text-secondary'}`}>
+              <span className={`text-label-14-strong ${active || complete ? 'text-heading' : 'text-secondary'}`}>
                 {stage.label}
               </span>
               {outcomeLabel
-                ? <span className="text-[13px] text-secondary">{outcomeLabel}</span>
-                : stage.optional && !outcome ? <span className="text-[13px] text-secondary">Optional</span> : null}
+                ? <span className="text-label-13 text-secondary">{outcomeLabel}</span>
+                : stage.optional && !outcome ? <span className="text-label-13 text-secondary">Optional</span> : null}
               {complete ? <span className="sr-only">Complete</span> : null}
             </span>
           </li>

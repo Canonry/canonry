@@ -1,12 +1,12 @@
 import { readFileSync, readdirSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 
 import { beforeAll, expect, test } from 'vitest'
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { RouterProvider } from '@tanstack/react-router'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { compile } from 'tailwindcss'
+import { compileAppStyles } from './compiled-app-css.js'
 import ts from 'typescript'
 import { escapeRegExp, visibilityReportResponseSchema } from '@canonry/canonry-contracts'
 
@@ -23,7 +23,6 @@ import { parseVisibilitySelection } from '../src/lib/measurement-view-url.js'
 
 const stylesPath = resolve(import.meta.dirname, '../src/styles.css')
 const sourceRoot = resolve(import.meta.dirname, '../src')
-const tailwindRoot = resolve(import.meta.dirname, '../node_modules/tailwindcss')
 
 beforeAll(async () => {
   await preloadAllLazyRoutes()
@@ -325,24 +324,9 @@ function isTailwindMarker(token: string) {
   return token === 'group' || token.startsWith('group/') || token === 'peer' || token.startsWith('peer/')
 }
 
-async function loadTailwindStylesheet(id: string) {
-  if (id !== 'tailwindcss' && !id.startsWith('tailwindcss/')) {
-    throw new Error(`Unexpected stylesheet import: ${id}`)
-  }
-  const filename = id === 'tailwindcss' ? 'index.css' : `${id.slice('tailwindcss/'.length)}.css`
-  const path = resolve(tailwindRoot, filename)
-  return { path, base: dirname(path), content: readFileSync(path, 'utf8') }
-}
-
 test('every static className token has a stylesheet selector or Tailwind utility', async () => {
-  const styles = readFileSync(stylesPath, 'utf8')
   const classNames = staticClassNames().sort()
-  const compiler = await compile(styles, {
-    from: stylesPath,
-    base: dirname(stylesPath),
-    loadStylesheet: loadTailwindStylesheet,
-  })
-  const css = compiler.build(classNames)
+  const css = await compileAppStyles(classNames)
   const missing = classNames.filter((token) => !isTailwindMarker(token) && !cssClassSelector(token).test(css))
 
   expect(missing).toEqual([])

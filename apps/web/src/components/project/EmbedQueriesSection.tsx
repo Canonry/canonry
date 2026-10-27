@@ -203,12 +203,12 @@ export function EmbedQueriesSection({ projectName, limit }: { projectName: strin
   }
 
   if (workspaceQuery.isLoading) {
-    return <p className="text-sm text-secondary" role="status">{EMBED_QUERIES_COPY.loading}</p>
+    return <p className="text-copy-14 text-secondary" role="status">{EMBED_QUERIES_COPY.loading}</p>
   }
   if (workspaceQuery.isError || !workspaceQuery.data) {
     return (
       <div role="alert">
-        <p className="text-sm text-negative">{EMBED_QUERIES_COPY.loadFailed}</p>
+        <p className="text-copy-14 text-negative">{EMBED_QUERIES_COPY.loadFailed}</p>
         <Button type="button" variant="outline" size="sm" className="mt-3" onClick={() => void workspaceQuery.refetch()}>
           {EMBED_QUERIES_COPY.retry}
         </Button>
@@ -224,9 +224,9 @@ export function EmbedQueriesSection({ projectName, limit }: { projectName: strin
     <section aria-labelledby="embed-queries-heading">
       <header>
         <div>
-          <h2 id="embed-queries-heading" className="text-xl font-semibold tracking-tight text-heading">{EMBED_QUERIES_COPY.heading}</h2>
-          <p className="mt-1 text-sm text-secondary">
-            <span className="font-medium text-strong">{EMBED_QUERIES_COPY.count(tracked.length, limit)}</span>
+          <h2 id="embed-queries-heading" className="text-heading-20 text-heading">{EMBED_QUERIES_COPY.heading}</h2>
+          <p className="mt-1 text-copy-14 text-secondary">
+            <span className="text-copy-14-strong text-strong">{EMBED_QUERIES_COPY.count(tracked.length, limit)}</span>
             {' · '}
             {editable ? EMBED_QUERIES_COPY.nextCheck : EMBED_QUERIES_COPY.agencyManaged}
           </p>
@@ -240,7 +240,7 @@ export function EmbedQueriesSection({ projectName, limit }: { projectName: strin
             ref={inputRef}
             id="embed-query-input"
             type="text"
-            className="h-9 min-w-0 flex-1 rounded-md pointer-coarse:h-11 border border-default bg-surface px-3 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none focus:ring-1 focus:ring-mono-500 aria-disabled:opacity-50 aria-[invalid=true]:border-negative-500"
+            className="h-9 min-w-0 flex-1 rounded-md pointer-coarse:h-11 border border-default bg-surface px-3 text-label-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none focus:ring-1 focus:ring-mono-500 aria-disabled:opacity-50 aria-[invalid=true]:border-negative-500"
             placeholder={EMBED_QUERIES_COPY.placeholder}
             maxLength={QUERY_MAX}
             value={draft}
@@ -261,7 +261,7 @@ export function EmbedQueriesSection({ projectName, limit }: { projectName: strin
         </form>
       ) : null}
 
-      <div id={lineId} className="mt-2 min-h-5 text-sm">
+      <div id={lineId} className="mt-2 min-h-5 text-label-14">
         {error ? <p className="text-negative" role="alert">{error}</p> : null}
         <p className="text-secondary" role="status">
           {message?.kind === 'removed' ? (
@@ -287,14 +287,14 @@ export function EmbedQueriesSection({ projectName, limit }: { projectName: strin
       </div>
 
       {tracked.length === 0 ? (
-        <p className="mt-4 text-sm text-secondary">{EMBED_QUERIES_COPY.empty}</p>
+        <p className="mt-4 text-copy-14 text-secondary">{EMBED_QUERIES_COPY.empty}</p>
       ) : (
         <ul className="mt-4 divide-y divide-default border-y border-default" aria-label="Tracked queries">
           {tracked.map((row, index) => {
             const removing = typeof busy === 'object' && busy?.removing === row.queryId
             return (
               <li key={row.queryId} className="flex items-center justify-between gap-4 py-2">
-                <span className="min-w-0 break-words text-sm font-medium text-heading">{row.queryText}</span>
+                <span className="min-w-0 break-words text-label-14-strong text-heading">{row.queryText}</span>
                 {editable ? (
                   <Button
                     ref={(node: HTMLButtonElement | null) => {

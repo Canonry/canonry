@@ -67,6 +67,7 @@ import { Button } from './components/ui/button.js'
 import { Badge } from './components/ui/badge.js'
 import { BrandLockup } from './components/shared/BrandLockup.js'
 import { ProviderBadge } from './components/shared/ProviderBadge.js'
+import { ThemeSelector } from './components/shared/ThemeSelector.js'
 import { StatusBadge } from './components/shared/StatusBadge.js'
 import { Drawer } from './components/layout/Drawer.js'
 import { EvidenceDetailModal } from './components/layout/EvidenceDetailModal.js'
@@ -814,6 +815,7 @@ export function RootLayout() {
           </div>
 
           <div className="topbar-actions">
+            <ThemeSelector />
             <TaskCenter />
             <div className="health-pill-row">
               <span
@@ -980,12 +982,12 @@ export function RootLayout() {
       {/* ── Drawers ── */}
       {runId && !selectedRun && runDetailLoading ? (
         <Drawer open title="Loading run details" subtitle="Fetching the durable run record" onClose={closeDrawer}>
-          <p className="text-sm text-muted" role="status">Loading run details…</p>
+          <p className="text-copy-14 text-muted" role="status">Loading run details…</p>
         </Drawer>
       ) : null}
       {runId && !selectedRun && runDetailQuery.isError ? (
         <Drawer open title="Run unavailable" subtitle="The run could not be loaded" onClose={closeDrawer}>
-          <p className="text-sm text-negative">{runDetailQuery.error instanceof Error ? runDetailQuery.error.message : 'Run details are unavailable.'}</p>
+          <p className="text-copy-14 text-negative">{runDetailQuery.error instanceof Error ? runDetailQuery.error.message : 'Run details are unavailable.'}</p>
         </Drawer>
       ) : null}
       {selectedRun ? (
@@ -995,27 +997,27 @@ export function RootLayout() {
           subtitle={`${selectedRun.projectName} \u00b7 ${selectedRun.kindLabel}`}
           onClose={closeDrawer}
         >
-          <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-sm">
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-label-14">
             <StatusBadge status={selectedRun.status} />
             <span className="text-secondary">{selectedRun.startedAt}</span>
             <span className="text-muted">{selectedRun.duration}</span>
             <span className="text-faint">{selectedRun.triggerLabel}</span>
           </div>
           {selectedRun.status === 'failed' && selectedRun.statusDetail && (
-            <p className="mt-2 text-sm text-negative">{selectedRun.statusDetail}</p>
+            <p className="mt-2 text-copy-14 text-negative">{selectedRun.statusDetail}</p>
           )}
 
           {/* Run activity log */}
           <div className="mt-4">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted mb-2">Activity Log</p>
+            <p className="text-label-12-strong normal-case text-muted mb-2">Activity Log</p>
             {runDetailLoading ? (
-              <p className="text-sm text-muted">Loading run details...</p>
+              <p className="text-copy-14 text-muted">Loading run details...</p>
             ) : runDetail?.snapshots && runDetail.snapshots.length > 0 ? (
               <div className="space-y-2">
                 {runDetail.snapshots.map((snap) => (
-                  <div key={snap.id} className="rounded-lg border border-default bg-surface p-3">
+                  <div key={snap.id} className="material-base p-3">
                     <div className="flex items-center justify-between gap-2 mb-1">
-                      <p className="text-sm font-medium text-strong truncate">{snap.query ?? 'Unknown query'}</p>
+                      <p className="text-copy-14-strong text-strong truncate">{snap.query ?? 'Unknown query'}</p>
                       <div className="flex items-center gap-1.5">
                         <ProviderBadge provider={snap.provider} />
                         <Badge variant={snap.citationState === CitationStates.cited ? 'success' : 'neutral'}>
@@ -1024,26 +1026,26 @@ export function RootLayout() {
                       </div>
                     </div>
                     {snap.model && (
-                      <p className="text-[11px] text-muted font-mono">{snap.model}</p>
+                      <p className="text-copy-13-mono text-muted">{snap.model}</p>
                     )}
                     {snap.citedDomains.length > 0 && (
-                      <p className="text-xs text-muted mt-1">
+                      <p className="text-copy-13 text-muted mt-1">
                         <span className="text-secondary">Sources:</span> {snap.citedDomains.join(', ')}
                       </p>
                     )}
                     {snap.citedCompetitorDomains.length > 0 && (
-                      <p className="text-xs text-negative-400/80 mt-0.5">
+                      <p className="text-copy-13 text-negative-400/80 mt-0.5">
                         Competitor cited: {snap.citedCompetitorDomains.join(', ')}
                       </p>
                     )}
                     {snap.mentionedCompetitorDomains.length > 0 && (
-                      <p className="text-xs text-negative-400/80 mt-0.5">
+                      <p className="text-copy-13 text-negative-400/80 mt-0.5">
                         Competitor mentioned: {snap.mentionedCompetitorDomains.join(', ')}
                       </p>
                     )}
                     {snap.groundingSources && snap.groundingSources.length > 0 && (
                       <details className="mt-2">
-                        <summary className="text-xs text-muted cursor-pointer hover:text-secondary">
+                        <summary className="text-label-12 text-muted cursor-pointer hover:text-secondary">
                           {snap.groundingSources.length} grounding source{snap.groundingSources.length !== 1 ? 's' : ''}
                         </summary>
                         <ul className="mt-2 space-y-3">
@@ -1055,36 +1057,36 @@ export function RootLayout() {
                     )}
                     {snap.answerText && (
                       <details className="mt-1">
-                        <summary className="text-xs text-muted cursor-pointer hover:text-secondary">Answer preview</summary>
-                        <p className="mt-1 text-xs text-secondary leading-relaxed whitespace-pre-wrap">{snap.answerText}</p>
+                        <summary className="text-label-12 text-muted cursor-pointer hover:text-secondary">Answer preview</summary>
+                        <p className="mt-1 text-copy-13 text-secondary whitespace-pre-wrap">{snap.answerText}</p>
                       </details>
                     )}
                   </div>
                 ))}
                 {runDetail.status === 'running' && (
-                  <div className="flex items-center gap-2 p-3 text-sm text-muted">
+                  <div className="flex items-center gap-2 p-3 text-label-14 text-muted">
                     <span className="inline-block h-2 w-2 rounded-full bg-caution-500 animate-pulse" />
                     Running remaining queries...
                   </div>
                 )}
               </div>
             ) : runDetail && runDetail.status === RunStatuses.running ? (
-              <div className="flex items-center gap-2 p-3 text-sm text-muted">
+              <div className="flex items-center gap-2 p-3 text-label-14 text-muted">
                 <span className="inline-block h-2 w-2 rounded-full bg-caution-500 animate-pulse" />
                 {runDetail.kind === RunKinds['answer-visibility'] ? 'Waiting for first query result...' : 'Run is in progress...'}
               </div>
             ) : runDetail && runDetail.status === RunStatuses.queued ? (
-              <div className="flex items-center gap-2 p-3 text-sm text-muted">
+              <div className="flex items-center gap-2 p-3 text-label-14 text-muted">
                 <span className="inline-block h-2 w-2 rounded-full bg-mono-500 animate-pulse" />
                 Run queued, waiting for execution slot...
               </div>
             ) : runDetail && runDetail.error ? (
-              <div className="rounded-lg border border-negative-800/40 bg-negative-950/20 p-3">
-                <p className="text-sm font-medium text-negative mb-2">Run failed</p>
-                <pre className="max-h-48 overflow-y-auto whitespace-pre-wrap break-words font-mono text-xs leading-5 text-negative">{formatErrorLog(runDetail.error)}</pre>
+              <div className="rounded-md border border-negative-800/40 bg-negative-950/20 p-3">
+                <p className="text-copy-14-strong text-negative mb-2">Run failed</p>
+                <pre className="max-h-48 overflow-y-auto whitespace-pre-wrap break-words text-copy-13-mono text-negative">{formatErrorLog(runDetail.error)}</pre>
               </div>
             ) : selectedRun.kind !== RunKinds['answer-visibility'] ? (
-              <p className="text-sm text-secondary">
+              <p className="text-copy-14 text-secondary">
                 {selectedRun.status === RunStatuses.completed ? 'Run completed.'
                   : selectedRun.status === RunStatuses.partial ? 'Run completed with partial results.'
                   : selectedRun.status === RunStatuses.cancelled ? 'Run cancelled.'
@@ -1092,7 +1094,7 @@ export function RootLayout() {
                   : 'No run details available.'}
               </p>
             ) : (
-              <p className="text-sm text-muted">No snapshot data available.</p>
+              <p className="text-copy-14 text-muted">No snapshot data available.</p>
             )}
           </div>
         </Drawer>
@@ -1101,10 +1103,10 @@ export function RootLayout() {
       {evidenceId && !selectedEvidenceContext ? (
         <Drawer open title={evidenceLoading ? 'Loading answer' : 'Answer unavailable'} subtitle="Query evidence" onClose={closeDrawer}>
           {evidenceLoading ? (
-            <p role="status" className="text-sm text-secondary">Loading answer…</p>
+            <p role="status" className="text-copy-14 text-secondary">Loading answer…</p>
           ) : (
             <>
-              <p role="alert" className="text-sm text-secondary">{evidenceError || evidenceProjectError ? 'Could not load this answer.' : 'This answer is not in the available query evidence.'}</p>
+              <p role="alert" className="text-copy-14 text-secondary">{evidenceError || evidenceProjectError ? 'Could not load this answer.' : 'This answer is not in the available query evidence.'}</p>
               <Button type="button" variant="outline" onClick={() => { void refetchEvidence() }}>Retry</Button>
             </>
           )}

@@ -66,7 +66,7 @@ export function AdvancedMeasurementSetupWizard({
       <div className="mb-3 flex flex-col items-start gap-3 sm:flex-row sm:flex-wrap sm:justify-between">
         <div className="min-w-0 w-full sm:flex-1">
           <h2>Advanced measurement setup</h2>
-          <p className="mt-1 max-w-2xl text-sm text-secondary">
+          <p className="mt-1 max-w-2xl text-copy-14 text-secondary">
             Choose the Properties and queries you want to measure.
           </p>
         </div>
@@ -75,16 +75,16 @@ export function AdvancedMeasurementSetupWizard({
             <ToneBadge tone="caution">Unpublished changes</ToneBadge>
             {canEdit && onDiscard ? discardArmed ? (
               <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Confirm discard">
-                <span className="text-sm text-secondary">Discard all unpublished changes?</span>
-                <Button ref={keepEditingRef} type="button" size="sm" variant="ghost" className="min-h-11" onClick={() => setDiscardArmed(false)}>
+                <span className="text-label-14 text-secondary">Discard all unpublished changes?</span>
+                <Button ref={keepEditingRef} type="button" size="sm" variant="ghost" className="pointer-coarse:min-h-11" onClick={() => setDiscardArmed(false)}>
                   Keep editing
                 </Button>
-                <Button type="button" size="sm" variant="outline" className="min-h-11" onClick={onDiscard}>
+                <Button type="button" size="sm" variant="outline" className="pointer-coarse:min-h-11" onClick={onDiscard}>
                   Discard unpublished changes
                 </Button>
               </div>
             ) : (
-              <Button ref={discardTriggerRef} type="button" size="sm" variant="ghost" className="min-h-11" onClick={() => setDiscardArmed(true)}>
+              <Button ref={discardTriggerRef} type="button" size="sm" variant="ghost" className="pointer-coarse:min-h-11" onClick={() => setDiscardArmed(true)}>
                 Discard changes
               </Button>
             ) : null}
@@ -101,7 +101,7 @@ export function AdvancedMeasurementSetupWizard({
                   type="button"
                   aria-current={currentStep === step.id ? 'step' : undefined}
                   onClick={() => onStepChange(step.id)}
-                  className={`block min-h-11 border-b-2 bg-transparent px-1 py-3 text-left text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400 ${
+                  className={`block min-h-11 border-b-2 bg-transparent px-1 py-3 text-left text-button-14 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400 ${
                     currentStep === step.id
                       ? 'border-strong text-heading'
                       : 'border-transparent text-secondary hover:text-heading'
@@ -112,7 +112,7 @@ export function AdvancedMeasurementSetupWizard({
               ) : (
                 <span
                   aria-current={currentStep === step.id ? 'step' : undefined}
-                  className={`block min-h-11 border-b-2 px-1 py-3 text-sm font-medium ${
+                  className={`block min-h-11 border-b-2 px-1 py-3 text-label-14-strong ${
                     currentStep === step.id
                       ? 'border-strong text-heading'
                       : 'border-transparent text-secondary'

@@ -83,9 +83,9 @@ function withNames(target: DraftTarget, aliases: string[], identityAliases: stri
 function NameList({ label, names }: { label: string; names: readonly string[] }) {
   return (
     <div className="space-y-1">
-      <h3 className="text-sm font-medium text-heading">{label}</h3>
+      <h3 className="text-heading-14 text-heading">{label}</h3>
       <ul className="space-y-1">
-        {names.map(name => <li key={name} className="text-sm text-secondary">{name}</li>)}
+        {names.map(name => <li key={name} className="text-label-14 text-secondary">{name}</li>)}
       </ul>
     </div>
   )
@@ -96,7 +96,7 @@ function IssueList({ id, issues }: { id: string; issues: readonly MeasurementTar
   return (
     <ul id={id} className="mt-2 space-y-1" aria-label="Name warnings">
       {issues.map(issue => (
-        <li key={`${issue.field}:${issue.index}`} className="text-sm text-caution">{measurementTargetNameIssueMessage(issue)}</li>
+        <li key={`${issue.field}:${issue.index}`} className="text-label-14 text-caution">{measurementTargetNameIssueMessage(issue)}</li>
       ))}
     </ul>
   )
@@ -288,13 +288,13 @@ export function PropertyNamesSection({
     <section aria-labelledby="property-names" className="page-section-divider">
       <div className="section-head section-head-inline">
         <div className="flex items-center gap-1">
-          <h2 id="property-names" className="text-base font-semibold text-heading">{PROPERTY_NAMES_COPY.heading}</h2>
+          <h2 id="property-names" className="text-heading-16 text-heading">{PROPERTY_NAMES_COPY.heading}</h2>
           <InfoTooltip text={PROPERTY_NAMES_COPY.help} />
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <p className="supporting-copy">{nameCount} {nameCount === 1 ? 'name' : 'names'}</p>
           {canWrite && !editing ? (
-            <Button type="button" size="sm" variant="outline" className="h-11 px-4 text-sm md:h-11" disabled={!ready} onClick={openEditor}>
+            <Button type="button" size="sm" variant="outline" className="h-11 px-4 text-button-14 md:h-11" disabled={!ready} onClick={openEditor}>
               {PROPERTY_NAMES_COPY.edit}
             </Button>
           ) : null}
@@ -302,12 +302,12 @@ export function PropertyNamesSection({
       </div>
 
       {notice ? (
-        <p role={notice.tone === 'negative' ? 'alert' : 'status'} className={`mb-3 text-sm ${notice.tone === 'negative' ? 'text-negative' : 'text-positive'}`}>
+        <p role={notice.tone === 'negative' ? 'alert' : 'status'} className={`mb-3 text-copy-14 ${notice.tone === 'negative' ? 'text-negative' : 'text-positive'}`}>
           {notice.text}
           {notice.review ? <>{' '}{reviewLink}</> : null}
         </p>
       ) : pending && !editing ? (
-        <p role="status" className="mb-3 text-sm text-caution">{PROPERTY_NAMES_COPY.pending}{' '}{reviewLink}</p>
+        <p role="status" className="mb-3 text-copy-14 text-caution">{PROPERTY_NAMES_COPY.pending}{' '}{reviewLink}</p>
       ) : null}
 
       {editing ? (
@@ -321,43 +321,43 @@ export function PropertyNamesSection({
           }}
         >
           <div>
-            <label htmlFor={`${fieldId}-names`} className="block text-sm font-medium text-heading">{PROPERTY_NAMES_COPY.names}</label>
-            <p id={`${fieldId}-names-hint`} className="text-sm text-secondary">{PROPERTY_NAMES_COPY.namesHint}</p>
+            <label htmlFor={`${fieldId}-names`} className="block text-label-14-strong text-heading">{PROPERTY_NAMES_COPY.names}</label>
+            <p id={`${fieldId}-names-hint`} className="text-copy-14 text-secondary">{PROPERTY_NAMES_COPY.namesHint}</p>
             <textarea
               id={`${fieldId}-names`}
-              className="mt-1 min-h-24 w-full rounded-md border border-strong bg-transparent px-3 py-2 text-sm text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400"
+              className="mt-1 min-h-24 w-full rounded-md border border-strong bg-transparent px-3 py-2 text-copy-14 text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400"
               aria-describedby={`${fieldId}-names-hint${nameIssues.length ? ` ${fieldId}-names-issues` : ''}`}
               value={namesText}
               onChange={event => setNamesText(event.target.value)}
             />
             <IssueList id={`${fieldId}-names-issues`} issues={nameIssues} />
-            {names.length === 0 ? <p className="mt-2 text-sm text-caution">{PROPERTY_NAMES_COPY.noNames}</p> : null}
+            {names.length === 0 ? <p className="mt-2 text-copy-14 text-caution">{PROPERTY_NAMES_COPY.noNames}</p> : null}
           </div>
           <div>
-            <label htmlFor={`${fieldId}-qualified`} className="block text-sm font-medium text-heading">{PROPERTY_NAMES_COPY.qualifiedNames}</label>
-            <p id={`${fieldId}-qualified-hint`} className="text-sm text-secondary">{PROPERTY_NAMES_COPY.qualifiedHint}</p>
+            <label htmlFor={`${fieldId}-qualified`} className="block text-label-14-strong text-heading">{PROPERTY_NAMES_COPY.qualifiedNames}</label>
+            <p id={`${fieldId}-qualified-hint`} className="text-copy-14 text-secondary">{PROPERTY_NAMES_COPY.qualifiedHint}</p>
             <textarea
               id={`${fieldId}-qualified`}
-              className="mt-1 min-h-20 w-full rounded-md border border-strong bg-transparent px-3 py-2 text-sm text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400"
+              className="mt-1 min-h-20 w-full rounded-md border border-strong bg-transparent px-3 py-2 text-copy-14 text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400"
               aria-describedby={`${fieldId}-qualified-hint ${fieldId}-qualified-note${qualifiedIssues.length ? ` ${fieldId}-qualified-issues` : ''}`}
               value={qualifiedText}
               onChange={event => setQualifiedText(event.target.value)}
             />
             <IssueList id={`${fieldId}-qualified-issues`} issues={qualifiedIssues} />
-            <p id={`${fieldId}-qualified-note`} className="mt-2 max-w-3xl text-sm text-secondary">{PROPERTY_NAMES_COPY.qualifiedNote}</p>
+            <p id={`${fieldId}-qualified-note`} className="mt-2 max-w-3xl text-copy-14 text-secondary">{PROPERTY_NAMES_COPY.qualifiedNote}</p>
           </div>
-          <p className="text-sm text-secondary">{PROPERTY_NAMES_COPY.draftOnly}</p>
+          <p className="text-copy-14 text-secondary">{PROPERTY_NAMES_COPY.draftOnly}</p>
           <div className="flex flex-wrap items-center gap-3">
-            <WriteButton type="submit" className="h-11 px-4 text-sm md:h-11" disabled={save.isPending}>
+            <WriteButton type="submit" className="h-11 px-4 text-label-14 md:h-11" disabled={save.isPending}>
               {save.isPending ? PROPERTY_NAMES_COPY.saving : PROPERTY_NAMES_COPY.save}
             </WriteButton>
-            <Button type="button" variant="ghost" className="h-11 px-4 text-sm md:h-11" disabled={save.isPending} onClick={() => { setEditing(false); setNotice(null) }}>
+            <Button type="button" variant="ghost" className="h-11 px-4 text-button-14 md:h-11" disabled={save.isPending} onClick={() => { setEditing(false); setNotice(null) }}>
               {PROPERTY_NAMES_COPY.cancel}
             </Button>
           </div>
         </form>
       ) : nameCount === 0 ? (
-        <p className="text-sm text-secondary">{PROPERTY_NAMES_COPY.noNames}</p>
+        <p className="text-copy-14 text-secondary">{PROPERTY_NAMES_COPY.noNames}</p>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2">
           {published.aliases.length > 0 ? <NameList label={PROPERTY_NAMES_COPY.names} names={published.aliases} /> : null}

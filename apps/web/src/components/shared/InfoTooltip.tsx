@@ -91,6 +91,7 @@ export function InfoTooltip({ text, placement = 'top', tone = 'info', label }: {
         <span
           ref={bubbleRef}
           aria-hidden="true"
+          className="material-tooltip px-3 py-2 text-copy-13 text-secondary"
           style={{
             position: 'fixed',
             top: pos.top,
@@ -99,22 +100,11 @@ export function InfoTooltip({ text, placement = 'top', tone = 'info', label }: {
             zIndex: 9999,
             pointerEvents: 'none',
             width: placement === 'bottom' ? 'min(14rem, calc(100vw - 1rem))' : '14rem',
-            padding: '0.5rem 0.75rem',
-            fontSize: placement === 'bottom' ? '13px' : '11px',
-            fontWeight: 400,
-            textTransform: 'none',
-            letterSpacing: 'normal',
-            lineHeight: placement === 'bottom' ? '18px' : '1rem',
-            color: 'var(--color-neutral-text)',
-            backgroundColor: 'var(--color-bg-elevated)',
-            border: '1px solid color-mix(in oklab, var(--color-border-strong) 60%, transparent)',
-            borderRadius: '0.5rem',
-            boxShadow: '0 10px 15px -3px var(--color-shadow-tooltip), 0 4px 6px -4px var(--color-shadow-tooltip)',
           }}
         >
           {text}
         </span>,
-        document.body,
+        triggerRef.current?.closest('.app-shell-embed') ?? document.body,
       )}
     </span>
   )
