@@ -88,7 +88,7 @@ export const EMBED_QUERY_LIMIT_MAX = 1000
 
 /** Parse the query-limit header: a whole number from 1 to EMBED_QUERY_LIMIT_MAX, else undefined. */
 export function parseEmbedQueryLimit(raw: unknown): number | undefined {
-  const value = Array.isArray(raw) ? raw[0] : raw
+  const value: unknown = Array.isArray(raw) ? raw[0] : raw
   if (typeof value !== 'string' || !/^[1-9]\d{0,3}$/.test(value)) return undefined
   const limit = Number(value)
   return limit <= EMBED_QUERY_LIMIT_MAX ? limit : undefined
