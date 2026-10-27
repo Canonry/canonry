@@ -844,6 +844,52 @@ describe('googleRoutes: GET /projects/:name/google/gsc/coverage', () => {
       fs.rmSync(isolated.tmpDir, { recursive: true, force: true })
     }
   })
+
+  it('sends each inspection\'s referring URLs on every coverage row', async () => {
+    const isolated = buildApp()
+    const inspectedAt = '2026-05-01T08:00:00.000Z'
+    try {
+      await isolated.app.ready()
+      isolated.db.insert(projects).values({
+        id: 'referrers-project',
+        name: 'referrers',
+        displayName: 'Referrers',
+        canonicalDomain: 'coverage.com',
+        country: 'US',
+        language: 'en',
+        createdAt: inspectedAt,
+        updatedAt: inspectedAt,
+      }).run()
+      isolated.db.insert(gscUrlInspections).values([
+        {
+          id: 'referrers-indexed', projectId: 'referrers-project',
+          url: 'https://coverage.com/indexed', indexingState: 'INDEXING_ALLOWED',
+          referringUrls: ['https://coverage.com/'],
+          inspectedAt, createdAt: inspectedAt,
+        },
+        {
+          id: 'referrers-blocked', projectId: 'referrers-project',
+          url: 'https://coverage.com/blocked', indexingState: 'BLOCKED_BY_META_TAG',
+          coverageState: 'Excluded by noindex tag',
+          referringUrls: ['https://coverage.com/', 'https://coverage.com/blog/'],
+          inspectedAt, createdAt: inspectedAt,
+        },
+      ]).run()
+
+      const res = await isolated.app.inject({
+        method: 'GET',
+        url: '/projects/referrers/google/gsc/coverage',
+      })
+      expect(res.statusCode).toBe(200)
+      const body = res.json() as GscCoverageSummaryDto
+      expect(body.indexed.map((row) => row.referringUrls)).toEqual([['https://coverage.com/']])
+      expect(body.notIndexed.map((row) => row.referringUrls)).toEqual([['https://coverage.com/', 'https://coverage.com/blog/']])
+      expect(body.reasonGroups[0]?.urls.map((row) => row.referringUrls)).toEqual([['https://coverage.com/', 'https://coverage.com/blog/']])
+    } finally {
+      await isolated.app.close()
+      fs.rmSync(isolated.tmpDir, { recursive: true, force: true })
+    }
+  })
 })
 
 describe('googleRoutes: GSC coverage shares', () => {

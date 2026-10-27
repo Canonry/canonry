@@ -6200,8 +6200,7 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['wordpress'],
     parameters: [nameParameter, wordpressEnvQueryParameter],
     responses: {
-      // Returns raw text/plain content of llms.txt.
-      200: { description: 'llms.txt returned.', content: { 'text/plain': { schema: { type: 'string' } } } },
+      200: jsonResponse('llms.txt returned.', 'WordpressLlmsTxtDto'),
       400: errorResponse('Invalid environment or missing connection.'),
       404: errorResponse('Project not found.'),
     },
@@ -6240,7 +6239,7 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['wordpress'],
     parameters: [nameParameter, wordpressEnvQueryParameter],
     responses: {
-      200: jsonArrayResponse('WordPress audit returned.', 'WordpressAuditPageDto'),
+      200: jsonResponse('WordPress audit returned.', 'WordpressAuditDto'),
       400: errorResponse('Invalid environment or missing connection.'),
       404: errorResponse('Project not found.'),
     },

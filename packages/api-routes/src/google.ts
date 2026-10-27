@@ -1678,6 +1678,7 @@ export async function googleRoutes(app: FastifyInstance, opts: GoogleRoutesOptio
       lastCrawlResult: r.lastCrawlResult,
       isMobileFriendly: r.isMobileFriendly,
       richResults: r.richResults,
+      referringUrls: r.referringUrls,
       inspectedAt: r.inspectedAt,
     })
 

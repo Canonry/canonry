@@ -157,6 +157,9 @@ describe('openapi contract', () => {
     expect(okRef('/api/v1/projects/{name}/google/connections/{type}/sitemap', 'put')).toBe('#/components/schemas/GoogleConnectionDto')
     // The legacy alias sends the same suggestions under `keywords`.
     expect(okRef('/api/v1/projects/{name}/keywords/generate', 'post')).toBe('#/components/schemas/KeywordGenerateResponse')
+    // getLlmsTxt and runAudit return these contract types; their client tests pin the bodies.
+    expect(okRef('/api/v1/projects/{name}/wordpress/llms-txt', 'get')).toBe('#/components/schemas/WordpressLlmsTxtDto')
+    expect(okRef('/api/v1/projects/{name}/wordpress/audit', 'get')).toBe('#/components/schemas/WordpressAuditDto')
     const schemas = doc.components?.schemas as Record<string, { required?: string[] }>
     expect(schemas.KeywordGenerateResponse?.required).toEqual(['keywords', 'provider'])
   })
