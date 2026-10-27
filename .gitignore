@@ -30,3 +30,7 @@ package-lock.json
 # Val Town CLI local state — a machine's pid, last-run time, and branch cursor.
 # It churns on every push and means nothing on another machine.
 apps/vals/*/.vt/
+
+# impeccable's working files (design system, surface notes, reviews). Local
+# design-tool state, not for the repo.
+.impeccable/
