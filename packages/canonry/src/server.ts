@@ -60,7 +60,7 @@ import {
   validationError,
   embedProjectTabsError,
   embedClientConfigForRequest,
-  EMBED_QUESTION_LIMIT_HEADER,
+  EMBED_QUERY_LIMIT_HEADER,
   serializeForInlineScript,
   frameAncestorsHeaderValue,
   RunKinds,
@@ -3882,7 +3882,7 @@ export async function createServer(opts: {
       projectTabsOverride?: string | string[],
       themeOverride?: string | string[],
       renderTokenOverride?: string | string[],
-      questionLimitOverride?: string | string[],
+      queryLimitOverride?: string | string[],
     ): string => {
       const clientConfig: Record<string, unknown> = {};
       if (basePath) clientConfig.basePath = basePath;
@@ -3934,8 +3934,8 @@ export async function createServer(opts: {
       // X-Canonry-Embed-Tabs / X-Canonry-Embed-Theme headers the Embed v2 /e
       // proxy sets per dashboard. The proxy also sets X-Canonry-Embed-Render-Token
       // for the initial HTML so the SPA can call back through /e/api/v1 without
-      // seeing the engine key, and X-Canonry-Embed-Question-Limit when the agency
-      // lets the dashboard's clients manage their own questions. The end client
+      // seeing the engine key, and X-Canonry-Embed-Query-Limit when the agency
+      // lets the dashboard's clients manage their own queries. The end client
       // cannot reach this loopback engine to set any of these headers; absent
       // headers keep the boot config.
       if (embed.enabled) {
@@ -3944,7 +3944,7 @@ export async function createServer(opts: {
           projectTabsOverride,
           themeOverride,
           renderTokenOverride,
-          questionLimitOverride,
+          queryLimitOverride,
         );
         const projectTabsError = embedProjectTabsError(embedClient?.projectTabs);
         if (projectTabsError) throw validationError(projectTabsError);
@@ -3983,7 +3983,7 @@ export async function createServer(opts: {
             reply.request.headers["x-canonry-embed-tabs"],
             reply.request.headers["x-canonry-embed-theme"],
             reply.request.headers["x-canonry-embed-render-token"],
-            reply.request.headers[EMBED_QUESTION_LIMIT_HEADER],
+            reply.request.headers[EMBED_QUERY_LIMIT_HEADER],
           ),
         );
     };

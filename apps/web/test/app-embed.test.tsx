@@ -18,7 +18,7 @@ import {
 } from '@canonry/canonry-api-client/react-query'
 import { heyClient } from '../src/api.js'
 
-type EmbedBlock = { enabled: boolean; views?: string[]; projectTabs?: string[]; theme?: Record<string, string> }
+type EmbedBlock = { enabled: boolean; views?: string[]; projectTabs?: string[]; theme?: Record<string, string>; queries?: { limit: number } }
 type DashboardBlock = { showResourceLinks?: boolean; showUpdateNotification?: boolean; showAgentBar?: boolean }
 
 beforeAll(async () => {
@@ -306,6 +306,34 @@ test('embed hides the project sweep action that leaks on every tab', async () =>
   expect(embedDoc.querySelector('.av-card-title')?.textContent).toBe('AI answers over time')
   expect(embed).toContain('Query evidence')
   expect(embed).toContain('Mention share')
+})
+
+test('the client Queries tab appears only when the embed grants query editing', async () => {
+  const subnavHrefs = (html: string) => [...parseHtml(html).querySelectorAll('[data-project-tab]')]
+    .map(link => `${link.getAttribute('data-project-tab')}:${link.textContent}`)
+
+  const granted = await renderAt('/projects/project_citypoint', { enabled: true, projectTabs: ['overview'], queries: { limit: 10 } })
+  expect(subnavHrefs(granted)).toContain('client-queries:Queries')
+
+  const notGranted = await renderAt('/projects/project_citypoint', { enabled: true, projectTabs: ['overview'] })
+  expect(subnavHrefs(notGranted).some(item => item.startsWith('client-queries:'))).toBe(false)
+
+  // An allowlist alone cannot turn editing on.
+  const listedOnly = await renderAt('/projects/project_citypoint', { enabled: true, projectTabs: ['overview', 'client-queries'] })
+  expect(subnavHrefs(listedOnly).some(item => item.startsWith('client-queries:'))).toBe(false)
+
+  const operator = await renderAt('/projects/project_citypoint')
+  expect(subnavHrefs(operator).some(item => item.startsWith('client-queries:'))).toBe(false)
+})
+
+test('the client Queries route renders the client query list only under the grant', async () => {
+  const granted = await renderAt('/projects/project_citypoint/client-queries', { enabled: true, queries: { limit: 10 } })
+  expect(granted).toContain('Loading your queries…')
+
+  // Without the grant the route falls back to the first visible tab, like any hidden tab.
+  const fallback = await renderAt('/projects/project_citypoint/client-queries', { enabled: true })
+  expect(fallback).not.toContain('Loading your queries…')
+  expect(fallback).toContain('AI answers over time')
 })
 
 test('embed hides the overview competitor and query managers', async () => {

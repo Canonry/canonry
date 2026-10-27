@@ -7,14 +7,14 @@ import { eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   AppError,
-  EMBED_QUESTIONS_WRITE_SCOPE,
+  EMBED_QUERIES_WRITE_SCOPE,
   queryTrackingPreviewResponseSchema,
   queryTrackingWorkspaceResponseSchema,
 } from '@canonry/canonry-contracts'
 import { apiKeys, auditLog, createClient, migrate, projects, queries, type DatabaseClient } from '@canonry/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import { hashApiKey } from '../src/auth.js'
-import { assertEmbedQuestionWorkspace } from '../src/embed-questions.js'
+import { assertEmbedQueryWorkspace } from '../src/embed-queries.js'
 
 const NOW = '2026-10-26T00:00:00.000Z'
 const ROOT_KEY = 'cnry_embed_questions_root'
@@ -50,7 +50,7 @@ function embedHeaders(key: string, limit: string | null = '3') {
   return {
     authorization: `Bearer ${key}`,
     'x-canonry-embed-tabs': 'overview',
-    ...(limit === null ? {} : { 'x-canonry-embed-question-limit': limit }),
+    ...(limit === null ? {} : { 'x-canonry-embed-query-limit': limit }),
   }
 }
 
@@ -108,8 +108,8 @@ beforeEach(async () => {
   addProject('project-other', 'other')
   addQuestion('q-existing', 'best solar installer in phoenix')
   addKey(ROOT_KEY, ['*'], null)
-  addKey(QUESTION_KEY, [EMBED_QUESTIONS_WRITE_SCOPE], 'project-northwind')
-  addKey(UNSCOPED_QUESTION_KEY, [EMBED_QUESTIONS_WRITE_SCOPE], null)
+  addKey(QUESTION_KEY, [EMBED_QUERIES_WRITE_SCOPE], 'project-northwind')
+  addKey(UNSCOPED_QUESTION_KEY, [EMBED_QUERIES_WRITE_SCOPE], null)
   addKey(READ_KEY, ['read', 'embed'], 'project-northwind')
   // Every platform-provisioned embed instance carries an install-wide tab allowlist.
   app = Fastify()
@@ -123,17 +123,14 @@ afterEach(async () => {
 })
 
 describe('embedded dashboards: the Questions tab reads', () => {
-  it('reads the question workspace and schedule only when the proxy grants editing', async () => {
+  it('reads the question workspace only when the proxy grants editing', async () => {
     const granted = await app.inject({ method: 'GET', url: '/api/v1/projects/northwind/query-tracking', headers: embedHeaders(READ_KEY) })
     expect(granted.statusCode, granted.body).toBe(200)
-    // No schedule is seeded, so passing the tab gate lands on the route's own 404.
+    const refused = await app.inject({ method: 'GET', url: '/api/v1/projects/northwind/query-tracking', headers: embedHeaders(READ_KEY, null) })
+    expect(refused.statusCode).toBe(403)
+    // The grant opens the question workspace only, not other reads such as the schedule.
     const schedule = await app.inject({ method: 'GET', url: '/api/v1/projects/northwind/schedule', headers: embedHeaders(READ_KEY) })
-    expect(schedule.statusCode, schedule.body).toBe(404)
-
-    for (const url of ['/api/v1/projects/northwind/query-tracking', '/api/v1/projects/northwind/schedule']) {
-      const refused = await app.inject({ method: 'GET', url, headers: embedHeaders(READ_KEY, null) })
-      expect(refused.statusCode, url).toBe(403)
-    }
+    expect(schedule.statusCode).toBe(403)
   })
 
   it('ignores a malformed or out-of-range limit header', async () => {
@@ -155,13 +152,8 @@ describe('embedded dashboards: question changes', () => {
     expect(JSON.parse(String(audit[0]!.diff))).toMatchObject({ added: 1, via: 'embed' })
   })
 
-  it('changes the wording of one question, then removes it', async () => {
-    const edited = await reviewAndSave({ edits: [{ queryId: 'q-existing', text: 'best solar installer in tempe' }] })
-    expect(edited.statusCode, edited.body).toBe(200)
-    expect(trackedQuestions()).toEqual(['best solar installer in tempe'])
-
-    const editedId = (await currentWorkspace()).tracked[0]!.queryId
-    const removed = await reviewAndSave({ removals: [{ queryId: editedId }] })
+  it('removes one question by id', async () => {
+    const removed = await reviewAndSave({ removals: [{ queryId: 'q-existing' }] })
     expect(removed.statusCode, removed.body).toBe(200)
     expect(trackedQuestions()).toEqual([])
   })
@@ -174,12 +166,14 @@ describe('embedded dashboards: question changes', () => {
       { additions: [{ input: { source: 'manual', text: 'classified' }, queryClass: 'branded' }] },
       { removals: [{ queryText: 'best solar installer in phoenix' }] },
       { edits: [{ queryId: 'q-existing', queryClass: 'branded' }] },
+      { edits: [{ queryId: 'q-existing', text: 'reworded question' }] },
+      { additions: [{ input: { source: 'manual', text: 'new' } }], removals: [{ queryId: 'q-existing' }] },
       { additions: [], removals: [] },
     ]
     for (const mutation of refusedChanges) {
       const response = await review(mutation)
       expect(response.statusCode, JSON.stringify(mutation)).toBe(403)
-      expect(response.json()).toMatchObject({ error: { code: 'FORBIDDEN', message: 'An embedded dashboard can add, edit, or remove one question at a time.' } })
+      expect(response.json()).toMatchObject({ error: { code: 'FORBIDDEN', message: 'An embedded dashboard can add or remove one query at a time.' } })
     }
     expect(trackedQuestions()).toEqual(['best solar installer in phoenix'])
   })
@@ -187,26 +181,24 @@ describe('embedded dashboards: question changes', () => {
   it('keeps the list within the dashboard limit at review', async () => {
     const response = await review(ADD('one question too many'), embedHeaders(QUESTION_KEY, '1'))
     expect(response.statusCode, response.body).toBe(409)
-    expect(response.json()).toMatchObject({ error: { code: 'EMBED_QUESTION_LIMIT', details: { limit: 1, attempted: 2 } } })
+    expect(response.json()).toMatchObject({ error: { code: 'EMBED_QUERY_LIMIT', details: { limit: 1, attempted: 2 } } })
   })
 
   it('checks the limit again at save, when the plan dropped after review', async () => {
     const response = await reviewAndSave(ADD('reviewed under a larger plan'), embedHeaders(QUESTION_KEY, '1'))
     expect(response.statusCode, response.body).toBe(409)
-    expect(response.json()).toMatchObject({ error: { code: 'EMBED_QUESTION_LIMIT' } })
+    expect(response.json()).toMatchObject({ error: { code: 'EMBED_QUERY_LIMIT' } })
     expect(trackedQuestions()).toEqual(['best solar installer in phoenix'])
   })
 
-  it('lets a list that is over the limit be reworded or shortened', async () => {
+  it('lets a list that is over the limit be shortened', async () => {
     addQuestion('q-second', 'solar panel cost in phoenix')
     addQuestion('q-third', 'is solar worth it in arizona')
     const atTwo = embedHeaders(QUESTION_KEY, '2')
 
-    const edited = await reviewAndSave({ edits: [{ queryId: 'q-second', text: 'solar panel cost in tempe' }] }, atTwo)
-    expect(edited.statusCode, edited.body).toBe(200)
     const removed = await reviewAndSave({ removals: [{ queryId: 'q-third' }] }, atTwo)
     expect(removed.statusCode, removed.body).toBe(200)
-    expect(trackedQuestions()).toEqual(['best solar installer in phoenix', 'solar panel cost in tempe'])
+    expect(trackedQuestions()).toEqual(['best solar installer in phoenix', 'solar panel cost in phoenix'])
 
     const added = await review(ADD('a third question again'), atTwo)
     expect(added.statusCode).toBe(409)
@@ -217,13 +209,13 @@ describe('embedded dashboards: who may change questions', () => {
   it('refuses the question key without the limit header', async () => {
     const response = await review(ADD('no limit header'), embedHeaders(QUESTION_KEY, null))
     expect(response.statusCode).toBe(403)
-    expect(response.json().error.message).toBe('An embedded question change needs the dashboard question limit.')
+    expect(response.json().error.message).toBe('An embedded query change needs the dashboard query limit.')
   })
 
   it('refuses a question key that is not scoped to one project', async () => {
     const response = await review(ADD('unscoped key'), embedHeaders(UNSCOPED_QUESTION_KEY))
     expect(response.statusCode).toBe(403)
-    expect(response.json().error.message).toBe('An embedded question key must be scoped to one project.')
+    expect(response.json().error.message).toBe('An embedded query key must be scoped to one project.')
   })
 
   it('confines the question key to its own project and the two question routes', async () => {
@@ -260,13 +252,13 @@ describe('embedded dashboards: who may change questions', () => {
   it('leaves full-authority callers on the operator rules', async () => {
     const response = await review(
       { additions: [{ input: { source: 'manual', text: 'first' } }, { input: { source: 'manual', text: 'second' } }] },
-      { authorization: `Bearer ${ROOT_KEY}`, 'x-canonry-embed-question-limit': '1' },
+      { authorization: `Bearer ${ROOT_KEY}`, 'x-canonry-embed-query-limit': '1' },
     )
     expect(response.statusCode, response.body).toBe(200)
   })
 
   it('leaves advanced portfolios with the agency', () => {
-    expect(() => assertEmbedQuestionWorkspace('advanced')).toThrow(AppError)
-    expect(() => assertEmbedQuestionWorkspace('simple')).not.toThrow()
+    expect(() => assertEmbedQueryWorkspace('advanced')).toThrow(AppError)
+    expect(() => assertEmbedQueryWorkspace('simple')).not.toThrow()
   })
 })

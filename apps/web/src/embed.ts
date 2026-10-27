@@ -100,6 +100,74 @@ export function resolveEmbedProjectTab<T extends string>(requested: T, allow: re
 }
 
 /**
+ * The plan's query limit when the agency lets this dashboard's clients manage
+ * their own queries, else undefined. This, not the `projectTabs` allowlist,
+ * decides whether the embedded client Queries tab exists, so an allowlist can never
+ * turn editing on by itself. Presentational: the engine enforces the limit.
+ */
+export function embedQueryLimit(embed: { queries?: { limit?: unknown } } | null | undefined): number | undefined {
+  const limit = embed?.queries?.limit
+  return typeof limit === 'number' && Number.isInteger(limit) && limit > 0 ? limit : undefined
+}
+
+/**
+ * The project tab to render, including the embedded client Queries tab. That
+ * route exists only in an embed that grants editing; an operator who lands on it
+ * gets the operator Queries tab, and an embed without the grant falls back like any other
+ * hidden tab.
+ */
+export function resolveProjectPageTab<T extends string>(
+  requested: T,
+  embed: ({ projectTabs?: readonly string[]; queries?: { limit?: unknown } }) | null | undefined,
+): T {
+  if (requested === 'client-queries') {
+    if (embedQueryLimit(embed) !== undefined) return requested
+    if (!embed) return 'queries' as T
+    return resolveEmbedProjectTab('overview' as T, effectiveEmbedProjectTabs(embed))
+  }
+  return resolveEmbedProjectTab(requested, effectiveEmbedProjectTabs(embed))
+}
+
+const EMBED_TAB_MEMORY_KEY = 'canonry:embed-project-tab'
+
+/**
+ * The host page re-loads an embedded dashboard every few minutes to refresh its
+ * access, and each reload lands on the project's first tab. These two helpers let
+ * the reload reopen the tab the client was on.
+ *
+ * `embedTabToRemember` returns the path to keep for a location: a project tab
+ * path, or null on a project's first tab (which clears the memory).
+ */
+export function embedTabToRemember(pathname: string): string | null {
+  const path = pathname.replace(/\/+$/, '')
+  return /^\/projects\/[^/]+\/[a-z-]+$/.test(path) ? path : null
+}
+
+/** The remembered tab to reopen, only when this load landed on the same project's first tab. */
+export function embedTabToRestore(pathname: string, remembered: string | null): string | null {
+  const path = pathname.replace(/\/+$/, '')
+  if (!remembered || !/^\/projects\/[^/]+$/.test(path)) return null
+  return remembered.startsWith(`${path}/`) && embedTabToRemember(remembered) === remembered ? remembered : null
+}
+
+export function readEmbedTabMemory(): string | null {
+  try {
+    return window.sessionStorage.getItem(EMBED_TAB_MEMORY_KEY)
+  } catch {
+    return null
+  }
+}
+
+export function writeEmbedTabMemory(path: string | null): void {
+  try {
+    if (path) window.sessionStorage.setItem(EMBED_TAB_MEMORY_KEY, path)
+    else window.sessionStorage.removeItem(EMBED_TAB_MEMORY_KEY)
+  } catch {
+    // Storage is unavailable: a reload just opens the first tab.
+  }
+}
+
+/**
  * Color-form embed theme keys → CSS custom property. `bg`/`fg` tint the embed
  * shell (`.app-shell-embed`); `accent` maps to the inline-link color — a narrow,
  * safe brand touch that leaves the semantic tone colors (positive/caution/

@@ -47,6 +47,7 @@ import { PastSweeps } from '../components/project/PastSweeps.js'
 import { useVisibilityReportFirstPage, VisibilityOverview, VisibilityTrendSection } from '../components/project/VisibilityTrendSection.js'
 import { VisibilityScopePicker } from '../components/project/VisibilityScopePicker.js'
 import { QueriesSection } from '../components/project/DiscoverySection.js'
+import { EmbedQueriesSection } from '../components/project/EmbedQueriesSection.js'
 import { SiteHealthSection } from '../components/project/SiteHealthSection.js'
 import { ProjectHistorySection } from '../components/project/ProjectHistorySection.js'
 import { ConversionIntegrityWorkspace } from '../components/project/ConversionIntegrityWorkspace.js'
@@ -106,7 +107,7 @@ import {
   type ApiGoogleConnection,
   type ApiProject,
 } from '../api.js'
-import { effectiveEmbedProjectTabs, isEmbedProjectTabAllowed, resolveEmbedProjectTab } from '../embed.js'
+import { effectiveEmbedProjectTabs, embedQueryLimit, isEmbedProjectTabAllowed, resolveProjectPageTab } from '../embed.js'
 import {
   getApiV1CdpStatusOptions,
   getApiV1ProjectsByNameBingCoverageOptions,
@@ -144,7 +145,7 @@ import {
 } from '../lib/ai-visibility-provider-readiness.js'
 import type { ProjectCommandCenterVm, RunHistoryPoint } from '../view-models.js'
 
-export type ProjectPageTab = 'overview' | 'portfolio' | 'search-console' | 'seo-data' | 'conversions' | 'local' | 'queries' | 'discovery' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings'
+export type ProjectPageTab = 'overview' | 'portfolio' | 'search-console' | 'seo-data' | 'conversions' | 'local' | 'queries' | 'client-queries' | 'discovery' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings'
 
 export function ProjectSweepConfirmation({ open, projectLabel, onOpenChange, onConfirm, onClosed, disabled, leftOut = [] }: {
   open: boolean
@@ -1321,7 +1322,7 @@ export function ProjectPage(props: { tab: ProjectPageTab }) {
     ?? projectsListQuery.data?.find(p => p.name === routeIdentifier || p.id === routeIdentifier)?.name
     ?? null
   const embed = getEmbedConfig()
-  const resolvedTab = resolveEmbedProjectTab(props.tab, effectiveEmbedProjectTabs(embed))
+  const resolvedTab = resolveProjectPageTab(props.tab, embed)
   // The server overview supplies Simple's primary metrics, but Advanced only
   // exposes it through the collapsed Project signals disclosure. Wait until
   // the plan resolves (or that disclosure opens) before starting the read.
@@ -1719,7 +1720,9 @@ function ProjectPageContent({
   // an embed without `projectTabs` gets the embed-safe set. The subnav below is
   // filtered to it; a direct-URL hit on a hidden tab falls back to a visible board.
   const embedProjectTabs = useMemo(() => effectiveEmbedProjectTabs(getEmbedConfig()), [])
-  const tab = resolveEmbedProjectTab(requestedTab, embedProjectTabs)
+  // The embedded client Queries tab comes from the agency's grant, not the allowlist.
+  const queryLimit = useMemo(() => embedQueryLimit(getEmbedConfig()), [])
+  const tab = useMemo(() => resolveProjectPageTab(requestedTab, getEmbedConfig()), [requestedTab])
   const competitorDomains = useMemo(() => model.competitors.map(c => c.domain), [model.competitors])
   const competitorAliases = useMemo<Record<string, readonly string[]>>(
     () => Object.fromEntries(model.competitors.map(c => [c.domain, c.aliases ?? []])),
@@ -2598,7 +2601,10 @@ function ProjectPageContent({
   ]
   // In embed mode the effective allowlist narrows the subnav to the curated
   // client-facing tabs. Settings also requires write access outside embed/demo.
-  const projectTabItems = projectTabItemsAll.filter((item) => isEmbedProjectTabAllowed(item.key, embedProjectTabs))
+  const projectTabItems = [
+    ...projectTabItemsAll.filter((item) => isEmbedProjectTabAllowed(item.key, embedProjectTabs)),
+    ...(queryLimit !== undefined ? [{ key: 'client-queries' as const, label: 'Queries', href: `${projectTabBase}/client-queries` }] : []),
+  ]
   const projectOverflowTabItems = projectOverflowTabItemsAll.filter((item) =>
     isEmbedProjectTabAllowed(item.key, embedProjectTabs),
   )
@@ -3246,6 +3252,8 @@ function ProjectPageContent({
             </section>
           ) : null}
         </>
+      ) : tab === 'client-queries' && queryLimit !== undefined ? (
+        <EmbedQueriesSection projectName={projectName} limit={queryLimit} />
       ) : tab === 'queries' || tab === 'discovery' ? (
         <QueriesSection
           projectName={projectName}

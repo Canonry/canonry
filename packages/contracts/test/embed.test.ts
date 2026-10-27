@@ -7,7 +7,7 @@ import {
   embedProjectTabsError,
   embedClientConfigForRequest,
   normalizeIdTokens,
-  parseEmbedQuestionLimit,
+  parseEmbedQueryLimit,
   serializeForInlineScript,
   type ResolvedEmbedConfig,
 } from '../src/embed.js'
@@ -168,16 +168,16 @@ describe('normalizeIdTokens', () => {
   })
 })
 
-describe('parseEmbedQuestionLimit', () => {
+describe('parseEmbedQueryLimit', () => {
   it('reads a whole number from 1 to 1000, including a multi-value header', () => {
-    expect(parseEmbedQuestionLimit('10')).toBe(10)
-    expect(parseEmbedQuestionLimit('1000')).toBe(1000)
-    expect(parseEmbedQuestionLimit(['30', '5'])).toBe(30)
+    expect(parseEmbedQueryLimit('10')).toBe(10)
+    expect(parseEmbedQueryLimit('1000')).toBe(1000)
+    expect(parseEmbedQueryLimit(['30', '5'])).toBe(30)
   })
 
   it('refuses anything else rather than clamping it', () => {
     for (const bad of [undefined, '', '0', '010', '-3', '2.5', '1001', '99999', 'ten', ' 10', 10]) {
-      expect(parseEmbedQuestionLimit(bad), String(bad)).toBeUndefined()
+      expect(parseEmbedQueryLimit(bad), String(bad)).toBeUndefined()
     }
   })
 })
@@ -274,7 +274,7 @@ describe('embedClientConfigForRequest', () => {
     expect(embedClientConfigForRequest(enabled, undefined, undefined, undefined, '10')).toEqual({
       enabled: true,
       projectTabs: ['overview', 'technical-aeo', 'report'],
-      questions: { limit: 10 },
+      queries: { limit: 10 },
     })
     expect(embedClientConfigForRequest(enabled, undefined, undefined, undefined, '0')).toEqual({
       enabled: true,
