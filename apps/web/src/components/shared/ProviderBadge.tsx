@@ -1,26 +1,16 @@
 import { isOpenRouterRoute } from '@canonry/canonry-contracts'
 import { providerDisplayName } from '../../lib/visibility-trend-helpers.js'
 
+const PROVIDER_BADGE_ENGINES = new Set(['gemini', 'openai', 'claude', 'perplexity', 'muse', 'local'])
+
 export function ProviderBadge({ provider }: { provider: string }) {
-  // Fixed engine-identity palettes (permanent no-literal-palette exclusion): the
-  // dark-canvas default. The stable `provider-badge--<engine>` class lets the
-  // light theme flip only the CANVAS polarity (light tint + darker ink) in
-  // styles.css while keeping the identity hue — see `[data-theme='light']` there.
-  const colors: Record<string, string> = {
-    gemini: 'border-blue-800/50 bg-blue-950/40 text-blue-300',
-    openai: 'border-green-800/50 bg-green-950/40 text-green-300',
-    claude: 'border-amber-800/50 bg-amber-950/40 text-amber-300',
-    perplexity: 'border-teal-800/50 bg-teal-950/40 text-teal-300',
-    muse: 'border-indigo-800/50 bg-indigo-950/40 text-indigo-300',
-    local: 'border-purple-800/50 bg-purple-950/40 text-purple-300',
-  }
-  const known = Object.hasOwn(colors, provider)
-  const tone = known
-    ? `provider-badge--${provider} ${colors[provider]}`
-    : 'border-zinc-700 bg-zinc-800 text-zinc-300'
+  // Theme-scoped CSS preserves each engine's identity hue across canvas modes.
+  const tone = PROVIDER_BADGE_ENGINES.has(provider)
+    ? `provider-badge--${provider}`
+    : 'border-neutral bg-neutral-soft text-neutral'
   return (
     <span
-      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ${tone}`}
+      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-label-12-strong normal-case ${tone}`}
     >
       {isOpenRouterRoute(provider) ? providerDisplayName(provider) : provider}
     </span>

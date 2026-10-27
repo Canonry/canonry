@@ -1696,9 +1696,9 @@ export function AdvancedMeasurementSection({
     return (
       <section aria-labelledby="advanced-measurement-error-title" className="space-y-4">
         <div className="section-head"><h2 id="advanced-measurement-error-title">Advanced measurement setup</h2></div>
-        <div role="alert" className="border-y border-negative-800/40 bg-negative-950/20 py-4 text-sm text-negative">
+        <div role="alert" className="border-y border-negative-800/40 bg-negative-950/20 py-4 text-label-14 text-negative">
           <p>{loadError}</p>
-          <Button className="mt-3 min-h-11" type="button" size="sm" variant="outline" onClick={() => { void loadCurrent(true) }}>Try again</Button>
+          <Button className="mt-3 pointer-coarse:min-h-11" type="button" size="sm" variant="outline" onClick={() => { void loadCurrent(true) }}>Try again</Button>
         </div>
       </section>
     )
@@ -1708,7 +1708,7 @@ export function AdvancedMeasurementSection({
     return (
       <section aria-labelledby="advanced-measurement-empty-title" className="space-y-4">
         <div className="section-head"><h2 id="advanced-measurement-empty-title">Advanced measurement setup</h2></div>
-        <p className="text-sm text-secondary">{canEdit ? 'Start setup from the project Overview.' : 'No advanced setup is available to review.'}</p>
+        <p className="text-copy-14 text-secondary">{canEdit ? 'Start setup from the project Overview.' : 'No advanced setup is available to review.'}</p>
       </section>
     )
   }
@@ -1718,10 +1718,10 @@ export function AdvancedMeasurementSection({
       <section aria-labelledby="advanced-measurement-stale-draft-title" className="space-y-4">
         <div className="section-head"><h2 id="advanced-measurement-stale-draft-title">Advanced measurement setup</h2></div>
         <div role="alert" className="border-y border-caution-800/40 bg-caution-950/20 py-4">
-          <p className="text-sm font-medium text-heading">This draft is based on an older published setup.</p>
-          <p className="mt-1 text-sm text-secondary">Restart from the latest setup before making more changes.</p>
+          <p className="text-copy-14-strong text-heading">This draft is based on an older published setup.</p>
+          <p className="mt-1 text-copy-14 text-secondary">Restart from the latest setup before making more changes.</p>
           <Button
-            className="mt-3 min-h-11"
+            className="mt-3 pointer-coarse:min-h-11"
             type="button"
             size="sm"
             variant="outline"
@@ -1731,23 +1731,23 @@ export function AdvancedMeasurementSection({
             {busyAction === 'restart' ? 'Restarting…' : 'Discard draft and restart'}
           </Button>
         </div>
-        {actionError ? <p role="alert" className="text-sm text-negative">{actionError}</p> : null}
+        {actionError ? <p role="alert" className="text-copy-14 text-negative">{actionError}</p> : null}
       </section>
     )
   }
 
   const retryQueries = isQueryError && onRetryQueries ? (
-    <div className="flex justify-end"><Button type="button" size="sm" variant="outline" className="min-h-11" onClick={onRetryQueries}>Retry queries</Button></div>
+    <div className="flex justify-end"><Button type="button" size="sm" variant="outline" className="pointer-coarse:min-h-11" onClick={onRetryQueries}>Retry queries</Button></div>
   ) : null
 
   return (
     <div className="space-y-4">
       {setup?.mode === 'active-v1' ? (
-        <p role="status" className="border-y border-caution-800/40 bg-caution-950/20 py-3 text-sm text-secondary">
+        <p role="status" className="border-y border-caution-800/40 bg-caution-950/20 py-3 text-copy-14 text-secondary">
           Review and publish this setup to enable class-filtered reporting.
         </p>
       ) : null}
-      {actionError ? <p role="alert" className="border-y border-negative-800/40 bg-negative-950/20 py-3 text-sm text-negative">{actionError}</p> : null}
+      {actionError ? <p role="alert" className="border-y border-negative-800/40 bg-negative-950/20 py-3 text-copy-14 text-negative">{actionError}</p> : null}
       {retryQueries}
       {step === 'import' || step === 'properties' ? (
         <AdvancedMeasurementSetup

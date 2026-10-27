@@ -53,15 +53,15 @@ export function GoogleOAuthConfigForm({ onSaved }: { onSaved: () => void }) {
   }
 
   return (
-    <div className="mt-3 rounded-lg border border-base bg-bg-elevated/40 p-3 space-y-2">
+    <div className="mt-3 material-base p-3 space-y-2">
       <div>
         <div className="flex items-center justify-between">
-          <label className="text-sm text-secondary" htmlFor="google-client-id">Client ID</label>
+          <label className="text-label-14 text-secondary" htmlFor="google-client-id">Client ID</label>
           <a
             href="https://console.cloud.google.com/apis/credentials"
             target="_blank"
             rel="noopener noreferrer"
-            className="text-sm text-secondary hover:text-neutral underline underline-offset-2"
+            className="text-label-14 text-secondary hover:text-neutral underline underline-offset-2"
           >
             Google Cloud {'\u2197'}
           </a>
@@ -69,27 +69,27 @@ export function GoogleOAuthConfigForm({ onSaved }: { onSaved: () => void }) {
         <input
           id="google-client-id"
           type="text"
-          className="mt-0.5 w-full rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
+          className="mt-0.5 w-full rounded border border-strong bg-transparent px-2 py-1.5 text-label-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none"
           placeholder="Google OAuth client ID"
           value={clientId}
           onChange={(e) => setClientId(e.target.value)}
         />
       </div>
       <div>
-        <label className="text-sm text-secondary" htmlFor="google-client-secret">Client secret</label>
+        <label className="text-label-14 text-secondary" htmlFor="google-client-secret">Client secret</label>
         <input
           id="google-client-secret"
           type="password"
-          className="mt-0.5 w-full rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
+          className="mt-0.5 w-full rounded border border-strong bg-transparent px-2 py-1.5 text-label-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none"
           placeholder="Google OAuth client secret"
           value={clientSecret}
           onChange={(e) => setClientSecret(e.target.value)}
         />
       </div>
       {redirectUri && marketingRedirectUri && (
-        <div className="rounded border border-default bg-surface px-3 py-2">
-          <p className="text-sm text-secondary">Authorized redirect URIs</p>
-          <dl className="mt-1 space-y-2 text-xs">
+        <div className="material-base px-3 py-2">
+          <p className="text-copy-14 text-secondary">Authorized redirect URIs</p>
+          <dl className="mt-1 space-y-2 text-label-12">
             <div>
               <dt className="text-muted">Search Console and Business Profile</dt>
               <dd><code className="block break-all text-strong">{redirectUri}</code></dd>
@@ -101,8 +101,8 @@ export function GoogleOAuthConfigForm({ onSaved }: { onSaved: () => void }) {
           </dl>
         </div>
       )}
-      {error && <p className="text-sm text-negative-400">{error}</p>}
-      {success && <p className="text-sm text-positive-400">Google OAuth credentials updated.</p>}
+      {error && <p className="text-copy-14 text-negative-400">{error}</p>}
+      {success && <p className="text-copy-14 text-positive-400">Google OAuth credentials updated.</p>}
       <Button type="button" size="sm" disabled={!canSave || saving} onClick={asyncHandler(handleSave)}>
         {saving ? 'Saving...' : 'Save Google OAuth app'}
       </Button>

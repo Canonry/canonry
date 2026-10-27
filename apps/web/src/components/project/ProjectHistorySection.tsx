@@ -123,22 +123,22 @@ export function ProjectHistorySection({ projectName }: { projectName: string }) 
             <p className="supporting-copy mt-1">See which tracked queries changed mention or citation state between two checks.</p>
           </div>
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            <label className="text-xs text-muted">
+            <label className="text-label-12 text-muted">
               Earlier run
               <select
                 value={resolvedFirstRunId}
                 onChange={(event) => setFirstRunId(event.target.value)}
-                className="mt-1 min-h-11 w-full rounded-md border border-base bg-bg px-3 text-sm text-strong focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-600"
+                className="mt-1 min-h-11 w-full rounded-md border border-base bg-bg px-3 text-label-14 text-strong focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-600"
               >
                 {comparableRuns.map((run) => <option key={run.id} value={run.id}>{new Date(run.createdAt).toLocaleString()}</option>)}
               </select>
             </label>
-            <label className="text-xs text-muted">
+            <label className="text-label-12 text-muted">
               Later run
               <select
                 value={resolvedSecondRunId}
                 onChange={(event) => setSecondRunId(event.target.value)}
-                className="mt-1 min-h-11 w-full rounded-md border border-base bg-bg px-3 text-sm text-strong focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-600"
+                className="mt-1 min-h-11 w-full rounded-md border border-base bg-bg px-3 text-label-14 text-strong focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-600"
               >
                 {comparableRuns.map((run) => <option key={run.id} value={run.id}>{new Date(run.createdAt).toLocaleString()}</option>)}
               </select>

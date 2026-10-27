@@ -34,7 +34,7 @@ function OverviewProjectCard({
         <Link
           to="/projects/$projectName"
           params={{ projectName: project.project.name }}
-          className="after:absolute after:inset-0 after:rounded-xl focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-mono-400"
+          className="after:absolute after:inset-0 after:rounded-md focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-mono-400"
         >
           <p className="project-name">{project.project.name}</p>
           <p className="project-domain">{project.project.canonicalDomain}</p>
@@ -114,9 +114,9 @@ export function OverviewPage() {
             <p className="page-subtitle">Canonry could not load the project list.</p>
           </div>
         </div>
-        <div className="max-w-xl rounded-lg border border-negative bg-negative-soft p-4" role="alert">
-          <p className="text-sm font-medium text-heading">Your projects have not been changed.</p>
-          <p className="mt-1 text-sm text-secondary">Check the connection or sign in again, then retry.</p>
+        <div className="max-w-xl rounded-md border border-negative bg-negative-soft p-4" role="alert">
+          <p className="text-copy-14-strong text-heading">Your projects have not been changed.</p>
+          <p className="mt-1 text-copy-14 text-secondary">Check the connection or sign in again, then retry.</p>
           <Button type="button" variant="secondary" className="mt-4" onClick={() => { void refetch() }}>
             Retry loading projects
           </Button>
@@ -134,7 +134,7 @@ export function OverviewPage() {
         </div>
         <div className="space-y-3">
           {[1, 2, 3].map((i) => (
-            <div key={i} className="rounded-xl border border-default bg-surface p-4 flex items-center gap-4">
+            <div key={i} className="material-base p-4 flex items-center gap-4">
               <div className="flex-1 space-y-2">
                 <div className="skeleton-text w-36" />
                 <div className="skeleton-text-sm w-48" />
@@ -240,7 +240,7 @@ export function OverviewPage() {
           <div className="compact-stack compact-stack-scrollable">
             {activityError ? (
               <div role="alert">
-                <p className="text-sm text-secondary">Recent jobs could not be loaded.</p>
+                <p className="text-copy-14 text-secondary">Recent jobs could not be loaded.</p>
                 <Button type="button" variant="secondary" className="mt-3" onClick={() => { void refetch() }}>Retry loading activity</Button>
               </div>
             ) : activityLoading ? (
@@ -283,8 +283,8 @@ export function OverviewPage() {
             return (
               <div key={item.id} className="flex items-start justify-between gap-4 py-3">
                 <div>
-                  <p className="text-sm font-medium text-heading">{item.label}</p>
-                  {visibleDetail && <p className="mt-1 text-sm text-secondary">{visibleDetail}</p>}
+                  <p className="text-copy-14-strong text-heading">{item.label}</p>
+                  {visibleDetail && <p className="mt-1 text-copy-14 text-secondary">{visibleDetail}</p>}
                 </div>
                 <ToneBadge tone={item.tone} title={serviceStatus ? serviceStatusTooltip(serviceStatus) : item.meta}>
                   {item.detail}

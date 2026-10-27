@@ -493,7 +493,7 @@ Research starts with direct query entry. Run once hides all pattern controls. Re
 Use the server-reported research `access.canRun` and `dailyRunLimit` for both direct and repeat research. Do not infer research permission from general `canWrite`; a research-only credential can run queries without broader write authority. Limited accounts use safe provider choices from stored history, never `/settings`, pattern saves, ICP discovery, or tracked-query promotion. Signed-in viewer authority still requires the deployment opt-in on the server. Each destination run counts toward the same project daily cap across browser, API, CLI, and MCP.
 After query publication, invalidate the project's query and measurement reads together. A refused preview or commit refreshes the workspace version while preserving the editable draft.
 For Advanced Measurement, `VisibilityWorkspace` in `VisibilityTrendSection.tsx` consumes the server's frozen report. On clean URLs, normalize to the selected class using that exact population from the first all-class response; retain its cache timestamp and generated query-key identity so invalidation and scoped pagination still fetch correctly. Normalization writes the URL with `replace: true`, so it adds no history entry. Load Advanced Project signals and competitor history when their disclosures open, while Simple primary metrics still load on arrival.
-`VisibilityOverview` renders the Advanced overview: `VisibilityResultsToolbar` above the `VisibilityWorkspace` it keys by the whole selection except the open answer. The toolbar reads `useVisibilityReportFirstPage`, which is not keyed, so it mounts with the first available report and stays mounted, with its focus and open Filters panel, while a filter change reloads the results below. It is absent before the first report, on error, and for the v1 and unmeasured fallbacks. The toolbar row holds Query type, the run state and date, the Filters button, one removable token per non-default URL filter, the Property details link, and Manage queries (never in embeds). Every control value and token reads the URL selection, never the server echo; choice lists come from the displayed report and always keep the URL value. The inline Filters panel (engine, location, model, UTC dates, Results from) starts closed, closes on Escape back to its button, and Clear filters removes only those filters, never scope, market, class or the `runId` drawer. Tokens and toolbar buttons are default-size `Button`s with `min-h-11 text-sm`, never pills. An Advanced explicit date range is a token, not context-row meta.
+`VisibilityOverview` renders the Advanced overview: `VisibilityResultsToolbar` above the `VisibilityWorkspace` it keys by the whole selection except the open answer. The toolbar reads `useVisibilityReportFirstPage`, which is not keyed, so it mounts with the first available report and stays mounted, with its focus and open Filters panel, while a filter change reloads the results below. It is absent before the first report, on error, and for the v1 and unmeasured fallbacks. The toolbar row holds Query type, the run state and date, the Filters button, one removable token per non-default URL filter, the Property details link, and Manage queries (never in embeds). Every control value and token reads the URL selection, never the server echo; choice lists come from the displayed report and always keep the URL value. The inline Filters panel (engine, location, model, UTC dates, Results from) starts closed, closes on Escape back to its button, and Clear filters removes only those filters, never scope, market, class or the `runId` drawer. Tokens and toolbar buttons use the shared rectangular `Button` sizes and `text-button-14`, never pills. An Advanced explicit date range is a token, not context-row meta.
 Keep branded, non-brand, and unknown populations separate. Format server rates without deriving them from counts. Query results show each query once, with property and location details shared only when every engine row has identical context. Keep differing contexts beside their engine. A single-answer rate of 0 or 1 may read No or Yes, unless it carries `unattributed` or `unchecked`, which keeps its count; preserve multi-answer rates/counts and explicit unavailable evidence. Every Cited rate shows `uncheckedSourcesLabel` and every Mentioned rate `unattributedAnswersLabel`, through `excludedAnswersLabel` in `src/lib/format-helpers.ts`, never under the other signal; the Advanced trend adds `REPORT_TREND_UNCHECKED_NOTE` when a plotted Cited point left answers out. Engine rows reflow on narrow screens while retaining their mention/citation labels and answer action.
 Default the shared URL selection to all queries for Simple and Advanced, preserving explicit query-type links.
 Simple history without query labels must show its saved unclassified results on arrival. In the all-query view, omit Simple classes with no current or historical queries when another class has results; keep Advanced unmeasured classes explicit.
@@ -639,100 +639,64 @@ unavailable state, not a client-side fallback layout.
 
 ### Design tokens
 
-`src/styles.css` keeps font tokens in the existing `@theme inline` block, but
-color and chart tokens live in a separate static, non-inline `@theme` block so
-the full foundation is emitted while generated Tailwind utilities compile to
-`var(--color-*)` and can be overridden at runtime.
-New themeable UI code should use semantic utilities instead of literal palette
-classes: `bg-bg`, `bg-surface`, `bg-surface-subtle`,
-`bg-surface-hover`, `bg-surface-inset`, `bg-surface-inset-hover`,
-`bg-surface-active`, `border-default`,
-`border-subtle`, `border-base`, `border-strong`, `text-primary`,
-`text-heading`, `text-strong`, `text-secondary`, `text-muted`,
-`text-faint`, `text-link`, `text-on-inverse`, `text-on-emphasis`, plus tone
-utilities such as `text-positive`, `border-positive`, `bg-positive-soft`, and
-`fill-positive` (and the caution/negative/neutral variants).
+`DESIGN.md` is the visual contract. `src/geist.css` defines the Geist palette,
+typography presets, and named materials. `src/styles.css` maps them to Canonry's
+semantic roles and shared component classes. Update both the implementation and
+`DESIGN.md` when changing a foundation rule.
 
-Current dark defaults: `bg-bg` = `zinc-950`; `bg-surface` = `zinc-900/30`;
-`bg-surface-subtle` = `zinc-900/20`; `bg-surface-hover` = `zinc-900/40`;
-`bg-surface-inset` = `zinc-800/60`; `bg-surface-inset-hover` = `zinc-800/40`;
-`bg-surface-active` = `zinc-800/50`; `border-default` = `zinc-800/60`;
-`border-subtle` = `zinc-800/40`; `border-base` = `zinc-800`; `border-strong` =
-`zinc-700`; `text-primary` = `zinc-50`; `text-heading` = `zinc-100`;
-`text-strong` = `zinc-200`; `text-secondary` = `zinc-400`; `text-muted` =
-`zinc-500`; `text-faint` = `zinc-600`; `text-link` = `blue-400`;
-`text-on-inverse` = black; `text-on-emphasis` = white (exact legacy button
-on-colors). Use `text-heading` / `text-strong` for heading and emphasized
-neutral text, `text-primary` for highest-contrast body text, `text-secondary`
-for supporting text, and `text-muted` / `text-faint` for labels.
+Color and chart tokens remain in a static, non-inline `@theme` block so the
+full foundation is emitted and generated utilities reference `var(--color-*)`.
+This keeps scoped light/dark themes live. Do not inline themeable color values.
+Use semantic utilities (`bg-bg`, `bg-surface`, `border-default`, `text-primary`,
+`text-secondary`, `text-link`, `text-on-inverse`) and tone utilities
+(`text-positive`, `border-negative`, `bg-caution-soft`). The existing `mono-*`
+and tone scales are compatibility aliases into Geist, not Tailwind zinc,
+emerald, or rose palettes. Prefer a named semantic role over an off-ladder shade.
 
-Tone tokens: **positive** = emerald, **caution** = amber, **negative** = rose,
-**neutral** = zinc. **info** = sky is a minor accent (opportunity "track" cards,
-the suggested-query add action) exposed only as the `info-*` scale below, not a
-full tone quartet.
+The UI uses locally bundled Geist Sans and Geist Mono. Choose a complete
+`text-heading-*`, `text-label-*`, `text-copy-*`, or `text-button-*` preset rather
+than assembling size, weight, line-height, and tracking separately. Labels are
+for single lines; copy is for multiline content. Use the preset's strong or
+mono variant when appropriate. Metadata and chart labels have a 12px minimum;
+meaningful supporting copy is at least 13px. `lib/utils.ts` keeps typography
+and text-color classes in separate `tailwind-merge` groups so `cn()` retains
+both and callers can replace the default text role.
 
-Font: **Geist Sans** (400–800 weights) for UI text, **Geist Mono** for
-code/numerics. Globally enabled OpenType features `cv11`, `ss01`, `ss03` give
-sharper i/l/I/0 disambiguation. Headings tighten tracking (`-0.015em`,
-`-0.02em` on h1).
+Use one named `material-*` preset on a bounded surface. It owns fill, outline,
+radius, and shadow. Do not stack material classes or add another border/shadow
+on the same edge. Layout classes still own padding and dimensions. A viewport
+attached sheet keeps its attached edges square. See `DESIGN.md` for the role
+map; preserve focus handling and accessible names when changing chrome.
 
-For off-ladder shades that no role token names, use the raw scales rather than a
-literal: neutral `mono-100/200/400/500/600/700/800/900/950` (= the matching
-`zinc-*`; one-off dots, focus rings, tracks, dividers, underlines, and exact
-primitive states) and the tone scales `positive-*` / `caution-*` / `negative-*`
-(= `emerald-*` / `amber-*` / `rose-*`; insight cards, toasts, chips, gauges, and
-sparklines), plus the small `info-*` sky scale
-(`100/200/300/400/500/800/950`) for info accents. Apply alpha with a Tailwind
-opacity modifier on the scale token (`bg-mono-800/30`, `bg-caution-950/25`) —
-this is exactly how `styles.css`'s one-off shades migrated with no visual
-change. Effect colors live
-as `--color-scrollbar-thumb`, `--color-shadow-drop`, `--color-shadow-panel`,
-`--color-shadow-hairline`, `--color-shadow-tooltip`, `--color-overlay-hover`,
-`--color-overlay-scrim`, and `--color-caution-glow` / `-glow-inset`.
+The shared topbar's `ThemeSelector` uses icon options in `SegmentedRadioGroup`
+for Light/Dark/System and saves the choice in `canonry:theme`. Preserve its
+accessible names, tooltips, roving focus, and arrow-key selection.
+`ThemeProvider` wraps `AuthGate`, applies the resolved mode to the document root,
+and follows OS/storage changes; Dark remains the initial default. The inline
+bootstrap in `index.html` resolves the same preference before paint, after the
+server's config injection. Keep both paths aligned. Embeds keep their own mode
+(dark when omitted) and custom colors, with no standalone selector. Theme
+overrides must reach floating layers too: a portal outside a themed container
+does not inherit its tokens. Native controls use the corresponding `color-scheme`.
+Keep chart/provider identity and the accessible Site Health state palette
+separate from semantic UI colors.
 
-`styles.css` and the entire `apps/web/src` `.tsx` component tree are fully
-tokenized (zero literal palette utilities / raw hex outside the `@theme` block) —
-the Phase 3 migration is COMPLETE and enforced whole-tree by the ratchet below.
-Do not add new literal palette utilities for themeable UI. The fixed provider
-identity palettes in `ProviderBadge` (and `ChartPrimitives`' `var(--chart-*, #hex)`
-fallbacks) remain literal because they encode engine identity, not semantic tone.
+**Design-token ratchet.** `design-tokens/no-literal-palette` in `.oxlintrc.json`
+rejects raw Tailwind palettes throughout `apps/web/src`. Only `ProviderBadge`
+and `ChartPrimitives` are excluded for provider identity and chart fallbacks.
+`pnpm --filter @canonry/canonry-web scan:colors` is a progress report; lint is the
+gate. Keep chart fallback values synchronized with their CSS defaults.
 
-Two migration conventions (decided against the actual codebase, keep slices
-consistent):
+Validation owns different risks:
 
-- **Off-ladder `zinc-900` alpha shades use `bg-bg-elevated/NN`**, not
-  `bg-surface-hover` (they compute to the same color: `bg-elevated` is solid
-  `zinc-900`, so the opacity modifier reproduces the literal exactly). The named
-  `surface-*` role tokens (`bg-surface` = `/30`, `-subtle` = `/20`,
-  `-hover` = `/40`) are reserved for the shades they name; the codebase uses
-  `bg-bg-elevated/NN` everywhere else (`/40`, `/50`, `/60`, `/70`, `/80`).
-- **Placeholder color uses the `placeholder-mono-NNN` shorthand**
-  (e.g. `placeholder-mono-600`), not the `placeholder:text-*` variant form.
-
-**Design-token ratchet (Phase 3, COMPLETE + enforced).** The
-`design-tokens/no-literal-palette` lint rule (`.oxlintrc.json`) errors on any
-raw Tailwind palette utility across the whole `apps/web/src` tree; only
-`ProviderBadge` + `ChartPrimitives` are permanently excluded (engine identity /
-chart hex fallbacks). The migration allowlist has been emptied and removed, so any
-new literal palette utility now fails lint. `pnpm --filter @canonry/canonry-web scan:colors`
-reports per-file counts (now 0 — a progress view; the lint rule is the gate). New
-themeable UI must use a semantic or scale token; if you ever introduce a run of
-literals, migrate them in the same PR (class-only, no redesign) and keep these
-checks green: `design-tokens.test.ts` + a `dashboard-class-baseline.test.tsx`
-update if the baselined class lists move + typecheck + lint + build.
-
-Token migration guardrails:
-
-- `test/design-tokens.test.ts` compiles the stylesheet with Tailwind and proves
-  semantic utilities reference CSS variables, including opacity modifiers like
-  `bg-surface/50`, and that chart-only tokens are emitted before the chart
-  bridge consumes them. It guards against accidentally putting color tokens in
-  `@theme inline`.
-- `test/dashboard-class-baseline.test.tsx` SSR-renders representative routes and
-  snapshots stable class lists for later migration PRs; use it as a fast
-  migration tripwire before browser visual checks. jsdom cannot compute
-  Tailwind v4 `@layer` / `@property` / `color-mix` output reliably, so the
-  computed-style spot check is the Tailwind compiler-output assertion.
+- `test/design-tokens.test.ts` compiles Tailwind output to check theme variables,
+  readable typography, and material behavior. jsdom cannot reliably calculate
+  Tailwind v4 layers, properties, or color mixing.
+- `test/dashboard-class-baseline.test.tsx` checks representative route markup.
+  Inspect changed class baselines before accepting them.
+- Browser checks cover desktop/narrow layouts, both themes, charts, and floating
+  controls with actual bundled fonts. Typecheck, type-aware lint, and build
+  remain required at final validation.
 
 ### Onboarding state and draft recovery
 
@@ -785,7 +749,7 @@ Token migration guardrails:
 - **AI Visibility cards:** the Simple overview is a stack of `.overview-brief` cards, each a short `av-card-title`, a compact `av-grid` of counts (`av-n-sm`) with at most one status word per row, and everything else in the shared closed `Disclosure` ("Details"). No hero, progress bars or metric tiles; a count reads "4 of 11" with its base. The one exception is the competitive card ("Where competitors are winning"), which keeps its original `.aeo-hero` / `.competitive-summary` layout: the `MentionShare` brand table with share bars, then the "Mention gaps" and "Citation gaps" rows with their linear bars. Keep a single `.metric-grid` / `.metric-card` definition for the pages that still use metric cards; a duplicate once overrode the column count.
 - **Insight cards** use a left-border accent color based on tone (`insight-card-positive`, `insight-card-caution`, `insight-card-negative`).
 - **Sparklines** show inline trends in overview project rows.
-- Keep 10-11px eyebrow labels only for nonessential section context. Meaningful supporting copy is at least 13px and uses `text-secondary` or stronger.
+- Use `text-label-12` for nonessential section context; never use 10–11px text. Meaningful supporting copy is at least 13px and uses `text-secondary` or stronger.
 
 ### Text and tooltips
 

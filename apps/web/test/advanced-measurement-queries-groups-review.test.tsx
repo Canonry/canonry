@@ -11,6 +11,7 @@ import {
   type AdvancedMeasurementProperty,
   type AdvancedMeasurementQuery,
 } from '../src/components/project/advanced-measurement/SetupQueriesGroupsReview.js'
+import { compileAppStyles, compiledElementProperty, cssLengthPx, parseCompiledCss } from './compiled-app-css.js'
 
 afterEach(cleanup)
 
@@ -545,6 +546,21 @@ test('keeps query creation away from viewers', () => {
   expect(screen.queryByLabelText('New queries, one per line')).toBeNull()
   expect(screen.queryByRole('button', { name: /Add .* quer(y|ies)/ })).toBeNull()
   expect(screen.queryByRole('button', { name: 'Manage project queries' })).toBeNull()
+})
+
+test('keeps accessible query table headings inside its horizontal scroll boundary', async () => {
+  renderQueries()
+  const clearColumn = screen.getByRole('columnheader', { name: 'Clear query assignments' })
+  const table = clearColumn.closest('table')!
+  const scroll = table.parentElement!
+  expect(screen.getByRole('columnheader', { name: 'Select query' }).closest('table')).toBe(table)
+  const rules = parseCompiledCss(await compileAppStyles([...scroll.classList, ...table.classList]))
+  expect(compiledElementProperty(rules, scroll, 'overflow-x')).toBe('auto')
+  // The hidden headings are positioned absolutely; without this containing
+  // block they escape the table's scroller and widen a narrow document.
+  expect(compiledElementProperty(rules, scroll, 'position')).toBe('relative')
+  expect(cssLengthPx(compiledElementProperty(rules, table, 'min-width')!, rules)).toBe(620)
+  expect(compiledElementProperty(rules, scroll, 'min-width')).toBeUndefined()
 })
 
 test('uses an accessible hit target for each table query checkbox', () => {

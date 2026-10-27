@@ -440,7 +440,7 @@ export function AuthGate() {
             built on router <Link>s — this gate renders before the router. */}
         <div data-testid="auth-brand" className="flex items-center gap-2.5">
           <img className="size-7" src="./favicon.svg" alt="" aria-hidden="true" />
-          <span className="text-lg font-semibold tracking-tight text-heading">Canonry</span>
+          <span className="text-label-18-strong text-heading">Canonry</span>
         </div>
         <Card className="surface-card w-full">
           {authState === 'checking' ? (
@@ -451,7 +451,7 @@ export function AuthGate() {
             <>
               <CardHeader>
                 <p className="eyebrow eyebrow-soft">Dashboard access</p>
-                <h1 className="font-medium tracking-tight text-primary">Could not verify API key access</h1>
+                <h1 className="text-heading-24 text-primary">Could not verify API key access</h1>
               </CardHeader>
               <CardContent className="space-y-4">
                 <p className="supporting-copy">
@@ -470,21 +470,21 @@ export function AuthGate() {
             <>
               <CardHeader>
                 <p className="eyebrow eyebrow-soft">Dashboard access</p>
-                <h1 className="font-medium tracking-tight text-primary">Sign in to Canonry</h1>
+                <h1 className="text-heading-24 text-primary">Sign in to Canonry</h1>
               </CardHeader>
               <CardContent>
                 {sessionExpired ? (
-                  <p className="mb-4 rounded-md border border-caution bg-caution-soft px-3 py-2 text-sm text-caution">
+                  <p className="mb-4 rounded-md border border-caution bg-caution-soft px-3 py-2 text-copy-14 text-caution">
                     You were signed out — please sign in again.
                   </p>
                 ) : null}
                 <form className="space-y-4" onSubmit={asyncHandler(handleAccountSignIn)}>
                   <label className="block space-y-1.5" htmlFor="account-name">
-                    <span className="text-xs font-medium text-secondary">Name</span>
+                    <span className="text-label-12-strong text-secondary">Name</span>
                     <input
                       autoFocus
                       id="account-name"
-                      className="w-full rounded-md border border-base bg-bg px-3 py-2 text-sm text-heading outline-none transition focus:border-mono-600"
+                      className="w-full rounded-md border border-base bg-bg px-3 py-2 text-label-14 text-heading outline-none transition focus:border-mono-600"
                       type="text"
                       name="username"
                       autoComplete="username"
@@ -498,10 +498,10 @@ export function AuthGate() {
                     />
                   </label>
                   <label className="block space-y-1.5" htmlFor="account-password">
-                    <span className="text-xs font-medium text-secondary">Password</span>
+                    <span className="text-label-12-strong text-secondary">Password</span>
                     <input
                       id="account-password"
-                      className="w-full rounded-md border border-base bg-bg px-3 py-2 text-sm text-heading outline-none transition focus:border-mono-600"
+                      className="w-full rounded-md border border-base bg-bg px-3 py-2 text-label-14 text-heading outline-none transition focus:border-mono-600"
                       type="password"
                       name="password"
                       autoComplete="current-password"
@@ -511,7 +511,7 @@ export function AuthGate() {
                       aria-describedby={error ? 'account-login-error' : undefined}
                     />
                   </label>
-                  {error ? <p id="account-login-error" role="alert" className="text-sm text-negative-400">{error}</p> : null}
+                  {error ? <p id="account-login-error" role="alert" className="text-copy-14 text-negative-400">{error}</p> : null}
                   <Button type="submit" disabled={submitting || !name.trim() || !password}>
                     {submitting ? 'Signing in…' : 'Sign in'}
                   </Button>
@@ -522,19 +522,19 @@ export function AuthGate() {
             <>
               <CardHeader>
                 <p className="eyebrow eyebrow-soft">First-time setup</p>
-                <h1 className="font-medium tracking-tight text-primary">Create a dashboard password</h1>
+                <h1 className="text-heading-24 text-primary">Create a dashboard password</h1>
                 <CardDescription>{SETUP_DESCRIPTION}</CardDescription>
               </CardHeader>
               <CardContent>
                 <form className="space-y-4" onSubmit={asyncHandler(handleSetup)}>
                   <div className="space-y-1.5">
-                    <label className="block text-xs font-medium text-secondary" htmlFor="dashboard-password-new">
+                    <label className="block text-label-12-strong text-secondary" htmlFor="dashboard-password-new">
                       Password
                     </label>
                     <input
                       autoFocus
                       id="dashboard-password-new"
-                      className="w-full rounded-md border border-base bg-bg px-3 py-2 text-sm text-heading outline-none transition focus:border-mono-600"
+                      className="w-full rounded-md border border-base bg-bg px-3 py-2 text-label-14 text-heading outline-none transition focus:border-mono-600"
                       type={showPassword ? 'text' : 'password'}
                       name="new-password"
                       autoComplete="new-password"
@@ -548,18 +548,18 @@ export function AuthGate() {
                     <span
                       id="dashboard-password-new-help"
                       aria-live="polite"
-                      className={setupPasswordIsShort ? 'block text-sm text-negative-400' : 'block text-sm text-secondary'}
+                      className={setupPasswordIsShort ? 'block text-label-14 text-negative-400' : 'block text-label-14 text-secondary'}
                     >
                       {setupPasswordIsShort ? 'Enter at least 8 characters.' : 'Use at least 8 characters.'}
                     </span>
                   </div>
                   <div className="space-y-1.5">
-                    <label className="block text-xs font-medium text-secondary" htmlFor="dashboard-password-confirm">
+                    <label className="block text-label-12-strong text-secondary" htmlFor="dashboard-password-confirm">
                       Confirm password
                     </label>
                     <input
                       id="dashboard-password-confirm"
-                      className="w-full rounded-md border border-base bg-bg px-3 py-2 text-sm text-heading outline-none transition focus:border-mono-600"
+                      className="w-full rounded-md border border-base bg-bg px-3 py-2 text-label-14 text-heading outline-none transition focus:border-mono-600"
                       type={showPassword ? 'text' : 'password'}
                       name="confirm-password"
                       autoComplete="new-password"
@@ -573,20 +573,20 @@ export function AuthGate() {
                     <span
                       id="dashboard-password-confirm-help"
                       aria-live="polite"
-                      className={setupConfirmationMismatch ? 'block text-sm text-negative-400' : 'block text-sm text-secondary'}
+                      className={setupConfirmationMismatch ? 'block text-label-14 text-negative-400' : 'block text-label-14 text-secondary'}
                     >
                       {setupConfirmationMismatch ? 'Passwords do not match.' : 'Enter the same password again.'}
                     </span>
                   </div>
                   {setupNeedsRootKey ? (
                     <div className="space-y-1.5">
-                      <label className="block text-xs font-medium text-secondary" htmlFor="dashboard-setup-root-key">
+                      <label className="block text-label-12-strong text-secondary" htmlFor="dashboard-setup-root-key">
                         {SETUP_ROOT_KEY_COPY.label}
                       </label>
                       <input
                         autoFocus
                         id="dashboard-setup-root-key"
-                        className="w-full rounded-md border border-base bg-bg px-3 py-2 text-sm text-heading outline-none transition focus:border-mono-600"
+                        className="w-full rounded-md border border-base bg-bg px-3 py-2 text-label-14 text-heading outline-none transition focus:border-mono-600"
                         type={showPassword ? 'text' : 'password'}
                         name="apiKey"
                         autoComplete="off"
@@ -597,12 +597,12 @@ export function AuthGate() {
                         aria-invalid={error === SETUP_ROOT_KEY_COPY.rejected}
                         aria-describedby="dashboard-setup-root-key-help"
                       />
-                      <span id="dashboard-setup-root-key-help" aria-live="polite" className="block text-sm text-secondary">
+                      <span id="dashboard-setup-root-key-help" aria-live="polite" className="block text-label-14 text-secondary">
                         {SETUP_ROOT_KEY_COPY.help}
                       </span>
                     </div>
                   ) : null}
-                  <label className="flex min-h-10 cursor-pointer items-center gap-2 text-sm text-secondary" htmlFor="dashboard-password-show">
+                  <label className="flex min-h-10 cursor-pointer items-center gap-2 text-label-14 text-secondary" htmlFor="dashboard-password-show">
                     <input
                       id="dashboard-password-show"
                       type="checkbox"
@@ -611,7 +611,7 @@ export function AuthGate() {
                     />
                     {setupNeedsRootKey ? SETUP_ROOT_KEY_COPY.show : 'Show passwords'}
                   </label>
-                  {error ? <p id="dashboard-password-setup-error" role="alert" className="text-sm text-negative-400">{error}</p> : null}
+                  {error ? <p id="dashboard-password-setup-error" role="alert" className="text-copy-14 text-negative-400">{error}</p> : null}
                   <Button type="submit" disabled={submitting || !setupFormIsValid}>
                     {submitting ? 'Creating password…' : 'Create password and continue'}
                   </Button>
@@ -622,7 +622,7 @@ export function AuthGate() {
             <>
               <CardHeader>
                 <p className="eyebrow eyebrow-soft">Dashboard access</p>
-                <h1 className="font-medium tracking-tight text-primary">Sign in to Canonry</h1>
+                <h1 className="text-heading-24 text-primary">Sign in to Canonry</h1>
                 <CardDescription>
                   {sharedLoginMethod === 'api-key'
                     ? 'Enter an API key from this Canonry install. This opens the dashboard with that key’s access and does not change the password.'
@@ -631,19 +631,19 @@ export function AuthGate() {
               </CardHeader>
               <CardContent>
                 {sessionExpired ? (
-                  <p className="mb-4 rounded-md border border-caution bg-caution-soft px-3 py-2 text-sm text-caution">
+                  <p className="mb-4 rounded-md border border-caution bg-caution-soft px-3 py-2 text-copy-14 text-caution">
                     Your session expired — please sign in again.
                   </p>
                 ) : null}
                 <form className="space-y-4" onSubmit={asyncHandler(handleLogin)}>
                   <label className="block space-y-1.5" htmlFor="dashboard-password-current">
-                    <span className="text-xs font-medium text-secondary">
+                    <span className="text-label-12-strong text-secondary">
                       {sharedLoginMethod === 'api-key' ? 'Canonry API key' : 'Password'}
                     </span>
                     <input
                       autoFocus
                       id="dashboard-password-current"
-                      className="w-full rounded-md border border-base bg-bg px-3 py-2 text-sm text-heading outline-none transition focus:border-mono-600"
+                      className="w-full rounded-md border border-base bg-bg px-3 py-2 text-label-14 text-heading outline-none transition focus:border-mono-600"
                       type={showPassword ? 'text' : 'password'}
                       name={sharedLoginMethod === 'api-key' ? 'apiKey' : 'password'}
                       autoComplete={sharedLoginMethod === 'api-key' ? 'off' : 'current-password'}
@@ -655,7 +655,7 @@ export function AuthGate() {
                       aria-describedby={error ? 'dashboard-password-login-error' : undefined}
                     />
                   </label>
-                  <label className="flex min-h-10 cursor-pointer items-center gap-2 text-sm text-secondary" htmlFor="dashboard-login-password-show">
+                  <label className="flex min-h-10 cursor-pointer items-center gap-2 text-label-14 text-secondary" htmlFor="dashboard-login-password-show">
                     <input
                       id="dashboard-login-password-show"
                       type="checkbox"
@@ -664,7 +664,7 @@ export function AuthGate() {
                     />
                     {sharedLoginMethod === 'api-key' ? 'Show API key' : 'Show password'}
                   </label>
-                  {error ? <p id="dashboard-password-login-error" role="alert" className="text-sm text-negative-400">{error}</p> : null}
+                  {error ? <p id="dashboard-password-login-error" role="alert" className="text-copy-14 text-negative-400">{error}</p> : null}
                   <Button type="submit" disabled={submitting || !password.trim()}>
                     {submitting ? 'Signing in…' : 'Open dashboard'}
                   </Button>

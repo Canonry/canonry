@@ -296,7 +296,7 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
 
       {scheduleLoading && <p className="supporting-copy">Loading...</p>}
 
-      {error && !editing && <p className="mt-2 text-sm text-negative" role="alert">{error}</p>}
+      {error && !editing && <p className="mt-2 text-copy-14 text-negative" role="alert">{error}</p>}
 
       {!scheduleLoading && loadFailed && (
         <Card className="surface-card compact-card">
@@ -323,16 +323,16 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
         <Card className="surface-card compact-card">
           <div className="flex items-start justify-between gap-4">
             <div className="space-y-1">
-              {managedSweeps && <p className="text-sm text-secondary">{MANAGED_SWEEPS_COPY}</p>}
-              <p className="text-sm font-medium text-strong">{schedule.recurrence
+              {managedSweeps && <p className="text-copy-14 text-secondary">{MANAGED_SWEEPS_COPY}</p>}
+              <p className="text-copy-14-strong text-strong">{schedule.recurrence
                 ? calendarRecurrenceLabel(schedule.recurrence, schedule.timezone)
                 : scheduleLabel(schedule.preset ?? null, schedule.cronExpr, schedule.timezone)}</p>
-              {!schedule.recurrence && <p className="text-xs text-muted">Cron: <span className="font-mono">{schedule.cronExpr}</span></p>}
+              {!schedule.recurrence && <p className="text-copy-13 text-muted">Cron: <span className="font-mono">{schedule.cronExpr}</span></p>}
               {schedule.enabled && schedule.nextRunAt && (
-                <p className="text-xs text-muted">Next run: {formatZonedTimestamp(schedule.nextRunAt, schedule.timezone)}</p>
+                <p className="text-copy-13 text-muted">Next run: {formatZonedTimestamp(schedule.nextRunAt, schedule.timezone)}</p>
               )}
               {schedule.lastRunAt && (
-                <p className="text-xs text-muted">Last run: {new Date(schedule.lastRunAt).toLocaleString()}</p>
+                <p className="text-copy-13 text-muted">Last run: {new Date(schedule.lastRunAt).toLocaleString()}</p>
               )}
             </div>
             <div className="flex items-center gap-2 shrink-0">
@@ -355,9 +355,9 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
       )}
 
       {canManageSchedule && editing && (
-        <div className="rounded-lg border border-base bg-bg-elevated/40 p-4 space-y-3">
+        <div className="material-base p-4 space-y-3">
           {scheduleChangedElsewhere && !saving && (
-            <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-caution bg-caution-soft px-3 py-2 text-sm text-caution" role="alert">
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-caution bg-caution-soft px-3 py-2 text-label-14 text-caution" role="alert">
               <p>This schedule changed elsewhere. Load the latest version before saving.</p>
               <Button type="button" variant="outline" size="sm" onClick={loadLatestSchedule}>
                 Load latest schedule
@@ -366,9 +366,9 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
           )}
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <label className="text-xs font-medium text-secondary">Frequency</label>
+              <label className="text-label-12-strong text-secondary">Frequency</label>
               <select
-                className="w-full rounded border border-strong bg-bg-elevated px-2 py-1.5 text-sm text-strong focus:border-mono-500 focus:outline-none"
+                className="w-full rounded border border-strong bg-bg-elevated px-2 py-1.5 text-label-14 text-strong focus:border-mono-500 focus:outline-none"
                 aria-label="Frequency"
                 value={freq}
                 onChange={(e) => setFreq(e.target.value)}
@@ -380,9 +380,9 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
             </div>
             {freq !== 'calendar' && (
               <div className="space-y-1.5">
-                <label className="text-xs font-medium text-secondary">Time</label>
+                <label className="text-label-12-strong text-secondary">Time</label>
                 <select
-                  className="w-full rounded border border-strong bg-bg-elevated px-2 py-1.5 text-sm text-strong focus:border-mono-500 focus:outline-none disabled:opacity-40"
+                  className="w-full rounded border border-strong bg-bg-elevated px-2 py-1.5 text-label-14 text-strong focus:border-mono-500 focus:outline-none disabled:opacity-40"
                   value={hour}
                   disabled={freq === 'twice-daily' || freq === 'custom'}
                   onChange={(e) => setHour(parseInt(e.target.value))}
@@ -396,9 +396,9 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
           </div>
           {freq === 'custom' && (
             <div className="space-y-1.5">
-              <label className="text-xs font-medium text-secondary">Cron expression</label>
+              <label className="text-label-12-strong text-secondary">Cron expression</label>
               <input
-                className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 font-mono focus:border-mono-500 focus:outline-none"
+                className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-label-14-mono text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none"
                 type="text"
                 placeholder="0 9 * * 1-5"
                 value={customCron}
@@ -409,24 +409,24 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
           {freq === 'calendar' && (
             <div className="grid grid-cols-3 gap-3">
               <div className="space-y-1.5">
-                <label className="text-xs font-medium text-secondary">Repeat every</label>
-                <input className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong focus:border-mono-500 focus:outline-none" aria-label="Repeat every days" type="number" min="1" max="3650" value={recurrenceEveryDays} onChange={(e) => setRecurrenceEveryDays(Number(e.target.value))} />
-                <p className="text-xs text-muted">days</p>
+                <label className="text-label-12-strong text-secondary">Repeat every</label>
+                <input className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-label-14 text-strong focus:border-mono-500 focus:outline-none" aria-label="Repeat every days" type="number" min="1" max="3650" value={recurrenceEveryDays} onChange={(e) => setRecurrenceEveryDays(Number(e.target.value))} />
+                <p className="text-copy-13 text-muted">days</p>
               </div>
               <div className="space-y-1.5">
-                <label className="text-xs font-medium text-secondary">Start date</label>
-                <input className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong focus:border-mono-500 focus:outline-none" aria-label="Start date" type="date" value={recurrenceStartDate} onChange={(e) => setRecurrenceStartDate(e.target.value)} />
+                <label className="text-label-12-strong text-secondary">Start date</label>
+                <input className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-label-14 text-strong focus:border-mono-500 focus:outline-none" aria-label="Start date" type="date" value={recurrenceStartDate} onChange={(e) => setRecurrenceStartDate(e.target.value)} />
               </div>
               <div className="space-y-1.5">
-                <label className="text-xs font-medium text-secondary">Time</label>
-                <input className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong focus:border-mono-500 focus:outline-none" aria-label="Recurrence time" type="time" value={recurrenceTime} onChange={(e) => setRecurrenceTime(e.target.value)} />
+                <label className="text-label-12-strong text-secondary">Time</label>
+                <input className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-label-14 text-strong focus:border-mono-500 focus:outline-none" aria-label="Recurrence time" type="time" value={recurrenceTime} onChange={(e) => setRecurrenceTime(e.target.value)} />
               </div>
             </div>
           )}
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-secondary">Timezone</label>
+            <label className="text-label-12-strong text-secondary">Timezone</label>
             <select
-              className="w-full rounded border border-strong bg-bg-elevated px-2 py-1.5 text-sm text-strong focus:border-mono-500 focus:outline-none"
+              className="w-full rounded border border-strong bg-bg-elevated px-2 py-1.5 text-label-14 text-strong focus:border-mono-500 focus:outline-none"
               aria-label="Timezone"
               value={tzOther ? 'Other' : timezone}
               onChange={(e) => {
@@ -441,7 +441,7 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
             </select>
             {tzOther && (
               <input
-                className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
+                className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-label-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none"
                 type="text"
                 placeholder="e.g. America/New_York"
                 value={tzOtherValue}
@@ -449,7 +449,7 @@ export function ScheduleSection({ projectName }: { projectName: string }) {
               />
             )}
           </div>
-          {error && <p className="text-negative-400 text-sm" role="alert">{error}</p>}
+          {error && <p className="text-negative-400 text-copy-14" role="alert">{error}</p>}
           <div className="flex gap-2 justify-end">
             <Button type="button" variant="outline" size="sm" onClick={() => { setEditing(false); setEditingVersion(undefined); setError(null) }}>Cancel</Button>
             <Button

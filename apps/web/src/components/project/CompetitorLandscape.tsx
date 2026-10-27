@@ -185,9 +185,9 @@ function SourceUrls({ urls }: { urls: readonly string[] }) {
   // latest-only evidence table, which would make an older result look like
   // current evidence; the stored sample URLs are the row's evidence.
   return (
-    <details className="inline-disclosure text-left text-xs text-secondary">
+    <details className="inline-disclosure text-left text-label-12 text-secondary">
       <summary>Source URLs</summary>
-      <ul className="mt-2 max-w-72 space-y-1 font-mono text-[11px] font-normal">
+      <ul className="mt-2 max-w-72 space-y-1 text-label-12-mono">
         {urls.map(url => <li key={url} className="break-all">{url}</li>)}
       </ul>
     </details>
@@ -195,7 +195,7 @@ function SourceUrls({ urls }: { urls: readonly string[] }) {
 }
 
 function Count({ count, of, state, toneClass }: { count: number; of: number; state: MetricAvailability; toneClass: string }) {
-  if (state !== 'measured') return <span className="text-[13px] text-secondary">{unavailableMetricLabel(state)}</span>
+  if (state !== 'measured') return <span className="text-label-13 text-secondary">{unavailableMetricLabel(state)}</span>
   // One unit even in a grid's last column, which may otherwise wrap on a phone.
   return (
     <span className="whitespace-nowrap">
@@ -207,7 +207,7 @@ function Count({ count, of, state, toneClass }: { count: number; of: number; sta
 
 function Share({ percent, state, toneClass }: { percent: number | null; state: MetricAvailability; toneClass: string }) {
   if (state !== 'measured' || percent === null) {
-    return <span className="text-[13px] text-secondary">{state === 'measured' ? 'Not measured' : unavailableMetricLabel(state)}</span>
+    return <span className="text-label-13 text-secondary">{state === 'measured' ? 'Not measured' : unavailableMetricLabel(state)}</span>
   }
   const { figure, sign } = splitPercentSign(formatPercent(percent, RatioUnits.percent))
   return (
@@ -247,7 +247,7 @@ function OtherCompetitors({
           {rows.map(row => (
             <tr key={row.domain}>
               <th scope="row" className="av-row-label"><BrandName row={row} /></th>
-              <td className="text-[13px] text-secondary">{sourceClassLabel(row.surfaceClass)}</td>
+              <td className="text-label-13 text-secondary">{sourceClassLabel(row.surfaceClass)}</td>
               <td><Count count={row.mentionCount} of={named} state={state} toneClass="text-primary" /></td>
               <td><Count count={row.citationCount} of={cited} state={state} toneClass="text-primary" /></td>
               <td>
@@ -299,7 +299,7 @@ function ManageCompetitors({ onAddCompetitor }: { onAddCompetitor: CompetitorMut
         }}
         aria-busy={isSubmitting}
       >
-        <label htmlFor={inputId} className="min-w-56 flex-1 text-sm font-medium text-heading">
+        <label htmlFor={inputId} className="min-w-56 flex-1 text-label-14-strong text-heading">
           Competitor domain
           <input
             id={inputId}
@@ -307,13 +307,13 @@ function ManageCompetitors({ onAddCompetitor }: { onAddCompetitor: CompetitorMut
             value={domain}
             onChange={event => setDomain(event.target.value)}
             placeholder="competitor.com"
-            className="mt-1 h-10 w-full rounded-md border border-default bg-surface px-3 text-sm text-primary placeholder-mono-600 focus:outline-none focus:ring-2 focus:ring-mono-400"
+            className="mt-1 h-10 w-full rounded-md border border-default bg-surface px-3 text-label-14 text-primary placeholder-mono-400 focus:outline-none focus:ring-2 focus:ring-mono-400"
           />
         </label>
         <Button type="submit" size="sm" className="min-h-10" disabled={isSubmitting || !domain.trim()}>
           {isSubmitting ? 'Adding…' : 'Add competitor'}
         </Button>
-        {submitError ? <p role="alert" className="w-full text-sm text-negative">{submitError}</p> : null}
+        {submitError ? <p role="alert" className="w-full text-copy-14 text-negative">{submitError}</p> : null}
       </form>
     </details>
   )
@@ -472,7 +472,7 @@ export function CompetitorLandscape({
           {pages.map(({ name, row }) => (
             <div key={row.domain}>
               <p>{name}</p>
-              <ul className="space-y-1 font-mono text-[11px] text-muted">
+              <ul className="space-y-1 text-label-12-mono text-muted">
                 {row.sampleUrls.map(url => <li key={url} className="break-all">{url}</li>)}
               </ul>
             </div>
@@ -516,7 +516,7 @@ export function CompetitorLandscape({
             <li key={source.domain}>
               <span>{brandText(source)} · {sourceClassLabel(source.surfaceClass)} · {source.citationCount} {plural(source.citationCount, 'citation', 'citations')}</span>
               {source.sampleUrls.length > 0 ? (
-                <ul className="mt-1 space-y-1 font-mono text-[11px] text-muted">
+                <ul className="mt-1 space-y-1 text-label-12-mono text-muted">
                   {source.sampleUrls.map(url => <li key={url} className="break-all">{url}</li>)}
                 </ul>
               ) : null}
@@ -544,7 +544,7 @@ export function CompetitorLandscape({
       <div className="av-card-body space-y-3">
 
         {error ? (
-          <div role="alert" className="flex flex-wrap items-center gap-3 border-y border-negative-800/40 bg-negative-950/20 py-3 text-sm text-negative">
+          <div role="alert" className="flex flex-wrap items-center gap-3 border-y border-negative-800/40 bg-negative-950/20 py-3 text-label-14 text-negative">
             <span>{error}</span>
             {onRetry ? <Button type="button" size="sm" variant="outline" onClick={onRetry}>Retry competitors over time</Button> : null}
           </div>
@@ -573,13 +573,13 @@ export function CompetitorLandscape({
                   <th scope="row" className="av-row-label">
                     {landscape.project.label.trim() ? <>{landscape.project.label.trim()} <span className="av-of">(you)</span></> : 'You'}
                   </th>
-                  <td className="av-brand-type text-[13px] text-secondary">Your brand</td>
+                  <td className="av-brand-type text-label-13 text-secondary">Your brand</td>
                   <td><Share percent={landscape.project.shareOfVoice} state={metricState} toneClass={youTone} /></td>
                   <td><Count count={landscape.project.mentionCount} of={named} state={metricState} toneClass={youTone} /></td>
                   <td>
                     <Count count={landscape.project.citationCount} of={cited} state={metricState} toneClass={youTone} />
                     {advancedPortfolio && metricState === 'measured'
-                      ? <span className="block text-[13px] text-secondary">{siteCitationLabel(landscape.project.domain, 'cited')}</span>
+                      ? <span className="block text-label-13 text-secondary">{siteCitationLabel(landscape.project.domain, 'cited')}</span>
                       : null}
                   </td>
                   {showActions ? <td className="av-brand-actions" /> : null}
@@ -588,7 +588,7 @@ export function CompetitorLandscape({
               {frameRows.map(row => (
                 <tr key={row.domain}>
                   <th scope="row" className="av-row-label"><BrandName row={row} aliases={row.pinned ? competitorAliases[row.domain] : undefined} autoAliases={row.pinned ? competitorAutoAliases[row.domain] : undefined} /></th>
-                  <td className="av-brand-type text-[13px] text-secondary">{sourceClassLabel(row.surfaceClass)}</td>
+                  <td className="av-brand-type text-label-13 text-secondary">{sourceClassLabel(row.surfaceClass)}</td>
                   <td><Share percent={row.shareOfVoice} state={metricState} toneClass="text-primary" /></td>
                   <td><Count count={row.mentionCount} of={named} state={metricState} toneClass="text-primary" /></td>
                   <td><Count count={row.citationCount} of={cited} state={metricState} toneClass="text-primary" /></td>
@@ -600,7 +600,7 @@ export function CompetitorLandscape({
         ) : null}
 
         {notes.length > 0 ? (
-          <div className="space-y-1 text-[13px] text-secondary">
+          <div className="space-y-1 text-label-13 text-secondary">
             {notes.map(note => <p key={note.key} className={note.className}>{note.text}</p>)}
           </div>
         ) : null}

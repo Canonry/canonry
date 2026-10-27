@@ -208,13 +208,13 @@ export function ProjectEngineSettingsSection({
 
   if (isEmbed() || !isAdmin) return null
   if (settings.isLoading) {
-    return <section className="project-engine-settings" aria-busy="true"><p role="status" className="text-sm text-secondary">Loading engine settings…</p></section>
+    return <section className="project-engine-settings" aria-busy="true"><p role="status" className="text-copy-14 text-secondary">Loading engine settings…</p></section>
   }
   if (settings.isError) {
     return (
       <section className="project-engine-settings">
         <h2>Answer engines</h2>
-        <p role="alert" className="text-sm text-negative-400">Could not load the engine catalogue. Saving is disabled until it is available.</p>
+        <p role="alert" className="text-copy-14 text-negative-400">Could not load the engine catalogue. Saving is disabled until it is available.</p>
         <Button type="button" variant="outline" size="sm" onClick={() => void settings.refetch()}>Retry</Button>
       </section>
     )
@@ -223,13 +223,13 @@ export function ProjectEngineSettingsSection({
     return (
       <section className="project-engine-settings">
         <h2>Answer engines</h2>
-        <p role="alert" className="text-sm text-negative-400">The engine catalogue is incomplete. Saving is disabled so existing project overrides cannot be cleared.</p>
+        <p role="alert" className="text-copy-14 text-negative-400">The engine catalogue is incomplete. Saving is disabled so existing project overrides cannot be cleared.</p>
         <Button type="button" variant="outline" size="sm" onClick={() => void settings.refetch()}>Retry</Button>
       </section>
     )
   }
   if (configured.size === 0) {
-    return <section className="project-engine-settings"><h2>Answer engines</h2><p className="text-sm text-secondary">Configure an answer engine in <Link to="/settings" className="text-link">global Settings</Link> before choosing project engines.</p></section>
+    return <section className="project-engine-settings"><h2>Answer engines</h2><p className="text-copy-14 text-secondary">Configure an answer engine in <Link to="/settings" className="text-link">global Settings</Link> before choosing project engines.</p></section>
   }
 
   // With no direct engine connected, "All connected engines" would run nothing
@@ -248,7 +248,7 @@ export function ProjectEngineSettingsSection({
   const showSave = !noDirectEngine || selected.length > 0 || hasUnsavedChanges
   const openRouterNames = new Map(openRouterCatalog?.knownModels.map(model => [model.id, model.displayName]))
   const connectLink = rows.some(provider => !configured.has(rowConnection(provider)))
-    ? <Link to="/settings" className="block w-fit text-sm text-secondary underline decoration-border-strong underline-offset-4 hover:text-heading">Connect another engine</Link>
+    ? <Link to="/settings" className="block w-fit text-label-14 text-secondary underline decoration-border-strong underline-offset-4 hover:text-heading">Connect another engine</Link>
     : null
 
   function addRoutes(routes: string[]) {
@@ -268,7 +268,7 @@ export function ProjectEngineSettingsSection({
     const selectValue = model === undefined ? '__inherit__' : known ? model : '__custom__'
     return (
       <div key={provider.name} className="project-engine-row">
-        <label className="project-engine-provider w-full"><input type="checkbox" aria-label={routed ? provider.displayName : undefined} checked={checked} disabled={!configuredNow && !checked} onChange={event => toggleProvider(provider.name, event.target.checked)} /> <span title={routed ? provider.defaultModel : undefined}>{routed ? (openRouterNames.get(provider.defaultModel) ?? provider.displayName.replace(/ via OpenRouter$/, '')) : provider.displayName}</span>{routed && <span className="ml-auto text-sm text-secondary">OpenRouter</span>}{!routed && !provider.modelConfigurable && <InfoTooltip text={routeHelp(provider)} />}{stale && <span className="text-xs text-caution-400">Not configured, skipped</span>}</label>
+        <label className="project-engine-provider w-full"><input type="checkbox" aria-label={routed ? provider.displayName : undefined} checked={checked} disabled={!configuredNow && !checked} onChange={event => toggleProvider(provider.name, event.target.checked)} /> <span title={routed ? provider.defaultModel : undefined}>{routed ? (openRouterNames.get(provider.defaultModel) ?? provider.displayName.replace(/ via OpenRouter$/, '')) : provider.displayName}</span>{routed && <span className="ml-auto text-label-14 text-secondary">OpenRouter</span>}{!routed && !provider.modelConfigurable && <InfoTooltip text={routeHelp(provider)} />}{stale && <span className="text-label-12 text-caution-400">Not configured, skipped</span>}</label>
         {checked && (provider.modelConfigurable ? (
           <div className="project-engine-model">
             <label htmlFor={`project-model-${provider.name}`}>Model</label>
@@ -294,8 +294,8 @@ export function ProjectEngineSettingsSection({
       {noDirectEngine ? (
         <fieldset disabled={saving} className="project-engine-fieldset">
           <legend className="sr-only">Engines to run</legend>
-          <p className="text-sm text-heading">{connectedLabel}</p>
-          {selected.length === 0 && <p className="text-sm font-medium text-caution-400">{onlyOpenRouter ? 'No models selected.' : 'Nothing selected to run.'}</p>}
+          <p className="text-copy-14 text-heading">{connectedLabel}</p>
+          {selected.length === 0 && <p className="text-copy-14-strong text-caution-400">{onlyOpenRouter ? 'No models selected.' : 'Nothing selected to run.'}</p>}
           {visibleRows.length > 0 && <div className="project-engine-list">{visibleRows.map(engineRow)}</div>}
           <div className="space-y-2 pb-2">
             {openRouterAvailable && openRouterCatalog ? <OpenRouterModelPicker triggerLabel={selected.some(isOpenRouterRoute) ? 'Add models' : onlyOpenRouter ? 'Choose models' : 'Choose OpenRouter models'} catalog={openRouterCatalog} selected={selected} disabled={saving} onAdd={addRoutes} /> : null}
@@ -315,14 +315,14 @@ export function ProjectEngineSettingsSection({
         </fieldset>
       )}
       <div className="mt-4 space-y-3 empty:hidden">
-        {!noDirectEngine && !automatic && selected.length === 0 && <p role="alert" className="text-sm text-negative-400">Choose at least one configured engine.</p>}
-        {error && <p role="alert" className="text-sm text-negative-400">{error}</p>}
-        {unsavedModels > 0 && !saving && <p role="status" className="text-sm text-secondary">{unsavedModels === 1 ? '1 model added, not saved' : `${unsavedModels} models added, not saved`}</p>}
-        {hasModelChange && <p className="flex items-center gap-1.5 text-sm text-caution-400"><AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />Model changed <InfoTooltip text="Existing history remains visible. If the recorded model changes, month-to-month comparison may exclude that engine." /></p>}
+        {!noDirectEngine && !automatic && selected.length === 0 && <p role="alert" className="text-copy-14 text-negative-400">Choose at least one configured engine.</p>}
+        {error && <p role="alert" className="text-copy-14 text-negative-400">{error}</p>}
+        {unsavedModels > 0 && !saving && <p role="status" className="text-copy-14 text-secondary">{unsavedModels === 1 ? '1 model added, not saved' : `${unsavedModels} models added, not saved`}</p>}
+        {hasModelChange && <p className="flex items-center gap-1.5 text-copy-14 text-caution-400"><AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />Model changed <InfoTooltip text="Existing history remains visible. If the recorded model changes, month-to-month comparison may exclude that engine." /></p>}
         {showSave && (
           <div className="space-y-2">
             <div className="flex gap-2"><Button type="button" variant={hasUnsavedChanges ? 'default' : 'outline'} onClick={() => void save()} disabled={saving || (!automatic && selected.length === 0)}>{saving ? 'Saving engines…' : 'Save engines'}</Button><Button type="button" variant="outline" onClick={cancel} disabled={saving}>Cancel</Button></div>
-            <p className="text-sm text-secondary">Applies on the next check</p>
+            <p className="text-copy-14 text-secondary">Applies on the next check</p>
           </div>
         )}
       </div>
@@ -472,7 +472,7 @@ export function SiteHealthScanSettingsSection({
     }
   }
 
-  const fieldClass = 'h-9 w-full rounded-md border border-base bg-bg px-2 text-sm text-primary outline-none focus:border-strong focus:ring-2 focus:ring-mono-600 disabled:opacity-60'
+  const fieldClass = 'h-9 w-full rounded-md border border-base bg-bg px-2 text-label-14 text-primary outline-none focus:border-strong focus:ring-2 focus:ring-mono-600 disabled:opacity-60'
 
   return (
     <section className="project-engine-settings" aria-labelledby={headingId} aria-busy={saving}>
@@ -486,7 +486,7 @@ export function SiteHealthScanSettingsSection({
       {canEdit ? (
         <>
           <div className="grid max-w-sm gap-1">
-            <label htmlFor={selectId} className="text-sm font-medium text-heading">{SITE_HEALTH_SCAN_SETTINGS_COPY.pageBudget}</label>
+            <label htmlFor={selectId} className="text-label-14-strong text-heading">{SITE_HEALTH_SCAN_SETTINGS_COPY.pageBudget}</label>
             <select
               id={selectId}
               value={form.choice}
@@ -502,7 +502,7 @@ export function SiteHealthScanSettingsSection({
             </select>
             {form.choice === CUSTOM_CHOICE && (
               <>
-                <label htmlFor={customId} className="mt-2 text-sm font-medium text-heading">{SITE_HEALTH_SCAN_SETTINGS_COPY.customLabel}</label>
+                <label htmlFor={customId} className="mt-2 text-label-14-strong text-heading">{SITE_HEALTH_SCAN_SETTINGS_COPY.customLabel}</label>
                 <input
                   ref={customInput}
                   id={customId}
@@ -519,13 +519,13 @@ export function SiteHealthScanSettingsSection({
                   className={fieldClass}
                 />
                 {showCustomError && (
-                  <p id={customErrorId} role="alert" className="text-sm text-negative">{SITE_HEALTH_SCAN_SETTINGS_COPY.customError}</p>
+                  <p id={customErrorId} role="alert" className="text-copy-14 text-negative">{SITE_HEALTH_SCAN_SETTINGS_COPY.customError}</p>
                 )}
               </>
             )}
           </div>
-          {error && <p role="alert" className="mt-3 text-sm text-negative">{error}</p>}
-          {notice && <p role="status" className="mt-3 text-sm text-positive">{notice}</p>}
+          {error && <p role="alert" className="mt-3 text-copy-14 text-negative">{error}</p>}
+          {notice && <p role="status" className="mt-3 text-copy-14 text-positive">{notice}</p>}
           <div className="mt-4 flex gap-2">
             <Button type="button" onClick={() => void save()} disabled={saving || !changed}>
               {saving ? SITE_HEALTH_SCAN_SETTINGS_COPY.saving : SITE_HEALTH_SCAN_SETTINGS_COPY.save}
@@ -534,7 +534,7 @@ export function SiteHealthScanSettingsSection({
           </div>
         </>
       ) : (
-        <p className="text-sm text-secondary">
+        <p className="text-copy-14 text-secondary">
           {SITE_HEALTH_SCAN_SETTINGS_COPY.pageBudget}: <span className="text-strong">{savedPageBudgetLabel(saved)}</span>
         </p>
       )}

@@ -166,20 +166,20 @@ function ServerActivityPanel({ projectName }: { projectName: string }) {
         title="Server activity"
         tooltip="Crawler, AI fetch and AI referral activity from connected traffic sources over the last 24 hours."
         meta="Last 24 hours"
-        actions={!isEmbed() && sources.length > 0 ? <Link to="/traffic" className="text-sm text-link hover:underline">Manage sources</Link> : undefined}
+        actions={!isEmbed() && sources.length > 0 ? <Link to="/traffic" className="text-label-14 text-link hover:underline">Manage sources</Link> : undefined}
       />
       {isLoading ? (
-        <p className="text-sm text-secondary">Loading server activity…</p>
+        <p className="text-copy-14 text-secondary">Loading server activity…</p>
       ) : isError ? (
-        <p role="alert" className="text-sm text-negative">Could not load server activity.</p>
+        <p role="alert" className="text-copy-14 text-negative">Could not load server activity.</p>
       ) : sources.length === 0 ? (
-        <p className="text-sm text-secondary">
+        <p className="text-copy-14 text-secondary">
           No traffic source connected.{' '}
           {!isEmbed() && <Link to="/traffic" className="text-link hover:underline">Connect a source</Link>}
         </p>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[36rem] text-sm">
+          <table className="w-full min-w-[36rem] text-label-14">
             <thead>
               <tr className="border-b border-default">
                 <PlainHeader label="Source" align="left" />
@@ -533,10 +533,10 @@ function GaOverview({ ga, projectName, periodControl }: {
 
   let body: ReactNode
   if (ga.loading && !status) {
-    body = <p className="text-sm text-secondary">Loading traffic data…</p>
+    body = <p className="text-copy-14 text-secondary">Loading traffic data…</p>
   } else if (!connected) {
     body = isEmbed() || isPublicDemo()
-      ? <p className="text-sm text-secondary">No Google Analytics 4 property connected.</p>
+      ? <p className="text-copy-14 text-secondary">No Google Analytics 4 property connected.</p>
       : <Ga4ConnectForm projectName={projectName} onConnected={() => { void ga.handleConnected() }} />
   } else if (traffic && ga.overview) {
     body = <SiteTrafficCard overview={ga.overview} refreshing={ga.loading} />
@@ -560,7 +560,7 @@ function GaOverview({ ga, projectName, periodControl }: {
   } else {
     body = (
       <div className="flex flex-wrap items-center gap-3 border-y border-default py-4">
-        <p className="text-sm text-secondary">No traffic data yet.</p>
+        <p className="text-copy-14 text-secondary">No traffic data yet.</p>
         {!isEmbed() && !isPublicDemo() && (
           <Button variant="outline" size="sm" disabled={syncing} onClick={asyncHandler(handleSync)}>
             <RefreshCw className={`mr-1.5 size-3.5 ${syncing ? 'animate-spin' : ''}`} />
@@ -611,12 +611,12 @@ function GaOverview({ ga, projectName, periodControl }: {
         ) : undefined}
       />
       {ga.error && (
-        <div role="alert" className="mb-4 rounded-lg border border-negative-800/60 bg-negative-900/20 px-4 py-2 text-sm text-negative">
+        <div role="alert" className="mb-4 rounded-md border border-negative-800/60 bg-negative-900/20 px-4 py-2 text-label-14 text-negative">
           {ga.error}
         </div>
       )}
       {ga.notice && (
-        <div role="status" className="mb-4 rounded-lg border border-positive-800/60 bg-positive-900/20 px-4 py-2 text-sm text-positive">
+        <div role="status" className="mb-4 rounded-md border border-positive-800/60 bg-positive-900/20 px-4 py-2 text-label-14 text-positive">
           {ga.notice}
         </div>
       )}
@@ -746,7 +746,7 @@ function GaDetails({ ga, projectName }: { ga: GaActivity; projectName: string })
                     label={ACTIVITY_COPY.aiChartLabel}
                   />
                 ) : (
-                  <p className="text-sm text-secondary">{ACTIVITY_COPY.noAiReferrals}</p>
+                  <p className="text-copy-14 text-secondary">{ACTIVITY_COPY.noAiReferrals}</p>
                 )}
               </DisclosureRow>
 
@@ -774,7 +774,7 @@ function GaDetails({ ga, projectName }: { ga: GaActivity; projectName: string })
                     <InfoTooltip text={ACTIVITY_COPY.aiEnginesTooltip} />
                   </div>
                 ) : (
-                  <p className="text-sm text-secondary">{ACTIVITY_COPY.noAiReferrals}</p>
+                  <p className="text-copy-14 text-secondary">{ACTIVITY_COPY.noAiReferrals}</p>
                 )}
               </DisclosureRow>
 
@@ -791,7 +791,7 @@ function GaDetails({ ga, projectName }: { ga: GaActivity; projectName: string })
                     {aiLandingTable.totalRows > 0 ? (
                       <>
                         <div className="overflow-x-auto">
-                          <table className="w-full min-w-[36rem] text-sm">
+                          <table className="w-full min-w-[36rem] text-label-14">
                             <thead>
                               <tr className="border-b border-default">
                                 <SortHeader label="Landing page" sortKey="landingPage" current={aiLandingSort.key} dir={aiLandingSort.dir} onSort={sortAiLanding} align="left" />
@@ -821,13 +821,13 @@ function GaDetails({ ga, projectName }: { ga: GaActivity; projectName: string })
                       </>
                     ) : (
                       <div className="flex flex-wrap items-center gap-3 py-4">
-                        <p className="text-sm text-secondary">No landing pages match this filter</p>
+                        <p className="text-copy-14 text-secondary">No landing pages match this filter</p>
                         <Button variant="outline" size="sm" onClick={() => aiLandingTable.setQuery('')}>Clear filter</Button>
                       </div>
                     )}
                   </>
                 ) : (
-                  <p className="text-sm text-secondary">{ACTIVITY_COPY.noAiLandingPages}</p>
+                  <p className="text-copy-14 text-secondary">{ACTIVITY_COPY.noAiLandingPages}</p>
                 )}
               </DisclosureRow>
             </DisclosureRows>
@@ -863,7 +863,7 @@ function GaDetails({ ga, projectName }: { ga: GaActivity; projectName: string })
               >
                 {socialPlatforms.length > 0
                   ? <StackedSeriesChart input={traffic.socialPlatformDaily} label={ACTIVITY_COPY.socialChartLabel} />
-                  : <p className="text-sm text-secondary">{ACTIVITY_COPY.noSocial}</p>}
+                  : <p className="text-copy-14 text-secondary">{ACTIVITY_COPY.noSocial}</p>}
               </DisclosureRow>
 
               <DisclosureRow
@@ -882,7 +882,7 @@ function GaDetails({ ga, projectName }: { ga: GaActivity; projectName: string })
                     renderChildCells={(row) => <SocialSourceCells row={row} />}
                   />
                 ) : (
-                  <p className="text-sm text-secondary">{ACTIVITY_COPY.noSocial}</p>
+                  <p className="text-copy-14 text-secondary">{ACTIVITY_COPY.noSocial}</p>
                 )}
               </DisclosureRow>
             </DisclosureRows>
@@ -908,7 +908,7 @@ function GaDetails({ ga, projectName }: { ga: GaActivity; projectName: string })
               className="mb-4 max-w-md"
             />
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[36rem] text-sm">
+              <table className="w-full min-w-[36rem] text-label-14">
                 <thead>
                   <tr className="border-b border-default">
                     <SortHeader label="Landing page" sortKey="landingPage" current={pageSort.key} dir={pageSort.dir} onSort={sortPages} align="left" />
@@ -925,7 +925,7 @@ function GaDetails({ ga, projectName }: { ga: GaActivity; projectName: string })
               </table>
             </div>
             {topPagesTable.totalRows === 0 && topPagesTable.hasQuery && (
-              <p className="mt-3 text-sm text-secondary">No landing pages match this filter</p>
+              <p className="mt-3 text-copy-14 text-secondary">No landing pages match this filter</p>
             )}
             <DataTablePagination
               page={topPagesTable.page}
@@ -943,7 +943,7 @@ function GaDetails({ ga, projectName }: { ga: GaActivity; projectName: string })
           because GA4 stores it for 7, 28 and 90 days ending yesterday. */}
       <GoogleOrganicSearchPagesPanel projectName={projectName} />
 
-      <p className="mt-6 text-xs text-secondary">
+      <p className="mt-6 text-copy-13 text-secondary">
         {traffic?.lastSyncedAt ? `Last synced ${relativeTime(traffic.lastSyncedAt)}` : 'Never synced'}
       </p>
     </>
@@ -1077,13 +1077,13 @@ export function GoogleOrganicSearchPagesPanel({ projectName }: { projectName: st
             {/* The tooltip is the heading's SIBLING: the section and the table
                 take their accessible name from this heading. */}
             <div className="flex items-center gap-1.5">
-              <h2 id="ga-search-landing-heading" className="text-base font-semibold text-primary">
+              <h2 id="ga-search-landing-heading" className="text-heading-16 text-primary">
                 {SEARCH_LANDING_COPY.heading}
               </h2>
               <InfoTooltip text={SEARCH_LANDING_COPY.tooltip} />
             </div>
             {data?.windowStart && data.windowEnd && (
-              <p className="text-sm text-secondary mt-1">
+              <p className="text-copy-14 text-secondary mt-1">
                 {formatDate(data.windowStart)} to {formatDate(data.windowEnd)}
                 {data.timeZone ? ` (${data.timeZone})` : ''}
               </p>
@@ -1101,9 +1101,9 @@ export function GoogleOrganicSearchPagesPanel({ projectName }: { projectName: st
         </div>
 
         {query.isPending ? (
-          <p className="text-sm text-secondary py-6 text-center">{SEARCH_LANDING_COPY.loading}</p>
+          <p className="text-copy-14 text-secondary py-6 text-center">{SEARCH_LANDING_COPY.loading}</p>
         ) : query.isError || !data ? (
-          <div role="alert" className="flex flex-wrap items-center gap-3 px-4 py-2 rounded-lg bg-negative-900/20 border border-negative-800/60 text-sm text-negative">
+          <div role="alert" className="flex flex-wrap items-center gap-3 px-4 py-2 rounded-md bg-negative-900/20 border border-negative-800/60 text-label-14 text-negative">
             <span>{SEARCH_LANDING_COPY.loadError}</span>
             <Button variant="outline" size="sm" onClick={() => { void query.refetch() }}>
               {SEARCH_LANDING_COPY.retry}
@@ -1140,13 +1140,13 @@ export function GoogleOrganicSearchPagesPanel({ projectName }: { projectName: st
                 {/* A failed or refused refresh keeps the last good snapshot;
                     say so, or the old numbers read as current. */}
                 {data.status !== 'ready' && total && data.syncedAt && (
-                  <span className="text-sm text-secondary">
+                  <span className="text-label-14 text-secondary">
                     {SEARCH_LANDING_COPY.previousSnapshot} {relativeTime(data.syncedAt)}.
                   </span>
                 )}
                 {/* Same fix as the no-snapshot card and the CLI give. */}
                 {data.status === 'unavailable' && total && (
-                  <p className="w-full text-sm text-secondary">{SEARCH_LANDING_COPY.unavailableAction}</p>
+                  <p className="w-full text-copy-14 text-secondary">{SEARCH_LANDING_COPY.unavailableAction}</p>
                 )}
               </div>
             )}
@@ -1154,17 +1154,17 @@ export function GoogleOrganicSearchPagesPanel({ projectName }: { projectName: st
             {!total ? (
               <Card className="p-5">
                 {data.status === 'unavailable' ? (
-                  <div className="text-sm text-secondary space-y-1">
+                  <div className="text-label-14 text-secondary space-y-1">
                     <p className="text-neutral">{SEARCH_LANDING_COPY.unavailable}</p>
                     <p>{SEARCH_LANDING_COPY.unavailableAction}</p>
                   </div>
                 ) : data.status === 'error' ? (
-                  <div className="text-sm text-secondary space-y-1">
+                  <div className="text-label-14 text-secondary space-y-1">
                     <p className="text-neutral">{SEARCH_LANDING_COPY.refreshFailed}</p>
                     {data.error && <p>{data.error}</p>}
                   </div>
                 ) : (
-                  <div className="text-sm text-secondary space-y-1">
+                  <div className="text-label-14 text-secondary space-y-1">
                     <p className="text-neutral">{SEARCH_LANDING_COPY.neverSynced}</p>
                     {canSync && <p>{SEARCH_LANDING_COPY.neverSyncedAction}</p>}
                   </div>
@@ -1181,7 +1181,7 @@ export function GoogleOrganicSearchPagesPanel({ projectName }: { projectName: st
                 />
 
                 <div className="overflow-x-auto">
-                  <table className="w-full min-w-[40rem] text-sm" aria-labelledby="ga-search-landing-heading">
+                  <table className="w-full min-w-[40rem] text-label-14" aria-labelledby="ga-search-landing-heading">
                     <thead>
                       <tr className="border-b border-default">
                         <SortHeader label="Landing page" sortKey="landingPage" current={sortKey} dir={sortDir} onSort={handleSort} align="left" />
@@ -1193,9 +1193,9 @@ export function GoogleOrganicSearchPagesPanel({ projectName }: { projectName: st
                       </tr>
                     </thead>
                     <tbody>
-                      <tr className="border-t border-subtle font-semibold" data-testid="ga-search-landing-total">
+                      <tr className="border-t border-subtle text-label-14-strong" data-testid="ga-search-landing-total">
                         <td className="py-1.5 text-primary">
-                          {SEARCH_LANDING_COPY.totalLabel} <span className="font-normal text-secondary">{SEARCH_LANDING_COPY.totalScope}</span>
+                          {SEARCH_LANDING_COPY.totalLabel} <span className="text-label-14 text-secondary">{SEARCH_LANDING_COPY.totalScope}</span>
                         </td>
                         <td className="py-1.5 pl-4 text-right text-primary tabular-nums">{total.organicGoogleSearchClicks.toLocaleString()}</td>
                         <td className="py-1.5 pl-4 text-right text-primary tabular-nums">{total.organicGoogleSearchImpressions.toLocaleString()}</td>
@@ -1221,7 +1221,7 @@ export function GoogleOrganicSearchPagesPanel({ projectName }: { projectName: st
                     and no clicks or impressions are still listed. */}
                 {/* The not-linked badge above already explains a zero Total. */}
                 {!gaSearchLandingHasSearchData(total) && !searchConsoleNotLinked && (
-                  <div className="text-sm text-secondary mt-3 space-y-1">
+                  <div className="text-label-14 text-secondary mt-3 space-y-1">
                     <p>{SEARCH_LANDING_COPY.noSearchTraffic}</p>
                     <p>
                       {data.searchConsoleLink?.state === 'no-search-data'
@@ -1231,7 +1231,7 @@ export function GoogleOrganicSearchPagesPanel({ projectName }: { projectName: st
                   </div>
                 )}
                 {table.totalRows === 0 && table.hasQuery && (
-                  <p className="text-sm text-secondary mt-3">
+                  <p className="text-copy-14 text-secondary mt-3">
                     {data.totalRows > data.rows.length
                       ? SEARCH_LANDING_COPY.noFilterMatchInLoaded(data.rows.length)
                       : SEARCH_LANDING_COPY.noFilterMatch}
@@ -1248,7 +1248,7 @@ export function GoogleOrganicSearchPagesPanel({ projectName }: { projectName: st
                 />
 
                 {(data.totalRows > data.rows.length || data.rowsCapped) && (
-                  <p className="text-sm text-secondary mt-3">
+                  <p className="text-copy-14 text-secondary mt-3">
                     {data.totalRows > data.rows.length
                       ? `Showing the top ${data.rows.length.toLocaleString()} of ${data.totalRows.toLocaleString()} stored pages by clicks.`
                       : ''}
@@ -1259,7 +1259,7 @@ export function GoogleOrganicSearchPagesPanel({ projectName }: { projectName: st
                   </p>
                 )}
                 {data.syncedAt && (
-                  <p className="mt-2 text-xs text-muted">Synced {relativeTime(data.syncedAt)}</p>
+                  <p className="mt-2 text-copy-13 text-muted">Synced {relativeTime(data.syncedAt)}</p>
                 )}
               </>
             )}
@@ -1335,20 +1335,20 @@ function Ga4ConnectForm({ projectName, onConnected }: { projectName: string; onC
 
   return (
     <Card className="surface-card p-6">
-      <h3 className="text-base font-semibold text-primary mb-1">Connect Google Analytics 4</h3>
-      <p className="text-sm text-secondary mb-5">
+      <h3 className="text-heading-16 text-primary mb-1">Connect Google Analytics 4</h3>
+      <p className="text-copy-14 text-secondary mb-5">
         Connect a GA4 property to see traffic data for this project. You'll need a service account key file from Google Cloud Console.
       </p>
 
       {error && (
-        <div className="mb-4 px-4 py-2 rounded-lg bg-negative-900/20 border border-negative-800/60 text-sm text-negative">
+        <div className="mb-4 px-4 py-2 rounded-md bg-negative-900/20 border border-negative-800/60 text-label-14 text-negative">
           {error}
         </div>
       )}
 
       {/* Step 1 — Property ID */}
       <div className="mb-4">
-        <label htmlFor="ga4-property-id" className="block text-xs font-medium text-secondary mb-1.5">
+        <label htmlFor="ga4-property-id" className="block text-label-12-strong text-secondary mb-1.5">
           GA4 Property ID
         </label>
         <input
@@ -1357,16 +1357,16 @@ function Ga4ConnectForm({ projectName, onConnected }: { projectName: string; onC
           placeholder="e.g. 123456789"
           value={propertyId}
           onChange={(e) => setPropertyId(e.target.value)}
-          className="w-full rounded-lg bg-bg-elevated/60 border border-default px-3 py-2 text-sm text-strong placeholder-mono-600 focus:outline-none focus:ring-1 focus:ring-mono-600"
+          className="w-full rounded-md bg-bg-elevated/60 border border-default px-3 py-2 text-label-14 text-strong placeholder-mono-400 focus:outline-none focus:ring-1 focus:ring-mono-600"
         />
-        <p className="mt-1 text-[11px] text-muted">
+        <p className="mt-1 text-copy-13 text-muted">
           Find this in GA4 → Admin → Property Settings. It's a numeric ID, not the Measurement ID (G-XXXXXX).
         </p>
       </div>
 
       {/* Step 2 — Service account key file */}
       <div className="mb-5">
-        <label className="block text-xs font-medium text-secondary mb-1.5">
+        <label className="block text-label-12-strong text-secondary mb-1.5">
           Service Account Key File
         </label>
         <input
@@ -1379,7 +1379,7 @@ function Ga4ConnectForm({ projectName, onConnected }: { projectName: string; onC
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
-          className="flex items-center gap-2 w-full rounded-lg bg-bg-elevated/60 border border-default border-dashed px-4 py-3 text-sm text-secondary hover:border-mono-600 hover:text-neutral transition-colors cursor-pointer"
+          className="flex items-center gap-2 w-full rounded-md bg-bg-elevated/60 border border-default border-dashed px-4 py-3 text-button-14 text-secondary hover:border-mono-600 hover:text-neutral transition-colors cursor-pointer"
         >
           <Upload className="w-4 h-4 shrink-0" />
           {fileName ? (
@@ -1388,7 +1388,7 @@ function Ga4ConnectForm({ projectName, onConnected }: { projectName: string; onC
             <span>Upload .json key file</span>
           )}
         </button>
-        <p className="mt-1 text-[11px] text-muted">
+        <p className="mt-1 text-copy-13 text-muted">
           Download from Google Cloud Console → IAM & Admin → Service Accounts → Keys → Add Key → JSON.
           The service account must have <span className="text-secondary">Viewer</span> access on the GA4 property.
         </p>

@@ -26,7 +26,7 @@ export function ProjectsPage() {
           <div className="skeleton-text h-6 w-28" />
           <div className="skeleton-text-sm w-40" />
         </div>
-        <div className="rounded-xl border border-default bg-surface overflow-hidden">
+        <div className="material-base overflow-hidden">
           <div className="p-3 border-b border-default flex gap-8">
             {['Name', 'Domain', 'Mentions', 'Last run', 'Country'].map((h) => (
               <div key={h} className="skeleton-text-sm w-16" />
@@ -102,17 +102,17 @@ export function ProjectsPage() {
                       <Link
                         to="/projects/$projectName"
                         params={{ projectName: p.project.name }}
-                        className="text-heading font-medium hover:underline"
+                        className="text-heading text-label-14-strong hover:underline"
                       >
                         {p.project.displayName || p.project.name}
                       </Link>
-                      <p className="text-[11px] text-muted">{p.project.name}</p>
+                      <p className="text-copy-13 text-muted">{p.project.name}</p>
                     </td>
                     <td className="text-secondary">{p.project.canonicalDomain}</td>
                     <td>
                       <ToneBadge tone={p.mentionSummary.tone}>{p.mentionSummary.value}</ToneBadge>
                     </td>
-                    <td className="text-muted text-sm">
+                    <td className="text-muted text-label-14">
                       {latestRun ? (
                         <StatusBadge status={latestRun.status} />
                       ) : (

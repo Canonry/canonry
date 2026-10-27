@@ -46,7 +46,7 @@ export function CdpConfigCard() {
         </ToneBadge>
       </div>
       <p
-        className={`mt-2 text-sm ${cdpStatusError ? 'text-negative' : 'text-secondary'}`}
+        className={`mt-2 text-copy-14 ${cdpStatusError ? 'text-negative' : 'text-secondary'}`}
         role={cdpStatusError ? 'alert' : undefined}
       >
         {cdpStatusError ? (
@@ -56,18 +56,18 @@ export function CdpConfigCard() {
         ) : cdpStatus?.connected ? 'Chrome is available for this provider.' : 'Connect Chrome to enable this provider.'}
       </p>
       <details className="mt-3">
-        <summary className="cursor-pointer text-sm text-secondary hover:text-strong">Advanced</summary>
+        <summary className="cursor-pointer text-label-14 text-secondary hover:text-strong">Advanced</summary>
         <dl className="definition-list mt-2">
           {cdpStatus?.endpoint && (
             <div>
               <dt>Endpoint</dt>
-              <dd className="font-mono text-xs">{cdpStatus.endpoint}</dd>
+              <dd className="text-label-12-mono">{cdpStatus.endpoint}</dd>
             </div>
           )}
           {cdpStatus?.browserVersion && (
             <div>
               <dt>Browser</dt>
-              <dd className="text-xs">{cdpStatus.browserVersion}</dd>
+              <dd className="text-label-12">{cdpStatus.browserVersion}</dd>
             </div>
           )}
           {cdpStatus?.targets && cdpStatus.targets.length > 0 && (
@@ -122,14 +122,14 @@ export function CdpConfigCard() {
         >
           <div className="flex gap-2">
             <input
-              className="flex-1 rounded border border-strong bg-bg-elevated px-2 py-1 text-sm text-heading placeholder-mono-500 focus:outline-none focus:ring-1 focus:ring-mono-500"
+              className="flex-1 rounded border border-strong bg-bg-elevated px-2 py-1 text-label-14 text-heading placeholder-mono-400 focus:outline-none focus:ring-1 focus:ring-mono-500"
               placeholder="localhost"
               value={cdpHost}
               onChange={e => setCdpHost(e.target.value)}
               aria-label="CDP host"
             />
             <input
-              className="w-24 rounded border border-strong bg-bg-elevated px-2 py-1 text-sm text-heading placeholder-mono-500 focus:outline-none focus:ring-1 focus:ring-mono-500"
+              className="w-24 rounded border border-strong bg-bg-elevated px-2 py-1 text-label-14 text-heading placeholder-mono-400 focus:outline-none focus:ring-1 focus:ring-mono-500"
               placeholder="9222"
               value={cdpPort}
               onChange={e => setCdpPort(e.target.value)}

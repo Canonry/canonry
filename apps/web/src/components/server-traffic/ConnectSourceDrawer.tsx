@@ -139,14 +139,14 @@ function SourceTypePicker({ onPick }: { onPick: (type: SourceType) => void }) {
               <Icon className="size-4" />
             </span>
             <span className="flex min-w-0 flex-1 flex-col">
-              <span className="text-sm font-medium text-heading">{name}</span>
-              <span className="text-[13px] text-secondary">{needs}</span>
+              <span className="text-label-14-strong text-heading">{name}</span>
+              <span className="text-label-13 text-secondary">{needs}</span>
             </span>
           </button>
         ))}
       </div>
 
-      <p className="mt-6 text-[13px] text-secondary">
+      <p className="mt-6 text-copy-13 text-secondary">
         Your agent can set up any of these for you. Pick a source to copy instructions for it.
       </p>
     </>
@@ -167,7 +167,7 @@ function WizardHeader({
       <button
         type="button"
         onClick={onBack}
-        className="mb-1 inline-flex w-fit items-center gap-1 rounded text-sm text-secondary transition-colors hover:text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400"
+        className="mb-1 inline-flex w-fit items-center gap-1 rounded text-button-14 text-secondary transition-colors hover:text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400"
       >
         <ArrowLeft className="size-3" />
         Choose a different source
@@ -307,14 +307,14 @@ function ConnectSourceFormShell({
         })}
         className="mt-6 flex flex-col gap-5 border-t border-default pt-5"
       >
-        <p className="text-sm font-medium text-heading">
-          Then connect it to <span className="font-mono text-[13px]">{projectName}</span>
+        <p className="text-copy-14-strong text-heading">
+          Then connect it to <span className="text-label-13-mono">{projectName}</span>
         </p>
 
         {children}
 
         {error ? (
-          <p className="rounded-md border border-negative-800/50 bg-negative-950/30 px-3 py-2 text-xs text-negative-200">
+          <p className="rounded-md border border-negative-800/50 bg-negative-950/30 px-3 py-2 text-copy-13 text-negative-200">
             {error}
           </p>
         ) : null}
@@ -398,7 +398,7 @@ function WordpressSourceForm({
           required
           autoComplete="url"
           placeholder="https://example.com"
-          className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
+          className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-label-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none"
         />
       </Field>
 
@@ -413,7 +413,7 @@ function WordpressSourceForm({
           onChange={(e) => setUsername(e.target.value)}
           required
           autoComplete="username"
-          className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
+          className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-label-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none"
         />
       </Field>
 
@@ -428,7 +428,7 @@ function WordpressSourceForm({
           onChange={(e) => setApplicationPassword(e.target.value)}
           required
           autoComplete="new-password"
-          className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
+          className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-label-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none"
         />
       </Field>
 
@@ -442,7 +442,7 @@ function WordpressSourceForm({
           value={displayName}
           onChange={(e) => setDisplayName(e.target.value)}
           autoComplete="off"
-          className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
+          className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-label-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none"
         />
       </Field>
       </OptionalFields>
@@ -521,7 +521,7 @@ function CloudRunSourceForm({
           onChange={(e) => setGcpProjectId(e.target.value)}
           required
           autoComplete="off"
-          className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
+          className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-label-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none"
         />
       </Field>
 
@@ -536,11 +536,11 @@ function CloudRunSourceForm({
           rows={6}
           spellCheck={false}
           autoComplete="off"
-          className="w-full rounded border border-strong bg-transparent px-2 py-1.5 font-mono text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
+          className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-copy-14-mono text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none"
           placeholder='{"type":"service_account","project_id":"…","private_key":"…"}'
           required
         />
-        <label className="mt-2 inline-flex cursor-pointer items-center gap-2 text-sm text-secondary hover:text-strong">
+        <label className="mt-2 inline-flex cursor-pointer items-center gap-2 text-label-14 text-secondary hover:text-strong">
           <input
             type="file"
             accept="application/json,.json"
@@ -561,7 +561,7 @@ function CloudRunSourceForm({
           value={serviceName}
           onChange={(e) => setServiceName(e.target.value)}
           autoComplete="off"
-          className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
+          className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-label-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none"
         />
       </Field>
 
@@ -574,7 +574,7 @@ function CloudRunSourceForm({
           value={location}
           onChange={(e) => setLocation(e.target.value)}
           autoComplete="off"
-          className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
+          className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-label-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none"
         />
       </Field>
 
@@ -587,7 +587,7 @@ function CloudRunSourceForm({
           value={displayName}
           onChange={(e) => setDisplayName(e.target.value)}
           autoComplete="off"
-          className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
+          className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-label-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none"
         />
       </Field>
 
@@ -666,7 +666,7 @@ function VercelSourceForm({
           required
           autoComplete="off"
           placeholder="prj_…"
-          className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
+          className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-label-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none"
         />
       </Field>
 
@@ -681,7 +681,7 @@ function VercelSourceForm({
           onChange={(e) => setTeamId(e.target.value)}
           required
           autoComplete="off"
-          className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
+          className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-label-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none"
         />
       </Field>
 
@@ -696,7 +696,7 @@ function VercelSourceForm({
           onChange={(e) => setToken(e.target.value)}
           required
           autoComplete="new-password"
-          className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
+          className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-label-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none"
         />
       </Field>
 
@@ -708,7 +708,7 @@ function VercelSourceForm({
         <select
           value={environment}
           onChange={(e) => setEnvironment(e.target.value as 'production' | 'preview')}
-          className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong focus:border-mono-500 focus:outline-none"
+          className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-label-14 text-strong focus:border-mono-500 focus:outline-none"
         >
           <option value="production">production</option>
           <option value="preview">preview</option>
@@ -724,7 +724,7 @@ function VercelSourceForm({
           value={displayName}
           onChange={(e) => setDisplayName(e.target.value)}
           autoComplete="off"
-          className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
+          className="w-full rounded border border-strong bg-transparent px-2 py-1.5 text-label-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none"
         />
       </Field>
       </OptionalFields>
@@ -745,12 +745,12 @@ function Field({
 }) {
   return (
     <label className="flex flex-col gap-1">
-      <span className="text-sm font-medium text-strong">
+      <span className="text-label-14-strong text-strong">
         {label}
         {required ? <span className="ml-1 text-negative-400">*</span> : null}
       </span>
       {children}
-      <span className="text-[13px] leading-5 text-secondary">{description}</span>
+      <span className="text-label-13 text-secondary">{description}</span>
     </label>
   )
 }
@@ -958,10 +958,10 @@ function AgentHandoff({ request, docsUrl }: { request: string; docsUrl: string }
     }
   }
   return (
-    <section aria-labelledby="traffic-agent-heading" className="rounded-lg border border-default bg-surface px-4 py-3">
+    <section aria-labelledby="traffic-agent-heading" className="material-base px-4 py-3">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <Bot className="size-4 text-positive" aria-hidden="true" />
-        <h3 id="traffic-agent-heading" className="flex-1 text-sm font-medium text-heading">
+        <h3 id="traffic-agent-heading" className="flex-1 text-heading-14 text-heading">
           Have your agent set this up
         </h3>
         <Button type="button" variant="secondary" size="sm" onClick={() => { void copy() }}>
@@ -969,7 +969,7 @@ function AgentHandoff({ request, docsUrl }: { request: string; docsUrl: string }
           <span aria-live="polite">{copied ? 'Copied' : 'Copy setup request'}</span>
         </Button>
       </div>
-      <p className="mt-1.5 text-[13px] text-secondary">
+      <p className="mt-1.5 text-copy-13 text-secondary">
         Paste it into Claude Code, Codex, or any agent with a terminal. It follows the{' '}
         <a href={docsUrl} target="_blank" rel="noreferrer" className="text-link underline-offset-4 hover:underline">
           setup guide
@@ -984,20 +984,20 @@ function AgentHandoff({ request, docsUrl }: { request: string; docsUrl: string }
 function SetupSteps({ steps, heading = 'Or do it yourself' }: { steps: SetupStep[]; heading?: string }) {
   return (
     <section aria-labelledby="traffic-steps-heading">
-      <h3 id="traffic-steps-heading" className="text-sm font-medium text-heading">{heading}</h3>
+      <h3 id="traffic-steps-heading" className="text-heading-14 text-heading">{heading}</h3>
       <ol className="mt-3 flex flex-col gap-3">
         {steps.map((step, index) => (
           <li key={step.title} className="flex gap-3">
             <span
               aria-hidden="true"
-              className="flex size-6 shrink-0 items-center justify-center rounded-full border border-default bg-surface-subtle text-xs font-semibold tabular-nums text-secondary"
+              className="flex size-6 shrink-0 items-center justify-center rounded-full border border-default bg-surface-subtle text-label-12-strong tabular-nums text-secondary"
             >
               {index + 1}
             </span>
             <div className="min-w-0 pt-0.5">
-              <p className="text-sm text-heading">{step.title}</p>
+              <p className="text-copy-14 text-heading">{step.title}</p>
               {step.detail ? (
-                <p className={`mt-0.5 text-[13px] text-secondary ${step.detail.startsWith('cnry ') ? 'break-all font-mono' : ''}`}>
+                <p className={`mt-0.5 text-copy-13 text-secondary ${step.detail.startsWith('cnry ') ? 'break-all font-mono' : ''}`}>
                   {step.detail}
                 </p>
               ) : null}
@@ -1006,7 +1006,7 @@ function SetupSteps({ steps, heading = 'Or do it yourself' }: { steps: SetupStep
                   href={step.link.href}
                   target="_blank"
                   rel="noreferrer"
-                  className="mt-1 inline-flex items-center gap-1 text-[13px] font-medium text-link underline-offset-4 hover:underline"
+                  className="mt-1 inline-flex items-center gap-1 text-label-13-strong text-link underline-offset-4 hover:underline"
                 >
                   {step.link.label}
                   <ExternalLink className="size-3" aria-hidden="true" />
@@ -1024,7 +1024,7 @@ function SetupSteps({ steps, heading = 'Or do it yourself' }: { steps: SetupStep
 function OptionalFields({ children }: { children: ReactNode }) {
   return (
     <details className="group">
-      <summary className="cursor-pointer list-none text-sm font-medium text-secondary hover:text-heading">
+      <summary className="cursor-pointer list-none text-label-14-strong text-secondary hover:text-heading">
         <span className="group-open:hidden">Show more options</span>
         <span className="hidden group-open:inline">Hide more options</span>
       </summary>

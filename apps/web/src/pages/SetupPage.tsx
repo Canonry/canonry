@@ -1143,7 +1143,7 @@ function ReadySetupPage({
     !isAdmin ? (
       <section aria-labelledby="setup-provider-heading" className="space-y-2 border-b border-default pb-6 mb-6">
         <div className="flex flex-wrap items-center gap-3">
-          <h2 id="setup-provider-heading" className="text-lg font-semibold text-heading">AI engines</h2>
+          <h2 id="setup-provider-heading" className="text-heading-20 text-heading">AI engines</h2>
           {providerReadinessFailed ? null : (
             <span role="status" className="flex items-center gap-2">
               <ToneBadge tone={providerReadiness === true ? 'positive' : 'neutral'}>
@@ -1158,7 +1158,7 @@ function ReadySetupPage({
           )}
         </div>
         {providerReadinessFailed ? (
-          <p role="alert" className="text-sm text-negative">Provider readiness could not be checked. Try again.</p>
+          <p role="alert" className="text-copy-14 text-negative">Provider readiness could not be checked. Try again.</p>
         ) : null}
         <Button
           type="button"
@@ -1174,7 +1174,7 @@ function ReadySetupPage({
     ) : (
     <section aria-labelledby="setup-provider-heading" className="space-y-3 border-b border-default pb-6 mb-6">
       <div className="flex flex-wrap items-center gap-3">
-        <h2 id="setup-provider-heading" className="text-lg font-semibold text-heading">AI engines</h2>
+        <h2 id="setup-provider-heading" className="text-heading-20 text-heading">AI engines</h2>
         <ToneBadge tone={providerReadiness === true ? 'positive' : openRouterModelsNeeded ? 'caution' : 'neutral'}>
           {providerReadiness === true ? 'Ready' : openRouterModelsNeeded ? 'Choose models' : providerNeedsConnection ? 'Not connected' : 'Checking'}
         </ToneBadge>
@@ -1189,18 +1189,18 @@ function ReadySetupPage({
             : 'Checking connected AI engines. You can choose queries meanwhile.'} />
       </div>
       {providerReadiness === true && (runnableApiProviders.length > 0 || cdpConfigured === true) ? (
-        <ul aria-label="Connected AI engines" className="divide-y divide-default rounded-lg border border-default">
+        <ul aria-label="Connected AI engines" className="divide-y divide-default material-base">
           {runnableApiProviders.map(provider => {
             const routed = isOpenRouterRoute(provider.name)
             const label = provider.displayName ?? provider.name
             return (
-              <li key={provider.name} className="flex min-h-11 items-center justify-between gap-3 px-3.5 py-2 text-sm" title={routed ? openRouterRouteModel(provider.name) : undefined}>
+              <li key={provider.name} className="flex min-h-11 items-center justify-between gap-3 px-3.5 py-2 text-label-14" title={routed ? openRouterRouteModel(provider.name) : undefined}>
                 <span className="min-w-0 truncate text-heading">{routed ? label.replace(/ via OpenRouter$/, '') : label}</span>
                 <span className="shrink-0 text-secondary">{routed ? 'OpenRouter' : provider.model ?? ''}</span>
               </li>
             )
           })}
-          {runnableApiProviders.length === 0 ? <li className="flex min-h-11 items-center px-3.5 py-2 text-sm text-heading">ChatGPT in Chrome</li> : null}
+          {runnableApiProviders.length === 0 ? <li className="flex min-h-11 items-center px-3.5 py-2 text-label-14 text-heading">ChatGPT in Chrome</li> : null}
         </ul>
       ) : null}
       {inlineModelPicker ? (
@@ -1214,10 +1214,10 @@ function ReadySetupPage({
             onAdd={routes => saveSetupEngines({ providers: routes, providerModels: {} })}
           />
         ) : openRouterSettingsQuery.isPending ? (
-          <p role="status" className="text-sm text-secondary">Loading OpenRouter models…</p>
+          <p role="status" className="text-copy-14 text-secondary">Loading OpenRouter models…</p>
         ) : (
           <div className="flex flex-wrap items-center gap-2">
-            <p role="alert" className="text-sm text-negative">Couldn't load OpenRouter's model list.</p>
+            <p role="alert" className="text-copy-14 text-negative">Couldn't load OpenRouter's model list.</p>
             <Button type="button" variant="outline" size="sm" onClick={() => { void openRouterSettingsQuery.refetch() }}>Retry</Button>
           </div>
         )
@@ -1230,7 +1230,7 @@ function ReadySetupPage({
               compact
               leadingField={(
                 <div className="min-w-0 space-y-1.5">
-                  <label className="block text-sm font-medium text-secondary" htmlFor="setup-provider">Provider to connect</label>
+                  <label className="block text-label-14-strong text-secondary" htmlFor="setup-provider">Provider to connect</label>
                   <select
                     ref={providerSelectorRef}
                     id="setup-provider"
@@ -1260,7 +1260,7 @@ function ReadySetupPage({
             />
           </div>
         ) : (
-          <p className="max-w-prose text-sm text-secondary">
+          <p className="max-w-prose text-copy-14 text-secondary">
             {projectProviders.length > 0
               ? `This project's provider selection is ${projectProviders.join(', ')}. Configure an allowed provider in Settings, or change the selection in project Settings.`
               : 'Provider configuration is unavailable here. Open Settings to connect an answer engine, then check again.'}
@@ -1269,7 +1269,7 @@ function ReadySetupPage({
       ) : null}
       <div className="flex flex-wrap items-center gap-2">
         {(providerReadiness === true || openRouterModelsNeeded) && !showProviderConfig && providerToConfigure ? (
-          <Button type="button" variant="ghost" size="sm" className="-ml-3 text-sm" onClick={() => setShowProviderConfig(true)}>
+          <Button type="button" variant="ghost" size="sm" className="-ml-3 text-button-14" onClick={() => setShowProviderConfig(true)}>
             Use a different provider
           </Button>
         ) : null}
@@ -1302,8 +1302,8 @@ function ReadySetupPage({
                     <p className="run-row-title">{check.label}</p>
                     <p className="supporting-copy">{check.id === 'provider' && openRouterConnected ? 'OpenRouter connected. Choose models before your first check.' : check.detail}</p>
                     {check.id === 'provider' && check.state !== 'ready' && (
-                      <div className="mt-3 rounded-md border border-default bg-bg-elevated/40 p-3 space-y-2">
-                        <p className="text-xs text-secondary">
+                      <div className="mt-3 material-base p-3 space-y-2">
+                        <p className="text-copy-13 text-secondary">
                           Paste a Gemini key to enable visibility checks (free at{' '}
                           <a
                             href="https://aistudio.google.com/apikey"
@@ -1321,7 +1321,7 @@ function ReadySetupPage({
                             value={geminiKey}
                             onChange={(e) => setGeminiKey(e.target.value)}
                             placeholder="AI... (paste here)"
-                            className="flex-1 rounded-md border border-base bg-bg px-2.5 py-1.5 text-sm text-heading placeholder:text-faint focus:border-mono-600 focus:outline-none font-mono"
+                            className="flex-1 rounded-md border border-base bg-bg px-2.5 py-1.5 text-label-14-mono text-heading placeholder:text-faint focus:border-mono-600 focus:outline-none"
                             disabled={geminiSaving}
                           />
                           <Button
@@ -1334,19 +1334,19 @@ function ReadySetupPage({
                           </Button>
                         </div>
                         {geminiError && (
-                          <div role="alert" className="space-y-1 text-xs text-negative">
+                          <div role="alert" className="space-y-1 text-label-12 text-negative">
                             <p>{geminiError}</p>
                             <p>Check that the key is complete, then retry Save.</p>
                           </div>
                         )}
-                        <p className="text-sm text-secondary">
+                        <p className="text-copy-14 text-secondary">
                           Connect more answer engines later in{' '}
                           <Link to="/settings" className="text-link hover:underline">
                             Settings
                           </Link>
                           .
                         </p>
-                        {settings.providerStatuses.some(provider => provider.name === 'openrouter') && <details><summary className="min-h-11 cursor-pointer py-3 text-sm text-link">Connect OpenRouter</summary><ProviderConfigForm providerName="openrouter" compact keyUrl={settings.providerStatuses.find(provider => provider.name === 'openrouter')?.keyUrl} onSaved={() => { void refetch() }} /></details>}
+                        {settings.providerStatuses.some(provider => provider.name === 'openrouter') && <details><summary className="min-h-11 cursor-pointer py-3 text-label-14 text-link">Connect OpenRouter</summary><ProviderConfigForm providerName="openrouter" compact keyUrl={settings.providerStatuses.find(provider => provider.name === 'openrouter')?.keyUrl} onSaved={() => { void refetch() }} /></details>}
                       </div>
                     )}
                   </div>
@@ -1403,7 +1403,7 @@ function ReadySetupPage({
             </div>
             {createdProjectName ? (
               <div className="compact-stack">
-                <p className="text-neutral">Project <span className="text-heading font-medium">{createdProjectName}</span> created successfully.</p>
+                <p className="text-neutral">Project <span className="text-heading text-label-14-strong">{createdProjectName}</span> created successfully.</p>
                 <div className="setup-nav">
                   <Button type="button" variant="outline" onClick={goBack}>Back</Button>
                   <Button type="button" onClick={() => completeExistingStep('project', 2)}>Continue</Button>
@@ -1442,8 +1442,8 @@ function ReadySetupPage({
                     onChange={(e) => setAutoExtractBacklinks(e.target.checked)}
                   />
                   <span className="flex-1">
-                    <span className="block text-sm text-heading">Auto-extract backlinks</span>
-                    <span className="block text-xs text-muted mt-0.5">
+                    <span className="block text-label-14 text-heading">Auto-extract backlinks</span>
+                    <span className="block text-label-12 text-muted mt-0.5">
                       When a new Common Crawl release syncs, automatically extract backlinks for this project.{' '}
                       <Link to="/backlinks" className="text-positive-400 hover:text-positive underline underline-offset-2">
                         Manage backlinks
@@ -1451,7 +1451,7 @@ function ReadySetupPage({
                     </span>
                   </span>
                 </label>
-                {projectError ? <p className="text-negative-400 text-sm">{projectError}</p> : null}
+                {projectError ? <p className="text-negative-400 text-copy-14">{projectError}</p> : null}
                 <div className="setup-nav">
                   <Button type="button" variant="outline" onClick={goBack}>Back</Button>
                   <Button type="button" disabled={!slug || !domain || projectSaving} onClick={asyncHandler(handleCreateProject)}>
@@ -1483,25 +1483,25 @@ function ReadySetupPage({
             <div className="space-y-2 border-b border-default pb-4">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0 space-y-1">
-                  <div className="flex items-center gap-2"><h3 className="text-sm font-semibold text-heading">Research queries with your agent</h3><InfoTooltip text="Ask your agent to compare answers and available sources with Canonry Research, then recommend queries. Research does not change your tracked queries." /></div>
+                  <div className="flex items-center gap-2"><h3 className="text-heading-14 text-heading">Research queries with your agent</h3><InfoTooltip text="Ask your agent to compare answers and available sources with Canonry Research, then recommend queries. Research does not change your tracked queries." /></div>
                 </div>
                 <Button type="button" variant="outline" size="sm" className={`shrink-0 self-start ${TOUCH_TARGET}`} onClick={asyncHandler(copyResearchPrompt)}>
                   {researchPromptCopied ? 'Research prompt copied' : 'Copy research prompt'}
                 </Button>
               </div>
-              <details open={researchCopyError || undefined} className="text-sm text-secondary">
+              <details open={researchCopyError || undefined} className="text-label-14 text-secondary">
                 <summary className={`min-h-9 cursor-pointer py-2 text-link pointer-coarse:py-3 max-md:py-3 ${TOUCH_TARGET}`}>View agent prompt</summary>
                 <textarea aria-label="Agent query research prompt" readOnly className="setup-textarea mt-2 w-full" rows={8} value={researchPrompt} />
               </details>
-              {researchCopyError ? <p role="alert" className="text-sm text-negative">Could not copy. Select and copy the prompt above.</p> : null}
+              {researchCopyError ? <p role="alert" className="text-copy-14 text-negative">Could not copy. Select and copy the prompt above.</p> : null}
             </div>
             {queriesHydrating ? (
-              <div className="rounded-md border border-default bg-bg-elevated/40 p-4 text-sm text-secondary" role="status">
+              <div className="material-base p-4 text-label-14 text-secondary" role="status">
                 Loading saved queries…
               </div>
             ) : resumeQueriesQuery.isError ? (
               <div className="compact-stack">
-                <div role="alert" className="rounded-md border border-negative bg-negative-soft p-3 text-sm text-negative">
+                <div role="alert" className="rounded-md border border-negative bg-negative-soft p-3 text-label-14 text-negative">
                   Saved queries could not be loaded. Retry before changing the query basket.
                 </div>
                 <div className="setup-nav">
@@ -1526,7 +1526,7 @@ function ReadySetupPage({
               <div className="compact-stack">
                 {runnableApiProviders.length > 0 ? (
                   <div className="compact-stack">
-                    <div className="flex items-center gap-2 text-muted text-xs uppercase tracking-wide">
+                    <div className="flex items-center gap-2 text-muted text-label-12 normal-case">
                       <span className="flex-1 border-t border-base" />
                       auto-generate
                       <span className="flex-1 border-t border-base" />
@@ -1567,10 +1567,10 @@ function ReadySetupPage({
                         {generatingQueries ? 'Analyzing site...' : 'Generate'}
                       </Button>
                     </div>
-                    {generateError ? <p className="text-negative-400 text-sm">{generateError}</p> : null}
+                    {generateError ? <p className="text-negative-400 text-copy-14">{generateError}</p> : null}
                   </div>
                 ) : null}
-                {!isProjectScoped ? <div className="flex items-center gap-2 text-muted text-xs uppercase tracking-wide">
+                {!isProjectScoped ? <div className="flex items-center gap-2 text-muted text-label-12 normal-case">
                   <span className="flex-1 border-t border-base" />
                   or type manually
                   <span className="flex-1 border-t border-base" />
@@ -1586,7 +1586,7 @@ function ReadySetupPage({
                     onChange={(e) => setQueriesText(e.target.value)}
                   />
                 </div>
-                {queriesError ? <p className="text-negative-400 text-sm">{queriesError}</p> : null}
+                {queriesError ? <p className="text-negative-400 text-copy-14">{queriesError}</p> : null}
                 <div className="setup-nav">
                   <Button type="button" variant="outline" onClick={isProjectScoped ? openProjectDashboard : goBack}>Back</Button>
                   <Button type="button" variant="ghost" onClick={skipQueries}>
@@ -1634,7 +1634,7 @@ function ReadySetupPage({
                     onChange={(e) => setCompetitorsText(e.target.value)}
                   />
                 </div>
-                {competitorsError ? <p className="text-negative-400 text-sm">{competitorsError}</p> : null}
+                {competitorsError ? <p className="text-negative-400 text-copy-14">{competitorsError}</p> : null}
                 <div className="setup-nav">
                   <Button type="button" variant="outline" onClick={goBack}>Back</Button>
                   <div className="flex gap-2">
@@ -1706,7 +1706,7 @@ function ReadySetupPage({
             {persistedSetupComplete ? (
               <div className="compact-stack">
                 <p className="text-secondary">
-                  Setup is complete. <span className="text-strong font-medium">{createdProjectName}</span> already has a successful answer-visibility baseline.
+                  Setup is complete. <span className="text-strong text-label-14-strong">{createdProjectName}</span> already has a successful answer-visibility baseline.
                 </p>
                 <div className="setup-nav">
                   <span />
@@ -1717,8 +1717,8 @@ function ReadySetupPage({
               </div>
             ) : !runTriggered && isDashboardManagedSweeps() ? (
               <div className="compact-stack">
-                {createdProjectName ? <ManagedSweepStatus projectName={createdProjectName} /> : <p className="text-sm text-secondary">{MANAGED_SWEEPS_COPY}</p>}
-                {runError && <p role="alert" className="text-sm text-negative">{runError}</p>}
+                {createdProjectName ? <ManagedSweepStatus projectName={createdProjectName} /> : <p className="text-copy-14 text-secondary">{MANAGED_SWEEPS_COPY}</p>}
+                {runError && <p role="alert" className="text-copy-14 text-negative">{runError}</p>}
                 <div className="setup-nav">
                   <span />
                   <Button type="button" onClick={openProjectDashboard}>Open project dashboard →</Button>
@@ -1726,12 +1726,12 @@ function ReadySetupPage({
               </div>
             ) : !runTriggered ? (
               <div className="compact-stack">
-                <p className="text-sm text-secondary">
+                <p className="text-copy-14 text-secondary">
                   <span className="font-mono tabular-nums text-heading">{parsedQueries.length}</span> {parsedQueries.length === 1 ? 'query' : 'queries'}
                   {runnableProviderCount > 0 ? <> · <span className="font-mono tabular-nums text-heading">{runnableProviderCount}</span> {runnableProviderCount === 1 ? 'engine' : 'engines'}</> : null}
                 </p>
                 {(launchBlockedReason || runError) && (
-                  <div role="alert" className="rounded-md border border-negative bg-negative-soft p-3 text-sm text-negative">
+                  <div role="alert" className="rounded-md border border-negative bg-negative-soft p-3 text-label-14 text-negative">
                     <p>{runError ?? launchBlockedReason}</p>
                   </div>
                 )}
@@ -1765,11 +1765,11 @@ function ReadySetupPage({
                 <p className="text-neutral">
                   Check running. This usually takes 30 to 60 seconds.
                 </p>
-                <div className="rounded-md border border-default bg-surface p-3 text-xs text-muted">
+                <div className="material-base p-3 text-label-12 text-muted">
                   <p>Status: <span className="text-neutral">{runStatus ?? 'queued'}</span></p>
                 </div>
                 {launchedRun.isError && (
-                  <div role="alert" className="rounded-md border border-negative bg-negative-soft p-3 text-sm text-negative">
+                  <div role="alert" className="rounded-md border border-negative bg-negative-soft p-3 text-label-14 text-negative">
                     <p>{launchedRun.error instanceof Error ? launchedRun.error.message : 'Could not refresh the check status.'}</p>
                     <Button type="button" variant="outline" size="sm" className="mt-2" onClick={() => { void launchedRun.refetch() }}>
                       Retry status check
@@ -1785,9 +1785,9 @@ function ReadySetupPage({
               </div>
             ) : !successfulRun ? (
               <div className="compact-stack">
-                <div role="alert" className="rounded-md border border-negative bg-negative-soft p-3 text-sm text-negative">
+                <div role="alert" className="rounded-md border border-negative bg-negative-soft p-3 text-label-14 text-negative">
                   <p>{runFailureDetail}</p>
-                  <p className="mt-1 text-xs text-secondary">{isDashboardManagedSweeps()
+                  <p className="mt-1 text-copy-13 text-secondary">{isDashboardManagedSweeps()
                     ? MANAGED_SWEEPS_COPY
                     : isAdmin
                       ? 'Fix provider or query configuration if needed, then retry without leaving setup.'
@@ -1810,27 +1810,27 @@ function ReadySetupPage({
               <div className="compact-stack">
                 <p className="text-neutral">
                   Check complete. Your first AI Visibility snapshot for{' '}
-                  <span className="text-heading font-medium">{createdProjectName}</span>:
+                  <span className="text-heading text-label-14-strong">{createdProjectName}</span>:
                 </p>
                 <div className="grid grid-cols-3 gap-2 mt-1">
-                  <div className="rounded-md border border-default bg-surface p-3">
-                    <p className="text-xs font-medium text-secondary">Mentioned</p>
-                    <p className="text-2xl font-bold tabular-nums text-primary mt-1">
-                      {queryCounts ? <>{queryCounts.mentionedQueries}<span className="text-faint text-lg"> / {queryCounts.totalQueries}</span></> : 'Unavailable'}
+                  <div className="material-base p-3">
+                    <p className="text-copy-13-strong text-secondary">Mentioned</p>
+                    <p className="text-copy-24-strong tabular-nums text-primary mt-1">
+                      {queryCounts ? <>{queryCounts.mentionedQueries}<span className="text-faint text-label-18"> / {queryCounts.totalQueries}</span></> : 'Unavailable'}
                     </p>
-                    <p className="mt-0.5 text-sm text-secondary">queries naming your brand</p>
+                    <p className="mt-0.5 text-copy-14 text-secondary">queries naming your brand</p>
                   </div>
-                  <div className="rounded-md border border-default bg-surface p-3">
-                    <p className="text-xs font-medium text-secondary">Cited</p>
-                    <p className="text-2xl font-bold tabular-nums text-primary mt-1">
-                      {queryCounts ? <>{queryCounts.citedQueries}<span className="text-faint text-lg"> / {queryCounts.totalQueries}</span></> : 'Unavailable'}
+                  <div className="material-base p-3">
+                    <p className="text-copy-13-strong text-secondary">Cited</p>
+                    <p className="text-copy-24-strong tabular-nums text-primary mt-1">
+                      {queryCounts ? <>{queryCounts.citedQueries}<span className="text-faint text-label-18"> / {queryCounts.totalQueries}</span></> : 'Unavailable'}
                     </p>
-                    <p className="mt-0.5 text-sm text-secondary">queries citing your site</p>
+                    <p className="mt-0.5 text-copy-14 text-secondary">queries citing your site</p>
                   </div>
-                  <div className="rounded-md border border-default bg-surface p-3">
-                    <p className="text-xs font-medium text-secondary">Results</p>
-                    <p className="text-2xl font-bold tabular-nums text-primary mt-1">{snapshots.length}</p>
-                    <p className="mt-0.5 text-sm text-secondary">completed engine checks</p>
+                  <div className="material-base p-3">
+                    <p className="text-copy-13-strong text-secondary">Results</p>
+                    <p className="text-copy-24-strong tabular-nums text-primary mt-1">{snapshots.length}</p>
+                    <p className="mt-0.5 text-copy-14 text-secondary">completed engine checks</p>
                   </div>
                 </div>
                 {!onboardingFinish && createdProjectName ? <NextSteps projectName={createdProjectName} /> : null}
@@ -1883,7 +1883,7 @@ function ReadySetupPage({
         labels={isProjectScoped ? PROJECT_VISIBILITY_STEPS : SETUP_STEPS}
       /> : null}
 
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-2 text-[13px] text-secondary">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2 text-label-13 text-secondary">
         <p>Draft fields use tab storage when available. Credentials are excluded from drafts.</p>
         <Button type="button" variant="ghost" size="sm" disabled={(Boolean(resumeProjectName) && !resumeQueriesQuery.isSuccess) || projectSaving || queriesSaving || competitorsSaving || runSaving} onClick={resetDraft}>Reset unsaved fields</Button>
       </div>

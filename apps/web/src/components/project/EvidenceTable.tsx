@@ -339,7 +339,7 @@ export function EvidenceTable({
           <Button
             type="button"
             variant="ghost"
-            className="min-h-11"
+            className="pointer-coarse:min-h-11"
             disabled={visibleGroupKeys.length === 0}
             onClick={() => {
               setExpandedRows(previous => {
@@ -445,9 +445,9 @@ export function EvidenceTable({
                         </td>
                         <td>
                           <div className="flex items-center gap-2">
-                            <CitationBadge state={aggState} label={statusLabelForMode(aggState, mode)} className="rounded-none border-0 bg-transparent p-0 text-sm tracking-normal" />
+                            <CitationBadge state={aggState} label={statusLabelForMode(aggState, mode)} className="rounded-none border-0 bg-transparent p-0 text-label-14" />
                             <span
-                              className="text-sm text-secondary tabular-nums"
+                              className="text-label-14 text-secondary tabular-nums"
                               aria-label={`${presentCount} of ${items.length} engines ${countNoun}`}
                               title={`${presentCount} of ${items.length} engines ${countNoun}`}
                             >
@@ -468,12 +468,12 @@ export function EvidenceTable({
                         <Fragment key={item.id}>
                           <tr className="query-evidence-engine-row">
                             <td className="evidence-query-cell">
-                              <span className="text-sm text-secondary">{item.provider ? providerDisplayName(item.provider) : 'Awaiting engine'}</span>
+                              <span className="text-label-14 text-secondary">{item.provider ? providerDisplayName(item.provider) : 'Awaiting engine'}</span>
                             </td>
                             <td>
                               <CitationBadge
                                 state={item.citationState}
-                                className="rounded-none border-0 bg-transparent p-0 text-sm tracking-normal"
+                                className="rounded-none border-0 bg-transparent p-0 text-label-14"
                                 label={statusLabelForMode(item.citationState, mode)}
                               />
                             </td>
@@ -488,7 +488,7 @@ export function EvidenceTable({
                             <td>
                               <Button
                                 variant="ghost"
-                                className="min-h-11"
+                                className="pointer-coarse:min-h-11"
                                 type="button"
                                 title={`View ${item.provider ? providerDisplayName(item.provider) : 'saved'} answer for ${item.query}`}
                                 onClick={(e) => { e.stopPropagation(); void openEvidence(item.id) }}
@@ -567,7 +567,7 @@ function EvidenceInlinePanel({ item, mode, onViewFull }: {
     : item.groundingSources
   return (
     <div className="query-evidence-preview space-y-3">
-      <p className="text-[13px] font-medium text-secondary">
+      <p className="text-copy-13-strong text-secondary">
         {item.evidenceUrls.length > 0 ? 'Cited sources' : sources.length > 0 ? 'Grounding sources' : 'Cited domains'}
       </p>
       {sources.length > 0 ? (
@@ -575,30 +575,30 @@ function EvidenceInlinePanel({ item, mode, onViewFull }: {
           {sources.slice(0, sourcesExpanded ? undefined : 6).map((source, index) => (
             <li key={`${index}-${source.uri}`} className="min-w-0">
               <SourceLink url={source.uri} title={source.title} />
-              {isCitedCompetitorDomain(item, hostOf(source.uri) ?? '') && <p className="mt-1 text-[13px] text-secondary">Competitor source</p>}
+              {isCitedCompetitorDomain(item, hostOf(source.uri) ?? '') && <p className="mt-1 text-copy-13 text-secondary">Competitor source</p>}
             </li>
           ))}
         </ul>
       ) : item.citedDomains.length > 0 ? (
-        <ul className="space-y-1 text-sm text-secondary">
+        <ul className="space-y-1 text-label-14 text-secondary">
           {item.citedDomains.slice(0, sourcesExpanded ? undefined : 6).map(domain => (
             <li key={domain} className="[overflow-wrap:anywhere]">
               {domain}{isCitedCompetitorDomain(item, domain) ? ' · competitor source' : ''}
             </li>
           ))}
         </ul>
-      ) : <p className="text-sm text-secondary">No cited sources captured for this run.</p>}
+      ) : <p className="text-copy-14 text-secondary">No cited sources captured for this run.</p>}
       {(sources.length > 6 || (sources.length === 0 && item.citedDomains.length > 6)) && (
-        <Button type="button" variant="ghost" className="min-h-11" aria-expanded={sourcesExpanded} onClick={() => setSourcesExpanded(expanded => !expanded)}>
+        <Button type="button" variant="ghost" className="pointer-coarse:min-h-11" aria-expanded={sourcesExpanded} onClick={() => setSourcesExpanded(expanded => !expanded)}>
           {sourcesExpanded ? 'Show fewer sources' : 'View all sources'}
         </Button>
       )}
       {item.answerSnippet.trim() ? (
         <details open={answerExpanded} className="border-t border-subtle pt-1">
-          <summary className="min-h-11 cursor-pointer py-3 text-sm text-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400" onClick={event => { event.preventDefault(); setAnswerExpanded(expanded => !expanded) }}>Answer text</summary>
+          <summary className="min-h-11 cursor-pointer py-3 text-label-14 text-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400" onClick={event => { event.preventDefault(); setAnswerExpanded(expanded => !expanded) }}>Answer text</summary>
           {answerExpanded && <AnswerInlinePanel item={item} onViewFull={onViewFull} contextOnly />}
         </details>
-      ) : <p className="text-sm text-secondary">No answer text captured for this run.</p>}
+      ) : <p className="text-copy-14 text-secondary">No answer text captured for this run.</p>}
     </div>
   )
 }
@@ -620,7 +620,7 @@ function AnswerInlinePanel({
   const hasAnswer = item.answerSnippet.trim().length > 0
   if (!hasAnswer) {
     return (
-      <p className="text-sm text-secondary">
+      <p className="text-copy-14 text-secondary">
         No answer text captured for this run.
       </p>
     )
@@ -630,15 +630,15 @@ function AnswerInlinePanel({
 
   return (
     <div className="query-evidence-preview space-y-3">
-      {!contextOnly && <p className="text-[13px] font-medium text-secondary">Answer text</p>}
+      {!contextOnly && <p className="text-copy-13-strong text-secondary">Answer text</p>}
       <AnswerMarkdown headingLevel={4} highlightGroups={groups} previewLength={ANSWER_PREVIEW_MAX}>
         {item.answerSnippet}
       </AnswerMarkdown>
       {((!contextOnly && item.citedDomains.length > 0) || (item.mentionedCompetitorDomains?.length ?? 0) > 0) && (
-        <dl className="space-y-2 text-[13px] leading-6 text-secondary">
+        <dl className="space-y-2 text-label-13 text-secondary">
           {!contextOnly && item.citedDomains.length > 0 && (
             <div>
-              <dt className="font-medium">Cited domains</dt>
+              <dt className="text-label-13-strong">Cited domains</dt>
               <dd className="flex flex-wrap gap-x-3 gap-y-1">
                 {item.citedDomains.slice(0, 6).map(d => (
                   <span
@@ -656,7 +656,7 @@ function AnswerInlinePanel({
           )}
           {(item.mentionedCompetitorDomains?.length ?? 0) > 0 && (
             <div>
-              <dt className="font-medium">Competitors in answer</dt>
+              <dt className="text-label-13-strong">Competitors in answer</dt>
               <dd className="flex flex-wrap gap-x-3 gap-y-1">
                 {item.mentionedCompetitorDomains!.slice(0, 4).map(d => (
                   <span
@@ -678,7 +678,7 @@ function AnswerInlinePanel({
         <Button
           type="button"
           variant="ghost"
-          className="min-h-11"
+          className="pointer-coarse:min-h-11"
           onClick={(e) => { e.stopPropagation(); onViewFull() }}
         >
           View full answer

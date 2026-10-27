@@ -263,8 +263,8 @@ function GraphUnavailableState({ onOpenInventory }: { onOpenInventory?: () => vo
   return (
     <div className="flex h-full min-h-80 items-center justify-center px-6 text-center">
       <div className="max-w-md">
-        <p className="text-sm font-medium text-heading">Interactive map unavailable</p>
-        <p className="mt-1 text-sm text-secondary">
+        <p className="text-copy-14-strong text-heading">Interactive map unavailable</p>
+        <p className="mt-1 text-copy-14 text-secondary">
           This browser could not start WebGL. The page inventory remains available for the complete crawl.
         </p>
         {onOpenInventory && (
@@ -284,8 +284,8 @@ function GraphRenderFailedState({ onRetry }: { onRetry: () => void }) {
   return (
     <div className="flex h-full min-h-80 items-center justify-center px-6 text-center" role="alert">
       <div className="max-w-md">
-        <p className="text-sm font-medium text-heading">The map could not be drawn</p>
-        <p className="mt-1 text-sm text-secondary">
+        <p className="text-copy-14-strong text-heading">The map could not be drawn</p>
+        <p className="mt-1 text-copy-14 text-secondary">
           Something went wrong while drawing this map. The page inventory below is unaffected.
         </p>
         <Button variant="secondary" size="sm" className="mt-4" onClick={onRetry}>Try again</Button>
@@ -645,11 +645,11 @@ export function SiteGraphSigma({
         ref={wrapperRef}
         role="group"
         aria-label={ariaLabel ?? defaultAriaLabel}
-        className={cn('flex min-h-80 items-center justify-center rounded-lg border border-default bg-surface-inset px-6 text-center', className)}
+        className={cn('flex min-h-80 items-center justify-center material-base px-6 text-center', className)}
       >
         <div className="max-w-md">
-          <p className="text-sm font-medium text-heading">{unavailableLayout.heading}</p>
-          <p className="mt-1 text-sm text-secondary">{unavailableLayout.detail}</p>
+          <p className="text-copy-14-strong text-heading">{unavailableLayout.heading}</p>
+          <p className="mt-1 text-copy-14 text-secondary">{unavailableLayout.detail}</p>
           {onOpenInventory && (
             <Button type="button" variant="secondary" size="sm" className="mt-4" onClick={onOpenInventory}>Open page inventory</Button>
           )}
@@ -664,10 +664,10 @@ export function SiteGraphSigma({
         ref={wrapperRef}
         role="group"
         aria-label={ariaLabel ?? defaultAriaLabel}
-        className={cn('flex min-h-80 items-center justify-center rounded-lg border border-default bg-surface-inset px-6 text-center', className)}
+        className={cn('flex min-h-80 items-center justify-center material-base px-6 text-center', className)}
       >
         <div className="max-w-md">
-          <p className="text-sm text-secondary">No page graph is available for this scan.</p>
+          <p className="text-copy-14 text-secondary">No page graph is available for this scan.</p>
           {onOpenInventory && (
             <Button type="button" variant="secondary" size="sm" className="mt-4" onClick={onOpenInventory}>Open page inventory</Button>
           )}
@@ -682,11 +682,11 @@ export function SiteGraphSigma({
         ref={wrapperRef}
         role="group"
         aria-label={ariaLabel ?? defaultAriaLabel}
-        className={cn('flex min-h-80 items-center justify-center rounded-lg border border-default bg-surface-inset px-6 text-center', className)}
+        className={cn('flex min-h-80 items-center justify-center material-base px-6 text-center', className)}
       >
         <div className="max-w-md">
-          <p className="text-sm font-medium text-heading">{unavailableLayout.heading}</p>
-          <p className="mt-1 text-sm text-secondary">{unavailableLayout.detail}</p>
+          <p className="text-copy-14-strong text-heading">{unavailableLayout.heading}</p>
+          <p className="mt-1 text-copy-14 text-secondary">{unavailableLayout.detail}</p>
           {onOpenInventory && (
             <Button type="button" variant="secondary" size="sm" className="mt-4" onClick={onOpenInventory}>Open page inventory</Button>
           )}
@@ -706,7 +706,7 @@ export function SiteGraphSigma({
       aria-label={ariaLabel ?? defaultAriaLabel}
       aria-describedby={instructionsId}
       className={cn(
-        'flex h-[clamp(460px,62vh,680px)] min-h-[460px] flex-col overflow-hidden rounded-lg border border-default bg-surface-inset',
+        'flex h-[clamp(460px,62vh,680px)] min-h-[460px] flex-col overflow-hidden material-base',
         className,
       )}
     >
@@ -727,7 +727,7 @@ export function SiteGraphSigma({
             aria-activedescendant={searchOpen && activeResult ? optionId(activeResult.nodeKey) : undefined}
             value={searchValue}
             placeholder={selectedNode ? `Focused: ${pageLabel(selectedNode)}` : 'Find a page'}
-            className="h-10 w-full rounded-md border border-base bg-bg py-2 pl-9 pr-3 text-sm text-primary placeholder-mono-600 outline-none focus-visible:ring-2 focus-visible:ring-mono-400"
+            className="h-10 w-full rounded-md border border-base bg-bg py-2 pl-9 pr-3 text-label-14 text-primary placeholder-mono-400 outline-none focus-visible:ring-2 focus-visible:ring-mono-400"
             onFocus={() => setSearchOpen(true)}
             onBlur={closeSearchOnBlur}
             onChange={(event) => {
@@ -751,7 +751,7 @@ export function SiteGraphSigma({
             }}
           />
           {searchOpen && (
-            <div className="absolute left-0 right-0 top-[calc(100%+0.25rem)] z-30 overflow-hidden rounded-md border border-base bg-bg shadow-lg">
+            <div className="absolute left-0 right-0 top-[calc(100%+0.25rem)] z-30 overflow-hidden material-menu">
               <div id={listboxId} role="listbox" aria-label="Matching pages" className="max-h-72 overflow-auto py-1">
                 {searchResults.length > 0 ? searchResults.map((node, index) => {
                   const status = siteGraphVisualState(node)
@@ -764,7 +764,7 @@ export function SiteGraphSigma({
                       aria-selected={index === activeResultIndex}
                       tabIndex={-1}
                       className={cn(
-                        'flex min-h-11 w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm outline-none',
+                        'flex min-h-11 w-full items-center justify-between gap-3 px-3 py-2 text-left text-button-14 outline-none',
                         index === activeResultIndex ? 'bg-surface-active text-primary' : 'text-secondary hover:bg-surface-hover hover:text-primary',
                       )}
                       onPointerDown={(event) => event.preventDefault()}
@@ -773,9 +773,9 @@ export function SiteGraphSigma({
                       onClick={() => chooseSearchResult(node)}
                     >
                       <span className="min-w-0 truncate font-mono">{pageLabel(node)}</span>
-                      <span className="flex shrink-0 items-center gap-1.5 text-[13px] text-muted">
+                      <span className="flex shrink-0 items-center gap-1.5 text-label-13 text-muted">
                         <span
-                          className="font-mono font-semibold"
+                          className="text-label-13-mono-strong"
                           style={{ color: `var(${SITE_GRAPH_COLOR_TOKENS[status].property})` }}
                           aria-hidden="true"
                         >
@@ -786,18 +786,18 @@ export function SiteGraphSigma({
                     </button>
                   )
                 }) : (
-                  <p className="px-3 py-4 text-sm text-secondary">No rendered pages match.</p>
+                  <p className="px-3 py-4 text-copy-14 text-secondary">No rendered pages match.</p>
                 )}
               </div>
               {searchResults.length === 50 && (
-                <p className="border-t border-subtle px-3 py-2 text-[13px] text-muted">
+                <p className="border-t border-subtle px-3 py-2 text-copy-13 text-muted">
                   First 50 matches. Refine the search or use the full page inventory.
                 </p>
               )}
             </div>
           )}
         </div>
-        <span className="text-[13px] tabular-nums text-muted">
+        <span className="text-label-13 tabular-nums text-muted">
           {plural(nodes.length, 'page')} · {plural(edges.length, 'link')}
         </span>
       </div>
@@ -805,7 +805,7 @@ export function SiteGraphSigma({
       <div className="relative min-h-0 flex-1 overflow-hidden">
         {rendererState === 'unavailable' ? <GraphUnavailableState onOpenInventory={onOpenInventory} /> : rendererState === 'checking' || !theme || !builtGraph || !renderer || !reactSigma || !SigmaContainerComponent ? (
           <div className="flex h-full min-h-80 items-center justify-center px-6 text-center" role="status">
-            <p className="text-sm text-secondary">Preparing the interactive site map...</p>
+            <p className="text-copy-14 text-secondary">Preparing the interactive site map...</p>
           </div>
         ) : (
           <GraphRenderBoundary fallback={fallback} resetToken={renderAttempt}>
@@ -830,7 +830,7 @@ export function SiteGraphSigma({
               </SigmaContainerComponent>
             </div>
 
-            <div className="absolute right-3 top-3 z-20 flex flex-col overflow-hidden rounded-md border border-base bg-bg shadow-lg">
+            <div className="absolute right-3 top-3 z-20 flex flex-col overflow-hidden material-menu">
               <Button
                 type="button"
                 variant="ghost"
@@ -869,26 +869,26 @@ export function SiteGraphSigma({
             {hoveredNode && hovered && (
               <div
                 role="tooltip"
-                className="pointer-events-none absolute z-20 max-w-64 rounded-md border border-base bg-bg/95 px-3 py-2 shadow-lg"
+                className="pointer-events-none absolute z-20 max-w-64 material-tooltip px-3 py-2"
                 style={{ left: hovered.left, top: hovered.top }}
               >
-                <p className="truncate font-mono text-[13px] font-medium text-heading">{pageLabel(hoveredNode)}</p>
+                <p className="truncate text-copy-13-mono-strong text-heading">{pageLabel(hoveredNode)}</p>
                 {/* The status WORD stays, and leads: it is the only thing tying
                     this node back to the legend and to the pill in the table.
                     The plain-word sentence explains it, it does not replace it. */}
-                <p className="mt-1 text-[13px] font-medium text-heading">
+                <p className="mt-1 text-copy-13-strong text-heading">
                   {siteGraphStatusLabel(siteGraphVisualState(hoveredNode))}
                 </p>
-                <p className="mt-0.5 text-[13px] text-secondary">
+                <p className="mt-0.5 text-copy-13 text-secondary">
                   {siteGraphStatusDescription(siteGraphVisualState(hoveredNode))}
                 </p>
                 {hoveredNode.depth != null && (
-                  <p className="mt-1 text-[13px] text-secondary">
+                  <p className="mt-1 text-copy-13 text-secondary">
                     {plural(hoveredNode.depth, 'click')} from home
                   </p>
                 )}
                 {hoveredNode.auditScore != null && (
-                  <p className="mt-1 text-[13px] tabular-nums text-heading">
+                  <p className="mt-1 text-copy-13 tabular-nums text-heading">
                     Score {Math.round(hoveredNode.auditScore)}/100
                   </p>
                 )}
@@ -898,11 +898,11 @@ export function SiteGraphSigma({
         )}
       </div>
 
-      <div aria-label="Site map legend" className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-subtle bg-bg-elevated/50 px-3 py-2 text-[13px] text-secondary">
+      <div aria-label="Site map legend" className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-subtle bg-bg-elevated/50 px-3 py-2 text-label-13 text-secondary">
         {SITE_GRAPH_LEGEND_STATES.map((status) => (
           <span key={status} className="inline-flex items-center gap-1.5" title={siteGraphStatusDescription(status)}>
             <span
-              className="w-3 text-center font-mono text-[15px] font-semibold leading-none"
+              className="w-3 text-center font-mono text-label-16-strong"
               style={{ color: `var(${SITE_GRAPH_COLOR_TOKENS[status].property})` }}
               aria-hidden="true"
             >

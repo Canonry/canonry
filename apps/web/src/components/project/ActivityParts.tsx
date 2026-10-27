@@ -48,7 +48,7 @@ import {
 export type SortDir = 'asc' | 'desc'
 
 /** Every Activity table header, sortable or not, renders in this one style. */
-export const TABLE_HEAD_TEXT = 'text-[11px] font-medium uppercase tracking-wider text-muted'
+export const TABLE_HEAD_TEXT = 'text-label-12-strong normal-case text-muted'
 
 export function SectionHeading({ id, title, tooltip, meta, actions }: {
   id?: string
@@ -63,10 +63,10 @@ export function SectionHeading({ id, title, tooltip, meta, actions }: {
         {/* The tooltip is the heading's sibling: a button inside the heading
             would become part of its accessible name. */}
         <div className="flex items-center gap-1.5">
-          <h2 id={id} className="text-base font-semibold text-primary">{title}</h2>
+          <h2 id={id} className="text-heading-16 text-primary">{title}</h2>
           {tooltip && <InfoTooltip text={tooltip} />}
         </div>
-        {meta && <p className="mt-1 text-xs text-secondary">{meta}</p>}
+        {meta && <p className="mt-1 text-copy-13 text-secondary">{meta}</p>}
       </div>
       {actions}
     </div>
@@ -123,12 +123,12 @@ export function KpiRow({ items, label }: { items: readonly KpiItem[]; label: str
       <dl className={`grid grid-cols-2 gap-x-6 gap-y-4 border-y border-default py-4 sm:grid-cols-3 ${KPI_COLUMNS[items.length] ?? 'lg:grid-cols-4'}`}>
         {items.map(item => (
           <div key={item.label} className="min-w-0">
-            <dt className="flex items-center gap-1 text-[13px] text-secondary">
+            <dt className="flex items-center gap-1 text-label-13 text-secondary">
               {item.label}
               {item.tooltip && <InfoTooltip text={item.tooltip} />}
             </dt>
-            <dd className="mt-1 truncate text-xl font-semibold text-primary tabular-nums" title={item.value}>{item.value}</dd>
-            {item.detail && <dd className="mt-0.5 text-[13px] text-secondary tabular-nums">{item.detail}</dd>}
+            <dd className="mt-1 truncate text-label-20-strong text-primary tabular-nums" title={item.value}>{item.value}</dd>
+            {item.detail && <dd className="mt-0.5 text-label-13 text-secondary tabular-nums">{item.detail}</dd>}
           </div>
         ))}
       </dl>
@@ -242,7 +242,7 @@ export function GroupedReferralTable<Group extends ReferralGroup<unknown>>({
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[36rem] text-sm">
+      <table className="w-full min-w-[36rem] text-label-14">
         <caption className="sr-only">{caption}</caption>
         <thead>
           <tr className="border-b border-default">
@@ -273,7 +273,7 @@ export function GroupedReferralTable<Group extends ReferralGroup<unknown>>({
                         ? <ChevronDown aria-hidden="true" className="size-3.5 shrink-0 text-secondary" />
                         : <ChevronRight aria-hidden="true" className="size-3.5 shrink-0 text-muted" />}
                       <span className="truncate" title={group.label}>{group.label}</span>
-                      <span className="shrink-0 text-xs text-secondary tabular-nums">{count} {count === 1 ? 'source' : 'sources'}</span>
+                      <span className="shrink-0 text-label-12 text-secondary tabular-nums">{count} {count === 1 ? 'source' : 'sources'}</span>
                     </button>
                   </td>
                   <td className="py-2 pl-4 text-right text-primary tabular-nums">{group.sessions.toLocaleString()}</td>
@@ -284,8 +284,8 @@ export function GroupedReferralTable<Group extends ReferralGroup<unknown>>({
                 {open && (
                   <tr id={panelId}>
                     <td colSpan={5} className="pb-3 pl-6">
-                      <div className="overflow-x-auto rounded-md border border-subtle bg-bg/40 px-3 pb-1">
-                        <table className="w-full min-w-[32rem] text-[13px]">
+                      <div className="overflow-x-auto material-base px-3 pb-1">
+                        <table className="w-full min-w-[32rem] text-label-13">
                           <caption className="sr-only">{`${group.label} sources`}</caption>
                           <thead>
                             <tr>
@@ -373,7 +373,7 @@ export function StackedSeriesChart({ input, baseline, baselineLabel, label, heig
           </ComposedChart>
         </ResponsiveContainer>
       </div>
-      <fieldset className="mt-2 flex flex-wrap gap-x-5 text-[13px] text-secondary">
+      <fieldset className="mt-2 flex flex-wrap gap-x-5 text-label-13 text-secondary">
         <legend className="sr-only">{`${label} series`}</legend>
         {series.map((entry, index) => (
           <label key={entry.key} className="flex min-h-9 items-center gap-2">
@@ -454,12 +454,12 @@ function describeChange(change: number | null): string {
 function OverviewChange({ metric, change }: { metric: GaOverviewMetricKey; change: number | null }) {
   const tone = gaOverviewChangeTone(metric, change)
   if (tone === null || change === null) {
-    return <span className="block text-[13px] text-secondary">No earlier data</span>
+    return <span className="block text-label-13 text-secondary">No earlier data</span>
   }
   const color = tone === GaOverviewChangeTones.better ? 'text-positive' : tone === GaOverviewChangeTones.worse ? 'text-negative' : 'text-secondary'
   const Icon = change > 0 ? ArrowUp : change < 0 ? ArrowDown : null
   return (
-    <span className={`inline-flex items-center gap-0.5 text-[13px] font-medium tabular-nums ${color}`}>
+    <span className={`inline-flex items-center gap-0.5 text-label-13-strong tabular-nums ${color}`}>
       {Icon && <Icon aria-hidden="true" className="size-3.5" strokeWidth={2.5} />}
       {formatPercent(Math.abs(change), RatioUnits.percent)}
     </span>
@@ -481,8 +481,8 @@ function OverviewTooltip({ active, payload, metric }: {
   const row = payload?.[0]?.payload
   if (!active || !row) return null
   return (
-    <div className="min-w-48 rounded-md border border-default bg-bg-elevated px-3 py-2 text-[13px] shadow-lg">
-      <p className="mb-1 font-medium text-heading">{GA_OVERVIEW_METRICS[metric].label}</p>
+    <div className="material-tooltip min-w-48 px-3 py-2 text-label-13">
+      <p className="mb-1 text-copy-13-strong text-heading">{GA_OVERVIEW_METRICS[metric].label}</p>
       <p className="flex items-center justify-between gap-6">
         <span className="flex items-center gap-2 text-secondary">
           <svg aria-hidden="true" width="14" height="6" className="shrink-0"><line x1="0" y1="3" x2="14" y2="3" stroke={OVERVIEW_LINE_COLOR} strokeWidth="2.5" /></svg>
@@ -555,7 +555,7 @@ export function SiteTrafficCard({ overview, refreshing = false }: { overview: Ga
   })
 
   return (
-    <div className={`overflow-hidden rounded-lg border border-default transition-opacity duration-200 ${refreshing ? 'opacity-60' : ''}`}>
+    <div className={`overflow-hidden material-base transition-opacity duration-200 ${refreshing ? 'opacity-60' : ''}`}>
       <div role="tablist" aria-label="Site traffic figures" className="grid grid-cols-2 border-b border-default sm:grid-cols-3 lg:grid-cols-5">
         {slots.map((key, index) => {
           const active = index === selected
@@ -570,7 +570,7 @@ export function SiteTrafficCard({ overview, refreshing = false }: { overview: Ga
                   aria-label={`Figure ${index + 1}`}
                   value={key}
                   onChange={event => { if (isOverviewMetric(event.target.value)) chooseMetric(index, event.target.value) }}
-                  className={`max-w-full cursor-pointer appearance-none truncate rounded-sm bg-transparent py-0.5 pr-5 text-sm font-medium [field-sizing:content] transition-colors duration-150 hover:text-heading focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400 ${active ? 'text-link' : 'text-secondary'}`}
+                  className={`max-w-full cursor-pointer appearance-none truncate rounded-sm bg-transparent py-0.5 pr-5 text-label-14-strong [field-sizing:content] transition-colors duration-150 hover:text-heading focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400 ${active ? 'text-link' : 'text-secondary'}`}
                 >
                   {GA_OVERVIEW_METRIC_ORDER.map(option => (
                     <option key={option} value={option}>{GA_OVERVIEW_METRICS[option].label}</option>
@@ -590,7 +590,7 @@ export function SiteTrafficCard({ overview, refreshing = false }: { overview: Ga
                 onKeyDown={event => onTabKey(event, index)}
                 className="mt-1 block w-full rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400"
               >
-                <span className={`block truncate text-[26px] font-semibold leading-tight tabular-nums transition-colors duration-150 ${active ? 'text-primary' : 'text-strong'}`} title={formatGaOverviewValue(key, overview.totals[key])}>
+                <span className={`block truncate text-heading-32 tabular-nums transition-colors duration-150 ${active ? 'text-primary' : 'text-strong'}`} title={formatGaOverviewValue(key, overview.totals[key])}>
                   {value}
                 </span>
                 <OverviewChange metric={key} change={overview.changePct[key]} />
@@ -602,7 +602,7 @@ export function SiteTrafficCard({ overview, refreshing = false }: { overview: Ga
 
       <div role="tabpanel" id={`${baseId}-panel`} aria-labelledby={`${baseId}-tab-${selected}`} className="px-4 pb-3 pt-4">
         {overview.syncedAt === null && (
-          <p className="mb-3 text-sm text-secondary">These figures fill in after the next GA4 sync.</p>
+          <p className="mb-3 text-copy-14 text-secondary">These figures fill in after the next GA4 sync.</p>
         )}
         {hasDays ? (
           <div role="img" aria-label={`${GA_OVERVIEW_METRICS[metric].label} per day, ${currentLabel.toLowerCase()} and the previous period`} style={{ height: 240 }}>
@@ -638,11 +638,11 @@ export function SiteTrafficCard({ overview, refreshing = false }: { overview: Ga
             </ResponsiveContainer>
           </div>
         ) : (
-          <p className="py-8 text-sm text-secondary">No daily {GA_OVERVIEW_METRICS[metric].label.toLowerCase()} yet.</p>
+          <p className="py-8 text-copy-14 text-secondary">No daily {GA_OVERVIEW_METRICS[metric].label.toLowerCase()} yet.</p>
         )}
 
         <div className="mt-2 flex flex-wrap items-center justify-between gap-x-6 gap-y-1">
-          <fieldset className="flex flex-wrap gap-x-5 text-[13px] text-secondary">
+          <fieldset className="flex flex-wrap gap-x-5 text-label-13 text-secondary">
             <legend className="sr-only">{`${GA_OVERVIEW_METRICS[metric].label} series`}</legend>
             {([
               [OVERVIEW_SERIES.current, currentLabel, ''],
@@ -668,7 +668,7 @@ export function SiteTrafficCard({ overview, refreshing = false }: { overview: Ga
             })}
           </fieldset>
           {overview.current.startDate && overview.current.endDate && overview.previous.startDate && overview.previous.endDate && (
-            <p className="text-[13px] text-secondary">
+            <p className="text-copy-13 text-secondary">
               {formatDateSpan(overview.current.startDate, overview.current.endDate, true)} vs {formatDateSpan(overview.previous.startDate, overview.previous.endDate, false)}
             </p>
           )}

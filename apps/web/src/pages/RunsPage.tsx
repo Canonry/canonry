@@ -106,7 +106,7 @@ export function RunsPage() {
         </div>
         <div className="space-y-2">
           {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="rounded-xl border border-default bg-surface p-3 flex items-center gap-3">
+            <div key={i} className="material-base p-3 flex items-center gap-3">
               <div className="flex-1 space-y-1.5">
                 <div className="skeleton-text w-40" />
                 <div className="skeleton-text-sm w-56" />
@@ -134,7 +134,7 @@ export function RunsPage() {
           <h1 className="page-title">Runs</h1>
           <p className="page-subtitle">Recent jobs across all projects.</p>
         </div>
-        {!isEmbed() && (isDashboardManagedSweeps() ? <p className="text-sm text-secondary">{MANAGED_SWEEPS_COPY}</p> : (
+        {!isEmbed() && (isDashboardManagedSweeps() ? <p className="text-copy-14 text-secondary">{MANAGED_SWEEPS_COPY}</p> : (
           <Button type="button" variant="outline" size="sm" disabled={triggerAllRunsMutation.isPending} onClick={() => void handleTriggerAll()}>
             {triggerAllRunsMutation.isPending ? 'Queueing…' : 'Run all projects'}
           </Button>
@@ -163,13 +163,13 @@ export function RunsPage() {
             value={query}
             onChange={(event) => setSearch({ runQuery: event.target.value || undefined })}
             placeholder="Search runs or projects"
-            className="min-h-11 rounded-md border border-base bg-bg px-3 text-sm text-strong placeholder-mono-600 focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-600"
+            className="min-h-11 rounded-md border border-base bg-bg px-3 text-label-14 text-strong placeholder-mono-400 focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-600"
           />
           <select
             aria-label="Filter runs by project"
             value={projectId}
             onChange={(event) => setSearch({ runProject: event.target.value === 'all' ? undefined : event.target.value })}
-            className="min-h-11 rounded-md border border-base bg-bg px-3 text-sm text-strong focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-600"
+            className="min-h-11 rounded-md border border-base bg-bg px-3 text-label-14 text-strong focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-600"
           >
             <option value="all">All projects</option>
             {(projectsQuery.data ?? []).map((project) => <option key={project.id} value={project.id}>{project.displayName || project.name}</option>)}
@@ -178,7 +178,7 @@ export function RunsPage() {
             aria-label="Filter runs by type"
             value={kind}
             onChange={(event) => setSearch({ runKind: event.target.value === 'all' ? undefined : event.target.value })}
-            className="min-h-11 rounded-md border border-base bg-bg px-3 text-sm text-strong focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-600"
+            className="min-h-11 rounded-md border border-base bg-bg px-3 text-label-14 text-strong focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-600"
           >
             <option value="all">All run types</option>
             {Object.values(RunKinds).map((value) => <option key={value} value={value}>{toTitleCase(value.replaceAll('-', ' '))}</option>)}
@@ -187,7 +187,7 @@ export function RunsPage() {
             aria-label="Filter runs by date range"
             value={window}
             onChange={(event) => setSearch({ runWindow: event.target.value === '30d' ? undefined : event.target.value })}
-            className="min-h-11 rounded-md border border-base bg-bg px-3 text-sm text-strong focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-600"
+            className="min-h-11 rounded-md border border-base bg-bg px-3 text-label-14 text-strong focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-600"
           >
             {Object.entries(RUN_WINDOWS).map(([value, option]) => <option key={value} value={value}>{option.label}</option>)}
           </select>

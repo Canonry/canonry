@@ -166,13 +166,13 @@ export function GoogleAdsPerformanceSection({ projectName }: { projectName: stri
       <div>
         <p className="eyebrow">Google Ads</p>
         <div className="flex items-center gap-1.5">
-          <h2 id="google-ads-performance-title" className="text-xl font-semibold tracking-[-0.02em] text-heading">
+          <h2 id="google-ads-performance-title" className="text-heading-20 text-heading">
             Ad performance
           </h2>
           <InfoTooltip text={GOOGLE_ADS_PERFORMANCE_HELP} />
         </div>
         {performance?.source ? (
-          <p className="text-xs text-muted">
+          <p className="text-copy-13 text-muted">
             {formatChartDateLabel(performance.startDate)} to {formatChartDateLabel(performance.endDate)}
             {' · '}{performance.days} closed {performance.days === 1 ? 'day' : 'days'}
           </p>
@@ -208,7 +208,7 @@ export function GoogleAdsPerformanceSection({ projectName }: { projectName: stri
     return (
       <section className="page-section" aria-labelledby="google-ads-performance-title">
         {header}
-        <p role="alert" className="mt-4 text-sm text-negative">
+        <p role="alert" className="mt-4 text-copy-14 text-negative">
           Could not load Google Ads performance: {extractErrorMessage(performanceQuery.error)}
         </p>
         <Button type="button" variant="outline" className="mt-3" onClick={() => void performanceQuery.refetch()}>
@@ -230,13 +230,13 @@ export function GoogleAdsPerformanceSection({ projectName }: { projectName: stri
     return (
       <section className="page-section" aria-labelledby="google-ads-performance-title">
         {header}
-        <div className="mt-4 max-w-2xl rounded-md border border-default bg-surface-subtle p-5">
-          <h3 className="text-base font-semibold text-heading">
+        <div className="mt-4 max-w-2xl material-base p-5">
+          <h3 className="text-heading-16 text-heading">
             {awaitingFirstClosedDay
               ? GOOGLE_ADS_PERFORMANCE_AWAITING_TITLE
               : GOOGLE_ADS_PERFORMANCE_EMPTY_TITLE}
           </h3>
-          <p className="mt-2 text-sm leading-6 text-secondary">
+          <p className="mt-2 text-copy-14 text-secondary">
             {awaitingFirstClosedDay
               ? GOOGLE_ADS_PERFORMANCE_AWAITING_BODY
               : GOOGLE_ADS_PERFORMANCE_EMPTY_BODY}
@@ -326,20 +326,20 @@ export function GoogleAdsPerformanceSection({ projectName }: { projectName: stri
       {header}
 
       {coverageShortfall !== null ? (
-        <p role="status" className="mt-3 text-sm text-caution">
+        <p role="status" className="mt-3 text-copy-14 text-caution">
           Totals cover {COUNT_FORMAT.format(coverageShortfall.queried)} of{' '}
           {COUNT_FORMAT.format(coverageShortfall.inInventory)} campaigns, so they are a subset of the account.
         </p>
       ) : null}
 
       {source.truncated ? (
-        <p role="status" className="mt-3 text-sm text-caution">
+        <p role="status" className="mt-3 text-copy-14 text-caution">
           The provider returned a bounded result, so some rows are missing from the figures below.
         </p>
       ) : null}
 
       {!comparison && comparisonUnavailableReason === 'insufficient-history' ? (
-        <p className="mt-3 text-sm text-secondary">
+        <p className="mt-3 text-copy-14 text-secondary">
           {GOOGLE_ADS_COMPARISON_UNAVAILABLE_COPY['insufficient-history']}
         </p>
       ) : null}
@@ -352,7 +352,7 @@ export function GoogleAdsPerformanceSection({ projectName }: { projectName: stri
           const locked = selected && selectedSeries.size === 1
           const body = (
             <>
-              <span className="flex items-center gap-1.5 text-xs text-secondary">
+              <span className="flex items-center gap-1.5 text-label-12 text-secondary">
                 {tile.seriesKey ? (
                   <span
                     aria-hidden="true"
@@ -362,15 +362,15 @@ export function GoogleAdsPerformanceSection({ projectName }: { projectName: stri
                 ) : null}
                 {tile.label}
               </span>
-              <span className="mt-0.5 block text-lg tabular-nums text-strong">{tile.value}</span>
+              <span className="mt-0.5 block text-label-18 tabular-nums text-strong">{tile.value}</span>
               {comparison && tile.comparable ? (
-                <span className={`block text-[11px] tabular-nums ${changeToneClass(tile.change, tile.direction)}`}>
+                <span className={`block text-label-12 tabular-nums ${changeToneClass(tile.change, tile.direction)}`}>
                   {formatGoogleAdsChange(tile.change, comparison.days)}
                 </span>
               ) : (
                 // A fixed third slot so switching window does not reflow the
                 // grid. Blank for a metric that has no change field at all.
-                <span className="block text-[11px] text-muted">
+                <span className="block text-label-12 text-muted">
                   {tile.comparable ? `no prior ${metricsWindow} period stored` : '\u00a0'}
                 </span>
               )}
@@ -378,7 +378,7 @@ export function GoogleAdsPerformanceSection({ projectName }: { projectName: stri
           )
           if (tile.seriesKey === null) {
             return (
-              <div key={tile.key} className="rounded-md border border-subtle bg-surface-subtle px-3 py-2">{body}</div>
+              <div key={tile.key} className="material-base px-3 py-2">{body}</div>
             )
           }
           return (
@@ -409,7 +409,7 @@ export function GoogleAdsPerformanceSection({ projectName }: { projectName: stri
           const locked = selected && selectedSeries.size === 1
           const inner = (
             <>
-              <dt className="flex items-center gap-1.5 text-xs text-secondary">
+              <dt className="flex items-center gap-1.5 text-label-12 text-secondary">
                 {item.seriesKey ? (
                   <span
                     aria-hidden="true"
@@ -419,7 +419,7 @@ export function GoogleAdsPerformanceSection({ projectName }: { projectName: stri
                 ) : null}
                 {item.label}
               </dt>
-              <dd className="text-sm tabular-nums text-strong">{item.value}</dd>
+              <dd className="text-label-14 tabular-nums text-strong">{item.value}</dd>
             </>
           )
           if (item.seriesKey === null) {
@@ -473,11 +473,11 @@ export function GoogleAdsPerformanceSection({ projectName }: { projectName: stri
         <div className="section-head section-head-inline">
           <div>
             <p className="eyebrow eyebrow-soft">By campaign</p>
-            <h3 className="text-base font-semibold text-heading">Campaign performance</h3>
+            <h3 className="text-heading-16 text-heading">Campaign performance</h3>
           </div>
         </div>
         <div className="overflow-x-auto">
-          <table className="data-table w-full text-sm">
+          <table className="data-table w-full text-label-14">
             <caption className="sr-only">Google Ads campaign performance for the selected window</caption>
             <thead>
               <tr>
@@ -524,7 +524,7 @@ export function GoogleAdsPerformanceSection({ projectName }: { projectName: stri
             </tbody>
           </table>
         </div>
-        <p className="mt-3 text-[11px] text-muted">
+        <p className="mt-3 text-copy-13 text-muted">
           Snapshot {formatObservedInstantLabel(observedInstant(source.capturedAt))}
           {' · '}customer {source.customerId}
           {' · '}latest closed day {formatChartDateLabel(source.asOfDate)}

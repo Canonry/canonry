@@ -348,7 +348,7 @@ export function TrafficSourceDetailPage() {
   if (!projectName || !sourceId) {
     return (
       <div className="page-container">
-        <p className="text-sm text-muted">Missing project name or source id in URL.</p>
+        <p className="text-copy-14 text-muted">Missing project name or source id in URL.</p>
       </div>
     )
   }
@@ -356,7 +356,7 @@ export function TrafficSourceDetailPage() {
   if (sourceQuery.isLoading) {
     return (
       <div className="page-container">
-        <p className="text-sm text-muted">Loading source…</p>
+        <p className="text-copy-14 text-muted">Loading source…</p>
       </div>
     )
   }
@@ -364,8 +364,8 @@ export function TrafficSourceDetailPage() {
   if (sourceQuery.isError || !detail) {
     return (
       <div className="page-container">
-        <p className="text-sm text-negative">Could not load this source.</p>
-        <BackLink canGoBack={canGoBack} className="mt-2 text-xs text-secondary hover:text-strong" />
+        <p className="text-copy-14 text-negative">Could not load this source.</p>
+        <BackLink canGoBack={canGoBack} className="mt-2 text-label-12 text-secondary hover:text-strong" />
       </div>
     )
   }
@@ -374,7 +374,7 @@ export function TrafficSourceDetailPage() {
     <div className="page-container space-y-8">
       <div className="page-header">
         <div className="page-header-left">
-          <BackLink canGoBack={canGoBack} className="text-xs text-muted hover:text-strong" />
+          <BackLink canGoBack={canGoBack} className="text-label-12 text-muted hover:text-strong" />
           <h1 className="page-title mt-2">{detail.displayName}</h1>
           <p className="page-subtitle">{detail.sourceType} source for {projectName}</p>
         </div>
@@ -396,14 +396,14 @@ export function TrafficSourceDetailPage() {
       </div>
 
       {syncError ? (
-        <div className="rounded-md border border-negative-800/50 bg-negative-950/30 px-3 py-2 text-sm text-negative-200">{syncError}</div>
+        <div className="rounded-md border border-negative-800/50 bg-negative-950/30 px-3 py-2 text-label-14 text-negative-200">{syncError}</div>
       ) : null}
       {syncResult ? (
-        <div className="rounded-md border border-positive-800/50 bg-positive-950/30 px-3 py-2 text-sm text-positive-200">{syncResult}</div>
+        <div className="rounded-md border border-positive-800/50 bg-positive-950/30 px-3 py-2 text-label-14 text-positive-200">{syncResult}</div>
       ) : null}
 
       <section aria-labelledby="traffic-24h-heading">
-        <h2 id="traffic-24h-heading" className="mb-3 text-sm font-medium text-heading">Last 24 hours</h2>
+        <h2 id="traffic-24h-heading" className="mb-3 text-heading-14 text-heading">Last 24 hours</h2>
         <div className="grid grid-cols-1 divide-y divide-default border-y border-default sm:grid-cols-3 sm:divide-x sm:divide-y-0">
           <TrafficKpi
             label="Content crawls"
@@ -426,38 +426,38 @@ export function TrafficSourceDetailPage() {
       <section>
         <p className="eyebrow mb-4">Latest sync run</p>
         {detail.latestRun ? (
-          <Card className="p-4 text-sm">
+          <Card className="p-4 text-label-14">
             <div className="flex flex-wrap items-center gap-x-6 gap-y-1.5">
-              <span className="text-heading">Status: <span className="font-medium">{detail.latestRun.status}</span></span>
+              <span className="text-heading">Status: <span className="text-label-14-strong">{detail.latestRun.status}</span></span>
               <span className="text-muted">Started: {formatRelative(detail.latestRun.startedAt)}</span>
               {detail.latestRun.finishedAt ? (
                 <span className="text-muted">Finished: {formatRelative(detail.latestRun.finishedAt)}</span>
               ) : null}
             </div>
             <details className="mt-3">
-              <summary className="cursor-pointer text-sm text-secondary hover:text-strong">Run details</summary>
-              <code className="mt-2 block text-xs text-muted">{detail.latestRun.runId}</code>
+              <summary className="cursor-pointer text-label-14 text-secondary hover:text-strong">Run details</summary>
+              <code className="mt-2 block text-label-12 text-muted">{detail.latestRun.runId}</code>
             </details>
             {detail.latestRun.error ? (
-              <p className="mt-2 rounded border border-negative-900/40 bg-negative-950/30 px-3 py-2 text-xs text-negative">
+              <p className="mt-2 rounded border border-negative-900/40 bg-negative-950/30 px-3 py-2 text-copy-13 text-negative">
                 {detail.latestRun.error}
               </p>
             ) : null}
           </Card>
         ) : (
-          <Card className="px-4 py-3 text-sm text-muted">{isEmbed() ? 'No traffic-sync runs recorded yet.' : 'No traffic-sync runs recorded yet. Hit "Sync now" above to create one.'}</Card>
+          <Card className="px-4 py-3 text-label-14 text-muted">{isEmbed() ? 'No traffic-sync runs recorded yet.' : 'No traffic-sync runs recorded yet. Hit "Sync now" above to create one.'}</Card>
         )}
       </section>
 
       <section>
         <div className="mb-4 flex flex-wrap items-end justify-between gap-x-4 gap-y-3">
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted">Events</p>
-            <h2 className="mt-1 text-base font-semibold text-primary">
+            <p className="text-label-12-strong normal-case text-muted">Events</p>
+            <h2 className="mt-1 text-heading-16 text-primary">
               {activeWindow.granularity === 'day' ? 'Daily rollups' : 'Hourly rollups'}
             </h2>
             {totals ? (
-              <p className="mt-1.5 text-xs text-muted">
+              <p className="mt-1.5 text-copy-13 text-muted">
                 {totals.crawlerContentHits.toLocaleString('en-US')} content crawls ·{' '}
                 {totals.crawlerInfraHits.toLocaleString('en-US')} infra (sitemap/robots/assets) ·{' '}
                 {totals.aiUserFetchHits.toLocaleString('en-US')} AI user fetches ·{' '}
@@ -470,7 +470,7 @@ export function TrafficSourceDetailPage() {
               <button
                 key={opt.value}
                 type="button"
-                className={`rounded px-2.5 py-1 text-xs ${windowMinutes === opt.value ? 'bg-bg-elevated text-heading' : 'text-secondary hover:text-strong'}`}
+                className={`rounded px-2.5 py-1 text-button-14 ${windowMinutes === opt.value ? 'bg-bg-elevated text-heading' : 'text-secondary hover:text-strong'}`}
                 aria-pressed={windowMinutes === opt.value}
                 onClick={() => {
                   setWindowMinutes(opt.value)
@@ -508,13 +508,13 @@ export function TrafficSourceDetailPage() {
             />
           </div>
           {eventsQuery.isError ? (
-            <p className="py-12 text-center text-xs text-negative-400">
+            <p className="py-12 text-center text-copy-13 text-negative-400">
               Failed to load events: {eventsQuery.error instanceof Error ? eventsQuery.error.message : 'Unknown error'}
             </p>
           ) : eventsQuery.isLoading ? (
-            <p className="py-12 text-center text-xs text-muted">Loading events…</p>
+            <p className="py-12 text-center text-copy-13 text-muted">Loading events…</p>
           ) : chartData.length === 0 ? (
-            <p className="py-12 text-center text-xs text-muted">No events in this window.</p>
+            <p className="py-12 text-center text-copy-13 text-muted">No events in this window.</p>
           ) : (
             <div className="h-72">
               <ResponsiveContainer>
@@ -574,8 +574,8 @@ export function TrafficSourceDetailPage() {
       <section>
         <div className="mb-4 flex flex-wrap items-end justify-between gap-x-4 gap-y-2">
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted">Event rows</p>
-            <p className="mt-1 text-xs text-muted">
+            <p className="text-label-12-strong normal-case text-muted">Event rows</p>
+            <p className="mt-1 text-copy-13 text-muted">
               Showing <span className="tabular-nums text-neutral">{filteredEvents.length.toLocaleString('en-US')}</span> of{' '}
               <span className="tabular-nums text-muted">{visibleEvents.length.toLocaleString('en-US')}</span>{' '}
               {eventRows?.truncated ? 'loaded events' : 'events'}
@@ -593,7 +593,7 @@ export function TrafficSourceDetailPage() {
                 aria-label="Filter by identity"
                 value={identityFilter}
                 onChange={(e) => setIdentityFilter(e.target.value)}
-                className="rounded-md border border-base bg-bg px-2.5 py-1.5 text-xs text-strong focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-600"
+                className="rounded-md border border-base bg-bg px-2.5 py-1.5 text-label-12 text-strong focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-600"
               >
                 <option value="">All identities</option>
                 {identityOptions.map((opt) => (
@@ -609,7 +609,7 @@ export function TrafficSourceDetailPage() {
                 aria-label="Filter by operator"
                 value={operatorFilter}
                 onChange={(e) => setOperatorFilter(e.target.value)}
-                className="rounded-md border border-base bg-bg px-2.5 py-1.5 text-xs text-strong focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-600"
+                className="rounded-md border border-base bg-bg px-2.5 py-1.5 text-label-12 text-strong focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-600"
               >
                 <option value="">All operators</option>
                 {operatorOptions.map((opt) => (
@@ -624,7 +624,7 @@ export function TrafficSourceDetailPage() {
               aria-label="Filter by HTTP status class"
               value={statusClassFilter}
               onChange={(e) => setStatusClassFilter(e.target.value as StatusClassFilter)}
-              className="rounded-md border border-base bg-bg px-2.5 py-1.5 text-xs text-strong focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-600"
+              className="rounded-md border border-base bg-bg px-2.5 py-1.5 text-label-12 text-strong focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-600"
             >
               {STATUS_CLASS_OPTIONS.map((opt) => (
                 <option key={opt.value} value={opt.value}>
@@ -636,7 +636,7 @@ export function TrafficSourceDetailPage() {
               aria-label="Filter by verification claim"
               value={verificationFilter}
               onChange={(e) => setVerificationFilter(e.target.value as VerificationFilter)}
-              className="rounded-md border border-base bg-bg px-2.5 py-1.5 text-xs text-strong focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-600"
+              className="rounded-md border border-base bg-bg px-2.5 py-1.5 text-label-12 text-strong focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-600"
             >
               {VERIFICATION_OPTIONS.map((opt) => (
                 <option key={opt.value} value={opt.value}>
@@ -650,7 +650,7 @@ export function TrafficSourceDetailPage() {
               placeholder="path contains…"
               value={pathFilter}
               onChange={(e) => setPathFilter(e.target.value)}
-              className="w-44 rounded-md border border-base bg-bg px-2.5 py-1.5 text-xs text-strong placeholder:text-faint focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-600"
+              className="w-44 rounded-md border border-base bg-bg px-2.5 py-1.5 text-label-12 text-strong placeholder:text-faint focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-600"
             />
           </div>
         </div>
@@ -684,7 +684,7 @@ export function TrafficSourceDetailPage() {
             <button
               type="button"
               onClick={clearAllFilters}
-              className="text-xs text-muted underline-offset-4 hover:text-strong hover:underline"
+              className="text-button-14 text-muted underline-offset-4 hover:text-strong hover:underline"
             >
               Clear all
             </button>
@@ -694,7 +694,7 @@ export function TrafficSourceDetailPage() {
         <EventsTable events={pagedEvents} truncated={eventRows?.truncated ?? false} />
 
         {showPagination ? (
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 text-xs text-secondary">
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 text-label-12 text-secondary">
             <p className="tabular-nums">
               Showing <span className="text-neutral">{pageRangeStart.toLocaleString('en-US')}</span>–
               <span className="text-neutral">{pageRangeEnd.toLocaleString('en-US')}</span> of{' '}
@@ -730,8 +730,8 @@ export function TrafficSourceDetailPage() {
         ) : null}
       </section>
       <details className="border-t border-default pt-4">
-        <summary className="cursor-pointer text-sm text-secondary hover:text-strong">How traffic is classified</summary>
-        <p className="mt-2 max-w-3xl text-sm text-secondary">Crawler requests, AI user fetches, and referrals are recorded separately. Filters expose the underlying evidence.</p>
+        <summary className="cursor-pointer text-label-14 text-secondary hover:text-strong">How traffic is classified</summary>
+        <p className="mt-2 max-w-3xl text-copy-14 text-secondary">Crawler requests, AI user fetches, and referrals are recorded separately. Filters expose the underlying evidence.</p>
       </details>
     </div>
   )
@@ -768,7 +768,7 @@ function labelForVerification(value: VerificationFilter): string {
 
 function ActiveFilterPill({ label, onClear }: { label: string; onClear: () => void }) {
   return (
-    <span className="inline-flex items-center gap-1.5 rounded border border-strong bg-surface-inset px-2.5 py-1 text-sm text-strong">
+    <span className="inline-flex items-center gap-1.5 rounded border border-strong bg-surface-inset px-2.5 py-1 text-label-14 text-strong">
       {label}
       <button
         type="button"
@@ -800,7 +800,7 @@ function SeriesToggle({
       type="button"
       onClick={onToggle}
       aria-pressed={active}
-      className={`inline-flex items-center gap-2 rounded border px-3 py-1.5 text-xs font-medium transition ${
+      className={`inline-flex items-center gap-2 rounded border px-3 py-1.5 text-button-14 transition ${
         active
           ? 'border-strong bg-surface-inset text-heading'
           : 'border-base bg-transparent text-muted hover:text-neutral'
@@ -830,11 +830,11 @@ export function TrafficKpi({
 }) {
   return (
     <div className="px-4 py-3">
-      <p className="flex items-center gap-1 text-sm text-secondary">
+      <p className="flex items-center gap-1 text-copy-14 text-secondary">
         {label}
         {tooltip ? <InfoTooltip text={tooltip} /> : null}
       </p>
-      <p className="mt-1 text-2xl font-semibold tabular-nums text-heading">{value.toLocaleString('en-US')}</p>
+      <p className="mt-1 text-copy-24-strong tabular-nums text-heading">{value.toLocaleString('en-US')}</p>
     </div>
   )
 }
@@ -880,7 +880,7 @@ export function EventsTable({
     // truncated set: rows beyond the cap were never loaded, so their absence
     // was never tested. Say which of the two it is.
     return (
-      <Card className="p-6 text-center text-sm text-muted">
+      <Card className="p-6 text-center text-label-14 text-muted">
         {truncated
           ? 'No matches in the rows loaded so far. More rows exist beyond the load limit, so narrow the time window to search them.'
           : 'No event rows match the current filters.'}
@@ -888,9 +888,9 @@ export function EventsTable({
     )
   }
   return (
-    <div className="rounded-xl border border-default bg-surface overflow-hidden">
-      <table className="w-full text-sm">
-        <thead className="bg-bg-elevated/50 text-[10px] font-semibold uppercase tracking-wider text-muted">
+    <div className="material-base overflow-hidden">
+      <table className="w-full text-label-14">
+        <thead className="bg-bg-elevated/50 text-label-12-strong normal-case text-muted">
           <tr>
             <th className="px-4 py-2 text-left">Hour</th>
             <th className="px-4 py-2 text-left">Kind</th>
@@ -908,14 +908,14 @@ export function EventsTable({
         <tbody className="divide-y divide-mono-800/60">
           {events.map((event, i) => (
             <tr key={`${event.kind}:${event.tsHour}:${i}`} className="hover:bg-bg-elevated/40 transition-colors">
-              <td className="px-4 py-2 font-mono text-xs text-neutral">{formatHourLabel(event.tsHour)}</td>
+              <td className="px-4 py-2 text-label-12-mono text-neutral">{formatHourLabel(event.tsHour)}</td>
               <td className="px-4 py-2 text-neutral">{renderKindLabel(event.kind)}</td>
               <td className="px-4 py-2 text-heading">
                 {renderIdentity(event)}
-                <span className="ml-2 text-[11px] text-muted">{event.operator}</span>
+                <span className="ml-2 text-label-12 text-muted">{event.operator}</span>
               </td>
               <td className="px-4 py-2 text-neutral">{renderEvidence(event)}</td>
-              <td className="px-4 py-2 truncate font-mono text-xs text-neutral">{pathOf(event)}</td>
+              <td className="px-4 py-2 truncate text-label-12-mono text-neutral">{pathOf(event)}</td>
               <td className="px-4 py-2 text-right tabular-nums text-heading">{event.hits}</td>
             </tr>
           ))}

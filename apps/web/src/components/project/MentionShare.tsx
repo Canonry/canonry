@@ -137,7 +137,7 @@ function MentionShareRows({
       <tbody className="mention-share-rows">
         {rows.map(row => (
           <tr key={row.label} className="mention-share-row">
-            <th scope="row" className={`mention-share-row-label ${row.isYou ? 'text-heading font-medium' : 'text-secondary'}`}>
+            <th scope="row" className={`mention-share-row-label ${row.isYou ? 'text-heading text-label-14-strong' : 'text-secondary'}`}>
               {row.label}
             </th>
             <td aria-hidden="true">

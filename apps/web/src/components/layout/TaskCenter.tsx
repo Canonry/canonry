@@ -70,10 +70,10 @@ export function TaskCenter() {
             {tasks.map((task) => (
               <li key={task.runId} className="task-center-item">
                 <div className="min-w-0">
-                  <p className="truncate text-[13px] font-medium text-strong">
+                  <p className="truncate text-copy-13-strong text-strong">
                     {formatTrackedRunKind(task.kind)}
                   </p>
-                  <p className="mt-0.5 truncate text-xs text-muted">
+                  <p className="mt-0.5 truncate text-copy-13 text-muted">
                     {task.projectLabel ?? task.projectId}
                   </p>
                 </div>

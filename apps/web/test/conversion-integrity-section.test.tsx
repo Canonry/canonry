@@ -7,6 +7,7 @@ import {
   type ConversionIntegrityWorkspaceVm,
 } from '../src/components/project/ConversionIntegritySection.js'
 import { AccountProvider } from '../src/contexts/account-context.js'
+import { compileAppStyles, compiledElementProperty, parseCompiledCss } from './compiled-app-css.js'
 
 const contract: ConversionTrackingContract = {
   id: 'contract_checkout',
@@ -383,7 +384,7 @@ describe('ConversionIntegritySection', () => {
     expect(screen.getByText('Loading stored snapshots')).toBeTruthy()
   })
 
-  test('shows failed assessment and snapshot reads as unavailable rather than empty evidence', () => {
+  test('shows failed assessment and snapshot reads as unavailable rather than empty evidence', async () => {
     render(<ConversionIntegritySection workspace={workspace({
       assessment: null,
       assessmentState: 'unavailable',
@@ -406,8 +407,9 @@ describe('ConversionIntegritySection', () => {
     expect(screen.getByText('Integrity endpoint unavailable')).toBeTruthy()
     expect(screen.getByText('Google Ads snapshots unavailable')).toBeTruthy()
     expect(screen.queryByText('No stored snapshots')).toBeNull()
-    expect(screen.getAllByText('Stored snapshots unavailable').every((element) => element.className.includes('text-sm'))).toBe(true)
-    expect(screen.getByText('Google Ads snapshots unavailable').className).toContain('text-sm')
+    const notices = [...screen.getAllByText('Stored snapshots unavailable'), screen.getByText('Google Ads snapshots unavailable')]
+    const rules = parseCompiledCss(await compileAppStyles(notices.flatMap(element => [...element.classList])))
+    for (const notice of notices) expect(compiledElementProperty(rules, notice, 'font-size')).toBe('14px')
     expect(screen.getAllByText('Use the next step above')).toHaveLength(2)
     expect(screen.queryByText('—')).toBeNull()
   })

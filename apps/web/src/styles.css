@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "./geist.css";
 
 @theme inline {
   --font-mono: "Geist Mono Variable", "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
@@ -9,131 +10,12 @@
      bundled with Canonry; the dashboard never fetches or relies on host fonts. */
   --font-sans: "Geist Variable", "Geist", "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 
-  --color-bg: var(--color-zinc-950);
-  --color-bg-elevated: var(--color-zinc-900);
-
-  --color-surface: rgb(24 24 27 / 0.3);
-  --color-surface-subtle: rgb(24 24 27 / 0.2);
-  --color-surface-hover: rgb(24 24 27 / 0.4);
-  --color-surface-inset: rgb(39 39 42 / 0.6);
-  --color-surface-inset-hover: rgb(39 39 42 / 0.4);
-  --color-surface-active: rgb(39 39 42 / 0.5);
-
-  --color-border: rgb(39 39 42 / 0.6);
-  --color-border-subtle: rgb(39 39 42 / 0.4);
-  --color-border-base: var(--color-zinc-800);
-  --color-border-strong: var(--color-zinc-700);
-
-  --color-text-primary: var(--color-zinc-50);
-  --color-text-heading: var(--color-zinc-100);
-  --color-text-strong: var(--color-zinc-200);
-  --color-text-secondary: var(--color-zinc-400);
-  --color-text-muted: rgb(139 139 148);
-  --color-text-faint: rgb(124 124 133);
-
-  --color-accent: var(--color-zinc-50);
-  --color-accent-fg: var(--color-zinc-950);
-  /* Semantic roles: inline-link accent (blue, distinct from sky/info) + button on-colors */
-  --color-link: var(--color-blue-400);
-  --color-on-inverse: rgb(0 0 0);
-  --color-on-emphasis: rgb(255 255 255);
-
-  --color-positive-text: var(--color-emerald-300);
-  --color-positive-border: rgb(16 185 129 / 0.25);
-  --color-positive-bg-soft: rgb(16 185 129 / 0.1);
-  --color-positive-fill: #34d399;
-
-  --color-caution-text: var(--color-amber-300);
-  --color-caution-border: rgb(245 158 11 / 0.3);
-  --color-caution-bg-soft: rgb(245 158 11 / 0.1);
-  --color-caution-fill: #fbbf24;
-
-  --color-negative-text: var(--color-rose-300);
-  --color-negative-border: rgb(244 63 94 / 0.25);
-  --color-negative-bg-soft: rgb(244 63 94 / 0.1);
-  --color-negative-fill: #fb7185;
-
-  --color-neutral-text: var(--color-zinc-300);
-  --color-neutral-border: rgb(63 63 70 / 0.45);
-  --color-neutral-bg-soft: rgb(63 63 70 / 0.2);
-  --color-neutral-fill: var(--color-zinc-400);
-
-  --color-ring: rgb(113 113 122 / 0.5);
-  --color-ring-accent: rgb(251 191 36 / 0.6);
-
-  /* Neutral scale — raw zinc backbone for the one-off shades/alphas that have
-     no dedicated role token (dots, focus rings, tracks, dividers, underlines).
-     Prefer the semantic bg / surface / border / text tokens above; reach for
-     mono-* only when a specific neutral step is needed. */
-  --color-mono-100: var(--color-zinc-100);
-  --color-mono-400: var(--color-zinc-400);
-  --color-mono-500: var(--color-zinc-500);
-  --color-mono-600: var(--color-zinc-600);
-  --color-mono-700: var(--color-zinc-700);
-  --color-mono-800: var(--color-zinc-800);
-  --color-mono-200: var(--color-zinc-200);
-  --color-mono-900: var(--color-zinc-900);
-  --color-mono-950: var(--color-zinc-950);
-
-  /* Tone scales — per-tone palette steps for the richer surface / border / text
-     ladder (insight cards, toasts, chips, gauges, sparklines). The
-     positive/caution/negative -text / -border / -bg-soft / -fill semantics
-     above remain the common path; these cover the off-ladder steps. */
-  --color-positive-100: var(--color-emerald-100);
-  --color-positive-400: var(--color-emerald-400);
-  --color-positive-500: var(--color-emerald-500);
-  --color-positive-600: var(--color-emerald-600);
-  --color-positive-700: var(--color-emerald-700);
-  --color-positive-800: var(--color-emerald-800);
-  --color-positive-950: var(--color-emerald-950);
-  --color-positive-200: var(--color-emerald-200);
-  --color-positive-900: var(--color-emerald-900);
-  --color-caution-50: var(--color-amber-50);
-  --color-caution-100: var(--color-amber-100);
-  --color-caution-200: var(--color-amber-200);
-  --color-caution-300: var(--color-amber-300);
-  --color-caution-400: var(--color-amber-400);
-  --color-caution-500: var(--color-amber-500);
-  --color-caution-700: var(--color-amber-700);
-  --color-caution-800: var(--color-amber-800);
-  --color-caution-950: var(--color-amber-950);
-  --color-caution-600: var(--color-amber-600);
-  --color-negative-100: var(--color-rose-100);
-  --color-negative-400: var(--color-rose-400);
-  --color-negative-500: var(--color-rose-500);
-  --color-negative-700: var(--color-rose-700);
-  --color-negative-800: var(--color-rose-800);
-  --color-negative-950: var(--color-rose-950);
-  --color-negative-200: var(--color-rose-200);
-  --color-negative-300: var(--color-rose-300);
-  --color-negative-600: var(--color-rose-600);
-  --color-negative-900: var(--color-rose-900);
-
-  /* Info — a minor sky-blue accent (opportunity "track" cards, the
-     suggested-query add action). Not one of the four semantic tones; kept as a
-     small scale for its handful of off-ladder shades. */
-  --color-info-100: var(--color-sky-100);
-  --color-info-200: var(--color-sky-200);
-  --color-info-300: var(--color-sky-300);
-  --color-info-400: var(--color-sky-400);
-  --color-info-500: var(--color-sky-500);
-  --color-info-800: var(--color-sky-800);
-  --color-info-950: var(--color-sky-950);
-
-  /* Effect colors — scrollbar thumb, panel/drop shadows, the caution glow, and
-     the light hover overlay. (Gauge/sparkline strokes + track consume the shared
-     --chart-tone-* / --chart-neutral-grid-line tokens registered below.) */
-  --color-scrollbar-thumb: rgb(113 113 122 / 0.3);
-  --color-shadow-drop: rgb(8 11 15 / 0.34);
-  --color-shadow-panel: rgb(0 0 0 / 0.32);
-  --color-shadow-hairline: rgb(255 255 255 / 0.01);
-  --color-shadow-tooltip: rgb(0 0 0 / 0.1);
-  --color-overlay-hover: rgb(255 255 255 / 0.08);
-  --color-caution-glow: rgb(245 158 11 / 0.4);
-  --color-caution-glow-inset: rgb(245 158 11 / 0.06);
-  --color-overlay-scrim: rgb(0 0 0);
   --color-chart-series-2: var(--chart-series-2);
+}
 
+/* Literal chart colors also reset at nested dark embed boundaries. */
+:root, [data-theme='dark'] {
+  --color-chart-series-2: var(--chart-series-2);
   --chart-series-1: #34d399;
   --chart-series-2: #60a5fa;
   --chart-series-3: #f472b6;
@@ -146,7 +28,7 @@
   --chart-tone-positive-deep: #10b981;
   --chart-tone-caution: #fbbf24;
   --chart-tone-negative: #fb7185;
-  --chart-tone-neutral: #a1a1aa;
+  --chart-tone-neutral: #a1a1a1;
   /* Site Health's four-way state palette is Okabe-Ito-derived. These literals
      are WebGL-safe and remain distinct under common color-vision deficiencies. */
   --chart-site-health-eligible: #56b4e9;
@@ -158,142 +40,24 @@
      the genuinely hidden pages use. */
   --chart-site-health-resource: #d4d4d8;
   --chart-site-health-redirect: #9aa7b8;
-  --chart-neutral-text: #a1a1aa;
-  /* 5.89:1 on --chart-bg #09090b. zinc-500 (#71717a) is 4.12:1 and fails
-     WCAG AA for the 11px axis ticks in CHART_AXIS_TICK. The light-mode value
-     below stays zinc-500: on white it is 4.83:1 and already passes. */
-  --chart-neutral-text-dim: #8b8b93;
-  --chart-neutral-text-faint: #52525b;
-  --chart-neutral-surface: #27272a;
+  --chart-neutral-text: #a1a1a1;
+  /* Gray 900 keeps axis and tooltip text legible in both themes. */
+  --chart-neutral-text-dim: #a1a1a1;
+  --chart-neutral-text-faint: #7d7d7d;
+  --chart-neutral-surface: #2e2e2e;
   --chart-neutral-track-subtle: rgb(255 255 255 / 0.04);
   --chart-neutral-grid-line: rgb(255 255 255 / 0.06);
-  --chart-tooltip-bg: #18181b;
-  --chart-tooltip-border: #3f3f46;
-  --chart-tooltip-label: #e4e4e7;
-  --chart-tooltip-item: #a1a1aa;
-  --chart-grid: #27272a;
-  --chart-axis: #27272a;
+  --chart-tooltip-bg: #0a0a0a;
+  --chart-tooltip-border: #2e2e2e;
+  --chart-tooltip-label: #ededed;
+  --chart-tooltip-item: #a1a1a1;
+  --chart-grid: #2e2e2e;
+  --chart-axis: #2e2e2e;
 }
 
-/* ── Light theme ──────────────────────────────────────────────────────────
-   Opt-in via `data-theme="light"` on a container (the embed shell sets it from
-   the per-dashboard theme; the standalone dashboard never sets it and stays
-   dark). Unlayered, so these re-declarations win over the layered `@theme`
-   `:root` defaults; and because custom properties inherit, setting them on the
-   container re-skins its whole subtree with zero component changes. Only the
-   role / semantic / effect / chart tokens are re-pointed — the raw tone
-   SCALES (positive, caution, negative, info) are hue-stable and kept as-is. */
+/* The embed theme also switches chart identities to their light-canvas variants. */
 [data-theme='light'] {
-  /* Surfaces: light page, white cards. */
-  --color-bg: var(--color-zinc-50);
-  --color-bg-elevated: #ffffff;
-
-  --color-surface: rgb(9 9 11 / 0.03);
-  --color-surface-subtle: rgb(9 9 11 / 0.02);
-  --color-surface-hover: rgb(9 9 11 / 0.05);
-  --color-surface-inset: rgb(9 9 11 / 0.06);
-  --color-surface-inset-hover: rgb(9 9 11 / 0.04);
-  --color-surface-active: rgb(9 9 11 / 0.08);
-
-  --color-border: rgb(9 9 11 / 0.1);
-  --color-border-subtle: rgb(9 9 11 / 0.06);
-  --color-border-base: var(--color-zinc-200);
-  --color-border-strong: var(--color-zinc-300);
-
-  /* Text ladder: inverted for a light canvas. */
-  --color-text-primary: var(--color-zinc-950);
-  --color-text-heading: var(--color-zinc-900);
-  --color-text-strong: var(--color-zinc-800);
-  --color-text-secondary: var(--color-zinc-600);
-  --color-text-muted: rgb(98 98 107);
-  --color-text-faint: var(--color-zinc-500);
-
-  --color-accent: var(--color-zinc-900);
-  --color-accent-fg: var(--color-zinc-50);
-  --color-link: var(--color-blue-600);
-  --color-on-inverse: rgb(255 255 255);
-  --color-on-emphasis: rgb(255 255 255);
-
-  /* Tone text/fill: deepened for contrast on white; bg-soft tints unchanged. */
-  --color-positive-text: var(--color-emerald-600);
-  --color-positive-border: rgb(16 185 129 / 0.35);
-  --color-positive-bg-soft: rgb(16 185 129 / 0.1);
-  --color-positive-fill: #059669;
-
-  --color-caution-text: var(--color-amber-600);
-  --color-caution-border: rgb(217 119 6 / 0.35);
-  --color-caution-bg-soft: rgb(245 158 11 / 0.12);
-  --color-caution-fill: #d97706;
-
-  --color-negative-text: var(--color-rose-600);
-  --color-negative-border: rgb(225 29 72 / 0.3);
-  --color-negative-bg-soft: rgb(244 63 94 / 0.1);
-  --color-negative-fill: #e11d48;
-
-  --color-neutral-text: var(--color-zinc-600);
-  --color-neutral-border: rgb(9 9 11 / 0.12);
-  --color-neutral-bg-soft: rgb(9 9 11 / 0.04);
-  --color-neutral-fill: var(--color-zinc-500);
-
-  --color-ring: rgb(9 9 11 / 0.2);
-  --color-ring-accent: rgb(37 99 235 / 0.4);
-
-  /* Neutral (mono) backbone: inverted so a "bright" neutral reads dark on light. */
-  --color-mono-100: var(--color-zinc-900);
-  --color-mono-200: var(--color-zinc-800);
-  --color-mono-400: var(--color-zinc-600);
-  --color-mono-500: var(--color-zinc-500);
-  --color-mono-600: var(--color-zinc-400);
-  --color-mono-700: var(--color-zinc-300);
-  --color-mono-800: var(--color-zinc-200);
-  --color-mono-900: var(--color-zinc-100);
-  --color-mono-950: var(--color-zinc-50);
-
-  /* Tone SCALE steps — the light-canvas counterparts (the tone analogue of the
-     mono inversion above). Components use the LOW steps (50-400) as bright
-     foreground text on the dark canvas, so on white they deepen to dark inks
-     (AA-legible); the dark -900/-950 steps are used only as background tints, so
-     they lighten. The saturated mids (-500..-800, used as fills / borders / faint
-     -500/alpha tints) stay put — they read on white unchanged. (An earlier note
-     kept these "hue-stable"; that left the low text steps illegible on light.) */
-  --color-positive-100: var(--color-emerald-800);
-  --color-positive-200: var(--color-emerald-700);
-  --color-positive-400: var(--color-emerald-700);
-  --color-positive-900: var(--color-emerald-100);
-  --color-positive-950: var(--color-emerald-50);
-
-  --color-caution-50: var(--color-amber-800);
-  --color-caution-100: var(--color-amber-800);
-  --color-caution-200: var(--color-amber-700);
-  --color-caution-300: var(--color-amber-700);
-  --color-caution-400: var(--color-amber-700);
-  --color-caution-950: var(--color-amber-50);
-
-  --color-negative-100: var(--color-rose-800);
-  --color-negative-200: var(--color-rose-700);
-  --color-negative-300: var(--color-rose-700);
-  --color-negative-400: var(--color-rose-700);
-  --color-negative-900: var(--color-rose-100);
-  --color-negative-950: var(--color-rose-50);
-
-  --color-info-100: var(--color-sky-800);
-  --color-info-200: var(--color-sky-700);
-  --color-info-300: var(--color-sky-700);
-  --color-info-400: var(--color-sky-700);
-  --color-info-950: var(--color-sky-50);
-
-  /* Effect colors: re-tuned for a light canvas (dark shadows/overlays; the
-     dark-canvas white values wash out on white). */
-  --color-scrollbar-thumb: rgb(9 9 11 / 0.2);
-  --color-shadow-drop: rgb(0 0 0 / 0.08);
-  --color-shadow-panel: rgb(0 0 0 / 0.08);
-  --color-shadow-hairline: rgb(9 9 11 / 0.04);
-  --color-shadow-tooltip: rgb(0 0 0 / 0.12);
-  --color-overlay-hover: rgb(9 9 11 / 0.04);
-  --color-caution-glow: rgb(217 119 6 / 0.3);
-  --color-caution-glow-inset: rgb(217 119 6 / 0.06);
-  --color-overlay-scrim: rgb(0 0 0);
-
+  --color-chart-series-2: var(--chart-series-2);
   /* Chart ramp: deepened series for contrast on white; light grid/axis/tooltip.
      Gauges + sparklines share these --chart-* tokens, so they flip for free. */
   --chart-series-1: #10b981;
@@ -308,61 +72,99 @@
   --chart-tone-positive-deep: #059669;
   --chart-tone-caution: #d97706;
   --chart-tone-negative: #e11d48;
-  --chart-tone-neutral: #71717a;
+  --chart-tone-neutral: #4d4d4d;
   --chart-site-health-eligible: #0072b2;
   --chart-site-health-hidden: #a86f00;
   --chart-site-health-failed: #b23a2b;
   --chart-site-health-unchecked: #52525b;
   --chart-site-health-resource: #3f3f46;
   --chart-site-health-redirect: #4b5563;
-  --chart-neutral-text: #52525b;
-  --chart-neutral-text-dim: #71717a;
-  --chart-neutral-text-faint: #a1a1aa;
-  --chart-neutral-surface: #f4f4f5;
+  --chart-neutral-text: #4d4d4d;
+  --chart-neutral-text-dim: #4d4d4d;
+  --chart-neutral-text-faint: #7d7d7d;
+  --chart-neutral-surface: #f2f2f2;
   --chart-neutral-track-subtle: rgb(9 9 11 / 0.04);
   --chart-neutral-grid-line: rgb(9 9 11 / 0.06);
   --chart-tooltip-bg: #ffffff;
-  --chart-tooltip-border: #e4e4e7;
-  --chart-tooltip-label: #18181b;
-  --chart-tooltip-item: #52525b;
-  --chart-grid: #e4e4e7;
-  --chart-axis: #d4d4d8;
+  --chart-tooltip-border: #ebebeb;
+  --chart-tooltip-label: #171717;
+  --chart-tooltip-item: #4d4d4d;
+  --chart-grid: #ebebeb;
+  --chart-axis: #ebebeb;
 }
 
-/* Provider-identity pills on the light canvas: keep the engine hue but flip the
-   canvas polarity (light tint + darker ink) so the uppercase label stays legible
-   on white. The dark-canvas defaults (literal utilities in ProviderBadge, a
-   permanent no-literal-palette exclusion) are unchanged. */
-[data-theme='light'] .provider-badge--gemini {
-  background: color-mix(in srgb, var(--color-blue-800) 8%, transparent);
-  border-color: color-mix(in srgb, var(--color-blue-800) 30%, transparent);
-  color: var(--color-blue-800);
+/* Provider hues are fixed identities; their canvas polarity follows the
+   nearest theme boundary, including a dark embed inside a light host. */
+:root, [data-theme='dark'] {
+  --provider-gemini-text: var(--color-blue-300);
+  --provider-gemini-bg: color-mix(in oklab, var(--color-blue-950) 40%, transparent);
+  --provider-gemini-border: color-mix(in oklab, var(--color-blue-800) 50%, transparent);
+  --provider-openai-text: var(--color-green-300);
+  --provider-openai-bg: color-mix(in oklab, var(--color-green-950) 40%, transparent);
+  --provider-openai-border: color-mix(in oklab, var(--color-green-800) 50%, transparent);
+  --provider-claude-text: var(--color-amber-300);
+  --provider-claude-bg: color-mix(in oklab, var(--color-amber-950) 40%, transparent);
+  --provider-claude-border: color-mix(in oklab, var(--color-amber-800) 50%, transparent);
+  --provider-perplexity-text: var(--color-teal-300);
+  --provider-perplexity-bg: color-mix(in oklab, var(--color-teal-950) 40%, transparent);
+  --provider-perplexity-border: color-mix(in oklab, var(--color-teal-800) 50%, transparent);
+  --provider-local-text: var(--color-purple-300);
+  --provider-local-bg: color-mix(in oklab, var(--color-purple-950) 40%, transparent);
+  --provider-local-border: color-mix(in oklab, var(--color-purple-800) 50%, transparent);
+  --provider-muse-text: var(--color-indigo-300);
+  --provider-muse-bg: color-mix(in oklab, var(--color-indigo-950) 40%, transparent);
+  --provider-muse-border: color-mix(in oklab, var(--color-indigo-800) 50%, transparent);
 }
-[data-theme='light'] .provider-badge--openai {
-  background: color-mix(in srgb, var(--color-green-800) 8%, transparent);
-  border-color: color-mix(in srgb, var(--color-green-800) 30%, transparent);
-  color: var(--color-green-800);
-}
-[data-theme='light'] .provider-badge--claude {
-  background: color-mix(in srgb, var(--color-amber-800) 8%, transparent);
-  border-color: color-mix(in srgb, var(--color-amber-800) 30%, transparent);
-  color: var(--color-amber-800);
-}
-[data-theme='light'] .provider-badge--perplexity {
-  background: color-mix(in srgb, var(--color-teal-800) 8%, transparent);
-  border-color: color-mix(in srgb, var(--color-teal-800) 30%, transparent);
-  color: var(--color-teal-800);
-}
-[data-theme='light'] .provider-badge--local {
-  background: color-mix(in srgb, var(--color-purple-800) 8%, transparent);
-  border-color: color-mix(in srgb, var(--color-purple-800) 30%, transparent);
-  color: var(--color-purple-800);
+[data-theme='light'] {
+  --provider-gemini-text: var(--color-blue-800);
+  --provider-gemini-bg: color-mix(in srgb, var(--color-blue-800) 8%, transparent);
+  --provider-gemini-border: color-mix(in srgb, var(--color-blue-800) 30%, transparent);
+  --provider-openai-text: var(--color-green-800);
+  --provider-openai-bg: color-mix(in srgb, var(--color-green-800) 8%, transparent);
+  --provider-openai-border: color-mix(in srgb, var(--color-green-800) 30%, transparent);
+  --provider-claude-text: var(--color-amber-800);
+  --provider-claude-bg: color-mix(in srgb, var(--color-amber-800) 8%, transparent);
+  --provider-claude-border: color-mix(in srgb, var(--color-amber-800) 30%, transparent);
+  --provider-perplexity-text: var(--color-teal-800);
+  --provider-perplexity-bg: color-mix(in srgb, var(--color-teal-800) 8%, transparent);
+  --provider-perplexity-border: color-mix(in srgb, var(--color-teal-800) 30%, transparent);
+  --provider-local-text: var(--color-purple-800);
+  --provider-local-bg: color-mix(in srgb, var(--color-purple-800) 8%, transparent);
+  --provider-local-border: color-mix(in srgb, var(--color-purple-800) 30%, transparent);
+  --provider-muse-text: var(--color-indigo-800);
+  --provider-muse-bg: color-mix(in srgb, var(--color-indigo-800) 8%, transparent);
+  --provider-muse-border: color-mix(in srgb, var(--color-indigo-800) 30%, transparent);
 }
 
-[data-theme='light'] .provider-badge--muse {
-  background: color-mix(in srgb, var(--color-indigo-800) 8%, transparent);
-  border-color: color-mix(in srgb, var(--color-indigo-800) 30%, transparent);
-  color: var(--color-indigo-800);
+.provider-badge--gemini {
+  color: var(--provider-gemini-text);
+  background: var(--provider-gemini-bg);
+  border-color: var(--provider-gemini-border);
+}
+.provider-badge--openai {
+  color: var(--provider-openai-text);
+  background: var(--provider-openai-bg);
+  border-color: var(--provider-openai-border);
+}
+.provider-badge--claude {
+  color: var(--provider-claude-text);
+  background: var(--provider-claude-bg);
+  border-color: var(--provider-claude-border);
+}
+.provider-badge--perplexity {
+  color: var(--provider-perplexity-text);
+  background: var(--provider-perplexity-bg);
+  border-color: var(--provider-perplexity-border);
+}
+.provider-badge--local {
+  color: var(--provider-local-text);
+  background: var(--provider-local-bg);
+  border-color: var(--provider-local-border);
+}
+.provider-badge--muse {
+  color: var(--provider-muse-text);
+  background: var(--provider-muse-bg);
+  border-color: var(--provider-muse-border);
 }
 
 @utility border-default {
@@ -488,14 +290,10 @@
 
   html {
     @apply scroll-smooth;
-    /* Sharper rendering: subpixel AA on macOS, grayscale on hidpi, ligature
-       and contextual-alternate features that Geist ships out of the box
-       (`cv11` is the alt-1 / alt-l set, `ss01`/`ss03` are the stylistic
-       sets that even out i/l/I and 0). */
+    /* Use Geist's default glyphs; numeric roles opt into tabular figures. */
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
-    font-feature-settings: "cv11", "ss01", "ss03";
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -505,21 +303,16 @@
   }
 
   body {
+    @apply text-copy-14;
     @apply min-h-screen bg-bg font-sans text-primary antialiased;
   }
 
-  /* Headings: tighten tracking and gently bump weight so they read as
-     hierarchy without going bold-blocky. */
-  h1, h2, h3, h4 {
-    letter-spacing: -0.015em;
-    font-feature-settings: "cv11", "ss01", "ss03";
+  h1, h2, h3, h4, h5, h6 {
+    @apply text-heading-14;
   }
-
-  h1 { letter-spacing: -0.02em; }
 
   code, kbd, samp, pre {
     font-family: var(--font-mono);
-    font-feature-settings: "ss02", "cv11";
   }
 
   a {
@@ -546,7 +339,7 @@
 
 @layer components {
   .skip-link {
-    @apply absolute left-4 top-[-3rem] z-50 rounded-md bg-accent px-4 py-2 text-sm font-medium text-accent-fg transition-all focus:top-4;
+    @apply absolute left-4 top-[-3rem] z-50 rounded-md bg-accent px-4 py-2 text-accent-fg transition-all focus:top-4 text-button-14;
   }
 
   /* ── Layout shell: sidebar + topbar + content ── */
@@ -568,7 +361,7 @@
   }
 
   .embed-view-unavailable {
-    @apply mx-auto max-w-6xl px-4 py-16 text-center text-sm text-muted;
+    @apply mx-auto max-w-6xl px-4 py-16 text-center text-muted text-label-14;
   }
 
   .sidebar {
@@ -601,15 +394,15 @@
   }
 
   .brand-mark {
-    @apply text-[15px] font-semibold leading-none tracking-[-0.02em] text-heading no-underline;
+    @apply text-heading no-underline text-heading-16;
   }
 
   .brand-lockup-compact .brand-mark {
-    @apply text-[14px];
+    @apply text-heading-14;
   }
 
   .brand-version {
-    @apply mt-0.5 font-mono text-[11px] tracking-tight text-muted;
+    @apply mt-0.5 text-muted text-label-12-mono;
   }
 
   /* ── Update bubble ── */
@@ -639,7 +432,7 @@
   }
 
   .brand-update-bubble {
-    @apply relative col-span-2 mt-2 flex w-full min-w-0 items-center gap-1 rounded-full border border-caution bg-caution-soft py-0.5 pl-2 pr-1 font-mono text-[11px] leading-none text-caution-100 transition;
+    @apply relative col-span-2 mt-2 flex w-full min-w-0 items-center gap-1 rounded-full border border-caution bg-caution-soft py-0.5 pl-2 pr-1 text-caution-100 transition text-label-12-mono;
     box-shadow:
       0 8px 20px -10px var(--color-caution-glow),
       inset 0 0 0 1px var(--color-caution-glow-inset);
@@ -683,7 +476,7 @@
   }
 
   .brand-update-bubble-to {
-    @apply font-medium text-caution-100;
+    @apply text-caution-100 text-label-12-mono-strong;
   }
 
   .brand-update-bubble:hover .brand-update-bubble-to {
@@ -750,15 +543,15 @@
   }
 
   .sidebar-section-title {
-    @apply mb-1 mt-5 px-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-faint;
+    @apply mb-1 mt-5 px-2 normal-case text-faint text-label-12-strong;
   }
 
   .sidebar-link {
-    @apply flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13px] font-normal text-muted transition hover:bg-surface-inset-hover hover:text-neutral;
+    @apply flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-muted transition hover:bg-surface-inset-hover hover:text-neutral text-label-13;
   }
 
   .sidebar-link-active {
-    @apply bg-surface-active text-strong font-medium;
+    @apply bg-surface-active text-strong text-label-13-strong;
   }
 
   .sidebar-icon {
@@ -766,7 +559,7 @@
   }
 
   .sidebar-project {
-    @apply flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13px] text-muted transition hover:bg-bg-elevated hover:text-strong;
+    @apply flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-muted transition hover:bg-bg-elevated hover:text-strong text-label-13;
   }
 
   .sidebar-project-active {
@@ -800,11 +593,11 @@
   }
 
   .sidebar-account-name {
-    @apply truncate text-sm text-strong;
+    @apply truncate text-strong text-label-14;
   }
 
   .sidebar-account-role {
-    @apply text-xs text-muted;
+    @apply text-muted text-label-12;
   }
 
   .main-area {
@@ -826,11 +619,11 @@
   }
 
   .topbar {
-    @apply sticky top-0 z-20 flex items-center justify-between gap-4 border-b border-default bg-bg/95 px-4 py-2.5 backdrop-blur-sm md:px-6;
+    @apply sticky top-0 z-20 flex flex-wrap items-center justify-between gap-4 border-b border-default bg-bg/95 px-4 py-2.5 backdrop-blur-sm md:flex-nowrap md:px-6;
   }
 
   .topbar-left {
-    @apply flex items-center gap-3;
+    @apply flex min-w-0 items-center gap-3;
   }
 
   .sidebar-privacy-toggle {
@@ -842,7 +635,7 @@
   }
 
   .breadcrumb {
-    @apply hidden items-center gap-1.5 text-sm text-muted md:flex;
+    @apply hidden min-w-0 items-center gap-1.5 text-muted md:flex text-label-14;
   }
 
   .breadcrumb-sep {
@@ -850,11 +643,11 @@
   }
 
   .breadcrumb-current {
-    @apply text-strong;
+    @apply truncate text-strong;
   }
 
   .topbar-actions {
-    @apply flex items-center gap-2;
+    @apply ml-auto flex shrink-0 items-center gap-2;
   }
 
   .task-center {
@@ -866,7 +659,7 @@
   }
 
   .task-center-trigger {
-    @apply flex h-7 cursor-pointer list-none items-center gap-1.5 rounded-full border border-caution-500/25 bg-caution-500/8 px-2 text-[11px] font-medium text-caution-300 transition;
+    @apply flex h-7 cursor-pointer list-none items-center gap-1.5 rounded-full border border-caution-500/25 bg-caution-500/8 px-2 text-caution-300 transition text-button-14;
     @apply hover:border-caution-500/40 hover:bg-caution-500/12 hover:text-caution-200;
     @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-caution-400/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg;
   }
@@ -892,12 +685,11 @@
   }
 
   .task-center-panel {
-    @apply absolute right-0 top-[calc(100%+0.5rem)] z-30 w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-default bg-bg-elevated;
-    box-shadow: 0 12px 28px var(--color-shadow-panel);
+    @apply material-menu absolute right-0 top-[calc(100%+0.5rem)] z-30 w-[min(22rem,calc(100vw-2rem))] overflow-hidden;
   }
 
   .task-center-heading {
-    @apply flex items-center justify-between border-b border-default px-3 py-2.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted;
+    @apply flex items-center justify-between border-b border-default px-3 py-2.5 normal-case text-muted text-label-12-strong;
   }
 
   .task-center-list {
@@ -909,12 +701,12 @@
   }
 
   .task-center-footer-link {
-    @apply block border-t border-default px-3 py-2.5 text-xs font-medium text-neutral transition hover:bg-surface-inset-hover hover:text-strong;
+    @apply block border-t border-default px-3 py-2.5 text-neutral transition hover:bg-surface-inset-hover hover:text-strong text-label-12-strong;
   }
 
   @media (max-width: 639px) {
     .task-center-panel {
-      @apply fixed left-4 right-4 top-12 w-auto;
+      @apply material-menu fixed left-4 right-4 top-12 w-auto;
     }
   }
 
@@ -929,7 +721,7 @@
   }
 
   .health-pill {
-    @apply rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.1em];
+    @apply rounded-full border px-2 py-0.5 normal-case text-label-12-strong;
   }
 
   .health-pill-ok {
@@ -966,7 +758,7 @@
   }
 
   .mobile-nav-link {
-    @apply rounded-lg px-4 py-3 text-base font-medium text-secondary transition hover:bg-bg-elevated hover:text-heading;
+    @apply rounded-md px-4 py-3 text-secondary transition hover:bg-bg-elevated hover:text-heading text-label-16-strong;
   }
 
   .mobile-nav-link-active {
@@ -982,7 +774,7 @@
   }
 
   .mobile-nav-section-title {
-    @apply mb-2 px-4 text-[11px] font-semibold uppercase tracking-[0.16em] text-faint;
+    @apply mb-2 px-4 normal-case text-faint text-label-12-strong;
   }
 
   /* ── Page content ── */
@@ -1021,11 +813,11 @@
   }
 
   .page-title {
-    @apply text-lg font-semibold tracking-[-0.02em] text-heading;
+    @apply text-heading text-heading-20;
   }
 
   .page-subtitle {
-    @apply mt-0.5 text-[13px] font-normal text-secondary;
+    @apply mt-0.5 text-secondary text-copy-13;
   }
 
   .page-header-right {
@@ -1041,7 +833,7 @@
   }
 
   .project-context-title {
-    @apply text-base font-semibold text-heading;
+    @apply text-heading text-heading-16;
   }
 
   /* The measurement scope slot takes its own last line below md, so the
@@ -1053,7 +845,7 @@
   }
 
   .project-context-domain {
-    @apply text-[13px] text-secondary;
+    @apply text-secondary text-label-13;
   }
 
   .project-context-actions {
@@ -1062,11 +854,11 @@
 
   /* Public demo: a project with an advanced (multi-property) setup carries a mode tag next to the domain. */
   .project-mode-tag {
-    @apply inline-flex items-center gap-1.5 rounded-full border border-border bg-surface-inset px-2.5 py-0.5 text-[12px] leading-5;
+    @apply inline-flex items-center gap-1.5 rounded-full border border-border bg-surface-inset px-2.5 py-0.5 text-label-12;
   }
 
   .project-mode-tag-label {
-    @apply font-semibold text-heading;
+    @apply text-heading text-label-12-strong;
   }
 
   .project-mode-tag-detail {
@@ -1081,25 +873,25 @@
   /* ── Eyebrow / labels ── */
 
   .eyebrow {
-    @apply text-[11px] font-medium uppercase tracking-[0.18em] text-muted;
+    @apply normal-case text-muted text-label-12-strong;
   }
 
   .eyebrow-soft {
-    @apply mb-1 text-[10px] font-medium uppercase tracking-[0.16em] text-faint;
+    @apply mb-1 normal-case text-faint text-label-12-strong;
   }
 
   /* ── Typography ── */
 
   .lede {
-    @apply max-w-3xl text-sm leading-6 text-secondary;
+    @apply max-w-3xl text-secondary text-copy-14;
   }
 
   .supporting-copy {
-    @apply text-sm leading-6 text-secondary;
+    @apply text-secondary text-copy-14;
   }
 
   .blocking-copy {
-    @apply text-sm text-negative;
+    @apply text-negative text-copy-14;
   }
 
   /* ── Visibility trend (citations & mentions over time) ── */
@@ -1120,7 +912,7 @@
     @apply flex flex-wrap items-center justify-between gap-x-4 gap-y-3 border-b border-default py-3;
   }
 
-  /* A removable active filter: a rectangular 44px Button that never outgrows its row. */
+  /* A removable filter: a 36px Button (44px for touch) that stays inside its row. */
   .visibility-filter-token {
     @apply max-w-full;
   }
@@ -1152,7 +944,7 @@
   .visibility-scope-menu {
     width: max(100%, 20rem);
     max-width: calc(100vw - 4rem);
-    @apply absolute left-0 top-full z-30 mt-2 rounded-md border border-default bg-bg p-3 shadow-lg;
+    @apply material-menu absolute left-0 top-full z-30 mt-2 p-3;
   }
 
   /* "AI answers over time" as an AI Visibility card (the shared av-card-head
@@ -1162,7 +954,7 @@
   }
 
   .visibility-trend {
-    @apply rounded-xl border border-default bg-surface;
+    @apply material-base;
   }
 
   /* No overflow clipping here: the chart's hover tooltip must not be cut off. */
@@ -1181,20 +973,20 @@
   }
 
   .visibility-trend-current-label {
-    @apply text-[11px] font-medium uppercase tracking-wide text-secondary;
+    @apply normal-case text-secondary text-label-12-strong;
   }
 
   .visibility-trend-current-value {
-    @apply text-2xl font-semibold tabular-nums tracking-tight text-primary;
+    @apply tabular-nums text-primary text-heading-24;
   }
 
   .visibility-trend-current-delta {
-    @apply text-[13px] font-medium tabular-nums;
+    @apply tabular-nums text-label-13-strong;
   }
 
   /* Key for the dashed chart markers, drawn like the marker itself. */
   .visibility-trend-key {
-    @apply mt-2 flex items-center gap-1.5 text-[11px] text-muted;
+    @apply mt-2 flex items-center gap-1.5 text-muted text-label-12;
   }
 
   .visibility-trend-key-swatch {
@@ -1233,7 +1025,7 @@
   }
 
   .report-headline-tile {
-    @apply flex min-w-0 flex-col gap-1 rounded-xl border border-default bg-surface px-4 py-4;
+    @apply material-base flex min-w-0 flex-col gap-1 px-4 py-4;
   }
 
   /* The rate and its change read as one line, wrapping together when narrow. */
@@ -1243,7 +1035,7 @@
 
   /* Population size and the compared sweep, beside the class heading. */
   .report-headline-caption {
-    @apply flex items-center gap-1 text-sm text-secondary;
+    @apply flex items-center gap-1 text-secondary text-copy-14;
   }
 
   /* The collapsed rows that end the AI Visibility tab. Three come from the
@@ -1259,11 +1051,11 @@
   }
 
   .visibility-disclosure-label {
-    @apply font-semibold;
+    @apply text-label-14-strong;
   }
 
   .visibility-disclosure-meta {
-    @apply ml-3 text-sm font-normal text-secondary;
+    @apply ml-3 text-secondary text-copy-14;
   }
 
   /* An opened panel pays its own bottom space and nothing else: the row above
@@ -1297,19 +1089,19 @@
   }
 
   .trend-legend-name {
-    @apply shrink-0 text-[11px] font-medium text-neutral;
+    @apply shrink-0 text-neutral text-label-12-strong;
   }
 
   .trend-legend-value {
-    @apply text-[11px] font-semibold tabular-nums text-primary;
+    @apply tabular-nums text-primary text-label-12-strong;
   }
 
   .trend-tooltip {
-    @apply min-w-56 max-w-72 rounded-lg border border-default bg-bg-elevated px-3 py-2 text-xs text-secondary shadow-lg;
+    @apply material-tooltip min-w-56 max-w-72 px-3 py-2 text-secondary text-label-12;
   }
 
   .trend-tooltip-label {
-    @apply mb-1.5 font-medium text-primary;
+    @apply mb-1.5 text-primary text-label-12-strong;
   }
 
   .trend-tooltip-block {
@@ -1333,11 +1125,11 @@
   }
 
   .trend-tooltip-value {
-    @apply ml-auto font-semibold tabular-nums text-primary;
+    @apply ml-auto tabular-nums text-primary text-label-12-strong;
   }
 
   .trend-tooltip-detail {
-    @apply mt-1 text-[11px] leading-snug text-muted;
+    @apply mt-1 text-muted text-copy-13;
   }
 
   /* An engine's answers behind its rate, beside the rate. */
@@ -1358,27 +1150,27 @@
      controls change future sweeps, so their inherited/override state needs a
      calm, scannable row layout rather than a modal. */
   .project-engine-settings {
-    @apply mt-5 rounded-xl border border-default bg-surface px-5 py-5;
+    @apply material-base mt-5 px-5 py-5;
   }
 
   .project-engine-fieldset {
-    @apply mt-4 space-y-2 border-0 p-0 text-sm text-secondary;
+    @apply mt-4 space-y-2 border-0 p-0 text-secondary text-label-14;
   }
 
   .project-engine-fieldset legend {
-    @apply mb-2 text-sm font-medium text-heading;
+    @apply mb-2 text-heading text-label-14-strong;
   }
 
   .project-engine-fieldset > label {
-    @apply flex items-center gap-2 text-sm text-neutral;
+    @apply flex items-center gap-2 text-neutral text-label-14;
   }
 
   .project-engine-help {
-    @apply text-sm leading-snug text-secondary;
+    @apply text-secondary text-copy-14;
   }
 
   .project-engine-list {
-    @apply mt-3 divide-y divide-mono-800/40 rounded-lg border border-base bg-bg-elevated/30;
+    @apply material-base mt-3 divide-y divide-mono-800/40;
   }
 
   .project-engine-row {
@@ -1386,7 +1178,7 @@
   }
 
   .project-engine-provider {
-    @apply flex flex-wrap items-center gap-2 text-sm font-medium text-neutral;
+    @apply flex flex-wrap items-center gap-2 text-neutral text-label-14-strong;
   }
 
   .project-engine-model {
@@ -1394,26 +1186,26 @@
   }
 
   .project-engine-model > label {
-    @apply text-xs font-medium text-secondary;
+    @apply text-secondary text-label-12-strong;
   }
 
   .project-engine-model select,
   .project-engine-model input {
-    @apply min-w-0 rounded-md border border-base bg-surface px-2 py-1.5 text-sm text-primary;
+    @apply min-w-0 rounded-md border border-base bg-surface px-2 py-1.5 text-primary text-label-14;
   }
 
   .project-engine-warning {
-    @apply mt-3 max-w-3xl text-xs leading-relaxed text-caution-400/90;
+    @apply mt-3 max-w-3xl text-caution-400/90 text-copy-13;
   }
 
   /* Segmented control: an inset track with a raised selected chip. Used for the
      trend chart's metric / series / window toggles. */
   .segmented {
-    @apply inline-flex items-center gap-0.5 rounded-lg border border-base bg-bg-elevated/60 p-0.5;
+    @apply inline-flex items-center gap-0.5 rounded-md border border-base bg-surface-inset p-0.5;
   }
 
   .segmented-option {
-    @apply rounded-md px-2.5 py-1.5 text-xs font-medium text-secondary transition-colors;
+    @apply rounded-md px-2.5 py-1.5 text-secondary transition-colors text-button-14;
     @apply hover:text-heading;
     @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-500/50;
   }
@@ -1422,11 +1214,24 @@
     @apply bg-mono-700/90 text-primary shadow-sm;
   }
 
+  .theme-toggle {
+    @apply shrink-0 gap-0 border-default bg-surface-inset;
+  }
+
+  .theme-toggle .segmented-option {
+    @apply flex size-7 items-center justify-center rounded-sm p-0 text-muted hover:text-primary;
+    @apply pointer-coarse:size-11;
+  }
+
+  .theme-toggle .segmented-option-active {
+    @apply bg-bg text-primary shadow-sm;
+  }
+
   /* ── AEO hero rows (the competitive card's gap rows, and a Property's paired
      metrics on MeasurementPropertyPage) ── */
 
   .aeo-hero {
-    @apply rounded-xl border border-default bg-surface px-5 py-5;
+    @apply material-base px-5 py-5;
   }
 
 
@@ -1451,12 +1256,12 @@
   }
 
   .aeo-hero-row-label {
-    @apply text-sm font-medium text-strong flex items-center gap-1;
+    @apply text-strong flex items-center gap-1 text-label-14-strong;
     grid-area: label;
   }
 
   .aeo-hero-row-value {
-    @apply text-2xl font-bold tracking-tight tabular-nums;
+    @apply tabular-nums text-heading-24;
     grid-area: value;
   }
 
@@ -1466,7 +1271,7 @@
   }
 
   .aeo-hero-row-detail {
-    @apply text-[11px] text-muted tabular-nums;
+    @apply text-muted tabular-nums text-copy-13;
     grid-area: detail;
   }
 
@@ -1484,7 +1289,7 @@
   }
 
   .av-card-title {
-    @apply inline-flex items-center text-base font-semibold tracking-tight text-heading;
+    @apply inline-flex items-center text-heading text-heading-16;
   }
 
   .visibility-trend .av-card-head {
@@ -1492,7 +1297,7 @@
   }
 
   .av-card-meta {
-    @apply text-[13px] tabular-nums text-secondary;
+    @apply tabular-nums text-secondary text-copy-13;
   }
 
   .av-card-body {
@@ -1504,7 +1309,7 @@
   }
 
   .av-grid thead th {
-    @apply whitespace-nowrap pb-2 pr-4 text-left text-[11px] font-medium uppercase tracking-[0.14em] text-muted sm:pr-9;
+    @apply whitespace-nowrap pb-2 pr-4 text-left normal-case text-muted sm:pr-9 text-label-12-strong;
   }
 
   .av-grid td,
@@ -1520,24 +1325,24 @@
   }
 
   .av-grid .av-row-label {
-    @apply text-sm font-medium text-strong;
+    @apply text-strong text-label-14-strong;
   }
 
   /* A real space separates the figure for screen readers; the margin tops it
      up to the design's gap. */
   .av-of {
-    @apply ml-px text-[13px] tabular-nums text-muted;
+    @apply ml-px tabular-nums text-muted text-label-13;
   }
 
   /* "(auto)" after a competitor name detected from stored answers, quieter
      than the curated names beside it. */
   .av-alias-auto {
-    @apply text-xs italic text-muted;
+    @apply italic text-muted text-label-12;
   }
 
   /* A status word wraps on a phone rather than push the grid past the card. */
   .av-status {
-    @apply text-[13px] font-medium sm:whitespace-nowrap;
+    @apply sm:whitespace-nowrap text-label-13-strong;
   }
 
   /* A grid of many small figures (By engine, Past sweeps): tighter rows and a
@@ -1545,7 +1350,7 @@
      closer, the headers track tighter and "Of 11 queries" may wrap, so four
      engines fit a 390px card instead of scrolling inside it. */
   .av-grid-dense thead th {
-    @apply max-sm:pr-2.5 max-sm:align-bottom max-sm:tracking-[0.04em];
+    @apply max-sm:pr-2.5 max-sm:align-bottom;
   }
 
   .av-grid-dense thead th:first-child {
@@ -1561,7 +1366,7 @@
      up a little more, so the same four engines still fit. */
   @media (max-width: 379px) {
     .av-grid-dense thead th {
-      @apply pr-2 text-[10px];
+      @apply pr-2 text-label-12;
     }
 
     .av-grid-dense td,
@@ -1643,7 +1448,7 @@
   }
 
   .av-n-sm {
-    @apply text-[15px] font-semibold leading-6 tabular-nums;
+    @apply tabular-nums text-label-16-strong;
   }
 
   /* A row's time that opens its run: reads as text, underlines on hover. */
@@ -1657,7 +1462,7 @@
   }
 
   .av-card-line-label {
-    @apply text-sm font-medium text-strong;
+    @apply text-strong text-label-14-strong;
   }
 
   /* A list inside a Details bullet ("Company names in answers ▸"). Starts
@@ -1679,7 +1484,7 @@
   }
 
   .av-subdetails-body {
-    @apply mb-2 mt-1 space-y-1 leading-5;
+    @apply mb-2 mt-1 space-y-1;
   }
 
   /* "Details ▸" under a card. Starts closed; bullets, bold key numbers. */
@@ -1704,7 +1509,7 @@
   }
 
   .av-details > summary {
-    @apply flex min-h-10 w-fit cursor-pointer list-none items-center rounded-sm text-[13px] font-medium text-secondary transition-colors hover:text-heading focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400;
+    @apply flex min-h-10 w-fit cursor-pointer list-none items-center rounded-sm text-secondary transition-colors hover:text-heading focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400 text-copy-13-strong;
   }
 
   .av-details > summary::-webkit-details-marker {
@@ -1720,7 +1525,7 @@
   }
 
   .av-details-list {
-    @apply mb-[0.9rem] list-disc pl-[1.1rem] text-[13px] leading-[1.55rem] text-secondary;
+    @apply mb-[0.9rem] list-disc pl-[1.1rem] text-secondary text-copy-13;
   }
 
   .av-details-list li::marker {
@@ -1728,7 +1533,7 @@
   }
 
   .av-details-list strong {
-    @apply font-semibold tabular-nums text-heading;
+    @apply tabular-nums text-heading text-copy-13-strong;
   }
 
   /* "What changed": one line collapsed, a table by engine opened. The summary
@@ -1746,11 +1551,11 @@
   }
 
   .av-wc-summary {
-    @apply text-[13px] tabular-nums text-strong;
+    @apply tabular-nums text-strong text-label-13;
   }
 
   .av-wc-toggle {
-    @apply ml-auto whitespace-nowrap text-[13px] font-medium text-secondary;
+    @apply ml-auto whitespace-nowrap text-secondary text-button-14;
   }
 
   .av-wc > summary:hover .av-wc-toggle {
@@ -1783,14 +1588,14 @@
   }
 
   .av-change-table thead th {
-    @apply whitespace-nowrap pb-2 pr-3 pt-1 text-left text-[11px] font-medium uppercase tracking-[0.14em] text-muted sm:pr-10;
+    @apply whitespace-nowrap pb-2 pr-3 pt-1 text-left normal-case text-muted sm:pr-10 text-label-12-strong;
   }
 
   /* On a phone the table fits the card instead of scrolling: cells wrap and a
      model id breaks at its hyphens, so the To column and its ⓘ stay in view. */
   .av-change-table td,
   .av-change-table tbody th {
-    @apply py-1 pr-3 text-left align-baseline text-[13px] sm:whitespace-nowrap sm:pr-10;
+    @apply py-1 pr-3 text-left align-baseline sm:whitespace-nowrap sm:pr-10 text-label-13;
   }
 
   .av-change-table tbody tr:first-child > * {
@@ -1802,7 +1607,7 @@
   }
 
   .av-engine {
-    @apply font-medium text-strong;
+    @apply text-strong text-label-14-strong;
   }
 
   .av-date {
@@ -1810,7 +1615,7 @@
   }
 
   .av-model {
-    @apply font-mono text-xs text-strong wrap-anywhere sm:wrap-normal;
+    @apply text-strong wrap-anywhere sm:wrap-normal text-label-12-mono;
   }
 
   .av-model-from {
@@ -1819,7 +1624,7 @@
 
   /* A real substitution: the engine answered with another model than selected. */
   .av-amber-row {
-    @apply grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-6 gap-y-1 rounded-xl px-5 py-3 text-[13px] sm:grid-cols-[9rem_minmax(0,1fr)_auto];
+    @apply grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-6 gap-y-1 rounded-md px-5 py-3 sm:grid-cols-[9rem_minmax(0,1fr)_auto] text-label-13;
   }
 
   .av-amber-row > :nth-child(2) {
@@ -1847,37 +1652,37 @@
   }
 
   .mention-share-label-text {
-    @apply text-sm font-medium text-strong;
+    @apply text-strong text-label-14-strong;
   }
 
   /* Scope label when there is no control. Load bearing, so 13px text-secondary,
      never a 10px muted eyebrow. */
   .mention-share-class {
-    @apply text-[13px] font-medium text-secondary;
+    @apply text-secondary text-label-13-strong;
   }
 
   .mention-share-value {
-    @apply text-2xl font-bold tracking-tight tabular-nums;
+    @apply tabular-nums text-heading-24;
   }
 
   /* Non-numeric states are sentences, not figures, so they never take the 24px
      numeral size. */
   .mention-share-value-text {
-    @apply text-[15px] font-medium text-secondary;
+    @apply text-secondary text-label-16-strong;
   }
 
   /* Carries the denominator's name next to its counts, so a crop of the figure
      is still self-describing. */
   .mention-share-caption {
-    @apply text-[13px] text-secondary tabular-nums;
+    @apply text-secondary tabular-nums text-copy-13;
   }
 
   .mention-share-caption-scope {
-    @apply font-medium text-heading;
+    @apply text-heading text-copy-14-strong;
   }
 
   .mention-share-note {
-    @apply text-[13px] text-secondary;
+    @apply text-secondary text-copy-13;
   }
 
   /* A real <table> for semantics, laid out as the same four-column grid it was
@@ -1917,7 +1722,7 @@
      `.mention-share-bar` is `w-full overflow-hidden`, so at a zero-width track
      it paints nothing. */
   .mention-share-row {
-    @apply grid items-center gap-x-3 text-[13px];
+    @apply grid items-center gap-x-3 text-label-13;
     grid-template-columns: minmax(0, 1fr) 0 64px 56px;
   }
 
@@ -1930,7 +1735,7 @@
   /* MUST stay after `.mention-share-row` and its media query: equal specificity,
      so source order decides the font size. */
   .mention-share-row-head {
-    @apply mb-1.5 text-[10px] font-medium uppercase tracking-[0.08em] text-muted;
+    @apply mb-1.5 normal-case text-muted text-label-12-strong;
   }
 
   .mention-share-row-label {
@@ -1960,7 +1765,7 @@
   }
 
   .competitive-gaps-scope {
-    @apply mb-3 text-[13px] font-medium text-secondary;
+    @apply mb-3 text-secondary text-label-13-strong;
   }
 
   .competitive-gaps .aeo-hero-row {
@@ -1977,11 +1782,11 @@
   /* ── Movement banner (Since Last Run) ── */
 
   .movement-banner {
-    @apply rounded-lg border border-subtle bg-surface-subtle px-4 py-2 text-xs flex flex-col gap-1.5;
+    @apply material-base px-4 py-2 flex flex-col gap-1.5 text-label-12;
   }
 
   .movement-banner-label {
-    @apply text-[10px] font-medium uppercase tracking-[0.12em] text-muted mr-1;
+    @apply normal-case text-muted mr-1 text-label-12-strong;
   }
 
   .movement-banner-chip {
@@ -1989,7 +1794,7 @@
   }
 
   .movement-banner-detail {
-    @apply text-[11px] text-secondary space-y-0.5 mt-0.5 pl-1;
+    @apply text-secondary space-y-0.5 mt-0.5 pl-1 text-copy-13;
   }
 
   /* ── Secondary metric grid (gap cards + index coverage) ── */
@@ -2005,15 +1810,15 @@
   /* ── Metric cards (non-gauge) ── */
 
   .metric-card {
-    @apply flex flex-col rounded-xl border border-default bg-surface px-4 py-5 min-w-0 overflow-visible;
+    @apply material-base flex flex-col px-4 py-5 min-w-0 overflow-visible;
   }
 
   .metric-card-eyebrow {
-    @apply text-[10px] font-medium uppercase tracking-[0.12em] text-muted flex items-center gap-1;
+    @apply normal-case text-muted flex items-center gap-1 text-label-12-strong;
   }
 
   .metric-card-big-value {
-    @apply mt-3 text-2xl font-bold tracking-tight;
+    @apply mt-3 text-heading-24;
   }
 
   .metric-card-bar {
@@ -2028,21 +1833,21 @@
   }
 
   .metric-card-movement {
-    @apply mt-3 text-lg font-semibold tracking-tight;
+    @apply mt-3 text-label-20-strong;
   }
 
   .metric-card-detail {
-    @apply mt-2 text-[12px] text-secondary;
+    @apply mt-2 text-secondary text-copy-13;
   }
 
   .metric-card-sub {
-    @apply mt-1 text-[11px] leading-4 text-muted;
+    @apply mt-1 text-muted text-label-12;
   }
 
   /* ── Surface cards ── */
 
   .surface-card {
-    @apply rounded-xl border border-default bg-surface p-4;
+    @apply material-base p-4;
   }
 
   .compact-card {
@@ -2050,13 +1855,13 @@
   }
 
   .section-title-sm {
-    @apply text-sm font-semibold tracking-[-0.01em] text-strong;
+    @apply text-strong text-heading-14;
   }
 
   .surface-card h2,
   .surface-card h3,
   .empty-card h1 {
-    @apply text-sm font-semibold tracking-[-0.01em] text-strong;
+    @apply text-strong text-heading-14;
   }
 
   .empty-card {
@@ -2096,11 +1901,11 @@
   }
 
   .overview-disclosure-title {
-    @apply block text-base font-semibold tracking-tight text-heading;
+    @apply block text-heading text-heading-16;
   }
 
   .overview-disclosure-meta {
-    @apply flex shrink-0 items-center gap-2 text-[11px] text-muted;
+    @apply flex shrink-0 items-center gap-2 text-muted text-copy-13;
   }
 
   .overview-disclosure-icon {
@@ -2126,11 +1931,11 @@
   }
 
   .inline-disclosure {
-    @apply rounded-lg border border-mono-800/50 bg-bg-elevated/15 px-3 py-2.5;
+    @apply material-base px-3 py-2.5;
   }
 
   .inline-disclosure > summary {
-    @apply cursor-pointer list-none text-[12px] font-medium text-secondary transition-colors hover:text-heading focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-500/60;
+    @apply cursor-pointer list-none text-secondary transition-colors hover:text-heading focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-500/60 text-label-12-strong;
   }
 
   .inline-disclosure > summary::-webkit-details-marker {
@@ -2162,7 +1967,7 @@
   }
 
   .project-subnav-link {
-    @apply relative -mb-px inline-flex shrink-0 items-center whitespace-nowrap border-b-2 border-transparent px-3 py-2.5 text-sm font-medium text-muted transition-colors hover:text-strong focus-visible:outline-none focus-visible:text-heading;
+    @apply relative -mb-px inline-flex shrink-0 items-center whitespace-nowrap border-b-2 border-transparent px-3 py-2.5 text-muted transition-colors hover:text-strong focus-visible:outline-none focus-visible:text-heading text-label-14-strong;
   }
 
   .project-subnav-current {
@@ -2193,11 +1998,11 @@
 
   /* Overflow menu surface — floating, so a real shadow is allowed here. */
   .project-subnav-menu {
-    @apply absolute right-0 top-full z-20 mt-1 flex min-w-[9rem] max-w-[calc(100vw-2rem)] max-h-[min(28rem,70vh)] flex-col gap-0.5 overflow-y-auto rounded-md border border-mono-800/80 bg-bg-elevated p-1 shadow-[0_12px_28px_var(--color-shadow-panel)];
+    @apply material-menu absolute right-0 top-full z-20 mt-1 flex min-w-[9rem] max-w-[calc(100vw-2rem)] max-h-[min(28rem,70vh)] flex-col gap-0.5 overflow-y-auto p-1;
   }
 
   .project-subnav-menu-item {
-    @apply rounded px-3 py-2 text-sm font-medium text-secondary transition-colors hover:bg-surface-inset hover:text-heading focus-visible:outline-none focus-visible:bg-surface-inset focus-visible:text-heading;
+    @apply rounded px-3 py-2 text-secondary transition-colors hover:bg-surface-inset hover:text-heading focus-visible:outline-none focus-visible:bg-surface-inset focus-visible:text-heading text-label-14-strong;
   }
 
   .project-subnav-menu-item-active {
@@ -2229,11 +2034,11 @@
   }
 
   .hero-copy {
-    @apply space-y-2 rounded-xl border border-default bg-surface px-4 py-4;
+    @apply material-base space-y-2 px-4 py-4;
   }
 
   .hero-copy h1 {
-    @apply text-2xl font-semibold tracking-tight text-primary md:text-[1.75rem];
+    @apply text-primary text-heading-24 md:text-heading-32;
   }
 
   .hero-action {
@@ -2307,19 +2112,19 @@
   }
 
   .attention-item {
-    @apply flex items-start justify-between gap-4 rounded-lg border border-subtle bg-surface-subtle px-3.5 py-2.5 transition hover:border-strong hover:bg-bg-elevated/50;
+    @apply material-base flex items-start justify-between gap-4 px-3.5 py-2.5 transition hover:bg-surface-hover;
   }
 
   .attention-item-negative {
-    @apply border-l-2 border-l-negative-500/60;
+    @apply bg-negative-soft;
   }
 
   .attention-item-caution {
-    @apply border-l-2 border-l-caution-500/60;
+    @apply bg-caution-soft;
   }
 
   .attention-item-positive {
-    @apply border-l-2 border-l-positive-500/60;
+    @apply bg-positive-soft;
   }
 
   /* Non-actionable status row (e.g. "All projects stable") — not a link, so
@@ -2333,7 +2138,7 @@
   .run-row-title,
   .project-name,
   .evidence-query {
-    @apply text-[13px] font-medium text-strong;
+    @apply text-strong text-heading-14;
   }
 
   .attention-detail,
@@ -2342,21 +2147,21 @@
   .run-row-detail,
   .evidence-summary,
   .drawer-copy {
-    @apply mt-0.5 text-[13px] leading-5 text-muted;
+    @apply mt-0.5 text-muted text-copy-13;
   }
 
   .attention-action {
-    @apply pt-1 text-[10px] font-medium uppercase tracking-[0.14em] text-secondary;
+    @apply pt-1 normal-case text-secondary text-button-14;
   }
 
   /* ── Compact run ── */
 
   .compact-run {
-    @apply flex items-center justify-between gap-4 rounded-lg border border-subtle bg-surface-subtle px-3.5 py-2.5 text-left transition hover:bg-bg-elevated/50;
+    @apply material-base flex items-center justify-between gap-4 px-3.5 py-2.5 text-left transition hover:bg-surface-hover;
   }
 
   .compact-run-detail {
-    @apply mt-0.5 text-[12px] text-faint;
+    @apply mt-0.5 text-faint text-copy-13;
   }
 
   /* ── Metric progress-bar tone fills ──
@@ -2478,11 +2283,11 @@
   }
 
   .visibility-setup .page-title {
-    @apply text-2xl;
+    @apply text-heading-24;
   }
 
   .visibility-setup .page-subtitle {
-    @apply mt-2 max-w-prose text-sm leading-6;
+    @apply mt-2 max-w-prose text-copy-14;
   }
 
   .visibility-setup .setup-wizard {
@@ -2490,11 +2295,11 @@
   }
 
   .visibility-setup-section .section-head h2 {
-    @apply text-lg font-semibold text-heading;
+    @apply text-heading text-heading-20;
   }
 
   .visibility-setup .setup-label {
-    @apply text-sm font-normal normal-case tracking-normal text-secondary;
+    @apply normal-case text-secondary text-label-14;
   }
 
   .visibility-setup .setup-input,
@@ -2515,7 +2320,7 @@
   }
 
   .setup-step {
-    @apply flex items-center gap-1.5 text-xs text-muted whitespace-nowrap;
+    @apply flex items-center gap-1.5 text-muted whitespace-nowrap text-label-12;
   }
 
   .setup-step + .setup-step::before {
@@ -2524,7 +2329,7 @@
   }
 
   .setup-step-number {
-    @apply flex items-center justify-center w-5 h-5 rounded-full border border-strong text-[10px] font-semibold;
+    @apply flex items-center justify-center w-5 h-5 rounded-full border border-strong text-label-12-strong;
   }
 
   .setup-step-active {
@@ -2558,15 +2363,15 @@
   }
 
   .setup-label {
-    @apply text-[10px] font-semibold uppercase tracking-wide text-muted;
+    @apply normal-case text-muted text-label-12-strong;
   }
 
   .setup-input {
-    @apply rounded-md border border-strong bg-bg-elevated/50 px-3 py-2 text-sm text-heading placeholder-mono-400 outline-none transition focus:border-mono-500 focus:ring-1 focus:ring-mono-500;
+    @apply rounded-md border border-base bg-bg hover:border-strong px-3 py-2 text-heading placeholder-mono-400 outline-none transition focus:border-mono-500 focus:ring-1 focus:ring-mono-500 text-label-14;
   }
 
   .setup-textarea {
-    @apply rounded-md border border-strong bg-bg-elevated/50 px-3 py-2 text-sm text-heading placeholder-mono-400 outline-none transition focus:border-mono-500 focus:ring-1 focus:ring-mono-500 resize-y font-mono;
+    @apply rounded-md border border-base bg-bg hover:border-strong px-3 py-2 text-heading placeholder-mono-400 outline-none transition focus:border-mono-500 focus:ring-1 focus:ring-mono-500 resize-y text-copy-14-mono;
   }
 
   .setup-input:disabled,
@@ -2577,40 +2382,40 @@
   /* ── Insight rows (compact signal list) — legacy, kept for any external pages ── */
 
   .insight-list {
-    @apply rounded-xl border border-default divide-y divide-mono-800/30 overflow-hidden;
+    @apply material-base divide-y divide-default overflow-hidden;
   }
 
   .insight-row {
-    @apply flex items-center justify-between gap-4 px-4 py-2.5 border-l-2 border-l-mono-700 bg-surface-subtle transition hover:bg-mono-800/30;
+    @apply flex items-center justify-between gap-4 px-4 py-2.5 bg-surface-subtle transition hover:bg-mono-800/30;
   }
 
   .insight-row-positive {
-    @apply border-l-positive-500/60;
+    @apply bg-positive-soft;
   }
 
   .insight-row-caution {
-    @apply border-l-caution-500/60;
+    @apply bg-caution-soft;
   }
 
   .insight-row-negative {
-    @apply border-l-negative-500/60;
+    @apply bg-negative-soft;
   }
 
   /* Keep old card classes for backward compat if used elsewhere */
   .insight-card {
-    @apply grid gap-3 border-l-2 border-l-mono-700;
+    @apply grid gap-3;
   }
 
   .insight-card-positive {
-    @apply border-l-positive-500/60;
+    @apply bg-positive-soft;
   }
 
   .insight-card-caution {
-    @apply border-l-caution-500/60;
+    @apply bg-caution-soft;
   }
 
   .insight-card-negative {
-    @apply border-l-negative-500/60;
+    @apply bg-negative-soft;
   }
 
   /* ── Evidence / finding / competitor / step cards ── */
@@ -2623,25 +2428,25 @@
   }
 
   .evidence-snippet {
-    @apply mt-2 text-sm leading-6 text-secondary;
+    @apply mt-2 text-secondary text-copy-14;
   }
 
   /* ── Evidence table ── */
 
   .evidence-table-wrap {
-    @apply overflow-x-auto rounded-xl border border-default;
+    @apply material-base overflow-x-auto;
   }
 
   .evidence-table {
-    @apply w-full text-sm;
+    @apply w-full text-label-14;
   }
 
   .evidence-table thead {
-    @apply border-b border-default bg-bg-elevated/50;
+    @apply border-b border-default bg-surface-inset;
   }
 
   .evidence-table th {
-    @apply px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.14em] text-muted;
+    @apply px-4 py-2.5 text-left normal-case text-muted text-label-12-strong;
   }
 
   .evidence-table tbody tr {
@@ -2699,15 +2504,15 @@
   }
 
   .sentiment-headlines-heading {
-    @apply text-sm font-semibold text-primary;
+    @apply text-primary text-heading-14;
   }
 
   .sentiment-headlines-subtitle {
-    @apply text-sm text-secondary;
+    @apply text-secondary text-copy-14;
   }
 
   .sentiment-legend {
-    @apply flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px] text-secondary;
+    @apply flex flex-wrap items-center gap-x-4 gap-y-1 text-secondary text-label-13;
   }
 
   .sentiment-legend > li {
@@ -2725,7 +2530,7 @@
     display: grid;
     grid-column: 1 / -1;
     grid-template-columns: subgrid;
-    @apply -mb-2 text-[10px] font-medium uppercase tracking-[0.08em] text-muted;
+    @apply -mb-2 normal-case text-muted text-label-12-strong;
   }
 
   .sentiment-headlines-favorable {
@@ -2748,7 +2553,7 @@
     grid-column: 1 / -1;
     grid-template-columns: auto minmax(0, 1fr) 4.5rem 6.5rem 1.75rem;
     grid-template-columns: subgrid;
-    @apply items-center gap-x-3 gap-y-1.5 text-sm text-secondary;
+    @apply items-center gap-x-3 gap-y-1.5 text-secondary text-label-14;
   }
 
   .sentiment-class-label {
@@ -2764,7 +2569,7 @@
   }
 
   .sentiment-class-share {
-    @apply font-medium text-primary;
+    @apply text-primary text-label-14-strong;
   }
 
   .sentiment-class-empty {
@@ -2780,7 +2585,7 @@
   .sentiment-class-note {
     grid-column: 1 / -1;
     grid-row: 3;
-    @apply text-[13px];
+    @apply text-copy-13;
   }
 
   .sentiment-class-status {
@@ -2826,7 +2631,7 @@
      instead of pushing them down. Floating, so a real shadow is allowed, as
      on the project "More" menu. */
   .sentiment-class-details {
-    @apply absolute right-0 top-full z-10 mt-1 w-80 max-w-full rounded-md border border-mono-800/80 bg-bg-elevated px-3 py-2.5 text-[13px] shadow-[0_12px_28px_var(--color-shadow-panel)];
+    @apply material-menu absolute right-0 top-full z-10 mt-1 w-80 max-w-full px-3 py-2.5 text-copy-13;
   }
 
   /* The section clips its overflow; an open panel near its end must not be. */
@@ -2835,7 +2640,7 @@
   }
 
   .sentiment-class-details-title {
-    @apply mb-1 text-xs font-semibold text-heading;
+    @apply mb-1 text-heading text-heading-14;
   }
 
   /* Label left, value right beside it on the same line, every row the same
@@ -2850,7 +2655,7 @@
 
   /* Introduces the no-opinion counts under it; wraps inside the panel. */
   .sentiment-details-caption {
-    @apply mt-1 break-words text-[13px] text-secondary;
+    @apply mt-1 break-words text-secondary text-copy-13;
   }
 
   .sentiment-details-list dt {
@@ -2868,15 +2673,15 @@
   }
 
   .sentiment-details-subtitle {
-    @apply mb-1 text-xs font-semibold text-heading;
+    @apply mb-1 text-heading text-heading-14;
   }
 
   .sentiment-details-subtitle-count {
-    @apply font-normal text-secondary;
+    @apply text-secondary text-label-12;
   }
 
   .sentiment-details-view-all {
-    @apply mt-1 inline-flex min-h-7 items-center text-[13px];
+    @apply mt-1 inline-flex min-h-7 items-center text-copy-13;
   }
 
   .sentiment-property {
@@ -2899,7 +2704,7 @@
   /* Non-brand: no figure, only a line of its unfavorable and mixed answers. */
   .sentiment-nonbrand {
     grid-column: 1 / -1;
-    @apply flex flex-col gap-2 text-sm text-secondary;
+    @apply flex flex-col gap-2 text-secondary text-label-14;
   }
 
   .sentiment-nonbrand-line {
@@ -2920,7 +2725,7 @@
 
   .sentiment-nonbrand-note {
     grid-column: 1 / -1;
-    @apply text-[13px] text-secondary;
+    @apply text-secondary text-copy-13;
   }
 
   .sentiment-class-details-reason {
@@ -2982,7 +2787,7 @@
   }
 
   .query-evidence-tabs > button {
-    @apply min-h-11 border-b-2 border-transparent py-3 text-sm font-medium text-secondary transition-colors hover:text-heading focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400;
+    @apply min-h-11 border-b-2 border-transparent py-3 text-secondary transition-colors hover:text-heading focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400 text-button-14;
   }
 
   .query-evidence-tabs > button[aria-selected='true'] {
@@ -2994,7 +2799,7 @@
   }
 
   .query-evidence-preview-toggle {
-    @apply flex min-h-11 items-center gap-2 text-sm text-secondary;
+    @apply flex min-h-11 items-center gap-2 text-secondary text-button-14;
   }
 
   .query-evidence-preview-toggle > input {
@@ -3010,7 +2815,7 @@
   }
 
   .query-evidence-search input {
-    @apply min-h-11 bg-surface text-sm;
+    @apply min-h-11 bg-surface text-label-14;
   }
 
   .query-evidence-filter {
@@ -3018,7 +2823,7 @@
   }
 
   .query-evidence-filter > select {
-    @apply min-h-11 w-full rounded-md border border-default bg-surface px-3 text-sm text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400;
+    @apply min-h-11 w-full rounded-md border border-default bg-surface px-3 text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400 text-label-14;
   }
 
   .query-evidence-table-wrap {
@@ -3035,7 +2840,7 @@
   }
 
   .query-evidence-table th {
-    @apply py-3 text-[13px] font-medium normal-case tracking-normal text-secondary;
+    @apply py-3 normal-case text-secondary text-label-13-strong;
   }
 
   .query-evidence-table td {
@@ -3052,7 +2857,7 @@
   }
 
   .query-evidence-query {
-    @apply flex min-h-11 w-full items-start gap-2 rounded-sm text-left text-sm font-medium leading-6 text-heading focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400;
+    @apply flex min-h-11 w-full items-start gap-2 rounded-sm text-left text-heading focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400 text-label-14-strong;
   }
 
   .query-evidence-query > svg {
@@ -3060,7 +2865,7 @@
   }
 
   .query-evidence-meta {
-    @apply mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] font-normal leading-5 text-secondary;
+    @apply mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-secondary text-copy-13;
   }
 
   .query-evidence-meta > span + span::before {
@@ -3069,11 +2874,11 @@
   }
 
   .query-evidence .evidence-change-cell {
-    @apply text-[13px] leading-5 text-secondary;
+    @apply text-secondary text-label-13;
   }
 
   .query-evidence-signals {
-    @apply grid gap-y-1 text-[13px] leading-5;
+    @apply grid gap-y-1 text-label-13;
   }
 
   .query-evidence-signals > span {
@@ -3086,7 +2891,7 @@
 
   /* One labelled row group per query class: Non-brand, then Branded. */
   .query-evidence-group > th {
-    @apply bg-surface-subtle py-2.5 text-left text-[13px] font-semibold text-strong;
+    @apply bg-surface-subtle py-2.5 text-left text-strong text-label-13-strong;
   }
 
   .query-evidence-new {
@@ -3124,10 +2929,10 @@
   .measurement-results-table th:first-child { width: 46%; }
   .measurement-results-table th:last-child { width: 11rem; }
   .measurement-results-table thead th {
-    @apply text-sm font-medium normal-case tracking-normal text-secondary;
+    @apply normal-case text-secondary text-label-14-strong;
   }
   .measurement-results-table .measurement-result-heading th {
-    @apply border-y border-default bg-surface-subtle py-3 text-left normal-case tracking-normal;
+    @apply border-y border-default bg-surface-subtle py-3 text-left normal-case;
   }
   .measurement-result-engine { overflow-wrap: anywhere; }
   .measurement-result-action { text-align: right; }
@@ -3148,7 +2953,7 @@
     .measurement-result-engine { grid-column: 1; grid-row: 1; }
     .measurement-result-action { grid-column: 2; grid-row: 1; align-self: center; }
     .measurement-results-table .measurement-engine-result .measurement-result-action { padding-inline: 0; }
-    .measurement-result-mobile-label { @apply mb-2 block text-sm text-secondary; }
+    .measurement-result-mobile-label { @apply mb-2 block text-secondary text-label-14; }
   }
 
   .property-answer-table-container { container-type: inline-size; }
@@ -3165,7 +2970,7 @@
     .property-answer-detail,
     .property-answer-detail > td { display: block; width: 100%; min-width: 0; }
     .property-answer-detail > td { @apply px-3 py-4; }
-    .property-evidence-mobile-label { @apply mb-1 block text-sm text-secondary; }
+    .property-evidence-mobile-label { @apply mb-1 block text-secondary text-label-14; }
   }
 
   .query-tracking-workspace { container-type: inline-size; }
@@ -3186,37 +2991,37 @@
      headers at body size instead of the all-caps letterspaced default. Scoped
      to this one surface so the shared .evidence-table stays as it is. */
   .site-health-table th {
-    @apply text-sm font-semibold normal-case tracking-normal text-secondary;
+    @apply normal-case text-secondary text-label-14-strong;
   }
 
   .site-health-table td {
-    @apply text-sm;
+    @apply text-label-14;
   }
 
   .evidence-query-cell {
-    @apply font-medium text-heading;
+    @apply text-heading text-label-14-strong;
   }
 
   .evidence-change-cell {
-    @apply text-xs text-muted;
+    @apply text-muted text-label-12;
   }
 
   /* ── Findings table ── */
 
   .findings-table-wrap {
-    @apply overflow-x-auto rounded-xl border border-default;
+    @apply material-base overflow-x-auto;
   }
 
   .findings-table {
-    @apply w-full text-sm;
+    @apply w-full text-label-14;
   }
 
   .findings-table thead {
-    @apply border-b border-default bg-bg-elevated/50;
+    @apply border-b border-default bg-surface-inset;
   }
 
   .findings-table th {
-    @apply px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.14em] text-muted;
+    @apply px-4 py-2.5 text-left normal-case text-muted text-label-12-strong;
   }
 
   .findings-table tbody tr {
@@ -3234,19 +3039,19 @@
   /* ── Competitor table ── */
 
   .competitor-table-wrap {
-    @apply overflow-x-auto rounded-xl border border-default;
+    @apply material-base overflow-x-auto;
   }
 
   .competitor-table {
-    @apply w-full text-sm;
+    @apply w-full text-label-14;
   }
 
   .competitor-table thead {
-    @apply border-b border-default bg-bg-elevated/50;
+    @apply border-b border-default bg-surface-inset;
   }
 
   .competitor-table th {
-    @apply px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.14em] text-muted;
+    @apply px-4 py-2.5 text-left normal-case text-muted text-label-12-strong;
   }
 
   .competitor-table tbody tr {
@@ -3264,7 +3069,7 @@
   /* ── Project row (overview) ── */
 
   .project-row {
-    @apply grid gap-3 rounded-xl border border-subtle bg-bg-elevated/15 px-4 py-3.5 transition hover:border-mono-700/60 hover:bg-bg-elevated/35 lg:grid-cols-[10rem_minmax(0,1.5fr)_9rem_9rem_auto] lg:items-center no-underline text-inherit;
+    @apply material-base grid gap-3 px-4 py-3.5 transition hover:bg-surface-hover lg:grid-cols-[10rem_minmax(0,1.5fr)_9rem_9rem_auto] lg:items-center no-underline text-inherit;
   }
 
   .project-row-with-sentiment {
@@ -3288,7 +3093,7 @@
   }
 
   .project-insight {
-    @apply mt-1.5 text-[12px] leading-5 text-muted;
+    @apply mt-1.5 text-muted text-label-12;
   }
 
   /* Fixed 3-row template (label / value / caption) — every stat cell that
@@ -3305,15 +3110,15 @@
   }
 
   .metric-inline-label {
-    @apply text-[10px] font-medium uppercase tracking-[0.16em] text-faint;
+    @apply normal-case text-faint text-label-12-strong;
   }
 
   .metric-inline-value {
-    @apply text-base font-semibold tracking-[-0.02em] text-heading;
+    @apply text-heading text-heading-16;
   }
 
   .metric-inline-caption {
-    @apply truncate text-[12px] text-faint;
+    @apply truncate text-faint text-copy-13;
   }
 
   /* ── Measurement engine sub-rows ──
@@ -3326,7 +3131,7 @@
   }
 
   .measurement-subrow-name {
-    @apply relative pl-6 text-sm text-secondary;
+    @apply relative pl-6 text-secondary text-label-14;
   }
 
   .measurement-subrow-name::before {
@@ -3337,7 +3142,7 @@
   /* ── Run row ── */
 
   .run-row {
-    @apply grid gap-4 rounded-xl border border-default bg-surface-subtle px-4 py-4 transition hover:bg-surface-hover xl:grid-cols-[minmax(0,1.6fr)_20rem_auto] xl:items-center;
+    @apply material-base grid gap-4 px-4 py-4 transition hover:bg-surface-hover xl:grid-cols-[minmax(0,1.6fr)_20rem_auto] xl:items-center;
   }
 
   .run-row-main {
@@ -3353,7 +3158,7 @@
   }
 
   .run-row-subtitle {
-    @apply mt-1 text-sm text-muted;
+    @apply mt-1 text-muted text-copy-13;
   }
 
   .run-row-meta,
@@ -3368,12 +3173,12 @@
   .run-row-meta dt,
   .definition-list dt,
   .detail-label {
-    @apply text-[10px] font-medium uppercase tracking-[0.16em] text-faint;
+    @apply normal-case text-faint text-copy-13-strong;
   }
 
   .run-row-meta dd,
   .definition-list dd {
-    @apply mt-1 text-sm text-heading;
+    @apply mt-1 text-heading text-copy-14;
   }
 
   /* ── Filter chips ── */
@@ -3383,7 +3188,7 @@
   }
 
   .filter-chip {
-    @apply min-h-11 rounded-md border border-base bg-bg px-3 py-1 text-sm font-medium text-secondary transition hover:bg-bg-elevated hover:text-heading focus-visible:ring-2 focus-visible:ring-mono-500/60;
+    @apply min-h-11 rounded-md border border-base bg-bg px-3 py-1 text-secondary transition hover:bg-bg-elevated hover:text-heading focus-visible:ring-2 focus-visible:ring-mono-500/60 text-button-14;
   }
 
   .filter-chip:focus-visible {
@@ -3409,13 +3214,13 @@
   }
 
   .detail-list {
-    @apply grid gap-2 pl-4 text-sm leading-6 text-secondary;
+    @apply grid gap-2 pl-4 text-secondary text-copy-14;
   }
 
   /* ── Footer ── */
 
   .footer {
-    @apply flex shrink-0 flex-col gap-2 border-t border-subtle px-4 py-3 text-sm;
+    @apply flex shrink-0 flex-col gap-2 border-t border-subtle px-4 py-3 text-label-14;
   }
 
   .footer-brand {
@@ -3423,7 +3228,7 @@
   }
 
   .footer-version {
-    @apply font-mono text-[11px] tracking-tight text-faint;
+    @apply text-faint text-label-12-mono;
   }
 
   .footer-links {
@@ -3455,7 +3260,7 @@
   /* ── Summary stats strip ── */
 
   .stats-strip {
-    @apply flex flex-wrap gap-4 rounded-xl border border-default bg-surface-subtle px-4 py-3;
+    @apply material-base flex flex-wrap gap-4 px-4 py-3;
   }
 
   .stat-item {
@@ -3463,11 +3268,11 @@
   }
 
   .stat-value {
-    @apply text-lg font-bold tracking-tight text-heading;
+    @apply text-heading text-heading-20;
   }
 
   .stat-label {
-    @apply text-[12px] text-muted;
+    @apply text-muted text-label-12;
   }
 
   .stat-divider {
@@ -3490,7 +3295,7 @@
 
   /* A caveat beside a figure: icon plus a few words, the sentence in the bubble. */
   .info-tooltip-trigger-labeled {
-    @apply gap-1 rounded-md px-1 text-[13px] font-medium;
+    @apply gap-1 rounded-md px-1 text-button-14;
   }
 
   .info-tooltip-trigger-labeled .info-tooltip-icon {
@@ -3506,19 +3311,19 @@
   /* ── Data table (generic) ── */
 
   .data-table-wrapper {
-    @apply overflow-x-auto rounded-xl border border-default;
+    @apply material-base overflow-x-auto;
   }
 
   .data-table {
-    @apply w-full text-sm;
+    @apply w-full text-label-14;
   }
 
   .data-table thead {
-    @apply border-b border-default bg-bg-elevated/50;
+    @apply border-b border-default bg-surface-inset;
   }
 
   .data-table th {
-    @apply px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.14em] text-muted;
+    @apply px-4 py-2.5 text-left normal-case text-muted text-label-12-strong;
   }
 
   .data-table tbody tr {
@@ -3540,13 +3345,13 @@
   /* ── Evidence drawer redesign ── */
 
   .evidence-position-hero {
-    @apply rounded-xl border px-4 py-3.5;
+    @apply rounded-md border px-4 py-3.5;
   }
 
   .evidence-position-hero--cited,
   .evidence-position-hero--mentioned,
   .evidence-position-hero--emerging {
-    @apply border-positive-800/40 bg-positive-950/25;
+    @apply border-positive bg-positive-soft;
   }
 
   .evidence-position-hero--not-cited,
@@ -3555,7 +3360,7 @@
   }
 
   .evidence-position-hero--lost {
-    @apply border-negative-800/40 bg-negative-950/20;
+    @apply border-negative bg-negative-soft;
   }
 
   .evidence-position-hero--pending {
@@ -3563,7 +3368,7 @@
   }
 
   .evidence-position-label {
-    @apply text-[10px] font-semibold uppercase tracking-[0.18em];
+    @apply normal-case text-label-12-strong;
   }
 
   .evidence-position-label--cited,
@@ -3582,7 +3387,7 @@
   }
 
   .evidence-position-title {
-    @apply mt-1 text-base font-semibold tracking-[-0.01em];
+    @apply mt-1 text-heading-16;
   }
 
   .evidence-position-title--cited,
@@ -3601,30 +3406,32 @@
   }
 
   .evidence-position-meta {
-    @apply mt-0.5 text-xs text-muted;
+    @apply mt-0.5 text-muted text-copy-13;
   }
 
   /* ── Answer snippet with highlight ── */
 
   .answer-markdown {
-    @apply max-w-prose text-sm leading-6 text-secondary;
+    @apply max-w-prose text-secondary text-copy-14;
     overflow-wrap: anywhere;
   }
 
   .answer-markdown :is(h2, h3, h4, h5, h6) {
-    @apply mt-5 mb-2 text-sm font-semibold text-heading first:mt-0;
+    @apply mt-5 mb-2 text-heading first:mt-0 text-heading-14;
   }
 
-  .answer-markdown [data-answer-heading-level="1"] { @apply mt-6 text-base first:mt-0; }
+  .answer-markdown [data-answer-heading-level="1"] { @apply mt-6 first:mt-0 text-heading-16; }
   .answer-markdown li > p { @apply mb-2 last:mb-0; }
   .answer-markdown li > :is(ul, ol) { @apply mt-2 mb-0; }
   .answer-markdown li + li:has(> p) { @apply mt-3; }
-  .answer-markdown strong { @apply font-semibold text-heading; }
+  /* Inline emphasis retains the enclosing prose/heading size. */
+  .answer-markdown strong,
+  .answer-snippet-block strong { @apply text-heading; font-weight: 550; }
   .answer-markdown blockquote { @apply mb-3 border-l-2 border-strong pl-3; }
   .answer-markdown hr { @apply my-4 border-default; }
 
   .answer-snippet-block {
-    @apply rounded-lg border border-default bg-bg-elevated/50 p-3 text-sm leading-relaxed text-secondary;
+    @apply material-base p-3 text-secondary text-copy-14;
     /* Long markdown citation URLs in answer text have no natural break
        points; force them to wrap so they can't push the column wider than
        the modal viewport. */
@@ -3638,7 +3445,7 @@
     border-radius: 2px;
     padding: 0 2px;
     font-style: normal;
-    font-weight: 500;
+    font-weight: 550;
   }
 
   .answer-highlight-competitor {
@@ -3646,18 +3453,18 @@
     border-radius: 2px;
     padding: 0 2px;
     font-style: normal;
-    font-weight: 500;
+    font-weight: 550;
   }
 
   /* ── Mention status (answer visibility sidebar) ── */
 
   .mention-status {
-    @apply flex items-center gap-2 rounded-lg px-3 py-2 border;
+    @apply flex items-center gap-2 rounded-md px-3 py-2 border;
   }
 
   .mention-status--visible,
   .mention-status--mentioned {
-    @apply border-positive-800/40 bg-positive-950/25 text-positive;
+    @apply border-positive bg-positive-soft text-positive;
   }
 
   .mention-status--not-visible,
@@ -3666,23 +3473,23 @@
   }
 
   .mention-status-icon {
-    @apply text-sm font-semibold shrink-0;
+    @apply shrink-0 text-label-14-strong;
   }
 
   .mention-status-label {
-    @apply text-sm font-medium;
+    @apply text-label-14-strong;
   }
 
   .mention-chip {
-    @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium border;
+    @apply inline-flex items-center rounded-md px-2 py-0.5 border text-label-12-strong;
   }
 
   .mention-chip--brand {
-    @apply border-positive-800/40 bg-positive-950/25 text-positive;
+    @apply border-positive bg-positive-soft text-positive;
   }
 
   .mention-chip--competitor {
-    @apply border-caution-800/30 bg-caution-950/15 text-caution;
+    @apply border-caution bg-caution-soft text-caution;
   }
 
   .mention-chip--muted {
@@ -3696,15 +3503,15 @@
   }
 
   .citation-leaderboard-item {
-    @apply flex items-center gap-3 rounded-lg px-3 py-2 border;
+    @apply flex items-center gap-3 rounded-md px-3 py-2 border;
   }
 
   .citation-leaderboard-item--you {
-    @apply border-positive-800/40 bg-positive-950/25 text-positive;
+    @apply border-positive bg-positive-soft text-positive;
   }
 
   .citation-leaderboard-item--competitor {
-    @apply border-negative-800/30 bg-negative-950/15 text-negative;
+    @apply border-negative bg-negative-soft text-negative;
   }
 
   .citation-leaderboard-item--other {
@@ -3712,15 +3519,15 @@
   }
 
   .citation-leaderboard-rank {
-    @apply w-5 text-center text-[11px] font-semibold shrink-0 text-muted;
+    @apply w-5 text-center shrink-0 text-muted text-label-12-strong;
   }
 
   .citation-leaderboard-domain {
-    @apply flex-1 text-sm font-medium truncate;
+    @apply flex-1 truncate text-label-14-strong;
   }
 
   .citation-leaderboard-tag {
-    @apply text-[10px] font-semibold uppercase tracking-[0.14em] shrink-0;
+    @apply normal-case shrink-0 text-label-12-strong;
   }
 
   /* ── Action items (technical signals) ── */
@@ -3730,7 +3537,7 @@
   }
 
   .action-item {
-    @apply flex items-start gap-2.5 rounded-lg border border-subtle bg-surface-subtle px-3 py-2.5;
+    @apply material-base flex items-start gap-2.5 px-3 py-2.5;
   }
 
   .action-item-icon {
@@ -3738,13 +3545,13 @@
   }
 
   .action-item-text {
-    @apply text-sm text-secondary leading-snug;
+    @apply text-secondary text-label-14;
   }
 
   /* ── Evidence detail modal ── */
 
   .evidence-modal {
-    @apply fixed z-50 flex flex-col bg-bg border border-base rounded-2xl shadow-2xl overflow-hidden;
+    @apply material-modal fixed z-50 flex flex-col overflow-hidden;
     @apply top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2;
     @apply w-[min(95vw,1100px)] max-h-[min(90vh,800px)];
   }
@@ -3772,11 +3579,11 @@
   }
 
   .sidebar-tabs {
-    @apply flex gap-1 p-0.5 rounded-lg bg-bg-elevated/60 border border-subtle;
+    @apply flex gap-1 p-0.5 rounded-md bg-surface-inset border border-subtle;
   }
 
   .sidebar-tab {
-    @apply flex-1 px-3 py-1.5 text-xs font-medium rounded-md transition-colors;
+    @apply flex-1 px-3 py-1.5 rounded-md transition-colors text-button-14;
     @apply text-muted hover:text-neutral;
   }
 
@@ -3809,7 +3616,7 @@
   /* ── Drawer section label ── */
 
   .drawer-section-label {
-    @apply mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-faint;
+    @apply mb-2 normal-case text-faint text-label-12-strong;
   }
 
   /* ── Skeleton / loading placeholders ── */
@@ -3859,7 +3666,7 @@
   }
 
   .page-skeleton-card {
-    @apply rounded-xl border border-default bg-surface p-5 space-y-3;
+    @apply material-base p-5 space-y-3;
   }
 
   /* ── Toasts ── */
@@ -3869,8 +3676,7 @@
   }
 
   .toast-card {
-    @apply flex items-start gap-3 rounded-xl border px-4 py-3 shadow-lg backdrop-blur-sm;
-    box-shadow: 0 12px 28px var(--color-shadow-panel);
+    @apply material-small flex items-start gap-3 px-4 py-3;
   }
 
   .toast-card[data-state='open'] {
@@ -3882,19 +3688,19 @@
   }
 
   .toast-card-neutral {
-    @apply border-mono-700/70 bg-bg-elevated/92 text-heading;
+    @apply bg-bg text-heading;
   }
 
   .toast-card-positive {
-    @apply border-positive-700/60 bg-positive-950/88 text-positive-100;
+    @apply bg-positive-soft text-positive;
   }
 
   .toast-card-caution {
-    @apply border-caution-700/60 bg-caution-950/88 text-caution-100;
+    @apply bg-caution-soft text-caution;
   }
 
   .toast-card-negative {
-    @apply border-negative-700/60 bg-negative-950/88 text-negative-100;
+    @apply bg-negative-soft text-negative;
   }
 
   .toast-copy {
@@ -3902,15 +3708,15 @@
   }
 
   .toast-title {
-    @apply text-sm font-semibold leading-snug;
+    @apply text-heading-14;
   }
 
   .toast-detail {
-    @apply mt-1 text-xs leading-relaxed text-current/75;
+    @apply mt-1 text-current text-copy-13;
   }
 
   .toast-action {
-    @apply mt-2 inline-flex rounded-md border border-current/20 px-2.5 py-1 text-xs font-medium text-current transition hover:bg-overlay-hover;
+    @apply mt-2 inline-flex rounded-md border border-current/20 px-2.5 py-1 text-current transition hover:bg-overlay-hover text-button-14;
   }
 
   .toast-dismiss {
@@ -3958,27 +3764,27 @@
 /* The public demo introduction sits above the complete application. */
 .app-shell-demo .sidebar { position: sticky; top: 0; bottom: auto; height: 100dvh; flex-shrink: 0; align-self: flex-start; }
 .app-shell-demo .main-area { padding-left: 0; }
-.demo-banner { position: relative; z-index: 35; display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; grid-template-areas: "name facts agent actions"; align-items: center; column-gap: 20px; min-height: 56px; border-bottom: 1px solid var(--color-border-strong); background: var(--color-bg-elevated); padding: 8px 24px; color: var(--color-text-secondary); font-size: 14px; line-height: 20px; }
+.demo-banner { position: relative; z-index: 35; display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; grid-template-areas: "name facts agent actions"; align-items: center; column-gap: 20px; min-height: 56px; border-bottom: 1px solid var(--color-border-strong); background: var(--color-bg-elevated); padding: 8px 24px; color: var(--color-text-secondary); @apply text-copy-14; }
 .demo-banner p { margin: 0; }
-.demo-banner-name { grid-area: name; color: var(--color-text-primary); font-weight: 600; white-space: nowrap; }
+.demo-banner-name { grid-area: name; color: var(--color-text-primary); @apply text-label-14-strong; white-space: nowrap; }
 .demo-banner-facts { grid-area: facts; border-left: 1px solid var(--color-border-base); padding-left: 20px; white-space: nowrap; }
 .demo-banner-agent { grid-area: agent; min-width: 0; color: var(--color-text-strong); }
 .demo-banner-actions { grid-area: actions; display: flex; align-items: center; gap: 20px; }
 .demo-banner a, .demo-banner summary { display: flex; align-items: center; gap: 6px; min-height: 32px; border-radius: 4px; color: var(--color-text-strong); white-space: nowrap; }
-.demo-banner .demo-banner-primary { border-radius: 6px; background: var(--color-accent); padding: 0 12px; color: var(--color-on-inverse); font-weight: 500; }
+.demo-banner .demo-banner-primary { border-radius: 6px; background: var(--color-accent); padding: 0 12px; color: var(--color-on-inverse); @apply text-button-14; }
 .demo-banner .demo-banner-primary:hover { background: var(--color-mono-200); }
 .demo-banner-secondary:hover { color: var(--color-text-primary); text-decoration: underline; text-underline-offset: 4px; }
 .demo-banner summary { cursor: pointer; list-style: none; }
 .demo-banner summary:hover { color: var(--color-text-primary); }
 .demo-banner summary::-webkit-details-marker { display: none; }
 .demo-banner details[open] summary svg { transform: rotate(180deg); }
-.demo-banner-panel { position: absolute; top: calc(100% + 4px); right: 24px; width: min(640px, calc(100vw - 48px)); max-height: 60dvh; overflow-y: auto; border: 1px solid var(--color-border-strong); border-radius: 8px; background: var(--color-bg-elevated); padding: 16px 20px 20px; box-shadow: 0 8px 24px var(--color-shadow-panel); }
+.demo-banner-panel { position: absolute; top: calc(100% + 4px); right: 24px; width: min(640px, calc(100vw - 48px)); max-height: 60dvh; overflow-y: auto; @apply material-menu; padding: 16px 20px 20px; }
 .demo-banner-panel-agent { display: none; }
 .demo-banner-examples { display: flex; flex-wrap: wrap; gap: 0 20px; margin-bottom: 12px; border-bottom: 1px solid var(--color-border-base); padding-bottom: 12px; }
 .demo-banner-examples a { text-decoration: underline; text-decoration-color: var(--color-border-strong); text-underline-offset: 4px; }
 .demo-banner-examples a:hover { color: var(--color-text-primary); text-decoration-color: currentColor; }
 .demo-banner-features { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; }
-.demo-banner-features h2 { margin: 0 0 8px; color: var(--color-text-primary); font-size: 14px; font-weight: 600; line-height: 20px; }
+.demo-banner-features h2 { margin: 0 0 8px; color: var(--color-text-primary); @apply text-heading-14; }
 .demo-banner-features ul { margin: 0; padding: 0; list-style: none; }
 .demo-banner-features a { color: var(--color-text-secondary); }
 .demo-banner-features a:hover { color: var(--color-text-primary); }
@@ -3994,7 +3800,7 @@
 }
 @media (max-width: 639px) {
   .demo-banner { grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "name facts" "actions actions"; column-gap: 10px; row-gap: 0; padding: 10px 16px 0; }
-  .demo-banner-facts { border-left: 0; padding-left: 0; font-size: 13px; }
+  .demo-banner-facts { border-left: 0; padding-left: 0; @apply text-label-13; }
   .demo-banner-agent { display: none; }
   .demo-banner a, .demo-banner summary { min-height: 44px; }
   .demo-banner .demo-banner-primary { border: solid transparent; border-width: 4px 0; background-clip: padding-box; }

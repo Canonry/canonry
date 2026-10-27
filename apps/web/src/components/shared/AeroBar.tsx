@@ -708,10 +708,10 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
       <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center p-3">
         <div
           role="status"
-          className="flex w-full max-w-3xl flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-base bg-bg/95 px-4 py-2 text-sm shadow-lg"
+          className="flex w-full max-w-3xl flex-wrap items-center gap-x-2 gap-y-1 material-base px-4 py-2 text-label-14"
         >
           <Radio className="h-4 w-4 text-muted" aria-hidden="true" />
-          <span className="font-medium text-strong">Aero could not check provider availability.</span>
+          <span className="text-label-14-strong text-strong">Aero could not check provider availability.</span>
           <Button
             variant="outline"
             size="sm"
@@ -733,12 +733,12 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
       <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center p-3">
         <div
           role="status"
-          className="flex w-full max-w-3xl flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-base bg-bg/95 px-4 py-2 text-sm shadow-lg"
+          className="flex w-full max-w-3xl flex-wrap items-center gap-x-2 gap-y-1 material-base px-4 py-2 text-label-14"
         >
           <Radio className="h-4 w-4 text-muted" aria-hidden="true" />
           {/* A bare product name told a first-run operator nothing, but this bar
               is persistent, so the explanation belongs behind the affordance. */}
-          <span className="flex items-center gap-1.5 font-medium text-strong">
+          <span className="flex items-center gap-1.5 text-label-14-strong text-strong">
             {unkeyedDefault
               ? `Aero is set to ${unkeyedDefault.label.replace(/\s+\(.+\)$/, '')}, which has no API key.`
               : 'Aero needs an answer-engine provider.'}
@@ -769,12 +769,12 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
     : 'pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center p-3'
 
   const panelClasses = expanded
-    ? 'pointer-events-auto flex h-full w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-mono-800/80 bg-bg/95 shadow-2xl'
+    ? 'material-fullscreen pointer-events-auto flex h-full w-full max-w-5xl flex-col overflow-hidden'
     : 'pointer-events-auto w-full max-w-3xl'
 
   const transcriptClasses = expanded
-    ? 'flex-1 overflow-y-auto px-6 py-5 text-sm text-strong'
-    : 'max-h-[40vh] min-h-[120px] overflow-y-auto px-4 py-3 text-sm text-strong'
+    ? 'flex-1 overflow-y-auto px-6 py-5 text-copy-14 text-strong'
+    : 'max-h-[40vh] min-h-[120px] overflow-y-auto px-4 py-3 text-copy-14 text-strong'
 
   return (
     <div
@@ -786,12 +786,12 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
     >
       <div className={panelClasses}>
         {open ? (
-          <div data-aero-panel className={expanded ? 'flex h-full flex-col' : 'flex flex-col overflow-hidden rounded-2xl border border-mono-800/80 bg-bg/95 shadow-xl backdrop-blur'}>
+          <div data-aero-panel className={expanded ? 'flex h-full flex-col' : 'material-menu flex flex-col overflow-hidden'}>
             <div className="flex items-center justify-between gap-2 border-b border-mono-800/70 px-4 py-2.5">
               <div className="flex min-w-0 items-center gap-2">
                 <Radio className="h-4 w-4 shrink-0 text-positive-400" aria-hidden="true" />
-                <span className="text-sm font-medium text-heading">Aero</span>
-                <span className="hidden min-w-0 truncate text-[10px] uppercase tracking-wider text-muted sm:inline">
+                <span className="text-label-14-strong text-heading">Aero</span>
+                <span className="hidden min-w-0 truncate text-label-12 normal-case text-muted sm:inline">
                   {streaming || serverBusy ? 'working…' : projectName}
                 </span>
               </div>
@@ -850,20 +850,20 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
             </div>
             {historyOpen ? (
               <div id="aero-history" className={transcriptClasses} aria-label="Conversation history">
-                <h3 className="mb-2 text-sm font-medium text-heading">Conversations in {projectName}</h3>
-                {!history ? <p className="text-sm text-secondary">{historyLoading ? 'Loading history…' : 'History could not be loaded. Close and reopen History to retry.'}</p> : history.conversations.length === 0 ? <p className="text-sm text-secondary">No saved conversations yet. Your conversations will appear here.</p> : (
+                <h3 className="mb-2 text-heading-14 text-heading">Conversations in {projectName}</h3>
+                {!history ? <p className="text-copy-14 text-secondary">{historyLoading ? 'Loading history…' : 'History could not be loaded. Close and reopen History to retry.'}</p> : history.conversations.length === 0 ? <p className="text-copy-14 text-secondary">No saved conversations yet. Your conversations will appear here.</p> : (
                   <ul className="divide-y divide-default">
                     {history.conversations.map(conversation => (
                       <li key={conversation.id} className="py-2">
                         <div className="flex items-center gap-2">
                           <button className="min-w-0 flex-1 rounded-md px-2 py-1 text-left hover:bg-surface-hover focus-visible:ring-2 focus-visible:ring-positive-500" disabled={streaming || serverBusy || changingConversation} onClick={() => { if (conversation.active) setHistoryOpen(false); else void changeConversation(() => resumeAgentConversation(projectName, conversation.id)) }}>
-                            <span className="block truncate text-sm text-heading">{conversation.title}</span>
-                            <span className="text-xs text-secondary">{conversation.active ? 'Current · ' : ''}{new Date(conversation.updatedAt).toLocaleString()}</span>
+                            <span className="block truncate text-label-14 text-heading">{conversation.title}</span>
+                            <span className="text-label-12 text-secondary">{conversation.active ? 'Current · ' : ''}{new Date(conversation.updatedAt).toLocaleString()}</span>
                           </button>
                           <Button variant="ghost" size="sm" disabled={streaming || serverBusy || changingConversation} aria-label={`Delete conversation: ${conversation.title}`} onClick={() => setDeleteId(conversation.id)}>Delete</Button>
                         </div>
                         {deleteId === conversation.id && (
-                          <div role="group" aria-label="Confirm conversation deletion" className="mt-2 rounded-md border border-default p-3 text-sm text-secondary">
+                          <div role="group" aria-label="Confirm conversation deletion" className="mt-2 rounded-md border border-default p-3 text-label-14 text-secondary">
                             <p>Delete this conversation permanently? Shared project notes will be kept.</p>
                             <div className="mt-2 flex gap-2">
                               <Button variant="destructive" size="sm" disabled={changingConversation} onClick={() => { void changeConversation(async () => { await deleteAgentConversation(projectName, conversation.id) }, true) }}>Delete conversation</Button>
@@ -880,7 +880,7 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
             ) : <div ref={transcriptRef} className={transcriptClasses}>
               {conversationIsEmpty && !streaming && (
                 <div className="flex flex-col gap-3 py-2">
-                  <p className="text-sm text-secondary">
+                  <p className="text-copy-14 text-secondary">
                     {preview
                       ? <>See how Aero answers about <span className="text-strong">{projectName}</span>. Choose a starting point.</>
                       : <>Ask about <span className="text-strong">{projectName}</span> or choose a starting point.</>}
@@ -891,7 +891,7 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
               {renderTranscript(messages, projectName, turnProvider ?? null, scope, liveTrail, streaming && !turnEnded, Boolean(streamingText.trim()), !viewerMode && !preview, modelOverride)}
               {streaming && streamingText.trim() && (
                 <div className="mt-3">
-                  <div className="mb-0.5 text-[10px] uppercase tracking-wider text-positive-400">Aero</div>
+                  <div className="mb-0.5 text-label-12 normal-case text-positive-400">Aero</div>
                   <AeroMarkdown content={streamingText} />
                 </div>
               )}
@@ -899,14 +899,14 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
                   after each answer instead of only in an empty conversation. */}
               {preview && !conversationIsEmpty && !streaming && (
                 <div className="mt-4 flex flex-col gap-2 border-t border-subtle pt-3">
-                  <p className="text-xs text-secondary">Try another starting point.</p>
+                  <p className="text-copy-13 text-secondary">Try another starting point.</p>
                   <StarterButtons onPick={(prompt) => { void send(prompt) }} />
                 </div>
               )}
             </div>}
 
               {(error || notice) && (
-                <div role={error ? 'alert' : 'status'} className="mx-3 my-2 flex flex-wrap items-center gap-2 rounded-md border border-base bg-surface px-3 py-2 text-sm text-secondary">
+                <div role={error ? 'alert' : 'status'} className="mx-3 my-2 flex flex-wrap items-center gap-2 material-base px-3 py-2 text-label-14 text-secondary">
                   <span className="flex-1">{error ?? notice}</span>
                   {retry && !streaming && <Button variant="outline" size="sm" onClick={() => {
                     if (scope === 'all') { setDraft(retry.prompt); textareaRef.current?.focus() }
@@ -916,7 +916,7 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
               )}
 
             {preview && (
-              <p className="border-t border-subtle px-4 py-2 text-xs text-secondary">
+              <p className="border-t border-subtle px-4 py-2 text-copy-13 text-secondary">
                 Sample answers on demo data.{' '}
                 <a
                   href={PREVIEW_SITE_URL}
@@ -1004,7 +1004,7 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
                   placeholder={historyOpen ? 'Open a conversation to continue…' : preview ? 'Type / for a starting point' : 'Ask Aero, or / for commands…'}
                   aria-label="Message Aero"
                   rows={expanded ? 3 : 1}
-                  className="flex-1 resize-none overflow-y-auto bg-transparent text-sm text-heading placeholder:text-mono-600 focus:outline-none disabled:opacity-60"
+                  className="flex-1 resize-none overflow-y-auto bg-transparent text-copy-14 text-heading placeholder:text-mono-600 focus:outline-none disabled:opacity-60"
                 />
                 {streaming ? (
                   <Button type="button" variant="outline" size="sm" onClick={() => abortRef.current?.abort()} aria-label="Stop Aero">
@@ -1022,7 +1022,7 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
           <button
             type="button"
             onClick={() => { setOpen(true); trackUiAction('aero.open') }}
-            className="flex w-full items-center justify-between rounded-lg border border-mono-800/80 bg-bg/95 px-4 py-2 text-left text-sm text-secondary shadow-lg transition hover:border-strong hover:bg-bg-elevated/90 hover:text-strong"
+            className="material-small flex w-full items-center justify-between px-4 py-2 text-left text-button-14 text-secondary transition hover:bg-bg-elevated hover:text-strong"
           >
             <span className="flex items-center gap-2">
               <Radio className="h-4 w-4 text-positive-400" aria-hidden="true" />
@@ -1198,7 +1198,7 @@ function ProviderPicker({
     close(true)
   }
 
-  const itemClass = 'flex min-h-10 w-full items-center gap-2 px-3 py-2 text-left text-sm text-heading transition outline-none hover:bg-bg-elevated focus-visible:bg-bg-elevated focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-mono-400 disabled:opacity-60'
+  const itemClass = 'flex min-h-10 w-full items-center gap-2 px-3 py-2 text-left text-label-14 text-heading transition outline-none hover:bg-bg-elevated focus-visible:bg-bg-elevated focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-mono-400 disabled:opacity-60'
   const check = (on: boolean) => (
     <span className="flex h-4 w-4 shrink-0 items-center justify-center">
       {on ? <Check className="h-3.5 w-3.5 text-positive-400" aria-hidden="true" /> : null}
@@ -1217,14 +1217,14 @@ function ProviderPicker({
           setOpen(true)
         }}
         disabled={disabled}
-        className="flex min-h-8 min-w-0 items-center gap-1 rounded-md px-2 py-1 text-sm text-secondary transition hover:bg-surface-inset hover:text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400 disabled:opacity-50"
+        className="flex min-h-8 min-w-0 items-center gap-1 rounded-md px-2 py-1 text-button-14 text-secondary transition hover:bg-surface-inset hover:text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400 disabled:opacity-50"
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
         title={active ? `${active.label} · ${selectedModel}` : 'Pick a provider'}
       >
         <span className="sr-only">Aero model: </span>
-        <span className="min-w-0 truncate font-medium text-strong">
+        <span className="min-w-0 truncate text-button-14 text-strong">
           {active ? <><span className="hidden sm:inline">{providerName} · </span>{selectedName}</> : providerName}
         </span>
         <ChevronDown className="h-3 w-3 shrink-0" aria-hidden="true" />
@@ -1237,10 +1237,10 @@ function ProviderPicker({
           aria-label="Aero model"
           onKeyDown={onMenuKeyDown}
           style={{ position: 'fixed', top: position.top, bottom: position.bottom, right: position.right, maxHeight: position.maxHeight }}
-          className="z-50 w-72 max-w-[calc(100vw-1rem)] overflow-y-auto rounded-lg border border-base bg-bg py-1 shadow-xl"
+          className="z-50 w-72 max-w-[calc(100vw-1rem)] overflow-y-auto material-menu py-1"
         >
           <div role="group" aria-labelledby={providerHeadingId}>
-            <div id={providerHeadingId} className="px-3 pb-1 pt-2 text-sm font-medium text-secondary">Provider</div>
+            <div id={providerHeadingId} className="px-3 pb-1 pt-2 text-label-14-strong text-secondary">Provider</div>
             {configured.map((provider) => {
               const isActive = active?.id === provider.id
               return (
@@ -1276,7 +1276,7 @@ function ProviderPicker({
           </div>
           {active?.configured && (
             <div role="group" aria-labelledby={modelHeadingId} data-menu-group="model" className="mt-1 border-t border-default">
-              <div id={modelHeadingId} className="px-3 pb-1 pt-2 text-sm font-medium text-secondary">Model</div>
+              <div id={modelHeadingId} className="px-3 pb-1 pt-2 text-label-14-strong text-secondary">Model</div>
               {choices.map((model) => {
                 const isSelected = model.id === selectedModel
                 const isDefault = model.id === active.defaultModel
@@ -1296,14 +1296,14 @@ function ProviderPicker({
                   >
                     {check(isSelected)}
                     <span className="min-w-0 flex-1 truncate">{model.displayName}</span>
-                    {isDefault && <span className="shrink-0 text-sm text-secondary">Default</span>}
+                    {isDefault && <span className="shrink-0 text-label-14 text-secondary">Default</span>}
                   </button>
                 )
               })}
               {customSelected && (
                 <button type="button" role="menuitemradio" aria-checked tabIndex={-1} onClick={() => close(true)} className={itemClass} title={selectedModel}>
                   {check(true)}
-                  <span className="min-w-0 flex-1 truncate font-mono text-[13px]">{selectedModel}</span>
+                  <span className="min-w-0 flex-1 truncate text-label-13-mono">{selectedModel}</span>
                 </button>
               )}
               <button
@@ -1348,10 +1348,10 @@ function ProviderPicker({
                     />
                     <Button type="submit" variant="secondary" size="sm" className="h-auto self-stretch md:h-auto">Use</Button>
                   </div>
-                  {otherError && <p id={`${menuId}-other-error`} role="alert" className="mt-1.5 text-sm text-negative-400">{otherError}</p>}
+                  {otherError && <p id={`${menuId}-other-error`} role="alert" className="mt-1.5 text-copy-14 text-negative-400">{otherError}</p>}
                 </form>
               )}
-              <p className="px-3 pb-2 pt-1 text-sm text-secondary">Applies to Aero only.</p>
+              <p className="px-3 pb-2 pt-1 text-copy-14 text-secondary">Applies to Aero only.</p>
             </div>
           )}
         </div>,
@@ -1421,8 +1421,8 @@ function SlashPalette({
   }, [selectedIndex])
 
   return (
-    <div ref={containerRef} className="absolute inset-x-3 bottom-full mb-2 overflow-hidden rounded-lg border border-base bg-bg/98 shadow-2xl">
-      <div ref={headerRef} className="border-b border-default px-3 py-1.5 text-[10px] uppercase tracking-wider text-muted">
+    <div ref={containerRef} className="absolute inset-x-3 bottom-full mb-2 overflow-hidden material-menu">
+      <div ref={headerRef} className="border-b border-default px-3 py-1.5 text-label-12 normal-case text-muted">
         {title}
       </div>
       <ul ref={listRef} role="listbox" className="overflow-y-auto py-1" style={{ maxHeight: listMaxHeight }}>
@@ -1436,12 +1436,12 @@ function SlashPalette({
                 aria-selected={active}
                 onMouseEnter={() => onHover(i)}
                 onClick={() => onPick(cmd)}
-                className={`flex w-full items-center gap-3 px-3 py-2 text-left text-sm transition ${
+                className={`flex w-full items-center gap-3 px-3 py-2 text-left text-button-14 transition ${
                   active ? 'bg-bg-elevated text-heading' : 'text-neutral hover:bg-bg-elevated/60'
                 }`}
               >
-                <span className="font-medium">{cmd.label}</span>
-                <span className="ml-auto font-mono text-[11px] text-secondary">{cmd.command}</span>
+                <span className="text-button-14">{cmd.label}</span>
+                <span className="ml-auto text-label-12-mono text-secondary">{cmd.command}</span>
               </button>
             </li>
           )
@@ -1460,7 +1460,7 @@ function StarterButtons({ onPick }: { onPick: (prompt: string) => void }) {
           key={s.label}
           type="button"
           onClick={() => onPick(s.prompt)}
-          className="rounded-md border border-base bg-bg-elevated/70 px-3 py-1.5 text-sm text-neutral transition hover:border-strong hover:bg-mono-800/70 hover:text-heading"
+          className="rounded-md border border-base bg-bg-elevated/70 px-3 py-1.5 text-button-14 text-neutral transition hover:border-strong hover:bg-mono-800/70 hover:text-heading"
         >
           {s.label}
         </button>
@@ -1593,7 +1593,7 @@ function renderTranscript(
         closeGroup()
         nodes.push(
           <div key={key} className="mt-3">
-            <div className="mb-0.5 text-[10px] uppercase tracking-wider text-positive-400">Aero</div>
+            <div className="mb-0.5 text-label-12 normal-case text-positive-400">Aero</div>
             <AeroMarkdown content={text} />
           </div>,
         )
@@ -1658,11 +1658,11 @@ function UserMessageRow({
   return (
     <div className="group relative mt-3 rounded-md bg-bg-elevated/60 px-3 py-2 text-strong">
       <div className="flex items-center justify-between gap-2">
-        <div className="text-[10px] uppercase tracking-wider text-muted">You</div>
+        <div className="text-label-12 normal-case text-muted">You</div>
         {cliCopy && <button
           type="button"
           onClick={asyncHandler(handleCopy)}
-          className="inline-flex items-center gap-1 rounded border border-mono-800/70 bg-bg/60 px-1.5 py-0.5 text-[10px] text-secondary opacity-0 transition hover:border-strong hover:text-heading group-hover:opacity-100 focus:opacity-100"
+          className="inline-flex items-center gap-1 rounded border border-mono-800/70 bg-bg/60 px-1.5 py-0.5 text-button-14 text-secondary opacity-0 transition hover:border-strong hover:text-heading group-hover:opacity-100 focus:opacity-100"
           aria-label="Copy as CLI command"
           title={cliCommand}
         >
@@ -1877,7 +1877,7 @@ function ToolRunGroup({ trails, betweenSteps }: { trails: ToolTrail[]; betweenSt
   }
 
   return (
-    <div className="mt-3 rounded-md border border-mono-800/70 bg-surface-hover">
+    <div className="mt-3 material-base">
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
@@ -1896,16 +1896,16 @@ function ToolRunGroup({ trails, betweenSteps }: { trails: ToolTrail[]; betweenSt
             <Check className="h-3 w-3 text-muted" aria-hidden="true" />
           )}
         </span>
-        <span role={running ? 'status' : undefined} className="min-w-0 truncate text-sm font-medium text-heading">{title}</span>
+        <span role={running ? 'status' : undefined} className="min-w-0 truncate text-label-14-strong text-heading">{title}</span>
         {failedCount > 0 && (
-          <span className="shrink-0 rounded-md border border-negative-800/50 bg-negative-950/20 px-1.5 py-0.5 text-[10px] text-negative-400">
+          <span className="shrink-0 rounded-md border border-negative-800/50 bg-negative-950/20 px-1.5 py-0.5 text-label-12 text-negative-400">
             {failedCount} failed
           </span>
         )}
         {interrupted && (
-          <span className="shrink-0 rounded-md border border-mono-800/70 px-1.5 py-0.5 text-[10px] text-muted">interrupted</span>
+          <span className="shrink-0 rounded-md border border-mono-800/70 px-1.5 py-0.5 text-label-12 text-muted">interrupted</span>
         )}
-        <span className="ml-auto flex shrink-0 items-center gap-2 text-[10px] text-muted">
+        <span className="ml-auto flex shrink-0 items-center gap-2 text-label-12 text-muted">
           {running ? (
             <>
               {current && <span>step {steps.indexOf(current) + 1}</span>}
@@ -1953,7 +1953,7 @@ function TrailFold({ trails, title, muted = false }: { trails: ToolTrail[]; titl
 
   return (
     <div
-      className={single ? undefined : muted ? 'rounded-md' : 'rounded-md border border-mono-800/70 bg-surface-hover'}
+      className={single ? undefined : muted ? 'rounded-md' : 'material-base'}
       onFocus={keepOpen}
       onClick={keepOpen}
     >
@@ -1976,9 +1976,9 @@ function TrailFold({ trails, title, muted = false }: { trails: ToolTrail[]; titl
               )}
             </span>
           )}
-          <span className={muted ? 'text-xs text-muted' : 'text-sm font-medium text-heading'}>{title}</span>
-          {!muted && <span className="text-[10px] text-muted">×{trails.length}</span>}
-          <span className="ml-auto flex items-center gap-2 text-[10px] text-muted">
+          <span className={muted ? 'text-label-12 text-muted' : 'text-label-14-strong text-heading'}>{title}</span>
+          {!muted && <span className="text-label-12 text-muted">×{trails.length}</span>}
+          <span className="ml-auto flex items-center gap-2 text-label-12 text-muted">
             {running ? (
               <span className="text-positive-400">running…</span>
             ) : (
@@ -2043,8 +2043,8 @@ function ToolTrailRow({ trail }: { trail: ToolTrail }) {
             <Wrench className="h-3 w-3 text-muted" aria-hidden="true" />
           )}
         </span>
-        <span className="text-sm font-medium text-heading">{trailLabel(trail)}</span>
-        <span className="ml-auto flex items-center gap-2 text-[10px] text-muted">
+        <span className="text-label-14-strong text-heading">{trailLabel(trail)}</span>
+        <span className="ml-auto flex items-center gap-2 text-label-12 text-muted">
           {running ? (
             <span className="text-positive-400">running…</span>
           ) : (
@@ -2060,18 +2060,18 @@ function ToolTrailRow({ trail }: { trail: ToolTrail }) {
         </span>
       </button>
       {expanded && (
-        <div className="border-t border-default px-2.5 py-2 text-[11px] text-secondary">
-          <div className="mb-2 text-xs text-secondary">{trail.name}</div>
-          <div className="mb-1 text-xs text-secondary">Inputs</div>
-          <pre className="mb-2 overflow-x-auto whitespace-pre-wrap break-all text-xs text-neutral">
+        <div className="border-t border-default px-2.5 py-2 text-label-12 text-secondary">
+          <div className="mb-2 text-label-12 text-secondary">{trail.name}</div>
+          <div className="mb-1 text-label-12 text-secondary">Inputs</div>
+          <pre className="mb-2 overflow-x-auto whitespace-pre-wrap break-all text-copy-13 text-neutral">
             {formatJsonPreview(trail.args)}
           </pre>
           {!running && trail.result !== undefined && (
             <>
-              <div className="mb-1 text-[9px] uppercase tracking-wider text-faint">
+              <div className="mb-1 text-label-12 normal-case text-faint">
                 {failed ? 'Error' : 'Result'}
               </div>
-              <pre className="overflow-x-auto whitespace-pre-wrap break-all text-xs text-neutral">
+              <pre className="overflow-x-auto whitespace-pre-wrap break-all text-copy-13 text-neutral">
                 {formatJsonPreview(trail.result)}
               </pre>
             </>
@@ -2106,20 +2106,20 @@ function AeroMarkdown({ content }: { content: string }) {
         // table node, so a piped table renders as one run-on paragraph.
         remarkPlugins={[remarkGfm]}
         components={{
-          h1: (props) => <h1 {...props} className="mt-3 mb-2 text-base font-semibold text-primary" />,
-          h2: (props) => <h2 {...props} className="mt-3 mb-2 text-sm font-semibold text-primary" />,
-          h3: (props) => <h3 {...props} className="mt-3 mb-1.5 text-sm font-semibold text-heading" />,
-          h4: (props) => <h4 {...props} className="mt-2 mb-1 text-xs font-semibold uppercase tracking-wide text-neutral" />,
-          p: (props) => <p {...props} className="mb-2 leading-relaxed" />,
+          h1: (props) => <h1 {...props} className="mt-3 mb-2 text-heading-16 text-primary" />,
+          h2: (props) => <h2 {...props} className="mt-3 mb-2 text-heading-14 text-primary" />,
+          h3: (props) => <h3 {...props} className="mt-3 mb-1.5 text-heading-14 text-heading" />,
+          h4: (props) => <h4 {...props} className="mt-2 mb-1 text-heading-14 normal-case text-neutral" />,
+          p: (props) => <p {...props} className="mb-2 text-copy-14" />,
           ul: (props) => <ul {...props} className="mb-2 ml-4 list-disc space-y-1" />,
           ol: (props) => <ol {...props} className="mb-2 ml-4 list-decimal space-y-1" />,
           li: (props) => <li {...props} className="marker:text-mono-600" />,
-          strong: (props) => <strong {...props} className="font-semibold text-primary" />,
+          strong: (props) => <strong {...props} className="text-primary" />,
           em: (props) => <em {...props} className="text-strong" />,
           code: ({ children, ...props }) => (
             <code
               {...props}
-              className="rounded bg-mono-800/70 px-1 py-0.5 font-mono text-[12px] text-positive-200"
+              className="rounded bg-mono-800/70 px-1 py-0.5 text-label-12-mono text-positive-200"
             >
               {children}
             </code>
@@ -2127,7 +2127,7 @@ function AeroMarkdown({ content }: { content: string }) {
           pre: (props) => (
             <pre
               {...props}
-              className="mb-2 overflow-x-auto rounded-md border border-base bg-bg-elevated/70 p-3 font-mono text-xs text-strong"
+              className="mb-2 overflow-x-auto material-base p-3 text-copy-13-mono text-strong"
             />
           ),
           a: (props) => (
@@ -2140,11 +2140,11 @@ function AeroMarkdown({ content }: { content: string }) {
           ),
           table: (props) => (
             <div className="mb-2 overflow-x-auto">
-              <table {...props} className="w-full border-collapse text-xs" />
+              <table {...props} className="w-full border-collapse text-label-12" />
             </div>
           ),
           thead: (props) => <thead {...props} className="border-b border-base" />,
-          th: (props) => <th {...props} className="px-2 py-1 text-left font-semibold text-neutral" />,
+          th: (props) => <th {...props} className="px-2 py-1 text-left text-label-14-strong text-neutral" />,
           tr: (props) => <tr {...props} className="border-b border-mono-900" />,
           td: (props) => <td {...props} className="px-2 py-1 text-strong" />,
           blockquote: (props) => (
@@ -2165,7 +2165,7 @@ function AeroMarkdown({ content }: { content: string }) {
 /** Before the first step; the tool group owns progress once calls arrive. */
 function ThinkingIndicator() {
   return (
-    <div role="status" className="mt-3 flex items-center gap-2 py-1.5 text-sm text-secondary">
+    <div role="status" className="mt-3 flex items-center gap-2 py-1.5 text-label-14 text-secondary">
       <Loader2 className="h-3 w-3 shrink-0 animate-spin motion-reduce:animate-none" aria-hidden="true" />
       Thinking…
     </div>

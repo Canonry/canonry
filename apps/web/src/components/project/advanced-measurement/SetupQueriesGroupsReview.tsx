@@ -415,31 +415,31 @@ function PropertyChecklist({
 
   return (
     <fieldset>
-      <legend className="text-sm font-medium text-heading">{legend}</legend>
+      <legend className="text-label-14-strong text-heading">{legend}</legend>
       <div className="mt-3 flex flex-wrap items-end justify-between gap-3">
         <label className="block min-w-48 flex-1">
-          <span className="text-sm font-medium text-heading">Search Properties</span>
+          <span className="text-label-14-strong text-heading">Search Properties</span>
           <input
             type="search"
             value={search}
             onChange={event => setSearch(event.currentTarget.value)}
-            className="mt-1 block min-h-11 w-full rounded-md border border-default bg-surface px-3 py-2 text-sm text-primary outline-none placeholder-mono-600 focus:border-strong focus:ring-2 focus:ring-mono-400"
+            className="mt-1 block min-h-11 w-full rounded-md border border-default bg-surface px-3 py-2 text-label-14 text-primary outline-none placeholder-mono-400 focus:border-strong focus:ring-2 focus:ring-mono-400"
           />
         </label>
         {showBulkActions ? <div className="flex flex-wrap items-center gap-2">
-          <Button type="button" size="sm" variant="outline" className="min-h-11" disabled={visibleProperties.length === 0} onClick={selectAllShown}>Select all shown</Button>
-          <Button type="button" size="sm" variant="ghost" className="min-h-11" disabled={selectedPropertyIds.length === 0} onClick={() => onSelectedPropertyIdsChange([])}>Clear selection</Button>
+          <Button type="button" size="sm" variant="outline" className="pointer-coarse:min-h-11" disabled={visibleProperties.length === 0} onClick={selectAllShown}>Select all shown</Button>
+          <Button type="button" size="sm" variant="ghost" className="pointer-coarse:min-h-11" disabled={selectedPropertyIds.length === 0} onClick={() => onSelectedPropertyIdsChange([])}>Clear selection</Button>
         </div> : null}
       </div>
 
-      {filteredProperties.length === 0 ? <p className="mt-3 text-sm text-secondary">No Properties match this search.</p> : (
+      {filteredProperties.length === 0 ? <p className="mt-3 text-copy-14 text-secondary">No Properties match this search.</p> : (
         <>
-          <p className="mt-3 text-sm text-secondary">Showing {visibleProperties.length} of {filteredProperties.length} Properties</p>
+          <p className="mt-3 text-copy-14 text-secondary">Showing {visibleProperties.length} of {filteredProperties.length} Properties</p>
           <div className="mt-2 max-h-96 divide-y divide-default overflow-y-auto border-y border-default">
             {visibleProperties.map(property => {
               const selected = selectedPropertyIds.includes(property.id)
               return (
-                <label key={property.id} className="flex min-h-11 cursor-pointer items-center justify-between gap-3 py-2 text-sm text-primary">
+                <label key={property.id} className="flex min-h-11 cursor-pointer items-center justify-between gap-3 py-2 text-label-14 text-primary">
                   <span className="flex items-center gap-3">
                     <input
                       aria-label={`Select ${property.label}`}
@@ -454,7 +454,7 @@ function PropertyChecklist({
               )
             })}
           </div>
-          {hasHiddenProperties ? <Button type="button" size="sm" variant="outline" className="mt-3 min-h-11" onClick={() => setShowAll(true)}>Show all Properties</Button> : null}
+          {hasHiddenProperties ? <Button type="button" size="sm" variant="outline" className="mt-3 pointer-coarse:min-h-11" onClick={() => setShowAll(true)}>Show all Properties</Button> : null}
         </>
       )}
     </fieldset>
@@ -462,13 +462,13 @@ function PropertyChecklist({
 }
 
 function ViewerNotice() {
-  return <div className="flex items-center gap-2 text-sm text-secondary"><ToneBadge tone="neutral">Viewer access</ToneBadge><span>You can inspect this setup.</span></div>
+  return <div className="flex items-center gap-2 text-label-14 text-secondary"><ToneBadge tone="neutral">Viewer access</ToneBadge><span>You can inspect this setup.</span></div>
 }
 
 function UnavailableState({ message }: { message: string }) {
   return (
-    <div role="status" className="border-y border-caution-800/40 bg-caution-950/20 py-4 text-sm text-caution">
-      <div className="flex items-center gap-2"><ToneBadge tone="caution">Unavailable</ToneBadge><h4 className="font-medium">Measurement setup unavailable</h4></div>
+    <div role="status" className="border-y border-caution-800/40 bg-caution-950/20 py-4 text-label-14 text-caution">
+      <div className="flex items-center gap-2"><ToneBadge tone="caution">Unavailable</ToneBadge><h4 className="text-heading-14">Measurement setup unavailable</h4></div>
       <p className="mt-2 max-w-2xl text-secondary">{message}</p>
     </div>
   )
@@ -513,23 +513,23 @@ function GroupMembershipImportPanel({ value }: { value: AdvancedMeasurementGroup
   return (
     <section aria-labelledby="advanced-measurement-group-import-title" className="border-y border-default py-4">
       <div className="max-w-2xl">
-        <h4 id="advanced-measurement-group-import-title" className="text-sm font-medium text-heading">Import groups from CSV</h4>
-        <p className="mt-1 text-sm text-secondary">Import group membership once instead of selecting the same Properties repeatedly.</p>
+        <h4 id="advanced-measurement-group-import-title" className="text-heading-14 text-heading">Import groups from CSV</h4>
+        <p className="mt-1 text-copy-14 text-secondary">Import group membership once instead of selecting the same Properties repeatedly.</p>
       </div>
       <div className="mt-3 space-y-3">
         <label className="block max-w-xl">
-          <span className="text-sm font-medium text-heading">CSV file</span>
+          <span className="text-label-14-strong text-heading">CSV file</span>
           <input
             aria-label="Group membership CSV file"
             type="file"
             accept=".csv,text/csv"
             disabled={value.isReviewing || value.isApplying}
             onChange={event => { void readCsvFile(event.currentTarget.files?.[0]) }}
-            className="mt-1 block min-h-11 w-full text-sm text-secondary file:mr-3 file:min-h-11 file:rounded-md file:border file:border-default file:bg-surface file:px-3 file:text-sm file:font-medium file:text-primary"
+            className="mt-1 block min-h-11 w-full text-label-14 text-secondary file:mr-3 file:min-h-11 file:rounded-md file:border file:border-default file:bg-surface file:px-3 file:text-label-14-strong file:text-primary"
           />
         </label>
         <label className="block max-w-xl">
-          <span className="text-sm font-medium text-heading">Or paste CSV</span>
+          <span className="text-label-14-strong text-heading">Or paste CSV</span>
           <textarea
             aria-label="Group membership CSV"
             rows={5}
@@ -537,23 +537,23 @@ function GroupMembershipImportPanel({ value }: { value: AdvancedMeasurementGroup
             disabled={value.isReviewing || value.isApplying}
             onChange={event => value.onCsvChange(event.currentTarget.value)}
             placeholder={'property,group,url\nHarbor House,Dallas,https://example.com/harbor-house'}
-            className="mt-1 block w-full rounded-md border border-default bg-surface px-3 py-2 text-sm text-primary outline-none placeholder-mono-600 focus:border-strong focus:ring-2 focus:ring-mono-400 disabled:cursor-not-allowed disabled:opacity-60"
+            className="mt-1 block w-full rounded-md border border-default bg-surface px-3 py-2 text-copy-14 text-primary outline-none placeholder-mono-400 focus:border-strong focus:ring-2 focus:ring-mono-400 disabled:cursor-not-allowed disabled:opacity-60"
           />
         </label>
         <div className="flex flex-wrap items-center gap-3">
-          <Button type="button" size="sm" variant="outline" className="min-h-11" disabled={!canReview} onClick={() => { void value.onReview() }}>
+          <Button type="button" size="sm" variant="outline" className="pointer-coarse:min-h-11" disabled={!canReview} onClick={() => { void value.onReview() }}>
             {value.isReviewing ? 'Reviewing CSV…' : 'Review CSV'}
           </Button>
-          <span className="text-sm text-secondary">Use columns named property and group. URL is optional.</span>
+          <span className="text-label-14 text-secondary">Use columns named property and group. URL is optional.</span>
         </div>
-        {value.error ? <p role="alert" className="text-sm text-negative">{value.error}</p> : null}
-        {value.notice ? <p role="status" className="text-sm text-secondary">{value.notice}</p> : null}
+        {value.error ? <p role="alert" className="text-copy-14 text-negative">{value.error}</p> : null}
+        {value.notice ? <p role="status" className="text-copy-14 text-secondary">{value.notice}</p> : null}
       </div>
 
       {preview ? (
         <div className="mt-4 border-t border-default pt-4" aria-live="polite">
-          <h5 className="text-sm font-medium text-heading">Review group membership</h5>
-          <p className="mt-1 text-sm text-secondary">
+          <h5 className="text-heading-14 text-heading">Review group membership</h5>
+          <p className="mt-1 text-copy-14 text-secondary">
             {preview.counts.matchedRows} matched · {preview.counts.groupsReady} group{preview.counts.groupsReady === 1 ? '' : 's'} ready
             {attentionCount > 0 ? ` · ${attentionCount} need${attentionCount === 1 ? 's' : ''} attention` : ''}
           </p>
@@ -565,7 +565,7 @@ function GroupMembershipImportPanel({ value }: { value: AdvancedMeasurementGroup
                 <tbody>
                   {preview.groupChanges.map(change => (
                     <tr key={change.groupKey}>
-                      <td className="font-medium text-heading">{change.label}</td>
+                      <td className="text-label-14-strong text-heading">{change.label}</td>
                       <td className="text-secondary">{change.action === 'create' ? 'Create group' : 'Add to existing group'}</td>
                       <td className="tabular-nums text-secondary">{change.targetKeys.length}</td>
                       <td className="tabular-nums text-secondary">{change.addedTargetKeys.length}{change.unchangedTargetKeys.length > 0 ? ` · ${change.unchangedTargetKeys.length} already members` : ''}</td>
@@ -577,7 +577,7 @@ function GroupMembershipImportPanel({ value }: { value: AdvancedMeasurementGroup
           ) : null}
           {preview.rows.length > 0 ? (
             <details className="mt-3 border-y border-default py-3">
-              <summary className="flex min-h-11 cursor-pointer items-center text-sm font-medium text-heading">Review CSV rows ({preview.counts.dataRows})</summary>
+              <summary className="flex min-h-11 cursor-pointer items-center text-label-14-strong text-heading">Review CSV rows ({preview.counts.dataRows})</summary>
               <div className="mt-3 overflow-x-auto border-y border-default">
                 <table className="evidence-table min-w-[620px]">
                   <caption className="sr-only">CSV group membership review</caption>
@@ -590,24 +590,24 @@ function GroupMembershipImportPanel({ value }: { value: AdvancedMeasurementGroup
                         <td className="text-secondary">{row.group}</td>
                         <td>
                           <ToneBadge tone={membershipTone(row.status)}>{membershipLabel(row.status)}</ToneBadge>
-                          {membershipMessage(row) ? <p className="mt-1 text-sm text-secondary">{membershipMessage(row)}</p> : null}
+                          {membershipMessage(row) ? <p className="mt-1 text-copy-14 text-secondary">{membershipMessage(row)}</p> : null}
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-              <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-secondary">
+              <div className="mt-3 flex flex-wrap items-center gap-3 text-label-14 text-secondary">
                 <span>Page {shownRowPage + 1} of {rowPageCount} · {preview.rows.length} rows</span>
-                <Button type="button" size="sm" variant="outline" className="min-h-11" disabled={shownRowPage === 0} onClick={() => setRowPage(page => Math.max(0, page - 1))}>Previous 50 rows</Button>
-                <Button type="button" size="sm" variant="outline" className="min-h-11" disabled={shownRowPage === rowPageCount - 1} onClick={() => setRowPage(page => Math.min(rowPageCount - 1, page + 1))}>Next 50 rows</Button>
+                <Button type="button" size="sm" variant="outline" className="pointer-coarse:min-h-11" disabled={shownRowPage === 0} onClick={() => setRowPage(page => Math.max(0, page - 1))}>Previous 50 rows</Button>
+                <Button type="button" size="sm" variant="outline" className="pointer-coarse:min-h-11" disabled={shownRowPage === rowPageCount - 1} onClick={() => setRowPage(page => Math.min(rowPageCount - 1, page + 1))}>Next 50 rows</Button>
               </div>
             </details>
           ) : null}
           {attentionCount > 0 ? (
             <details className="mt-3 border-y border-caution-800/30 py-3">
-              <summary className="flex min-h-11 cursor-pointer items-center text-sm font-medium text-heading">Fix {attentionCount} row{attentionCount === 1 ? '' : 's'} before applying</summary>
-              <p className="mt-2 text-sm text-secondary">Correct these rows, or explicitly continue with only the reviewed matches. Rows needing attention are not added.</p>
+              <summary className="flex min-h-11 cursor-pointer items-center text-label-14-strong text-heading">Fix {attentionCount} row{attentionCount === 1 ? '' : 's'} before applying</summary>
+              <p className="mt-2 text-copy-14 text-secondary">Correct these rows, or explicitly continue with only the reviewed matches. Rows needing attention are not added.</p>
               <div className="mt-3 overflow-x-auto border-y border-default">
                 <table className="evidence-table min-w-[620px]">
                   <caption className="sr-only">CSV rows that need attention</caption>
@@ -618,18 +618,18 @@ function GroupMembershipImportPanel({ value }: { value: AdvancedMeasurementGroup
                         <td className="tabular-nums text-secondary">{row.dataRow}</td>
                         <td className="text-heading">{row.property}</td>
                         <td className="text-secondary">{row.group}</td>
-                        <td><ToneBadge tone={membershipTone(row.status)}>{membershipLabel(row.status)}</ToneBadge>{membershipMessage(row) ? <p className="mt-1 text-sm text-secondary">{membershipMessage(row)}</p> : null}</td>
+                        <td><ToneBadge tone={membershipTone(row.status)}>{membershipLabel(row.status)}</ToneBadge>{membershipMessage(row) ? <p className="mt-1 text-copy-14 text-secondary">{membershipMessage(row)}</p> : null}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-              <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-secondary">
+              <div className="mt-3 flex flex-wrap items-center gap-3 text-label-14 text-secondary">
                 <span>Exception page {shownAttentionPage + 1} of {attentionPageCount}</span>
-                <Button type="button" size="sm" variant="outline" className="min-h-11" disabled={shownAttentionPage === 0} onClick={() => setAttentionPage(page => Math.max(0, page - 1))}>Previous 50 exceptions</Button>
-                <Button type="button" size="sm" variant="outline" className="min-h-11" disabled={shownAttentionPage === attentionPageCount - 1} onClick={() => setAttentionPage(page => Math.min(attentionPageCount - 1, page + 1))}>Review next 50 exceptions</Button>
+                <Button type="button" size="sm" variant="outline" className="pointer-coarse:min-h-11" disabled={shownAttentionPage === 0} onClick={() => setAttentionPage(page => Math.max(0, page - 1))}>Previous 50 exceptions</Button>
+                <Button type="button" size="sm" variant="outline" className="pointer-coarse:min-h-11" disabled={shownAttentionPage === attentionPageCount - 1} onClick={() => setAttentionPage(page => Math.min(attentionPageCount - 1, page + 1))}>Review next 50 exceptions</Button>
               </div>
-              <label className="mt-3 flex min-h-11 max-w-xl items-center gap-3 text-sm text-heading">
+              <label className="mt-3 flex min-h-11 max-w-xl items-center gap-3 text-label-14 text-heading">
                 <input
                   type="checkbox"
                   checked={skippedRowsAcknowledged}
@@ -639,12 +639,12 @@ function GroupMembershipImportPanel({ value }: { value: AdvancedMeasurementGroup
                 />
                 I reviewed the exceptions and understand that {attentionCount} row{attentionCount === 1 ? '' : 's'} will be skipped.
               </label>
-              <Button type="button" size="sm" variant="outline" className="mt-3 min-h-11" disabled={!canApply || !skippedRowsAcknowledged} onClick={() => { void value.onApply(matchedRows.map(row => row.dataRow)) }}>
+              <Button type="button" size="sm" variant="outline" className="mt-3 pointer-coarse:min-h-11" disabled={!canApply || !skippedRowsAcknowledged} onClick={() => { void value.onApply(matchedRows.map(row => row.dataRow)) }}>
                 {value.isApplying ? 'Applying groups…' : `Apply ${matchedRows.length} matched row${matchedRows.length === 1 ? '' : 's'}`}
               </Button>
             </details>
           ) : (
-            <Button type="button" className="mt-3 min-h-11" disabled={!canApply} onClick={() => { void value.onApply(matchedRows.map(row => row.dataRow)) }}>
+            <Button type="button" className="mt-3 pointer-coarse:min-h-11" disabled={!canApply} onClick={() => { void value.onApply(matchedRows.map(row => row.dataRow)) }}>
               {value.isApplying ? 'Creating groups…' : `Create ${preview.counts.groupsReady} group${preview.counts.groupsReady === 1 ? '' : 's'} with ${matchedRows.length} membership${matchedRows.length === 1 ? '' : 's'}`}
             </Button>
           )}
@@ -767,7 +767,7 @@ export function AdvancedMeasurementQueriesStep({
       <div className="section-head">
         <div>
           <h3 id="advanced-measurement-queries-title">Queries</h3>
-          <p className="mt-1 max-w-2xl text-sm text-secondary">Choose queries, then apply them to locations.</p>
+          <p className="mt-1 max-w-2xl text-copy-14 text-secondary">Choose queries, then apply them to locations.</p>
         </div>
       </div>
 
@@ -775,10 +775,10 @@ export function AdvancedMeasurementQueriesStep({
 
       {viewer ? null : (
         <fieldset className="border-y border-default py-4">
-          <legend className="text-sm font-medium text-heading">Apply to</legend>
+          <legend className="text-label-14-strong text-heading">Apply to</legend>
           <div className="mt-3 grid max-w-2xl gap-3 sm:grid-cols-2">
             <label className="block">
-              <span className="text-sm font-medium text-heading">Locations or group</span>
+              <span className="text-label-14-strong text-heading">Locations or group</span>
               <select
                 aria-label="Apply to"
                 value={activeAudience.kind === 'none'
@@ -796,7 +796,7 @@ export function AdvancedMeasurementQueriesStep({
                   }
                   else if (value.startsWith('group:')) updateAudience({ kind: 'groups', groupIds: [value.slice('group:'.length)] })
                 }}
-                className="mt-1 block min-h-11 w-full rounded-md border border-default bg-surface px-3 py-2 text-sm text-primary outline-none focus:border-strong focus:ring-2 focus:ring-mono-400"
+                className="mt-1 block min-h-11 w-full rounded-md border border-default bg-surface px-3 py-2 text-label-14 text-primary outline-none focus:border-strong focus:ring-2 focus:ring-mono-400"
               >
                 <option value="" disabled>Choose where to apply</option>
                 <option value="all">Every location ({properties.length})</option>
@@ -813,12 +813,12 @@ export function AdvancedMeasurementQueriesStep({
             </label>
             {executionOptions.length > 0 && onExecutionOptionChange ? (
               <label className="block">
-                <span className="text-sm font-medium text-heading">Answer engine</span>
+                <span className="text-label-14-strong text-heading">Answer engine</span>
                 <select
                   aria-label="Answer engine for these assignments"
                   value={executionOptionId}
                   onChange={event => onExecutionOptionChange(event.currentTarget.value)}
-                  className="mt-1 block min-h-11 w-full rounded-md border border-default bg-surface px-3 py-2 text-sm text-primary outline-none focus:border-strong focus:ring-2 focus:ring-mono-400"
+                  className="mt-1 block min-h-11 w-full rounded-md border border-default bg-surface px-3 py-2 text-label-14 text-primary outline-none focus:border-strong focus:ring-2 focus:ring-mono-400"
                 >
                   <option value="">Keep existing or use portfolio defaults</option>
                   {executionOptions.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}
@@ -826,7 +826,7 @@ export function AdvancedMeasurementQueriesStep({
               </label>
             ) : null}
           </div>
-          {executionOptions.length > 0 ? <p className="mt-2 max-w-2xl text-sm text-secondary">The answer engine is saved on assignments for these locations or groups.</p> : null}
+          {executionOptions.length > 0 ? <p className="mt-2 max-w-2xl text-copy-14 text-secondary">The answer engine is saved on assignments for these locations or groups.</p> : null}
 
           {activeAudience.kind === 'groups' ? (
             <div className="mt-3 max-w-2xl space-y-3">
@@ -835,7 +835,7 @@ export function AdvancedMeasurementQueriesStep({
                   const group = groups.find(candidate => candidate.id === groupId)
                   if (!group) return null
                   return (
-                    <span key={group.id} className="inline-flex min-h-11 items-center gap-1 rounded-md border border-default bg-surface px-2 text-sm text-primary">
+                    <span key={group.id} className="inline-flex min-h-11 items-center gap-1 rounded-md border border-default bg-surface px-2 text-label-14 text-primary">
                       {audienceOptionLabel(group, properties)}
                       <button
                         type="button"
@@ -854,7 +854,7 @@ export function AdvancedMeasurementQueriesStep({
               </div>
               {groups.some(group => !activeAudience.groupIds.includes(group.id) && selectedAudiencePropertyIds({ kind: 'groups', groupIds: [group.id] }, properties, groups).length > 0) ? (
                 <label className="block max-w-sm">
-                  <span className="text-sm font-medium text-heading">Add another group</span>
+                  <span className="text-label-14-strong text-heading">Add another group</span>
                   <select
                     aria-label="Add another group"
                     value=""
@@ -862,7 +862,7 @@ export function AdvancedMeasurementQueriesStep({
                       if (!event.currentTarget.value) return
                       updateAudience({ kind: 'groups', groupIds: [...activeAudience.groupIds, event.currentTarget.value] })
                     }}
-                    className="mt-1 block min-h-11 w-full rounded-md border border-default bg-surface px-3 py-2 text-sm text-primary outline-none focus:border-strong focus:ring-2 focus:ring-mono-400"
+                    className="mt-1 block min-h-11 w-full rounded-md border border-default bg-surface px-3 py-2 text-label-14 text-primary outline-none focus:border-strong focus:ring-2 focus:ring-mono-400"
                   >
                     <option value="">Choose a group</option>
                     {groups.filter(group => !activeAudience.groupIds.includes(group.id)).map(group => {
@@ -872,7 +872,7 @@ export function AdvancedMeasurementQueriesStep({
                   </select>
                 </label>
               ) : null}
-              {selectedPropertyCount === 0 ? <p role="alert" className="text-sm text-caution">This group has no included Properties. Add Properties to the group, then try again.</p> : null}
+              {selectedPropertyCount === 0 ? <p role="alert" className="text-copy-14 text-caution">This group has no included Properties. Add Properties to the group, then try again.</p> : null}
             </div>
           ) : null}
 
@@ -889,34 +889,34 @@ export function AdvancedMeasurementQueriesStep({
               />
             </div>
           ) : null}
-          <p className="mt-3 max-w-2xl text-sm text-secondary">Groups are shortcuts resolved when you assign. Changing membership later does not rewrite existing assignments, and a Property added later does not receive earlier group queries.</p>
+          <p className="mt-3 max-w-2xl text-copy-14 text-secondary">Groups are shortcuts resolved when you assign. Changing membership later does not rewrite existing assignments, and a Property added later does not receive earlier group queries.</p>
         </fieldset>
       )}
 
       {viewer || markets.length === 0 || executionOptions.length === 0 || !onMarketChange || !onMarketExecutionOptionChange || !onRouteMarket ? null : (
         <fieldset className="border-b border-default pb-4">
-          <legend className="text-sm font-medium text-heading">Market routing</legend>
-          <p className="mt-1 max-w-2xl text-sm text-secondary">Choose the answer engine for one saved market. Its existing answer-engine locations stay unchanged.</p>
+          <legend className="text-label-14-strong text-heading">Market routing</legend>
+          <p className="mt-1 max-w-2xl text-copy-14 text-secondary">Choose the answer engine for one saved market. Its existing answer-engine locations stay unchanged.</p>
           <div className="mt-3 grid max-w-2xl gap-3 sm:grid-cols-2">
             <label className="block">
-              <span className="text-sm font-medium text-heading">Market</span>
+              <span className="text-label-14-strong text-heading">Market</span>
               <select
                 aria-label="Market to route"
                 value={marketId}
                 onChange={event => onMarketChange(event.currentTarget.value)}
-                className="mt-1 block min-h-11 w-full rounded-md border border-default bg-surface px-3 py-2 text-sm text-primary outline-none focus:border-strong focus:ring-2 focus:ring-mono-400"
+                className="mt-1 block min-h-11 w-full rounded-md border border-default bg-surface px-3 py-2 text-label-14 text-primary outline-none focus:border-strong focus:ring-2 focus:ring-mono-400"
               >
                 <option value="">Choose a market</option>
                 {markets.map(market => <option key={market.id} value={market.id}>{market.label} · {market.measurementCount} saved measurement{market.measurementCount === 1 ? '' : 's'}</option>)}
               </select>
             </label>
             <label className="block">
-              <span className="text-sm font-medium text-heading">Answer engine</span>
+              <span className="text-label-14-strong text-heading">Answer engine</span>
               <select
                 aria-label="Answer engine for this market"
                 value={marketExecutionOptionId}
                 onChange={event => onMarketExecutionOptionChange(event.currentTarget.value)}
-                className="mt-1 block min-h-11 w-full rounded-md border border-default bg-surface px-3 py-2 text-sm text-primary outline-none focus:border-strong focus:ring-2 focus:ring-mono-400"
+                className="mt-1 block min-h-11 w-full rounded-md border border-default bg-surface px-3 py-2 text-label-14 text-primary outline-none focus:border-strong focus:ring-2 focus:ring-mono-400"
               >
                 <option value="">Choose an answer engine</option>
                 {executionOptions.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}
@@ -924,23 +924,23 @@ export function AdvancedMeasurementQueriesStep({
             </label>
           </div>
           <div className="mt-3 flex flex-wrap items-center gap-3">
-            <Button type="button" size="sm" className="min-h-11" disabled={!marketId || !marketExecutionOptionId || isBusy || isRoutingMarket || isPreviewingMarketRouting || marketRoutingImpact === null || marketRoutingImpact.changedMeasurements === 0 || marketRoutingError !== null} onClick={() => { void onRouteMarket() }}>
+            <Button type="button" size="sm" className="pointer-coarse:min-h-11" disabled={!marketId || !marketExecutionOptionId || isBusy || isRoutingMarket || isPreviewingMarketRouting || marketRoutingImpact === null || marketRoutingImpact.changedMeasurements === 0 || marketRoutingError !== null} onClick={() => { void onRouteMarket() }}>
               {isRoutingMarket ? 'Saving market routing…' : 'Save market routing'}
             </Button>
-            {marketRoutingNotice ? <p role="status" className="text-sm text-secondary">{marketRoutingNotice}</p> : null}
+            {marketRoutingNotice ? <p role="status" className="text-copy-14 text-secondary">{marketRoutingNotice}</p> : null}
           </div>
           <div className="mt-2 min-h-5">
-            {isPreviewingMarketRouting ? <p role="status" className="text-sm text-secondary">Calculating market impact…</p> : null}
+            {isPreviewingMarketRouting ? <p role="status" className="text-copy-14 text-secondary">Calculating market impact…</p> : null}
             {marketRoutingImpact ? (
-              <p className="text-sm text-secondary">
+              <p className="text-copy-14 text-secondary">
                 {marketRoutingImpact.changedMeasurements} of {marketRoutingImpact.matchedMeasurements} saved measurement{marketRoutingImpact.matchedMeasurements === 1 ? '' : 's'} will change
                 {' · '}{marketRoutingImpact.addedProviderCalls} new provider request{marketRoutingImpact.addedProviderCalls === 1 ? '' : 's'}
                 {' · '}{marketRoutingImpact.fullRunProviderCalls} per full run
               </p>
             ) : marketRoutingError ? (
               <div className="flex flex-wrap items-center gap-3">
-                <p role="alert" className="text-sm text-negative">{marketRoutingError}</p>
-                {onRetryMarketRouting ? <Button type="button" size="sm" variant="outline" className="min-h-11" onClick={onRetryMarketRouting}>Retry impact</Button> : null}
+                <p role="alert" className="text-copy-14 text-negative">{marketRoutingError}</p>
+                {onRetryMarketRouting ? <Button type="button" size="sm" variant="outline" className="pointer-coarse:min-h-11" onClick={onRetryMarketRouting}>Retry impact</Button> : null}
               </div>
             ) : null}
           </div>
@@ -949,29 +949,29 @@ export function AdvancedMeasurementQueriesStep({
 
       {viewer || !onCreateQueries ? null : (
         <details open={queries.length === 0} className="border-y border-default py-4">
-          <summary className="flex min-h-11 cursor-pointer items-center text-sm font-medium text-heading">Add queries</summary>
+          <summary className="flex min-h-11 cursor-pointer items-center text-label-14-strong text-heading">Add queries</summary>
           <div className="pt-3">
-            <h4 className="m-0 text-sm font-medium text-heading">
+            <h4 className="m-0 text-heading-14 text-heading">
               {queries.length === 0 ? 'Add the queries you want to track' : 'Add more queries'}
             </h4>
-            <p className="mt-1 mb-2 text-sm text-secondary">One per line. Add them to the project, then apply them to Properties.</p>
+            <p className="mt-1 mb-2 text-copy-14 text-secondary">One per line. Add them to the project, then apply them to Properties.</p>
             <textarea
               aria-label="New queries, one per line"
-              className="w-full rounded border border-strong bg-transparent px-3 py-2 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
+              className="w-full rounded border border-strong bg-transparent px-3 py-2 text-copy-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none"
               rows={4}
               value={newQueriesText}
               onChange={event => setNewQueriesText(event.currentTarget.value)}
               placeholder={'best apartments in dallas\nluxury apartments atlanta\npet friendly apartments austin'}
             />
             {createQueriesError ? (
-              <p role="alert" className="mt-2 text-sm text-negative">{createQueriesError}</p>
+              <p role="alert" className="mt-2 text-copy-14 text-negative">{createQueriesError}</p>
             ) : null}
             <div className="mt-2 flex flex-wrap items-center gap-3">
               <Button
                 type="button"
                 size="sm"
                 variant="outline"
-                className="min-h-11"
+                className="pointer-coarse:min-h-11"
                 disabled={parsedNewQueries.length === 0 || isCreatingQueries || isBusy}
                 onClick={() => {
                   void Promise.resolve(onCreateQueries(parsedNewQueries))
@@ -983,43 +983,43 @@ export function AdvancedMeasurementQueriesStep({
                   : `Add ${parsedNewQueries.length || ''} ${parsedNewQueries.length === 1 ? 'query' : 'queries'}`.replace('  ', ' ')}
               </Button>
               {onManageProjectQueries ? (
-                <Button type="button" size="sm" variant="ghost" className="min-h-11" disabled={isBusy} onClick={onManageProjectQueries}>
+                <Button type="button" size="sm" variant="ghost" className="pointer-coarse:min-h-11" disabled={isBusy} onClick={onManageProjectQueries}>
                   Manage project queries
                 </Button>
               ) : null}
             </div>
 
             <div className="mt-4 border-t border-default pt-4">
-              <h4 className="m-0 text-sm font-medium text-heading">Write one query for every Property</h4>
-              <p className="mt-1 mb-2 text-sm text-secondary">
+              <h4 className="m-0 text-heading-14 text-heading">Write one query for every Property</h4>
+              <p className="mt-1 mb-2 text-copy-14 text-secondary">
                 Put <code className="rounded bg-bg-elevated px-1">{'{property}'}</code> where the
                 Property name belongs. You get one query per selected Property.
               </p>
               <input
                 aria-label="Query pattern"
-                className="min-h-11 w-full rounded border border-strong bg-transparent px-3 py-2 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
+                className="min-h-11 w-full rounded border border-strong bg-transparent px-3 py-2 text-label-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none"
                 value={patternText}
                 onChange={event => setPatternText(event.target.value)}
                 placeholder="apartments near {property}"
               />
               {patternText.trim() === '' ? null : patternPlaceholders.length === 0 ? (
-                <p className="mt-2 text-sm text-caution">
+                <p className="mt-2 text-copy-14 text-caution">
                   Add {'{property}'} to the pattern, or use the box above for a single query.
                 </p>
               ) : patternTargets.length === 0 ? (
-                <p className="mt-2 text-sm text-caution">Select at least one Property to write queries for.</p>
+                <p className="mt-2 text-copy-14 text-caution">Select at least one Property to write queries for.</p>
               ) : (
-                <div className="mt-2 rounded-md border border-base bg-bg-elevated p-3">
-                  <p className="m-0 text-sm text-secondary">
+                <div className="mt-2 material-base p-3">
+                  <p className="m-0 text-copy-14 text-secondary">
                     {patternExpansions.length} {patternExpansions.length === 1 ? 'query' : 'queries'}, one per selected Property:
                   </p>
                   <ul className="mt-1 mb-0 list-none space-y-0.5 p-0">
                     {patternExpansions.slice(0, 3).map(text => (
-                      <li key={text} className="text-sm text-strong">{text}</li>
+                      <li key={text} className="text-label-14 text-strong">{text}</li>
                     ))}
                   </ul>
                   {patternExpansions.length > 3 ? (
-                    <p className="mt-1 mb-0 text-sm text-secondary">
+                    <p className="mt-1 mb-0 text-copy-14 text-secondary">
                       and {patternExpansions.length - 3} more
                     </p>
                   ) : null}
@@ -1029,7 +1029,7 @@ export function AdvancedMeasurementQueriesStep({
                 type="button"
                 size="sm"
                 variant="outline"
-                className="mt-2 min-h-11"
+                className="mt-2 pointer-coarse:min-h-11"
                 disabled={patternPairs.length === 0 || isCreatingQueries || isBusy || !onCreateAndPairQuestions}
                 onClick={() => {
                   if (!onCreateAndPairQuestions) return
@@ -1042,7 +1042,7 @@ export function AdvancedMeasurementQueriesStep({
                   : `Add ${patternPairs.length || ''} ${patternPairs.length === 1 ? 'query' : 'queries'}`.replace('  ', ' ')}
               </Button>
               {patternPairs.length > 0 ? (
-                <p className="mt-2 mb-0 text-sm text-secondary">
+                <p className="mt-2 mb-0 text-copy-14 text-secondary">
                   Each query is measured on the one Property it names, so this adds{' '}
                   {patternPairs.length} assignment{patternPairs.length === 1 ? '' : 's'}.
                 </p>
@@ -1061,7 +1061,7 @@ export function AdvancedMeasurementQueriesStep({
               type="button"
               size="sm"
               variant="ghost"
-              className="min-h-11"
+              className="pointer-coarse:min-h-11"
               disabled={selectableVisibleQueries.length === 0}
               onClick={selectAllShownQueries}
             >
@@ -1071,7 +1071,7 @@ export function AdvancedMeasurementQueriesStep({
               type="button"
               size="sm"
               variant="ghost"
-              className="min-h-11"
+              className="pointer-coarse:min-h-11"
               disabled={selectedQueryIds.length === 0}
               onClick={() => onSelectedQueryIdsChange([])}
             >
@@ -1080,7 +1080,7 @@ export function AdvancedMeasurementQueriesStep({
             <Button
               type="button"
               size="sm"
-              className="min-h-11"
+              className="pointer-coarse:min-h-11"
               disabled={!canApply}
               onClick={() => {
                 void onApplySelectedQueries({
@@ -1101,9 +1101,9 @@ export function AdvancedMeasurementQueriesStep({
               the cursor.
             */}
             <div className="min-h-[2.75rem]">
-            {isPreviewingAssignmentImpact ? <p role="status" className="text-sm text-secondary">Calculating assignment impact…</p> : null}
+            {isPreviewingAssignmentImpact ? <p role="status" className="text-copy-14 text-secondary">Calculating assignment impact…</p> : null}
             {assignmentImpact ? (
-              <p className="text-sm text-secondary">
+              <p className="text-copy-14 text-secondary">
                 {selectedQueryIds.length} {selectedQueryIds.length === 1 ? 'query' : 'queries'} → {assignmentImpact.assignmentCount} Property assignment{assignmentImpact.assignmentCount === 1 ? '' : 's'}
                 {' · '}{assignmentImpact.addedAssignments} new, {assignmentImpact.alreadyPresentAssignments} already assigned
                 {' · '}{assignmentImpact.fullRunProviderCalls} provider request{assignmentImpact.fullRunProviderCalls === 1 ? '' : 's'} per full run
@@ -1113,17 +1113,17 @@ export function AdvancedMeasurementQueriesStep({
               </p>
             ) : assignmentImpactError ? (
               <div className="flex flex-wrap items-center gap-3">
-                <p role="alert" className="text-sm text-negative">{assignmentImpactError}</p>
-                {onRetryAssignmentImpact ? <Button type="button" size="sm" variant="outline" className="min-h-11" onClick={onRetryAssignmentImpact}>Retry impact</Button> : null}
-                {onBack ? <Button type="button" size="sm" variant="outline" className="min-h-11" onClick={onBack}>Back to Groups</Button> : null}
+                <p role="alert" className="text-copy-14 text-negative">{assignmentImpactError}</p>
+                {onRetryAssignmentImpact ? <Button type="button" size="sm" variant="outline" className="pointer-coarse:min-h-11" onClick={onRetryAssignmentImpact}>Retry impact</Button> : null}
+                {onBack ? <Button type="button" size="sm" variant="outline" className="pointer-coarse:min-h-11" onClick={onBack}>Back to Groups</Button> : null}
               </div>
             ) : activeAudience.kind === 'none' ? (
-              <p className="text-sm text-secondary">Choose where to apply first.</p>
+              <p className="text-copy-14 text-secondary">Choose where to apply first.</p>
             ) : (
-              <p className="text-sm text-secondary">{selectedQueryIds.length} {selectedQueryIds.length === 1 ? 'query' : 'queries'} × {selectedPropertyCount} Properties = {selectedQueryIds.length * selectedPropertyCount} assignments</p>
+              <p className="text-copy-14 text-secondary">{selectedQueryIds.length} {selectedQueryIds.length === 1 ? 'query' : 'queries'} × {selectedPropertyCount} Properties = {selectedQueryIds.length * selectedPropertyCount} assignments</p>
             )}
             </div>
-            {assignmentNotice ? <p role="status" className="text-sm text-secondary">{assignmentNotice}</p> : null}
+            {assignmentNotice ? <p role="status" className="text-copy-14 text-secondary">{assignmentNotice}</p> : null}
           </div>
           )}
         </div>
@@ -1132,7 +1132,7 @@ export function AdvancedMeasurementQueriesStep({
       {queries.length > 0 ? (
         <div className="space-y-3">
           <label className="block max-w-xl">
-            <span className="text-sm font-medium text-heading">Search queries</span>
+            <span className="text-label-14-strong text-heading">Search queries</span>
             <input
               type="search"
               value={querySearch}
@@ -1140,12 +1140,12 @@ export function AdvancedMeasurementQueriesStep({
                 setQuerySearch(event.currentTarget.value)
                 setShowAllQueries(false)
               }}
-              className="mt-1 block min-h-11 w-full rounded-md border border-default bg-surface px-3 py-2 text-sm text-primary outline-none placeholder-mono-600 focus:border-strong focus:ring-2 focus:ring-mono-400"
+              className="mt-1 block min-h-11 w-full rounded-md border border-default bg-surface px-3 py-2 text-label-14 text-primary outline-none placeholder-mono-400 focus:border-strong focus:ring-2 focus:ring-mono-400"
               placeholder="Query text"
             />
           </label>
           <div className="flex flex-wrap items-center gap-3">
-            <p className="m-0 text-sm text-secondary">
+            <p className="m-0 text-copy-14 text-secondary">
               Showing {visibleQueries.length} of {listedQueries.length} queries,{' '}
               {filteredQueries.length - unappliedQueries.length} of {filteredQueries.length} applied
             </p>
@@ -1154,7 +1154,7 @@ export function AdvancedMeasurementQueriesStep({
                 type="button"
                 size="sm"
                 variant="ghost"
-                className="min-h-11"
+                className="pointer-coarse:min-h-11"
                 onClick={() => { setShowUnappliedOnly(current => !current); setShowAllQueries(false) }}
               >
                 {showUnappliedOnly ? 'Show all queries' : `Show the ${unappliedQueries.length} not applied`}
@@ -1165,7 +1165,7 @@ export function AdvancedMeasurementQueriesStep({
       ) : null}
 
       {visibleQueries.length > 0 ? (
-        <div className="overflow-x-auto border-y border-default">
+        <div className="relative overflow-x-auto border-y border-default">
           <table className="evidence-table min-w-[620px]">
           <thead>
             <tr>
@@ -1197,7 +1197,7 @@ export function AdvancedMeasurementQueriesStep({
                     </td>
                   )}
                   <td>
-                    <p className="font-medium text-heading">{label}</p>
+                    <p className="text-copy-14-strong text-heading">{label}</p>
                   </td>
                   <td className="text-secondary">{propertyNames(query.propertyIds ?? [], properties)}</td>
                   {viewer ? null : (
@@ -1209,7 +1209,7 @@ export function AdvancedMeasurementQueriesStep({
                               type="button"
                               size="sm"
                               variant="ghost"
-                              className="min-h-11"
+                              className="pointer-coarse:min-h-11"
                               disabled={isBusy || isReplacingAssignments}
                               onClick={() => setReplacement({ queryId: query.id, propertyIds: [...(query.propertyIds ?? [])] })}
                               aria-label={`Replace query assignments for ${label}`}
@@ -1217,7 +1217,7 @@ export function AdvancedMeasurementQueriesStep({
                               Replace assignments
                             </Button>
                           ) : null}
-                          <Button type="button" size="sm" variant="ghost" className="min-h-11" disabled={isBusy} onClick={() => { void clearAssignments(query.id) }} aria-label={`Clear query assignments for ${label}`}>Clear assignments</Button>
+                          <Button type="button" size="sm" variant="ghost" className="pointer-coarse:min-h-11" disabled={isBusy} onClick={() => { void clearAssignments(query.id) }} aria-label={`Clear query assignments for ${label}`}>Clear assignments</Button>
                         </div>
                       ) : null}
                     </td>
@@ -1228,7 +1228,7 @@ export function AdvancedMeasurementQueriesStep({
           </tbody>
           </table>
         </div>
-      ) : queries.length > 0 ? <p className="text-sm text-secondary">No queries match this search.</p> : null}
+      ) : queries.length > 0 ? <p className="text-copy-14 text-secondary">No queries match this search.</p> : null}
 
       {viewer || !replacement ? null : (() => {
         const query = queries.find(candidate => candidate.id === replacement.queryId)
@@ -1236,8 +1236,8 @@ export function AdvancedMeasurementQueriesStep({
         const selected = replacement.propertyIds.filter(propertyId => properties.some(property => property.id === propertyId))
         return (
           <section aria-labelledby="advanced-measurement-replace-assignments-title" className="border-y border-default py-4">
-            <h4 id="advanced-measurement-replace-assignments-title" className="text-sm font-medium text-heading">Replace assigned Properties</h4>
-            <p className="mt-1 max-w-2xl text-sm text-secondary">This replaces every Property assigned to “{label}”.</p>
+            <h4 id="advanced-measurement-replace-assignments-title" className="text-heading-14 text-heading">Replace assigned Properties</h4>
+            <p className="mt-1 max-w-2xl text-copy-14 text-secondary">This replaces every Property assigned to “{label}”.</p>
             <div className="mt-3">
               <PropertyChecklist
                 legend="Properties for this query"
@@ -1247,12 +1247,12 @@ export function AdvancedMeasurementQueriesStep({
               />
             </div>
             <div className="mt-3 flex flex-wrap items-center gap-3">
-              <Button type="button" size="sm" variant="ghost" className="min-h-11" disabled={isReplacingAssignments || isBusy} onClick={() => setReplacement(null)}>Keep current assignments</Button>
+              <Button type="button" size="sm" variant="ghost" className="pointer-coarse:min-h-11" disabled={isReplacingAssignments || isBusy} onClick={() => setReplacement(null)}>Keep current assignments</Button>
               <Button
                 type="button"
                 size="sm"
                 variant="outline"
-                className="min-h-11"
+                className="pointer-coarse:min-h-11"
                 disabled={selected.length === 0 || isReplacingAssignments || isBusy || !onReplaceAssignments}
                 onClick={() => {
                   if (!onReplaceAssignments) return
@@ -1267,15 +1267,15 @@ export function AdvancedMeasurementQueriesStep({
       })()}
 
       {visibleQueries.length < listedQueries.length ? (
-        <Button type="button" size="sm" variant="outline" className="min-h-11" onClick={() => setShowAllQueries(true)}>Show all queries</Button>
+        <Button type="button" size="sm" variant="outline" className="pointer-coarse:min-h-11" onClick={() => setShowAllQueries(true)}>Show all queries</Button>
       ) : null}
 
       {viewer ? null : (
         <>
-          {canContinue ? null : <p role="status" className="text-sm text-caution">Apply at least one query to a Property before continuing.</p>}
+          {canContinue ? null : <p role="status" className="text-copy-14 text-caution">Apply at least one query to a Property before continuing.</p>}
           <div className={`flex flex-wrap items-center gap-3 ${onBack ? 'justify-between' : 'justify-end'}`}>
-            {onBack ? <Button type="button" variant="outline" className="min-h-11" disabled={isBusy} onClick={onBack}>Back</Button> : null}
-            <Button type="button" variant={canApply ? 'outline' : 'default'} className="min-h-11" disabled={!canContinue || isBusy} onClick={onContinue}>Continue</Button>
+            {onBack ? <Button type="button" variant="outline" className="pointer-coarse:min-h-11" disabled={isBusy} onClick={onBack}>Back</Button> : null}
+            <Button type="button" variant={canApply ? 'outline' : 'default'} className="pointer-coarse:min-h-11" disabled={!canContinue || isBusy} onClick={onContinue}>Continue</Button>
           </div>
         </>
       )}
@@ -1322,7 +1322,7 @@ export function AdvancedMeasurementGroupsStep({
       <div className="section-head">
         <div>
           <h3 id="advanced-measurement-groups-title">Groups</h3>
-          <p className="mt-1 max-w-2xl text-sm text-secondary">Use groups to organize Properties, apply queries in bulk, and compare competitors.</p>
+          <p className="mt-1 max-w-2xl text-copy-14 text-secondary">Use groups to organize Properties, apply queries in bulk, and compare competitors.</p>
         </div>
       </div>
 
@@ -1333,17 +1333,17 @@ export function AdvancedMeasurementGroupsStep({
       {viewer ? null : (
         <div className="space-y-4 border-y border-default py-4">
           <label className="block max-w-xl">
-            <span className="text-sm font-medium text-heading">Group name</span>
+            <span className="text-label-14-strong text-heading">Group name</span>
             <input
               aria-label="Group name"
-              className="mt-1 min-h-11 w-full rounded border border-strong bg-transparent px-3 py-2 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
+              className="mt-1 min-h-11 w-full rounded border border-strong bg-transparent px-3 py-2 text-label-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none"
               value={groupDraft.name}
               onChange={event => onGroupDraftChange({ ...groupDraft, name: event.currentTarget.value })}
               placeholder="Waterfront venues"
             />
           </label>
           <details>
-            <summary className="flex min-h-11 cursor-pointer items-center text-sm font-medium text-heading">{selectedPropertyCount} of {properties.length} Properties selected</summary>
+            <summary className="flex min-h-11 cursor-pointer items-center text-label-14-strong text-heading">{selectedPropertyCount} of {properties.length} Properties selected</summary>
             <div className="pt-3">
               <PropertyChecklist
                 legend="Properties in this group"
@@ -1354,23 +1354,23 @@ export function AdvancedMeasurementGroupsStep({
             </div>
           </details>
           <label className="block max-w-xl">
-            <span className="text-sm font-medium text-heading">Competitor domains</span>
+            <span className="text-label-14-strong text-heading">Competitor domains</span>
             <input
               aria-label="Competitor domains"
-              className="mt-1 min-h-11 w-full rounded border border-strong bg-transparent px-3 py-2 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
+              className="mt-1 min-h-11 w-full rounded border border-strong bg-transparent px-3 py-2 text-label-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none"
               value={groupDraft.competitorDomains}
               onChange={event => onGroupDraftChange({ ...groupDraft, competitorDomains: event.currentTarget.value })}
               placeholder="one.example, two.example"
             />
           </label>
           <div className="flex flex-wrap items-center gap-3">
-            <Button type="button" size="sm" variant="outline" className="min-h-11" disabled={!canSave} onClick={() => { void onSaveGroup(groupDraft) }}>
+            <Button type="button" size="sm" variant="outline" className="pointer-coarse:min-h-11" disabled={!canSave} onClick={() => { void onSaveGroup(groupDraft) }}>
               {isSaving ? 'Saving group…' : 'Save group'}
             </Button>
-            <Button type="button" size="sm" variant="ghost" className="min-h-11" disabled={!hasUnsavedGroupDraft} onClick={clearGroupForm}>Clear form</Button>
-            <p className="text-sm text-secondary">Competitor domains are used only in this group&apos;s competitor report. Membership changes affect future assignments only.</p>
+            <Button type="button" size="sm" variant="ghost" className="pointer-coarse:min-h-11" disabled={!hasUnsavedGroupDraft} onClick={clearGroupForm}>Clear form</Button>
+            <p className="text-copy-14 text-secondary">Competitor domains are used only in this group&apos;s competitor report. Membership changes affect future assignments only.</p>
           </div>
-          {hasUnsavedGroupDraft ? <p role="status" className="text-sm text-caution">Save this group or clear the form before continuing.</p> : null}
+          {hasUnsavedGroupDraft ? <p role="status" className="text-copy-14 text-caution">Save this group or clear the form before continuing.</p> : null}
         </div>
       )}
 
@@ -1380,14 +1380,14 @@ export function AdvancedMeasurementGroupsStep({
           <tbody>
             {groups.map(group => (
               <tr key={group.id}>
-                <td className="font-medium text-heading">{group.name}</td>
+                <td className="text-label-14-strong text-heading">{group.name}</td>
                 <td className="text-secondary">{propertyNames(group.propertyIds, properties)}</td>
                 <td className="text-secondary">{group.competitors.length > 0 ? group.competitors.join(', ') : 'None'}</td>
                 {showSavedGroupActions ? (
                   <td className="text-right">
                     <div className="flex justify-end gap-1">
-                      {onEditGroup ? <Button type="button" size="sm" variant="ghost" className="min-h-11" aria-label={`Edit ${group.name}`} onClick={() => onEditGroup(group)}>Edit</Button> : null}
-                      {onRemoveGroup ? <Button type="button" size="sm" variant="ghost" className="min-h-11" aria-label={`Remove ${group.name}`} onClick={() => { void onRemoveGroup(group.id) }}>Remove</Button> : null}
+                      {onEditGroup ? <Button type="button" size="sm" variant="ghost" className="pointer-coarse:min-h-11" aria-label={`Edit ${group.name}`} onClick={() => onEditGroup(group)}>Edit</Button> : null}
+                      {onRemoveGroup ? <Button type="button" size="sm" variant="ghost" className="pointer-coarse:min-h-11" aria-label={`Remove ${group.name}`} onClick={() => { void onRemoveGroup(group.id) }}>Remove</Button> : null}
                     </div>
                   </td>
                 ) : null}
@@ -1397,12 +1397,12 @@ export function AdvancedMeasurementGroupsStep({
         </table>
       </div>
 
-      {groups.length === 0 ? <p className="text-sm text-secondary">No groups have been added.</p> : null}
+      {groups.length === 0 ? <p className="text-copy-14 text-secondary">No groups have been added.</p> : null}
 
       {viewer ? null : (
         <div className={`flex flex-wrap items-center gap-3 ${onBack ? 'justify-between' : 'justify-end'}`}>
-          {onBack ? <Button type="button" variant="outline" className="min-h-11" onClick={onBack}>Back</Button> : null}
-          <Button type="button" className="min-h-11" disabled={hasUnsavedGroupDraft} onClick={onContinue}>{groups.length === 0 && !hasUnsavedGroupDraft ? 'Continue without groups' : 'Continue'}</Button>
+          {onBack ? <Button type="button" variant="outline" className="pointer-coarse:min-h-11" onClick={onBack}>Back</Button> : null}
+          <Button type="button" className="pointer-coarse:min-h-11" disabled={hasUnsavedGroupDraft} onClick={onContinue}>{groups.length === 0 && !hasUnsavedGroupDraft ? 'Continue without groups' : 'Continue'}</Button>
         </div>
       )}
     </section>
@@ -1447,7 +1447,7 @@ export function AdvancedMeasurementReviewStep({
       <div className="section-head">
         <div>
           <h3 id="advanced-measurement-review-title">Review &amp; publish</h3>
-          <p className="mt-1 max-w-2xl text-sm text-secondary">Confirm the setup details before publishing.</p>
+          <p className="mt-1 max-w-2xl text-copy-14 text-secondary">Confirm the setup details before publishing.</p>
         </div>
       </div>
 
@@ -1457,60 +1457,60 @@ export function AdvancedMeasurementReviewStep({
         <section aria-labelledby="advanced-measurement-sitemap-review-title" className="border-y border-caution-800/40 bg-caution-950/20 py-4">
           <div className="max-w-2xl space-y-3">
             <div>
-              <h4 id="advanced-measurement-sitemap-review-title" className="text-sm font-medium text-heading">Sitemap changes need review</h4>
-              {sitemapReview.exceptionCount > 0 ? <p className="mt-1 text-sm text-secondary">{sitemapReview.exceptionCount} sitemap {sitemapReview.exceptionCount === 1 ? 'entry needs' : 'entries need'} review.</p> : null}
-              {sitemapReview.coverageReviewCount > 0 ? <p className="mt-1 text-sm text-secondary">{sitemapReview.coverageReviewCount} {sitemapReview.coverageReviewCount === 1 ? 'Property has' : 'Properties have'} URL coverage changes.</p> : null}
+              <h4 id="advanced-measurement-sitemap-review-title" className="text-heading-14 text-heading">Sitemap changes need review</h4>
+              {sitemapReview.exceptionCount > 0 ? <p className="mt-1 text-copy-14 text-secondary">{sitemapReview.exceptionCount} sitemap {sitemapReview.exceptionCount === 1 ? 'entry needs' : 'entries need'} review.</p> : null}
+              {sitemapReview.coverageReviewCount > 0 ? <p className="mt-1 text-copy-14 text-secondary">{sitemapReview.coverageReviewCount} {sitemapReview.coverageReviewCount === 1 ? 'Property has' : 'Properties have'} URL coverage changes.</p> : null}
             </div>
             {sitemapReview.exceptionCount > 0 ? (
               <details className="border-y border-caution-800/30 py-3">
-                <summary className="flex min-h-11 cursor-pointer items-center text-sm font-medium text-heading">URLs not added to Properties ({sitemapReview.exceptionCount})</summary>
+                <summary className="flex min-h-11 cursor-pointer items-center text-label-14-strong text-heading">URLs not added to Properties ({sitemapReview.exceptionCount})</summary>
                 {sitemapItems.length > 0 ? (
-                  <ul className="mt-3 space-y-3 text-sm">
+                  <ul className="mt-3 space-y-3 text-label-14">
                     {shownSitemapItems.map(item => (
                       <li key={`${item.url}-${item.reason}`}>
-                        <p className="font-medium text-primary">{item.url}</p>
+                        <p className="text-copy-14-strong text-primary">{item.url}</p>
                         <p className="mt-1 text-secondary">{item.reason}</p>
                       </li>
                     ))}
                   </ul>
-                ) : <p className="mt-2 text-sm text-secondary">Review the affected sitemap URLs before confirming.</p>}
-                <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-secondary">
+                ) : <p className="mt-2 text-copy-14 text-secondary">Review the affected sitemap URLs before confirming.</p>}
+                <div className="mt-3 flex flex-wrap items-center gap-3 text-label-14 text-secondary">
                   <span>Showing {shownSitemapItems.length} of {sitemapItems.length}</span>
                   {shownSitemapItems.length < sitemapItems.length ? (
-                    <Button type="button" variant="outline" size="sm" className="min-h-11" onClick={() => setSitemapItemLimit(limit => limit + REVIEW_ITEM_PAGE_SIZE)}>Show next 50 URLs</Button>
+                    <Button type="button" variant="outline" size="sm" className="pointer-coarse:min-h-11" onClick={() => setSitemapItemLimit(limit => limit + REVIEW_ITEM_PAGE_SIZE)}>Show next 50 URLs</Button>
                   ) : null}
                 </div>
               </details>
             ) : null}
-            {viewer ? <p className="text-sm text-secondary">An editor must finish this review before publishing.</p> : (
+            {viewer ? <p className="text-copy-14 text-secondary">An editor must finish this review before publishing.</p> : (
               <>
                 {sitemapReview.coverageReviewCount > 0 ? (
                   <fieldset className="space-y-3">
-                    <legend className="text-sm font-medium text-heading">For changed Property URLs</legend>
-                    <p className="text-sm text-secondary">This choice applies to all {sitemapReview.coverageReviewCount} changed {sitemapReview.coverageReviewCount === 1 ? 'Property' : 'Properties'}.</p>
+                    <legend className="text-label-14-strong text-heading">For changed Property URLs</legend>
+                    <p className="text-copy-14 text-secondary">This choice applies to all {sitemapReview.coverageReviewCount} changed {sitemapReview.coverageReviewCount === 1 ? 'Property' : 'Properties'}.</p>
                     <details className="border-y border-caution-800/30 py-3">
-                      <summary className="flex min-h-11 cursor-pointer items-center text-sm font-medium text-heading">Review Property URL changes ({sitemapReview.coverageReviewCount})</summary>
+                      <summary className="flex min-h-11 cursor-pointer items-center text-label-14-strong text-heading">Review Property URL changes ({sitemapReview.coverageReviewCount})</summary>
                       {shownCoverageItems.length > 0 ? (
                         <div className="mt-3 space-y-4">
                           {shownCoverageItems.map(item => (
                             <section key={item.property} aria-label={`${item.property} URL changes`}>
-                              <h5 className="text-sm font-medium text-primary">{item.property}</h5>
-                              <div className="mt-2 grid gap-3 text-sm md:grid-cols-2">
-                                <div><p className="font-medium text-secondary">Saved URLs</p><ul className="mt-1 space-y-1">{item.savedUrls.map(url => <li key={url} className="break-all text-secondary">{url}</li>)}</ul></div>
-                                <div><p className="font-medium text-secondary">Current sitemap URLs</p>{item.currentSitemapUrls.length > 0 ? <ul className="mt-1 space-y-1">{item.currentSitemapUrls.map(url => <li key={url} className="break-all text-secondary">{url}</li>)}</ul> : <p className="mt-1 text-secondary">No matching URL was found.</p>}</div>
+                              <h5 className="text-heading-14 text-primary">{item.property}</h5>
+                              <div className="mt-2 grid gap-3 text-label-14 md:grid-cols-2">
+                                <div><p className="text-copy-14-strong text-secondary">Saved URLs</p><ul className="mt-1 space-y-1">{item.savedUrls.map(url => <li key={url} className="break-all text-secondary">{url}</li>)}</ul></div>
+                                <div><p className="text-copy-14-strong text-secondary">Current sitemap URLs</p>{item.currentSitemapUrls.length > 0 ? <ul className="mt-1 space-y-1">{item.currentSitemapUrls.map(url => <li key={url} className="break-all text-secondary">{url}</li>)}</ul> : <p className="mt-1 text-secondary">No matching URL was found.</p>}</div>
                               </div>
                             </section>
                           ))}
-                          <div className="flex flex-wrap items-center gap-3 text-sm text-secondary">
+                          <div className="flex flex-wrap items-center gap-3 text-label-14 text-secondary">
                             <span>Showing {shownCoverageItems.length} of {coverageItems.length}</span>
                             {shownCoverageItems.length < coverageItems.length ? (
-                              <Button type="button" variant="outline" size="sm" className="min-h-11" onClick={() => setCoverageItemLimit(limit => limit + REVIEW_ITEM_PAGE_SIZE)}>Show next 50 URL changes</Button>
+                              <Button type="button" variant="outline" size="sm" className="pointer-coarse:min-h-11" onClick={() => setCoverageItemLimit(limit => limit + REVIEW_ITEM_PAGE_SIZE)}>Show next 50 URL changes</Button>
                             ) : null}
                           </div>
                         </div>
-                      ) : <p className="mt-2 text-sm text-secondary">Review the affected Properties before confirming.</p>}
+                      ) : <p className="mt-2 text-copy-14 text-secondary">Review the affected Properties before confirming.</p>}
                     </details>
-                    <label className="flex min-h-11 items-center gap-2 text-sm text-primary">
+                    <label className="flex min-h-11 items-center gap-2 text-label-14 text-primary">
                       <input
                         type="radio"
                         name="advanced-measurement-coverage-resolution"
@@ -1519,7 +1519,7 @@ export function AdvancedMeasurementReviewStep({
                       />
                       Keep existing Property URLs
                     </label>
-                    <label className="flex min-h-11 items-center gap-2 text-sm text-primary">
+                    <label className="flex min-h-11 items-center gap-2 text-label-14 text-primary">
                       <input
                         type="radio"
                         name="advanced-measurement-coverage-resolution"
@@ -1530,7 +1530,7 @@ export function AdvancedMeasurementReviewStep({
                     </label>
                   </fieldset>
                 ) : null}
-                <Button type="button" className="min-h-11" onClick={() => { void sitemapReview.onResolve() }}>Confirm sitemap changes</Button>
+                <Button type="button" className="pointer-coarse:min-h-11" onClick={() => { void sitemapReview.onResolve() }}>Confirm sitemap changes</Button>
               </>
             )}
           </div>
@@ -1566,9 +1566,9 @@ export function AdvancedMeasurementReviewStep({
 
       {reviewedChanges ? (
         <section aria-labelledby="advanced-measurement-reviewed-changes-title" className="border-y border-default py-4" aria-live="polite">
-          <h4 id="advanced-measurement-reviewed-changes-title" className="text-sm font-medium text-heading">{reviewedChanges.title}</h4>
+          <h4 id="advanced-measurement-reviewed-changes-title" className="text-heading-14 text-heading">{reviewedChanges.title}</h4>
           {reviewedChanges.items.length > 0 ? (
-            <ul className="mt-3 list-disc space-y-2 pl-5 text-sm text-secondary">
+            <ul className="mt-3 list-disc space-y-2 pl-5 text-label-14 text-secondary">
               {reviewedChanges.items.map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}
             </ul>
           ) : null}
@@ -1576,21 +1576,21 @@ export function AdvancedMeasurementReviewStep({
       ) : null}
 
       <section aria-labelledby="advanced-measurement-flagged-exceptions-title" className="space-y-3">
-        <h4 id="advanced-measurement-flagged-exceptions-title" className="text-sm font-medium text-heading">Flagged exceptions</h4>
-        {flaggedExceptions.length === 0 ? <p className="text-sm text-secondary">No flagged exceptions.</p> : (
+        <h4 id="advanced-measurement-flagged-exceptions-title" className="text-heading-14 text-heading">Flagged exceptions</h4>
+        {flaggedExceptions.length === 0 ? <p className="text-copy-14 text-secondary">No flagged exceptions.</p> : (
           <div className="space-y-3">
             <div className="divide-y divide-default border-y border-default">
               {shownFlaggedExceptions.map(exception => (
                 <div key={exception.id} className="flex flex-wrap items-start justify-between gap-3 py-3">
-                  <div><p className="font-medium text-heading">{exception.title}</p>{exception.detail ? <p className="mt-1 text-sm text-secondary">{exception.detail}</p> : null}</div>
+                  <div><p className="text-copy-14-strong text-heading">{exception.title}</p>{exception.detail ? <p className="mt-1 text-copy-14 text-secondary">{exception.detail}</p> : null}</div>
                   <ToneBadge tone={exception.tone ?? 'caution'}>Needs attention</ToneBadge>
                 </div>
               ))}
             </div>
-            <div className="flex flex-wrap items-center gap-3 text-sm text-secondary">
+            <div className="flex flex-wrap items-center gap-3 text-label-14 text-secondary">
               <span>Showing {shownFlaggedExceptions.length} of {flaggedExceptions.length}</span>
               {shownFlaggedExceptions.length < flaggedExceptions.length ? (
-                <Button type="button" variant="outline" size="sm" className="min-h-11" onClick={() => setFlaggedExceptionLimit(limit => limit + REVIEW_ITEM_PAGE_SIZE)}>Show next 50 exceptions</Button>
+                <Button type="button" variant="outline" size="sm" className="pointer-coarse:min-h-11" onClick={() => setFlaggedExceptionLimit(limit => limit + REVIEW_ITEM_PAGE_SIZE)}>Show next 50 exceptions</Button>
               ) : null}
             </div>
           </div>
@@ -1599,14 +1599,14 @@ export function AdvancedMeasurementReviewStep({
 
       {viewer ? null : (
         <>
-          {requiresChangeReview && reviewChangesError ? <p role="alert" className="text-sm text-negative">{reviewChangesError}</p> : null}
-          {sweepActive ? <p role="status" className="text-sm text-caution">A check is queued or running. Publish after it finishes.</p> : null}
+          {requiresChangeReview && reviewChangesError ? <p role="alert" className="text-copy-14 text-negative">{reviewChangesError}</p> : null}
+          {sweepActive ? <p role="status" className="text-copy-14 text-caution">A check is queued or running. Publish after it finishes.</p> : null}
           <div className={`flex flex-wrap items-center gap-3 ${onBack ? 'justify-between' : 'justify-end'}`}>
-            {onBack ? <Button type="button" variant="outline" className="min-h-11" onClick={onBack}>Back</Button> : null}
+            {onBack ? <Button type="button" variant="outline" className="pointer-coarse:min-h-11" onClick={onBack}>Back</Button> : null}
             {onReviewChanges !== undefined && !hasReviewedChanges ? (
-              <Button type="button" className="min-h-11" disabled={isReviewing || !canReviewChanges} onClick={() => { void onReviewChanges() }}>{isReviewing ? 'Reviewing changes…' : 'Review changes'}</Button>
+              <Button type="button" className="pointer-coarse:min-h-11" disabled={isReviewing || !canReviewChanges} onClick={() => { void onReviewChanges() }}>{isReviewing ? 'Reviewing changes…' : 'Review changes'}</Button>
             ) : (
-              <Button type="button" className="min-h-11" disabled={!canPublish || isPublishing} onClick={() => { void onPublish() }}>{isPublishing ? 'Publishing setup…' : 'Publish setup'}</Button>
+              <Button type="button" className="pointer-coarse:min-h-11" disabled={!canPublish || isPublishing} onClick={() => { void onPublish() }}>{isPublishing ? 'Publishing setup…' : 'Publish setup'}</Button>
             )}
           </div>
         </>
