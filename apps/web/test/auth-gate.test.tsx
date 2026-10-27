@@ -84,6 +84,29 @@ describe('AuthGate', () => {
       expect(await screen.findByText('Sign in to Canonry')).toBeTruthy()
     })
 
+    test('opens an embedded dashboard read-only without asking for key metadata', async () => {
+      window.__CANONRY_CONFIG__ = { embed: { enabled: true } }
+      onTestFinished(() => { delete window.__CANONRY_CONFIG__ })
+      const requested: string[] = []
+      mockFetch((url) => {
+        const urlStr = String(url)
+        requested.push(urlStr)
+        if (urlStr.includes(API_SESSION)) return jsonResponse({ authenticated: true, setupRequired: false })
+        // The Embed proxy never forwards /keys, so the request must not be made.
+        if (urlStr.includes('/api/v1/keys/self')) return jsonResponse({ error: { code: 'FORBIDDEN', message: 'Forbidden' } }, 403)
+        return dashboardFallback(urlStr)
+      })
+
+      render(<AuthGate />)
+      await act(async () => {
+        await new Promise(resolve => setTimeout(resolve, 0))
+      })
+      expect(screen.queryByText('Could not verify API key access')).toBeNull()
+      expect(requested.some(url => url.includes('/api/v1/keys/self'))).toBe(false)
+      expect(accountStateForApiKey({ id: 'embed', scopes: ['read', 'embed'], projectId: 'embed', readOnly: true }))
+        .toEqual({ account: null, canWrite: false, isAdmin: false })
+    })
+
     test('renders setup form when session returns setupRequired', async () => {
       mockFetch((url) => {
         if (String(url).includes(API_SESSION)) return jsonResponse({ authenticated: false, setupRequired: true })

@@ -1,7 +1,6 @@
 import { type FormEvent, useEffect, useRef, useState } from 'react'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { RouterProvider } from '@tanstack/react-router'
-import type { ApiKeyDto } from '@canonry/canonry-contracts'
 
 import {
   ApiError,
@@ -10,6 +9,7 @@ import {
   fetchCurrentApiKey,
   fetchSession,
   hasExplicitBrowserApiKey,
+  isEmbed,
   loginWithApiKey,
   loginWithPassword,
   setupDashboardPassword,
@@ -17,7 +17,7 @@ import {
   signInWithAccount,
   type ApiAccountSession,
 } from '../../api.js'
-import { AccountProvider, type SignedInAccount } from '../../contexts/account-context.js'
+import { AccountProvider, type ApiKeyAccess, type SignedInAccount } from '../../contexts/account-context.js'
 import { asyncHandler } from '../../lib/async-handler.js'
 import { createQueryClient } from '../../queries/query-client.js'
 import { createAppRouter } from '../../router/router.js'
@@ -51,13 +51,16 @@ export const SETUP_ROOT_KEY_COPY = {
 type AuthState = 'checking' | 'ready' | 'setup' | 'login' | 'account-login' | 'api-key-error'
 type SharedLoginMethod = 'password' | 'api-key'
 
+/** The access an embedded dashboard has: the Embed proxy's read-only project key. */
+const EMBED_SESSION_KEY: ApiKeyAccess = { id: 'embed', scopes: ['read', 'embed'], projectId: 'embed', readOnly: true }
+
 export function AuthGate() {
   const explicitBrowserApiKey = useRef(hasExplicitBrowserApiKey()).current
   const [authState, setAuthState] = useState<AuthState>(
     explicitBrowserApiKey ? 'ready' : 'checking',
   )
   const [account, setAccount] = useState<SignedInAccount | null>(null)
-  const [apiKey, setApiKey] = useState<ApiKeyDto | null>(null)
+  const [apiKey, setApiKey] = useState<ApiKeyAccess | null>(null)
   const [apiKeyPending, setApiKeyPending] = useState(explicitBrowserApiKey)
   const [accountsInUse, setAccountsInUse] = useState(false)
   const [name, setName] = useState('')
@@ -190,6 +193,16 @@ export function AuthGate() {
         }
 
         const session = legacyResult.value
+        if (session.authenticated && isEmbed()) {
+          // An embedded dashboard reaches the engine only through the Embed proxy,
+          // which injects a project-scoped read-only key the browser never sees
+          // and does not forward `/keys`. Asking `/keys/self` would always fail
+          // here, so the session is that read-only key: never full access.
+          setApiKey(EMBED_SESSION_KEY)
+          setApiKeyPending(false)
+          setAuthState('ready')
+          return
+        }
         if (session.authenticated) {
           // A shared-password session may have been created with an API key,
           // including a read-only or project-scoped one. Keep the dashboard
