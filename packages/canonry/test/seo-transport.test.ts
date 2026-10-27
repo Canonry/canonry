@@ -5,14 +5,14 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SeoRepository, projects, queries } from '@canonry/canonry-db'
-import { SeoAdapterOutcomes, SeoCapabilities, SeoCompetitorSorts, SeoProviders, SeoKeywordGapKinds, SeoKeywordGapModes, SeoKeywordGapSorts, emptySeoResults, seoKeywordMetricsListSchema, seoQuoteSchema, seoRunSchema, type SeoAdapter, type SeoMarketRanking } from '@canonry/canonry-contracts'
+import { SeoAdapterOutcomes, SeoCapabilities, SeoCompetitorSorts, SeoProviders, SeoKeywordGapKinds, SeoKeywordGapModes, SeoKeywordGapSorts, emptySeoResults, seoCompetitorListSchema, seoKeywordGapListSchema, seoKeywordMetricsListSchema, seoQuoteSchema, seoRunSchema, type SeoAdapter, type SeoMarketRanking } from '@canonry/canonry-contracts'
 import { eq } from 'drizzle-orm'
 import type { ApiRoutesOptions } from '@canonry/canonry-api-routes'
 import { createSeoHarness, seedSeoKey, seoProfileFixture } from '../../api-routes/test/seo-fixture.js'
 import { ApiClient } from '../src/client.js'
 import { SEO_CLI_COMMANDS } from '../src/cli-commands/seo.js'
 import { dispatchRegisteredCommand } from '../src/cli-dispatch.js'
-import { createCanonryMcpServer } from '../src/mcp/server.js'
+import { createCanonryMcpServer, type CanonryMcpScope } from '../src/mcp/server.js'
 import { readAeroViewEvidence } from '../src/agent/view-context.js'
 
 const cleanup: Array<() => Promise<void>> = []
@@ -34,8 +34,8 @@ async function fixture(options: Partial<ApiRoutesOptions> = {}) {
   const url = `http://127.0.0.1:${address.port}/canonry`
   const api = (token: string) => new ApiClient(url, token, { skipProbe: true })
   await api(root).putSeoProfile('alpha', 'us', seoProfileFixture)
-  async function mcp(token: string, credentialScopes: string[]) {
-    const server = createCanonryMcpServer({ tiers: ['core', 'seo'], credentialScopes, clientFactory: () => api(token) })
+  async function mcp(token: string, credentialScopes: string[], scope: CanonryMcpScope = 'all') {
+    const server = createCanonryMcpServer({ tiers: ['core', 'seo'], credentialScopes, scope, clientFactory: () => api(token) })
     const client = new Client({ name: 'seo-transport', version: '1' })
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
     await server.connect(serverTransport)
@@ -111,7 +111,7 @@ describe('SEO public transport parity', () => {
     expect(h.state.executions).toBe(0)
   })
 
-  it('preserves scoped competitor evidence and gap filters across authenticated API, CLI and MCP reads', async () => {
+  it('preserves scoped competitor evidence and gap filters across stored-only HTTP, CLI and MCP reads', async () => {
     const policy = { maxRunCostMicros: 1_000_000, accountDailyLimitMicros: 1_000_000, accountMonthlyLimitMicros: 1_000_000, projectMonthlyLimitMicros: 1_000_000 }
     const execute = vi.fn<SeoAdapter['execute']>().mockRejectedValue(new Error('Stored reads must not spend'))
     const adapter: SeoAdapter = {
@@ -149,23 +149,32 @@ describe('SEO public transport parity', () => {
       }
       repository.settle(task.id, { outcome: SeoAdapterOutcomes.completed, error: null, fetchedAt: provenance.collectedAt, tasks: [{ remoteTaskId: task.id, statusCode: 20000, costMicros: 100 }], results }, task.leaseOwner!)
     }
+    vi.stubEnv('CANONRY_STORED_ONLY', '1')
     const selection = { profileId: 'competition', runId: run.id, limit: 1, offset: 0 }
     const reader = h.api(h.reader)
-    const client = await h.mcp(h.reader, ['read'])
+    const client = await h.mcp(h.reader, ['read'], 'stored-only')
     const output = configureCli(h.url, h.reader)
     await dispatchRegisteredCommand(['seo', 'run', 'show', 'alpha', run.id], 'text', SEO_CLI_COMMANDS)
     expect(output.mock.calls.map(call => call[0])).toEqual(expect.arrayContaining([
       '  keyword-gaps · alpha.com vs rival.com · shared: completed',
       '  keyword-gaps · alpha.com vs rival.com · missing: completed',
     ]))
-    const competitors = await reader.getSeoCompetitors('alpha', selection)
+    const headers = { authorization: `Bearer ${h.reader}`, 'x-canonry-stored-only': '1' }
+    const query = new URLSearchParams({ profileId: 'competition', runId: run.id, limit: '1', offset: '0' })
+    const competitorResponse = await fetch(`${h.url}/api/v1/projects/alpha/seo/competitors?${query}`, { headers })
+    expect(competitorResponse.status).toBe(200)
+    expect(competitorResponse.headers.get('x-canonry-access')).toBe('stored')
+    const competitors = seoCompetitorListSchema.parse(await competitorResponse.json())
     expect(competitors).toMatchObject({ total: 3, items: [{ domain: 'rival.com', organicKeywords: 0, estimatedOrganicTraffic: null, target, provenance }] })
     expect((await client.callTool({ name: 'canonry_seo_competitors', arguments: { project: 'alpha', ...selection } })).structuredContent).toEqual(competitors)
     await dispatchRegisteredCommand(['seo', 'competitors', 'alpha', '--profile-id', 'competition', '--run-id', run.id, '--limit', '1', '--offset', '0', '--format', 'json'], 'json', SEO_CLI_COMMANDS)
     expect(JSON.parse(String(output.mock.calls.at(-1)?.[0]))).toEqual(competitors)
 
     const selected = { ...selection, kind: SeoKeywordGapKinds.shared }
-    const gaps = await reader.getSeoKeywordGaps('alpha', selected)
+    const gapResponse = await fetch(`${h.url}/api/v1/projects/alpha/seo/keyword-gaps?${query}&kind=shared`, { headers })
+    expect(gapResponse.status).toBe(200)
+    expect(gapResponse.headers.get('x-canonry-access')).toBe('stored')
+    const gaps = seoKeywordGapListSchema.parse(await gapResponse.json())
     expect(gaps).toMatchObject({ total: 2, items: [{ keyword: 'solar installer', kind: SeoKeywordGapKinds.outranked, rankGap: 5, searchVolume: 0, keywordDifficulty: null, competitor, provenance }] })
     expect((await client.callTool({ name: 'canonry_seo_keyword_gaps', arguments: { project: 'alpha', ...selected } })).structuredContent).toEqual(gaps)
     await dispatchRegisteredCommand(['seo', 'keyword-gaps', 'alpha', '--profile-id', 'competition', '--run-id', run.id, '--kind', 'shared', '--limit', '1', '--offset', '0', '--format', 'json'], 'json', SEO_CLI_COMMANDS)
