@@ -886,7 +886,8 @@ export const ga4AiReferralHistoryEntrySchema = z.object({
   trafficClass: aiReferralTrafficClassSchema,
   landingPage: z.string(),
   sessions: z.number(),
-  users: z.number(),
+  /** @deprecated See `GA4AiReferralDto.users`. Never emitted since 4.180.6. */
+  users: z.number().optional(),
   /** Which GA4 dimension this row came from: session (sessionSource), first_user (firstUserSource), or manual_utm (utm_source parameter) */
   sourceDimension: ga4SourceDimensionSchema,
 })

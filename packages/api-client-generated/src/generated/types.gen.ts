@@ -6191,7 +6191,7 @@ export type Ga4AiReferralHistoryEntry = {
     trafficClass: 'organic' | 'paid';
     landingPage: string;
     sessions: number;
-    users: number;
+    users?: number;
     sourceDimension: 'session' | 'first_user' | 'manual_utm';
 };
 
@@ -18006,19 +18006,28 @@ export type VisibilityStatsDto = {
     };
 };
 
-export type WordpressAuditPageDto = {
-    slug: string;
-    title: string;
-    status: string;
-    wordCount: number;
-    seo: {
-        title: string | null;
-        description: string | null;
-        noindex: boolean | null;
-        writable: boolean;
-        writeTargets: Array<string>;
-    };
-    schemaPresent: boolean;
+export type WordpressAuditDto = {
+    env: 'live' | 'staging';
+    pages: Array<{
+        slug: string;
+        title: string;
+        status: string;
+        wordCount: number;
+        seo: {
+            title: string | null;
+            description: string | null;
+            noindex: boolean | null;
+            writable: boolean;
+            writeTargets: Array<string>;
+        };
+        schemaPresent: boolean;
+        issues: Array<{
+            slug: string;
+            severity: 'high' | 'medium' | 'low';
+            code: 'noindex' | 'missing-seo-title' | 'missing-meta-description' | 'missing-schema' | 'thin-content';
+            message: string;
+        }>;
+    }>;
     issues: Array<{
         slug: string;
         severity: 'high' | 'medium' | 'low';
@@ -18106,6 +18115,12 @@ export type WordpressDiffDto = {
         noindex: boolean;
         schema: boolean;
     };
+};
+
+export type WordpressLlmsTxtDto = {
+    env: 'live' | 'staging';
+    url: string;
+    content: string | null;
 };
 
 export type WordpressManualAssistDto = {
@@ -31972,7 +31987,7 @@ export type GetApiV1ProjectsByNameWordpressLlmsTxtResponses = {
     /**
      * llms.txt returned.
      */
-    200: string;
+    200: WordpressLlmsTxtDto;
 };
 
 export type GetApiV1ProjectsByNameWordpressLlmsTxtResponse = GetApiV1ProjectsByNameWordpressLlmsTxtResponses[keyof GetApiV1ProjectsByNameWordpressLlmsTxtResponses];
@@ -32048,7 +32063,7 @@ export type GetApiV1ProjectsByNameWordpressAuditResponses = {
     /**
      * WordPress audit returned.
      */
-    200: Array<WordpressAuditPageDto>;
+    200: WordpressAuditDto;
 };
 
 export type GetApiV1ProjectsByNameWordpressAuditResponse = GetApiV1ProjectsByNameWordpressAuditResponses[keyof GetApiV1ProjectsByNameWordpressAuditResponses];

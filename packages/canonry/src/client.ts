@@ -153,11 +153,11 @@ import type {
   VisibilityCompareDto,
   VisibilityCompareSelection,
   LocationContext,
-  WordpressAuditIssueDto,
-  WordpressAuditPageDto,
+  WordpressAuditDto,
   WordpressBulkMetaResultDto,
   WordpressDiffDto,
   WordpressEnv,
+  WordpressLlmsTxtDto,
   WordpressManualAssistDto,
   WordpressOnboardResultDto,
   WordpressPageDetailDto,
@@ -4915,11 +4915,8 @@ export class ApiClient {
     )
   }
 
-  async wordpressLlmsTxt(
-    project: string,
-    env?: WordpressEnv,
-  ): Promise<{ env: WordpressEnv; url: string; content: string | null }> {
-    return this.invoke<{ env: WordpressEnv; url: string; content: string | null }>(() =>
+  async wordpressLlmsTxt(project: string, env?: WordpressEnv): Promise<WordpressLlmsTxtDto> {
+    return this.invoke<WordpressLlmsTxtDto>(() =>
       getApiV1ProjectsByNameWordpressLlmsTxt({
         client: this.heyClient,
         path: { name: project },
@@ -4941,11 +4938,8 @@ export class ApiClient {
     )
   }
 
-  async wordpressAudit(
-    project: string,
-    env?: WordpressEnv,
-  ): Promise<{ env: WordpressEnv; pages: WordpressAuditPageDto[]; issues: WordpressAuditIssueDto[] }> {
-    return this.invoke<{ env: WordpressEnv; pages: WordpressAuditPageDto[]; issues: WordpressAuditIssueDto[] }>(() =>
+  async wordpressAudit(project: string, env?: WordpressEnv): Promise<WordpressAuditDto> {
+    return this.invoke<WordpressAuditDto>(() =>
       getApiV1ProjectsByNameWordpressAudit({
         client: this.heyClient,
         path: { name: project },

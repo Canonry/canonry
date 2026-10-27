@@ -5,7 +5,7 @@ import os from 'node:os'
 import crypto from 'node:crypto'
 import Fastify from 'fastify'
 import { eq, inArray } from 'drizzle-orm'
-import { percentOf, RunKinds, RunStatuses, RunTriggers, formatPercent, gaAttributionTrendResponseSchema, gaSocialReferralTrendResponseSchema, gaTrafficResponseSchema } from '@canonry/canonry-contracts'
+import { percentOf, RunKinds, RunStatuses, RunTriggers, formatPercent, ga4AiReferralHistoryEntrySchema, gaAttributionTrendResponseSchema, gaSocialReferralTrendResponseSchema, gaTrafficResponseSchema, type GA4AiReferralHistoryEntry } from '@canonry/canonry-contracts'
 import { createClient, migrate, gaAiReferrals, gaSocialReferrals, gaTrafficSnapshots, gaTrafficSummaries, gaTrafficWindowSummaries, gaDailyTotals, runs } from '@canonry/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import type { Ga4CredentialStore, Ga4CredentialRecord } from '../src/ga.js'
@@ -2778,8 +2778,13 @@ describe('GA4 routes', () => {
       url: '/api/v1/projects/test-project/ga/ai-referral-history',
     })
     expect(res.statusCode).toBe(200)
-    const body = JSON.parse(res.payload) as Array<{ date: string; source: string; medium: string; landingPage: string; sessions: number; users: number }>
+    const body = JSON.parse(res.payload) as GA4AiReferralHistoryEntry[]
     expect(body.length).toBeGreaterThanOrEqual(2)
+    // The stored users column cannot be added up, so the route leaves it out and the contract must not require it.
+    for (const row of body) {
+      expect(row).not.toHaveProperty('users')
+      expect(ga4AiReferralHistoryEntrySchema.parse(row)).toEqual(row)
+    }
     // Should be ordered by date
     const dates = body.map((r) => r.date)
     expect(dates).toEqual([...dates].sort())
