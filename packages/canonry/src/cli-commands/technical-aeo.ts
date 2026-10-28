@@ -310,20 +310,21 @@ const TECHNICAL_AEO_CLI_COMMANDS_BASE: readonly CliCommandSpec[] = [
   },
   {
     path: ['technical-aeo', 'crawl-pages'],
-    usage: 'canonry technical-aeo crawl-pages <project> [--run-id <id> | --date YYYY-MM-DD] [--inventory-eligible true|false] [--fetch-state <state>] [--indexability-state <state>] [--audit-state <state>] [--sort url|path|score-asc|score-desc] [--cursor <cursor>] [--limit <n>] [--format json|jsonl]',
+    usage: 'canonry technical-aeo crawl-pages <project> [--run-id <id> | --date YYYY-MM-DD] [--inventory-eligible true|false] [--fetch-state <state>] [--indexability-state <state>] [--audit-state <state>] [--url-versions include|exclude|only] [--sort url|path|score-asc|score-desc] [--cursor <cursor>] [--limit <n>] [--format json|jsonl]',
     options: {
       'run-id': stringOption(), date: stringOption(),
       'inventory-eligible': stringOption(),
       'fetch-state': stringOption(),
       'indexability-state': stringOption(),
       'audit-state': stringOption(),
+      'url-versions': stringOption(),
       sort: stringOption(),
       cursor: stringOption(),
       limit: stringOption(),
     },
     run: async (input) => {
       const { technicalAeoCrawlPages } = await import('../commands/technical-aeo.js')
-      const usage = 'canonry technical-aeo crawl-pages <project> [--run-id <id> | --date YYYY-MM-DD] [--inventory-eligible true|false] [--fetch-state <state>] [--indexability-state <state>] [--audit-state <state>] [--sort url|path|score-asc|score-desc] [--cursor <cursor>] [--limit <n>] [--format json|jsonl]'
+      const usage = 'canonry technical-aeo crawl-pages <project> [--run-id <id> | --date YYYY-MM-DD] [--inventory-eligible true|false] [--fetch-state <state>] [--indexability-state <state>] [--audit-state <state>] [--url-versions include|exclude|only] [--sort url|path|score-asc|score-desc] [--cursor <cursor>] [--limit <n>] [--format json|jsonl]'
       const project = requireProject(input, 'technical-aeo.crawl-pages', usage)
       const sort = getString(input.values, 'sort')
       if (sort !== undefined && !['url', 'path', 'score-asc', 'score-desc'].includes(sort)) {
@@ -332,12 +333,20 @@ const TECHNICAL_AEO_CLI_COMMANDS_BASE: readonly CliCommandSpec[] = [
           details: { command: 'technical-aeo.crawl-pages', usage, option: 'sort', value: sort },
         })
       }
+      const urlVersions = getString(input.values, 'url-versions')
+      if (urlVersions !== undefined && !['include', 'exclude', 'only'].includes(urlVersions)) {
+        throw usageError(`Error: --url-versions must be include, exclude, or only\nUsage: ${usage}`, {
+          message: '--url-versions must be include, exclude, or only',
+          details: { command: 'technical-aeo.crawl-pages', usage, option: 'url-versions', value: urlVersions },
+        })
+      }
       await technicalAeoCrawlPages(project, {
         runId: getString(input.values, 'run-id'), date: getString(input.values, 'date'),
         inventoryEligible: parseOptionalBoolean(input, 'inventory-eligible', { command: 'technical-aeo.crawl-pages', usage }),
         fetchState: getString(input.values, 'fetch-state'),
         indexabilityState: getString(input.values, 'indexability-state'),
         auditState: getString(input.values, 'audit-state'),
+        urlVersions: urlVersions as 'include' | 'exclude' | 'only' | undefined,
         sort: sort as 'url' | 'path' | 'score-asc' | 'score-desc' | undefined,
         cursor: getString(input.values, 'cursor'),
         limit: parseIntegerOption(input, 'limit', { command: 'technical-aeo.crawl-pages', usage, message: '--limit must be an integer' }),

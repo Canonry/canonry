@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { calendarDateSchema } from './google-ads.js'
 import { fraction, percent } from './ratio-unit.js'
 import { runStatusSchema } from './run.js'
+import { hostOf } from './url-normalize.js'
 
 // Keep this as an explicit union instead of `.nullable()`: OpenAPI 3.0 emits
 // the latter as `nullable: true` beside an enum, which some client generators
@@ -292,6 +293,12 @@ export const siteCrawlInventorySummarySchema = z.object({
   excluded: z.number().int().nonnegative(),
   /** Disjoint primary reasons: their page counts sum to excluded. */
   excludedReasons: z.array(siteCrawlHealthReasonCountSchema).max(siteHealthReasonSchema.options.length),
+  /**
+   * URL versions the audit set aside (see `siteCrawlUrlVersionOf`): not scored
+   * and not counted in fixes. A subset of `excluded`; 0 for a scan made before
+   * the audit set them aside, which scored every address.
+   */
+  urlVersions: z.number().int().nonnegative().default(0),
 })
 export type SiteCrawlInventorySummaryDto = z.infer<typeof siteCrawlInventorySummarySchema>
 
@@ -556,6 +563,58 @@ export function deriveSiteHealthState(input: SiteHealthStateInput): SiteHealthSt
     default:
       return 'unchecked'
   }
+}
+
+/**
+ * The crawl pages `urlVersions` filter. `include` (the default) keeps every
+ * crawled address; `exclude` lists pages only, `only` lists URL versions only.
+ */
+export const siteCrawlUrlVersionFilterSchema = z.enum(['include', 'exclude', 'only'])
+export type SiteCrawlUrlVersionFilter = z.infer<typeof siteCrawlUrlVersionFilterSchema>
+export const SiteCrawlUrlVersionFilters = siteCrawlUrlVersionFilterSchema.enum
+
+/** Audit state of a URL version: fetched and classified, deliberately not scored. */
+export const SITE_CRAWL_URL_VERSION_AUDIT_STATE = 'url-version'
+
+export interface SiteCrawlUrlVersionInput {
+  fetchState: string
+  /** The address the crawler requested. */
+  url: string
+  /** The page's declared canonical URL, absolute, or null when it declared none. */
+  canonicalUrl: string | null | undefined
+}
+
+/**
+ * The page a URL version stands in for, or null when the address is a page of
+ * its own.
+ *
+ * A URL version is an HTML page whose address adds parameters (a filter, a
+ * view, a cache setting) to a path, and whose canonical names that same path on
+ * the same host with different parameters, usually none. The site has said the
+ * two addresses are one page, so the audit does not score the copy, count it
+ * in fixes, or list it among hidden pages.
+ *
+ * Only the site's own canonical decides it. A parameter URL with no canonical,
+ * or one naming a different path, stays a page: `?page=2` and `/listing?id=123`
+ * are often real pages, and an unmarked parameter copy is a duplicate-content
+ * risk worth seeing. Paths compare exactly; a trailing slash is a different
+ * path, as everywhere else in crawl identity.
+ */
+export function siteCrawlUrlVersionOf(input: SiteCrawlUrlVersionInput): string | null {
+  if (input.fetchState !== SiteCrawlFetchStates.html || !input.canonicalUrl) return null
+  let own: URL
+  let canonical: URL
+  try {
+    own = new URL(input.url)
+    canonical = new URL(input.canonicalUrl)
+  } catch {
+    return null
+  }
+  if (own.search === '') return null
+  if (hostOf(own.href) !== hostOf(canonical.href) || own.pathname !== canonical.pathname) return null
+  // A canonical naming this same address is a page declaring itself.
+  if (own.search === canonical.search) return null
+  return canonical.href
 }
 
 /**
@@ -1218,6 +1277,13 @@ export const siteCrawlPageSchema = z.object({
   healthState: siteHealthStateSchema,
   /** Concrete fetch/indexability reason; unknown never implies a canonical points elsewhere. */
   healthReason: siteHealthReasonSchema.optional(),
+  /**
+   * The page this address is a URL version of (its canonical), or null for a
+   * page. A URL version is not scored: its `auditState` is `url-version` and
+   * its `auditScore` null. Always null in a scan made before the audit set URL
+   * versions aside.
+   */
+  urlVersionOf: z.string().nullable().default(null),
 })
 export type SiteCrawlPageDto = z.infer<typeof siteCrawlPageSchema>
 

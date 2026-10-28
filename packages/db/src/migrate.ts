@@ -4959,6 +4959,17 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `ALTER TABLE schedules ADD COLUMN enabled_at TEXT`,
     ],
   },
+  {
+    // The page a crawled address is a URL version of: a parameter copy whose
+    // canonical names the same path, which the audit no longer scores.
+    // Nullable with no default and no backfill: a scan published before this
+    // scored every address, so its rows truthfully read as pages.
+    version: 197,
+    name: 'site-crawl-url-versions',
+    statements: [
+      `ALTER TABLE site_crawl_pages ADD COLUMN url_version_of TEXT`,
+    ],
+  },
 ]
 
 /**

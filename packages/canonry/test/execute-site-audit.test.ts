@@ -276,6 +276,59 @@ describe('executeSiteAudit', () => {
     expect(db.select().from(siteAuditPages).where(eq(siteAuditPages.runId, runId)).all()).toHaveLength(2)
   })
 
+  it('does not score URL versions: the site score, fix counts and legacy scorecard cover pages only', async () => {
+    const scored = (url: string, score: number) => page(`page:${new URL(url).pathname}${new URL(url).search}`, url, {
+      audit: { ...page('page:x', url).audit, overallScore: score, factors: [scoredFactor('sd', 'Structured Data', 12, score)] },
+    })
+    // Stored shapes from a real crawl: a filter view whose canonical names
+    // its path (indexability unknown), and a cache-busting unit address
+    // marked noindex with the clean address as canonical.
+    const filterView = page('page:filter', 'https://example.com/apartments/?field=neighborhood&value=Buckhead', {
+      canonicalUrl: 'https://example.com/apartments/',
+      indexability: { state: 'unknown', reasons: ['canonical-to-other'], rulesetVersion: '1.0.0' },
+      audit: { ...page('page:x', 'https://example.com/').audit, overallScore: 20, factors: [scoredFactor('sd', 'Structured Data', 12, 20)] },
+    })
+    const cacheCopy = page('page:unit', 'https://example.com/units/7/?forcecache=1', {
+      canonicalUrl: 'https://example.com/units/7/',
+      indexability: { state: 'noindex', reasons: ['meta-robots-noindex'], rulesetVersion: '1.0.0' },
+      audit: { ...page('page:x', 'https://example.com/').audit, overallScore: 10, factors: [scoredFactor('sd', 'Structured Data', 12, 10)] },
+    })
+    // A parameter address that names itself as canonical is a page.
+    const pageTwo = scored('https://example.com/blog?page=2', 60)
+    vi.mocked(runSiteCrawl).mockImplementation(async (_url, options) => {
+      await options.onEvent?.({
+        type: 'pages', sequence: 1, batchId: 'pages-1', checksum: 'pages-checksum',
+        rows: [scored('https://example.com/', 90), scored('https://example.com/apartments/', 70), pageTwo, filterView, cacheCopy],
+      })
+      // The engine's own rollup counts every audited address: (90+70+60+20+10)/5.
+      const endSummary = summary({ pagesObserved: 5, auditRollup: { auditedPages: 5, aggregateScore: 50, factors: [] } })
+      await options.onEvent?.({ type: 'summary', sequence: 2, batchId: 'summary-1', checksum: 'summary-ok', summary: endSummary })
+      return { mode: 'summary', summary: endSummary, deadLinks: { state: 'disabled', findings: [], unverified: [] } }
+    })
+    const runId = seedRun()
+    await executeSiteAudit(db, runId, projectId)
+
+    const snapshot = db.select().from(siteAuditSnapshots).where(eq(siteAuditSnapshots.runId, runId)).get()!
+    // (90 + 70 + 60) / 3 = 73.3, not the engine's 50 over five addresses.
+    expect(snapshot).toMatchObject({ aggregateScore: 73, pagesAudited: 3 })
+    // Scores 90 and 70 pass, 60 is partial; the copies' failing 20 and 10 are not counted.
+    expect(snapshot.factorAverages).toEqual([expect.objectContaining({
+      id: 'sd', avgScore: 73, status: 'partial', pagesPassing: 2, pagesPartial: 1, pagesFailing: 0,
+    })])
+    expect(db.select({ url: siteAuditPages.url }).from(siteAuditPages).where(eq(siteAuditPages.runId, runId)).all().map((row) => row.url).sort())
+      .toEqual(['https://example.com/', 'https://example.com/apartments/', 'https://example.com/blog?page=2'])
+
+    const rows = db.select().from(siteCrawlPages).where(eq(siteCrawlPages.runId, runId)).all()
+    const row = (url: string) => rows.find((candidate) => candidate.url === url)!
+    for (const [url, main] of [
+      ['https://example.com/apartments/?field=neighborhood&value=Buckhead', 'https://example.com/apartments/'],
+      ['https://example.com/units/7/?forcecache=1', 'https://example.com/units/7/'],
+    ]) {
+      expect(row(url)).toMatchObject({ urlVersionOf: main, auditState: 'url-version', auditScore: null, auditFields: {}, healthState: 'hidden' })
+    }
+    expect(row('https://example.com/blog?page=2')).toMatchObject({ urlVersionOf: null, auditState: 'success', auditScore: 60 })
+  })
+
   it.each([
     { name: 'omitted', summaryFields: {}, expected: null },
     { name: 'measured empty', summaryFields: { siteIssues: [] }, expected: { schemaVersion: '1.0', groupIdentityVersion: 'duplicate-metadata-v1', siteIssues: [] } },

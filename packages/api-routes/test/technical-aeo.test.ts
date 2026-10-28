@@ -2264,6 +2264,38 @@ describe('same-date site audit selection', () => {
     for (const suffix of ['crawl', 'crawl/pages']) expect((await get(`/api/v1/projects/tech-aeo/technical-aeo/${suffix}?runId=${ctx.runB}&date=2030-04-10`)).status).toBe(400)
   })
 
+  it('lists pages or URL versions on request and counts the set-aside URL versions across the whole scan', async () => {
+    const original = ctx.db.select().from(siteCrawlPages).where(and(eq(siteCrawlPages.runId, ctx.runB), eq(siteCrawlPages.nodeKey, 'home'))).get()!
+    for (const row of [
+      { nodeKey: 'view-map', url: 'https://example.com/?view=map' },
+      { nodeKey: 'view-list', url: 'https://example.com/?view=list' },
+    ]) {
+      ctx.db.insert(siteCrawlPages).values({
+        ...original, ...row, id: crypto.randomUUID(), path: '/', inventoryEligible: false,
+        indexabilityState: 'unknown', indexabilityReasons: ['canonical-to-other'], healthState: 'hidden',
+        urlVersionOf: 'https://example.com/', auditState: 'url-version', auditScore: null,
+      }).run()
+    }
+    const path = '/api/v1/projects/tech-aeo/technical-aeo/crawl/pages'
+    const every = (await get<SiteCrawlPagesResponseDto>(path)).body
+    const pages = (await get<SiteCrawlPagesResponseDto>(`${path}?urlVersions=exclude`)).body
+    const versions = (await get<SiteCrawlPagesResponseDto>(`${path}?urlVersions=only`)).body
+    expect(versions.pages.map(page => [page.url, page.urlVersionOf, page.auditState])).toEqual([
+      ['https://example.com/?view=list', 'https://example.com/', 'url-version'],
+      ['https://example.com/?view=map', 'https://example.com/', 'url-version'],
+    ])
+    expect(pages.pages.map(page => page.urlVersionOf)).toEqual(pages.pages.map(() => null))
+    expect(pages.total + versions.total).toBe(every.total)
+    expect(versions.total).toBe(2)
+    // The summary describes the whole scan, whatever the list filter.
+    expect(every.inventorySummary!.urlVersions).toBe(2)
+    expect(pages.inventorySummary).toEqual(every.inventorySummary)
+    // The dashboard's Hidden pages list: hidden, and not a URL version.
+    const hidden = (await get<SiteCrawlPagesResponseDto>(`${path}?healthState=hidden&urlVersions=exclude`)).body
+    expect(hidden.pages.some(page => page.urlVersionOf !== null)).toBe(false)
+    expect((await get(`${path}?urlVersions=sometimes`)).status).toBe(400)
+  })
+
   it('reports exact exclusion reasons across the selected inventory and filtered pages before paging', async () => {
     const scope = and(eq(siteCrawlPages.runId, ctx.runB), eq(siteCrawlPages.nodeKey, 'guide'))
     ctx.db.update(siteCrawlPages).set({ inventoryEligible: false, indexabilityState: 'unknown', indexabilityReasons: ['canonical-to-other'] }).where(scope).run()

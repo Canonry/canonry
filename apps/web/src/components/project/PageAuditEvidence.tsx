@@ -1,6 +1,7 @@
 import {
   formatPercent,
   RatioUnits,
+  SITE_CRAWL_URL_VERSION_AUDIT_STATE,
   type SiteAuditFactorStatus,
   type SiteCrawlPageAuditDto,
 } from '@canonry/canonry-contracts'
@@ -84,7 +85,11 @@ export function PageAuditEvidence({
       ) : audit.state === 'not-found' ? (
         <p className="mt-4 text-copy-14 text-secondary">This page is not present in the selected scan.</p>
       ) : audit.state === 'not-audited' ? (
-        <p className="mt-4 text-copy-14 text-secondary">This page was found, but it was not scored.</p>
+        <p className="mt-4 text-copy-14 text-secondary">
+          {audit.auditState === SITE_CRAWL_URL_VERSION_AUDIT_STATE
+            ? 'This address is a URL version of another page, so it was not scored.'
+            : 'This page was found, but it was not scored.'}
+        </p>
       ) : (
         <ReadyPageAudit audit={audit} />
       )}

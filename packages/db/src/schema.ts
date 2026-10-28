@@ -1474,6 +1474,13 @@ export const siteCrawlPages = sqliteTable('site_crawl_pages', {
    * column existed, which reads must report rather than treat as a state.
    */
   healthState: text('health_state'),
+  /**
+   * The canonical page this address is a URL version of (contract
+   * `siteCrawlUrlVersionOf`), written at publish time; such a row is not
+   * scored. NULL for a page, and for every row of a scan published before the
+   * audit set URL versions aside.
+   */
+  urlVersionOf: text('url_version_of'),
   auditState: text('audit_state').notNull().default('pending'),
   auditScore: real('audit_score'),
   auditFields: text('audit_fields', { mode: 'json' }).$type<Record<string, unknown>>().notNull().default({}),
