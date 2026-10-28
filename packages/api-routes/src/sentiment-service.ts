@@ -263,8 +263,18 @@ export class SentimentService {
       evaluationDefinitionId: sentimentWorkItems.evaluationDefinitionId, status: sentimentWorkItems.status, errorCode: sentimentWorkItems.errorCode, cancellationReason: sentimentWorkItems.cancellationReason,
       resultOutcome: sentimentResults.outcome, result: sentimentResults.result, returnedModel: sentimentResults.returnedModel,
     }).from(sentimentWorkItems).leftJoin(sentimentResults, eq(sentimentResults.workItemId, sentimentWorkItems.id)).where(scope).all()
-    const inputs = withInput ? new Map(this.db.select({ id: sentimentWorkItems.id, input: sentimentWorkItems.input }).from(sentimentWorkItems).where(scope).all().map(row => [row.id, row.input])) : null
-    return rows.flatMap(({ resultOutcome, result, returnedModel, ...work }) => {
+    // Frozen inputs carry the whole source answer, about 12 KB each. Load them only for the
+    // admitted items: a query-scoped evidence read needs a handful, not every item in the run.
+    const admitted = rows.filter(row => allowed.has(`${row.snapshotId}:${row.sourceTextHash}:${row.subjectHash}`))
+    const inputs = withInput ? new Map<string, unknown>() : null
+    if (inputs) {
+      const ids = admitted.map(row => row.id)
+      for (let index = 0; index < ids.length; index += 500) {
+        for (const row of this.db.select({ id: sentimentWorkItems.id, input: sentimentWorkItems.input }).from(sentimentWorkItems)
+          .where(and(scope, inArray(sentimentWorkItems.id, ids.slice(index, index + 500)))).all()) inputs.set(row.id, row.input)
+      }
+    }
+    return admitted.flatMap(({ resultOutcome, result, returnedModel, ...work }) => {
       const member = allowed.get(`${work.snapshotId}:${work.sourceTextHash}:${work.subjectHash}`)
       if (!member) return []
       const edges = member.edges.filter(edge => matchesSentimentEdge(edge, filter))
