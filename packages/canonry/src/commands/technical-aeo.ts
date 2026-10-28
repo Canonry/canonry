@@ -392,6 +392,7 @@ function inventorySummaryLines(summary: SiteCrawlInventorySummaryDto | null | un
   return [
     `Stored canonical pages: ${summary.total} total · ${summary.eligible} eligible · ${summary.excluded} excluded`,
     ...summary.excludedReasons.map(reason => `Excluded · ${reason.healthReason}: ${reason.pages}`),
+    ...(summary.urlVersions > 0 ? [`URL versions (copies of a page, not scored): ${summary.urlVersions}`] : []),
   ]
 }
 
@@ -405,6 +406,7 @@ export async function technicalAeoCrawlPages(
     fetchState?: string
     indexabilityState?: string
     auditState?: string
+    urlVersions?: 'include' | 'exclude' | 'only'
     sort?: 'url' | 'path' | 'score-asc' | 'score-desc'
     cursor?: string
     limit?: number
@@ -444,7 +446,8 @@ export async function technicalAeoCrawlPages(
   lines.push(...inventoryLines)
   lines.push(`${'Depth'.padStart(5)}  ${'Score'.padStart(5)}  ${'Page state'.padEnd(21)}  URL`)
   for (const page of res.pages) {
-    lines.push(`${String(page.depth ?? '-').padStart(5)}  ${String(page.auditScore ?? '-').padStart(5)}  ${(page.healthReason ?? page.healthState ?? page.indexabilityState).slice(0, 21).padEnd(21)}  ${page.url}`)
+    const state = page.urlVersionOf ? 'url-version' : page.healthReason ?? page.healthState ?? page.indexabilityState
+    lines.push(`${String(page.depth ?? '-').padStart(5)}  ${String(page.auditScore ?? '-').padStart(5)}  ${state.slice(0, 21).padEnd(21)}  ${page.url}`)
   }
   if (res.nextCursor) lines.push(`\nNext cursor: ${res.nextCursor}`)
   if (note) lines.push('', note)

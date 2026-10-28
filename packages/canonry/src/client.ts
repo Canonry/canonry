@@ -4590,6 +4590,7 @@ export class ApiClient {
       fetchState?: string
       indexabilityState?: string
       auditState?: string
+      urlVersions?: 'include' | 'exclude' | 'only'
       sort?: 'url' | 'path' | 'score-asc' | 'score-desc'
       cursor?: string
       limit?: number
@@ -4606,6 +4607,7 @@ export class ApiClient {
           fetchState: opts?.fetchState,
           indexabilityState: opts?.indexabilityState,
           auditState: opts?.auditState,
+          urlVersions: opts?.urlVersions,
           sort: opts?.sort,
           cursor: opts?.cursor,
           limit: opts?.limit !== undefined ? String(opts.limit) : undefined,

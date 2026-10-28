@@ -126,6 +126,34 @@ const INVENTORY_FILTERS = [
 }>
 
 /**
+ * The address as two lines: the path, then any parameters, which are what tell
+ * two rows with the same path apart. Parameters are decoded for reading only;
+ * the full URL stays in the row's title and in what it opens.
+ */
+function inventoryAddress(url: string, fallbackPath: string, rootHost: string | null): { path: string; query: string | null } {
+  const display = displayPagePath(url, rootHost) || fallbackPath
+  const start = display.indexOf('?')
+  if (start < 0) return { path: display, query: null }
+  const query = display.slice(start)
+  let readable = query
+  try {
+    readable = decodeURIComponent(query.replaceAll('+', ' '))
+  } catch {
+    readable = query
+  }
+  return { path: display.slice(0, start), query: readable }
+}
+
+/** The caveat beside the page count; its sentence is the tooltip. */
+function urlVersionsSkippedHelp(count: number): { label: string; text: string } {
+  const label = `${metricValue(count)} URL version${count === 1 ? '' : 's'} skipped`
+  return {
+    label,
+    text: `${label}. These addresses add parameters, such as a filter, to a page and name that page as canonical, so they are copies of it. The audit does not score them or list them here.`,
+  }
+}
+
+/**
  * Plain-word reading of the crawler's machine indexability reasons. The
  * `Record` over the closed union is what makes a newly added reason a compile
  * error here instead of raw machine text in the UI.
@@ -786,6 +814,8 @@ function PageInspector({
 
   const status = crawlStatus(page)
   const reasons = indexabilityReasons(reasonSource ?? page)
+  // Only the full page DTO knows; a URL version is opened from the map, never the list.
+  const versionOf = reasonSource?.urlVersionOf ?? null
   // The inspector shows what the MAP shows. Listing nav links the map is
   // hiding would make the two disagree about the same page.
   const visibleInbound = showTemplateLinks ? inbound : inbound.filter((edge) => !edge.isTemplate)
@@ -831,8 +861,9 @@ function PageInspector({
               Page details could not be loaded, so any reason this page is hidden is unknown.
               <Button type="button" variant="secondary" size="sm" onClick={onRetryReasons}>Try again</Button>
             </p>
-          ) : reasons.length > 0 ? (
+          ) : reasons.length > 0 || versionOf ? (
             <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-label-14 text-secondary" aria-label="Why this page is hidden">
+              {versionOf && <li>{`URL version of ${displayPagePath(versionOf, rootHost)}, not scored`}</li>}
               {reasons.map((reason) => (
                 <li key={reason}>{indexabilityReasonLabel(reason)}</li>
               ))}
@@ -900,6 +931,8 @@ function PageInspector({
 function InventoryTable({
   pages,
   total,
+  skippedUrlVersions,
+  rootHost,
   selectedNodeKey,
   onSelect,
   hasNextPage,
@@ -911,6 +944,9 @@ function InventoryTable({
 }: {
   pages: SiteCrawlPageDto[]
   total: number
+  /** URL versions the audit set aside (API `inventorySummary.urlVersions`); null or 0 shows nothing. */
+  skippedUrlVersions: number | null
+  rootHost: string | null
   selectedNodeKey: string | null
   onSelect: (nodeKey: string) => void
   hasNextPage: boolean
@@ -936,11 +972,16 @@ function InventoryTable({
       <div className="mb-3 flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
         <div>
           <h2 id="site-health-inventory-heading" className="text-heading-16 text-heading">Pages</h2>
-          <p className="mt-1 text-copy-14 text-secondary">
-            {filter === 'all'
-              ? `Showing ${metricValue(pages.length)} of ${metricValue(total)} pages found.`
-              : `Showing ${metricValue(pages.length)} of ${metricValue(total)} hidden pages.`}
-          </p>
+          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+            <p className="text-copy-14 text-secondary">
+              {filter === 'all'
+                ? `Showing ${metricValue(pages.length)} of ${metricValue(total)} pages found.`
+                : `Showing ${metricValue(pages.length)} of ${metricValue(total)} hidden pages.`}
+            </p>
+            {skippedUrlVersions != null && skippedUrlVersions > 0 && (
+              <InfoTooltip {...urlVersionsSkippedHelp(skippedUrlVersions)} />
+            )}
+          </div>
         </div>
         <label className="relative block w-full sm:w-72">
           <span className="sr-only">Search loaded pages</span>
@@ -985,16 +1026,20 @@ function InventoryTable({
           <tbody>
             {visiblePages.map((page) => {
               const status = crawlStatus(page)
+              const address = inventoryAddress(page.url, page.path, rootHost)
               return (
                 <tr key={page.nodeKey} className={selectedNodeKey === page.nodeKey ? 'bg-surface-active' : undefined}>
                   <td className="max-w-80">
                     <button
                       type="button"
                       onClick={() => onSelect(page.nodeKey)}
-                      className="block max-w-full truncate rounded-sm font-mono text-button-14 text-link outline-none focus-visible:ring-2 focus-visible:ring-mono-400"
+                      className="block max-w-full rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-mono-400"
                       title={page.url}
                     >
-                      {page.path}
+                      <span className="block truncate font-mono text-button-14 text-link">{address.path}</span>
+                      {address.query && (
+                        <span className="line-clamp-2 [overflow-wrap:anywhere] text-label-12-mono text-secondary">{address.query}</span>
+                      )}
                     </button>
                   </td>
                   <td title={siteGraphStatusDescription(siteGraphVisualState(page))}>
@@ -1898,6 +1943,9 @@ export function SiteHealthSection({
     query: {
       ...scopedRunQuery,
       ...(inventoryHealthState ? { healthState: inventoryHealthState } : {}),
+      // A URL version is a copy of a page the audit did not score; the list
+      // holds pages and the skipped copies are one count beside it.
+      urlVersions: 'exclude' as const,
       limit: INVENTORY_LIMIT,
       sort: 'path' as const,
     },
@@ -2591,6 +2639,8 @@ export function SiteHealthSection({
             <InventoryTable
               pages={inventoryPages}
               total={inventoryTotal}
+              skippedUrlVersions={pagesQuery.data?.pages[0]?.inventorySummary?.urlVersions ?? null}
+              rootHost={rootHost}
               filterUnavailable={pagesQuery.data?.pages[0]?.healthStateFilter === 'unavailable-legacy-scan'}
               selectedNodeKey={effectiveSelectedNodeKey}
               onSelect={setSelectedNodeKey}

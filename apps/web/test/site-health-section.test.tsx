@@ -355,7 +355,7 @@ function seedRun(
   const pagesInput = {
     client: heyClient,
     path: { name: projectName },
-    query: { runId, limit: 200, sort: 'path' },
+    query: { runId, urlVersions: 'exclude', limit: 200, sort: 'path' },
   } as const
   const pagesResponse = {
     project: projectName,
@@ -534,7 +534,7 @@ function installSiteReads(receipts: Record<string, unknown>) {
   return reads
 }
 function seedInventoryRows(queryClient: QueryClient, runId: string, pages: SiteCrawlPageDto[]) {
-  const input = { client: heyClient, path: { name: projectName }, query: { runId, limit: 200, sort: 'path' } } as const
+  const input = { client: heyClient, path: { name: projectName }, query: { runId, urlVersions: 'exclude', limit: 200, sort: 'path' } } as const
   const response = { project: projectName, hasCrawlData: true, runId, total: pages.length, nextCursor: null, pages }
   queryClient.setQueryData(getApiV1ProjectsByNameTechnicalAeoCrawlPagesQueryKey(input), response)
   queryClient.setQueryData(getApiV1ProjectsByNameTechnicalAeoCrawlPagesInfiniteQueryKey(input), { pages: [response], pageParams: [input] })
@@ -862,7 +862,7 @@ test('uses the server-owned health state for both the inventory badge and select
   const pagesInput = {
     client: heyClient,
     path: { name: projectName },
-    query: { runId: 'run_1', limit: 200, sort: 'path' },
+    query: { runId: 'run_1', urlVersions: 'exclude', limit: 200, sort: 'path' },
   } as const
   const failedPage = {
     ...servicesPage,
@@ -930,7 +930,7 @@ test('shows link importance on the 0 to 100 scale every crawl writes', () => {
   const pagesInput = {
     client: heyClient,
     path: { name: projectName },
-    query: { runId: 'run_1', limit: 200, sort: 'path' },
+    query: { runId: 'run_1', urlVersions: 'exclude', limit: 200, sort: 'path' },
   } as const
   const pagesResponse = {
     project: projectName,
@@ -1029,7 +1029,7 @@ test('keeps every detail read pinned to the selected historical run', async () =
   const receipts = {
     '/crawl': oldSummary,
     '/graph': queryClient.getQueryData(getApiV1ProjectsByNameTechnicalAeoGraphQueryKey({ client: heyClient, path: { name: projectName }, query: { runId: 'run_old', maxNodes: 20_000, maxEdges: 50_000 } })),
-    '/crawl/pages': queryClient.getQueryData(getApiV1ProjectsByNameTechnicalAeoCrawlPagesQueryKey({ client: heyClient, path: { name: projectName }, query: { runId: 'run_old', limit: 200, sort: 'path' } })),
+    '/crawl/pages': queryClient.getQueryData(getApiV1ProjectsByNameTechnicalAeoCrawlPagesQueryKey({ client: heyClient, path: { name: projectName }, query: { runId: 'run_old', urlVersions: 'exclude', limit: 200, sort: 'path' } })),
     '/structure': queryClient.getQueryData(getApiV1ProjectsByNameTechnicalAeoStructureQueryKey({ client: heyClient, path: { name: projectName }, query: { runId: 'run_old', parentPath: '/', limit: 100 } })),
     '/internal-links/neighbors': queryClient.getQueryData(getApiV1ProjectsByNameTechnicalAeoInternalLinksNeighborsQueryKey({ client: heyClient, path: { name: projectName }, query: { runId: 'run_old', nodeKey: 'page_services', limit: 100 } })),
     '/crawl/pages/audit': queryClient.getQueryData(getApiV1ProjectsByNameTechnicalAeoCrawlPagesAuditQueryKey({ client: heyClient, path: { name: projectName }, query: { runId: 'run_old', nodeKey: 'page_services' } })),
@@ -1055,7 +1055,7 @@ test('keeps every detail read pinned to the selected historical run', async () =
   expect(reads).toEqual(expect.arrayContaining([
     { method: 'GET', path: '/api/v1/projects/citypoint/technical-aeo/crawl', query: { runId: 'run_old' } },
     { method: 'GET', path: '/api/v1/projects/citypoint/technical-aeo/graph', query: { runId: 'run_old', maxNodes: '20000', maxEdges: '50000' } },
-    { method: 'GET', path: '/api/v1/projects/citypoint/technical-aeo/crawl/pages', query: { runId: 'run_old', limit: '200', sort: 'path' } },
+    { method: 'GET', path: '/api/v1/projects/citypoint/technical-aeo/crawl/pages', query: { runId: 'run_old', urlVersions: 'exclude', limit: '200', sort: 'path' } },
     { method: 'GET', path: '/api/v1/projects/citypoint/technical-aeo/structure', query: { runId: 'run_old', parentPath: '/', limit: '100' } },
     { method: 'GET', path: '/api/v1/projects/citypoint/technical-aeo/internal-links/neighbors', query: { runId: 'run_old', nodeKey: 'page_services', limit: '100' } },
     { method: 'GET', path: '/api/v1/projects/citypoint/technical-aeo/crawl/pages/audit', query: { runId: 'run_old', nodeKey: 'page_services' } },
@@ -2236,7 +2236,7 @@ test('does not request map, inventory, or dead-link data for ready explicit onbo
   const pagesInput = {
     client: heyClient,
     path: { name: projectName },
-    query: { runId: 'run_1', limit: 200, sort: 'path' as const },
+    query: { runId: 'run_1', urlVersions: 'exclude', limit: 200, sort: 'path' as const },
   }
   queryClient.removeQueries({
     queryKey: getApiV1ProjectsByNameTechnicalAeoCrawlPagesInfiniteQueryKey(pagesInput),
@@ -2368,7 +2368,7 @@ test('loads the complete inventory in 200-page batches', async () => {
   const pagesInput = {
     client: heyClient,
     path: { name: projectName },
-    query: { runId: 'run_1', limit: 200, sort: 'path' as const },
+    query: { runId: 'run_1', urlVersions: 'exclude', limit: 200, sort: 'path' as const },
   }
   queryClient.setQueryData(getApiV1ProjectsByNameTechnicalAeoCrawlPagesInfiniteQueryKey(pagesInput), {
     pages: [{
@@ -2417,7 +2417,7 @@ test('makes loaded-window inventory search limits explicit', () => {
   const pagesInput = {
     client: heyClient,
     path: { name: projectName },
-    query: { runId: 'run_1', limit: 200, sort: 'path' as const },
+    query: { runId: 'run_1', urlVersions: 'exclude', limit: 200, sort: 'path' as const },
   }
   queryClient.setQueryData(getApiV1ProjectsByNameTechnicalAeoCrawlPagesInfiniteQueryKey(pagesInput), {
     pages: [{
@@ -2622,6 +2622,33 @@ test('lets long selected paths and URLs wrap in the page inspector', async () =>
   expect(compiledElementProperty(css, url, 'white-space')).toBeUndefined()
 })
 
+test('lists pages only, says how many URL versions the audit skipped, and shows a parameter page with its parameters', async () => {
+  const queryClient = makeClient()
+  const parameterUrl = 'https://citypoint.example/blog?page=2'
+  const parameterPage = { ...servicesPage, nodeKey: 'page_blog_2', path: '/blog', url: parameterUrl, finalUrl: parameterUrl }
+  seedRun(queryClient, 'run_1', summary('run_1', 42), { nodes: [{ ...homePage, x: 0, y: 0 }, { ...parameterPage, x: 1, y: 1 }] })
+  const seedList = (urlVersions: number) => {
+    const input = { client: heyClient, path: { name: projectName }, query: { runId: 'run_1', urlVersions: 'exclude', limit: 200, sort: 'path' } } as const
+    const response = {
+      project: projectName, hasCrawlData: true, runId: 'run_1', total: 2, nextCursor: null, pages: [homePage, parameterPage],
+      inventorySummary: { scope: 'selected-snapshot', total: 4857, eligible: 2, excluded: 4855, excludedReasons: [], urlVersions },
+    }
+    queryClient.setQueryData(getApiV1ProjectsByNameTechnicalAeoCrawlPagesInfiniteQueryKey(input), { pages: [response], pageParams: [input] })
+  }
+  seedList(4855)
+  renderSection(queryClient)
+  fireEvent.click(screen.getByRole('tab', { name: 'Pages' }))
+
+  expect(screen.getByRole('button', { name: /^4,855 URL versions skipped\. These addresses add parameters/ })).not.toBeNull()
+  // Two rows can share a path; the parameters on their own line tell them apart.
+  const row = screen.getByRole('button', { name: '/blog?page=2' })
+  expect(within(row).getByText('/blog')).not.toBeNull()
+  expect(within(row).getByText('?page=2')).not.toBeNull()
+
+  act(() => seedList(0))
+  await waitFor(() => expect(screen.queryByRole('button', { name: /URL versions? skipped/ })).toBeNull())
+})
+
 test('contains selected-page link tables inside mobile-safe grid items', async () => {
   const queryClient = makeClient()
   const edge = {
@@ -2752,7 +2779,7 @@ test('narrows the page list to hidden pages through the server-side filter', () 
   const hiddenInput = {
     client: heyClient,
     path: { name: projectName },
-    query: { runId: 'run_1', healthState: 'hidden', limit: 200, sort: 'path' },
+    query: { runId: 'run_1', healthState: 'hidden', urlVersions: 'exclude', limit: 200, sort: 'path' },
   } as const
   const hiddenResponse = {
     project: projectName,
@@ -2917,6 +2944,59 @@ test('inspects a map page that is outside the loaded inventory window', async ()
   expect(within(screen.getByRole('list', { name: 'Why this page is hidden' })).queryByText('Hidden by meta robots tag')).toBeNull()
 })
 
+test('names a URL version opened from the map and says why it was not scored', async () => {
+  // The list leaves URL versions out, so the map is the only way to open one.
+  const queryClient = makeClient()
+  seedInitialRootPage(queryClient)
+  const copy = {
+    ...contactPage,
+    nodeKey: 'page_far_map',
+    url: 'https://citypoint.example/far?view=map',
+    path: '/far',
+    canonicalUrl: 'https://citypoint.example/far',
+    indexabilityState: 'unknown',
+    indexabilityReasons: ['canonical-to-other'],
+    healthState: 'hidden' as const,
+    auditState: 'url-version',
+    auditScore: null,
+    urlVersionOf: 'https://citypoint.example/far',
+  }
+  queryClient.setQueryData(getApiV1ProjectsByNameTechnicalAeoGraphQueryKey({
+    client: heyClient,
+    path: { name: projectName },
+    query: { runId: 'run_1', maxNodes: 20_000, maxEdges: 50_000 },
+  }), {
+    project: projectName, hasCrawlData: true, runId: 'run_1', rootNodeKey: 'page_home',
+    layout: { state: 'ready', version: 'site-health-fa2-v2', computedAt: '2026-08-08T18:16:33.000Z' },
+    totalNodes: 3, totalEdges: 0,
+    nodes: [{ ...homePage, x: 0, y: 0 }, { ...servicesPage, x: 1, y: 1 }, { ...compactPage(copy), x: 2, y: 2 }],
+    edges: [], omittedNodes: 0, omittedEdges: 0, sampled: false,
+  })
+  installSiteReads({
+    '/crawl/pages': { project: projectName, hasCrawlData: true, runId: 'run_1', total: 1, nextCursor: null, healthStateFilter: null, pages: [copy] },
+    '/crawl/pages/audit': {
+      state: 'not-audited', project: projectName, runId: 'run_1', complete: true, termination: null,
+      nodeKey: copy.nodeKey, url: copy.url, auditState: 'url-version', auditScore: null, factors: [], criticalDefects: [],
+    },
+  })
+  queryClient.setQueryData(getApiV1ProjectsByNameTechnicalAeoInternalLinksNeighborsQueryKey({
+    client: heyClient,
+    path: { name: projectName },
+    query: { runId: 'run_1', nodeKey: copy.nodeKey, limit: 100 },
+  }), {
+    project: projectName, hasCrawlData: true, runId: 'run_1', nodeKey: copy.nodeKey,
+    url: copy.url, inbound: [], outbound: [], inboundTruncated: false, outboundTruncated: false,
+  })
+
+  renderSection(queryClient)
+  fireEvent.click(screen.getByRole('button', { name: '/far' }))
+
+  await waitFor(() => expect(
+    within(screen.getByRole('list', { name: 'Why this page is hidden' })).getByText('URL version of /far, not scored'),
+  ).not.toBeNull())
+  await waitFor(() => expect(screen.getByText('This address is a URL version of another page, so it was not scored.')).not.toBeNull())
+})
+
 test('says the reasons are unknown when the single-page read fails', async () => {
   // A failed read is not "this page has no reasons". Rendering it as such is
   // indistinguishable from a page that genuinely has none.
@@ -2961,7 +3041,7 @@ test('keeps a filtered selection until the server says it does not match', async
     const queryClient = makeClient()
     seedInitialRootPage(queryClient)
     const hiddenPage = { ...contactPage, nodeKey: 'page_hidden_far', url: 'https://citypoint.example/thanks', path: '/thanks', indexabilityState: 'noindex', indexabilityReasons: ['meta-robots-noindex'], healthState: 'hidden' as const }
-    const hiddenInput = { client: heyClient, path: { name: projectName }, query: { runId: 'run_1', healthState: 'hidden', limit: 200, sort: 'path' } } as const
+    const hiddenInput = { client: heyClient, path: { name: projectName }, query: { runId: 'run_1', healthState: 'hidden', urlVersions: 'exclude', limit: 200, sort: 'path' } } as const
     const hiddenResponse = { project: projectName, hasCrawlData: true, runId: 'run_1', total: 1, nextCursor: null, healthStateFilter: 'applied', pages: [hiddenPage] }
     queryClient.setQueryData(getApiV1ProjectsByNameTechnicalAeoCrawlPagesInfiniteQueryKey(hiddenInput), { pages: [hiddenResponse], pageParams: [hiddenInput] })
     const deferred = deferredResponse()
@@ -3001,7 +3081,7 @@ test('says so when a scan is too old to filter, instead of showing an empty list
   const legacyInput = {
     client: heyClient,
     path: { name: projectName },
-    query: { runId: 'run_1', healthState: 'hidden', limit: 200, sort: 'path' },
+    query: { runId: 'run_1', healthState: 'hidden', urlVersions: 'exclude', limit: 200, sort: 'path' },
   } as const
   const legacyResponse = {
     project: projectName, hasCrawlData: true, runId: 'run_1', total: 0, nextCursor: null,
