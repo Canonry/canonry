@@ -178,7 +178,7 @@ function registerMetaTools(
       title: 'Guide a Canonry workflow',
       description: 'Start here: route an intent to available stored-evidence tools, separately listed actions requiring approval, and workflow guidance. No provider calls or installation required. Optionally include full toolkit details.',
       inputSchema: helpInputSchema.shape,
-      annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+      annotations: { readOnlyHint: true, idempotentHint: true, destructiveHint: false, openWorldHint: false },
     },
     async (input: unknown) => {
       try {
@@ -202,7 +202,7 @@ function registerMetaTools(
       title: 'Load a Canonry MCP toolkit',
       description: 'Register a toolkit\'s tools for this session and emit one notifications/tools/list_changed. Idempotent. Loaded toolkits remain loaded for the rest of the session. Wait for this call to return before calling any newly enabled tool — pipelining the call with a tools/call on the same connection can race the registration and fail with "MCP error -32602: Tool ... disabled".',
       inputSchema: loadToolkitInputSchema.shape,
-      annotations: { readOnlyHint: false, idempotentHint: true, destructiveHint: false },
+      annotations: { readOnlyHint: false, idempotentHint: true, destructiveHint: false, openWorldHint: false },
     },
     async (input: unknown) => withToolErrors(async () => {
       const parsed = loadToolkitInputSchema.parse(input ?? {})

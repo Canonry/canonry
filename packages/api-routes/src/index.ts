@@ -1,3 +1,4 @@
+import { mcpProfileRoutes } from './mcp-profile.js'
 export { registerAgentConversationRoutes } from './agent-conversations.js'
 export { blockedAddressReason, stripIpv6Brackets } from './egress-policy.js'
 import type { FastifyInstance, FastifyError } from 'fastify'
@@ -963,6 +964,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       getGoogleMarketingDoctorInput: opts.getGoogleMarketingDoctorInput,
       probeApiHost: opts.probeApiHost,
     })
+    await api.register(mcpProfileRoutes, { oauthResourceUrl: opts.oauthResourceUrl })
     await api.register(statusRoutes, {
       db: opts.db,
       getMcpHealth: opts.getMcpHealth,

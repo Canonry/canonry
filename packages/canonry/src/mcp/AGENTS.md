@@ -51,9 +51,11 @@ not a user ID alone. Changed credentials or authority require re-initialization.
 Research history uses the model catalog's cached-only read; live discovery stays
 out of stored-evidence workflows, including on cold or expired caches.
 
+`canonry_mcp_profile` mirrors `mcp profile` and `GET /mcp/profile`. Its immutable user ID is local to the discovered instance issuer; never identify a person by display name. The endpoint also accepts MCP-audience OAuth tokens without granting general REST access.
+
 Reject invalid MCP opening messages before minting internal OAuth keys. A failed initialization must revoke its temporary key and close its transport even if no session ID was registered.
 
-Hosted `/api/v1/mcp` and `/api/v1/mcp/readonly` expose every tier at initialization, filtered by existing access permissions. Specialist `/api/v1/mcp/x/<toolkit>` endpoints retain core plus one toolkit. Keep hosted catalogs fixed and preserve both credential-based and endpoint-based read-only filtering.
+Hosted `/api/v1/mcp` and `/api/v1/mcp/readonly` expose every tier at initialization, filtered by existing access permissions. Every `/readonly` segment limits its catalog and its per-session API client to stored evidence; a tool annotation or handler mistake cannot permit a provider read or mutation. Ordinary `/mcp`, specialist endpoints without `/readonly`, and stdio retain their existing scopes. Specialist `/api/v1/mcp/x/<toolkit>` endpoints retain core plus one toolkit. Keep hosted catalogs fixed and preserve both credential-based and endpoint-based read-only filtering.
 
 MCP is the universal guide; skills are optional upgrades. Initialization must
 route agents through `canonry_help(intent)` without requiring resources,

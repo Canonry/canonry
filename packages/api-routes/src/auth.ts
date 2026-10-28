@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
-import { apiKeys, projects, runs, users } from '@canonry/canonry-db'
+import { apiKeys, oauthGrants, projects, runs, users } from '@canonry/canonry-db'
 import {
   ADS_ACTIVATE_SCOPE,
   ADS_APPROVE_SCOPE,
@@ -86,6 +86,8 @@ export interface AuthedApiKey {
  */
 export interface AuthPrincipal {
   kind: 'api-key' | 'user'
+  /** Present for OAuth bearers and the internal keys they delegate. */
+  oauthGrantId?: string | null
   id: string
   name: string
   scopes: string[]
@@ -209,6 +211,13 @@ function isPaidReadRoute(request: FastifyRequest): boolean {
  */
 function isTransportEnvelopeRoute(request: FastifyRequest): boolean {
   return request.routeOptions.config.transportEnvelope === true
+}
+
+/** The connection profile is a read inside the MCP audience, not a transport exemption. */
+function isMcpAuthorizationRoute(request: FastifyRequest): boolean {
+  return isTransportEnvelopeRoute(request)
+    || (request.method === 'GET'
+      && matchOperationTemplate(request.method, request.routeOptions.url ?? request.url) === 'GET /api/v1/mcp/profile')
 }
 
 /**
@@ -515,6 +524,7 @@ function scopesForRole(role: UserRole, researchAllowViewers = false): string[] {
 export interface ResolvedOAuthToken {
   userId: string
   clientId: string
+  grantId?: string | null
   scope: string | null
 }
 
@@ -877,7 +887,7 @@ export async function authPlugin(app: FastifyInstance, opts: AuthPluginOptions =
         // wider REST surface would let a connector approved for one thing act
         // on everything the person can reach. Checked before the token is even
         // looked up, so a non-MCP route cannot be probed with one.
-        const granted = isTransportEnvelopeRoute(request)
+        const granted = isMcpAuthorizationRoute(request)
           ? opts.resolveOAuthToken?.(token) ?? null
           : null
         if (granted) {
@@ -906,6 +916,7 @@ export async function authPlugin(app: FastifyInstance, opts: AuthPluginOptions =
           const effective = intersectScopes(roleScopes, requested)
           request.principal = {
             kind: 'user',
+            oauthGrantId: granted.grantId,
             id: account.id,
             name: account.name,
             scopes: effective,
@@ -971,10 +982,15 @@ export async function authPlugin(app: FastifyInstance, opts: AuthPluginOptions =
       ? app.db.select().from(users).where(eq(users.id, key.delegatedUserId)).get()
       : undefined
     if (key.delegatedUserId && !delegatedUser) throw authInvalid()
+    if (key.delegatedOAuthGrantId) {
+      const grant = app.db.select().from(oauthGrants).where(eq(oauthGrants.id, key.delegatedOAuthGrantId)).get()
+      if (!grant || grant.revokedAt || grant.userId !== key.delegatedUserId) throw authInvalid()
+    }
     if (delegatedUser) scopes = intersectScopes(scopesForRole(delegatedUser.role, opts.researchAllowViewers), scopes)
     request.apiKey = { id: key.id, name: key.name, scopes, projectId: key.projectId ?? null }
     request.principal = {
       kind: 'api-key',
+      oauthGrantId: key.delegatedOAuthGrantId,
       id: key.id,
       name: key.name,
       scopes,

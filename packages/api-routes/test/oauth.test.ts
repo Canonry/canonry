@@ -360,7 +360,7 @@ test('a revoked client cannot exchange a code or rotate a refresh token', async 
 
   db.update(oauthClients).set({ revokedAt: new Date().toISOString() }).where(eq(oauthClients.id, 'client-1')).run()
 
-  const rotated = await app.inject({ method: 'POST', url: '/oauth/token', payload: { grant_type: 'refresh_token', refresh_token: refresh } })
+  const rotated = await app.inject({ method: 'POST', url: '/oauth/token', payload: { grant_type: 'refresh_token', refresh_token: refresh, client_id: 'client-1' } })
   expect(rotated.statusCode).toBe(400)
   expect(rotated.json().error).toBe('invalid_client')
 })
@@ -573,12 +573,15 @@ test('refresh rotates: the presented token dies with the request that used it', 
   })
   const refresh = first.json().refresh_token as string
 
-  const second = await app.inject({ method: 'POST', url: '/oauth/token', payload: { grant_type: 'refresh_token', refresh_token: refresh } })
+  const second = await app.inject({ method: 'POST', url: '/oauth/token', payload: { grant_type: 'refresh_token', refresh_token: refresh, client_id: 'client-1' } })
   expect(second.statusCode).toBe(200)
   expect(second.json().refresh_token).not.toBe(refresh)
 
-  const replay = await app.inject({ method: 'POST', url: '/oauth/token', payload: { grant_type: 'refresh_token', refresh_token: refresh } })
+  const replay = await app.inject({ method: 'POST', url: '/oauth/token', payload: { grant_type: 'refresh_token', refresh_token: refresh, client_id: 'client-1' } })
   expect(replay.statusCode).toBe(400)
+  expect(replay.json().error).toBe('invalid_grant')
+  expect(resolveOAuthAccessToken(db, second.json<TokenPair>().access_token, `${ISSUER}${RESOURCE_PATH}`)).toBeNull()
+  expect((await refreshGrant(second.json<TokenPair>().refresh_token)).statusCode).toBe(400)
 })
 
 test('an access token is not valid for a different resource', async () => {
@@ -624,4 +627,134 @@ test('tokens are stored as digests, never in plaintext', async () => {
   expect(rows.length).toBeGreaterThan(0)
   for (const row of rows) expect(row.tokenHash).not.toBe(token)
   expect(db.select().from(oauthTokens).where(eq(oauthTokens.tokenHash, token)).get()).toBeUndefined()
+})
+
+
+interface TokenPair {
+  access_token: string
+  refresh_token: string
+}
+
+async function issueGrant(): Promise<TokenPair> {
+  const code = await getCode()
+  const response = await app.inject({ method: 'POST', url: '/oauth/token', payload: {
+    grant_type: 'authorization_code', code, code_verifier: VERIFIER, client_id: 'client-1', redirect_uri: REDIRECT,
+  } })
+  expect(response.statusCode).toBe(200)
+  return response.json<TokenPair>()
+}
+
+function refreshGrant(token: string, overrides: Record<string, string | undefined> = {}) {
+  return app.inject({ method: 'POST', url: '/oauth/token', payload: {
+    grant_type: 'refresh_token', refresh_token: token, client_id: 'client-1', ...overrides,
+  } })
+}
+
+test('refresh requires its explicit client identity without consuming a mismatched request', async () => {
+  const tokens = await issueGrant()
+  db.insert(oauthClients).values({ id: 'client-2', name: 'Other client', redirectUris: [REDIRECT], createdAt: new Date().toISOString() }).run()
+  for (const [clientId, error] of [[undefined, 'invalid_request'], ['client-2', 'invalid_grant']] as const) {
+    const response = await refreshGrant(tokens.refresh_token, { client_id: clientId })
+    expect(response.statusCode).toBe(400)
+    expect(response.json().error).toBe(error)
+  }
+  expect((await refreshGrant(tokens.refresh_token)).statusCode).toBe(200)
+})
+
+test('refresh authenticates the bound confidential client and rejects a different resource', async () => {
+  const tokens = await issueGrant()
+  db.update(oauthClients).set({ secretHash: crypto.createHash('sha256').update('client-secret').digest('hex') }).where(eq(oauthClients.id, 'client-1')).run()
+  for (const secret of [undefined, 'wrong-secret']) {
+    const response = await refreshGrant(tokens.refresh_token, { client_secret: secret })
+    expect(response.statusCode).toBe(400)
+    expect(response.json().error).toBe('invalid_client')
+  }
+  const wrongResource = await refreshGrant(tokens.refresh_token, { client_secret: 'client-secret', resource: 'https://other.example/mcp' })
+  expect(wrongResource.statusCode).toBe(400)
+  expect(wrongResource.json().error).toBe('invalid_target')
+  expect((await refreshGrant(tokens.refresh_token, { client_secret: 'client-secret', resource: `${ISSUER}${RESOURCE_PATH}` })).statusCode).toBe(200)
+})
+
+test('failed refresh persistence rolls back consumption and both replacement tokens', async () => {
+  const tokens = await issueGrant()
+  const before = db.select().from(oauthTokens).all().length
+  db.$client.exec(`CREATE TRIGGER reject_refresh_insert BEFORE INSERT ON oauth_tokens
+    WHEN NEW.kind = 'refresh' BEGIN SELECT RAISE(ABORT, 'simulated storage failure'); END`)
+  try {
+    const failed = await refreshGrant(tokens.refresh_token)
+    expect(failed.statusCode).toBe(500)
+    expect(db.select().from(oauthTokens).all()).toHaveLength(before)
+  } finally {
+    db.$client.exec('DROP TRIGGER reject_refresh_insert')
+  }
+  expect((await refreshGrant(tokens.refresh_token)).statusCode).toBe(200)
+})
+
+test.each(['access_token', 'refresh_token'] as const)('revoking an old %s revokes its whole family without touching sibling grants or users', async (tokenKind) => {
+  const first = await issueGrant()
+  const secondResponse = await refreshGrant(first.refresh_token)
+  expect(secondResponse.statusCode).toBe(200)
+  const second = secondResponse.json<TokenPair>()
+  const thirdResponse = await refreshGrant(second.refresh_token)
+  expect(thirdResponse.statusCode).toBe(200)
+  const third = thirdResponse.json<TokenPair>()
+  const sibling = await issueGrant()
+  const originalUser = signedInUserId
+  const otherUser = crypto.randomUUID()
+  db.insert(users).values({ id: otherUser, name: 'Lee', nameKey: 'lee', passwordHash: 'unused', role: 'viewer', createdAt: new Date().toISOString() }).run()
+  signedInUserId = otherUser
+  const unrelatedUser = await issueGrant()
+  signedInUserId = originalUser
+
+  const revoke = await app.inject({ method: 'POST', url: '/oauth/revoke', payload: { token: first[tokenKind], client_id: 'client-1' } })
+  expect(revoke.statusCode).toBe(200)
+  for (const tokens of [first, second, third]) {
+    expect(resolveOAuthAccessToken(db, tokens.access_token, `${ISSUER}${RESOURCE_PATH}`)).toBeNull()
+    const denied = await refreshGrant(tokens.refresh_token)
+    expect(denied.statusCode).toBe(400)
+    expect(denied.json().error).toBe('invalid_grant')
+  }
+  for (const tokens of [sibling, unrelatedUser]) {
+    expect(resolveOAuthAccessToken(db, tokens.access_token, `${ISSUER}${RESOURCE_PATH}`)).not.toBeNull()
+    expect((await refreshGrant(tokens.refresh_token)).statusCode).toBe(200)
+  }
+})
+
+test('revocation authenticates the client before checking token ownership or existence', async () => {
+  const tokens = await issueGrant()
+  db.update(oauthClients).set({ secretHash: crypto.createHash('sha256').update('client-secret').digest('hex') }).where(eq(oauthClients.id, 'client-1')).run()
+  db.insert(oauthClients).values({ id: 'client-2', name: 'Other', redirectUris: [REDIRECT], createdAt: new Date().toISOString() }).run()
+  const wrongClient = await app.inject({ method: 'POST', url: '/oauth/revoke', payload: { token: tokens.refresh_token, client_id: 'client-2' } })
+  expect(wrongClient.statusCode).toBe(200)
+  expect(resolveOAuthAccessToken(db, tokens.access_token, `${ISSUER}${RESOURCE_PATH}`)).not.toBeNull()
+  for (const token of [tokens.refresh_token, 'unknown-token']) {
+    for (const secret of [undefined, 'wrong-secret']) {
+      const response = await app.inject({ method: 'POST', url: '/oauth/revoke', payload: { token, client_id: 'client-1', client_secret: secret } })
+      expect(response.statusCode).toBe(400)
+      expect(response.json().error).toBe('invalid_client')
+    }
+  }
+  expect(resolveOAuthAccessToken(db, tokens.access_token, `${ISSUER}${RESOURCE_PATH}`)).not.toBeNull()
+  const unknown = await app.inject({ method: 'POST', url: '/oauth/revoke', payload: { token: 'unknown-token', client_id: 'client-1', client_secret: 'client-secret' } })
+  expect(unknown.statusCode).toBe(200)
+  const revoked = await app.inject({ method: 'POST', url: '/oauth/revoke', payload: { token: tokens.refresh_token, client_id: 'client-1', client_secret: 'client-secret' } })
+  expect(revoked.statusCode).toBe(200)
+  expect(resolveOAuthAccessToken(db, tokens.access_token, `${ISSUER}${RESOURCE_PATH}`)).toBeNull()
+})
+
+test('a replay with the wrong client secret or audience cannot revoke the active family', async () => {
+  const tokens = await issueGrant()
+  db.update(oauthClients).set({ secretHash: crypto.createHash('sha256').update('client-secret').digest('hex') }).where(eq(oauthClients.id, 'client-1')).run()
+  const rotated = await refreshGrant(tokens.refresh_token, { client_secret: 'client-secret' })
+  expect(rotated.statusCode).toBe(200)
+  const active = rotated.json<TokenPair>()
+  for (const overrides of [
+    { client_id: 'client-2', client_secret: 'client-secret' },
+    { client_secret: 'wrong-secret' },
+    { client_secret: 'client-secret', resource: 'https://elsewhere.example/mcp' },
+  ]) {
+    expect((await refreshGrant(tokens.refresh_token, overrides)).statusCode).toBe(400)
+    expect(resolveOAuthAccessToken(db, active.access_token, `${ISSUER}${RESOURCE_PATH}`)).not.toBeNull()
+  }
+  expect((await refreshGrant(active.refresh_token, { client_secret: 'client-secret' })).statusCode).toBe(200)
 })

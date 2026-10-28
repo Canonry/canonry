@@ -1,4 +1,4 @@
-import { journeyDetailQuerySchema, journeySummaryQuerySchema, journeysQuerySchema, trafficSamplesQuerySchema, gaAcquisitionQuerySchema, auditHistoryQuerySchema, visibilityCompareSelectionSchema, reportMonthSchema, referralAssessmentQuerySchema, instanceStatusDtoSchema, maxOperationAccess, operationAccess, OperationAccesses, type OperationAccess } from '@canonry/canonry-contracts'
+import { mcpProfileDtoSchema, journeyDetailQuerySchema, journeySummaryQuerySchema, journeysQuerySchema, trafficSamplesQuerySchema, gaAcquisitionQuerySchema, auditHistoryQuerySchema, visibilityCompareSelectionSchema, reportMonthSchema, referralAssessmentQuerySchema, instanceStatusDtoSchema, maxOperationAccess, operationAccess, OperationAccesses, type OperationAccess } from '@canonry/canonry-contracts'
 
 import {
   sentimentSelectionSchema, sentimentEvidenceRequestSchema, sentimentCompareRequestSchema, sentimentSettingsUpdateSchema,
@@ -170,14 +170,16 @@ export interface CanonryMcpTool<
 
 const readAnnotations = (openWorldHint?: boolean): ToolAnnotations => ({
   readOnlyHint: true,
-  ...(openWorldHint ? { openWorldHint } : {}),
+  idempotentHint: true,
+  destructiveHint: false,
+  openWorldHint: Boolean(openWorldHint),
 })
 
 const writeAnnotations = (opts: { idempotentHint: boolean; destructiveHint?: boolean; openWorldHint?: boolean }): ToolAnnotations => ({
   readOnlyHint: false,
   idempotentHint: opts.idempotentHint,
   destructiveHint: Boolean(opts.destructiveHint),
-  ...(opts.openWorldHint ? { openWorldHint: opts.openWorldHint } : {}),
+  openWorldHint: Boolean(opts.openWorldHint),
 })
 
 export function toolOperationAccess(tool: Pick<CanonryMcpTool, 'openApiOperations' | 'access'>): OperationAccess {
@@ -1572,6 +1574,18 @@ const rawCanonryMcpTools = [
     annotations: writeAnnotations({ idempotentHint: true, destructiveHint: true }),
     openApiOperations: ['POST /api/v1/projects/{name}/query-tracking/commit'],
     handler: (client, input) => client.commitQueryTracking(input.project, input.request),
+  }),
+  defineTool({
+    name: 'canonry_mcp_profile',
+    title: 'Read the connected Canonry identity',
+    description: 'Read the signed-in user identity, effective read scope and instance audience. Requires a named user connection; an unbound API key has no user profile.',
+    access: 'read',
+    tier: 'core',
+    inputSchema: emptyInputSchema,
+    outputSchema: mcpProfileDtoSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/mcp/profile'],
+    handler: (client) => client.getMcpProfile(),
   }),
   defineTool({
     name: 'canonry_projects_list',

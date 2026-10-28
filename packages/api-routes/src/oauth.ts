@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 
-import { oauthAuthorizationCodes, oauthClients, oauthTokens, type DatabaseClient } from '@canonry/canonry-db'
-import { and, eq, isNull, lt } from 'drizzle-orm'
+import { apiKeys, dashboardSessions, oauthAuthorizationCodes, oauthClients, oauthGrants, oauthTokens, type DatabaseClient } from '@canonry/canonry-db'
+import { and, eq, inArray, isNull, lt } from 'drizzle-orm'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 
 import { requireAdminSession } from './auth.js'
@@ -17,12 +17,8 @@ import type { CredentialChecker } from './user-session.js'
  * bearer field, no custom header, no client-credentials grant. So for anything
  * beyond a local CLI this is the only door.
  *
- * Deliberately NOT implemented: Dynamic Client Registration (RFC 7591). The
- * current MCP revision deprecates it and keeps it only for backwards
- * compatibility, Gemini Enterprise has no DCR path and wants a pre-registered
- * client id and secret typed into a form, and ChatGPT keeps predefined clients
- * working. An operator registers clients explicitly; nothing on the network can
- * mint one.
+ * Operator-registered clients and public Dynamic Client Registration share
+ * the same PKCE and explicit consent flow. Registration alone grants no access.
  *
  * Everything here is PUBLIC by design and mounts at the root, outside the
  * API-key auth scope: a client with no credential has to be able to discover
@@ -339,6 +335,7 @@ function registerOAuthRoutesIn(app: FastifyInstance, opts: OAuthRoutesOptions): 
     // S256 only. Advertising `plain` would invite a downgrade attempt.
     code_challenge_methods_supported: ['S256'],
     token_endpoint_auth_methods_supported: ['client_secret_post', 'none'],
+    revocation_endpoint_auth_methods_supported: ['client_secret_post', 'none'],
       scopes_supported: [...SUPPORTED_SCOPES],
     }
   }
@@ -632,6 +629,7 @@ function registerOAuthRoutesIn(app: FastifyInstance, opts: OAuthRoutesOptions): 
   })
 
   app.post('/oauth/token', async (request: FastifyRequest, reply: FastifyReply) => {
+    reply.header('cache-control', 'no-store').header('pragma', 'no-cache')
     const body = (request.body ?? {}) as Record<string, string | undefined>
     const now = new Date()
 
@@ -639,44 +637,24 @@ function registerOAuthRoutesIn(app: FastifyInstance, opts: OAuthRoutesOptions): 
     // a code that was issued and never redeemed.
     db.delete(oauthAuthorizationCodes).where(lt(oauthAuthorizationCodes.expiresAt, now.toISOString())).run()
 
-    /**
-     * Every grant runs this. Checking the client at authorize time only is not
-     * enough: tokens outlive the authorize request, and refresh rotation would
-     * otherwise let a revoked client renew itself indefinitely.
-     */
-    function checkClient(clientId: string): 'ok' | 'invalid_client' | 'invalid_secret' {
-      const client = db.select().from(oauthClients).where(eq(oauthClients.id, clientId)).get()
-      if (!client || client.revokedAt) return 'invalid_client'
-      // A confidential client (one that was issued a secret) must present it.
-      // Advertising client_secret_post while never checking the secret makes
-      // the secret decorative and the client effectively public.
-      if (client.secretHash) {
-        const presented = body.client_secret
-        if (!presented) return 'invalid_secret'
-        const expected = Buffer.from(client.secretHash)
-        const actual = Buffer.from(sha256(presented))
-        if (expected.length !== actual.length || !crypto.timingSafeEqual(expected, actual)) {
-          return 'invalid_secret'
-        }
-      }
-      return 'ok'
-    }
-
-    function issue(clientId: string, userId: string, resource: string | null, scope: string | null) {
+    function issue(
+      tx: Pick<DatabaseClient, 'insert'>,
+      grant: { id: string; clientId: string; userId: string; resource: string | null; scope: string | null },
+    ) {
       const accessToken = newToken()
       const refreshToken = newToken()
-      const rows = [
+      for (const row of [
         { token: accessToken, kind: 'access' as const, ttl: ACCESS_TTL_MS },
         { token: refreshToken, kind: 'refresh' as const, ttl: REFRESH_TTL_MS },
-      ]
-      for (const row of rows) {
-        db.insert(oauthTokens).values({
+      ]) {
+        tx.insert(oauthTokens).values({
           tokenHash: sha256(row.token),
           kind: row.kind,
-          clientId,
-          userId,
-          resource,
-          scope,
+          grantId: grant.id,
+          clientId: grant.clientId,
+          userId: grant.userId,
+          resource: grant.resource,
+          scope: grant.scope,
           expiresAt: new Date(now.getTime() + row.ttl).toISOString(),
           createdAt: now.toISOString(),
         }).run()
@@ -685,77 +663,123 @@ function registerOAuthRoutesIn(app: FastifyInstance, opts: OAuthRoutesOptions): 
         access_token: accessToken,
         token_type: 'Bearer',
         expires_in: Math.floor(ACCESS_TTL_MS / 1000),
-        // Without a refresh token the client silently loses access at the
-        // first expiry, which reads to a user as the connector breaking.
+        // Preserve refresh issuance for existing clients that omit offline_access.
         refresh_token: refreshToken,
-        scope: scope ?? 'read',
+        scope: grant.scope ?? 'read',
       }
     }
 
+    // Immediate transactions serialize the decision with consumption and both
+    // token inserts, including when another process serves the same database.
     if (body.grant_type === 'authorization_code') {
       const code = body.code
       const verifier = body.code_verifier
       if (!code || !verifier) return badRequest(reply, 'invalid_request', 'code and code_verifier are required.')
-
-      const row = db.select().from(oauthAuthorizationCodes)
-        .where(eq(oauthAuthorizationCodes.codeHash, sha256(code))).get()
-      if (!row) return badRequest(reply, 'invalid_grant', 'Unknown or already-redeemed code.')
-
-      // Single use: burn it before any other check can fail, so a failed
-      // attempt cannot be retried against the same code.
-      db.delete(oauthAuthorizationCodes).where(eq(oauthAuthorizationCodes.codeHash, row.codeHash)).run()
-
-      if (Date.parse(row.expiresAt) <= now.getTime()) return badRequest(reply, 'invalid_grant', 'Code has expired.')
-      if (body.client_id !== row.clientId) return badRequest(reply, 'invalid_grant', 'Code was issued to a different client.')
-      const clientState = checkClient(row.clientId)
-      if (clientState !== 'ok') return badRequest(reply, 'invalid_client', 'Client is unknown, revoked, or failed authentication.')
-      if (body.redirect_uri !== row.redirectUri) return badRequest(reply, 'invalid_grant', 'redirect_uri does not match the authorization request.')
-      if (!verifyPkce(verifier, row.codeChallenge)) return badRequest(reply, 'invalid_grant', 'PKCE verification failed.')
-
-      return issue(row.clientId, row.userId, row.resource, row.scope)
+      const result = db.transaction((tx) => {
+        const row = tx.delete(oauthAuthorizationCodes)
+          .where(eq(oauthAuthorizationCodes.codeHash, sha256(code))).returning().get()
+        if (!row) return { error: 'invalid_grant', description: 'Unknown or already-redeemed code.' }
+        // Commit consumption even when a subsequent check fails.
+        if (Date.parse(row.expiresAt) <= now.getTime()) return { error: 'invalid_grant', description: 'Code has expired.' }
+        if (body.client_id !== row.clientId) return { error: 'invalid_grant', description: 'Code was issued to a different client.' }
+        if (!authenticateClient(tx, row.clientId, body.client_secret)) return { error: 'invalid_client', description: 'Client is unknown, revoked, or failed authentication.' }
+        if (body.redirect_uri !== row.redirectUri) return { error: 'invalid_grant', description: 'redirect_uri does not match the authorization request.' }
+        if (!verifyPkce(verifier, row.codeChallenge)) return { error: 'invalid_grant', description: 'PKCE verification failed.' }
+        if (body.resource && body.resource !== row.resource) return { error: 'invalid_target', description: 'resource does not match the authorization grant.' }
+        const grant = { id: crypto.randomUUID(), clientId: row.clientId, userId: row.userId, resource: row.resource, scope: row.scope }
+        tx.insert(oauthGrants).values({ ...grant, createdAt: now.toISOString() }).run()
+        return { tokens: issue(tx, grant) }
+      }, { behavior: 'immediate' })
+      return result.tokens ?? badRequest(reply, result.error!, result.description!)
     }
 
     if (body.grant_type === 'refresh_token') {
       const presented = body.refresh_token
-      if (!presented) return badRequest(reply, 'invalid_request', 'refresh_token is required.')
-      const row = db.select().from(oauthTokens)
-        .where(and(eq(oauthTokens.tokenHash, sha256(presented)), eq(oauthTokens.kind, 'refresh'))).get()
-      if (!row || row.revokedAt) return badRequest(reply, 'invalid_grant', 'Unknown or revoked refresh token.')
-      if (Date.parse(row.expiresAt) <= now.getTime()) return badRequest(reply, 'invalid_grant', 'Refresh token has expired.')
-      const refreshClientState = checkClient(row.clientId)
-      if (refreshClientState !== 'ok') return badRequest(reply, 'invalid_client', 'Client is unknown, revoked, or failed authentication.')
-
-      // Rotation: the presented token dies with the request that used it, so a
-      // stolen refresh token is usable at most once and the theft is visible
-      // as a failure on the legitimate client's next refresh.
-      db.update(oauthTokens).set({ revokedAt: now.toISOString() })
-        .where(eq(oauthTokens.tokenHash, row.tokenHash)).run()
-
-      return issue(row.clientId, row.userId, row.resource, row.scope)
+      if (!presented || !body.client_id) return badRequest(reply, 'invalid_request', 'refresh_token and client_id are required.')
+      const result = db.transaction((tx) => {
+        const row = tx.select().from(oauthTokens)
+          .where(and(eq(oauthTokens.tokenHash, sha256(presented)), eq(oauthTokens.kind, 'refresh'))).get()
+        if (!row) return { error: 'invalid_grant', description: 'Unknown refresh token.' }
+        if (body.client_id !== row.clientId) return { error: 'invalid_grant', description: 'Refresh token was issued to a different client.' }
+        if (!authenticateClient(tx, row.clientId, body.client_secret)) return { error: 'invalid_client', description: 'Client is unknown, revoked, or failed authentication.' }
+        if (body.resource && body.resource !== row.resource) return { error: 'invalid_target', description: 'resource does not match the authorization grant.' }
+        if (row.revokedAt) {
+          // RFC 9700: an authenticated replay identifies a compromised family.
+          // Bind the caller first so a mismatched client cannot revoke it.
+          revokeGrant(tx, row.grantId ?? adoptLegacyGrant(tx, row, now.toISOString()), now.toISOString())
+          return { error: 'invalid_grant', description: 'Refresh token was already used or revoked. Reconnect this authorization.' }
+        }
+        if (Date.parse(row.expiresAt) <= now.getTime()) return { error: 'invalid_grant', description: 'Refresh token has expired.' }
+        const grant = row.grantId ? tx.select().from(oauthGrants).where(eq(oauthGrants.id, row.grantId)).get() : undefined
+        if (row.grantId && (!grant || grant.revokedAt)) return { error: 'invalid_grant', description: 'Authorization has been revoked.' }
+        // Old binaries can write rows without lineage after a rollback. Adopt
+        // those rows using the same conservative boundary as the migration.
+        const grantId = row.grantId ?? adoptLegacyGrant(tx, row, now.toISOString())
+        const consumed = tx.update(oauthTokens).set({ revokedAt: now.toISOString() })
+          .where(and(eq(oauthTokens.tokenHash, row.tokenHash), isNull(oauthTokens.revokedAt))).run()
+        if (consumed.changes !== 1) return { error: 'invalid_grant', description: 'Refresh token was already used.' }
+        return { tokens: issue(tx, { ...row, id: grantId }) }
+      }, { behavior: 'immediate' })
+      return result.tokens ?? badRequest(reply, result.error!, result.description!)
     }
 
     return badRequest(reply, 'unsupported_grant_type', 'Supported grants: authorization_code, refresh_token.')
   })
 
-  /**
-   * Operator surface. Until this existed, nothing in production ever set
-   * oauth_clients.revoked_at — a client, once registered, was permanent, and a
-   * grant could not be withdrawn without editing the database by hand. An open
-   * registration endpoint with no way to revoke is only half a feature.
-   *
-   * Mounted under the API prefix so it inherits the api-key auth and the admin
-   * gate. The OAuth protocol endpoints stay public; this is not one of them.
-   */
+  /** RFC 7009: revoke the authorization, including all rotated descendants. */
   app.post('/oauth/revoke', async (request: FastifyRequest, reply: FastifyReply) => {
     const body = (request.body ?? {}) as Record<string, string | undefined>
-    if (body.token) {
-      db.update(oauthTokens).set({ revokedAt: new Date().toISOString() })
-        .where(eq(oauthTokens.tokenHash, sha256(body.token))).run()
-    }
-    // RFC 7009: always 200, even for an unknown token. Distinguishing them
-    // would turn this into an oracle for guessing valid tokens.
+    const now = new Date().toISOString()
+    const result = db.transaction((tx) => {
+      // Client authentication is independent of token existence (RFC 7009).
+      if (body.client_id && !authenticateClient(tx, body.client_id, body.client_secret)) return 'invalid_client'
+      const row = body.token ? tx.select().from(oauthTokens).where(eq(oauthTokens.tokenHash, sha256(body.token))).get() : undefined
+      if (!row) return
+      // Preserve the existing public-client revoke without client_id. A known
+      // token for another authenticated client is indistinguishable from absent.
+      if (body.client_id && body.client_id !== row.clientId) return
+      if (!body.client_id && !authenticateClient(tx, row.clientId, body.client_secret)) return 'invalid_client'
+      const grantId = row.grantId ?? adoptLegacyGrant(tx, row, now)
+      revokeGrant(tx, grantId, now)
+    }, { behavior: 'immediate' })
+    if (result) return badRequest(reply, result, 'Client is unknown, revoked, or failed authentication.')
+    // Unknown tokens and tokens belonging to another client disclose nothing.
     return reply.status(200).send({})
   })
+}
+
+type OAuthTransaction = Pick<DatabaseClient, 'select' | 'insert' | 'update' | 'delete'>
+
+function authenticateClient(db: Pick<DatabaseClient, 'select'>, clientId: string, secret: string | undefined): boolean {
+  const client = db.select().from(oauthClients).where(eq(oauthClients.id, clientId)).get()
+  if (!client || client.revokedAt) return false
+  if (!client.secretHash) return true
+  if (!secret) return false
+  const expected = Buffer.from(client.secretHash)
+  const actual = Buffer.from(sha256(secret))
+  return expected.length === actual.length && crypto.timingSafeEqual(expected, actual)
+}
+
+/** Only used for tokens written without lineage by an older binary. */
+function adoptLegacyGrant(db: OAuthTransaction, row: typeof oauthTokens.$inferSelect, now: string): string {
+  const identity = and(
+    eq(oauthTokens.clientId, row.clientId), eq(oauthTokens.userId, row.userId),
+    row.resource === null ? isNull(oauthTokens.resource) : eq(oauthTokens.resource, row.resource),
+    row.scope === null ? isNull(oauthTokens.scope) : eq(oauthTokens.scope, row.scope),
+    isNull(oauthTokens.grantId),
+  )
+  const id = crypto.randomUUID()
+  db.insert(oauthGrants).values({ id, clientId: row.clientId, userId: row.userId, resource: row.resource, scope: row.scope, createdAt: now }).run()
+  db.update(oauthTokens).set({ grantId: id }).where(identity).run()
+  return id
+}
+
+function revokeGrant(db: OAuthTransaction, grantId: string, now: string): void {
+  db.update(oauthGrants).set({ revokedAt: now }).where(eq(oauthGrants.id, grantId)).run()
+  db.update(oauthTokens).set({ revokedAt: now }).where(eq(oauthTokens.grantId, grantId)).run()
+  const delegatedKeys = db.select({ id: apiKeys.id }).from(apiKeys).where(eq(apiKeys.delegatedOAuthGrantId, grantId))
+  db.delete(dashboardSessions).where(inArray(dashboardSessions.apiKeyId, delegatedKeys)).run()
+  db.update(apiKeys).set({ revokedAt: now }).where(eq(apiKeys.delegatedOAuthGrantId, grantId)).run()
 }
 
 /**
@@ -769,13 +793,19 @@ export function resolveOAuthAccessToken(
   token: string,
   expectedResource: string,
   now = new Date(),
-): { userId: string; clientId: string; scope: string | null } | null {
+): { userId: string; clientId: string; grantId: string | null; scope: string | null } | null {
   const row = db.select().from(oauthTokens)
     .where(and(eq(oauthTokens.tokenHash, sha256(token)), eq(oauthTokens.kind, 'access'))).get()
   if (!row || row.revokedAt) return null
   if (Date.parse(row.expiresAt) <= now.getTime()) return null
   if (row.resource && row.resource !== expectedResource) return null
-  return { userId: row.userId, clientId: row.clientId, scope: row.scope }
+  const client = db.select().from(oauthClients).where(eq(oauthClients.id, row.clientId)).get()
+  if (!client || client.revokedAt) return null
+  if (row.grantId) {
+    const grant = db.select().from(oauthGrants).where(eq(oauthGrants.id, row.grantId)).get()
+    if (!grant || grant.revokedAt) return null
+  }
+  return { userId: row.userId, clientId: row.clientId, grantId: row.grantId, scope: row.scope }
 }
 
 /**
@@ -824,10 +854,15 @@ export function registerOAuthAdminRoutes(app: FastifyInstance, opts: { db: Datab
     // Revoke the client AND every token it holds. Marking only the client
     // would leave live access tokens working until they expired, which is
     // not what anyone means by revoking a client.
-    db.update(oauthClients).set({ revokedAt: now }).where(eq(oauthClients.id, id)).run()
-    db.update(oauthTokens).set({ revokedAt: now })
-      .where(and(eq(oauthTokens.clientId, id), isNull(oauthTokens.revokedAt))).run()
-    db.delete(oauthAuthorizationCodes).where(eq(oauthAuthorizationCodes.clientId, id)).run()
+    db.transaction((tx) => {
+      tx.update(oauthClients).set({ revokedAt: now }).where(eq(oauthClients.id, id)).run()
+      for (const grant of tx.select().from(oauthGrants).where(eq(oauthGrants.clientId, id)).all()) {
+        revokeGrant(tx, grant.id, now)
+      }
+      tx.update(oauthTokens).set({ revokedAt: now })
+        .where(and(eq(oauthTokens.clientId, id), isNull(oauthTokens.revokedAt))).run()
+      tx.delete(oauthAuthorizationCodes).where(eq(oauthAuthorizationCodes.clientId, id)).run()
+    }, { behavior: 'immediate' })
     return { id, revokedAt: now }
   })
 }

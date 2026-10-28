@@ -4980,6 +4980,37 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `ALTER TABLE site_crawl_attempts ADD COLUMN url_versions_skipped INTEGER NOT NULL DEFAULT 0`,
     ],
   },
+  {
+    version: 199,
+    name: 'oauth-authorization-grants',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS oauth_grants (
+        id TEXT PRIMARY KEY,
+        client_id TEXT NOT NULL REFERENCES oauth_clients(id) ON DELETE CASCADE,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        resource TEXT,
+        scope TEXT,
+        created_at TEXT NOT NULL,
+        revoked_at TEXT
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_oauth_grants_client ON oauth_grants(client_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_oauth_grants_user ON oauth_grants(user_id)`,
+      `ALTER TABLE oauth_tokens ADD COLUMN grant_id TEXT REFERENCES oauth_grants(id) ON DELETE CASCADE`,
+      `ALTER TABLE api_keys ADD COLUMN delegated_oauth_grant_id TEXT REFERENCES oauth_grants(id) ON DELETE CASCADE`,
+      `CREATE INDEX IF NOT EXISTS idx_oauth_tokens_grant ON oauth_tokens(grant_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_api_keys_oauth_grant ON api_keys(delegated_oauth_grant_id)`,
+      // Historical rotations carry no lineage. Preserve access while grouping
+      // only the same client, person, audience and consented scope for revocation.
+      `INSERT OR IGNORE INTO oauth_grants (id, client_id, user_id, resource, scope, created_at)
+       SELECT 'legacy:' || MIN(token_hash), client_id, user_id, resource, scope, MIN(created_at)
+       FROM oauth_tokens WHERE grant_id IS NULL GROUP BY client_id, user_id, resource, scope`,
+      `UPDATE oauth_tokens SET grant_id = (
+         SELECT id FROM oauth_grants g
+         WHERE g.id LIKE 'legacy:%' AND g.client_id = oauth_tokens.client_id
+           AND g.user_id = oauth_tokens.user_id AND g.resource IS oauth_tokens.resource AND g.scope IS oauth_tokens.scope
+       ) WHERE grant_id IS NULL`,
+    ],
+  },
 ]
 
 /**

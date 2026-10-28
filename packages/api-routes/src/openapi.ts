@@ -7022,6 +7022,19 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
+    path: '/api/v1/mcp/profile',
+    summary: 'Read the authenticated MCP connection profile',
+    description: 'Identifies the named account within this configured MCP resource and its effective instance-wide read scope. Accepts MCP-audience OAuth tokens without granting access to other REST routes. Direct API keys without a named account are refused.',
+    tags: ['mcp'],
+    responses: {
+      200: jsonResponse('Authenticated MCP connection profile.', 'McpProfileDto'),
+      401: errorResponse('Authentication required or invalid.'),
+      403: errorResponse('An instance-wide named account with read scope is required.'),
+      501: errorResponse('MCP OAuth resource is not configured.'),
+    },
+  },
+  {
+    method: 'get',
     path: '/api/v1/status',
     summary: 'Read stored integration status',
     description: 'Reads stored synchronization state for every visible project. This endpoint performs no provider calls and does not run or write doctor checks.',

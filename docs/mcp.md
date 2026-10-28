@@ -266,9 +266,11 @@ For the host operator:
   shared-session deployment. The separate `apps/api` REST service does not
   serve remote MCP.
 
-Connect to `/api/v1/mcp` on the instance for the entire API tool catalog, available immediately: core, monitoring, setup, GSC, Bing, GA, GBP, OpenAI ads, Google Ads, GTM, conversion tracking, traffic, agent, and discovery. Use `/api/v1/mcp/readonly` to force read-only tools even with a write-capable credential. A read-only credential also stays read-only on the default endpoint.
+Connect to `/api/v1/mcp` on the instance for the entire API tool catalog, available immediately: core, monitoring, setup, GSC, Bing, GA, GBP, OpenAI ads, Google Ads, GTM, conversion tracking, traffic, agent, and discovery. Use `/api/v1/mcp/readonly` to force stored-evidence tools even with a write-capable credential. Every `/readonly` segment also enforces stored-only policy in its API client: live provider reads, research execution and mutations are refused before the inner HTTP request, independently of tool annotations. A read-only credential retains the existing read-only catalog on the default endpoint.
 
 The default connection includes visibility reports, Property rankings, stored question results and competitors, changes, data quality, and all integration and setup tools. Listing tools does not execute them or grant new permissions; each call still uses the caller’s existing authority. The full catalog includes provider-spending and write operations, subject to the approval and access rules below.
+
+The hosted inventory has one optional Markdown resource, `canonry://agent-operations/v1`, and no prompts or resource templates. Tools publish explicit read-only, idempotency, destructive and open-world annotations; OAuth discovery and the HTTP bearer challenge define their authorization boundary.
 
 Specialist connections remain at `/api/v1/mcp/x/<toolkit>` and `/api/v1/mcp/x/<toolkit>/readonly`, exposing core plus that toolkit. Hosted catalogs are fixed at connection initialization and do not offer `canonry_load_toolkit`. After upgrading the server, refresh or re-import the connector's tools and reconnect so the client sees the expanded catalog.
 

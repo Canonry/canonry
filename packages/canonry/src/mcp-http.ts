@@ -42,8 +42,8 @@ const SWEEP_INTERVAL_MS = 60 * 1000
 /**
  * One endpoint's fixed surface.
  *
- * `readOnly` forces the read-only catalog even for a wildcard key, so a
- * `/readonly` URL is a genuine guarantee rather than a naming convention. It
+ * `readOnly` forces stored reads and the matching client policy even for a
+ * wildcard key, so `/readonly` is an executable restriction. It
  * can only ever narrow: a read-only KEY still gets a read-only catalog on a
  * non-readonly path.
  */
@@ -60,6 +60,8 @@ interface McpSession {
   authorizationId: string
   /** The endpoint that opened it. A session may not be replayed against a wider segment. */
   segmentId: string
+  /** OAuth-derived key lifetime also bounds otherwise idle transports. */
+  sessionKeyId?: string
   lastSeenAt: number
 }
 
@@ -69,7 +71,7 @@ interface McpSession {
  * Not a general-purpose key: it is named for the session, scoped to exactly the
  * authority already resolved for the caller, and revoked on close.
  */
-function mintSessionKey(db: DatabaseClient, scopes: readonly string[], userId: string): { id: string; raw: string } {
+function mintSessionKey(db: DatabaseClient, scopes: readonly string[], userId: string, oauthGrantId?: string): { id: string; raw: string } {
   const raw = `cnry_${crypto.randomBytes(24).toString('hex')}`
   const id = crypto.randomUUID()
   db.insert(apiKeys).values({
@@ -79,6 +81,7 @@ function mintSessionKey(db: DatabaseClient, scopes: readonly string[], userId: s
     keyPrefix: raw.slice(0, 9),
     scopes: [...scopes],
     delegatedUserId: userId,
+    delegatedOAuthGrantId: oauthGrantId,
     createdAt: new Date().toISOString(),
   }).run()
   return { id, raw }
@@ -194,7 +197,8 @@ export function registerMcpHttpRoutes(scope: FastifyInstance, opts: McpHttpOptio
   const sweep = setInterval(() => {
     const cutoff = now() - SESSION_IDLE_MS
     for (const [id, session] of sessions) {
-      if (session.lastSeenAt < cutoff) void dropSession(id)
+      const key = session.sessionKeyId ? opts.db.select({ revokedAt: apiKeys.revokedAt }).from(apiKeys).where(eq(apiKeys.id, session.sessionKeyId)).get() : undefined
+      if (session.lastSeenAt < cutoff || (session.sessionKeyId && (!key || key.revokedAt))) void dropSession(id)
     }
   }, SWEEP_INTERVAL_MS)
   // Never hold the process open for a housekeeping timer.
@@ -278,10 +282,11 @@ export function registerMcpHttpRoutes(scope: FastifyInstance, opts: McpHttpOptio
     // An api-key caller keeps using its own key, unchanged.
     let sessionKey: { id: string; raw: string } | null = null
     if (!request.apiKey && request.principal?.kind === 'user') {
-      sessionKey = mintSessionKey(opts.db, scopes, request.principal.id)
+      sessionKey = mintSessionKey(opts.db, segment.readOnly ? ['read'] : scopes, request.principal.id, request.principal.oauthGrantId)
     }
     const client = new ApiClient(opts.selfApiUrl, sessionKey?.raw ?? bearer, {
       skipProbe: true,
+      storedOnly: segment.readOnly,
       clientName: `canonry-mcp/${PACKAGE_VERSION}`,
       surface: 'mcp-http',
       // Correlation only: this is never accepted as caller identity or authority.
@@ -290,7 +295,7 @@ export function registerMcpHttpRoutes(scope: FastifyInstance, opts: McpHttpOptio
     let server: ReturnType<typeof createCanonryMcpServer>
     try {
       server = createCanonryMcpServer({
-        scope: segment.readOnly || isReadOnlyKey(scopes) ? 'read-only' : 'all',
+        scope: segment.readOnly ? 'stored-only' : isReadOnlyKey(scopes) ? 'read-only' : 'all',
         credentialScopes: scopes,
         operator: request.operatorAccess === true,
         tiers: segment.tiers,
@@ -305,7 +310,7 @@ export function registerMcpHttpRoutes(scope: FastifyInstance, opts: McpHttpOptio
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: () => crypto.randomUUID(),
       onsessioninitialized: (id: string) => {
-        sessions.set(id, { transport, close, authorizationId, segmentId: segment.id, lastSeenAt: now() })
+        sessions.set(id, { transport, close, authorizationId, segmentId: segment.id, sessionKeyId: sessionKey?.id, lastSeenAt: now() })
       },
     })
 
@@ -335,7 +340,7 @@ export function registerMcpHttpRoutes(scope: FastifyInstance, opts: McpHttpOptio
       await close().catch(() => {})
       throw error
     }
-    return { transport, close, authorizationId, segmentId: segment.id, lastSeenAt: now() }
+    return { transport, close, authorizationId, segmentId: segment.id, sessionKeyId: sessionKey?.id, lastSeenAt: now() }
   }
 
   async function handle(

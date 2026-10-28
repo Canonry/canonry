@@ -1,3 +1,5 @@
+import type { McpProfileDto } from '@canonry/canonry-contracts'
+import { getApiV1McpProfile } from '@canonry/canonry-api-client'
 import type { JourneyDetailQuery, JourneyDetailResponse, JourneySummaryQuery, JourneySummaryResponse, JourneysQuery, JourneysResponse } from '@canonry/canonry-contracts'
 import { getApiV1ProjectsByNameJourneys, getApiV1ProjectsByNameJourneysByVisitorKey, getApiV1ProjectsByNameJourneysSummary } from '@canonry/canonry-api-client'
 
@@ -876,6 +878,8 @@ export interface DiscoveryRunStartResponse {
  */
 export interface ApiClientOptions {
   skipProbe?: boolean
+  /** Enforce stored evidence only for this client, independently of process flags. */
+  storedOnly?: boolean
   /** A short, token-safe client identity (for example, `canonry-mcp`). */
   clientName?: string
   /** A bounded opaque operator/session correlation value. */
@@ -914,8 +918,8 @@ export function classifyStoredOnlyRequest(method: string, url: string): { operat
   }
 }
 
-function storedOnlyRequestHeaders(method: string, url: string): Record<string, string> {
-  if (!['1', 'true'].includes((process.env.CANONRY_STORED_ONLY ?? '').toLowerCase())) return {}
+function storedOnlyRequestHeaders(method: string, url: string, storedOnly = false): Record<string, string> {
+  if (!storedOnly && !['1', 'true'].includes((process.env.CANONRY_STORED_ONLY ?? '').toLowerCase())) return {}
   const { operation, access } = classifyStoredOnlyRequest(method, url)
   if (access !== OperationAccesses.stored) {
     throw new CliError({
@@ -928,8 +932,8 @@ function storedOnlyRequestHeaders(method: string, url: string): Record<string, s
   return { [STORED_ONLY_HEADER]: '1' }
 }
 
-function storedOnlyProbeHeaders(): Record<string, string> {
-  return ['1', 'true'].includes((process.env.CANONRY_STORED_ONLY ?? '').toLowerCase())
+function storedOnlyProbeHeaders(storedOnly = false): Record<string, string> {
+  return storedOnly || ['1', 'true'].includes((process.env.CANONRY_STORED_ONLY ?? '').toLowerCase())
     ? { [STORED_ONLY_HEADER]: '1' }
     : {}
 }
@@ -1043,6 +1047,7 @@ export class ApiClient {
   private apiKey: string
   private probePromise: Promise<void> | null = null
   private probeSkipped: boolean
+  private readonly storedOnly: boolean
   private heyClient: Client
   private readonly requestHeaders: Record<string, string>
   /** Tracks the base URL most recently applied to `heyClient` so probe-driven updates only re-configure when something actually changed. */
@@ -1052,6 +1057,7 @@ export class ApiClient {
     this.originUrl = baseUrl.replace(/\/$/, '')
     this.apiKey = apiKey
     this.probeSkipped = opts?.skipProbe ?? false
+    this.storedOnly = opts?.storedOnly === true
     this.heyClientBaseUrl = this.originUrl
     const actorSession = safeActorSession(opts?.actorSession)
     const surface = opts?.surface ?? 'cli'
@@ -1068,7 +1074,7 @@ export class ApiClient {
     }
     this.heyClient = createHeyClient({ baseUrl: this.originUrl, apiKey: this.apiKey, headers: this.requestHeaders })
     this.heyClient.interceptors.request.use((request) => {
-      for (const [key, value] of Object.entries(storedOnlyRequestHeaders(request.method, request.url.toString()))) request.headers.set(key, value)
+      for (const [key, value] of Object.entries(storedOnlyRequestHeaders(request.method, request.url.toString(), this.storedOnly))) request.headers.set(key, value)
       const tags = usageTagStore.getStore()
       if (tags?.mcpTool) request.headers.set(USAGE_TELEMETRY_HEADERS.mcpTool, tags.mcpTool)
       if (tags?.mcpCall) request.headers.set(USAGE_TELEMETRY_HEADERS.mcpCall, tags.mcpCall)
@@ -1093,7 +1099,7 @@ export class ApiClient {
         try {
           const origin = new URL(this.originUrl).origin
           const res = await fetch(`${origin}/health`, {
-            headers: storedOnlyProbeHeaders(),
+            headers: storedOnlyProbeHeaders(this.storedOnly),
             signal: AbortSignal.timeout(2000),
           })
           if (res.ok) {
@@ -1303,7 +1309,7 @@ export class ApiClient {
    */
   async streamPost(path: string, body: unknown, signal?: AbortSignal): Promise<Response> {
     const candidateUrl = `${this.originUrl}/api/v1${path}`
-    const storedOnlyHeaders = storedOnlyRequestHeaders('POST', candidateUrl)
+    const storedOnlyHeaders = storedOnlyRequestHeaders('POST', candidateUrl, this.storedOnly)
     await this.probeBasePath()
     const url = `${this.originUrl}/api/v1${path}`
     const headers: Record<string, string> = {
@@ -1381,6 +1387,10 @@ export class ApiClient {
     )
   }
 
+  async getMcpProfile(): Promise<McpProfileDto> {
+    return this.invoke<McpProfileDto>(() => getApiV1McpProfile({ client: this.heyClient }))
+  }
+
   async getStatus(opts?: { project?: string; problems?: boolean }): Promise<InstanceStatusDto> {
     return this.invoke<InstanceStatusDto>(() =>
       getApiV1Status({ client: this.heyClient, query: { project: opts?.project, problems: opts?.problems } }),
@@ -1452,7 +1462,7 @@ export class ApiClient {
     if (opts.until) params.set('until', opts.until)
     if (opts.includeProbes) params.set('includeProbes', 'true')
     const url = `${this.originUrl}/api/v1/projects/${encodeURIComponent(project)}/results/export?${params.toString()}`
-    const storedOnlyHeaders = storedOnlyRequestHeaders('GET', url)
+    const storedOnlyHeaders = storedOnlyRequestHeaders('GET', url, this.storedOnly)
 
     let res: Response
     try {
@@ -2607,7 +2617,7 @@ export class ApiClient {
    * never run the CLI about a newer release.
    */
   async getServerUpdateAvailable(): Promise<ServerUpdateAvailable | null> {
-    if (storedOnlyProbeHeaders()[STORED_ONLY_HEADER]) return null
+    if (storedOnlyProbeHeaders(this.storedOnly)[STORED_ONLY_HEADER]) return null
     try {
       await this.probeBasePath()
       const res = await fetch(`${this.originUrl}/health`, { signal: AbortSignal.timeout(2000) })
