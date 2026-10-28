@@ -2296,6 +2296,19 @@ describe('same-date site audit selection', () => {
     expect((await get(`${path}?urlVersions=sometimes`)).status).toBe(400)
   })
 
+  it('counts URL versions the crawl skipped without fetching apart from the stored rows', async () => {
+    const path = '/api/v1/projects/tech-aeo/technical-aeo/crawl/pages'
+    const before = (await get<SiteCrawlPagesResponseDto>(path)).body
+    expect(before.inventorySummary).toMatchObject({ urlVersionsNotFetched: 0 })
+    ctx.db.update(siteCrawlAttempts).set({ urlVersionsSkipped: 40 }).where(eq(siteCrawlAttempts.runId, ctx.runB)).run()
+    const after = (await get<SiteCrawlPagesResponseDto>(path)).body
+    // They have no rows, so the stored totals and the set-aside count stay as they were.
+    expect(after.inventorySummary).toEqual({ ...before.inventorySummary, urlVersionsNotFetched: 40 })
+    expect(after.total).toBe(before.total)
+    expect((await get<SiteCrawlSummaryDto>('/api/v1/projects/tech-aeo/technical-aeo/crawl')).body.inventorySummary)
+      .toMatchObject({ urlVersionsNotFetched: 40 })
+  })
+
   it('reports exact exclusion reasons across the selected inventory and filtered pages before paging', async () => {
     const scope = and(eq(siteCrawlPages.runId, ctx.runB), eq(siteCrawlPages.nodeKey, 'guide'))
     ctx.db.update(siteCrawlPages).set({ inventoryEligible: false, indexabilityState: 'unknown', indexabilityReasons: ['canonical-to-other'] }).where(scope).run()

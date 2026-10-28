@@ -825,8 +825,12 @@ export async function technicalAeoRoutes(app: FastifyInstance, opts: TechnicalAe
     const eligible = groups.reduce((sum, group) => sum + (group.inventoryEligible ? group.pages : 0), 0)
     const urlVersions = app.db.select({ value: count() }).from(siteCrawlPages)
       .where(and(inScope, isNotNull(siteCrawlPages.urlVersionOf))).get()?.value ?? 0
+    // Skipped without a fetch, so counted on the attempt rather than as rows.
+    const urlVersionsNotFetched = app.db.select({ value: siteCrawlAttempts.urlVersionsSkipped }).from(siteCrawlAttempts)
+      .where(and(eq(siteCrawlAttempts.projectId, scope.projectId), eq(siteCrawlAttempts.runId, scope.runId),
+        eq(siteCrawlAttempts.id, scope.attemptId))).get()?.value ?? 0
     return { scope: 'selected-snapshot', total, eligible, excluded: total - eligible,
-      excludedReasons: reasonCounts(groups.filter(group => !group.inventoryEligible)), urlVersions }
+      excludedReasons: reasonCounts(groups.filter(group => !group.inventoryEligible)), urlVersions, urlVersionsNotFetched }
   }
 
   /**

@@ -98,6 +98,15 @@ class SiteAuditCancelledError extends Error {
  * references no page row. That is tolerable for media (the edge is dropped by
  * the layout's INNER JOIN) and is the reason the exclusion is not widened.
  */
+/**
+ * Copies of one parameter pattern (a site section plus a set of query
+ * parameter names) the crawl fetches before it stops fetching that pattern.
+ * A URL version is only learned from, never scored, so after a few proven
+ * copies the rest are skipped and their fetches and page slots go to pages.
+ * One page of the pattern that is not a copy keeps the whole pattern fetched.
+ */
+const SITE_AUDIT_SKIP_URL_VERSIONS_AFTER = 3
+
 const NON_PAGE_MEDIA_EXTENSIONS = /\.(?:jpe?g|png|gif|webp|avif|bmp|ico|tiff?|svg|mp4|webm|mov|avi|mp3|wav|ogg|woff2?|ttf|otf|eot)(?:$|\?)/i
 
 /** Media content types, for a server that serves an image from an extensionless URL. */
@@ -718,6 +727,10 @@ export async function executeSiteAudit(
             ? observedPages.size === 0 ? 0 : [...observedPages.values()].filter(isInventoryEligible).length
             : sql`${siteCrawlAttempts.pagesEligible}`,
           pagesErrored: event.type === 'summary' ? observedErrorCount(observedPages.values()) : sql`${siteCrawlAttempts.pagesErrored}`,
+          // Only the summary knows how many URL versions the crawl left unfetched.
+          urlVersionsSkipped: event.type === 'summary'
+            ? event.summary.urlVersions?.skipped ?? 0
+            : sql`${siteCrawlAttempts.urlVersionsSkipped}`,
           edgesDiscovered: progress.edgesObserved,
           updatedAt: now,
         }).where(eq(siteCrawlAttempts.id, attemptId)).run()
@@ -770,6 +783,7 @@ export async function executeSiteAudit(
       checkDeadLinks: opts.checkDeadLinks ?? false,
       includeGeo: opts.includeGeo ?? false,
       includeAgentSkills: opts.includeAgentSkills ?? true,
+      skipUrlVersionsAfter: SITE_AUDIT_SKIP_URL_VERSIONS_AFTER,
       signal: opts.signal,
       onEvent: persistEvent,
     })
@@ -1010,7 +1024,20 @@ export async function executeSiteAudit(
       throw new Error(`Site audit run was no longer running before publication: ${runId}`)
     }
 
-    log.info('completed', { runId, projectId, status: terminalStatus, complete: crawlSummary.complete, pages: crawlSummary.pagesObserved })
+    log.info('completed', {
+      runId,
+      projectId,
+      status: terminalStatus,
+      complete: crawlSummary.complete,
+      pages: crawlSummary.pagesObserved,
+      urlVersionsSkipped: crawlSummary.urlVersions?.skipped ?? 0,
+      urlVersionPatterns: (crawlSummary.urlVersions?.patterns ?? []).map((pattern) => ({
+        section: pattern.section,
+        parameters: pattern.parameters,
+        copies: pattern.copies,
+        skipped: pattern.skipped,
+      })),
+    })
     trackSiteAuditOutcome(db, {
       runId,
       projectId,

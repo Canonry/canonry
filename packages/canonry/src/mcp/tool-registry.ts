@@ -1183,7 +1183,7 @@ const technicalAeoCrawlPagesInputSchema = z.object({
   fetchState: z.string().min(1).optional().describe('Filter crawler fetch state, for example html, redirect, non-html, or fetch-error.'),
   indexabilityState: z.string().min(1).optional().describe('Filter crawler-derived indexability state. This is not Google index coverage.'),
   auditState: z.string().min(1).optional().describe('Filter audit state. url-version marks a URL version: fetched and classified, not scored.'),
-  urlVersions: z.enum(['include', 'exclude', 'only']).optional().describe('URL versions are parameter addresses whose canonical names the same path, so the site marks them as copies of that page; the audit does not score them or count them in fixes. include (default) keeps every address, exclude lists pages only (the dashboard view), only lists the URL versions with urlVersionOf.'),
+  urlVersions: z.enum(['include', 'exclude', 'only']).optional().describe('URL versions are parameter addresses whose canonical names the same path, so the site marks them as copies of that page; the audit does not score them or count them in fixes. include (default) keeps every address, exclude lists pages only (the dashboard view), only lists the URL versions with urlVersionOf. Once a few addresses with one parameter pattern prove to be copies, the crawl stops fetching that pattern; those have no rows and inventorySummary.urlVersionsNotFetched counts them.'),
   sort: z.enum(['url', 'path', 'score-asc', 'score-desc']).optional(),
   cursor: z.string().min(1).optional().describe('Opaque cursor from the previous crawl-pages result.'),
   limit: z.number().int().positive().max(200).optional(),

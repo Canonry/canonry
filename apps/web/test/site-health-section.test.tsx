@@ -2627,11 +2627,11 @@ test('lists pages only, says how many URL versions the audit skipped, and shows 
   const parameterUrl = 'https://citypoint.example/blog?page=2'
   const parameterPage = { ...servicesPage, nodeKey: 'page_blog_2', path: '/blog', url: parameterUrl, finalUrl: parameterUrl }
   seedRun(queryClient, 'run_1', summary('run_1', 42), { nodes: [{ ...homePage, x: 0, y: 0 }, { ...parameterPage, x: 1, y: 1 }] })
-  const seedList = (urlVersions: number) => {
+  const seedList = (urlVersions: number, urlVersionsNotFetched = 0) => {
     const input = { client: heyClient, path: { name: projectName }, query: { runId: 'run_1', urlVersions: 'exclude', limit: 200, sort: 'path' } } as const
     const response = {
       project: projectName, hasCrawlData: true, runId: 'run_1', total: 2, nextCursor: null, pages: [homePage, parameterPage],
-      inventorySummary: { scope: 'selected-snapshot', total: 4857, eligible: 2, excluded: 4855, excludedReasons: [], urlVersions },
+      inventorySummary: { scope: 'selected-snapshot', total: 4857, eligible: 2, excluded: 4855, excludedReasons: [], urlVersions, urlVersionsNotFetched },
     }
     queryClient.setQueryData(getApiV1ProjectsByNameTechnicalAeoCrawlPagesInfiniteQueryKey(input), { pages: [response], pageParams: [input] })
   }
@@ -2640,6 +2640,11 @@ test('lists pages only, says how many URL versions the audit skipped, and shows 
   fireEvent.click(screen.getByRole('tab', { name: 'Pages' }))
 
   expect(screen.getByRole('button', { name: /^4,855 URL versions skipped\. These addresses add parameters/ })).not.toBeNull()
+  // Copies the crawl skipped without fetching count too: they were found, just not fetched.
+  act(() => seedList(3, 40))
+  await waitFor(() => expect(screen.getByRole('button', { name: /^43 URL versions skipped\. These addresses add parameters/ })).not.toBeNull())
+  act(() => seedList(4855))
+  await waitFor(() => expect(screen.getByRole('button', { name: /^4,855 URL versions skipped\./ })).not.toBeNull())
   // Two rows can share a path; the parameters on their own line tell them apart.
   const row = screen.getByRole('button', { name: '/blog?page=2' })
   expect(within(row).getByText('/blog')).not.toBeNull()

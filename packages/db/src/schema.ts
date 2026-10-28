@@ -1349,6 +1349,8 @@ export const siteCrawlAttempts = sqliteTable('site_crawl_attempts', {
   pagesFetched: integer('pages_fetched').notNull().default(0),
   pagesEligible: integer('pages_eligible').notNull().default(0),
   pagesErrored: integer('pages_errored').notNull().default(0),
+  /** URL versions the crawl recognised by parameter pattern and did not fetch; they have no page rows. */
+  urlVersionsSkipped: integer('url_versions_skipped').notNull().default(0),
   edgesDiscovered: integer('edges_discovered').notNull().default(0),
   startedAt: text('started_at'),
   finishedAt: text('finished_at'),
