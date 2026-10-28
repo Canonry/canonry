@@ -389,10 +389,14 @@ function availableScanDateLines(dates: SiteCrawlAvailableScanDatesDto | undefine
 
 function inventorySummaryLines(summary: SiteCrawlInventorySummaryDto | null | undefined): string[] {
   if (!summary) return []
+  const notFetched = summary.urlVersionsNotFetched ?? 0
+  const urlVersions = summary.urlVersions + notFetched
   return [
     `Stored canonical pages: ${summary.total} total · ${summary.eligible} eligible · ${summary.excluded} excluded`,
     ...summary.excludedReasons.map(reason => `Excluded · ${reason.healthReason}: ${reason.pages}`),
-    ...(summary.urlVersions > 0 ? [`URL versions (copies of a page, not scored): ${summary.urlVersions}`] : []),
+    ...(urlVersions > 0
+      ? [`URL versions (copies of a page, not scored): ${urlVersions}${notFetched > 0 ? ` (${notFetched} not fetched)` : ''}`]
+      : []),
   ]
 }
 

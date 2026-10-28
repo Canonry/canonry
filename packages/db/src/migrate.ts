@@ -4970,6 +4970,16 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `ALTER TABLE site_crawl_pages ADD COLUMN url_version_of TEXT`,
     ],
   },
+  {
+    // URL versions a crawl skipped without fetching, once their parameter
+    // pattern proved to make copies. They have no page rows, so the count
+    // lives on the attempt. 0 for earlier scans, which fetched every address.
+    version: 198,
+    name: 'site-crawl-url-versions-skipped',
+    statements: [
+      `ALTER TABLE site_crawl_attempts ADD COLUMN url_versions_skipped INTEGER NOT NULL DEFAULT 0`,
+    ],
+  },
 ]
 
 /**

@@ -144,6 +144,15 @@ function inventoryAddress(url: string, fallbackPath: string, rootHost: string | 
   return { path: display.slice(0, start), query: readable }
 }
 
+/**
+ * Every URL version a scan found: those fetched and set aside, plus those the
+ * crawl never fetched once their parameter pattern proved to make copies.
+ */
+function urlVersionsFound(summary: { urlVersions: number; urlVersionsNotFetched?: number } | null | undefined): number | null {
+  if (!summary) return null
+  return summary.urlVersions + (summary.urlVersionsNotFetched ?? 0)
+}
+
 /** The caveat beside the page count; its sentence is the tooltip. */
 function urlVersionsSkippedHelp(count: number): { label: string; text: string } {
   const label = `${metricValue(count)} URL version${count === 1 ? '' : 's'} skipped`
@@ -944,7 +953,7 @@ function InventoryTable({
 }: {
   pages: SiteCrawlPageDto[]
   total: number
-  /** URL versions the audit set aside (API `inventorySummary.urlVersions`); null or 0 shows nothing. */
+  /** URL versions the scan found (see `urlVersionsFound`); null or 0 shows nothing. */
   skippedUrlVersions: number | null
   rootHost: string | null
   selectedNodeKey: string | null
@@ -2639,7 +2648,7 @@ export function SiteHealthSection({
             <InventoryTable
               pages={inventoryPages}
               total={inventoryTotal}
-              skippedUrlVersions={pagesQuery.data?.pages[0]?.inventorySummary?.urlVersions ?? null}
+              skippedUrlVersions={urlVersionsFound(pagesQuery.data?.pages[0]?.inventorySummary)}
               rootHost={rootHost}
               filterUnavailable={pagesQuery.data?.pages[0]?.healthStateFilter === 'unavailable-legacy-scan'}
               selectedNodeKey={effectiveSelectedNodeKey}

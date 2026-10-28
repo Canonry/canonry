@@ -299,6 +299,14 @@ export const siteCrawlInventorySummarySchema = z.object({
    * the audit set them aside, which scored every address.
    */
   urlVersions: z.number().int().nonnegative().default(0),
+  /**
+   * URL versions the crawl did not fetch at all: once a few addresses with
+   * the same parameter pattern proved to be copies, it skipped the rest. They
+   * have no page rows, so they are outside `total` and `urlVersions`; the URL
+   * versions a scan found are `urlVersions + urlVersionsNotFetched`. 0 for a
+   * scan that fetched every address.
+   */
+  urlVersionsNotFetched: z.number().int().nonnegative().default(0),
 })
 export type SiteCrawlInventorySummaryDto = z.infer<typeof siteCrawlInventorySummarySchema>
 

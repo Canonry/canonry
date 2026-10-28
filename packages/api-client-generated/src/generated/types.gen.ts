@@ -16147,6 +16147,7 @@ export type SiteCrawlPagesResponseDto = {
             exampleUrl: string;
         }>;
         urlVersions: number;
+        urlVersionsNotFetched: number;
     } | null;
     healthReasonCounts?: Array<{
         healthReason: 'indexable' | 'redirect-terminal' | 'canonical-to-other' | 'robots-disallow' | 'noindex' | 'non-html' | 'fetch-error' | 'not-fetched' | 'unknown';
@@ -16251,6 +16252,7 @@ export type SiteCrawlSummaryDto = {
             exampleUrl: string;
         }>;
         urlVersions: number;
+        urlVersionsNotFetched: number;
     } | null;
     runStatus: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | null;
     requestedRootUrl: string | null;
@@ -35975,7 +35977,7 @@ export type GetApiV1ProjectsByNameTechnicalAeoCrawlPagesData = {
          */
         auditState?: string;
         /**
-         * URL versions are parameter addresses (filters, views, cache settings) whose canonical names the same path, so the site marks them as copies of that page. The audit does not score them or count them in fixes, and `inventorySummary.urlVersions` counts them. `include` (default) keeps every crawled address, `exclude` lists pages only, as the dashboard does, and `only` lists the URL versions, each with `urlVersionOf`. Scans made before URL versions were set aside have none.
+         * URL versions are parameter addresses (filters, views, cache settings) whose canonical names the same path, so the site marks them as copies of that page. The audit does not score them or count them in fixes, and `inventorySummary.urlVersions` counts them. `include` (default) keeps every crawled address, `exclude` lists pages only, as the dashboard does, and `only` lists the URL versions, each with `urlVersionOf`. Once a few addresses with the same parameter pattern prove to be copies, the crawl stops fetching that pattern: those have no rows and `inventorySummary.urlVersionsNotFetched` counts them. Scans made before URL versions were set aside have none.
          */
         urlVersions?: 'include' | 'exclude' | 'only';
         /**

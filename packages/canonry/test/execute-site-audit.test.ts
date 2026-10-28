@@ -276,6 +276,26 @@ describe('executeSiteAudit', () => {
     expect(db.select().from(siteAuditPages).where(eq(siteAuditPages.runId, runId)).all()).toHaveLength(2)
   })
 
+  it('asks the crawl to stop fetching proven URL versions and stores how many it skipped', async () => {
+    const urlVersions = {
+      skipAfter: 3,
+      skipped: 40,
+      patterns: [{ section: '/units', parameters: ['forcecache'], copies: 3, skipped: 40, exampleUrl: 'https://example.com/units/1/?forcecache=1' }],
+    }
+    vi.mocked(runSiteCrawl).mockImplementation(async (url, options) => emitCompleteGraph(options, true, url, { urlVersions }))
+    const runId = seedRun()
+    await executeSiteAudit(db, runId, projectId)
+
+    expect(runSiteCrawl).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ skipUrlVersionsAfter: 3 }))
+    expect(db.select().from(siteCrawlAttempts).where(eq(siteCrawlAttempts.runId, runId)).get()).toMatchObject({ urlVersionsSkipped: 40 })
+
+    // An engine summary without the count (older engines) stores 0.
+    vi.mocked(runSiteCrawl).mockImplementation(async (url, options) => emitCompleteGraph(options, true, url))
+    const olderRun = seedRun()
+    await executeSiteAudit(db, olderRun, projectId)
+    expect(db.select().from(siteCrawlAttempts).where(eq(siteCrawlAttempts.runId, olderRun)).get()).toMatchObject({ urlVersionsSkipped: 0 })
+  })
+
   it('does not score URL versions: the site score, fix counts and legacy scorecard cover pages only', async () => {
     const scored = (url: string, score: number) => page(`page:${new URL(url).pathname}${new URL(url).search}`, url, {
       audit: { ...page('page:x', url).audit, overallScore: score, factors: [scoredFactor('sd', 'Structured Data', 12, score)] },
