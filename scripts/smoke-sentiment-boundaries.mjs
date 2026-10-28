@@ -78,8 +78,8 @@ function seedStoredFixtures() {
     complete('advanced', 'advanced-run'); complete('advanced', 'advanced-other')
     clock = '2026-09-28T00:01:00.000Z'
     const changed = {}
-    // Synthetic evaluator version change, seeded offline through immutable repository APIs.
-    const alternate = { ...createSentimentEvaluationDefinition(), identityVersion: 'synthetic-alternate-identity-v2' }
+    // A supported threshold change gives the frozen evaluator a distinct identity.
+    const alternate = { ...createSentimentEvaluationDefinition(), confidenceThreshold: 0.8 }
     const alternateId = createHash('sha256').update(canonicalSentimentJson(alternate)).digest('hex')
     repository.putDefinition({ id: alternateId, contentHash: alternateId, requestedModel: 'jev-1.13.0', definition: alternate, createdAt: clock })
     for (const project of ['simple', 'advanced']) {

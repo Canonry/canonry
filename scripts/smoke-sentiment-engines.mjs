@@ -28,7 +28,7 @@ if (args.includes('--browser')) {
 }
 const packageRoot = await realpath(args[args.indexOf('--package-root') + 1])
 const checkout = await realpath(fileURLToPath(new URL('../', import.meta.url)))
-assert(packageRoot.startsWith('/tmp/canonry-sentiment-') && packageRoot.includes('/node_modules/@canonry/canonry') && !packageRoot.startsWith(checkout), 'Use the fresh installed scratch tarball')
+assert(!packageRoot.startsWith(`${checkout}/`) && packageRoot.includes('/node_modules/@canonry/canonry'), 'Use a scratch tarball installation outside the checkout')
 const packageInfo = JSON.parse(await readFile(path.join(packageRoot, 'package.json'), 'utf8'))
 assert.equal(packageInfo.name, '@canonry/canonry')
 await access(path.join(packageRoot, 'assets/index.html'))
@@ -145,7 +145,12 @@ try {
     assert.equal(row.requestedModel, `synthetic-${provider}-requested`); assert.equal(row.servedModel, `synthetic-${provider}-served`)
     if (provider === 'perplexity') { assert.equal(row.assessmentId, null); assert.equal(row.state, 'not-measured') }
   }
-  assert.equal(advanced.queries[0].assessments.length, 4); assert.equal(advanced.coverage.distinctSourceAnswers, 2)
+  const advancedRows = advanced.queries.flatMap(query => query.assessments)
+  assert.equal(advancedRows.length, 4); assert.equal(advanced.coverage.distinctSourceAnswers, 2)
+  assert.deepEqual(advancedRows.map(row => [row.sourceSnapshotId, row.subjectLabel]).sort(), [
+    ['advanced-gemini', 'Bayside Homes'], ['advanced-gemini', 'Harbor Homes'],
+    ['advanced-openai', 'Bayside Homes'], ['advanced-openai', 'Harbor Homes'],
+  ])
   assert.equal(advanced.score.favorableRate, 0.5)
   for (const project of ['simple', 'advanced']) {
     const branded = await http(project, '', { selection: { queryClass: 'branded' } })
