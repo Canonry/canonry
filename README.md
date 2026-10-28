@@ -21,11 +21,6 @@ Canonry is an **agent-first (CLI, MCP, API), open-source AEO operating platform 
 
 ## Quick start
 
-Local installation requires Node.js in one of these supported ranges:
-`>=22.23.4 <23`, `>=24.22.1 <25`, or `>=26.12.1 <27`.
-Check `node --version` before installing; upgrade Node first if it is outside
-these ranges. An existing hosted MCP connection needs no local Node install.
-
 <a id="or-use-any-shell-capable-coding-agent"></a>
 
 ### Start with your agent
