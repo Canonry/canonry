@@ -1,0 +1,38 @@
+{
+  "name": "@canonry/canonry-mcp-gateway",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "build": "tsup",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "typecheck": "node ../../scripts/typecheck.mjs --noEmit -p tsconfig.json",
+    "test": "vitest run --config ../../vitest.package.config.ts",
+    "lint": "oxlint -c ../../.oxlintrc.json --type-aware src/ test/"
+  },
+  "dependencies": {
+    "@canonry/canonry-config": "workspace:*",
+    "@canonry/canonry-contracts": "workspace:*",
+    "better-sqlite3": "^13.0.3",
+    "oidc-provider": "9.13.2",
+    "zod": "^4.6.7",
+    "@modelcontextprotocol/client": "2.4.0",
+    "@modelcontextprotocol/server": "2.4.0",
+    "@modelcontextprotocol/core": "2.4.0",
+    "@modelcontextprotocol/node": "2.1.2",
+    "escape-html": "^1.0.3"
+  },
+  "devDependencies": {
+    "@types/oidc-provider": "9.13.0",
+    "@canonry/canonry-db": "workspace:*",
+    "@canonry/canonry-api-routes": "workspace:*",
+    "@canonry/canonry": "workspace:*",
+    "tsup": "^8.5.0",
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "@types/escape-html": "^1.0.4",
+    "@types/better-sqlite3": "^9.6.0",
+    "drizzle-orm": "^0.45.4"
+  }
+}

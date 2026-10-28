@@ -12,6 +12,7 @@ rewriting the dashboard block. The list uses `schedulableRunKindSchema`.
 | File | Role |
 |------|------|
 | `src/index.ts` | `dashboardManagedRunKindsSchema`, `dashboardManagedSweepsSchema`, `getPlatformEnv()`, `getBootstrapEnv()` |
+| `src/mcp-gateway.ts` | Isolated gateway registry and `CANONRY_GATEWAY_*` secret parsing; never reads the instance config. |
 | `src/classification.ts` | Independent generative domain-classification provider/model role |
 | `src/sentiment.ts` | Private enablement, direct/routed Jev evaluator and readiness |
 | `src/seo.ts` | Explicit host funding mode, integer-micro budget caps and discriminated SEO credentials. Stored only in config.yaml; never accepted as a project API argument. |
@@ -28,7 +29,7 @@ rewriting the dashboard block. The list uses `schedulableRunKindSchema`.
 ## Common Mistakes
 
 - **Reading env vars directly instead of using `loadConfig()`** — the config module handles validation and defaults.
-- **Storing secrets in the database** — credentials belong in `~/.canonry/config.yaml`.
+- **Storing instance secrets in the database** — instance credentials belong in `~/.canonry/config.yaml`. The independently deployed MCP gateway has its own encrypted credential vault and explicit external encryption key; it never reads instance configuration.
 
 ## See Also
 

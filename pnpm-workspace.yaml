@@ -58,3 +58,4 @@ minimumReleaseAgeExclude:
   - openai@7.40.0
   - vite@8.3.5
   - '@canonry/aeo-audit@7.5.0'
+  - oidc-provider@9.13.2

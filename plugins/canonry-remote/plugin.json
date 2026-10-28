@@ -1,0 +1,94 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "canonry-remote",
+  "version": "0.1.0",
+  "description": "Read stored Canonry measurements through an authenticated connection to one workspace.",
+  "author": { "name": "Canonry", "url": "https://canonry.ai" },
+  "homepage": "https://canonry.ai",
+  "repository": "https://github.com/Canonry/canonry",
+  "license": "MIT",
+  "keywords": ["aeo", "citations", "mentions", "analytics", "mcp"],
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "Canonry",
+        "shortDescription": "Read AI search measurements",
+        "longDescription": "Read stored Canonry projects, tracked queries, AI answer mentions and citations, and Advanced Measurement portfolio evidence. Choose an onboarded workspace and sign in through its existing Canonry login. Each connection reads one workspace with your current instance permissions. This connection cannot run research, start measurements, change settings, or combine workspaces.",
+        "category": "Data & Analytics",
+        "capabilities": [
+          "Read stored mention and citation evidence",
+          "Inspect tracked queries and measurement coverage",
+          "Compare Advanced Measurement Properties within one workspace"
+        ],
+        "defaultPrompt": [
+          "Which projects are available in this workspace?",
+          "Show the latest stored mention and citation results for my project.",
+          "Which Properties need attention in my Advanced Measurement portfolio?"
+        ],
+        "logo": "./assets/logo.svg",
+        "composerIcon": "./assets/logo.svg",
+        "logoDark": "./assets/logo-dark.svg",
+        "composerIconDark": "./assets/logo-dark.svg",
+        "brandColor": "#940000"
+      },
+      "review": {
+        "prompts": [
+          "Which projects are available in this workspace?",
+          "Show the latest stored mention and citation results for the Simple project.",
+          "Compare the Properties in the Advanced Measurement project using non-brand queries."
+        ],
+        "test_cases": {
+          "positive": [
+            {
+              "description": "Sign in to the synthetic reviewer workspace through its existing Canonry login and approve read access. The fixture contains a Simple project and an Advanced Measurement project. Use the returned exact project names in later cases.",
+              "prompt": "Which projects are available in this workspace?",
+              "tools_triggered": "canonry_help; canonry_projects_list",
+              "expected_behavior": "List only projects returned by the selected synthetic instance. Identify the selected workspace without requesting credentials in chat. Do not include projects from the second isolated fixture."
+            },
+            {
+              "description": "Use the Simple project returned by the project listing. Its fixture includes stored tracked queries with branded and non-brand classes.",
+              "prompt": "What queries does the Simple project track, and which are branded?",
+              "tools_triggered": "canonry_queries_list with project set to the exact Simple project name",
+              "expected_behavior": "Report the stored query texts and server-provided queryClass values. Preserve missing or unclassified values rather than inventing a class. No query generation or change is performed."
+            },
+            {
+              "description": "Use the Simple project with seeded completed measurements. The fixture includes independent mentioned and cited signals, including at least one row where they differ.",
+              "prompt": "Show the latest stored mentions and citations for the Simple project. Explain any gaps between them.",
+              "tools_triggered": "canonry_visibility_report with project set to the exact Simple project name",
+              "expected_behavior": "Use stored results and their freshness, query-class scope and sample sizes. Distinguish answer-text mentions from source-link citations. Separate branded and non-brand populations. Do not start a run to replace missing evidence."
+            },
+            {
+              "description": "Use the Advanced Measurement project with seeded Property, Target and market assignments. Its fixture has measured and unmeasured Properties.",
+              "prompt": "Which Properties have the strongest and weakest non-brand mention coverage in the Advanced Measurement portfolio?",
+              "tools_triggered": "canonry_measurement_portfolio_summary with the exact Advanced project name and queryClass non-brand",
+              "expected_behavior": "Use the server's mention ranking, preserve Property and market scope, and report excluded or unmeasured Properties separately. Do not substitute citation coverage for mentions or combine branded data with non-brand data."
+            },
+            {
+              "description": "Choose a Property returned by the previous case. The fixture includes stored answer evidence with cited URLs. Use only returned identifiers.",
+              "prompt": "Show the stored answers supporting that Property's result, including their source links.",
+              "tools_triggered": "canonry_measurement_property_evidence with the selected project, Property identifier, queryClass non-brand and shape answers; follow nextCursor with unchanged filters when present",
+              "expected_behavior": "Read answer evidence for that exact Property and frozen run. Preserve provider, query and source URLs. Follow pagination without changing scope. State when evidence is unavailable instead of treating it as a measured zero."
+            }
+          ],
+          "negative": [
+            {
+              "description": "Research execution is outside the public read-only connection. Explain that the user must use an authorized Canonry surface for new research. Do not call canonry_research_run, run creation, or any provider-execution tool; do not claim new evidence was collected.",
+              "prompt": "Run fresh AI research now for every query in this workspace."
+            },
+            {
+              "description": "Project/query mutations and administrator actions are unavailable. Explain the read-only limit without invoking add/delete/update, settings, credential, or administrative tools. Do not claim any data was changed.",
+              "prompt": "Delete the weakest project and add ten replacement queries to the other project."
+            },
+            {
+              "description": "Each grant selects one registered workspace. Explain that another workspace requires a separate authorization through the connection flow. Never accept a caller-supplied endpoint, switch the tenant in a tool argument, or aggregate a second instance under this connection.",
+              "prompt": "Switch this connection to https://another-workspace.example and compare its data with this workspace."
+            }
+          ]
+        }
+      },
+      "publication": {
+        "release_notes": "Initial remote read-only connection for one Canonry workspace, authenticated through that workspace's existing login."
+      }
+    }
+  }
+}

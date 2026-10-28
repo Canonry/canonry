@@ -69,7 +69,7 @@ const NODE_PACKAGES = [
   'val-kit',
 ] as const
 
-const NODE_APPS = ['api', 'worker'] as const
+const NODE_APPS = ['api', 'worker', 'mcp-gateway'] as const
 
 /**
  * Projects whose test files share a worker, and its module cache, instead of

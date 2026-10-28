@@ -16,6 +16,17 @@ legacy `.mcp.json`. The portable files are canonical; the compatibility files
 are generated adapters. Marketplaces remain client-owned and intentionally
 outside the Agent Plugins specification.
 
+## Remote read-only variant
+
+`plugins/canonry-remote/` is a separate source package for the public gateway at
+`https://mcp.canonry.ai/mcp`. It uses a pre-registered OAuth public client,
+workspace selection and existing instance login. Each grant reads one instance.
+The package includes review cases but remains unsubmitted and unverified in live
+ChatGPT/Codex until deployment and reviewer access are completed. See its
+[preparation notes](../plugins/canonry-remote/README.md) and the
+[gateway runbook](../apps/mcp-gateway/README.md). The local installation and
+marketplace entries below continue to use `plugins/canonry/`.
+
 ## Codex brand assets
 
 The plugin tile Codex renders comes from `interface` in
