@@ -27,5 +27,8 @@ Instances remain authoritative for user identity, roles, permissions and data.
   multi-replica deployment requires a different tested persistence/lease model.
 - Keep environment parsing in `packages/config`. Never read the operator's
   `~/.canonry` config from this app or its tests.
+- Consent presentation follows `DESIGN.md` without the dashboard runtime. Keep
+  assets local, styles nonce-authorized and controls usable without JavaScript.
+  Verify packaged assets and desktop/mobile OAuth flows after presentation changes.
 - Integration validation uses two actual isolated Canonry fixtures and no paid
   provider calls. Read the repository test-audit skill before changing tests.

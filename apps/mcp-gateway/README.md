@@ -208,7 +208,7 @@ container smoke substitutes for the live host walkthrough.
 
 ## Validation recorded on 2026-10-28
 
-On Node 24.22.1, the gateway suite passed **56/56 tests** and shared config passed
+On Node 24.22.1, the gateway suite passed **59/59 tests** and shared config passed
 **38/38**, with no failures or skips. Two actual isolated engines cover Simple
 and Advanced portfolios, modern/legacy combinations, exact catalog and result
 parity, scoped identity, refresh, revocation, outages and restarts. SDK protocol
@@ -222,19 +222,34 @@ recorded there. The combined 7.74.0 tarball was built, installed outside the
 checkout, and smoke-tested across REST, CLI, modern and legacy HTTP/stdio MCP,
 including Simple/Advanced evidence and permission denials with loopback stubs.
 
-Chrome checks passed at 1440×900 and 390×844: readable content without horizontal
-overflow; keyboard order Workspace, Approve, Cancel; Cancel returns
+Chrome checks passed at 1440×900, 390×844 and 320×720: readable content without
+horizontal overflow; keyboard order Workspace, Connection details, Approve,
+Cancel. Cancel returns
 `access_denied` with the original state; Approve reaches the provisioned
 synthetic login. All destinations were loopback fixtures. See the
-[desktop](docs/consent-desktop.png), [mobile](docs/consent-mobile.png), and
+[desktop](docs/consent-desktop.png), [mobile](docs/consent-mobile.png),
+[before styling](docs/consent-unstyled.png), and
 [pre-fix failure](docs/consent-before.png) captures. These checks do not establish
 live ChatGPT/Codex compatibility or production deployment.
+
+The consent screen follows Canonry's dark Geist palette, typography and canary
+branding. Native controls keep the page usable without JavaScript; narrow screens
+use full-width actions and at least 44px touch targets. Connection details expand
+in place, including long callback addresses. Empty workspace lists disable
+approval while retaining cancellation. Fonts are served locally, with their
+license included in the container. A fresh nonce authorizes only the page's
+styles; no external assets or inline scripts are permitted. Browser checks
+confirmed loaded fonts, visible keyboard focus and wrapped long client labels
+and callback addresses.
+Security tests cover escaped configuration values, nonce rotation, empty-state
+cancellation and the fixed font route.
 
 Final typechecks, type-aware lint, `pnpm check`, generated SDK/guidance/Val
 checks, plugin drift checks and builds passed. Config lint retains one existing
 warning in `src/index.ts:448`. The standalone Docker image also passed health,
 OAuth discovery, unauthenticated MCP challenge, non-root/read-only filesystem,
-and signing-identity persistence checks across container restart.
+signing-identity persistence across container restart, and packaged consent,
+SVG, font GET/HEAD and font-license checks.
 
 ## Reviewer walkthrough
 

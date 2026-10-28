@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+  <title id="title">Canonry canary</title>
+  <desc id="desc">A cute red canary mascot for the Canonry logo and favicon.</desc>
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <g fill="#D93F45" stroke="#8A171E" stroke-width="2.6">
+      <circle cx="25" cy="16" r="5.5" />
+      <circle cx="32" cy="12.5" r="6" />
+      <circle cx="39" cy="16" r="5.5" />
+      <ellipse cx="21.5" cy="34" rx="6.5" ry="10.5" transform="rotate(-18 21.5 34)" fill="#B82931" />
+      <ellipse cx="42.5" cy="34" rx="6.5" ry="10.5" transform="rotate(18 42.5 34)" fill="#B82931" />
+      <ellipse cx="32" cy="34" rx="16.5" ry="18.5" />
+    </g>
+    <ellipse cx="27.5" cy="26.5" rx="4.6" ry="6.2" fill="#FFB0AE" opacity=".2" />
+    <ellipse cx="32" cy="39.5" rx="11.5" ry="12.5" fill="#FF8E8B" opacity=".24" />
+    <circle cx="23.2" cy="35.5" r="2" fill="#FFB8B2" opacity=".7" />
+    <circle cx="40.8" cy="35.5" r="2" fill="#FFB8B2" opacity=".7" />
+    <path d="M32 30.5 27.8 33.9 32 37.1 36.2 33.9Z" fill="#F39A31" stroke="#8A171E" stroke-width="2" />
+    <circle cx="27.2" cy="28.6" r="2.8" fill="#2C2412" />
+    <circle cx="36.8" cy="28.6" r="2.8" fill="#2C2412" />
+    <circle cx="26.4" cy="27.7" r="0.9" fill="#FFF8E2" />
+    <circle cx="36" cy="27.7" r="0.9" fill="#FFF8E2" />
+    <path d="M26 53.5v3.5m0 0-2 2m2-2 2 2m10-5.5v3.5m0 0-2 2m2-2 2 2" stroke="#DB8B2B" stroke-width="2.4" />
+  </g>
+</svg>

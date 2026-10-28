@@ -1,11 +1,11 @@
 import { createHash, randomBytes, generateKeyPairSync } from 'node:crypto'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { isIP } from 'node:net'
-import html from 'escape-html'
 import { Provider, errors } from 'oidc-provider'
 import type { GatewayConfig, GatewayTenant } from '@canonry/canonry-config'
 import { GatewayStore } from './store.js'
 import { GatewayProxy } from './proxy.js'
+import { consentFont, consentFontPath, renderConsentPage } from './consent.js'
 import { discoverTenant, exchangeUpstream, readProfile, revokeUpstream, UpstreamError, type Discovery, type UpstreamTokens } from './upstream.js'
 
 interface UpstreamAuthorization {
@@ -24,11 +24,6 @@ const fingerprint = (value: string) => createHash('sha256').update(value).digest
 function json(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' })
   res.end(JSON.stringify(body))
-}
-function page(res: ServerResponse, body: string, redirectOrigins: string[]): void {
-  const formTargets = ["'self'", ...new Set(redirectOrigins)].join(' ')
-  res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'content-security-policy': `default-src 'none'; form-action ${formTargets}; frame-ancestors 'none'; base-uri 'none'`, 'referrer-policy': 'same-origin', 'x-content-type-options': 'nosniff' })
-  res.end(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Connect Canonry</title><body><main>${body}</main></body></html>`)
 }
 async function readBody(req: IncomingMessage, max: number): Promise<string> {
   const chunks: Buffer[] = []
@@ -257,6 +252,12 @@ export function createGateway(config: GatewayConfig, secrets: { vaultKey: Buffer
     const url = new URL(req.url ?? '/', config.issuer)
     if (req.headers.host !== new URL(config.issuer).host) throw new UpstreamError(400)
     if (!await rateLimit(req)) { res.setHeader('retry-after', '60'); json(res, 429, { error: 'rate_limited' }); return }
+    if (url.pathname === consentFontPath) {
+      if (req.method !== 'GET' && req.method !== 'HEAD') throw new UpstreamError(405)
+      res.writeHead(200, { 'content-type': 'font/woff2', 'content-length': consentFont.length, 'cache-control': 'public, max-age=31536000, immutable', 'x-content-type-options': 'nosniff' })
+      res.end(req.method === 'HEAD' ? undefined : consentFont)
+      return
+    }
     if (url.pathname === '/health') { json(res, 200, { status: 'ok', service: 'canonry-mcp-gateway' }); return }
     if (url.pathname === '/.well-known/openai-apps-challenge' && config.domainVerificationToken) { res.writeHead(200, { 'content-type': 'text/plain' }); res.end(config.domainVerificationToken); return }
     if (['/.well-known/oauth-protected-resource', '/.well-known/oauth-protected-resource/mcp'].includes(url.pathname)) {
@@ -302,8 +303,17 @@ export function createGateway(config: GatewayConfig, secrets: { vaultKey: Buffer
         const client = await provider.Client.find(String(details.params.client_id))
         const available = store.list<GatewayTenant>('tenant').filter(item => item.value.enabled && item.value.upstreamClientId)
         const redirectOrigins = [new URL(String(details.params.redirect_uri)).origin, ...available.map(item => item.value.origin)]
-        const options = available.map(item => `<option value="${html(item.id)}">${html(item.value.displayName)}</option>`).join('')
-        page(res, `<h1>Connect a Canonry workspace</h1><p>${html(client?.clientName ?? String(details.params.client_id))} requests read-only access to one workspace. It cannot make changes or start paid work. Access continues offline until you disconnect or the grant expires.</p><p>Callback: ${html(String(details.params.redirect_uri))}</p><form method="post" action="${action}/start"><input type="hidden" name="csrf" value="${browser.csrf}"><label>Workspace <select name="tenant">${options}</select></label><button type="submit" name="approve" value="yes">Approve read access and continue</button><button type="submit" name="approve" value="no">Cancel</button></form>`, redirectOrigins)
+        const nonce = secret()
+        const formTargets = ["'self'", ...new Set(redirectOrigins)].join(' ')
+        res.writeHead(200, {
+          'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store',
+          'content-security-policy': `default-src 'none'; style-src 'nonce-${nonce}'; font-src 'self'; form-action ${formTargets}; frame-ancestors 'none'; base-uri 'none'`,
+          'referrer-policy': 'same-origin', 'x-content-type-options': 'nosniff',
+        })
+        res.end(renderConsentPage({ nonce, clientName: client?.clientName ?? String(details.params.client_id),
+          redirectUri: String(details.params.redirect_uri), action: `${action}/start`, csrf: browser.csrf,
+          workspaces: available.map(item => ({ id: item.id, name: item.value.displayName })),
+        }))
         return
       }
       if (interactionMatch[2] === 'start' && req.method === 'POST') {
