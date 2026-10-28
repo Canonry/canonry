@@ -35,9 +35,10 @@ p { margin: 0; overflow-wrap: anywhere; }
 strong { color: var(--text); font-weight: 550; }
 form { margin-top: 28px; }
 label { display: block; margin-bottom: 8px; font-weight: 500; }
-select, button { font: inherit; }
-select { display: block; width: 100%; min-width: 0; height: 40px; padding: 0 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); text-overflow: ellipsis; cursor: pointer; }
-select:hover:not(:disabled) { border-color: var(--border-strong); }
+input, button { font: inherit; }
+input[type="text"] { display: block; width: 100%; min-width: 0; height: 40px; padding: 0 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); text-overflow: ellipsis; }
+input[type="text"]:hover { border-color: var(--border-strong); }
+input::placeholder { color: var(--secondary); opacity: 1; }
 .hint { margin-top: 8px; font-size: 13px; line-height: 20px; color: var(--secondary); }
 .permissions { margin-top: 24px; padding: 20px 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
 .permissions p { color: var(--secondary); }
@@ -57,20 +58,20 @@ button { min-height: 36px; border: 1px solid transparent; border-radius: 6px; pa
 .secondary { border-color: var(--border); background: var(--surface); color: var(--text); }
 .secondary:hover { background: var(--hover); border-color: var(--border-strong); }
 .secondary:active { background: var(--border); }
-:where(select, button, summary):focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+:where(input, button, summary):focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
 :disabled { opacity: .5; cursor: not-allowed; }
 @media (max-width: 480px) {
   main { padding: 32px 16px; align-items: flex-start; }
   .brand { margin-bottom: 24px; }
   .panel { padding: 24px; }
   .actions { grid-template-columns: minmax(0, 1fr); }
-  select { height: 48px; font-size: 16px; }
+  input[type="text"] { height: 48px; font-size: 16px; }
   button { min-height: 44px; padding: 11px 14px; }
   summary { min-height: 44px; display: list-item; padding-top: 12px; padding-bottom: 12px; }
 }
-@media (pointer: coarse) { select, button, summary { min-height: 44px; } }
+@media (pointer: coarse) { input[type="text"], button, summary { min-height: 44px; } }
 @media (prefers-reduced-motion: reduce) { button { transition: none; } }
-@media (forced-colors: active) { .primary, .secondary, select { border: 1px solid ButtonText; } }
+@media (forced-colors: active) { .primary, .secondary, input[type="text"] { border: 1px solid ButtonText; } }
 `
 
 interface ConsentPage {
@@ -79,12 +80,10 @@ interface ConsentPage {
   redirectUri: string
   action: string
   csrf: string
-  workspaces: Array<{ id: string; name: string }>
+  unavailable?: boolean
 }
 
 export function renderConsentPage(input: ConsentPage): string {
-  const unavailable = input.workspaces.length === 0
-  const options = input.workspaces.map(workspace => `<option value="${html(workspace.id)}">${html(workspace.name)}</option>`).join('')
   return `<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -99,14 +98,23 @@ export function renderConsentPage(input: ConsentPage): string {
 <form method="post" action="${html(input.action)}">
 <input type="hidden" name="csrf" value="${html(input.csrf)}">
 <label for="workspace">Workspace</label>
-<select id="workspace" name="tenant"${unavailable ? ' aria-describedby="workspace-hint" disabled' : ''}>${unavailable ? '<option>No workspaces available</option>' : options}</select>
-${unavailable ? '<p id="workspace-hint" class="hint">No workspaces are available. Contact your Canonry administrator.</p>' : ''}
+<input id="workspace" type="text" name="tenant" required maxlength="253" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="Workspace slug or domain"${input.unavailable ? ' aria-invalid="true" aria-describedby="workspace-error"' : ''}>
+${input.unavailable ? '<p id="workspace-error" class="hint" role="alert">Unable to connect. Check your workspace and try again.</p>' : ''}
 <div class="permissions">
 <p>Can read stored data. Cannot make changes or start paid work.</p>
 <p>Access lasts until you disconnect or it expires.</p>
 </div>
 <details><summary>Connection details</summary><dl><dt>Return address</dt><dd>${html(input.redirectUri)}</dd></dl></details>
-<div class="actions"><button class="primary" type="submit" name="approve" value="yes"${unavailable ? ' disabled' : ''}>Approve read access</button><button class="secondary" type="submit" name="approve" value="no">Cancel</button></div>
+<div class="actions"><button class="primary" type="submit" name="approve" value="yes">Approve read access</button><button class="secondary" type="submit" name="approve" value="no" formnovalidate>Cancel</button></div>
 </form></section>
 </div></main></body></html>`
+}
+
+/** Starts a new document navigation after a verified workspace selection. */
+export function renderWorkspaceHandoff(authorizeUrl: string): string {
+  const destination = html(authorizeUrl)
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="refresh" content="0;url=${destination}"><title>Continue · Canonry</title>
+</head><body><p><a href="${destination}" rel="noreferrer">Continue to your workspace</a></p></body></html>`
 }

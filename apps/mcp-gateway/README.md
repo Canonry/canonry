@@ -2,7 +2,8 @@
 
 The gateway is configured for one public MCP address, `https://mcp.canonry.ai/mcp`.
 This source and hostname do not establish a live deployment.
-During authorization the user selects an onboarded workspace, signs in through
+During authorization the user enters a workspace slug or registered domain,
+then signs in through
 that instance's existing Canonry login and consents to read access. One grant
 belongs to one instance and its immutable local user ID. It cannot switch
 workspaces through MCP arguments or combine multiple instances.
@@ -86,6 +87,13 @@ negotiates a supported MCP version and enforces the read-only annotation policy.
 attested by the upstream profile or initialization response.
 Never derive a destination from an email address, tool input or incoming header.
 
+The public consent page does not list workspace names, IDs or origins. The
+workspace field accepts an exact registry ID or registered host, including a
+port in development. Unknown, ambiguous and unavailable entries show the same
+retry message. The submitted value only selects a registry entry. It never
+becomes a network destination. A separate handoff page starts upstream login
+after selection, so the initial CSP does not expose tenant origins.
+
 Private upstream origins require an operator's explicit `allowPrivateNetwork`
 provision. This permits an approved deployment topology, not arbitrary user URL
 fetching. Review network egress policy for each approved origin. Never recycle a
@@ -114,8 +122,8 @@ docker build -f apps/mcp-gateway/Dockerfile -t canonry-mcp-gateway:review .
 Run one active replica with a persistent `/data` volume owned by UID 1000,
 a read-only configuration mount and secret-manager-injected environment values.
 Use a read-only container filesystem except `/data` and a bounded temporary
-filesystem. Expose only the TLS proxy. The Dockerfile uses the repository's
-pinned Node image and installs the frozen dependency graph.
+filesystem. Expose only the TLS proxy. The Dockerfile pins Node 24.22.1 LTS, supported by the OAuth library, and installs
+the frozen dependency graph.
 
 Terminate HTTPS at a trusted proxy configured for the exact public hostname.
 Strip untrusted forwarding headers; preserve the approved public origin. Allow
@@ -124,6 +132,27 @@ and set proxy timeouts above the application request timeout. Apply connection,
 request-size and anonymous-auth rate limits at ingress as well as in the app.
 `GET /health` is a liveness probe; successful liveness does not prove every tenant
 is reachable or its user credentials remain valid.
+
+## Request capacity and reuse
+
+Each authenticated MCP HTTP request checks current instance authority once. Long-lived notification
+streams check authority again before delivery. Each tool call still checks the
+read-only catalog, and the instance enforces its current permissions.
+
+The gateway reuses HTTP connections within one tenant, origin and network policy.
+Every new socket still uses the validated DNS lookup. Modern requests exclusively
+lease upstream MCP clients. Reuse stops after 60 idle seconds or five minutes
+since client creation.
+Catalog verification lasts at most five seconds per upstream client. Grant,
+user, bearer, effective profile scope and registry policy changes prevent reuse.
+Catalog-change notifications invalidate verification immediately. A failed
+catalog refresh cannot use an expired result.
+
+Admission includes clients that are opening, active or idle. Limits are 16 per
+grant, 32 per tenant/user and 1,000 across the gateway. Idle reusable clients can
+be evicted. When capacity is unavailable, the gateway returns 503. Legacy sessions
+expire after ten idle minutes. These limits prevent one grant from occupying
+the shared pool, but they do not replace ingress limits.
 
 ## Operational procedures
 
@@ -138,6 +167,13 @@ is reachable or its user credentials remain valid.
   cleanup then follows the gateway's grant cleanup lifecycle. Verify old access
   and refresh credentials are rejected. Reconnecting requires fresh instance
   authorization.
+- **Refresh:** serialize refresh requests for each grant. Store each replacement
+  refresh token before another refresh. A lost response can require authorization
+  again. Consumed-token replay revokes that grant and its descendants, including
+  concurrent duplicate refreshes. There is no grace window for public bearer
+  clients: the gateway cannot distinguish a retry from a stolen token. This
+  preserves the replay response in
+  [RFC 9700 section 4.14.2](https://www.rfc-editor.org/rfc/rfc9700.html#section-4.14.2).
 - **Failed authorization:** credentials issued before profile/setup failure remain
   encrypted until upstream revocation succeeds. Pending cleanup survives restart
   and retains the original registered upstream client.
@@ -157,7 +193,10 @@ is reachable or its user credentials remain valid.
   replace the key against an existing database. Use a planned reconnect/reset
   procedure or implement and validate offline re-encryption first.
 - **Monitor:** collect health, request counts, latency, rate-limit and upstream
-  error categories. Logs must not include bearer tokens, cookies, OAuth codes,
+  error categories. Request and background error events contain fixed error
+  classes/codes and registered tenant IDs when known. Unexpected failures return
+  500. Malformed upstream metadata, tokens or profiles return 502. Client JSON
+  errors remain 400. Logs must not include bearer tokens, cookies, OAuth codes,
   verifiers, tool arguments, response bodies or full callback URLs.
 
 Deploy with a stop/start replacement, not overlapping replicas sharing SQLite.
@@ -208,13 +247,18 @@ container smoke substitutes for the live host walkthrough.
 
 ## Validation recorded on 2026-10-28
 
-On Node 24.22.1, the gateway suite passed **59/59 tests** and shared config passed
-**38/38**, with no failures or skips. Two actual isolated engines cover Simple
+After the review fixes, the Node 24.22.1 gateway suite passed **79/79 tests**,
+with no failures or skips. Shared config passed **38/38** on the unchanged
+configuration source, reused from commit `2062e1d2377c1598a38cea834bc388ed777bc63e`. Two actual isolated engines cover Simple
 and Advanced portfolios, modern/legacy combinations, exact catalog and result
 parity, scoped identity, refresh, revocation, outages and restarts. SDK protocol
 fixtures additionally exercise streaming, cancellation, empty cursors and
 subscription/logging recovery. Pre-fix runs detected the repaired lifecycle,
-protocol and browser-header regressions.
+protocol and browser-header regressions. Review fault probes also reproduced
+workspace-origin disclosure, extra sockets/profile reads, repeated SDK setup,
+missing admission limits, stale concurrent catalog validation, silent failures,
+incorrect 400 responses and an uncaught malformed-status error. All source was
+restored before the final 79-test passing run.
 
 The engine base is [PR #1427](https://github.com/Canonry/canonry/pull/1427), commit
 `15c101a557e0371cbb1c4a58e8673f2316b118f5`. Its unchanged engine validation is
@@ -235,13 +279,14 @@ live ChatGPT/Codex compatibility or production deployment.
 The consent screen follows Canonry's dark Geist palette, typography and canary
 branding. Native controls keep the page usable without JavaScript; narrow screens
 use full-width actions and at least 44px touch targets. Connection details expand
-in place, including long callback addresses. Empty workspace lists disable
-approval while retaining cancellation. Fonts are served locally, with their
+in place, including long callback addresses. The workspace field remains blank
+until the user enters a slug or domain.
+Cancel works with an empty field. Fonts are served locally, with their
 license included in the container. A fresh nonce authorizes only the page's
 styles; no external assets or inline scripts are permitted. Browser checks
 confirmed loaded fonts, visible keyboard focus and wrapped long client labels
 and callback addresses.
-Security tests cover escaped configuration values, nonce rotation, empty-state
+Security tests cover escaped configuration values, nonce rotation, empty-field
 cancellation and the fixed font route.
 
 Final typechecks, type-aware lint, `pnpm check`, generated SDK/guidance/Val
@@ -270,7 +315,7 @@ that a reachable deployed endpoint works in either host.
    its client, tools or authorization. Verify both positive reads and prohibited
    operations through the same endpoint customers will use.
 4. In a development ChatGPT/Codex connection, authenticate through the gateway,
-   select the synthetic workspace, sign in and approve read-only access. Run the
+   enter the synthetic workspace slug, sign in and approve read-only access. Run the
    five positive and three negative prompts from `plugin.json`. Save each actual
    tool call, its result and the user-visible response as Passed, Failed, Blocked
    or Not run in private review evidence. Never include credentials in captures.

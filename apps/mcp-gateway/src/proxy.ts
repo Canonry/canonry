@@ -15,7 +15,7 @@ import {
   LoggingLevelSchema,
 } from '@modelcontextprotocol/core'
 
-import { tenantFetch } from './upstream.js'
+import { TenantHttpPool, tenantFetch } from './upstream.js'
 import { gatewayProfileTool, withGatewaySecurity, type GatewayProfile } from './profile.js'
 
 export interface GatewayBinding {
@@ -24,6 +24,8 @@ export interface GatewayBinding {
   userId: string
   /** Fingerprint of the OUTER bearer. Never an upstream token fingerprint. */
   tokenFingerprint: string
+  /** Effective authority exposed by the fresh instance profile, not a role revision. */
+  authorityFingerprint: string
   accessToken: string
   mcpUrl: string
   origin: string
@@ -33,20 +35,39 @@ export interface GatewayBinding {
   profile: GatewayProfile
 }
 
+export type GatewayValidator = (options?: { fresh?: boolean }) => Promise<void>
+
 interface RequestContext {
   binding: GatewayBinding
-  validate: () => Promise<void>
+  validate: GatewayValidator
+  report: (error: unknown) => void
 }
 
 interface Upstream {
   client: Client
   transport: StreamableHTTPClientTransport
   accessToken: string
+  catalogEpoch: number
+  catalog?: { expiresAt: number; tools: Map<string, Tool> }
+  catalogLoading?: { epoch: number; promise: Promise<Map<string, Tool>> }
+}
+
+interface Lease {
+  binding: GatewayBinding
+  upstream?: Upstream
+  active: boolean
+  cacheable: boolean
+  invalidated: boolean
+  retired: boolean
+  createdAt: number
+  lastUsedAt: number
 }
 
 interface Session {
   binding: GatewayBinding
-  validate: () => Promise<void>
+  validate: GatewayValidator
+  lease: Lease
+  activeRequests: number
   server: Server
   transport?: NodeStreamableHTTPServerTransport
   modern?: McpHttpHandler
@@ -73,7 +94,12 @@ const FORWARDED_NOTIFICATIONS = new Set([
 ])
 const SESSION_IDLE_MS = 10 * 60_000
 const MAX_SESSIONS = 1_000
+const MAX_GRANT_SESSIONS = 16
+const MAX_USER_SESSIONS = 32
 const MAX_CATALOG_PAGES = 100
+const CATALOG_TTL_MS = 5_000
+const POOL_IDLE_MS = 60_000
+const POOL_MAX_AGE_MS = 5 * 60_000
 
 /**
  * Terminates both MCP transports. Routing and authority are supplied only by
@@ -83,16 +109,20 @@ export class GatewayProxy {
   private readonly sessions = new Map<string, Session>()
   private readonly requests = new AsyncLocalStorage<RequestContext>()
   private readonly sweep: ReturnType<typeof setInterval>
-  private opening = 0
+  private readonly leases = new Set<Lease>()
   private readonly exchanges = new Set<Session>()
+  private closed = false
 
-  constructor(private readonly timeoutMs = 30_000) {
+  constructor(private readonly timeoutMs = 30_000, private readonly network = new TenantHttpPool(), private readonly onBackgroundError?: (error: unknown, tenantId: string) => void) {
     this.sweep = setInterval(() => {
       const cutoff = Date.now() - SESSION_IDLE_MS
       for (const session of this.sessions.values()) {
         if (session.lastSeenAt < cutoff) void this.drop(session)
       }
-    }, 60_000)
+      for (const lease of this.leases) {
+        if (!lease.active && this.expired(lease)) void this.retire(lease)
+      }
+    }, 15_000)
     this.sweep.unref()
   }
 
@@ -101,9 +131,21 @@ export class GatewayProxy {
     res: ServerResponse,
     body: unknown,
     binding: GatewayBinding,
-    validate: () => Promise<void>,
+    validateAuthority: GatewayValidator,
+    onError?: (error: unknown) => void,
   ): Promise<void> {
+    let validation: Promise<void> | undefined
+    let reported = false
+    const validate: GatewayValidator = options => options?.fresh ? validateAuthority(options) : (validation ??= validateAuthority())
+    const report = (error: unknown) => { if (!reported) { reported = true; onError?.(error) } }
+    try {
+      await this.requests.run({ binding, validate, report }, () => this.handleAuthorized(req, res, body, binding, validate))
+    } catch (error) { report(error); throw error }
+  }
+
+  private async handleAuthorized(req: IncomingMessage, res: ServerResponse, body: unknown, binding: GatewayBinding, validate: GatewayValidator): Promise<void> {
     await validate()
+    if (this.closed) { this.reject(res, 503, 'MCP gateway is closing.'); return }
     if (binding.catalogVersion !== 'canonry-readonly-v1') throw new Error('Unsupported read-only catalog policy.')
     if (!await isLegacyRequest(await toWebRequest(req, body))) {
       await this.modern(req, res, body, binding, validate)
@@ -119,7 +161,9 @@ export class GatewayProxy {
       session.binding = { ...binding }
       session.validate = validate
       session.lastSeenAt = Date.now()
-      await this.requests.run({ binding, validate }, () => session.transport!.handleRequest(req, res, body))
+      if (req.method === 'POST') session.activeRequests++
+      try { await session.transport!.handleRequest(req, res, body) }
+      finally { if (req.method === 'POST') session.activeRequests-- }
       return
     }
 
@@ -128,70 +172,134 @@ export class GatewayProxy {
       this.reject(res, 400, 'Expected an initialize request.')
       return
     }
-    if (this.sessions.size + this.opening >= MAX_SESSIONS) {
+    const lease = await this.acquire(binding, false)
+    if (!lease) {
       this.reject(res, 503, 'MCP session capacity reached.')
       return
     }
-    this.opening++
     let session: Session | undefined
     try {
-      session = await this.open(binding, validate)
+      session = await this.open(binding, validate, lease)
       const opened = session
-      await this.requests.run({ binding, validate }, () => opened.transport!.handleRequest(req, res, body))
+      await opened.transport!.handleRequest(req, res, body)
     } finally {
-      this.opening--
       if (session && (res.statusCode >= 400 || !session.transport?.sessionId)) await this.drop(session)
+      if (!session) await this.retire(lease)
     }
   }
 
   async disconnect(grantId: string): Promise<void> {
     await Promise.all([...this.sessions.values(), ...this.exchanges].filter(session => session.binding.grantId === grantId).map(session => this.drop(session)))
+    await Promise.all([...this.leases].filter(lease => lease.binding.grantId === grantId).map(lease => this.retire(lease)))
   }
 
   async close(): Promise<void> {
+    this.closed = true
     clearInterval(this.sweep)
     await Promise.all([...this.sessions.values(), ...this.exchanges].map(session => this.drop(session)))
+    await Promise.all([...this.leases].map(lease => this.retire(lease)))
+    this.network.close()
   }
 
   private sameAuthority(left: GatewayBinding, right: GatewayBinding): boolean {
     return left.grantId === right.grantId && left.tenantId === right.tenantId
       && left.userId === right.userId && left.tokenFingerprint === right.tokenFingerprint
+      && left.authorityFingerprint === right.authorityFingerprint
       && left.mcpUrl === right.mcpUrl && left.catalogVersion === right.catalogVersion
       && left.origin === right.origin && left.allowPrivateNetwork === right.allowPrivateNetwork
       && JSON.stringify(left.protocolVersions) === JSON.stringify(right.protocolVersions)
   }
 
+  private expired(lease: Lease): boolean {
+    return lease.invalidated || Date.now() - lease.lastUsedAt >= POOL_IDLE_MS || Date.now() - lease.createdAt >= POOL_MAX_AGE_MS
+  }
+
+  private async acquire(binding: GatewayBinding, cacheable: boolean): Promise<Lease | undefined> {
+    for (const lease of this.leases) {
+      if (lease.binding.grantId === binding.grantId && (!this.sameAuthority(lease.binding, binding) || lease.binding.accessToken !== binding.accessToken)) {
+        lease.invalidated = true
+        if (lease.upstream) this.invalidateCatalog(lease.upstream)
+      }
+      if (!lease.active && this.expired(lease)) await this.retire(lease)
+    }
+    if (this.closed) return undefined
+    if (cacheable) {
+      const idle = [...this.leases].find(lease => !lease.active && lease.cacheable && !this.expired(lease)
+        && this.sameAuthority(lease.binding, binding) && lease.binding.accessToken === binding.accessToken)
+      if (idle) { idle.active = true; return idle }
+    }
+    const sameUser = (lease: Lease) => lease.binding.tenantId === binding.tenantId && lease.binding.userId === binding.userId
+    const grantFull = [...this.leases].filter(lease => lease.binding.grantId === binding.grantId).length >= MAX_GRANT_SESSIONS
+    const userFull = [...this.leases].filter(sameUser).length >= MAX_USER_SESSIONS
+    const globalFull = this.leases.size >= MAX_SESSIONS
+    if (grantFull || userFull || globalFull) {
+      const idle = [...this.leases].filter(lease => !lease.active
+        && (!grantFull || lease.binding.grantId === binding.grantId) && (!userFull || sameUser(lease)))
+        .sort((left, right) => left.lastUsedAt - right.lastUsedAt).at(0)
+      if (!idle) return undefined
+      await this.retire(idle)
+      return this.acquire(binding, cacheable)
+    }
+    const lease: Lease = { binding: { ...binding }, active: true, cacheable, invalidated: false, retired: false, createdAt: Date.now(), lastUsedAt: Date.now() }
+    this.leases.add(lease)
+    return lease
+  }
+
+  private async retire(lease: Lease): Promise<void> {
+    if (lease.retired) return
+    lease.retired = true
+    lease.invalidated = true
+    this.leases.delete(lease)
+    if (lease.upstream) await this.closeUpstream(lease.upstream)
+  }
+
+  private async release(lease: Lease, reusable: boolean): Promise<void> {
+    if (!reusable || !lease.cacheable || this.expired(lease) || lease.retired || this.closed || !lease.upstream) {
+      await this.retire(lease)
+      return
+    }
+    lease.active = false
+    lease.lastUsedAt = Date.now()
+    const upstream = lease.upstream
+    upstream.client.fallbackNotificationHandler = async notification => {
+      if (notification.method === 'notifications/tools/list_changed') this.invalidateCatalog(upstream)
+    }
+  }
+
   private reject(res: ServerResponse, status: number, message: string): void {
+    this.requests.getStore()?.report(ProtocolError.fromError(-32000, message))
     res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' })
     res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32000, message }, id: null }))
   }
 
   /** Every modern exchange owns its bridge, including a long-lived listen POST. */
-  private async modern(req: IncomingMessage, res: ServerResponse, body: unknown, binding: GatewayBinding, validate: () => Promise<void>): Promise<void> {
+  private async modern(req: IncomingMessage, res: ServerResponse, body: unknown, binding: GatewayBinding, validate: GatewayValidator): Promise<void> {
     if (req.headers['mcp-session-id']) {
       this.reject(res, 400, 'Modern MCP requests do not use sessions.')
       return
     }
-    if (this.exchanges.size + this.opening >= MAX_SESSIONS) {
+    const subscription = SubscriptionsListenRequestSchema.safeParse(body)
+    const lease = await this.acquire(binding, !subscription.success)
+    if (!lease) {
       this.reject(res, 503, 'MCP request capacity reached.')
       return
     }
-    this.opening++
     let bridge: Session | undefined
     const handler = createMcpHandler(async () => {
-      bridge = await this.build(binding, validate)
-      bridge.modern = handler
-      this.exchanges.add(bridge)
-      this.listen(bridge, bridge.upstream)
-      const subscription = SubscriptionsListenRequestSchema.safeParse(body)
-      if (subscription.success) await this.subscribe(bridge, subscription.data.params.notifications)
-      return bridge.server
+      try {
+        bridge = await this.build(binding, validate, lease)
+        bridge.modern = handler
+        this.exchanges.add(bridge)
+        this.listen(bridge, bridge.upstream)
+        if (subscription.success) await this.subscribe(bridge, subscription.data.params.notifications)
+        return bridge.server
+      } catch (error) { this.requests.getStore()?.report(error); throw error }
     }, { legacy: 'reject', responseMode: 'auto', maxSubscriptions: 1 })
     try {
-      await this.requests.run({ binding, validate }, () => toNodeHandler(handler)(req, res, body))
+      await toNodeHandler(handler)(req, res, body)
     } finally {
-      this.opening--
-      if (bridge) await this.drop(bridge)
+      if (bridge) await this.drop(bridge, res.statusCode < 500 && (!res.destroyed || res.writableFinished))
+      else await this.retire(lease)
       await handler.close()
     }
   }
@@ -215,8 +323,9 @@ export class GatewayProxy {
       await previous?.close()
       session.subscription = await session.upstream.client.listen(filter, { timeout: this.timeoutMs })
       const subscription = session.subscription
-      void subscription.closed.then(() => {
+      void subscription.closed.then(reason => {
         if (session.subscription !== subscription || session.closed) return
+        if (reason === 'remote') this.onBackgroundError?.(ProtocolError.fromError(-32000, 'Upstream notification stream closed.'), session.binding.tenantId)
         session.subscription = undefined
         if (session.modern) return this.drop(session)
         // A modern upstream has no session to lose. Keep the legacy caller's
@@ -242,7 +351,7 @@ export class GatewayProxy {
   private async connect(binding: GatewayBinding): Promise<Upstream> {
     const destination = new URL(binding.mcpUrl).href
     const client = new Client({ name: 'canonry-mcp-gateway', version: '1.0.0' }, { capabilities: {}, supportedProtocolVersions: binding.protocolVersions, versionNegotiation: { mode: 'auto', probe: { timeoutMs: this.timeoutMs } } })
-    const fetchTenant = tenantFetch(binding, this.timeoutMs)
+    const fetchTenant = tenantFetch(binding, this.timeoutMs, this.network)
     const transport = new StreamableHTTPClientTransport(new URL(destination), {
       requestInit: { headers: { authorization: `Bearer ${binding.accessToken}` }, redirect: 'error' },
       fetch: async (input, init) => {
@@ -255,15 +364,20 @@ export class GatewayProxy {
       if (!client.getNegotiatedProtocolVersion() || !binding.protocolVersions.includes(client.getNegotiatedProtocolVersion()!)) {
         throw new Error('Upstream MCP protocol is not provisioned.')
       }
-      return { client, transport, accessToken: binding.accessToken }
+      return { client, transport, accessToken: binding.accessToken, catalogEpoch: 0 }
     } catch (error) {
       await client.close().catch(() => {})
       throw error
     }
   }
 
-  private async build(binding: GatewayBinding, validate: () => Promise<void>): Promise<Session> {
-    const upstream = await this.connect(binding)
+  private async build(binding: GatewayBinding, validate: GatewayValidator, lease: Lease): Promise<Session> {
+    const upstream = lease.upstream ?? await this.connect(binding)
+    if (lease.retired || this.closed) {
+      await this.closeUpstream(upstream)
+      throw ProtocolError.fromError(-32000, 'MCP connection closed.')
+    }
+    lease.upstream = upstream
     const upstreamCapabilities = upstream.client.getServerCapabilities() ?? {}
     // Only capabilities that this read-only bridge implements cross the hop.
     const capabilities: ServerCapabilities = {
@@ -277,15 +391,15 @@ export class GatewayProxy {
       capabilities,
       instructions: upstream.client.getInstructions(),
     })
-    const session: Session = { binding: { ...binding }, validate, server, upstream, lastSeenAt: Date.now(), closed: false }
+    const session: Session = { binding: { ...binding }, validate, lease, activeRequests: 0, server, upstream, lastSeenAt: Date.now(), closed: false }
     server.fallbackRequestHandler = (request, extra) => this.forward(session, request, extra)
     server.setRequestHandler('ping', (request, ctx) => this.forward(session, { ...request, jsonrpc: '2.0', id: ctx.mcpReq.id }, ctx))
     if (capabilities.logging) server.setRequestHandler('logging/setLevel', (request, ctx) => this.forward(session, { ...request, jsonrpc: '2.0', id: ctx.mcpReq.id }, ctx))
     return session
   }
 
-  private async open(binding: GatewayBinding, validate: () => Promise<void>): Promise<Session> {
-    const session = await this.build(binding, validate)
+  private async open(binding: GatewayBinding, validate: GatewayValidator, lease: Lease): Promise<Session> {
+    const session = await this.build(binding, validate, lease)
     const { server, upstream } = session
     const transport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: randomUUID, onsessioninitialized: id => { this.sessions.set(id, session) } })
     session.transport = transport
@@ -312,21 +426,26 @@ export class GatewayProxy {
   private listen(session: Session, upstream: Upstream): void {
     upstream.client.fallbackNotificationHandler = async notification => {
       if (!FORWARDED_NOTIFICATIONS.has(notification.method) || session.closed || session.upstream !== upstream) return
+      if (notification.method === 'notifications/tools/list_changed') this.invalidateCatalog(upstream)
       if (session.modern && notification.method === 'notifications/message') {
         const target = session.requestNotifications
         if (!target) return
-        const delivery = session.validate().then(() => target.notify(notification)).catch(() => this.drop(session))
+        const delivery = session.validate().then(() => target.notify(notification)).catch(error => {
+          this.onBackgroundError?.(error, session.binding.tenantId)
+          return this.drop(session)
+        })
         target.deliveries.push(delivery)
         await delivery
         return
       }
       try {
-        await session.validate()
+        await session.validate({ fresh: notification.method !== 'notifications/message' || session.activeRequests === 0 })
         if (session.modern) {
           const event = this.changeEvent(notification)
           if (event) session.modern.bus.publish(event)
         } else await session.server.notification(notification)
-      } catch {
+      } catch (error) {
+        this.onBackgroundError?.(error, session.binding.tenantId)
         await this.drop(session)
       }
     }
@@ -348,6 +467,8 @@ export class GatewayProxy {
       const previous = session.upstream
       session.subscription = undefined
       session.upstream = replacement
+      session.lease.upstream = replacement
+      session.lease.binding = { ...binding }
       this.listen(session, replacement)
       await this.closeUpstream(previous)
       if (session.logLevel && replacement.client.getProtocolEra() === 'legacy' && replacement.client.getServerCapabilities()?.logging) {
@@ -362,24 +483,52 @@ export class GatewayProxy {
     }
   }
 
+  private invalidateCatalog(upstream: Upstream): void {
+    upstream.catalog = undefined
+    upstream.catalogEpoch++
+  }
+
   private async verifyTool(upstream: Upstream, name: string, signal: AbortSignal): Promise<Tool> {
-    let cursor: string | undefined
-    const seen = new Set<string>()
-    for (let page = 0; page < MAX_CATALOG_PAGES; page++) {
-      const result = await upstream.client.request({ method: 'tools/list', params: cursor !== undefined ? { cursor } : {} }, ListToolsResultSchema, { signal, timeout: this.timeoutMs })
-      const tool = result.tools.find(candidate => candidate.name === name)
-      if (tool) {
-        if (tool.annotations?.readOnlyHint !== true || tool.annotations.destructiveHint !== false) break
-        return tool
-      }
-      cursor = result.nextCursor
-      if (cursor === undefined || seen.has(cursor)) break
-      seen.add(cursor)
+    if (!upstream.catalog || upstream.catalog.expiresAt <= Date.now()) {
+      upstream.catalog = undefined
+      const loading = upstream.catalogLoading ??= { epoch: upstream.catalogEpoch, promise: (async () => {
+        const tools = new Map<string, Tool>()
+        let cursor: string | undefined
+        const seen = new Set<string>()
+        for (let page = 0; page < MAX_CATALOG_PAGES; page++) {
+          const result = await upstream.client.request({ method: 'tools/list', params: cursor !== undefined ? { cursor } : {} }, ListToolsResultSchema, { signal, timeout: this.timeoutMs })
+          for (const tool of result.tools) {
+            if (tool.annotations?.readOnlyHint !== true || tool.annotations.destructiveHint !== false || tools.has(tool.name)) {
+              throw ProtocolError.fromError(-32603, 'Upstream catalog violates the read-only contract.')
+            }
+            tools.set(tool.name, tool)
+          }
+          cursor = result.nextCursor
+          if (cursor === undefined) return tools
+          if (seen.has(cursor)) break
+          seen.add(cursor)
+        }
+        throw ProtocolError.fromError(-32603, 'Upstream catalog pagination is incomplete.')
+      })() }
+      try {
+        const tools = await loading.promise
+        if (loading.epoch !== upstream.catalogEpoch) throw ProtocolError.fromError(-32603, 'Upstream catalog changed during validation.')
+        upstream.catalog = { tools, expiresAt: Date.now() + CATALOG_TTL_MS }
+      } finally { if (upstream.catalogLoading === loading) upstream.catalogLoading = undefined }
     }
-    throw ProtocolError.fromError(-32602, 'Tool is not available in the approved read-only catalog.')
+    const tool = upstream.catalog.tools.get(name)
+    if (!tool || tool.annotations?.readOnlyHint !== true || tool.annotations.destructiveHint !== false) {
+      throw ProtocolError.fromError(-32602, 'Tool is not available in the approved read-only catalog.')
+    }
+    return tool
   }
 
   private async forward(session: Session, request: JSONRPCRequest, extra: ServerContext): Promise<Result> {
+    try { return await this.forwardAuthorized(session, request, extra) }
+    catch (error) { this.requests.getStore()?.report(error); throw error }
+  }
+
+  private async forwardAuthorized(session: Session, request: JSONRPCRequest, extra: ServerContext): Promise<Result> {
     if (!READ_METHODS.has(request.method)) throw ProtocolError.fromError(-32601, 'Method is not available on the read-only gateway.')
     // Async tasks can start work that outlives the authorized read request.
     if (request.params?.task !== undefined) throw ProtocolError.fromError(-32602, 'Task execution is not available on the read-only gateway.')
@@ -431,6 +580,7 @@ export class GatewayProxy {
       }
     }
     const execute = async (): Promise<Result> => {
+      if (request.method === 'tools/list') this.invalidateCatalog(session.upstream)
       const envelope = extra.mcpReq.envelope
       const requestedLogLevel = LoggingLevelSchema.safeParse(envelope && LOG_LEVEL_META_KEY in envelope ? envelope[LOG_LEVEL_META_KEY] : request.params?._meta?.[LOG_LEVEL_META_KEY])
       const logLevel = requestedLogLevel.success ? requestedLogLevel.data : session.logLevel
@@ -452,7 +602,10 @@ export class GatewayProxy {
         timeout: this.timeoutMs,
         ...(progressToken !== undefined ? {
           onprogress: (progress: { progress: number; total?: number; message?: string }) => {
-            progressDelivery.push(context.validate().then(() => extra.mcpReq.notify({ method: 'notifications/progress', params: { ...progress, progressToken } })).catch(() => this.drop(session)))
+            progressDelivery.push(context.validate().then(() => extra.mcpReq.notify({ method: 'notifications/progress', params: { ...progress, progressToken } })).catch(error => {
+              context.report(error)
+              return this.drop(session)
+            }))
           },
         } : {}),
       }
@@ -497,7 +650,7 @@ export class GatewayProxy {
     }
   }
 
-  private async drop(session: Session): Promise<void> {
+  private async drop(session: Session, reusable = false): Promise<void> {
     if (session.closed) return
     session.closed = true
     this.exchanges.delete(session)
@@ -505,9 +658,9 @@ export class GatewayProxy {
     if (id) this.sessions.delete(id)
     await Promise.allSettled([
       session.server.close(),
-      this.closeUpstream(session.upstream),
       session.modern?.close(),
       session.subscription?.close(),
     ])
+    await this.release(session.lease, reusable)
   }
 }

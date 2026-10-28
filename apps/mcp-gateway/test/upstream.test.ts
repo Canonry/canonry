@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import type { GatewayTenant } from '@canonry/canonry-config'
 import { afterEach, describe, expect, it } from 'vitest'
-import { discoverTenant, readProfile, tenantFetch } from '../src/upstream.js'
+import { discoverTenant, readProfile, tenantFetch, TenantHttpPool } from '../src/upstream.js'
 
 type Handler = (req: IncomingMessage, res: ServerResponse, tenant: GatewayTenant) => void
 const cleanups: Array<() => Promise<void>> = []
@@ -10,8 +10,10 @@ afterEach(async () => { await Promise.all(cleanups.splice(0).map(close => close(
 /** Socket-level policy fixture only; it does not simulate Canonry business reads. */
 async function endpoint(handler: Handler) {
   const paths: string[] = []
+  const sockets = new Set<IncomingMessage['socket']>()
   const server = createServer((req, res) => {
     paths.push(req.url ?? '/')
+    sockets.add(req.socket)
     handler(req, res, tenant)
   })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
@@ -29,7 +31,7 @@ async function endpoint(handler: Handler) {
       server.closeAllConnections()
     })
   })
-  return { tenant, paths }
+  return { tenant, paths, sockets }
 }
 
 function json(res: ServerResponse, value: unknown): void {
@@ -77,6 +79,46 @@ describe('gateway upstream network boundary', () => {
     await expect(fetcher(`${source.tenant.origin}/self`, { redirect: 'follow' })).rejects.toMatchObject({ status: 502 })
     expect(source.paths).toEqual(['/redirect', '/self'])
     expect(destination.paths).toEqual([])
+  })
+
+  it('reuses sockets within one tenant pool and keeps tenants and network policies separate', async () => {
+    const local = await endpoint((_req, res) => { res.end('stored read') })
+    const pool = new TenantHttpPool()
+    cleanups.push(async () => { pool.close() })
+    const first = await tenantFetch(local.tenant, 1_000, pool)(`${local.tenant.origin}/first`)
+    expect(await first.text()).toBe('stored read')
+    const second = await tenantFetch(local.tenant, 1_000, pool)(`${local.tenant.origin}/second`)
+    expect(await second.text()).toBe('stored read')
+    expect(local.sockets.size).toBe(1)
+    const separate = await tenantFetch({ ...local.tenant, id: 'other-tenant' }, 1_000, pool)(`${local.tenant.origin}/separate`)
+    expect(await separate.text()).toBe('stored read')
+    expect(local.sockets.size).toBe(2)
+
+    const named = { ...local.tenant, origin: local.tenant.origin.replace('127.0.0.1', 'localhost') }
+    const approved = await tenantFetch(named, 1_000, pool)(`${named.origin}/approved`)
+    expect(await approved.text()).toBe('stored read')
+    await expect(tenantFetch({ ...named, allowPrivateNetwork: false }, 1_000, pool)(`${named.origin}/blocked`))
+      .rejects.toMatchObject({ status: 403, code: 'upstream_unapproved_network', tenantId: named.id })
+    expect(local.paths).toEqual(['/first', '/second', '/separate', '/approved'])
+    pool.close()
+    const reopened = await tenantFetch(local.tenant, 1_000, pool)(`${local.tenant.origin}/reopened`)
+    expect(await reopened.text()).toBe('stored read')
+    expect(local.sockets.size).toBe(4)
+  })
+
+  it('classifies malformed upstream metadata and profiles as gateway server failures', async () => {
+    const sensitive = 'synthetic-secret-response-value'
+    const local = await endpoint((_req, res) => { json(res, { resource: sensitive, userId: sensitive, scopes: sensitive }) })
+    await expect(discoverTenant(local.tenant, 1_000))
+      .rejects.toMatchObject({ status: 502, name: 'UpstreamError', code: 'invalid_upstream_response', tenantId: local.tenant.id })
+    await expect(readProfile(local.tenant, 'synthetic-token', 1_000))
+      .rejects.toMatchObject({ status: 502, name: 'UpstreamError', code: 'invalid_upstream_response', tenantId: local.tenant.id })
+  })
+
+  it('rejects a nonstandard upstream HTTP status without an uncaught response-construction error', async () => {
+    const local = await endpoint((_req, res) => { res.writeHead(600); res.end('untrusted response') })
+    await expect(tenantFetch(local.tenant, 1_000)(`${local.tenant.origin}/invalid-status`))
+      .rejects.toMatchObject({ status: 502, code: 'invalid_upstream_response', tenantId: local.tenant.id })
   })
 
   it('bounds the wait for response headers', async () => {

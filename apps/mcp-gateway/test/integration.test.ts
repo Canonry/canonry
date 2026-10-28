@@ -9,6 +9,7 @@ import { gatewayConfigSchema, type GatewayConfig } from '@canonry/canonry-config
 import { canonicalMeasurementPlanV2Json, measurementOverviewResponseSchema, UserRoles } from '@canonry/canonry-contracts'
 import { measurementPlans, measurementPlanVersions, users } from '@canonry/canonry-db'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { JSDOM } from 'jsdom'
 import { authorizeSyntheticMcp, startSyntheticMcpInstance, type SyntheticMcpInstance } from '../../../packages/canonry/test/mcp-gateway-fixture.js'
 import { measurementPlanV2Fixture } from '../../../packages/api-routes/test/measurement-plan-v2-fixture.js'
 import { createGateway } from '../src/server.js'
@@ -195,11 +196,18 @@ describe('gateway with two real isolated Canonry engines', () => {
     expect(selection.status).toBe(200)
     const text = await selection.text()
     expect(text).toContain('read-only access')
-    expect(text).toContain('tenant-alpha')
-    expect(text).toContain('tenant-beta')
+    expect(text).not.toContain('tenant-alpha')
+    expect(text).not.toContain('tenant-beta')
     const start = new URL(`${interaction.pathname}/start`, issuer)
     const selected = await browser.post(start, { csrf: csrf(text), tenant: tenantId, approve: 'yes' })
-    return { browser, verifier, state, upstream: redirect(selected, start), interaction }
+    expect(selected.status).toBe(200)
+    const handoff = JSDOM.fragment(await selected.text())
+    const refresh = handoff.querySelector('meta[http-equiv="refresh"]')?.getAttribute('content')
+    if (!refresh?.startsWith('0;url=')) throw new Error('Missing workspace authorization handoff')
+    const upstream = new URL(refresh.slice('0;url='.length))
+    expect(upstream.origin).toBe(config.tenants.find(tenant => tenant.id === tenantId)?.origin)
+    expect(handoff.querySelector('a')?.getAttribute('href')).toBe(upstream.toString())
+    return { browser, verifier, state, upstream, interaction }
   }
   async function signIn(attempt: AuthorizationAttempt, instance: SyntheticMcpInstance, user = instance.user): Promise<URL> {
     expect(attempt.upstream.origin).toBe(instance.origin)
@@ -402,6 +410,25 @@ describe('gateway with two real isolated Canonry engines', () => {
       const rejected = await rpc(a, 'tools/call', { name, arguments: { project: 'tenant-alpha' } })
       expect(rejected.message.error?.code).toBe(-32602)
     }
+  }, 120_000)
+
+  it('reads current instance authority once for each HTTP request across both MCP transports', async () => {
+    const tokens = await login('alpha', alpha)
+    let profileReads = 0
+    const observe: RequestListener = req => {
+      if (req.url === new URL(alpha.profileUrl).pathname) profileReads++
+    }
+    alpha.app.server.on('request', observe)
+    try {
+      for (const protocol of ['2026-07-28', '2025-11-25']) {
+        const connection = await connect(`${issuer}/mcp`, tokens.access_token, protocol)
+        for (let request = 0; request < 2; request++) {
+          profileReads = 0
+          expect(await projectList(connection)).toContain('tenant-alpha')
+          expect(profileReads).toBe(1)
+        }
+      }
+    } finally { alpha.app.server.removeListener('request', observe) }
   }, 120_000)
 
   it('rejects a different upstream issuer, wrong outer PKCE and callback reuse', async () => {

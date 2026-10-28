@@ -16,8 +16,9 @@ afterEach(async () => {
 })
 
 /** These guards run before upstream contact; no engine or provider is replaced. */
-async function fixture(input: { clientName?: string; workspaceName?: string; enabled?: boolean; redirectUri?: string } = {}) {
+async function fixture(input: { clientName?: string; workspaceName?: string; workspaceOrigin?: string; enabled?: boolean; provisioned?: boolean; redirectUri?: string } = {}) {
   const registeredRedirect = input.redirectUri ?? redirectUri
+  const workspaceOrigin = input.workspaceOrigin ?? 'http://127.0.0.1:1'
   const reservation = createServer()
   await new Promise<void>(resolve => reservation.listen(0, '127.0.0.1', resolve))
   const address = reservation.address()
@@ -31,9 +32,9 @@ async function fixture(input: { clientName?: string; workspaceName?: string; ena
     clients: [{ client_id: 'browser-client', client_name: input.clientName ?? 'Synthetic browser client', redirect_uris: [registeredRedirect] }],
     tenants: [{
       id: 'synthetic', displayName: input.workspaceName ?? 'Synthetic workspace', enabled: input.enabled ?? true,
-      origin: 'http://127.0.0.1:1', issuer: 'http://127.0.0.1:1',
-      resource: 'http://127.0.0.1:1/api/v1/mcp', mcpUrl: 'http://127.0.0.1:1/api/v1/mcp/readonly',
-      protocolVersions: ['2025-11-25'], catalogVersion: 'canonry-readonly-v1', upstreamClientId: 'gateway',
+      origin: workspaceOrigin, issuer: workspaceOrigin, allowPrivateNetwork: true,
+      resource: `${workspaceOrigin}/api/v1/mcp`, mcpUrl: `${workspaceOrigin}/api/v1/mcp/readonly`,
+      protocolVersions: ['2025-11-25'], catalogVersion: 'canonry-readonly-v1', upstreamClientId: input.provisioned === false ? undefined : 'gateway',
     }],
   })
   const gateway = createGateway(config, { vaultKey: randomBytes(32), cookieKeys: [randomBytes(32).toString('base64url')] })
@@ -89,7 +90,7 @@ async function fixture(input: { clientName?: string; workspaceName?: string; ena
 async function cancel(built: Awaited<ReturnType<typeof fixture>>, path: string, csrf: string) {
   const response = await built.request(`${path}/start`, {
     method: 'POST', headers: { origin: built.issuer, 'content-type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ csrf, tenant: 'synthetic', approve: 'no' }),
+    body: new URLSearchParams({ csrf, tenant: '', approve: 'no' }),
   })
   expect(response.status).toBe(303)
   const resume = new URL(response.headers.get('location')!, built.issuer)
@@ -106,13 +107,13 @@ async function cancel(built: Awaited<ReturnType<typeof fixture>>, path: string, 
 }
 
 describe('gateway browser authorization boundary', () => {
-  it('renders the requesting client and selected-workspace consent, and honors cancellation', async () => {
+  it('keeps registered workspace identities private and permits cancellation without a workspace', async () => {
     const built = await fixture()
     const consent = await built.consent()
     // no-referrer makes real browser form POSTs send Origin: null and fail the exact-origin guard.
     expect(consent.referrerPolicy).toBe('same-origin')
     // Browsers apply form-action to the OAuth redirect chain as well as the form target.
-    expect(consent.contentSecurityPolicy).toContain("form-action 'self' http://127.0.0.1:47001 http://127.0.0.1:1;")
+    expect(consent.contentSecurityPolicy).toContain("form-action 'self' http://127.0.0.1:47001;")
     expect(consent.contentSecurityPolicy).toContain("frame-ancestors 'none'")
     expect(consent.contentSecurityPolicy).toContain("default-src 'none'")
     expect(consent.contentSecurityPolicy).toContain("font-src 'self'")
@@ -123,7 +124,17 @@ describe('gateway browser authorization boundary', () => {
     expect(consent.contentSecurityPolicy).toContain(`style-src 'nonce-${nonce}'`)
     expect(document.querySelector('script')).toBeNull()
     expect(consent.document).toContain('Synthetic browser client')
-    expect(consent.document).toContain('Synthetic workspace')
+    for (const privateValue of ['Synthetic workspace', 'synthetic', 'http://127.0.0.1:1']) {
+      expect(consent.document).not.toContain(privateValue)
+      expect(consent.contentSecurityPolicy).not.toContain(privateValue)
+    }
+    const workspace = document.querySelector('input[name="tenant"]')
+    expect(workspace?.getAttribute('type')).toBe('text')
+    expect(workspace?.hasAttribute('required')).toBe(true)
+    expect(workspace?.getAttribute('autocomplete')).toBe('off')
+    expect(workspace?.getAttribute('value')).toBeNull()
+    expect(document.querySelector('select, option, datalist')).toBeNull()
+    expect(document.querySelector('button[value="no"]')?.hasAttribute('formnovalidate')).toBe(true)
     expect(consent.document).toContain(redirectUri)
     await cancel(built, consent.path, consent.csrf)
     const next = await built.consent()
@@ -134,7 +145,7 @@ describe('gateway browser authorization boundary', () => {
     await cancel(built, next.path, next.csrf)
   })
 
-  it('renders configured client, workspace and callback values as text rather than markup', async () => {
+  it('escapes client and callback text without rendering configured workspace names', async () => {
     const clientName = '"><script>alert("client")</script>'
     const workspaceName = '</option><img src=x onerror="alert(1)"> & workspace'
     const callback = `${redirectUri}?label=read%20%22only%22&copy;=%3Cscript%3E`
@@ -142,25 +153,100 @@ describe('gateway browser authorization boundary', () => {
     const consent = await built.consent()
     const document = JSDOM.fragment(consent.document)
     expect(document.textContent).toContain(clientName)
-    expect(document.querySelector('option')?.textContent).toBe(workspaceName)
+    expect(document.textContent).not.toContain(workspaceName)
     expect(document.querySelector('details')?.textContent).toContain(callback)
     expect(document.querySelector('script, img, [onerror]')).toBeNull()
     expect(document.querySelector('form')?.getAttribute('action')).toBe(`${built.issuer}${consent.path}/start`)
     expect(document.querySelectorAll('form')).toHaveLength(1)
-    expect(document.querySelectorAll('option')).toHaveLength(1)
+    expect(document.querySelectorAll('option')).toHaveLength(0)
     await cancel(built, consent.path, consent.csrf)
   })
 
-  it('disables approval when no workspaces are available while keeping cancellation usable', async () => {
-    const built = await fixture({ enabled: false })
+  it.each([
+    { selection: '', enabled: true, provisioned: true },
+    { selection: 'unknown-workspace', enabled: true, provisioned: true },
+    { selection: 'synthetic', enabled: false, provisioned: true },
+    { selection: 'synthetic', enabled: true, provisioned: false },
+  ])('returns the same recoverable response for an unavailable workspace: %j', async input => {
+    const built = await fixture(input)
     const consent = await built.consent()
-    const document = JSDOM.fragment(consent.document)
-    expect(document.querySelector('select[name="tenant"]')?.hasAttribute('disabled')).toBe(true)
-    expect(document.querySelector('button[name="approve"][value="yes"]')?.hasAttribute('disabled')).toBe(true)
-    expect(document.querySelector('button[name="approve"][value="no"]')?.hasAttribute('disabled')).toBe(false)
-    expect(document.textContent).toContain('No workspaces are available')
-    expect(document.querySelector('option[value="synthetic"]')).toBeNull()
-    await cancel(built, consent.path, consent.csrf)
+    const initial = JSDOM.fragment(consent.document)
+    expect(initial.querySelector('input[name="tenant"]')?.hasAttribute('disabled')).toBe(false)
+    expect(initial.querySelector('button[value="yes"]')?.hasAttribute('disabled')).toBe(false)
+    expect(initial.textContent).not.toContain('No workspaces')
+    const rejected = await built.request(`${consent.path}/start`, {
+      method: 'POST', headers: { origin: built.issuer, 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ csrf: consent.csrf, tenant: input.selection, approve: 'yes' }),
+    })
+    expect(rejected.status).toBe(400)
+    expect(rejected.headers.get('location')).toBeNull()
+    const document = JSDOM.fragment(await rejected.text())
+    expect(document.querySelector('[role="alert"]')?.textContent).toBe('Unable to connect. Check your workspace and try again.')
+    expect(document.querySelector('input[name="tenant"]')?.getAttribute('value')).toBeNull()
+    const retryCsrf = document.querySelector('input[name="csrf"]')?.getAttribute('value')
+    expect(retryCsrf).toBeTruthy()
+    expect(retryCsrf).not.toBe(consent.csrf)
+    await cancel(built, consent.path, retryCsrf!)
+  })
+
+  it('accepts only an exact registered slug or domain and creates a fresh navigation to its pinned authorization endpoint', async () => {
+    const requests: string[] = []
+    let workspaceOrigin = ''
+    const upstream = createServer((req, res) => {
+      requests.push(req.url ?? '')
+      const metadata = req.url?.startsWith('/.well-known/oauth-protected-resource')
+        ? { resource: `${workspaceOrigin}/api/v1/mcp`, authorization_servers: [workspaceOrigin] }
+        : { issuer: workspaceOrigin, authorization_endpoint: `${workspaceOrigin}/oauth/authorize`, token_endpoint: `${workspaceOrigin}/oauth/token`, revocation_endpoint: `${workspaceOrigin}/oauth/revoke` }
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(JSON.stringify(metadata))
+    })
+    await new Promise<void>(resolve => upstream.listen(0, '127.0.0.1', resolve))
+    const address = upstream.address()
+    if (!address || typeof address === 'string') throw new Error('Missing upstream listener')
+    workspaceOrigin = `http://127.0.0.1:${address.port}`
+    running.push({ close: () => new Promise<void>((resolve, reject) => upstream.close(error => error ? reject(error) : resolve())) })
+    const built = await fixture({ workspaceOrigin })
+    for (const selection of [`${workspaceOrigin}/unregistered`, `${new URL(workspaceOrigin).host}.attacker.example`, 'synthetic-other']) {
+      const consent = await built.consent()
+      const denied = await built.request(`${consent.path}/start`, {
+        method: 'POST', headers: { origin: built.issuer, 'content-type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ csrf: consent.csrf, tenant: selection, approve: 'yes' }),
+      })
+      expect(denied.status).toBe(400)
+      expect(JSDOM.fragment(await denied.text()).querySelector('[role="alert"]')?.textContent).toBe('Unable to connect. Check your workspace and try again.')
+      expect(requests).toEqual([])
+    }
+    for (const selection of ['synthetic', new URL(workspaceOrigin).host]) {
+      const consent = await built.consent()
+      expect(consent.document).not.toContain(workspaceOrigin)
+      expect(consent.contentSecurityPolicy).not.toContain(workspaceOrigin)
+      const selected = await built.request(`${consent.path}/start`, {
+        method: 'POST', headers: { origin: built.issuer, 'content-type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ csrf: consent.csrf, tenant: selection, approve: 'yes' }),
+      })
+      expect(selected.status).toBe(200)
+      expect(selected.headers.get('location')).toBeNull()
+      expect(selected.headers.get('referrer-policy')).toBe('no-referrer')
+      const handoff = JSDOM.fragment(await selected.text())
+      const refresh = handoff.querySelector('meta[http-equiv="refresh"]')?.getAttribute('content')
+      expect(refresh?.startsWith('0;url=')).toBe(true)
+      const authorize = new URL(refresh!.slice('0;url='.length))
+      expect(handoff.querySelector('a')?.getAttribute('href')).toBe(authorize.toString())
+      expect(authorize.origin).toBe(workspaceOrigin)
+      expect(authorize.pathname).toBe('/oauth/authorize')
+      expect(authorize.searchParams.get('client_id')).toBe('gateway')
+      expect(authorize.searchParams.get('redirect_uri')).toBe(`${built.issuer}/upstream/callback`)
+      expect(authorize.searchParams.get('resource')).toBe(`${workspaceOrigin}/api/v1/mcp`)
+      expect(authorize.searchParams.get('code_challenge_method')).toBe('S256')
+      expect(authorize.searchParams.get('state')).toBeTruthy()
+      const replay = await built.request(`${consent.path}/start`, {
+        method: 'POST', headers: { origin: built.issuer, 'content-type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ csrf: consent.csrf, tenant: selection, approve: 'yes' }),
+      })
+      expect(replay.status).toBe(403)
+      await replay.body?.cancel()
+    }
+    expect(requests).toEqual(Array(2).fill(['/.well-known/oauth-protected-resource/api/v1/mcp/readonly', '/.well-known/oauth-authorization-server']).flat())
   })
 
   it('serves only the fixed font asset with GET and HEAD', async () => {

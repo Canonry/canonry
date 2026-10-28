@@ -1,4 +1,4 @@
-FROM public.ecr.aws/docker/library/node:26.12.1-bookworm-slim@sha256:1e96b01216cab31612cd1f9480e83413472dee8686d423cb4c1ec62bf8a26e9e AS build
+FROM public.ecr.aws/docker/library/node:24.22.1-bookworm-slim@sha256:be8204d4bd327363357f532187b752ff62759c31bedf98e9e18fc08c9cbd605c AS build
 
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
@@ -13,7 +13,7 @@ RUN pnpm install --frozen-lockfile
 RUN pnpm --filter @canonry/canonry-mcp-gateway build
 RUN pnpm deploy --legacy --filter @canonry/canonry-mcp-gateway --prod /prod/gateway
 
-FROM public.ecr.aws/docker/library/node:26.12.1-bookworm-slim@sha256:1e96b01216cab31612cd1f9480e83413472dee8686d423cb4c1ec62bf8a26e9e
+FROM public.ecr.aws/docker/library/node:24.22.1-bookworm-slim@sha256:be8204d4bd327363357f532187b752ff62759c31bedf98e9e18fc08c9cbd605c
 
 ENV NODE_ENV=production
 WORKDIR /app

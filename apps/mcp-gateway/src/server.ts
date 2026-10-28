@@ -2,11 +2,12 @@ import { createHash, randomBytes, generateKeyPairSync } from 'node:crypto'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { isIP } from 'node:net'
 import { Provider, errors } from 'oidc-provider'
+import { ProtocolError, SdkHttpError } from '@modelcontextprotocol/server'
 import type { GatewayConfig, GatewayTenant } from '@canonry/canonry-config'
 import { GatewayStore } from './store.js'
 import { GatewayProxy } from './proxy.js'
-import { consentFont, consentFontPath, renderConsentPage } from './consent.js'
-import { discoverTenant, exchangeUpstream, readProfile, revokeUpstream, UpstreamError, type Discovery, type UpstreamTokens } from './upstream.js'
+import { consentFont, consentFontPath, renderConsentPage, renderWorkspaceHandoff } from './consent.js'
+import { discoverTenant, exchangeUpstream, readProfile, revokeUpstream, UpstreamError, TenantHttpPool, type Discovery, type UpstreamTokens, type UpstreamErrorCode } from './upstream.js'
 
 interface UpstreamAuthorization {
   tenantId: string; discovery: Discovery; tokens: UpstreamTokens; upstreamClientId: string
@@ -20,6 +21,20 @@ interface LoginState { uid: string; tenantId: string; verifier: string; nonce: s
 interface BrowserState { csrf: string; nonce: string }
 const secret = () => randomBytes(32).toString('base64url')
 const fingerprint = (value: string) => createHash('sha256').update(value).digest('hex')
+const diagnosticCodes = new Set<UpstreamErrorCode>([
+  'request_rejected', 'invalid_json', 'invalid_upstream_response', 'upstream_http_error',
+  'upstream_network_error', 'upstream_timeout', 'upstream_redirect', 'upstream_unapproved_network',
+  'upstream_origin_mismatch', 'upstream_identity_mismatch', 'upstream_scope_mismatch', 'upstream_body_too_large',
+])
+const diagnosticMethods = new Set(['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'CONNECT', 'TRACE'])
+interface ErrorDiagnostic {
+  errorClass: 'request' | 'upstream' | 'internal' | 'oauth' | 'mcp'
+  code: UpstreamErrorCode | 'internal_error' | 'oidc_server_error' | 'mcp_request_failed'
+  tenantId?: string
+}
+export interface GatewayAuditEvent extends Partial<ErrorDiagnostic> {
+  event: string; status: number; durationMs: number; method: string
+}
 
 function json(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' })
@@ -41,18 +56,44 @@ function cookie(req: IncomingMessage, name: string): string | undefined {
 }
 
 /** One process owns a persistent volume. Instances retain identity and business authority. */
-export function createGateway(config: GatewayConfig, secrets: { vaultKey: Buffer; cookieKeys: string[] }, audit: (event: { event: string; status: number; durationMs: number; method: string }) => void = () => {}) {
+export function createGateway(config: GatewayConfig, secrets: { vaultKey: Buffer; cookieKeys: string[] }, audit: (event: GatewayAuditEvent) => void = () => {}) {
   const store = new GatewayStore(config.databasePath, secrets.vaultKey)
-  const proxy = new GatewayProxy(config.requestTimeoutMs)
+  const network = new TenantHttpPool()
+  const proxy = new GatewayProxy(config.requestTimeoutMs, network, (error, tenantId) => reportBackgroundError(error, Date.now(), tenantId))
   const resource = `${config.issuer}/mcp`
   const activeRefresh = new Map<string, Promise<Connection>>()
   const activeAuthorizations = new Set<string>()
   const pending = new Set<Promise<unknown>>()
-  const track = (promise: Promise<unknown>) => {
+  const requestDiagnostics = new WeakMap<IncomingMessage, ErrorDiagnostic>()
+  const requestTenants = new WeakMap<IncomingMessage, string>()
+  const registeredTenantIds = new Set(config.tenants.map(entry => entry.id))
+  const track = (promise: Promise<unknown>, tenantId?: string) => {
+    const started = Date.now()
     pending.add(promise)
-    void promise.finally(() => pending.delete(promise)).catch(() => { metrics.upstreamErrors++ })
+    void promise.finally(() => pending.delete(promise)).catch(error => reportBackgroundError(error, started, tenantId))
   }
   const metrics = { requests: 0, rejected: 0, upstreamErrors: 0 }
+  function errorStatus(error: unknown): number {
+    const status = error instanceof UpstreamError || error instanceof errors.OIDCProviderError ? error.status : 500
+    return Number.isInteger(status) && status >= 400 && status <= 599 ? status : 500
+  }
+  function errorDiagnostic(error: unknown, tenantId?: string, oauth = false): ErrorDiagnostic {
+    const trustedTenant = error instanceof UpstreamError && error.tenantId ? error.tenantId : tenantId
+    const context = trustedTenant && registeredTenantIds.has(trustedTenant) ? { tenantId: trustedTenant } : {}
+    if (error instanceof UpstreamError && diagnosticCodes.has(error.code)) {
+      return { errorClass: error.code === 'request_rejected' || error.code === 'invalid_json' ? 'request' : 'upstream', code: error.code, ...context }
+    }
+    if (error instanceof errors.OIDCProviderError && errorStatus(error) < 500) return { errorClass: 'request', code: 'request_rejected', ...context }
+    if (error instanceof ProtocolError || error instanceof SdkHttpError) return { errorClass: 'mcp', code: 'mcp_request_failed', ...context }
+    return { errorClass: oauth ? 'oauth' : 'internal', code: oauth ? 'oidc_server_error' : 'internal_error', ...context }
+  }
+  function recordRequestError(req: IncomingMessage, error: unknown, oauth = false): void {
+    if (!requestDiagnostics.has(req)) requestDiagnostics.set(req, errorDiagnostic(error, requestTenants.get(req), oauth))
+  }
+  function reportBackgroundError(error: unknown, started: number, tenantId?: string): void {
+    metrics.upstreamErrors++
+    audit({ event: 'gateway_background_error', status: errorStatus(error), durationMs: Date.now() - started, method: 'BACKGROUND', ...errorDiagnostic(error, tenantId) })
+  }
   const tenant = (id: string): GatewayTenant => {
     const current = store.get<GatewayTenant>('tenant', id)
     if (!current?.enabled) throw new UpstreamError(403)
@@ -65,6 +106,7 @@ export function createGateway(config: GatewayConfig, secrets: { vaultKey: Buffer
     store.put('tenant', entry.id, entry)
   }
   for (const entry of store.list<GatewayTenant>('tenant')) {
+    registeredTenantIds.add(entry.id)
     if (!config.tenants.some(item => item.id === entry.id)) store.put('tenant', entry.id, { ...entry.value, enabled: false })
   }
   let jwks = store.get<{ keys: Record<string, unknown>[] }>('settings', 'jwks')
@@ -84,18 +126,20 @@ export function createGateway(config: GatewayConfig, secrets: { vaultKey: Buffer
     await drainRevocation(grantId, connection)
   }
   async function drainRevocation(id: string, connection: Connection): Promise<void> {
+    const started = Date.now()
     try {
       await revokeAuthorization(connection)
       store.delete('revocation', id)
       store.delete('connection', id)
-    } catch { metrics.upstreamErrors++ }
+    } catch (error) { reportBackgroundError(error, started, connection.tenantId) }
   }
   async function revokeAuthorization(authorization: UpstreamAuthorization): Promise<void> {
     const current = store.get<GatewayTenant>('tenant', authorization.tenantId)
     if (!current) throw new UpstreamError(503)
-    await revokeUpstream({ ...current, upstreamClientId: authorization.upstreamClientId }, authorization.discovery, authorization.tokens.refresh_token, config.requestTimeoutMs)
+    await revokeUpstream({ ...current, upstreamClientId: authorization.upstreamClientId }, authorization.discovery, authorization.tokens.refresh_token, config.requestTimeoutMs, network)
   }
   async function abandonAuthorization(id: string, authorization: PendingAuthorization): Promise<void> {
+    const started = Date.now()
     try {
       if (authorization.grantId) {
         await (await provider.Grant.find(authorization.grantId))?.destroy()
@@ -104,7 +148,7 @@ export function createGateway(config: GatewayConfig, secrets: { vaultKey: Buffer
       }
       await revokeAuthorization(authorization)
       store.delete('pending-authorization', id)
-    } catch { metrics.upstreamErrors++ }
+    } catch (error) { reportBackgroundError(error, started, authorization.tenantId) }
   }
   function recoverPendingAuthorizations(): void {
     for (const item of store.list<PendingAuthorization>('pending-authorization')) {
@@ -123,7 +167,7 @@ export function createGateway(config: GatewayConfig, secrets: { vaultKey: Buffer
         const fresh = store.get<Connection>('connection', connection.grantId)
         if (!fresh || fresh.revoked) throw new UpstreamError(401)
         if (fresh.tokens.access_token !== connection.tokens.access_token) return fresh
-        const tokens = await exchangeUpstream({ ...tenant(fresh.tenantId), upstreamClientId: fresh.upstreamClientId }, fresh.discovery, { grant_type: 'refresh_token', refresh_token: fresh.tokens.refresh_token }, config.requestTimeoutMs)
+        const tokens = await exchangeUpstream({ ...tenant(fresh.tenantId), upstreamClientId: fresh.upstreamClientId }, fresh.discovery, { grant_type: 'refresh_token', refresh_token: fresh.tokens.refresh_token }, config.requestTimeoutMs, network)
         const latest = store.get<Connection>('connection', connection.grantId)
         if (!latest || latest.revoked || !await provider.Grant.find(connection.grantId)) {
           const abandoned = { ...fresh, tokens, revoked: true }
@@ -145,20 +189,20 @@ export function createGateway(config: GatewayConfig, secrets: { vaultKey: Buffer
     activeRefresh.set(connection.grantId, promise)
     try { return await promise } finally { activeRefresh.delete(connection.grantId) }
   }
-  async function authorizeConnection(grantId: string): Promise<Connection & { displayName: string }> {
+  async function authorizeConnection(grantId: string): Promise<Connection & { displayName: string; authorityFingerprint: string }> {
     let connection = store.get<Connection>('connection', grantId)
     if (!connection || connection.revoked || !await provider.Grant.find(grantId)) throw new UpstreamError(401)
     const current = tenant(connection.tenantId)
     if (connection.tokens.expiresAt <= Date.now() + 10_000) connection = await refresh(connection)
     let profile
-    try { profile = await readProfile(current, connection.tokens.access_token, config.requestTimeoutMs) }
+    try { profile = await readProfile(current, connection.tokens.access_token, config.requestTimeoutMs, network) }
     catch (error) {
       if (!(error instanceof UpstreamError) || error.status !== 401) throw error
       connection = await refresh(connection)
-      profile = await readProfile(current, connection.tokens.access_token, config.requestTimeoutMs)
+      profile = await readProfile(current, connection.tokens.access_token, config.requestTimeoutMs, network)
     }
     if (profile.userId !== connection.userId) throw new UpstreamError(403)
-    return { ...connection, displayName: profile.displayName }
+    return { ...connection, displayName: profile.displayName, authorityFingerprint: fingerprint(JSON.stringify([profile.userId, [...profile.scopes].sort()])) }
   }
 
   const provider = new Provider(config.issuer, {
@@ -184,9 +228,10 @@ export function createGateway(config: GatewayConfig, secrets: { vaultKey: Buffer
     interactions: { url: (_ctx, interaction) => `/interaction/${interaction.uid}` },
     // Every new grant selects and authenticates its workspace; never silently reuse a previous workspace login.
     loadExistingGrant: async ctx => ctx.oidc.result?.consent?.grantId ? provider.Grant.find(ctx.oidc.result.consent.grantId) : undefined,
-    findAccount: async (_ctx, accountId, token) => {
+    findAccount: async (ctx, accountId, token) => {
       const identity = store.get<{ tenantId: string; userId: string }>('identity', accountId)
       if (!identity) return undefined
+      requestTenants.set(ctx.req, identity.tenantId)
       tenant(identity.tenantId)
       if (token?.grantId) {
         try { await authorizeConnection(token.grantId) }
@@ -202,6 +247,10 @@ export function createGateway(config: GatewayConfig, secrets: { vaultKey: Buffer
   // Reverse proxy must overwrite forwarding headers; direct access is loopback/private only.
   provider.proxy = !config.development
   provider.on('grant.revoked', (_ctx: unknown, grantId: string) => { track(disconnect(grantId)) })
+  provider.on('server_error', (ctx: { req: IncomingMessage; status: number }, error: unknown) => {
+    recordRequestError(ctx.req, error, true)
+    ctx.status = errorStatus(error)
+  })
   const oidc = provider.callback()
   const buckets = new Map<string, { start: number; count: number }>()
   async function rateLimit(req: IncomingMessage): Promise<boolean> {
@@ -226,7 +275,8 @@ export function createGateway(config: GatewayConfig, secrets: { vaultKey: Buffer
 
   const server = createServer((req, res) => { track(handle(req, res).catch(error => {
     metrics.rejected++
-    if (!res.headersSent) json(res, error instanceof UpstreamError ? error.status : 400, { error: 'request_failed' })
+    recordRequestError(req, error)
+    if (!res.headersSent) json(res, errorStatus(error), { error: 'request_failed' })
     else res.destroy()
   })) })
   server.requestTimeout = config.requestTimeoutMs
@@ -239,6 +289,7 @@ export function createGateway(config: GatewayConfig, secrets: { vaultKey: Buffer
     const connection = store.get<Connection>('connection', token.grantId)
     if (!connection || connection.revoked || !await provider.Grant.find(token.grantId)) throw new UpstreamError(401)
     if (connection.accountId !== token.accountId || connection.clientId !== token.clientId) throw new UpstreamError(401)
+    requestTenants.set(req, connection.tenantId)
     return { raw: match[1], connection }
   }
   async function bearer(req: IncomingMessage) {
@@ -248,7 +299,15 @@ export function createGateway(config: GatewayConfig, secrets: { vaultKey: Buffer
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     metrics.requests++
     const started = Date.now()
-    res.once('finish', () => audit({ event: 'gateway_request', status: res.statusCode, durationMs: Date.now() - started, method: req.method ?? 'UNKNOWN' }))
+    let audited = false
+    const completed = () => {
+      if (audited) return
+      audited = true
+      audit({ event: 'gateway_request', status: res.statusCode, durationMs: Date.now() - started,
+        method: req.method && diagnosticMethods.has(req.method) ? req.method : 'OTHER', ...requestDiagnostics.get(req) })
+    }
+    res.once('finish', completed)
+    res.once('close', completed)
     const url = new URL(req.url ?? '/', config.issuer)
     if (req.headers.host !== new URL(config.issuer).host) throw new UpstreamError(400)
     if (!await rateLimit(req)) { res.setHeader('retry-after', '60'); json(res, 429, { error: 'rate_limited' }); return }
@@ -279,14 +338,22 @@ export function createGateway(config: GatewayConfig, secrets: { vaultKey: Buffer
       const identity = store.get<GatewayIdentity>('identity', connection.accountId)
       if (typeof identity?.profileId !== 'string' || !identity.profileId.trim()) throw new UpstreamError(401)
       if (req.headers.origin && req.headers.origin !== config.issuer) throw new UpstreamError(403)
-      const body = req.method === 'POST' ? JSON.parse(await readBody(req, config.maxBodyBytes)) as unknown : undefined
+      let body: unknown
+      if (req.method === 'POST') {
+        const rawBody = await readBody(req, config.maxBodyBytes)
+        try { body = JSON.parse(rawBody) as unknown }
+        catch { throw new UpstreamError(400, 'invalid_json', connection.tenantId) }
+      }
       await proxy.handle(req, res, body, {
         grantId: connection.grantId, tenantId: connection.tenantId, userId: connection.userId,
         profile: { id: identity.profileId, name: connection.displayName, nickname: current.displayName },
-        tokenFingerprint: fingerprint(raw), accessToken: connection.tokens.access_token, mcpUrl: current.mcpUrl,
+        tokenFingerprint: fingerprint(raw), authorityFingerprint: connection.authorityFingerprint, accessToken: connection.tokens.access_token, mcpUrl: current.mcpUrl,
         origin: current.origin, allowPrivateNetwork: current.allowPrivateNetwork,
         protocolVersions: current.protocolVersions, catalogVersion: current.catalogVersion,
-      }, async () => { await bearer(req) })
+      }, async options => {
+        // Admission already read current authority. Long-lived delivery explicitly rechecks it.
+        if (options?.fresh) await bearer(req)
+      }, error => recordRequestError(req, error))
       return
     }
     const interactionMatch = /^\/interaction\/([^/]+)(?:\/(start|callback))?$/.exec(url.pathname)
@@ -296,55 +363,65 @@ export function createGateway(config: GatewayConfig, secrets: { vaultKey: Buffer
       if (details.uid !== uid) throw new UpstreamError(403)
       const cookieName = `gateway_${uid}`
       const action = `${config.issuer}/interaction/${uid}`
-      if (!interactionMatch[2] && req.method === 'GET') {
+      const showConsent = async (status = 200, unavailable = false) => {
         const browser = { csrf: secret(), nonce: secret() }
         store.put('browser', uid, browser, 600)
         res.setHeader('set-cookie', `${cookieName}=${browser.nonce}; Path=/interaction/${uid}; HttpOnly; SameSite=Lax; Max-Age=600${config.development ? '' : '; Secure'}`)
         const client = await provider.Client.find(String(details.params.client_id))
-        const available = store.list<GatewayTenant>('tenant').filter(item => item.value.enabled && item.value.upstreamClientId)
-        const redirectOrigins = [new URL(String(details.params.redirect_uri)).origin, ...available.map(item => item.value.origin)]
+        const callbackOrigin = new URL(String(details.params.redirect_uri)).origin
         const nonce = secret()
-        const formTargets = ["'self'", ...new Set(redirectOrigins)].join(' ')
-        res.writeHead(200, {
+        res.writeHead(status, {
           'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store',
-          'content-security-policy': `default-src 'none'; style-src 'nonce-${nonce}'; font-src 'self'; form-action ${formTargets}; frame-ancestors 'none'; base-uri 'none'`,
+          'content-security-policy': `default-src 'none'; style-src 'nonce-${nonce}'; font-src 'self'; form-action 'self' ${callbackOrigin}; frame-ancestors 'none'; base-uri 'none'`,
           'referrer-policy': 'same-origin', 'x-content-type-options': 'nosniff',
         })
         res.end(renderConsentPage({ nonce, clientName: client?.clientName ?? String(details.params.client_id),
           redirectUri: String(details.params.redirect_uri), action: `${action}/start`, csrf: browser.csrf,
-          workspaces: available.map(item => ({ id: item.id, name: item.value.displayName })),
+          unavailable,
         }))
-        return
       }
+      if (!interactionMatch[2] && req.method === 'GET') { await showConsent(); return }
       if (interactionMatch[2] === 'start' && req.method === 'POST') {
         if (req.headers.origin !== config.issuer) throw new UpstreamError(403)
         const form = new URLSearchParams(await readBody(req, config.maxBodyBytes))
         const browser = store.take<BrowserState>('browser', uid)
         if (!browser || browser.nonce !== cookie(req, cookieName) || form.get('csrf') !== browser.csrf) throw new UpstreamError(403)
         if (form.get('approve') !== 'yes') { await provider.interactionFinished(req, res, { error: 'access_denied' }); return }
-        const current = tenant(form.get('tenant') ?? '')
-        if (!current.upstreamClientId) throw new UpstreamError(503)
-        const discovery = await discoverTenant(current, config.requestTimeoutMs)
+        const selection = (form.get('tenant') ?? '').trim()
+        const matches = store.list<GatewayTenant>('tenant').filter(item => item.id === selection || new URL(item.value.origin).host.toLowerCase() === selection.toLowerCase())
+        const current = matches.length === 1 ? matches[0]?.value : undefined
+        if (!current?.enabled || !current.upstreamClientId) { await showConsent(400, true); return }
+        requestTenants.set(req, current.id)
+        let discovery: Discovery
+        try { discovery = await discoverTenant(current, config.requestTimeoutMs, network) }
+        catch (error) { recordRequestError(req, error); await showConsent(errorStatus(error), true); return }
         const state = secret(), verifier = secret()
         store.put('upstream-login', state, { uid, tenantId: current.id, verifier, nonce: browser.nonce, discovery, upstreamClientId: current.upstreamClientId } satisfies LoginState, 600)
         const authorize = new URL(discovery.authorization_endpoint)
         authorize.search = new URLSearchParams({ response_type: 'code', client_id: current.upstreamClientId, redirect_uri: `${action}/callback`, resource: current.resource, scope: 'read offline_access', state, code_challenge: createHash('sha256').update(verifier).digest('base64url'), code_challenge_method: 'S256' }).toString()
         // Upstream redirect URI is fixed; interaction UID travels in durable state, not client registration.
         authorize.searchParams.set('redirect_uri', `${config.issuer}/upstream/callback`)
-        res.writeHead(303, { location: authorize.toString(), 'cache-control': 'no-store' }); res.end(); return
+        // A new document prevents the original form's CSP from enumerating every workspace origin.
+        res.writeHead(200, {
+          'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store',
+          'content-security-policy': "default-src 'none'; form-action 'none'; frame-ancestors 'none'; base-uri 'none'",
+          'referrer-policy': 'no-referrer', 'x-content-type-options': 'nosniff',
+        })
+        res.end(renderWorkspaceHandoff(authorize.toString())); return
       }
       if (interactionMatch[2] === 'callback' && req.method === 'GET') {
         const state = store.take<LoginState>('upstream-login', url.searchParams.get('state') ?? '')
         if (!state || state.uid !== uid || state.nonce !== cookie(req, cookieName)) throw new UpstreamError(403)
         const current = { ...tenant(state.tenantId), upstreamClientId: state.upstreamClientId }
+        requestTenants.set(req, current.id)
         if (url.searchParams.has('error') || !url.searchParams.get('code') || (url.searchParams.has('iss') && url.searchParams.get('iss') !== current.issuer) || (state.discovery.authorization_response_iss_parameter_supported && url.searchParams.get('iss') !== current.issuer)) throw new UpstreamError(403)
-        const tokens = await exchangeUpstream(current, state.discovery, { grant_type: 'authorization_code', code: url.searchParams.get('code')!, code_verifier: state.verifier, redirect_uri: `${config.issuer}/upstream/callback` }, config.requestTimeoutMs)
+        const tokens = await exchangeUpstream(current, state.discovery, { grant_type: 'authorization_code', code: url.searchParams.get('code')!, code_verifier: state.verifier, redirect_uri: `${config.issuer}/upstream/callback` }, config.requestTimeoutMs, network)
         const authorization: PendingAuthorization = { tenantId: current.id, discovery: state.discovery, tokens, upstreamClientId: current.upstreamClientId }
         activeAuthorizations.add(uid)
         try {
           // Persist before profile/setup I/O so failures and process restarts retain revocation authority.
           store.put('pending-authorization', uid, authorization)
-          const profile = await readProfile(current, tokens.access_token, config.requestTimeoutMs)
+          const profile = await readProfile(current, tokens.access_token, config.requestTimeoutMs, network)
           const accountId = JSON.stringify([current.id, profile.userId])
           const previousIdentity = store.get<GatewayIdentity>('identity', accountId)
           if (previousIdentity && (typeof previousIdentity.profileId !== 'string' || !previousIdentity.profileId.trim())) throw new UpstreamError(401)
@@ -385,7 +462,7 @@ export function createGateway(config: GatewayConfig, secrets: { vaultKey: Buffer
     recoverPendingAuthorizations()
     for (const item of store.list<Connection>('revocation')) track(drainRevocation(item.id, item.value))
     for (const item of store.list<Connection>('connection')) {
-      track(provider.Grant.find(item.id).then(grant => { if (!grant) return disconnect(item.id) }))
+      track(provider.Grant.find(item.id).then(grant => { if (!grant) return disconnect(item.id) }), item.value.tenantId)
     }
   }, 60_000)
   maintenance.unref()

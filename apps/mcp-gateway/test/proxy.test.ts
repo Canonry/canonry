@@ -10,7 +10,7 @@ import { StreamableHTTPClientTransport as LegacyTransport } from '@modelcontextp
 import { Server as LegacyServer } from '@modelcontextprotocol/sdk/server/index.js'
 import { StreamableHTTPServerTransport as LegacyServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { CallToolRequestSchema as LegacyCallToolRequestSchema, ListToolsRequestSchema as LegacyListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { GatewayProxy, type GatewayBinding } from '../src/proxy.js'
 
@@ -38,7 +38,7 @@ async function close(server: HttpServer): Promise<void> {
  * real engine has no paginated MCP catalog or subscription/progress producer.
  * SDK endpoints exercise those wire contracts without adding production hooks.
  */
-async function fixture(options: { upstreamModern?: boolean; upstreamV1?: boolean; clientModern?: boolean; emptyToolCursor?: boolean } = {}) {
+async function fixture(options: { upstreamModern?: boolean; upstreamV1?: boolean; clientModern?: boolean; emptyToolCursor?: boolean; timeoutMs?: number } = {}) {
   const transports = new Map<string, { server: Server | LegacyServer; transport: NodeStreamableHTTPServerTransport | LegacyServerTransport }>()
   const subscriptions = new WeakMap<Server, Set<string>>()
   let upstreamBearer = 'initial-upstream-bearer'
@@ -46,6 +46,13 @@ async function fixture(options: { upstreamModern?: boolean; upstreamV1?: boolean
   let reads = 0
   let writes = 0
   let aborted = 0
+  let discoveries = 0
+  let catalogPages = 0
+  let calls = 0
+  let diagnostics = 0
+  let backgroundErrors = 0
+  let receivedCalls = 0
+  let blockedCatalog: { started: () => void; released: Promise<void> } | undefined
   let annotations: { readOnlyHint?: boolean; destructiveHint?: boolean } = { readOnlyHint: true, destructiveHint: false }
   const makeServer = () => {
     const server = new Server({ name: 'protocol-fixture', version: '1' }, {
@@ -54,10 +61,19 @@ async function fixture(options: { upstreamModern?: boolean; upstreamV1?: boolean
     })
     const subscribed = new Set<string>()
     subscriptions.set(server, subscribed)
-    server.setRequestHandler('tools/list', request => ({
-      tools: [{ name: request.params?.cursor !== undefined ? 'paged_read' : 'first_read', description: 'Synthetic stored read.', inputSchema: { type: 'object' }, annotations }],
-      ...(request.params?.cursor !== undefined ? {} : { nextCursor: options.emptyToolCursor ? '' : 'tools-page-2' }),
-    }))
+    server.setRequestHandler('tools/list', async request => {
+      const result = {
+        tools: [{ name: request.params?.cursor !== undefined ? 'paged_read' : 'first_read', description: 'Synthetic stored read.', inputSchema: { type: 'object' as const }, annotations }],
+        ...(request.params?.cursor !== undefined ? {} : { nextCursor: options.emptyToolCursor ? '' : 'tools-page-2' }),
+      }
+      if (blockedCatalog && request.params?.cursor !== undefined) {
+        const blocked = blockedCatalog
+        blockedCatalog = undefined
+        blocked.started()
+        await blocked.released
+      }
+      return result
+    })
     server.setRequestHandler('tools/call', async (request, extra) => {
       if (request.params.name === 'mutate') { writes++; return { content: [{ type: 'text', text: 'mutated' }] } }
       reads++
@@ -110,6 +126,10 @@ async function fixture(options: { upstreamModern?: boolean; upstreamV1?: boolean
         return
       }
       const body = await bodyOf(req)
+      const method = (body as { method?: string } | undefined)?.method
+      if (method === 'initialize' || method === 'server/discover') discoveries++
+      if (method === 'tools/list') catalogPages++
+      if (method === 'tools/call') calls++
       if (options.upstreamModern) { await toNodeHandler(modernHandler)(req, res, body); return }
       const id = req.headers['mcp-session-id']
       if (typeof id === 'string') {
@@ -143,16 +163,20 @@ async function fixture(options: { upstreamModern?: boolean; upstreamV1?: boolean
   const upstreamOrigin = await listen(upstreamHttp)
   let binding: GatewayBinding = {
     tenantId: 'tenant-one', userId: 'local-user', grantId: 'outer-grant', tokenFingerprint: 'outer-bearer-fingerprint',
+    authorityFingerprint: 'instance-read-authority',
     profile: { id: 'stable-tenant-user', name: 'Synthetic User', nickname: 'Synthetic' },
     accessToken: upstreamBearer, mcpUrl: `${upstreamOrigin}/api/v1/mcp/readonly`, origin: upstreamOrigin,
     allowPrivateNetwork: true, protocolVersions: options.upstreamModern || options.upstreamV1 ? ['2026-07-28', '2025-11-25'] : ['2025-11-25', '2025-06-18'], catalogVersion: 'canonry-readonly-v1',
   }
   let authorized = true
-  let proxy = new GatewayProxy(2_000)
+  let proxy = new GatewayProxy(options.timeoutMs ?? 2_000, undefined, () => { backgroundErrors++ })
   const gatewayHttp = createServer((req, res) => {
-    void bodyOf(req).then(body => proxy.handle(req, res, body, { ...binding }, async () => {
-      if (!authorized) throw new Error('Grant revoked.')
-    })).catch(() => { if (!res.headersSent) res.writeHead(401); res.end() })
+    void bodyOf(req).then(body => {
+      if ((body as { method?: string } | undefined)?.method === 'tools/call') receivedCalls++
+      return proxy.handle(req, res, body, { ...binding }, async () => {
+        if (!authorized) throw new Error('Grant revoked.')
+      }, () => { diagnostics++ })
+    }).catch(() => { if (!res.headersSent) res.writeHead(401); res.end() })
   })
   const gatewayOrigin = await listen(gatewayHttp)
   const client = new Client({ name: 'protocol-test', version: '1' }, { versionNegotiation: { mode: options.clientModern ? { pin: '2026-07-28' } : 'legacy' } })
@@ -166,13 +190,29 @@ async function fixture(options: { upstreamModern?: boolean; upstreamV1?: boolean
       templates: (params = {}) => client.request({ method: 'resources/templates/list', params }, ListResourceTemplatesResultSchema),
       prompts: (params = {}) => client.request({ method: 'prompts/list', params }, ListPromptsResultSchema),
     },
-    restartGateway: async () => { await proxy.close(); proxy = new GatewayProxy(2_000) },
+    restartGateway: async () => { await proxy.close(); proxy = new GatewayProxy(options.timeoutMs ?? 2_000, undefined, () => { backgroundErrors++ }) },
     aborted: () => aborted,
     setAnnotations: (value: typeof annotations) => { annotations = value },
     setBinding: (patch: Partial<GatewayBinding>) => { binding = { ...binding, ...patch } },
     revoke: () => { authorized = false },
     counts: () => ({ reads, writes }),
-    rotate: () => { upstreamBearer = 'rotated-upstream-bearer'; binding = { ...binding, accessToken: upstreamBearer }; generation++ },
+    traffic: () => ({ discoveries, catalogPages, calls }),
+    diagnostics: () => diagnostics,
+    backgroundErrors: () => backgroundErrors,
+    receivedCalls: () => receivedCalls,
+    holdCatalogPage: () => {
+      let release: () => void = () => {}
+      let entered: () => void = () => {}
+      const started = new Promise<void>(resolve => { entered = resolve })
+      const released = new Promise<void>(resolve => { release = resolve })
+      blockedCatalog = { started: entered, released }
+      return { started, release }
+    },
+    catalogChanged: async () => {
+      modernHandler.notify.toolsChanged()
+      await Promise.all([...transports.values()].map(entry => entry.server.notification({ method: 'notifications/tools/list_changed' })))
+    },
+    rotate: () => { upstreamBearer = `rotated-upstream-bearer-${generation + 1}`; binding = { ...binding, accessToken: upstreamBearer }; generation++ },
     restart: async () => {
       await Promise.all([...transports.values()].map(entry => entry.server.close()))
       transports.clear()
@@ -195,8 +235,21 @@ async function fixture(options: { upstreamModern?: boolean; upstreamV1?: boolean
 }
 
 const running: Array<Awaited<ReturnType<typeof fixture>>> = []
-afterEach(async () => { await Promise.all(running.splice(0).map(item => item.close())) })
+const peers: Client[] = []
+afterEach(async () => {
+  vi.restoreAllMocks()
+  await Promise.all(peers.splice(0).map(client => client.close()))
+  await Promise.all(running.splice(0).map(item => item.close()))
+})
 async function setup(options: Parameters<typeof fixture>[0] = {}) { const built = await fixture(options); running.push(built); return built }
+
+async function peer(origin: string, modern: boolean) {
+  const client = new Client({ name: 'admission-test', version: '1' }, { versionNegotiation: { mode: modern ? { pin: '2026-07-28' } : 'legacy' } })
+  peers.push(client)
+  const transport = new StreamableHTTPClientTransport(new URL(`${origin}/mcp`))
+  await client.connect(transport)
+  return { client, transport }
+}
 
 describe.each([['legacy', 'legacy'], ['modern', 'legacy'], ['legacy', 'modern'], ['modern', 'modern']] as const)('%s client → %s upstream MCP', (outer, upstream) => {
   it('preserves catalog pagination, read outputs, and progress while denying unlisted execution', async () => {
@@ -218,10 +271,11 @@ describe.each([['legacy', 'legacy'], ['modern', 'legacy'], ['legacy', 'modern'],
     expect(progress).toEqual([expect.objectContaining({ progress: 1, total: 2, message: 'Reading stored evidence.' })])
     await expect.poll(() => logs).toEqual([{ level: 'info', logger: 'protocol-fixture', data: { source: 'stored-evidence' } }])
     await expect(built.client.callTool({ name: 'mutate' })).rejects.toMatchObject({ code: -32602 })
+    expect(built.diagnostics()).toBe(1)
     await expect(built.client.request({ method: 'tasks/cancel', params: { taskId: 'forged' } }, ResultSchema)).rejects.toMatchObject(outer === 'modern' ? { code: 'CLIENT_HTTP_NOT_IMPLEMENTED', data: { status: 404 } } : { code: -32601 })
     built.setAnnotations({ readOnlyHint: true })
-    await expect(built.client.callTool({ name: 'paged_read' })).rejects.toMatchObject({ code: -32602 })
     await expect(built.pages.tools()).rejects.toMatchObject({ code: -32603 })
+    await expect(built.client.callTool({ name: 'paged_read' })).rejects.toMatchObject({ code: -32603 })
     expect(built.counts()).toEqual({ reads: 1, writes: 0 })
   })
 
@@ -332,4 +386,110 @@ it('negotiates an actual SDK v1 upstream for a sessionless modern caller', async
   })
   expect(await unsupported.json()).toMatchObject({ id: 'unsupported-prompts', error: { code: -32601 } })
   expect(built.counts()).toEqual({ reads: 1, writes: 0 })
+})
+
+it('bounds warm modern read traffic and partitions reuse by grant, token and current authority', async () => {
+  const built = await setup({ clientModern: true, upstreamModern: true })
+  const tool = (await built.pages.tools({ cursor: 'tools-page-2' })).tools[0]!
+  const before = built.traffic()
+  await built.client.callTool({ name: tool.name }, { toolDefinition: tool })
+  await built.client.callTool({ name: tool.name }, { toolDefinition: tool })
+  expect(built.traffic()).toEqual({ discoveries: before.discoveries, catalogPages: before.catalogPages + 2, calls: before.calls + 2 })
+
+  built.setBinding({ grantId: 'independent-grant' })
+  await built.client.callTool({ name: tool.name }, { toolDefinition: tool })
+  expect(built.traffic()).toEqual({ discoveries: before.discoveries + 1, catalogPages: before.catalogPages + 4, calls: before.calls + 3 })
+  built.rotate()
+  await built.client.callTool({ name: tool.name }, { toolDefinition: tool })
+  expect(built.traffic()).toEqual({ discoveries: before.discoveries + 2, catalogPages: before.catalogPages + 6, calls: before.calls + 4 })
+
+  built.setAnnotations({ readOnlyHint: false, destructiveHint: true })
+  built.setBinding({ authorityFingerprint: 'changed-instance-authority' })
+  await expect(built.client.callTool({ name: tool.name }, { toolDefinition: tool })).rejects.toMatchObject({ code: -32603 })
+  expect(built.counts()).toEqual({ reads: 4, writes: 0 })
+})
+
+it('expires catalog and idle client caches without serving stale read authority', async () => {
+  const built = await setup({ clientModern: true, upstreamModern: true })
+  const tool = (await built.pages.tools({ cursor: 'tools-page-2' })).tools[0]!
+  await built.client.callTool({ name: tool.name }, { toolDefinition: tool })
+  const before = built.traffic()
+  const now = Date.now()
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(now + 6_000)
+  await built.client.callTool({ name: tool.name }, { toolDefinition: tool })
+  expect(built.traffic()).toEqual({ discoveries: before.discoveries, catalogPages: before.catalogPages + 2, calls: before.calls + 1 })
+  clock.mockReturnValue(now + 67_000)
+  await built.client.callTool({ name: tool.name }, { toolDefinition: tool })
+  expect(built.traffic()).toEqual({ discoveries: before.discoveries + 1, catalogPages: before.catalogPages + 4, calls: before.calls + 2 })
+  built.setAnnotations({ readOnlyHint: false, destructiveHint: true })
+  clock.mockReturnValue(now + 73_000)
+  await expect(built.client.callTool({ name: tool.name }, { toolDefinition: tool })).rejects.toMatchObject({ code: -32603 })
+  expect(built.counts()).toEqual({ reads: 3, writes: 0 })
+})
+
+it('keeps a grant and a user from exhausting shared legacy and modern admission', async () => {
+  const built = await setup({ upstreamModern: true })
+  const concurrent = await Promise.allSettled(Array.from({ length: 18 }, () => peer(built.gatewayOrigin, false)))
+  expect(concurrent.filter(result => result.status === 'fulfilled')).toHaveLength(15)
+  const rejected = concurrent.filter(result => result.status === 'rejected')
+  expect(rejected).toHaveLength(3)
+  for (const result of rejected) expect(result.reason).toMatchObject({ status: 503 })
+  await expect(peer(built.gatewayOrigin, true)).rejects.toMatchObject({ status: 503 })
+  built.setBinding({ grantId: 'second-grant' })
+  const secondGrant = []
+  for (let index = 0; index < 16; index++) secondGrant.push(await peer(built.gatewayOrigin, false))
+  built.setBinding({ grantId: 'third-grant' })
+  await expect(peer(built.gatewayOrigin, true)).rejects.toMatchObject({ status: 503 })
+
+  built.setBinding({ grantId: 'independent-user-grant', userId: 'another-user' })
+  const independent = await peer(built.gatewayOrigin, true)
+  expect(await independent.client.callTool({ name: 'paged_read' })).toMatchObject({ structuredContent: { generation: 1 } })
+  built.setBinding({ grantId: 'second-grant', userId: 'local-user' })
+  await secondGrant[0]!.transport.terminateSession()
+  built.setBinding({ grantId: 'third-grant' })
+  let released: Awaited<ReturnType<typeof peer>> | undefined
+  await expect.poll(async () => {
+    try { released = await peer(built.gatewayOrigin, true); return true } catch { return false }
+  }).toBe(true)
+  expect(await released!.client.callTool({ name: 'paged_read' })).toMatchObject({ structuredContent: { generation: 1 } })
+})
+
+it('revalidates a long-lived modern subscription after request authorization was memoized', async () => {
+  const built = await setup({ clientModern: true, upstreamModern: true })
+  const notifications: string[] = []
+  built.client.setNotificationHandler('notifications/resources/updated', event => { notifications.push(event.params.uri) })
+  const subscription = await built.client.listen({ resourceSubscriptions: ['fixture://first'] })
+  await built.notify()
+  await expect.poll(() => notifications).toEqual(['fixture://first'])
+  built.revoke()
+  await built.notify()
+  await subscription.closed
+  expect(notifications).toEqual(['fixture://first'])
+  expect(built.backgroundErrors()).toBe(1)
+  await expect(built.client.callTool({ name: 'paged_read' })).rejects.toThrow()
+  expect(built.counts()).toEqual({ reads: 0, writes: 0 })
+})
+
+it('rejects every waiter on a catalog load invalidated before its final page arrives', async () => {
+  const built = await setup({ timeoutMs: 10_000 })
+  const tool = (await built.pages.tools({ cursor: 'tools-page-2' })).tools[0]!
+  const blocked = built.holdCatalogPage()
+  const first = built.client.callTool({ name: tool.name }, { toolDefinition: tool }).catch((error: unknown) => error)
+  try {
+    await blocked.started
+    const changed = new Promise<void>(resolve => { built.client.setNotificationHandler('notifications/tools/list_changed', () => { resolve() }) })
+    built.setAnnotations({ readOnlyHint: false, destructiveHint: true })
+    await built.catalogChanged()
+    await changed
+    const before = built.receivedCalls()
+    const second = built.client.callTool({ name: tool.name }, { toolDefinition: tool }).catch((error: unknown) => error)
+    await expect.poll(built.receivedCalls).toBe(before + 1)
+    // A separate round trip lets the second request join the pending load
+    // before the fixture releases the captured pre-invalidation page.
+    await built.client.ping()
+    blocked.release()
+    await expect(first).resolves.toMatchObject({ code: -32603 })
+    await expect(second).resolves.toMatchObject({ code: -32603 })
+    expect(built.counts()).toEqual({ reads: 0, writes: 0 })
+  } finally { blocked.release() }
 })

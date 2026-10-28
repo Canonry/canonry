@@ -7,6 +7,8 @@ Instances remain authoritative for user identity, roles, permissions and data.
 - Resolve upstream destinations from the operator registry and authenticated
   grant only. Never accept an endpoint, tenant override, or upstream bearer in
   tool arguments or arbitrary headers.
+- Keep the public consent page and its headers free of workspace directories.
+  Accept a slug or registered host only as a registry lookup, never a destination.
 - Keep outer and upstream issuers, audiences, state, PKCE and token families
   separate. Identity is `(tenant ID, immutable instance user ID)`, never email.
 - Use `oidc-provider` for outer OAuth and the official MCP SDK for transport.
@@ -19,8 +21,15 @@ Instances remain authoritative for user identity, roles, permissions and data.
   identity input and implements no business operation.
 - Recheck current grant and instance authority for each request. Process-local
   MCP sessions are transport state, never an authorization boundary.
+- Reuse MCP clients only within the same grant, user, bearer and registry policy.
+  Bound opening, active and idle clients per grant and tenant/user as well as globally.
+  Cached catalogs never replace current request authority or upstream permission checks.
 - Refresh may require an upstream session reinitialization. Retry only proven
   read operations; never replay a mutation or expand `research.run` authority.
+- Preserve consumed-refresh replay revocation for public bearer clients. A retry
+  cannot prove client identity, so a grace receipt must not expose replacement tokens.
+- Error events use fixed classes/codes and registered tenant IDs. Never log raw
+  exceptions, because SDK messages and upstream validation errors can contain secrets.
 - Durable credentials are encrypted with externally provisioned keys. Never log
   bodies, tokens, cookies, authorization codes, PKCE verifiers or full URLs.
 - SQLite deployment is one active replica with a durable volume. A rolling
