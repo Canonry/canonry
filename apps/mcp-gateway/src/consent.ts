@@ -40,7 +40,6 @@ select { display: block; width: 100%; min-width: 0; height: 40px; padding: 0 12p
 select:hover:not(:disabled) { border-color: var(--border-strong); }
 .hint { margin-top: 8px; font-size: 13px; line-height: 20px; color: var(--secondary); }
 .permissions { margin-top: 24px; padding: 20px 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
-h2 { margin: 0 0 8px; font-size: 14px; line-height: 20px; font-weight: 600; }
 .permissions p { color: var(--secondary); }
 .permissions p + p { margin-top: 8px; }
 details { margin-top: 16px; }
@@ -60,7 +59,6 @@ button { min-height: 36px; border: 1px solid transparent; border-radius: 6px; pa
 .secondary:active { background: var(--border); }
 :where(select, button, summary):focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
 :disabled { opacity: .5; cursor: not-allowed; }
-.footer { margin-top: 20px; color: var(--secondary); text-align: center; font-size: 13px; line-height: 20px; padding: 0 16px; }
 @media (max-width: 480px) {
   main { padding: 32px 16px; align-items: flex-start; }
   .brand { margin-bottom: 24px; }
@@ -97,20 +95,18 @@ export function renderConsentPage(input: ConsentPage): string {
 <div class="brand"><span class="brand-icon" aria-hidden="true">${canary}</span><span>Canonry</span></div>
 <section class="panel" aria-labelledby="consent-title">
 <header><h1 id="consent-title">Connect a workspace</h1>
-<p class="intro"><strong>${html(input.clientName)}</strong> is requesting read-only access.</p></header>
+<p class="intro"><strong>${html(input.clientName)}</strong> requests read-only access.</p></header>
 <form method="post" action="${html(input.action)}">
 <input type="hidden" name="csrf" value="${html(input.csrf)}">
 <label for="workspace">Workspace</label>
-<select id="workspace" name="tenant" aria-describedby="workspace-hint"${unavailable ? ' disabled' : ''}>${unavailable ? '<option>No workspaces available</option>' : options}</select>
-<p id="workspace-hint" class="hint">${unavailable ? 'No workspaces are available. Contact your Canonry administrator.' : 'Sign in with your existing Canonry account on the next screen.'}</p>
-<section class="permissions" aria-labelledby="access-title">
-<h2 id="access-title">Read-only access</h2>
-<p>This app can read stored data in the workspace you choose. It cannot make changes or start paid work.</p>
-<p>Access continues until you disconnect or the grant expires.</p>
-</section>
+<select id="workspace" name="tenant"${unavailable ? ' aria-describedby="workspace-hint" disabled' : ''}>${unavailable ? '<option>No workspaces available</option>' : options}</select>
+${unavailable ? '<p id="workspace-hint" class="hint">No workspaces are available. Contact your Canonry administrator.</p>' : ''}
+<div class="permissions">
+<p>Can read stored data. Cannot make changes or start paid work.</p>
+<p>Access lasts until you disconnect or it expires.</p>
+</div>
 <details><summary>Connection details</summary><dl><dt>Return address</dt><dd>${html(input.redirectUri)}</dd></dl></details>
 <div class="actions"><button class="primary" type="submit" name="approve" value="yes"${unavailable ? ' disabled' : ''}>Approve read access</button><button class="secondary" type="submit" name="approve" value="no">Cancel</button></div>
 </form></section>
-<p class="footer">Each connection grants access to one workspace.</p>
 </div></main></body></html>`
 }
