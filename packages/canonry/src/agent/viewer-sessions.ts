@@ -14,7 +14,7 @@ import { createAeroSession, loadAeroSystemPrompt, resolveSessionProviderAndModel
 import { withoutPersistedToolDetails } from './session-registry.js'
 import { buildSkillDocTools } from './skill-tools.js'
 import { AeroToolScopes, buildAeroStateTools } from './tools.js'
-import { aeroViewPrompt, buildAeroViewTool, readAeroViewEvidence } from './view-context.js'
+import { aeroViewPrompt, buildAeroViewTool, readAeroViewEvidenceForTurn } from './view-context.js'
 import { aeroProjectShape } from './project-shape.js'
 
 /**
@@ -233,7 +233,7 @@ export class ViewerAeroSessions {
       // rebuilt below.
       agent.state.messages = trimViewerTranscript(agent.state.messages.filter(message => message.role !== 'system'))
       const view = { client, projectName: project.name, basePath: this.opts.config.basePath, context: preferences.context }
-      const evidence = preferences.context ? await readAeroViewEvidence(view) : undefined
+      const evidence = preferences.context ? await readAeroViewEvidenceForTurn(view, preferences.signal) : undefined
       preferences.signal?.throwIfAborted()
       // Without the operator's AERO_SYSTEM_PROMPT_APPEND / _FILE extras: those
       // are the operator's instructions, not the viewer's to read.

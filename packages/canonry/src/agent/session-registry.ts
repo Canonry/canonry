@@ -37,7 +37,7 @@ import { loadExternalMcpTools } from './remote-mcp.js'
 import { loadRecentForHydrate } from './memory-store.js'
 import { configureAeroRuntime, isSystemMessage, setAeroSystemPrompt } from './runtime.js'
 import { trackAeroTurn } from './turn-telemetry.js'
-import { buildAeroViewTool, aeroViewPrompt, readAeroViewEvidence } from './view-context.js'
+import { buildAeroViewTool, aeroViewPrompt, readAeroViewEvidenceForTurn } from './view-context.js'
 import { aeroProjectShape } from './project-shape.js'
 import type { AgentViewContext, AgentTurnLimits } from '@canonry/canonry-contracts'
 import { compactMessages, shouldCompact } from './compaction.js'
@@ -472,7 +472,7 @@ export class SessionRegistry {
       // which rebuilds state.tools from the local registry. Idempotent + fail-soft.
       await this.mergeExternalTools(agent)
       const view = { client: this.opts.client, projectName, basePath: this.opts.config.basePath, context: preferences?.context }
-      const evidence = preferences?.context ? await readAeroViewEvidence(view) : undefined
+      const evidence = preferences?.context ? await readAeroViewEvidenceForTurn(view, preferences?.signal) : undefined
       preferences?.signal?.throwIfAborted()
       await this.maybeCompact(projectName, agent)
       preferences?.signal?.throwIfAborted()

@@ -2,6 +2,7 @@ import { Type } from '@earendil-works/pi-ai'
 import type { AgentTool } from '@earendil-works/pi-agent-core'
 import { SeoCapabilities, agentVisibilityEvidence, validationError, visibilityReportRequestSchema, type AgentViewContext } from '@canonry/canonry-contracts'
 import type { ApiClient } from '../client.js'
+import { createLogger } from '../logger.js'
 import { truncateToolResult } from './mcp-to-agent-tool.js'
 
 export interface AeroViewOptions {
@@ -49,6 +50,31 @@ export async function readAeroViewEvidence(options: AeroViewOptions): Promise<un
   const report = await client.getVisibilityReport(projectName, request)
   const evidence = agentVisibilityEvidence(report, projectName, new Date().toISOString())
   return { ...evidence, source: { ...evidence.source, href: `${base}/${evidence.source.path}` } }
+}
+
+const log = createLogger('AeroView')
+
+/**
+ * The on-screen view's evidence for a turn, or undefined when what the view
+ * selects no longer exists. A stale selection, such as a scan cancelled after
+ * the page loaded, answers NOT_FOUND, and that used to fail every turn from the
+ * page before the model was called. Now the turn goes on: the view tool reads
+ * again when the model asks, and the failure reaches the model as a tool error
+ * it can explain. Every other failure still stops the turn here, including a
+ * view the dashboard marks unavailable and a selection from another project.
+ */
+export async function readAeroViewEvidenceForTurn(options: AeroViewOptions, signal?: AbortSignal): Promise<unknown> {
+  try {
+    return await readAeroViewEvidence(options)
+  } catch (err) {
+    if (signal?.aborted || (err as { code?: unknown } | null)?.code !== 'NOT_FOUND') throw err
+    log.warn('view-evidence.not-found', {
+      projectName: options.projectName,
+      view: options.context?.view ?? 'visibility',
+      error: err instanceof Error ? err.message : String(err),
+    })
+    return undefined
+  }
 }
 
 export function buildAeroViewTool(options: AeroViewOptions, validatedEvidence?: unknown): AgentTool {
