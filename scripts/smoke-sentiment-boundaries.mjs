@@ -94,8 +94,8 @@ const definitions = seedStoredFixtures()
 function attemptCount() { const db = new DatabaseSync(database, { readOnly: true }); try { return db.prepare('SELECT count(*) AS count FROM sentiment_attempts').get().count } finally { db.close() } }
 assert.equal(attemptCount(), 0)
 const installedRequire = createRequire(path.join(packageRoot, 'package.json'))
-const sdk = suffix => import(pathToFileURL(installedRequire.resolve(`@modelcontextprotocol/sdk/client/${suffix}.js`)).href)
-const [{ Client }, { StdioClientTransport }, { StreamableHTTPClientTransport }] = await Promise.all([sdk('index'), sdk('stdio'), sdk('streamableHttp')])
+const sdk = name => import(pathToFileURL(installedRequire.resolve(`@modelcontextprotocol/${name}`)).href)
+const [{ Client, StreamableHTTPClientTransport }, { StdioClientTransport }] = await Promise.all([sdk('client'), sdk('client/stdio')])
 const socket = createServer(); await new Promise(resolve => socket.listen(0, '127.0.0.1', resolve))
 const port = socket.address().port; await new Promise(resolve => socket.close(resolve))
 const base = `http://127.0.0.1:${port}/boundaries`
@@ -153,15 +153,20 @@ try {
     try { if ((await fetch(`${base}/health`, { signal: AbortSignal.timeout(2000) })).ok) break } catch { /* bounded startup */ }
     assert(tries < 120 && child.exitCode === null, 'Installed server failed to become ready'); await wait(500)
   }
-  for (const [kind, transport] of [
+  for (const era of ['legacy', 'modern']) for (const [kind, transport] of [
     ['http', new StreamableHTTPClientTransport(new URL(`${base}/api/v1/mcp`), { requestInit: { headers: { authorization: `Bearer ${SMOKE_ADMIN}` } } })],
     ['stdio', new StdioClientTransport({ command: process.execPath, args: [path.join(packageRoot, 'bin/canonry-mcp.mjs'), '--eager'], cwd: scratch, env, stderr: 'pipe' })],
-  ]) { const client = new Client({ name: 'sentiment-boundary-smoke', version: '1.0.0' }); clients.push({ kind, client }); await client.connect(transport) }
+  ]) {
+    const client = new Client({ name: 'sentiment-boundary-smoke', version: '1.0.0' }, {
+      versionNegotiation: { mode: era === 'modern' ? { pin: '2026-07-28' } : 'legacy' },
+    })
+    clients.push({ kind, era, client }); await client.connect(transport); assert.equal(client.getProtocolEra(), era)
+  }
   for (const [runId, reason] of [['model-change', 'source-model-changed'], ['evaluation-change', 'evaluation-definition-changed'], ['population-change', 'source-scope-changed']]) {
     const value = await all('compare', 'simple', { fromRunId: 'simple-run', toRunId: runId })
     assert.equal(value.verdict, null); assert.equal(value.favorableRateDelta, null); assert(value.refusalReasons.includes(reason))
   }
-  mark('S16 source-model, evaluator and population comparison refusals agree across all four installed transports')
+  mark('S16 source-model, evaluator and population comparison refusals agree across installed REST/CLI and legacy/modern HTTP/stdio MCP')
   const grouped = { runIds: ['simple-run', 'population-change'], evaluationDefinitionId: definitions.original.simple }
   const groupedSummary = await all('summary', 'simple', grouped)
   assert.equal(groupedSummary.selection.runId, null)
@@ -177,7 +182,7 @@ try {
   const groupedNext = await all('evidence', 'simple', { ...grouped, limit: '1', cursor: groupedPage.nextCursor })
   assert.notEqual(groupedPage.items[0].assessmentId, groupedNext.items[0].assessmentId)
   await all('evidence', 'simple', { ...grouped, runIds: ['simple-run'], limit: '1', cursor: groupedPage.nextCursor }, true)
-  mark('exact grouped run reads, per-query scores and cursor membership agree across all four installed transports')
+  mark('exact grouped run reads, per-query scores and cursor membership agree across installed REST/CLI and legacy/modern HTTP/stdio MCP')
 
   const selection = { runId: 'advanced-run', scope: 'market', scopeKey: 'market-all', evaluationDefinitionId: definitions.original.advanced, limit: '1' }
   const first = await all('evidence', 'advanced', selection)
@@ -188,7 +193,7 @@ try {
     const error = await all('evidence', 'advanced', { ...selection, ...changed, cursor: first.nextCursor }, true)
     assert.equal(error.error.code, 'VALIDATION_ERROR'); assert.match(error.error.message, /Evidence cursor/)
   }
-  mark('S17 valid cursors page exactly; changed market, subject, run, evaluator, query or query class is refused across all four installed transports')
+  mark('S17 valid cursors page exactly; changed market, subject, run, evaluator, query or query class is refused across installed REST/CLI and legacy/modern HTTP/stdio MCP')
   const historical = { runId: 'simple-run', evaluationDefinitionId: definitions.original.simple }
   const summary = await all('summary', 'simple', historical)
   const evidence = await all('evidence', 'simple', historical)
@@ -201,7 +206,7 @@ try {
   assert.equal(evidence.items[0].context.queryClass, 'branded')
   assert.equal(summary.evaluationDefinition.identityVersion, 'qualified-subject-v3')
   assert(!Object.hasOwn(summary, 'themes'))
-  mark('S18 live subject, language and evaluator changes leave historical frozen summary/evidence identical across all four installed transports')
+  mark('S18 live subject, language and evaluator changes leave historical frozen summary/evidence identical across installed REST/CLI and legacy/modern HTTP/stdio MCP')
   assert.equal(attemptCount(), 0)
   let receipts = ''; try { receipts = await readFile(receiptPath, 'utf8') } catch (error) { if (error.code !== 'ENOENT') throw error }
   assert.equal(receipts.trim(), ''); safe(logs)

@@ -5,7 +5,7 @@ import path from 'node:path'
 import Fastify from 'fastify'
 import { eq } from 'drizzle-orm'
 import { afterEach, beforeEach, expect, test } from 'vitest'
-import { apiKeys, createClient, migrate, oauthClients, oauthTokens, users, type DatabaseClient } from '@canonry/canonry-db'
+import { apiKeys, createClient, migrate, oauthClients, oauthGrants, oauthTokens, users, type DatabaseClient } from '@canonry/canonry-db'
 import { UserRoles, type McpProfileDto } from '@canonry/canonry-contracts'
 import { apiRoutes } from '../src/index.js'
 import { hashApiKey } from '../src/auth.js'
@@ -13,6 +13,7 @@ import { hashApiKey } from '../src/auth.js'
 const PREFIX = '/team/api/v1'
 const RESOURCE = `https://instance.example${PREFIX}/mcp`
 const USER_ID = 'immutable-account-id'
+const GRANT_ID = 'profile-grant'
 const ACCESS_TOKEN = 'profile-oauth-access'
 const ROOT_KEY = 'cnry_profile_root'
 const DELEGATED_KEY = 'cnry_profile_delegated'
@@ -27,16 +28,17 @@ beforeEach(async () => {
   const createdAt = new Date().toISOString()
   db.insert(users).values({ id: USER_ID, name: 'Synthetic Reader', nameKey: 'synthetic reader', passwordHash: 'unused', role: UserRoles.admin, createdAt }).run()
   db.insert(oauthClients).values({ id: 'profile-client', name: 'Synthetic connector', redirectUris: ['https://client.example/callback'], createdAt }).run()
+  db.insert(oauthGrants).values({ id: GRANT_ID, clientId: 'profile-client', userId: USER_ID, resource: RESOURCE, scope: 'read offline_access', createdAt }).run()
   db.insert(oauthTokens).values({
-    tokenHash: hashApiKey(ACCESS_TOKEN), kind: 'access', clientId: 'profile-client', userId: USER_ID,
+    tokenHash: hashApiKey(ACCESS_TOKEN), kind: 'access', clientId: 'profile-client', userId: USER_ID, grantId: GRANT_ID,
     resource: RESOURCE, scope: 'read offline_access', expiresAt: new Date(Date.now() + 60_000).toISOString(), createdAt,
   }).run()
   for (const [token, delegatedUserId] of [[ROOT_KEY, null], [DELEGATED_KEY, USER_ID]] as const) {
-    db.insert(apiKeys).values({ id: crypto.randomUUID(), name: 'Synthetic key', keyHash: hashApiKey(token), keyPrefix: token.slice(0, 9), scopes: ['read'], delegatedUserId, createdAt }).run()
+    db.insert(apiKeys).values({ id: crypto.randomUUID(), name: 'Synthetic key', keyHash: hashApiKey(token), keyPrefix: token.slice(0, 9), scopes: ['read'], delegatedUserId, delegatedOAuthGrantId: delegatedUserId ? GRANT_ID : null, createdAt }).run()
   }
   app = Fastify()
   await app.register(apiRoutes, {
-    db, routePrefix: PREFIX, oauthResourceUrl: RESOURCE,
+    db, routePrefix: PREFIX, oauthResourceUrl: RESOURCE, researchAllowViewers: false,
     registerAuthenticatedRoutes: scope => {
       scope.post('/mcp/profile', async () => ({ unexpected: true }))
       scope.get('/mcp/profile/extra', async () => ({ unexpected: true }))
@@ -88,4 +90,47 @@ test('requires an actual person and read grant instead of reporting a key as a u
   expect((await app.inject({ url: `${PREFIX}/mcp/profile`, headers: bearer(ACCESS_TOKEN) })).statusCode).toBe(403)
   db.update(oauthTokens).set({ scope: 'read', resource: 'https://another.example/api/v1/mcp' }).where(eq(oauthTokens.tokenHash, hashApiKey(ACCESS_TOKEN))).run()
   expect((await app.inject({ url: `${PREFIX}/mcp/profile`, headers: bearer(ACCESS_TOKEN) })).statusCode).toBe(401)
+})
+
+test.each([
+  { scopes: ['research.run'], expectedStatus: 403 },
+  { scopes: ['read', 'research.run'], expectedStatus: 200 },
+])('role downgrade preserves only consented authority for $scopes', async ({ scopes, expectedStatus }) => {
+  db.update(oauthTokens).set({ scope: scopes.join(' ') }).where(eq(oauthTokens.tokenHash, hashApiKey(ACCESS_TOKEN))).run()
+  db.update(apiKeys).set({ scopes }).where(eq(apiKeys.keyHash, hashApiKey(DELEGATED_KEY))).run()
+  for (const token of [ACCESS_TOKEN, DELEGATED_KEY]) {
+    expect((await app.inject({ url: `${PREFIX}/mcp/profile`, headers: bearer(token) })).statusCode).toBe(expectedStatus)
+  }
+  db.update(users).set({ role: UserRoles.viewer }).where(eq(users.id, USER_ID)).run()
+  for (const token of [ACCESS_TOKEN, DELEGATED_KEY]) {
+    const response = await app.inject({ url: `${PREFIX}/mcp/profile`, headers: bearer(token) })
+    expect(response.statusCode).toBe(expectedStatus)
+    if (expectedStatus === 200) expect(response.json()).toMatchObject({ userId: USER_ID, scopes: ['read'] })
+    else expect(response.json()).toMatchObject({ error: { code: 'FORBIDDEN' } })
+  }
+  const authority = await app.inject({ url: `${PREFIX}/keys/self`, headers: bearer(DELEGATED_KEY) })
+  expect(authority.statusCode).toBe(expectedStatus)
+  if (expectedStatus === 200) expect(authority.json()).toMatchObject({ scopes: ['read'], readOnly: true })
+})
+
+test.each(['expired', 'invalid', 'future'] as const)('rejects a %s OAuth delegated key without expiring ordinary keys', async (state) => {
+  expect((await app.inject({ url: `${PREFIX}/mcp/profile`, headers: bearer(DELEGATED_KEY) })).statusCode).toBe(200)
+  const createdAt = state === 'invalid' ? 'not-a-timestamp'
+    : new Date(Date.now() + (state === 'future' ? 60_000 : -60 * 60 * 1000)).toISOString()
+  db.update(apiKeys).set({ createdAt }).run()
+  const rejected = await app.inject({ url: `${PREFIX}/mcp/profile`, headers: bearer(DELEGATED_KEY) })
+  expect(rejected.statusCode).toBe(401)
+  expect(rejected.json()).toMatchObject({ error: { code: 'AUTH_INVALID' } })
+  expect((await app.inject({ url: `${PREFIX}/projects`, headers: bearer(ROOT_KEY) })).statusCode).toBe(200)
+  expect((await app.inject({ url: `${PREFIX}/mcp/profile`, headers: bearer(ACCESS_TOKEN) })).statusCode).toBe(200)
+})
+
+
+test('preserves the historical read default only for null OAuth scopes', async () => {
+  db.update(oauthTokens).set({ scope: null }).where(eq(oauthTokens.tokenHash, hashApiKey(ACCESS_TOKEN))).run()
+  const response = await app.inject({ url: `${PREFIX}/mcp/profile`, headers: bearer(ACCESS_TOKEN) })
+  expect(response.statusCode).toBe(200)
+  expect(response.json()).toMatchObject({ userId: USER_ID, scopes: ['read'] })
+  db.update(oauthTokens).set({ scope: 'offline_access' }).where(eq(oauthTokens.tokenHash, hashApiKey(ACCESS_TOKEN))).run()
+  expect((await app.inject({ url: `${PREFIX}/mcp/profile`, headers: bearer(ACCESS_TOKEN) })).statusCode).toBe(403)
 })

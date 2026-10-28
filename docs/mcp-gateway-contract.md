@@ -1,8 +1,8 @@
 # MCP gateway upstream contract
 
-Status: implementation in progress on `ax/mcp-gateway-engine`. The profile and
-lifecycle additions below are agreed interfaces, pending final regression checks.
-Existing discovery and protocol details are checked against source at `7811ac751`.
+This contract describes the engine support for a shared MCP gateway. It covers
+OAuth grants, connection identity, stored reads, and both MCP protocol eras.
+Deployment and live client approval remain separate from this implementation.
 
 ## Boundary
 
@@ -114,16 +114,19 @@ Historical tokens lack authorization lineage. The migration groups them by
 client, user, resource, and scope. Revocation can therefore affect multiple old
 authorizations within that group. It never crosses users. New authorizations
 have separate grant identities. Reconnect to obtain a new distinct grant.
+The upgrade retires old MCP internal keys that lack grant lineage; legacy clients
+initialize a new session. Ordinary keys and Aero viewer keys remain unchanged.
+If an older binary later writes an unlinked token, access resolution adopts its
+legacy family before the transport creates a delegated key.
 
 Current user roles and user deletion remain enforced on authenticated requests.
 The gateway must not cache the profile as authorization proof.
 
 ## Modern protocol and legacy compatibility
 
-Approved extension: migrate the engine to official SDK v2 packages and add
-`2026-07-28` sessionless requests. Published `@modelcontextprotocol/server`,
-`client`, and `core` version `2.4.0` are available. This section is the proposed
-wire contract until the modern integration suite passes.
+The engine uses official SDK v2: `@modelcontextprotocol/server`, `client`, and
+`core` version `2.4.0`, plus `@modelcontextprotocol/node` version `2.1.2`. It serves
+`2026-07-28` sessionless requests and legacy sessions at the same URLs.
 
 The endpoint URLs, issuer, canonical OAuth resource, profile, and grant semantics
 remain the same. Route classification uses the SDK `isLegacyRequest` predicate.
@@ -132,10 +135,17 @@ Legacy requests retain the existing session-based Streamable HTTP transport.
 Host and Origin validation precede both paths.
 
 Modern clients use `server/discover`, without `initialize` or `Mcp-Session-Id`.
-Each modern request supplies the protocol, client information, and capabilities
-in the protocol `_meta` envelope. Each request authenticates independently.
+Each modern request supplies the protocol and capabilities through the reserved
+`params._meta` keys `io.modelcontextprotocol/protocolVersion` and
+`io.modelcontextprotocol/clientCapabilities`. Client information uses the optional
+`io.modelcontextprotocol/clientInfo` key. The SDK client supplies these fields.
+HTTP headers include `MCP-Protocol-Version`, `Mcp-Method`, and `Mcp-Name` when applicable. Each request authenticates independently.
 The engine creates request-local authorization and adapter state. It does not
 share a delegated key, catalog, or user identity across modern requests.
+A modern delegated key remains valid through response streaming, then is revoked
+and removed. Cleanup failures are retried on requests, sweeps, and shutdown.
+OAuth-linked internal keys expire after one hour even if cleanup fails.
+Shutdown closes streams before waiting for HTTP connections to drain.
 
 SDK v2 clients can choose `versionNegotiation.mode='auto'`, `'legacy'`, or
 `{ pin: '2026-07-28' }`. The gateway uses automatic negotiation or a verified
@@ -145,8 +155,10 @@ After a legacy bearer refresh, the client initializes a new session.
 
 A process restart does not require a modern session recovery step. OAuth grants
 and revocation remain durable. Legacy process-local sessions still require
-initialization after restart. Streaming, cancellation, authentication, and both
-protocol paths will have direct regression checks before handoff.
+initialization after restart. A restart can reset a pooled TCP connection; a
+client may retry a stored read without renegotiating a modern session.
+The synthetic suites cover streaming, cancellation, authentication, restart,
+and both protocol paths, including an SDK v1 client.
 
 Official references: [SDK migration](https://ts.sdk.modelcontextprotocol.io/v2/migration/upgrade-to-v2),
 [modern protocol](https://ts.sdk.modelcontextprotocol.io/v2/migration/support-2026-07-28),
@@ -166,7 +178,9 @@ check against the gateway deployment.
 
 A session binds the exact bearer, effective scopes, project boundary, and endpoint.
 A changed bearer requires a new initialization, including after refresh.
-Sessions are process-local and expire after ten idle minutes. A restart loses them.
+Sessions are process-local and expire after ten idle minutes. OAuth-backed
+sessions also require reinitialization after their internal key's one-hour limit.
+A restart loses legacy sessions.
 All available tool tiers appear at initialization. Hosted catalogs do not require
 `canonry_load_toolkit`. Tools carry explicit read/write, destructive, idempotent,
 and open-world annotations. The HTTP challenge and discovery carry OAuth metadata.
@@ -179,14 +193,27 @@ and open-world annotations. The HTTP challenge and discovery carry OAuth metadat
 | 403 | Preserve the denial. Reauthorization must not widen the user's permissions. |
 | 404, unknown/mismatched/expired MCP session | Initialize a new session with the current bearer. |
 | 400, invalid opening message | Correct the protocol request. Do not loop through authorization. |
-| MCP tool error | Preserve the structured error. Do not retry a forbidden operation through another endpoint. |
+| MCP protocol or tool error | Preserve the structured error. Do not retry a forbidden operation through another endpoint. |
 
 ## Synthetic integration fixtures
 
 The engine supplies `packages/canonry/test/mcp-gateway-fixture.ts` for isolated
-instance listeners. Each fixture uses a temporary database, explicit configuration,
-synthetic accounts and projects, and no provider credentials. Fixture details and
-commands will be finalized with the two-instance contract tests.
+instance listeners. Use `startSyntheticMcpInstance({ name, basePath?, publicOrigin? })` and
+`authorizeSyntheticMcp(instance, scope?)`. Each fixture uses a temporary database,
+explicit configuration, synthetic accounts and projects, and no provider credentials.
+Create instances sequentially because construction temporarily selects configuration.
+Set `CANONRY_TELEMETRY_DISABLED=1` and `CANONRY_DISABLE_UPDATE_CHECK=1` first.
+Never pass an existing database or load the operator configuration.
+
+The fixture returns `origin`, `resource`, `transportUrl`, `profileUrl`, `clientId`,
+`redirectUri`, synthetic `user` credentials, and a real `sessionCookie`.
+`authorizeSyntheticMcp` runs consent and S256 PKCE against the real OAuth routes.
+`restart()` closes the server and database, then opens the same temporary database.
+`close()` closes the listener and deletes the temporary directory.
+
+The engine checks this seam in `mcp-gateway-contract.test.ts` and
+`mcp-gateway-protocols.test.ts`. The companion gateway suite must also exercise its
+own token storage, routing, and authorization boundaries against these listeners.
 
 Refresh replay policy follows [RFC 9700 section 4.14.2](https://www.rfc-editor.org/rfc/rfc9700.html#section-4.14.2).
 Revocation authentication follows [RFC 7009 section 2.1](https://www.rfc-editor.org/rfc/rfc7009.html#section-2.1).

@@ -1,8 +1,9 @@
+import { createServer } from 'node:http'
+import { z } from 'zod'
+import { NodeStreamableHTTPServerTransport, toNodeHandler } from '@modelcontextprotocol/node'
 import { afterEach, beforeEach, describe, it, expect } from 'vitest'
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import { Client } from '@modelcontextprotocol/sdk/client/index.js'
-import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
+import { createMcpHandler, McpServer } from '@modelcontextprotocol/server'
+import { Client, InMemoryTransport } from '@modelcontextprotocol/client'
 import { fauxAssistantMessage, fauxToolCall } from '@earendil-works/pi-ai'
 import type { ToolResultMessage } from '@earendil-works/pi-ai'
 import {
@@ -48,7 +49,7 @@ async function makeInMemoryServerClient(): Promise<RemoteMcpClient> {
     READ_TOOL,
     {
       description: 'Read a known artifact (read-only).',
-      inputSchema: {},
+      inputSchema: z.object({}),
       annotations: { readOnlyHint: true, title: 'Read artifact' },
     },
     async () => ({
@@ -60,7 +61,7 @@ async function makeInMemoryServerClient(): Promise<RemoteMcpClient> {
     WRITE_TOOL,
     {
       description: 'A mutating tool that must never reach Aero.',
-      inputSchema: {},
+      inputSchema: z.object({}),
       annotations: { readOnlyHint: false },
     },
     async () => ({ content: [{ type: 'text', text: 'wrote' }] }),
@@ -72,7 +73,7 @@ async function makeInMemoryServerClient(): Promise<RemoteMcpClient> {
     EXCLUDED_TOOL,
     {
       description: 'Read-only but excluded by name.',
-      inputSchema: {},
+      inputSchema: z.object({}),
       annotations: { readOnlyHint: true },
     },
     async () => ({ content: [{ type: 'text', text: 'should-not-load' }] }),
@@ -333,12 +334,12 @@ describe('remote tool errors through the agent loop', () => {
       const server = new McpServer({ name: 'demo-remote', version: '1.0.0' })
       server.registerTool(
         READ_TOOL,
-        { description: 'Read a known artifact (read-only).', inputSchema: {}, annotations: { readOnlyHint: true } },
+        { description: 'Read a known artifact (read-only).', inputSchema: z.object({}), annotations: { readOnlyHint: true } },
         async () => ({ content: [{ type: 'text', text: JSON.stringify(KNOWN_ARTIFACT) }] }),
       )
       server.registerTool(
         FAILING_TOOL,
-        { description: 'A read-only tool whose backend is down.', inputSchema: {}, annotations: { readOnlyHint: true } },
+        { description: 'A read-only tool whose backend is down.', inputSchema: z.object({}), annotations: { readOnlyHint: true } },
         async () => {
           throw new Error(REMOTE_ERROR_TEXT)
         },
@@ -372,22 +373,60 @@ describe('remote tool errors through the agent loop', () => {
 })
 
 describe('connectStreamableHttp (frozen transport)', () => {
-  it('constructs a StreamableHTTPClientTransport with the bearer header', async () => {
-    // We do not actually connect (no server at the URL); we only assert that the
-    // production path builds the bearer-gated Streamable HTTP transport. The
-    // transport is constructed lazily inside connectStreamableHttp, so we probe
-    // the SDK transport directly with the same options the loader uses.
-    const transport = new StreamableHTTPClientTransport(new URL(SERVER.url), {
-      requestInit: { headers: { Authorization: `Bearer ${SERVER.token}` } },
+  it.each(['legacy', 'modern'] as const)('authenticates and reads a %s HTTP server through the production client', async era => {
+    const makeServer = () => {
+      const server = new McpServer({ name: 'synthetic-remote', version: '1.0.0' })
+      server.registerTool(READ_TOOL, { inputSchema: z.object({}), annotations: { readOnlyHint: true } }, async () => ({
+        content: [{ type: 'text', text: JSON.stringify(KNOWN_ARTIFACT) }],
+      }))
+      return server
+    }
+    const handler = createMcpHandler(makeServer)
+    const headers: Array<string | undefined> = []
+    const errors: Error[] = []
+    const nodeHandler = toNodeHandler(handler)
+    const http = createServer((request, response) => {
+      headers.push(request.headers.authorization)
+      if (request.headers.authorization !== 'Bearer tok_abc') {
+        response.writeHead(401).end()
+        return
+      }
+      if (era === 'modern') {
+        void nodeHandler(request, response).catch(error => { errors.push(error); response.destroy(error) })
+        return
+      }
+      if (request.method !== 'POST') {
+        response.writeHead(405).end()
+        return
+      }
+      const server = makeServer()
+      const transport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true })
+      response.on('close', () => { void server.close() })
+      void server.connect(transport).then(() => transport.handleRequest(request, response)).catch(error => {
+        errors.push(error)
+        response.destroy(error)
+      })
     })
-    // The transport stores requestInit privately; assert via its constructed shape.
-    const requestInit = (transport as unknown as { _requestInit?: RequestInit })._requestInit
-    expect(requestInit?.headers).toEqual({ Authorization: 'Bearer tok_abc' })
-    await transport.close()
-
-    // And assert the production helper is callable + uses StreamableHTTP: it
-    // should reject (no real server) rather than fall back to any other transport.
-    await expect(connectStreamableHttp(SERVER)).rejects.toBeDefined()
+    await new Promise<void>(resolve => http.listen(0, '127.0.0.1', resolve))
+    const address = http.address()
+    if (!address || typeof address === 'string') throw new Error('Synthetic MCP listener has no address')
+    let client: RemoteMcpClient | undefined
+    try {
+      client = await connectStreamableHttp({ ...SERVER, url: `http://127.0.0.1:${address.port}/mcp` })
+      expect(client instanceof Client && client.getProtocolEra()).toBe(era)
+      expect((await client.listTools()).tools.map(tool => tool.name)).toEqual([READ_TOOL])
+      expect(await client.callTool({ name: READ_TOOL, arguments: {} })).toMatchObject({
+        content: [{ type: 'text', text: JSON.stringify(KNOWN_ARTIFACT) }],
+      })
+      expect(headers.length).toBeGreaterThan(0)
+      expect(headers.every(header => header === 'Bearer tok_abc')).toBe(true)
+      expect(errors).toEqual([])
+    } finally {
+      if (client instanceof Client) await client.close()
+      await handler.close()
+      http.closeAllConnections()
+      await new Promise<void>((resolve, reject) => http.close(error => error ? reject(error) : resolve()))
+    }
   })
 })
 

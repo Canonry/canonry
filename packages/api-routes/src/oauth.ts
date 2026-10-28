@@ -801,11 +801,18 @@ export function resolveOAuthAccessToken(
   if (row.resource && row.resource !== expectedResource) return null
   const client = db.select().from(oauthClients).where(eq(oauthClients.id, row.clientId)).get()
   if (!client || client.revokedAt) return null
-  if (row.grantId) {
-    const grant = db.select().from(oauthGrants).where(eq(oauthGrants.id, row.grantId)).get()
-    if (!grant || grant.revokedAt) return null
-  }
-  return { userId: row.userId, clientId: row.clientId, grantId: row.grantId, scope: row.scope }
+  // Adopt older-binary rows before a transport can mint a delegated key.
+  // Re-read under the write lock so concurrent adoption/revocation cannot
+  // produce a second family or revive a token revoked after the first read.
+  const grantId = row.grantId ?? db.transaction((tx) => {
+    const current = tx.select().from(oauthTokens).where(eq(oauthTokens.tokenHash, row.tokenHash)).get()
+    if (!current || current.revokedAt) return null
+    return current.grantId ?? adoptLegacyGrant(tx, current, now.toISOString())
+  }, { behavior: 'immediate' })
+  if (!grantId) return null
+  const grant = db.select().from(oauthGrants).where(eq(oauthGrants.id, grantId)).get()
+  if (!grant || grant.revokedAt) return null
+  return { userId: row.userId, clientId: row.clientId, grantId, scope: row.scope }
 }
 
 /**

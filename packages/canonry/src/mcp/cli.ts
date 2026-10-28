@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
+import { serveStdio } from '@modelcontextprotocol/server/stdio'
 import { isReadOnlyKey } from '@canonry/canonry-contracts'
 import { createApiClient, type ApiClient } from '../client.js'
 import { autoSyncSkills } from '../skills-autosync.js'
@@ -80,13 +80,12 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     resolveEffectiveAuthorization(client, options.scope),
     updateNotice.refresh(),
   ])
-  const server = createCanonryMcpServer({
+  serveStdio(() => createCanonryMcpServer({
     ...authorization,
     eager: options.eager,
     clientFactory: () => client,
     updateAvailable: updateNotice.get,
-  })
-  await server.connect(new StdioServerTransport())
+  }))
 }
 
 /**

@@ -8,7 +8,6 @@ export const MCP_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['mcp', 'profile'],
     usage: 'canonry mcp profile [--format json]',
-    access: 'stored',
     run: async (input) => {
       const { showMcpProfile } = await import('../commands/mcp.js')
       await showMcpProfile(input.format)

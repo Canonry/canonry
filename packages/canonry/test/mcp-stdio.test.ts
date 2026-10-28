@@ -3,8 +3,8 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { Client } from '@modelcontextprotocol/sdk/client/index.js'
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
+import { Client } from '@modelcontextprotocol/client'
+import { StdioClientTransport } from '@modelcontextprotocol/client/stdio'
 import { afterEach, describe, expect, it } from 'vitest'
 import { canonryMcpTools } from '../src/mcp/tool-registry.js'
 
@@ -75,7 +75,7 @@ describe('canonry-mcp stdio', () => {
     await Promise.all(servers.splice(0).map(server => server.close()))
   }, HANDSHAKE_TIMEOUT_MS)
 
-  it('initializes, lists tools, and calls stubbed read/write tools through stdio frames', async () => {
+  it.each(['legacy', 'modern'] as const)('lists and calls tools through %s stdio frames', async era => {
     const runRequests: unknown[] = []
     const api = await startStubApi(body => runRequests.push(body))
     servers.push(api)
@@ -85,8 +85,10 @@ describe('canonry-mcp stdio', () => {
       configPrefix: 'canonry-mcp-stdio-',
       database: '/tmp/canonry-mcp-stdio.sqlite',
       clientName: 'canonry-mcp-test',
+      era,
     })
     clients.push(client)
+    expect(client.getProtocolEra()).toBe(era)
 
     const list = await client.listTools()
     expect(list.tools).toHaveLength(17)
@@ -120,13 +122,12 @@ describe('canonry-mcp stdio', () => {
     expect(jsonText(museRun)).toMatchObject({ id: 'run-muse-1' })
     expect(runRequests).toEqual([{ providers: ['muse'], trigger: 'probe' }])
 
-    const beforeLoad = await client.callTool({ name: 'canonry_insights_list', arguments: { project: 'acme' } })
-    expect(beforeLoad.isError).toBe(true)
-    const beforeLoadText = (beforeLoad.content?.[0] as { text?: string } | undefined)?.text ?? ''
     // The pipelining caveat documented on canonry_load_toolkit and in docs/mcp.md must match
     // the error wording the MCP SDK actually emits. If the SDK changes its message, both the
     // tool description and the docs need to be updated together.
-    expect(beforeLoadText).toMatch(/MCP error -32602: Tool canonry_insights_list disabled/)
+    await expect(client.callTool({ name: 'canonry_insights_list', arguments: { project: 'acme' } })).rejects.toMatchObject({
+      name: 'ProtocolError', code: -32602, message: 'Tool canonry_insights_list disabled',
+    })
     const loadToolkitTool = list.tools.find(tool => tool.name === 'canonry_load_toolkit')
     expect(loadToolkitTool?.description ?? '').toContain('Tool ... disabled')
 
@@ -194,7 +195,7 @@ describe('canonry-mcp stdio', () => {
   it('docs/mcp.md documents the same pipelining error wording the SDK emits', () => {
     const docsPath = path.resolve(repoRoot, 'docs', 'mcp.md')
     const docs = fs.readFileSync(docsPath, 'utf8')
-    expect(docs).toContain('MCP error -32602: Tool ... disabled')
+    expect(docs).toContain('Tool ... disabled')
   })
 
   it('loads every permitted toolkit with --eager without granting unknown operator authority', async () => {
@@ -218,7 +219,9 @@ describe('canonry-mcp stdio', () => {
     expect(names).toEqual(expect.arrayContaining(permitted.map(tool => tool.name)))
     for (const name of ['canonry_logs_list', 'canonry_telemetry_get', 'canonry_telemetry_update']) {
       expect(names).not.toContain(name)
-      expect((await client.callTool({ name, arguments: {} })).isError).toBe(true)
+      await expect(client.callTool({ name, arguments: {} })).rejects.toMatchObject({
+        name: 'ProtocolError', code: -32602, message: `Tool ${name} not found`,
+      })
     }
     expect(list.tools.find(tool => tool.name === 'canonry_results_clear')?.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: true })
     expect(names).toContain('canonry_insights_list')
@@ -392,6 +395,7 @@ async function startMcpClient(options: {
   database: string
   clientName: string
   args?: readonly string[]
+  era?: 'legacy' | 'modern'
 }): Promise<{ client: Client; stderr: () => string }> {
   const configDir = fs.mkdtempSync(path.join(os.tmpdir(), options.configPrefix))
   fs.writeFileSync(path.join(configDir, 'config.yaml'), [
@@ -427,7 +431,9 @@ async function startMcpClient(options: {
   // diagnostic in a failed handshake, and an unread pipe the child can block on.
   transport.stderr?.on('data', chunk => stderrChunks.push(String(chunk)))
 
-  const client = new Client({ name: options.clientName, version: '0.0.0' })
+  const client = new Client({ name: options.clientName, version: '0.0.0' }, {
+    versionNegotiation: { mode: options.era === 'modern' ? { pin: '2026-07-28' } : 'legacy' },
+  })
   let timer: NodeJS.Timeout | undefined
   try {
     await Promise.race([
@@ -436,7 +442,7 @@ async function startMcpClient(options: {
         timer = setTimeout(() => {
           const stderr = stderrChunks.join('').trim()
           reject(new Error(
-            `canonry-mcp did not answer initialize within ${HANDSHAKE_TIMEOUT_MS}ms`
+            `canonry-mcp did not complete protocol negotiation within ${HANDSHAKE_TIMEOUT_MS}ms`
             + `${stderr ? `; stderr: ${stderr}` : ' (no stderr output)'}`,
           ))
         }, HANDSHAKE_TIMEOUT_MS)

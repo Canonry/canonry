@@ -1,6 +1,5 @@
 import { Type, type TSchema } from '@earendil-works/pi-ai'
-import { Client } from '@modelcontextprotocol/sdk/client/index.js'
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
 import type { AgentTool, AgentToolResult } from '@earendil-works/pi-agent-core'
 import { createLogger } from '../logger.js'
 import type { ExternalMcpServerConfig } from '../config.js'
@@ -83,7 +82,7 @@ export async function connectStreamableHttp(
   })
   const client = new Client(
     { name: 'canonry-aero', version: '1.0.0' },
-    { capabilities: {} },
+    { capabilities: {}, versionNegotiation: { mode: 'auto' } },
   )
   await client.connect(transport)
   return client as unknown as RemoteMcpClient

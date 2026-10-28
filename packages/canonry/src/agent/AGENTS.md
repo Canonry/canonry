@@ -163,8 +163,9 @@ config/env. This is a generic capability, no host names, no domain logic.
 
 - **Frozen transport (the contract a remote MCP server must speak):**
   **token-gated MCP Streamable HTTP**, `StreamableHTTPClientTransport` from
-  `@modelcontextprotocol/sdk/client/streamableHttp.js`, with the bearer token
+  `@modelcontextprotocol/client`, with the bearer token
   carried in the transport's request headers (`Authorization: Bearer <token>`).
+  The client negotiates the modern protocol and falls back to legacy initialization.
   SSE is legacy and is NOT used. The remote server is platform/external code,
   never co-located in the OSS container; the injected env carries only
   `{ url, token, label? }` and Aero connects out. Per-tenant isolation is the

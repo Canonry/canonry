@@ -714,9 +714,7 @@ describe('MCP over Streamable HTTP', () => {
     const names = tools.map(tool => tool.name)
     for (const name of ['canonry_doctor', 'canonry_gbp_accounts', 'canonry_gsc_sitemaps', 'canonry_research_run_start', 'canonry_providers_reload', 'canonry_provider_settings_update', 'canonry_load_toolkit']) {
       expect(names).not.toContain(name)
-      expect((await rpc('tools/call', { name, arguments: {} })).result).toMatchObject({
-        isError: true, content: [{ type: 'text', text: expect.stringContaining(`Tool ${name} not found`) }],
-      })
+      expect((await rpc('tools/call', { name, arguments: {} })).error).toMatchObject({ code: -32602 })
     }
     expect((await rpc('resources/list')).result!.resources).toEqual([
       expect.objectContaining({ uri: 'canonry://agent-operations/v1' }),

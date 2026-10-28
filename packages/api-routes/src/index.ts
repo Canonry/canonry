@@ -137,7 +137,7 @@ declare module 'fastify' {
 }
 
 export { registerOAuthRoutes, registerOAuthAdminRoutes, resolveOAuthAccessToken } from './oauth.js'
-export { hashApiKey } from './auth.js'
+export { hashApiKey, MCP_DELEGATED_KEY_MAX_AGE_MS } from './auth.js'
 export { syncRunClaimKey, syncRunTrigger } from './helpers.js'
 export type { ScheduledSyncClaim } from './helpers.js'
 export {

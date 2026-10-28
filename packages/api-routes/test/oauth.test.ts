@@ -1,4 +1,6 @@
 import crypto from 'node:crypto'
+import { fork, type ChildProcess } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -758,3 +760,60 @@ test('a replay with the wrong client secret or audience cannot revoke the active
   }
   expect((await refreshGrant(active.refresh_token, { client_secret: 'client-secret' })).statusCode).toBe(200)
 })
+
+
+test('independent processes cannot issue two replacements for one refresh token', async () => {
+  const children: ChildProcess[] = []
+  let requestId = 0
+  function startWorker(): Promise<ChildProcess> {
+    const child = fork(fileURLToPath(new URL('./fixtures/oauth-token-worker.ts', import.meta.url)), [path.join(tmpDir, 'test.db')], {
+      execArgv: ['--import', import.meta.resolve('tsx')],
+      stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
+      env: { ...process.env, CANONRY_CONFIG_DIR: tmpDir, CANONRY_TELEMETRY_DISABLED: '1', CANONRY_DISABLE_UPDATE_CHECK: '1' },
+    })
+    children.push(child)
+    let stderr = ''
+    child.stderr?.on('data', chunk => { stderr = (stderr + String(chunk)).slice(-4000) })
+    return new Promise((resolve, reject) => {
+      const onExit = (code: number | null) => reject(new Error(`OAuth worker exited ${code}: ${stderr}`))
+      child.once('exit', onExit)
+      child.once('error', reject)
+      child.once('message', (message: { ready?: boolean }) => {
+        child.removeListener('exit', onExit)
+        if (!message.ready) reject(new Error('OAuth worker did not become ready'))
+        else resolve(child)
+      })
+    })
+  }
+  function contend(child: ChildProcess, refreshToken: string, startAt: number): Promise<{ status: number; body: { error?: string } }> {
+    const id = ++requestId
+    return new Promise((resolve, reject) => {
+      const onExit = (code: number | null) => reject(new Error(`OAuth contender exited ${code}`))
+      child.once('exit', onExit)
+      child.once('message', (message: { id: number; status: number; body: { error?: string }; failure?: string }) => {
+        child.removeListener('exit', onExit)
+        if (message.id !== id || message.failure) reject(new Error(message.failure ?? 'Unexpected OAuth response identity'))
+        else resolve(message)
+      })
+      child.send({ id, refreshToken, startAt })
+    })
+  }
+  try {
+    const workers = await Promise.all(Array.from({ length: 4 }, () => startWorker()))
+    // Repeated independent arrivals exercise scheduler interleavings rather
+    // than a same-event-loop Promise.all that serializes synchronous SQL.
+    for (let round = 0; round < 12; round++) {
+      const tokens = await issueGrant()
+      const startAt = Date.now() + 50
+      const results = await Promise.all(workers.map(worker => contend(worker, tokens.refresh_token, startAt)))
+      expect(results.map(result => result.status).sort(), `round ${round}`).toEqual([200, 400, 400, 400])
+      for (const denied of results.filter(result => result.status === 400)) expect(denied.body.error).toBe('invalid_grant')
+    }
+  } finally {
+    await Promise.all(children.map(child => new Promise<void>(resolve => {
+      if (child.exitCode !== null || child.signalCode !== null) { resolve(); return }
+      child.once('exit', () => resolve())
+      child.kill()
+    })))
+  }
+}, 60_000)

@@ -4,7 +4,7 @@ import path from 'node:path'
 
 import { expect, test } from 'vitest'
 
-import { createClient, migrate, MIGRATION_VERSIONS, oauthTokens } from '../src/index.js'
+import { createClient, migrate, MIGRATION_VERSIONS, apiKeys, dashboardSessions, oauthTokens } from '../src/index.js'
 import { insertLegacyRow } from './legacy-rows.js'
 
 test('legacy OAuth families preserve tokens and never join different users, clients, audiences or scopes', () => {
@@ -37,10 +37,39 @@ test('legacy OAuth families preserve tokens and never join different users, clie
         resource: row[4]!, scope: row[5]!, expires_at: expiry, created_at: now,
       })
     }
+    const legacyKeys = [
+      { id: 'mcp-sam', name: 'mcp-session:sam', user: 'sam', retired: true },
+      { id: 'mcp-lee', name: 'mcp-session:lee', user: 'lee', retired: true },
+      { id: 'aero-sam', name: 'aero-viewer:sam', user: 'sam', retired: false },
+      { id: 'ordinary', name: 'mcp-session:sam', user: null, retired: false },
+      { id: 'different-name', name: 'mcp-session:lee', user: 'sam', retired: false },
+    ]
+    for (const key of legacyKeys) {
+      insertLegacyRow(db, 'api_keys', {
+        id: key.id, name: key.name, key_hash: `hash-${key.id}`, key_prefix: 'cnry_test',
+        scopes: ['read'], delegated_user_id: key.user, created_at: now,
+      })
+      insertLegacyRow(db, 'dashboard_sessions', {
+        token_hash: `session-${key.id}`, api_key_id: key.id, api_key_hash: `hash-${key.id}`,
+        created_at: now, expires_at: expiry,
+      })
+    }
     migrate(db)
+    const migratedKeys = db.select().from(apiKeys).all()
+    const migratedSessions = db.select().from(dashboardSessions).all()
+    for (const key of legacyKeys) {
+      const migrated = migratedKeys.find(row => row.id === key.id)!
+      expect(migrated.keyHash).toBe(`hash-${key.id}`)
+      expect(migrated.delegatedOAuthGrantId).toBeNull()
+      if (key.retired) expect(migrated.revokedAt).not.toBeNull()
+      else expect(migrated.revokedAt).toBeNull()
+      expect(migratedSessions.some(row => row.apiKeyId === key.id)).toBe(!key.retired)
+    }
     const firstPass = db.select().from(oauthTokens).all()
     migrate(db)
     expect(db.select().from(oauthTokens).all()).toEqual(firstPass)
+    expect(db.select().from(apiKeys).all()).toEqual(migratedKeys)
+    expect(db.select().from(dashboardSessions).all()).toEqual(migratedSessions)
     const byToken = new Map(firstPass.map(token => [token.tokenHash, token]))
     const original = byToken.get('original-access')!
     expect(original.grantId).toBeTruthy()

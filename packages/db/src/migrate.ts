@@ -5009,6 +5009,14 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
          WHERE g.id LIKE 'legacy:%' AND g.client_id = oauth_tokens.client_id
            AND g.user_id = oauth_tokens.user_id AND g.resource IS oauth_tokens.resource AND g.scope IS oauth_tokens.scope
        ) WHERE grant_id IS NULL`,
+      // Old MCP keys lack a grant link and cannot be assigned safely. Match
+      // the historical constructor exactly; ordinary and Aero keys survive.
+      `DELETE FROM dashboard_sessions WHERE api_key_id IN (
+         SELECT id FROM api_keys WHERE delegated_user_id IS NOT NULL
+           AND name = 'mcp-session:' || delegated_user_id
+       )`,
+      `UPDATE api_keys SET revoked_at = COALESCE(revoked_at, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+       WHERE delegated_user_id IS NOT NULL AND name = 'mcp-session:' || delegated_user_id`,
     ],
   },
 ]

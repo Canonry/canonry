@@ -4,9 +4,10 @@ import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 
-import { createClient, migrate, oauthClients, projects, users, type DatabaseClient } from '@canonry/canonry-db'
+import { createClient, migrate, oauthClients, projects, schedules, users, type DatabaseClient } from '@canonry/canonry-db'
 import { createUserSession, hashUserPassword, USER_SESSION_COOKIE_NAME } from '@canonry/canonry-api-routes'
 import type { FastifyInstance } from 'fastify'
+import { SchedulableRunKinds } from '@canonry/canonry-contracts'
 
 import type { CanonryConfig } from '../src/config.js'
 
@@ -23,6 +24,7 @@ export interface SyntheticMcpInstance {
   sessionCookie: string
   clientId: string
   redirectUri: string
+  restart: () => Promise<void>
   close: () => Promise<void>
 }
 
@@ -53,7 +55,7 @@ export async function startSyntheticMcpInstance(input: {
     throw new Error('Synthetic MCP fixtures require disabled telemetry and update checks')
   }
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-gateway-fixture-'))
-  const db = createClient(path.join(directory, 'fixture.db'))
+  let db = createClient(path.join(directory, 'fixture.db'))
   migrate(db)
   const port = await unusedPort()
   const origin = `http://127.0.0.1:${port}`
@@ -75,43 +77,60 @@ export async function startSyntheticMcpInstance(input: {
     apiUrl: `${origin}${basePath}`, basePath: basePath || undefined,
     publicUrl: `${publicOrigin}${basePath}`, database: path.join(directory, 'fixture.db'),
     apiKey: rootKey, providers: {}, agent: { mode: 'disabled' },
-    telemetry: { enabled: false }, updateCheck: false,
+    telemetry: false, updateCheck: false,
     dashboard: { managedSweeps: false }, research: { allowViewers: false },
   }
   fs.writeFileSync(path.join(directory, 'config.yaml'), JSON.stringify(config))
-  const previousConfigDir = process.env.CANONRY_CONFIG_DIR
-  const previousBasePath = process.env.CANONRY_BASE_PATH
-  let app: FastifyInstance | undefined
-  try {
-    process.env.CANONRY_CONFIG_DIR = directory
-    process.env.CANONRY_BASE_PATH = basePath
-    const { createServer, waitForServerRuntimeStartup } = await import('../src/server.js')
-    app = await createServer({ config, db, logger: false, host: '127.0.0.1' })
-    await app.listen({ host: '127.0.0.1', port })
-    await waitForServerRuntimeStartup(app)
-  } catch (error) {
-    await app?.close()
-    db.$client.close()
-    fs.rmSync(directory, { recursive: true, force: true })
-    throw error
-  } finally {
-    if (previousConfigDir === undefined) delete process.env.CANONRY_CONFIG_DIR
-    else process.env.CANONRY_CONFIG_DIR = previousConfigDir
-    if (previousBasePath === undefined) delete process.env.CANONRY_BASE_PATH
-    else process.env.CANONRY_BASE_PATH = previousBasePath
+  async function boot(): Promise<FastifyInstance> {
+    const previousConfigDir = process.env.CANONRY_CONFIG_DIR
+    const previousBasePath = process.env.CANONRY_BASE_PATH
+    let app: FastifyInstance | undefined
+    try {
+      process.env.CANONRY_CONFIG_DIR = directory
+      process.env.CANONRY_BASE_PATH = basePath
+      const { createServer, waitForServerRuntimeStartup } = await import('../src/server.js')
+      app = await createServer({ config, db, logger: false, host: '127.0.0.1' })
+      await app.listen({ host: '127.0.0.1', port })
+      await waitForServerRuntimeStartup(app)
+      return app
+    } catch (error) {
+      await app?.close()
+      db.$client.close()
+      fs.rmSync(directory, { recursive: true, force: true })
+      throw error
+    } finally {
+      if (previousConfigDir === undefined) delete process.env.CANONRY_CONFIG_DIR
+      else process.env.CANONRY_CONFIG_DIR = previousConfigDir
+      if (previousBasePath === undefined) delete process.env.CANONRY_BASE_PATH
+      else process.env.CANONRY_BASE_PATH = previousBasePath
+    }
   }
-  const runningApp = app
+  let runningApp = await boot()
+  const projectId = crypto.randomUUID()
   db.insert(projects).values({
-    id: crypto.randomUUID(), name: input.name, displayName: input.name,
+    id: projectId, name: input.name, displayName: input.name,
     canonicalDomain: `${input.name}.example`, country: 'US', language: 'en',
     providers: [], createdAt: now, updatedAt: now,
   }).run()
+  db.insert(schedules).values({
+    id: crypto.randomUUID(), projectId, kind: SchedulableRunKinds.doctor,
+    cronExpr: '0 */6 * * *', enabled: false, createdAt: now, updatedAt: now,
+  }).run()
   return {
-    app: runningApp, db, origin, basePath, rootKey, user, clientId, redirectUri,
+    get app() { return runningApp },
+    get db() { return db },
+    origin, basePath, rootKey, user, clientId, redirectUri,
     resource: `${publicOrigin}${basePath}/api/v1/mcp`,
     transportUrl: `${origin}${basePath}/api/v1/mcp/readonly`,
     profileUrl: `${origin}${basePath}/api/v1/mcp/profile`,
     sessionCookie: `${USER_SESSION_COOKIE_NAME}=${createUserSession(db, user.id)}`,
+    restart: async () => {
+      await runningApp.close()
+      db.$client.close()
+      db = createClient(config.database)
+      migrate(db)
+      runningApp = await boot()
+    },
     close: async () => {
       await runningApp.close()
       db.$client.close()
@@ -129,12 +148,12 @@ export interface SyntheticOAuthTokens {
 }
 
 /** Obtain real tokens through consent and S256 PKCE, without a token-store shortcut. */
-export async function authorizeSyntheticMcp(instance: SyntheticMcpInstance): Promise<SyntheticOAuthTokens> {
+export async function authorizeSyntheticMcp(instance: SyntheticMcpInstance, scope = 'read offline_access'): Promise<SyntheticOAuthTokens> {
   const verifier = crypto.randomBytes(48).toString('base64url')
   const query = new URLSearchParams({
     response_type: 'code', client_id: instance.clientId, redirect_uri: instance.redirectUri,
     code_challenge: crypto.createHash('sha256').update(verifier).digest('base64url'),
-    code_challenge_method: 'S256', resource: instance.resource, scope: 'read offline_access',
+    code_challenge_method: 'S256', resource: instance.resource, scope,
     state: crypto.randomBytes(16).toString('hex'),
   })
   const authorization = `${instance.origin}${instance.basePath}/oauth/authorize`

@@ -31,15 +31,30 @@ const ADDITIVE = [
   /^ALTER TABLE \S+ ADD COLUMN/i,
 ]
 
-test(`every migration after v${DOWNGRADE_BASELINE} is additive-only (downgrade-safe)`, () => {
+// v199 backfills only new lineage storage, then retires the historical MCP
+// session keys whose grant cannot be reconstructed. An older binary can still
+// use every OAuth token and mint replacement sessions. The executable boundary
+// proof lives in oauth-grants-migration.test.ts (tokens, Aero and ordinary keys).
+// Keep this version- and operation-specific: never allow arbitrary data writes.
+const REVIEWED_DATA_STATEMENTS: ReadonlyMap<number, readonly RegExp[]> = new Map([
+  [199, [
+    /^INSERT OR IGNORE INTO oauth_grants \(/i,
+    /^UPDATE oauth_tokens SET grant_id = \( .* \) WHERE grant_id IS NULL$/i,
+    /^DELETE FROM dashboard_sessions WHERE api_key_id IN \( SELECT id FROM api_keys WHERE delegated_user_id IS NOT NULL AND name = 'mcp-session:' \|\| delegated_user_id \)$/i,
+    /^UPDATE api_keys SET revoked_at = COALESCE\(revoked_at, strftime\('[^']+', 'now'\)\) WHERE delegated_user_id IS NOT NULL AND name = 'mcp-session:' \|\| delegated_user_id$/i,
+  ]],
+])
+
+test(`every migration after v${DOWNGRADE_BASELINE} has additive schema or reviewed data changes (downgrade-safe)`, () => {
   const newer = MIGRATION_VERSIONS.filter((mv) => mv.version > DOWNGRADE_BASELINE)
   expect(newer.length).toBeGreaterThan(0)
   for (const mv of newer) {
     for (const statement of mv.statements) {
       const normalized = statement.trim().replace(/\s+/g, ' ')
       expect(
-        ADDITIVE.some((re) => re.test(normalized)),
-        `v${mv.version} (${mv.name}) has a non-additive statement: ${normalized.slice(0, 80)}`,
+        ADDITIVE.some((re) => re.test(normalized))
+          || (REVIEWED_DATA_STATEMENTS.get(mv.version) ?? []).some((re) => re.test(normalized)),
+        `v${mv.version} (${mv.name}) has an unreviewed non-additive statement: ${normalized.slice(0, 80)}`,
       ).toBe(true)
     }
   }

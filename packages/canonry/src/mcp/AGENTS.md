@@ -46,8 +46,17 @@ or `excluded-protocol` with a short security/protocol/product rationale in
 
 ## Adapter rules
 
-HTTP sessions bind the exact bearer and current effective scopes/project boundary,
-not a user ID alone. Changed credentials or authority require re-initialization.
+Use SDK v2 serving entries. Stdio uses `serveStdio` with one server per connection
+and preserves modern `2026-07-28` plus legacy initialization and dynamic toolkits.
+HTTP routes modern traffic through `createMcpHandler` and legacy traffic through
+the SDK classifier and session transport. Malformed modern envelopes must never
+fall back to legacy. Modern requests have a fresh server, bind their own verified
+principal, and retire internal credentials only after the response body finishes
+or cancels. Propagate request cancellation into the internal API fetch.
+
+Legacy HTTP sessions bind the exact bearer and current effective scopes/project
+boundary, not a user ID alone. Changed credentials or authority require
+re-initialization.
 Research history uses the model catalog's cached-only read; live discovery stays
 out of stored-evidence workflows, including on cold or expired caches.
 
@@ -55,7 +64,7 @@ out of stored-evidence workflows, including on cold or expired caches.
 
 Reject invalid MCP opening messages before minting internal OAuth keys. A failed initialization must revoke its temporary key and close its transport even if no session ID was registered.
 
-Hosted `/api/v1/mcp` and `/api/v1/mcp/readonly` expose every tier at initialization, filtered by existing access permissions. Every `/readonly` segment limits its catalog and its per-session API client to stored evidence; a tool annotation or handler mistake cannot permit a provider read or mutation. Ordinary `/mcp`, specialist endpoints without `/readonly`, and stdio retain their existing scopes. Specialist `/api/v1/mcp/x/<toolkit>` endpoints retain core plus one toolkit. Keep hosted catalogs fixed and preserve both credential-based and endpoint-based read-only filtering.
+Hosted `/api/v1/mcp` and `/api/v1/mcp/readonly` expose every tier at initialization, filtered by existing access permissions. Every `/readonly` segment limits its catalog and its API client to stored evidence; OAuth callers must already hold read authority, and narrowing must never add it; a tool annotation or handler mistake cannot permit a provider read or mutation. Ordinary `/mcp`, specialist endpoints without `/readonly`, and stdio retain their existing scopes. Specialist `/api/v1/mcp/x/<toolkit>` endpoints retain core plus one toolkit. Keep hosted catalogs fixed and preserve both credential-based and endpoint-based read-only filtering.
 
 MCP is the universal guide; skills are optional upgrades. Initialization must
 route agents through `canonry_help(intent)` without requiring resources,

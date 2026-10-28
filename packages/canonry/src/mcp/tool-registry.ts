@@ -9,7 +9,7 @@ import {
 import { agentConversationCreateSchema, reportedQueryClasses } from '@canonry/canonry-contracts'
 import { PROVIDER_ACCOUNT_FAILURE_STREAK, PROVIDER_ACCOUNT_RETRY_HOURS, WINDOW_SETS } from '@canonry/canonry-contracts'
 import { insightSeveritySchema } from '@canonry/canonry-contracts'
-import type { ToolAnnotations } from '@modelcontextprotocol/sdk/types.js'
+import type { ToolAnnotations } from '@modelcontextprotocol/server'
 import {
   AGENT_MEMORY_KEY_MAX_LENGTH,
   AGENT_MEMORY_VALUE_MAX_BYTES,

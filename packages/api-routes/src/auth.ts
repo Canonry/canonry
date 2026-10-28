@@ -508,6 +508,9 @@ export function shouldSkipAuth(url: string): boolean {
   return false
 }
 
+/** OAuth-backed internal MCP credentials cannot outlive their transport cleanup indefinitely. */
+export const MCP_DELEGATED_KEY_MAX_AGE_MS = 60 * 60 * 1000
+
 /** Reading the install's account list. */
 export const USERS_READ_SCOPE = 'users.read'
 
@@ -518,6 +521,16 @@ export const USERS_WRITE_SCOPE = 'users.write'
 function scopesForRole(role: UserRole, researchAllowViewers = false): string[] {
   return role === UserRoles.admin ? [WILDCARD_SCOPE]
     : researchAllowViewers ? [READ_ONLY_SCOPE, RESEARCH_RUN_SCOPE] : [READ_ONLY_SCOPE]
+}
+
+/** Delegation must retain an actual consented scope after the account's role changes. */
+function delegatedScopesForRole(role: UserRole, requested: readonly string[], researchAllowViewers = false): string[] {
+  // The shared helper preserves a read fallback for legacy callers. Delegated
+  // consent cannot acquire that fallback when no requested scope survives.
+  const effective = intersectScopes(scopesForRole(role, researchAllowViewers), requested)
+    .filter(scope => requested.includes(WILDCARD_SCOPE) || requested.includes(scope))
+  if (effective.length === 0) throw forbidden('This credential no longer has any authorized scopes.')
+  return effective
 }
 
 /** What an OAuth access token resolved to. */
@@ -893,27 +906,11 @@ export async function authPlugin(app: FastifyInstance, opts: AuthPluginOptions =
         if (granted) {
           const account = app.db.select().from(users).where(eq(users.id, granted.userId)).get()
           if (!account) throw authInvalid()
-          // Authority is the INTERSECTION of what the person can do and what
-          // they granted the client. Taking the role alone was a privilege
-          // escalation: an admin approving a `scope=read` connector handed it
-          // full admin, including minting root api keys.
-          const roleScopes = scopesForRole(account.role, opts.researchAllowViewers)
           // `offline_access` governs refresh tokens, not API authority.
-          const requested = (granted.scope ?? '')
+          const requested = (granted.scope ?? READ_ONLY_SCOPE)
             .split(/\s+/)
             .filter(part => part.length > 0 && part !== 'offline_access')
-          // The role is a CEILING, the grant is the request, and the effective
-          // authority is the smaller of the two. A literal set intersection is
-          // wrong here because an admin's role scope is the wildcard `*`, which
-          // does not textually contain `read` — intersecting would leave an
-          // admin who granted `scope=read` with no authority at all.
-          // An EMPTY set is not "no authority" — isReadOnlyKey([]) is false,
-          // because empty means "no read-only marker", so an empty set reads as
-          // NOT read-only and widens the catalog. A grant that intersects
-          // nothing must therefore floor at read, never at nothing: otherwise
-          // the narrowest possible grant to the least privileged account yields
-          // the WIDEST tool surface.
-          const effective = intersectScopes(roleScopes, requested)
+          const effective = delegatedScopesForRole(account.role, requested, opts.researchAllowViewers)
           request.principal = {
             kind: 'user',
             oauthGrantId: granted.grantId,
@@ -983,10 +980,12 @@ export async function authPlugin(app: FastifyInstance, opts: AuthPluginOptions =
       : undefined
     if (key.delegatedUserId && !delegatedUser) throw authInvalid()
     if (key.delegatedOAuthGrantId) {
+      const age = Date.now() - Date.parse(key.createdAt)
+      if (!Number.isFinite(age) || age < 0 || age >= MCP_DELEGATED_KEY_MAX_AGE_MS) throw authInvalid()
       const grant = app.db.select().from(oauthGrants).where(eq(oauthGrants.id, key.delegatedOAuthGrantId)).get()
       if (!grant || grant.revokedAt || grant.userId !== key.delegatedUserId) throw authInvalid()
     }
-    if (delegatedUser) scopes = intersectScopes(scopesForRole(delegatedUser.role, opts.researchAllowViewers), scopes)
+    if (delegatedUser) scopes = delegatedScopesForRole(delegatedUser.role, scopes, opts.researchAllowViewers)
     request.apiKey = { id: key.id, name: key.name, scopes, projectId: key.projectId ?? null }
     request.principal = {
       kind: 'api-key',

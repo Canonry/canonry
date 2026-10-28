@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { CLIENT_INFO_META_KEY, McpServer } from '@modelcontextprotocol/server'
 import { z } from 'zod'
 import { isReadOnlyKey, restrictedWriteScopes, RESEARCH_RUN_SCOPE, OperationAccesses, upgradeCaveatFor } from '@canonry/canonry-contracts'
 import { createApiClient, runWithUsageTags, type ApiClient, type ServerUpdateAvailable } from '../client.js'
@@ -118,14 +118,19 @@ export function createCanonryMcpServerWithCatalog(options: CanonryMcpServerOptio
         outputSchema: tool.outputSchema ? mcpOutputSchema(tool.outputSchema) : undefined,
         annotations: tool.annotations,
       },
-      async (input: unknown) => withToolErrors(async () => {
+      async (input: unknown, context) => withToolErrors(async () => {
         const parsed = tool.inputSchema.parse(input ?? {})
+        const envelope = context.mcpReq.envelope
+        const identity = envelope && CLIENT_INFO_META_KEY in envelope ? envelope[CLIENT_INFO_META_KEY] : undefined
+        const clientName = typeof identity === 'object' && identity !== null && 'name' in identity && typeof identity.name === 'string'
+          ? identity.name : server.server.getClientVersion()?.name
         // Label every API request this tool call makes, so the server can
         // attribute it to the tool and to the MCP client that asked for it.
         return runWithUsageTags(client, {
           mcpTool: tool.name,
           mcpCall: randomUUID(),
-          mcpClient: server.server.getClientVersion()?.name,
+          mcpClient: clientName,
+          signal: context.mcpReq.signal,
         }, () => handler(client, parsed))
       }),
     )
@@ -177,7 +182,7 @@ function registerMetaTools(
     {
       title: 'Guide a Canonry workflow',
       description: 'Start here: route an intent to available stored-evidence tools, separately listed actions requiring approval, and workflow guidance. No provider calls or installation required. Optionally include full toolkit details.',
-      inputSchema: helpInputSchema.shape,
+      inputSchema: helpInputSchema,
       annotations: { readOnlyHint: true, idempotentHint: true, destructiveHint: false, openWorldHint: false },
     },
     async (input: unknown) => {
@@ -200,8 +205,8 @@ function registerMetaTools(
     'canonry_load_toolkit',
     {
       title: 'Load a Canonry MCP toolkit',
-      description: 'Register a toolkit\'s tools for this session and emit one notifications/tools/list_changed. Idempotent. Loaded toolkits remain loaded for the rest of the session. Wait for this call to return before calling any newly enabled tool — pipelining the call with a tools/call on the same connection can race the registration and fail with "MCP error -32602: Tool ... disabled".',
-      inputSchema: loadToolkitInputSchema.shape,
+      description: 'Register a toolkit\'s tools for this session and emit one notifications/tools/list_changed. Idempotent. Loaded toolkits remain loaded for the rest of the session. Wait for this call to return before calling any newly enabled tool — pipelining the call with a tools/call on the same connection can race the registration and fail with "Tool ... disabled".',
+      inputSchema: loadToolkitInputSchema,
       annotations: { readOnlyHint: false, idempotentHint: true, destructiveHint: false, openWorldHint: false },
     },
     async (input: unknown) => withToolErrors(async () => {

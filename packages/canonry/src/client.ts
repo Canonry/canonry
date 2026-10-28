@@ -880,6 +880,8 @@ export interface ApiClientOptions {
   skipProbe?: boolean
   /** Enforce stored evidence only for this client, independently of process flags. */
   storedOnly?: boolean
+  /** Cancel every request when the owning serving unit ends. */
+  signal?: AbortSignal
   /** A short, token-safe client identity (for example, `canonry-mcp`). */
   clientName?: string
   /** A bounded opaque operator/session correlation value. */
@@ -890,6 +892,8 @@ export interface ApiClientOptions {
 
 /** Per-call usage labels, e.g. the MCP tool that issued the requests. */
 export interface UsageTags {
+  /** Cancellation belongs to this call, including clients reused by legacy sessions. */
+  signal?: AbortSignal
   mcpTool?: string
   mcpCall?: string
   mcpClient?: string
@@ -1048,6 +1052,7 @@ export class ApiClient {
   private probePromise: Promise<void> | null = null
   private probeSkipped: boolean
   private readonly storedOnly: boolean
+  private readonly signal?: AbortSignal
   private heyClient: Client
   private readonly requestHeaders: Record<string, string>
   /** Tracks the base URL most recently applied to `heyClient` so probe-driven updates only re-configure when something actually changed. */
@@ -1058,6 +1063,7 @@ export class ApiClient {
     this.apiKey = apiKey
     this.probeSkipped = opts?.skipProbe ?? false
     this.storedOnly = opts?.storedOnly === true
+    this.signal = opts?.signal
     this.heyClientBaseUrl = this.originUrl
     const actorSession = safeActorSession(opts?.actorSession)
     const surface = opts?.surface ?? 'cli'
@@ -1082,8 +1088,14 @@ export class ApiClient {
       // control character would make Headers.set throw and fail the tool call.
       const mcpClient = normalizeAgentSlug(tags?.mcpClient)
       if (mcpClient) request.headers.set(USAGE_TELEMETRY_HEADERS.mcpClient, mcpClient)
-      return request
+      return this.signal || tags?.signal ? new Request(request, { signal: this.requestSignal(request.signal) }) : request
     })
+  }
+
+  private requestSignal(signal?: AbortSignal): AbortSignal | undefined {
+    const signals = [this.signal, usageTagStore.getStore()?.signal, signal]
+      .filter((entry): entry is AbortSignal => entry !== undefined)
+    return signals.length > 1 ? AbortSignal.any(signals) : signals[0]
   }
 
   /**
@@ -1100,7 +1112,7 @@ export class ApiClient {
           const origin = new URL(this.originUrl).origin
           const res = await fetch(`${origin}/health`, {
             headers: storedOnlyProbeHeaders(this.storedOnly),
-            signal: AbortSignal.timeout(2000),
+            signal: this.requestSignal(AbortSignal.timeout(2000)),
           })
           if (res.ok) {
             const body = (await res.json()) as { basePath?: string }
@@ -1321,7 +1333,8 @@ export class ApiClient {
 
     let res: Response
     try {
-      res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body ?? {}), signal })
+      res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body ?? {}),
+        signal: this.requestSignal(signal) })
     } catch (err) {
       if (err instanceof CliError) throw err
       const msg = describeError(err)
@@ -1470,6 +1483,7 @@ export class ApiClient {
       // is indistinguishable from a raw API caller in usage telemetry.
       res = await fetch(url, {
         headers: { ...this.requestHeaders, ...storedOnlyHeaders },
+        signal: this.requestSignal(),
       })
     } catch (err) {
       const message = describeError(err)
@@ -2620,7 +2634,7 @@ export class ApiClient {
     if (storedOnlyProbeHeaders(this.storedOnly)[STORED_ONLY_HEADER]) return null
     try {
       await this.probeBasePath()
-      const res = await fetch(`${this.originUrl}/health`, { signal: AbortSignal.timeout(2000) })
+      const res = await fetch(`${this.originUrl}/health`, { signal: this.requestSignal(AbortSignal.timeout(2000)) })
       if (!res.ok) return null
       const body = (await res.json()) as { updateAvailable?: unknown }
       return parseServerUpdateAvailable(body?.updateAvailable)
