@@ -4,9 +4,9 @@ import { isIP } from 'node:net'
 import { forbidden, isReadOnlyKey, McpTransportStatuses, HostedMcpStatuses, HostedMcpUnavailableReasons, type McpHealth, type HostedMcpHealth } from '@canonry/canonry-contracts'
 import { apiKeys, dashboardSessions, type DatabaseClient } from '@canonry/canonry-db'
 import { hashApiKey, blockedAddressReason, stripIpv6Brackets, MCP_DELEGATED_KEY_MAX_AGE_MS } from '@canonry/canonry-api-routes'
-import { eq } from 'drizzle-orm'
+import { and, eq, isNull } from 'drizzle-orm'
 import { NodeStreamableHTTPServerTransport, toNodeHandler, toWebRequest } from '@modelcontextprotocol/node'
-import { createMcpHandler, isInitializeRequest, isLegacyRequest } from '@modelcontextprotocol/server'
+import { McpServer, createMcpHandler, isInitializeRequest, isLegacyRequest } from '@modelcontextprotocol/server'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 
 import { ApiClient, type ServerUpdateAvailable } from './client.js'
@@ -39,6 +39,12 @@ import { CANONRY_MCP_TIERS, CANONRY_MCP_TOOLKIT_NAMES, type CanonryMcpTier } fro
 /** Idle sessions are dropped after this long without a request. */
 const SESSION_IDLE_MS = 10 * 60 * 1000
 const SWEEP_INTERVAL_MS = 60 * 1000
+const MAX_CLEANUP_RETRIES_PER_SWEEP = 8
+const MAX_PENDING_KEY_RETIREMENTS = 256
+const MAX_CLEANUP_BACKOFF_MS = 10 * 60 * 1000
+
+interface SessionKey { id: string; raw: string; expiresAt: number }
+interface PendingRetirement { remove: boolean; expiresAt: number; nextAttemptAt: number; attempts: number }
 
 /**
  * One endpoint's fixed surface.
@@ -73,10 +79,9 @@ interface McpSession {
  * Not a general-purpose key: it is named for the session, scoped to exactly the
  * authority already resolved for the caller, and revoked on close.
  */
-function mintSessionKey(db: DatabaseClient, scopes: readonly string[], userId: string, oauthGrantId?: string): { id: string; raw: string; expiresAt?: number } {
+function mintSessionKey(db: DatabaseClient, scopes: readonly string[], userId: string, oauthGrantId: string, createdAt: number): SessionKey {
   const raw = `cnry_${crypto.randomBytes(24).toString('hex')}`
   const id = crypto.randomUUID()
-  const createdAt = Date.now()
   db.insert(apiKeys).values({
     id,
     name: `mcp-session:${userId}`,
@@ -87,7 +92,7 @@ function mintSessionKey(db: DatabaseClient, scopes: readonly string[], userId: s
     delegatedOAuthGrantId: oauthGrantId,
     createdAt: new Date(createdAt).toISOString(),
   }).run()
-  return { id, raw, expiresAt: oauthGrantId ? createdAt + MCP_DELEGATED_KEY_MAX_AGE_MS : undefined }
+  return { id, raw, expiresAt: createdAt + MCP_DELEGATED_KEY_MAX_AGE_MS }
 }
 
 
@@ -176,60 +181,107 @@ export function mcpHttpHealth(app: FastifyInstance, apiPrefix: string, hosted?: 
 
 export function registerMcpHttpRoutes(scope: FastifyInstance, opts: McpHttpOptions): void {
   const sessions = new Map<string, McpSession>()
-  const modernExchanges = new Set<{ sessionKeyId?: string; expiresAt?: number; close: () => Promise<void> }>()
+  const legacyServers = new Set<McpSession>()
+  const modernExchanges = new Set<{ sessionKey?: SessionKey; close: () => Promise<void> }>()
   const now = opts.now ?? (() => Date.now())
-  const pendingKeyRetirements = new Map<string, boolean>()
+  const pendingKeyRetirements = new Map<string, PendingRetirement>()
+  let shuttingDown = false
 
-  function retireSessionKey(id: string, remove = false): void {
-    const deleteAfterRevoke = remove || pendingKeyRetirements.get(id) === true
-    pendingKeyRetirements.set(id, deleteAfterRevoke)
+  // Cleanup must never wait behind a writer. This scope is synchronous, so the
+  // connection's exact busy policy is restored before other work can run.
+  function withoutLockWait<T>(work: () => T): T {
+    const timeout = opts.db.$client.pragma('busy_timeout', { simple: true }) as number
     try {
-      opts.db.transaction(tx => {
-        tx.delete(dashboardSessions).where(eq(dashboardSessions.apiKeyId, id)).run()
-        tx.update(apiKeys).set({ revokedAt: new Date().toISOString() }).where(eq(apiKeys.id, id)).run()
+      opts.db.$client.pragma('busy_timeout = 0')
+      return work()
+    } finally {
+      opts.db.$client.pragma(`busy_timeout = ${timeout}`)
+    }
+  }
+
+  function attemptKeyRetirement(id: string, remove: boolean): boolean {
+    try {
+      withoutLockWait(() => {
+        opts.db.transaction(tx => {
+          tx.delete(dashboardSessions).where(eq(dashboardSessions.apiKeyId, id)).run()
+          tx.update(apiKeys).set({ revokedAt: new Date(now()).toISOString() })
+            .where(and(eq(apiKeys.id, id), isNull(apiKeys.revokedAt))).run()
+        })
+        if (remove) {
+          try {
+            opts.db.delete(apiKeys).where(eq(apiKeys.id, id)).run()
+          } catch (error) {
+            // Durable audit references may require the revoked identity to remain.
+            scope.log.warn({ err: error, keyId: id }, 'Retained revoked MCP request key after deletion failed')
+          }
+        }
       })
+      return true
     } catch (error) {
-      scope.log.error({ err: error, keyId: id }, 'Failed to retire MCP key; queued for retry')
+      scope.log.error({ err: error, keyId: id }, 'Failed to retire MCP key; cleanup remains bounded by its expiry')
+      return false
+    }
+  }
+
+  function retireSessionKey(key: SessionKey, remove = false): void {
+    const queued = pendingKeyRetirements.get(key.id)
+    if (queued) {
+      queued.remove ||= remove
       return
     }
-    pendingKeyRetirements.delete(id)
-    if (deleteAfterRevoke) {
-      try {
-        opts.db.delete(apiKeys).where(eq(apiKeys.id, id)).run()
-      } catch (error) {
-        // Durable audit references may require the revoked identity to remain.
-        scope.log.warn({ err: error, keyId: id }, 'Retained revoked MCP request key after deletion failed')
+    if (attemptKeyRetirement(key.id, remove)) return
+    if (pendingKeyRetirements.size >= MAX_PENDING_KEY_RETIREMENTS) {
+      const oldest = pendingKeyRetirements.keys().next().value
+      if (oldest !== undefined) pendingKeyRetirements.delete(oldest)
+      scope.log.warn('MCP cleanup queue is full; oldest credential remains bounded by its expiry')
+    }
+    pendingKeyRetirements.set(key.id, { remove, expiresAt: key.expiresAt, nextAttemptAt: now() + SWEEP_INTERVAL_MS, attempts: 1 })
+  }
+
+  function retryKeyRetirements(): void {
+    let attempted = 0
+    for (const [id, queued] of pendingKeyRetirements) {
+      if (queued.expiresAt <= now()) {
+        pendingKeyRetirements.delete(id)
+        continue
+      }
+      if (queued.nextAttemptAt > now()) continue
+      if (attempted++ >= MAX_CLEANUP_RETRIES_PER_SWEEP) break
+      if (attemptKeyRetirement(id, queued.remove)) pendingKeyRetirements.delete(id)
+      else {
+        queued.nextAttemptAt = now() + Math.min(SWEEP_INTERVAL_MS * 2 ** queued.attempts, MAX_CLEANUP_BACKOFF_MS)
+        queued.attempts++
       }
     }
   }
 
-  function retryKeyRetirements(): void {
-    for (const [id, remove] of pendingKeyRetirements) retireSessionKey(id, remove)
-  }
-
   async function dropSession(id: string): Promise<void> {
-    const session = sessions.get(id)
-    if (!session) return
-    sessions.delete(id)
-    await session.close().catch(() => {
-      // A transport that already tore itself down is the normal case here.
-    })
+    await sessions.get(id)?.close().catch(error => scope.log.error({ err: error }, 'Failed to close legacy MCP session'))
   }
 
   const sweep = setInterval(() => {
-    retryKeyRetirements()
-    const cutoff = now() - SESSION_IDLE_MS
-    for (const [id, session] of sessions) {
-      const key = session.sessionKeyId ? opts.db.select({ revokedAt: apiKeys.revokedAt }).from(apiKeys).where(eq(apiKeys.id, session.sessionKeyId)).get() : undefined
-      if (session.lastSeenAt < cutoff || (session.expiresAt !== undefined && session.expiresAt <= now()) || (session.sessionKeyId && (!key || key.revokedAt))) void dropSession(id)
-    }
-    for (const exchange of modernExchanges) {
-      if (!exchange.sessionKeyId) continue
-      const key = opts.db.select({ revokedAt: apiKeys.revokedAt }).from(apiKeys).where(eq(apiKeys.id, exchange.sessionKeyId)).get()
-      if (!key || key.revokedAt || (exchange.expiresAt !== undefined && exchange.expiresAt <= now())) void exchange.close().catch(() => {})
+    try {
+      retryKeyRetirements()
+      withoutLockWait(() => {
+        const cutoff = now() - SESSION_IDLE_MS
+        for (const session of legacyServers) {
+          const key = session.sessionKeyId ? opts.db.select({ revokedAt: apiKeys.revokedAt }).from(apiKeys).where(eq(apiKeys.id, session.sessionKeyId)).get() : undefined
+          if (session.lastSeenAt < cutoff || (session.expiresAt !== undefined && session.expiresAt <= now()) || (session.sessionKeyId && (!key || key.revokedAt))) {
+            void session.close().catch(error => scope.log.error({ err: error }, 'Failed to close expired MCP session'))
+          }
+        }
+        for (const exchange of modernExchanges) {
+          if (!exchange.sessionKey) continue
+          const key = opts.db.select({ revokedAt: apiKeys.revokedAt }).from(apiKeys).where(eq(apiKeys.id, exchange.sessionKey.id)).get()
+          if (!key || key.revokedAt || exchange.sessionKey.expiresAt <= now()) {
+            void exchange.close().catch(error => scope.log.error({ err: error }, 'Failed to close expired MCP request'))
+          }
+        }
+      })
+    } catch (error) {
+      scope.log.error({ err: error }, 'MCP lifecycle sweep failed; will retry on the next interval')
     }
   }, SWEEP_INTERVAL_MS)
-  // Never hold the process open for a housekeeping timer.
   sweep.unref()
 
   // The auth hook rejects an unauthenticated request BEFORE any handler runs,
@@ -248,12 +300,13 @@ export function registerMcpHttpRoutes(scope: FastifyInstance, opts: McpHttpOptio
   }
 
   scope.addHook('preClose', async () => {
+    shuttingDown = true
     clearInterval(sweep)
-    await Promise.all([...sessions.keys()].map(id => dropSession(id)))
-    await Promise.all([...modernExchanges].map(exchange => exchange.close().catch(() => {})))
-    for (let attempt = 0; attempt < 3 && pendingKeyRetirements.size > 0; attempt++) retryKeyRetirements()
+    await Promise.all([...legacyServers].map(session => session.close().catch(error => scope.log.error({ err: error }, 'Failed to close MCP session during shutdown'))))
+    await Promise.all([...modernExchanges].map(exchange => exchange.close().catch(error => scope.log.error({ err: error }, 'Failed to close MCP request during shutdown'))))
+    retryKeyRetirements()
     if (pendingKeyRetirements.size > 0) {
-      throw new Error(`Failed to retire ${pendingKeyRetirements.size} MCP credential(s) before shutdown`)
+      scope.log.warn({ count: pendingKeyRetirements.size }, 'MCP credential cleanup remains pending at shutdown; credentials remain bounded by expiry')
     }
   })
 
@@ -281,7 +334,10 @@ export function registerMcpHttpRoutes(scope: FastifyInstance, opts: McpHttpOptio
     segment: Segment,
     bearer: string,
     signal?: AbortSignal,
+    modern = false,
+    needsApiCredential = true,
   ) {
+    if (shuttingDown) throw new Error('MCP server is shutting down')
     // The surface is narrowed HERE, when the connection opens, by the endpoint
     // that was dialled and the credential that was presented. Never at runtime:
     // the MCP spec states a tool set "MUST NOT vary per-connection or as a side
@@ -311,9 +367,10 @@ export function registerMcpHttpRoutes(scope: FastifyInstance, opts: McpHttpOptio
     // person's role and what they granted) and nothing more. It is revoked when
     // the session or modern request closes, so it cannot outlive its authority.
     // An api-key caller keeps using its own key, unchanged.
-    let sessionKey: { id: string; raw: string; expiresAt?: number } | null = null
-    if (!request.apiKey && request.principal?.kind === 'user') {
-      sessionKey = mintSessionKey(opts.db, segment.readOnly ? ['read'] : scopes, request.principal.id, request.principal.oauthGrantId ?? undefined)
+    let sessionKey: SessionKey | null = null
+    if (needsApiCredential && !request.apiKey && request.principal?.kind === 'user') {
+      if (!request.principal.oauthGrantId) throw forbidden('MCP OAuth credentials require an active authorization grant.')
+      sessionKey = mintSessionKey(opts.db, segment.readOnly ? ['read'] : scopes, request.principal.id, request.principal.oauthGrantId, now())
     }
     const client = new ApiClient(opts.selfApiUrl, sessionKey?.raw ?? bearer, {
       skipProbe: true,
@@ -322,7 +379,7 @@ export function registerMcpHttpRoutes(scope: FastifyInstance, opts: McpHttpOptio
       clientName: `canonry-mcp/${PACKAGE_VERSION}`,
       surface: 'mcp-http',
       // Correlation only: this is never accepted as caller identity or authority.
-      actorSession: crypto.randomUUID(),
+      ...(modern ? {} : { actorSession: crypto.randomUUID() }),
     })
     let server: ReturnType<typeof createCanonryMcpServer>
     try {
@@ -330,12 +387,17 @@ export function registerMcpHttpRoutes(scope: FastifyInstance, opts: McpHttpOptio
         scope: segment.readOnly ? 'stored-only' : isReadOnlyKey(scopes) ? 'read-only' : 'all',
         credentialScopes: scopes,
         operator: request.operatorAccess === true,
+        connectionProfile: Boolean(opts.issuer && !request.principal?.projectId
+          && (request.principal?.kind === 'user' || request.principal?.delegatedUser)
+          && scopes.some(scope => scope === 'read' || scope === '*')),
         tiers: segment.tiers,
         clientFactory: () => client,
         updateAvailable: opts.getUpdateAvailable,
       })
+      // Hosted catalogs do not change during a connection or publish events.
+      server.server.registerCapabilities({ tools: { listChanged: false }, resources: { listChanged: false, subscribe: false } })
     } catch (error) {
-      if (sessionKey) retireSessionKey(sessionKey.id)
+      if (sessionKey) retireSessionKey(sessionKey, modern)
       throw error
     }
 
@@ -354,28 +416,34 @@ export function registerMcpHttpRoutes(scope: FastifyInstance, opts: McpHttpOptio
     const transport = new NodeStreamableHTTPServerTransport({
       sessionIdGenerator: () => crypto.randomUUID(),
       onsessioninitialized: (id: string) => {
-        sessions.set(id, { transport, close, authorizationId, segmentId: segment.id, sessionKeyId: sessionKey?.id, expiresAt: sessionKey?.expiresAt, lastSeenAt: now() })
+        if (!shuttingDown && !closing) sessions.set(id, session)
       },
     })
+    let closing: Promise<void> | undefined
+    const session: McpSession = { transport, close, authorizationId, segmentId: segment.id, sessionKeyId: sessionKey?.id, expiresAt: sessionKey?.expiresAt, lastSeenAt: now() }
+    legacyServers.add(session)
 
-    async function close(): Promise<void> {
-      // Revocation must survive a transport/server cleanup failure.
-      if (sessionKey) retireSessionKey(sessionKey.id)
-      try {
-        await transport.close()
-      } finally {
-        await server.close()
-      }
+    function close(): Promise<void> {
+      if (closing) return closing
+      closing = Promise.resolve().then(async () => {
+        if (sessionKey) retireSessionKey(sessionKey)
+        const id = transport.sessionId
+        if (id) sessions.delete(id)
+        try {
+          await transport.close()
+        } finally {
+          try {
+            await server.close()
+          } finally {
+            legacyServers.delete(session)
+          }
+        }
+      })
+      return closing
     }
 
     transport.onclose = () => {
-      const id = transport.sessionId
-      if (id) sessions.delete(id)
-      // ALSO revoke here, not only in close(). A client-initiated DELETE closes
-      // the transport directly and fires this, never routing through close() —
-      // so revoking only there leaked a live credential on every well-behaved
-      // client that ended its own session. Revoking twice is harmless.
-      if (sessionKey) retireSessionKey(sessionKey.id)
+      void close().catch(error => scope.log.error({ err: error }, 'Failed to close legacy MCP transport'))
     }
 
     try {
@@ -384,7 +452,7 @@ export function registerMcpHttpRoutes(scope: FastifyInstance, opts: McpHttpOptio
       await close().catch(() => {})
       throw error
     }
-    return { transport, close, authorizationId, segmentId: segment.id, sessionKeyId: sessionKey?.id, expiresAt: sessionKey?.expiresAt, lastSeenAt: now() }
+    return session
   }
 
   async function handleModern(
@@ -395,11 +463,11 @@ export function registerMcpHttpRoutes(scope: FastifyInstance, opts: McpHttpOptio
   ): Promise<void> {
     const abort = new AbortController()
     let closing: Promise<void> | undefined
-    const exchange: { sessionKeyId?: string; expiresAt?: number; close: () => Promise<void> } = {
+    const exchange: { sessionKey?: SessionKey; close: () => Promise<void> } = {
       close: () => {
         if (closing) return closing
         abort.abort()
-        if (exchange.sessionKeyId) retireSessionKey(exchange.sessionKeyId, true)
+        if (exchange.sessionKey) retireSessionKey(exchange.sessionKey, true)
         modernExchanges.delete(exchange)
         closing = handler.close().catch(error => {
           scope.log.error({ err: error }, 'Failed to close MCP request transport')
@@ -410,18 +478,26 @@ export function registerMcpHttpRoutes(scope: FastifyInstance, opts: McpHttpOptio
     }
     // The SDK validates the modern envelope and mirrored headers before calling
     // this factory. Each request captures only its own authenticated principal.
+    const reportError = (error: Error) => scope.log.error({ err: error }, 'Modern MCP request failed')
     const handler = createMcpHandler(({ requestInfo }) => {
+      if (shuttingDown) throw new Error('MCP server is shutting down')
+      const body = request.body as { method?: unknown } | null
+      const method = body && typeof body === 'object' ? body.method : undefined
+      if (method === 'subscriptions/listen') {
+        // No hosted catalog events exist. The SDK acknowledges an empty honored
+        // set and completes immediately; no catalog, credential or stream remains.
+        return new McpServer({ name: 'canonry', version: PACKAGE_VERSION })
+      }
       const signal = requestInfo ? AbortSignal.any([abort.signal, requestInfo.signal]) : abort.signal
-      const opened = createAuthorizedServer(request, segment, bearer, signal)
-      exchange.sessionKeyId = opened.sessionKey?.id
-      exchange.expiresAt = opened.sessionKey?.expiresAt
+      const opened = createAuthorizedServer(request, segment, bearer, signal, true, method === 'tools/call')
+      exchange.sessionKey = opened.sessionKey ?? undefined
       return opened.server
-    }, { legacy: 'reject' })
+    }, { legacy: 'reject', onerror: reportError })
     modernExchanges.add(exchange)
     try {
       // This resolves after the response body has drained or the client cancels,
       // not merely when handler.fetch produces a Response with a live stream.
-      await toNodeHandler(handler)(request.raw, reply.raw, request.body)
+      await toNodeHandler(handler, { onerror: reportError })(request.raw, reply.raw, request.body)
     } finally {
       await exchange.close()
     }
@@ -432,7 +508,10 @@ export function registerMcpHttpRoutes(scope: FastifyInstance, opts: McpHttpOptio
     reply: FastifyReply,
     segment: Segment,
   ): Promise<void> {
-    retryKeyRetirements()
+    if (shuttingDown) {
+      await reply.status(503).send({ jsonrpc: '2.0', id: null, error: { code: -32000, message: 'MCP server is shutting down.' } })
+      return
+    }
     const principal = request.principal ?? request.apiKey
     const bearer = callerBearer(request)
     if (!principal || !bearer) {
@@ -453,7 +532,12 @@ export function registerMcpHttpRoutes(scope: FastifyInstance, opts: McpHttpOptio
     // Use the SDK's body-first classifier: a malformed modern claim must stay
     // on the modern validation path, never fall back into a legacy session.
     const webRequest = await toWebRequest(request.raw, request.body)
-    if (!await isLegacyRequest(webRequest, request.body)) {
+    const legacy = await isLegacyRequest(webRequest, request.body)
+    if (shuttingDown) {
+      await reply.status(503).send({ jsonrpc: '2.0', id: null, error: { code: -32000, message: 'MCP server is shutting down.' } })
+      return
+    }
+    if (!legacy) {
       await handleModern(request, reply, segment, bearer)
       return
     }
@@ -510,6 +594,11 @@ export function registerMcpHttpRoutes(scope: FastifyInstance, opts: McpHttpOptio
     const opened = await openSession(request, authorizationId, segment)
     if (!opened) {
       await reply.status(401).send({ error: { code: 'AUTH_REQUIRED', message: 'Authentication required.' } })
+      return
+    }
+    if (shuttingDown) {
+      await opened.close()
+      await reply.status(503).send({ jsonrpc: '2.0', id: null, error: { code: -32000, message: 'MCP server is shutting down.' } })
       return
     }
     let handled = false

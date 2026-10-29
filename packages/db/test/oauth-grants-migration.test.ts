@@ -7,7 +7,7 @@ import { expect, test } from 'vitest'
 import { createClient, migrate, MIGRATION_VERSIONS, apiKeys, dashboardSessions, oauthTokens } from '../src/index.js'
 import { insertLegacyRow } from './legacy-rows.js'
 
-test('legacy OAuth families preserve tokens and never join different users, clients, audiences or scopes', () => {
+test.each([false, true])('legacy OAuth families preserve valid credentials and retire untraceable keys (orphans: %s)', withOrphans => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-oauth-grants-'))
   const db = createClient(path.join(dir, 'test.db'))
   const now = '2026-10-01T00:00:00.000Z'
@@ -37,11 +37,27 @@ test('legacy OAuth families preserve tokens and never join different users, clie
         resource: row[4]!, scope: row[5]!, expires_at: expiry, created_at: now,
       })
     }
+    // Reproduce legacy edits made with SQLite FK enforcement disabled.
+    db.$client.pragma('foreign_keys = OFF')
+    const orphans = [
+      ['orphan-client', 'deleted-client', 'sam'],
+      ['orphan-user', 'client-1', 'deleted-user'],
+      ['orphan-both', 'deleted-client', 'deleted-user'],
+    ]
+    for (const [tokenHash, clientId, userId] of withOrphans ? orphans : []) {
+      insertLegacyRow(db, 'oauth_tokens', {
+        token_hash: tokenHash!, kind: 'refresh', client_id: clientId!, user_id: userId!,
+        resource: 'https://a.example/mcp', scope: 'read', expires_at: expiry, created_at: now,
+      })
+    }
+    db.$client.pragma('foreign_keys = ON')
     const legacyKeys = [
       { id: 'mcp-sam', name: 'mcp-session:sam', user: 'sam', retired: true },
       { id: 'mcp-lee', name: 'mcp-session:lee', user: 'lee', retired: true },
       { id: 'aero-sam', name: 'aero-viewer:sam', user: 'sam', retired: false },
-      { id: 'ordinary', name: 'mcp-session:sam', user: null, retired: false },
+      { id: 'historical-unbound', name: 'mcp-session:sam', user: null, retired: true },
+      { id: 'historical-deleted-user', name: 'mcp-session:deleted-account', user: null, retired: true },
+      { id: 'ordinary', name: 'Operator key', user: null, retired: false },
       { id: 'different-name', name: 'mcp-session:lee', user: 'sam', retired: false },
     ]
     for (const key of legacyKeys) {
@@ -66,6 +82,8 @@ test('legacy OAuth families preserve tokens and never join different users, clie
       expect(migratedSessions.some(row => row.apiKeyId === key.id)).toBe(!key.retired)
     }
     const firstPass = db.select().from(oauthTokens).all()
+    expect(firstPass.some(token => token.tokenHash.startsWith('orphan-'))).toBe(false)
+    expect(db.$client.pragma('foreign_key_check')).toEqual([])
     migrate(db)
     expect(db.select().from(oauthTokens).all()).toEqual(firstPass)
     expect(db.select().from(apiKeys).all()).toEqual(migratedKeys)

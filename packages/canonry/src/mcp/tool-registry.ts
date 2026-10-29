@@ -158,6 +158,8 @@ export interface CanonryMcpTool<
   requiredScope?: string
   /** Internal surface: customer roles/scopes alone never authorize it. */
   requiresOperator?: boolean
+  /** Requires an instance-wide named identity and configured OAuth resource. */
+  requiresConnectionProfile?: boolean
   tier: CanonryMcpTier
   inputSchema: TSchema
   inputJsonSchema: unknown
@@ -179,7 +181,7 @@ const writeAnnotations = (opts: { idempotentHint: boolean; destructiveHint?: boo
   readOnlyHint: false,
   idempotentHint: opts.idempotentHint,
   destructiveHint: Boolean(opts.destructiveHint),
-  openWorldHint: Boolean(opts.openWorldHint),
+  openWorldHint: opts.openWorldHint ?? true,
 })
 
 export function toolOperationAccess(tool: Pick<CanonryMcpTool, 'openApiOperations' | 'access'>): OperationAccess {
@@ -1577,6 +1579,7 @@ const rawCanonryMcpTools = [
   }),
   defineTool({
     name: 'canonry_mcp_profile',
+    requiresConnectionProfile: true,
     title: 'Read the connected Canonry identity',
     description: 'Read the signed-in user identity, effective read scope and instance audience. Requires a named user connection; an unbound API key has no user profile.',
     access: 'read',
@@ -2435,7 +2438,7 @@ const rawCanonryMcpTools = [
     access: 'write',
     tier: 'bing',
     inputSchema: projectInputSchema,
-    annotations: writeAnnotations({ idempotentHint: true }),
+    annotations: writeAnnotations({ idempotentHint: true, openWorldHint: false }),
     openApiOperations: ['GET /api/v1/projects/{name}/bing/coverage'],
     handler: (client, input) => client.bingCoverage(input.project),
   }),

@@ -113,7 +113,7 @@ Tool surface:
 
 - **Canonry state** (`src/agent/tools.ts` → `mcp-to-agent-tool.ts`) — every
   tool from `src/mcp/tool-registry.ts` minus the `AERO_EXCLUDED_MCP_TOOLS`
-  set, adapted into pi-agent-core `AgentTool`s. When the install manages
+  set and connection-only tools, adapted into pi-agent-core `AgentTool`s. When the install manages
   answer-visibility sweeps (`SessionRegistry` `managedSweeps`, set by
   `server.ts`), every scope and profile also withholds
   `AERO_MANAGED_SWEEP_MCP_TOOLS` (run trigger and fill, schedule set and
@@ -165,7 +165,10 @@ config/env. This is a generic capability, no host names, no domain logic.
   **token-gated MCP Streamable HTTP**, `StreamableHTTPClientTransport` from
   `@modelcontextprotocol/client`, with the bearer token
   carried in the transport's request headers (`Authorization: Bearer <token>`).
-  The client negotiates the modern protocol and falls back to legacy initialization.
+  The client probes the modern protocol and falls back to legacy initialization
+  only for SDK-classified legacy responses. Authentication refusals, HTTP 5xx,
+  network failures, HTTP timeouts and unreadable replies fail closed; they must
+  never trigger a blind legacy retry.
   SSE is legacy and is NOT used. The remote server is platform/external code,
   never co-located in the OSS container; the injected env carries only
   `{ url, token, label? }` and Aero connects out. Per-tenant isolation is the

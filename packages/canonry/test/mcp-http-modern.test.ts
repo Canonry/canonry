@@ -1,3 +1,4 @@
+import Database from 'better-sqlite3'
 import { apiKeys, users } from '@canonry/canonry-db'
 import { eq } from 'drizzle-orm'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
@@ -36,6 +37,7 @@ describe('modern MCP request authority and cancellation', () => {
   let token: string
 
   beforeAll(async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
     vi.stubEnv('CANONRY_TELEMETRY_DISABLED', '1')
     vi.stubEnv('CANONRY_DISABLE_UPDATE_CHECK', '1')
     vi.stubEnv('CANONRY_NO_AUTO_SKILLS_SYNC', '1')
@@ -56,10 +58,27 @@ describe('modern MCP request authority and cancellation', () => {
   afterAll(async () => {
     await instance?.close()
     vi.unstubAllEnvs()
+    vi.useRealTimers()
   })
 
   function requestKeys() {
     return instance.db.select().from(apiKeys).where(eq(apiKeys.delegatedUserId, instance.user.id)).all()
+  }
+
+  async function initializeLegacy(): Promise<string> {
+    const response = await fetch(instance.transportUrl, {
+      method: 'POST', headers: {
+        authorization: `Bearer ${token}`, accept: 'application/json, text/event-stream', 'content-type': 'application/json',
+      },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {
+        protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'lifecycle-probe', version: '1' },
+      } }),
+    })
+    await response.text()
+    expect(response.status).toBe(200)
+    const id = response.headers.get('mcp-session-id')
+    expect(id).toBeTruthy()
+    return id!
   }
 
   it.each([
@@ -78,33 +97,39 @@ describe('modern MCP request authority and cancellation', () => {
     expect(instance.db.$client.prepare('SELECT count(*) AS count FROM mcp_test_key_issuance').get()).toEqual(issuedBefore)
   })
 
-  it('keeps its internal credential valid while an SSE response is open, then deletes it on cancellation', async () => {
-    const response = await fetch(instance.transportUrl, modernRequest(token, 'subscriptions/listen', {
-      notifications: { toolsListChanged: true },
-    }))
-    expect(response.status).toBe(200)
-    expect(response.headers.get('content-type')).toContain('text/event-stream')
-    const reader = response.body!.getReader()
-    try {
-      const frame = await reader.read()
-      expect(new TextDecoder().decode(frame.value)).toContain('notifications/subscriptions/acknowledged')
-      expect(requestKeys()).toHaveLength(1)
-      expect(requestKeys()[0]?.revokedAt).toBeNull()
-    } finally {
-      await reader.cancel()
+  it('completes unsupported subscriptions and metadata reads without issuing credentials', async () => {
+    const issuedBefore = instance.db.$client.prepare('SELECT count(*) AS count FROM mcp_test_key_issuance').get()
+    for (const bearer of [token, instance.rootKey]) {
+      for (const method of ['server/discover', 'tools/list', 'resources/list']) {
+        const response = await fetch(instance.transportUrl, modernRequest(bearer, method))
+        expect(response.status).toBe(200)
+        expect((await rpcMessage(response)).error).toBeUndefined()
+      }
+      const response = await fetch(instance.transportUrl, modernRequest(bearer, 'subscriptions/listen', {
+        notifications: { toolsListChanged: true, resourcesListChanged: true, resourceSubscriptions: ['canonry://agent-operations/v1'] },
+      }, AbortSignal.timeout(5_000)))
+      expect(response.status).toBe(200)
+      const body = await response.text()
+      const frames = body.split('\n').filter(line => line.startsWith('data:')).map(line => JSON.parse(line.slice(5)) as { method?: string; params?: unknown; result?: unknown })
+      expect(frames).toEqual([expect.objectContaining({
+        method: 'notifications/subscriptions/acknowledged', params: expect.objectContaining({ notifications: {} }),
+      }), expect.objectContaining({ result: expect.objectContaining({ resultType: 'complete' }) })])
     }
-    await vi.waitFor(() => expect(requestKeys()).toEqual([]))
+    expect(instance.db.$client.prepare('SELECT count(*) AS count FROM mcp_test_key_issuance').get()).toEqual(issuedBefore)
+    expect(requestKeys()).toEqual([])
   })
 
   it.each(['complete', 'abort'] as const)('propagates a delayed tool request through %s and retires its credential', async mode => {
     const realFetch = globalThis.fetch
     let internalSignal: AbortSignal | undefined
+    let internalSession: string | null | undefined
     let release!: () => void
     const delayed = new Promise<void>(resolve => { release = resolve })
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
       const url = input instanceof Request ? input.url : String(input)
       if (url === `${instance.origin}${instance.basePath}/api/v1/projects`) {
         internalSignal = input instanceof Request ? input.signal : init?.signal ?? undefined
+        internalSession = new Headers(input instanceof Request ? input.headers : init?.headers).get('x-canonry-actor-session')
         await new Promise<void>((resolve, reject) => {
           const onAbort = () => reject(internalSignal?.reason)
           internalSignal?.addEventListener('abort', onAbort, { once: true })
@@ -125,6 +150,7 @@ describe('modern MCP request authority and cancellation', () => {
     try {
       await vi.waitFor(() => expect(internalSignal).toBeDefined())
       expect(internalSignal?.aborted).toBe(false)
+      expect(internalSession).toBeNull()
       expect(requestKeys()).toHaveLength(1)
       expect(requestKeys()[0]?.revokedAt).toBeNull()
       if (mode === 'abort') {
@@ -148,36 +174,13 @@ describe('modern MCP request authority and cancellation', () => {
     }
   })
 
-  it.each(['modern', 'legacy'] as const)('retries failed %s credential retirement after storage recovers', async era => {
-    const endpoint = `${instance.origin}${instance.basePath}/api/v1/mcp/readonly`
-    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
-    let sessionId: string | null = null
-    if (era === 'modern') {
-      const opened = await fetch(endpoint, modernRequest(token, 'subscriptions/listen', {
-        notifications: { toolsListChanged: true },
-      }))
-      reader = opened.body!.getReader()
-      await reader.read()
-    } else {
-      const initialized = await fetch(endpoint, {
-        method: 'POST', headers: {
-          authorization: `Bearer ${token}`, accept: 'application/json, text/event-stream', 'content-type': 'application/json',
-        },
-        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {
-          protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'cleanup-probe', version: '1' },
-        } }),
-      })
-      await initialized.text()
-      sessionId = initialized.headers.get('mcp-session-id')
-      expect(sessionId).toBeTruthy()
-    }
-    const key = requestKeys().find(row => row.revokedAt === null)!
-    expect(key).toBeDefined()
-    // A SQLite write failure is the actual persistence boundary, not a mocked
-    // cleanup callback that manufactures the retry behavior being asserted.
-    const failedKeys = new Set<string>()
+  it.each(['modern', 'legacy'] as const)('retries failed %s credential retirement only on the background sweep', async era => {
+    const endpoint = instance.transportUrl
+    const sessionId = era === 'legacy' ? await initializeLegacy() : null
+    // Exercise the actual SQLite persistence boundary, including each attempt.
+    const attempts: string[] = []
     instance.db.$client.function('mcp_test_retirement_failure', (id: unknown) => {
-      failedKeys.add(String(id))
+      attempts.push(String(id))
       throw new Error('synthetic credential storage failure')
     })
     instance.db.$client.exec(`
@@ -185,35 +188,63 @@ describe('modern MCP request authority and cancellation', () => {
       WHEN OLD.name LIKE 'mcp-session:%'
       BEGIN SELECT mcp_test_retirement_failure(OLD.id); END;
     `)
+    let keyId = ''
     try {
-      if (reader) await reader.cancel()
-      else {
-        const deleted = await fetch(endpoint, { method: 'DELETE', headers: {
+      const retired = era === 'modern'
+        ? await fetch(endpoint, modernRequest(token, 'tools/call', { name: 'canonry_projects_list', arguments: {} }))
+        : await fetch(endpoint, { method: 'DELETE', headers: {
           authorization: `Bearer ${token}`, 'mcp-session-id': sessionId!, 'mcp-protocol-version': '2025-11-25',
         } })
-        expect(deleted.status).toBe(200)
-        await deleted.text()
+      expect(retired.status).toBe(200)
+      await retired.text()
+      await vi.waitFor(() => expect(attempts).toHaveLength(1))
+      keyId = attempts[0]!
+      for (let read = 0; read < 3; read++) {
+        const response = await fetch(endpoint, modernRequest(token, 'tools/list'))
+        expect(response.status).toBe(200)
+        await response.text()
       }
-      await vi.waitFor(() => expect(failedKeys.has(key.id)).toBe(true))
-      const failedRetry = await fetch(endpoint, modernRequest(token, 'tools/list'))
-      expect(failedRetry.status).toBe(200)
-      await failedRetry.text()
-      expect(requestKeys().find(row => row.id === key.id)?.revokedAt).toBeNull()
+      expect(attempts).toEqual([keyId])
+      expect(requestKeys().find(row => row.id === keyId)?.revokedAt).toBeNull()
+      // The interval is aligned to boot, while the retry delay starts at failure.
+      await vi.advanceTimersByTimeAsync(120_000)
+      expect(attempts).toEqual([keyId, keyId])
     } finally {
       instance.db.$client.exec('DROP TRIGGER IF EXISTS mcp_test_fail_retirement')
-      await reader?.cancel()
     }
-    const recovered = await fetch(endpoint, modernRequest(token, 'tools/list'))
-    expect(recovered.status).toBe(200)
-    await recovered.text()
+    // A recovered database does not turn unrelated requests into retry workers.
+    const response = await fetch(endpoint, modernRequest(token, 'tools/list'))
+    expect(response.status).toBe(200)
+    await response.text()
+    expect(requestKeys().find(row => row.id === keyId)?.revokedAt).toBeNull()
+    await vi.advanceTimersByTimeAsync(120_000)
     await vi.waitFor(() => {
-      const retired = requestKeys().find(row => row.id === key.id)
+      const retired = requestKeys().find(row => row.id === keyId)
       if (era === 'modern') expect(retired).toBeUndefined()
       else expect(retired?.revokedAt).toEqual(expect.any(String))
       expect(requestKeys().filter(row => row.revokedAt === null)).toEqual([])
     })
-    // Keep later cases independent of the retained legacy audit identity.
-    instance.db.delete(apiKeys).where(eq(apiKeys.id, key.id)).run()
+    instance.db.delete(apiKeys).where(eq(apiKeys.id, keyId)).run()
+  })
+
+  it('logs an internal modern factory failure and keeps the transport usable', async () => {
+    const logged = vi.spyOn(instance.app.log, 'error')
+    instance.db.$client.exec(`
+      CREATE TEMP TRIGGER mcp_test_fail_creation BEFORE INSERT ON main.api_keys
+      WHEN NEW.name LIKE 'mcp-session:%'
+      BEGIN SELECT RAISE(FAIL, 'synthetic MCP credential insertion failure'); END;
+    `)
+    try {
+      const response = await fetch(instance.transportUrl, modernRequest(token, 'tools/call', { name: 'canonry_projects_list', arguments: {} }))
+      expect(response.status).toBe(500)
+      expect((await rpcMessage(response)).error?.code).toBe(-32603)
+      expect(logged).toHaveBeenCalledWith(expect.objectContaining({ err: expect.any(Error) }), 'Modern MCP request failed')
+    } finally {
+      instance.db.$client.exec('DROP TRIGGER IF EXISTS mcp_test_fail_creation')
+    }
+    const recovered = await fetch(instance.transportUrl, modernRequest(token, 'tools/call', { name: 'canonry_projects_list', arguments: {} }))
+    expect(recovered.status).toBe(200)
+    expect((await rpcMessage(recovered)).result?.isError).not.toBe(true)
   })
 
   it.each(['modern', 'legacy'] as const)('refuses to add read authority to a research-only OAuth grant over %s', async era => {
@@ -266,44 +297,68 @@ describe('modern MCP request authority and cancellation', () => {
     }
   })
 
-  it('closes an open SSE response and retries pending retirement at shutdown', async () => {
-    const opened = await fetch(instance.transportUrl, modernRequest(token, 'subscriptions/listen', {
-      notifications: { toolsListChanged: true },
-    }))
-    const reader = opened.body!.getReader()
-    await reader.read()
-    const key = requestKeys().find(row => row.revokedAt === null && row.scopes.length === 1)!
-    expect(key).toBeDefined()
-    const stillOpen = await fetch(instance.transportUrl, modernRequest(token, 'subscriptions/listen', {
-      notifications: { toolsListChanged: true },
-    }))
-    const stillOpenReader = stillOpen.body!.getReader()
-    await stillOpenReader.read()
-    let failed = false
-    instance.db.$client.function('mcp_test_shutdown_failure', () => {
-      failed = true
-      throw new Error('synthetic shutdown storage failure')
-    })
-    instance.db.$client.exec(`
-      CREATE TEMP TRIGGER mcp_test_fail_shutdown BEFORE UPDATE OF revoked_at ON main.api_keys
-      WHEN OLD.name LIKE 'mcp-session:%'
-      BEGIN SELECT mcp_test_shutdown_failure(); END;
-    `)
+  it('isolates a failed lifecycle read and resumes expiry checks on the next sweep', async () => {
+    const logged = vi.spyOn(instance.app.log, 'error')
+    const previousKeys = new Set(requestKeys().map(row => row.id))
+    const sessionId = await initializeLegacy()
+    const live = requestKeys().find(row => !previousKeys.has(row.id))!
+    expect(live).toBeDefined()
+    instance.db.$client.exec('ALTER TABLE api_keys RENAME TO mcp_test_unavailable_keys')
     try {
-      await reader.cancel()
-      await vi.waitFor(() => expect(failed).toBe(true))
-      expect(requestKeys().find(row => row.id === key.id)?.revokedAt).toBeNull()
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(logged).toHaveBeenCalledWith(expect.objectContaining({ err: expect.any(Error) }), 'MCP lifecycle sweep failed; will retry on the next interval')
     } finally {
-      instance.db.$client.exec('DROP TRIGGER IF EXISTS mcp_test_fail_shutdown')
-      await reader.cancel()
+      instance.db.$client.exec('ALTER TABLE mcp_test_unavailable_keys RENAME TO api_keys')
     }
-    const closing = instance.app.close()
-    let streamEnded = false
-    while (!streamEnded) streamEnded = (await stillOpenReader.read()).done
-    await closing
-    expect(streamEnded).toBe(true)
-    expect(requestKeys().find(row => row.id === key.id)).toBeUndefined()
-    expect(requestKeys().filter(row => row.revokedAt === null)).toEqual([])
+    instance.db.update(apiKeys).set({ revokedAt: new Date().toISOString() }).where(eq(apiKeys.id, live.id)).run()
+    await vi.advanceTimersByTimeAsync(60_000)
+    const expired = await fetch(instance.transportUrl, {
+      method: 'POST', headers: {
+        authorization: `Bearer ${token}`, accept: 'application/json, text/event-stream', 'content-type': 'application/json',
+        'mcp-session-id': sessionId, 'mcp-protocol-version': '2025-11-25',
+      },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list' }),
+    })
+    expect(expired.status).toBe(404)
+    await expired.text()
+    const recovered = await fetch(instance.transportUrl, modernRequest(token, 'tools/list'))
+    expect(recovered.status).toBe(200)
+    await recovered.text()
+  })
+
+  it('aborts active tool work and completes shutdown without waiting for a database writer', async () => {
+    const realFetch = globalThis.fetch
+    let internalSignal: AbortSignal | undefined
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = input instanceof Request ? input.url : String(input)
+      if (url === `${instance.origin}${instance.basePath}/api/v1/projects`) {
+        internalSignal = input instanceof Request ? input.signal : init?.signal ?? undefined
+        await new Promise<void>((_resolve, reject) => {
+          internalSignal?.addEventListener('abort', () => reject(internalSignal?.reason), { once: true })
+        })
+      }
+      return realFetch(input, init)
+    })
+    const outcome = fetch(instance.transportUrl, modernRequest(token, 'tools/call', { name: 'canonry_projects_list', arguments: {} }))
+      .then(response => response.text()).then(value => ({ value }), error => ({ error: error as Error }))
+    await vi.waitFor(() => expect(internalSignal).toBeDefined())
+    const key = requestKeys().find(row => row.revokedAt === null)!
+    expect(key).toBeDefined()
+    const writer = new Database(instance.db.$client.name)
+    writer.exec('BEGIN IMMEDIATE')
+    const timeoutBefore = instance.db.$client.pragma('busy_timeout', { simple: true })
+    const started = performance.now()
+    try {
+      await instance.app.close()
+      expect(performance.now() - started).toBeLessThan(1_000)
+      expect(internalSignal?.aborted).toBe(true)
+      expect(requestKeys().find(row => row.id === key.id)?.revokedAt).toBeNull()
+      expect(instance.db.$client.pragma('busy_timeout', { simple: true })).toBe(timeoutBefore)
+      await outcome
+    } finally {
+      writer.exec('ROLLBACK')
+      writer.close()
+    }
   })
 
 })

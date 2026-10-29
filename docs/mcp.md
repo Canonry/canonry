@@ -530,7 +530,7 @@ Toolkits (loaded on demand):
 
 The `canonry_project_export` MCP tool always returns notification webhook URLs in redacted form. It has no secret opt-in input.
 
-Loading a toolkit is idempotent and persists for the rest of the session; there is no unload. `canonry_load_toolkit` returns `{ status: 'loaded' \| 'already-loaded' \| 'empty', name, tools }`. The server coalesces all enable/disable side effects into one `notifications/tools/list_changed` per call, fired just before the response — so a single call refreshes the client's catalog once regardless of how many tools the toolkit contains.
+Loading a toolkit is idempotent and persists for the rest of the session; there is no unload. `canonry_load_toolkit` returns `{ status: 'loaded' \| 'already-loaded' \| 'empty', name, tools }`. The server coalesces enable/disable changes into one `notifications/tools/list_changed` when a toolkit is first loaded, before the response. Legacy clients receive it directly. Modern clients receive it through `subscriptions/listen`; the SDK's `ClientOptions.listChanged` opens that subscription automatically. Clients without a subscription can call `tools/list` after loading to refresh their catalog.
 
 #### Wait for the response before pipelining
 

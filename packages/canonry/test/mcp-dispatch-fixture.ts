@@ -118,7 +118,7 @@ export async function startNativeMcpDispatchFixture() {
       else process.env[name] = previous
     }
   }
-  const server = createCanonryMcpServer({ clientFactory: () => apiClient, eager: true, operator: true })
+  const server = createCanonryMcpServer({ clientFactory: () => apiClient, eager: true, operator: true, connectionProfile: true })
   const protocol = new Client({ name: 'native-mcp-contract', version: '1.0.0' })
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
   try {

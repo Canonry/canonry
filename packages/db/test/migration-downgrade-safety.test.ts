@@ -31,17 +31,18 @@ const ADDITIVE = [
   /^ALTER TABLE \S+ ADD COLUMN/i,
 ]
 
-// v199 backfills only new lineage storage, then retires the historical MCP
+// v199 drops only provably orphaned credentials, backfills new lineage, and retires MCP
 // session keys whose grant cannot be reconstructed. An older binary can still
-// use every OAuth token and mint replacement sessions. The executable boundary
+// use every valid OAuth token and mint replacement sessions. The executable boundary
 // proof lives in oauth-grants-migration.test.ts (tokens, Aero and ordinary keys).
 // Keep this version- and operation-specific: never allow arbitrary data writes.
 const REVIEWED_DATA_STATEMENTS: ReadonlyMap<number, readonly RegExp[]> = new Map([
   [199, [
+    /^DELETE FROM oauth_tokens WHERE NOT EXISTS \(SELECT 1 FROM oauth_clients WHERE id = oauth_tokens\.client_id\) OR NOT EXISTS \(SELECT 1 FROM users WHERE id = oauth_tokens\.user_id\)$/i,
     /^INSERT OR IGNORE INTO oauth_grants \(/i,
     /^UPDATE oauth_tokens SET grant_id = \( .* \) WHERE grant_id IS NULL$/i,
-    /^DELETE FROM dashboard_sessions WHERE api_key_id IN \( SELECT id FROM api_keys WHERE delegated_user_id IS NOT NULL AND name = 'mcp-session:' \|\| delegated_user_id \)$/i,
-    /^UPDATE api_keys SET revoked_at = COALESCE\(revoked_at, strftime\('[^']+', 'now'\)\) WHERE delegated_user_id IS NOT NULL AND name = 'mcp-session:' \|\| delegated_user_id$/i,
+    /^DELETE FROM dashboard_sessions WHERE api_key_id IN \( SELECT id FROM api_keys WHERE \(delegated_user_id IS NOT NULL AND name = 'mcp-session:' \|\| delegated_user_id\) OR \(delegated_user_id IS NULL AND name GLOB 'mcp-session:\*'\) \)$/i,
+    /^UPDATE api_keys SET revoked_at = COALESCE\(revoked_at, strftime\('[^']+', 'now'\)\) WHERE \(delegated_user_id IS NOT NULL AND name = 'mcp-session:' \|\| delegated_user_id\) OR \(delegated_user_id IS NULL AND name GLOB 'mcp-session:\*'\)$/i,
   ]],
 ])
 

@@ -81,10 +81,12 @@ It requires a named user with instance-wide read access. An ordinary API key
 without a delegated user receives 403. A project-scoped key also receives 403.
 An instance without configured OAuth resource identity receives 501.
 
-This exact GET is inside the MCP authorization boundary. An MCP bearer still
+This exact GET (and its automatic HEAD response) is inside the MCP authorization boundary. An MCP bearer still
 cannot read ordinary REST endpoints such as `/api/v1/projects`.
 CLI parity is `canonry mcp profile --format json`. MCP parity is
-`canonry_mcp_profile`, using the same response and delegated identity.
+`canonry_mcp_profile`, using the same response and delegated identity. The tool is
+advertised only when that connection can read its profile. Native Aero and unbound
+API-key connections omit it; stdio probes the public profile before advertising it.
 
 ## Refresh and revoke
 
@@ -97,14 +99,20 @@ A refresh request includes `grant_type=refresh_token`, `refresh_token`, and the
 original `client_id`. Confidential clients also include `client_secret`.
 The server rejects a missing or different client ID. It consumes the refresh
 token and issues its replacement in one database transaction. A token succeeds
-at most once, including concurrent requests. An authenticated replay revokes the grant and returns `invalid_grant`.
+at most once, including concurrent requests. An authenticated replay revokes the
+grant and returns `invalid_grant`. A concurrent loser therefore invalidates the
+winner's new token pair too. This strict replay policy follows
+[RFC 9700 section 4.14.2](https://www.rfc-editor.org/rfc/rfc9700.html#section-4.14.2);
+there is no reuse grace window.
 The gateway must serialize refresh operations and store the new pair atomically.
 A repeated request after an uncertain refresh outcome requires connection authorization.
 
-`POST /oauth/revoke` accepts `token` and revokes the token's complete grant,
+`POST /oauth/revoke` accepts a valid, unexpired `token` and revokes its complete grant,
 including related access tokens, refresh tokens, and delegated session keys.
 Other authorizations and other users of the same OAuth client remain valid.
-Unknown tokens return 200 without revealing whether a token exists.
+Unknown, expired, and already-revoked tokens return 200 without changing a live
+grant. Token-only requests for confidential or revoked clients also return the
+same 200 response without changing credentials.
 An explicit client ID must authenticate, or revocation returns `invalid_client`.
 Public clients retain token-only revocation for compatibility. Confidential clients
 must send `client_id` and `client_secret`.
@@ -115,7 +123,10 @@ client, user, resource, and scope. Revocation can therefore affect multiple old
 authorizations within that group. It never crosses users. New authorizations
 have separate grant identities. Reconnect to obtain a new distinct grant.
 The upgrade retires old MCP internal keys that lack grant lineage; legacy clients
-initialize a new session. Ordinary keys and Aero viewer keys remain unchanged.
+initialize a new session. This includes older keys with no delegated user under
+the reserved `mcp-session:` name prefix; manually named keys in that namespace
+also retire. Other ordinary keys and Aero viewer keys remain unchanged. Orphaned
+OAuth tokens whose user or client no longer exists are removed during migration.
 If an older binary later writes an unlinked token, access resolution adopts its
 legacy family before the transport creates a delegated key.
 
@@ -124,8 +135,8 @@ The gateway must not cache the profile as authorization proof.
 
 ## Modern protocol and legacy compatibility
 
-The engine uses official SDK v2: `@modelcontextprotocol/server`, `client`, and
-`core` version `2.4.0`, plus `@modelcontextprotocol/node` version `2.1.2`. It serves
+The engine uses official SDK v2: `@modelcontextprotocol/server` and `@modelcontextprotocol/client` version `2.4.0`,
+plus `@modelcontextprotocol/node` version `2.1.2`. Core is a test dependency. It serves
 `2026-07-28` sessionless requests and legacy sessions at the same URLs.
 
 The endpoint URLs, issuer, canonical OAuth resource, profile, and grant semantics
@@ -143,9 +154,15 @@ HTTP headers include `MCP-Protocol-Version`, `Mcp-Method`, and `Mcp-Name` when a
 The engine creates request-local authorization and adapter state. It does not
 share a delegated key, catalog, or user identity across modern requests.
 A modern delegated key remains valid through response streaming, then is revoked
-and removed. Cleanup failures are retried on requests, sweeps, and shutdown.
+and removed. Cleanup failures use a bounded background retry queue with
+nonblocking SQLite writes. Shutdown makes a bounded attempt and logs failures;
+it does not block connection draining on a held database lock.
 OAuth-linked internal keys expire after one hour even if cleanup fails.
-Shutdown closes streams before waiting for HTTP connections to drain.
+Shutdown closes streams before waiting for HTTP connections to drain. Fixed
+hosted catalogs advertise no change subscriptions. `subscriptions/listen` returns
+an empty accepted notification set and closes without creating a delegated key.
+Modern requests omit session attribution; legacy connections retain one stable
+session correlation value.
 
 SDK v2 clients can choose `versionNegotiation.mode='auto'`, `'legacy'`, or
 `{ pin: '2026-07-28' }`. The gateway uses automatic negotiation or a verified

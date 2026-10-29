@@ -10,8 +10,9 @@ the `canonry_project_overview` and `canonry_search` core composites; the
 catalog is split across a small **core tier** (always loaded) and the
 **toolkits** listed in `CANONRY_MCP_TIERS` (`toolkits.ts`; `ads` is OpenAI / ChatGPT Ads, `google-ads` is separate) that the client
 loads on demand via `canonry_load_toolkit`. The catalog coalesces enable
-side effects so each `canonry_load_toolkit` call emits exactly one
-`notifications/tools/list_changed`. Pass `--read-only` to surface
+side effects so a newly loaded toolkit emits exactly one
+`notifications/tools/list_changed`. Legacy clients receive it directly; modern
+clients must open `subscriptions/listen` (SDK `listChanged` does this automatically). Pass `--read-only` to surface
 only the read tools, `--stored-only` or `--scope=stored-only` to expose only
 stored evidence reads, or `--eager` (or `CANONRY_MCP_EAGER=1`) to register
 every tool at startup like the previous flat catalog. Auth is inherited
@@ -60,7 +61,7 @@ re-initialization.
 Research history uses the model catalog's cached-only read; live discovery stays
 out of stored-evidence workflows, including on cold or expired caches.
 
-`canonry_mcp_profile` mirrors `mcp profile` and `GET /mcp/profile`. Its immutable user ID is local to the discovered instance issuer; never identify a person by display name. The endpoint also accepts MCP-audience OAuth tokens without granting general REST access.
+`canonry_mcp_profile` mirrors `mcp profile` and `GET /mcp/profile`. Its immutable user ID is local to the discovered instance issuer; never identify a person by display name. The endpoint also accepts MCP-audience OAuth tokens without granting general REST access. Advertise the tool only for a verified named connection with instance-wide read access and configured OAuth identity; stdio probes the public profile, and native Aero excludes this connection-only tool.
 
 Reject invalid MCP opening messages before minting internal OAuth keys. A failed initialization must revoke its temporary key and close its transport even if no session ID was registered.
 

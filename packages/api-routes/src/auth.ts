@@ -216,8 +216,8 @@ function isTransportEnvelopeRoute(request: FastifyRequest): boolean {
 /** The connection profile is a read inside the MCP audience, not a transport exemption. */
 function isMcpAuthorizationRoute(request: FastifyRequest): boolean {
   return isTransportEnvelopeRoute(request)
-    || (request.method === 'GET'
-      && matchOperationTemplate(request.method, request.routeOptions.url ?? request.url) === 'GET /api/v1/mcp/profile')
+    || ((request.method === 'GET' || request.method === 'HEAD')
+      && matchOperationTemplate('GET', request.routeOptions.url ?? request.url) === 'GET /api/v1/mcp/profile')
 }
 
 /**

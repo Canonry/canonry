@@ -428,6 +428,32 @@ describe('connectStreamableHttp (frozen transport)', () => {
       await new Promise<void>((resolve, reject) => http.close(error => error ? reject(error) : resolve()))
     }
   })
+
+  it.each(['unauthorized', 'forbidden', 'server-error', 'unusable-reply', 'connection-closed'] as const)(
+    'does not downgrade to legacy after a %s version probe', async failure => {
+      const methods: string[] = []
+      const http = createServer(async (request, response) => {
+        let body = ''
+        for await (const chunk of request) body += String(chunk)
+        if (body) methods.push((JSON.parse(body) as { method: string }).method)
+        if (failure === 'connection-closed') { response.destroy(); return }
+        const status = failure === 'unauthorized' ? 401 : failure === 'forbidden' ? 403 : failure === 'server-error' ? 502 : 200
+        response.writeHead(status, { 'content-type': 'application/json' })
+        response.end(failure === 'unusable-reply' ? 'invalid JSON' : '{}')
+      })
+      await new Promise<void>(resolve => http.listen(0, '127.0.0.1', resolve))
+      try {
+        const address = http.address()
+        if (!address || typeof address === 'string') throw new Error('Synthetic MCP listener has no address')
+        await expect(connectStreamableHttp({ ...SERVER, url: `http://127.0.0.1:${address.port}/mcp` })).rejects.toThrow()
+        expect(methods).toEqual(['server/discover'])
+      } finally {
+        http.closeAllConnections()
+        await new Promise<void>((resolve, reject) => http.close(error => error ? reject(error) : resolve()))
+      }
+    },
+  )
+
 })
 
 describe('parseExternalMcpEnv (CANONRY_EXTERNAL_MCP)', () => {

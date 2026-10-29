@@ -2,7 +2,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import Fastify from 'fastify'
+import Fastify, { type FastifyInstance } from 'fastify'
 import { eq } from 'drizzle-orm'
 import { afterEach, beforeEach, expect, test } from 'vitest'
 import { apiKeys, createClient, migrate, oauthClients, oauthGrants, oauthTokens, users, type DatabaseClient } from '@canonry/canonry-db'
@@ -19,7 +19,7 @@ const ROOT_KEY = 'cnry_profile_root'
 const DELEGATED_KEY = 'cnry_profile_delegated'
 let directory: string
 let db: DatabaseClient
-let app: ReturnType<typeof Fastify>
+let app: FastifyInstance
 
 beforeEach(async () => {
   directory = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-mcp-profile-'))
@@ -57,6 +57,11 @@ test('returns stable account identity and configured resource, without broadenin
   const response = await app.inject({ url: `${PREFIX}/mcp/profile`, headers: bearer(ACCESS_TOKEN) })
   expect(response.statusCode).toBe(200)
   expect(response.headers['cache-control']).toBe('no-store')
+  const head = await app.inject({ method: 'HEAD', url: `${PREFIX}/mcp/profile`, headers: bearer(ACCESS_TOKEN) })
+  expect(head.statusCode).toBe(200)
+  expect(head.headers['cache-control']).toBe('no-store')
+  expect(head.body).toBe('')
+  expect((await app.inject({ method: 'HEAD', url: `${PREFIX}/mcp/profile/extra`, headers: bearer(ACCESS_TOKEN) })).statusCode).toBe(401)
   expect(response.json<McpProfileDto>()).toEqual({
     userId: USER_ID,
     displayName: 'Synthetic Reader',
