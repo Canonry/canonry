@@ -453,3 +453,4 @@ export function getAnswerServiceEnv(
   return providers
 }
 export * from './seo.js'
+export * from './mcp-gateway.js'
