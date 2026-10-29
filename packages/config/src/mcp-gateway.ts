@@ -23,9 +23,17 @@ export const gatewayTenantSchema = z.object({
 
 export type GatewayTenant = z.infer<typeof gatewayTenantSchema>
 
+const LOOPBACK_HOSTS = ['localhost', '127.0.0.1', '[::1]']
+
 const clientSchema = z.object({
   client_id: identifier,
   client_name: nonempty.max(200),
+  /**
+   * `native` is a CLI or desktop app that receives the code on a loopback port it
+   * picks per sign-in (RFC 8252 section 7.3). oidc-provider matches its loopback
+   * redirects on any port, so they are registered without one.
+   */
+  application_type: z.enum(['web', 'native']).default('web'),
   redirect_uris: z.array(z.url()).min(1),
   token_endpoint_auth_method: z.literal('none').default('none'),
   grant_types: z.array(z.enum(['authorization_code', 'refresh_token'])).default(['authorization_code', 'refresh_token']),
@@ -49,7 +57,7 @@ export const gatewayConfigSchema = z.object({
 }).strict().superRefine((config, ctx) => {
   const checkTransport = (value: string, path: (string | number)[]) => {
     const parsed = new URL(value)
-    const loopback = ['localhost', '127.0.0.1', '[::1]'].includes(parsed.hostname)
+    const loopback = LOOPBACK_HOSTS.includes(parsed.hostname)
     if (parsed.protocol !== 'https:' && !(config.development && loopback && parsed.protocol === 'http:')) {
       ctx.addIssue({ code: 'custom', path, message: 'HTTPS is required except explicit development on loopback' })
     }
@@ -87,8 +95,11 @@ export const gatewayConfigSchema = z.object({
     if (clientIds.has(client.client_id)) ctx.addIssue({ code: 'custom', path: ['clients', index, 'client_id'], message: 'Client IDs must be unique' })
     clientIds.add(client.client_id)
     client.redirect_uris.forEach((redirect, redirectIndex) => {
-      checkTransport(redirect, ['clients', index, 'redirect_uris', redirectIndex])
       const parsed = new URL(redirect)
+      if (client.application_type === 'web') checkTransport(redirect, ['clients', index, 'redirect_uris', redirectIndex])
+      else if (parsed.protocol !== 'http:' || !LOOPBACK_HOSTS.includes(parsed.hostname) || parsed.port) {
+        ctx.addIssue({ code: 'custom', path: ['clients', index, 'redirect_uris', redirectIndex], message: 'Native clients register loopback HTTP redirects without a port' })
+      }
       if (parsed.username || parsed.password || parsed.hash) {
         ctx.addIssue({ code: 'custom', path: ['clients', index, 'redirect_uris', redirectIndex], message: 'Redirects cannot contain credentials or fragments' })
       }

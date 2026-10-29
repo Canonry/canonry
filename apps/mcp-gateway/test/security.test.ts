@@ -16,7 +16,7 @@ afterEach(async () => {
 })
 
 /** These guards run before upstream contact; no engine or provider is replaced. */
-async function fixture(input: { clientName?: string; workspaceName?: string; workspaceOrigin?: string; enabled?: boolean; provisioned?: boolean; redirectUri?: string } = {}) {
+async function fixture(input: { clientName?: string; workspaceName?: string; workspaceOrigin?: string; enabled?: boolean; provisioned?: boolean; redirectUri?: string; applicationType?: 'web' | 'native' } = {}) {
   const registeredRedirect = input.redirectUri ?? redirectUri
   const workspaceOrigin = input.workspaceOrigin ?? 'http://127.0.0.1:1'
   const reservation = createServer()
@@ -29,7 +29,10 @@ async function fixture(input: { clientName?: string; workspaceName?: string; wor
   const directory = mkdtempSync(join(tmpdir(), 'canonry-gateway-browser-'))
   const config = gatewayConfigSchema.parse({
     issuer, port, development: true, databasePath: join(directory, 'gateway.sqlite'),
-    clients: [{ client_id: 'browser-client', client_name: input.clientName ?? 'Synthetic browser client', redirect_uris: [registeredRedirect] }],
+    clients: [{
+      client_id: 'browser-client', client_name: input.clientName ?? 'Synthetic browser client', redirect_uris: [registeredRedirect],
+      ...(input.applicationType ? { application_type: input.applicationType } : {}),
+    }],
     tenants: [{
       id: 'synthetic', displayName: input.workspaceName ?? 'Synthetic workspace', enabled: input.enabled ?? true,
       origin: workspaceOrigin, issuer: workspaceOrigin, allowPrivateNetwork: true,
@@ -316,6 +319,25 @@ describe('gateway browser authorization boundary', () => {
     expect(response.headers.get('location')).toBeNull()
     const valid = await built.consent()
     await cancel(built, valid.path, valid.csrf)
+  })
+
+  it('lets a native client pick its loopback port and holds web clients to the exact redirect', async () => {
+    // Claude Code and Codex receive the code on a port they choose per sign-in (RFC 8252 section 7.3).
+    const native = await fixture({ applicationType: 'native', redirectUri: 'http://localhost/callback' })
+    for (const port of [53682, 61234]) {
+      const accepted = await native.authorize({ redirect_uri: `http://localhost:${port}/callback` })
+      expect(accepted.status).toBe(303)
+      expect(new URL(accepted.headers.get('location')!, native.issuer).pathname).toMatch(/^\/interaction\/[^/]+$/)
+    }
+    for (const redirect of ['http://localhost:53682/other', 'http://127.0.0.1:53682/callback', 'https://localhost:53682/callback']) {
+      const refused = await native.authorize({ redirect_uri: redirect })
+      expect(refused.status).toBe(400)
+      expect(refused.headers.get('location')).toBeNull()
+    }
+    const web = await fixture()
+    const refused = await web.authorize({ redirect_uri: 'http://127.0.0.1:47002/callback' })
+    expect(refused.status).toBe(400)
+    expect(refused.headers.get('location')).toBeNull()
   })
 
   it.each(['origin', 'csrf', 'browser-cookie'] as const)('binds the consent form to its %s', async guard => {

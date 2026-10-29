@@ -38,6 +38,17 @@ describe('gateway host configuration', () => {
     expect(gatewayConfigSchema.safeParse({ ...development, issuer: 'http://example.com' }).success).toBe(false)
   })
 
+  it('accepts portless loopback redirects for native clients in production and keeps web clients on HTTPS', () => {
+    const native = { client_id: 'claude-code', client_name: 'Claude Code', application_type: 'native', redirect_uris: ['http://localhost/callback', 'http://127.0.0.1/callback'] }
+    expect(gatewayConfigSchema.parse({ ...config, clients: [native] }).clients[0]?.application_type).toBe('native')
+    expect(gatewayConfigSchema.parse(config).clients[0]?.application_type).toBe('web')
+    for (const redirect of ['http://localhost:5100/callback', 'http://example.com/callback', 'https://claude.ai/api/mcp/auth_callback', 'http://localhost/callback#fragment']) {
+      expect(gatewayConfigSchema.safeParse({ ...config, clients: [{ ...native, redirect_uris: [redirect] }] }).success).toBe(false)
+    }
+    expect(gatewayConfigSchema.safeParse({ ...config, clients: [{ ...native, application_type: 'web' }] }).success).toBe(false)
+    expect(gatewayConfigSchema.safeParse({ ...config, clients: [{ ...native, application_type: 'desktop' }] }).success).toBe(false)
+  })
+
   it('requires separate explicit vault and cookie secrets with no fallback', () => {
     const env = {
       CANONRY_GATEWAY_CONFIG: '/run/secrets/gateway.json',

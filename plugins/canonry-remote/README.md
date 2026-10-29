@@ -4,6 +4,19 @@ This source package is configured to connect to `https://mcp.canonry.ai/mcp` wit
 separate from `plugins/canonry`, which continues to launch the local stdio
 server. It adds no local runtime, skills, credentials, hooks, or scheduled work.
 
+## Install
+
+Claude Code 2.1.275 or later:
+
+```text
+/plugin install canonry-remote --marketplace Canonry/canonry
+```
+
+Then open `/mcp`, choose the Canonry server and authenticate: enter your
+workspace on the consent page and sign in with that workspace's Canonry account.
+Codex and the ChatGPT desktop app use `codex plugin marketplace add
+Canonry/canonry` and `codex plugin add canonry-remote@canonry`.
+
 The gateway forwards the selected instance's complete supported read-only
 catalog, including stored reads for Simple and Advanced Measurement portfolios.
 Use runtime `canonry_help` and tool schemas for the available operations. The
@@ -18,14 +31,20 @@ engine versions. The operator must validate the contract before onboarding.
 
 `mcp.json` selects the pre-registered public client `canonry-chatgpt` with S256
 PKCE and requests `read` plus `offline_access`. Provision that exact client ID
-with the portal's exact callback URI before connecting. The user must consent. No client secret or bearer belongs in this package. Tool
+with the portal's exact callback URI before connecting. The Claude Code adapter
+(`.claude-plugin/plugin.json` and `.mcp.json`) connects to the same URL as the
+public client `canonry-claude-code`. Claude Code receives the code on
+`http://localhost:<port>/callback` with a port it picks per sign-in, so the
+gateway registers that client as `application_type: "native"` with
+`http://localhost/callback`. The user must consent. No client secret or bearer belongs in this package. Tool
 annotations and OAuth security requirements come from the server's catalog,
 not from this manifest. The gateway and engine must enforce those restrictions.
 
 ## Preparation status
 
-This package is listed in the Codex marketplace as `canonry-remote`. It is not yet
-submitted to the OpenAI plugin directory. The proposed production hostname is not evidence of a
+This package is listed in the Codex and Claude Code marketplaces as
+`canonry-remote`. It is not yet submitted to the OpenAI plugin directory or an
+Anthropic directory. The proposed production hostname is not evidence of a
 working deployment. The five positive and three negative cases in `plugin.json`
 are review instructions, not recorded test results. Live ChatGPT/Codex import,
 OAuth and tool validation remain **not run**. Local tests against real synthetic
