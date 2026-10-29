@@ -36,7 +36,7 @@ with the portal's exact callback URI before connecting. The Claude Code adapter
 public client `canonry-claude-code`. Claude Code receives the code on
 `http://localhost:<port>/callback` with a port it picks per sign-in, so the
 gateway registers that client as `application_type: "native"` with
-`http://localhost/callback`. The user must consent. No client secret or bearer belongs in this package. Tool
+`http://localhost/callback` and `http://127.0.0.1/callback`. The user must consent. No client secret or bearer belongs in this package. Tool
 annotations and OAuth security requirements come from the server's catalog,
 not from this manifest. The gateway and engine must enforce those restrictions.
 

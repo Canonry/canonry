@@ -84,10 +84,15 @@ registers loopback HTTP redirects without a port, for example
 host and path (RFC 8252 section 7.3); the host must match, so register
 `localhost` and `127.0.0.1` separately when a client can use either. Every other
 client stays `web` (the default) with exact HTTPS redirects. The Claude Code
-adapter in `plugins/canonry-remote` uses this registry entry:
+adapter in `plugins/canonry-remote` uses the first entry below. Claude Code calls
+back on `localhost`; versions 2.1.229 and 2.1.230 used `127.0.0.1`, and Claude's
+published client metadata lists both. Claude on the web, desktop and mobile
+calls back on one HTTPS URI and accepts a user-entered client ID, so it uses the
+second entry:
 
 ```json
-{ "client_id": "canonry-claude-code", "client_name": "Claude Code", "application_type": "native", "redirect_uris": ["http://localhost/callback"] }
+{ "client_id": "canonry-claude-code", "client_name": "Claude Code", "application_type": "native", "redirect_uris": ["http://localhost/callback", "http://127.0.0.1/callback"] }
+{ "client_id": "canonry-claude", "client_name": "Claude", "redirect_uris": ["https://claude.ai/api/mcp/auth_callback"] }
 ```
 
 Each tenant entry supplies an immutable `id`, `displayName`, approved `origin`,
