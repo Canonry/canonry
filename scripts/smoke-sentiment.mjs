@@ -33,10 +33,9 @@ const preload = fileURLToPath(new URL('./sentiment-smoke-preload.mjs', import.me
 const receiptPath = path.join(scratch, 'provider-receipts.jsonl')
 const database = path.join(scratch, 'synthetic.sqlite')
 const installedRequire = createRequire(path.join(packageRoot, 'package.json'))
-const sdk = name => import(pathToFileURL(installedRequire.resolve(`@modelcontextprotocol/sdk/${name}`)).href)
-const { Client } = await sdk('client/index.js')
-const { StdioClientTransport } = await sdk('client/stdio.js')
-const { StreamableHTTPClientTransport } = await sdk('client/streamableHttp.js')
+const sdk = name => import(pathToFileURL(installedRequire.resolve(`@modelcontextprotocol/${name}`)).href)
+const { Client, StreamableHTTPClientTransport } = await sdk('client')
+const { StdioClientTransport } = await sdk('client/stdio')
 const bin = path.join(packageRoot, 'bin/canonry.mjs')
 const mcpBin = path.join(packageRoot, 'bin/canonry-mcp.mjs')
 const cleanEnv = Object.fromEntries(['PATH', 'LANG', 'TZ', 'USER'].filter(key => process.env[key]).map(key => [key, process.env[key]]))
@@ -89,9 +88,11 @@ function sameRunError(value, client = false) {
   const { requestId: _requestId, httpStatus: _httpStatus, ...details } = value.error.details
   return { ...value.error, details }
 }
-async function connect(transport) {
-  const client = new Client({ name: 'canonry-sentiment-packaged-smoke', version: '1.0.0' })
-  clients.push(client); await client.connect(transport); return client
+async function connect(transport, era) {
+  const client = new Client({ name: 'canonry-sentiment-packaged-smoke', version: '1.0.0' }, {
+    versionNegotiation: { mode: era === 'modern' ? { pin: '2026-07-28' } : 'legacy' },
+  })
+  clients.push(client); await client.connect(transport); assert.equal(client.getProtocolEra(), era); return client
 }
 function stable(value) { const cloned = JSON.parse(JSON.stringify(value)); delete cloned.generatedAt; return cloned }
 try {
@@ -362,11 +363,11 @@ try {
     }
   }
   mark('dated crawl reads select older inventory and withhold missing dates across HTTP and installed CLI')
-  for (const role of ['admin', 'read', 'scoped']) {
+  for (const era of ['legacy', 'modern']) for (const role of ['admin', 'read', 'scoped']) {
     for (const kind of ['http', 'stdio']) {
       const token = role === 'admin' ? SMOKE_ADMIN : role === 'read' ? SMOKE_READ : SMOKE_SCOPED
       const transport = kind === 'http' ? new StreamableHTTPClientTransport(new URL(`${base}/api/v1/mcp`), { requestInit: { headers: { authorization: `Bearer ${token}` } } }) : new StdioClientTransport({ command: process.execPath, args: [mcpBin, '--eager'], cwd: scratch, env: configs[role], stderr: 'pipe' })
-      const client = await connect(transport)
+      const client = await connect(transport, era)
       assert.deepEqual(stable(await call(client, 'canonry_sentiment', { project: 'simple' })), stable(summaries.simple))
       assert.deepEqual(stable(await call(client, 'canonry_sentiment_evidence', { project: 'simple' })), stable(evidence.simple))
       assert.deepEqual(await call(client, 'canonry_sentiment', { project: 'simple', queryId: 'simple-query' }), await http('simple', '?queryId=simple-query'))
@@ -398,11 +399,14 @@ try {
       if (role === 'read') {
         const listed = await client.listTools()
         assert(!listed.tools.some(tool => tool.name === 'canonry_sentiment_configure' || tool.name === 'canonry_sentiment_backfill'))
+        await assert.rejects(client.callTool({ name: 'canonry_sentiment_configure', arguments: { project: 'simple', enabled: true } }), {
+          name: 'ProtocolError', code: -32602, message: 'Tool canonry_sentiment_configure not found',
+        })
       }
       await client.close()
     }
   }
-  mark('HTTP MCP and installed stdio MCP match persisted results and enforce read/scoped credentials')
+  mark('Legacy and modern HTTP/stdio MCP match persisted results and enforce read/scoped credentials')
   mark('distinct-period comparisons and same-run refusal agree across HTTP, CLI and both MCP transports')
   mark('compact measurement projections and filtered competitor populations agree across both MCP transports')
   mark('dated Simple/Advanced crawl inventory and missing-date reads agree across both MCP transports')

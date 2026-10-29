@@ -742,12 +742,15 @@ export const apiKeys = sqliteTable('api_keys', {
   projectId: text('project_id').references(() => projects.id, { onDelete: 'cascade' }),
   /** Internal delegated session identity, never accepted by the key-create API. */
   delegatedUserId: text('delegated_user_id').references(() => users.id, { onDelete: 'cascade' }),
+  /** Authorization that minted this internal MCP credential. */
+  delegatedOAuthGrantId: text('delegated_oauth_grant_id').references(() => oauthGrants.id, { onDelete: 'cascade' }),
   createdAt: text('created_at').notNull(),
   lastUsedAt: text('last_used_at'),
   revokedAt: text('revoked_at'),
 }, (table) => [
   index('idx_api_keys_prefix').on(table.keyPrefix),
   index('idx_api_keys_project').on(table.projectId),
+  index('idx_api_keys_oauth_grant').on(table.delegatedOAuthGrantId),
 ])
 
 /**
@@ -813,18 +816,14 @@ export const dashboardSessions = sqliteTable('dashboard_sessions', {
 /**
  * OAuth 2.1 clients registered against this instance.
  *
- * Pre-registered only. Dynamic Client Registration (RFC 7591) is deprecated in
- * the current MCP revision and retained there only for backwards compatibility,
- * and the hosts that matter do not need it: Gemini Enterprise has no DCR path
- * at all and wants a client id and secret typed into a form, and ChatGPT keeps
- * predefined clients working. So an operator registers a client explicitly and
- * nothing on the network can mint one.
+ * Operator registrations and public Dynamic Client Registration both require
+ * explicit user consent and S256 PKCE before they can receive tokens.
  */
 export const oauthClients = sqliteTable('oauth_clients', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
   /**
-   * scrypt digest, or NULL for a public client that authenticates by PKCE
+   * SHA-256 digest, or NULL for a public client that authenticates by PKCE
    * alone. Never the secret: a client secret is a bearer credential, and a
    * copied database file must not be a working client.
    */
@@ -843,6 +842,20 @@ export const oauthClients = sqliteTable('oauth_clients', {
   createdAt: text('created_at').notNull(),
   revokedAt: text('revoked_at'),
 })
+
+/** One authorization and every token rotation descended from it. */
+export const oauthGrants = sqliteTable('oauth_grants', {
+  id: text('id').primaryKey(),
+  clientId: text('client_id').notNull().references(() => oauthClients.id, { onDelete: 'cascade' }),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  resource: text('resource'),
+  scope: text('scope'),
+  createdAt: text('created_at').notNull(),
+  revokedAt: text('revoked_at'),
+}, (table) => [
+  index('idx_oauth_grants_client').on(table.clientId),
+  index('idx_oauth_grants_user').on(table.userId),
+])
 
 /**
  * In-flight authorization codes. Single use, short lived, and bound to the
@@ -877,6 +890,8 @@ export const oauthAuthorizationCodes = sqliteTable('oauth_authorization_codes', 
 export const oauthTokens = sqliteTable('oauth_tokens', {
   tokenHash: text('token_hash').primaryKey(),
   kind: text('kind').$type<'access' | 'refresh'>().notNull(),
+  /** Nullable only for an older binary writing after this migration. */
+  grantId: text('grant_id').references(() => oauthGrants.id, { onDelete: 'cascade' }),
   clientId: text('client_id').notNull().references(() => oauthClients.id, { onDelete: 'cascade' }),
   userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   /** Audience. Enforced on every resource request. */
@@ -886,6 +901,7 @@ export const oauthTokens = sqliteTable('oauth_tokens', {
   revokedAt: text('revoked_at'),
   createdAt: text('created_at').notNull(),
 }, (table) => [
+  index('idx_oauth_tokens_grant').on(table.grantId),
   index('idx_oauth_tokens_user').on(table.userId),
   index('idx_oauth_tokens_expires').on(table.expiresAt),
 ])

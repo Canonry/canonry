@@ -28,7 +28,7 @@ if (args.includes('--browser')) {
 }
 const packageRoot = await realpath(args[args.indexOf('--package-root') + 1])
 const checkout = await realpath(fileURLToPath(new URL('../', import.meta.url)))
-assert(packageRoot.startsWith('/tmp/canonry-sentiment-') && packageRoot.includes('/node_modules/@canonry/canonry') && !packageRoot.startsWith(checkout), 'Use the fresh installed scratch tarball')
+assert(!packageRoot.startsWith(`${checkout}/`) && packageRoot.includes('/node_modules/@canonry/canonry'), 'Use a scratch tarball installation outside the checkout')
 const packageInfo = JSON.parse(await readFile(path.join(packageRoot, 'package.json'), 'utf8'))
 assert.equal(packageInfo.name, '@canonry/canonry')
 await access(path.join(packageRoot, 'assets/index.html'))
@@ -145,7 +145,12 @@ try {
     assert.equal(row.requestedModel, `synthetic-${provider}-requested`); assert.equal(row.servedModel, `synthetic-${provider}-served`)
     if (provider === 'perplexity') { assert.equal(row.assessmentId, null); assert.equal(row.state, 'not-measured') }
   }
-  assert.equal(advanced.queries[0].assessments.length, 4); assert.equal(advanced.coverage.distinctSourceAnswers, 2)
+  const advancedRows = advanced.queries.flatMap(query => query.assessments)
+  assert.equal(advancedRows.length, 4); assert.equal(advanced.coverage.distinctSourceAnswers, 2)
+  assert.deepEqual(advancedRows.map(row => [row.sourceSnapshotId, row.subjectLabel]).sort(), [
+    ['advanced-gemini', 'Bayside Homes'], ['advanced-gemini', 'Harbor Homes'],
+    ['advanced-openai', 'Bayside Homes'], ['advanced-openai', 'Harbor Homes'],
+  ])
   assert.equal(advanced.score.favorableRate, 0.5)
   for (const project of ['simple', 'advanced']) {
     const branded = await http(project, '', { selection: { queryClass: 'branded' } })
@@ -172,10 +177,13 @@ try {
   }
   mark('Provider/served-model/location/property/market filters produce exact scores and single-assessment evidence without widening scope')
   const require = createRequire(path.join(packageRoot, 'package.json'))
-  const sdk = name => import(pathToFileURL(require.resolve(`@modelcontextprotocol/sdk/${name}`)).href)
-  const { Client } = await sdk('client/index.js'), { StdioClientTransport } = await sdk('client/stdio.js'), { StreamableHTTPClientTransport } = await sdk('client/streamableHttp.js')
-  for (const transport of [new StreamableHTTPClientTransport(new URL(`${base}/api/v1/mcp`), { requestInit: { headers: { authorization: `Bearer ${SMOKE_READ}` } } }), new StdioClientTransport({ command: process.execPath, args: [path.join(packageRoot, 'bin/canonry-mcp.mjs'), '--eager'], cwd: scratch, env: configs.read, stderr: 'pipe' })]) {
-    const client = new Client({ name: 'engine-smoke', version: '1' }); clients.push(client); await client.connect(transport)
+  const sdk = name => import(pathToFileURL(require.resolve(`@modelcontextprotocol/${name}`)).href)
+  const { Client, StreamableHTTPClientTransport } = await sdk('client'), { StdioClientTransport } = await sdk('client/stdio')
+  for (const era of ['legacy', 'modern']) for (const transport of [new StreamableHTTPClientTransport(new URL(`${base}/api/v1/mcp`), { requestInit: { headers: { authorization: `Bearer ${SMOKE_READ}` } } }), new StdioClientTransport({ command: process.execPath, args: [path.join(packageRoot, 'bin/canonry-mcp.mjs'), '--eager'], cwd: scratch, env: configs.read, stderr: 'pipe' })]) {
+    const client = new Client({ name: 'engine-smoke', version: '1' }, {
+      versionNegotiation: { mode: era === 'modern' ? { pin: '2026-07-28' } : 'legacy' },
+    })
+    clients.push(client); await client.connect(transport); assert.equal(client.getProtocolEra(), era)
     for (const { project, selection, summary, exact } of scopedReads) {
       const common = { mode: project === 'simple' ? 'simple' : 'advanced', queryClass: 'non-brand', scope: 'project', runId: `${project}-run`, ...selection }
       for (const [name, parameters, expected] of [['canonry_sentiment', { ...common, include: ['assessments', 'locations'] }, summary], ['canonry_sentiment_evidence', { ...common, assessmentId: exact.selection.assessmentId, evaluationDefinitionId: exact.selection.evaluationDefinitionId }, exact]]) {
@@ -190,7 +198,7 @@ try {
     assert.deepEqual(await command(bin, ['sentiment', project, ...flags, '--include', 'assessments,locations'], configs.read), summary)
     assert.deepEqual(await command(bin, ['sentiment', 'evidence', project, ...flags, '--assessment-id', exact.selection.assessmentId, '--evaluation-definition-id', exact.selection.evaluationDefinitionId], configs.read), exact)
   }
-  mark('Installed CLI and both read-only MCP transports preserve batched verdict JSON and exact assessment evidence')
+  mark('Installed CLI and legacy/modern HTTP/stdio read-only MCP preserve batched verdict JSON and exact assessment evidence')
   if (args.includes('--browser')) {
     const env = { ...cleanEnv, ...browserEnv(), SENTIMENT_SMOKE_URL: `${base}/`, SENTIMENT_BROWSER_ARTIFACTS: path.join(scratch, 'browser') }
     browserProcess = spawn(process.execPath, [fileURLToPath(new URL('./smoke-sentiment-engines-browser.mjs', import.meta.url))], { cwd: scratch, env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] })

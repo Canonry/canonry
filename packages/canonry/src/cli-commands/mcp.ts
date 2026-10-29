@@ -6,6 +6,14 @@ const CLIENT_LIST = listMcpClientIds().join('|')
 
 export const MCP_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
+    path: ['mcp', 'profile'],
+    usage: 'canonry mcp profile [--format json]',
+    run: async (input) => {
+      const { showMcpProfile } = await import('../commands/mcp.js')
+      await showMcpProfile(input.format)
+    },
+  },
+  {
     path: ['mcp', 'install'],
     usage: `canonry mcp install --client ${CLIENT_LIST} [--name <server>] [--read-only] [--dry-run] [--config-path <path>] [--format json]`,
     supportsDryRun: true,
@@ -62,12 +70,12 @@ export const MCP_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['mcp'],
-    usage: 'canonry mcp <install|config> [args]',
+    usage: 'canonry mcp <install|config|profile> [args]',
     run: async (input) => {
       unknownSubcommand(input.positionals[0], {
         command: 'mcp',
-        usage: 'canonry mcp <install|config> [args]',
-        available: ['install', 'config'],
+        usage: 'canonry mcp <install|config|profile> [args]',
+        available: ['install', 'config', 'profile'],
       })
     },
   },

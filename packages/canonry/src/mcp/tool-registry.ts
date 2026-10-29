@@ -1,4 +1,4 @@
-import { journeyDetailQuerySchema, journeySummaryQuerySchema, journeysQuerySchema, trafficSamplesQuerySchema, gaAcquisitionQuerySchema, auditHistoryQuerySchema, visibilityCompareSelectionSchema, reportMonthSchema, referralAssessmentQuerySchema, instanceStatusDtoSchema, maxOperationAccess, operationAccess, OperationAccesses, type OperationAccess } from '@canonry/canonry-contracts'
+import { mcpProfileDtoSchema, journeyDetailQuerySchema, journeySummaryQuerySchema, journeysQuerySchema, trafficSamplesQuerySchema, gaAcquisitionQuerySchema, auditHistoryQuerySchema, visibilityCompareSelectionSchema, reportMonthSchema, referralAssessmentQuerySchema, instanceStatusDtoSchema, maxOperationAccess, operationAccess, OperationAccesses, type OperationAccess } from '@canonry/canonry-contracts'
 
 import {
   sentimentSelectionSchema, sentimentEvidenceRequestSchema, sentimentCompareRequestSchema, sentimentSettingsUpdateSchema,
@@ -9,7 +9,7 @@ import {
 import { agentConversationCreateSchema, reportedQueryClasses } from '@canonry/canonry-contracts'
 import { PROVIDER_ACCOUNT_FAILURE_STREAK, PROVIDER_ACCOUNT_RETRY_HOURS, WINDOW_SETS } from '@canonry/canonry-contracts'
 import { insightSeveritySchema } from '@canonry/canonry-contracts'
-import type { ToolAnnotations } from '@modelcontextprotocol/sdk/types.js'
+import type { ToolAnnotations } from '@modelcontextprotocol/server'
 import {
   AGENT_MEMORY_KEY_MAX_LENGTH,
   AGENT_MEMORY_VALUE_MAX_BYTES,
@@ -158,6 +158,8 @@ export interface CanonryMcpTool<
   requiredScope?: string
   /** Internal surface: customer roles/scopes alone never authorize it. */
   requiresOperator?: boolean
+  /** Requires an instance-wide named identity and configured OAuth resource. */
+  requiresConnectionProfile?: boolean
   tier: CanonryMcpTier
   inputSchema: TSchema
   inputJsonSchema: unknown
@@ -170,14 +172,16 @@ export interface CanonryMcpTool<
 
 const readAnnotations = (openWorldHint?: boolean): ToolAnnotations => ({
   readOnlyHint: true,
-  ...(openWorldHint ? { openWorldHint } : {}),
+  idempotentHint: true,
+  destructiveHint: false,
+  openWorldHint: Boolean(openWorldHint),
 })
 
 const writeAnnotations = (opts: { idempotentHint: boolean; destructiveHint?: boolean; openWorldHint?: boolean }): ToolAnnotations => ({
   readOnlyHint: false,
   idempotentHint: opts.idempotentHint,
   destructiveHint: Boolean(opts.destructiveHint),
-  ...(opts.openWorldHint ? { openWorldHint: opts.openWorldHint } : {}),
+  openWorldHint: opts.openWorldHint ?? true,
 })
 
 export function toolOperationAccess(tool: Pick<CanonryMcpTool, 'openApiOperations' | 'access'>): OperationAccess {
@@ -1574,6 +1578,19 @@ const rawCanonryMcpTools = [
     handler: (client, input) => client.commitQueryTracking(input.project, input.request),
   }),
   defineTool({
+    name: 'canonry_mcp_profile',
+    requiresConnectionProfile: true,
+    title: 'Read the connected Canonry identity',
+    description: 'Read the signed-in user identity, effective read scope and instance audience. Requires a named user connection; an unbound API key has no user profile.',
+    access: 'read',
+    tier: 'core',
+    inputSchema: emptyInputSchema,
+    outputSchema: mcpProfileDtoSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/mcp/profile'],
+    handler: (client) => client.getMcpProfile(),
+  }),
+  defineTool({
     name: 'canonry_projects_list',
     title: 'List Canonry projects',
     description: 'List all Canonry projects available through the configured API.',
@@ -2421,7 +2438,7 @@ const rawCanonryMcpTools = [
     access: 'write',
     tier: 'bing',
     inputSchema: projectInputSchema,
-    annotations: writeAnnotations({ idempotentHint: true }),
+    annotations: writeAnnotations({ idempotentHint: true, openWorldHint: false }),
     openApiOperations: ['GET /api/v1/projects/{name}/bing/coverage'],
     handler: (client, input) => client.bingCoverage(input.project),
   }),

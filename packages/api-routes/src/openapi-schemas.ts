@@ -1,3 +1,4 @@
+import { mcpProfileDtoSchema } from '@canonry/canonry-contracts'
 import { gbpLocalPostDtoSchema, gbpLocalPostListSchema, gbpLocalPostAttemptSchema, gbpLiveReviewsSchema, gbpLocalPostCreateSchema } from '@canonry/canonry-contracts'
 /**
  * Centralized OpenAPI schema registry for canonry's API responses.
@@ -466,6 +467,7 @@ const SCHEMA_TABLE = {
   ResultsClearResponse: resultsClearResponseSchema,
   DoctorReportDto: doctorReportSchema,
   InstanceStatusDto: instanceStatusDtoSchema,
+  McpProfileDto: mcpProfileDtoSchema,
   GA4AiReferralDailyDto: ga4AiReferralDailyDtoSchema,
   GA4AiReferralHistoryEntry: ga4AiReferralHistoryEntrySchema,
   GA4MeasurementAnalysisDto: gaMeasurementAnalysisDtoSchema,

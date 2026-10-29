@@ -6150,6 +6150,18 @@ export type InstanceStatusDto = {
     }>;
 };
 
+export type McpProfileDto = {
+    userId: string;
+    displayName: string;
+    instance: {
+        issuer: string;
+        resource: string;
+    };
+    scopes: [
+        'read'
+    ];
+};
+
 export type Ga4AiReferralDailyDto = {
     days: Array<{
         date: string;
@@ -33781,6 +33793,39 @@ export type GetApiV1DoctorResponses = {
 };
 
 export type GetApiV1DoctorResponse = GetApiV1DoctorResponses[keyof GetApiV1DoctorResponses];
+
+export type GetApiV1McpProfileData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/mcp/profile';
+};
+
+export type GetApiV1McpProfileErrors = {
+    /**
+     * Authentication required or invalid.
+     */
+    401: ErrorEnvelope;
+    /**
+     * An instance-wide named account with read scope is required.
+     */
+    403: ErrorEnvelope;
+    /**
+     * MCP OAuth resource is not configured.
+     */
+    501: ErrorEnvelope;
+};
+
+export type GetApiV1McpProfileError = GetApiV1McpProfileErrors[keyof GetApiV1McpProfileErrors];
+
+export type GetApiV1McpProfileResponses = {
+    /**
+     * Authenticated MCP connection profile.
+     */
+    200: McpProfileDto;
+};
+
+export type GetApiV1McpProfileResponse = GetApiV1McpProfileResponses[keyof GetApiV1McpProfileResponses];
 
 export type GetApiV1StatusData = {
     body?: never;

@@ -1185,7 +1185,7 @@ export function buildMcpAgentTools(
   opts: BuildMcpAgentToolsOptions = {},
 ): AgentTool[] {
   return registry
-    .filter((tool) => !AERO_EXCLUDED_MCP_TOOLS.has(tool.name))
+    .filter((tool) => !AERO_EXCLUDED_MCP_TOOLS.has(tool.name) && !tool.requiresConnectionProfile)
     .filter((tool) => (opts.includeNames ? opts.includeNames.has(tool.name) : true))
     .filter((tool) => (opts.readOnly ? tool.access === 'read' : true))
     .filter((tool) => (opts.managedSweeps ? !AERO_MANAGED_SWEEP_MCP_TOOLS.has(tool.name) : true))
