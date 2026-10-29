@@ -222,7 +222,11 @@ function sendGatePage(reply: FastifyReply, html: string) {
     .header('content-security-policy',
       "frame-ancestors 'none'; default-src 'none'; style-src 'unsafe-inline'; form-action 'self'")
     .header('x-frame-options', 'DENY')
-    .header('referrer-policy', 'no-referrer')
+    // same-origin, not no-referrer: under no-referrer a browser posts this page's
+    // own form with `Origin: null` and no Referer, which the server's Origin guard
+    // and the cookie-write check both refuse. same-origin still sends nothing to
+    // other sites, including the client's callback.
+    .header('referrer-policy', 'same-origin')
     .header('cache-control', 'no-store')
     .type('text/html')
     .send(html)

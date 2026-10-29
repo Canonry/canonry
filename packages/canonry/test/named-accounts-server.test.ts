@@ -35,6 +35,28 @@ async function bootServer(publicUrl?: string) {
   })
 }
 
+/**
+ * The Origin a browser sends with a form POST, per the Fetch standard's
+ * "serializing a request origin": under `no-referrer` it is `null`, even when
+ * the page posts to itself.
+ */
+function browserFormOrigin(referrerPolicy: unknown, pageOrigin: string, actionOrigin: string): string {
+  const policy = String(referrerPolicy ?? '').split(',').map(token => token.trim()).filter(Boolean).at(-1)
+    ?? 'strict-origin-when-cross-origin'
+  switch (policy) {
+    case 'no-referrer':
+      return 'null'
+    case 'same-origin':
+      return pageOrigin === actionOrigin ? pageOrigin : 'null'
+    case 'no-referrer-when-downgrade':
+    case 'strict-origin':
+    case 'strict-origin-when-cross-origin':
+      return pageOrigin.startsWith('https:') && !actionOrigin.startsWith('https:') ? 'null' : pageOrigin
+    default:
+      return pageOrigin
+  }
+}
+
 function addAccount(name: string, role: 'admin' | 'viewer') {
   db.insert(users).values({
     id: crypto.randomUUID(),
@@ -217,5 +239,59 @@ describe('the sign-in cookie on a real server', () => {
     }
     expect(Date.parse(db.select().from(userSessions).where(eq(userSessions.tokenHash, tokenHash)).get()!.expiresAt))
       .toBeGreaterThan(Date.parse(nearlyDone))
+  })
+})
+
+describe('OAuth sign-in from a browser', () => {
+  it('signs in and approves with the Origin a browser sends from the gate pages', async () => {
+    // 2026-10-29: the gate pages were served with no-referrer, so browsers posted
+    // their forms with `Origin: null` and the server refused the first real sign-in.
+    await app.close()
+    app = await bootServer('https://canonry.test')
+    const password = 'a-long-enough-admin-password'
+    db.insert(users).values({
+      id: crypto.randomUUID(), name: 'owner', nameKey: 'owner',
+      passwordHash: await hashUserPassword(password), role: 'admin', createdAt: new Date().toISOString(),
+    }).run()
+    db.insert(oauthClients).values({
+      id: 'desktop', name: 'Desktop', redirectUris: ['https://client.example/callback'],
+      createdAt: new Date().toISOString(),
+    }).run()
+    const query = new URLSearchParams({
+      response_type: 'code', client_id: 'desktop', redirect_uri: 'https://client.example/callback',
+      code_challenge: crypto.createHash('sha256').update('a'.repeat(64)).digest('base64url'),
+      code_challenge_method: 'S256', scope: 'read', state: 'browser-state',
+    }).toString()
+    const site = 'https://canonry.test'
+    const browser = { host: 'canonry.test', 'x-forwarded-proto': 'https' }
+    const submit = (page: { headers: Record<string, unknown>; body: string }, fields: Record<string, string>, cookie?: string) => {
+      const action = /<form method="post" action="([^"]+)"/.exec(page.body)?.[1]?.replaceAll('&amp;', '&')
+      if (!action) throw new Error('The gate page has no form to submit')
+      return app.inject({
+        method: 'POST', url: action,
+        headers: {
+          ...browser, ...(cookie ? { cookie } : {}), 'content-type': 'application/x-www-form-urlencoded',
+          origin: browserFormOrigin(page.headers['referrer-policy'], site, new URL(action, site).origin),
+        },
+        payload: new URLSearchParams(fields).toString(),
+      })
+    }
+
+    const signInPage = await app.inject({ method: 'GET', url: `/oauth/authorize?${query}`, headers: browser })
+    expect(signInPage.statusCode).toBe(200)
+    const signedIn = await submit(signInPage, { name: 'owner', password })
+    expect(signedIn.statusCode).toBe(302)
+    const cookie = String(signedIn.headers['set-cookie']).split(';')[0]!
+
+    const consentPage = await app.inject({ method: 'GET', url: `/oauth/authorize?${query}`, headers: { ...browser, cookie } })
+    expect(consentPage.statusCode).toBe(200)
+    const csrf = /name="csrf" value="([^"]+)"/.exec(consentPage.body)?.[1]
+    if (!csrf) throw new Error('The consent page has no CSRF value')
+    const approved = await submit(consentPage, { csrf, approve: 'yes' }, cookie)
+    expect(approved.statusCode).toBe(302)
+    const callback = new URL(String(approved.headers.location))
+    expect(`${callback.origin}${callback.pathname}`).toBe('https://client.example/callback')
+    expect(callback.searchParams.get('code')).toMatch(/\S/)
+    expect(callback.searchParams.get('state')).toBe('browser-state')
   })
 })
