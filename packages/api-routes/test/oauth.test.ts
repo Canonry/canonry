@@ -5,10 +5,10 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-import { createClient, migrate, oauthClients, oauthTokens, users } from '@canonry/canonry-db'
+import { apiKeys, createClient, migrate, oauthClients, oauthGrants, oauthTokens, users } from '@canonry/canonry-db'
 import { eq } from 'drizzle-orm'
-import Fastify from 'fastify'
-import { beforeEach, afterEach, expect, test } from 'vitest'
+import Fastify, { type FastifyInstance } from 'fastify'
+import { beforeEach, afterEach, expect, test, vi } from 'vitest'
 
 import { registerOAuthRoutes, resolveOAuthAccessToken } from '../src/oauth.js'
 import { createCredentialChecker } from '../src/user-session.js'
@@ -39,7 +39,7 @@ const FORM_HEADERS = {
 } as const
 
 let db: ReturnType<typeof createClient>
-let app: ReturnType<typeof Fastify>
+let app: FastifyInstance
 let tmpDir: string
 let signedInUserId: string | null
 
@@ -75,6 +75,7 @@ async function build() {
 
 beforeEach(async () => { await build() })
 afterEach(async () => {
+  vi.useRealTimers()
   await app.close()
   fs.rmSync(tmpDir, { recursive: true, force: true })
 })
@@ -692,7 +693,7 @@ test('failed refresh persistence rolls back consumption and both replacement tok
   expect((await refreshGrant(tokens.refresh_token)).statusCode).toBe(200)
 })
 
-test.each(['access_token', 'refresh_token'] as const)('revoking an old %s revokes its whole family without touching sibling grants or users', async (tokenKind) => {
+test.each(['access_token', 'refresh_token'] as const)('revoking a valid %s revokes all generations without touching sibling grants or users', async (tokenKind) => {
   const first = await issueGrant()
   const secondResponse = await refreshGrant(first.refresh_token)
   expect(secondResponse.statusCode).toBe(200)
@@ -708,7 +709,7 @@ test.each(['access_token', 'refresh_token'] as const)('revoking an old %s revoke
   const unrelatedUser = await issueGrant()
   signedInUserId = originalUser
 
-  const revoke = await app.inject({ method: 'POST', url: '/oauth/revoke', payload: { token: first[tokenKind], client_id: 'client-1' } })
+  const revoke = await app.inject({ method: 'POST', url: '/oauth/revoke', payload: { token: tokenKind === 'access_token' ? first.access_token : third.refresh_token, client_id: 'client-1' } })
   expect(revoke.statusCode).toBe(200)
   for (const tokens of [first, second, third]) {
     expect(resolveOAuthAccessToken(db, tokens.access_token, `${ISSUER}${RESOURCE_PATH}`)).toBeNull()
@@ -785,12 +786,12 @@ test('independent processes cannot issue two replacements for one refresh token'
       })
     })
   }
-  function contend(child: ChildProcess, refreshToken: string, startAt: number): Promise<{ status: number; body: { error?: string } }> {
+  function contend(child: ChildProcess, refreshToken: string, startAt: number): Promise<{ status: number; body: { error?: string; access_token?: string; refresh_token?: string } }> {
     const id = ++requestId
     return new Promise((resolve, reject) => {
       const onExit = (code: number | null) => reject(new Error(`OAuth contender exited ${code}`))
       child.once('exit', onExit)
-      child.once('message', (message: { id: number; status: number; body: { error?: string }; failure?: string }) => {
+      child.once('message', (message: { id: number; status: number; body: { error?: string; access_token?: string; refresh_token?: string }; failure?: string }) => {
         child.removeListener('exit', onExit)
         if (message.id !== id || message.failure) reject(new Error(message.failure ?? 'Unexpected OAuth response identity'))
         else resolve(message)
@@ -808,6 +809,12 @@ test('independent processes cannot issue two replacements for one refresh token'
       const results = await Promise.all(workers.map(worker => contend(worker, tokens.refresh_token, startAt)))
       expect(results.map(result => result.status).sort(), `round ${round}`).toEqual([200, 400, 400, 400])
       for (const denied of results.filter(result => result.status === 400)) expect(denied.body.error).toBe('invalid_grant')
+      // Strict rotation cannot distinguish a racing client from a thief. Any
+      // authenticated replay invalidates even the request that won issuance.
+      const winner = results.find(result => result.status === 200)!
+      expect(winner.body.access_token).toEqual(expect.any(String))
+      expect(resolveOAuthAccessToken(db, winner.body.access_token!, `${ISSUER}${RESOURCE_PATH}`)).toBeNull()
+      expect((await refreshGrant(winner.body.refresh_token!)).statusCode).toBe(400)
     }
   } finally {
     await Promise.all(children.map(child => new Promise<void>(resolve => {
@@ -817,3 +824,77 @@ test('independent processes cannot issue two replacements for one refresh token'
     })))
   }
 }, 60_000)
+
+
+test.each(['confidential', 'revoked'] as const)('anonymous revoke cannot identify a %s client token', async (state) => {
+  const tokens = await issueGrant()
+  db.update(oauthClients).set(state === 'confidential'
+    ? { secretHash: crypto.createHash('sha256').update('client-secret').digest('hex') }
+    : { revokedAt: new Date().toISOString() }).where(eq(oauthClients.id, 'client-1')).run()
+  for (const token of [tokens.access_token, tokens.refresh_token, 'unknown-token']) {
+    const response = await app.inject({ method: 'POST', url: '/oauth/revoke', payload: { token } })
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toEqual({})
+  }
+  for (const token of db.select().from(oauthTokens).all()) expect(token.revokedAt).toBeNull()
+})
+
+test('grant revocation and replay preserve the first revocation and refresh consumption times', async () => {
+  const original = await issueGrant()
+  const rotated = (await refreshGrant(original.refresh_token)).json<TokenPair>()
+  const originalHash = crypto.createHash('sha256').update(original.refresh_token).digest('hex')
+  const consumed = db.select().from(oauthTokens).where(eq(oauthTokens.tokenHash, originalHash)).get()!
+  expect(consumed.revokedAt).not.toBeNull()
+  db.insert(apiKeys).values({
+    id: 'delegated-key', name: 'Synthetic delegated key', keyHash: 'synthetic-key-hash', keyPrefix: 'cnry_test',
+    scopes: ['read'], delegatedUserId: signedInUserId!, delegatedOAuthGrantId: consumed.grantId,
+    createdAt: new Date().toISOString(),
+  }).run()
+  const firstRevokedAt = new Date(Date.now() + 1_000)
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(firstRevokedAt)
+  const first = await app.inject({ method: 'POST', url: '/oauth/revoke', payload: { token: rotated.refresh_token, client_id: 'client-1' } })
+  expect(first.statusCode).toBe(200)
+  vi.setSystemTime(new Date(firstRevokedAt.getTime() + 1_000))
+  expect((await refreshGrant(original.refresh_token)).statusCode).toBe(400)
+  expect((await app.inject({ method: 'POST', url: '/oauth/revoke', payload: { token: rotated.refresh_token, client_id: 'client-1' } })).statusCode).toBe(200)
+  const expected = firstRevokedAt.toISOString()
+  expect(db.select().from(oauthGrants).where(eq(oauthGrants.id, consumed.grantId!)).get()?.revokedAt).toBe(expected)
+  expect(db.select().from(apiKeys).where(eq(apiKeys.id, 'delegated-key')).get()?.revokedAt).toBe(expected)
+  for (const token of db.select().from(oauthTokens).all()) {
+    expect(token.revokedAt, token.kind).toBe(token.tokenHash === originalHash ? consumed.revokedAt : expected)
+  }
+})
+
+
+test.each(['expired access', 'consumed refresh'] as const)('revoking an %s token leaves its live successors usable', async (state) => {
+  const original = await issueGrant()
+  const successor = (await refreshGrant(original.refresh_token)).json<TokenPair>()
+  const staleToken = state === 'expired access' ? original.access_token : original.refresh_token
+  if (state === 'expired access') {
+    db.update(oauthTokens).set({ expiresAt: new Date(Date.now() - 1_000).toISOString() })
+      .where(eq(oauthTokens.tokenHash, crypto.createHash('sha256').update(staleToken).digest('hex'))).run()
+  }
+  const response = await app.inject({ method: 'POST', url: '/oauth/revoke', payload: { token: staleToken, client_id: 'client-1' } })
+  expect(response.statusCode).toBe(200)
+  expect(response.json()).toEqual({})
+  expect(resolveOAuthAccessToken(db, successor.access_token, `${ISSUER}${RESOURCE_PATH}`)).not.toBeNull()
+  expect((await refreshGrant(successor.refresh_token)).statusCode).toBe(200)
+})
+
+test.each(['user', 'client'] as const)('legacy adoption fails closed for a missing %s instead of creating an orphan grant', async (parent) => {
+  const tokens = await issueGrant()
+  db.$client.pragma('foreign_keys = OFF')
+  db.update(oauthTokens).set({ grantId: null }).run()
+  if (parent === 'user') db.delete(users).where(eq(users.id, signedInUserId!)).run()
+  else db.delete(oauthClients).where(eq(oauthClients.id, 'client-1')).run()
+  db.$client.pragma('foreign_keys = ON')
+  const before = db.select().from(oauthGrants).all()
+  expect(resolveOAuthAccessToken(db, tokens.access_token, `${ISSUER}${RESOURCE_PATH}`)).toBeNull()
+  const refresh = await refreshGrant(tokens.refresh_token)
+  expect(refresh.statusCode).toBe(400)
+  expect(refresh.json().error).toBe(parent === 'client' ? 'invalid_client' : 'invalid_grant')
+  const revoke = await app.inject({ method: 'POST', url: '/oauth/revoke', payload: { token: tokens.access_token } })
+  expect(revoke.statusCode).toBe(200)
+  expect(db.select().from(oauthGrants).all()).toEqual(before)
+})

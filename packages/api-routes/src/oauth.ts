@@ -1,6 +1,6 @@
 import crypto from 'node:crypto'
 
-import { apiKeys, dashboardSessions, oauthAuthorizationCodes, oauthClients, oauthGrants, oauthTokens, type DatabaseClient } from '@canonry/canonry-db'
+import { apiKeys, dashboardSessions, oauthAuthorizationCodes, oauthClients, oauthGrants, oauthTokens, users, type DatabaseClient } from '@canonry/canonry-db'
 import { and, eq, inArray, isNull, lt } from 'drizzle-orm'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 
@@ -706,7 +706,8 @@ function registerOAuthRoutesIn(app: FastifyInstance, opts: OAuthRoutesOptions): 
         if (row.revokedAt) {
           // RFC 9700: an authenticated replay identifies a compromised family.
           // Bind the caller first so a mismatched client cannot revoke it.
-          revokeGrant(tx, row.grantId ?? adoptLegacyGrant(tx, row, now.toISOString()), now.toISOString())
+          const grantId = row.grantId ?? adoptLegacyGrant(tx, row, now.toISOString())
+          if (grantId) revokeGrant(tx, grantId, now.toISOString())
           return { error: 'invalid_grant', description: 'Refresh token was already used or revoked. Reconnect this authorization.' }
         }
         if (Date.parse(row.expiresAt) <= now.getTime()) return { error: 'invalid_grant', description: 'Refresh token has expired.' }
@@ -715,6 +716,7 @@ function registerOAuthRoutesIn(app: FastifyInstance, opts: OAuthRoutesOptions): 
         // Old binaries can write rows without lineage after a rollback. Adopt
         // those rows using the same conservative boundary as the migration.
         const grantId = row.grantId ?? adoptLegacyGrant(tx, row, now.toISOString())
+        if (!grantId) return { error: 'invalid_grant', description: 'Authorization no longer has an existing account and client.' }
         const consumed = tx.update(oauthTokens).set({ revokedAt: now.toISOString() })
           .where(and(eq(oauthTokens.tokenHash, row.tokenHash), isNull(oauthTokens.revokedAt))).run()
         if (consumed.changes !== 1) return { error: 'invalid_grant', description: 'Refresh token was already used.' }
@@ -734,13 +736,13 @@ function registerOAuthRoutesIn(app: FastifyInstance, opts: OAuthRoutesOptions): 
       // Client authentication is independent of token existence (RFC 7009).
       if (body.client_id && !authenticateClient(tx, body.client_id, body.client_secret)) return 'invalid_client'
       const row = body.token ? tx.select().from(oauthTokens).where(eq(oauthTokens.tokenHash, sha256(body.token))).get() : undefined
-      if (!row) return
+      if (!row || row.revokedAt || !Number.isFinite(Date.parse(row.expiresAt)) || Date.parse(row.expiresAt) <= Date.parse(now)) return
       // Preserve the existing public-client revoke without client_id. A known
       // token for another authenticated client is indistinguishable from absent.
       if (body.client_id && body.client_id !== row.clientId) return
-      if (!body.client_id && !authenticateClient(tx, row.clientId, body.client_secret)) return 'invalid_client'
+      if (!body.client_id && !authenticateClient(tx, row.clientId, body.client_secret)) return
       const grantId = row.grantId ?? adoptLegacyGrant(tx, row, now)
-      revokeGrant(tx, grantId, now)
+      if (grantId) revokeGrant(tx, grantId, now)
     }, { behavior: 'immediate' })
     if (result) return badRequest(reply, result, 'Client is unknown, revoked, or failed authentication.')
     // Unknown tokens and tokens belonging to another client disclose nothing.
@@ -761,7 +763,9 @@ function authenticateClient(db: Pick<DatabaseClient, 'select'>, clientId: string
 }
 
 /** Only used for tokens written without lineage by an older binary. */
-function adoptLegacyGrant(db: OAuthTransaction, row: typeof oauthTokens.$inferSelect, now: string): string {
+function adoptLegacyGrant(db: OAuthTransaction, row: typeof oauthTokens.$inferSelect, now: string): string | null {
+  if (!db.select({ id: users.id }).from(users).where(eq(users.id, row.userId)).get()
+    || !db.select({ id: oauthClients.id }).from(oauthClients).where(eq(oauthClients.id, row.clientId)).get()) return null
   const identity = and(
     eq(oauthTokens.clientId, row.clientId), eq(oauthTokens.userId, row.userId),
     row.resource === null ? isNull(oauthTokens.resource) : eq(oauthTokens.resource, row.resource),
@@ -775,11 +779,11 @@ function adoptLegacyGrant(db: OAuthTransaction, row: typeof oauthTokens.$inferSe
 }
 
 function revokeGrant(db: OAuthTransaction, grantId: string, now: string): void {
-  db.update(oauthGrants).set({ revokedAt: now }).where(eq(oauthGrants.id, grantId)).run()
-  db.update(oauthTokens).set({ revokedAt: now }).where(eq(oauthTokens.grantId, grantId)).run()
+  db.update(oauthGrants).set({ revokedAt: now }).where(and(eq(oauthGrants.id, grantId), isNull(oauthGrants.revokedAt))).run()
+  db.update(oauthTokens).set({ revokedAt: now }).where(and(eq(oauthTokens.grantId, grantId), isNull(oauthTokens.revokedAt))).run()
   const delegatedKeys = db.select({ id: apiKeys.id }).from(apiKeys).where(eq(apiKeys.delegatedOAuthGrantId, grantId))
   db.delete(dashboardSessions).where(inArray(dashboardSessions.apiKeyId, delegatedKeys)).run()
-  db.update(apiKeys).set({ revokedAt: now }).where(eq(apiKeys.delegatedOAuthGrantId, grantId)).run()
+  db.update(apiKeys).set({ revokedAt: now }).where(and(eq(apiKeys.delegatedOAuthGrantId, grantId), isNull(apiKeys.revokedAt))).run()
 }
 
 /**
@@ -793,7 +797,7 @@ export function resolveOAuthAccessToken(
   token: string,
   expectedResource: string,
   now = new Date(),
-): { userId: string; clientId: string; grantId: string | null; scope: string | null } | null {
+): { userId: string; clientId: string; grantId: string; scope: string | null } | null {
   const row = db.select().from(oauthTokens)
     .where(and(eq(oauthTokens.tokenHash, sha256(token)), eq(oauthTokens.kind, 'access'))).get()
   if (!row || row.revokedAt) return null
@@ -849,27 +853,25 @@ export function registerOAuthAdminRoutes(app: FastifyInstance, opts: { db: Datab
     }
   })
 
-  app.delete('/oauth/clients/:id', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.delete('/oauth/clients/:id', async (request: FastifyRequest) => {
     requireAdminSession(request)
     const { id } = request.params as { id: string }
-    const client = db.select().from(oauthClients).where(eq(oauthClients.id, id)).get()
-    if (!client) {
-      const error = notFound('OAuth client', id)
-      return reply.status(error.statusCode).send(error.toJSON())
-    }
     const now = new Date().toISOString()
     // Revoke the client AND every token it holds. Marking only the client
     // would leave live access tokens working until they expired, which is
     // not what anyone means by revoking a client.
-    db.transaction((tx) => {
-      tx.update(oauthClients).set({ revokedAt: now }).where(eq(oauthClients.id, id)).run()
+    const revokedAt = db.transaction((tx) => {
+      const client = tx.select().from(oauthClients).where(eq(oauthClients.id, id)).get()
+      if (!client) throw notFound('OAuth client', id)
+      tx.update(oauthClients).set({ revokedAt: now }).where(and(eq(oauthClients.id, id), isNull(oauthClients.revokedAt))).run()
       for (const grant of tx.select().from(oauthGrants).where(eq(oauthGrants.clientId, id)).all()) {
         revokeGrant(tx, grant.id, now)
       }
       tx.update(oauthTokens).set({ revokedAt: now })
         .where(and(eq(oauthTokens.clientId, id), isNull(oauthTokens.revokedAt))).run()
       tx.delete(oauthAuthorizationCodes).where(eq(oauthAuthorizationCodes.clientId, id)).run()
+      return client.revokedAt ?? now
     }, { behavior: 'immediate' })
-    return { id, revokedAt: now }
+    return { id, revokedAt }
   })
 }

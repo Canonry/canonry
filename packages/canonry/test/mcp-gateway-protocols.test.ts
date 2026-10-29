@@ -86,6 +86,13 @@ describe('official SDK v2 modern and legacy interoperability', () => {
         userId: instance.user.id, displayName: instance.user.name,
         instance: { issuer: instance.origin, resource: instance.resource }, scopes: ['read'],
       })
+      for (const mode of ['auto', 'legacy'] as const) {
+        const unbound = new Client({ name: 'unbound-key', version: '1' }, { versionNegotiation: { mode } })
+        clients.push(unbound)
+        await unbound.connect(authenticatedTransport(instance.transportUrl, () => instance.rootKey))
+        expect((await unbound.listTools()).tools.map(tool => tool.name)).not.toContain('canonry_mcp_profile')
+        await expect(unbound.callTool({ name: 'canonry_mcp_profile', arguments: {} })).rejects.toThrow('Tool canonry_mcp_profile not found')
+      }
       const projects = await modern.callTool({ name: 'canonry_projects_list', arguments: {} })
       expect(projects.structuredContent).toEqual(expect.objectContaining({ items: [expect.objectContaining({ name: project })] }))
       for (const tool of modernTools.tools) {

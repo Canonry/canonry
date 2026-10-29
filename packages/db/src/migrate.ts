@@ -4999,24 +4999,33 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
       `ALTER TABLE api_keys ADD COLUMN delegated_oauth_grant_id TEXT REFERENCES oauth_grants(id) ON DELETE CASCADE`,
       `CREATE INDEX IF NOT EXISTS idx_oauth_tokens_grant ON oauth_tokens(grant_id)`,
       `CREATE INDEX IF NOT EXISTS idx_api_keys_oauth_grant ON api_keys(delegated_oauth_grant_id)`,
+      // Credentials whose account or client was removed with foreign keys off
+      // are already unusable. Drop them before enforcing the new grant FKs.
+      `DELETE FROM oauth_tokens WHERE NOT EXISTS (SELECT 1 FROM oauth_clients WHERE id = oauth_tokens.client_id)
+         OR NOT EXISTS (SELECT 1 FROM users WHERE id = oauth_tokens.user_id)`,
       // Historical rotations carry no lineage. Preserve access while grouping
       // only the same client, person, audience and consented scope for revocation.
       `INSERT OR IGNORE INTO oauth_grants (id, client_id, user_id, resource, scope, created_at)
        SELECT 'legacy:' || MIN(token_hash), client_id, user_id, resource, scope, MIN(created_at)
-       FROM oauth_tokens WHERE grant_id IS NULL GROUP BY client_id, user_id, resource, scope`,
+       FROM oauth_tokens WHERE grant_id IS NULL
+         AND EXISTS (SELECT 1 FROM oauth_clients WHERE id = oauth_tokens.client_id)
+         AND EXISTS (SELECT 1 FROM users WHERE id = oauth_tokens.user_id)
+       GROUP BY client_id, user_id, resource, scope`,
       `UPDATE oauth_tokens SET grant_id = (
          SELECT id FROM oauth_grants g
          WHERE g.id LIKE 'legacy:%' AND g.client_id = oauth_tokens.client_id
            AND g.user_id = oauth_tokens.user_id AND g.resource IS oauth_tokens.resource AND g.scope IS oauth_tokens.scope
        ) WHERE grant_id IS NULL`,
       // Old MCP keys lack a grant link and cannot be assigned safely. Match
-      // the historical constructor exactly; ordinary and Aero keys survive.
+      // the bound constructor and the older reserved namespace without user
+      // linkage. A manually named key in that namespace also requires reissue.
       `DELETE FROM dashboard_sessions WHERE api_key_id IN (
-         SELECT id FROM api_keys WHERE delegated_user_id IS NOT NULL
-           AND name = 'mcp-session:' || delegated_user_id
+         SELECT id FROM api_keys WHERE (delegated_user_id IS NOT NULL AND name = 'mcp-session:' || delegated_user_id)
+           OR (delegated_user_id IS NULL AND name GLOB 'mcp-session:*')
        )`,
       `UPDATE api_keys SET revoked_at = COALESCE(revoked_at, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-       WHERE delegated_user_id IS NOT NULL AND name = 'mcp-session:' || delegated_user_id`,
+       WHERE (delegated_user_id IS NOT NULL AND name = 'mcp-session:' || delegated_user_id)
+         OR (delegated_user_id IS NULL AND name GLOB 'mcp-session:*')`,
     ],
   },
 ]

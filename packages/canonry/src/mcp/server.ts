@@ -21,6 +21,8 @@ export interface CanonryMcpServerOptions {
   credentialScopes?: readonly string[]
   /** Host-derived authority from auth or /keys/self. Missing means denied. */
   operator?: boolean
+  /** Verified profile availability for this credential and configured instance. */
+  connectionProfile?: boolean
   eager?: boolean
   /**
    * Restrict this server to a union of tiers.
@@ -106,7 +108,7 @@ export function createCanonryMcpServerWithCatalog(options: CanonryMcpServerOptio
   ;(server as unknown as WithValidate).validateToolInput = async (_tool, args) => args
 
   const entries: DynamicCatalogEntry[] = []
-  for (const registryTool of getCanonryMcpTools(scope, options.tiers, options.credentialScopes, options.operator)) {
+  for (const registryTool of getCanonryMcpTools(scope, options.tiers, options.credentialScopes, options.operator, options.connectionProfile)) {
     const tool = registryTool as CanonryMcpTool
     const handler = tool.handler as (client: ApiClient, input: unknown) => Promise<unknown>
     const registered = server.registerTool(
@@ -221,10 +223,12 @@ export function getCanonryMcpTools(
   tiers?: readonly CanonryMcpTier[],
   credentialScopes?: readonly string[],
   operator = false,
+  connectionProfile = false,
 ) {
   const readOnly = scope === 'read-only' || (credentialScopes !== undefined && isReadOnlyKey(credentialScopes))
   const restricted = credentialScopes && restrictedWriteScopes(credentialScopes)
-  const authorized = canonryMcpTools.filter(tool => !tool.requiresOperator || operator)
+  const authorized = canonryMcpTools.filter(tool => (!tool.requiresOperator || operator)
+    && (!tool.requiresConnectionProfile || connectionProfile))
   const byScope = scope === 'stored-only'
     ? authorized.filter(tool => toolOperationAccess(tool) === OperationAccesses.stored)
     : readOnly

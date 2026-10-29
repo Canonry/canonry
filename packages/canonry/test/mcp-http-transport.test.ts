@@ -509,6 +509,22 @@ describe('MCP over OAuth', () => {
       headers: { authorization: `Bearer ${adminKey}` },
     })
     expect(revoked.statusCode).toBe(200)
+    const originalTime = revoked.json<{ revokedAt: string }>().revokedAt
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(Date.parse(originalTime) + 1_000))
+    try {
+      const repeated = await request(built, {
+        method: 'DELETE', url: '/api/v1/oauth/clients/test-client', headers: { authorization: `Bearer ${adminKey}` },
+      })
+      expect(repeated.statusCode).toBe(200)
+      expect(repeated.json()).toMatchObject({ revokedAt: originalTime })
+      const afterList = await request(built, {
+        method: 'GET', url: '/api/v1/oauth/clients', headers: { authorization: `Bearer ${adminKey}` },
+      })
+      expect(afterList.json<{ clients: { id: string; revokedAt: string | null }[] }>().clients.find(client => client.id === 'test-client')?.revokedAt).toBe(originalTime)
+    } finally {
+      vi.useRealTimers()
+    }
 
     // Revoking the client must kill its outstanding tokens too — marking only
     // the client would leave live access tokens working until they expired.
@@ -591,7 +607,7 @@ describe('MCP over Streamable HTTP', () => {
     expect(created.statusCode).toBe(200)
     const key = created.json().key as string
     const tools = await toolsFor(built, '/api/v1/mcp', key)
-    expect(tools).toEqual([...canonryMcpTools.filter(tool => tool.access === 'read' && !tool.requiresOperator).map(tool => tool.name), 'canonry_help'])
+    expect(tools).toEqual([...canonryMcpTools.filter(tool => tool.access === 'read' && !tool.requiresOperator && !tool.requiresConnectionProfile).map(tool => tool.name), 'canonry_help'])
     expect(tools).not.toContain('canonry_logs_list')
   })
 
@@ -654,7 +670,7 @@ describe('MCP over Streamable HTTP', () => {
   ] as const)('exposes the entire permitted catalog at %s (read-only key: %s)', async (url, readOnlyKey) => {
     const tools = await toolsFor(built, url, readOnlyKey ? built.readOnlyKey : built.wildcardKey)
     const readOnly = readOnlyKey || url.endsWith('/readonly')
-    const expected = canonryMcpTools.filter(tool => !tool.requiresOperator && (url.endsWith('/readonly')
+    const expected = canonryMcpTools.filter(tool => !tool.requiresOperator && !tool.requiresConnectionProfile && (url.endsWith('/readonly')
       ? toolOperationAccess(tool) === OperationAccesses.stored
       : !readOnly || tool.access === 'read')).map(tool => tool.name)
     expect(tools).toEqual([...expected, 'canonry_help'])
@@ -758,7 +774,7 @@ describe('MCP over Streamable HTTP', () => {
   })
 
   it('a toolkit endpoint adds that toolkit on top of core', async () => {
-    const core = canonryMcpTools.filter(tool => tool.tier === 'core').map(tool => tool.name)
+    const core = canonryMcpTools.filter(tool => tool.tier === 'core' && !tool.requiresConnectionProfile).map(tool => tool.name)
     const withToolkit = await toolsFor(built, '/api/v1/mcp/x/gsc', built.wildcardKey)
     expect(withToolkit.length).toBeGreaterThan(core.length)
     // core rides along, or the toolkit's tools have no project to aim at

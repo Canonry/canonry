@@ -84,7 +84,7 @@ test('revokes every real delegated session key and bound dashboard session only 
   }
   const revoke = await fetch(`${host.origin}/oauth/revoke`, {
     method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ token: original.refresh_token, client_id: host.clientId }),
+    body: new URLSearchParams({ token: original.access_token, client_id: host.clientId }),
   })
   expect(revoke.status).toBe(200)
   await revoke.text()

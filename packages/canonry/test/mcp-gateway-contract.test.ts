@@ -146,7 +146,7 @@ describe('gateway contract across isolated real Canonry instances', () => {
     const rotatedSession = await initialize(alpha, rotated.access_token)
     expect((await rpc(alpha, rotated.access_token, 'tools/call', { name: 'canonry_mcp_profile', arguments: {} }, rotatedSession)).message.result?.isError).not.toBe(true)
 
-    const revoked = await form(alpha, 'revoke', { token: original.refresh_token, client_id: alpha.clientId })
+    const revoked = await form(alpha, 'revoke', { token: original.access_token, client_id: alpha.clientId })
     expect(revoked.status).toBe(200)
     for (const token of [original.access_token, rotated.access_token]) {
       expect((await profile(alpha, token)).status).toBe(401)
