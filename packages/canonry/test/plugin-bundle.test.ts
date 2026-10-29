@@ -190,9 +190,15 @@ describe('native Canonry plugin bundle', () => {
   it('publishes matching repository marketplaces for both clients', () => {
     const codexMarketplace = readJson<CodexMarketplace>(path.join(repoRoot, '.agents', 'plugins', 'marketplace.json'))
     const claudeMarketplace = readJson<ClaudeMarketplace>(path.join(repoRoot, '.claude-plugin', 'marketplace.json'))
-    expect(codexMarketplace.plugins).toHaveLength(1)
-    expect(codexMarketplace.plugins[0].name).toBe('canonry')
-    expect(codexMarketplace.plugins[0].source.path).toBe('./plugins/canonry')
+    // Codex also lists the remote read-only plugin; it signs in through the shared
+    // gateway with an OpenAI provided client, which Claude Code cannot use.
+    expect(codexMarketplace.plugins.map(plugin => [plugin.name, plugin.source.path])).toEqual([
+      ['canonry', './plugins/canonry'],
+      ['canonry-remote', './plugins/canonry-remote'],
+    ])
+    for (const file of ['plugin.json', 'mcp.json']) {
+      expect(fs.existsSync(path.join(repoRoot, 'plugins', 'canonry-remote', file))).toBe(true)
+    }
     expect(claudeMarketplace.plugins).toHaveLength(1)
     expect(claudeMarketplace.plugins[0].name).toBe('canonry')
     expect(claudeMarketplace.plugins[0].source).toBe('./plugins/canonry')

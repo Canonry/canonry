@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import { isIP } from 'node:net'
 
-import { forbidden, isReadOnlyKey, McpTransportStatuses, HostedMcpStatuses, HostedMcpUnavailableReasons, type McpHealth, type HostedMcpHealth } from '@canonry/canonry-contracts'
+import { forbidden, isReadOnlyKey, McpTransportStatuses, HostedMcpStatuses, HostedMcpUnavailableReasons, type McpHealth, type HostedMcpHealth, type McpPluginConnection } from '@canonry/canonry-contracts'
 import { apiKeys, dashboardSessions, type DatabaseClient } from '@canonry/canonry-db'
 import { hashApiKey, blockedAddressReason, stripIpv6Brackets, MCP_DELEGATED_KEY_MAX_AGE_MS } from '@canonry/canonry-api-routes'
 import { and, eq, isNull } from 'drizzle-orm'
@@ -131,6 +131,8 @@ export function mcpHttpHealth(app: FastifyInstance, apiPrefix: string, hosted?: 
   publicUrl?: string
   hasAccounts: boolean
   authorizationPath: string
+  /** Operator-registered shared gateway (the Canonry plugin); see `mcpGateway` in config. */
+  plugin?: { url: string; workspace?: string | null } | null
 }): McpHealth {
   const available = mcpTransportPaths().every(path =>
     (['POST', 'GET', 'DELETE'] as const).every(method => app.hasRoute({ method, url: `${apiPrefix}${path}` })),
@@ -176,7 +178,23 @@ export function mcpHttpHealth(app: FastifyInstance, apiPrefix: string, hosted?: 
   if (!hosted.hasAccounts) return unavailable(HostedMcpUnavailableReasons['account-required'])
   // Configuration readiness only. DNS, TLS, proxy reachability and the client's
   // authorization are verified by the client making a successful stored read.
-  return { status, hosted: { status: HostedMcpStatuses.ready, url: `${publicUrl.origin}${apiPrefix}/mcp` } }
+  // The plugin signs users in through this instance's own OAuth, so it is
+  // offered only once hosted sign-in is ready here.
+  const plugin = pluginConnection(hosted.plugin, publicUrl)
+  return { status, hosted: { status: HostedMcpStatuses.ready, url: `${publicUrl.origin}${apiPrefix}/mcp`, ...(plugin ? { plugin } : {}) } }
+}
+
+/** The gateway URL and the workspace a user enters there; the public host unless the operator named one. */
+function pluginConnection(gateway: { url: string; workspace?: string | null } | null | undefined, publicUrl: URL): McpPluginConnection | undefined {
+  if (!gateway?.url) return undefined
+  let url: URL
+  try {
+    url = new URL(gateway.url)
+  } catch {
+    return undefined
+  }
+  if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash) return undefined
+  return { gatewayUrl: url.href, workspace: gateway.workspace?.trim() || publicUrl.host }
 }
 
 export function registerMcpHttpRoutes(scope: FastifyInstance, opts: McpHttpOptions): void {

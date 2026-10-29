@@ -21,11 +21,15 @@ outside the Agent Plugins specification.
 `plugins/canonry-remote/` is a separate source package for the public gateway at
 `https://mcp.canonry.ai/mcp`. It uses a pre-registered OAuth public client,
 workspace selection and existing instance login. Each grant reads one instance.
-The package includes review cases but remains unsubmitted and unverified in live
-ChatGPT/Codex until deployment and reviewer access are completed. See its
-[preparation notes](../plugins/canonry-remote/README.md) and the
-[gateway runbook](../apps/mcp-gateway/README.md). The local installation and
-marketplace entries below continue to use `plugins/canonry/`.
+It is listed in the Codex marketplace (`.agents/plugins/marketplace.json`) as
+`canonry-remote`, so Codex and the ChatGPT desktop app can install it with
+`codex plugin marketplace add Canonry/canonry` and `codex plugin add
+canonry-remote@canonry`. It is not yet submitted to the OpenAI plugin directory.
+A hosted instance registered with the gateway shows these steps and its own
+workspace on **Agent setup** ([MCP](mcp.md#connect-with-the-canonry-plugin)).
+See its [preparation notes](../plugins/canonry-remote/README.md) and the
+[gateway runbook](../apps/mcp-gateway/README.md). The local installation below
+continues to use `plugins/canonry/`.
 
 ## Codex brand assets
 

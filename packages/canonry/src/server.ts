@@ -2417,6 +2417,7 @@ export async function createServer(opts: {
     publicUrl: opts.config.publicUrl,
     hasAccounts: anyUsersExist(opts.db),
     authorizationPath,
+    plugin: opts.config.mcpGateway,
   });
   // One checker, shared by /auth/login and the OAuth consent page, so the two
   // sign-in doors carry the same brute-force and threadpool budgets.

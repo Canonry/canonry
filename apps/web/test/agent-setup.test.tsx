@@ -267,3 +267,34 @@ test.each(['demo', 'embed'] as const)('%s does not offer instance connection pro
   expect(screen.queryByRole('combobox')).toBeNull()
   expect(requests).toEqual([])
 })
+
+test('leads with this workspace’s Canonry plugin steps when the instance is registered with a gateway', async () => {
+  const writeText = vi.fn<(text: string) => Promise<void>>().mockResolvedValue(undefined)
+  setClipboard({ writeText })
+  mount({ mcp: { status: 'available', hosted: { status: 'ready', url: HOSTED_URL, plugin: { gatewayUrl: 'https://mcp.example/mcp', workspace: 'tenant.example' } } } }, 200, 'viewer')
+  await screen.findByRole('heading', { name: 'Use the Canonry plugin' })
+  expect(screen.getByText('tenant.example')).toBeTruthy()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Copy plugin install commands' }))
+  await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1))
+  expect(writeText.mock.calls[0]![0]).toBe('codex plugin marketplace add Canonry/canonry\ncodex plugin add canonry-remote@canonry')
+  fireEvent.click(screen.getByRole('button', { name: 'Copy workspace' }))
+  await waitFor(() => expect(writeText).toHaveBeenCalledTimes(2))
+  expect(writeText.mock.calls[1]![0]).toBe('tenant.example')
+
+  // Direct connection stays available for Claude and other clients, collapsed.
+  const direct = screen.getByText('Connect directly (Claude and other MCP clients)').closest('details')
+  expect(direct?.open).toBe(false)
+  fireEvent.click(screen.getByText('Connect directly (Claude and other MCP clients)'))
+  expect(screen.getByRole('button', { name: 'Copy MCP URL' })).toBeTruthy()
+  expect(screen.getByText(/In Claude, set the OAuth client to “Register automatically”/)).toBeTruthy()
+})
+
+test('keeps the direct connection as the only path without a registered gateway', async () => {
+  mount()
+  await screen.findByText('Hosted setup configured')
+  expect(screen.queryByRole('heading', { name: 'Use the Canonry plugin' })).toBeNull()
+  expect(screen.queryByText('Connect directly (Claude and other MCP clients)')).toBeNull()
+  expect(screen.getByRole('button', { name: 'Copy MCP URL' })).toBeTruthy()
+  expect(screen.getByText(/On Claude Team and Enterprise plans, an Owner adds the connector first/)).toBeTruthy()
+})

@@ -12,7 +12,8 @@ function printHostedMcpStatus(mcp: McpHealth | undefined): void {
   const hosted = mcp?.hosted
   if (!hosted) return
   if (hosted.status === HostedMcpStatuses.ready) {
-    console.log(`Hosted MCP: ready\n  URL: ${hosted.url}\n`)
+    const plugin = hosted.plugin ? `\n  Canonry plugin: ${hosted.plugin.gatewayUrl} (workspace ${hosted.plugin.workspace})` : ''
+    console.log(`Hosted MCP: ready\n  URL: ${hosted.url}${plugin}\n`)
     return
   }
   const reasons = {
