@@ -62,7 +62,7 @@ The JSON configuration contains:
 | `development` | `false`. Loopback HTTP is allowed only when explicitly `true`. |
 | `host`, `port` | Bind `0.0.0.0` in the container, port `4101`; restrict ingress to the TLS proxy. |
 | `databasePath` | Persistent path such as `/data/gateway.sqlite`; never `:memory:`. |
-| `clients` | Approved public OAuth clients and exact redirect URIs. |
+| `clients` | Approved public OAuth clients and exact redirect URIs (portless loopback URIs for `native` clients). |
 | `tenants` | Approved workspace registrations described below. |
 | `requestTimeoutMs` | Bounded upstream request timeout; default 30000. |
 | `rateLimitPerMinute` | Request budget; default 120. |
@@ -76,6 +76,24 @@ refresh_token]`, and `response_types: [code]`. Copy the exact callback URI from
 its connection setup into `redirect_uris`. Give each other client its own ID and
 registered redirect list. Do not guess callback paths, accept wildcard
 redirects, or add a client secret to the plugin package.
+
+A CLI or desktop client that receives the code on a loopback port it picks for
+each sign-in, such as Claude Code, sets `application_type: "native"` and
+registers loopback HTTP redirects without a port, for example
+`http://localhost/callback`. The gateway then accepts any port on that exact
+host and path (RFC 8252 section 7.3); the host must match, so register
+`localhost` and `127.0.0.1` separately when a client can use either. Every other
+client stays `web` (the default) with exact HTTPS redirects. The Claude Code
+adapter in `plugins/canonry-remote` uses the first entry below. Claude Code calls
+back on `localhost`; versions 2.1.229 and 2.1.230 used `127.0.0.1`, and Claude's
+published client metadata lists both. Claude on the web, desktop and mobile
+calls back on one HTTPS URI and accepts a user-entered client ID, so it uses the
+second entry:
+
+```json
+{ "client_id": "canonry-claude-code", "client_name": "Claude Code", "application_type": "native", "redirect_uris": ["http://localhost/callback", "http://127.0.0.1/callback"] }
+{ "client_id": "canonry-claude", "client_name": "Claude", "redirect_uris": ["https://claude.ai/api/mcp/auth_callback"] }
+```
 
 Each tenant entry supplies an immutable `id`, `displayName`, approved `origin`,
 `issuer`, canonical `resource`, read-only `mcpUrl`, `enabled`, compatible

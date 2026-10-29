@@ -41,6 +41,17 @@ interface ClaudeMarketplace {
   plugins: Array<{ name: string; source: string }>
 }
 
+interface RemoteMcp {
+  mcpServers: {
+    canonry: {
+      url: string
+      type?: string
+      oauth?: { clientId?: string }
+      extensions?: { 'com.openai'?: { auth?: { client?: { clientId?: string } } } }
+    }
+  }
+}
+
 function walkFiles(dir: string, prefix = ''): string[] {
   const files: string[] = []
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -190,18 +201,34 @@ describe('native Canonry plugin bundle', () => {
   it('publishes matching repository marketplaces for both clients', () => {
     const codexMarketplace = readJson<CodexMarketplace>(path.join(repoRoot, '.agents', 'plugins', 'marketplace.json'))
     const claudeMarketplace = readJson<ClaudeMarketplace>(path.join(repoRoot, '.claude-plugin', 'marketplace.json'))
-    // Codex also lists the remote read-only plugin; it signs in through the shared
-    // gateway with an OpenAI provided client, which Claude Code cannot use.
-    expect(codexMarketplace.plugins.map(plugin => [plugin.name, plugin.source.path])).toEqual([
+    const listed = [
       ['canonry', './plugins/canonry'],
       ['canonry-remote', './plugins/canonry-remote'],
-    ])
-    for (const file of ['plugin.json', 'mcp.json']) {
-      expect(fs.existsSync(path.join(repoRoot, 'plugins', 'canonry-remote', file))).toBe(true)
-    }
-    expect(claudeMarketplace.plugins).toHaveLength(1)
-    expect(claudeMarketplace.plugins[0].name).toBe('canonry')
-    expect(claudeMarketplace.plugins[0].source).toBe('./plugins/canonry')
+    ]
+    expect(codexMarketplace.plugins.map(plugin => [plugin.name, plugin.source.path])).toEqual(listed)
+    expect(claudeMarketplace.plugins.map(plugin => [plugin.name, plugin.source])).toEqual(listed)
+    const shipped = ['plugin.json', 'mcp.json', '.claude-plugin/plugin.json', '.mcp.json'].map(file => path.join('plugins', 'canonry-remote', file))
+    for (const file of shipped) expect(fs.existsSync(path.join(repoRoot, file))).toBe(true)
+    // Marketplace installs read the repository, so an ignored manifest exists in a checkout but never reaches users.
+    expect(spawnSync('git', ['check-ignore', '--no-index', ...shipped], { cwd: repoRoot, encoding: 'utf8' }).stdout).toBe('')
+  })
+
+  it('connects the Claude Code remote adapter to the same gateway with its own public client', () => {
+    const remoteRoot = path.join(repoRoot, 'plugins', 'canonry-remote')
+    const portable = readJson<VersionManifest>(path.join(remoteRoot, 'plugin.json'))
+    const claude = readJson<VersionManifest & { name: string; mcpServers: string }>(path.join(remoteRoot, '.claude-plugin', 'plugin.json'))
+    const openaiServer = readJson<RemoteMcp>(path.join(remoteRoot, 'mcp.json')).mcpServers.canonry
+    const claudeServer = readJson<RemoteMcp>(path.join(remoteRoot, '.mcp.json')).mcpServers.canonry
+    expect(claude.name).toBe('canonry-remote')
+    expect(claude.version).toBe(portable.version)
+    expect(claude.mcpServers).toBe('./.mcp.json')
+    // Claude Code names streamable HTTP `http`, and it receives the code on a loopback
+    // port, which the HTTPS-only ChatGPT client cannot register.
+    expect(claudeServer.type).toBe('http')
+    expect(claudeServer.url).toBe(openaiServer.url)
+    expect(claudeServer.oauth?.clientId).toBeTruthy()
+    expect(claudeServer.oauth?.clientId).not.toBe(openaiServer.extensions?.['com.openai']?.auth?.client?.clientId)
+    expect(JSON.stringify(claudeServer)).not.toMatch(/secret|cnry_[a-z0-9]+|api[_-]?key/i)
   })
 
   it('documents native initialization and operator approval boundaries', () => {

@@ -277,8 +277,13 @@ When the operator registered the instance with the shared MCP gateway, **Agent
 setup** leads with the Canonry plugin for the ChatGPT desktop app and Codex: add
 the Canonry marketplace, install `canonry-remote`, enter the workspace the page
 shows, then sign in with the instance's own Canonry account. The plugin reads
-stored results only. Direct connection stays available under **Connect
-directly** for Claude and other MCP clients.
+stored results only. Claude Code installs the same plugin with `claude plugin
+marketplace add Canonry/canonry` and `claude plugin install
+canonry-remote@canonry`; the page does not show those commands yet. Claude on
+the web, desktop and mobile uses the same gateway as a custom connector: add
+`https://mcp.canonry.ai/mcp`, choose **Use your own OAuth client**, enter
+`canonry-claude` and leave the secret blank. Direct connection stays available
+under **Connect directly** for Claude and other MCP clients.
 
 The operator sets this once per instance, after registering the instance with
 the gateway ([gateway runbook](../apps/mcp-gateway/README.md)):
