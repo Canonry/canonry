@@ -24,8 +24,8 @@ not from this manifest. The gateway and engine must enforce those restrictions.
 
 ## Preparation status
 
-This directory is source prepared for later review. It is not a published or
-submission-ready plugin. The proposed production hostname is not evidence of a
+This package is listed in the Codex marketplace as `canonry-remote`. It is not yet
+submitted to the OpenAI plugin directory. The proposed production hostname is not evidence of a
 working deployment. The five positive and three negative cases in `plugin.json`
 are review instructions, not recorded test results. Live ChatGPT/Codex import,
 OAuth and tool validation remain **not run**. Local tests against real synthetic

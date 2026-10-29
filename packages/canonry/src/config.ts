@@ -3,7 +3,7 @@ import path from 'node:path'
 import os from 'node:os'
 import crypto from 'node:crypto'
 import { parse, stringify } from 'yaml'
-import { AGENT_REASONING_LEVELS, agentAllowViewersSchema, agentModelSchema, agentProviderSchema, agentReasoningSchema, classificationConfigSchema, dashboardManagedRunKindsSchema, dashboardManagedSweepsSchema, researchAllowViewersSchema, researchViewerDailyRunLimitSchema } from '@canonry/canonry-config'
+import { AGENT_REASONING_LEVELS, agentAllowViewersSchema, agentModelSchema, agentProviderSchema, agentReasoningSchema, classificationConfigSchema, dashboardManagedRunKindsSchema, dashboardManagedSweepsSchema, mcpGatewayConfigSchema, researchAllowViewersSchema, researchViewerDailyRunLimitSchema } from '@canonry/canonry-config'
 import type { AgentReasoningLevel, SentimentInstallConfigInput } from '@canonry/canonry-config'
 import { AGENT_PROVIDER_IDS, isRetiredAgentProviderId } from '@canonry/canonry-contracts'
 import { seoInstallConfigSchema, type SeoInstallConfig } from '@canonry/canonry-config'
@@ -470,6 +470,12 @@ export interface CanonryConfig {
   sentiment?: SentimentInstallConfigInput
   apiUrl: string
   publicUrl?: string
+  /**
+   * Shared MCP gateway this instance is registered with (the Canonry plugin).
+   * Operator-set when onboarding the instance; Agent setup then shows plugin
+   * instructions with this workspace. Blank `workspace` uses the public host.
+   */
+  mcpGateway?: import('@canonry/canonry-config').McpGatewayConfig | null
   /** Sub-path prefix when canonry is served behind a reverse proxy (e.g. "/canonry/"). */
   basePath?: string
   database: string
@@ -648,6 +654,12 @@ export function loadConfig(configPath = getConfigPath()): CanonryConfig {
   // tightening validation of legacy fields (including blank YAML values).
   if (parsed.seo !== undefined && !seoInstallConfigSchema.safeParse(parsed.seo).success) {
     throw new CliError({ code: 'CONFIG_INVALID', message: `Invalid config at ${configPath}: seo requires an explicit funding mode, positive integer budget caps, and connection credentials.` })
+  }
+  if (!mcpGatewayConfigSchema.safeParse(parsed.mcpGateway).success) {
+    throw new CliError({
+      code: 'CONFIG_INVALID',
+      message: `Invalid config at ${configPath}: mcpGateway needs an HTTPS url without credentials, query or fragment, and an optional non-empty workspace.`,
+    })
   }
   if (!dashboardManagedSweepsSchema.safeParse(parsed.dashboard?.managedSweeps).success) {
     throw new CliError({

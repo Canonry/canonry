@@ -6106,6 +6106,10 @@ export type InstanceStatusDto = {
         hosted?: {
             status: 'ready';
             url: string;
+            plugin?: {
+                gatewayUrl: string;
+                workspace: string;
+            };
         } | {
             status: 'unavailable';
             reason: 'public-url-required' | 'https-required' | 'public-host-required' | 'public-path-mismatch' | 'oauth-unavailable' | 'account-required' | 'transport-unavailable';

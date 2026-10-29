@@ -266,7 +266,32 @@ plugin, Node.js, or an API key pasted into chat.
 After connecting, use the page's verification prompt to list accessible
 projects through stored reads. An empty list can still verify the connection.
 The server's readiness label confirms configuration prerequisites, not that
-the client has authorized or can reach the service.
+the client has authorized or can reach the service. In Claude, set the OAuth
+client option to **Register automatically**; Canonry does not accept Claude's
+published identity. On Claude Team and Enterprise plans, an Owner adds custom
+connectors before members connect.
+
+### Connect with the Canonry plugin
+
+When the operator registered the instance with the shared MCP gateway, **Agent
+setup** leads with the Canonry plugin for the ChatGPT desktop app and Codex: add
+the Canonry marketplace, install `canonry-remote`, enter the workspace the page
+shows, then sign in with the instance's own Canonry account. The plugin reads
+stored results only. Direct connection stays available under **Connect
+directly** for Claude and other MCP clients.
+
+The operator sets this once per instance, after registering the instance with
+the gateway ([gateway runbook](../apps/mcp-gateway/README.md)):
+
+```yaml
+mcpGateway:
+  url: https://mcp.canonry.ai/mcp
+  # workspace: tenant-id   # optional; defaults to the public URL's host
+```
+
+`/health`, `/api/v1/status`, `canonry status` and `canonry_status` then report
+`mcp.hosted.plugin` (`gatewayUrl`, `workspace`) while hosted sign-in is ready.
+The page never shows plugin steps for an instance without this setting.
 
 For the host operator:
 
