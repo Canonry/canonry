@@ -438,6 +438,30 @@ function resolveDashboardOnboardingMode(
     ?? config.dashboard?.onboardingMode;
 }
 
+type DashboardBrandMark = NonNullable<NonNullable<CanonryConfig['dashboard']>['brandMark']>;
+
+function parseDashboardBrandMark(value: string | undefined): DashboardBrandMark | undefined {
+  const normalized = value?.trim().toLowerCase();
+  return normalized === 'mascot' || normalized === 'icon' ? normalized : undefined;
+}
+
+function resolveDashboardBrandMark(env: NodeJS.ProcessEnv, config: CanonryConfig): DashboardBrandMark {
+  return parseDashboardBrandMark(env.CANONRY_DASHBOARD_BRAND_MARK)
+    ?? parseDashboardBrandMark(config.dashboard?.brandMark)
+    ?? "mascot";
+}
+
+/**
+ * Point the document's tab icons at the plugin icon for `brandMark: icon`.
+ * Matches both the source (`/favicon.svg`) and Vite-built (`./favicon.svg`) hrefs.
+ */
+function withIconMarkLinks(html: string): string {
+  return html
+    .replace(/href="(\.?\/)favicon\.svg"/, 'href="$1canonry-icon-favicon.svg"')
+    .replace(/href="(\.?\/)favicon-32\.png"/, 'href="$1canonry-icon-32.png"')
+    .replace(/href="(\.?\/)apple-touch-icon\.png"/, 'href="$1canonry-icon-touch.png"');
+}
+
 /**
  * All known API adapters. Add new answer engines here. Hosted web-search
  * answer services register once, in
@@ -2436,6 +2460,7 @@ export async function createServer(opts: {
   const dashboardShowLocalAgentSetup = resolveDashboardShowLocalAgentSetup(process.env, opts.config);
   const dashboardShowUpdateNotification = resolveDashboardShowUpdateNotification(process.env, opts.config);
   const dashboardOnboardingMode = resolveDashboardOnboardingMode(process.env, opts.config);
+  const dashboardBrandMark = resolveDashboardBrandMark(process.env, opts.config);
   const researchAllowViewers = resolveResearchAllowViewers(process.env, opts.config);
   const researchViewerDailyRunLimit = resolveResearchViewerDailyRunLimit(process.env, opts.config);
   app.log.info(
@@ -3949,6 +3974,9 @@ export async function createServer(opts: {
       if (!dashboardShowUpdateNotification) {
         dashboardConfig.showUpdateNotification = false;
       }
+      if (dashboardBrandMark === "icon") {
+        dashboardConfig.brandMark = "icon";
+      }
       if (dashboardManagedRunKinds.length > 0) {
         dashboardConfig.managedRunKinds = dashboardManagedRunKinds;
       }
@@ -4009,7 +4037,7 @@ export async function createServer(opts: {
       // deep-links like `/projects/ainyc` request `/projects/assets/…js`, hit the
       // SPA fallback, and receive HTML where the browser expects JS.
       const baseTag = `<base href="${basePath ?? "/"}">`;
-      return html
+      return (dashboardBrandMark === "icon" ? withIconMarkLinks(html) : html)
         .replace("<head>", `<head>${baseTag}`)
         .replace("</head>", `${configScript}</head>`);
     };

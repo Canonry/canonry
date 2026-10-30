@@ -22,6 +22,7 @@ import { asyncHandler } from '../../lib/async-handler.js'
 import { createQueryClient } from '../../queries/query-client.js'
 import { createAppRouter } from '../../router/router.js'
 import { attachUiTelemetryRouter } from '../../lib/ui-telemetry-install.js'
+import { BrandMarkImage } from '../shared/BrandLockup.js'
 import { Button } from '../ui/button.js'
 import { Card, CardContent, CardDescription, CardHeader } from '../ui/card.js'
 
@@ -439,7 +440,7 @@ export function AuthGate() {
             the product is. Plain markup rather than <BrandLockup>, which is
             built on router <Link>s — this gate renders before the router. */}
         <div data-testid="auth-brand" className="flex items-center gap-2.5">
-          <img className="size-7" src="./favicon.svg" alt="" aria-hidden="true" />
+          <BrandMarkImage className="size-7" />
           <span className="text-label-18-strong text-heading">Canonry</span>
         </div>
         <Card className="surface-card w-full">
