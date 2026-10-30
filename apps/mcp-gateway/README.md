@@ -62,7 +62,7 @@ The JSON configuration contains:
 | `development` | `false`. Loopback HTTP is allowed only when explicitly `true`. |
 | `host`, `port` | Bind `0.0.0.0` in the container, port `4101`; restrict ingress to the TLS proxy. |
 | `databasePath` | Persistent path such as `/data/gateway.sqlite`; never `:memory:`. |
-| `clients` | Approved public OAuth clients and exact redirect URIs (portless loopback URIs for `native` clients). |
+| `clients` | Approved public OAuth clients and exact redirect URIs. `native` clients may also register portless loopback URIs. |
 | `tenants` | Approved workspace registrations described below. |
 | `requestTimeoutMs` | Bounded upstream request timeout; default 30000. |
 | `rateLimitPerMinute` | Request budget; default 120. |
@@ -72,28 +72,39 @@ The JSON configuration contains:
 
 The remote plugin uses `client_id: canonry-chatgpt` with
 `token_endpoint_auth_method: none`, `grant_types: [authorization_code,
-refresh_token]`, and `response_types: [code]`. Copy the exact callback URI from
-its connection setup into `redirect_uris`. Give each other client its own ID and
-registered redirect list. Do not guess callback paths, accept wildcard
-redirects, or add a client secret to the plugin package.
+refresh_token]`, and `response_types: [code]`. ChatGPT and Codex share that
+client ID. ChatGPT calls back on the exact HTTPS URI from its connection setup;
+Codex calls back on `http://127.0.0.1:<port>/callback` with a port it picks for
+each sign-in. Register the client as `native` with both (the first entry below).
+Give each other client its own ID and registered redirect list. Do not guess
+callback paths, accept wildcard redirects, or add a client secret to the plugin
+package.
 
 A CLI or desktop client that receives the code on a loopback port it picks for
 each sign-in, such as Claude Code, sets `application_type: "native"` and
 registers loopback HTTP redirects without a port, for example
 `http://localhost/callback`. The gateway then accepts any port on that exact
 host and path (RFC 8252 section 7.3); the host must match, so register
-`localhost` and `127.0.0.1` separately when a client can use either. Every other
-client stays `web` (the default) with exact HTTPS redirects. The Claude Code
-adapter in `plugins/canonry-remote` uses the first entry below. Claude Code calls
+`localhost` and `127.0.0.1` separately when a client can use either. A native
+client may also register exact HTTPS redirects on a public host, for one client
+ID that signs in from both a hosted app and a CLI. Every other client stays
+`web` (the default) with exact HTTPS redirects. The Claude Code adapter in
+`plugins/canonry-remote` uses the second entry below. Claude Code calls
 back on `localhost`; versions 2.1.229 and 2.1.230 used `127.0.0.1`, and Claude's
 published client metadata lists both. Claude on the web, desktop and mobile
 calls back on one HTTPS URI and accepts a user-entered client ID, so it uses the
-second entry:
+third entry:
 
 ```json
+{ "client_id": "canonry-chatgpt", "client_name": "ChatGPT and Codex", "application_type": "native", "redirect_uris": ["https://chatgpt.com/connector_platform_oauth_redirect", "http://127.0.0.1/callback"] }
 { "client_id": "canonry-claude-code", "client_name": "Claude Code", "application_type": "native", "redirect_uris": ["http://localhost/callback", "http://127.0.0.1/callback"] }
 { "client_id": "canonry-claude", "client_name": "Claude", "redirect_uris": ["https://claude.ai/api/mcp/auth_callback"] }
 ```
+
+Authorization server metadata lists only the granted scopes, `read` and
+`offline_access`. oidc-provider always adds `openid`, which the gateway refuses,
+and Codex requests every listed scope, so the gateway removes it from
+`scopes_supported`.
 
 Each tenant entry supplies an immutable `id`, `displayName`, approved `origin`,
 `issuer`, canonical `resource`, read-only `mcpUrl`, `enabled`, compatible

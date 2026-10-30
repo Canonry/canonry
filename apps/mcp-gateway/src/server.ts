@@ -1,7 +1,7 @@
 import { createHash, randomBytes, generateKeyPairSync } from 'node:crypto'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { isIP } from 'node:net'
-import { Provider, errors } from 'oidc-provider'
+import { Provider, errors, type KoaContextWithOIDC } from 'oidc-provider'
 import { ProtocolError, SdkHttpError } from '@modelcontextprotocol/server'
 import type { GatewayConfig, GatewayTenant } from '@canonry/canonry-config'
 import { GatewayStore } from './store.js'
@@ -243,6 +243,19 @@ export function createGateway(config: GatewayConfig, secrets: { vaultKey: Buffer
       return { accountId, claims: () => ({ sub: accountId }) }
     },
     renderError: ctx => { ctx.type = 'text/plain'; ctx.body = 'Authorization could not be completed.' },
+  })
+  // oidc-provider always advertises `openid`, which getResourceServerInfo refuses.
+  // Codex requests every advertised scope, so list only the scopes granted here.
+  provider.use(async (ctx: KoaContextWithOIDC, next) => {
+    await next()
+    // Only matched oidc-provider routes define `ctx.oidc`; unknown paths reach here without it.
+    if (!Object.hasOwn(ctx, 'oidc') || ctx.oidc.route !== 'discovery') return
+    const body: unknown = ctx.body
+    if (typeof body !== 'object' || body === null || !('scopes_supported' in body)) return
+    const scopes = body.scopes_supported
+    if (!Array.isArray(scopes)) return
+    const index = scopes.indexOf('openid')
+    if (index >= 0) scopes.splice(index, 1)
   })
   // Reverse proxy must overwrite forwarding headers; direct access is loopback/private only.
   provider.proxy = !config.development

@@ -26,8 +26,9 @@ desktop app install it with `codex plugin marketplace add Canonry/canonry` and
 `codex plugin add canonry-remote@canonry`; Claude Code installs it with `claude
 plugin marketplace add Canonry/canonry` and `claude plugin install
 canonry-remote@canonry`. Each client signs in with its own pre-registered public
-client: `canonry-chatgpt` (HTTPS callback) and `canonry-claude-code` (a native
-client whose loopback callback port changes per sign-in). It is not yet
+client: `canonry-chatgpt` (ChatGPT's HTTPS callback and Codex's loopback
+callback) and `canonry-claude-code` (a native client whose loopback callback
+port changes per sign-in). It is not yet
 submitted to the OpenAI plugin directory or an Anthropic directory.
 A hosted instance registered with the gateway shows these steps and its own
 workspace on **Agent setup** ([MCP](mcp.md#connect-with-the-canonry-plugin)).

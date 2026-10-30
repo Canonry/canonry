@@ -31,7 +31,9 @@ engine versions. The operator must validate the contract before onboarding.
 
 `mcp.json` selects the pre-registered public client `canonry-chatgpt` with S256
 PKCE and requests `read` plus `offline_access`. Provision that exact client ID
-with the portal's exact callback URI before connecting. The Claude Code adapter
+as a `native` client with the portal's exact callback URI and
+`http://127.0.0.1/callback`, because Codex signs in with the same client on a
+loopback port it picks per sign-in. The Claude Code adapter
 (`.claude-plugin/plugin.json` and `.mcp.json`) connects to the same URL as the
 public client `canonry-claude-code`. Claude Code receives the code on
 `http://localhost:<port>/callback` with a port it picks per sign-in, so the
