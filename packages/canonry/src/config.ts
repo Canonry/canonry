@@ -428,6 +428,13 @@ export interface DashboardConfigEntry {
    */
   showUpdateNotification?: boolean
 
+  /**
+   * The Canonry mark in the browser tab, sidebar, and dashboard sign-in:
+   * `mascot` (default) or `icon`, the plugin icon's canary on a white tile,
+   * for client deployments. Presentation only.
+   */
+  brandMark?: 'mascot' | 'icon'
+
   /** Legacy alias for managedRunKinds: ['answer-visibility']. */
   managedSweeps?: boolean | null
   /** Presentation only. Managed sweeps hide all launches; managed scans hide viewer launches. */

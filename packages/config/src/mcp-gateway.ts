@@ -31,7 +31,9 @@ const clientSchema = z.object({
   /**
    * `native` is a CLI or desktop app that receives the code on a loopback port it
    * picks per sign-in (RFC 8252 section 7.3). oidc-provider matches its loopback
-   * redirects on any port, so they are registered without one.
+   * redirects on any port, so they are registered without one. A native client
+   * may also register exact HTTPS redirects (section 7.2) when one published
+   * client ID signs in from both a hosted app and a CLI, as ChatGPT and Codex do.
    */
   application_type: z.enum(['web', 'native']).default('web'),
   redirect_uris: z.array(z.url()).min(1),
@@ -96,9 +98,10 @@ export const gatewayConfigSchema = z.object({
     clientIds.add(client.client_id)
     client.redirect_uris.forEach((redirect, redirectIndex) => {
       const parsed = new URL(redirect)
+      const loopback = LOOPBACK_HOSTS.includes(parsed.hostname)
       if (client.application_type === 'web') checkTransport(redirect, ['clients', index, 'redirect_uris', redirectIndex])
-      else if (parsed.protocol !== 'http:' || !LOOPBACK_HOSTS.includes(parsed.hostname) || parsed.port) {
-        ctx.addIssue({ code: 'custom', path: ['clients', index, 'redirect_uris', redirectIndex], message: 'Native clients register loopback HTTP redirects without a port' })
+      else if (parsed.protocol === 'https:' ? loopback : parsed.protocol !== 'http:' || !loopback || parsed.port) {
+        ctx.addIssue({ code: 'custom', path: ['clients', index, 'redirect_uris', redirectIndex], message: 'Native clients register loopback HTTP redirects without a port, or HTTPS redirects on a public host' })
       }
       if (parsed.username || parsed.password || parsed.hash) {
         ctx.addIssue({ code: 'custom', path: ['clients', index, 'redirect_uris', redirectIndex], message: 'Redirects cannot contain credentials or fragments' })
