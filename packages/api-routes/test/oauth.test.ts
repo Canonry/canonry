@@ -426,12 +426,15 @@ test('registration is rate limited', async () => {
   expect(limited).toBe(true)
 })
 
-test('the consent page cannot be framed', async () => {
+test('the consent page cannot be framed and loads nothing but its styles and font', async () => {
   // It is the only human gate in the flow. Framed, one decoy click posts
   // approve=yes with the Lax cookie attached and mints a code to an attacker's
   // callback — RFC 6849 s10.13 puts that defence on the authorization server.
+  // No script runs on it, and the only fetch it allows is a same-origin font.
   const res = await app.inject({ method: 'GET', url: authorizeUrl() })
-  expect(res.headers['content-security-policy']).toContain("frame-ancestors 'none'")
+  expect(res.headers['content-security-policy']).toBe(
+    "frame-ancestors 'none'; default-src 'none'; style-src 'unsafe-inline'; font-src 'self'; form-action 'self'",
+  )
   expect(res.headers['x-frame-options']).toBe('DENY')
   expect(res.headers['cache-control']).toBe('no-store')
 })
