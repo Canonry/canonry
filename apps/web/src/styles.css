@@ -502,8 +502,9 @@
   }
 
   /* Bird chirps just before the bubble appears. Origin near the bird's
-   * feet so the rotation reads as a head tilt rather than a spin. */
-  .brand-lockup-wrapper:has(.brand-update-bubble) .brand-icon {
+   * feet so the rotation reads as a head tilt rather than a spin. The
+   * plugin icon's tile stays still: tilting it would rock the whole tile. */
+  .brand-lockup-wrapper:has(.brand-update-bubble) .brand-icon:not(.brand-icon-tile) {
     animation: brand-bird-talk 1.4s cubic-bezier(0.45, 0.05, 0.55, 0.95) 0ms both;
     transform-origin: 50% 80%;
   }
@@ -545,7 +546,7 @@
     .brand-update-bubble {
       animation: none;
     }
-    .brand-lockup-wrapper:has(.brand-update-bubble) .brand-icon {
+    .brand-lockup-wrapper:has(.brand-update-bubble) .brand-icon:not(.brand-icon-tile) {
       animation: none;
     }
   }
