@@ -16,7 +16,7 @@ afterEach(async () => {
 })
 
 /** These guards run before upstream contact; no engine or provider is replaced. */
-async function fixture(input: { clientName?: string; workspaceName?: string; workspaceOrigin?: string; enabled?: boolean; provisioned?: boolean; redirectUri?: string; applicationType?: 'web' | 'native' } = {}) {
+async function fixture(input: { clientName?: string; workspaceName?: string; workspaceOrigin?: string; enabled?: boolean; provisioned?: boolean; redirectUri?: string; extraRedirectUris?: string[]; applicationType?: 'web' | 'native' } = {}) {
   const registeredRedirect = input.redirectUri ?? redirectUri
   const workspaceOrigin = input.workspaceOrigin ?? 'http://127.0.0.1:1'
   const reservation = createServer()
@@ -30,7 +30,7 @@ async function fixture(input: { clientName?: string; workspaceName?: string; wor
   const config = gatewayConfigSchema.parse({
     issuer, port, development: true, databasePath: join(directory, 'gateway.sqlite'),
     clients: [{
-      client_id: 'browser-client', client_name: input.clientName ?? 'Synthetic browser client', redirect_uris: [registeredRedirect],
+      client_id: 'browser-client', client_name: input.clientName ?? 'Synthetic browser client', redirect_uris: [registeredRedirect, ...(input.extraRedirectUris ?? [])],
       ...(input.applicationType ? { application_type: input.applicationType } : {}),
     }],
     tenants: [{
@@ -338,6 +338,32 @@ describe('gateway browser authorization boundary', () => {
     const refused = await web.authorize({ redirect_uri: 'http://127.0.0.1:47002/callback' })
     expect(refused.status).toBe(400)
     expect(refused.headers.get('location')).toBeNull()
+  })
+
+  it('lets one client start sign-in from a hosted app and from a CLI that requests every advertised scope', async () => {
+    // ChatGPT and Codex share the plugin's client ID. ChatGPT returns to an exact
+    // HTTPS redirect; Codex picks a loopback port per sign-in, sends no prompt,
+    // and requests every scope the authorization server metadata advertises.
+    const hosted = 'https://chatgpt.com/connector_platform_oauth_redirect'
+    const shared = await fixture({ applicationType: 'native', redirectUri: hosted, extraRedirectUris: ['http://127.0.0.1/callback'] })
+    const metadata = await shared.request('/.well-known/oauth-authorization-server')
+    const { scopes_supported: advertised } = await metadata.json() as { scopes_supported: string[] }
+    expect(advertised).toEqual(['read', 'offline_access'])
+    const requests: Record<string, string | null>[] = [
+      { redirect_uri: hosted },
+      { redirect_uri: 'http://127.0.0.1:53682/callback', scope: advertised.join(' '), prompt: null },
+      { redirect_uri: 'http://127.0.0.1:61234/callback', scope: advertised.join(' '), prompt: null },
+    ]
+    for (const request of requests) {
+      const accepted = await shared.authorize(request)
+      expect(accepted.status).toBe(303)
+      expect(new URL(accepted.headers.get('location')!, shared.issuer).pathname).toMatch(/^\/interaction\/[^/]+$/)
+    }
+    for (const redirect of [`${hosted}/other`, 'http://localhost:53682/callback']) {
+      const refused = await shared.authorize({ redirect_uri: redirect })
+      expect(refused.status).toBe(400)
+      expect(refused.headers.get('location')).toBeNull()
+    }
   })
 
   it.each(['origin', 'csrf', 'browser-cookie'] as const)('binds the consent form to its %s', async guard => {

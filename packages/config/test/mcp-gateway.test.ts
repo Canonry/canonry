@@ -38,11 +38,14 @@ describe('gateway host configuration', () => {
     expect(gatewayConfigSchema.safeParse({ ...development, issuer: 'http://example.com' }).success).toBe(false)
   })
 
-  it('accepts portless loopback redirects for native clients in production and keeps web clients on HTTPS', () => {
+  it('accepts portless loopback and public HTTPS redirects for native clients in production and keeps web clients on HTTPS', () => {
     const native = { client_id: 'claude-code', client_name: 'Claude Code', application_type: 'native', redirect_uris: ['http://localhost/callback', 'http://127.0.0.1/callback'] }
     expect(gatewayConfigSchema.parse({ ...config, clients: [native] }).clients[0]?.application_type).toBe('native')
     expect(gatewayConfigSchema.parse(config).clients[0]?.application_type).toBe('web')
-    for (const redirect of ['http://localhost:5100/callback', 'http://example.com/callback', 'https://claude.ai/api/mcp/auth_callback', 'http://localhost/callback#fragment']) {
+    // ChatGPT and Codex share one client ID: an exact HTTPS redirect plus a loopback one.
+    const shared = { ...native, client_id: 'chatgpt-and-codex', redirect_uris: ['https://chatgpt.com/connector_platform_oauth_redirect', 'http://127.0.0.1/callback'] }
+    expect(gatewayConfigSchema.parse({ ...config, clients: [shared] }).clients[0]?.redirect_uris).toEqual(shared.redirect_uris)
+    for (const redirect of ['http://localhost:5100/callback', 'http://example.com/callback', 'https://localhost/callback', 'https://127.0.0.1/callback', 'canonry://callback', 'http://localhost/callback#fragment']) {
       expect(gatewayConfigSchema.safeParse({ ...config, clients: [{ ...native, redirect_uris: [redirect] }] }).success).toBe(false)
     }
     expect(gatewayConfigSchema.safeParse({ ...config, clients: [{ ...native, application_type: 'web' }] }).success).toBe(false)
