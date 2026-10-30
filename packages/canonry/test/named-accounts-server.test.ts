@@ -21,7 +21,7 @@ let db: DatabaseClient
 let app: Awaited<ReturnType<typeof createServer>>
 let rawKey: string
 
-async function bootServer(publicUrl?: string) {
+async function bootServer(publicUrl?: string, options: { basePath?: string; assetsDir?: string } = {}) {
   return createServer({
     config: {
       apiUrl: 'http://localhost:4100',
@@ -29,9 +29,11 @@ async function bootServer(publicUrl?: string) {
       apiKey: rawKey,
       geminiApiKey: 'test-key',
       ...(publicUrl ? { publicUrl } : {}),
+      ...(options.basePath ? { basePath: options.basePath } : {}),
     },
     db,
     logger: false,
+    ...(options.assetsDir ? { assetsDir: options.assetsDir } : {}),
   })
 }
 
@@ -243,6 +245,21 @@ describe('the sign-in cookie on a real server', () => {
 })
 
 describe('OAuth sign-in from a browser', () => {
+  const browser = { host: 'canonry.test', 'x-forwarded-proto': 'https' }
+
+  /** Registers a desktop client and returns an authorize query for it. */
+  function registeredClientQuery(state: string): string {
+    db.insert(oauthClients).values({
+      id: 'desktop', name: 'Desktop', redirectUris: ['https://client.example/callback'],
+      createdAt: new Date().toISOString(),
+    }).run()
+    return new URLSearchParams({
+      response_type: 'code', client_id: 'desktop', redirect_uri: 'https://client.example/callback',
+      code_challenge: crypto.createHash('sha256').update('a'.repeat(64)).digest('base64url'),
+      code_challenge_method: 'S256', scope: 'read', state,
+    }).toString()
+  }
+
   it('signs in and approves with the Origin a browser sends from the gate pages', async () => {
     // 2026-10-29: the gate pages were served with no-referrer, so browsers posted
     // their forms with `Origin: null` and the server refused the first real sign-in.
@@ -253,17 +270,8 @@ describe('OAuth sign-in from a browser', () => {
       id: crypto.randomUUID(), name: 'owner', nameKey: 'owner',
       passwordHash: await hashUserPassword(password), role: 'admin', createdAt: new Date().toISOString(),
     }).run()
-    db.insert(oauthClients).values({
-      id: 'desktop', name: 'Desktop', redirectUris: ['https://client.example/callback'],
-      createdAt: new Date().toISOString(),
-    }).run()
-    const query = new URLSearchParams({
-      response_type: 'code', client_id: 'desktop', redirect_uri: 'https://client.example/callback',
-      code_challenge: crypto.createHash('sha256').update('a'.repeat(64)).digest('base64url'),
-      code_challenge_method: 'S256', scope: 'read', state: 'browser-state',
-    }).toString()
+    const query = registeredClientQuery('browser-state')
     const site = 'https://canonry.test'
-    const browser = { host: 'canonry.test', 'x-forwarded-proto': 'https' }
     const submit = (page: { headers: Record<string, unknown>; body: string }, fields: Record<string, string>, cookie?: string) => {
       const action = /<form method="post" action="([^"]+)"/.exec(page.body)?.[1]?.replaceAll('&amp;', '&')
       if (!action) throw new Error('The gate page has no form to submit')
@@ -293,5 +301,28 @@ describe('OAuth sign-in from a browser', () => {
     expect(`${callback.origin}${callback.pathname}`).toBe('https://client.example/callback')
     expect(callback.searchParams.get('code')).toMatch(/\S/)
     expect(callback.searchParams.get('state')).toBe('browser-state')
+  })
+
+  it.each(['/', '/canonry/'])('loads the dashboard font from the page origin under %s', async basePath => {
+    // Besides inline styles, the gate pages allow one resource: the dashboard's
+    // own Geist file. Its URL must be one this server serves under the base
+    // path, and the page's policy must let a browser fetch it.
+    const assetsDir = path.join(tmpDir, 'dashboard')
+    fs.mkdirSync(path.join(assetsDir, 'assets'), { recursive: true })
+    fs.writeFileSync(path.join(assetsDir, 'index.html'), '<!doctype html><title>Canonry</title>')
+    const font = Buffer.concat([Buffer.from('wOF2'), crypto.randomBytes(64)])
+    fs.writeFileSync(path.join(assetsDir, 'assets', 'geist-latin-wght-normal-Ab1_c-D2.woff2'), font)
+    await app.close()
+    app = await bootServer(`https://canonry.test${basePath}`, { basePath, assetsDir })
+    const query = registeredClientQuery('font')
+
+    const page = await app.inject({ method: 'GET', url: `${basePath}oauth/authorize?${query}`, headers: browser })
+    expect(page.statusCode).toBe(200)
+    expect(String(page.headers['content-security-policy']).split(';').map(part => part.trim())).toContain("font-src 'self'")
+    const fontUrl = /src: url\('([^']+)'\) format\('woff2'\)/.exec(page.body)?.[1]
+    expect(fontUrl).toBe(`${basePath}assets/geist-latin-wght-normal-Ab1_c-D2.woff2`)
+    const served = await app.inject({ method: 'GET', url: fontUrl!, headers: browser })
+    expect(served.statusCode).toBe(200)
+    expect(served.rawPayload.equals(font)).toBe(true)
   })
 })

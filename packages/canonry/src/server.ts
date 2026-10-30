@@ -4155,10 +4155,18 @@ export async function createServer(opts: {
   // only when the instance knows its own public origin, since every URL in the
   // metadata documents has to be absolute and externally reachable.
   if (publicOrigin) {
+    // The sign-in and consent pages borrow the dashboard's own Geist file, a
+    // content-hashed Vite asset the static handler serves; without a dashboard
+    // build they fall back to the system sans.
+    const dashboardAssets = path.join(assetsDir, "assets");
+    const gateFont = fs.existsSync(dashboardAssets)
+      ? fs.readdirSync(dashboardAssets).find((name) => /^geist-latin-wght-normal-[\w-]+\.woff2$/.test(name))
+      : undefined;
     registerOAuthRoutes(app, {
       db: opts.db,
       issuer: publicOrigin,
       authorizationPath,
+      ...(gateFont ? { fontUrl: `${basePath ?? "/"}assets/${gateFont}` } : {}),
       resourcePaths: mcpTransportPaths().map((suffix) =>
         `${basePath ?? "/"}api/v1${suffix}`.replace("//", "/"),
       ),

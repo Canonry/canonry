@@ -6,6 +6,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 
 import { requireAdminSession } from './auth.js'
 import { notFound, RESEARCH_RUN_SCOPE } from '@canonry/canonry-contracts'
+import { renderConsentPage, renderSignInPage } from './oauth-pages.js'
 import { assertCookieWriteOrigin } from './same-origin.js'
 import type { CredentialChecker } from './user-session.js'
 
@@ -42,6 +43,11 @@ export interface OAuthRoutesOptions {
   resourcePaths: readonly string[]
   /** Browser authorization route within the instance's session-cookie path. */
   authorizationPath?: string
+  /**
+   * Same-origin path of the dashboard's Geist font file, for the sign-in and
+   * consent pages. Without it (no dashboard build) they use the system sans.
+   */
+  fontUrl?: string
   /**
    * Resolve the signed-in person from the request, or null. The authorize
    * endpoint reuses the product's existing sign-in rather than introducing a
@@ -148,64 +154,6 @@ function badRequest(reply: FastifyReply, error: string, description: string) {
   return reply.status(400).send({ error, error_description: description })
 }
 
-function escapeHtml(value: string): string {
-  return value.replace(/[&<>"']/g, (char) => (
-    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char] ?? char
-  ))
-}
-
-/** Minimal self-contained sign-in. No SPA route, no bundle, no base-path trap. */
-function signInPage(action: string, error: string | null): string {
-  return page(`<h1>Sign in to continue</h1>
- ${error ? `<p class="err">${escapeHtml(error)}</p>` : ''}
- <label for="name">Name</label><input id="name" name="name" autocomplete="username" autofocus>
- <label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password">
- <button type="submit">Sign in</button>`, action)
-}
-
-/**
- * The approval step. Names the client, where it will send the code, and exactly
- * what is being granted, so the person approving can see what they are agreeing
- * to rather than inferring it from a redirect flash.
- */
-function consentPage(o: {
-  action: string
-  clientName: string
-  selfRegistered: boolean
-  redirectUri: string
-  scope: string
-  userName: string
-  csrf: string
-}): string {
-  // indexOf, not split: a literal '?' inside any value (a state parameter, say)
-  // would otherwise truncate the query, dropping scope or state — failing
-  // closed, but leaving the user stuck on an unrecoverable "could not be
-  // verified" with no way to tell why.
-  const cut = o.action.indexOf('?')
-  const consentAction = cut === -1
-    ? `${o.action}/consent`
-    : `${o.action.slice(0, cut)}/consent${o.action.slice(cut)}`
-  return page(`<h1>Allow access?</h1>
- <p class="who"><strong>${escapeHtml(o.clientName)}</strong> wants to access Canonry as
-   <strong>${escapeHtml(o.userName)}</strong>.</p>
- ${o.selfRegistered
-   ? `<p class="warn">This application chose its own name and has not been verified by anyone.
-      Check the address below before allowing it.</p>`
-   : ''}
- <dl>
-   <dt>Permissions</dt><dd>${escapeHtml(o.scope)}</dd>
-   <dt>Redirects to</dt><dd class="uri">${escapeHtml(o.redirectUri)}</dd>
- </dl>
- ${o.scope.split(/\s+/).includes(RESEARCH_RUN_SCOPE)
-   ? '<p class="warn">Run research queries using the operator\'s provider quota, subject to the shared daily research limit. This does not grant permission to change tracking or settings.</p>'
-   : ''}
- <input type="hidden" name="csrf" value="${escapeHtml(o.csrf)}">
- <div class="row">
-   <button type="submit" name="approve" value="no" class="ghost">Deny</button>
-   <button type="submit" name="approve" value="yes">Allow</button>
- </div>`, consentAction)
-}
-
 /**
  * Send an HTML gate page with the headers that keep it a gate.
  *
@@ -219,8 +167,10 @@ function consentPage(o: {
  */
 function sendGatePage(reply: FastifyReply, html: string) {
   return reply
+    // font-src 'self' admits the dashboard's own font file; scripts, images and
+    // every other origin stay blocked.
     .header('content-security-policy',
-      "frame-ancestors 'none'; default-src 'none'; style-src 'unsafe-inline'; form-action 'self'")
+      "frame-ancestors 'none'; default-src 'none'; style-src 'unsafe-inline'; font-src 'self'; form-action 'self'")
     .header('x-frame-options', 'DENY')
     // same-origin, not no-referrer: under no-referrer a browser posts this page's
     // own form with `Origin: null` and no Referer, which the server's Origin guard
@@ -230,33 +180,6 @@ function sendGatePage(reply: FastifyReply, html: string) {
     .header('cache-control', 'no-store')
     .type('text/html')
     .send(html)
-}
-
-function page(inner: string, action: string): string {
-  return `<!doctype html>
-<html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Canonry</title>
-<style>
- body{font:16px/1.5 system-ui,sans-serif;background:#10141c;color:#e8eaed;display:grid;place-items:center;min-height:100vh;margin:0}
- form{background:#171c26;padding:2rem;border-radius:12px;width:min(26rem,90vw);display:grid;gap:.75rem}
- h1{font-size:1.1rem;margin:0 0 .5rem}
- label,dt{font-size:.85rem;color:#9aa4b2}
- dl{margin:0;display:grid;gap:.5rem}
- dd{margin:0}
- .uri{word-break:break-all;font-family:ui-monospace,monospace;font-size:.85rem}
- input{padding:.6rem;border-radius:6px;border:1px solid #2a3140;background:#0d1117;color:inherit;font:inherit}
- input[type=hidden]{display:none}
- button{padding:.6rem 1rem;border-radius:6px;border:0;background:#3b82f6;color:#fff;font:inherit;cursor:pointer}
- .ghost{background:#2a3140}
- .row{display:flex;gap:.5rem;justify-content:flex-end}
- .err{color:#f87171;font-size:.85rem}
- .who{margin:0}
- .warn{margin:0;padding:.6rem;border-radius:6px;background:#3a2a12;color:#fbbf24;font-size:.85rem}
-</style></head>
-<body><form method="post" action="${escapeHtml(action)}">
- ${inner}
-</form></body></html>`
 }
 
 /**
@@ -426,7 +349,7 @@ function registerOAuthRoutesIn(app: FastifyInstance, opts: OAuthRoutesOptions): 
       // a bounce to the product's sign-in with a `next` parameter, dead-ends:
       // the dashboard has no /signin route, never reads `next`, and 404s under
       // a base path.
-      return sendGatePage(reply, signInPage(request.url, null))
+      return sendGatePage(reply, renderSignInPage({ action: request.url, error: null, fontUrl: opts.fontUrl }))
     }
 
     // A SESSION IS NOT CONSENT.
@@ -440,7 +363,7 @@ function registerOAuthRoutesIn(app: FastifyInstance, opts: OAuthRoutesOptions): 
     //
     // So the GET only ever ASKS. The code is minted by the POST below, which
     // carries a CSRF token bound to this session.
-    return sendGatePage(reply, consentPage({
+    return sendGatePage(reply, renderConsentPage({
       action: request.url,
       clientName: client.name,
       selfRegistered: client.registration === 'dynamic',
@@ -448,6 +371,7 @@ function registerOAuthRoutesIn(app: FastifyInstance, opts: OAuthRoutesOptions): 
       scope: grantedScope,
       userName: user.name,
       csrf: consentToken(user.id, clientId, redirectUri, grantedScope),
+      fontUrl: opts.fontUrl,
     }))
   })
 
@@ -619,13 +543,13 @@ function registerOAuthRoutesIn(app: FastifyInstance, opts: OAuthRoutesOptions): 
     const name = body.name?.trim()
     const password = body.password
     if (!name || !password) {
-      return sendGatePage(reply, signInPage(request.url, 'Enter a name and password.'))
+      return sendGatePage(reply, renderSignInPage({ action: request.url, error: 'Enter a name and password.', fontUrl: opts.fontUrl }))
     }
     // The SAME check /auth/login runs, with the same four budgets. Reimplementing
     // it here is what made the dashboard's lockout bypassable through this door.
     const result = await opts.credentials.verify(request, name, password)
     if (!result.ok) {
-      return sendGatePage(reply, signInPage(request.url, result.message))
+      return sendGatePage(reply, renderSignInPage({ action: request.url, error: result.message, fontUrl: opts.fontUrl }))
     }
     void reply.header('set-cookie', opts.startSession(result.user.id))
     // Re-enter the GET, which now renders the approval page.

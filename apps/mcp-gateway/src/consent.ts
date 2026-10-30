@@ -4,7 +4,7 @@ import html from 'escape-html'
 
 export const consentFontPath = '/assets/geist-latin-5.3.0.woff2'
 export const consentFont = readFileSync(createRequire(import.meta.url).resolve('@fontsource-variable/geist/files/geist-latin-wght-normal.woff2'))
-const canary = readFileSync(new URL('../assets/canary.svg', import.meta.url), 'utf8')
+const mark = readFileSync(new URL('../assets/canonry-mark.svg', import.meta.url), 'utf8')
 
 // Standalone equivalents of DESIGN.md and apps/web/src/geist.css. No dashboard runtime is required.
 const styles = `
@@ -91,7 +91,7 @@ export function renderConsentPage(input: ConsentPage): string {
 <title>Connect a workspace · Canonry</title>
 <style nonce="${html(input.nonce)}">${styles}</style>
 </head><body><main><div class="connection">
-<div class="brand"><span class="brand-icon" aria-hidden="true">${canary}</span><span>Canonry</span></div>
+<div class="brand"><span class="brand-icon" aria-hidden="true">${mark}</span><span>Canonry</span></div>
 <section class="panel" aria-labelledby="consent-title">
 <header><h1 id="consent-title">Connect a workspace</h1>
 <p class="intro"><strong>${html(input.clientName)}</strong> requests read-only access.</p></header>
