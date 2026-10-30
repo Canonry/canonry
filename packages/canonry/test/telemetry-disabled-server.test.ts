@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
 import { apiKeys, createClient, migrate } from '@canonry/canonry-db'
+import { getConfigPath } from '../src/config.js'
 
 const setTelemetryPreference = vi.hoisted(() => vi.fn(async () => {}))
 vi.mock('../src/telemetry.js', async (importOriginal) => ({
@@ -31,7 +32,10 @@ it('attributes an opt-out through PUT /telemetry to the surface and agent of the
     keyHash: crypto.createHash('sha256').update(apiKey).digest('hex'), keyPrefix: apiKey.slice(0, 9),
   }).run()
   vi.stubEnv('CANONRY_OPERATOR_KEY_IDS', 'operator-key')
-  const app = await createServer({ config: { apiUrl: 'http://127.0.0.1:4100', database, apiKey, providers: {} }, db, logger: false })
+  // Telemetry is an install-wide setting, saved by a server running from the default config.
+  const app = await createServer({
+    config: { apiUrl: 'http://127.0.0.1:4100', database, apiKey, providers: {} }, configPath: getConfigPath(), db, logger: false,
+  })
   cleanup.push(() => app.close())
 
   const res = await app.inject({

@@ -847,8 +847,7 @@ export function parseExternalMcpEnv(raw: string | undefined): ExternalMcpServerC
  * (env-var overrides, legacy migrations, etc.).  Returns null when the
  * file does not exist or cannot be parsed.
  */
-export function loadConfigRaw(): CanonryConfig | null {
-  const configPath = getConfigPath()
+export function loadConfigRaw(configPath = getConfigPath()): CanonryConfig | null {
   if (!fs.existsSync(configPath)) return null
   try {
     return (parse(fs.readFileSync(configPath, 'utf-8')) as CanonryConfig) ?? null
@@ -916,14 +915,13 @@ function writeConfigAtomically(configPath: string, contents: string): void {
  *    `saveConfig` for a targeted change, it should not overwrite unrelated
  *    fields that were loaded from a different session.
  */
-export function saveConfig(config: CanonryConfig): void {
-  const configDir = getConfigDir()
+export function saveConfig(config: CanonryConfig, configPath = getConfigPath()): void {
+  const configDir = path.dirname(configPath)
   if (!fs.existsSync(configDir)) {
     fs.mkdirSync(configDir, { recursive: true })
   }
 
-  const configPath = getConfigPath()
-  const onDisk = loadConfigRaw()
+  const onDisk = loadConfigRaw(configPath)
 
   // Start with on-disk state as the base so that fields untouched by the
   // caller are preserved exactly as they were on disk.
@@ -964,17 +962,18 @@ export function saveConfig(config: CanonryConfig): void {
  * with a temporary CANONRY_CONFIG_DIR from clobbering production values like
  * `database`, `apiKey`, and `anonymousId`. The `sentiment` block is never
  * written: it always keeps its on-disk value. So does `dashboardPasswordHash`,
- * which only `options.setDashboardPasswordHash` can add.
+ * which only `options.setDashboardPasswordHash` can add. `options.configPath`
+ * names the file to patch; it defaults to `getConfigPath()`.
  */
 export function saveConfigPatch(
   patch: Partial<CanonryConfig>,
-  options: { setDashboardPasswordHash?: string } = {},
+  options: { setDashboardPasswordHash?: string, configPath?: string } = {},
 ): void {
-  const configDir = getConfigDir()
+  const configPath = options.configPath ?? getConfigPath()
+  const configDir = path.dirname(configPath)
   if (!fs.existsSync(configDir)) {
     fs.mkdirSync(configDir, { recursive: true })
   }
-  const configPath = getConfigPath()
 
   let base: Partial<CanonryConfig> = {}
   // Whether config.yaml was read as settings. Only then does a password
