@@ -99,7 +99,9 @@ Each tenant entry supplies an immutable `id`, `displayName`, approved `origin`,
 `issuer`, canonical `resource`, read-only `mcpUrl`, `enabled`, compatible
 `protocolVersions`, `catalogVersion: "canonry-readonly-v1"`, and the instance's pre-registered
 `upstreamClientId`. Register the gateway's exact `${issuer}/upstream/callback` URI at that instance
-before onboarding (production: `https://mcp.canonry.ai/upstream/callback`). Use discovered endpoints and the engine's supported versions. The gateway
+before onboarding (production: `https://mcp.canonry.ai/upstream/callback`). Set the same ID as
+`mcpGateway.clientId` in the instance's config, or its consent page warns that the gateway chose
+its own name ([docs/mcp.md](../../docs/mcp.md#connect-with-the-canonry-plugin)). Use discovered endpoints and the engine's supported versions. The gateway
 negotiates a supported MCP version and enforces the read-only annotation policy.
 `catalogVersion` selects that gateway policy contract; it is not a version
 attested by the upstream profile or initialization response.

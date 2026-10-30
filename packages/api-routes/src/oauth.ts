@@ -65,6 +65,15 @@ export interface OAuthRoutesOptions {
    * they already did once, and the second one had no rate limiting at all.
    */
   credentials: CredentialChecker
+  /**
+   * The client the operator's shared MCP gateway registered here, named in
+   * the instance's config. It came in through open registration, but the
+   * operator vouches for it, so its consent page does not call it unverified.
+   * Only while every redirect it registered is on the gateway's origin: a
+   * wrong ID in config keeps the warning rather than vouching for a client
+   * that sends codes somewhere else. Consent itself is still required.
+   */
+  gatewayClient?: { id: string; origin: string }
 }
 
 function sha256(value: string): string {
@@ -244,6 +253,15 @@ function registerOAuthRoutesIn(app: FastifyInstance, opts: OAuthRoutesOptions): 
       .digest('base64url')
   }
 
+  /** A client that named itself, unless it is the operator's gateway (see `gatewayClient`). */
+  function selfRegistered(client: typeof oauthClients.$inferSelect): boolean {
+    if (client.registration !== 'dynamic') return false
+    const gateway = opts.gatewayClient
+    const vouched = gateway !== undefined && client.id === gateway.id && client.redirectUris.length > 0
+      && client.redirectUris.every(uri => URL.canParse(uri) && new URL(uri).origin === gateway.origin)
+    return !vouched
+  }
+
   function authorizationServerMetadata() {
     return {
     issuer,
@@ -366,7 +384,7 @@ function registerOAuthRoutesIn(app: FastifyInstance, opts: OAuthRoutesOptions): 
     return sendGatePage(reply, renderConsentPage({
       action: request.url,
       clientName: client.name,
-      selfRegistered: client.registration === 'dynamic',
+      selfRegistered: selfRegistered(client),
       redirectUri,
       scope: grantedScope,
       userName: user.name,

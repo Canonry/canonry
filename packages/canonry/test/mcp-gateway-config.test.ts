@@ -41,11 +41,13 @@ describe('mcpGateway config', () => {
     return undefined
   }
 
-  it('loads a gateway with and without an operator-named workspace, and leaves it unset when blank', () => {
+  it('loads a gateway with and without an operator-named workspace or client, and leaves it unset when blank', () => {
     writeConfig({ url: 'https://mcp.example/mcp' })
     expect(loadConfig().mcpGateway).toEqual({ url: 'https://mcp.example/mcp' })
     writeConfig({ url: 'https://mcp.example/mcp', workspace: 'tenant-one' })
     expect(loadConfig().mcpGateway).toEqual({ url: 'https://mcp.example/mcp', workspace: 'tenant-one' })
+    writeConfig({ url: 'https://mcp.example/mcp', clientId: 'dcr_0123456789abcdef' })
+    expect(loadConfig().mcpGateway).toEqual({ url: 'https://mcp.example/mcp', clientId: 'dcr_0123456789abcdef' })
     writeConfig(null)
     expect(loadConfig().mcpGateway ?? undefined).toBeUndefined()
   })
@@ -58,6 +60,7 @@ describe('mcpGateway config', () => {
     [{ url: 'not-a-url' }],
     [{ workspace: 'tenant-one' }],
     [{ url: 'https://mcp.example/mcp', workspace: '   ' }],
+    [{ url: 'https://mcp.example/mcp', clientId: '' }],
     [{ url: 'https://mcp.example/mcp', extra: true }],
   ])('rejects %j before the server starts', mcpGateway => {
     writeConfig(mcpGateway)
