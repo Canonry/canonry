@@ -166,6 +166,22 @@ commands if hosted setup needs attention. `showResourceLinks: false` hides
 repository documentation links while retaining the ChatGPT and Claude help
 links.
 
+### Brand mark
+
+The dashboard shows the Canonry mascot in the browser tab, the sidebar, and its
+sign-in screen. For a client deployment, show the Canonry icon instead: the
+canary on a white tile, as in the plugin listings and on the OAuth sign-in pages.
+
+```yaml
+dashboard:
+  brandMark: icon
+```
+
+For containers, set `CANONRY_DASHBOARD_BRAND_MARK=icon` and restart. The
+environment value overrides YAML; `mascot` restores the default. Blank or
+unrecognized values fall back to YAML, then `mascot`. This changes presentation
+only.
+
 ### Managed run kinds
 
 Use `dashboard.managedRunKinds` for a deployment where your team runs work for

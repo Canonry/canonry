@@ -8,6 +8,8 @@
  */
 import { test, expect, onTestFinished, describe, afterEach } from 'vitest'
 
+import fs from 'node:fs'
+import path from 'node:path'
 import React from 'react'
 import { render, screen, cleanup, fireEvent, act, within } from '@testing-library/react'
 
@@ -86,6 +88,7 @@ function readQueryCacheKeys(_container: HTMLElement): string[] {
 
 afterEach(() => {
   cleanup()
+  delete window.__CANONRY_CONFIG__
 })
 
 describe('an install with no accounts', () => {
@@ -126,11 +129,30 @@ describe('signing in with an account', () => {
 
     const brand = screen.getByTestId('auth-brand')
     expect(brand.textContent).toContain('Canonry')
-    expect(brand.querySelector('img')).toBeTruthy()
+    expect(brand.querySelector('img')?.getAttribute('src')).toBe('./favicon.svg')
 
     // Two labelled fields already say what to type; a sentence repeating it is
     // noise on the one screen that should be shortest.
     expect(screen.queryByText('Enter the name and password for your account.')).toBeNull()
+  })
+
+  // A client deployment (dashboard.brandMark: icon) shows the plugin icon, the
+  // same mark as its OAuth sign-in pages, instead of the mascot.
+  test('shows the plugin icon on a client deployment', async () => {
+    window.__CANONRY_CONFIG__ = { dashboard: { brandMark: 'icon' } }
+    serveAccounts({ authRequired: true, user: null })
+
+    render(<AuthGate />)
+    await screen.findByText('Sign in to Canonry')
+
+    const mark = screen.getByTestId('auth-brand').querySelector('img')
+    expect(mark?.getAttribute('src')).toBe('./canonry-icon.svg')
+    expect(mark?.classList.contains('brand-icon-tile')).toBe(true)
+    // The dashboard build ships the file the mark points at. Walk up from the
+    // vitest cwd: `import.meta.url` is not a file URL in this environment.
+    let root = path.resolve(process.cwd())
+    while (!fs.existsSync(path.join(root, 'pnpm-workspace.yaml')) && path.dirname(root) !== root) root = path.dirname(root)
+    expect(fs.existsSync(path.join(root, 'apps/web/public/canonry-icon.svg'))).toBe(true)
   })
 
   test('opens the dashboard once the name and password are accepted', async () => {

@@ -397,6 +397,14 @@
     @apply size-7;
   }
 
+  /* The plugin icon's white tile (dashboard.brandMark: icon): the SVG's own
+     corner radius, plus a hairline in the border token so the tile keeps its
+     shape on light surfaces. */
+  .brand-icon-tile {
+    border-radius: 22.4%;
+    box-shadow: 0 0 0 1px var(--color-border);
+  }
+
   .brand-mark {
     @apply text-heading no-underline text-heading-16;
   }
