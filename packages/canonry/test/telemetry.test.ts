@@ -37,6 +37,8 @@ describe('telemetry', () => {
     'CI',
     'CANONRY_ANONYMOUS_ID',
     'CANONRY_TELEMETRY_SOURCE',
+    'CANONRY_PORT',
+    'CANONRY_BASE_PATH',
   ]
 
   beforeEach(() => {
@@ -317,6 +319,44 @@ describe('telemetry', () => {
       expect(config.providers?.gemini?.apiKey).toBe('test-key')
       expect(config.apiKey).toBe('cnry_test')
       expect(config.anonymousId).toBeTruthy()
+    })
+
+    it('saves only the new ID, never a runtime port or base path override', async () => {
+      const { getOrCreateAnonymousId } = await import('../src/telemetry.js')
+      const { saveConfig, getConfigPath } = await import('../src/config.js')
+      saveConfig(makeConfig())
+      process.env.CANONRY_PORT = '4999'
+      process.env.CANONRY_BASE_PATH = '/proxied/'
+
+      const id = getOrCreateAnonymousId()
+
+      expect(parse(fs.readFileSync(getConfigPath(), 'utf8'))).toEqual({ ...makeConfig(), anonymousId: id })
+    })
+
+    it('reads but never saves an ID while any server holds writes, and saves once all release', async () => {
+      const { getOrCreateAnonymousId, holdAnonymousIdWrites } = await import('../src/telemetry.js')
+      const { saveConfig, getConfigPath } = await import('../src/config.js')
+      saveConfig(makeConfig())
+      const before = fs.readFileSync(getConfigPath(), 'utf8')
+      // The machine-derived fallback, as when the file cannot be written.
+      const machineDerived = /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+
+      const first = holdAnonymousIdWrites()
+      const second = holdAnonymousIdWrites()
+      try {
+        expect(getOrCreateAnonymousId()).toMatch(machineDerived)
+        first()
+        // Releasing twice must not end the other server's hold.
+        first()
+        expect(getOrCreateAnonymousId()).toMatch(machineDerived)
+        expect(fs.readFileSync(getConfigPath(), 'utf8')).toBe(before)
+      } finally {
+        first()
+        second()
+      }
+
+      const id = getOrCreateAnonymousId()
+      expect(parse(fs.readFileSync(getConfigPath(), 'utf8')).anonymousId).toBe(id)
     })
 
     it('keeps one ID across a command that creates the config, as `canonry bootstrap` does', async () => {
