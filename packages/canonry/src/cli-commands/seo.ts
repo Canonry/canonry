@@ -1,4 +1,4 @@
-import { seoEvidenceQuerySchema, seoMarketRankingQuerySchema, seoMarketRankingSummaryQuerySchema, seoSyncInputSchema } from '@canonry/canonry-contracts'
+import { seoCompetitorQuerySchema, seoEvidenceQuerySchema, seoKeywordGapQuerySchema, seoMarketRankingQuerySchema, seoMarketRankingSummaryQuerySchema, seoSyncInputSchema } from '@canonry/canonry-contracts'
 import type { CliCommandInput, CliCommandSpec } from '../cli-dispatch.js'
 import { getString, requirePositional, requireProject, requireStringOption, stringOption } from '../cli-command-helpers.js'
 import { usageError } from '../cli-error.js'
@@ -6,7 +6,7 @@ import {
   showSeoContext, showSeoStatus, listSeoProfiles, showSeoProfile, setSeoProfile,
   prepareSeoRefresh, syncSeo, listSeoRuns, showSeoRun, cancelSeoRun,
   showSeoOperatorTask, reconcileSeoTask,
-  showSeoOverview, showSeoKeywordMetrics, showSeoDomainIntelligence, showSeoRankedKeywords, showSeoMarketRankings, showSeoMarketSummary,
+  showSeoOverview, showSeoKeywordMetrics, showSeoDomainIntelligence, showSeoRankedKeywords, showSeoCompetitors, showSeoKeywordGaps, showSeoMarketRankings, showSeoMarketSummary,
 } from '../commands/seo.js'
 
 const selectionOptions = { 'profile-id': stringOption(), 'run-id': stringOption(), limit: stringOption(), offset: stringOption() }
@@ -21,6 +21,18 @@ function selection(input: CliCommandInput) {
   return result.data
 }
 const rankingOptions = { ...selectionOptions, market: stringOption(), region: stringOption(), outcome: stringOption(), search: stringOption(), sort: stringOption() }
+const competitorOptions = { ...selectionOptions, sort: stringOption() }
+const gapOptions = { ...competitorOptions, kind: stringOption() }
+function competitorSelection(input: CliCommandInput) {
+  const result = seoCompetitorQuerySchema.safeParse({ ...selection(input), sort: getString(input.values, 'sort') })
+  if (!result.success) throw usageError(result.error.issues.map(issue => `${issue.path.join('.')}: ${issue.message}`).join('; '))
+  return result.data
+}
+function gapSelection(input: CliCommandInput) {
+  const result = seoKeywordGapQuerySchema.safeParse({ ...selection(input), kind: getString(input.values, 'kind'), sort: getString(input.values, 'sort') })
+  if (!result.success) throw usageError(result.error.issues.map(issue => `${issue.path.join('.')}: ${issue.message}`).join('; '))
+  return result.data
+}
 function rankingSelection(input: CliCommandInput) {
   const result = seoMarketRankingQuerySchema.safeParse({
     ...selection(input), marketKey: getString(input.values, 'market'), regionKey: getString(input.values, 'region'),
@@ -59,7 +71,7 @@ export const SEO_CLI_COMMANDS: readonly CliCommandSpec[] = [
   { path: ['seo', 'profile', 'show'], usage: 'canonry seo profile show <project> <profile-id> [--format json]', access: 'stored', run: input => showSeoProfile(project(input), id(input), input.format) },
   {
     path: ['seo', 'profile', 'set'], usage: 'canonry seo profile set <project> <profile-id> --file <json-path|-> [--format json]', access: 'write',
-    help: 'Create or replace the complete profile. JSON includes name, connectionId, capabilities, targets, keywords, locationCode, languageCode, limit and scope. Advanced scope pins expectedPlanRevision. Does not start provider work or change host spending policy.',
+    help: 'Create or replace the complete profile. JSON includes name, connectionId, capabilities, targets, keywords, locationCode, languageCode, limit and scope. keyword-gaps also requires explicit competitors. Competitor discovery and gaps compare whole domains at project scope; Advanced scope pins expectedPlanRevision. Does not start provider work or change host spending policy.',
     options: { file: stringOption() },
     run: input => setSeoProfile(project(input), id(input), requireStringOption(input, 'file', { command: 'seo.profile.set', usage: 'canonry seo profile set <project> <id> --file <json-path|->', message: '--file is required' }), input.format),
   },
@@ -85,6 +97,8 @@ export const SEO_CLI_COMMANDS: readonly CliCommandSpec[] = [
   { path: ['seo', 'keyword-metrics'], usage: 'canonry seo keyword-metrics <project> [--profile-id <id>] [--run-id <id>] [--limit <n>] [--offset <n>] [--format json]', access: 'stored', options: selectionOptions, help: evidenceHelp, run: input => showSeoKeywordMetrics(project(input), selection(input), input.format) },
   { path: ['seo', 'domain-intelligence'], usage: 'canonry seo domain-intelligence <project> [--profile-id <id>] [--run-id <id>] [--limit <n>] [--offset <n>] [--format json]', access: 'stored', options: selectionOptions, help: evidenceHelp, run: input => showSeoDomainIntelligence(project(input), selection(input), input.format) },
   { path: ['seo', 'ranked-keywords'], usage: 'canonry seo ranked-keywords <project> [--profile-id <id>] [--run-id <id>] [--limit <n>] [--offset <n>] [--format json]', access: 'stored', options: selectionOptions, help: evidenceHelp, run: input => showSeoRankedKeywords(project(input), selection(input), input.format) },
+  { path: ['seo', 'competitors'], usage: 'canonry seo competitors <project> [--profile-id <id>] [--run-id <id>] [--sort=domain|-domain|shared|-shared|position|-position|traffic|-traffic] [--limit <n>] [--offset <n>] [--format json]', access: 'stored', options: competitorOptions, help: 'Read saved organic competitor discovery for whole domains. Preserves target, locale and source date. Discovery does not pin rivals or start provider work. Sorts all saved rows before paging, with missing values last in either direction. Omitted sort preserves source order; use --sort=-shared for descending counts. Keep --run-id and sort fixed when paging.', run: input => showSeoCompetitors(project(input), competitorSelection(input), input.format) },
+  { path: ['seo', 'keyword-gaps'], usage: 'canonry seo keyword-gaps <project> [--profile-id <id>] [--run-id <id>] [--kind shared|missing|outranked] [--sort=keyword|-keyword|kind|-kind|target-rank|-target-rank|competitor-rank|-competitor-rank|rank-gap|-rank-gap|volume|-volume] [--limit <n>] [--offset <n>] [--format json]', access: 'stored', options: gapOptions, help: 'Read saved whole-domain organic search comparisons. shared includes searches where both domains rank, including outranked; missing means the source database has a rival rank and no target rank; outranked means the rival ranks higher. Rank gap is target rank minus rival rank, or unavailable without both. Sorts all filtered rows before paging, with missing values last in either direction. Omitted sort preserves source order; use --sort=-volume for descending demand. Reads never start provider work. Preserve --run-id and sort when paging.', run: input => showSeoKeywordGaps(project(input), gapSelection(input), input.format) },
   {
     path: ['seo', 'market-rankings'], usage: 'canonry seo market-rankings <project> [--profile-id <id>] [--run-id <id>] [--market <key>] [--region <key>] [--outcome needs-work|page-1|ranks-11-20|ranks-21-plus|not-ranked|partly-checked|rival-ahead|failed|cancelled] [--search <text>] [--sort=market|rank|-rank|query|-query] [--limit <n>] [--offset <n>] [--format json]', access: 'stored', options: rankingOptions,
     help: 'Read saved market rankings only: the site\'s Google position for each tracked non-brand query in each market, searched from that market\'s location. A rank past the checked results reads as not ranked; a search that failed or was cancelled still has a row. --market, --region, --outcome and --search narrow the rows; --sort=rank puts the closest to page 1 first and --sort=-rank the furthest (keep the = for an order that starts with a dash). Preserve --run-id when paging.',

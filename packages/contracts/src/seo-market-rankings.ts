@@ -42,8 +42,13 @@ function outcomeOf(row: SeoMarketRanking): SeoMarketRankingOutcome {
  * the search checked (`rivalAhead`).
  */
 export function marketRankingRow(row: SeoMarketRanking): SeoMarketRankingRow {
-  const best = bestCompetitorRank(row.competitors)
-  return { ...row, outcome: outcomeOf(row), rivalAhead: best !== null && (row.rankOrganic === null || best < row.rankOrganic) }
+  const hasResult = row.searchStatus === SeoMarketRankingSearchStatuses.completed || row.searchStatus === SeoMarketRankingSearchStatuses.partial
+  const topCompetitor = hasResult ? [...row.competitors].sort((a, b) => a.rankOrganic - b.rankOrganic || compareText(a.domain, b.domain))[0] ?? null : null
+  const best = topCompetitor?.rankOrganic ?? null
+  return {
+    ...row, outcome: outcomeOf(row), rivalAhead: best !== null && (row.rankOrganic === null || best < row.rankOrganic),
+    topCompetitor, rankGap: row.rankOrganic === null || best === null ? null : row.rankOrganic - best,
+  }
 }
 
 /** Whether a row passes an outcome filter. */

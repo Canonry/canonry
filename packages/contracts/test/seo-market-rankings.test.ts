@@ -49,6 +49,17 @@ describe('market-ranking rows', () => {
     expect(failedRow('lost')).toMatchObject({ outcome: 'failed', searchStatus: 'failed', rankOrganic: null, depth: 0, rivalAhead: false, provenance: null })
     expect(failedRow('skipped', 'cancelled')).toMatchObject({ outcome: 'cancelled', searchStatus: 'cancelled', depth: 0, rivalAhead: false })
   })
+
+  it('returns the best tracked competitor and a signed gap only for two measured ranks', () => {
+    const competitors = [{ domain: 'later.com', rankOrganic: 18 }, { domain: 'zebra.com', rankOrganic: 3 }, { domain: 'alpha.com', rankOrganic: 3 }]
+    expect(row('behind', 12, { competitors })).toMatchObject({ topCompetitor: { domain: 'alpha.com', rankOrganic: 3 }, rankGap: 9, rivalAhead: true })
+    expect(row('ahead', 1, { competitors })).toMatchObject({ rankGap: -2, rivalAhead: false })
+    expect(row('tied', 3, { competitors })).toMatchObject({ rankGap: 0, rivalAhead: false })
+    expect(row('unranked', null, { competitors })).toMatchObject({ topCompetitor: { domain: 'alpha.com', rankOrganic: 3 }, rankGap: null })
+    expect(row('partial', null, { ...partial(20), competitors })).toMatchObject({ rankGap: null })
+    expect(row('alone', 1)).toMatchObject({ topCompetitor: null, rankGap: null })
+    expect(row('failed', null, { searchStatus: 'failed', competitors })).toMatchObject({ topCompetitor: null, rankGap: null, rivalAhead: false })
+  })
 })
 
 describe('countMarketRankings', () => {
