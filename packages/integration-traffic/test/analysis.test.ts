@@ -6,20 +6,23 @@ import {
 } from '@canonry/canonry-contracts'
 import { describe, expect, it } from 'vitest'
 import anthropicRaw from '../src/ip-ranges/anthropic.json' with { type: 'json' }
+import chatgptConnectorsRaw from '../src/ip-ranges/chatgpt-connectors.json' with { type: 'json' }
+import chatgptUserRaw from '../src/ip-ranges/chatgpt-user.json' with { type: 'json' }
+import googleUserAgentsRaw from '../src/ip-ranges/google-user-triggered-agents.json' with { type: 'json' }
+import googlebotRaw from '../src/ip-ranges/googlebot.json' with { type: 'json' }
 import {
   buildTrafficProbeReport,
   classifyAiReferral,
   classifyAiUserFetch,
   classifyCrawler,
-  ipRangeManifestContentHash,
   normalizeTrafficPathPattern,
 } from '../src/index.js'
+import { firstPublishedIp, vendoredManifest } from './fixtures/vendored-ranges.js'
 
-const ANTHROPIC_MANIFEST = {
-  id: `${anthropicRaw._source}#${anthropicRaw.creationTime}#sha256:${ipRangeManifestContentHash(anthropicRaw)}`,
-  source: anthropicRaw._source,
-  version: anthropicRaw.creationTime,
-}
+// Addresses and manifest identities come from the vendored snapshots, so the
+// weekly range refresh cannot break these tests (see fixtures/vendored-ranges.ts).
+const ANTHROPIC_MANIFEST = vendoredManifest(anthropicRaw)
+const ANTHROPIC_IP = firstPublishedIp(anthropicRaw, 4)
 
 function event(overrides: Partial<NormalizedTrafficRequest>): NormalizedTrafficRequest {
   return {
@@ -70,7 +73,7 @@ describe('traffic analysis', () => {
   it('classifies observed ChatGPT integration traffic as a user fetch', () => {
     const connector = event({
       userAgent: 'openai-mcp/1.0.0',
-      remoteIp: '100.31.168.162',
+      remoteIp: firstPublishedIp(chatgptConnectorsRaw, 4),
     })
     expect(classifyAiUserFetch(connector)).toMatchObject({
       botId: 'openai-chatgpt-connector',
@@ -102,12 +105,11 @@ describe('traffic analysis', () => {
   })
 
   it('promotes to `verified` when the source IP is in the operator\'s published range', () => {
-    // 66.249.64.1 is in Googlebot's published 66.249.64.0/19 — bundled
-    // in `src/ip-ranges/googlebot.json`. UA match + IP match should
-    // upgrade `claimed_unverified` → `verified`.
+    // An address in a prefix published in `src/ip-ranges/googlebot.json`.
+    // UA match + IP match should upgrade `claimed_unverified` → `verified`.
     expect(classifyCrawler(event({
       userAgent: 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
-      remoteIp: '66.249.64.1',
+      remoteIp: firstPublishedIp(googlebotRaw, 4),
     }))).toMatchObject({
       botId: 'googlebot',
       verificationStatus: 'verified',
@@ -128,11 +130,9 @@ describe('traffic analysis', () => {
   })
 
   it('promotes ClaudeBot to `verified` with official manifest provenance', () => {
-    // This /32 is published by Anthropic but was absent from the old bundled
-    // ARIN allocation snapshot.
     expect(classifyCrawler(event({
       userAgent: 'Mozilla/5.0 (compatible; ClaudeBot/1.0; +claudebot@anthropic.com)',
-      remoteIp: '34.162.230.222',
+      remoteIp: ANTHROPIC_IP,
     }))).toMatchObject({
       botId: 'anthropic-claudebot',
       verificationStatus: 'verified',
@@ -140,13 +140,13 @@ describe('traffic analysis', () => {
     })
   })
 
-  it('rejects the old API/ARIN-only range while retaining manifest provenance', () => {
-    // 160.79.104.0/21 is documented for Claude Platform/API egress, not in
-    // the official crawler manifest. The prior ARIN-derived bundle accepted
-    // it, but crawler verification must now reject it.
+  it('rejects an address outside Anthropic\'s manifest while retaining manifest provenance', () => {
+    // The manifest was consulted and did not list the address, so the hit stays
+    // unverified but records which snapshot rejected it. Which historical
+    // Anthropic ranges count is covered in ip-verify.test.ts.
     expect(classifyCrawler(event({
       userAgent: 'Mozilla/5.0 (compatible; ClaudeBot/1.0; +claudebot@anthropic.com)',
-      remoteIp: '160.79.104.5',
+      remoteIp: '192.0.2.1',
     }))).toMatchObject({
       botId: 'anthropic-claudebot',
       verificationStatus: 'claimed_unverified',
@@ -631,12 +631,12 @@ describe('traffic analysis', () => {
   })
 
   it('promotes ChatGPT-User to `verified` when the source IP is in OpenAI\'s published range', () => {
-    // 104.210.139.193 is in 104.210.139.192/28 — first published prefix in
+    // An address in the first prefix published in
     // `src/ip-ranges/chatgpt-user.json`. UA match + IP match should upgrade
     // `claimed_unverified` → `verified`.
     expect(classifyAiUserFetch(event({
       userAgent: 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; ChatGPT-User/1.0; +https://openai.com/bot',
-      remoteIp: '104.210.139.193',
+      remoteIp: firstPublishedIp(chatgptUserRaw, 4),
     }))).toMatchObject({
       botId: 'openai-chatgpt-user',
       verificationStatus: 'verified',
@@ -662,10 +662,10 @@ describe('traffic analysis', () => {
   })
 
   it('promotes Google-Agent to `verified` when the source IP is in Google\'s user-triggered range', () => {
-    // 136.122.0.10 is in 136.122.0.0/16 — a published prefix in
+    // An address in a prefix published in
     // `src/ip-ranges/google-user-triggered-agents.json`.
     const ua = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko; compatible; Google-Agent; +https://developers.google.com/crawling/docs/crawlers-fetchers/google-agent) Chrome/W.X.Y.Z Safari/537.36'
-    expect(classifyAiUserFetch(event({ userAgent: ua, remoteIp: '136.122.0.10' }))).toMatchObject({
+    expect(classifyAiUserFetch(event({ userAgent: ua, remoteIp: firstPublishedIp(googleUserAgentsRaw, 4) }))).toMatchObject({
       botId: 'google-agent',
       verificationStatus: 'verified',
     })
@@ -741,7 +741,7 @@ describe('traffic analysis', () => {
   it('promotes Claude-User using Anthropic\'s shared official manifest', () => {
     expect(classifyAiUserFetch(event({
       userAgent: 'Mozilla/5.0 (compatible; Claude-User/1.0; +Anthropic)',
-      remoteIp: '34.162.230.222',
+      remoteIp: ANTHROPIC_IP,
     }))).toMatchObject({
       botId: 'claude-user',
       verificationStatus: 'verified',
@@ -754,12 +754,12 @@ describe('traffic analysis', () => {
       event({
         eventId: 'claude-bot',
         userAgent: 'Mozilla/5.0 (compatible; ClaudeBot/1.0; +claudebot@anthropic.com)',
-        remoteIp: '34.162.230.222',
+        remoteIp: ANTHROPIC_IP,
       }),
       event({
         eventId: 'claude-user',
         userAgent: 'Mozilla/5.0 (compatible; Claude-User/1.0; +Anthropic)',
-        remoteIp: '34.162.230.222',
+        remoteIp: ANTHROPIC_IP,
       }),
     ])
 
@@ -777,7 +777,7 @@ describe('traffic analysis', () => {
     const crawlerVerified = event({
       eventId: 'crawler-verified',
       userAgent: 'ClaudeBot/1.0',
-      remoteIp: '34.162.230.222',
+      remoteIp: ANTHROPIC_IP,
     })
     const crawlerClaimed = event({
       eventId: 'crawler-claimed',
@@ -787,7 +787,7 @@ describe('traffic analysis', () => {
     const userFetchVerified = event({
       eventId: 'user-fetch-verified',
       userAgent: 'Claude-User/1.0',
-      remoteIp: '34.162.230.222',
+      remoteIp: ANTHROPIC_IP,
     })
     const userFetchClaimed = event({
       eventId: 'user-fetch-claimed',

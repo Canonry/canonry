@@ -50,6 +50,9 @@ import { apiRoutes } from '../src/index.js'
 import type { OutcomeTelemetryEvent } from '../src/outcome-telemetry.js'
 import { tryClaimTrafficSyncLease } from '../src/traffic-sync-lease.js'
 import { connectionOutcomes } from './outcome-capture.js'
+import chatgptUserRanges from '../../integration-traffic/src/ip-ranges/chatgpt-user.json' with { type: 'json' }
+import gptbotRanges from '../../integration-traffic/src/ip-ranges/gptbot.json' with { type: 'json' }
+import { firstPublishedIp, vendoredManifest } from '../../integration-traffic/test/fixtures/vendored-ranges.js'
 import type {
   CloudRunCredentialRecord,
   CloudRunCredentialStore,
@@ -424,16 +427,12 @@ const SA_KEY = JSON.stringify({
 })
 
 
-const GPTBOT_MANIFEST = {
-  id: 'https://openai.com/gptbot.json#2025-10-30T11:00:00.000000#sha256:f4208aed7b2ecc420d0dd9f96c33b7a937fe37be4aef3cb7e6ef4cc87db84c22',
-  source: 'https://openai.com/gptbot.json',
-  version: '2025-10-30T11:00:00.000000',
-}
-const USER_FETCH_MANIFEST = {
-  id: 'https://openai.com/chatgpt-user.json#2026-09-04T18:03:29.248484#sha256:df0f56e8bdac220bef69f949887b7647ac76787efe374b1714cc8290ec6ccedc',
-  source: 'https://openai.com/chatgpt-user.json',
-  version: '2026-09-04T18:03:29.248484',
-}
+// Crawler addresses and manifest identities come from the vendored publisher
+// snapshots, so the weekly range refresh cannot break these tests.
+const GPTBOT_MANIFEST = vendoredManifest(gptbotRanges)
+const USER_FETCH_MANIFEST = vendoredManifest(chatgptUserRanges)
+const GPTBOT_IP = firstPublishedIp(gptbotRanges, 4)
+const CHATGPT_USER_IP = firstPublishedIp(chatgptUserRanges, 4)
 
 async function seedForeignSource(h: Awaited<ReturnType<typeof buildHarness>>) {
   const created = await h.app.inject({
@@ -2326,8 +2325,8 @@ describe('POST /traffic/sources/:id/sync', () => {
 
     const events: NormalizedTrafficRequest[] = [
       // Two crawler hits same hour same path → should accumulate to hits=2 in one bucket
-      buildEvent({ userAgent: 'GPTBot/1.0', remoteIp: '20.171.207.34', path: '/blog/foo', status: 200, observedAt: fromBase(1) }),
-      buildEvent({ userAgent: 'GPTBot/1.0', remoteIp: '20.171.207.34', path: '/blog/foo', status: 200, observedAt: fromBase(30) }),
+      buildEvent({ userAgent: 'GPTBot/1.0', remoteIp: GPTBOT_IP, path: '/blog/foo', status: 200, observedAt: fromBase(1) }),
+      buildEvent({ userAgent: 'GPTBot/1.0', remoteIp: GPTBOT_IP, path: '/blog/foo', status: 200, observedAt: fromBase(30) }),
       // One AI referral via UTM
       buildEvent({
         userAgent: 'Mozilla/5.0',
@@ -4088,8 +4087,8 @@ describe('POST /traffic/sources/:id/backfill', () => {
     baseTime.setMinutes(0, 0, 0)
     const fromBase = (mins: number) => new Date(baseTime.getTime() + mins * 60_000).toISOString()
     const events: NormalizedTrafficRequest[] = [
-      buildEvent({ eventId: 'replace-crawler-1', userAgent: 'GPTBot/1.0', remoteIp: '20.171.207.34', path: '/blog/foo', status: 200, observedAt: fromBase(1) }),
-      buildEvent({ eventId: 'replace-crawler-2', userAgent: 'GPTBot/1.0', remoteIp: '20.171.207.34', path: '/blog/foo', status: 200, observedAt: fromBase(15) }),
+      buildEvent({ eventId: 'replace-crawler-1', userAgent: 'GPTBot/1.0', remoteIp: GPTBOT_IP, path: '/blog/foo', status: 200, observedAt: fromBase(1) }),
+      buildEvent({ eventId: 'replace-crawler-2', userAgent: 'GPTBot/1.0', remoteIp: GPTBOT_IP, path: '/blog/foo', status: 200, observedAt: fromBase(15) }),
     ]
     const h = await buildHarness(events, { bypassTimeFilter: true })
     try {
@@ -4113,7 +4112,7 @@ describe('POST /traffic/sources/:id/backfill', () => {
       const stableBefore = evidenceSnapshot(h.db)
       const stableOnly = (snapshot: ReturnType<typeof evidenceSnapshot>) => Object.fromEntries(Object.entries(snapshot).map(([name, values]) => [name, values.filter(value => value.includes('/outside-window') || value.includes('/peer-window') || value.includes('/foreign-window'))]))
       events.push(
-        buildEvent({ eventId: 'replace-user-1', userAgent: 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; ChatGPT-User/1.0; +https://openai.com/bot', remoteIp: '104.210.139.193', path: '/new-user', observedAt: fromBase(25) }),
+        buildEvent({ eventId: 'replace-user-1', userAgent: 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; ChatGPT-User/1.0; +https://openai.com/bot', remoteIp: CHATGPT_USER_IP, path: '/new-user', observedAt: fromBase(25) }),
         buildEvent({ eventId: 'replace-referral-1', userAgent: 'Mozilla/5.0', path: '/new-referral', queryString: 'utm_source=chatgpt.com', observedAt: fromBase(30) }),
       )
       // Backfill the same window. Replace mode should reset to hits=2,
@@ -4780,7 +4779,7 @@ describe('GET /traffic/sources/:id', () => {
       buildEvent({ userAgent: 'GPTBot/1.0', path: '/blog/foo', status: 200, observedAt: fromBase(1) }),
       buildEvent({
         userAgent: 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; ChatGPT-User/1.0; +https://openai.com/bot',
-        remoteIp: '104.210.139.193',
+        remoteIp: CHATGPT_USER_IP,
         path: '/',
         status: 200,
         observedAt: fromBase(5),
@@ -5286,7 +5285,7 @@ describe('GET /traffic/events', () => {
       buildEvent({ userAgent: 'GPTBot/1.0', path: '/blog/foo', status: 200, observedAt: fromBase(1) }),
       buildEvent({
         userAgent: 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; ChatGPT-User/1.0; +https://openai.com/bot',
-        remoteIp: '104.210.139.193',
+        remoteIp: CHATGPT_USER_IP,
         path: '/',
         status: 200,
         observedAt: fromBase(5),
@@ -6484,7 +6483,7 @@ describe('AI visitor journeys from pulled traffic', () => {
       buildEvent({ eventId: 'ai-next', userAgent: BROWSER, remoteIp: '198.51.100.7', path: '/rooms', referer: 'https://example.com/', observedAt: at(2) }),
       buildEvent({ eventId: 'ai-asset', userAgent: BROWSER, remoteIp: '198.51.100.7', path: '/_next/static/app.js', referer: 'https://example.com/', observedAt: at(2) }),
       buildEvent({ eventId: 'later-google', userAgent: BROWSER, remoteIp: '198.51.100.7', path: '/book', referer: 'https://www.google.com/', observedAt: at(45) }),
-      buildEvent({ eventId: 'crawler', userAgent: 'GPTBot/1.0', remoteIp: '20.171.207.34', path: '/', observedAt: at(5) }),
+      buildEvent({ eventId: 'crawler', userAgent: 'GPTBot/1.0', remoteIp: GPTBOT_IP, path: '/', observedAt: at(5) }),
       buildEvent({ eventId: 'other-person', userAgent: BROWSER, remoteIp: '203.0.113.9', path: '/', referer: 'https://www.google.com/', observedAt: at(6) }),
     ]
   }

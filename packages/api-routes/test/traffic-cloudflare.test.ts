@@ -30,6 +30,8 @@ import type {
 } from '../src/traffic.js'
 import type { OutcomeTelemetryEvent } from '../src/outcome-telemetry.js'
 import { connectionOutcomes } from './outcome-capture.js'
+import gptbotRanges from '../../integration-traffic/src/ip-ranges/gptbot.json' with { type: 'json' }
+import { firstPublishedIp } from '../../integration-traffic/test/fixtures/vendored-ranges.js'
 
 const INGEST_URL = 'https://canonry.test/api/v1/projects/{name}/traffic/cloudflare/ingest'
 
@@ -113,6 +115,9 @@ function signPayload(timestamp: number, payload: unknown, secret: string): strin
   return sign(timestamp, canonicalizeCloudflareJson(payload), secret)
 }
 
+// A real GPTBot address from the vendored snapshot, so the weekly range refresh cannot invalidate it.
+const GPTBOT_IP = firstPublishedIp(gptbotRanges, 4)
+
 function buildIngestEvent(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     eventId: `ray-${Math.random().toString(36).slice(2)}`,
@@ -123,7 +128,7 @@ function buildIngestEvent(overrides: Record<string, unknown> = {}): Record<strin
     queryString: null,
     status: 200,
     userAgent: 'GPTBot/1.2',
-    remoteIp: '20.171.207.34',
+    remoteIp: GPTBOT_IP,
     referer: null,
     cf: { verifiedBot: true, botScore: 30, country: 'US', asn: 8075, asOrganization: 'Microsoft Corporation' },
     ...overrides,

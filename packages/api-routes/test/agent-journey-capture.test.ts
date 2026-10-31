@@ -6,18 +6,13 @@ import { normalizeCloudRunLogEntry } from '@canonry/canonry-integration-cloud-ru
 import { enforceAgentJourneyRetention, recordAgentJourneyBatch } from '../src/agent-journey-capture.js'
 import { writeTrafficEventBatch } from '../src/traffic-event-ingest.js'
 import chatgptUserRanges from '../../integration-traffic/src/ip-ranges/chatgpt-user.json' with { type: 'json' }
+import { firstPublishedIp } from '../../integration-traffic/test/fixtures/vendored-ranges.js'
 
 const NOW = '2026-10-27T12:00:00.000Z'
 const SECRET = 'agent-capture-secret-used-only-in-tests'
 const CHATGPT_UA = 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; ChatGPT-User/1.0; +https://openai.com/bot'
 // An address inside OpenAI's bundled list, so a range refresh cannot turn these requests into likely fakes.
-const VERIFIED_IP = (() => {
-  const prefix = chatgptUserRanges.prefixes.find(entry => 'ipv4Prefix' in entry) as { ipv4Prefix: string }
-  const [address, bits] = prefix.ipv4Prefix.split('/')
-  const octets = address!.split('.').map(Number)
-  if (Number(bits) < 32) octets[3] = octets[3]! + 1
-  return octets.join('.')
-})()
+const VERIFIED_IP = firstPublishedIp(chatgptUserRanges, 4)
 function event(id: string, overrides: Partial<NormalizedTrafficRequest> = {}): NormalizedTrafficRequest {
   return {
     sourceType: TrafficSourceTypes['cloud-run'], evidenceKind: TrafficEvidenceKinds['raw-request'], confidence: TrafficEventConfidences.observed,

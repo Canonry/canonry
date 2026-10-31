@@ -17,6 +17,7 @@ import {
   isScannerPath,
 } from '../src/index.js'
 import chatgptUserRanges from '../src/ip-ranges/chatgpt-user.json' with { type: 'json' }
+import { firstPublishedIp } from './fixtures/vendored-ranges.js'
 
 // Real user agents: OpenAI's published full string, a variant seen in logs
 // that never verifies, and Claude-User (no published string).
@@ -27,13 +28,8 @@ const DAY_MS = 86_400_000
 
 // Derived from the bundled list so a range refresh cannot break these tests.
 const LIST_PUBLISHED_AT = Date.parse(chatgptUserRanges.creationTime)
-const firstPrefix = chatgptUserRanges.prefixes.find(prefix => 'ipv4Prefix' in prefix) as { ipv4Prefix: string }
-const VERIFIED_IP = (() => {
-  const [address, bits] = firstPrefix.ipv4Prefix.split('/')
-  const octets = address!.split('.').map(Number)
-  if (Number(bits) < 32) octets[3] = octets[3]! + 1
-  return octets.join('.')
-})()
+const VERIFIED_IP = firstPublishedIp(chatgptUserRanges, 4)
+// RFC 5737 documentation space: no publisher can list it.
 const OUTSIDE_IP = '203.0.113.9'
 const at = (offsetMs: number) => new Date(LIST_PUBLISHED_AT + offsetMs).toISOString()
 

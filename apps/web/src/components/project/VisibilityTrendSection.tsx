@@ -1968,6 +1968,8 @@ export function VisibilityTrendSection({
                   tickFormatter={bucketTickFormatter}
                   minTickGap={24}
                 />
+                {/* 48px, like the report trend: at 12px "75.0%" is wider than the
+                    32px a 40px axis leaves for its labels, and its first digit was cut. */}
                 <YAxis
                   domain={[0, 100]}
                   ticks={[0, 25, 50, 75, 100]}
@@ -1975,7 +1977,7 @@ export function VisibilityTrendSection({
                   tick={CHART_AXIS_TICK}
                   tickLine={false}
                   axisLine={false}
-                  width={40}
+                  width={48}
                 />
                 <RechartsTooltip
                   cursor={{ stroke: CHART_AXIS_STROKE, strokeWidth: 1 }}

@@ -58,7 +58,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Canonry Operations Guide v1",
     description: "Shared Canonry vocabulary, evidence scope, comparison rules, and authority boundaries. Read when interpreting unfamiliar data or checking an operation.",
     entryPoint: false,
-    characters: 15867,
+    characters: 16193,
     content: aeroReferencesAgentOperationsPart0,
   },
   {
@@ -68,7 +68,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Tracking AI traffic to visits and conversions",
     description: "Crawled, read, clicked, came back, converted: which instrument measures each step, the checks to run before reporting a zero, attribution limits, and user stories such as whether anyone from AI search bought or booked. Read when asked about AI traffic, returning AI visitors, conversions, or broken tracking.",
     entryPoint: false,
-    characters: 10238,
+    characters: 10716,
     content: aeroReferencesAiTrafficTrackingPart0,
   },
   {
@@ -168,7 +168,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "canonry skill",
     description: "Navigate Canonry through connected MCP tools or the `cnry` CLI to inspect evidence, diagnose changes, plan measurement, review integrations, and report results. Use this optional host-native skill for CLI workflows and detailed references; connected MCP users can operate through canonry_help without installing a local runtime or skill.",
     entryPoint: true,
-    characters: 16170,
+    characters: 16496,
     content: canonrySkillPart0,
   },
   {
@@ -188,7 +188,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Tracking AI traffic to visits and conversions",
     description: "canonry skill reference: references/ai-traffic-tracking.md",
     entryPoint: false,
-    characters: 9772,
+    characters: 10250,
     content: canonryReferencesAiTrafficTrackingPart0,
   },
   {
@@ -198,7 +198,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Canonry CLI Reference",
     description: "canonry skill reference: references/canonry-cli.md",
     entryPoint: false,
-    characters: 201724,
+    characters: 201943,
     content: [canonryReferencesCanonryCliPart0, canonryReferencesCanonryCliPart1, canonryReferencesCanonryCliPart2, canonryReferencesCanonryCliPart3].join(''),
   },
   {
@@ -238,7 +238,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Server-side traffic (AI Visibility — Server-Side)",
     description: "canonry skill reference: references/server-side-traffic.md",
     entryPoint: false,
-    characters: 63346,
+    characters: 64542,
     content: [canonryReferencesServerSideTrafficPart0, canonryReferencesServerSideTrafficPart1].join(''),
   },
   {
