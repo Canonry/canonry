@@ -2,6 +2,13 @@
 
 The `seo` toolkit mirrors stored SEO reads, profiles and explicit refreshes. Mutations require `seo.write` or `seo.run`; host receipt tools additionally require `requiresOperator` and remain absent from customer catalogs. Never promote local intent preparation into permission to refresh.
 
+`canonry_seo_competitors` and `canonry_seo_keyword_gaps` read saved whole-domain
+research, including in Advanced project scope. Discovery never pins competitors.
+Gap `kind=shared` includes outranked rows; missing means absent from the source's
+comparison database, not absent from a truncated page. Keep locale and run identity.
+Both reads accept the shared query schema’s `sort` as read-only tuning. Sorting
+happens on the API before paging; preserve filters and sort across pages.
+
 For MCP clients such as Claude Desktop, Codex, or custom agent shells that
 prefer a typed tool catalog over shell or HTTP, the package ships a separate
 `canonry-mcp` bin. It is a thin stdio adapter over `createApiClient()` — not

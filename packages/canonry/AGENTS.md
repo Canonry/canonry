@@ -2,6 +2,14 @@
 
 SEO integration uses `SeoRuntime` for durable explicit refresh dispatch. `commands/seo.ts` and `cli-commands/seo.ts` use only public ApiClient methods; `seo market-rankings` reads the rows api-routes plans from the project's markets and tracked queries, and `seo market-summary` counts them by outcome; their human output shares the depth-aware band labels (`marketRankingBands`) with the dashboard. Host-only credentials and financial limits come from `config.seo`; customer DTOs never expose them. See `docs/seo-data.md` for scope, receipt recovery and deployment limits.
 
+`seo competitors` and `seo keyword-gaps` read stored whole-domain research through
+the same API and MCP contracts. `keyword-gaps --kind shared` includes outranked
+rows; `missing` means the source comparison found no target rank. Positive
+`rankGap` means the rival is ahead; null means at least one position is unavailable.
+Both reads accept `--sort`; the API sorts before pagination and keeps missing
+values last. Preserve run ID and sort while paging; commands never sort one page.
+Do not infer gaps from missing rows or recalculate API comparisons in commands.
+
 ## Purpose
 
 The publishable npm package (`@canonry/canonry`). Bundles the CLI, local Fastify server, in-process job runner, provider registry, scheduler, and pre-built SPA. This is what users install with `npm install -g @canonry/canonry`.

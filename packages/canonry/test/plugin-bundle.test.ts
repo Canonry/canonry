@@ -325,6 +325,11 @@ describe('native Canonry plugin bundle', () => {
         '# CODEMAP\nvisibility-attribution\ngsc-sitemap-submission\nGUARDS.md\nDOC_UPDATE.md\nfind apps packages -type f -name\n',
       )
 
+      const remoteManifests = ['plugins/canonry-remote/plugin.json', 'plugins/canonry-remote/.claude-plugin/plugin.json']
+      for (const relativePath of remoteManifests) writeJson(path.join(scratch, relativePath), { name: 'canonry-remote', version: '1.0.0' })
+      const remoteMcpPath = path.join(scratch, 'plugins/canonry-remote/mcp.json')
+      writeJson(remoteMcpPath, { mcpServers: { canonry: { type: 'streamable-http', url: 'https://mcp.example/mcp' } } })
+
       execFileSync(process.execPath, [scriptPath], { cwd: scratch })
       execFileSync('git', ['init', '--quiet'], { cwd: scratch })
       execFileSync('git', ['config', 'user.email', 'plugin-test@canonry.invalid'], { cwd: scratch })
@@ -359,6 +364,21 @@ describe('native Canonry plugin bundle', () => {
         encoding: 'utf8',
       })
       expect(advancedCheck.status).toBe(0)
+
+      // The remote plugin versions on its own: an edit under its folder must
+      // advance both of its manifests, and needs no Canonry release.
+      execFileSync('git', ['add', '.'], { cwd: scratch })
+      execFileSync('git', ['commit', '--quiet', '-m', 'native release'], { cwd: scratch })
+      const releaseRef = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: scratch, encoding: 'utf8' }).trim()
+      writeJson(remoteMcpPath, { mcpServers: { canonry: { type: 'streamable-http', url: 'https://mcp.example/v2/mcp' } } })
+      const remoteCheck = spawnSync(process.execPath, [scriptPath, '--check', '--base-ref', releaseRef], { cwd: scratch, encoding: 'utf8' })
+      expect(remoteCheck.status).toBe(1)
+      expect(remoteCheck.stderr).toContain('plugins/canonry-remote/plugin.json version must advance beyond 1.0.0 because the remote plugin changed')
+      expect(remoteCheck.stderr).toContain('plugins/canonry-remote/.claude-plugin/plugin.json version must advance beyond 1.0.0')
+      expect(remoteCheck.stderr).not.toContain('plugins/canonry/plugin.json version must advance')
+      for (const relativePath of remoteManifests) writeJson(path.join(scratch, relativePath), { name: 'canonry-remote', version: '1.1.0' })
+      const remoteAdvanced = spawnSync(process.execPath, [scriptPath, '--check', '--base-ref', releaseRef], { cwd: scratch, encoding: 'utf8' })
+      expect(remoteAdvanced.status).toBe(0)
     } finally {
       fs.rmSync(scratch, { recursive: true, force: true })
     }
