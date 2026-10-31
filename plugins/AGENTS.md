@@ -4,6 +4,12 @@ The portable Canonry plugin (`plugins/canonry/`), its client adapters, and the c
 
 ## Plugin
 
+`plugins/canonry-remote/` (the hosted plugin for `mcp.canonry.ai`) versions on
+its own, not with Canonry. Advance the `version` in its `plugin.json` and
+`.claude-plugin/plugin.json` together on every change in that folder: Codex and
+Claude Code fetch a new copy only when the version changes.
+`pnpm plugin:check --base-ref <ref>` enforces it.
+
 `plugins/canonry/` targets Agent Plugins 1.0.0 with root `plugin.json`, fixed
 `skills/` children, and root `mcp.json`. Current Codex and Claude Code
 distribution remains backward-compatible through `.codex-plugin/plugin.json`,
