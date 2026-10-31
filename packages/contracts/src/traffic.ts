@@ -130,10 +130,11 @@ export const AgentTrustLevels = agentTrustSchema.enum
 export const agentTrustReasonSchema = z.enum([
   /** The source IP is in the operator's published list. */
   'ip-in-published-list',
-  /** The IP is not in a list published within 30 days of the request. */
+  /**
+   * The IP was checked and is not in the operator's published list. Never on
+   * its own a sign of a fake: lists lag real addresses, and some rotate.
+   */
   'ip-outside-published-list',
-  /** The IP is not in a list published more than 30 days from the request, which may be out of date. */
-  'ip-outside-old-list',
   /** The source reported no usable client IP, so nothing was checked. */
   'no-ip',
   /** The operator publishes no IP list for this agent. */
@@ -583,7 +584,7 @@ export const trafficSourceTotalsSchema = z.object({
   /**
    * Requests that claim a user-triggered AI agent but are judged likely fake
    * (secret or admin paths, a user agent that differs from the operator's
-   * published string, or an IP outside a current published list). Never
+   * published string). Never
    * included in `aiUserFetchHits`. Zero before agent trust was recorded.
    */
   aiUserFetchLikelyFakeHits: z.number().int().nonnegative(),

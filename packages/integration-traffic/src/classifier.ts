@@ -172,7 +172,6 @@ export function classifyAiUserFetch(event: NormalizedTrafficRequest): Classified
         rule,
         userAgent,
         path: event.path,
-        observedAt: event.observedAt,
         verification: decision,
         listPublished: hasVerificationDataFor(rule.id),
       })

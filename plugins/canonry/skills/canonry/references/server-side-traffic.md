@@ -1228,8 +1228,9 @@ Every user-triggered agent request gets a trust level when it is classified,
 judged on that request alone. `verified` means the source IP is in the
 operator's published list. Otherwise: `likely_fake` when the path asks for
 credential, version-control or admin files, when an operator that publishes a
-full user-agent string (OpenAI, Mistral) sees a different one, or when the IP
-is missing from a list published within 30 days of the request; `likely_real`
+full user-agent string (OpenAI, Mistral) sees a different one; an IP missing
+from the published list alone leaves a request `unknown`, because lists lag
+real addresses and some rotate; `likely_real`
 when nothing could be checked (no IP, or no published list) but the user agent
 matches the published string; `unknown` for the rest. `trustReasons` lists the
 evidence. Likely fake requests are never added to AI user fetch hits or stored

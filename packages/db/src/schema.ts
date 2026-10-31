@@ -2712,8 +2712,8 @@ export const aiUserFetchEventsHourly = sqliteTable('ai_user_fetch_events_hourly'
 ])
 
 // Requests that claimed a user-triggered AI agent but were judged likely fake
-// (secret or admin paths, a user agent unlike the operator's published string,
-// or an IP outside a current published list). Kept apart from
+// (secret or admin paths, or a user agent unlike the operator's published
+// string). Kept apart from
 // ai_user_fetch_events_hourly so no reader of AI agent hits can include them.
 // `reason` is the request's first trust reason.
 export const aiUserFetchLikelyFakeHourly = sqliteTable('ai_user_fetch_likely_fake_hourly', {

@@ -8,15 +8,6 @@ import {
 import type { AiCrawlerRule } from './types.js'
 
 /**
- * A miss counts as evidence of a fake only against a list published within
- * this many days of the request, either side. An older list may lack new
- * operator addresses; a much newer one may have dropped addresses the operator
- * used then. Measured from the publisher's own creation time in the manifest.
- */
-export const AGENT_IP_LIST_FRESH_DAYS = 30
-const FRESH_LIST_MS = AGENT_IP_LIST_FRESH_DAYS * 86_400_000
-
-/**
  * Path segments a user-triggered fetch has no reason to request. `cgi-bin` is
  * left out on purpose: older sites still serve real pages from it.
  */
@@ -33,17 +24,18 @@ const ENCODED_TRAVERSAL = /(?:%2e%2e|%2e\.|\.%2e)(?:\/|\\|%2f|%5c|$)|\.\.(?:%2f|
 const REASON_ORDER: readonly AgentTrustReason[] = [
   AgentTrustReasons['scanner-path'],
   AgentTrustReasons['unusual-user-agent'],
-  AgentTrustReasons['ip-outside-published-list'],
   AgentTrustReasons['ip-in-published-list'],
-  AgentTrustReasons['ip-outside-old-list'],
+  AgentTrustReasons['ip-outside-published-list'],
   AgentTrustReasons['no-ip'],
   AgentTrustReasons['no-published-list'],
   AgentTrustReasons['documented-user-agent'],
 ]
+// An IP missing from a published list is never on its own evidence of a fake:
+// some operators publish rotating snapshots of single addresses, and every
+// vendored list lags the operator's real egress.
 const FAKE_REASONS: ReadonlySet<AgentTrustReason> = new Set([
   AgentTrustReasons['scanner-path'],
   AgentTrustReasons['unusual-user-agent'],
-  AgentTrustReasons['ip-outside-published-list'],
 ])
 
 export interface AgentTrustAssessment {
@@ -56,7 +48,6 @@ export interface AgentTrustInput {
   userAgent: string
   /** Raw request path; the query string is ignored. */
   path: string
-  observedAt: string
   /** `manifest` is set only when a published list was consulted for this request. */
   verification: { verified: boolean; manifest: TrafficVerificationManifest | null }
   /** Whether the operator publishes an IP list for this agent at all. */
@@ -93,14 +84,8 @@ export function sortAgentTrustReasons(reasons: Iterable<AgentTrustReason>): Agen
 
 function ipReason(input: AgentTrustInput): AgentTrustReason {
   if (input.verification.verified) return AgentTrustReasons['ip-in-published-list']
-  const manifest = input.verification.manifest
-  if (manifest) {
-    const distance = Math.abs(Date.parse(input.observedAt) - Date.parse(manifest.version))
-    // An unparseable time cannot prove freshness, so its miss stays weak.
-    return Number.isFinite(distance) && distance <= FRESH_LIST_MS
-      ? AgentTrustReasons['ip-outside-published-list']
-      : AgentTrustReasons['ip-outside-old-list']
-  }
+  // A manifest is returned only when a list was actually consulted.
+  if (input.verification.manifest) return AgentTrustReasons['ip-outside-published-list']
   return input.listPublished ? AgentTrustReasons['no-ip'] : AgentTrustReasons['no-published-list']
 }
 

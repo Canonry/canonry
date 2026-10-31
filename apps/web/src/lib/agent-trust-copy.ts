@@ -11,8 +11,7 @@ export const TRUST_LABELS: Record<StoredAgentTrust, string> = {
 export function trustReasonLabel(reason: AgentTrustReason, operator: string): string {
   switch (reason) {
     case AgentTrustReasons['ip-in-published-list']: return `IP on ${operator}'s published list`
-    case AgentTrustReasons['ip-outside-published-list']: return `IP not on ${operator}'s current list`
-    case AgentTrustReasons['ip-outside-old-list']: return `IP not on ${operator}'s list, which may be out of date`
+    case AgentTrustReasons['ip-outside-published-list']: return `IP not on ${operator}'s published list`
     case AgentTrustReasons['no-ip']: return 'Source gives no IP to check'
     case AgentTrustReasons['no-published-list']: return `${operator} publishes no IP list`
     case AgentTrustReasons['documented-user-agent']: return `User agent matches ${operator}'s published one`
@@ -21,7 +20,7 @@ export function trustReasonLabel(reason: AgentTrustReason, operator: string): st
   }
 }
 
-export const LIKELY_FAKE_HELP = 'These requests claimed to be an AI agent but look fake: they asked for secret or admin files, used a user agent unlike the one the company publishes, or came from an IP outside its current published list. They are counted, never listed, and never added to AI agent hits.'
+export const LIKELY_FAKE_HELP = 'These requests claimed to be an AI agent but look fake: they asked for secret or admin files, or used a user agent unlike the one the company publishes. They are counted, never listed, and never added to AI agent hits.'
 
 /** Tooltip sentence for an AI agent hit count that leaves likely fake requests out. */
 export function likelyFakeAgentHitsNote(likelyFake: number): string {

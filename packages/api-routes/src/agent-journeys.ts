@@ -154,7 +154,7 @@ function readSequences(db: DatabaseClient, name: string, query: AgentJourneysQue
       limitations: [
         'Requests are observed; IP and user-agent sequences are inferred, not confirmed user sessions. Shared egress can merge tasks and changing IPs can split them.',
         'Operator verification does not identify a user, task, or model. Unknown browser agents are not detected.',
-        'Trust levels other than verified are heuristics over the IP check, the user agent and the path. Likely fake requests (paths that look for credential or admin files, a user agent unlike the operator\'s published string, or an IP outside a current published list) are counted, not listed.',
+        'Trust levels other than verified are heuristics over the IP check, the user agent and the path. Likely fake requests (paths that look for credential or admin files, or a user agent unlike the operator\'s published string) are counted, not listed. An IP missing from the published list alone leaves a request unknown: lists lag real addresses.',
         'Only retained requests inside this window are shown. Query strings, bodies and sensitive path segments are omitted. Static assets are excluded.',
         'HTTP responses do not establish clicks, intent, or business outcomes. External browsing and browser-only interactions are not observed.',
         'Requests with identical timestamps have a stable display order, not a proven causal order.',

@@ -17607,7 +17607,7 @@ export type TrafficSamplesResponse = {
                 } | null;
                 matchedUserAgent?: string | null;
                 trust?: 'verified' | 'likely_real' | 'unknown' | 'likely_fake' | null;
-                trustReasons?: Array<'ip-in-published-list' | 'ip-outside-published-list' | 'ip-outside-old-list' | 'no-ip' | 'no-published-list' | 'documented-user-agent' | 'unusual-user-agent' | 'scanner-path'> | null;
+                trustReasons?: Array<'ip-in-published-list' | 'ip-outside-published-list' | 'no-ip' | 'no-published-list' | 'documented-user-agent' | 'unusual-user-agent' | 'scanner-path'> | null;
                 purpose?: string | null;
             } | null;
             aiUserFetch: {
@@ -17622,7 +17622,7 @@ export type TrafficSamplesResponse = {
                 } | null;
                 matchedUserAgent?: string | null;
                 trust?: 'verified' | 'likely_real' | 'unknown' | 'likely_fake' | null;
-                trustReasons?: Array<'ip-in-published-list' | 'ip-outside-published-list' | 'ip-outside-old-list' | 'no-ip' | 'no-published-list' | 'documented-user-agent' | 'unusual-user-agent' | 'scanner-path'> | null;
+                trustReasons?: Array<'ip-in-published-list' | 'ip-outside-published-list' | 'no-ip' | 'no-published-list' | 'documented-user-agent' | 'unusual-user-agent' | 'scanner-path'> | null;
             } | null;
             aiReferral: {
                 operator?: string | null;
@@ -17813,7 +17813,7 @@ export type AgentJourneyDetailResponse = {
             version: string;
         } | null;
         trust: 'verified' | 'likely_real' | 'unknown';
-        trustReasons: Array<'ip-in-published-list' | 'ip-outside-published-list' | 'ip-outside-old-list' | 'no-ip' | 'no-published-list' | 'documented-user-agent' | 'unusual-user-agent' | 'scanner-path'>;
+        trustReasons: Array<'ip-in-published-list' | 'ip-outside-published-list' | 'no-ip' | 'no-published-list' | 'documented-user-agent' | 'unusual-user-agent' | 'scanner-path'>;
         targetKey: string | null;
         attribution: 'matched' | 'unmatched' | 'ambiguous' | 'unknown-host' | 'redacted' | 'not-configured';
     }>;

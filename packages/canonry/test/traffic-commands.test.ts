@@ -98,7 +98,7 @@ describe('traffic CLI commands', () => {
     const common = {
       projectId: project.id, sourceId: 'agent-source', correlationKey: 'private-correlation-key', correlationBasis: 'ip-ua',
       agentId: 'chatgpt-user', operator: 'OpenAI', product: 'ChatGPT', verificationStatus: 'claimed_unverified',
-      trust: 'unknown', trustReasons: ['ip-outside-old-list'], host: 'example.com', latencyMs: 12, createdAt: at,
+      trust: 'unknown', trustReasons: ['ip-outside-published-list'], host: 'example.com', latencyMs: 12, createdAt: at,
     } as const
     // Counted beside the sequences, never listed.
     db.insert(aiUserFetchLikelyFakeHourly).values({ projectId: project.id, sourceId: 'agent-source', tsHour: at, botId: 'chatgpt-user', operator: 'OpenAI', reason: 'scanner-path', hits: 4, createdAt: at, updatedAt: at }).run()
@@ -152,7 +152,7 @@ describe('traffic CLI commands', () => {
     expect(json.stdout).not.toContain('private-correlation-key')
     const text = await invokeCli(detailArgs)
     expect(text.stdout).toContain('Inferred sequence from IP and user agent')
-    expect(text.stdout).toContain('unknown (ip-outside-old-list)')
+    expect(text.stdout).toContain('unknown (ip-outside-published-list)')
     expect(text.stdout).toContain('trust unknown')
     expect(text.stdout).toContain(targetKey
       ? 'Likely fake requests: not counted per Property (hourly totals carry no page path).'

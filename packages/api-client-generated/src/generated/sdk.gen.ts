@@ -4676,7 +4676,7 @@ export const getApiV1ProjectsByNameJourneysSummary = <ThrowOnError extends boole
 /**
  * List stored AI visitor journeys
  *
- * AI-touched visitors whose first AI-referred visit started in the window, newest first, each with its first 20 visits within 30 days after an AI visit (entry channel, landing page, page count; `visitCount` is the total). `device` is a short label; `userAgent` is the full string. `cappedDays` counts the days a key reached the 300-requests-per-day cap, a sign of a user agent many people share. `partialSources` names sources whose logs miss later visits. Stored rows only, 180-day retention. No provider calls or writes.
+ * AI-touched visitors whose first AI-referred visit started in the window, newest first, each with up to 20 visits from its first AI visit on, all within 30 days after an AI visit (entry channel, landing page, page count; `visitCount` is the total). `device` is a short label; `userAgent` is the full string. `cappedDays` counts the days a key reached the 300-requests-per-day cap, a sign of a user agent many people share. `partialSources` names sources whose logs miss later visits. Stored rows only, 180-day retention. No provider calls or writes.
  */
 export const getApiV1ProjectsByNameJourneys = <ThrowOnError extends boolean = false>(options: Options<GetApiV1ProjectsByNameJourneysData, ThrowOnError>): RequestResult<GetApiV1ProjectsByNameJourneysResponses, GetApiV1ProjectsByNameJourneysErrors, ThrowOnError> => (options.client ?? client).get<GetApiV1ProjectsByNameJourneysResponses, GetApiV1ProjectsByNameJourneysErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],

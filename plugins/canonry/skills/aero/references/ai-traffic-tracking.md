@@ -87,9 +87,9 @@ through these in order and say which one applies.
    (`cnry runs <p> --kind traffic-sync --format json`) before quoting recent
    days. Recent days look low while a backlog drains.
 8. **Is it noise?** Scanners using AI agent names are mostly filtered already:
-   requests judged likely fake (credential or admin paths, a user agent unlike
-   OpenAI's or Mistral's published string, an IP outside a current published
-   list) are left out of AI user fetch hits and counted as
+   requests judged likely fake (credential or admin paths, or a user agent
+   unlike OpenAI's or Mistral's published string) are left out of AI user
+   fetch hits and counted as
    `totals24h.aiUserFetchLikelyFakeHits`. `cnry traffic samples <p> --kind
    ai-user-fetch` shows each sample's `trust` and `trustReasons`. Quote
    `verified` and `likely_real` requests and pages that returned 200; treat

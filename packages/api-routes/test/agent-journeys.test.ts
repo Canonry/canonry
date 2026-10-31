@@ -20,7 +20,7 @@ describe('observed agent journeys', () => {
     db.insert(agentJourneyEvents).values({ id, projectId: 'project', sourceId: 'source', sourceEventId: id,
       ts: `2026-10-27T${time}.000Z`, correlationKey: 'private-correlation-key', correlationBasis: 'ip-ua',
       agentId: 'openai-chatgpt-user', operator: 'OpenAI', product: 'ChatGPT', verificationStatus: 'claimed_unverified',
-      trust: 'unknown', trustReasons: ['ip-outside-old-list'],
+      trust: 'unknown', trustReasons: ['ip-outside-published-list'],
       host: 'northstar.example', path: '/', method: 'GET', status: 200, latencyMs: 42, createdAt: NOW, ...overrides }).run()
   }
   async function list(selection = ''): Promise<AgentJourneysResponse> {
