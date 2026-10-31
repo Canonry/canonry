@@ -215,16 +215,23 @@ describe('universal MCP operations guidance', () => {
       playbooks: ['aero', 'regression-playbook'],
       playbookRule: OPERATIONS_GUIDE.playbookRule,
     })
+    const read = async (playbook: string) => {
+      const result = await client.callTool({ name: 'canonry_help', arguments: { playbook } })
+      expect(result.isError, playbook).not.toBe(true)
+      // One plain-text copy: ChatGPT shows the model structuredContent and content both.
+      expect(result.structuredContent, playbook).toBeUndefined()
+      expect(result.content, playbook).toHaveLength(1)
+      return (result.content as Array<{ text: string }>)[0]!.text
+    }
     for (const slug of route.structuredContent!.playbooks as string[]) {
-      const read = await client.callTool({ name: 'canonry_help', arguments: { playbook: slug } })
-      expect(read.isError).not.toBe(true)
-      expect(read.structuredContent).toMatchObject({ guideVersion: 'v1', playbook: slug, note: OPERATIONS_GUIDE.playbookNote, content: bundled(slug) })
-      expect(read.structuredContent!.availablePlaybooks).toEqual(expect.arrayContaining(['aero', 'agent-operations', 'regression-playbook', 'reporting']))
+      const text = await read(slug)
+      expect(text.startsWith(`Playbook: ${slug}\nNote: ${OPERATIONS_GUIDE.playbookNote}\n`)).toBe(true)
+      expect(text.endsWith(`\n\n${bundled(slug)}`)).toBe(true)
+      expect(/^Available: (.+)$/m.exec(text)?.[1]?.split(', ')).toEqual(expect.arrayContaining(['aero', 'agent-operations', 'regression-playbook', 'reporting']))
     }
     // Aero's copy of the guide tells the built-in agent it has no canonry_help.
-    const guide = await client.callTool({ name: 'canonry_help', arguments: { playbook: 'agent-operations' } })
     expect(bundled('agent-operations')).not.toBe(OPERATIONS_GUIDE.markdown)
-    expect(guide.structuredContent?.content).toBe(OPERATIONS_GUIDE.markdown)
+    expect((await read('agent-operations')).endsWith(`\n\n${OPERATIONS_GUIDE.markdown}`)).toBe(true)
     expect(listProjects).not.toHaveBeenCalled()
   })
 

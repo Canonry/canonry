@@ -73,10 +73,12 @@ should opt in explicitly.
 Analysis routes also return `playbooks` and a one-line `playbookRule`. These are
 Canonry's analyst playbooks: the Aero skill (`aero`) and its references, the
 same files built-in Aero reads, served from the installed package.
-`canonry_help({ playbook: "regression-playbook" })` returns one in full with a
-`note` on using it over MCP and every `availablePlaybooks` slug. The
+`canonry_help({ playbook: "regression-playbook" })` returns one as plain text: a
+three-line header (the slug, a note on using it over MCP, and every available
+slug), then the playbook. It carries no `structuredContent`, because ChatGPT
+shows the model both copies and a playbook is up to 20 KB. The
 `agent-operations` slug returns this guide without Aero's built-in-agent preface.
-An unknown slug returns `NOT_FOUND` with the available slugs.
+An unknown slug returns `NOT_FOUND` with `availablePlaybooks` in its details.
 
 The [Operations Guide v1](agent-operations/v1.md) is the public source of truth.
 `canonry://agent-operations/v1` exposes the same guide as an optional MCP

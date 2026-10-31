@@ -33,7 +33,11 @@ export function availablePlaybooks(): string[] {
   return [SKILL_SLUG, ...slugs]
 }
 
-export function readPlaybook(slug: string) {
+/**
+ * One playbook as plain text: a short header, then the file. It is sent once,
+ * with no structured copy, because ChatGPT shows the model both copies.
+ */
+export function readPlaybook(slug: string): string {
   const playbooks = availablePlaybooks()
   const dir = aeroSkillDir()
   if (!dir || !playbooks.includes(slug)) {
@@ -45,7 +49,7 @@ export function readPlaybook(slug: string) {
   }
   const file = slug === SKILL_SLUG ? 'SKILL.md' : path.join('references', `${slug}.md`)
   const content = slug === GUIDE_SLUG ? OPERATIONS_GUIDE.markdown : fs.readFileSync(path.join(dir, file), 'utf8')
-  return { playbook: slug, note: OPERATIONS_GUIDE.playbookNote, content, availablePlaybooks: playbooks }
+  return `Playbook: ${slug}\nNote: ${OPERATIONS_GUIDE.playbookNote}\nAvailable: ${playbooks.join(', ')}\n\n${content}`
 }
 
 function aeroSkillDir(): string | null {

@@ -83,6 +83,8 @@ Analysis routes name `playbooks` from the guide's workflows; `playbook` returns
 one in full (`src/mcp/playbooks.ts`). They are the Aero skill and references the
 package ships for built-in Aero, so hosted clients need no install. Name only
 slugs the install can serve, and serve the public guide for `agent-operations`.
+Return a playbook once as plain text with no `structuredContent`: ChatGPT shows
+the model both copies, which would double a 20 KB read.
 Edit `docs/agent-operations/v1.md`, then run `pnpm guide:sync` to generate runtime
 instructions, the optional MCP resource, and the Canonry skills shared by Codex
 and Claude. `plugin:check` checks guide drift too. Keep public guidance limited

@@ -193,8 +193,7 @@ function registerMetaTools(
       try {
         const parsed = helpInputSchema.parse(input ?? {})
         if (parsed.playbook !== undefined) {
-          const playbook = { guideVersion: OPERATIONS_GUIDE.guideVersion, ...readPlaybook(parsed.playbook) }
-          return { ...jsonToolResult(playbook), structuredContent: playbook }
+          return { content: [{ type: 'text' as const, text: readPlaybook(parsed.playbook) }] }
         }
         const update = readUpdateAvailable(opts.updateAvailable)
         const result = {
