@@ -1,6 +1,6 @@
 import { and, asc, eq, ne } from 'drizzle-orm'
 
-import { loadConfig, saveConfigPatch } from '../config.js'
+import { getConfigPath, loadConfig, saveConfigPatch } from '../config.js'
 import { resolveJourneyKeySecret } from '../journey-secret.js'
 import { createClient, migrate, projects, runs } from '@canonry/canonry-db'
 import { allowsKeylessFirstRunSetup, createServer, waitForServerRuntimeStartup } from '../server.js'
@@ -87,7 +87,8 @@ function buildServeOpenLine(input: {
 }
 
 export async function serveCommand(format: CliFormat = 'text'): Promise<void> {
-  const config = loadConfig()
+  const configPath = getConfigPath()
+  const config = loadConfig(configPath)
   const port = resolveServePort(process.env.CANONRY_PORT, config.port)
   const host = process.env.CANONRY_HOST ?? '127.0.0.1'
   config.port = port
@@ -160,7 +161,8 @@ export async function serveCommand(format: CliFormat = 'text'): Promise<void> {
   // The journey key secret is resolved here, against the config read from disk,
   // so a generated secret is saved to that file and stays stable across restarts.
   const journeyKeySecret = resolveJourneyKeySecret(config, process.env, saveConfigPatch)
-  const app = await createServer({ config, db, host, getAgentPluginState, journeyKeySecret })
+  // The server writes its config changes back to the file it was loaded from.
+  const app = await createServer({ config, configPath, db, host, getAgentPluginState, journeyKeySecret })
 
   // Set the moment the server is bound and serving. Everything after that point
   // in this `try` is reporting: console output, the skills nudge, telemetry.

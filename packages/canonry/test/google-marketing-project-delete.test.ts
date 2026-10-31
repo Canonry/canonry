@@ -2,7 +2,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { afterEach, expect, it } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
 import { eq } from 'drizzle-orm'
 import { createClient, migrate, projects, type DatabaseClient } from '@canonry/canonry-db'
 import type { CanonryConfig } from '../src/config.js'
@@ -38,7 +38,7 @@ it('purges both Google Marketing credentials on project delete before a name can
   }
   process.env.CANONRY_CONFIG_DIR = tmpDir
   saveConfig(config)
-  const app = await createServer({ config, db, logger: false })
+  const app = await createServer({ config, configPath: path.join(tmpDir, 'config.yaml'), db, logger: false })
 
   try {
     const created = await app.inject({
@@ -119,7 +119,7 @@ it('aborts project delete and restores Google Marketing credentials when config 
   }
   process.env.CANONRY_CONFIG_DIR = tmpDir
   saveConfig(config)
-  const app = await createServer({ config, db, logger: false })
+  const app = await createServer({ config, configPath: path.join(tmpDir, 'config.yaml'), db, logger: false })
 
   try {
     const created = await app.inject({
@@ -152,21 +152,26 @@ it('aborts project delete and restores Google Marketing credentials when config 
     })
     saveConfigPatch({ googleAds: config.googleAds, gtm: config.gtm })
 
-    const blockedConfigDir = path.join(tmpDir, 'not-a-config-directory')
-    fs.writeFileSync(blockedConfigDir, 'not a directory')
-    process.env.CANONRY_CONFIG_DIR = blockedConfigDir
-
-    const failedDelete = await app.inject({
-      method: 'DELETE',
-      url: '/api/v1/projects/example',
-      headers: { authorization: `Bearer ${apiKey}` },
+    // The config write fails once, as a full or read-only disk would.
+    const renameFailure = vi.spyOn(fs, 'renameSync').mockImplementationOnce(() => {
+      throw new Error('simulated config write failure')
     })
+    let failedDelete: Awaited<ReturnType<typeof app.inject>>
+    try {
+      failedDelete = await app.inject({
+        method: 'DELETE',
+        url: '/api/v1/projects/example',
+        headers: { authorization: `Bearer ${apiKey}` },
+      })
+      expect(renameFailure.mock.calls[0]?.[1]).toBe(path.join(tmpDir, 'config.yaml'))
+    } finally {
+      renameFailure.mockRestore()
+    }
     expect(failedDelete.statusCode).toBe(500)
     expect(db.select().from(projects).where(eq(projects.id, projectId)).get()).toBeDefined()
     expect(getGoogleAdsConnection(config, projectId)?.refreshToken).toBe('ads-refresh-private-fixture')
     expect(getGtmConnection(config, projectId)?.refreshToken).toBe('gtm-refresh-private-fixture')
 
-    process.env.CANONRY_CONFIG_DIR = tmpDir
     const persistedAfterFailure = loadConfigRaw()
     expect(persistedAfterFailure?.googleAds?.connections?.[0]?.refreshToken).toBe('ads-refresh-private-fixture')
     expect(persistedAfterFailure?.gtm?.connections?.[0]?.refreshToken).toBe('gtm-refresh-private-fixture')
@@ -180,7 +185,6 @@ it('aborts project delete and restores Google Marketing credentials when config 
     expect(getGoogleAdsConnection(config, projectId)).toBeUndefined()
     expect(getGtmConnection(config, projectId)).toBeUndefined()
   } finally {
-    process.env.CANONRY_CONFIG_DIR = tmpDir
     await app.close()
     fs.rmSync(tmpDir, { recursive: true, force: true })
   }
@@ -200,7 +204,7 @@ it('reconciles project-ID Google Marketing credentials left on disk by a crash a
   }
   process.env.CANONRY_CONFIG_DIR = tmpDir
   saveConfig(config)
-  const app = await createServer({ config, db, logger: false })
+  const app = await createServer({ config, configPath: path.join(tmpDir, 'config.yaml'), db, logger: false })
   let restarted: Awaited<ReturnType<typeof createServer>> | undefined
 
   try {
@@ -240,7 +244,7 @@ it('reconciles project-ID Google Marketing credentials left on disk by a crash a
     // transaction guarantee.
     db.delete(projects).where(eq(projects.id, deletedProjectId)).run()
     const restartedConfig = loadConfig()
-    restarted = await createServer({ config: restartedConfig, db, logger: false })
+    restarted = await createServer({ config: restartedConfig, configPath: path.join(tmpDir, 'config.yaml'), db, logger: false })
 
     expect(getGoogleAdsConnection(restartedConfig, deletedProjectId)).toBeUndefined()
     expect(getGtmConnection(restartedConfig, deletedProjectId)).toBeUndefined()

@@ -602,7 +602,7 @@ describe('canonry', () => {
         fs.writeFileSync(configPath, stringify(initial), { encoding: 'utf8', mode: 0o600 })
       }
       let config = boundary === 'missing-file' ? { ...initial } : loadConfig()
-      app = await createServer({ config, db, logger: false })
+      app = await createServer({ config, configPath, db, logger: false })
       await app.ready()
 
       // A live operator change must survive a login using the startup snapshot.
@@ -652,7 +652,7 @@ describe('canonry', () => {
         app = undefined
         config = loadConfig()
         expect(config.dashboardPasswordHash).toBe(live.dashboardPasswordHash)
-        app = await createServer({ config, db, logger: false })
+        app = await createServer({ config, configPath, db, logger: false })
         await app.ready()
         loginPassword = rotatedPassword
       } else if (['malformed-yaml', 'read-error', 'rename-error'].includes(boundary)) {
@@ -713,7 +713,7 @@ describe('canonry', () => {
       db = createClient(dbPath)
       const restartedConfig = loadConfig()
       expect(restartedConfig.apiKey).toBe(expectedDisk.apiKey)
-      app = await createServer({ config: restartedConfig, db, logger: false })
+      app = await createServer({ config: restartedConfig, configPath, db, logger: false })
       const restartedGood = await app.inject({
         method: 'POST', url: '/api/v1/session', payload: { password: loginPassword },
       })
@@ -1110,6 +1110,7 @@ describe('canonry', () => {
         database: dbPath,
         apiKey: rawKey,
       },
+      configPath: path.join(tmpDir, 'config.yaml'),
       db,
       logger: false,
     })
@@ -1171,6 +1172,7 @@ describe('canonry', () => {
           },
         },
       },
+      configPath: path.join(tmpDir, 'config.yaml'),
       db,
       logger: false,
     })
@@ -1273,6 +1275,7 @@ describe('canonry', () => {
           },
         },
       },
+      configPath: path.join(tmpDir, 'config.yaml'),
       db,
       logger: false,
     })

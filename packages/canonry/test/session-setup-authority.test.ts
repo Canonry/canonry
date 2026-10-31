@@ -63,7 +63,11 @@ describe('first-run POST /session/setup authority', () => {
     vi.unstubAllEnvs()
   })
 
-  async function buildServer(host: string, configPatch: Partial<CanonryConfig> = {}) {
+  async function buildServer(
+    host: string,
+    configPatch: Partial<CanonryConfig> = {},
+    configPath = path.join(tmpDir, 'config.yaml'),
+  ) {
     const database = path.join(tmpDir, 'test.db')
     db = createClient(database)
     migrate(db)
@@ -77,7 +81,7 @@ describe('first-run POST /session/setup authority', () => {
       apiUrl: 'http://localhost:4100', database, apiKey: rootKey, telemetry: false, updateCheck: false,
       ...configPatch,
     }
-    const server = await createServer({ config, db, host, logger: false, assetsDir: path.join(tmpDir, 'assets') })
+    const server = await createServer({ config, configPath, db, host, logger: false, assetsDir: path.join(tmpDir, 'assets') })
     app = server
     return { app: server, config, rootKey }
   }
@@ -308,12 +312,11 @@ describe('first-run POST /session/setup authority', () => {
     })
 
     it('writes nothing when config.yaml cannot be saved, and a retry succeeds', async () => {
-      const { config, rootKey } = await buildServer('0.0.0.0')
+      const configDir = path.join(tmpDir, 'config')
+      const { config, rootKey } = await buildServer('0.0.0.0', {}, path.join(configDir, 'config.yaml'))
       const root = { ...LAN, authorization: `Bearer ${rootKey}` }
-      // A config directory under a regular file cannot be created.
-      const blocker = path.join(tmpDir, 'blocker')
-      fs.writeFileSync(blocker, '')
-      vi.stubEnv('CANONRY_CONFIG_DIR', path.join(blocker, 'config'))
+      // A regular file where the config directory goes: nothing can be saved in it.
+      fs.writeFileSync(configDir, '')
 
       const failed = await setup(root)
       expect(failed.statusCode).toBe(500)
@@ -321,13 +324,13 @@ describe('first-run POST /session/setup authority', () => {
       expect(config.dashboardPasswordHash).toBeUndefined()
       expect(db!.select().from(dashboardSessions).all()).toEqual([])
 
-      vi.stubEnv('CANONRY_CONFIG_DIR', tmpDir)
+      fs.rmSync(configDir)
       expect(await setupAuditEntries(rootKey)).toEqual([])
       const retried = await setup(root)
       expect(retried.statusCode).toBe(200)
       expect(await sessionKey(retried, LAN)).toMatchObject({ id: DEFAULT_KEY_ID })
       expect(await setupAuditEntries(rootKey)).toHaveLength(1)
-      expect(fs.existsSync(path.join(tmpDir, 'config.yaml'))).toBe(true)
+      expect(fs.existsSync(path.join(configDir, 'config.yaml'))).toBe(true)
     })
   })
 
@@ -522,7 +525,8 @@ describe('first-run POST /session/setup authority', () => {
     async function restartFromDisk() {
       await app!.close()
       app = await createServer({
-        config: loadConfig(), db: db!, host: '0.0.0.0', logger: false, assetsDir: path.join(tmpDir, 'assets'),
+        config: loadConfig(), configPath: path.join(tmpDir, 'config.yaml'), db: db!, host: '0.0.0.0', logger: false,
+        assetsDir: path.join(tmpDir, 'assets'),
       })
     }
 

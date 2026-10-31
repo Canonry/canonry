@@ -21,6 +21,8 @@ const log = createLogger('InspectSitemap')
 interface InspectSitemapOptions {
   sitemapUrl?: string
   config: CanonryConfig
+  /** Persists a refreshed access token; defaults to the active config.yaml. */
+  saveConfigPatch?: (patch: Partial<CanonryConfig>) => void
 }
 
 export async function executeInspectSitemap(
@@ -72,7 +74,8 @@ export async function executeInspectSitemap(
         tokenExpiresAt: new Date(Date.now() + tokens.expires_in * 1000).toISOString(),
         updatedAt: new Date().toISOString(),
       })
-      saveConfigPatch(opts.config)
+      const persistConfigPatch = opts.saveConfigPatch ?? saveConfigPatch
+      persistConfigPatch(opts.config)
     }
 
     // Determine sitemap URL: explicit > stored on connection > default
