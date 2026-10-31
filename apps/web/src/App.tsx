@@ -16,7 +16,6 @@ import {
   PanelLeftOpen,
   Play,
   Radar,
-  Route,
   Rocket,
   Settings,
   Terminal,
@@ -24,7 +23,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 
-import { CitationStates, RunKinds, RunStatuses, UserRoles, embedProjectTabsError, formatRunErrorOneLine } from '@canonry/canonry-contracts'
+import { CitationStates, RunKinds, RunStatuses, embedProjectTabsError, formatRunErrorOneLine } from '@canonry/canonry-contracts'
 
 import { asyncHandler } from './lib/async-handler.js'
 import { formatErrorLog } from './lib/format-helpers.js'
@@ -538,7 +537,6 @@ export function RootLayout() {
     if (path === '/agent-setup') return 'Agent setup'
     if (path === '/backlinks') return 'Backlink data'
     if (path === '/traffic') return 'Traffic sources'
-    if (path === '/journeys') return 'Journeys'
     if (path.startsWith('/traffic/')) return 'Traffic sources'
     if (path.startsWith('/projects/')) {
       // `currentProjectName` already decodes the segment and resolves a name or
@@ -677,15 +675,6 @@ export function RootLayout() {
             <Radar className="sidebar-icon" />
             <span>Traffic sources</span>
           </Link>
-          {account?.role !== UserRoles.viewer && <Link
-            to="/journeys"
-            className="sidebar-link"
-            activeProps={{ className: 'sidebar-link sidebar-link-active' }}
-            activeOptions={{ exact: true, includeSearch: false }}
-          >
-            <Route className="sidebar-icon" />
-            <span>Journeys</span>
-          </Link>}
           {!isPublicDemo() && <Link
             to="/backlinks"
             className="sidebar-link"
@@ -890,9 +879,6 @@ export function RootLayout() {
           <Link to="/traffic" className="mobile-nav-link" activeProps={{ className: 'mobile-nav-link mobile-nav-link-active' }} activeOptions={{ exact: false }}>
             Traffic sources
           </Link>
-          {account?.role !== UserRoles.viewer && <Link to="/journeys" className="mobile-nav-link" activeProps={{ className: 'mobile-nav-link mobile-nav-link-active' }} activeOptions={{ exact: true, includeSearch: false }}>
-            Journeys
-          </Link>}
           {!isPublicDemo() && <Link to="/backlinks" className="mobile-nav-link" activeProps={{ className: 'mobile-nav-link mobile-nav-link-active' }} activeOptions={{ exact: true }}>
             Backlink data
           </Link>}

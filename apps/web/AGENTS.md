@@ -41,22 +41,29 @@ subtle borders, no visual noise.
 
 ### Journeys
 
-`JourneysPage` owns `/journeys`, with Visitor journeys and Agent journeys tabs.
-The URL carries the selected project and tab; only the active tab reads journey
-data. `TrafficPage` remains source administration. Both tabs use generated SDK
-reads and render server values without calculating metrics in the browser.
+Journeys is a project tab (`/projects/$projectName/journeys`, `JourneysSection`)
+with Visitors and Agent requests views. It is hidden for view-only accounts and
+is not in the embed tab allowlist. The URL carries the view, visitor period,
+selected visitor, list filters and page (`journeyView`, `journeyDays`,
+`journeyVisitor`, `journeyEngine`, `journeyReturned`, `journeyOffset`) and the
+agent period (`agentHours`); only the active view reads journey data.
+`TrafficPage` remains source administration. Both views use generated SDK reads
+and render server values without calculating metrics in the browser.
 
 Visitor summary dates select first-AI-arrival cohorts; return behavior includes
-their later retained visits. Engine and returned filters affect the visitor list
-only, so place them below the summary. Detail paginates retained visits, not requests,
-and is labelled as retained history, independent of the list's cohort window.
-Keep secondary metrics and filters in disclosures. Visits start collapsed;
-opening one shows ordered requests, with request metadata disclosed separately.
-Keep null metrics unavailable, IP/UA and UA-only identity uncertainty explicit,
-and source gaps and capped days visible. Visitor reads are project-wide for both
-Simple and Advanced portfolios; they do not establish Property or market scope.
+their later visits. Engine and came-back filters affect the visitor list only.
+The list sits beside the selected visitor's panel: `JourneyFlow` draws its
+visits left to right in time order as an ordered list of buttons, with the
+entry class carried by marker shape and text, `//` for a new calendar day, and
+non-GET requests printed as recorded. Spacing is ordinal, never proportional to
+time. The visit table loads `events=pages` from the API and offers every request
+on demand; never filter requests in the browser. Keep null metrics unavailable,
+matching uncertainty explicit, and source gaps and capped days visible. Never
+name what a request did ("form submit", "booking"): print method and path.
+Visitor reads are project-wide for both Simple and Advanced portfolios; they do
+not establish Property or market scope.
 
-The Agent tab uses the generated list/detail reads and renders their counts without
+The Agent requests view uses the generated list/detail reads and renders their counts without
 recomputing them. Detail pagination keeps the list response's exact time window
 and source, agent, verification and Property filters. Operator verification is
 separate from inferred request correlation; paths and HTTP status never prove

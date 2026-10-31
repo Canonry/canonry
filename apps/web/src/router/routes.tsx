@@ -32,7 +32,6 @@ const LazySettingsPage = lazyRouteComponent(() => import('../pages/SettingsPage.
 const LazyAgentSetupPage = lazyRouteComponent(() => import('../pages/AgentSetupPage.js'), 'AgentSetupPage')
 const LazyBacklinksPage = lazyRouteComponent(() => import('../pages/BacklinksPage.js'), 'BacklinksPage')
 const LazyTrafficPage = lazyRouteComponent(() => import('../pages/TrafficPage.js'), 'TrafficPage')
-const LazyJourneysPage = lazyRouteComponent(() => import('../pages/JourneysPage.js'), 'JourneysPage')
 const LazyTrafficSourceDetailPage = lazyRouteComponent(() => import('../pages/TrafficSourceDetailPage.js'), 'TrafficSourceDetailPage')
 const LazyMeasurementPropertyPage = lazyRouteComponent(() => import('../pages/MeasurementPropertyPage.js'), 'MeasurementPropertyPage')
 
@@ -60,7 +59,6 @@ export async function preloadAllLazyRoutes(): Promise<void> {
     LazyAgentSetupPage.preload?.(),
     LazyBacklinksPage.preload?.(),
     LazyTrafficPage.preload?.(),
-    LazyJourneysPage.preload?.(),
     LazyTrafficSourceDetailPage.preload?.(),
     LazyMeasurementPropertyPage.preload?.(),
   ])
@@ -78,6 +76,14 @@ type SearchParams = {
   siteHealthRunId?: string
   seoProfileId?: string
   seoRunId?: string
+  /** Journeys tab: view, visitor period in days, selected visitor, list filters and page; agent period in hours. */
+  journeyView?: string
+  journeyDays?: string
+  journeyVisitor?: string
+  journeyEngine?: string
+  journeyReturned?: string
+  journeyOffset?: string
+  agentHours?: string
   /** Market rankings drill-in: one region (a top-level group of markets), one market, or both. */
   seoRegion?: string
   seoMarket?: string
@@ -170,7 +176,8 @@ export const rootRoute = createRootRouteWithContext<RouterContext>()({
       'queryWorkspace', 'researchMode', 'trackingQueryId', 'measurementScope', 'measurementScopeKey', 'measurementMarketKey', 'queryClass',
       'measurementProvider', 'measurementModel', 'measurementLocation', 'measurementFrom', 'measurementTo',
       'measurementRevision', 'measurementRunId', 'measurementQueryKey', 'measurementAnswer',
-    ].map(key => [key, typeof search[key] === 'string' ? search[key] : undefined])),
+      'journeyView', 'journeyDays', 'journeyVisitor', 'journeyEngine', 'journeyReturned', 'journeyOffset', 'agentHours',
+    ].map(key => [key, typeof search[key] === 'string' && search[key] ? search[key] : undefined])),
   }),
 })
 
@@ -277,6 +284,12 @@ export const projectSeoDataRoute = createRoute({
   getParentRoute: () => projectLayoutRoute,
   path: '/seo-data',
   component: () => <LazyProjectPage tab="seo-data" />,
+})
+
+export const projectJourneysRoute = createRoute({
+  getParentRoute: () => projectLayoutRoute,
+  path: '/journeys',
+  component: () => <LazyProjectPage tab="journeys" />,
 })
 
 export const projectConversionsRoute = createRoute({
@@ -402,16 +415,6 @@ export const trafficRoute = createRoute({
   component: LazyTrafficPage,
 })
 
-export const journeysRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/journeys',
-  component: LazyJourneysPage,
-  validateSearch: (search: Record<string, unknown>): { project?: string; tab?: 'visitors' | 'agents' } => ({
-    project: typeof search.project === 'string' && search.project ? search.project : undefined,
-    tab: search.tab === 'visitors' || search.tab === 'agents' ? search.tab : undefined,
-  }),
-})
-
 export const trafficSourceDetailRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/traffic/$projectName/$sourceId',
@@ -432,6 +435,7 @@ export const routeTree = rootRoute.addChildren([
     projectPortfolioRoute,
     projectSearchConsoleRoute,
     projectSeoDataRoute,
+    projectJourneysRoute,
     projectConversionsRoute,
     projectLocalRoute,
     projectDiscoveryRoute,
@@ -452,7 +456,6 @@ export const routeTree = rootRoute.addChildren([
   agentSetupRoute,
   backlinksRoute,
   trafficRoute,
-  journeysRoute,
   trafficSourceDetailRoute,
   notFoundRoute,
 ])

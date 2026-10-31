@@ -198,7 +198,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Canonry CLI Reference",
     description: "canonry skill reference: references/canonry-cli.md",
     entryPoint: false,
-    characters: 201493,
+    characters: 201724,
     content: [canonryReferencesCanonryCliPart0, canonryReferencesCanonryCliPart1, canonryReferencesCanonryCliPart2, canonryReferencesCanonryCliPart3].join(''),
   },
   {
@@ -238,7 +238,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Server-side traffic (AI Visibility — Server-Side)",
     description: "canonry skill reference: references/server-side-traffic.md",
     entryPoint: false,
-    characters: 63170,
+    characters: 63346,
     content: [canonryReferencesServerSideTrafficPart0, canonryReferencesServerSideTrafficPart1].join(''),
   },
   {

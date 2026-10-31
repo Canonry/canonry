@@ -2952,7 +2952,7 @@ const rawCanonryMcpTools = [
   defineTool({
     name: 'canonry_journey_get',
     title: 'Read one AI visitor journey',
-    description: 'Read one AI visitor key from canonry_journeys_list: a page of its stored visits in time order (limit 1 to 500, default 100; totalVisits is the total), each with its requests (time, method, path, status, page or data). No provider call or write.',
+    description: 'Read one AI visitor key from canonry_journeys_list: a page of its stored visits in time order (limit 1 to 500, default 100; totalVisits is the total), each with its requests (time, method, path, status, page or data). events=pages returns page requests plus every non-GET/HEAD request; each visit keeps its stored requestCount. No provider call or write.',
     access: 'read', tier: 'traffic', inputSchema: journeyDetailQuerySchema.extend({ project: projectNameSchema, visitorKey: z.string().min(1) }), annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/journeys/{visitorKey}'],
     handler: (client, input) => { const { project, visitorKey, ...query } = input; return client.journeyGet(project, visitorKey, query) },

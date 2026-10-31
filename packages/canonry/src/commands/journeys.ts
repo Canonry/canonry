@@ -3,6 +3,7 @@ import {
   formatValidationIssues,
   JOURNEY_MAX_REQUESTS_PER_VISITOR_DAY,
   journeyDetailQuerySchema,
+  JourneyEventFilters,
   journeySummaryQuerySchema,
   journeysQuerySchema,
   type JourneyEntryClass,
@@ -101,8 +102,8 @@ export async function journeysList(project: string, opts: JourneyListOptions): P
   printPartialSources(result.partialSources)
 }
 
-export async function journeyShow(project: string, visitorKey: string, opts: { limit?: number; offset?: number; format?: string }): Promise<void> {
-  const query = parse(journeyDetailQuerySchema, compact({ limit: opts.limit, offset: opts.offset }))
+export async function journeyShow(project: string, visitorKey: string, opts: { events?: string; limit?: number; offset?: number; format?: string }): Promise<void> {
+  const query = parse(journeyDetailQuerySchema, compact({ events: opts.events, limit: opts.limit, offset: opts.offset }))
   const result = await createApiClient().journeyGet(project, visitorKey, query)
   if (isMachineFormat(opts.format)) {
     console.log(JSON.stringify(result, null, 2))
@@ -115,7 +116,7 @@ export async function journeyShow(project: string, visitorKey: string, opts: { l
   console.log(`First AI visit: ${minute(visitor.firstAiAt)} from ${visitor.firstAiEngine}. Latest AI visit: ${minute(visitor.lastAiAt)}. Last seen: ${minute(visitor.lastSeenAt)}`)
   for (const visit of result.visits) {
     console.log('')
-    console.log(`${minute(visit.startedAt)} to ${minute(visit.endedAt)}  ${entryLabel(visit)}  lands ${visit.landingPath}  ${visit.pageCount} pages, ${visit.requestCount} requests`)
+    console.log(`${minute(visit.startedAt)} to ${minute(visit.endedAt)}  ${entryLabel(visit)}  lands ${visit.landingPath}  ${visit.pageCount} pages, ${visit.requestCount} requests${result.events === JourneyEventFilters.pages ? ` (showing ${visit.events.length}: pages and non-GET requests)` : ''}`)
     for (const event of visit.events) {
       console.log(`  ${event.ts.slice(11, 19)}  ${event.method ?? '-'}  ${event.status ?? '-'}  ${event.aiTouch ? '[ai] ' : ''}${event.kind === 'data' ? '[data] ' : ''}${event.path}`)
     }

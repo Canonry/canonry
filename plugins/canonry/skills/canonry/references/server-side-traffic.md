@@ -1205,10 +1205,11 @@ and it never sends a `health.degraded` alert.
 
 ### Agent request journeys
 
-In the dashboard, open **Journeys** and select **Agent journeys**. The sibling
-**Visitor journeys** tab shows browser visitors who arrived through AI, return
-metrics, and their retained visit/request histories. The selected project and
-tab stay in the page URL. Traffic sources remains the connection-management page.
+In the dashboard, open the project's **Journeys** tab and select **Agent
+requests**. The sibling **Visitors** view shows browser visitors who arrived
+through AI, how many came back, and each visitor's visits in time order. The
+view, period, filters and selected visitor stay in the page URL. Traffic
+sources remains the connection-management page.
 
 `cnry traffic agent-journeys <project>` lists recorded user-triggered agent
 request sequences. Open one with `cnry traffic agent-journey <project> <id>`;
@@ -1230,12 +1231,15 @@ read stored events. New recording cannot recover discarded historical samples.
 
 ### AI visitor journeys
 
-The dashboard's **Journeys → Visitor journeys** tab uses the same summary,
-list and detail reads as the CLI. Its period selects visitors by first AI
-arrival; return behavior can include later retained visits beyond that period.
-Engine and returned-status controls filter the list, not the summary. An expanded
-visitor shows retained history. These are approximate visitor keys, not unique
-people, and the scope is project-wide in Simple and Advanced portfolios.
+The project's **Journeys → Visitors** view uses the same summary, list and
+detail reads as the CLI. Its period selects visitors by first AI arrival;
+return behavior can include later visits beyond that period. Engine and
+came-back controls filter the list, not the summary. The selected visitor's
+visits read left to right in time order, and its requests load with
+`events=pages` (pages plus every request that is not GET or HEAD), the same
+filter as `cnry journeys show --events pages`. These are approximate visitor
+keys, not unique people, and the scope is project-wide in Simple and Advanced
+portfolios.
 
 Every sync, backfill and push also follows visitors who arrived from an AI
 engine: their later visits, how they came back (search, direct, social, paid,

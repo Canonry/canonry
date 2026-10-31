@@ -1947,6 +1947,7 @@ scope.
 cnry journeys summary <project> --since 2026-10-01 --format json
 cnry journeys list <project> --engine ChatGPT --returned true --limit 50 --format jsonl
 cnry journeys show <project> <visitor-key> --limit 100 --offset 0
+cnry journeys show <project> <visitor-key> --events pages   # pages plus every non-GET/HEAD request
 ```
 
 Follows visitors with at least one AI-referred visit, from that first AI visit
@@ -1956,7 +1957,9 @@ falls in the window (default 30 days), how many came back in a later visit, by
 which entry (`ai`, `search`, `social`, `paid`, `referral`, `direct`), and median
 days to return. `list` returns those visitors newest first with their first 20
 visits (`visitCount` is the total) and marks user-agent-only keys; `show` pages
-through one visitor's visits and requests. A visit ends after 30 idle minutes
+through one visitor's visits and requests; `--events pages` keeps page
+requests plus every request that is not GET or HEAD, while each visit keeps its
+stored `requestCount`. A visit ends after 30 idle minutes
 or when the visitor arrives again from another outside source; a same-site,
 sign-in, payment or booking-engine referer is a step inside the visit.
 

@@ -15,7 +15,7 @@ import {
   type QueryWorkspace,
 } from '../lib/project-scope.js'
 import { useQueryClient } from '@tanstack/react-query'
-import { COMPETITOR_BULK_ADD_REFUSAL_REASON, COMPETITOR_BULK_ADD_WINDOW_HOURS, compileQueryClassifier, effectiveBrandNames, formatPercent, normalizeQueryText, parseVisibilityReportScopeErrorDetails, RatioUnits, RunKinds, RunStatuses } from '@canonry/canonry-contracts'
+import { COMPETITOR_BULK_ADD_REFUSAL_REASON, COMPETITOR_BULK_ADD_WINDOW_HOURS, compileQueryClassifier, effectiveBrandNames, formatPercent, normalizeQueryText, parseVisibilityReportScopeErrorDetails, RatioUnits, RunKinds, RunStatuses, UserRoles } from '@canonry/canonry-contracts'
 import type { MeasurementOverviewSort } from '@canonry/canonry-contracts'
 
 import { Button } from '../components/ui/button.js'
@@ -42,6 +42,7 @@ import { GscSection } from '../components/project/GscSection.js'
 import { GbpSection } from '../components/project/GbpSection.js'
 import { BacklinksSection } from '../components/project/BacklinksSection.js'
 import { SeoDataSection } from '../components/project/SeoDataSection.js'
+import { JourneysSection } from '../components/project/JourneysSection.js'
 import { CitationVisibilitySection } from '../components/project/CitationVisibilitySection.js'
 import { PastSweeps } from '../components/project/PastSweeps.js'
 import { useVisibilityReportFirstPage, VisibilityOverview, VisibilityTrendSection } from '../components/project/VisibilityTrendSection.js'
@@ -145,7 +146,7 @@ import {
 } from '../lib/ai-visibility-provider-readiness.js'
 import type { ProjectCommandCenterVm, RunHistoryPoint } from '../view-models.js'
 
-export type ProjectPageTab = 'overview' | 'portfolio' | 'search-console' | 'seo-data' | 'conversions' | 'local' | 'queries' | 'client-queries' | 'discovery' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings'
+export type ProjectPageTab = 'overview' | 'portfolio' | 'search-console' | 'seo-data' | 'journeys' | 'conversions' | 'local' | 'queries' | 'client-queries' | 'discovery' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings'
 
 export function ProjectSweepConfirmation({ open, projectLabel, onOpenChange, onConfirm, onClosed, disabled, leftOut = [] }: {
   open: boolean
@@ -2589,6 +2590,9 @@ function ProjectPageContent({
     { key: 'search-console', label: 'Search Engines', href: `${projectTabBase}/search-console` },
     { key: 'seo-data', label: 'SEO', href: `${projectTabBase}/seo-data` },
     { key: 'activity', label: 'Activity', href: `${projectTabBase}/activity` },
+    // Journeys reads private visitor evidence: never for view-only accounts, and
+    // absent from the embed allowlist, so embeds drop it automatically.
+    ...(account?.role !== UserRoles.viewer ? [{ key: 'journeys' as const, label: 'Journeys', href: `${projectTabBase}/journeys` }] : []),
     // `technical-aeo` is a stable route and embed token. Site Health is the product label.
     { key: 'technical-aeo', label: 'Site Health', href: `${projectTabBase}/technical-aeo` },
     { key: 'conversions', label: 'Conversions', href: `${projectTabBase}/conversions` },
@@ -3294,6 +3298,8 @@ function ProjectPageContent({
         <BacklinksSection projectName={model.project.name} />
       ) : tab === 'seo-data' ? (
         <SeoDataSection key={model.project.id} projectName={model.project.name} />
+      ) : tab === 'journeys' ? (
+        <JourneysSection key={model.project.id} projectName={model.project.name} />
       ) : tab === 'local' ? (
         // Local presence (Google Business Profile + Places). GbpSection
         // self-gates on the connection and renders its own empty state.

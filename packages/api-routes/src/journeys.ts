@@ -16,6 +16,8 @@ import {
   cloudflareTrafficSourceConfigSchema,
   type JourneyPartialSources,
   journeyDetailQuerySchema,
+  journeyEventMatchesFilter,
+  JourneyEventFilters,
   JOURNEY_RETENTION_DAYS,
   JOURNEY_VISIT_IDLE_MINUTES,
   journeyDeviceLabel,
@@ -582,6 +584,7 @@ export async function journeyRoutes(app: FastifyInstance): Promise<void> {
     const query = parseQuery(journeyDetailQuerySchema, request.query)
     const limit = query.limit ?? 100
     const offset = query.offset ?? 0
+    const eventFilter = query.events ?? JourneyEventFilters.all
     const visitor = app.db.select().from(journeyVisitors)
       .where(and(eq(journeyVisitors.projectId, project.id), eq(journeyVisitors.visitorKey, request.params.visitorKey)))
       .get()
@@ -598,13 +601,16 @@ export async function journeyRoutes(app: FastifyInstance): Promise<void> {
     }
     const response: JourneyDetailResponse = {
       project: project.name,
+      events: eventFilter,
       visitor: visitorDto(visitor, visits),
       totalVisits: visits.length,
       limit,
       offset,
       visits: page.map(v => ({
         ...visitDto(v),
-        events: (events.get(v.id) ?? []).map(e => ({ ts: e.ts, method: e.method, path: e.path, status: e.status, kind: e.kind === 'data' ? 'data' as const : 'page' as const, aiTouch: e.aiTouch })),
+        events: (events.get(v.id) ?? [])
+          .map(e => ({ ts: e.ts, method: e.method, path: e.path, status: e.status, kind: e.kind === 'data' ? 'data' as const : 'page' as const, aiTouch: e.aiTouch }))
+          .filter(e => journeyEventMatchesFilter(e, eventFilter)),
       })),
     }
     return response

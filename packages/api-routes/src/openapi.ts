@@ -7749,6 +7749,7 @@ const routeCatalog: OpenApiOperation[] = [
       { name: 'visitorKey', in: 'path', required: true, description: 'Visitor key from the journey list.', schema: stringSchema },
       { name: 'limit', in: 'query', description: 'Visits per page, default 100.', schema: { type: 'integer', minimum: 1, maximum: 500 } },
       { name: 'offset', in: 'query', description: 'Visits to skip, default 0.', schema: { type: 'integer', minimum: 0 } },
+      { name: 'events', in: 'query', description: 'Requests per visit: all (default) or pages, which keeps page requests plus every request that is not GET or HEAD. A visit keeps its stored requestCount either way.', schema: { type: 'string', enum: ['all', 'pages'] } },
     ],
     responses: { 200: jsonResponse('Journey detail.', 'JourneyDetailResponse'), 400: errorResponse('Invalid selection.'), 403: errorResponse('Journeys are unavailable to this principal.'), 404: errorResponse('Project or journey not found.') },
   },

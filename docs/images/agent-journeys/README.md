@@ -1,21 +1,15 @@
 # Journeys review evidence
 
-Synthetic fixtures, captured on 2026-10-27. No client traffic or provider calls.
-The before images show the initial Journeys layout before density reduction;
-the after images show the final layout. Desktop is 1440 pixels wide; mobile is 390 pixels.
+Synthetic fixtures, rendered from the real `JourneysSection` with the dashboard's
+compiled stylesheet. No client traffic or provider calls.
 
-| View | Before | After |
-| --- | --- | --- |
-| Visitor journeys, desktop | [Initial layout](before-visitors-desktop.png) | [Default view](after-visitors-desktop.png) |
-| Agent journeys, mobile | [Initial layout](before-agents-mobile.png) | [Default view](after-agents-mobile.png) |
-| Visitor request history | — | [Expanded requests](after-visitor-requests-desktop.png) |
-| Agent request history | — | [Expanded request details](after-agent-requests-mobile.png) |
+| View | Image |
+| --- | --- |
+| Visitors: list, selected visitor's visits in time order, second visit open | [visitors-desktop.png](visitors-desktop.png) |
+| Agent requests: one sequence expanded | [agent-requests-desktop.png](agent-requests-desktop.png) |
 
-Both tabs, filters, expanded histories and request details were checked in the
-actual router and shell with synthetic API responses. The final mobile views
-had no document overflow; no browser errors were recorded. Data and scope
-labels distinguish visitor cohorts from retained history, and operator
-verification from inferred agent sequences.
-
-Keyboard smoke passed 22 desktop and 24 mobile checks, including filters,
-disclosures and focus return. See [validation results](validation.md).
+The Journeys tab sits with the other project tabs. Visits read left to right
+in time order; the marker shape and its label carry the entry class, `//` marks
+a new day, and requests that are not GET or HEAD are printed as recorded. The
+visit table shows pages and non-GET requests from the API's `events=pages`
+filter, with every request one click away.

@@ -19,8 +19,8 @@ describe('uiTelemetryEventSchema', () => {
       { ...ids, event: 'ui.vitals', page: '/', metric: 'LCP', rating: 'good' },
       { ...ids, event: 'ui.action', page: '/projects/:projectName', action: 'filter.change', filter: 'query_class' },
       { ...ids, event: 'ui.action', page: '/runs', action: 'search.submit' },
-      { ...ids, event: 'ui.action', page: '/journeys', action: 'journeys.visitor_open' },
-      { ...ids, event: 'ui.action', page: '/journeys', action: 'journeys.agent_open' },
+      { ...ids, event: 'ui.action', page: '/projects/:projectName/journeys', action: 'journeys.visitor_open' },
+      { ...ids, event: 'ui.action', page: '/projects/:projectName/journeys', action: 'journeys.agent_open' },
     ]) {
       expect(uiTelemetryEventSchema.safeParse(event).success, JSON.stringify(event)).toBe(true)
     }
@@ -63,7 +63,7 @@ describe('page and tab normalization', () => {
     expect(uiPageFromRoutePath('/projects/$projectName/')).toBe('/projects/:projectName')
     expect(uiPageFromRoutePath('/projects/$projectName/search-console')).toBe('/projects/:projectName/search-console')
     expect(uiPageFromRoutePath('/traffic/$projectName/$sourceId')).toBe('/traffic/:projectName/:sourceId')
-    expect(uiPageFromRoutePath('/journeys')).toBe('/journeys')
+    expect(uiPageFromRoutePath('/projects/$projectName/journeys')).toBe('/projects/:projectName/journeys')
     expect(uiPageFromRoutePath('/')).toBe('/')
     expect(uiPageFromRoutePath('*')).toBe('not-found')
     expect(uiPageFromRoutePath('/*')).toBe('not-found')

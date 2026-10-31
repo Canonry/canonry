@@ -96,29 +96,16 @@ test('/settings renders the settings page', async () => {
   expect(container.querySelector('.page-title')?.textContent).toBe('Settings')
 })
 
-test('desktop and mobile navigation open the dedicated Journeys page', async () => {
-  const restore = mockFetch(url => pathOf(url) === '/api/v1/projects'
-    ? jsonResponse([])
-    : jsonResponse({ error: { message: 'Not needed for navigation' } }, 503))
+test('Journeys is a project tab with no global page or sidebar link', async () => {
+  const restore = mockFetch(() => jsonResponse({ error: { message: 'Not needed for navigation' } }, 503))
   onTestFinished(restore)
-  const { container, router } = await renderRoute('/traffic')
-  fireEvent.click(screen.getByRole('link', { name: 'Journeys', exact: true }))
-  await waitFor(() => expect(router.state.location.pathname).toBe('/journeys'))
-  expect(await screen.findByRole('heading', { name: 'Journeys', exact: true })).toBeTruthy()
-  expect(container.querySelector('.sidebar-link-active')?.textContent).toBe('Journeys')
-
-  for (const tab of ['visitors', 'agents'] as const) {
-    await act(async () => { await router.navigate({ to: '/journeys', search: { project: 'example', tab } }) })
-    expect(screen.getByRole('link', { name: 'Journeys', exact: true }).classList.contains('sidebar-link-active')).toBe(true)
-  }
-
-  await act(async () => { await router.navigate({ to: '/history' }) })
-  fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }))
-  const mobile = within(await screen.findByRole('dialog', { name: 'Navigation' }))
-  fireEvent.click(mobile.getByRole('link', { name: 'Journeys', exact: true }))
-  await waitFor(() => expect(router.state.location.pathname).toBe('/journeys'))
-  await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Navigation' })).toBeNull())
-  expect(await screen.findByRole('heading', { name: 'Journeys', exact: true })).toBeTruthy()
+  const { router } = await renderRoute('/projects/project_citypoint/journeys')
+  expect(await screen.findByRole('navigation', { name: 'Journey view' })).toBeTruthy()
+  const links = screen.getAllByRole('link', { name: 'Journeys', exact: true })
+  expect(links).toHaveLength(1)
+  expect(links[0]!.getAttribute('href')).toMatch(/^\/projects\/[^/]+\/journeys$/)
+  await act(async () => { await router.navigate({ to: '/journeys' as never }) })
+  expect(screen.queryByRole('navigation', { name: 'Journey view' })).toBeNull()
 })
 
 test('/setup legacy rescue renders the established setup page', async () => {
