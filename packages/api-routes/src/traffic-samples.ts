@@ -1,17 +1,17 @@
 import { and, count, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { rawEventSamples } from '@canonry/canonry-db'
+import { RawEventSampleEventTypes, rawEventSamples, type RawEventSampleEventType } from '@canonry/canonry-db'
 import { escapeLikePattern, TrafficSampleKinds, trafficSampleClassifierSchema, trafficSamplesQuerySchema, validationError, formatValidationIssues, type TrafficSampleKind, type TrafficSamplesResponse } from '@canonry/canonry-contracts'
 import { requireAdminSession } from './auth.js'
 import { resolveProject } from './helpers.js'
 
-const storedKind: Record<TrafficSampleKind, string> = {
-  [TrafficSampleKinds.crawler]: 'crawler',
-  [TrafficSampleKinds['ai-user-fetch']]: 'ai_user_fetch',
-  [TrafficSampleKinds['ai-referral']]: 'ai_referral',
-  [TrafficSampleKinds.unknown]: 'unknown',
+const storedKind: Record<TrafficSampleKind, RawEventSampleEventType> = {
+  [TrafficSampleKinds.crawler]: RawEventSampleEventTypes.crawler,
+  [TrafficSampleKinds['ai-user-fetch']]: RawEventSampleEventTypes.aiUserFetch,
+  [TrafficSampleKinds['ai-referral']]: RawEventSampleEventTypes.aiReferral,
+  [TrafficSampleKinds.unknown]: RawEventSampleEventTypes.unknown,
 }
-const wireKind = new Map(Object.entries(storedKind).map(([kind, stored]) => [stored, kind as TrafficSampleKind]))
+const wireKind = new Map<string, TrafficSampleKind>(Object.entries(storedKind).map(([kind, stored]) => [stored, kind as TrafficSampleKind]))
 
 /** Bounded stored evidence only. Reading samples never changes retention or rollups. */
 export async function trafficSamplesRoutes(app: FastifyInstance): Promise<void> {

@@ -17,6 +17,7 @@ import mistralAiUserRaw from '../src/ip-ranges/mistral-ai-user.json' with { type
 import oaiAdsbotRaw from '../src/ip-ranges/oai-adsbot.json' with { type: 'json' }
 import parallelShapbotRaw from '../src/ip-ranges/parallel-shapbot.json' with { type: 'json' }
 import {
+  DEFAULT_AI_CRAWLER_RULES,
   hasVerificationDataFor,
   ipRangeManifestContentHash,
   ipInCidr,
@@ -414,43 +415,38 @@ describe('verifyIpForRule', () => {
 })
 
 describe('hasVerificationDataFor', () => {
+  // Every rule sits in exactly one list, so adding a rule forces a decision
+  // about whether its operator publishes ranges.
+  const RULES_WITH_RANGES = [
+    'googlebot', 'bingbot',
+    'openai-gptbot', 'openai-chatgpt-user', 'openai-chatgpt-connector', 'openai-searchbot', 'openai-adsbot',
+    'perplexity-bot', 'perplexity-user',
+    'anthropic-claudebot', 'claude-user',
+    'google-agent', 'google-gemini-notebook', 'google-cloudvertexbot',
+    'parallel-shapbot', 'applebot', 'ccbot', 'duckduckbot', 'duckassistbot',
+    'mistral-ai-user', 'mistral-ai-index',
+    'amazonbot', 'amzn-searchbot', 'amzn-user',
+  ]
+  const RULES_WITHOUT_RANGES = [
+    'parallel-shap-user', 'mistral-ai-training', 'mistral-bot', 'deepseek', 'bytespider',
+    'meta-externalagent', 'you-youbot', 'cohere-ai', 'diffbot', 'xai-grok-bot', 'yandexbot', 'baiduspider',
+  ]
+
+  it('lists every rule exactly once', () => {
+    const listed = [...RULES_WITH_RANGES, ...RULES_WITHOUT_RANGES]
+    expect(new Set(listed).size).toBe(listed.length)
+    expect([...listed].sort()).toEqual(DEFAULT_AI_CRAWLER_RULES.map((rule) => rule.id).sort())
+  })
+
   it('is true for operators with bundled ranges', () => {
-    expect(hasVerificationDataFor('googlebot')).toBe(true)
-    expect(hasVerificationDataFor('bingbot')).toBe(true)
-    expect(hasVerificationDataFor('openai-gptbot')).toBe(true)
-    expect(hasVerificationDataFor('openai-chatgpt-user')).toBe(true)
-    expect(hasVerificationDataFor('openai-searchbot')).toBe(true)
-    expect(hasVerificationDataFor('openai-adsbot')).toBe(true)
-    expect(hasVerificationDataFor('perplexity-bot')).toBe(true)
-    expect(hasVerificationDataFor('perplexity-user')).toBe(true)
-    expect(hasVerificationDataFor('anthropic-claudebot')).toBe(true)
-    expect(hasVerificationDataFor('claude-user')).toBe(true)
-    expect(hasVerificationDataFor('google-agent')).toBe(true)
-    expect(hasVerificationDataFor('google-gemini-notebook')).toBe(true)
-    expect(hasVerificationDataFor('google-cloudvertexbot')).toBe(true)
-    expect(hasVerificationDataFor('parallel-shapbot')).toBe(true)
-    expect(hasVerificationDataFor('applebot')).toBe(true)
-    expect(hasVerificationDataFor('ccbot')).toBe(true)
-    expect(hasVerificationDataFor('duckduckbot')).toBe(true)
-    expect(hasVerificationDataFor('duckassistbot')).toBe(true)
-    expect(hasVerificationDataFor('mistral-ai-user')).toBe(true)
-    expect(hasVerificationDataFor('mistral-ai-index')).toBe(true)
-    expect(hasVerificationDataFor('amazonbot')).toBe(true)
-    expect(hasVerificationDataFor('amzn-searchbot')).toBe(true)
-    expect(hasVerificationDataFor('amzn-user')).toBe(true)
+    for (const ruleId of RULES_WITH_RANGES) expect(hasVerificationDataFor(ruleId), ruleId).toBe(true)
   })
 
   it('is false for operators without bundled ranges yet', () => {
+    for (const ruleId of RULES_WITHOUT_RANGES) expect(hasVerificationDataFor(ruleId), ruleId).toBe(false)
     // OpenAI assigns chatgpt-agents.json to Codex cloud service egress, not
     // ChatGPT browser identity, so it must never verify a crawler rule.
     expect(hasVerificationDataFor('openai-chatgpt-agent')).toBe(false)
-    expect(hasVerificationDataFor('parallel-shap-user')).toBe(false)
-    expect(hasVerificationDataFor('mistral-ai-training')).toBe(false)
-    expect(hasVerificationDataFor('mistral-bot')).toBe(false)
-    expect(hasVerificationDataFor('deepseek')).toBe(false)
-    expect(hasVerificationDataFor('bytespider')).toBe(false)
-    expect(hasVerificationDataFor('meta-externalagent')).toBe(false)
-    expect(hasVerificationDataFor('you-youbot')).toBe(false)
   })
 
   it('is false for unknown rule ids', () => {

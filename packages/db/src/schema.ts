@@ -2830,6 +2830,19 @@ export const rawEventSamples = sqliteTable('raw_event_samples', {
   index('idx_raw_event_samples_event_type').on(table.eventType),
 ])
 
+/**
+ * The stored `raw_event_samples.event_type` values. Storage uses underscores,
+ * while the wire kinds (`TrafficSampleKinds` in contracts) use hyphens, so
+ * every writer and reader goes through this map instead of a literal.
+ */
+export const RawEventSampleEventTypes = {
+  crawler: 'crawler',
+  aiUserFetch: 'ai_user_fetch',
+  aiReferral: 'ai_referral',
+  unknown: 'unknown',
+} as const
+export type RawEventSampleEventType = (typeof RawEventSampleEventTypes)[keyof typeof RawEventSampleEventTypes]
+
 // AI visitor journeys: what a visitor who arrived from an AI engine did
 // afterwards, across later visits through any channel (contracts journeys.ts).
 // A visitor is a keyed hash, unique per project, of the IP and user agent (or
