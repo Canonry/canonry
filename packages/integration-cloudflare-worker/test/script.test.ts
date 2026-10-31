@@ -554,6 +554,7 @@ describe('generateWorkerScript unlisted agents', () => {
       'Python/3.12 aiohttp/3.9.5',
       'Go-http-client/2.0',
       'axios/1.7.2',
+      'Dalvik/2.1.0 (Linux; U; Android 13; Pixel 7 Build/TQ3A.230805.001)',
       'node',
       '',
     ]) {

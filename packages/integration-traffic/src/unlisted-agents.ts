@@ -16,13 +16,14 @@ export const UNLISTED_AGENT_SKIPPED_EXTENSIONS: readonly string[] = [
 /**
  * Generic HTTP tools, by the product name that starts their user agent. They
  * name a library, not who sent the request, so nothing can attribute them, and
- * they are mostly scripts, monitors and scanners.
+ * they are mostly scripts, monitors, scanners and apps (`dalvik` is Android's
+ * built-in client).
  */
 export const GENERIC_HTTP_CLIENTS: readonly string[] = [
   'curl', 'wget', 'python', 'python-requests', 'python-urllib', 'python-httpx', 'aiohttp',
   'httpx', 'go-http-client', 'okhttp', 'java', 'apache-httpclient', 'axios', 'node',
-  'node-fetch', 'undici', 'got', 'libwww-perl', 'guzzlehttp', 'ruby', 'php', 'wordpress',
-  'postmanruntime', 'insomnia',
+  'node-fetch', 'undici', 'got', 'libwww-perl', 'guzzlehttp', 'ruby', 'faraday', 'php', 'wordpress',
+  'dalvik', 'postmanruntime', 'insomnia',
 ]
 
 /**
