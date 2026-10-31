@@ -24,6 +24,7 @@ import {
   runs,
   schedules,
   trafficEventReceipts,
+  unrecognizedAgentEventsHourly,
   type DatabaseClient,
 } from '@canonry/canonry-db'
 import {
@@ -148,6 +149,7 @@ import {
   DIRECT_PUSH_RECEIPT_TTL_MS,
   rawEventSampleEventType,
   writeTrafficEventBatch,
+  writeUnrecognizedAgentBuckets,
 } from './traffic-event-ingest.js'
 import {
   enforceGlobalRawEventSampleRetention,
@@ -1492,6 +1494,16 @@ async function runBackfillTaskHoldingLease(options: RunBackfillTaskOptions, sign
           ),
         )
         .run()
+      tx
+        .delete(unrecognizedAgentEventsHourly)
+        .where(
+          and(
+            eq(unrecognizedAgentEventsHourly.sourceId, sourceRow.id),
+            gte(unrecognizedAgentEventsHourly.tsHour, windowStartIso),
+            lte(unrecognizedAgentEventsHourly.tsHour, windowEndIso),
+          ),
+        )
+        .run()
 
       for (const bucket of report.crawlerEventsHourly) {
         const status = bucket.status ?? 0
@@ -1669,6 +1681,8 @@ async function runBackfillTaskHoldingLease(options: RunBackfillTaskOptions, sign
           })
           .run()
       }
+
+      writeUnrecognizedAgentBuckets(tx, { projectId: project.id, sourceId: sourceRow.id, buckets: report.unrecognizedAgentEventsHourly, now: finishedAt })
 
       for (const sample of report.samples) {
         const sampleTimestamp = retainedRawEventSampleTimestamp(sample.observedAt, rawSampleCutoff)
@@ -4128,6 +4142,8 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
           .run()
         aiReferralBucketRows += 1
       }
+
+      writeUnrecognizedAgentBuckets(tx, { projectId: project.id, sourceId: sourceRow.id, buckets: report.unrecognizedAgentEventsHourly, now: finishedAt })
 
       for (const sample of report.samples) {
         const sampleTimestamp = retainedRawEventSampleTimestamp(sample.observedAt, rawSampleCutoff)

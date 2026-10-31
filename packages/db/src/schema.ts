@@ -2766,6 +2766,25 @@ export const aiUserFetchVerificationManifestsHourly = sqliteTable('ai_user_fetch
 // Hourly rollup of human visits with explicit AI-origin evidence (referer
 // host or UTM source). Independent from `crawler_events_hourly` — never
 // collapse the two; they answer different questions.
+// Bots and agents that no classifier rule recognizes, named from their user
+// agent (integration-traffic `unrecognizedAgentName`) and counted by hour so a
+// new agent shows up before anyone writes a rule for it.
+export const unrecognizedAgentEventsHourly = sqliteTable('unrecognized_agent_events_hourly', {
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  sourceId: text('source_id').notNull().references(() => trafficSources.id, { onDelete: 'cascade' }),
+  tsHour: text('ts_hour').notNull(),
+  agentName: text('agent_name').notNull(),
+  hits: integer('hits').notNull().default(0),
+  sampledUserAgent: text('sampled_user_agent'),
+  sampledPath: text('sampled_path'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.projectId, table.sourceId, table.tsHour, table.agentName] }),
+  index('idx_unrecognized_agent_hourly_project_ts').on(table.projectId, table.tsHour),
+  index('idx_unrecognized_agent_hourly_project_name').on(table.projectId, table.agentName),
+])
+
 export const aiReferralEventsHourly = sqliteTable('ai_referral_events_hourly', {
   projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
   sourceId: text('source_id').notNull().references(() => trafficSources.id, { onDelete: 'cascade' }),

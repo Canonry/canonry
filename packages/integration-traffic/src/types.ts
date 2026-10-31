@@ -117,6 +117,18 @@ export interface TrafficProbeSample {
   aiReferral: ClassifiedAiReferral | null
 }
 
+/**
+ * Requests from one bot or agent that no rule recognizes, by hour. The sample
+ * is the last user agent and path seen for that name in the batch.
+ */
+export interface UnrecognizedAgentEventHourlyBucket {
+  tsHour: string
+  agentName: string
+  hits: number
+  sampledUserAgent: string
+  sampledPath: string
+}
+
 export interface TrafficProbeReport {
   generatedAt: string
   totals: {
@@ -137,6 +149,8 @@ export interface TrafficProbeReport {
   crawlerEventsHourly: CrawlerEventHourlyBucket[]
   aiUserFetchEventsHourly: AiUserFetchEventHourlyBucket[]
   aiReferralEventsHourly: AiReferralEventHourlyBucket[]
+  /** Named bots and agents no rule recognizes, capped at the busiest 200 names per report. */
+  unrecognizedAgentEventsHourly: UnrecognizedAgentEventHourlyBucket[]
   topBots: Array<{ botId: string; operator: string; hits: number }>
   topCrawlerPaths: Array<{ pathNormalized: string; hits: number }>
   topAiUserFetchBots: Array<{ botId: string; operator: string; hits: number }>

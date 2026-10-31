@@ -1916,6 +1916,20 @@ attribution applies equally to Simple and Advanced portfolios; Property, Target,
 and market attribution is unavailable. No provider call or write. Signed-in
 viewers and embeds cannot read samples; API read keys retain project scope.
 
+### Unrecognized bots and agents
+
+```bash
+cnry traffic unrecognized <project> --format json
+cnry traffic unrecognized <project> --source <id> --since 2026-10-01 --limit 25
+```
+
+Self-identified bots and agents that no rule names yet, summed by the name in
+their user agent, busiest first, each with hits, first and last seen hours, an
+example user agent and path, and its sources. Default window: the last 30 days.
+`--since`/`--until` take inclusive ISO timestamps or `YYYY-MM-DD` dates. Browsers,
+generic HTTP tools (curl, python-requests and the like), static files and writes
+are left out. Stored rows only, no provider call. Viewers and embeds are denied.
+
 ### AI visitor journeys
 
 ```bash

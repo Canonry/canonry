@@ -1,4 +1,4 @@
-import { formatValidationIssues, trafficSamplesQuerySchema, type TrafficSamplesQuery, referralAssessmentQuerySchema, type ReferralAssessmentQuery } from '@canonry/canonry-contracts'
+import { formatValidationIssues, trafficSamplesQuerySchema, type TrafficSamplesQuery, trafficUnrecognizedAgentsQuerySchema, type TrafficUnrecognizedAgentsQuery, referralAssessmentQuerySchema, type ReferralAssessmentQuery } from '@canonry/canonry-contracts'
 import type {
   CloudflareQueueDrainStopReason,
   CloudflareQueueDrainSummary,
@@ -1093,6 +1093,28 @@ export async function trafficSamples(project: string, opts: Omit<TrafficSamplesQ
   for (const sample of result.samples) {
     const classifier = sample.classifier.aiReferral ?? sample.classifier.aiUserFetch ?? sample.classifier.crawler
     console.log([sample.ts, sample.kind, sample.status ?? '-', sample.pathNormalized, sample.refererHost ?? '-', classifier?.product ?? '-', sample.userAgent ?? '-'].join('  '))
+  }
+}
+
+export async function trafficUnrecognized(project: string, opts: TrafficUnrecognizedAgentsQuery & { format?: string }): Promise<void> {
+  const { format, ...input } = opts
+  const parsed = trafficUnrecognizedAgentsQuerySchema.safeParse(input)
+  if (!parsed.success) throw usageError(formatValidationIssues(parsed.error.issues), { details: { issues: parsed.error.issues.map(({ path, message }) => ({ path, message })) } })
+  const result = await createApiClient().trafficUnrecognizedAgents(project, parsed.data)
+  if (isMachineFormat(format)) {
+    if (format === 'jsonl') emitJsonl(result.agents.map(agent => ({ project, windowStart: result.windowStart, windowEnd: result.windowEnd, ...agent })))
+    else console.log(JSON.stringify(result, null, 2))
+    return
+  }
+  if (result.agents.length === 0) {
+    console.log(`No unrecognized bots or agents for "${project}" between ${result.windowStart} and ${result.windowEnd}.`)
+    return
+  }
+  const shown = result.agents.length < result.totalAgents ? `, busiest ${result.agents.length} shown` : ''
+  console.log(`Unrecognized bots and agents for "${project}": ${result.totalAgents} names, ${result.totalHits} hits (${result.windowStart} to ${result.windowEnd}${shown}).`)
+  console.log('Self-identified clients no rule names yet. Browsers, generic HTTP tools and static files are left out.')
+  for (const agent of result.agents) {
+    console.log([agent.name, `${agent.hits} hits`, `first ${agent.firstSeenAt}`, `last ${agent.lastSeenAt}`, agent.samplePath ?? '-', agent.sampleUserAgent ?? '-'].join('  '))
   }
 }
 

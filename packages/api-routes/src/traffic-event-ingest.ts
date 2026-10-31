@@ -11,9 +11,10 @@ import {
   rawEventSamples,
   trafficEventReceipts,
   trafficSources,
+  unrecognizedAgentEventsHourly,
 } from '@canonry/canonry-db'
 import type { NormalizedTrafficRequest } from '@canonry/canonry-contracts'
-import { buildTrafficProbeReport } from '@canonry/canonry-integration-traffic'
+import { buildTrafficProbeReport, type UnrecognizedAgentEventHourlyBucket } from '@canonry/canonry-integration-traffic'
 import {
   enforceRawEventSampleRetention,
   retainedRawEventSampleTimestamp,
@@ -31,6 +32,45 @@ export function rawEventSampleEventType(sample: { crawler: unknown; aiUserFetch:
   if (sample.aiUserFetch) return RawEventSampleEventTypes.aiUserFetch
   if (sample.aiReferral) return RawEventSampleEventTypes.aiReferral
   return RawEventSampleEventTypes.unknown
+}
+
+type TrafficWriteTransaction = Parameters<Parameters<DatabaseClient['transaction']>[0]>[0]
+
+/** Add a report's unrecognized-agent buckets to the hourly table; an hour already stored sums. */
+export function writeUnrecognizedAgentBuckets(
+  tx: TrafficWriteTransaction,
+  opts: { projectId: string, sourceId: string, buckets: readonly UnrecognizedAgentEventHourlyBucket[], now: string },
+): void {
+  for (const bucket of opts.buckets) {
+    tx
+      .insert(unrecognizedAgentEventsHourly)
+      .values({
+        projectId: opts.projectId,
+        sourceId: opts.sourceId,
+        tsHour: bucket.tsHour,
+        agentName: bucket.agentName,
+        hits: bucket.hits,
+        sampledUserAgent: bucket.sampledUserAgent,
+        sampledPath: bucket.sampledPath,
+        createdAt: opts.now,
+        updatedAt: opts.now,
+      })
+      .onConflictDoUpdate({
+        target: [
+          unrecognizedAgentEventsHourly.projectId,
+          unrecognizedAgentEventsHourly.sourceId,
+          unrecognizedAgentEventsHourly.tsHour,
+          unrecognizedAgentEventsHourly.agentName,
+        ],
+        set: {
+          hits: sql`${unrecognizedAgentEventsHourly.hits} + ${bucket.hits}`,
+          sampledUserAgent: bucket.sampledUserAgent,
+          sampledPath: bucket.sampledPath,
+          updatedAt: opts.now,
+        },
+      })
+      .run()
+  }
 }
 
 type TrafficSourceRow = typeof trafficSources.$inferSelect
@@ -378,6 +418,13 @@ export function writeTrafficEventBatch(
           .run()
         aiReferralBucketRows += 1
       }
+
+      writeUnrecognizedAgentBuckets(tx, {
+        projectId: opts.projectId,
+        sourceId: opts.sourceId,
+        buckets: report.unrecognizedAgentEventsHourly,
+        now: opts.receivedAt,
+      })
 
       const hourlySampleLimit = Math.max(0, Math.floor(opts.sampleLimit))
       const remainingSamplesByHour = new Map<string, number>()
