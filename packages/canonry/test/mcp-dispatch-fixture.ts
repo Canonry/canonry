@@ -2,9 +2,9 @@ import { createServer } from 'node:http'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Client } from '@modelcontextprotocol/sdk/client/index.js'
-import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js'
-import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
+import { Client } from '@modelcontextprotocol/client'
+import { CallToolResultSchema } from '@modelcontextprotocol/core'
+import { InMemoryTransport } from '@modelcontextprotocol/client'
 import { expect } from 'vitest'
 import { describeError } from '@canonry/canonry-contracts'
 import { createApiClient } from '../src/client.js'
@@ -118,7 +118,7 @@ export async function startNativeMcpDispatchFixture() {
       else process.env[name] = previous
     }
   }
-  const server = createCanonryMcpServer({ clientFactory: () => apiClient, eager: true, operator: true })
+  const server = createCanonryMcpServer({ clientFactory: () => apiClient, eager: true, operator: true, connectionProfile: true })
   const protocol = new Client({ name: 'native-mcp-contract', version: '1.0.0' })
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
   try {

@@ -1,5 +1,5 @@
-import { Client } from '@modelcontextprotocol/sdk/client/index.js'
-import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
+import { Client } from '@modelcontextprotocol/client'
+import { InMemoryTransport } from '@modelcontextprotocol/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { aggregateSentiment, emptySentimentCounts, rankCriticizedProperties, sentimentJobSchema, sentimentSummarySchema, type SentimentJob, type SentimentOutcome } from '@canonry/canonry-contracts'
 import { sentimentFixtureSummary } from '../../contracts/test/fixtures/sentiment.js'

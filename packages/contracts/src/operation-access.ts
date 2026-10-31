@@ -239,6 +239,7 @@ export const STORED_READ_OPERATIONS: ReadonlySet<string> = new Set([
   'GET /api/v1/projects/{name}/citations/visibility',
   'GET /api/v1/projects/{name}/overview',
   'GET /api/v1/projects/{name}/search',
+  'GET /api/v1/mcp/profile',
   'GET /api/v1/status',
   'GET /api/v1/backlinks/status',
   'GET /api/v1/backlinks/syncs',

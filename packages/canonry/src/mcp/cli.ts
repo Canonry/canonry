@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
-import { isReadOnlyKey } from '@canonry/canonry-contracts'
+import { serveStdio } from '@modelcontextprotocol/server/stdio'
+import { describeError, isReadOnlyKey } from '@canonry/canonry-contracts'
 import { createApiClient, type ApiClient } from '../client.js'
 import { autoSyncSkills } from '../skills-autosync.js'
 import { createCanonryMcpServer, type CanonryMcpScope } from './server.js'
@@ -76,17 +76,19 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   const updateNotice = options.scope === 'stored-only'
     ? { refresh: async () => undefined, get: () => null }
     : createUpdateNoticeSource(client)
-  const [authorization] = await Promise.all([
+  const [authorization, connectionProfile] = await Promise.all([
     resolveEffectiveAuthorization(client, options.scope),
+    // Probe the public read: unbound keys and unconfigured hosts have no profile.
+    client.getMcpProfile().then(() => true, () => false),
     updateNotice.refresh(),
   ])
-  const server = createCanonryMcpServer({
+  serveStdio(() => createCanonryMcpServer({
     ...authorization,
+    connectionProfile,
     eager: options.eager,
     clientFactory: () => client,
     updateAvailable: updateNotice.get,
-  })
-  await server.connect(new StdioServerTransport())
+  }), { onerror: error => { process.stderr.write(`canonry-mcp: ${describeError(error)}\n`) } })
 }
 
 /**

@@ -21,6 +21,7 @@ import {
   siteCrawlSummarySchema,
   siteHealthScansResponseSchema,
   siteHealthStateSchema,
+  siteCrawlUrlVersionOf,
   SITE_HEALTH_SCANS_DEFAULT_LIMIT,
   SITE_HEALTH_SCANS_MAX_LIMIT,
   formatPageCount,
@@ -496,5 +497,36 @@ describe('audit factor shares', () => {
     expect(ratioUnitOf(siteAuditPageFactorSchema.shape.sharePct)).toBe('percent')
     expect(ratioUnitOf(siteCrawlAuditFactorSchema.shape.sharePct)).toBe('percent')
     expect(ratioUnitOf(siteAuditFactorSummarySchema.shape.sharePct)).toBe('percent')
+  })
+})
+
+describe('URL versions', () => {
+  const html = (url: string, canonicalUrl: string | null) => siteCrawlUrlVersionOf({ fetchState: 'html', url, canonicalUrl })
+
+  it.each([
+    ['a filter view naming its path', 'https://example.com/apartments/?field=neighborhood&value=Buckhead', 'https://example.com/apartments/'],
+    ['a cache-busting address', 'https://example.com/units/7/?forcecache=1', 'https://example.com/units/7/'],
+    ['a sort naming the same path with other parameters', 'https://example.com/search?q=roof&sort=new', 'https://example.com/search?q=roof'],
+    ['a canonical on the www host', 'https://example.com/a?view=map', 'https://www.example.com/a'],
+  ])('%s is a URL version of its canonical', (_case, url, canonical) => {
+    expect(html(url, canonical)).toBe(new URL(canonical).href)
+  })
+
+  it.each([
+    ['a parameter page naming itself', 'https://example.com/blog?page=2', 'https://example.com/blog?page=2'],
+    ['a parameter page with no canonical', 'https://example.com/listing?id=123', null],
+    ['a canonical naming another path', 'https://example.com/gallery/your-home/?x=1', 'https://example.com/gallery/'],
+    ['a trailing-slash difference, which is another path', 'https://example.com/a?view=map', 'https://example.com/a/'],
+    ['a canonical on another site', 'https://example.com/a?view=map', 'https://partner.example.org/a'],
+    ['an address without parameters', 'https://example.com/a/', 'https://example.com/b/'],
+    ['an unparseable canonical', 'https://example.com/a?view=map', 'not a url'],
+  ])('%s is a page', (_case, url, canonical) => {
+    expect(html(url, canonical)).toBeNull()
+  })
+
+  it('reads only fetched HTML pages', () => {
+    for (const fetchState of ['redirect', 'non-html', 'fetch-error', 'discovered', 'robots-blocked']) {
+      expect(siteCrawlUrlVersionOf({ fetchState, url: 'https://example.com/a?view=map', canonicalUrl: 'https://example.com/a' })).toBeNull()
+    }
   })
 })

@@ -1,3 +1,5 @@
+import type { McpProfileDto } from '@canonry/canonry-contracts'
+import { getApiV1McpProfile } from '@canonry/canonry-api-client'
 import type { JourneyDetailQuery, JourneyDetailResponse, JourneySummaryQuery, JourneySummaryResponse, JourneysQuery, JourneysResponse } from '@canonry/canonry-contracts'
 import { getApiV1ProjectsByNameJourneys, getApiV1ProjectsByNameJourneysByVisitorKey, getApiV1ProjectsByNameJourneysSummary } from '@canonry/canonry-api-client'
 
@@ -876,6 +878,10 @@ export interface DiscoveryRunStartResponse {
  */
 export interface ApiClientOptions {
   skipProbe?: boolean
+  /** Enforce stored evidence only for this client, independently of process flags. */
+  storedOnly?: boolean
+  /** Cancel every request when the owning serving unit ends. */
+  signal?: AbortSignal
   /** A short, token-safe client identity (for example, `canonry-mcp`). */
   clientName?: string
   /** A bounded opaque operator/session correlation value. */
@@ -886,6 +892,8 @@ export interface ApiClientOptions {
 
 /** Per-call usage labels, e.g. the MCP tool that issued the requests. */
 export interface UsageTags {
+  /** Cancellation belongs to this call, including clients reused by legacy sessions. */
+  signal?: AbortSignal
   mcpTool?: string
   mcpCall?: string
   mcpClient?: string
@@ -914,8 +922,8 @@ export function classifyStoredOnlyRequest(method: string, url: string): { operat
   }
 }
 
-function storedOnlyRequestHeaders(method: string, url: string): Record<string, string> {
-  if (!['1', 'true'].includes((process.env.CANONRY_STORED_ONLY ?? '').toLowerCase())) return {}
+function storedOnlyRequestHeaders(method: string, url: string, storedOnly = false): Record<string, string> {
+  if (!storedOnly && !['1', 'true'].includes((process.env.CANONRY_STORED_ONLY ?? '').toLowerCase())) return {}
   const { operation, access } = classifyStoredOnlyRequest(method, url)
   if (access !== OperationAccesses.stored) {
     throw new CliError({
@@ -928,8 +936,8 @@ function storedOnlyRequestHeaders(method: string, url: string): Record<string, s
   return { [STORED_ONLY_HEADER]: '1' }
 }
 
-function storedOnlyProbeHeaders(): Record<string, string> {
-  return ['1', 'true'].includes((process.env.CANONRY_STORED_ONLY ?? '').toLowerCase())
+function storedOnlyProbeHeaders(storedOnly = false): Record<string, string> {
+  return storedOnly || ['1', 'true'].includes((process.env.CANONRY_STORED_ONLY ?? '').toLowerCase())
     ? { [STORED_ONLY_HEADER]: '1' }
     : {}
 }
@@ -1043,6 +1051,8 @@ export class ApiClient {
   private apiKey: string
   private probePromise: Promise<void> | null = null
   private probeSkipped: boolean
+  private readonly storedOnly: boolean
+  private readonly signal?: AbortSignal
   private heyClient: Client
   private readonly requestHeaders: Record<string, string>
   /** Tracks the base URL most recently applied to `heyClient` so probe-driven updates only re-configure when something actually changed. */
@@ -1052,6 +1062,8 @@ export class ApiClient {
     this.originUrl = baseUrl.replace(/\/$/, '')
     this.apiKey = apiKey
     this.probeSkipped = opts?.skipProbe ?? false
+    this.storedOnly = opts?.storedOnly === true
+    this.signal = opts?.signal
     this.heyClientBaseUrl = this.originUrl
     const actorSession = safeActorSession(opts?.actorSession)
     const surface = opts?.surface ?? 'cli'
@@ -1068,7 +1080,7 @@ export class ApiClient {
     }
     this.heyClient = createHeyClient({ baseUrl: this.originUrl, apiKey: this.apiKey, headers: this.requestHeaders })
     this.heyClient.interceptors.request.use((request) => {
-      for (const [key, value] of Object.entries(storedOnlyRequestHeaders(request.method, request.url.toString()))) request.headers.set(key, value)
+      for (const [key, value] of Object.entries(storedOnlyRequestHeaders(request.method, request.url.toString(), this.storedOnly))) request.headers.set(key, value)
       const tags = usageTagStore.getStore()
       if (tags?.mcpTool) request.headers.set(USAGE_TELEMETRY_HEADERS.mcpTool, tags.mcpTool)
       if (tags?.mcpCall) request.headers.set(USAGE_TELEMETRY_HEADERS.mcpCall, tags.mcpCall)
@@ -1076,8 +1088,14 @@ export class ApiClient {
       // control character would make Headers.set throw and fail the tool call.
       const mcpClient = normalizeAgentSlug(tags?.mcpClient)
       if (mcpClient) request.headers.set(USAGE_TELEMETRY_HEADERS.mcpClient, mcpClient)
-      return request
+      return this.signal || tags?.signal ? new Request(request, { signal: this.requestSignal(request.signal) }) : request
     })
+  }
+
+  private requestSignal(signal?: AbortSignal): AbortSignal | undefined {
+    const signals = [this.signal, usageTagStore.getStore()?.signal, signal]
+      .filter((entry): entry is AbortSignal => entry !== undefined)
+    return signals.length > 1 ? AbortSignal.any(signals) : signals[0]
   }
 
   /**
@@ -1093,8 +1111,8 @@ export class ApiClient {
         try {
           const origin = new URL(this.originUrl).origin
           const res = await fetch(`${origin}/health`, {
-            headers: storedOnlyProbeHeaders(),
-            signal: AbortSignal.timeout(2000),
+            headers: storedOnlyProbeHeaders(this.storedOnly),
+            signal: this.requestSignal(AbortSignal.timeout(2000)),
           })
           if (res.ok) {
             const body = (await res.json()) as { basePath?: string }
@@ -1303,7 +1321,7 @@ export class ApiClient {
    */
   async streamPost(path: string, body: unknown, signal?: AbortSignal): Promise<Response> {
     const candidateUrl = `${this.originUrl}/api/v1${path}`
-    const storedOnlyHeaders = storedOnlyRequestHeaders('POST', candidateUrl)
+    const storedOnlyHeaders = storedOnlyRequestHeaders('POST', candidateUrl, this.storedOnly)
     await this.probeBasePath()
     const url = `${this.originUrl}/api/v1${path}`
     const headers: Record<string, string> = {
@@ -1315,7 +1333,8 @@ export class ApiClient {
 
     let res: Response
     try {
-      res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body ?? {}), signal })
+      res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body ?? {}),
+        signal: this.requestSignal(signal) })
     } catch (err) {
       if (err instanceof CliError) throw err
       const msg = describeError(err)
@@ -1379,6 +1398,10 @@ export class ApiClient {
     return this.invoke<ProjectDeletePreviewDto>(() =>
       getApiV1ProjectsByNameDeletePreview({ client: this.heyClient, path: { name } }),
     )
+  }
+
+  async getMcpProfile(): Promise<McpProfileDto> {
+    return this.invoke<McpProfileDto>(() => getApiV1McpProfile({ client: this.heyClient }))
   }
 
   async getStatus(opts?: { project?: string; problems?: boolean }): Promise<InstanceStatusDto> {
@@ -1452,7 +1475,7 @@ export class ApiClient {
     if (opts.until) params.set('until', opts.until)
     if (opts.includeProbes) params.set('includeProbes', 'true')
     const url = `${this.originUrl}/api/v1/projects/${encodeURIComponent(project)}/results/export?${params.toString()}`
-    const storedOnlyHeaders = storedOnlyRequestHeaders('GET', url)
+    const storedOnlyHeaders = storedOnlyRequestHeaders('GET', url, this.storedOnly)
 
     let res: Response
     try {
@@ -1460,6 +1483,7 @@ export class ApiClient {
       // is indistinguishable from a raw API caller in usage telemetry.
       res = await fetch(url, {
         headers: { ...this.requestHeaders, ...storedOnlyHeaders },
+        signal: this.requestSignal(),
       })
     } catch (err) {
       const message = describeError(err)
@@ -2607,10 +2631,10 @@ export class ApiClient {
    * never run the CLI about a newer release.
    */
   async getServerUpdateAvailable(): Promise<ServerUpdateAvailable | null> {
-    if (storedOnlyProbeHeaders()[STORED_ONLY_HEADER]) return null
+    if (storedOnlyProbeHeaders(this.storedOnly)[STORED_ONLY_HEADER]) return null
     try {
       await this.probeBasePath()
-      const res = await fetch(`${this.originUrl}/health`, { signal: AbortSignal.timeout(2000) })
+      const res = await fetch(`${this.originUrl}/health`, { signal: this.requestSignal(AbortSignal.timeout(2000)) })
       if (!res.ok) return null
       const body = (await res.json()) as { updateAvailable?: unknown }
       return parseServerUpdateAvailable(body?.updateAvailable)
@@ -4602,6 +4626,7 @@ export class ApiClient {
       fetchState?: string
       indexabilityState?: string
       auditState?: string
+      urlVersions?: 'include' | 'exclude' | 'only'
       sort?: 'url' | 'path' | 'score-asc' | 'score-desc'
       cursor?: string
       limit?: number
@@ -4618,6 +4643,7 @@ export class ApiClient {
           fetchState: opts?.fetchState,
           indexabilityState: opts?.indexabilityState,
           auditState: opts?.auditState,
+          urlVersions: opts?.urlVersions,
           sort: opts?.sort,
           cursor: opts?.cursor,
           limit: opts?.limit !== undefined ? String(opts.limit) : undefined,

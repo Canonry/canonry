@@ -6271,6 +6271,10 @@ export type InstanceStatusDto = {
         hosted?: {
             status: 'ready';
             url: string;
+            plugin?: {
+                gatewayUrl: string;
+                workspace: string;
+            };
         } | {
             status: 'unavailable';
             reason: 'public-url-required' | 'https-required' | 'public-host-required' | 'public-path-mismatch' | 'oauth-unavailable' | 'account-required' | 'transport-unavailable';
@@ -6313,6 +6317,18 @@ export type InstanceStatusDto = {
             doctorChecks: Array<string>;
         }>;
     }>;
+};
+
+export type McpProfileDto = {
+    userId: string;
+    displayName: string;
+    instance: {
+        issuer: string;
+        resource: string;
+    };
+    scopes: [
+        'read'
+    ];
 };
 
 export type Ga4AiReferralDailyDto = {
@@ -16311,6 +16327,8 @@ export type SiteCrawlPagesResponseDto = {
             pages: number;
             exampleUrl: string;
         }>;
+        urlVersions: number;
+        urlVersionsNotFetched: number;
     } | null;
     healthReasonCounts?: Array<{
         healthReason: 'indexable' | 'redirect-terminal' | 'canonical-to-other' | 'robots-disallow' | 'noindex' | 'non-html' | 'fetch-error' | 'not-fetched' | 'unknown';
@@ -16344,6 +16362,7 @@ export type SiteCrawlPagesResponseDto = {
         linkScoreNormalized: number | null;
         healthState: 'eligible' | 'hidden' | 'resource' | 'redirect' | 'failed' | 'unchecked';
         healthReason?: 'indexable' | 'redirect-terminal' | 'canonical-to-other' | 'robots-disallow' | 'noindex' | 'non-html' | 'fetch-error' | 'not-fetched' | 'unknown';
+        urlVersionOf: string | null;
     }>;
 };
 
@@ -16413,6 +16432,8 @@ export type SiteCrawlSummaryDto = {
             pages: number;
             exampleUrl: string;
         }>;
+        urlVersions: number;
+        urlVersionsNotFetched: number;
     } | null;
     runStatus: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | null;
     requestedRootUrl: string | null;
@@ -16524,6 +16545,7 @@ export type SiteHealthChangesResponseDto = {
             linkScoreNormalized: number | null;
             healthState: 'eligible' | 'hidden' | 'resource' | 'redirect' | 'failed' | 'unchecked';
             healthReason?: 'indexable' | 'redirect-terminal' | 'canonical-to-other' | 'robots-disallow' | 'noindex' | 'non-html' | 'fetch-error' | 'not-fetched' | 'unknown';
+            urlVersionOf: string | null;
         } | null;
         after: {
             nodeKey: string;
@@ -16549,6 +16571,7 @@ export type SiteHealthChangesResponseDto = {
             linkScoreNormalized: number | null;
             healthState: 'eligible' | 'hidden' | 'resource' | 'redirect' | 'failed' | 'unchecked';
             healthReason?: 'indexable' | 'redirect-terminal' | 'canonical-to-other' | 'robots-disallow' | 'noindex' | 'non-html' | 'fetch-error' | 'not-fetched' | 'unknown';
+            urlVersionOf: string | null;
         } | null;
     } | {
         entity: 'link';
@@ -16657,6 +16680,7 @@ export type SiteHealthPathResponseDto = {
         linkScoreNormalized: number | null;
         healthState: 'eligible' | 'hidden' | 'resource' | 'redirect' | 'failed' | 'unchecked';
         healthReason?: 'indexable' | 'redirect-terminal' | 'canonical-to-other' | 'robots-disallow' | 'noindex' | 'non-html' | 'fetch-error' | 'not-fetched' | 'unknown';
+        urlVersionOf: string | null;
     }>;
     edges: Array<{
         edgeKey: string;
@@ -16744,6 +16768,7 @@ export type SiteHealthSubgraphResponseDto = {
         linkScoreNormalized: number | null;
         healthState: 'eligible' | 'hidden' | 'resource' | 'redirect' | 'failed' | 'unchecked';
         healthReason?: 'indexable' | 'redirect-terminal' | 'canonical-to-other' | 'robots-disallow' | 'noindex' | 'non-html' | 'fetch-error' | 'not-fetched' | 'unknown';
+        urlVersionOf: string | null;
         distance: number;
         relationToFocus: 'focus' | 'inbound' | 'outbound' | 'both' | 'transitive';
     }>;
@@ -34060,6 +34085,39 @@ export type GetApiV1DoctorResponses = {
 
 export type GetApiV1DoctorResponse = GetApiV1DoctorResponses[keyof GetApiV1DoctorResponses];
 
+export type GetApiV1McpProfileData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/mcp/profile';
+};
+
+export type GetApiV1McpProfileErrors = {
+    /**
+     * Authentication required or invalid.
+     */
+    401: ErrorEnvelope;
+    /**
+     * An instance-wide named account with read scope is required.
+     */
+    403: ErrorEnvelope;
+    /**
+     * MCP OAuth resource is not configured.
+     */
+    501: ErrorEnvelope;
+};
+
+export type GetApiV1McpProfileError = GetApiV1McpProfileErrors[keyof GetApiV1McpProfileErrors];
+
+export type GetApiV1McpProfileResponses = {
+    /**
+     * Authenticated MCP connection profile.
+     */
+    200: McpProfileDto;
+};
+
+export type GetApiV1McpProfileResponse = GetApiV1McpProfileResponses[keyof GetApiV1McpProfileResponses];
+
 export type GetApiV1StatusData = {
     body?: never;
     path?: never;
@@ -36251,9 +36309,13 @@ export type GetApiV1ProjectsByNameTechnicalAeoCrawlPagesData = {
          */
         healthState?: 'eligible' | 'hidden' | 'resource' | 'redirect' | 'failed' | 'unchecked';
         /**
-         * Filter by audit state.
+         * Filter by audit state. A URL version has `url-version`: it was fetched and classified but not scored.
          */
         auditState?: string;
+        /**
+         * URL versions are parameter addresses (filters, views, cache settings) whose canonical names the same path, so the site marks them as copies of that page. The audit does not score them or count them in fixes, and `inventorySummary.urlVersions` counts them. `include` (default) keeps every crawled address, `exclude` lists pages only, as the dashboard does, and `only` lists the URL versions, each with `urlVersionOf`. Once a few addresses with the same parameter pattern prove to be copies, the crawl stops fetching that pattern: those have no rows and `inventorySummary.urlVersionsNotFetched` counts them. Scans made before URL versions were set aside have none.
+         */
+        urlVersions?: 'include' | 'exclude' | 'only';
         /**
          * Sort order. Defaults to `url`.
          */
@@ -36272,7 +36334,7 @@ export type GetApiV1ProjectsByNameTechnicalAeoCrawlPagesData = {
 
 export type GetApiV1ProjectsByNameTechnicalAeoCrawlPagesErrors = {
     /**
-     * Invalid date, conflicting runId/date, or invalid cursor identity.
+     * Invalid date, conflicting runId/date, invalid urlVersions, or invalid cursor identity.
      */
     400: ErrorEnvelope;
     /**

@@ -17,8 +17,9 @@ the `canonry_project_overview` and `canonry_search` core composites; the
 catalog is split across a small **core tier** (always loaded) and the
 **toolkits** listed in `CANONRY_MCP_TIERS` (`toolkits.ts`; `ads` is OpenAI / ChatGPT Ads, `google-ads` is separate) that the client
 loads on demand via `canonry_load_toolkit`. The catalog coalesces enable
-side effects so each `canonry_load_toolkit` call emits exactly one
-`notifications/tools/list_changed`. Pass `--read-only` to surface
+side effects so a newly loaded toolkit emits exactly one
+`notifications/tools/list_changed`. Legacy clients receive it directly; modern
+clients must open `subscriptions/listen` (SDK `listChanged` does this automatically). Pass `--read-only` to surface
 only the read tools, `--stored-only` or `--scope=stored-only` to expose only
 stored evidence reads, or `--eager` (or `CANONRY_MCP_EAGER=1`) to register
 every tool at startup like the previous flat catalog. Auth is inherited
@@ -53,14 +54,25 @@ or `excluded-protocol` with a short security/protocol/product rationale in
 
 ## Adapter rules
 
-HTTP sessions bind the exact bearer and current effective scopes/project boundary,
-not a user ID alone. Changed credentials or authority require re-initialization.
+Use SDK v2 serving entries. Stdio uses `serveStdio` with one server per connection
+and preserves modern `2026-07-28` plus legacy initialization and dynamic toolkits.
+HTTP routes modern traffic through `createMcpHandler` and legacy traffic through
+the SDK classifier and session transport. Malformed modern envelopes must never
+fall back to legacy. Modern requests have a fresh server, bind their own verified
+principal, and retire internal credentials only after the response body finishes
+or cancels. Propagate request cancellation into the internal API fetch.
+
+Legacy HTTP sessions bind the exact bearer and current effective scopes/project
+boundary, not a user ID alone. Changed credentials or authority require
+re-initialization.
 Research history uses the model catalog's cached-only read; live discovery stays
 out of stored-evidence workflows, including on cold or expired caches.
 
+`canonry_mcp_profile` mirrors `mcp profile` and `GET /mcp/profile`. Its immutable user ID is local to the discovered instance issuer; never identify a person by display name. The endpoint also accepts MCP-audience OAuth tokens without granting general REST access. Advertise the tool only for a verified named connection with instance-wide read access and configured OAuth identity; stdio probes the public profile, and native Aero excludes this connection-only tool.
+
 Reject invalid MCP opening messages before minting internal OAuth keys. A failed initialization must revoke its temporary key and close its transport even if no session ID was registered.
 
-Hosted `/api/v1/mcp` and `/api/v1/mcp/readonly` expose every tier at initialization, filtered by existing access permissions. Specialist `/api/v1/mcp/x/<toolkit>` endpoints retain core plus one toolkit. Keep hosted catalogs fixed and preserve both credential-based and endpoint-based read-only filtering.
+Hosted `/api/v1/mcp` and `/api/v1/mcp/readonly` expose every tier at initialization, filtered by existing access permissions. Every `/readonly` segment limits its catalog and its API client to stored evidence; OAuth callers must already hold read authority, and narrowing must never add it; a tool annotation or handler mistake cannot permit a provider read or mutation. Ordinary `/mcp`, specialist endpoints without `/readonly`, and stdio retain their existing scopes. Specialist `/api/v1/mcp/x/<toolkit>` endpoints retain core plus one toolkit. Keep hosted catalogs fixed and preserve both credential-based and endpoint-based read-only filtering.
 
 MCP is the universal guide; skills are optional upgrades. Initialization must
 route agents through `canonry_help(intent)` without requiring resources,

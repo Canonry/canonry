@@ -77,6 +77,30 @@ are not prerequisites: every remote agent can navigate with help alone.
 Codex/Claude `SKILL.md` files are generated from that source as optional native
 guidance. Guidance never grants permissions; the server enforces authority.
 
+## Protocol compatibility
+
+The adapters use the official TypeScript SDK v2. Hosted endpoints accept both
+sessionless `2026-07-28` requests and legacy initialized sessions on the same
+URL. Modern clients use `server/discover`, include the protocol version and
+client capabilities in each request's `_meta`, and send the matching
+`MCP-Protocol-Version`, `Mcp-Method`, and applicable `Mcp-Name` headers.
+The SDK rejects malformed modern requests without falling back to legacy.
+
+Legacy clients continue to initialize and send their `Mcp-Session-Id` on later
+requests. Sessions bind the exact bearer and current authority; a refreshed
+bearer, authority change, or server restart requires initialization again.
+Modern requests authenticate independently and need no session ID. Their
+internal credentials last through response completion or cancellation and are
+then retired. Cleanup failures are logged and retried on subsequent requests,
+the periodic sweep, and shutdown. Internal OAuth-derived API keys expire after
+one hour even if persistence cleanup fails; legacy sessions must initialize
+again at that limit. HTTP cancellation also cancels an in-flight internal API
+fetch.
+
+Stdio uses the SDK's `serveStdio` factory with one server per connection. It
+accepts modern sessionless messages and legacy initialization while preserving
+progressive toolkit loading and the existing CLI flags.
+
 ## Install
 
 For a local stdio runtime, install Canonry normally. Agents using an existing
@@ -242,7 +266,37 @@ plugin, Node.js, or an API key pasted into chat.
 After connecting, use the page's verification prompt to list accessible
 projects through stored reads. An empty list can still verify the connection.
 The server's readiness label confirms configuration prerequisites, not that
-the client has authorized or can reach the service.
+the client has authorized or can reach the service. In Claude, set the OAuth
+client option to **Register automatically**; Canonry does not accept Claude's
+published identity. On Claude Team and Enterprise plans, an Owner adds custom
+connectors before members connect.
+
+### Connect with the Canonry plugin
+
+When the operator registered the instance with the shared MCP gateway, **Agent
+setup** leads with the Canonry plugin for the ChatGPT desktop app and Codex: add
+the Canonry marketplace, install `canonry-remote`, enter the workspace the page
+shows, then sign in with the instance's own Canonry account. The plugin reads
+stored results only. Claude Code installs the same plugin with `claude plugin
+marketplace add Canonry/canonry` and `claude plugin install
+canonry-remote@canonry`; the page does not show those commands yet. Claude on
+the web, desktop and mobile uses the same gateway as a custom connector: add
+`https://mcp.canonry.ai/mcp`, choose **Use your own OAuth client**, enter
+`canonry-claude` and leave the secret blank. Direct connection stays available
+under **Connect directly** for Claude and other MCP clients.
+
+The operator sets this once per instance, after registering the instance with
+the gateway ([gateway runbook](../apps/mcp-gateway/README.md)):
+
+```yaml
+mcpGateway:
+  url: https://mcp.canonry.ai/mcp
+  # workspace: tenant-id   # optional; defaults to the public URL's host
+```
+
+`/health`, `/api/v1/status`, `canonry status` and `canonry_status` then report
+`mcp.hosted.plugin` (`gatewayUrl`, `workspace`) while hosted sign-in is ready.
+The page never shows plugin steps for an instance without this setting.
 
 For the host operator:
 
@@ -262,15 +316,17 @@ For the host operator:
   expose it too. Missing public URL, HTTPS, accounts or OAuth routes produces
   an unavailable reason. Health never starts an MCP session or calls a provider.
 - OAuth sessions and MCP connections belong to this running instance. A
-  server restart requires the client to reconnect; this is not an autoscaling,
+  server restart requires legacy clients to initialize again; this is not an autoscaling,
   shared-session deployment. The separate `apps/api` REST service does not
   serve remote MCP.
 
-Connect to `/api/v1/mcp` on the instance for the entire API tool catalog, available immediately: core, monitoring, setup, GSC, Bing, GA, GBP, OpenAI ads, Google Ads, GTM, conversion tracking, traffic, agent, and discovery. Use `/api/v1/mcp/readonly` to force read-only tools even with a write-capable credential. A read-only credential also stays read-only on the default endpoint.
+Connect to `/api/v1/mcp` on the instance for the entire API tool catalog, available immediately: core, monitoring, setup, GSC, Bing, GA, GBP, OpenAI ads, Google Ads, GTM, conversion tracking, traffic, agent, and discovery. Use `/api/v1/mcp/readonly` to force stored-evidence tools even with a write-capable credential. Every `/readonly` segment also enforces stored-only policy in its API client: live provider reads, research execution and mutations are refused before the inner HTTP request, independently of tool annotations. A read-only credential retains the existing read-only catalog on the default endpoint.
 
 The default connection includes visibility reports, Property rankings, stored question results and competitors, changes, data quality, and all integration and setup tools. Listing tools does not execute them or grant new permissions; each call still uses the caller’s existing authority. The full catalog includes provider-spending and write operations, subject to the approval and access rules below.
 
-Specialist connections remain at `/api/v1/mcp/x/<toolkit>` and `/api/v1/mcp/x/<toolkit>/readonly`, exposing core plus that toolkit. Hosted catalogs are fixed at connection initialization and do not offer `canonry_load_toolkit`. After upgrading the server, refresh or re-import the connector's tools and reconnect so the client sees the expanded catalog.
+The hosted inventory has one optional Markdown resource, `canonry://agent-operations/v1`, and no prompts or resource templates. Tools publish explicit read-only, idempotency, destructive and open-world annotations; OAuth discovery and the HTTP bearer challenge define their authorization boundary.
+
+Specialist connections remain at `/api/v1/mcp/x/<toolkit>` and `/api/v1/mcp/x/<toolkit>/readonly`, exposing core plus that toolkit. Hosted catalogs are fixed by the endpoint and current credential and do not offer `canonry_load_toolkit`. After upgrading the server, refresh or re-import the connector's tools and reconnect so the client sees the expanded catalog.
 
 ## Tool Surface
 
@@ -504,11 +560,11 @@ Toolkits (loaded on demand):
 
 The `canonry_project_export` MCP tool always returns notification webhook URLs in redacted form. It has no secret opt-in input.
 
-Loading a toolkit is idempotent and persists for the rest of the session; there is no unload. `canonry_load_toolkit` returns `{ status: 'loaded' \| 'already-loaded' \| 'empty', name, tools }`. The server coalesces all enable/disable side effects into one `notifications/tools/list_changed` per call, fired just before the response — so a single call refreshes the client's catalog once regardless of how many tools the toolkit contains.
+Loading a toolkit is idempotent and persists for the rest of the session; there is no unload. `canonry_load_toolkit` returns `{ status: 'loaded' \| 'already-loaded' \| 'empty', name, tools }`. The server coalesces enable/disable changes into one `notifications/tools/list_changed` when a toolkit is first loaded, before the response. Legacy clients receive it directly. Modern clients receive it through `subscriptions/listen`; the SDK's `ClientOptions.listChanged` opens that subscription automatically. Clients without a subscription can call `tools/list` after loading to refresh their catalog.
 
 #### Wait for the response before pipelining
 
-`canonry_load_toolkit` runs the enable side effect synchronously inside the call's handler, but the newly registered tools only become callable after the response is returned to the client. Always await the response before issuing a `tools/call` for a tool that the toolkit just enabled. Pipelining the two requests on the same connection (sending `tools/call` for `canonry_insights_list` immediately after `canonry_load_toolkit` without awaiting the load response) can race the registration and produce `MCP error -32602: Tool ... disabled`. Sequenced clients (Claude Desktop, Cursor, Codex) already wait by default; only batch test harnesses or custom clients risk this.
+`canonry_load_toolkit` runs the enable side effect synchronously inside the call's handler, but the newly registered tools only become callable after the response is returned to the client. Always await the response before issuing a `tools/call` for a tool that the toolkit just enabled. Pipelining the two requests on the same connection (sending `tools/call` for `canonry_insights_list` immediately after `canonry_load_toolkit` without awaiting the load response) can race the registration and produce `Tool ... disabled`. Sequenced clients (Claude Desktop, Cursor, Codex) already wait by default; only batch test harnesses or custom clients risk this.
 
 ### Eager mode
 

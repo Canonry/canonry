@@ -516,13 +516,19 @@ describe('sentiment presentation', () => {
   it('shows verbatim quotations and a truthful empty complaint in the evidence drawer', async () => {
     const item = evidenceItem()
     const page = renderScope(<SentimentAnswerOutcome queryId="q" sourceSnapshotIds={['snapshot']} queryClass="branded" provider="openai" location="Chicago" />, {
-      branded: summaryWithAssessments([assessment({ assessmentId: 'a', sourceSnapshotId: 'snapshot' })]), evidence: [{ ...item, sourceText: 'North Hall is excellent. A factual follow-up mentions parking.' }],
+      branded: summaryWithAssessments([assessment({ assessmentId: 'a', sourceSnapshotId: 'snapshot' })]), evidence: [{ ...item, sourceText: '## North Hall reviews\n\nNorth Hall is **excellent**. A factual follow-up mentions parking.' }],
     })
     try {
       fireEvent.click(await screen.findByRole('button', { name: 'View openai sentiment evidence for North Hall: Favorable' }))
       const dialog = await screen.findByRole('dialog', { name: 'Sentiment evidence: Is North Hall good? · openai · North Hall' })
       await within(dialog).findByText('definition-a')
       expect([...dialog.querySelectorAll('blockquote')].map(node => node.textContent)).toEqual(['North Hall is excellent.'])
+      // The engine that answered is named, and its answer renders as formatted text, not raw Markdown.
+      expect(dialog.textContent).toContain('Answered by OpenAI (source-model)')
+      const answer = [...dialog.querySelectorAll('details')].find(node => node.querySelector('summary')?.textContent === 'Original answer from OpenAI')!
+      expect(answer.querySelector('h4')?.textContent).toBe('North Hall reviews')
+      expect(answer.querySelector('strong')?.textContent).toBe('excellent')
+      expect(answer.textContent).not.toMatch(/##|\*\*/)
       expect(dialog.textContent).toContain('No complaint was identified.')
       expect(within(dialog).getByText('hash')).toBeTruthy()
       const requests = page.requests.filter(url => url.pathname.endsWith('/evidence'))

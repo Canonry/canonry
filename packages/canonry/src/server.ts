@@ -103,7 +103,7 @@ import type {
 } from "./config.js";
 import { resolveEmbedConfig, SERVER_ENFORCED_EMBED_PROJECT_TABS, unsupportedEmbedProjectTabs } from "./embed.js";
 import { resolveAgentAllowViewers, resolveAgentEnabled, resolveAgentProactiveEnabled } from "./agent-config.js";
-import { saveConfig, saveConfigPatch, loadConfig, loadConfigRaw, getConfigPath } from "./config.js";
+import { saveConfig, saveConfigPatch, loadConfig, loadConfigRaw, loadedConfigPath, getConfigPath } from "./config.js";
 import { getPlacesConfig } from "./places-config.js";
 import {
   getGoogleAuthConfig,
@@ -167,6 +167,7 @@ import {
 } from "./wordpress-config.js";
 import {
   getTelemetryStatus,
+  holdAnonymousIdWrites,
   setTelemetryPreference,
   recordDashboardEvent,
 } from "./telemetry.js";
@@ -239,7 +240,7 @@ import { GOOGLE_ADS_OAUTH_SCOPE } from "@canonry/canonry-integration-google-ads"
 import { GTM_READONLY_SCOPE } from "@canonry/canonry-integration-google-tag-manager";
 import { executeInspectSitemap } from "./gsc-inspect-sitemap.js";
 import { executeBingInspectSitemap } from "./bing-inspect-sitemap.js";
-import { maybeRefreshGscCoverage, runWasUserInitiated } from "./coverage-refresh.js";
+import { maybeRefreshGscCoverage, runWasUserInitiated, type CoverageRefreshDeps } from "./coverage-refresh.js";
 import { executeReleaseSync, syncLatestReleaseOnSchedule } from "./commoncrawl-sync.js";
 import { executeBacklinkExtract } from "./backlink-extract.js";
 import { executeDiscoveryRun } from "./discovery-run.js";
@@ -436,6 +437,30 @@ function resolveDashboardOnboardingMode(
 ): DashboardOnboardingMode | undefined {
   return parseDashboardOnboardingMode(env.CANONRY_ONBOARDING_MODE)
     ?? config.dashboard?.onboardingMode;
+}
+
+type DashboardBrandMark = NonNullable<NonNullable<CanonryConfig['dashboard']>['brandMark']>;
+
+function parseDashboardBrandMark(value: string | undefined): DashboardBrandMark | undefined {
+  const normalized = value?.trim().toLowerCase();
+  return normalized === 'mascot' || normalized === 'icon' ? normalized : undefined;
+}
+
+function resolveDashboardBrandMark(env: NodeJS.ProcessEnv, config: CanonryConfig): DashboardBrandMark {
+  return parseDashboardBrandMark(env.CANONRY_DASHBOARD_BRAND_MARK)
+    ?? parseDashboardBrandMark(config.dashboard?.brandMark)
+    ?? "mascot";
+}
+
+/**
+ * Point the document's tab icons at the plugin icon for `brandMark: icon`.
+ * Matches both the source (`/favicon.svg`) and Vite-built (`./favicon.svg`) hrefs.
+ */
+function withIconMarkLinks(html: string): string {
+  return html
+    .replace(/href="(\.?\/)favicon\.svg"/, 'href="$1canonry-icon-favicon.svg"')
+    .replace(/href="(\.?\/)favicon-32\.png"/, 'href="$1canonry-icon-32.png"')
+    .replace(/href="(\.?\/)apple-touch-icon\.png"/, 'href="$1canonry-icon-touch.png"');
 }
 
 /**
@@ -651,6 +676,7 @@ function serializeSessionCookie(opts: {
 export function applyLegacyCredentials(
   rows: LegacyCredentialRows,
   config: CanonryConfig,
+  persistConfigPatch: (patch: Partial<CanonryConfig>) => void = saveConfigPatch,
 ): void {
   let migratedGoogle = 0;
   for (const row of rows.google) {
@@ -675,7 +701,7 @@ export function applyLegacyCredentials(
     migratedGoogle++;
   }
   if (migratedGoogle > 0) {
-    saveConfigPatch({ google: config.google });
+    persistConfigPatch({ google: config.google });
     log.info("credentials.migrated", { type: "google", count: migratedGoogle });
   }
 
@@ -694,7 +720,7 @@ export function applyLegacyCredentials(
     migratedGa4++;
   }
   if (migratedGa4 > 0) {
-    saveConfigPatch({ ga4: config.ga4 });
+    persistConfigPatch({ ga4: config.ga4 });
     log.info("credentials.migrated", { type: "ga4", count: migratedGa4 });
   }
 }
@@ -991,6 +1017,17 @@ export function createGoogleMarketingConfigCredentialStore(input: {
 
 export async function createServer(opts: {
   config: CanonryConfig;
+  /**
+   * The config.yaml `config` was loaded from. Defaults to the file
+   * `loadConfig()` read it from, so `createServer({ config: loadConfig() })`
+   * keeps saving there; `canonry serve` also passes it explicitly. Config
+   * changes the server makes (credentials, settings, the first-run dashboard
+   * password, refreshed tokens) are written there, and provider reloads read
+   * it. A config built in memory has no file: the server keeps those changes
+   * in memory and never writes a config file, so a test or development server
+   * cannot overwrite the operator's config.yaml.
+   */
+  configPath?: string;
   db: DatabaseClient;
   /**
    * Install secret for AI visitor journey keys, resolved by `canonry serve`
@@ -1027,8 +1064,31 @@ export async function createServer(opts: {
    */
   scheduleSpreadMs?: number;
 }): Promise<FastifyInstance> {
-  const runtimeConfigPath = path.resolve(getConfigPath());
+  // The file this server's config came from, if any.
+  const configSourcePath = opts.configPath ?? loadedConfigPath(opts.config);
+  // The config.yaml this server reads back (provider reloads, SEO settings).
+  const runtimeConfigPath = path.resolve(configSourcePath ?? getConfigPath());
   const runtimeConfigIdentity = runtimePathIdentity(runtimeConfigPath);
+  // Config changes are written only to the file the config came from.
+  // `saveConfigPatch` on its own writes `getConfigPath()`, the operator's
+  // config.yaml, so every write below goes through `persistConfigPatch`; a
+  // config built in memory keeps its changes in memory.
+  const persistedConfigPath = configSourcePath === undefined ? undefined : runtimeConfigPath;
+  const persistConfigPatch = (
+    patch: Partial<CanonryConfig>,
+    options: { setDashboardPasswordHash?: string } = {},
+  ): void => {
+    if (persistedConfigPath !== undefined) saveConfigPatch(patch, { ...options, configPath: persistedConfigPath });
+  };
+  // Install-wide preferences (telemetry, the activation notice) live in the
+  // default config.yaml, so only a server running from that file changes them.
+  const ownsDefaultConfig = persistedConfigPath !== undefined
+    && runtimeConfigIdentity === runtimePathIdentity(getConfigPath());
+  // The index-coverage refresh that follows a sync can refresh the GSC token too.
+  const coverageRefreshDeps: CoverageRefreshDeps = {
+    executeInspectSitemap: (db, runId, projectId, inspectOpts) =>
+      executeInspectSitemap(db, runId, projectId, { ...inspectOpts, saveConfigPatch: persistConfigPatch }),
+  };
   const runtimeDatabasePath = opts.config.database;
   const runtimeDatabaseIdentity = runtimePathIdentity(runtimeDatabasePath);
   const embed = resolveEmbedConfig(process.env, opts.config);
@@ -1052,6 +1112,12 @@ export async function createServer(opts: {
     genReqId: () => crypto.randomUUID(),
     trustProxy,
   });
+  // Telemetry saves the install ID in the default config.yaml when it first
+  // sends an event; a server built from any other config must not.
+  if (!ownsDefaultConfig) {
+    const releaseAnonymousIdWrites = holdAnonymousIdWrites();
+    app.addHook("onClose", async () => { releaseAnonymousIdWrites(); });
+  }
   // DNS rebinding defense (#1177). A page the operator visits can make the
   // browser resolve an attacker domain to 127.0.0.1 after TTL expiry, at which
   // point the request is same-origin and CORS is never consulted. The browser
@@ -1115,15 +1181,18 @@ export async function createServer(opts: {
   // into memory, persist to config.yaml, and only then drop the legacy columns.
   // Dropping before a successful config write would lose credentials if the
   // disk write fails. Best-effort — any failure is logged and retried next
-  // boot rather than blocking server startup.
-  try {
-    const legacyRows = extractLegacyCredentials(opts.db);
-    applyLegacyCredentials(legacyRows, opts.config);
-    dropLegacyCredentialColumns(opts.db);
-  } catch (err) {
-    log.warn("credentials.migration.failed", {
-      error: describeError(err),
-    });
+  // boot rather than blocking server startup. A server without a config file
+  // has nowhere durable to put them, so it leaves the columns alone.
+  if (persistedConfigPath !== undefined) {
+    try {
+      const legacyRows = extractLegacyCredentials(opts.db);
+      applyLegacyCredentials(legacyRows, opts.config, persistConfigPatch);
+      dropLegacyCredentialColumns(opts.db);
+    } catch (err) {
+      log.warn("credentials.migration.failed", {
+        error: describeError(err),
+      });
+    }
   }
 
   log.info("providers.configured", {
@@ -1147,8 +1216,9 @@ export async function createServer(opts: {
   const jobRunner = new JobRunner(opts.db, registry, {
     // The one-time first-sweep thank-you. Lives on the serve console because
     // runs execute here, including the foreground serve that init hands off
-    // to. TTY-gated inside, so supervised deployments never see it.
-    onFirstActivation: () => maybeShowActivationNotice(),
+    // to. TTY-gated inside, so supervised deployments never see it. It marks
+    // the default config.yaml, so only the server running from it asks.
+    ...(ownsDefaultConfig ? { onFirstActivation: () => maybeShowActivationNotice() } : {}),
   });
   jobRunner.recoverStaleRuns();
   const seoRuntime = new SeoRuntime(opts.db, () => loadConfig(runtimeConfigPath).seo, () => {
@@ -1291,17 +1361,18 @@ export async function createServer(opts: {
     + removeOrphanedGoogleAdsConnections(opts.config, liveProjectIds)
     + removeOrphanedGtmConnections(opts.config, liveProjectIds);
   if (removedGoogleMarketingCredentials > 0) {
-    saveConfigPatch({
+    persistConfigPatch({
       googleAds: opts.config.googleAds,
       gtm: opts.config.gtm,
     });
   }
   const googleMarketingRuntime = createGoogleMarketingRuntime({
     config: opts.config,
-    saveConfigPatch,
+    saveConfigPatch: persistConfigPatch,
   });
   const googleMarketingCredentialStore = createGoogleMarketingConfigCredentialStore({
     config: opts.config,
+    saveConfigPatch: persistConfigPatch,
   });
 
   const prepareGoogleMarketingCredentialDelete = (projectId: string): (() => void) | undefined => {
@@ -1321,7 +1392,7 @@ export async function createServer(opts: {
     if (!removedGoogleAds && !removedGtm) return undefined;
 
     try {
-      saveConfigPatch({
+      persistConfigPatch({
         googleAds: opts.config.googleAds,
         gtm: opts.config.gtm,
       });
@@ -1336,7 +1407,7 @@ export async function createServer(opts: {
     return () => {
       restore();
       try {
-        saveConfigPatch({
+        persistConfigPatch({
           googleAds: opts.config.googleAds,
           gtm: opts.config.gtm,
         });
@@ -1460,6 +1531,7 @@ export async function createServer(opts: {
     executeGbpSync(opts.db, runId, projectId, {
       ...syncOpts,
       config: opts.config,
+      saveConfigPatch: persistConfigPatch,
     })
       .then(() => runCoordinator.onRunCompleted(runId, projectId))
       .catch((err: unknown) => {
@@ -1519,12 +1591,12 @@ export async function createServer(opts: {
       updatedAt: string;
     }) => {
       const updated = upsertOpenAiAdsConnection(opts.config, connection);
-      saveConfigPatch(opts.config);
+      persistConfigPatch(opts.config);
       return updated;
     },
     removeConnection: (projectName: string) => {
       const removed = removeOpenAiAdsConnection(opts.config, projectName);
-      if (removed) saveConfigPatch(opts.config);
+      if (removed) persistConfigPatch(opts.config);
       return removed;
     },
   };
@@ -2094,7 +2166,7 @@ export async function createServer(opts: {
       } else {
         opts.config.bing.connections.push(normalized);
       }
-      saveConfigPatch(opts.config);
+      persistConfigPatch(opts.config);
       return normalized;
     },
     updateConnection: (
@@ -2110,7 +2182,7 @@ export async function createServer(opts: {
       );
       if (!conn) return undefined;
       Object.assign(conn, patch);
-      saveConfigPatch(opts.config);
+      persistConfigPatch(opts.config);
       return conn;
     },
     deleteConnection: (domain: string) => {
@@ -2120,7 +2192,7 @@ export async function createServer(opts: {
       );
       if (idx < 0) return false;
       opts.config.bing.connections.splice(idx, 1);
-      saveConfigPatch(opts.config);
+      persistConfigPatch(opts.config);
       return true;
     },
   } as const;
@@ -2139,12 +2211,12 @@ export async function createServer(opts: {
       updatedAt: string;
     }) => {
       const updated = upsertGa4Connection(opts.config, connection);
-      saveConfigPatch(opts.config);
+      persistConfigPatch(opts.config);
       return updated;
     },
     deleteConnection: (projectName: string) => {
       const removed = removeGa4Connection(opts.config, projectName);
-      if (removed) saveConfigPatch(opts.config);
+      if (removed) persistConfigPatch(opts.config);
       return removed;
     },
   } as const;
@@ -2169,12 +2241,12 @@ export async function createServer(opts: {
       updatedAt: string;
     }) => {
       const updated = upsertCloudRunConnection(opts.config, record);
-      saveConfigPatch(opts.config);
+      persistConfigPatch(opts.config);
       return updated;
     },
     deleteConnection: (projectName: string) => {
       const removed = removeCloudRunConnection(opts.config, projectName);
-      if (removed) saveConfigPatch(opts.config);
+      if (removed) persistConfigPatch(opts.config);
       return removed;
     },
   } as const;
@@ -2194,7 +2266,7 @@ export async function createServer(opts: {
       updatedAt: string;
     }) => {
       const updated = upsertWordpressTrafficConnection(opts.config, record);
-      saveConfigPatch(opts.config);
+      persistConfigPatch(opts.config);
       return updated;
     },
     deleteConnection: (projectName: string) => {
@@ -2202,7 +2274,7 @@ export async function createServer(opts: {
         opts.config,
         projectName,
       );
-      if (removed) saveConfigPatch(opts.config);
+      if (removed) persistConfigPatch(opts.config);
       return removed;
     },
   } as const;
@@ -2223,12 +2295,12 @@ export async function createServer(opts: {
       updatedAt: string;
     }) => {
       const updated = upsertVercelTrafficConnection(opts.config, record);
-      saveConfigPatch(opts.config);
+      persistConfigPatch(opts.config);
       return updated;
     },
     deleteConnection: (projectName: string) => {
       const removed = removeVercelTrafficConnection(opts.config, projectName);
-      if (removed) saveConfigPatch(opts.config);
+      if (removed) persistConfigPatch(opts.config);
       return removed;
     },
   } as const;
@@ -2246,12 +2318,12 @@ export async function createServer(opts: {
     },
     upsertConnection: (record: CloudflareTrafficConnectionConfigEntry) => {
       const updated = upsertCloudflareTrafficConnection(opts.config, record);
-      saveConfigPatch(opts.config);
+      persistConfigPatch(opts.config);
       return updated;
     },
     deleteConnection: (projectName: string) => {
       const removed = removeCloudflareTrafficConnection(opts.config, projectName);
-      if (removed) saveConfigPatch(opts.config);
+      if (removed) persistConfigPatch(opts.config);
       return removed;
     },
     deleteConnectionBySourceId: (sourceId: string) => {
@@ -2259,7 +2331,7 @@ export async function createServer(opts: {
         opts.config,
         sourceId,
       );
-      if (removed) saveConfigPatch(opts.config);
+      if (removed) persistConfigPatch(opts.config);
       return removed;
     },
   } as const;
@@ -2286,7 +2358,7 @@ export async function createServer(opts: {
       updatedAt: string;
     }) => {
       const updated = upsertGoogleConnection(opts.config, connection);
-      saveConfigPatch(opts.config);
+      persistConfigPatch(opts.config);
       return updated;
     },
     updateConnection: (
@@ -2308,7 +2380,7 @@ export async function createServer(opts: {
         connectionType,
         patch,
       );
-      if (updated) saveConfigPatch(opts.config);
+      if (updated) persistConfigPatch(opts.config);
       return updated;
     },
     deleteConnection: (
@@ -2320,7 +2392,7 @@ export async function createServer(opts: {
         domain,
         connectionType,
       );
-      if (removed) saveConfigPatch(opts.config);
+      if (removed) persistConfigPatch(opts.config);
       return removed;
     },
   } as const;
@@ -2340,7 +2412,7 @@ export async function createServer(opts: {
       updatedAt: string;
     }) => {
       const updated = upsertWordpressConnection(opts.config, connection);
-      saveConfigPatch(opts.config);
+      persistConfigPatch(opts.config);
       return updated;
     },
     updateConnection: (
@@ -2355,12 +2427,12 @@ export async function createServer(opts: {
       }>,
     ) => {
       const updated = patchWordpressConnection(opts.config, projectName, patch);
-      if (updated) saveConfigPatch(opts.config);
+      if (updated) persistConfigPatch(opts.config);
       return updated;
     },
     deleteConnection: (projectName: string) => {
       const removed = removeWordpressConnection(opts.config, projectName);
-      if (removed) saveConfigPatch(opts.config);
+      if (removed) persistConfigPatch(opts.config);
       return removed;
     },
   } as const;
@@ -2398,6 +2470,7 @@ export async function createServer(opts: {
   const dashboardShowLocalAgentSetup = resolveDashboardShowLocalAgentSetup(process.env, opts.config);
   const dashboardShowUpdateNotification = resolveDashboardShowUpdateNotification(process.env, opts.config);
   const dashboardOnboardingMode = resolveDashboardOnboardingMode(process.env, opts.config);
+  const dashboardBrandMark = resolveDashboardBrandMark(process.env, opts.config);
   const researchAllowViewers = resolveResearchAllowViewers(process.env, opts.config);
   const researchViewerDailyRunLimit = resolveResearchViewerDailyRunLimit(process.env, opts.config);
   app.log.info(
@@ -2417,6 +2490,7 @@ export async function createServer(opts: {
     publicUrl: opts.config.publicUrl,
     hasAccounts: anyUsersExist(opts.db),
     authorizationPath,
+    plugin: opts.config.mcpGateway,
   });
   // One checker, shared by /auth/login and the OAuth consent page, so the two
   // sign-in doors carry the same brute-force and threadpool budgets.
@@ -2731,7 +2805,7 @@ export async function createServer(opts: {
         // back the audit row and the session, while `saveConfigPatch` can never
         // take a saved password back off disk if a later step failed. It also
         // never writes the hash from `opts.config`, so name it here.
-        saveConfigPatch(opts.config, { setDashboardPasswordHash: passwordHash });
+        persistConfigPatch(opts.config, { setDashboardPasswordHash: passwordHash });
         return created;
       });
     } catch (err) {
@@ -2768,7 +2842,9 @@ export async function createServer(opts: {
         password,
         opts.config.dashboardPasswordHash,
       );
-      const onDisk = verification.ok && verification.needsRehash ? loadConfigRaw() : null;
+      const onDisk = verification.ok && verification.needsRehash && persistedConfigPath !== undefined
+        ? loadConfigRaw(persistedConfigPath)
+        : null;
       if (!verification.ok || (onDisk && onDisk.dashboardPasswordHash !== opts.config.dashboardPasswordHash)) {
         return reply.status(401).send({
           error: { code: "AUTH_INVALID", message: "Incorrect password" },
@@ -2776,16 +2852,19 @@ export async function createServer(opts: {
       }
       // Transparent migration: a successful login against the legacy
       // unsalted SHA-256 hash rewrites the config with a fresh scrypt hash
-      // so the next login no longer needs the legacy fallback path.
+      // so the next login no longer needs the legacy fallback path. A config
+      // built in memory migrates in memory.
       if (verification.needsRehash) {
-        if (fs.existsSync(getConfigPath()) && (
+        if (persistedConfigPath !== undefined && fs.existsSync(persistedConfigPath) && (
           !onDisk || typeof onDisk !== "object" || Array.isArray(onDisk)
           || !onDisk.apiUrl || !onDisk.database || !onDisk.apiKey
         )) {
           throw new Error("Cannot migrate dashboard password: config.yaml is unreadable or invalid");
         }
         const migratedHash = hashDashboardPassword(password);
-        saveConfig({ ...(onDisk ?? opts.config), dashboardPasswordHash: migratedHash });
+        if (persistedConfigPath !== undefined) {
+          saveConfig({ ...(onDisk ?? opts.config), dashboardPasswordHash: migratedHash }, persistedConfigPath);
+        }
         opts.config.dashboardPasswordHash = migratedHash;
       }
       if (!createPasswordSession(reply)) {
@@ -3296,6 +3375,7 @@ export async function createServer(opts: {
       executeGscSync(opts.db, runId, projectId, {
         ...syncOpts,
         config: opts.config,
+        saveConfigPatch: persistConfigPatch,
       })
         // executeGscSync resolves only when the sync completed, so a full
         // sitemap-coverage refresh chains directly off success. `gsc-sync`
@@ -3303,7 +3383,7 @@ export async function createServer(opts: {
         // move index coverage — which is why a user-initiated sync is not
         // subject to the hour-long scheduled spacing.
         .then(() =>
-          maybeRefreshGscCoverage(opts.db, opts.config, projectId, undefined, Date.now(), {
+          maybeRefreshGscCoverage(opts.db, opts.config, projectId, coverageRefreshDeps, Date.now(), {
             userInitiated: runWasUserInitiated(opts.db, runId),
           }),
         )
@@ -3328,6 +3408,7 @@ export async function createServer(opts: {
       executeInspectSitemap(opts.db, runId, projectId, {
         ...inspectOpts,
         config: opts.config,
+        saveConfigPatch: persistConfigPatch,
       }).catch((err: unknown) => {
         app.log.error({ runId, err }, "Inspect sitemap failed");
       });
@@ -3544,7 +3625,7 @@ export async function createServer(opts: {
               opts.db,
               opts.config,
               projectId,
-              undefined,
+              coverageRefreshDeps,
               Date.now(),
               { userInitiated: runWasUserInitiated(opts.db, runId) },
             );
@@ -3681,7 +3762,7 @@ export async function createServer(opts: {
       };
 
       try {
-        saveConfigPatch(fs.existsSync(runtimeConfigPath)
+        persistConfigPatch(fs.existsSync(runtimeConfigPath)
           ? { providers: { [name]: opts.config.providers[name]! } }
           : opts.config);
       } catch (err) {
@@ -3707,7 +3788,7 @@ export async function createServer(opts: {
     onGoogleSettingsUpdate: (clientId: string, clientSecret: string) => {
       try {
         setGoogleAuthConfig(opts.config, { clientId, clientSecret });
-        saveConfigPatch(opts.config);
+        persistConfigPatch(opts.config);
         googleSettingsSummary.configured = true;
         return { ...googleSettingsSummary };
       } catch (err) {
@@ -3719,7 +3800,7 @@ export async function createServer(opts: {
       try {
         if (!opts.config.bing) opts.config.bing = {};
         opts.config.bing.apiKey = apiKey;
-        saveConfigPatch(opts.config);
+        persistConfigPatch(opts.config);
         bingSettingsSummary.configured = true;
         return { ...bingSettingsSummary };
       } catch (err) {
@@ -3751,7 +3832,7 @@ export async function createServer(opts: {
       const removedGoogleAds = removeGoogleAdsConnection(opts.config, projectId);
       const removedGtm = removeGtmConnection(opts.config, projectId);
       if (removedGoogleAds || removedGtm) {
-        saveConfigPatch({
+        persistConfigPatch({
           googleAds: opts.config.googleAds,
           gtm: opts.config.gtm,
         });
@@ -3774,13 +3855,15 @@ export async function createServer(opts: {
     operatorApiKeyIds,
     listOperationalLogs: (query) => operationalLogs.list(query),
     getTelemetryStatus,
-    setTelemetryEnabled: (enabled, attribution) => {
+    // The preference lives in the default config.yaml; a server running from
+    // any other config leaves it alone, and the route answers 501.
+    setTelemetryEnabled: ownsDefaultConfig ? (enabled, attribution) => {
       // Persists synchronously; an opt-out's `telemetry.disabled` event is
       // delivered in the background, since this process keeps running.
       void setTelemetryPreference(enabled, "api", outcomeAttribution(attribution));
       // Keep in-memory config in sync
       opts.config.telemetry = enabled;
-    },
+    } : undefined,
     recordOnboardingEvent: (event) => recordDashboardEvent(event),
     // Answers false while telemetry is off or the per-process cap is spent, so
     // the dashboard stops sending for the session.
@@ -3791,7 +3874,7 @@ export async function createServer(opts: {
       opts.config.cdp.host = host;
       opts.config.cdp.port = port;
       try {
-        saveConfigPatch(opts.config);
+        persistConfigPatch(opts.config);
       } catch (err) {
         app.log.error({ err }, "Failed to save CDP config");
         throw err;
@@ -3901,6 +3984,9 @@ export async function createServer(opts: {
       if (!dashboardShowUpdateNotification) {
         dashboardConfig.showUpdateNotification = false;
       }
+      if (dashboardBrandMark === "icon") {
+        dashboardConfig.brandMark = "icon";
+      }
       if (dashboardManagedRunKinds.length > 0) {
         dashboardConfig.managedRunKinds = dashboardManagedRunKinds;
       }
@@ -3961,7 +4047,7 @@ export async function createServer(opts: {
       // deep-links like `/projects/ainyc` request `/projects/assets/…js`, hit the
       // SPA fallback, and receive HTML where the browser expects JS.
       const baseTag = `<base href="${basePath ?? "/"}">`;
-      return html
+      return (dashboardBrandMark === "icon" ? withIconMarkLinks(html) : html)
         .replace("<head>", `<head>${baseTag}`)
         .replace("</head>", `${configScript}</head>`);
     };
@@ -4154,10 +4240,18 @@ export async function createServer(opts: {
   // only when the instance knows its own public origin, since every URL in the
   // metadata documents has to be absolute and externally reachable.
   if (publicOrigin) {
+    // The sign-in and consent pages borrow the dashboard's own Geist file, a
+    // content-hashed Vite asset the static handler serves; without a dashboard
+    // build they fall back to the system sans.
+    const dashboardAssets = path.join(assetsDir, "assets");
+    const gateFont = fs.existsSync(dashboardAssets)
+      ? fs.readdirSync(dashboardAssets).find((name) => /^geist-latin-wght-normal-[\w-]+\.woff2$/.test(name))
+      : undefined;
     registerOAuthRoutes(app, {
       db: opts.db,
       issuer: publicOrigin,
       authorizationPath,
+      ...(gateFont ? { fontUrl: `${basePath ?? "/"}assets/${gateFont}` } : {}),
       resourcePaths: mcpTransportPaths().map((suffix) =>
         `${basePath ?? "/"}api/v1${suffix}`.replace("//", "/"),
       ),

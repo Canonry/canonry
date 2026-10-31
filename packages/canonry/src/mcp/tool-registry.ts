@@ -1,4 +1,4 @@
-import { journeyDetailQuerySchema, journeySummaryQuerySchema, journeysQuerySchema, trafficSamplesQuerySchema, gaAcquisitionQuerySchema, auditHistoryQuerySchema, visibilityCompareSelectionSchema, reportMonthSchema, referralAssessmentQuerySchema, instanceStatusDtoSchema, maxOperationAccess, operationAccess, OperationAccesses, type OperationAccess } from '@canonry/canonry-contracts'
+import { mcpProfileDtoSchema, journeyDetailQuerySchema, journeySummaryQuerySchema, journeysQuerySchema, trafficSamplesQuerySchema, gaAcquisitionQuerySchema, auditHistoryQuerySchema, visibilityCompareSelectionSchema, reportMonthSchema, referralAssessmentQuerySchema, instanceStatusDtoSchema, maxOperationAccess, operationAccess, OperationAccesses, type OperationAccess } from '@canonry/canonry-contracts'
 
 import {
   sentimentSelectionSchema, sentimentEvidenceRequestSchema, sentimentCompareRequestSchema, sentimentSettingsUpdateSchema,
@@ -9,7 +9,7 @@ import {
 import { agentConversationCreateSchema, reportedQueryClasses } from '@canonry/canonry-contracts'
 import { PROVIDER_ACCOUNT_FAILURE_STREAK, PROVIDER_ACCOUNT_RETRY_HOURS, WINDOW_SETS } from '@canonry/canonry-contracts'
 import { insightSeveritySchema } from '@canonry/canonry-contracts'
-import type { ToolAnnotations } from '@modelcontextprotocol/sdk/types.js'
+import type { ToolAnnotations } from '@modelcontextprotocol/server'
 import {
   AGENT_MEMORY_KEY_MAX_LENGTH,
   AGENT_MEMORY_VALUE_MAX_BYTES,
@@ -158,6 +158,8 @@ export interface CanonryMcpTool<
   requiredScope?: string
   /** Internal surface: customer roles/scopes alone never authorize it. */
   requiresOperator?: boolean
+  /** Requires an instance-wide named identity and configured OAuth resource. */
+  requiresConnectionProfile?: boolean
   tier: CanonryMcpTier
   inputSchema: TSchema
   inputJsonSchema: unknown
@@ -170,14 +172,16 @@ export interface CanonryMcpTool<
 
 const readAnnotations = (openWorldHint?: boolean): ToolAnnotations => ({
   readOnlyHint: true,
-  ...(openWorldHint ? { openWorldHint } : {}),
+  idempotentHint: true,
+  destructiveHint: false,
+  openWorldHint: Boolean(openWorldHint),
 })
 
 const writeAnnotations = (opts: { idempotentHint: boolean; destructiveHint?: boolean; openWorldHint?: boolean }): ToolAnnotations => ({
   readOnlyHint: false,
   idempotentHint: opts.idempotentHint,
   destructiveHint: Boolean(opts.destructiveHint),
-  ...(opts.openWorldHint ? { openWorldHint: opts.openWorldHint } : {}),
+  openWorldHint: opts.openWorldHint ?? true,
 })
 
 export function toolOperationAccess(tool: Pick<CanonryMcpTool, 'openApiOperations' | 'access'>): OperationAccess {
@@ -1182,7 +1186,8 @@ const technicalAeoCrawlPagesInputSchema = z.object({
   inventoryEligible: z.boolean().optional().describe('Filter Canonry technical-inventory eligibility. This is not actual Google index coverage.'),
   fetchState: z.string().min(1).optional().describe('Filter crawler fetch state, for example html, redirect, non-html, or fetch-error.'),
   indexabilityState: z.string().min(1).optional().describe('Filter crawler-derived indexability state. This is not Google index coverage.'),
-  auditState: z.string().min(1).optional().describe('Filter audit state.'),
+  auditState: z.string().min(1).optional().describe('Filter audit state. url-version marks a URL version: fetched and classified, not scored.'),
+  urlVersions: z.enum(['include', 'exclude', 'only']).optional().describe('URL versions are parameter addresses whose canonical names the same path, so the site marks them as copies of that page; the audit does not score them or count them in fixes. include (default) keeps every address, exclude lists pages only (the dashboard view), only lists the URL versions with urlVersionOf. Once a few addresses with one parameter pattern prove to be copies, the crawl stops fetching that pattern; those have no rows and inventorySummary.urlVersionsNotFetched counts them.'),
   sort: z.enum(['url', 'path', 'score-asc', 'score-desc']).optional(),
   cursor: z.string().min(1).optional().describe('Opaque cursor from the previous crawl-pages result.'),
   limit: z.number().int().positive().max(200).optional(),
@@ -1591,6 +1596,19 @@ const rawCanonryMcpTools = [
     annotations: writeAnnotations({ idempotentHint: true, destructiveHint: true }),
     openApiOperations: ['POST /api/v1/projects/{name}/query-tracking/commit'],
     handler: (client, input) => client.commitQueryTracking(input.project, input.request),
+  }),
+  defineTool({
+    name: 'canonry_mcp_profile',
+    requiresConnectionProfile: true,
+    title: 'Read the connected Canonry identity',
+    description: 'Read the signed-in user identity, effective read scope and instance audience. Requires a named user connection; an unbound API key has no user profile.',
+    access: 'read',
+    tier: 'core',
+    inputSchema: emptyInputSchema,
+    outputSchema: mcpProfileDtoSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/mcp/profile'],
+    handler: (client) => client.getMcpProfile(),
   }),
   defineTool({
     name: 'canonry_projects_list',
@@ -2440,7 +2458,7 @@ const rawCanonryMcpTools = [
     access: 'write',
     tier: 'bing',
     inputSchema: projectInputSchema,
-    annotations: writeAnnotations({ idempotentHint: true }),
+    annotations: writeAnnotations({ idempotentHint: true, openWorldHint: false }),
     openApiOperations: ['GET /api/v1/projects/{name}/bing/coverage'],
     handler: (client, input) => client.bingCoverage(input.project),
   }),
@@ -4100,7 +4118,7 @@ const rawCanonryMcpTools = [
   defineTool({
     name: 'canonry_technical_aeo_crawl_pages',
     title: 'List Technical AEO crawl pages',
-    description: 'For a requested scan date pass date=YYYY-MM-DD. If the year was omitted and that date has no data, use availableScanDates.matchingMonthDayDates to resolve the year and request the exact returned date before concluding the historical scan is missing. recentDates and matchingMonthDayDates are bounded; totalDates and matchingMonthDayTotal report their full counts. No automatic date fallback. inventorySummary gives whole-snapshot eligible/excluded counts and disjoint excluded reasons; healthReasonCounts covers the filtered list before paging. Use these exact counts, never infer canonical-away from unknown indexability. healthReason distinguishes terminal redirects from canonical-to-other pages. Default runSelection reports same-date ambiguity and selects complete or most-pages evidence on the latest scan date. Read one bounded, cursor-paged list of canonical crawl nodes. Filter crawler-derived indexability and audit state, then follow nextCursor; this is technical inventory eligibility, not a claim about Google index coverage. `complete: false` means the crawl stopped at the budget named by `termination`, so a missing page or link is not proof it does not exist.',
+    description: 'For a requested scan date pass date=YYYY-MM-DD. If the year was omitted and that date has no data, use availableScanDates.matchingMonthDayDates to resolve the year and request the exact returned date before concluding the historical scan is missing. recentDates and matchingMonthDayDates are bounded; totalDates and matchingMonthDayTotal report their full counts. No automatic date fallback. inventorySummary gives whole-snapshot eligible/excluded counts, disjoint excluded reasons, and urlVersions (parameter copies of a page the audit did not score; pass urlVersions=exclude to list pages only); healthReasonCounts covers the filtered list before paging. Use these exact counts, never infer canonical-away from unknown indexability. healthReason distinguishes terminal redirects from canonical-to-other pages. Default runSelection reports same-date ambiguity and selects complete or most-pages evidence on the latest scan date. Read one bounded, cursor-paged list of canonical crawl nodes. Filter crawler-derived indexability and audit state, then follow nextCursor; this is technical inventory eligibility, not a claim about Google index coverage. `complete: false` means the crawl stopped at the budget named by `termination`, so a missing page or link is not proof it does not exist.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: technicalAeoCrawlPagesInputSchema,
@@ -4113,6 +4131,7 @@ const rawCanonryMcpTools = [
       fetchState: input.fetchState,
       indexabilityState: input.indexabilityState,
       auditState: input.auditState,
+      urlVersions: input.urlVersions,
       sort: input.sort,
       cursor: input.cursor,
       limit: input.limit,

@@ -1,6 +1,7 @@
 export type OpenApiMcpClassification = 'included' | 'deferred' | 'excluded-protocol'
 
 export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
+  'GET /api/v1/mcp/profile': 'included',
   'GET /api/v1/seo/operator/tasks/{id}': 'included',
   'POST /api/v1/seo/operator/tasks/{id}/reconcile': 'included',
   'GET /api/v1/projects/{name}/seo/context': 'included',

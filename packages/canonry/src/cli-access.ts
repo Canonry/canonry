@@ -238,6 +238,7 @@ const CLI_ACCESS_BY_ID: Readonly<Record<string, OperationAccess>> = Object.freez
   'mcp': 'write',
   'mcp.config': 'write',
   'mcp.install': 'write',
+  'mcp.profile': 'stored',
   'measurement-plan.advanced': 'write',
   'measurement-plan.assignments.apply': 'write',
   'measurement-plan.assignments.preview': 'stored',

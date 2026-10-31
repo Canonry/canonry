@@ -259,8 +259,9 @@ export function isTelemetryEnabled(): boolean {
  *   3. A new UUID, persisted back to config.yaml on first run.
  *   4. A deterministic machine-derived fallback — used when config does
  *      not exist or cannot be persisted (no $HOME, ephemeral container,
- *      read-only fs). Without this, every invocation in such an
- *      environment would emit a brand-new UUID and poison telemetry.
+ *      read-only fs), or while `holdAnonymousIdWrites` is in effect.
+ *      Without this, every invocation in such an environment would emit a
+ *      brand-new UUID and poison telemetry.
  *
  * Returns undefined only if every fallback fails (should not happen in
  * practice — `os.hostname()` always returns something).
@@ -273,12 +274,14 @@ export function getOrCreateAnonymousId(): string | undefined {
     try {
       const config = loadConfig()
       if (config.anonymousId) return config.anonymousId
+      if (anonymousIdWriteHolds > 0) return getDeterministicAnonymousId()
 
       const carried = preConfigAnonymousId?.configPath === getConfigPath() ? preConfigAnonymousId.id : undefined
       const id = carried ?? crypto.randomUUID()
-      config.anonymousId = id
       try {
-        saveConfigPatch(config)
+        // Only the ID: `config` carries runtime overrides (CANONRY_PORT,
+        // CANONRY_BASE_PATH) that must never be written back.
+        saveConfigPatch({ anonymousId: id })
       } catch {
         // Config exists but can't be written (read-only fs, permission denied).
         // Fall through to the deterministic fallback so we still emit a stable ID.
@@ -306,6 +309,24 @@ export function getOrCreateAnonymousId(): string | undefined {
  * install. Scoped to the config path so a different config never inherits it.
  */
 let preConfigAnonymousId: { configPath: string; id: string } | undefined
+
+/**
+ * Servers running in this process from a config other than the default
+ * config.yaml (a test or local dashboard). While one runs, the install ID is
+ * read but never created: creating it rewrites the operator's config.yaml.
+ */
+let anonymousIdWriteHolds = 0
+
+/** Keep `getOrCreateAnonymousId` from writing config.yaml until the returned release runs. */
+export function holdAnonymousIdWrites(): () => void {
+  anonymousIdWriteHolds += 1
+  let held = true
+  return () => {
+    if (!held) return
+    held = false
+    anonymousIdWriteHolds -= 1
+  }
+}
 
 function readEnvAnonymousId(): string | undefined {
   const raw = process.env[ANON_ID_ENV_VAR]?.trim()

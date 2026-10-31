@@ -96,10 +96,11 @@ function recordingClient(calls: CallLog[]): ApiClient {
           }
         }
         if (method === 'getAdsInsights') {
+          const options = args[1] as Parameters<ApiClient['getAdsInsights']>[1]
           return {
             currencyCode: 'USD',
             rows: [{
-              level: args[1]?.level ?? 'campaign',
+              level: options?.level ?? 'campaign',
               entityId: 'camp_1',
               date: '2026-06-28',
               impressions: 100,
@@ -134,11 +135,12 @@ describe('buildAllTools', () => {
   it('exposes every MCP read + write tool minus the Aero exclusion set', () => {
     const calls: CallLog[] = []
     const tools = buildAllTools(ctxFor(recordingClient(calls)))
-    const expectedCount = canonryMcpTools.filter((t) => !AERO_EXCLUDED_MCP_TOOLS.has(t.name)).length
+    const expectedCount = canonryMcpTools.filter((t) => !AERO_EXCLUDED_MCP_TOOLS.has(t.name) && !t.requiresConnectionProfile).length
 
     expect(tools).toHaveLength(expectedCount)
     expect(tools.map((t) => t.name)).not.toContain(CanonryMcpToolNames.canonry_agent_clear)
     expect(tools.map((t) => t.name)).not.toContain(CanonryMcpToolNames.canonry_results_clear)
+    expect(tools.map((t) => t.name)).not.toContain(CanonryMcpToolNames.canonry_mcp_profile)
     // Spot-check that every other tool from the registry is exposed.
     expect(tools.map((t) => t.name)).toContain(CanonryMcpToolNames.canonry_project_overview)
     expect(tools.map((t) => t.name)).toContain(CanonryMcpToolNames.canonry_site_health_overview)
@@ -157,11 +159,12 @@ describe('buildReadTools', () => {
     const calls: CallLog[] = []
     const tools = buildReadTools(ctxFor(recordingClient(calls)))
     const expectedReads = canonryMcpTools.filter(
-      (t) => t.access === 'read' && !AERO_EXCLUDED_MCP_TOOLS.has(t.name),
+      (t) => t.access === 'read' && !AERO_EXCLUDED_MCP_TOOLS.has(t.name) && !t.requiresConnectionProfile,
     )
 
     expect(tools).toHaveLength(expectedReads.length)
     expect(tools.every((t) => expectedReads.some((r) => r.name === t.name))).toBe(true)
+    expect(tools.map((t) => t.name)).not.toContain(CanonryMcpToolNames.canonry_mcp_profile)
     // Read scope must not include any write-only tool.
     expect(tools.map((t) => t.name)).not.toContain(CanonryMcpToolNames.canonry_run_trigger)
     expect(tools.map((t) => t.name)).not.toContain(CanonryMcpToolNames.canonry_memory_set)
@@ -184,7 +187,7 @@ describe('buildAdsOperatorTools', () => {
       (t) =>
         t.access === 'read' &&
         AERO_ADS_OPERATOR_MCP_TOOL_NAMES.has(t.name) &&
-        !AERO_EXCLUDED_MCP_TOOLS.has(t.name),
+        !AERO_EXCLUDED_MCP_TOOLS.has(t.name) && !t.requiresConnectionProfile,
     )
 
     expect(tools).toHaveLength(expectedReads.length + 1)
@@ -451,7 +454,7 @@ describe('buildMcpAgentTools', () => {
     const reads = buildMcpAgentTools(canonryMcpTools, { client: recordingClient(calls), projectName: 'demo' }, { readOnly: true })
 
     const expectedReads = canonryMcpTools.filter(
-      (t) => t.access === 'read' && !AERO_EXCLUDED_MCP_TOOLS.has(t.name),
+      (t) => t.access === 'read' && !AERO_EXCLUDED_MCP_TOOLS.has(t.name) && !t.requiresConnectionProfile,
     )
     expect(reads).toHaveLength(expectedReads.length)
   })

@@ -29,6 +29,7 @@ interface OAuthMetadata {
 }
 
 interface RpcResponse {
+  error?: { code: number; message: string }
   result?: { isError?: boolean; structuredContent?: unknown; content?: Array<{ type: string; text?: string }> }
 }
 
@@ -223,9 +224,7 @@ it.each(['/', '/canonry/'])('connects a hosted account through OAuth under %s an
   expect(restWrite.status).toBe(401)
   await restWrite.text()
   const mcpWrite = await rpcBody(await call('canonry_project_update', { project: 'simple', request: { displayName: 'Should not change' } }))
-  expect(mcpWrite.result).toMatchObject({ isError: true, content: [
-    { type: 'text', text: expect.stringContaining('Tool canonry_project_update not found') },
-  ] })
+  expect(mcpWrite.error).toMatchObject({ code: -32602, message: 'Tool canonry_project_update not found' })
   const unchanged = await rpcBody(await call('canonry_project_get', { project: 'simple' }))
   expect(unchanged.result?.structuredContent).toMatchObject({ displayName: 'Simple portfolio' })
   const revoked = await fetch(metadata.revocation_endpoint, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },

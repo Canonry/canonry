@@ -88,6 +88,8 @@ interface GbpSyncOptions {
   daysOfMetrics?: number
   monthsOfKeywords?: number
   config: CanonryConfig
+  /** Persists a refreshed access token; defaults to the active config.yaml. */
+  saveConfigPatch?: (patch: Partial<CanonryConfig>) => void
 }
 
 /** A zero quota is the API access gate on the Cloud project; a 404 is a location that is gone. */
@@ -170,7 +172,8 @@ export async function executeGbpSync(
         tokenExpiresAt: new Date(Date.now() + tokens.expires_in * 1000).toISOString(),
         updatedAt: new Date().toISOString(),
       })
-      saveConfigPatch(opts.config)
+      const persistConfigPatch = opts.saveConfigPatch ?? saveConfigPatch
+      persistConfigPatch(opts.config)
     }
 
     // Resolve which locations to sync: selected rows, optionally narrowed to
