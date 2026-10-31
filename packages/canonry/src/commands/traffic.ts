@@ -764,6 +764,8 @@ export async function trafficSync(project: string, opts: {
     console.log(`  Self-traffic excl: ${result.selfTrafficExcluded}  (Canonry's own tooling, dropped before rollup)`)
   }
   console.log(`  Crawler hits:     ${result.crawlerHits}  (${result.crawlerBucketRows} hourly bucket${result.crawlerBucketRows === 1 ? '' : 's'})`)
+  console.log(`  AI user fetches:  ${result.aiUserFetchHits}  (${result.aiUserFetchBucketRows} hourly bucket${result.aiUserFetchBucketRows === 1 ? '' : 's'})`)
+  console.log(`  Likely fake agents: ${result.aiUserFetchLikelyFakeHits}  (claimed an AI agent; not counted as AI user fetches)`)
   console.log(`  AI referral hits: ${result.aiReferralHits}  (${result.aiReferralBucketRows} hourly bucket${result.aiReferralBucketRows === 1 ? '' : 's'})`)
   console.log(`  Unknown hits:     ${result.unknownHits}`)
   console.log(`  Sample rows:      ${result.sampleRows}`)
@@ -1092,7 +1094,10 @@ export async function trafficSamples(project: string, opts: Omit<TrafficSamplesQ
   console.log('traffic status shows the last-24h sample count per source, including unknown samples. This selection excludes unknown unless requested.')
   for (const sample of result.samples) {
     const classifier = sample.classifier.aiReferral ?? sample.classifier.aiUserFetch ?? sample.classifier.crawler
-    console.log([sample.ts, sample.kind, sample.status ?? '-', sample.pathNormalized, sample.refererHost ?? '-', classifier?.product ?? '-', sample.userAgent ?? '-'].join('  '))
+    // Agent samples carry their trust verdict, so likely fakes stay recognizable here.
+    const trust = sample.classifier.aiUserFetch?.trust
+    const label = classifier?.product ? (trust ? `${classifier.product} (${trust})` : classifier.product) : '-'
+    console.log([sample.ts, sample.kind, sample.status ?? '-', sample.pathNormalized, sample.refererHost ?? '-', label, sample.userAgent ?? '-'].join('  '))
   }
 }
 

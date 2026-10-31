@@ -1936,7 +1936,9 @@ IP and user-agent grouping is inferred and can merge tasks. Requests without
 an IP stay unlinked; trust does not prove a user session. Each request carries
 `trust` and `trustReasons`: verified by the operator's published IP list, likely
 real (unchecked, but the operator's published user agent), or unknown. Likely
-fake requests are counted in `coverage.likelyFakeRequests` and never listed.
+fake requests are counted in `coverage.likelyFakeRequests` and never listed;
+with `--target-key` that count is null, because hourly totals carry no page
+path. `cnry traffic sync` reports them as `aiUserFetchLikelyFakeHits`.
 The API reports retention, inactivity gap, daily caps and source gaps. Advanced
 Properties match the current plan's URL coverage, not the historical user's
 intent. Keep its plan revision and unavailable dimensions with the evidence.

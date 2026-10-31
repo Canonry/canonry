@@ -268,12 +268,13 @@ function VisitorSummary({ summary }: { summary: JourneySummaryResponse }) {
   )
 }
 
+/** Later visits as the API sent them (from the first AI visit on); `returnChannels` counts them all. */
 function ThenChain({ visitor }: { visitor: JourneysResponse['visitors'][number] }) {
   const aiIndex = visitor.visits.findIndex(visit => visit.entryClass === 'ai')
-  const later = visitor.visits.slice(aiIndex + 1)
+  const later = aiIndex === -1 ? [] : visitor.visits.slice(aiIndex + 1)
   if (later.length === 0) return <span className="text-secondary">{visitor.returned ? 'Came back' : 'No return yet'}</span>
   const shown = later.slice(0, MAX_CHAIN_STEPS)
-  const more = later.length > MAX_CHAIN_STEPS || visitor.visitCount > visitor.visits.length
+  const more = visitor.returnChannels.length > shown.length
   return (
     <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
       {shown.map((visit, index) => (
@@ -336,7 +337,7 @@ function VisitorList({ data, engines, engine, returned, selectedKey, onSelect, o
             <tbody className="divide-y divide-default">
               {data.visitors.map(visitor => {
                 const selected = visitor.visitorKey === selectedKey
-                const aiVisit = visitor.visits.find(visit => visit.entryClass === 'ai') ?? visitor.visits[0]
+                const aiVisit = visitor.visits.find(visit => visit.entryClass === 'ai')
                 return (
                   <tr key={visitor.visitorKey} className={selected ? 'bg-surface-active' : 'hover:bg-surface-hover'}>
                     <td className="py-2.5 pl-3 pr-2 align-top">
@@ -378,7 +379,10 @@ function VisitorDetail({ projectName, visitorKey, partialSources }: { projectNam
   if (query.isError) return <div className="rounded-md border border-default p-5"><ReadFailure what="this journey" error={query.error} retry={() => { void query.refetch() }} /></div>
   const detail = query.data
   const { visitor } = detail
-  const selectedIndex = Math.max(0, detail.visits.findIndex(visit => visit.id === selectedVisitId))
+  // Until a visit is picked, open the first AI visit when this page holds it.
+  const firstAiIndex = detail.visits.findIndex(visit => visit.entryClass === 'ai' && visit.startedAt <= visitor.firstAiAt && visit.endedAt >= visitor.firstAiAt)
+  const pickedIndex = detail.visits.findIndex(visit => visit.id === selectedVisitId)
+  const selectedIndex = Math.max(0, pickedIndex !== -1 ? pickedIndex : firstAiIndex)
   const selectedVisit = detail.visits[selectedIndex]
   const loadedAll = detail.offset + detail.visits.length >= detail.totalVisits
   const lastVisit = detail.visits.at(-1)
@@ -390,7 +394,7 @@ function VisitorDetail({ projectName, visitorKey, partialSources }: { projectNam
         <span className="text-sm text-secondary">{visitor.device}</span>
       </div>
       <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-secondary">
-        <span>{plural(detail.totalVisits, 'visit')}, {formatSweepDay(visitor.firstAiAt)} to {formatSweepDay(visitor.lastSeenAt)}, times in {localTimeZoneLabel()}</span>
+        <span>{plural(detail.totalVisits, 'visit')}, last seen {formatSweepDay(visitor.lastSeenAt)}, times in {localTimeZoneLabel()}</span>
         <span aria-hidden="true">·</span>
         <span className="inline-flex items-center gap-1">
           {visitor.keyBasis === JourneyKeyBases.ua ? 'Matched by browser only' : 'Matched by network and browser'}
@@ -608,7 +612,7 @@ function AgentRequests({ projectName }: { projectName: string }) {
         <div className="flex flex-wrap items-center gap-2 text-sm text-secondary">
           {data ? <p role="status"><span className="tabular-nums text-heading">{data.totalJourneys.toLocaleString()}</span> request sequences · <span className="tabular-nums text-heading">{data.observedRequests.toLocaleString()}</span> recorded requests</p> : <p>Requests made by AI assistants on a person's behalf</p>}
           <InfoTooltip placement="bottom" text="Requests from agents acting for a person. Verified means the request came from an IP the company publishes. Likely real and Unknown are estimates from the user agent, the requested path and that IP check. An inferred sequence groups the same network address and agent within an inactivity window; shared infrastructure can combine different tasks. Requests do not prove clicks or completed tasks." />
-          {data && data.coverage.likelyFakeRequests > 0 && <InfoTooltip placement="bottom" label={`${data.coverage.likelyFakeRequests.toLocaleString()} likely fake`} text={`${plural(data.coverage.likelyFakeRequests, 'likely fake request')}. ${LIKELY_FAKE_HELP}`} />}
+          {data && data.coverage.likelyFakeRequests !== null && data.coverage.likelyFakeRequests > 0 && <InfoTooltip placement="bottom" label={`${data.coverage.likelyFakeRequests.toLocaleString()} likely fake`} text={`${plural(data.coverage.likelyFakeRequests, 'likely fake request')}. ${LIKELY_FAKE_HELP}`} />}
           {data && !data.coverage.recordingEnabled && <InfoTooltip placement="bottom" tone="caution" label="Recording off" text="Recording off. Agent request recording is not enabled on this instance. Saved sequences remain available." />}
           {data && data.coverage.cappedSourceDays.length > 0 && <InfoTooltip placement="bottom" tone="caution" label="Some requests missing" text="Some requests missing. A source reached its daily recording limit. See capture coverage for the affected days and sources." />}
         </div>

@@ -144,8 +144,6 @@ export const agentTrustReasonSchema = z.enum([
   'unusual-user-agent',
   /** The path asks for secrets, version-control data, admin logins or traverses directories. */
   'scanner-path',
-  /** Another request in the same batch from this IP and user agent asked for such a path. */
-  'same-client-scanned',
 ])
 export type AgentTrustReason = z.infer<typeof agentTrustReasonSchema>
 export const AgentTrustReasons = agentTrustReasonSchema.enum
@@ -493,6 +491,8 @@ export const trafficSyncResponseSchema = z.object({
   selfTrafficExcluded: z.number().int().nonnegative(),
   crawlerHits: z.number().int().nonnegative(),
   aiUserFetchHits: z.number().int().nonnegative(),
+  /** Requests that claimed a user-triggered agent but were judged likely fake; never in `aiUserFetchHits`. */
+  aiUserFetchLikelyFakeHits: z.number().int().nonnegative(),
   aiReferralHits: z.number().int().nonnegative(),
   unknownHits: z.number().int().nonnegative(),
   crawlerBucketRows: z.number().int().nonnegative(),

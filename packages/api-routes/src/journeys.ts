@@ -412,12 +412,26 @@ function visitDto(row: VisitRow): JourneyVisitDto {
   }
 }
 
+/** The visit that holds the visitor's first AI arrival, else their first AI visit. */
+function firstAiVisit(visitor: VisitorRow, visits: readonly VisitRow[]): VisitRow | undefined {
+  return visits.find(v => v.entryClass === 'ai' && v.startedAt <= visitor.firstAiAt && v.endedAt >= visitor.firstAiAt)
+    ?? visits.find(v => v.entryClass === 'ai')
+}
+
 /** Visits after the visitor's first AI visit ended are "later visits". */
 function laterVisits(visitor: VisitorRow, visits: readonly VisitRow[]): VisitRow[] {
-  const firstAi = visits.find(v => v.entryClass === 'ai' && v.startedAt <= visitor.firstAiAt && v.endedAt >= visitor.firstAiAt)
-    ?? visits.find(v => v.entryClass === 'ai')
-  const after = firstAi?.endedAt ?? visitor.firstAiAt
+  const after = firstAiVisit(visitor, visits)?.endedAt ?? visitor.firstAiAt
   return visits.filter(v => v.startedAt > after)
+}
+
+/**
+ * The list's visits start at the first AI visit, so a visitor with many
+ * earlier visits (one browser-only key can hold many) still shows it.
+ */
+function listVisits(visitor: VisitorRow, visits: readonly VisitRow[]): VisitRow[] {
+  const first = firstAiVisit(visitor, visits)
+  const start = first ? visits.indexOf(first) : 0
+  return visits.slice(start, start + JOURNEY_LIST_VISITS_PER_VISITOR)
 }
 
 function visitorDto(visitor: VisitorRow, visits: readonly VisitRow[]): JourneyVisitorDto {
@@ -572,7 +586,7 @@ export async function journeyRoutes(app: FastifyInstance): Promise<void> {
       partialSources: partialSources(app.db, project.id),
       visitors: matching.slice(offset, offset + limit).map(({ visitor, dto }) => ({
         ...dto,
-        visits: (visits.get(visitor.visitorKey) ?? []).slice(0, JOURNEY_LIST_VISITS_PER_VISITOR).map(visitDto),
+        visits: listVisits(visitor, visits.get(visitor.visitorKey) ?? []).map(visitDto),
       })),
     }
     return response

@@ -141,7 +141,8 @@ describe('traffic CLI commands', () => {
     expect(expected.scope).toMatchObject({ mode, targetKey: targetKey ?? null, planRevision: mode === 'advanced' ? 1 : null, attribution: mode === 'advanced' ? 'current-plan-url' : 'project' })
     expect(expected.journeys).toHaveLength(1)
     expect(expected.journeys[0]).toMatchObject({ requestCount: 3, errorCount: 1, correlation: 'inferred', trustLevels: ['unknown'] })
-    expect(expected.coverage.likelyFakeRequests).toBe(4)
+    // Hourly likely fake totals have no page path, so a Property selection has no count.
+    expect(expected.coverage.likelyFakeRequests).toBe(targetKey ? null : 4)
     const id = expected.journeys[0]!.id
     const detail = await client.trafficAgentJourney('test-proj', id, { ...query, limit: 1, offset: 1 })
     const detailArgs = ['traffic', 'agent-journey', 'test-proj', id, ...args, '--limit', '1', '--offset', '1']
@@ -153,7 +154,9 @@ describe('traffic CLI commands', () => {
     expect(text.stdout).toContain('Inferred sequence from IP and user agent')
     expect(text.stdout).toContain('unknown (ip-outside-old-list)')
     expect(text.stdout).toContain('trust unknown')
-    expect(text.stdout).toContain('Likely fake requests in this window (counted, not listed): 4')
+    expect(text.stdout).toContain(targetKey
+      ? 'Likely fake requests: not counted per Property (hourly totals carry no page path).'
+      : 'Likely fake requests in this window (counted, not listed): 4')
     expect(text.stdout).toContain('GET  200  example.com/api/availability')
     expect(text.stdout).toContain('More: --offset 2')
     expect(text.stdout).toContain('do not establish task success')
@@ -245,6 +248,24 @@ describe('traffic CLI commands', () => {
     expect(text.stdout).toContain('Sampled tail, not visits')
     expect(text.stdout).toContain('traffic events')
     expect(text.stdout).toContain('last-24h sample count')
+  })
+
+  it('shows the trust verdict of agent samples in text output and JSON', async () => {
+    const project = db.select().from(projects).all()[0]!
+    const at = '2026-10-10T12:00:00.000Z'
+    db.insert(trafficSources).values({ id: 'agent-samples', projectId: project.id, sourceType: 'cloudflare', displayName: 'Edge', status: 'connected', createdAt: at, updatedAt: at }).run()
+    const agent = { botId: 'openai-chatgpt-user', operator: 'OpenAI', product: 'ChatGPT-User', verificationStatus: 'claimed_unverified', verificationManifest: null, matchedUserAgent: 'ChatGPT-User' }
+    db.insert(rawEventSamples).values([
+      { id: 'fake', projectId: project.id, sourceId: 'agent-samples', ts: at, eventType: 'ai_user_fetch', pathNormalized: '/.env', status: 404, userAgent: 'ChatGPT-User', classifierDetailsJson: { crawler: null, aiReferral: null, aiUserFetch: { ...agent, trust: 'likely_fake', trustReasons: ['scanner-path', 'no-ip', 'documented-user-agent'] } }, createdAt: at },
+      // Stored before trust existed: no verdict to show.
+      { id: 'legacy', projectId: project.id, sourceId: 'agent-samples', ts: '2026-10-10T11:00:00.000Z', eventType: 'ai_user_fetch', pathNormalized: '/pricing', status: 200, userAgent: 'ChatGPT-User', classifierDetailsJson: { crawler: null, aiReferral: null, aiUserFetch: agent }, createdAt: at },
+    ]).run()
+    const args = ['traffic', 'samples', 'test-proj', '--kind', 'ai-user-fetch', '--source', 'agent-samples', '--since', '2026-10-10T00:00:00Z', '--until', '2026-10-11T00:00:00Z']
+    const json = parseJsonOutput((await invokeCli([...args, '--format', 'json'])).stdout) as { samples: Array<{ id: string; classifier: { aiUserFetch: { trust: string | null } | null } }> }
+    expect(json.samples.map(sample => [sample.id, sample.classifier.aiUserFetch?.trust ?? null])).toEqual([['fake', 'likely_fake'], ['legacy', null]])
+    const text = (await invokeCli(args)).stdout
+    expect(text).toContain('/.env  -  ChatGPT-User (likely_fake)  ChatGPT-User')
+    expect(text).toContain('/pricing  -  ChatGPT-User  ChatGPT-User')
   })
 
   it.each([['--kind', 'visitor'], ['--limit', '501'], ['--since-minutes', '0'], ['--since', 'invalid']])('rejects invalid samples option %s %s as a user error', async (flag, value) => {

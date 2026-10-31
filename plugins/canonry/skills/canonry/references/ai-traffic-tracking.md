@@ -147,7 +147,7 @@ Report the recorded request sequence and HTTP errors. Separate trust (each
 sequence's `trustLevels`; `--trust verified|likely_real|unknown`) from request
 correlation: IP/UA grouping is inferred, and requests without an IP are
 unlinked. Likely fake requests are counted in `coverage.likelyFakeRequests`,
-never listed. Preserve source gaps and daily caps. For an Advanced
+never listed; the count is null with a Property filter. Preserve source gaps and daily caps. For an Advanced
 Property, use `--target-key` and report current-plan URL attribution and revision.
 Do not infer clicks, a user's prompt, business outcomes or off-site browsing.
 

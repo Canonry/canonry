@@ -68,7 +68,8 @@ recomputing them. Detail pagination keeps the list response's exact time window
 and source, agent, trust and Property filters. Trust (Verified, Likely real,
 Unknown, with reasons in the expanded sequence) is separate from inferred
 request correlation; likely fake requests are never listed and appear only as
-the API's `coverage.likelyFakeRequests` count. Activity's AI hits and the source
+the API's `coverage.likelyFakeRequests` count, hidden when it is null (a
+Property filter). Activity's AI hits and the source
 page's AI user fetches show the API's count without likely fakes and name
 `aiUserFetchLikelyFakeHits` in a tooltip; trust wording lives in
 `lib/agent-trust-copy.ts`; paths and HTTP status never prove

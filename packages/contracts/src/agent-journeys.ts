@@ -94,8 +94,12 @@ const agentJourneyContextSchema = z.object({
     dailyEventLimit: z.number().int(),
     windowBounded: z.literal(true),
     cappedSourceDays: z.array(z.object({ sourceId: z.string(), day: z.string() })),
-    /** Likely fake agent requests in the window (same source and agent selectors), counted from hourly totals. */
-    likelyFakeRequests: z.number().int().nonnegative(),
+    /**
+     * Likely fake agent requests in the window, with the same source and agent
+     * selectors, counted from whole-hour totals. Null with a Property selector:
+     * the totals carry no page path, so no Property count exists.
+     */
+    likelyFakeRequests: z.number().int().nonnegative().nullable(),
     sources: z.array(z.object({
       sourceId: z.string(),
       sourceType: trafficSourceTypeSchema,

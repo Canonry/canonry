@@ -47,7 +47,8 @@ const visitor = {
   visitorKey: 'visitor-one', keyBasis: 'ua' as const, device: 'Mac · Safari', userAgent: 'Synthetic Safari browser',
   firstAiAt: '2026-10-01T09:00:00.000Z', firstAiEngine: 'ChatGPT', lastAiAt: '2026-10-01T09:00:00.000Z',
   lastSeenAt: '2026-10-29T10:00:00.000Z', visitCount: 23, aiVisitCount: 1, returned: true,
-  returnChannels: ['search', 'direct'] as JourneysResponse['visitors'][number]['returnChannels'], cappedDays: 2,
+  // 23 visits: the first AI visit and 22 later ones, as the API counts them.
+  returnChannels: ['search', ...Array<'direct'>(21).fill('direct')] as JourneysResponse['visitors'][number]['returnChannels'], cappedDays: 2,
 }
 const aiVisit = {
   id: 'visit-one', sourceId: 'edge', startedAt: visitor.firstAiAt, endedAt: '2026-10-01T09:02:00.000Z',
@@ -154,6 +155,19 @@ test('visitor rows show the AI landing page, the path back from the first return
   expect(screen.getByText('1 to 1 of 27 visitors')).not.toBeNull()
 })
 
+test('the path back marks more visits from the API count, and a row without its AI visit shows no landing page', async () => {
+  const allShown = { ...visitor, visitorKey: 'all-shown', visitCount: 3, returnChannels: ['search' as const, 'direct' as const], visits: [aiVisit, searchVisit, directVisit] }
+  // Retention can remove a first AI visit while later visits remain.
+  const noAiVisit = { ...visitor, visitorKey: 'no-ai', firstAiEngine: 'Perplexity', visitCount: 1, returnChannels: [], returned: false, visits: [directVisit] }
+  visitorResponses({ list: () => ({ ...visitors, totalVisitors: 2, visitors: [allShown, noAiVisit] }) })
+  await mount()
+  const table = await screen.findByRole('table', { name: 'AI-referred visitors' })
+  const [first, second] = within(table).getAllByRole('row').slice(1)
+  expect(first!.querySelectorAll('td')[1]!.textContent).toBe('GooglethenDirect')
+  expect(second!.querySelectorAll('td')[1]!.textContent).toBe('No return yet')
+  expect(second!.querySelectorAll('td')[0]!.textContent).toBe('Perplexity')
+})
+
 test('filters, paging and period go into the URL and the requests, while the headline stays unfiltered', async () => {
   const reads = visitorResponses({ list: url => ({ ...visitors, offset: Number(url.searchParams.get('offset') ?? 0), totalVisitors: url.searchParams.get('returned') === 'true' ? 7 : 27 }) })
   const router = await mount()
@@ -237,6 +251,7 @@ test('the visitor panel discloses matching, capped days, identity and a missing 
   await mount()
   await screen.findByRole('list', { name: 'Visits in time order' })
   expect(screen.getByText('Matched by browser only')).not.toBeNull()
+  expect(screen.getByText(/^2 visits, last seen /)).not.toBeNull()
   expect(screen.getByRole('button', { name: 'Everyone using the same browser version shares this match, so this journey may combine several people.' })).not.toBeNull()
   expect(screen.getByText('Some requests are missing')).not.toBeNull()
   expect(screen.getByText(/reached on 2 days/)).not.toBeNull()
@@ -287,12 +302,15 @@ test('Advanced Property, source and trust filters reach list and detail without 
   const properties = [{ key: 'hotel', label: 'Hotel' }, { key: 'cafe', label: 'Cafe' }]
   const reads = responses(url => {
     const scope: AgentJourneyContext['scope'] = { ...context.scope, mode: 'advanced', planRevision: 8, attribution: 'current-plan-url', targetKey: url.searchParams.get('targetKey'), sourceId: url.searchParams.get('sourceId'), trust: 'verified' }
+    // The API has no likely fake count for a Property.
+    const coverage = { ...context.coverage, likelyFakeRequests: url.searchParams.has('targetKey') ? null : 3 }
     return json(url.pathname.endsWith('/request-one')
-      ? { ...detail, scope, properties, events: [{ ...detail.events[0]!, targetKey: 'cafe', attribution: 'matched' }] }
-      : { ...journeys, scope, properties })
+      ? { ...detail, scope, coverage, properties, events: [{ ...detail.events[0]!, targetKey: 'cafe', attribution: 'matched' }] }
+      : { ...journeys, scope, coverage, properties })
   })
   await mount('/projects/example/journeys?journeyView=agents')
   await screen.findByRole('table', { name: 'Agent request sequences' })
+  expect(screen.getByText('3 likely fake')).not.toBeNull()
   fireEvent.click(screen.getByText('Filter'))
   fireEvent.click(screen.getByText('Property: All properties'))
   fireEvent.change(screen.getByRole('searchbox', { name: 'Find a property' }), { target: { value: 'cafe' } })
@@ -304,6 +322,8 @@ test('Advanced Property, source and trust filters reach list and detail without 
   fireEvent.change(trust, { target: { value: 'verified' } })
   await waitFor(() => expect(reads.some(url => url.searchParams.get('targetKey') === 'cafe' && url.searchParams.get('sourceId') === 'edge' && url.searchParams.get('trust') === 'verified')).toBe(true))
   expect(screen.getByText('Trust:')).not.toBeNull()
+  // A site-wide count would read as this Property's, so it is hidden.
+  expect(screen.queryByText(/likely fake/)).toBeNull()
   fireEvent.click(await screen.findByRole('button', { name: /ChatGPT-User sequence/ }))
   const requests = await screen.findByRole('table', { name: 'ChatGPT-User recorded requests' })
   expect(within(requests).getByText('Cafe')).not.toBeNull()

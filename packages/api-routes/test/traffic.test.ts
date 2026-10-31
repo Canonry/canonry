@@ -4805,6 +4805,9 @@ describe('GET /traffic/sources/:id', () => {
       const syncBody = JSON.parse(syncRes.payload)
       expect(syncBody.crawlerHits).toBe(1)
       expect(syncBody.aiUserFetchHits).toBe(2)
+      // Every pulled event lands in exactly one bucket, likely fakes included.
+      expect(syncBody.aiUserFetchLikelyFakeHits).toBe(1)
+      expect(syncBody.crawlerHits + syncBody.aiUserFetchHits + syncBody.aiUserFetchLikelyFakeHits + syncBody.aiReferralHits + syncBody.unknownHits).toBe(syncBody.pulledEvents)
       expect(syncBody.crawlerBucketRows).toBe(1)
       expect(syncBody.aiUserFetchBucketRows).toBe(2)
 

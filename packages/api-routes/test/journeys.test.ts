@@ -309,6 +309,22 @@ describe('AI visitor journeys', () => {
       expect((await app.inject({ method: 'GET', url: '/api/v1/projects/example/journeys?since=2026-10-24&until=2026-10-01' })).statusCode).toBe(400)
     })
 
+    it('starts each listed visitor\'s visits at the first AI visit even when older visits are stored', async () => {
+      seed()
+      // Recording keeps requests only after an AI visit, so older rows come
+      // from data stored before that rule or kept across a retention change.
+      const stored = db.select().from(journeyVisits).orderBy(journeyVisits.startedAt).all()
+      const macKey = stored.find(v => v.entryClass === 'search')!.visitorKey
+      const mac = stored.find(v => v.visitorKey === macKey && v.entryClass === 'ai')!
+      for (let i = 0; i < 25; i++) {
+        db.insert(journeyVisits).values({ ...mac, id: `older-${i}`, startedAt: `2026-10-0${1 + (i % 9)}T0${i % 10}:00:00.000Z`, endedAt: `2026-10-0${1 + (i % 9)}T0${i % 10}:05:00.000Z`, entryClass: 'direct', entryName: null, entryHost: null, landingPath: `/older-${i}` }).run()
+      }
+      const body = (await app.inject({ method: 'GET', url: `/api/v1/projects/example/journeys?until=${NOW}&engine=chatgpt` })).json()
+      const visitor = body.visitors[0]
+      expect(visitor).toMatchObject({ visitCount: 27, returned: true, returnChannels: ['search'] })
+      expect(visitor.visits.map((v: { entryClass: string; landingPath: string }) => [v.entryClass, v.landingPath])).toEqual([['ai', mac.landingPath], ['search', '/book']])
+    })
+
     it('returns every visit and request for one visitor, and 404 for another project\'s key', async () => {
       seed()
       const key = journeyVisitorKey(SECRET, 'project', null, MAC).visitorKey

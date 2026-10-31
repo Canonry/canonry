@@ -3028,6 +3028,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       let selfTrafficExcluded = 0
       let crawlerHits = 0
       let aiUserFetchHits = 0
+      let aiUserFetchLikelyFakeHits = 0
       let aiReferralHits = 0
       let unknownHits = 0
       let crawlerBucketRows = 0
@@ -3075,7 +3076,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
         } catch { /* telemetry never blocks Queue acknowledgement */ }
         return {
           sourceId: sourceRow.id, runId, syncedAt: committedAt, pulledEvents: acceptedEvents,
-          selfTrafficExcluded, crawlerHits, aiUserFetchHits, aiReferralHits, unknownHits,
+          selfTrafficExcluded, crawlerHits, aiUserFetchHits, aiUserFetchLikelyFakeHits, aiReferralHits, unknownHits,
           crawlerBucketRows, aiUserFetchBucketRows, aiReferralBucketRows, sampleRows,
           remainingBacklogCount,
           queueDrain,
@@ -3224,6 +3225,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
           selfTrafficExcluded += writeResult.selfTrafficExcluded
           crawlerHits += writeResult.crawlerHits
           aiUserFetchHits += writeResult.aiUserFetchHits
+          aiUserFetchLikelyFakeHits += writeResult.aiUserFetchLikelyFakeHits
           aiReferralHits += writeResult.aiReferralHits
           unknownHits += writeResult.unknownHits
           crawlerBucketRows += writeResult.crawlerBucketRows
@@ -3853,6 +3855,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
     let selfTrafficExcludedCount = 0
     let crawlerHitsCount = 0
     let aiUserFetchHitsCount = 0
+    let aiUserFetchLikelyFakeHitsCount = 0
     let aiReferralHitsCount = 0
     let unknownHitsCount = 0
 
@@ -3937,6 +3940,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       selfTrafficExcludedCount = report.totals.selfTrafficExcluded
       crawlerHitsCount = report.totals.crawlerHits
       aiUserFetchHitsCount = report.totals.aiUserFetchHits
+      aiUserFetchLikelyFakeHitsCount = report.totals.aiUserFetchLikelyFakeHits
       aiReferralHitsCount = report.totals.aiReferralHits
       unknownHitsCount = report.totals.unknownHits
 
@@ -4295,6 +4299,7 @@ export async function trafficRoutes(app: FastifyInstance, opts: TrafficRoutesOpt
       selfTrafficExcluded: selfTrafficExcludedCount,
       crawlerHits: crawlerHitsCount,
       aiUserFetchHits: aiUserFetchHitsCount,
+      aiUserFetchLikelyFakeHits: aiUserFetchLikelyFakeHitsCount,
       aiReferralHits: aiReferralHitsCount,
       unknownHits: unknownHitsCount,
       crawlerBucketRows,

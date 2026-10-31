@@ -8491,7 +8491,7 @@ export const getApiV1ProjectsByNameTrafficAgentJourneysQueryKey = (options: Opti
 /**
  * List observed agent request sequences
  *
- * Stored user-triggered agent requests only. Source-local IP+UA continuity is inferred, never a confirmed user session; requests without an IP stay unlinked. Thirty-minute idle gaps split sequences. Operator verification is independent. Both portfolio modes work; Advanced attribution uses the current plan and retained URLs. Bounds and selectors are read identity; pagination is tuning. Refuses selections exceeding 20,000 requests before Property/verification filtering. No provider calls or writes; requires administrator session authority and excludes embeds.
+ * Stored user-triggered agent requests only. Source-local IP+UA continuity is inferred, never a confirmed user session; requests without an IP stay unlinked. Thirty-minute idle gaps split sequences. Each request carries a trust level (verified, likely_real or unknown) with its reasons, independent of correlation; likely fake requests are never listed and coverage.likelyFakeRequests counts them (null with a Property selector). Both portfolio modes work; Advanced attribution uses the current plan and retained URLs. Bounds and selectors are read identity; pagination is tuning. Refuses selections exceeding 20,000 requests before Property/trust filtering. No provider calls or writes; requires administrator session authority and excludes embeds.
  */
 export const getApiV1ProjectsByNameTrafficAgentJourneysOptions = (options: Options<GetApiV1ProjectsByNameTrafficAgentJourneysData>) => queryOptions<GetApiV1ProjectsByNameTrafficAgentJourneysResponse, GetApiV1ProjectsByNameTrafficAgentJourneysError, GetApiV1ProjectsByNameTrafficAgentJourneysResponse, ReturnType<typeof getApiV1ProjectsByNameTrafficAgentJourneysQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -8511,7 +8511,7 @@ export const getApiV1ProjectsByNameTrafficAgentJourneysInfiniteQueryKey = (optio
 /**
  * List observed agent request sequences
  *
- * Stored user-triggered agent requests only. Source-local IP+UA continuity is inferred, never a confirmed user session; requests without an IP stay unlinked. Thirty-minute idle gaps split sequences. Operator verification is independent. Both portfolio modes work; Advanced attribution uses the current plan and retained URLs. Bounds and selectors are read identity; pagination is tuning. Refuses selections exceeding 20,000 requests before Property/verification filtering. No provider calls or writes; requires administrator session authority and excludes embeds.
+ * Stored user-triggered agent requests only. Source-local IP+UA continuity is inferred, never a confirmed user session; requests without an IP stay unlinked. Thirty-minute idle gaps split sequences. Each request carries a trust level (verified, likely_real or unknown) with its reasons, independent of correlation; likely fake requests are never listed and coverage.likelyFakeRequests counts them (null with a Property selector). Both portfolio modes work; Advanced attribution uses the current plan and retained URLs. Bounds and selectors are read identity; pagination is tuning. Refuses selections exceeding 20,000 requests before Property/trust filtering. No provider calls or writes; requires administrator session authority and excludes embeds.
  */
 export const getApiV1ProjectsByNameTrafficAgentJourneysInfiniteOptions = (options: Options<GetApiV1ProjectsByNameTrafficAgentJourneysData>) => {
     const opts = infiniteQueryOptions<GetApiV1ProjectsByNameTrafficAgentJourneysResponse, GetApiV1ProjectsByNameTrafficAgentJourneysError, InfiniteData<GetApiV1ProjectsByNameTrafficAgentJourneysResponse>, QueryKey<Options<GetApiV1ProjectsByNameTrafficAgentJourneysData>>, number | Pick<QueryKey<Options<GetApiV1ProjectsByNameTrafficAgentJourneysData>>[0], 'body' | 'headers' | 'path' | 'query'>>(
@@ -8543,7 +8543,7 @@ export const getApiV1ProjectsByNameTrafficAgentJourneysByJourneyIdQueryKey = (op
 /**
  * Read an observed agent request timeline
  *
- * Use the list window and selectors to keep the same scope. The ID anchors a stored event and remains resolvable after late arrivals change the head of its sequence. Requests are ordered by timestamp then event ID; same-time order is not causal. Property and verification selectors retain matching requests only. HTTP outcomes do not establish business success. Same authority, read limit, retention and coverage as the list.
+ * Use the list window and selectors to keep the same scope. The ID anchors a stored event and remains resolvable after late arrivals change the head of its sequence. Requests are ordered by timestamp then event ID; same-time order is not causal. Property and trust selectors retain matching requests only. HTTP outcomes do not establish business success. Same authority, read limit, retention and coverage as the list.
  */
 export const getApiV1ProjectsByNameTrafficAgentJourneysByJourneyIdOptions = (options: Options<GetApiV1ProjectsByNameTrafficAgentJourneysByJourneyIdData>) => queryOptions<GetApiV1ProjectsByNameTrafficAgentJourneysByJourneyIdResponse, GetApiV1ProjectsByNameTrafficAgentJourneysByJourneyIdError, GetApiV1ProjectsByNameTrafficAgentJourneysByJourneyIdResponse, ReturnType<typeof getApiV1ProjectsByNameTrafficAgentJourneysByJourneyIdQueryKey>>({
     queryFn: async ({ queryKey, signal }) => {
@@ -8563,7 +8563,7 @@ export const getApiV1ProjectsByNameTrafficAgentJourneysByJourneyIdInfiniteQueryK
 /**
  * Read an observed agent request timeline
  *
- * Use the list window and selectors to keep the same scope. The ID anchors a stored event and remains resolvable after late arrivals change the head of its sequence. Requests are ordered by timestamp then event ID; same-time order is not causal. Property and verification selectors retain matching requests only. HTTP outcomes do not establish business success. Same authority, read limit, retention and coverage as the list.
+ * Use the list window and selectors to keep the same scope. The ID anchors a stored event and remains resolvable after late arrivals change the head of its sequence. Requests are ordered by timestamp then event ID; same-time order is not causal. Property and trust selectors retain matching requests only. HTTP outcomes do not establish business success. Same authority, read limit, retention and coverage as the list.
  */
 export const getApiV1ProjectsByNameTrafficAgentJourneysByJourneyIdInfiniteOptions = (options: Options<GetApiV1ProjectsByNameTrafficAgentJourneysByJourneyIdData>) => {
     const opts = infiniteQueryOptions<GetApiV1ProjectsByNameTrafficAgentJourneysByJourneyIdResponse, GetApiV1ProjectsByNameTrafficAgentJourneysByJourneyIdError, InfiniteData<GetApiV1ProjectsByNameTrafficAgentJourneysByJourneyIdResponse>, QueryKey<Options<GetApiV1ProjectsByNameTrafficAgentJourneysByJourneyIdData>>, number | Pick<QueryKey<Options<GetApiV1ProjectsByNameTrafficAgentJourneysByJourneyIdData>>[0], 'body' | 'headers' | 'path' | 'query'>>(

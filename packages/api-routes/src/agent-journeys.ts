@@ -119,11 +119,15 @@ function readSequences(db: DatabaseClient, name: string, query: AgentJourneysQue
   const capFilters = [eq(agentJourneyCaptureDays.projectId, project.id), eq(agentJourneyCaptureDays.capped, true), gte(agentJourneyCaptureDays.day, windowStart.slice(0, 10)), lte(agentJourneyCaptureDays.day, windowEnd.slice(0, 10))]
   if (query.sourceId) capFilters.push(eq(agentJourneyCaptureDays.sourceId, query.sourceId))
   const cappedSourceDays = db.select({ sourceId: agentJourneyCaptureDays.sourceId, day: agentJourneyCaptureDays.day }).from(agentJourneyCaptureDays).where(and(...capFilters)).orderBy(asc(agentJourneyCaptureDays.day), asc(agentJourneyCaptureDays.sourceId)).all()
-  // Same selectors as the stored requests; the hourly totals bound the window to whole hours.
-  const fakeFilters = [eq(aiUserFetchLikelyFakeHourly.projectId, project.id), gte(aiUserFetchLikelyFakeHourly.tsHour, hourStart(windowStart)), lte(aiUserFetchLikelyFakeHourly.tsHour, windowEnd)]
-  if (query.sourceId) fakeFilters.push(eq(aiUserFetchLikelyFakeHourly.sourceId, query.sourceId))
-  if (query.agentId) fakeFilters.push(eq(aiUserFetchLikelyFakeHourly.botId, query.agentId))
-  const likelyFake = db.select({ total: sql<number>`COALESCE(SUM(${aiUserFetchLikelyFakeHourly.hits}), 0)` }).from(aiUserFetchLikelyFakeHourly).where(and(...fakeFilters)).get()
+  // Same source and agent selectors, over whole hours. The totals carry no page
+  // path, so a Property selection has no likely fake count.
+  let likelyFakeRequests: number | null = null
+  if (!query.targetKey) {
+    const fakeFilters = [eq(aiUserFetchLikelyFakeHourly.projectId, project.id), gte(aiUserFetchLikelyFakeHourly.tsHour, hourStart(windowStart)), lte(aiUserFetchLikelyFakeHourly.tsHour, windowEnd)]
+    if (query.sourceId) fakeFilters.push(eq(aiUserFetchLikelyFakeHourly.sourceId, query.sourceId))
+    if (query.agentId) fakeFilters.push(eq(aiUserFetchLikelyFakeHourly.botId, query.agentId))
+    likelyFakeRequests = Number(db.select({ total: sql<number>`COALESCE(SUM(${aiUserFetchLikelyFakeHourly.hits}), 0)` }).from(aiUserFetchLikelyFakeHourly).where(and(...fakeFilters)).get()?.total ?? 0)
+  }
   const context: AgentJourneyContext = {
     scope: {
       project: project.name, sourceId: query.sourceId ?? null, agentId: query.agentId ?? null,
@@ -136,7 +140,7 @@ function readSequences(db: DatabaseClient, name: string, query: AgentJourneysQue
     coverage: {
       recordingEnabled, retentionDays: AGENT_JOURNEY_RETENTION_DAYS, idleMinutes: AGENT_JOURNEY_IDLE_MINUTES,
       dailyEventLimit: AGENT_JOURNEY_DAILY_EVENT_LIMIT, windowBounded: true, cappedSourceDays,
-      likelyFakeRequests: Number(likelyFake?.total ?? 0),
+      likelyFakeRequests,
       sources: sources.map(source => ({
         sourceId: source.id, sourceType: trafficSourceTypeSchema.parse(source.sourceType), label: source.displayName,
         limitations: [

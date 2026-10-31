@@ -291,7 +291,11 @@ export const journeysResponseSchema = z.object({
   limit: z.number().int(),
   offset: z.number().int(),
   partialSources: journeyPartialSourcesSchema,
-  /** Each visitor's first visits, at most JOURNEY_LIST_VISITS_PER_VISITOR; `visitCount` is the total. */
+  /**
+   * Each visitor's visits from the first AI visit on, at most
+   * JOURNEY_LIST_VISITS_PER_VISITOR; `visitCount` counts every visit, earlier
+   * ones included, and `returnChannels` every later visit.
+   */
   visitors: z.array(journeyVisitorDtoSchema.extend({ visits: z.array(journeyVisitDtoSchema) })),
 })
 export type JourneysResponse = z.infer<typeof journeysResponseSchema>

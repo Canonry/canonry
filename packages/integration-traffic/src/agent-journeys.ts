@@ -1,5 +1,5 @@
 import { AgentTrustLevels, classifyTrafficPath, hostOf, TrafficPathClasses, type AgentTrustReason, type NormalizedTrafficRequest, type StoredAgentTrust, type TrafficVerificationManifest, type VerificationStatus } from '@canonry/canonry-contracts'
-import { classifyAiUserFetches } from './classifier.js'
+import { classifyAiUserFetch, isSelfTraffic } from './classifier.js'
 import { maskJourneyPath } from './journey.js'
 
 /** Raw identity is transient input to the capture layer's keyed correlation. */
@@ -28,9 +28,9 @@ export interface AgentJourneyRequest {
  */
 export function extractAgentJourneyRequests(events: readonly NormalizedTrafficRequest[]): AgentJourneyRequest[] {
   const requests: AgentJourneyRequest[] = []
-  const agents = classifyAiUserFetches(events)
   for (const event of events) {
-    const agent = agents.get(event)
+    if (isSelfTraffic(event)) continue
+    const agent = classifyAiUserFetch(event)
     if (!agent || agent.trust === AgentTrustLevels.likely_fake) continue
     const timestamp = Date.parse(event.observedAt)
     if (!Number.isFinite(timestamp)) continue

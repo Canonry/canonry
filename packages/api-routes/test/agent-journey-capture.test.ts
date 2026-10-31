@@ -123,7 +123,7 @@ describe('durable agent request capture', () => {
       receiptTtlMs: 600_000, sampleLimit: 100, sourceUpdate: { lastSyncedAt: NOW }, journeyKeySecret: SECRET,
       validateSource: () => {},
     })
-    expect(result).toMatchObject({ acceptedEvents: 3, aiUserFetchHits: 1, unknownHits: 0 })
+    expect(result).toMatchObject({ acceptedEvents: 3, aiUserFetchHits: 1, aiUserFetchLikelyFakeHits: 2, unknownHits: 0 })
     expect(db.select({ hits: aiUserFetchEventsHourly.hits }).from(aiUserFetchEventsHourly).all()).toEqual([{ hits: 1 }])
     expect(db.select({ reason: aiUserFetchLikelyFakeHourly.reason, hits: aiUserFetchLikelyFakeHourly.hits, botId: aiUserFetchLikelyFakeHourly.botId })
       .from(aiUserFetchLikelyFakeHourly).orderBy(aiUserFetchLikelyFakeHourly.reason).all()).toEqual([

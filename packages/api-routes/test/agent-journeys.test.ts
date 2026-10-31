@@ -100,6 +100,9 @@ describe('observed agent journeys', () => {
     const body = await list('targetKey=harbor')
     expect(body).toMatchObject({ scope: { mode: 'advanced', planRevision: 3, attribution: 'current-plan-url', targetKey: 'harbor', unavailableDimensions: ['market', 'query', 'query-class', 'model', 'task'] }, observedRequests: 1, totalJourneys: 1, journeys: [{ requestCount: 1, targetKeys: ['harbor'] }] })
     expect(body.properties.map(p => p.key).sort()).toEqual(['bayside', 'harbor'])
+    // Likely fake totals carry no page path: no count under a Property selection.
+    expect(body.coverage.likelyFakeRequests).toBeNull()
+    expect((await list()).coverage.likelyFakeRequests).toBe(0)
     const full = agentJourneyDetailResponseSchema.parse((await app.inject(`${BASE}/a?${WINDOW}`)).json())
     expect(full.events.map(e => [e.id, e.targetKey, e.attribution])).toEqual([['a', 'harbor', 'matched'], ['b', 'bayside', 'matched'], ['unknown-host', null, 'unknown-host'], ['redacted', null, 'redacted'], ['unmatched', null, 'unmatched']])
   })

@@ -12,7 +12,6 @@ import {
   assessAgentTrust,
   buildTrafficProbeReport,
   classifyAiUserFetch,
-  classifyAiUserFetches,
   extractAgentJourneyRequests,
   isScannerPath,
 } from '../src/index.js'
@@ -142,35 +141,24 @@ describe('classifyAiUserFetch trust', () => {
   })
 })
 
-describe('classifyAiUserFetches', () => {
-  it('marks every unverified request from a client that probed for secrets in the batch', () => {
+describe('per-request trust', () => {
+  it('judges each request alone, so a probe never changes its client\'s other requests', () => {
     // Long before any bundled list, so every IP miss stays weak evidence after a refresh.
     const longAgo = at(-400 * DAY_MS)
     const probe = request({ eventId: 'probe', path: '/.env', observedAt: longAgo, userAgent: CLAUDE_UA })
     const sibling = request({ eventId: 'sibling', path: '/', observedAt: longAgo, userAgent: CLAUDE_UA })
-    const otherIp = request({ eventId: 'other-ip', path: '/', observedAt: longAgo, userAgent: CLAUDE_UA, remoteIp: '198.51.100.7' })
-    const noIp = request({ eventId: 'no-ip', path: '/', userAgent: CLAUDE_UA, remoteIp: null })
-    const noIpProbe = request({ eventId: 'no-ip-probe', path: '/.git/config', userAgent: CLAUDE_UA, remoteIp: null })
-    const notAgent = request({ eventId: 'browser', userAgent: 'Mozilla/5.0 (Macintosh)' })
-    const result = classifyAiUserFetches([probe, sibling, otherIp, noIp, noIpProbe, notAgent])
-
-    expect(result.get(probe)).toMatchObject({ trust: 'likely_fake', trustReasons: ['scanner-path', 'ip-outside-old-list'] })
-    expect(result.get(sibling)).toMatchObject({ trust: 'likely_fake', trustReasons: ['same-client-scanned', 'ip-outside-old-list'] })
-    expect(result.get(otherIp)).toMatchObject({ trust: 'unknown', trustReasons: ['ip-outside-old-list'] })
-    // Without an IP no requests are linked, so one probe cannot taint another request.
-    expect(result.get(noIp)).toMatchObject({ trust: 'unknown', trustReasons: ['no-ip'] })
-    expect(result.get(noIpProbe)?.trust).toBe('likely_fake')
-    expect(result.has(notAgent)).toBe(false)
+    expect(classifyAiUserFetch(probe)).toMatchObject({ trust: 'likely_fake', trustReasons: ['scanner-path', 'ip-outside-old-list'] })
+    expect(classifyAiUserFetch(sibling)).toMatchObject({ trust: 'unknown', trustReasons: ['ip-outside-old-list'] })
+    // The same request reaches the same verdict alone or in any batch.
+    const alone = extractAgentJourneyRequests([sibling])
+    const batched = extractAgentJourneyRequests([probe, sibling])
+    expect(batched).toEqual(alone)
+    expect(buildTrafficProbeReport([probe, sibling]).totals).toMatchObject({ aiUserFetchHits: 1, aiUserFetchLikelyFakeHits: 1 })
   })
 
-  it('never downgrades a verified client and skips self-traffic', () => {
-    const verifiedProbe = request({ eventId: 'v-probe', remoteIp: VERIFIED_IP, path: '/.env' })
-    const verifiedPage = request({ eventId: 'v-page', remoteIp: VERIFIED_IP, path: '/' })
-    const self = request({ eventId: 'self', userAgent: `AINYC-AEO-Audit/1.0 ${CHATGPT_UA}` })
-    const result = classifyAiUserFetches([verifiedProbe, verifiedPage, self])
-    expect(result.get(verifiedProbe)?.trust).toBe('verified')
-    expect(result.get(verifiedPage)).toMatchObject({ trust: 'verified', trustReasons: ['ip-in-published-list', 'documented-user-agent'] })
-    expect(result.has(self)).toBe(false)
+  it('keeps a verified client verified on any path and skips self-traffic', () => {
+    expect(classifyAiUserFetch(request({ remoteIp: VERIFIED_IP, path: '/.env' }))?.trust).toBe('verified')
+    expect(extractAgentJourneyRequests([request({ eventId: 'self', userAgent: `AINYC-AEO-Audit/1.0 ${CHATGPT_UA}` })])).toEqual([])
   })
 })
 

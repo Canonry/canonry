@@ -1,7 +1,7 @@
 import type { AiReferralTrafficClass, NormalizedTrafficRequest } from '@canonry/canonry-contracts'
 import { AiReferralTrafficClasses, hostOf } from '@canonry/canonry-contracts'
 import { AgentTrustLevels } from '@canonry/canonry-contracts'
-import { classifyAiReferral, classifyAiUserFetches, classifyCrawler, isSelfTraffic } from './classifier.js'
+import { classifyAiReferral, classifyAiUserFetch, classifyCrawler, isSelfTraffic } from './classifier.js'
 import type {
   AiReferralEventHourlyBucket,
   AiReferralEvidenceType,
@@ -212,7 +212,6 @@ export function buildTrafficProbeReport(
   // counts. The dropped count is surfaced in `totals.selfTrafficExcluded`.
   const includedEvents = events.filter((event) => !isSelfTraffic(event))
   const selfTrafficExcluded = events.length - includedEvents.length
-  const userFetches = classifyAiUserFetches(includedEvents)
 
   let crawlerHits = 0
   let aiUserFetchHits = 0
@@ -227,7 +226,7 @@ export function buildTrafficProbeReport(
     const tsHour = hourBucket(event.observedAt)
     const pathNormalized = normalizeTrafficPathPattern(event.path)
     const crawler = classifyCrawler(event)
-    const aiUserFetch = userFetches.get(event) ?? null
+    const aiUserFetch = classifyAiUserFetch(event)
     const aiReferral = classifyAiReferral(event)
 
     if (crawler) {

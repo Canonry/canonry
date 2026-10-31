@@ -1224,20 +1224,23 @@ Property attribution. IP/UA grouping is inferred and can combine different tasks
 on shared infrastructure; without an IP the requests stay unlinked. Neither
 grouping nor trust identifies a person or establishes their task.
 
-Every user-triggered agent request gets a trust level when it is classified.
-`verified` means the source IP is in the operator's published list. Otherwise:
-`likely_fake` when the path asks for credential, version-control or admin files
-(or another request from the same IP and user agent in that batch did), when an
-operator that publishes a full user-agent string (OpenAI, Mistral) sees a
-different one, or when the IP is missing from a list published within 30 days
-of the request; `likely_real` when nothing could be checked (no IP, or no
-published list) but the user agent matches the published string; `unknown` for
-the rest. `trustReasons` lists the evidence. Likely fake requests are never
-added to AI user fetch hits or stored as journey events: hourly totals count
-them (`totals24h.aiUserFetchLikelyFakeHits`, `coverage.likelyFakeRequests`)
-and raw samples keep their classification for review. Trust applies from the
-release that added it; older rollups are unchanged.
- Preserve the
+Every user-triggered agent request gets a trust level when it is classified,
+judged on that request alone. `verified` means the source IP is in the
+operator's published list. Otherwise: `likely_fake` when the path asks for
+credential, version-control or admin files, when an operator that publishes a
+full user-agent string (OpenAI, Mistral) sees a different one, or when the IP
+is missing from a list published within 30 days of the request; `likely_real`
+when nothing could be checked (no IP, or no published list) but the user agent
+matches the published string; `unknown` for the rest. `trustReasons` lists the
+evidence. Likely fake requests are never added to AI user fetch hits or stored
+as journey events: hourly totals count them (`totals24h.aiUserFetchLikelyFakeHits`,
+`aiUserFetchLikelyFakeHits` on sync results, `coverage.likelyFakeRequests`),
+and raw samples keep their classification for review. With a Property filter,
+`coverage.likelyFakeRequests` is null: hourly totals carry no page path. Trust
+applies to traffic recorded from the release that added it, and to any window
+a backfill rewrites; other older rollups are unchanged.
+
+Preserve the
 response's retention, daily-cap and source limitations; missing requests do
 not prove the agent stopped. HTTP status alone does not prove business success.
 Simple and Advanced projects use the same stored instrument. A Property filter

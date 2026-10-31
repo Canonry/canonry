@@ -4643,7 +4643,7 @@ export const getApiV1ProjectsByNameTrafficSamples = <ThrowOnError extends boolea
 /**
  * List observed agent request sequences
  *
- * Stored user-triggered agent requests only. Source-local IP+UA continuity is inferred, never a confirmed user session; requests without an IP stay unlinked. Thirty-minute idle gaps split sequences. Operator verification is independent. Both portfolio modes work; Advanced attribution uses the current plan and retained URLs. Bounds and selectors are read identity; pagination is tuning. Refuses selections exceeding 20,000 requests before Property/verification filtering. No provider calls or writes; requires administrator session authority and excludes embeds.
+ * Stored user-triggered agent requests only. Source-local IP+UA continuity is inferred, never a confirmed user session; requests without an IP stay unlinked. Thirty-minute idle gaps split sequences. Each request carries a trust level (verified, likely_real or unknown) with its reasons, independent of correlation; likely fake requests are never listed and coverage.likelyFakeRequests counts them (null with a Property selector). Both portfolio modes work; Advanced attribution uses the current plan and retained URLs. Bounds and selectors are read identity; pagination is tuning. Refuses selections exceeding 20,000 requests before Property/trust filtering. No provider calls or writes; requires administrator session authority and excludes embeds.
  */
 export const getApiV1ProjectsByNameTrafficAgentJourneys = <ThrowOnError extends boolean = false>(options: Options<GetApiV1ProjectsByNameTrafficAgentJourneysData, ThrowOnError>): RequestResult<GetApiV1ProjectsByNameTrafficAgentJourneysResponses, GetApiV1ProjectsByNameTrafficAgentJourneysErrors, ThrowOnError> => (options.client ?? client).get<GetApiV1ProjectsByNameTrafficAgentJourneysResponses, GetApiV1ProjectsByNameTrafficAgentJourneysErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],
@@ -4654,7 +4654,7 @@ export const getApiV1ProjectsByNameTrafficAgentJourneys = <ThrowOnError extends 
 /**
  * Read an observed agent request timeline
  *
- * Use the list window and selectors to keep the same scope. The ID anchors a stored event and remains resolvable after late arrivals change the head of its sequence. Requests are ordered by timestamp then event ID; same-time order is not causal. Property and verification selectors retain matching requests only. HTTP outcomes do not establish business success. Same authority, read limit, retention and coverage as the list.
+ * Use the list window and selectors to keep the same scope. The ID anchors a stored event and remains resolvable after late arrivals change the head of its sequence. Requests are ordered by timestamp then event ID; same-time order is not causal. Property and trust selectors retain matching requests only. HTTP outcomes do not establish business success. Same authority, read limit, retention and coverage as the list.
  */
 export const getApiV1ProjectsByNameTrafficAgentJourneysByJourneyId = <ThrowOnError extends boolean = false>(options: Options<GetApiV1ProjectsByNameTrafficAgentJourneysByJourneyIdData, ThrowOnError>): RequestResult<GetApiV1ProjectsByNameTrafficAgentJourneysByJourneyIdResponses, GetApiV1ProjectsByNameTrafficAgentJourneysByJourneyIdErrors, ThrowOnError> => (options.client ?? client).get<GetApiV1ProjectsByNameTrafficAgentJourneysByJourneyIdResponses, GetApiV1ProjectsByNameTrafficAgentJourneysByJourneyIdErrors, ThrowOnError>({
     security: [{ scheme: 'bearer', type: 'http' }],

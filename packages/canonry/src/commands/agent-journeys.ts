@@ -36,7 +36,8 @@ function printJourneyContext(context: AgentJourneyContext): void {
     for (const limitation of source.limitations) console.log(`Source ${source.sourceId} (${source.sourceType}): ${limitation}`)
   }
   for (const capped of coverage.cappedSourceDays) console.log(`Daily cap reached: ${capped.sourceId} on ${capped.day}`)
-  if (coverage.likelyFakeRequests > 0) console.log(`Likely fake requests in this window (counted, not listed): ${coverage.likelyFakeRequests}`)
+  if (coverage.likelyFakeRequests === null) console.log('Likely fake requests: not counted per Property (hourly totals carry no page path).')
+  else if (coverage.likelyFakeRequests > 0) console.log(`Likely fake requests in this window (counted, not listed): ${coverage.likelyFakeRequests}`)
 }
 
 function printJourney(journey: AgentJourney): void {

@@ -1,12 +1,11 @@
 import type { AiReferralTrafficClass, NormalizedTrafficRequest } from '@canonry/canonry-contracts'
 import {
-  AgentTrustReasons,
   AiReferralTrafficClasses,
   classifyAiReferralTrafficClass,
   hostMatchesDomain,
   hostOf,
 } from '@canonry/canonry-contracts'
-import { assessAgentTrust, withSameClientScanned } from './agent-trust.js'
+import { assessAgentTrust } from './agent-trust.js'
 import { hasVerificationDataFor, verifyIpForRuleDecision } from './ip-verify.js'
 import { DEFAULT_AI_CRAWLER_RULES, DEFAULT_AI_REFERRER_RULES, SELF_TRAFFIC_USER_AGENT_PATTERNS } from './rules.js'
 import type {
@@ -190,42 +189,6 @@ export function classifyAiUserFetch(event: NormalizedTrafficRequest): Classified
   }
 
   return null
-}
-
-/**
- * Classify a batch of requests as user-triggered agent fetches, then apply the
- * one cross-request signal: when a client (same agent, IP and user agent)
- * asks for a scanner path, its other unverified requests in the batch are
- * likely fake too. Self-traffic and non-agent requests have no entry. Every
- * writer (rollups, samples, agent journeys) reads this one map so their counts
- * agree.
- */
-export function classifyAiUserFetches(
-  events: readonly NormalizedTrafficRequest[],
-): Map<NormalizedTrafficRequest, ClassifiedAiUserFetch> {
-  const classified = new Map<NormalizedTrafficRequest, ClassifiedAiUserFetch>()
-  const clients = new Map<string, NormalizedTrafficRequest[]>()
-  const scanningClients = new Set<string>()
-  for (const event of events) {
-    if (isSelfTraffic(event)) continue
-    const fetch = classifyAiUserFetch(event)
-    if (!fetch) continue
-    classified.set(event, fetch)
-    const ip = event.remoteIp?.trim()
-    if (!ip) continue
-    const client = `${fetch.botId}\n${ip}\n${fetch.matchedUserAgent}`
-    const members = clients.get(client)
-    if (members) members.push(event)
-    else clients.set(client, [event])
-    if (fetch.trustReasons.includes(AgentTrustReasons['scanner-path'])) scanningClients.add(client)
-  }
-  for (const client of scanningClients) {
-    for (const event of clients.get(client) ?? []) {
-      const fetch = classified.get(event)!
-      classified.set(event, { ...fetch, ...withSameClientScanned(fetch) })
-    }
-  }
-  return classified
 }
 
 export function classifyAiReferral(event: NormalizedTrafficRequest): ClassifiedAiReferral | null {
