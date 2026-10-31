@@ -13,15 +13,17 @@ import path from 'node:path'
 import { afterEach, beforeEach, expect, it, describe } from 'vitest'
 import { eq } from 'drizzle-orm'
 import { apiKeys, createClient, migrate, oauthClients, users, userSessions, type DatabaseClient } from '@canonry/canonry-db'
-import { hashUserPassword, USER_SESSION_COOKIE_NAME } from '@canonry/canonry-api-routes'
+import { createUserSession, hashUserPassword, USER_SESSION_COOKIE_NAME } from '@canonry/canonry-api-routes'
+import type { CanonryConfig } from '../src/config.js'
 import { createServer } from '../src/server.js'
+import { handoffTarget } from './oauth-handoff.js'
 
 let tmpDir: string
 let db: DatabaseClient
 let app: Awaited<ReturnType<typeof createServer>>
 let rawKey: string
 
-async function bootServer(publicUrl?: string, options: { basePath?: string; assetsDir?: string } = {}) {
+async function bootServer(publicUrl?: string, options: { basePath?: string; assetsDir?: string; mcpGateway?: CanonryConfig['mcpGateway'] } = {}) {
   return createServer({
     config: {
       apiUrl: 'http://localhost:4100',
@@ -30,6 +32,7 @@ async function bootServer(publicUrl?: string, options: { basePath?: string; asse
       geminiApiKey: 'test-key',
       ...(publicUrl ? { publicUrl } : {}),
       ...(options.basePath ? { basePath: options.basePath } : {}),
+      ...(options.mcpGateway ? { mcpGateway: options.mcpGateway } : {}),
     },
     db,
     logger: false,
@@ -234,7 +237,7 @@ describe('the sign-in cookie on a real server', () => {
           payload: new URLSearchParams({ csrf: csrf!, approve: 'yes' }).toString(),
         })
 
-    expect(response.statusCode).toBe(method === 'GET' ? 200 : 302)
+    expect(response.statusCode).toBe(200)
     expect(String(response.headers['set-cookie'])).toContain(`${USER_SESSION_COOKIE_NAME}=${token}`)
     for (const attribute of ['HttpOnly', 'SameSite=Lax', 'Max-Age=43200', 'Secure']) {
       expect(String(response.headers['set-cookie'])).toContain(attribute)
@@ -247,17 +250,21 @@ describe('the sign-in cookie on a real server', () => {
 describe('OAuth sign-in from a browser', () => {
   const browser = { host: 'canonry.test', 'x-forwarded-proto': 'https' }
 
+  function authorizeQuery(clientId: string, redirectUri: string, state: string): string {
+    return new URLSearchParams({
+      response_type: 'code', client_id: clientId, redirect_uri: redirectUri,
+      code_challenge: crypto.createHash('sha256').update('a'.repeat(64)).digest('base64url'),
+      code_challenge_method: 'S256', scope: 'read', state,
+    }).toString()
+  }
+
   /** Registers a desktop client and returns an authorize query for it. */
   function registeredClientQuery(state: string): string {
     db.insert(oauthClients).values({
       id: 'desktop', name: 'Desktop', redirectUris: ['https://client.example/callback'],
       createdAt: new Date().toISOString(),
     }).run()
-    return new URLSearchParams({
-      response_type: 'code', client_id: 'desktop', redirect_uri: 'https://client.example/callback',
-      code_challenge: crypto.createHash('sha256').update('a'.repeat(64)).digest('base64url'),
-      code_challenge_method: 'S256', scope: 'read', state,
-    }).toString()
+    return authorizeQuery('desktop', 'https://client.example/callback', state)
   }
 
   it('signs in and approves with the Origin a browser sends from the gate pages', async () => {
@@ -296,11 +303,39 @@ describe('OAuth sign-in from a browser', () => {
     const csrf = /name="csrf" value="([^"]+)"/.exec(consentPage.body)?.[1]
     if (!csrf) throw new Error('The consent page has no CSRF value')
     const approved = await submit(consentPage, { csrf, approve: 'yes' }, cookie)
-    expect(approved.statusCode).toBe(302)
-    const callback = new URL(String(approved.headers.location))
+    expect(approved.statusCode).toBe(200)
+    const callback = handoffTarget(approved.body)
     expect(`${callback.origin}${callback.pathname}`).toBe('https://client.example/callback')
     expect(callback.searchParams.get('code')).toMatch(/\S/)
     expect(callback.searchParams.get('state')).toBe('browser-state')
+  })
+
+  it('asks for consent without calling the gateway client named in config unverified', async () => {
+    // Onboarding registers the gateway through open registration, then the
+    // operator names that client in config and restarts the instance.
+    await app.close()
+    app = await bootServer('https://canonry.test')
+    const callback = 'https://gateway.example/upstream/callback'
+    const registered = await app.inject({
+      method: 'POST', url: '/oauth/register', headers: browser,
+      payload: { client_name: 'Canonry MCP gateway', redirect_uris: [callback] },
+    })
+    expect(registered.statusCode).toBe(201)
+    const clientId = registered.json<{ client_id: string }>().client_id
+    await app.close()
+    app = await bootServer('https://canonry.test', { mcpGateway: { url: 'https://gateway.example/mcp', clientId } })
+    const userId = crypto.randomUUID()
+    db.insert(users).values({
+      id: userId, name: 'owner', nameKey: 'owner', passwordHash: 'scrypt$1$AAAA$AAAA', role: 'admin',
+      createdAt: new Date().toISOString(),
+    }).run()
+    const cookie = `${USER_SESSION_COOKIE_NAME}=${createUserSession(db, userId)}`
+
+    const page = await app.inject({ method: 'GET', url: `/oauth/authorize?${authorizeQuery(clientId, callback, 'gateway')}`, headers: { ...browser, cookie } })
+    expect(page.statusCode).toBe(200)
+    expect(page.body).toContain('<strong>Canonry MCP gateway</strong> wants to access Canonry')
+    expect(page.body).toMatch(/name="csrf" value="[^"]+"/)
+    expect(page.body).not.toContain('chose its own name')
   })
 
   it.each(['/', '/canonry/'])('loads the dashboard font from the page origin under %s', async basePath => {

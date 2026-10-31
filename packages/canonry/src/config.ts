@@ -675,7 +675,7 @@ export function loadConfig(configPath = getConfigPath()): CanonryConfig {
   if (!mcpGatewayConfigSchema.safeParse(parsed.mcpGateway).success) {
     throw new CliError({
       code: 'CONFIG_INVALID',
-      message: `Invalid config at ${configPath}: mcpGateway needs an HTTPS url without credentials, query or fragment, and an optional non-empty workspace.`,
+      message: `Invalid config at ${configPath}: mcpGateway needs an HTTPS url without credentials, query or fragment, an optional non-empty workspace, and an optional clientId of letters, digits, underscores or hyphens.`,
     })
   }
   if (!dashboardManagedSweepsSchema.safeParse(parsed.dashboard?.managedSweeps).success) {
