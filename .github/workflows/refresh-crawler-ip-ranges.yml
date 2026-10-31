@@ -38,6 +38,21 @@ jobs:
             echo 'changed=true' >> "$GITHUB_OUTPUT"
           fi
 
+      # The "main protect" ruleset covers every branch and only organization
+      # admins bypass it, so GITHUB_TOKEN cannot push the refresh branch
+      # (GH013: changes must be made through a pull request). Fail before the
+      # gates with the fix, not after them with a rejected push.
+      - name: Require an automation token that can push the refresh branch
+        if: steps.changes.outputs.changed == 'true' && github.repository == 'Canonry/canonry'
+        env:
+          HAS_AUTOMATION_TOKEN: ${{ secrets.CANONRY_AUTOMATION_PR_TOKEN != '' || secrets.AEO_AUDIT_BUMP_TOKEN != '' }}
+        shell: bash
+        run: |
+          if [[ "$HAS_AUTOMATION_TOKEN" != 'true' ]]; then
+            echo '::error title=Missing automation token::Set the CANONRY_AUTOMATION_PR_TOKEN secret to a token from an organization admin with Contents and Pull requests write access to this repository. The "main protect" ruleset covers every branch, so GITHUB_TOKEN cannot push chore/refresh-crawler-ip-ranges.'
+            exit 1
+          fi
+
       # A range snapshot changes shipped classification behavior and commonly
       # exceeds the repository's 100-line version threshold. Keep the runtime
       # package and native-plugin discovery manifests in lockstep automatically.
