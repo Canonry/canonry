@@ -36,7 +36,7 @@ export type SeoContext = {
         id: string;
         label: string;
         provider: 'dataforseo';
-        capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings'>;
+        capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings' | 'competitor-discovery' | 'keyword-gaps'>;
     }>;
     scopes: Array<{
         kind: 'project' | 'group' | 'market' | 'property';
@@ -45,7 +45,7 @@ export type SeoContext = {
         planRevision?: number;
         supported: boolean;
         reason: string | null;
-        capabilities?: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings'>;
+        capabilities?: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings' | 'competitor-discovery' | 'keyword-gaps'>;
     }>;
     access: {
         canRun: boolean;
@@ -56,7 +56,7 @@ export type SeoContext = {
 export type SeoStatus = {
     available: boolean;
     reason: string | null;
-    capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings'>;
+    capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings' | 'competitor-discovery' | 'keyword-gaps'>;
     profileCount: number;
     latestRunId: string | null;
     latestRunStatus: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | 'reconciliation-required' | null;
@@ -66,8 +66,13 @@ export type SeoStatus = {
 export type SeoProfile = {
     name: string;
     connectionId: string;
-    capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings'>;
+    capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings' | 'competitor-discovery' | 'keyword-gaps'>;
     targets: Array<{
+        kind: 'domain' | 'host';
+        value: string;
+        includeSubdomains: boolean;
+    }>;
+    competitors?: Array<{
         kind: 'domain' | 'host';
         value: string;
         includeSubdomains: boolean;
@@ -101,8 +106,13 @@ export type SeoProfileList = {
     profiles: Array<{
         name: string;
         connectionId: string;
-        capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings'>;
+        capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings' | 'competitor-discovery' | 'keyword-gaps'>;
         targets: Array<{
+            kind: 'domain' | 'host';
+            value: string;
+            includeSubdomains: boolean;
+        }>;
+        competitors?: Array<{
             kind: 'domain' | 'host';
             value: string;
             includeSubdomains: boolean;
@@ -136,8 +146,13 @@ export type SeoProfileList = {
 export type SeoProfileInput = {
     name: string;
     connectionId: string;
-    capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings'>;
+    capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings' | 'competitor-discovery' | 'keyword-gaps'>;
     targets: Array<{
+        kind: 'domain' | 'host';
+        value: string;
+        includeSubdomains: boolean;
+    }>;
+    competitors?: Array<{
         kind: 'domain' | 'host';
         value: string;
         includeSubdomains: boolean;
@@ -174,7 +189,7 @@ export type SeoQuote = {
         value: string;
         includeSubdomains: boolean;
     }>;
-    capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings'>;
+    capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings' | 'competitor-discovery' | 'keyword-gaps'>;
     availability: 'ready' | 'unavailable';
     reason: string | null;
 };
@@ -197,7 +212,7 @@ export type SeoRun = {
     languageCode: string;
     cancelRequested: boolean;
     status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | 'reconciliation-required';
-    capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings'>;
+    capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings' | 'competitor-discovery' | 'keyword-gaps'>;
     scope: {
         kind: 'project' | 'group' | 'market' | 'property';
         key?: string;
@@ -221,7 +236,7 @@ export type SeoRunDetail = {
     languageCode: string;
     cancelRequested: boolean;
     status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | 'reconciliation-required';
-    capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings'>;
+    capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings' | 'competitor-discovery' | 'keyword-gaps'>;
     scope: {
         kind: 'project' | 'group' | 'market' | 'property';
         key?: string;
@@ -236,11 +251,19 @@ export type SeoRunDetail = {
     error: string | null;
     tasks: Array<{
         id: string;
-        capability: 'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings';
+        capability: 'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings' | 'competitor-discovery' | 'keyword-gaps';
         target: {
             kind: 'domain' | 'host';
             value: string;
             includeSubdomains: boolean;
+        } | null;
+        comparison: {
+            competitor: {
+                kind: 'domain' | 'host';
+                value: string;
+                includeSubdomains: boolean;
+            };
+            mode: 'shared' | 'missing';
         } | null;
         status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | 'reconciliation-required';
         error: string | null;
@@ -365,12 +388,71 @@ export type SeoRunDetail = {
                 sourceUpdatedAt: string | null;
             } | null;
         }>;
+        competitors: Array<{
+            target: {
+                kind: 'domain' | 'host';
+                value: string;
+                includeSubdomains: boolean;
+            };
+            domain: string;
+            sharedKeywords: number | null;
+            averagePosition: number | null;
+            organicKeywords: number | null;
+            estimatedOrganicTraffic: number | null;
+            provenance: {
+                provider: 'dataforseo';
+                dataset: string;
+                engine: 'google';
+                locationCode: number;
+                languageCode: string;
+                device: 'unspecified' | 'desktop' | 'mobile';
+                collectedAt: string;
+                sourceUpdatedAt: string | null;
+            };
+        }>;
+        keywordGaps: Array<{
+            target: {
+                kind: 'domain' | 'host';
+                value: string;
+                includeSubdomains: boolean;
+            };
+            competitor: {
+                kind: 'domain' | 'host';
+                value: string;
+                includeSubdomains: boolean;
+            };
+            keyword: string;
+            targetRankOrganic: number | null;
+            competitorRankOrganic: number;
+            targetUrl: string | null;
+            competitorUrl: string | null;
+            searchVolume: number | null;
+            /**
+             * Provider difficulty score on a 0–100 scale; not a percentage.
+             */
+            keywordDifficulty: number | null;
+            cpcUsd: number | null;
+            kind: 'shared' | 'missing' | 'outranked';
+            rankGap: number | null;
+            provenance: {
+                provider: 'dataforseo';
+                dataset: string;
+                engine: 'google';
+                locationCode: number;
+                languageCode: string;
+                device: 'unspecified' | 'desktop' | 'mobile';
+                collectedAt: string;
+                sourceUpdatedAt: string | null;
+            };
+        }>;
     };
     resultCounts: {
         keywordMetrics: number;
         domainIntelligence: number;
         rankedKeywords: number;
         marketRankings: number;
+        competitors: number;
+        keywordGaps: number;
     };
     resultsTruncated: boolean;
 };
@@ -385,7 +467,7 @@ export type SeoRunList = {
         languageCode: string;
         cancelRequested: boolean;
         status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | 'reconciliation-required';
-        capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings'>;
+        capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings' | 'competitor-discovery' | 'keyword-gaps'>;
         scope: {
             kind: 'project' | 'group' | 'market' | 'property';
             key?: string;
@@ -405,7 +487,7 @@ export type SeoOverview = {
     status: {
         available: boolean;
         reason: string | null;
-        capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings'>;
+        capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings' | 'competitor-discovery' | 'keyword-gaps'>;
         profileCount: number;
         latestRunId: string | null;
         latestRunStatus: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | 'reconciliation-required' | null;
@@ -414,8 +496,13 @@ export type SeoOverview = {
     profiles: Array<{
         name: string;
         connectionId: string;
-        capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings'>;
+        capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings' | 'competitor-discovery' | 'keyword-gaps'>;
         targets: Array<{
+            kind: 'domain' | 'host';
+            value: string;
+            includeSubdomains: boolean;
+        }>;
+        competitors?: Array<{
             kind: 'domain' | 'host';
             value: string;
             includeSubdomains: boolean;
@@ -453,7 +540,7 @@ export type SeoOverview = {
         languageCode: string;
         cancelRequested: boolean;
         status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | 'reconciliation-required';
-        capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings'>;
+        capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings' | 'competitor-discovery' | 'keyword-gaps'>;
         scope: {
             kind: 'project' | 'group' | 'market' | 'property';
             key?: string;
@@ -477,7 +564,7 @@ export type SeoOverview = {
         languageCode: string;
         cancelRequested: boolean;
         status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | 'reconciliation-required';
-        capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings'>;
+        capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings' | 'competitor-discovery' | 'keyword-gaps'>;
         scope: {
             kind: 'project' | 'group' | 'market' | 'property';
             key?: string;
@@ -515,6 +602,8 @@ export type SeoOverview = {
     domainIntelligenceCount: number;
     rankedKeywordCount: number;
     marketRankingCount: number;
+    competitorCount: number;
+    keywordGapCount: number;
 };
 
 export type SeoKeywordMetricsList = {
@@ -538,6 +627,77 @@ export type SeoKeywordMetricsList = {
             searchVolume: number | null;
         }>;
         coreKeyword: string | null;
+        provenance: {
+            provider: 'dataforseo';
+            dataset: string;
+            engine: 'google';
+            locationCode: number;
+            languageCode: string;
+            device: 'unspecified' | 'desktop' | 'mobile';
+            collectedAt: string;
+            sourceUpdatedAt: string | null;
+        };
+    }>;
+};
+
+export type SeoCompetitorList = {
+    runId: string | null;
+    total: number;
+    limit: number;
+    offset: number;
+    items: Array<{
+        target: {
+            kind: 'domain' | 'host';
+            value: string;
+            includeSubdomains: boolean;
+        };
+        domain: string;
+        sharedKeywords: number | null;
+        averagePosition: number | null;
+        organicKeywords: number | null;
+        estimatedOrganicTraffic: number | null;
+        provenance: {
+            provider: 'dataforseo';
+            dataset: string;
+            engine: 'google';
+            locationCode: number;
+            languageCode: string;
+            device: 'unspecified' | 'desktop' | 'mobile';
+            collectedAt: string;
+            sourceUpdatedAt: string | null;
+        };
+    }>;
+};
+
+export type SeoKeywordGapList = {
+    runId: string | null;
+    total: number;
+    limit: number;
+    offset: number;
+    items: Array<{
+        target: {
+            kind: 'domain' | 'host';
+            value: string;
+            includeSubdomains: boolean;
+        };
+        competitor: {
+            kind: 'domain' | 'host';
+            value: string;
+            includeSubdomains: boolean;
+        };
+        keyword: string;
+        targetRankOrganic: number | null;
+        competitorRankOrganic: number;
+        targetUrl: string | null;
+        competitorUrl: string | null;
+        searchVolume: number | null;
+        /**
+         * Provider difficulty score on a 0–100 scale; not a percentage.
+         */
+        keywordDifficulty: number | null;
+        cpcUsd: number | null;
+        kind: 'shared' | 'missing' | 'outranked';
+        rankGap: number | null;
         provenance: {
             provider: 'dataforseo';
             dataset: string;
@@ -659,6 +819,11 @@ export type SeoMarketRankingList = {
         } | null;
         outcome: 'page-1' | 'ranks-11-20' | 'ranks-21-plus' | 'not-ranked' | 'partly-checked' | 'failed' | 'cancelled';
         rivalAhead: boolean;
+        topCompetitor: {
+            domain: string;
+            rankOrganic: number;
+        } | null;
+        rankGap: number | null;
     }>;
 };
 
@@ -18898,6 +19063,128 @@ export type GetApiV1ProjectsByNameSeoRankedKeywordsResponses = {
 };
 
 export type GetApiV1ProjectsByNameSeoRankedKeywordsResponse = GetApiV1ProjectsByNameSeoRankedKeywordsResponses[keyof GetApiV1ProjectsByNameSeoRankedKeywordsResponses];
+
+export type GetApiV1ProjectsByNameSeoCompetitorsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Exact saved profile. Required when multiple profiles exist.
+         */
+        profileId?: string;
+        /**
+         * Exact historical refresh. Omit for latest saved evidence for the selected profile.
+         */
+        runId?: string;
+        /**
+         * Page size only. Never changes the evidence scope or denominator.
+         */
+        limit?: number;
+        /**
+         * Evidence page offset.
+         */
+        offset?: number;
+        /**
+         * Sort the complete saved result before pagination: domain, shared searches, average position or estimated traffic. Prefix with - for descending. Missing values stay last in both directions. Omitted preserves stored order.
+         */
+        sort?: 'domain' | '-domain' | 'shared' | '-shared' | 'position' | '-position' | 'traffic' | '-traffic';
+    };
+    url: '/api/v1/projects/{name}/seo/competitors';
+};
+
+export type GetApiV1ProjectsByNameSeoCompetitorsErrors = {
+    /**
+     * Invalid scope or input.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Insufficient authority.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project or selected evidence not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameSeoCompetitorsError = GetApiV1ProjectsByNameSeoCompetitorsErrors[keyof GetApiV1ProjectsByNameSeoCompetitorsErrors];
+
+export type GetApiV1ProjectsByNameSeoCompetitorsResponses = {
+    /**
+     * Saved organic competitor evidence.
+     */
+    200: SeoCompetitorList;
+};
+
+export type GetApiV1ProjectsByNameSeoCompetitorsResponse = GetApiV1ProjectsByNameSeoCompetitorsResponses[keyof GetApiV1ProjectsByNameSeoCompetitorsResponses];
+
+export type GetApiV1ProjectsByNameSeoKeywordGapsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Exact saved profile. Required when multiple profiles exist.
+         */
+        profileId?: string;
+        /**
+         * Exact historical refresh. Omit for latest saved evidence for the selected profile.
+         */
+        runId?: string;
+        /**
+         * Page size only. Never changes the evidence scope or denominator.
+         */
+        limit?: number;
+        /**
+         * Evidence page offset.
+         */
+        offset?: number;
+        /**
+         * shared includes outranked; missing and outranked select that exact kind. Omitted returns all saved comparisons.
+         */
+        kind?: 'shared' | 'missing' | 'outranked';
+        /**
+         * Sort after filtering and before pagination: keyword, kind, target rank, competitor rank, rank gap or monthly search volume. Prefix with - for descending. Missing values stay last in both directions. Omitted preserves stored order.
+         */
+        sort?: 'keyword' | '-keyword' | 'kind' | '-kind' | 'target-rank' | '-target-rank' | 'competitor-rank' | '-competitor-rank' | 'rank-gap' | '-rank-gap' | 'volume' | '-volume';
+    };
+    url: '/api/v1/projects/{name}/seo/keyword-gaps';
+};
+
+export type GetApiV1ProjectsByNameSeoKeywordGapsErrors = {
+    /**
+     * Invalid scope or input.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Insufficient authority.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project or selected evidence not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameSeoKeywordGapsError = GetApiV1ProjectsByNameSeoKeywordGapsErrors[keyof GetApiV1ProjectsByNameSeoKeywordGapsErrors];
+
+export type GetApiV1ProjectsByNameSeoKeywordGapsResponses = {
+    /**
+     * Saved keyword comparison evidence.
+     */
+    200: SeoKeywordGapList;
+};
+
+export type GetApiV1ProjectsByNameSeoKeywordGapsResponse = GetApiV1ProjectsByNameSeoKeywordGapsResponses[keyof GetApiV1ProjectsByNameSeoKeywordGapsResponses];
 
 export type GetApiV1ProjectsByNameSeoMarketRankingsData = {
     body?: never;

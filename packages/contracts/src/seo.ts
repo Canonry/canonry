@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { queryClassSchema } from './query-class.js'
 import { fraction } from './ratio-unit.js'
 
-export const seoCapabilitySchema = z.enum(['keyword-metrics', 'domain-intelligence', 'ranked-keywords', 'market-rankings'])
+export const seoCapabilitySchema = z.enum(['keyword-metrics', 'domain-intelligence', 'ranked-keywords', 'market-rankings', 'competitor-discovery', 'keyword-gaps'])
 export type SeoCapability = z.infer<typeof seoCapabilitySchema>
 export const SeoCapabilities = seoCapabilitySchema.enum
 export const seoProviderSchema = z.enum(['dataforseo'])
@@ -90,8 +90,10 @@ export type SeoRankingSettings = z.infer<typeof seoRankingSettingsSchema>
 export const seoProfileInputSchema = z.object({
   name: z.string().trim().min(1).max(120),
   connectionId: z.string().min(1).max(100),
-  capabilities: z.array(seoCapabilitySchema).min(1).max(4),
+  capabilities: z.array(seoCapabilitySchema).min(1).max(6),
   targets: z.array(seoTargetSchema).max(20),
+  /** Explicit comparison domains; saving them never starts provider work. */
+  competitors: z.array(seoTargetSchema).max(5).optional(),
   keywords: z.array(z.string().trim().min(1).max(80).regex(/^\S+(?:\s+\S+){0,9}$/, 'Use at most 10 words per keyword.')).max(700),
   locationCode: z.number().int().positive(),
   languageCode: z.string().min(2).max(10),
@@ -198,6 +200,46 @@ export const seoRankedKeywordSchema = z.object({
 }).strict()
 export type SeoRankedKeyword = z.infer<typeof seoRankedKeywordSchema>
 
+/** A competing domain observed in the provider's organic search database for this target and locale. */
+export const seoCompetitorSchema = z.object({
+  target: seoTargetSchema, domain: z.string(),
+  sharedKeywords: z.number().int().nonnegative().nullable(),
+  /** The competitor's average organic position across shared searches. */
+  averagePosition: z.number().nonnegative().nullable(),
+  organicKeywords: z.number().int().nonnegative().nullable(),
+  estimatedOrganicTraffic: z.number().nonnegative().nullable(),
+  provenance: seoProvenanceSchema,
+}).strict()
+export type SeoCompetitor = z.infer<typeof seoCompetitorSchema>
+export const seoKeywordGapModeSchema = z.enum(['shared', 'missing'])
+export type SeoKeywordGapMode = z.infer<typeof seoKeywordGapModeSchema>
+export const SeoKeywordGapModes = seoKeywordGapModeSchema.enum
+export const seoKeywordGapKindSchema = z.enum(['shared', 'missing', 'outranked'])
+export type SeoKeywordGapKind = z.infer<typeof seoKeywordGapKindSchema>
+export const SeoKeywordGapKinds = seoKeywordGapKindSchema.enum
+/** Missing means absent from the provider's database result for this pair, never a fresh Google rank check. */
+export const seoKeywordGapSchema = z.object({
+  target: seoTargetSchema, competitor: seoTargetSchema, keyword: z.string(),
+  targetRankOrganic: z.number().int().positive().nullable(),
+  competitorRankOrganic: z.number().int().positive(),
+  targetUrl: z.string().nullable(), competitorUrl: z.string().nullable(),
+  searchVolume: z.number().int().nonnegative().nullable(),
+  keywordDifficulty: z.number().min(0).max(100).nullable().describe('Provider difficulty score on a 0–100 scale; not a percentage.'),
+  cpcUsd: z.number().nonnegative().nullable(),
+  kind: seoKeywordGapKindSchema,
+  /** Target organic position minus competitor position; positive means the competitor is ahead. Null when the target is absent. */
+  rankGap: z.number().int().nullable(),
+  provenance: seoProvenanceSchema,
+}).strict()
+export type SeoKeywordGap = z.infer<typeof seoKeywordGapSchema>
+
+/** The comparison between two observed positions; an absent target is a provider-reported missing search. */
+export function seoKeywordGapComparison(targetRankOrganic: number | null, competitorRankOrganic: number): Pick<SeoKeywordGap, 'kind' | 'rankGap'> {
+  if (targetRankOrganic === null) return { kind: SeoKeywordGapKinds.missing, rankGap: null }
+  const rankGap = targetRankOrganic - competitorRankOrganic
+  return { kind: rankGap > 0 ? SeoKeywordGapKinds.outranked : SeoKeywordGapKinds.shared, rankGap }
+}
+
 /** The market and tracked query one market-rankings search answers. */
 export const seoMarketRankingContextSchema = z.object({
   marketKey: z.string(), marketLabel: z.string(),
@@ -255,6 +297,9 @@ export const seoMarketRankingRowSchema = seoMarketRankingSchema.extend({
   outcome: seoMarketRankingOutcomeSchema,
   /** A tracked competitor ranks above the target in these results, or ranks while the target is not in them. */
   rivalAhead: z.boolean(),
+  topCompetitor: seoMarketRankingCompetitorSchema.nullable(),
+  /** Target position minus the best tracked competitor's position; null if either position is unavailable. */
+  rankGap: z.number().int().nullable(),
 }).strict()
 export type SeoMarketRankingRow = z.infer<typeof seoMarketRankingRowSchema>
 
@@ -263,18 +308,24 @@ export const seoResultsSchema = z.object({
   domainIntelligence: z.array(seoDomainIntelligenceSchema),
   rankedKeywords: z.array(seoRankedKeywordSchema),
   marketRankings: z.array(seoMarketRankingSchema),
+  competitors: z.array(seoCompetitorSchema),
+  keywordGaps: z.array(seoKeywordGapSchema),
 }).strict()
 export type SeoResults = z.infer<typeof seoResultsSchema>
 
 /** A market-rankings row as stored: rows saved before `searchStatus` existed are completed searches without it. */
 export type StoredSeoMarketRanking = Omit<SeoMarketRanking, 'searchStatus'> & Partial<Pick<SeoMarketRanking, 'searchStatus'>>
 
-/** SEO results as a task stores them: tasks saved before market rankings existed have no `marketRankings`. */
-export type StoredSeoResults = Omit<SeoResults, 'marketRankings'> & { marketRankings?: StoredSeoMarketRanking[] }
+/** Stored tasks can predate market rankings, competitor discovery, or keyword-gap datasets. */
+export type StoredSeoResults = Omit<SeoResults, 'marketRankings' | 'competitors' | 'keywordGaps'> & {
+  marketRankings?: StoredSeoMarketRanking[]
+  competitors?: SeoCompetitor[]
+  keywordGaps?: SeoKeywordGap[]
+}
 
 /** A fresh accumulator for normalized SEO observations. */
 export function emptySeoResults(): SeoResults {
-  return { keywordMetrics: [], domainIntelligence: [], rankedKeywords: [], marketRankings: [] }
+  return { keywordMetrics: [], domainIntelligence: [], rankedKeywords: [], marketRankings: [], competitors: [], keywordGaps: [] }
 }
 
 /**
@@ -317,6 +368,8 @@ export const seoRunSchema = z.object({
 export type SeoRun = z.infer<typeof seoRunSchema>
 export const seoTaskSchema = z.object({
   id: z.string(), capability: seoCapabilitySchema, target: seoTargetSchema.nullable(),
+  /** Keyword gaps: the comparison domain and shared/missing population, including failed tasks. */
+  comparison: z.object({ competitor: seoTargetSchema, mode: seoKeywordGapModeSchema }).strict().nullable(),
   status: seoRunStatusSchema, error: z.string().nullable(), remoteTaskId: z.string().nullable(),
   /** Market rankings: the text searched on Google and where from, so a failed search can be named. Null for other datasets. */
   searchText: z.string().nullable(), locationLabel: z.string().nullable(),
@@ -329,6 +382,8 @@ export const seoResultCountsSchema = z.object({
   domainIntelligence: z.number().int().nonnegative(),
   rankedKeywords: z.number().int().nonnegative(),
   marketRankings: z.number().int().nonnegative(),
+  competitors: z.number().int().nonnegative(),
+  keywordGaps: z.number().int().nonnegative(),
 }).strict()
 export const seoRunDetailSchema = seoRunSchema.extend({
   tasks: z.array(seoTaskSchema), results: seoResultsSchema,
@@ -353,6 +408,25 @@ export const seoRankedKeywordListSchema = z.object({ ...seoPageShape, items: z.a
 export type SeoKeywordMetricsList = z.infer<typeof seoKeywordMetricsListSchema>
 export type SeoDomainIntelligenceList = z.infer<typeof seoDomainIntelligenceListSchema>
 export type SeoRankedKeywordList = z.infer<typeof seoRankedKeywordListSchema>
+export const seoCompetitorListSchema = z.object({ ...seoPageShape, items: z.array(seoCompetitorSchema) }).strict()
+export type SeoCompetitorList = z.infer<typeof seoCompetitorListSchema>
+export const seoKeywordGapListSchema = z.object({ ...seoPageShape, items: z.array(seoKeywordGapSchema) }).strict()
+export type SeoKeywordGapList = z.infer<typeof seoKeywordGapListSchema>
+/** Explicit organic-research order; omitted sorts retain the saved source order. Null values always sort last. */
+export const seoCompetitorSortSchema = z.enum(['domain', '-domain', 'shared', '-shared', 'position', '-position', 'traffic', '-traffic'])
+export const SeoCompetitorSorts = seoCompetitorSortSchema.enum
+export type SeoCompetitorSort = z.infer<typeof seoCompetitorSortSchema>
+export const seoKeywordGapSortSchema = z.enum(['keyword', '-keyword', 'kind', '-kind', 'target-rank', '-target-rank', 'competitor-rank', '-competitor-rank', 'rank-gap', '-rank-gap', 'volume', '-volume'])
+export const SeoKeywordGapSorts = seoKeywordGapSortSchema.enum
+export type SeoKeywordGapSort = z.infer<typeof seoKeywordGapSortSchema>
+export const seoCompetitorQuerySchema = seoEvidenceQuerySchema.extend({ sort: seoCompetitorSortSchema.optional() }).strict()
+export type SeoCompetitorQuery = z.infer<typeof seoCompetitorQuerySchema>
+export const seoKeywordGapQuerySchema = seoEvidenceQuerySchema.extend({
+  /** Shared includes the outranked subset; missing and outranked select their exact category. */
+  kind: seoKeywordGapKindSchema.optional(),
+  sort: seoKeywordGapSortSchema.optional(),
+}).strict()
+export type SeoKeywordGapQuery = z.infer<typeof seoKeywordGapQuerySchema>
 /**
  * Market-rankings outcome filters: one outcome, `needs-work` (ranks 11 and deeper, not
  * ranked or partly checked: everything off page 1 that has a result), or `rival-ahead`.
@@ -449,6 +523,8 @@ export const seoOverviewSchema = z.object({
   rankedKeywordCount: z.number().int().nonnegative(),
   /** Rows the market-rankings read returns for the evidence refresh, searches that failed or never ran included. */
   marketRankingCount: z.number().int().nonnegative(),
+  competitorCount: z.number().int().nonnegative(),
+  keywordGapCount: z.number().int().nonnegative(),
 }).strict()
 export type SeoOverview = z.infer<typeof seoOverviewSchema>
 
@@ -500,6 +576,8 @@ export interface SeoAdapterRequest {
   tag: string
   /** Market rankings only: `keywords` holds the one search text, searched at `locationCode`. */
   search?: SeoMarketRankingSearch
+  /** Keyword gaps only: one frozen target/competitor comparison and one disjoint database population. */
+  comparison?: { competitor: SeoTarget; mode: SeoKeywordGapMode }
 }
 export interface SeoAdapterEstimate {
   maxCostMicros: number

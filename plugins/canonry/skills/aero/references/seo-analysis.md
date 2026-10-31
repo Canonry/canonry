@@ -8,7 +8,7 @@ description: Prioritize keyword and organic ranking opportunities from saved SEO
 Use this playbook for keyword research, ranking opportunities, and domain comparisons.
 Priorities are editorial recommendations from the inspected evidence, not Canonry scores or predicted gains.
 The workflow uses normalized SEO capabilities. Name the source by its connection label from `canonry_seo_context`, such as "Search data". Never name the vendor or data provider behind it.
-Call datasets what the SEO tab calls them: Searches you rank for (`ranked-keywords`), Search demand (`keyword-metrics`), Domain comparison and Market rankings.
+Call datasets what the SEO tab calls them: Searches you rank for (`ranked-keywords`), Search demand (`keyword-metrics`), Domain comparison, Organic competitors, Search gaps and Market rankings.
 Say searches for what people type into Google and queries for the project's tracked queries; never call tracked queries keywords.
 
 ## Read the selected evidence
@@ -30,6 +30,8 @@ Say searches for what people type into Google and queries for the project's trac
    | `canonry_seo_keyword_metrics` | Explicit keywords, demand estimates, difficulty, intent, and monthly estimates |
    | `canonry_seo_ranked_keywords` | Observed positions, ranking URLs, target identity, and traffic estimates |
    | `canonry_seo_domain_intelligence` | Per-target keyword totals, position buckets, and traffic estimates |
+   | `canonry_seo_competitors` | Organic competitors discovered for each whole domain and locale; discovery does not pin them |
+   | `canonry_seo_keyword_gaps` | Saved shared, missing and outranked searches for explicit whole-domain target/rival pairs |
    | `canonry_seo_market_summary` | Market rankings counted by outcome for the profile, one region or one market, with a group per region or market |
    | `canonry_seo_market_rankings` | The site's Google position for each tracked query in each market, searched from that market's location |
 
@@ -70,6 +72,15 @@ Analysis never requires a refresh intent. Keep credentials and hosted financial 
   Multiple URLs for one keyword are not proof of cannibalization.
   `coreKeyword` can suggest a topic group, but it does not make synonym demand additive.
 
+## Read competitors and search gaps
+
+- These datasets describe whole domains including subdomains at project scope, for both Simple and Advanced portfolios. Do not present them as a Property or market result.
+- Discovery suggests domains that share organic searches in the source database. It does not establish business relevance or add tracked competitors. Do not substitute advertising competition.
+- Gap profiles name explicit rivals. `kind=shared` includes every returned search where both domains rank, including `outranked`; `kind=missing` selects source-reported missing target ranks, and `kind=outranked` selects better rival positions.
+- Read the server's `kind` and `rankGap`. Positive gap means the rival ranks higher; null means no target position was supplied. Missing refers to the source database comparison for that locale, not a fresh Google search or proof the site never ranks.
+- Set `sort` to order all matching saved rows before paging. Gap fields are `keyword`, `kind`, `target-rank`, `competitor-rank`, `rank-gap` and `volume`; discovery fields are `domain`, `shared`, `position` and `traffic`. A leading minus descends; missing values stay last. Omitted sort keeps source order. Preserve run ID, filters and sort on every page.
+- Keep both domains, ranking URLs, locale and source dates with the finding. Stored totals count the bounded saved sample. Never infer another gap from a search omitted by the provider limit or a paginated read.
+
 ## Read market rankings
 
 - Market rankings measure the project's own tracked non-brand queries, the same queries AI visibility reports. Call them queries, never keywords, so the two views read as one set.
@@ -83,7 +94,7 @@ Analysis never requires a refresh intent. Keep credentials and hosted financial 
 - A `partly-checked` row is a partial search that did not reach the site (`partlyChecked` in the counts): say "not in the top 30" with its `depth`, and never count it as not ranked, since the deeper results were never checked. `failed` and `cancelled` rows are missing data: report how many there are before recommendations and leave them out of every rank claim.
 - `locationLabel` and `provenance.device` say where and how the search ran (`provenance` is null for a search that returned nothing). Compare markets only at the same depth and device.
 - `competitors` lists the competitors tracked for that query in that market (the project's, plus any pinned to the Advanced groups whose Properties ask it) found in the same results, best position first. Absence means not in the checked results.
-  `rivalAhead` is true when one of them ranks above the site, or ranks while the site is not in the checked results.
+  `rivalAhead` is true when one of them ranks above the site, or ranks while the site is not in the checked results. `topCompetitor` identifies the strongest tracked rival; `rankGap` is the server's target position minus rival position, null without both. Do not calculate a gap from the checked depth.
 - One refresh is one sample of Google's results. Rank movement needs two refreshes of the same profile, query, market and location; otherwise state the single observation.
 - Rankings and AI answers for a market are separate instruments. Present them side by side for the same query and market, never as a combined score.
 

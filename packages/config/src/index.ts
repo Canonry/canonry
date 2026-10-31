@@ -24,6 +24,8 @@ export const agentModelSchema = z.string().trim().min(1).nullish()
  * The shared MCP gateway an operator registered this instance with, so Agent
  * setup can show Canonry plugin instructions for this workspace. `workspace`
  * is what a user enters at the gateway; blank uses this instance's public host.
+ * `clientId` is the OAuth client the gateway registered here, which the consent
+ * page then shows as the operator's rather than as self-registered.
  */
 export const mcpGatewayConfigSchema = z.object({
   url: z.url().refine(value => {
@@ -35,6 +37,7 @@ export const mcpGatewayConfigSchema = z.object({
     }
   }),
   workspace: z.string().trim().min(1).max(253).nullish(),
+  clientId: z.string().regex(/^[\w-]{1,256}$/).nullish(),
 }).strict().nullish()
 export type McpGatewayConfig = NonNullable<z.infer<typeof mcpGatewayConfigSchema>>
 

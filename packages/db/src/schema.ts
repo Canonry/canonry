@@ -837,6 +837,8 @@ export const oauthClients = sqliteTable('oauth_clients', {
    * chose its own display name — so that name is a claim, not a fact, and the
    * consent page must say so. A client calling itself "Canonry Dashboard"
    * otherwise reads as first-party on the one screen where trust is decided.
+   * The one exception is the shared MCP gateway's client once the operator
+   * names it in config (`mcpGateway.clientId`); its row stays `dynamic`.
    */
   registration: text('registration').$type<'operator' | 'dynamic'>().notNull().default('operator'),
   createdAt: text('created_at').notNull(),

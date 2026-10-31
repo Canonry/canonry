@@ -10,7 +10,7 @@ import { eq } from 'drizzle-orm'
 import Fastify, { type FastifyInstance } from 'fastify'
 import { beforeEach, afterEach, expect, test, vi } from 'vitest'
 
-import { registerOAuthRoutes, resolveOAuthAccessToken } from '../src/oauth.js'
+import { registerOAuthRoutes, resolveOAuthAccessToken, type OAuthRoutesOptions } from '../src/oauth.js'
 import { createCredentialChecker } from '../src/user-session.js'
 import { hashUserPassword } from '../src/user-password.js'
 
@@ -61,16 +61,23 @@ async function build() {
     id: 'client-1', name: 'Test client', secretHash: null, redirectUris: [REDIRECT], createdAt: now,
   }).run()
 
-  app = Fastify()
-  registerOAuthRoutes(app, {
+  app = mount()
+  return userId
+}
+
+/** The authorization server on the current database, as a host mounts it. */
+function mount(extra: Partial<OAuthRoutesOptions> = {}): FastifyInstance {
+  const instance = Fastify()
+  registerOAuthRoutes(instance, {
     db,
     issuer: ISSUER,
     resourcePaths: [RESOURCE_PATH],
     resolveUser: () => (signedInUserId ? { id: signedInUserId, name: 'Sam' } : null),
     startSession: (id) => { signedInUserId = id; return 'session=set' },
     credentials: createCredentialChecker({ db }),
+    ...extra,
   })
-  return userId
+  return instance
 }
 
 beforeEach(async () => { await build() })
@@ -401,21 +408,26 @@ test('a confidential client must present its secret', async () => {
   expect(withSecret.statusCode).toBe(200)
 })
 
+/** Register through the open endpoint, as a desktop client or the shared gateway does. */
+async function selfRegister(clientName: string, redirectUri: string): Promise<string> {
+  const reg = await app.inject({
+    method: 'POST', url: '/oauth/register',
+    payload: { client_name: clientName, redirect_uris: [redirectUri] },
+  })
+  expect(reg.statusCode).toBe(201)
+  return reg.json<{ client_id: string }>().client_id
+}
+
+function consentPage(clientId: string, redirectUri: string) {
+  return app.inject({ method: 'GET', url: authorizeUrl({ client_id: clientId, redirect_uri: redirectUri }) })
+}
+
 test('a self-registered client is marked unverified on the consent page', async () => {
   // The name on that page is the trust anchor, and an open registration
   // endpoint lets a client choose its own. A client calling itself "Canonry
   // Dashboard" must not read as first-party.
-  const reg = await app.inject({
-    method: 'POST', url: '/oauth/register',
-    payload: { client_name: 'Canonry Dashboard', redirect_uris: ['https://evil.example.com/cb'] },
-  })
-  const clientId = reg.json<{ client_id: string }>().client_id
-  const params = new URLSearchParams({
-    response_type: 'code', client_id: clientId,
-    redirect_uri: 'https://evil.example.com/cb',
-    code_challenge: CHALLENGE, code_challenge_method: 'S256',
-  })
-  const page = await app.inject({ method: 'GET', url: `/oauth/authorize?${params.toString()}` })
+  const clientId = await selfRegister('Canonry Dashboard', 'https://evil.example.com/cb')
+  const page = await consentPage(clientId, 'https://evil.example.com/cb')
   expect(page.body).toContain('chose its own name')
   expect(page.body).toContain('evil.example.com')
 })
@@ -423,6 +435,34 @@ test('a self-registered client is marked unverified on the consent page', async 
 test('an operator-registered client carries no unverified warning', async () => {
   const page = await app.inject({ method: 'GET', url: authorizeUrl() })
   expect(page.body).not.toContain('chose its own name')
+})
+
+test('the gateway client the operator named carries no warning, and a client copying it still does', async () => {
+  // The shared gateway can only register itself through the open endpoint, so
+  // the operator's config is what vouches for it, by ID. Its name and callback
+  // are public, so a copy must stay marked.
+  const callback = 'https://gateway.example.com/upstream/callback'
+  const gateway = await selfRegister('Canonry MCP gateway', callback)
+  const copy = await selfRegister('Canonry MCP gateway', callback)
+  await app.close()
+  app = mount({ gatewayClient: { id: gateway, origin: 'https://gateway.example.com' } })
+
+  const trusted = await consentPage(gateway, callback)
+  expect(trusted.statusCode).toBe(200)
+  expect(trusted.body).toContain('<strong>Canonry MCP gateway</strong> wants to access Canonry')
+  expect(trusted.body).not.toContain('chose its own name')
+  expect((await consentPage(copy, callback)).body).toContain('chose its own name')
+})
+
+test('naming a client that redirects off the gateway keeps its warning', async () => {
+  // A wrong ID pasted into config must not vouch for a client that sends
+  // codes somewhere other than the gateway.
+  const clientId = await selfRegister('Canonry MCP gateway', 'https://evil.example.com/cb')
+  await app.close()
+  app = mount({ gatewayClient: { id: clientId, origin: 'https://gateway.example.com' } })
+  const page = await consentPage(clientId, 'https://evil.example.com/cb')
+  expect(page.statusCode).toBe(200)
+  expect(page.body).toContain('chose its own name')
 })
 
 test('registration is rate limited', async () => {

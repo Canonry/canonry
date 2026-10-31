@@ -292,11 +292,18 @@ the gateway ([gateway runbook](../apps/mcp-gateway/README.md)):
 mcpGateway:
   url: https://mcp.canonry.ai/mcp
   # workspace: tenant-id   # optional; defaults to the public URL's host
+  # clientId: dcr_...      # optional; the gateway's client on this instance
 ```
 
 `/health`, `/api/v1/status`, `canonry status` and `canonry_status` then report
 `mcp.hosted.plugin` (`gatewayUrl`, `workspace`) while hosted sign-in is ready.
 The page never shows plugin steps for an instance without this setting.
+
+The gateway registers its client on the instance through open registration, so
+the instance's consent page would warn that the client chose its own name.
+`clientId` names that client as the operator's: its consent page then shows no
+warning, as long as every redirect it registered is on the gateway's origin.
+People still approve access on the instance.
 
 For the host operator:
 
@@ -330,7 +337,7 @@ Specialist connections remain at `/api/v1/mcp/x/<toolkit>` and `/api/v1/mcp/x/<t
 
 ## Tool Surface
 
-The `seo` toolkit exposes provider-neutral saved keyword metrics, ranked keywords, domain intelligence, market rankings (the site's Google position for its tracked queries by market, with `canonry_seo_market_summary` counting them by outcome), profile management and explicit refreshes. Start with `canonry_seo_context` and `canonry_seo_overview`. A refresh uses `canonry_seo_refresh_intent` followed by `canonry_seo_sync` with an idempotency key. Preparation has no provider side effects; submission requires `seo.run`. Profile writes require `seo.write`. Host financial controls stay internal, and operator receipt tools require separate host authority. See [SEO data](seo-data.md).
+The `seo` toolkit exposes provider-neutral saved keyword metrics, ranked keywords, organic competitors (`canonry_seo_competitors`), keyword gaps (`canonry_seo_keyword_gaps`), domain intelligence, market rankings (the site's Google position for its tracked queries by market, with `canonry_seo_market_summary` counting them by outcome), profile management and explicit refreshes. Start with `canonry_seo_context` and `canonry_seo_overview`. A refresh uses `canonry_seo_refresh_intent` followed by `canonry_seo_sync` with an idempotency key. Preparation has no provider side effects; submission requires `seo.run`. Profile writes require `seo.write`. Host financial controls stay internal, and operator receipt tools require separate host authority. Competitor discovery and gaps compare whole domains in project scope for Simple and Advanced portfolios. Discovery does not pin rivals; gap reads preserve explicit comparison domains and locale. `kind=shared` includes outranked searches, `missing` means no target rank in the source comparison, and `outranked` means the rival ranks higher. `rankGap` is target minus rival position, null without both. Both research tools accept `sort` to order all matching saved rows before pagination; a leading minus descends, missing values stay last, and omission retains source order. Sorting is read-only tuning; keep run ID, filters and sort fixed across pages. See [SEO data](seo-data.md).
 
 `canonry_research_run_start` is for one direct context. It accepts the final
 editable query text and optional saved destination/provenance; it does not
