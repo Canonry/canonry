@@ -1,5 +1,6 @@
 import type { AiReferralTrafficClass, NormalizedTrafficRequest } from '@canonry/canonry-contracts'
 import {
+  AgentTrustReasons,
   AiReferralTrafficClasses,
   classifyAiReferralTrafficClass,
   hostMatchesDomain,
@@ -216,7 +217,7 @@ export function classifyAiUserFetches(
     const members = clients.get(client)
     if (members) members.push(event)
     else clients.set(client, [event])
-    if (fetch.trustReasons.includes('scanner-path')) scanningClients.add(client)
+    if (fetch.trustReasons.includes(AgentTrustReasons['scanner-path'])) scanningClients.add(client)
   }
   for (const client of scanningClients) {
     for (const event of clients.get(client) ?? []) {

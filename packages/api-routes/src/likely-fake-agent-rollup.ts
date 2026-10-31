@@ -20,7 +20,7 @@ export interface LikelyFakeAgentBucket {
 export function addLikelyFakeAgentHits(
   db: RollupDb,
   input: { projectId: string; sourceId: string; buckets: readonly LikelyFakeAgentBucket[]; now: string },
-): number {
+): void {
   for (const bucket of input.buckets) {
     db.insert(aiUserFetchLikelyFakeHourly)
       .values({
@@ -50,7 +50,6 @@ export function addLikelyFakeAgentHits(
       })
       .run()
   }
-  return input.buckets.length
 }
 
 /** Replace-mode backfill clears this window with the other hourly rollups. */
