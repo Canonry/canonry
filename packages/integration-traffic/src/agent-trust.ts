@@ -16,11 +16,14 @@ import type { AiCrawlerRule } from './types.js'
 export const AGENT_IP_LIST_FRESH_DAYS = 30
 const FRESH_LIST_MS = AGENT_IP_LIST_FRESH_DAYS * 86_400_000
 
-/** Path segments a user-triggered fetch has no reason to request. */
+/**
+ * Path segments a user-triggered fetch has no reason to request. `cgi-bin` is
+ * left out on purpose: older sites still serve real pages from it.
+ */
 const SCANNER_SEGMENTS = new Set([
   '.git', '.svn', '.hg', '.github', '.aws', '.ssh', '.docker', '.kube', '.npmrc',
   '.htpasswd', '.htaccess', '.ds_store', 'wp-login.php', 'xmlrpc.php', 'phpmyadmin',
-  'cgi-bin', 'phpunit', 'eval-stdin.php',
+  'phpunit', 'eval-stdin.php',
 ])
 // Encoded parent-directory steps. Checked on the raw path because a failed
 // decode must not hide them.

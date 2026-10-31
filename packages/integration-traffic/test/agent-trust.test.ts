@@ -76,7 +76,7 @@ describe('isScannerPath', () => {
     '/.git/config', '/.github/workflows/deploy.yml', '/.aws/credentials', '/.htpasswd',
     '/api/uploads/%2e%2e%2f%2e%2e%2f.env', '/api/orders/..%2fadmin/config.json', '/images../.env',
     '/static/%252e%252e/etc/passwd', '/../etc/passwd',
-    '/wp-login.php', '/xmlrpc.php', '/wp-config.php.bak', '/phpmyadmin/index.php', '/cgi-bin/test',
+    '/wp-login.php', '/xmlrpc.php', '/wp-config.php.bak', '/phpmyadmin/index.php', '/cgi-bin/../../etc/passwd',
     '/vendor/phpunit/phpunit/src/Util/PHP/eval-stdin.php', '/.ENV?debug=1',
   ])('flags %s', path => {
     expect(isScannerPath(path)).toBe(true)
@@ -85,7 +85,7 @@ describe('isScannerPath', () => {
   it.each([
     '/', '/pricing', '/products/air-tank', '/products/actuator', '/.well-known/ai-plugin.json',
     '/blog/environment-tips', '/env', '/robots.txt', '/booking/confirmation', '/assets/app.envelope.js',
-    '/docs/v1.2/guide', '/search?q=..%2f', '/api/hear-about-us',
+    '/docs/v1.2/guide', '/search?q=..%2f', '/api/hear-about-us', '/cgi-bin/booking.cgi',
   ])('keeps %s', path => {
     expect(isScannerPath(path)).toBe(false)
   })
