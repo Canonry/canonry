@@ -632,6 +632,16 @@ export function getConfigPath(): string {
   return path.join(getConfigDir(), 'config.yaml')
 }
 
+// The file each config `loadConfig` returns was read from. A server started
+// with that config writes its changes back there (`createServer`'s
+// `configPath`); a config built in memory has no entry.
+const loadedConfigPaths = new WeakMap<CanonryConfig, string>()
+
+/** The file `loadConfig` read this config from; undefined for a config built in memory. */
+export function loadedConfigPath(config: CanonryConfig): string | undefined {
+  return loadedConfigPaths.get(config)
+}
+
 export function loadConfig(configPath = getConfigPath()): CanonryConfig {
   if (!fs.existsSync(configPath)) {
     throw new Error(
@@ -816,6 +826,7 @@ export function loadConfig(configPath = getConfigPath()): CanonryConfig {
     parsed.externalMcpServers = parsedExternalMcp
   }
 
+  loadedConfigPaths.set(parsed, path.resolve(configPath))
   return parsed
 }
 

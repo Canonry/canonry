@@ -103,7 +103,7 @@ import type {
 } from "./config.js";
 import { resolveEmbedConfig, SERVER_ENFORCED_EMBED_PROJECT_TABS, unsupportedEmbedProjectTabs } from "./embed.js";
 import { resolveAgentAllowViewers, resolveAgentEnabled, resolveAgentProactiveEnabled } from "./agent-config.js";
-import { saveConfig, saveConfigPatch, loadConfig, loadConfigRaw, getConfigPath } from "./config.js";
+import { saveConfig, saveConfigPatch, loadConfig, loadConfigRaw, loadedConfigPath, getConfigPath } from "./config.js";
 import { getPlacesConfig } from "./places-config.js";
 import {
   getGoogleAuthConfig,
@@ -167,6 +167,7 @@ import {
 } from "./wordpress-config.js";
 import {
   getTelemetryStatus,
+  holdAnonymousIdWrites,
   setTelemetryPreference,
   recordDashboardEvent,
 } from "./telemetry.js";
@@ -1017,13 +1018,14 @@ export function createGoogleMarketingConfigCredentialStore(input: {
 export async function createServer(opts: {
   config: CanonryConfig;
   /**
-   * The config.yaml `config` was loaded from; `canonry serve` passes the file
-   * `loadConfig()` read. Config changes the server makes (credentials,
-   * settings, the first-run dashboard password, refreshed tokens) are written
-   * there, and provider reloads read it. Leave it unset for a config built in
-   * memory: the server then keeps those changes in memory and never writes a
-   * config file, so a test or development server cannot overwrite the
-   * operator's config.yaml.
+   * The config.yaml `config` was loaded from. Defaults to the file
+   * `loadConfig()` read it from, so `createServer({ config: loadConfig() })`
+   * keeps saving there; `canonry serve` also passes it explicitly. Config
+   * changes the server makes (credentials, settings, the first-run dashboard
+   * password, refreshed tokens) are written there, and provider reloads read
+   * it. A config built in memory has no file: the server keeps those changes
+   * in memory and never writes a config file, so a test or development server
+   * cannot overwrite the operator's config.yaml.
    */
   configPath?: string;
   db: DatabaseClient;
@@ -1062,14 +1064,16 @@ export async function createServer(opts: {
    */
   scheduleSpreadMs?: number;
 }): Promise<FastifyInstance> {
+  // The file this server's config came from, if any.
+  const configSourcePath = opts.configPath ?? loadedConfigPath(opts.config);
   // The config.yaml this server reads back (provider reloads, SEO settings).
-  const runtimeConfigPath = path.resolve(opts.configPath ?? getConfigPath());
+  const runtimeConfigPath = path.resolve(configSourcePath ?? getConfigPath());
   const runtimeConfigIdentity = runtimePathIdentity(runtimeConfigPath);
-  // Config changes are written only to the file the config was loaded from.
+  // Config changes are written only to the file the config came from.
   // `saveConfigPatch` on its own writes `getConfigPath()`, the operator's
   // config.yaml, so every write below goes through `persistConfigPatch`; a
   // config built in memory keeps its changes in memory.
-  const persistedConfigPath = opts.configPath === undefined ? undefined : runtimeConfigPath;
+  const persistedConfigPath = configSourcePath === undefined ? undefined : runtimeConfigPath;
   const persistConfigPatch = (
     patch: Partial<CanonryConfig>,
     options: { setDashboardPasswordHash?: string } = {},
@@ -1108,6 +1112,12 @@ export async function createServer(opts: {
     genReqId: () => crypto.randomUUID(),
     trustProxy,
   });
+  // Telemetry saves the install ID in the default config.yaml when it first
+  // sends an event; a server built from any other config must not.
+  if (!ownsDefaultConfig) {
+    const releaseAnonymousIdWrites = holdAnonymousIdWrites();
+    app.addHook("onClose", async () => { releaseAnonymousIdWrites(); });
+  }
   // DNS rebinding defense (#1177). A page the operator visits can make the
   // browser resolve an attacker domain to 127.0.0.1 after TTL expiry, at which
   // point the request is same-origin and CORS is never consulted. The browser

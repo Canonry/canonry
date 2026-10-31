@@ -3,9 +3,9 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { parse } from 'yaml'
+import { parse, stringify } from 'yaml'
 import { apiKeys, createClient, migrate, type DatabaseClient } from '@canonry/canonry-db'
-import { getConfigPath, type CanonryConfig } from '../src/config.js'
+import { getConfigPath, loadConfig, type CanonryConfig } from '../src/config.js'
 import { createServer, waitForServerRuntimeStartup } from '../src/server.js'
 
 // A server given a config built in memory (a test or development dashboard)
@@ -59,12 +59,17 @@ describe('createServer config persistence', () => {
     db?.$client.close()
     app = undefined
     db = undefined
+    vi.unstubAllGlobals()
     vi.unstubAllEnvs()
     fs.rmSync(root, { recursive: true, force: true })
   })
 
-  /** A throwaway local dashboard: scratch database, random root key, config built in memory. */
-  async function startDashboard(configPath?: string) {
+  /**
+   * A throwaway local dashboard: scratch database and random root key. Its
+   * config is built in memory unless it is handed a `configPath` or read back
+   * from a file with `loadConfig` (`loadFrom`).
+   */
+  async function startDashboard(source: { configPath?: string, loadFrom?: string } = {}) {
     const database = path.join(root, 'scratch.db')
     db = createClient(database)
     migrate(db)
@@ -77,13 +82,20 @@ describe('createServer config persistence', () => {
     const assetsDir = path.join(root, 'assets')
     fs.mkdirSync(assetsDir, { recursive: true })
     fs.writeFileSync(path.join(assetsDir, 'index.html'), FIXTURE_HTML)
-    const config: CanonryConfig = {
+    let config: CanonryConfig = {
       apiUrl: 'http://127.0.0.1:47700',
       database,
       apiKey,
       dashboard: { showResourceLinks: true },
     }
-    app = await createServer({ config, ...(configPath ? { configPath } : {}), db, logger: false, assetsDir })
+    if (source.loadFrom) {
+      fs.mkdirSync(path.dirname(source.loadFrom), { recursive: true })
+      fs.writeFileSync(source.loadFrom, stringify(config))
+      config = loadConfig(source.loadFrom)
+    }
+    app = await createServer({
+      config, ...(source.configPath ? { configPath: source.configPath } : {}), db, logger: false, assetsDir,
+    })
     // Background work starts once the server is listening.
     await app.listen({ port: 0, host: '127.0.0.1' })
     await waitForServerRuntimeStartup(app)
@@ -129,19 +141,45 @@ describe('createServer config persistence', () => {
     expect(settings.json().providers).toContainEqual(expect.objectContaining({ name: 'openai', configured: true }))
   })
 
-  it('writes config changes to its own configPath and nowhere else', async () => {
-    const serverConfigPath = path.join(root, 'server', 'config.yaml')
-    const { authorization } = await startDashboard(serverConfigPath)
-    await useDashboard(authorization)
-
-    expect(fs.readFileSync(operatorConfigPath, 'utf8')).toBe(OPERATOR_CONFIG)
-    const saved = parse(fs.readFileSync(serverConfigPath, 'utf8')) as CanonryConfig
-    expect(saved).toMatchObject({
-      apiUrl: 'http://127.0.0.1:47700',
-      dashboard: { showResourceLinks: true },
-      providers: { openai: { apiKey: 'sk-test-openai' } },
-      google: { clientId: 'google-client-id', clientSecret: 'google-client-secret' },
+  it('sends dashboard telemetry without saving an install ID in the operator config.yaml', async () => {
+    // Telemetry is on, the operator's file has no install ID yet, and a
+    // runtime port override is set that must never reach the file.
+    for (const key of ['CANONRY_TELEMETRY_DISABLED', 'DO_NOT_TRACK', 'CI', 'CANONRY_ANONYMOUS_ID']) vi.stubEnv(key, undefined)
+    vi.stubEnv('CANONRY_PORT', '47700')
+    const sent: Array<{ event?: unknown }> = []
+    vi.stubGlobal('fetch', async (_url: unknown, init?: RequestInit) => {
+      if (typeof init?.body === 'string') sent.push(JSON.parse(init.body) as { event?: unknown })
+      return new Response('{}')
     })
-    expect(saved.dashboardPasswordHash).toMatch(/^scrypt\$/)
+    const { authorization } = await startDashboard()
+
+    const viewed = await app!.inject({
+      method: 'POST', url: '/api/v1/telemetry/ui', headers: { authorization },
+      payload: { event: 'ui.page_viewed', eventId: crypto.randomUUID(), uiSessionId: crypto.randomUUID(), page: '/' },
+    })
+    expect(viewed.json()).toEqual({ accepted: true })
+    await vi.waitFor(() => expect(sent).toContainEqual(expect.objectContaining({ event: 'ui.page_viewed' })))
+    expect(fs.readFileSync(operatorConfigPath, 'utf8')).toBe(OPERATOR_CONFIG)
   })
+
+  it.each(['configPath', 'loadConfig'] as const)(
+    'writes config changes back to the file its config came from (%s) and nowhere else',
+    async (source) => {
+      const serverConfigPath = path.join(root, 'server', 'config.yaml')
+      const { authorization } = await startDashboard(
+        source === 'configPath' ? { configPath: serverConfigPath } : { loadFrom: serverConfigPath },
+      )
+      await useDashboard(authorization)
+
+      expect(fs.readFileSync(operatorConfigPath, 'utf8')).toBe(OPERATOR_CONFIG)
+      const saved = parse(fs.readFileSync(serverConfigPath, 'utf8')) as CanonryConfig
+      expect(saved).toMatchObject({
+        apiUrl: 'http://127.0.0.1:47700',
+        dashboard: { showResourceLinks: true },
+        providers: { openai: { apiKey: 'sk-test-openai' } },
+        google: { clientId: 'google-client-id', clientSecret: 'google-client-secret' },
+      })
+      expect(saved.dashboardPasswordHash).toMatch(/^scrypt\$/)
+    },
+  )
 })
