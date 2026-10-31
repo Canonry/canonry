@@ -10,7 +10,7 @@ import { eq } from 'drizzle-orm'
 import Fastify, { type FastifyInstance } from 'fastify'
 import { beforeEach, afterEach, expect, test, vi } from 'vitest'
 
-import { registerOAuthRoutes, resolveOAuthAccessToken } from '../src/oauth.js'
+import { registerOAuthRoutes, resolveOAuthAccessToken, type OAuthRoutesOptions } from '../src/oauth.js'
 import { createCredentialChecker } from '../src/user-session.js'
 import { hashUserPassword } from '../src/user-password.js'
 
@@ -61,16 +61,23 @@ async function build() {
     id: 'client-1', name: 'Test client', secretHash: null, redirectUris: [REDIRECT], createdAt: now,
   }).run()
 
-  app = Fastify()
-  registerOAuthRoutes(app, {
+  app = mount()
+  return userId
+}
+
+/** The authorization server on the current database, as a host mounts it. */
+function mount(extra: Partial<OAuthRoutesOptions> = {}): FastifyInstance {
+  const instance = Fastify()
+  registerOAuthRoutes(instance, {
     db,
     issuer: ISSUER,
     resourcePaths: [RESOURCE_PATH],
     resolveUser: () => (signedInUserId ? { id: signedInUserId, name: 'Sam' } : null),
     startSession: (id) => { signedInUserId = id; return 'session=set' },
     credentials: createCredentialChecker({ db }),
+    ...extra,
   })
-  return userId
+  return instance
 }
 
 beforeEach(async () => { await build() })
@@ -94,6 +101,20 @@ function authorizeUrl(overrides: Record<string, string> = {}): string {
 }
 
 /**
+ * Where the page after Allow or Deny sends the browser. It is a new document
+ * with a meta refresh, not a 302: Chrome drops redirects that follow the
+ * consent form (see sendHandoffPage).
+ */
+function handoffTarget(res: { statusCode: number; headers: Record<string, unknown>; body: string }): URL {
+  expect(res.statusCode).toBe(200)
+  expect(res.headers.location).toBeUndefined()
+  const content = /<meta http-equiv="refresh" content="0;url=([^"]+)">/.exec(res.body)?.[1]
+  if (!content) throw new Error(`no handoff on the page after consent: ${res.body.slice(0, 120)}`)
+  const entities: Record<string, string> = { '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&#39;': "'" }
+  return new URL(content.replace(/&(?:amp|lt|gt|quot|#39);/g, entity => entities[entity]!))
+}
+
+/**
  * Walk the real flow: the GET renders an approval page, and only an explicit
  * POST carrying the CSRF token mints a code. A session is authentication, not
  * consent, so there is no shortcut here on purpose.
@@ -111,8 +132,7 @@ async function approve(overrides: Record<string, string> = {}): Promise<string> 
     headers: FORM_HEADERS,
     payload: new URLSearchParams({ csrf: csrf!, approve: 'yes' }).toString(),
   })
-  expect(res.statusCode).toBe(302)
-  return new URL(res.headers.location as string).searchParams.get('code')!
+  return handoffTarget(res).searchParams.get('code')!
 }
 
 async function getCode(): Promise<string> {
@@ -159,7 +179,7 @@ test('registers a client dynamically and that client can complete the flow', asy
     headers: FORM_HEADERS,
     payload: new URLSearchParams({ csrf, approve: 'yes' }).toString(),
   })
-  expect(new URL(approved.headers.location as string).searchParams.get('code')).toBeTruthy()
+  expect(handoffTarget(approved).searchParams.get('code')).toBeTruthy()
 })
 
 test('registration refuses a redirect it could not safely send a token to', async () => {
@@ -245,7 +265,7 @@ test('a loopback redirect matches on any port, per RFC 8252 s7.3', async () => {
     headers: FORM_HEADERS,
     payload: new URLSearchParams({ csrf, approve: 'yes' }).toString(),
   })
-  expect(new URL(res.headers.location as string).port).toBe('54321')
+  expect(handoffTarget(res).port).toBe('54321')
 })
 
 test('the loopback carve-out floats ONLY the port', async () => {
@@ -388,21 +408,26 @@ test('a confidential client must present its secret', async () => {
   expect(withSecret.statusCode).toBe(200)
 })
 
+/** Register through the open endpoint, as a desktop client or the shared gateway does. */
+async function selfRegister(clientName: string, redirectUri: string): Promise<string> {
+  const reg = await app.inject({
+    method: 'POST', url: '/oauth/register',
+    payload: { client_name: clientName, redirect_uris: [redirectUri] },
+  })
+  expect(reg.statusCode).toBe(201)
+  return reg.json<{ client_id: string }>().client_id
+}
+
+function consentPage(clientId: string, redirectUri: string) {
+  return app.inject({ method: 'GET', url: authorizeUrl({ client_id: clientId, redirect_uri: redirectUri }) })
+}
+
 test('a self-registered client is marked unverified on the consent page', async () => {
   // The name on that page is the trust anchor, and an open registration
   // endpoint lets a client choose its own. A client calling itself "Canonry
   // Dashboard" must not read as first-party.
-  const reg = await app.inject({
-    method: 'POST', url: '/oauth/register',
-    payload: { client_name: 'Canonry Dashboard', redirect_uris: ['https://evil.example.com/cb'] },
-  })
-  const clientId = reg.json<{ client_id: string }>().client_id
-  const params = new URLSearchParams({
-    response_type: 'code', client_id: clientId,
-    redirect_uri: 'https://evil.example.com/cb',
-    code_challenge: CHALLENGE, code_challenge_method: 'S256',
-  })
-  const page = await app.inject({ method: 'GET', url: `/oauth/authorize?${params.toString()}` })
+  const clientId = await selfRegister('Canonry Dashboard', 'https://evil.example.com/cb')
+  const page = await consentPage(clientId, 'https://evil.example.com/cb')
   expect(page.body).toContain('chose its own name')
   expect(page.body).toContain('evil.example.com')
 })
@@ -410,6 +435,34 @@ test('a self-registered client is marked unverified on the consent page', async 
 test('an operator-registered client carries no unverified warning', async () => {
   const page = await app.inject({ method: 'GET', url: authorizeUrl() })
   expect(page.body).not.toContain('chose its own name')
+})
+
+test('the gateway client the operator named carries no warning, and a client copying it still does', async () => {
+  // The shared gateway can only register itself through the open endpoint, so
+  // the operator's config is what vouches for it, by ID. Its name and callback
+  // are public, so a copy must stay marked.
+  const callback = 'https://gateway.example.com/upstream/callback'
+  const gateway = await selfRegister('Canonry MCP gateway', callback)
+  const copy = await selfRegister('Canonry MCP gateway', callback)
+  await app.close()
+  app = mount({ gatewayClient: { id: gateway, origin: 'https://gateway.example.com' } })
+
+  const trusted = await consentPage(gateway, callback)
+  expect(trusted.statusCode).toBe(200)
+  expect(trusted.body).toContain('<strong>Canonry MCP gateway</strong> wants to access Canonry')
+  expect(trusted.body).not.toContain('chose its own name')
+  expect((await consentPage(copy, callback)).body).toContain('chose its own name')
+})
+
+test('naming a client that redirects off the gateway keeps its warning', async () => {
+  // A wrong ID pasted into config must not vouch for a client that sends
+  // codes somewhere other than the gateway.
+  const clientId = await selfRegister('Canonry MCP gateway', 'https://evil.example.com/cb')
+  await app.close()
+  app = mount({ gatewayClient: { id: clientId, origin: 'https://gateway.example.com' } })
+  const page = await consentPage(clientId, 'https://evil.example.com/cb')
+  expect(page.statusCode).toBe(200)
+  expect(page.body).toContain('chose its own name')
 })
 
 test('registration is rate limited', async () => {
@@ -483,7 +536,7 @@ test('approving returns a code plus state and iss', async () => {
     headers: FORM_HEADERS,
     payload: new URLSearchParams({ csrf, approve: 'yes' }).toString(),
   })
-  const loc = new URL(res.headers.location as string)
+  const loc = handoffTarget(res)
   expect(loc.searchParams.get('code')).toBeTruthy()
   expect(loc.searchParams.get('state')).toBe('xyz')
   // RFC 9207: lets the client detect a mix-up attack.
@@ -514,9 +567,39 @@ test('denying redirects with access_denied and issues no code', async () => {
     headers: FORM_HEADERS,
     payload: new URLSearchParams({ csrf, approve: 'no' }).toString(),
   })
-  const loc = new URL(res.headers.location as string)
+  const loc = handoffTarget(res)
   expect(loc.searchParams.get('error')).toBe('access_denied')
   expect(loc.searchParams.get('code')).toBeNull()
+})
+
+test('the page after Allow sends the browser on from a new document, not a redirect', async () => {
+  // Chrome checks every redirect that follows a form submission against the
+  // consent page's form-action 'self'. A 302 to the client's callback was
+  // dropped, leaving the person on the consent page with a code minted for
+  // nobody. Only a fresh document's navigation escapes that check.
+  const url = authorizeUrl()
+  const page = await app.inject({ method: 'GET', url })
+  expect(String(page.headers['content-security-policy'])).toContain("form-action 'self'")
+  const csrf = /name="csrf" value="([^"]+)"/.exec(page.body)![1]!
+  const res = await app.inject({
+    method: 'POST',
+    url: `/oauth/authorize/consent?${url.split('?')[1]}`,
+    headers: FORM_HEADERS,
+    payload: new URLSearchParams({ csrf, approve: 'yes' }).toString(),
+  })
+  const target = handoffTarget(res)
+  expect(target.searchParams.get('code')).toBeTruthy()
+  expect(res.body).toContain('Access allowed')
+  const link = /<a href="([^"]+)" rel="noreferrer">/.exec(res.body)?.[1]
+  expect(link?.replaceAll('&amp;', '&')).toBe(target.toString())
+  const csp = String(res.headers['content-security-policy'])
+  for (const directive of ["default-src 'none'", "form-action 'none'", "frame-ancestors 'none'", "base-uri 'none'"]) {
+    expect(csp).toContain(directive)
+  }
+  expect(res.headers['x-frame-options']).toBe('DENY')
+  // The destination carries the code; this page leaves no trace with it.
+  expect(res.headers['referrer-policy']).toBe('no-referrer')
+  expect(res.headers['cache-control']).toBe('no-store')
 })
 
 test('token exchanges a code for an access token and a refresh token', async () => {

@@ -48,6 +48,8 @@ h1 { margin: 0; font-size: 24px; line-height: 32px; font-weight: 600; letter-spa
 p { margin: 0; overflow-wrap: anywhere; }
 .intro { color: var(--secondary); margin-top: 8px; }
 strong { color: var(--text); font-weight: 550; }
+a { color: var(--text); text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 3px; }
+a:hover { text-decoration-color: var(--text); }
 .err { margin-top: 16px; color: var(--negative); }
 .warn { margin-top: 16px; padding: 12px; border: 1px solid var(--caution-border); border-radius: 6px; background: var(--caution-surface); color: var(--caution); font-size: 13px; line-height: 20px; }
 .grant { margin: 24px 0 0; padding: 16px 0 20px; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); font-size: 13px; line-height: 20px; }
@@ -70,7 +72,7 @@ button { min-height: 36px; border: 1px solid transparent; border-radius: 6px; pa
 .secondary { border-color: var(--border); background: var(--surface); color: var(--text); }
 .secondary:hover { background: var(--hover); border-color: var(--border-strong); }
 .secondary:active { background: var(--border); }
-:where(input, button):focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+:where(input, button, a):focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
 @media (max-width: 480px) {
   main { padding: 32px 16px; align-items: flex-start; }
   .panel { padding: 24px; }
@@ -102,11 +104,11 @@ function fontFace(fontUrl: string | undefined): string {
 }`
 }
 
-function gatePage(title: string, body: string, fontUrl: string | undefined): string {
+function gatePage(title: string, body: string, fontUrl: string | undefined, head = ''): string {
   return `<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="color-scheme" content="dark"><meta name="theme-color" content="#0a0a0a">
+<meta name="color-scheme" content="dark"><meta name="theme-color" content="#0a0a0a">${head}
 <title>${title} · Canonry</title>
 <style>${fontFace(fontUrl)}${styles}</style>
 </head><body><main><div class="gate">
@@ -167,4 +169,23 @@ ${o.scope.split(/\s+/).includes(RESEARCH_RUN_SCOPE)
 <input type="hidden" name="csrf" value="${escapeHtml(o.csrf)}">
 <div class="actions"><button class="primary" type="submit" name="approve" value="yes">Allow</button><button class="secondary" type="submit" name="approve" value="no">Deny</button></div>
 </form>`, o.fontUrl)
+}
+
+/**
+ * The page after Allow or Deny. It sends the browser on to the client's
+ * callback with a meta refresh from this new document, never a redirect from
+ * the consent form (sendHandoffPage in oauth.ts says why). The link covers a
+ * browser that ignores the refresh.
+ */
+export function renderAuthorizationHandoff(o: {
+  target: string
+  approved: boolean
+  clientName: string
+  fontUrl?: string
+}): string {
+  const target = escapeHtml(o.target)
+  const title = o.approved ? 'Access allowed' : 'Access denied'
+  return gatePage(title, `<h1 id="gate-title">${title}</h1>
+<p class="intro">Returning you to <strong>${escapeHtml(o.clientName)}</strong>. If nothing happens, <a href="${target}" rel="noreferrer">continue</a>.</p>`,
+  o.fontUrl, `\n<meta http-equiv="refresh" content="0;url=${target}">`)
 }

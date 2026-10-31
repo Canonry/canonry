@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ApiClient } from '../src/client.js'
 import type { CanonryConfig } from '../src/config.js'
 import { createServer } from '../src/server.js'
+import { handoffTarget } from './oauth-handoff.js'
 import { canonryMcpTools, toolOperationAccess, type CanonryMcpTool } from '../src/mcp/tool-registry.js'
 import { OperationAccesses } from '@canonry/canonry-contracts'
 
@@ -102,7 +103,7 @@ async function mintAccessToken(
     headers: { cookie: sessionCookie, 'content-type': 'application/x-www-form-urlencoded', origin: built.origin },
     payload: new URLSearchParams({ csrf, approve: 'yes' }).toString(),
   })
-  const code = new URL(approved.headers.location as string).searchParams.get('code')!
+  const code = handoffTarget(approved.body).searchParams.get('code')!
   const token = await request(built, {
     method: 'POST',
     url: '/oauth/token',

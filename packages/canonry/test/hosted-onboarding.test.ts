@@ -10,6 +10,7 @@ import { canonicalMeasurementPlanV2Json } from '@canonry/canonry-contracts'
 import { apiKeys, createClient, measurementPlans, measurementPlanVersions, migrate, projects, users } from '@canonry/canonry-db'
 import { measurementPlanV2Fixture } from '../../api-routes/test/measurement-plan-v2-fixture.js'
 import { createServer } from '../src/server.js'
+import { handoffTarget } from './oauth-handoff.js'
 
 const PASSWORD = 'hosted-onboarding-fixture-password'
 const REDIRECT = 'https://client.example/callback'
@@ -167,8 +168,8 @@ it.each(['/', '/canonry/'])('connects a hosted account through OAuth under %s an
   const csrf = consentForm.querySelector<HTMLInputElement>('input[name="csrf"]')?.value
   expect(csrf).toBeTruthy()
   const approved = await browser.request(new URL(consentForm.getAttribute('action')!, consentUrl).href, { csrf: csrf!, approve: 'yes' })
-  expect(approved.status).toBe(302)
-  const callback = new URL(approved.headers.get('location')!)
+  expect(approved.status).toBe(200)
+  const callback = handoffTarget(await approved.text())
   expect(metadata.authorization_endpoint).toBe(`${origin}${basePath}oauth/authorize`)
   expect(callback.origin + callback.pathname).toBe(REDIRECT)
   expect(callback.searchParams.get('state')).toBe('hosted?return=portfolio')

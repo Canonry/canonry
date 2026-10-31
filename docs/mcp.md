@@ -292,11 +292,18 @@ the gateway ([gateway runbook](../apps/mcp-gateway/README.md)):
 mcpGateway:
   url: https://mcp.canonry.ai/mcp
   # workspace: tenant-id   # optional; defaults to the public URL's host
+  # clientId: dcr_...      # optional; the gateway's client on this instance
 ```
 
 `/health`, `/api/v1/status`, `canonry status` and `canonry_status` then report
 `mcp.hosted.plugin` (`gatewayUrl`, `workspace`) while hosted sign-in is ready.
 The page never shows plugin steps for an instance without this setting.
+
+The gateway registers its client on the instance through open registration, so
+the instance's consent page would warn that the client chose its own name.
+`clientId` names that client as the operator's: its consent page then shows no
+warning, as long as every redirect it registered is on the gateway's origin.
+People still approve access on the instance.
 
 For the host operator:
 

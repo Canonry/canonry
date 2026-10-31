@@ -4247,11 +4247,17 @@ export async function createServer(opts: {
     const gateFont = fs.existsSync(dashboardAssets)
       ? fs.readdirSync(dashboardAssets).find((name) => /^geist-latin-wght-normal-[\w-]+\.woff2$/.test(name))
       : undefined;
+    // The shared gateway's own client, as the operator named it in config.
+    const gateway = opts.config.mcpGateway;
+    const gatewayClient = gateway?.clientId && URL.canParse(gateway.url)
+      ? { id: gateway.clientId, origin: new URL(gateway.url).origin }
+      : undefined;
     registerOAuthRoutes(app, {
       db: opts.db,
       issuer: publicOrigin,
       authorizationPath,
       ...(gateFont ? { fontUrl: `${basePath ?? "/"}assets/${gateFont}` } : {}),
+      ...(gatewayClient ? { gatewayClient } : {}),
       resourcePaths: mcpTransportPaths().map((suffix) =>
         `${basePath ?? "/"}api/v1${suffix}`.replace("//", "/"),
       ),

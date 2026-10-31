@@ -6,7 +6,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 
 import { requireAdminSession } from './auth.js'
 import { notFound, RESEARCH_RUN_SCOPE } from '@canonry/canonry-contracts'
-import { renderConsentPage, renderSignInPage } from './oauth-pages.js'
+import { renderAuthorizationHandoff, renderConsentPage, renderSignInPage } from './oauth-pages.js'
 import { assertCookieWriteOrigin } from './same-origin.js'
 import type { CredentialChecker } from './user-session.js'
 
@@ -65,6 +65,15 @@ export interface OAuthRoutesOptions {
    * they already did once, and the second one had no rate limiting at all.
    */
   credentials: CredentialChecker
+  /**
+   * The client the operator's shared MCP gateway registered here, named in
+   * the instance's config. It came in through open registration, but the
+   * operator vouches for it, so its consent page does not call it unverified.
+   * Only while every redirect it registered is on the gateway's origin: a
+   * wrong ID in config keeps the warning rather than vouching for a client
+   * that sends codes somewhere else. Consent itself is still required.
+   */
+  gatewayClient?: { id: string; origin: string }
 }
 
 function sha256(value: string): string {
@@ -183,6 +192,30 @@ function sendGatePage(reply: FastifyReply, html: string) {
 }
 
 /**
+ * Send the browser on to the client from a NEW document, never a redirect.
+ *
+ * Chrome checks every redirect that follows a form submission against the
+ * submitting page's form-action. The gate page allows only 'self', so a 302
+ * from the consent POST to the client's callback is dropped without a word:
+ * the code is minted and the person is left looking at the consent page.
+ * Widening form-action to the callback is not enough, because the chain keeps
+ * going (the hosted gateway's callback redirects on to its own client). A meta
+ * refresh from a fresh document is an ordinary navigation, which is also how
+ * the gateway hands a browser to a workspace.
+ */
+function sendHandoffPage(reply: FastifyReply, html: string) {
+  return reply
+    .header('content-security-policy',
+      "frame-ancestors 'none'; default-src 'none'; style-src 'unsafe-inline'; font-src 'self'; form-action 'none'; base-uri 'none'")
+    .header('x-frame-options', 'DENY')
+    // The destination carries the code; it gets no trace of this page.
+    .header('referrer-policy', 'no-referrer')
+    .header('cache-control', 'no-store')
+    .type('text/html')
+    .send(html)
+}
+
+/**
  * Per-process secret for consent tokens. Regenerated on restart, which only
  * means an approval page open across a restart must be reloaded — cheap, and it
  * avoids another secret to configure and protect.
@@ -242,6 +275,15 @@ function registerOAuthRoutesIn(app: FastifyInstance, opts: OAuthRoutesOptions): 
     return crypto.createHmac('sha256', CONSENT_SECRET)
       .update([userId, clientId, redirectUri, scope].join('\u0000'))
       .digest('base64url')
+  }
+
+  /** A client that named itself, unless it is the operator's gateway (see `gatewayClient`). */
+  function selfRegistered(client: typeof oauthClients.$inferSelect): boolean {
+    if (client.registration !== 'dynamic') return false
+    const gateway = opts.gatewayClient
+    const vouched = gateway !== undefined && client.id === gateway.id && client.redirectUris.length > 0
+      && client.redirectUris.every(uri => URL.canParse(uri) && new URL(uri).origin === gateway.origin)
+    return !vouched
   }
 
   function authorizationServerMetadata() {
@@ -366,7 +408,7 @@ function registerOAuthRoutesIn(app: FastifyInstance, opts: OAuthRoutesOptions): 
     return sendGatePage(reply, renderConsentPage({
       action: request.url,
       clientName: client.name,
-      selfRegistered: client.registration === 'dynamic',
+      selfRegistered: selfRegistered(client),
       redirectUri,
       scope: grantedScope,
       userName: user.name,
@@ -412,7 +454,9 @@ function registerOAuthRoutesIn(app: FastifyInstance, opts: OAuthRoutesOptions): 
       const denied = new URL(redirectUri)
       denied.searchParams.set('error', 'access_denied')
       if (q.state) denied.searchParams.set('state', q.state)
-      return reply.redirect(denied.toString())
+      return sendHandoffPage(reply, renderAuthorizationHandoff({
+        target: denied.toString(), approved: false, clientName: client.name, fontUrl: opts.fontUrl,
+      }))
     }
 
     const code = newToken()
@@ -434,7 +478,9 @@ function registerOAuthRoutesIn(app: FastifyInstance, opts: OAuthRoutesOptions): 
     if (q.state) target.searchParams.set('state', q.state)
     // RFC 9207: naming the issuer lets the client detect a mix-up attack.
     target.searchParams.set('iss', issuer)
-    return reply.redirect(target.toString())
+    return sendHandoffPage(reply, renderAuthorizationHandoff({
+      target: target.toString(), approved: true, clientName: client.name, fontUrl: opts.fontUrl,
+    }))
   })
 
   /**
