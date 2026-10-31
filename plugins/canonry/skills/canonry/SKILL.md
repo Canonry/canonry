@@ -27,6 +27,12 @@ no provider calls, reads no project data, and changes no permissions.
 requires approval; listing an action does not authorize or execute it.
 `includeCatalog: true` additionally returns toolkit details when needed.
 
+Analysis routes also return `playbooks`: Canonry's analyst playbooks for that
+work, the same files its built-in agent reads. Read each one before
+interpreting results. `canonry_help({ playbook: "<slug>" })` returns its full
+text, a note on using it over MCP, and every available slug. Playbooks are
+guidance, not permission.
+
 Hosted connections use a fixed catalog. Help only suggests tools offered by that
 connection; it never tells a hosted agent to dynamically load a toolkit. A
 progressive local stdio connection may return `loadToolkits`: call

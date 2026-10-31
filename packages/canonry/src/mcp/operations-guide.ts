@@ -3,8 +3,11 @@ import { OPERATIONS_GUIDE } from './operations-guide.generated.js'
 
 export type GuideMode = 'hosted-fixed-catalog' | 'stdio-fixed-catalog' | 'stdio-progressive'
 
-/** Local guidance only: never fetch data, load tools, or infer permissions. */
-export function operationsHelp(catalog: HelpResult, mode: GuideMode, intent = '', includeCatalog = false) {
+/**
+ * Local guidance only: never fetch data, load tools, or infer permissions.
+ * `playbooks` holds the slugs this install can serve; a route names only those.
+ */
+export function operationsHelp(catalog: HelpResult, mode: GuideMode, intent = '', includeCatalog = false, playbooks: readonly string[] = []) {
   const workflows = Object.keys(OPERATIONS_GUIDE.workflows) as Array<keyof typeof OPERATIONS_GUIDE.workflows>
   const words = new Set(intent.toLowerCase().split(/[^a-z0-9-]+/))
   const workflow = workflows.find(name => OPERATIONS_GUIDE.workflows[name].keywords.some(word => words.has(word))) ?? 'status'
@@ -12,8 +15,10 @@ export function operationsHelp(catalog: HelpResult, mode: GuideMode, intent = ''
   const available = new Set([...catalog.coreTools, ...catalog.toolkits.filter(t => t.loaded).flatMap(t => t.tools)])
   const reads: readonly string[] = route.next
   const requestedActions: readonly string[] = 'actions' in route ? route.actions : []
+  const routePlaybooks: readonly string[] = 'playbooks' in route ? route.playbooks : []
   const next = reads.filter(name => available.has(name)).slice(0, 4)
   const actions = requestedActions.filter(name => available.has(name))
+  const listedPlaybooks = routePlaybooks.filter(slug => playbooks.includes(slug))
   // Keep project-based routes useful on specialist profiles without sending
   // projectless workflows through project selection.
   if (reads.includes('canonry_projects_list') && next.length < 2 && available.has('canonry_project_overview') && !next.includes('canonry_project_overview')) {
@@ -34,6 +39,7 @@ export function operationsHelp(catalog: HelpResult, mode: GuideMode, intent = ''
     ...(actions.length ? { actions } : {}),
     workflows,
     guidance: route.guidance,
+    ...(listedPlaybooks.length ? { playbooks: listedPlaybooks, playbookRule: OPERATIONS_GUIDE.playbookRule } : {}),
     approvalBoundary: OPERATIONS_GUIDE.approvalBoundary,
     approvalRule: OPERATIONS_GUIDE.approvalRule,
     authority: OPERATIONS_GUIDE.authority,

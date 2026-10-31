@@ -10,6 +10,7 @@ import { DynamicToolCatalog, type DynamicCatalogEntry } from './dynamic-catalog.
 import { CANONRY_MCP_TOOLKIT_NAMES, type CanonryMcpTier } from './toolkits.js'
 import { operationsHelp, type GuideMode } from './operations-guide.js'
 import { OPERATIONS_GUIDE } from './operations-guide.generated.js'
+import { availablePlaybooks, PLAYBOOK_SLUG, readPlaybook } from './playbooks.js'
 import { mcpOutputSchema } from './schema.js'
 
 export type CanonryMcpScope = 'all' | 'read-only' | 'stored-only'
@@ -172,6 +173,7 @@ const loadToolkitInputSchema = z.object({
 const helpInputSchema = z.object({
   intent: z.string().max(200).optional().describe('Workflow (status, diagnose, prospecting, measurement, integrations, reports) or a short task description.'),
   includeCatalog: z.boolean().optional().describe('Include full toolkit details. Omit for a compact, actionable route.'),
+  playbook: z.string().regex(PLAYBOOK_SLUG).optional().describe('Slug from a help result\'s `playbooks`, such as "regression-playbook". Returns that analyst playbook in full instead of a route.'),
 })
 
 function registerMetaTools(
@@ -183,16 +185,19 @@ function registerMetaTools(
     'canonry_help',
     {
       title: 'Guide a Canonry workflow',
-      description: 'Start here: route an intent to available stored-evidence tools, separately listed actions requiring approval, and workflow guidance. No provider calls or installation required. Optionally include full toolkit details.',
+      description: 'Start here: route an intent to available stored-evidence tools, separately listed actions requiring approval, workflow guidance, and the analyst playbooks to read. Pass `playbook` to read one in full. No provider calls or installation required. Optionally include full toolkit details.',
       inputSchema: helpInputSchema,
       annotations: { readOnlyHint: true, idempotentHint: true, destructiveHint: false, openWorldHint: false },
     },
     async (input: unknown) => {
       try {
         const parsed = helpInputSchema.parse(input ?? {})
+        if (parsed.playbook !== undefined) {
+          return { content: [{ type: 'text' as const, text: readPlaybook(parsed.playbook) }] }
+        }
         const update = readUpdateAvailable(opts.updateAvailable)
         const result = {
-          ...operationsHelp(catalog.helpResult(), opts.mode, parsed.intent, parsed.includeCatalog),
+          ...operationsHelp(catalog.helpResult(), opts.mode, parsed.intent, parsed.includeCatalog, availablePlaybooks()),
           ...(update ? { updateAvailable: updateNoticePayload(update) } : {}),
         }
         return { ...jsonToolResult(result), structuredContent: result }

@@ -5,6 +5,7 @@ import { Client } from '@modelcontextprotocol/client'
 import { InMemoryTransport } from '@modelcontextprotocol/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { parse } from 'yaml'
+import { resolveAeroSkillDir } from '../src/agent/skill-paths.js'
 import type { ApiClient } from '../src/client.js'
 import { createCanonryMcpServerWithCatalog, type CanonryMcpServerOptions } from '../src/mcp/server.js'
 import { OPERATIONS_GUIDE } from '../src/mcp/operations-guide.generated.js'
@@ -201,6 +202,54 @@ describe('universal MCP operations guidance', () => {
     expect(listProjects).not.toHaveBeenCalled()
   })
 
+  it('names analyst playbooks on analysis routes and serves each in full to a hosted read-only client', async () => {
+    const { client, listProjects } = await connect({ tiers: CANONRY_MCP_TIERS, scope: 'read-only' })
+    const skillDir = resolveAeroSkillDir()
+    const bundled = (slug: string) => fs.readFileSync(
+      path.join(skillDir, slug === 'aero' ? 'SKILL.md' : path.join('references', `${slug}.md`)),
+      'utf8',
+    )
+    const route = await client.callTool({ name: 'canonry_help', arguments: { intent: 'diagnose a regression' } })
+    expect(route.structuredContent).toMatchObject({
+      workflow: 'diagnose',
+      playbooks: ['aero', 'regression-playbook'],
+      playbookRule: OPERATIONS_GUIDE.playbookRule,
+    })
+    const read = async (playbook: string) => {
+      const result = await client.callTool({ name: 'canonry_help', arguments: { playbook } })
+      expect(result.isError, playbook).not.toBe(true)
+      // One plain-text copy: ChatGPT shows the model structuredContent and content both.
+      expect(result.structuredContent, playbook).toBeUndefined()
+      expect(result.content, playbook).toHaveLength(1)
+      return (result.content as Array<{ text: string }>)[0]!.text
+    }
+    for (const slug of route.structuredContent!.playbooks as string[]) {
+      const text = await read(slug)
+      expect(text.startsWith(`Playbook: ${slug}\nNote: ${OPERATIONS_GUIDE.playbookNote}\n`)).toBe(true)
+      expect(text.endsWith(`\n\n${bundled(slug)}`)).toBe(true)
+      expect(/^Available: (.+)$/m.exec(text)?.[1]?.split(', ')).toEqual(expect.arrayContaining(['aero', 'agent-operations', 'regression-playbook', 'reporting']))
+    }
+    // Aero's copy of the guide tells the built-in agent it has no canonry_help.
+    expect(bundled('agent-operations')).not.toBe(OPERATIONS_GUIDE.markdown)
+    expect((await read('agent-operations')).endsWith(`\n\n${OPERATIONS_GUIDE.markdown}`)).toBe(true)
+    expect(listProjects).not.toHaveBeenCalled()
+  })
+
+  it('refuses playbook slugs that are not shipped playbooks', async () => {
+    const { client } = await connect({ tiers: CANONRY_MCP_TIERS, scope: 'read-only' })
+    // soul.md sits beside SKILL.md in the skill folder but is Aero's persona, not a playbook.
+    const unknown = await client.callTool({ name: 'canonry_help', arguments: { playbook: 'soul' } })
+    expect(unknown.isError).toBe(true)
+    expect(unknown.structuredContent).toMatchObject({
+      error: { code: 'NOT_FOUND', details: { availablePlaybooks: expect.arrayContaining(['aero', 'regression-playbook']) } },
+    })
+    for (const playbook of ['../SKILL', 'references/reporting', 'Reporting']) {
+      const invalid = await client.callTool({ name: 'canonry_help', arguments: { playbook } })
+      expect(invalid.isError, playbook).toBe(true)
+      expect(JSON.stringify(invalid)).toContain('VALIDATION_ERROR')
+    }
+  })
+
   it('derives runtime guidance and both native skill copies from the public source', () => {
     const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..')
     const source = fs.readFileSync(path.join(root, 'docs/agent-operations/v1.md'), 'utf8')
@@ -219,6 +268,11 @@ describe('universal MCP operations guidance', () => {
         // These are curated stored-evidence starts, never provider-discovery,
         // refresh, spend, or mutation tools despite their read-only hints.
         expect(name).not.toMatch(/_(sync|run_start|trigger|customers|accounts|live_delivery)$/)
+      }
+      // Help names only playbooks the install serves, so a renamed one would vanish silently.
+      for (const slug of 'playbooks' in workflow ? workflow.playbooks : []) {
+        const file = slug === 'aero' ? 'SKILL.md' : `references/${slug}.md`
+        expect(fs.existsSync(path.join(root, 'skills/aero', file)), slug).toBe(true)
       }
     }
   })
