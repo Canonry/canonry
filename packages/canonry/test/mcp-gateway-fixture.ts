@@ -10,6 +10,7 @@ import type { FastifyInstance } from 'fastify'
 import { SchedulableRunKinds } from '@canonry/canonry-contracts'
 
 import type { CanonryConfig } from '../src/config.js'
+import { handoffTarget } from './oauth-handoff.js'
 
 export interface SyntheticMcpInstance {
   origin: string
@@ -166,9 +167,8 @@ export async function authorizeSyntheticMcp(instance: SyntheticMcpInstance, scop
     headers: { cookie: instance.sessionCookie, origin: instance.origin, 'content-type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({ csrf, approve: 'yes' }),
   })
-  const location = approved.headers.get('location')
-  const code = location ? new URL(location).searchParams.get('code') : null
-  if (approved.status !== 302 || !code) throw new Error(`Synthetic approval failed: ${approved.status}`)
+  const code = approved.status === 200 ? handoffTarget(await approved.text()).searchParams.get('code') : null
+  if (!code) throw new Error(`Synthetic approval failed: ${approved.status}`)
   const response = await fetch(`${instance.origin}/oauth/token`, {
     method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({

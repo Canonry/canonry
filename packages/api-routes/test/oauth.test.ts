@@ -94,6 +94,20 @@ function authorizeUrl(overrides: Record<string, string> = {}): string {
 }
 
 /**
+ * Where the page after Allow or Deny sends the browser. It is a new document
+ * with a meta refresh, not a 302: Chrome drops redirects that follow the
+ * consent form (see sendHandoffPage).
+ */
+function handoffTarget(res: { statusCode: number; headers: Record<string, unknown>; body: string }): URL {
+  expect(res.statusCode).toBe(200)
+  expect(res.headers.location).toBeUndefined()
+  const content = /<meta http-equiv="refresh" content="0;url=([^"]+)">/.exec(res.body)?.[1]
+  if (!content) throw new Error(`no handoff on the page after consent: ${res.body.slice(0, 120)}`)
+  const entities: Record<string, string> = { '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&#39;': "'" }
+  return new URL(content.replace(/&(?:amp|lt|gt|quot|#39);/g, entity => entities[entity]!))
+}
+
+/**
  * Walk the real flow: the GET renders an approval page, and only an explicit
  * POST carrying the CSRF token mints a code. A session is authentication, not
  * consent, so there is no shortcut here on purpose.
@@ -111,8 +125,7 @@ async function approve(overrides: Record<string, string> = {}): Promise<string> 
     headers: FORM_HEADERS,
     payload: new URLSearchParams({ csrf: csrf!, approve: 'yes' }).toString(),
   })
-  expect(res.statusCode).toBe(302)
-  return new URL(res.headers.location as string).searchParams.get('code')!
+  return handoffTarget(res).searchParams.get('code')!
 }
 
 async function getCode(): Promise<string> {
@@ -159,7 +172,7 @@ test('registers a client dynamically and that client can complete the flow', asy
     headers: FORM_HEADERS,
     payload: new URLSearchParams({ csrf, approve: 'yes' }).toString(),
   })
-  expect(new URL(approved.headers.location as string).searchParams.get('code')).toBeTruthy()
+  expect(handoffTarget(approved).searchParams.get('code')).toBeTruthy()
 })
 
 test('registration refuses a redirect it could not safely send a token to', async () => {
@@ -245,7 +258,7 @@ test('a loopback redirect matches on any port, per RFC 8252 s7.3', async () => {
     headers: FORM_HEADERS,
     payload: new URLSearchParams({ csrf, approve: 'yes' }).toString(),
   })
-  expect(new URL(res.headers.location as string).port).toBe('54321')
+  expect(handoffTarget(res).port).toBe('54321')
 })
 
 test('the loopback carve-out floats ONLY the port', async () => {
@@ -483,7 +496,7 @@ test('approving returns a code plus state and iss', async () => {
     headers: FORM_HEADERS,
     payload: new URLSearchParams({ csrf, approve: 'yes' }).toString(),
   })
-  const loc = new URL(res.headers.location as string)
+  const loc = handoffTarget(res)
   expect(loc.searchParams.get('code')).toBeTruthy()
   expect(loc.searchParams.get('state')).toBe('xyz')
   // RFC 9207: lets the client detect a mix-up attack.
@@ -514,9 +527,39 @@ test('denying redirects with access_denied and issues no code', async () => {
     headers: FORM_HEADERS,
     payload: new URLSearchParams({ csrf, approve: 'no' }).toString(),
   })
-  const loc = new URL(res.headers.location as string)
+  const loc = handoffTarget(res)
   expect(loc.searchParams.get('error')).toBe('access_denied')
   expect(loc.searchParams.get('code')).toBeNull()
+})
+
+test('the page after Allow sends the browser on from a new document, not a redirect', async () => {
+  // Chrome checks every redirect that follows a form submission against the
+  // consent page's form-action 'self'. A 302 to the client's callback was
+  // dropped, leaving the person on the consent page with a code minted for
+  // nobody. Only a fresh document's navigation escapes that check.
+  const url = authorizeUrl()
+  const page = await app.inject({ method: 'GET', url })
+  expect(String(page.headers['content-security-policy'])).toContain("form-action 'self'")
+  const csrf = /name="csrf" value="([^"]+)"/.exec(page.body)![1]!
+  const res = await app.inject({
+    method: 'POST',
+    url: `/oauth/authorize/consent?${url.split('?')[1]}`,
+    headers: FORM_HEADERS,
+    payload: new URLSearchParams({ csrf, approve: 'yes' }).toString(),
+  })
+  const target = handoffTarget(res)
+  expect(target.searchParams.get('code')).toBeTruthy()
+  expect(res.body).toContain('Access allowed')
+  const link = /<a href="([^"]+)" rel="noreferrer">/.exec(res.body)?.[1]
+  expect(link?.replaceAll('&amp;', '&')).toBe(target.toString())
+  const csp = String(res.headers['content-security-policy'])
+  for (const directive of ["default-src 'none'", "form-action 'none'", "frame-ancestors 'none'", "base-uri 'none'"]) {
+    expect(csp).toContain(directive)
+  }
+  expect(res.headers['x-frame-options']).toBe('DENY')
+  // The destination carries the code; this page leaves no trace with it.
+  expect(res.headers['referrer-policy']).toBe('no-referrer')
+  expect(res.headers['cache-control']).toBe('no-store')
 })
 
 test('token exchanges a code for an access token and a refresh token', async () => {

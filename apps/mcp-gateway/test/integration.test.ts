@@ -11,6 +11,7 @@ import { measurementPlans, measurementPlanVersions, users } from '@canonry/canon
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { JSDOM } from 'jsdom'
 import { authorizeSyntheticMcp, startSyntheticMcpInstance, type SyntheticMcpInstance } from '../../../packages/canonry/test/mcp-gateway-fixture.js'
+import { handoffTarget } from '../../../packages/canonry/test/oauth-handoff.js'
 import { measurementPlanV2Fixture } from '../../../packages/api-routes/test/measurement-plan-v2-fixture.js'
 import { createGateway } from '../src/server.js'
 import { GatewayStore } from '../src/store.js'
@@ -223,7 +224,9 @@ describe('gateway with two real isolated Canonry engines', () => {
     const token = csrf(await consent.text())
     const submit = new URL(consentUrl)
     submit.pathname += '/consent'
-    return redirect(await attempt.browser.post(submit, { csrf: token, approve: 'yes' }), submit)
+    const approved = await attempt.browser.post(submit, { csrf: token, approve: 'yes' })
+    expect(approved.status).toBe(200)
+    return handoffTarget(await approved.text())
   }
   async function complete(attempt: AuthorizationAttempt, upstreamCallback: URL): Promise<string> {
     let current = upstreamCallback

@@ -15,6 +15,7 @@ import { eq } from 'drizzle-orm'
 import { apiKeys, createClient, migrate, oauthClients, users, userSessions, type DatabaseClient } from '@canonry/canonry-db'
 import { hashUserPassword, USER_SESSION_COOKIE_NAME } from '@canonry/canonry-api-routes'
 import { createServer } from '../src/server.js'
+import { handoffTarget } from './oauth-handoff.js'
 
 let tmpDir: string
 let db: DatabaseClient
@@ -234,7 +235,7 @@ describe('the sign-in cookie on a real server', () => {
           payload: new URLSearchParams({ csrf: csrf!, approve: 'yes' }).toString(),
         })
 
-    expect(response.statusCode).toBe(method === 'GET' ? 200 : 302)
+    expect(response.statusCode).toBe(200)
     expect(String(response.headers['set-cookie'])).toContain(`${USER_SESSION_COOKIE_NAME}=${token}`)
     for (const attribute of ['HttpOnly', 'SameSite=Lax', 'Max-Age=43200', 'Secure']) {
       expect(String(response.headers['set-cookie'])).toContain(attribute)
@@ -296,8 +297,8 @@ describe('OAuth sign-in from a browser', () => {
     const csrf = /name="csrf" value="([^"]+)"/.exec(consentPage.body)?.[1]
     if (!csrf) throw new Error('The consent page has no CSRF value')
     const approved = await submit(consentPage, { csrf, approve: 'yes' }, cookie)
-    expect(approved.statusCode).toBe(302)
-    const callback = new URL(String(approved.headers.location))
+    expect(approved.statusCode).toBe(200)
+    const callback = handoffTarget(approved.body)
     expect(`${callback.origin}${callback.pathname}`).toBe('https://client.example/callback')
     expect(callback.searchParams.get('code')).toMatch(/\S/)
     expect(callback.searchParams.get('state')).toBe('browser-state')
