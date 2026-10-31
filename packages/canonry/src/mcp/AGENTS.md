@@ -79,6 +79,10 @@ route agents through `canonry_help(intent)` without requiring resources,
 plugins, skills, or a local CLI. Default help stays compact; `includeCatalog`
 opts into toolkit details. Return only available stored-evidence next steps and
 offer loading only on progressive stdio. Guidance never grants authority.
+Analysis routes name `playbooks` from the guide's workflows; `playbook` returns
+one in full (`src/mcp/playbooks.ts`). They are the Aero skill and references the
+package ships for built-in Aero, so hosted clients need no install. Name only
+slugs the install can serve, and serve the public guide for `agent-operations`.
 Edit `docs/agent-operations/v1.md`, then run `pnpm guide:sync` to generate runtime
 instructions, the optional MCP resource, and the Canonry skills shared by Codex
 and Claude. `plugin:check` checks guide drift too. Keep public guidance limited

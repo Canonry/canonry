@@ -70,6 +70,14 @@ existing scope, core-tools, loaded-toolkit, and toolkit-details fields. Default
 help no longer includes that large catalog; clients that parsed `toolkits`
 should opt in explicitly.
 
+Analysis routes also return `playbooks` and a one-line `playbookRule`. These are
+Canonry's analyst playbooks: the Aero skill (`aero`) and its references, the
+same files built-in Aero reads, served from the installed package.
+`canonry_help({ playbook: "regression-playbook" })` returns one in full with a
+`note` on using it over MCP and every `availablePlaybooks` slug. The
+`agent-operations` slug returns this guide without Aero's built-in-agent preface.
+An unknown slug returns `NOT_FOUND` with the available slugs.
+
 The [Operations Guide v1](agent-operations/v1.md) is the public source of truth.
 `canonry://agent-operations/v1` exposes the same guide as an optional MCP
 resource. Resource support, browser access, local CLI installation, and plugins
@@ -536,7 +544,7 @@ For shared query assignments and measured results, see [Query control and AI vis
 
 Core tier (always loaded):
 
-- `canonry_help` — compact intent route and approval boundaries; use `includeCatalog: true` for toolkit details
+- `canonry_help` — compact intent route, approval boundaries, and analyst playbooks to read; use `includeCatalog: true` for toolkit details and `playbook` for a playbook's full text
 - `canonry_load_toolkit` — register a toolkit's tools for the rest of the session
 - `canonry_projects_list`, `canonry_project_get`
 - `canonry_project_overview` — composite read for "how is project X doing?"
