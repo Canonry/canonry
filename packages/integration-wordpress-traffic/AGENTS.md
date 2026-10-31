@@ -27,6 +27,11 @@ site and shares only the Application-Password auth pattern.
   Password (the same scheme used by `packages/integration-wordpress/`). This
   package base64-encodes them for HTTP Basic auth. Credentials are caller-supplied
   per request — they live in `~/.canonry/config.yaml` under `wordpressTraffic.connections`.
+- **Egress through the caller's fetch.** Every page request goes through
+  `options.fetchImpl`, falling back to global `fetch`. `api-routes` passes
+  `createGuardedFetch`, which checks the address of each request and redirect
+  hop and dials only that address, so the Basic-auth header cannot be steered
+  to an internal host by DNS rebinding or a redirect.
 - **Pull-only, cursor-paginated.** `listWordpressTrafficEvents` accepts an opaque
   `cursor` string returned from the previous page (`next_cursor`). No push,
   no SaaS relay.
@@ -46,7 +51,7 @@ site and shares only the Application-Password auth pattern.
   plugin (pre-0.3.0) omits the field, so those events stay
   `claimed_unverified` until the site updates the plugin.
 - **Provider-neutral output.** Every adapter in the traffic stack emits the
-  same `NormalizedTrafficRequest` shape from `@ainyc/canonry-contracts`. Do
+  same `NormalizedTrafficRequest` shape from `@canonry/canonry-contracts`. Do
   not leak WordPress-specific types past the package boundary.
 
 ## Common Mistakes
@@ -59,6 +64,12 @@ site and shares only the Application-Password auth pattern.
 - **Calling `fetch` against the raw `baseUrl`.** Always append
   `/wp-json/canonry/v1/events` — `resolveEndpoint` does this. Hand-rolled URL
   composition will drop trailing slashes or double up paths.
+
+## Test Ownership
+
+- `wordpress-traffic-client.test.ts` owns normalization and native HTTP protocol behavior. Invalid-row fixtures need valid sibling fields so each rejection reaches its named guard.
+- Check the returned continuation flag as well as the cursor. Cache freshness needs distinct URLs and no-cache headers on every page across multiple syncs.
+- Error-body truncation needs a response longer than the limit and an independent exact expected prefix and suffix.
 
 ## See Also
 

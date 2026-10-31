@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { sentimentSummarySchema } from '@ainyc/canonry-contracts'
+import { sentimentOutcomeSchema, sentimentSummarySchema } from '@canonry/canonry-contracts'
 import { sentimentFixtureSummary } from '../../contracts/test/fixtures/sentiment.js'
 import type { ApiClient } from '../src/client.js'
 import { CliError } from '../src/cli-error.js'
@@ -7,7 +7,7 @@ import { canonryMcpTools, type CanonryMcpTool } from '../src/mcp/tool-registry.j
 import { getCanonryMcpTools } from '../src/mcp/server.js'
 import { MCP_OPENAPI_OPERATION_CLASSIFICATIONS } from '../src/mcp/openapi-classification.js'
 import { withToolErrors } from '../src/mcp/results.js'
-import { AERO_EXCLUDED_MCP_TOOLS } from '../src/agent/mcp-to-agent-tool.js'
+import { AERO_EXCLUDED_MCP_TOOLS, buildMcpAgentTools } from '../src/agent/mcp-to-agent-tool.js'
 
 function tool(name: string): CanonryMcpTool {
   const found = canonryMcpTools.find(item => item.name === name)
@@ -20,6 +20,7 @@ const cases = [
   { name: 'canonry_sentiment', method: 'getSentiment', input: { project: 'demo' }, args: ['demo', { mode: 'auto', queryClass: 'branded', scope: 'project' }] },
   { name: 'canonry_sentiment', method: 'getSentiment', input: { project: 'demo', queryId: 'q', executionNodeKey: 'node', include: ['assessments'], queryLimit: 10, queryCursor: 'next' }, args: ['demo', { mode: 'auto', queryClass: 'branded', scope: 'project', queryId: 'q', executionNodeKey: 'node', include: ['assessments'], queryLimit: 10, queryCursor: 'next' }] },
   { name: 'canonry_sentiment_evidence', method: 'getSentimentEvidence', input: { project: 'demo', scope: 'property', scopeKey: 'property', marketKey: 'market', assessmentId: 'assessment', evaluationDefinitionId: 'def', cursor: 'cursor' }, args: ['demo', { mode: 'auto', queryClass: 'branded', scope: 'property', scopeKey: 'property', marketKey: 'market', assessmentId: 'assessment', evaluationDefinitionId: 'def', cursor: 'cursor', limit: 50 }] },
+  { name: 'canonry_sentiment_evidence', method: 'getSentimentEvidence', input: { project: 'demo', scope: 'property', scopeKey: 'property-a', outcome: ['mixed', 'unfavorable'] }, args: ['demo', { mode: 'auto', queryClass: 'branded', scope: 'property', scopeKey: 'property-a', outcome: ['mixed', 'unfavorable'], limit: 50 }] },
   { name: 'canonry_sentiment_compare', method: 'compareSentiment', input: { project: 'demo', fromRunId: 'before', toRunId: 'after' }, args: ['demo', { mode: 'auto', queryClass: 'branded', scope: 'project', fromRunId: 'before', toRunId: 'after' }] },
   { name: 'canonry_sentiment_backfill_preview', method: 'previewSentimentBackfill', input: { project: 'demo', runIds: ['run'], queryClass: 'non-brand' }, args: ['demo', { mode: 'auto', queryClass: 'non-brand', scope: 'project', runIds: ['run'] }] },
   { name: 'canonry_sentiment_backfill', method: 'submitSentimentBackfill', input: { project: 'demo', previewToken: 'token', idempotencyKey: 'key' }, args: ['demo', { previewToken: 'token', idempotencyKey: 'key' }] },
@@ -81,6 +82,26 @@ describe('sentiment MCP parity', () => {
     expect(spec.inputSchema.safeParse({ ...input, assessmentId: '' }).success).toBe(false)
     expect(tool('canonry_sentiment').inputSchema.safeParse(input).success).toBe(false)
   })
+  it('advertises the evidence outcome filter as an array of the contracts outcome enum and validates it', () => {
+    const spec = tool('canonry_sentiment_evidence')
+    const outcome = (spec.inputJsonSchema as { properties: Record<string, { type?: string; items?: { enum?: string[] }; minItems?: number; description?: string }> }).properties.outcome!
+    expect(outcome.type).toBe('array')
+    expect(outcome.items?.enum).toEqual([...sentimentOutcomeSchema.options])
+    expect(outcome.minItems).toBe(1)
+    expect(outcome.description).toContain('["mixed","unfavorable"]')
+    expect(outcome.description).toContain('never changes how answers were scored')
+    expect((spec.inputJsonSchema as { required?: string[] }).required ?? []).not.toContain('outcome')
+    expect(spec.description).toContain('Optional outcome keeps only the listed outcomes')
+    expect((spec.inputSchema.parse({ project: 'demo', outcome: ['unfavorable'] }) as { outcome?: string[] }).outcome).toEqual(['unfavorable'])
+    for (const outcome of [[], ['positive'], ['mixed', 'positive']]) expect(spec.inputSchema.safeParse({ project: 'demo', outcome }).success).toBe(false)
+    // The filter is evidence-only: the summary and comparison reads reject it.
+    expect(tool('canonry_sentiment').inputSchema.safeParse({ project: 'demo', outcome: ['mixed'] }).success).toBe(false)
+    expect(tool('canonry_sentiment_compare').inputSchema.safeParse({ project: 'demo', fromRunId: 'a', toRunId: 'b', outcome: ['mixed'] }).success).toBe(false)
+  })
+  it('documents the server criticizedProperties ranking on the summary read', () => {
+    expect(tool('canonry_sentiment').description).toContain('criticizedProperties')
+    expect(tool('canonry_sentiment').description).toContain('outcome ["mixed","unfavorable"]')
+  })
   it('rejects retired theme configuration and pooled sentiment selections', () => {
     const configure = tool('canonry_sentiment_configure')
     expect(configure.inputSchema.safeParse({ project: 'demo', preset: 'default' }).success).toBe(false)
@@ -125,7 +146,29 @@ describe('sentiment MCP parity', () => {
     expect(result.isError).toBe(true)
     expect(result.structuredContent).toEqual({ error: { code: 'FORBIDDEN', message: 'Install administrator required', details: { credential } } })
   })
-  it('keeps all nine experimental capabilities out of native Aero pending its release gate', () => {
-    for (const name of cases.map(entry => entry.name)) expect(AERO_EXCLUDED_MCP_TOOLS.has(name as Parameters<typeof AERO_EXCLUDED_MCP_TOOLS.has>[0])).toBe(true)
+  it('gives native Aero the seven reads and keeps configure and backfill submit with the operator', () => {
+    const names = [...new Set(cases.map(entry => entry.name))]
+    const writes = ['canonry_sentiment_configure', 'canonry_sentiment_backfill']
+    const reads = names.filter(name => !writes.includes(name))
+    expect(reads).toHaveLength(7)
+    for (const name of reads) expect(tool(name).access).toBe('read')
+    const ctx = { client: {} as ApiClient, projectName: 'demo' }
+    // Admin turns get every tool Aero may call; viewer turns get reads only. Both carry the reads.
+    for (const options of [{}, { readOnly: true }, { managedSweeps: true }]) {
+      const visible = buildMcpAgentTools(canonryMcpTools, ctx, options).map(agentTool => agentTool.name)
+      for (const name of reads) expect(visible).toContain(name)
+      for (const name of writes) expect(visible).not.toContain(name)
+    }
+    for (const name of writes) expect(AERO_EXCLUDED_MCP_TOOLS.has(name as Parameters<typeof AERO_EXCLUDED_MCP_TOOLS.has>[0])).toBe(true)
+  })
+  it('runs an Aero sentiment read against the session project through the API client', async () => {
+    const getSentiment = vi.fn().mockResolvedValue(sentimentFixtureSummary)
+    const ctx = { client: { getSentiment } as unknown as ApiClient, projectName: 'demo' }
+    const read = buildMcpAgentTools(canonryMcpTools, ctx, { readOnly: true }).find(agentTool => agentTool.name === 'canonry_sentiment')!
+    // Aero never sees a project parameter; the session's project is injected.
+    expect(Object.keys((read.parameters as { properties: Record<string, unknown> }).properties)).not.toContain('project')
+    const result = await read.execute('call-1', { queryClass: 'branded' })
+    expect(getSentiment).toHaveBeenCalledWith('demo', expect.objectContaining({ queryClass: 'branded' }))
+    expect(result.details).toEqual(sentimentFixtureSummary)
   })
 })

@@ -1,0 +1,17 @@
+{
+  "kind": "slop-project-authority",
+  "policyRevision": "2026-10-02.1",
+  "projectId": "canonry",
+  "proposal": "https://github.com/SlopDotCash/slopdotcash/pull/519",
+  "repository": {
+    "fullName": "Canonry/canonry",
+    "id": "1176392906",
+    "integrationBranch": "main"
+  },
+  "schemaVersion": "1",
+  "steward": {
+    "actorId": "14798762",
+    "login": "arberx",
+    "nodeId": "MDQ6VXNlcjE0Nzk4NzYy"
+  }
+}

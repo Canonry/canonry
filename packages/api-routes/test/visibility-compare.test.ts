@@ -175,6 +175,16 @@ describe('computeVisibilityCompare — share of voice', () => {
     expect(dto.competitors.from).toEqual([])
   })
 
+  it('does not count a name match sentiment judged wrong-subject as a project mention in named SoV', () => {
+    const competitors = [{ domain: 'rival.com', brandTokens: ['rival'] }]
+    const namesake = () => snap({ queryId: 'q1', provider: 'openai', mentionIdentity: 'wrong-subject', answerText: 'Demo Hardware and Rival both stock lumber.' })
+    const brand = () => snap({ queryId: 'q2', provider: 'openai', answerMentioned: true, mentionIdentity: null, answerText: 'Demo and Rival are both options.' })
+    const dto = computeVisibilityCompare(build([namesake(), brand()], [namesake(), brand()], { competitors, brandNames: ['demo'] }))
+
+    // One project mention against two competitor mentions.
+    expect(metricOf(dto, 'mention-share-of-voice').from).toMatchObject({ numerator: 1, denominator: 3 })
+  })
+
   it('labels named SoV pooled when no project identity can classify the basket', () => {
     const competitors = [{ domain: 'rival.com', brandTokens: ['rival'] }]
     const s = () => snap({ queryId: 'q1', provider: 'openai', answerText: 'Rival is one option.' })
@@ -183,8 +193,47 @@ describe('computeVisibilityCompare — share of voice', () => {
     expect(metricOf(dto, 'mention-share-of-voice').queryClass).toBe('pooled')
   })
 
-  it('computes cited SoV from citedDomains, matching a competitor stored as a raw mixed-case URL and a subdomain', () => {
-    const competitors = [{ domain: 'https://Rival.com/', brandTokens: ['rival'] }]
+  it('leaves a no-retrieval answer out of the cited denominator but keeps it in the mention denominator', () => {
+    // Regression for #1161: an answer the provider wrote WITHOUT a web search
+    // completes source capture and cites zero domains. That is not a
+    // searched-but-un-cited miss — it never had a chance to cite — so it must
+    // not depress the cited rate. Brand recall does not need search, so the
+    // mention denominator is unchanged.
+    const from = [
+      snap({ queryId: 'q1', provider: 'openai', citationState: 'cited', answerMentioned: true, retrievalStatus: 'used' }),
+    ]
+    const to = [
+      snap({ queryId: 'q1', provider: 'openai', citationState: 'cited', answerMentioned: true, retrievalStatus: 'used', citedDomains: ['demo.com'] }),
+      snap({ queryId: 'q1', provider: 'openai', answerMentioned: false, retrievalStatus: 'used' }),
+      snap({ queryId: 'q1', provider: 'openai', answerMentioned: false, retrievalStatus: 'not-used' }),
+    ]
+    const dto = computeVisibilityCompare(build(from, to))
+    const cited = metricOf(dto, 'cited-rate')
+    // to: 1 cited out of 2 SEARCHED answers; the not-used answer is excluded.
+    expect(cited.to.numerator).toBe(1)
+    expect(cited.to.denominator).toBe(2)
+    expect(cited.to.point).toBe(0.5)
+    // from: 1/1 searched.
+    expect(cited.from.denominator).toBe(1)
+    // Mention denominator counts all three to-side answers (incl. the no-search one):
+    expect(metricOf(dto, 'mention-rate').to.denominator).toBe(3)
+  })
+
+  it('does not exclude an answer whose retrieval could not be detected (unknown)', () => {
+    // `unknown` means detection did not prove an absence; laundering it into a
+    // no-search exclusion would assert a fact the observation never made.
+    const from = [snap({ queryId: 'q1', provider: 'openai', citationState: 'cited', retrievalStatus: 'used' })]
+    const to = [
+      snap({ queryId: 'q1', provider: 'openai', citationState: 'cited', retrievalStatus: 'used', citedDomains: ['demo.com'] }),
+      snap({ queryId: 'q1', provider: 'openai', retrievalStatus: 'unknown' }),
+    ]
+    const dto = computeVisibilityCompare(build(from, to))
+    const cited = metricOf(dto, 'cited-rate')
+    expect(cited.to.denominator).toBe(2)
+    expect(cited.to.numerator).toBe(1)
+  })
+
+  it('computes cited SoV from citedDomains, matching a competitor stored as a raw mixed-case URL and a subdomain', () => {    const competitors = [{ domain: 'https://Rival.com/', brandTokens: ['rival'] }]
     const from = [
       snap({ queryId: 'q1', provider: 'openai', citationState: 'cited', citedDomains: ['demo.com'] }), // project cited
       snap({ queryId: 'q1', provider: 'claude', citedDomains: ['rival.com'] }), // competitor cited (exact)

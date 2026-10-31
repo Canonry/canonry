@@ -70,3 +70,31 @@ export function classifyQueryClass(
 ): QueryClass | null {
   return compileQueryClassifier(brandNames)?.classify(queryText) ?? null
 }
+
+/** A query as it was requested, with the class the server reports for it. */
+export interface ReportedQueryClass {
+  query: string
+  /**
+   * `null` is the server saying no single class exists. Absent means the server
+   * said nothing: it predates the field, or it returned no such row.
+   */
+  queryClass?: QueryClass | null
+}
+
+/**
+ * Read back the class the server reports for each requested query text, from
+ * the rows a `/queries` read or write returns. This looks a class up; it never
+ * derives one. One entry per distinct text, in request order. An entry carries
+ * `queryClass` only when the server sent one for that text (a class, or `null`),
+ * so "not reported" is never turned into the server's "no single class".
+ */
+export function reportedQueryClasses(
+  requested: readonly string[],
+  rows: ReadonlyArray<{ query: string; queryClass?: QueryClass | null }>,
+): ReportedQueryClass[] {
+  const classByText = new Map(rows.map(row => [row.query, row.queryClass]))
+  return [...new Set(requested)].map((query) => {
+    const queryClass = classByText.get(query)
+    return queryClass === undefined ? { query } : { query, queryClass }
+  })
+}

@@ -1,4 +1,4 @@
-import { UserRoles, agentBusy } from '@ainyc/canonry-contracts'
+import { OutcomeTriggers, USAGE_TELEMETRY_HEADERS, UserRoles, agentBusy } from '@canonry/canonry-contracts'
 import { eq } from 'drizzle-orm'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import {
@@ -6,7 +6,7 @@ import {
   parseJsonColumn,
   projects,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import {
   AGENT_MEMORY_VALUE_MAX_BYTES,
   MemorySources,
@@ -18,12 +18,13 @@ import {
   validationError,
   type AgentMemoryListResponse,
   describeError,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import type { Agent, AgentEvent, AgentMessage } from '@earendil-works/pi-agent-core'
-import { registerAgentConversationRoutes, requireInstanceAdministrator } from '@ainyc/canonry-api-routes'
+import { registerAgentConversationRoutes, requireInstanceAdministrator, type OutcomeAttribution } from '@canonry/canonry-api-routes'
 import type { SessionRegistry } from './session-registry.js'
 import { VIEWER_AERO_MAX_PROMPT_CHARS, type ViewerAeroSessions } from './viewer-sessions.js'
 import { aeroTurnStatus, isRunFailureMessage, isSystemMessage } from './runtime.js'
+import { trackAeroTurn } from './turn-telemetry.js'
 import {
   AeroToolProfiles,
   AeroToolScopes,
@@ -61,8 +62,12 @@ function viewerAeroCaller(request: FastifyRequest, opts: AgentRoutesOptions): st
   return principal?.kind === 'user' && principal.role === UserRoles.viewer ? principal.id : null
 }
 
-/** Assistant-message fields a viewer never receives: which model answered, and what it cost. */
-const VIEWER_HIDDEN_ASSISTANT_KEYS = ['api', 'provider', 'model', 'responseId', 'usage', 'responseModel', 'diagnostics', 'providerThinkingLevel', 'rawStopReason'] as const
+/**
+ * Assistant-message fields a viewer never receives: which model answered, how
+ * hard it was asked to reason, and what it cost. pi-agent-core 1.0 stamps
+ * `thinkingLevel` on every answer, so it sits beside `providerThinkingLevel`.
+ */
+const VIEWER_HIDDEN_ASSISTANT_KEYS = ['api', 'provider', 'model', 'responseId', 'usage', 'responseModel', 'diagnostics', 'providerThinkingLevel', 'thinkingLevel', 'rawStopReason'] as const
 const VIEWER_ERROR_MESSAGE = 'Aero could not finish this answer. Try again, or ask an administrator if it keeps happening.'
 
 /**
@@ -93,6 +98,19 @@ function viewerTranscript(opts: AgentRoutesOptions, projectName: string, userId:
     modelProvider: null,
     modelId: null,
     updatedAt: sessions.updatedAt(projectName, userId),
+  }
+}
+
+function headerText(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value
+}
+
+/** The caller-supplied labels an Aero turn's outcome is attributed with, read like `api.request`'s. */
+function turnAttribution(request: FastifyRequest): OutcomeAttribution {
+  return {
+    userAgent: headerText(request.headers['user-agent']),
+    surfaceLabel: headerText(request.headers[USAGE_TELEMETRY_HEADERS.surface]),
+    agentLabel: headerText(request.headers[USAGE_TELEMETRY_HEADERS.agent]),
   }
 }
 
@@ -131,6 +149,8 @@ async function streamAgentTurn(
     detach: () => void
     /** Set for a viewer: redact every frame and replace raw error text. */
     viewer?: boolean
+    /** Who asked, for the turn's outcome telemetry. */
+    attribution: OutcomeAttribution
   },
 ): Promise<void> {
   reply.raw.writeHead(200, {
@@ -167,25 +187,30 @@ async function streamAgentTurn(
   })
 
   let failed = false
+  let failure: unknown
   try {
     await agent.prompt(turn.batch)
     await agent.waitForIdle()
   } catch (err) {
     failed = true
+    failure = err
     write({ type: 'error', message: describeError(err) })
   } finally {
     try { turn.save() } catch (err) {
       failed = true
+      failure ??= err
       write({ type: 'error', message: describeError(err) })
     }
     const status = aeroTurnStatus(agent)
-    write({ type: 'aero_turn_status', status: status && failed ? { ...status, reason: 'error' } : status })
+    const reported = status && failed ? { ...status, reason: 'error' as const } : status
+    write({ type: 'aero_turn_status', status: reported })
     unsubscribe()
     turn.detach()
     write({ type: 'stream_close' })
     if (!reply.raw.writableEnded) {
       reply.raw.end()
     }
+    trackAeroTurn(agent, { trigger: OutcomeTriggers.manual, attribution: turn.attribution, status: reported, error: failure })
   }
 }
 
@@ -201,6 +226,7 @@ async function streamViewerTurn(
   viewerId: string,
   body: AgentPromptBody,
   reply: FastifyReply,
+  attribution: OutcomeAttribution,
 ): Promise<FastifyReply> {
   const disconnected = new AbortController()
   // Set once the turn is acquired, so a disconnect can stop it mid-stream.
@@ -231,6 +257,7 @@ async function streamViewerTurn(
       save: () => {},
       detach: () => reply.raw.off('close', onClose),
       viewer: true,
+      attribution,
     })
   } finally {
     turn.release()
@@ -309,8 +336,13 @@ export function registerAgentRoutes(app: FastifyInstance, opts: AgentRoutesOptio
       requireInstanceAdministrator(request)
       const project = resolveProject(opts.db, request.params.name)
       const row = opts.db.select().from(agentSessions).where(eq(agentSessions.projectId, project.id)).get()
+      // What a turn that names no provider or model would run on: the
+      // conversation's own model unless a pin overrides it. The dashboard shows
+      // this when the operator has picked nothing, so it never shows a model
+      // the next turn would not use.
+      const nextTurn = opts.sessionRegistry.nextTurnModel(project.name)
       if (!row) {
-        return { conversationId: null, messages: [] as AgentMessage[], modelProvider: null, modelId: null, updatedAt: null }
+        return { conversationId: null, messages: [] as AgentMessage[], modelProvider: null, modelId: null, nextTurn, updatedAt: null }
       }
       const messages = parseJsonColumn<AgentMessage[]>(row.messages, [])
       return {
@@ -319,6 +351,7 @@ export function registerAgentRoutes(app: FastifyInstance, opts: AgentRoutesOptio
         isStreaming: opts.sessionRegistry.isBusy(project.name),
         modelProvider: row.modelProvider,
         modelId: row.modelId,
+        nextTurn,
         updatedAt: row.updatedAt,
       }
     },
@@ -334,7 +367,7 @@ export function registerAgentRoutes(app: FastifyInstance, opts: AgentRoutesOptio
     async (request) => {
       requireInstanceAdministrator(request)
       resolveProject(opts.db, request.params.name)
-      return buildAgentProvidersResponse(opts.sessionRegistry.getConfig())
+      return buildAgentProvidersResponse(opts.sessionRegistry.getConfig(), { models: true })
     },
   )
 
@@ -387,7 +420,7 @@ export function registerAgentRoutes(app: FastifyInstance, opts: AgentRoutesOptio
       if (body.prompt.length > VIEWER_AERO_MAX_PROMPT_CHARS) {
         throw validationError(`Keep questions under ${VIEWER_AERO_MAX_PROMPT_CHARS} characters.`)
       }
-      return streamViewerTurn(opts, project, viewerId, body, reply)
+      return streamViewerTurn(opts, project, viewerId, body, reply, turnAttribution(request))
     }
     if (body.conversationId !== undefined) {
       const current = opts.db.select({ id: agentSessions.id }).from(agentSessions).where(eq(agentSessions.projectId, project.id)).get()
@@ -444,6 +477,7 @@ export function registerAgentRoutes(app: FastifyInstance, opts: AgentRoutesOptio
       batch: pending.length > 0 ? [...pending, userMessage] : userMessage,
       save: () => opts.sessionRegistry.save(project.name),
       detach: () => reply.raw.off('close', onClose),
+      attribution: turnAttribution(request),
     })
 
     // Fastify accepts this as "reply already handled" because we wrote to reply.raw.

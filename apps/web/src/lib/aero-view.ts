@@ -1,4 +1,4 @@
-import { visibilityReportRequestSchema, type AgentViewContext } from '@ainyc/canonry-contracts'
+import { visibilityReportRequestSchema, type AgentViewContext } from '@canonry/canonry-contracts'
 import { parseVisibilitySelection, visibilityReportFirstPageQuery } from './measurement-view-url.js'
 
 export function aeroViewFromLocation(path: string, search: Record<string, unknown>): AgentViewContext {
@@ -6,6 +6,11 @@ export function aeroViewFromLocation(path: string, search: Record<string, unknow
   const selection = parseVisibilitySelection(search)
   if (property) return { view: 'property', selection: visibilityReportRequestSchema.parse({ scope: 'property', scopeKey: decodeURIComponent(property[1]), queryClass: selection.queryClass, limit: 10 }) }
   if (path.endsWith('/technical-aeo')) return { view: 'site-health' }
+  if (path.endsWith('/seo-data')) {
+    const text = (key: string) => { const value = search[key]; return typeof value === 'string' && value ? value : undefined }
+    const [seoProfileId, seoRunId, seoRegionKey, seoMarketKey] = [text('seoProfileId'), text('seoRunId'), text('seoRegion'), text('seoMarket')]
+    return { view: 'seo', ...(seoProfileId ? { seoProfileId } : {}), ...(seoRunId ? { seoRunId } : {}), ...(seoRegionKey ? { seoRegionKey } : {}), ...(seoMarketKey ? { seoMarketKey } : {}) }
+  }
   if (path.endsWith('/queries') && search.queryWorkspace === 'research') return { view: 'project' }
   const projectRoot = /^\/projects\/[^/]+\/?$/.test(path)
   if (projectRoot || path.endsWith('/queries')) {

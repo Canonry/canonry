@@ -3,11 +3,12 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { useState } from 'react'
 import type { ReactNode } from 'react'
-import { visibilityReportResponseSchema } from '@ainyc/canonry-contracts'
-import type { VisibilityReportResponse } from '@ainyc/canonry-contracts'
+import { visibilityReportResponseSchema } from '@canonry/canonry-contracts'
+import type { VisibilityReportResponse } from '@canonry/canonry-contracts'
 import { parseVisibilitySelection, patchVisibilitySelection } from '../src/lib/measurement-view-url.js'
 import { VISIBILITY_TOOLBAR_COPY, VisibilityOverview, VisibilityResultsToolbar } from '../src/components/project/VisibilityTrendSection.js'
 import { jsonResponse, mockFetch } from './mock-fetch.js'
+import { compileAppStyles, compiledElementProperty, cssLengthPx, parseCompiledCss } from './compiled-app-css.js'
 
 afterEach(cleanup)
 
@@ -19,6 +20,7 @@ const TREND_RUNS = [
   { runId: 'run-2', createdAt: '2026-09-13T12:00:00.000Z' },
 ]
 const COMPLETED_AT = '2026-09-13T12:30:00.000Z'
+const CHANGED_AT = '2026-09-20T12:00:00.000Z'
 
 interface ToolbarReportOptions {
   mode?: 'simple' | 'advanced'
@@ -27,10 +29,13 @@ interface ToolbarReportOptions {
   availability?: 'available' | 'unsupported'
   scope?: 'project' | 'property'
   trendRuns?: readonly string[]
+  /** Tracking changed after the displayed check: the active revision is newer than the measured one. */
+  awaitingSweep?: boolean
+  explicitRun?: boolean
 }
 
 /** Parsed, so every fixture is a response the server could send. */
-function toolbarReport({ mode = 'advanced', queryClass = 'non-brand', measurement = 'measured', availability = 'available', scope = 'project', trendRuns = ['run-1', 'run-2'] }: ToolbarReportOptions = {}): VisibilityReportResponse {
+function toolbarReport({ mode = 'advanced', queryClass = 'non-brand', measurement = 'measured', availability = 'available', scope = 'project', trendRuns = ['run-1', 'run-2'], awaitingSweep = false, explicitRun = false }: ToolbarReportOptions = {}): VisibilityReportResponse {
   const provenance = mode === 'advanced' ? { kind: 'frozen-advanced', definitionRevision: 2 } : { kind: 'frozen-simple', definitionRevision: null }
   const revision = mode === 'advanced' ? 2 : null
   const measured = measurement !== 'not-measured'
@@ -42,8 +47,11 @@ function toolbarReport({ mode = 'advanced', queryClass = 'non-brand', measuremen
     selection: {
       mode, queryClass, scope: scopeOptions.find(option => option.kind === scope),
       provider: null, model: null, location: { kind: 'all' }, time: { from: null, to: null },
-      revision, run: { id: measured ? 'run-2' : null, explicit: false }, provenance,
-      measurement: { state: measurement, activeRevision: revision, measuredRevision: measured ? revision : null, awaitingSweep: false, pendingAssignmentCount: 0, completedAt: measured ? COMPLETED_AT : null },
+      revision, run: { id: measured ? 'run-2' : null, explicit: explicitRun }, provenance,
+      measurement: {
+        state: measurement, activeRevision: awaitingSweep && revision !== null ? revision + 1 : revision, measuredRevision: measured ? revision : null,
+        awaitingSweep, pendingAssignmentCount: awaitingSweep ? 3 : 0, completedAt: measured ? COMPLETED_AT : null,
+      },
       availability: availability === 'available' ? { state: 'available' } : { state: 'unsupported', reason: 'advanced-v1' },
     },
     scopeOptions,
@@ -90,14 +98,30 @@ function deferred() {
   return { promise, release: () => resolve() }
 }
 
-function renderToolbar(search: Record<string, unknown>, report = toolbarReport(), extra: { onManageQueries?: () => void } = {}) {
+function renderToolbar(search: Record<string, unknown>, report = toolbarReport(), extra: { onManageQueries?: () => void; trackingChangedAt?: string; nextSweepDate?: string } = {}) {
   const onSelectionChange = vi.fn()
   const view = render(<VisibilityResultsToolbar report={report} selection={parseVisibilitySelection(search)} onSelectionChange={onSelectionChange} {...extra} />)
   return { ...view, onSelectionChange }
 }
 
+it.each(['simple', 'advanced'] as const)('preserves concrete OpenRouter model identity in %s report filters', mode => {
+  const report = toolbarReport({ mode })
+  const route = 'openrouter:google/gemini-model'
+  report.filterOptions.providers.push(route)
+  report.filterOptions.models.push({ provider: route, model: 'google/gemini-model' })
+  const { onSelectionChange, rerender } = renderToolbar({}, report)
+  fireEvent.click(filtersButton())
+  expect(screen.getByRole('option', { name: 'google/gemini-model via OpenRouter' })).toHaveProperty('value', route)
+  fireEvent.change(screen.getByRole('combobox', { name: 'Answer engine' }), { target: { value: route } })
+  expect(onSelectionChange).toHaveBeenCalledWith({ measurementProvider: route })
+  rerender(<VisibilityResultsToolbar report={report} selection={parseVisibilitySelection({ measurementProvider: route })} onSelectionChange={onSelectionChange} />)
+  expect(tokenLabels()).toEqual(['Engine: google/gemini-model via OpenRouter'])
+  fireEvent.click(screen.getByRole('button', { name: 'Remove filter Engine: google/gemini-model via OpenRouter' }))
+  expect(onSelectionChange).toHaveBeenLastCalledWith({ measurementProvider: undefined })
+})
+
 /** The page's composition with a URL held in state, exactly as ProjectPage patches it. */
-function renderOverview(initialSearch: Record<string, unknown>, extra: { fallback?: ReactNode; showUnmeasuredFallback?: boolean } = {}) {
+function renderOverview(initialSearch: Record<string, unknown>, extra: { fallback?: ReactNode; showUnmeasuredFallback?: boolean; trackingChangedAt?: string; nextSweepDate?: string } = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   onTestFinished(() => client.clear())
   function Harness() {
@@ -115,8 +139,8 @@ describe('results toolbar copy', () => {
     expect(VISIBILITY_TOOLBAR_COPY.panel).toBe('Visibility filters')
     expect(VISIBILITY_TOOLBAR_COPY.clearFilters).toBe('Clear filters')
     expect(VISIBILITY_TOOLBAR_COPY.manageQueries).toBe('Manage queries')
-    expect(VISIBILITY_TOOLBAR_COPY.removeFilter('Engine: gemini')).toBe('Remove filter Engine: gemini')
-    expect(VISIBILITY_TOOLBAR_COPY.engine('gemini')).toBe('Engine: gemini')
+    expect(VISIBILITY_TOOLBAR_COPY.removeFilter('Engine: Gemini')).toBe('Remove filter Engine: Gemini')
+    expect(VISIBILITY_TOOLBAR_COPY.engine('gemini')).toBe('Engine: Gemini')
     expect(VISIBILITY_TOOLBAR_COPY.model('gpt-5')).toBe('Model: gpt-5')
     expect(VISIBILITY_TOOLBAR_COPY.location('Portland, ME')).toBe('Requested search location: Portland, ME')
     expect(VISIBILITY_TOOLBAR_COPY.noLocation).toBe('No location requested')
@@ -124,7 +148,81 @@ describe('results toolbar copy', () => {
     expect(VISIBILITY_TOOLBAR_COPY.dateFrom('Sep 1, 2026')).toBe('From Sep 1, 2026 (UTC)')
     expect(VISIBILITY_TOOLBAR_COPY.dateThrough('Sep 8, 2026')).toBe('Through Sep 8, 2026 (UTC)')
     expect(VISIBILITY_TOOLBAR_COPY.resultsFrom('Sep 6, 2026')).toBe('Results from: Sep 6, 2026')
-    expect(VISIBILITY_TOOLBAR_COPY.resultsFromSelectedSweep).toBe('Results from: selected sweep')
+    expect(VISIBILITY_TOOLBAR_COPY.resultsFromSelectedSweep).toBe('Results from: selected check')
+    expect(VISIBILITY_TOOLBAR_COPY.trackingChanged('Oct 9', 'Oct 7', 'Oct 21')).toBe('Tracking changed Oct 9. Showing the Oct 7 results, from before the change. New numbers after the Oct 21 check.')
+    expect(VISIBILITY_TOOLBAR_COPY.trackingChanged(null, null, null)).toBe('Tracking changed. Showing the last results, from before the change. New numbers after the next check.')
+  })
+})
+
+describe('tracking-changed strip', () => {
+  const DATES = { trackingChangedAt: CHANGED_AT, nextSweepDate: 'Sep 27' }
+
+  it('tells the default latest view that tracking changed since the displayed sweep, below the results header', () => {
+    renderToolbar({ queryClass: 'non-brand' }, toolbarReport({ awaitingSweep: true }), DATES)
+    const strip = screen.getByRole('status')
+    expect(strip.textContent).toBe('Tracking changed Sep 20. Showing the Sep 13 results, from before the change. New numbers after the Sep 27 check.')
+    // The header keeps to the displayed run and its date; the strip follows it.
+    const toolbar = document.querySelector<HTMLElement>(TOOLBAR)!
+    expect(toolbar.contains(strip)).toBe(false)
+    expect(toolbar.compareDocumentPosition(strip) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+  })
+
+  it.each([
+    { label: 'tracking has not changed', search: {}, options: {} },
+    { label: 'no check was measured before the change', search: {}, options: { awaitingSweep: true, measurement: 'not-measured' } },
+    { label: 'the displayed report is an explicit run', search: {}, options: { awaitingSweep: true, explicitRun: true } },
+    // The toolbar keeps the previous latest report while the chosen sweep loads.
+    { label: 'the URL picks a check before its report arrives', search: { measurementRunId: 'run-1' }, options: { awaitingSweep: true } },
+    { label: 'the URL names a revision', search: { measurementRevision: '2' }, options: { awaitingSweep: true } },
+    { label: 'the URL sets an end date', search: { measurementTo: '2026-09-14T23:59:59.999Z' }, options: { awaitingSweep: true } },
+  ] as const)('is hidden when $label', ({ search, options }) => {
+    renderToolbar({ queryClass: 'non-brand', ...search }, toolbarReport(options), DATES)
+    expect(screen.queryByRole('status')).toBeNull()
+    expect(document.body.textContent).not.toContain('Tracking changed')
+  })
+
+  it('names no change date or next sweep when the page passes none, as an embed or managed dashboard does', () => {
+    renderToolbar({ queryClass: 'non-brand' }, toolbarReport({ awaitingSweep: true }))
+    expect(screen.getByRole('status').textContent).toBe('Tracking changed. Showing the Sep 13 results, from before the change. New numbers after the next check.')
+  })
+
+  it('reads "the last results" when the displayed sweep has no completion date', () => {
+    const report = toolbarReport({ awaitingSweep: true, measurement: 'partial' })
+    report.selection.measurement.completedAt = null
+    renderToolbar({ queryClass: 'non-brand' }, report, DATES)
+    expect(screen.getByRole('status').textContent).toBe('Tracking changed Sep 20. Showing the last results, from before the change. New numbers after the Sep 27 check.')
+  })
+
+  it('stays hidden while the latest report loads after the end date is removed', async () => {
+    const gate = deferred()
+    onTestFinished(gate.release)
+    onTestFinished(mockFetch(async url => {
+      const to = new URL(url).searchParams.get('to')
+      if (to === null) await gate.promise
+      const report = toolbarReport({ awaitingSweep: true })
+      report.selection.time.to = to
+      return jsonResponse(report)
+    }))
+    renderOverview({ queryClass: 'non-brand', measurementTo: '2026-09-14T23:59:59.999Z' }, DATES)
+    await screen.findByRole('region', { name: 'AI visibility results' })
+    expect(screen.queryByText(/^Tracking changed/)).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: /^Remove filter / }))
+    // The toolbar keeps the end-dated report until the latest one arrives, and it says nothing about the latest view.
+    expect(await screen.findByRole('status', { name: 'Loading AI visibility' })).toBeTruthy()
+    expect(screen.queryByText(/^Tracking changed/)).toBeNull()
+
+    gate.release()
+    expect(await screen.findByText('Tracking changed Sep 20. Showing the Sep 13 results, from before the change. New numbers after the Sep 27 check.')).toBeTruthy()
+  })
+
+  it('carries the page dates through the overview, above the results', async () => {
+    onTestFinished(mockFetch(() => jsonResponse(toolbarReport({ awaitingSweep: true }))))
+    renderOverview({ queryClass: 'non-brand' }, DATES)
+    const results = await screen.findByRole('region', { name: 'AI visibility results' })
+    const strip = screen.getByText('Tracking changed Sep 20. Showing the Sep 13 results, from before the change. New numbers after the Sep 27 check.')
+    expect(strip.getAttribute('role')).toBe('status')
+    expect(strip.compareDocumentPosition(results) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
   })
 })
 
@@ -218,18 +316,18 @@ describe('URL-bound toolbar controls', () => {
     expect(engine.isConnected).toBe(true)
     expect(engine.value).toBe('gemini')
     expect(document.activeElement).toBe(engine)
-    expect(tokenLabels()).toEqual(['Engine: gemini'])
+    expect(tokenLabels()).toEqual(['Engine: Gemini'])
     expect(filtersButton().textContent).toBe('Filters · 1')
 
     gate.release()
     await screen.findByRole('region', { name: 'AI visibility results' })
     expect(engine.value).toBe('gemini')
-    expect(tokenLabels()).toEqual(['Engine: gemini'])
+    expect(tokenLabels()).toEqual(['Engine: Gemini'])
   })
 
   it('labels one removable token for each non-default URL filter', () => {
     renderToolbar(FILTERED)
-    const labels = ['Engine: gemini', 'Model: gpt-5', 'Requested search location: Portland, ME', 'Sep 1 to Sep 8, 2026 (UTC)', 'Results from: Sep 6, 2026']
+    const labels = ['Engine: Gemini', 'Model: gpt-5', 'Requested search location: Portland, ME', 'Sep 1 to Sep 8, 2026 (UTC)', 'Results from: Sep 6, 2026']
     expect(tokenLabels()).toEqual(labels)
     expect(filterTokens().map(token => token.getAttribute('aria-label'))).toEqual(labels.map(label => `Remove filter ${label}`))
     for (const token of filterTokens()) expect(token.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true')
@@ -242,7 +340,7 @@ describe('URL-bound toolbar controls', () => {
     { filters: { measurementFrom: '2026-09-01T00:00:00.000Z' }, labels: ['From Sep 1, 2026 (UTC)'] },
     { filters: { measurementTo: '2026-09-08T23:59:59.999Z' }, labels: ['Through Sep 8, 2026 (UTC)'] },
     { filters: { measurementFrom: '2025-12-28T00:00:00.000Z', measurementTo: '2026-01-04T23:59:59.999Z' }, labels: ['Dec 28, 2025 to Jan 4, 2026 (UTC)'] },
-    { filters: { measurementRunId: 'run-9' }, labels: ['Results from: selected sweep'] },
+    { filters: { measurementRunId: 'run-9' }, labels: ['Results from: selected check'] },
   ])('labels $filters as $labels', ({ filters, labels }) => {
     renderToolbar({ queryClass: 'non-brand', ...filters })
     expect(tokenLabels()).toEqual(labels)
@@ -252,13 +350,13 @@ describe('URL-bound toolbar controls', () => {
   it('names a pinned sweep by its trend date once the displayed report includes it', () => {
     const selection = parseVisibilitySelection({ queryClass: 'non-brand', measurementRunId: 'run-1' })
     const { rerender } = render(<VisibilityResultsToolbar report={toolbarReport({ trendRuns: ['run-2'] })} selection={selection} onSelectionChange={() => {}} />)
-    expect(tokenLabels()).toEqual(['Results from: selected sweep'])
+    expect(tokenLabels()).toEqual(['Results from: selected check'])
     rerender(<VisibilityResultsToolbar report={toolbarReport({ trendRuns: ['run-1'] })} selection={selection} onSelectionChange={() => {}} />)
     expect(tokenLabels()).toEqual(['Results from: Sep 6, 2026'])
   })
 
   it.each([
-    ['Engine: gemini', { measurementProvider: undefined }],
+    ['Engine: Gemini', { measurementProvider: undefined }],
     ['Model: gpt-5', { measurementModel: undefined }],
     ['Requested search location: Portland, ME', { measurementLocation: undefined }],
     ['Sep 1 to Sep 8, 2026 (UTC)', { measurementFrom: undefined, measurementTo: undefined }],
@@ -316,8 +414,8 @@ describe('URL-bound toolbar controls', () => {
     const controls = [...panel.querySelectorAll<HTMLSelectElement | HTMLInputElement>('select, input')]
     expect(controls.map(control => control.labels?.[0]?.textContent)).toEqual(['Answer engine', 'Requested search location', 'AI model', 'Start date (UTC)', 'End date (UTC)', 'Results from'])
     expect(within(panel).getAllByRole('button').map(control => control.getAttribute('aria-label') ?? control.textContent)).toEqual([
-      'Filter by the AI model recorded with each answer. This does not change the model used by future sweeps.',
-      'Choose a saved AI sweep to view its results. No new sweep starts.',
+      'Filter by the AI model recorded with each answer. This does not change the model used by future checks.',
+      'Choose a saved AI Visibility check to view its results. No new check starts.',
       'Clear filters',
     ])
 
@@ -336,7 +434,7 @@ describe('URL-bound toolbar controls', () => {
     expect(document.activeElement).toBe(filtersButton())
 
     fireEvent.click(filtersButton())
-    const help = within(panel).getByRole('button', { name: 'Choose a saved AI sweep to view its results. No new sweep starts.' })
+    const help = within(panel).getByRole('button', { name: 'Choose a saved AI Visibility check to view its results. No new check starts.' })
     act(() => help.focus())
     expect(help.getAttribute('aria-expanded')).toBe('true')
     fireEvent.keyDown(help, { key: 'Escape' })
@@ -346,23 +444,25 @@ describe('URL-bound toolbar controls', () => {
     expect(document.activeElement).toBe(filtersButton())
   })
 
-  it('sizes toolbar buttons and tokens at 44px with 14px text, never 12px text or pills', () => {
+  it('uses 36px toolbar buttons with 14px text and 44px touch targets, keeping filter tokens rectangular', async () => {
     renderToolbar(FILTERED, toolbarReport(), { onManageQueries: () => {} })
     fireEvent.click(filtersButton())
-    const classes = (element: Element) => element.className.split(/\s+/)
     const buttons = [filtersButton(), ...filterTokens(), screen.getByRole('button', { name: 'Clear filters' }), screen.getByRole('button', { name: 'Manage queries' })]
+    const queryType = screen.getByRole('combobox', { name: 'Query type' })
+    const rules = parseCompiledCss(await compileAppStyles([...buttons, queryType].flatMap(element => [...element.classList])))
     expect(buttons).toHaveLength(8)
     for (const button of buttons) {
-      expect(classes(button)).toEqual(expect.arrayContaining(['min-h-11', 'text-sm']))
-      expect(classes(button)).not.toContain('text-xs')
+      expect(cssLengthPx(compiledElementProperty(rules, button, 'height')!, rules)).toBe(36)
+      expect(compiledElementProperty(rules, button, 'min-height')).toBeUndefined()
+      expect(cssLengthPx(compiledElementProperty(rules, button, 'min-height', '@media (pointer: coarse)')!, rules)).toBe(44)
+      expect(cssLengthPx(compiledElementProperty(rules, button, 'font-size')!, rules)).toBe(14)
     }
     for (const token of filterTokens()) {
-      // Default Button size, rectangular, and the token rule that caps its width.
-      expect(classes(token)).toEqual(expect.arrayContaining(['visibility-filter-token', 'rounded-md', 'h-10', 'md:h-9', 'px-4']))
-      expect(classes(token)).not.toContain('rounded-full')
-      expect(classes(token)).not.toContain('h-9')
+      expect(compiledElementProperty(rules, token, 'border-radius')).toBe('var(--radius-md)')
+      expect(compiledElementProperty(rules, token, 'max-width')).toBe('100%')
     }
-    expect(classes(screen.getByRole('combobox', { name: 'Query type' }))).toEqual(expect.arrayContaining(['min-h-11', 'text-sm']))
+    expect(cssLengthPx(compiledElementProperty(rules, queryType, 'min-height')!, rules)).toBe(44)
+    expect(cssLengthPx(compiledElementProperty(rules, queryType, 'font-size')!, rules)).toBe(14)
   })
 
   it('lets both toolbar groups shrink so a phone-width row wraps instead of widening the page', () => {
@@ -421,13 +521,13 @@ describe('URL-bound toolbar controls', () => {
       const select = screen.getByRole('combobox', { name }) as HTMLSelectElement
       return { value: select.value, options: [...select.options].map(option => [option.value, option.text]) }
     }
-    expect(control('Answer engine')).toEqual({ value: 'claude', options: [['', 'All engines'], ['gemini', 'gemini'], ['openai', 'openai'], ['claude', 'claude']] })
+    expect(control('Answer engine')).toEqual({ value: 'claude', options: [['', 'All engines'], ['gemini', 'Gemini'], ['openai', 'OpenAI'], ['claude', 'Claude']] })
     expect(control('Requested search location')).toEqual({ value: 'Bangor, ME', options: [['', 'All requested locations'], ['Portland, ME', 'Portland, ME'], ['none', 'No location requested'], ['Bangor, ME', 'Bangor, ME']] })
     // Model choices follow the URL engine, which the report has no models for.
     expect(control('AI model')).toEqual({ value: 'claude-sonnet', options: [['', 'All models'], ['claude-sonnet', 'claude-sonnet']] })
     expect(control('Results from')).toEqual({
       value: 'run-9',
-      options: [['', 'Latest saved sweep'], ...[...TREND_RUNS].reverse().map(point => [point.runId, new Date(point.createdAt).toLocaleString()]), ['run-9', 'Selected sweep']],
+      options: [['', 'Latest saved check'], ...[...TREND_RUNS].reverse().map(point => [point.runId, new Date(point.createdAt).toLocaleString()]), ['run-9', 'Selected check']],
     })
   })
 

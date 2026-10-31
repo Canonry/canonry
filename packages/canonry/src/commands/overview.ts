@@ -1,6 +1,7 @@
-import { formatPercent, type MentionShareDto, type ProjectOverviewDto, type ScoreSummaryDto } from '@ainyc/canonry-contracts'
+import { formatPercent, type MentionShareDto, type ProjectOverviewDto, type ScoreSummaryDto } from '@canonry/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { isMachineFormat } from '../cli-error.js'
+import { runAdmissionLines } from './run.js'
 
 export interface ShowOverviewOpts {
   format?: string
@@ -90,10 +91,7 @@ function cell(value: string, width: number): string {
   return value.padEnd(width)
 }
 
-/** Exported so unit tests can capture stdout shape without spinning up the
- *  real client. Format change is contract-y enough that agents parsing it
- *  via grep need protection. */
-export function renderHuman(overview: ProjectOverviewDto): void {
+function renderHuman(overview: ProjectOverviewDto): void {
   const {
     project: meta,
     latestRun,
@@ -126,6 +124,8 @@ export function renderHuman(overview: ProjectOverviewDto): void {
   } else {
     console.log('\n  No runs yet.')
   }
+  const admission = runAdmissionLines(meta.name, latestRun.admission, latestRun.manualAdmission)
+  if (admission.length > 0) console.log(`\n${admission.map(line => `  ${line}`).join('\n')}`)
 
   console.log('\nScores:')
   // Order matches the dashboard hero (Mention → Cited → Mention share)
@@ -139,6 +139,14 @@ export function renderHuman(overview: ProjectOverviewDto): void {
   printScore('Index coverage   ', scores.indexCoverage)
   printScore('Competitor press.', scores.competitorPressure)
   printScore('Run status       ', scores.runStatus)
+
+  // Sentiment is a branded figure, as on the dashboard: non-brand answers name the
+  // brand almost only to recommend it. JSON keeps branded, nonBrand and overall.
+  const brandedSentiment = overview.sentiment?.branded
+  if (overview.sentiment?.configured && brandedSentiment && brandedSentiment.coverage.judged > 0 && brandedSentiment.score.favorableRate !== null) {
+    console.log(`\n  Sentiment: ${brandedSentiment.score.favorableDisplay} favorable · branded queries`)
+    console.log(`    ${brandedSentiment.coverage.counts.favorable} favorable / ${brandedSentiment.coverage.judged} judged${brandedSentiment.provisional ? ' · provisional' : ''}`)
+  }
 
   console.log(`\n  Queries cited:     ${queryCounts.citedQueries}/${queryCounts.totalQueries} (${formatPercent(queryCounts.citedRate)})`)
   console.log(`  Queries mentioned: ${queryCounts.mentionedQueries}/${queryCounts.totalQueries} (${formatPercent(queryCounts.mentionRate)})`)

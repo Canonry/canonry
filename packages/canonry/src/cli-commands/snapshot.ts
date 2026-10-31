@@ -1,7 +1,6 @@
-import { createSnapshotReport } from '../commands/snapshot.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import { getBoolean, getString, getStringArray, multiStringOption, requirePositional, requireStringOption, stringOption } from '../cli-command-helpers.js'
-import { snapshotProviderModeSchema } from '@ainyc/canonry-contracts'
+import { snapshotProviderModeSchema } from '@canonry/canonry-contracts'
 import { usageError } from '../cli-error.js'
 
 const SNAPSHOT_USAGE = 'canonry snapshot <company-name> --domain <domain> [--provider <name>...] [--provider-mode all|api|browser] [--queries "a,b"] [--phrases "a,b" (legacy alias)] [--competitors "x,y"] [--md] [--output <path>] [--pdf] [--format table|json]'
@@ -31,6 +30,7 @@ export const SNAPSHOT_CLI_COMMANDS: readonly CliCommandSpec[] = [
       output: stringOption(),
     },
     run: async (input) => {
+      const { createSnapshotReport } = await import('../commands/snapshot.js')
       const usage = SNAPSHOT_USAGE
       const companyName = requirePositional(input, 0, {
         command: 'snapshot',

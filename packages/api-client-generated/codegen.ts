@@ -4,11 +4,11 @@
  * Output lands in `src/generated/` (committed; CI checks for drift).
  *
  * Run via `pnpm gen` from inside this package, or from the workspace root:
- *   pnpm --filter @ainyc/canonry-api-client gen
+ *   pnpm --filter @canonry/canonry-api-client gen
  *
  * `pnpm gen:check` compares temporary output without changing the SDK or Git.
  */
-import { buildOpenApiDocument } from '@ainyc/canonry-api-routes'
+import { buildOpenApiDocument } from '@canonry/canonry-api-routes'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -60,8 +60,7 @@ async function main() {
           input: specPath,
           output: {
             path: tempOutput,
-            format: 'prettier',
-            lint: false,
+            postProcess: [],
           },
           plugins: [
             {

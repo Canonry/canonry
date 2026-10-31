@@ -1,4 +1,3 @@
-import { emitInstallSummary, installSkills, listSkills, parseSkillsClient } from '../commands/skills.js'
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import { getBoolean, getString, stringOption, unknownSubcommand } from '../cli-command-helpers.js'
 
@@ -7,6 +6,7 @@ export const SKILLS_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['skills', 'list'],
     usage: 'canonry skills list [--format json]',
     run: async (input) => {
+      const { listSkills } = await import('../commands/skills.js')
       await listSkills({ format: input.format })
     },
   },
@@ -21,6 +21,7 @@ export const SKILLS_CLI_COMMANDS: readonly CliCommandSpec[] = [
     },
     allowPositionals: true,
     run: async (input) => {
+      const { emitInstallSummary, installSkills, parseSkillsClient } = await import('../commands/skills.js')
       const summary = await installSkills({
         dir: getString(input.values, 'dir'),
         user: getBoolean(input.values, 'user'),

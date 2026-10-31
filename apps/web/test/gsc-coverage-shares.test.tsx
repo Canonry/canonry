@@ -2,7 +2,7 @@ import React from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, expect, onTestFinished, test, vi } from 'vitest'
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
-import type { GscCoverageSummaryDto } from '@ainyc/canonry-contracts'
+import type { GscCoverageSummaryDto } from '@canonry/canonry-contracts'
 
 vi.mock('recharts', () => {
   const passthrough = ({ children }: { children?: React.ReactNode }) => <div>{children}</div>
@@ -50,6 +50,7 @@ const COVERAGE: GscCoverageSummaryDto = {
 function renderSection(coverage: GscCoverageSummaryDto) {
   const restoreFetch = mockFetch((url) => {
     const path = pathOf(url)
+    if (path.split('?')[0]?.endsWith('/runs')) return jsonResponse([])
     if (path === '/api/v1/settings') return jsonResponse({ providers: [], providerCatalog: [], google: { configured: true }, bing: { configured: false } })
     if (path.endsWith('/google/connections')) return jsonResponse([{
       id: 'gsc-1',

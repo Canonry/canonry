@@ -1,21 +1,21 @@
 {
-  "name": "@ainyc/canonry-api",
+  "name": "@canonry/canonry-api",
   "version": "0.0.0",
   "private": true,
   "type": "module",
   "license": "MIT",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck": "node ../../scripts/typecheck.mjs --noEmit -p tsconfig.json",
     "test": "vitest run --config ../../vitest.package.config.ts",
-    "lint": "eslint src/ test/"
+    "lint": "oxlint -c ../../.oxlintrc.json --type-aware src/ test/"
   },
   "dependencies": {
-    "@ainyc/canonry-api-routes": "workspace:*",
-    "@ainyc/canonry-config": "workspace:*",
-    "@ainyc/canonry-contracts": "workspace:*",
-    "@ainyc/canonry-db": "workspace:*",
-    "fastify": "^5.8.5",
-    "tsx": "^4.20.5"
+    "@canonry/canonry-api-routes": "workspace:*",
+    "@canonry/canonry-config": "workspace:*",
+    "@canonry/canonry-contracts": "workspace:*",
+    "@canonry/canonry-db": "workspace:*",
+    "fastify": "^5.12.7",
+    "tsx": "^4.23.15"
   }
 }

@@ -6,13 +6,13 @@ import {
   hostMatchesAnyDomain,
   hostOf,
   matchedAliasKeys,
+  MIN_BRAND_ALIAS_KEY_LENGTH,
   MIN_DOMAIN_BRAND_KEY_LENGTH,
   percentOf,
   registrableDomain,
   type BrandAliasMatcher,
   type ShareOfVoiceContext,
-} from '@ainyc/canonry-contracts'
-import { MIN_BRAND_ALIAS_KEY_LENGTH } from './mention-share.js'
+} from '@canonry/canonry-contracts'
 import { buildShareOfVoiceFrame } from './share-of-voice-frame.js'
 
 /** A stored discovery classification, plus the explicit unknown state. */
@@ -72,6 +72,8 @@ export interface CompetitorLandscapeHistoryOptions {
    * competitive figure.
    */
   shareOfVoiceEligible: boolean
+  /** Preserve counts while explaining why this answer selection has no competitive ratio. */
+  shareOfVoiceUnavailableReason?: ShareOfVoiceContext['reason']
   /** Capped evidence samples keep the response bounded. */
   sampleUrlLimit?: number
 }
@@ -169,7 +171,7 @@ export function buildCompetitorLandscapeHistory(
   // a stored discovery classification or frozen market competitor can be named
   // in answer prose without being cited. We suppress zero-activity observed rows
   // when finalizing, while pins deliberately remain visible at zero.
-  const groupedClassifications = groupClassifications(new Map(
+  const groupedClassifications = groupStoredCompetitorClassifications(new Map(
     [...options.classifications].filter(([host]) => !hostMatchesAnyDomain(host, projectDomains)),
   ))
   const classifiedDirect = new Map<string, Candidate>()
@@ -331,6 +333,7 @@ export function buildCompetitorLandscapeHistory(
   const frame = buildShareOfVoiceFrame({
     tracked: pinned.size > 0,
     classSelected: options.shareOfVoiceEligible,
+    unavailableReason: options.shareOfVoiceUnavailableReason,
     projectMentions: projectRow.mentionCount,
     answeredResults,
     competitors: competitiveRows.map(row => ({ domain: row.identity.domain, mentions: row.mentionCount })),
@@ -433,12 +436,12 @@ function mergeCandidates(primary: Candidate, additional: Candidate): Candidate {
 
 /** The same persisted taxonomy resolution for every comparison surface. */
 export function storedDirectCompetitorDomains(classifications: ReadonlyMap<string, CompetitorLandscapeSurfaceClass>): string[] {
-  return [...groupClassifications(classifications)]
+  return [...groupStoredCompetitorClassifications(classifications)]
     .filter(([, surfaceClass]) => surfaceClass === 'direct-competitor')
     .map(([domain]) => domain)
 }
 
-function groupClassifications(
+export function groupStoredCompetitorClassifications(
   classifications: ReadonlyMap<string, CompetitorLandscapeSurfaceClass>,
 ): Map<string, CompetitorLandscapeSurfaceClass> {
   const grouped = new Map<string, CompetitorLandscapeSurfaceClass>()

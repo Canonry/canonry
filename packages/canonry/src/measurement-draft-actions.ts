@@ -11,6 +11,7 @@ import {
   measurementDraftMergeTargetsRequestSchema,
   measurementDraftPublishRequestSchema,
   measurementDraftPreviewAssignmentsRequestSchema,
+  measurementDraftRouteMarketsRequestSchema,
   measurementDraftPreviewGroupMembershipRequestSchema,
   measurementDraftRebindTargetRequestSchema,
   measurementDraftRemoveAssignmentRequestSchema,
@@ -22,7 +23,7 @@ import {
   measurementDraftUpsertGroupRequestSchema,
   measurementDraftUpsertMarketRequestSchema,
   measurementDraftUpsertTargetRequestSchema,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { z } from 'zod'
 import type { ApiClient } from './client.js'
 
@@ -63,6 +64,11 @@ export const measurementDraftOperationSchema = z.discriminatedUnion('action', [
   }).strict().describe('Read-semantic assignment impact preview.'),
   mutationOperationSchema('replace-assignments', measurementDraftReplaceAssignmentsRequestSchema),
   mutationOperationSchema('apply-paired-assignments', measurementDraftApplyPairedAssignmentsRequestSchema),
+  z.object({
+    action: z.literal('preview-route-markets'),
+    request: measurementDraftRouteMarketsRequestSchema,
+  }).strict().describe('Read-semantic market-routing impact preview.'),
+  mutationOperationSchema('route-markets', measurementDraftRouteMarketsRequestSchema),
   mutationOperationSchema('remove-assignment', measurementDraftRemoveAssignmentRequestSchema),
   mutationOperationSchema('clear-assignments', measurementDraftClearAssignmentsRequestSchema),
   mutationOperationSchema('classify-assignments', measurementDraftClassifyAssignmentsRequestSchema),
@@ -118,6 +124,10 @@ export function runMeasurementDraftAction(
       return client.replaceMeasurementDraftAssignments(project, actionInput.request, actionInput.idempotencyKey, actionInput.etag)
     case 'apply-paired-assignments':
       return client.applyPairedMeasurementDraftAssignments(project, actionInput.request, actionInput.idempotencyKey, actionInput.etag)
+    case 'preview-route-markets':
+      return client.previewMeasurementDraftMarketRouting(project, actionInput.request)
+    case 'route-markets':
+      return client.routeMeasurementDraftMarkets(project, actionInput.request, actionInput.idempotencyKey, actionInput.etag)
     case 'remove-assignment':
       return client.removeMeasurementDraftAssignment(project, actionInput.request, actionInput.idempotencyKey, actionInput.etag)
     case 'clear-assignments':

@@ -1,22 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { RefreshCw, Unplug, Upload } from 'lucide-react'
-import {
-  Area,
-  ComposedChart,
-  Legend,
-  RechartsTooltip,
-  ResponsiveContainer,
-  XAxis,
-  YAxis,
-  CHART_TOOLTIP_STYLE,
-  CHART_AXIS_TICK,
-  CHART_AXIS_STROKE,
-  CHART_NEUTRAL,
-  CHART_SERIES_COLORS,
-  formatChartDateLabel,
-  formatChartDateTick,
-} from '../shared/ChartPrimitives.js'
 
 import { Link } from '@tanstack/react-router'
 import { Button } from '../ui/button.js'
@@ -29,11 +13,36 @@ import {
   useClientTable,
 } from '../shared/DataTableControls.js'
 import { AiTrafficHistoryPanel } from './AiTrafficHistoryPanel.js'
+import {
+  DisclosureRow,
+  DisclosureRows,
+  GroupedReferralTable,
+  KpiRow,
+  PlainHeader,
+  SectionHeading,
+  SiteTrafficCard,
+  SortHeader,
+  StackedSeriesChart,
+  type SortDir,
+} from './ActivityParts.js'
 import { MetricsWindowPicker } from '../shared/MetricsWindowPicker.js'
 import { InfoTooltip } from '../shared/InfoTooltip.js'
 import { ToneBadge } from '../shared/ToneBadge.js'
-import { formatPercent, type MetricsWindow } from '@ainyc/canonry-contracts'
-import type { MetricTone } from '../../view-models.js'
+import {
+  GA_SEARCH_LANDING_DEFAULT_WINDOW,
+  GA_SEARCH_LANDING_MAX_LIMIT,
+  GA_SEARCH_LANDING_WINDOWS,
+  formatDate,
+  formatPercent,
+  gaSearchLandingHasSearchData,
+  gaSearchLandingPageLabel,
+  type GaSearchLandingPageRow,
+  type GaSearchLandingPagesResponse,
+  type GaOverviewResponse,
+  type GaSearchLandingWindow,
+  type MetricsWindow,
+  isGaOverviewWindow,
+} from '@canonry/canonry-contracts'
 import {
   toneFromTrafficSourceStatus,
   useServerTrafficStatus,
@@ -48,23 +57,17 @@ import {
 } from '../../api.js'
 import {
   getApiV1ProjectsByNameGaAiReferralDailyOptions,
+  getApiV1ProjectsByNameGaOverviewOptions,
+  getApiV1ProjectsByNameGaSearchLandingPagesOptions,
   getApiV1ProjectsByNameGaSessionHistoryOptions,
-  getApiV1ProjectsByNameGaSocialReferralHistoryOptions,
   getApiV1ProjectsByNameGaStatusOptions,
   getApiV1ProjectsByNameGaTrafficOptions,
-} from '@ainyc/canonry-api-client/react-query'
-import type { ApiGaStatus, ApiGaTraffic, ApiGaTrafficAiLandingPage, ApiGaTrafficPage, ApiGaTrafficReferral, ApiGaSocialReferral, GA4AiReferralDailyDto, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry } from '../../api.js'
+} from '@canonry/canonry-api-client/react-query'
+import type { ApiGaStatus, ApiGaTraffic, ApiGaTrafficAiLandingPage, ApiGaTrafficPage, ApiGaTrafficReferral, ApiGaSocialReferral, GA4AiReferralDailyDto, GA4SessionHistoryEntry } from '../../api.js'
 import { TRAFFIC_STALE_MS } from '../../queries/query-client.js'
 import { invalidateProjectQueryDomain } from '../../queries/query-invalidation.js'
 import { asyncHandler } from '../../lib/async-handler.js'
-import {
-  SOCIAL_OTHER_KEY,
-  SOCIAL_TOTAL_KEY,
-  aggregateSocialChartData,
-  decodeSocialSourceLabel,
-  truncateLabel,
-} from '../../lib/social-chart-helpers.js'
-import { buildAiChartData } from '../../lib/ai-chart-helpers.js'
+import { decodeSocialSourceLabel } from '../../lib/social-source-label.js'
 
 // 'all' is deliberately absent. GA treats it as unbounded retention; the
 // server lane is queried with `since`, which has no unbounded form (omitting it
@@ -85,12 +88,6 @@ const TRAFFIC_WINDOW_MINUTES: Record<MetricsWindow, number> = {
   all: 90 * 24 * 60,
 }
 
-const SOURCE_COLORS = CHART_SERIES_COLORS
-
-const SOCIAL_OTHER_COLOR = CHART_NEUTRAL.textDim
-const SOCIAL_TOTAL_COLOR = CHART_NEUTRAL.textFaint
-const SOCIAL_TABLE_DEFAULT_LIMIT = 25
-
 function aiLandingPageSearchText(row: ApiGaTrafficAiLandingPage): string {
   return urlSearchText(row.landingPage)
 }
@@ -103,26 +100,35 @@ const EMPTY_AI_DAILY: GA4AiReferralDailyDto = {
   totalSessions: 0,
   totalPaidSessions: 0,
   totalOrganicSessions: 0,
+  byEngine: { series: [], otherCount: 0, days: [] },
 }
 
 // No 'users': GA counts users DISTINCT at the grain requested, so an AI
 // landing-page user total cannot be summed and is no longer emitted.
 type PageSortKey = 'landingPage' | 'sessions' | 'organicSessions'
-// No 'users' on the two AI-referral tables: /ga/traffic stopped emitting a
-// per-row user count in 4.135.0 (GA counts users distinct per grain).
-type ReferralSortKey = 'source' | 'medium' | 'sessions'
-// No 'users' here either, for the same reason as the AI tables above:
-// ga_social_referrals stores users at (date, source, medium, channel group),
-// so summing it over a window counts a returning visitor once per day.
-type SocialSortKey = 'source' | 'medium' | 'sessions'
 type AiLandingPageSortKey = 'landingPage' | 'source' | 'sessions'
-type SortDir = 'asc' | 'desc'
 
-function formatCompact(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`
-  return n.toLocaleString()
-}
+export const ACTIVITY_COPY = {
+  siteTrafficTooltip: 'GA4\'s own figures for the complete days ending yesterday, as GA4 counts them, each against the period of the same length before it. Pick a figure in any slot to chart it by day.',
+  siteTrafficFallbackTooltip: 'Sessions, Google organic search sessions and distinct users from GA4. Distinct users are unavailable when the selected range has no stored GA4 aggregate.',
+  channelTooltip: 'GA4 sessions split into five channels that do not overlap. AI sessions are taken out of the channel GA4 filed them under before the rest is counted.',
+  organicTooltip: 'Sessions from Google organic search, after AI sessions are taken out.',
+  socialTooltip: 'Organic Social and Paid Social sessions, after AI sessions are taken out.',
+  directTooltip: 'Sessions with no source: bookmarks, typed URLs, untagged email and in-app browsers. AI visits that send no referrer land here too.',
+  aiTooltip: 'Sessions in GA4\'s AI Assistant channel or from a known AI source. Paid AI comes from paid UTM values or a GA4 paid channel group. AI visits that send no referrer count as Direct, so this is a floor.',
+  otherTooltip: 'Every other GA4 channel, such as Referral, Email, Paid Search, Display and Video.',
+  aiEnginesTooltip: 'AI referral sessions by engine. Open an engine to see the sources GA4 reported. Unattributed AI is AI traffic whose source names no engine.',
+  aiChartLabel: 'AI sessions by engine',
+  socialTooltip2: 'Sessions GA4 classifies as Organic Social or Paid Social, grouped by platform. Open a platform to see the sources GA4 reported for it.',
+  platformsTooltip: 'Platforms with sessions in this period. A source no platform matches counts as its own platform.',
+  paidSocialTooltip: 'Sessions in GA4\'s Paid Social channel.',
+  socialChartLabel: 'Social sessions by platform',
+  noAiReferrals: 'No AI referrals in this period.',
+  noAiLandingPages: 'No AI landing pages in this period.',
+  noSocial: 'No social sessions in this period.',
+  noneInPeriod: 'None in this period',
+  aiHistoryTooltip: 'Daily AI crawls, page fetches and visits from connected traffic sources, with GA4 visits beside server visits.',
+} as const
 
 function relativeTime(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime()
@@ -135,95 +141,76 @@ function relativeTime(iso: string): string {
   return `${days}d ago`
 }
 
+function formatCompact(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`
+  return n.toLocaleString()
+}
+
+/** "Oct 7 to Oct 20, 2026" for the window every figure was measured over. */
+function formatWindow(start: string | null, end: string | null): string | null {
+  if (!start || !end) return null
+  const from = new Date(`${start}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+  const to = new Date(`${end}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+  return `${from} to ${to}`
+}
+
 function ServerActivityPanel({ projectName }: { projectName: string }) {
   const { data, isLoading, isError } = useServerTrafficStatus(projectName)
-
-  if (isLoading) {
-    return (
-      <Card className="p-5">
-        <div className="text-sm text-muted">Loading server activity…</div>
-      </Card>
-    )
-  }
-  if (isError) {
-    return (
-      <Card className="p-5">
-        <div className="text-sm text-negative-400">Failed to load server activity.</div>
-      </Card>
-    )
-  }
   const sources = data?.sources ?? []
 
   return (
-    <section>
-      <div className="flex items-baseline justify-between mb-3">
-        <div>
-          <div className="eyebrow">Server activity (last 24h)</div>
-          <h2 className="text-lg font-semibold text-primary">Server activity</h2>
-          <p className="text-sm text-secondary mt-1">
-            Crawler, AI fetch, and referral activity from connected sources.{' '}
-            {!isEmbed() && <Link to="/traffic" className="text-link hover:underline">Manage sources →</Link>}
-          </p>
-        </div>
-      </div>
-
-      {sources.length === 0 ? (
-        <Card className="p-5">
-          <div className="text-sm text-secondary">
-            No server traffic source connected yet.{' '}
-            {!isEmbed() && (
-              <>
-                <Link to="/traffic" className="text-link hover:underline">
-                  Connect a traffic source
-                </Link>{' '}
-                to surface bot crawls and AI referrals straight from server logs.
-              </>
-            )}
-          </div>
-        </Card>
+    <section aria-labelledby="server-activity-heading">
+      <SectionHeading
+        id="server-activity-heading"
+        title="Server activity"
+        tooltip="Crawler, AI fetch and AI referral activity from connected traffic sources over the last 24 hours."
+        meta="Last 24 hours"
+        actions={!isEmbed() && sources.length > 0 ? <Link to="/traffic" className="text-label-14 text-link hover:underline">Manage sources</Link> : undefined}
+      />
+      {isLoading ? (
+        <p className="text-copy-14 text-secondary">Loading server activity…</p>
+      ) : isError ? (
+        <p role="alert" className="text-copy-14 text-negative">Could not load server activity.</p>
+      ) : sources.length === 0 ? (
+        <p className="text-copy-14 text-secondary">
+          No traffic source connected.{' '}
+          {!isEmbed() && <Link to="/traffic" className="text-link hover:underline">Connect a source</Link>}
+        </p>
       ) : (
-        <Card className="overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-bg-elevated/50 text-[10px] uppercase tracking-wide text-muted">
-              <tr>
-                <th className="text-left px-4 py-2 font-medium">Source</th>
-                <th className="text-left px-4 py-2 font-medium">Status</th>
-                <th className="text-right px-4 py-2 font-medium">Crawler hits 24h</th>
-                <th className="text-right px-4 py-2 font-medium">AI hits 24h</th>
-                <th className="text-right px-4 py-2 font-medium">AI sessions 24h</th>
-                <th className="text-right px-4 py-2 font-medium">Last sync</th>
-                <th className="text-left px-4 py-2 font-medium" aria-label="open" />
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[36rem] text-label-14">
+            <thead>
+              <tr className="border-b border-default">
+                <PlainHeader label="Source" align="left" />
+                <PlainHeader label="Status" align="left" />
+                <PlainHeader label="Crawler hits" align="right" />
+                <PlainHeader label="AI hits" align="right" />
+                <PlainHeader label="AI sessions" align="right" />
+                <PlainHeader label="Last sync" align="right" />
+                <th className="py-2" aria-label="Detail" />
               </tr>
             </thead>
             <tbody>
               {sources.map((s) => (
-                <tr key={s.id} className="border-t border-default">
-                  <td className="px-4 py-3 text-heading">{s.displayName}</td>
-                  <td className="px-4 py-3">
+                <tr key={s.id} className="border-t border-subtle">
+                  <td className="py-2 pr-3 text-strong">{s.displayName}</td>
+                  <td className="py-2 pr-3">
                     <ToneBadge tone={toneFromTrafficSourceStatus(s.status)}>{s.status}</ToneBadge>
                   </td>
-                  <td className="px-4 py-3 text-right tabular-nums text-heading">
-                    {s.totals24h.crawlerHits.toLocaleString('en-US')}
-                  </td>
-                  <td className="px-4 py-3 text-right tabular-nums text-heading">
-                    {s.totals24h.aiUserFetchHits.toLocaleString('en-US')}
-                  </td>
-                  <td className="px-4 py-3 text-right tabular-nums text-heading">
-                    {s.totals24h.aiReferralLandedHits.toLocaleString('en-US')}
-                  </td>
-                  <td className="px-4 py-3 text-right text-secondary text-xs">
-                    {s.lastSyncedAt ? relativeTime(s.lastSyncedAt) : 'never'}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    {isEmbed() ? (
-                      <span className="text-muted text-xs">Detail</span>
-                    ) : (
+                  <td className="py-2 pl-4 text-right tabular-nums text-primary">{s.totals24h.crawlerHits.toLocaleString('en-US')}</td>
+                  <td className="py-2 pl-4 text-right tabular-nums text-primary">{s.totals24h.aiUserFetchHits.toLocaleString('en-US')}</td>
+                  <td className="py-2 pl-4 text-right tabular-nums text-primary">{s.totals24h.aiReferralLandedHits.toLocaleString('en-US')}</td>
+                  <td className="py-2 pl-4 text-right text-secondary">{s.lastSyncedAt ? relativeTime(s.lastSyncedAt) : 'never'}</td>
+                  <td className="py-2 pl-3 text-right">
+                    {!isEmbed() && (
                       <Link
                         to="/traffic/$projectName/$sourceId"
                         params={{ projectName, sourceId: s.id }}
-                        className="text-link hover:underline text-xs"
+                        className="text-link hover:underline"
+                        aria-label={`${s.displayName} detail`}
                       >
-                        Detail →
+                        Detail
                       </Link>
                     )}
                   </td>
@@ -231,55 +218,125 @@ function ServerActivityPanel({ projectName }: { projectName: string }) {
               ))}
             </tbody>
           </table>
-        </Card>
+        </div>
       )}
     </section>
   )
 }
 
 export function ActivitySection({ projectName }: { projectName: string }) {
-  // Owned here so the GA panel's selector and the server-fed chart cannot drift
-  // onto different ranges. The chart is a SIBLING of ClickThroughActivity, never
-  // a child: that component early-returns a connect prompt with no GA4 property,
-  // and the chart's data exists without GA4 at all.
+  // Owned here so every panel below reads the same range. The GA4 overview only
+  // shows the control in its heading; no GA4 state can take it away.
   const [trafficWindow, setTrafficWindow] = useState<MetricsWindow>('30d')
   return (
-    <div className="space-y-10">
+    <div>
       <ServerActivityPanel projectName={projectName} />
-      {/*
-        The picker lives HERE, not inside ClickThroughActivity. That component
-        returns a connect prompt before rendering its own controls when GA4 is
-        disconnected, which left the server chart visible but stuck on its
-        default range with no way to change it.
-      */}
-      <div className="flex items-center justify-end">
-        <MetricsWindowPicker
-          windows={TRAFFIC_WINDOWS}
-          value={trafficWindow}
-          onChange={setTrafficWindow}
-          label="Traffic time period"
-        />
-      </div>
-      <ClickThroughActivity projectName={projectName} window={trafficWindow} />
-      <AiTrafficHistoryPanel
+      <div className="page-section-divider" />
+      <ClickThroughActivity
         projectName={projectName}
-        sinceMinutes={TRAFFIC_WINDOW_MINUTES[trafficWindow]}
+        window={trafficWindow}
+        periodControl={(
+          <MetricsWindowPicker
+            windows={TRAFFIC_WINDOWS}
+            value={trafficWindow}
+            onChange={setTrafficWindow}
+            label="Traffic time period"
+          />
+        )}
+        between={(
+          <>
+            <div className="page-section-divider" />
+            <section aria-labelledby="ai-traffic-history-heading">
+              <SectionHeading
+                id="ai-traffic-history-heading"
+                title="AI traffic history"
+                tooltip={ACTIVITY_COPY.aiHistoryTooltip}
+              />
+              <AiTrafficHistoryPanel
+                projectName={projectName}
+                sinceMinutes={TRAFFIC_WINDOW_MINUTES[trafficWindow]}
+              />
+            </section>
+          </>
+        )}
       />
     </div>
   )
 }
 
-// Exported for focused testing of the GA4 click-through panel (e.g. landing-page
-// pagination) without standing up a router for the sibling ServerActivityPanel's links.
-export function ClickThroughActivity({ projectName, window: windowProp }: {
-  projectName: string
-  /** Owned by ActivitySection, which renders the only picker on the page. */
-  window?: MetricsWindow
-}) {
+const DIMENSION_LABELS: Record<string, string> = {
+  session: 'Session',
+  first_user: 'First visit',
+  manual_utm: 'UTM',
+}
+
+const DIMENSION_TOOLTIPS: Record<string, string> = {
+  session: 'Detected via GA4 sessionSource (referrer or utm_source for this session)',
+  first_user: 'Detected via GA4 firstUserSource (referrer from the user\'s first-ever visit)',
+  manual_utm: 'Detected via GA4 sessionManualSource (explicit utm_source parameter for the session)',
+}
+
+const AI_SOURCE_COLUMNS = [
+  { label: 'Source', align: 'left' },
+  { label: 'Medium', align: 'left' },
+  { label: 'Class', align: 'left' },
+  { label: 'Attribution', align: 'left' },
+  { label: 'Sessions', align: 'right' },
+  { label: 'Share', align: 'right' },
+] as const
+
+const SOCIAL_SOURCE_COLUMNS = [
+  { label: 'Source', align: 'left' },
+  { label: 'Medium', align: 'left' },
+  { label: 'Channel', align: 'left' },
+  { label: 'Sessions', align: 'right' },
+  { label: 'Share', align: 'right' },
+] as const
+
+/** AI traffic whose source names no engine: counted, never given an engine, listed last. */
+function isUnattributedAiGroup(group: { engine: string | null }): boolean {
+  return group.engine === null
+}
+
+function AiSourceCells({ row }: { row: ApiGaTrafficReferral }) {
+  return (
+    <>
+      <td className="max-w-[220px] truncate py-1.5 pr-3 text-strong" title={row.source}>{row.source}</td>
+      <td className="max-w-[160px] truncate py-1.5 pr-3 text-secondary" title={row.medium}>{row.medium}</td>
+      <td
+        className="py-1.5 pr-3 text-secondary"
+        title={row.trafficClass === 'paid'
+          ? 'Paid AI traffic, from paid UTM values or a GA4 paid channel group'
+          : 'AI traffic without a paid attribution signal'}
+      >
+        {row.trafficClass === 'paid' ? 'Paid' : 'Organic'}
+      </td>
+      <td className="py-1.5 pr-3 text-secondary" title={DIMENSION_TOOLTIPS[row.sourceDimension] ?? ''}>
+        {DIMENSION_LABELS[row.sourceDimension] ?? row.sourceDimension}
+      </td>
+      <td className="py-1.5 pl-4 text-right text-primary tabular-nums">{row.sessions.toLocaleString()}</td>
+      <td className="py-1.5 pl-4 text-right text-secondary tabular-nums">{formatPercent(row.share)}</td>
+    </>
+  )
+}
+
+function SocialSourceCells({ row }: { row: ApiGaSocialReferral }) {
+  return (
+    <>
+      <td className="max-w-[240px] truncate py-1.5 pr-3 text-strong" title={row.source}>{decodeSocialSourceLabel(row.source)}</td>
+      <td className="max-w-[160px] truncate py-1.5 pr-3 text-secondary" title={row.medium}>{decodeSocialSourceLabel(row.medium)}</td>
+      <td className="py-1.5 pr-3 text-secondary" title={`GA4 channel group: ${row.channelGroup}`}>
+        {row.channelGroup === 'Paid Social' ? 'Paid social' : 'Organic social'}
+      </td>
+      <td className="py-1.5 pl-4 text-right text-primary tabular-nums">{row.sessions.toLocaleString()}</td>
+      <td className="py-1.5 pl-4 text-right text-secondary tabular-nums">{formatPercent(row.share)}</td>
+    </>
+  )
+}
+
+/** GA4 reads and actions for the Activity tab, shared by its overview and its detail sections. */
+function useGaActivity(projectName: string, trafficWindow: MetricsWindow) {
   const queryClient = useQueryClient()
-  // Read-only here: ActivitySection owns the control. Defaulted so this
-  // component stays independently mountable in tests.
-  const trafficWindow = windowProp ?? '30d'
   const [status, setStatus] = useState<ApiGaStatus | null>(null)
   const [traffic, setTraffic] = useState<ApiGaTraffic | null>(null)
   const [loading, setLoading] = useState(true)
@@ -287,18 +344,9 @@ export function ClickThroughActivity({ projectName, window: windowProp }: {
   const [disconnecting, setDisconnecting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
-  const [pageSortKey, setPageSortKey] = useState<PageSortKey>('sessions')
-  const [pageSortDir, setPageSortDir] = useState<SortDir>('desc')
-  const [referralSortKey, setReferralSortKey] = useState<ReferralSortKey>('sessions')
-  const [referralSortDir, setReferralSortDir] = useState<SortDir>('desc')
-  const [socialSortKey, setSocialSortKey] = useState<SocialSortKey>('sessions')
-  const [socialSortDir, setSocialSortDir] = useState<SortDir>('desc')
-  const [aiLandingSortKey, setAiLandingSortKey] = useState<AiLandingPageSortKey>('sessions')
-  const [aiLandingSortDir, setAiLandingSortDir] = useState<SortDir>('desc')
   const [aiDaily, setAiDaily] = useState<GA4AiReferralDailyDto>(EMPTY_AI_DAILY)
   const [sessionHistory, setSessionHistory] = useState<GA4SessionHistoryEntry[]>([])
-  const [socialHistory, setSocialHistory] = useState<GA4SocialReferralHistoryEntry[]>([])
-  const [socialTableExpanded, setSocialTableExpanded] = useState(false)
+  const [overview, setOverview] = useState<GaOverviewResponse | null>(null)
 
   async function loadData(cancelled: { current: boolean }) {
     setLoading(true)
@@ -319,35 +367,25 @@ export function ClickThroughActivity({ projectName, window: windowProp }: {
         setTraffic(null)
         setAiDaily(EMPTY_AI_DAILY)
         setSessionHistory([])
-        setSocialHistory([])
+        setOverview(null)
         setLoading(false)
         return
       }
 
       // `window === 'all'` collapses to omitting the param; helper-level
-      // contracts treat unset / 'all' identically.
+      // contracts treat unset / 'all' identically. The Social chart rides in
+      // the traffic response, so it shares that response's window by
+      // construction.
       const windowParam = trafficWindow === 'all' ? undefined : trafficWindow
-      const trafficData: ApiGaTraffic = await queryClient.fetchQuery({
-        ...getApiV1ProjectsByNameGaTrafficOptions({
-          client: heyClient,
-          path: { name: projectName },
-          query: windowParam ? { window: windowParam } : undefined,
+      const [trafficData, aiDailyData, sessionHistoryData, overviewData] = await Promise.all([
+        queryClient.fetchQuery({
+          ...getApiV1ProjectsByNameGaTrafficOptions({
+            client: heyClient,
+            path: { name: projectName },
+            query: windowParam ? { window: windowParam } : undefined,
+          }),
+          staleTime: TRAFFIC_STALE_MS,
         }),
-        staleTime: TRAFFIC_STALE_MS,
-      })
-
-      // A window token is rolling for direct API/CLI callers, while the
-      // traffic response may use a stored aggregate's exact measured dates.
-      // Pin the Social chart to those returned bounds so it cannot drift from
-      // the Social cards and table beside it without changing the public API.
-      const socialRangeQuery = trafficData.windowStart || trafficData.windowEnd
-        ? {
-            ...(trafficData.windowStart ? { startDate: trafficData.windowStart } : {}),
-            ...(trafficData.windowEnd ? { endDate: trafficData.windowEnd } : {}),
-          }
-        : undefined
-
-      const [aiDailyData, sessionHistoryData, socialHistoryData] = await Promise.all([
         queryClient.fetchQuery({
           ...getApiV1ProjectsByNameGaAiReferralDailyOptions({
             client: heyClient,
@@ -364,20 +402,22 @@ export function ClickThroughActivity({ projectName, window: windowProp }: {
           }),
           staleTime: TRAFFIC_STALE_MS,
         }).catch(() => [] as GA4SessionHistoryEntry[]),
+        // The GA4 overview has no 'all' window; the page never offers one.
+        // A server too old for the read leaves the plain figures in its place.
         queryClient.fetchQuery({
-          ...getApiV1ProjectsByNameGaSocialReferralHistoryOptions({
+          ...getApiV1ProjectsByNameGaOverviewOptions({
             client: heyClient,
             path: { name: projectName },
-            query: socialRangeQuery,
+            query: { window: isGaOverviewWindow(trafficWindow) ? trafficWindow : '30d' },
           }),
           staleTime: TRAFFIC_STALE_MS,
-        }).catch(() => [] as GA4SocialReferralHistoryEntry[]),
+        }).catch(() => null),
       ])
       if (cancelled.current) return
       setTraffic(trafficData)
       setAiDaily(aiDailyData)
       setSessionHistory(sessionHistoryData)
-      setSocialHistory(socialHistoryData)
+      setOverview(overviewData)
       setLoading(false)
     } catch (err) {
       if (cancelled.current) return
@@ -419,6 +459,7 @@ export function ClickThroughActivity({ projectName, window: windowProp }: {
       await invalidateProjectQueryDomain(queryClient, 'ga')
       setStatus({ connected: false, propertyId: null, clientEmail: null, lastSyncedAt: null, createdAt: null, updatedAt: null })
       setTraffic(null)
+      setOverview(null)
       setNotice('GA4 disconnected')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Disconnect failed')
@@ -427,45 +468,179 @@ export function ClickThroughActivity({ projectName, window: windowProp }: {
     }
   }
 
-  function handlePageSort(key: PageSortKey) {
-    topPagesTable.setPage(1)
-    if (pageSortKey === key) {
-      setPageSortDir((d) => (d === 'desc' ? 'asc' : 'desc'))
-    } else {
-      setPageSortKey(key)
-      setPageSortDir('desc')
-    }
+  async function handleConnected() {
+    await invalidateProjectQueryDomain(queryClient, 'ga')
+    await loadData({ current: false })
   }
 
-  function handleReferralSort(key: ReferralSortKey) {
-    if (referralSortKey === key) {
-      setReferralSortDir((d) => (d === 'desc' ? 'asc' : 'desc'))
-    } else {
-      setReferralSortKey(key)
-      setReferralSortDir('desc')
-    }
+  return {
+    status,
+    traffic,
+    loading,
+    syncing,
+    disconnecting,
+    error,
+    notice,
+    aiDaily,
+    sessionHistory,
+    overview,
+    handleSync,
+    handleDisconnect,
+    handleConnected,
+  }
+}
+
+type GaActivity = ReturnType<typeof useGaActivity>
+
+// Exported for focused testing of the GA4 panels (e.g. landing-page pagination)
+// without standing up a router for the ServerActivityPanel's links.
+export function ClickThroughActivity({ projectName, window: windowProp, periodControl, between }: {
+  projectName: string
+  /** Owned by ActivitySection, which renders the only picker on the page. */
+  window?: MetricsWindow
+  /** That picker, shown in the Site traffic heading. Absent when mounted alone. */
+  periodControl?: ReactNode
+  /**
+   * Rendered between the GA4 overview and the GA4 detail sections, and outside
+   * every GA4 state: GaOverview and GaDetails own the loading state and the
+   * connect prompt, so a disconnected GA4 cannot take this away. ActivitySection
+   * puts the AI traffic history here, which needs no GA4 at all.
+   */
+  between?: ReactNode
+}) {
+  // Read-only here: ActivitySection owns the control. Defaulted so this
+  // component stays independently mountable in tests.
+  const ga = useGaActivity(projectName, windowProp ?? '30d')
+  return (
+    <>
+      <GaOverview ga={ga} projectName={projectName} periodControl={periodControl} />
+      {between}
+      <GaDetails ga={ga} projectName={projectName} />
+    </>
+  )
+}
+
+/** "Site traffic": the GA4 figures and sessions per day, or the state that stands in for them. */
+function GaOverview({ ga, projectName, periodControl }: {
+  ga: GaActivity
+  projectName: string
+  periodControl?: ReactNode
+}) {
+  const { status, traffic, syncing, disconnecting, handleSync, handleDisconnect } = ga
+  const connected = status?.connected === true
+  const canManage = connected && !isEmbed() && !isPublicDemo()
+  const windowLabel = traffic ? formatWindow(traffic.windowStart, traffic.windowEnd) : null
+
+  let body: ReactNode
+  if (ga.loading && !status) {
+    body = <p className="text-copy-14 text-secondary">Loading traffic data…</p>
+  } else if (!connected) {
+    body = isEmbed() || isPublicDemo()
+      ? <p className="text-copy-14 text-secondary">No Google Analytics 4 property connected.</p>
+      : <Ga4ConnectForm projectName={projectName} onConnected={() => { void ga.handleConnected() }} />
+  } else if (traffic && ga.overview) {
+    body = <SiteTrafficCard overview={ga.overview} refreshing={ga.loading} />
+  } else if (traffic) {
+    body = (
+      <>
+        <KpiRow
+          label="Site traffic"
+          items={[
+            { label: 'Total sessions', value: formatCompact(traffic.totalSessions), detail: traffic.totalSessions.toLocaleString() },
+            { label: 'Organic sessions', value: formatCompact(traffic.totalOrganicSessions), detail: `${traffic.organicSharePctDisplay} of total` },
+            {
+              label: 'Total users',
+              value: traffic.totalUsers === null ? 'n/a' : formatCompact(traffic.totalUsers),
+              detail: traffic.totalUsers === null ? 'Unavailable for this range' : traffic.totalUsers.toLocaleString(),
+            },
+          ]}
+        />
+      </>
+    )
+  } else {
+    body = (
+      <div className="flex flex-wrap items-center gap-3 border-y border-default py-4">
+        <p className="text-copy-14 text-secondary">No traffic data yet.</p>
+        {!isEmbed() && !isPublicDemo() && (
+          <Button variant="outline" size="sm" disabled={syncing} onClick={asyncHandler(handleSync)}>
+            <RefreshCw className={`mr-1.5 size-3.5 ${syncing ? 'animate-spin' : ''}`} />
+            Sync from GA4
+          </Button>
+        )}
+      </div>
+    )
   }
 
-  function handleSocialSort(key: SocialSortKey) {
-    if (socialSortKey === key) {
-      setSocialSortDir((d) => (d === 'desc' ? 'asc' : 'desc'))
-    } else {
-      setSocialSortKey(key)
-      setSocialSortDir('desc')
-    }
-  }
+  return (
+    <section aria-labelledby="site-traffic-heading">
+      <SectionHeading
+        id="site-traffic-heading"
+        title="Site traffic"
+        tooltip={ga.overview
+          ? ACTIVITY_COPY.siteTrafficTooltip
+          : windowLabel ? `${ACTIVITY_COPY.siteTrafficFallbackTooltip} Data covers ${windowLabel}.` : ACTIVITY_COPY.siteTrafficFallbackTooltip}
+        meta={connected ? (
+          <span className="inline-flex items-center gap-1.5">
+            <span aria-hidden="true" className="inline-block size-2 rounded-full bg-positive-500" />
+            GA4 property <span className="text-strong">{status.propertyId}</span>
+            {status.clientEmail && <span className="text-muted">· {status.clientEmail}</span>}
+          </span>
+        ) : undefined}
+        actions={periodControl || canManage ? (
+          <div className="flex flex-wrap items-center gap-2">
+            {periodControl}
+            {canManage && (
+              <>
+                <Button variant="outline" size="sm" disabled={syncing} onClick={asyncHandler(handleSync)}>
+                  <RefreshCw className={`mr-1.5 size-3.5 ${syncing ? 'animate-spin' : ''}`} />
+                  {syncing ? 'Syncing…' : 'Sync'}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-negative-400 hover:text-negative"
+                  disabled={disconnecting}
+                  onClick={asyncHandler(handleDisconnect)}
+                >
+                  <Unplug className="mr-1.5 size-3.5" />
+                  Disconnect
+                </Button>
+              </>
+            )}
+          </div>
+        ) : undefined}
+      />
+      {ga.error && (
+        <div role="alert" className="mb-4 rounded-md border border-negative-800/60 bg-negative-900/20 px-4 py-2 text-label-14 text-negative">
+          {ga.error}
+        </div>
+      )}
+      {ga.notice && (
+        <div role="status" className="mb-4 rounded-md border border-positive-800/60 bg-positive-900/20 px-4 py-2 text-label-14 text-positive">
+          {ga.notice}
+        </div>
+      )}
+      {body}
+    </section>
+  )
+}
+
+/** The GA4 sections under the overview. Each section's figures stay in view; its charts and tables open in place. */
+function GaDetails({ ga, projectName }: { ga: GaActivity; projectName: string }) {
+  const { traffic, aiDaily, sessionHistory } = ga
+  const [pageSort, setPageSort] = useState<{ key: PageSortKey; dir: SortDir }>({ key: 'sessions', dir: 'desc' })
+  const [aiLandingSort, setAiLandingSort] = useState<{ key: AiLandingPageSortKey; dir: SortDir }>({ key: 'sessions', dir: 'desc' })
 
   const sortedPages = useMemo(() => {
     if (!traffic?.topPages) return []
+    const { key, dir } = pageSort
     return [...traffic.topPages].sort((a, b) => {
-      const av = a[pageSortKey]
-      const bv = b[pageSortKey]
-      if (typeof av === 'string' && typeof bv === 'string') {
-        return pageSortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av)
-      }
-      return pageSortDir === 'asc' ? (av as number) - (bv as number) : (bv as number) - (av as number)
+      const av = a[key]
+      const bv = b[key]
+      const order = typeof av === 'string' && typeof bv === 'string' ? av.localeCompare(bv) : Number(av) - Number(bv)
+      return dir === 'asc' ? order : -order
     })
-  }, [traffic?.topPages, pageSortKey, pageSortDir])
+  }, [traffic?.topPages, pageSort])
 
   const topPagesTable = useClientTable({
     rows: sortedPages,
@@ -473,36 +648,50 @@ export function ClickThroughActivity({ projectName, window: windowProp }: {
     pageSize: TOP_PAGE_SIZE,
   })
 
-  const sortedAiReferrals = useMemo(() => {
-    if (!traffic?.aiReferrals) return []
-    return [...traffic.aiReferrals].sort((a, b) => {
-      const av = a[referralSortKey]
-      const bv = b[referralSortKey]
-      if (typeof av === 'string' && typeof bv === 'string') {
-        return referralSortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av)
-      }
-      return referralSortDir === 'asc' ? (av as number) - (bv as number) : (bv as number) - (av as number)
-    })
-  }, [traffic?.aiReferrals, referralSortKey, referralSortDir])
-
   const sortedAiLandingPages = useMemo(() => {
     if (!traffic?.aiReferralLandingPages) return []
-    return [...traffic.aiReferralLandingPages]
-      .sort((a, b) => {
-        const av = a[aiLandingSortKey]
-        const bv = b[aiLandingSortKey]
-        if (typeof av === 'string' && typeof bv === 'string') {
-          return aiLandingSortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av)
-        }
-        return aiLandingSortDir === 'asc' ? (av as number) - (bv as number) : (bv as number) - (av as number)
-      })
-  }, [traffic?.aiReferralLandingPages, aiLandingSortKey, aiLandingSortDir])
+    const { key, dir } = aiLandingSort
+    return [...traffic.aiReferralLandingPages].sort((a, b) => {
+      const av = a[key]
+      const bv = b[key]
+      const order = typeof av === 'string' && typeof bv === 'string' ? av.localeCompare(bv) : Number(av) - Number(bv)
+      return dir === 'asc' ? order : -order
+    })
+  }, [traffic?.aiReferralLandingPages, aiLandingSort])
 
   const aiLandingTable = useClientTable({
     rows: sortedAiLandingPages,
     getSearchText: aiLandingPageSearchText,
     pageSize: AI_LANDING_PAGE_SIZE,
   })
+
+  // The total-sessions reference line beside the AI stack. Kept above the
+  // early returns so the hook order stays stable while connection state changes.
+  const sessionBaseline = useMemo(
+    () => sessionHistory.map((entry) => ({ date: entry.date, value: entry.sessions })),
+    [sessionHistory],
+  )
+
+  function sortPages(key: PageSortKey) {
+    topPagesTable.setPage(1)
+    setPageSort((current) => (current.key === key ? { key, dir: current.dir === 'desc' ? 'asc' : 'desc' } : { key, dir: 'desc' }))
+  }
+
+  function sortAiLanding(key: AiLandingPageSortKey) {
+    aiLandingTable.setPage(1)
+    setAiLandingSort((current) => (current.key === key ? { key, dir: current.dir === 'desc' ? 'asc' : 'desc' } : { key, dir: 'desc' }))
+  }
+
+  if (!ga.status?.connected) return null
+
+  const windowLabel = traffic ? formatWindow(traffic.windowStart, traffic.windowEnd) : null
+  const breakdown = traffic?.channelBreakdown
+  const paidAiSessions = traffic?.paidAiSessionsBySession ?? 0
+  // Optional only for an API older than the grouping: a degraded table, not a crash.
+  const aiEngines = traffic?.aiEngines ?? []
+  const socialPlatforms = traffic?.socialPlatforms ?? []
+  const topPlatform = socialPlatforms[0] ?? null
+  // A row is one landing page under one source, so the count is of rows, not pages.
   const aiLandingRowCount = aiLandingTable.totalRows > 0
     ? `${aiLandingTable.totalRows.toLocaleString()} ${
       aiLandingTable.hasQuery
@@ -511,721 +700,206 @@ export function ClickThroughActivity({ projectName, window: windowProp }: {
     }`
     : aiLandingTable.hasQuery && (traffic?.aiReferralLandingPages.length ?? 0) > 0
       ? '0 matches'
-      : 'No landing-page rows'
-
-  function handleAiLandingSort(key: AiLandingPageSortKey) {
-    aiLandingTable.setPage(1)
-    if (aiLandingSortKey === key) {
-      setAiLandingSortDir((d) => (d === 'desc' ? 'asc' : 'desc'))
-    } else {
-      setAiLandingSortKey(key)
-      setAiLandingSortDir('desc')
-    }
-  }
-
-  const sortedSocialReferrals = useMemo(() => {
-    if (!traffic?.socialReferrals) return []
-    return [...traffic.socialReferrals].sort((a, b) => {
-      const av = a[socialSortKey]
-      const bv = b[socialSortKey]
-      if (typeof av === 'string' && typeof bv === 'string') {
-        return socialSortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av)
-      }
-      return socialSortDir === 'asc' ? (av as number) - (bv as number) : (bv as number) - (av as number)
-    })
-  }, [traffic?.socialReferrals, socialSortKey, socialSortDir])
-
-  const { socialChartData, socialChartSources, socialOtherCount } = useMemo(() => {
-    const agg = aggregateSocialChartData(socialHistory)
-    return {
-      socialChartData: agg.data,
-      socialChartSources: agg.sources,
-      socialOtherCount: agg.otherCount,
-    }
-  }, [socialHistory])
-
-  // Keep this above the early returns so the hook order stays stable while the
-  // component transitions from loading or disconnected to connected.
-  const { chartData, chartSources, dateRange } = useMemo(() => {
-    const agg = buildAiChartData(aiDaily, sessionHistory)
-    return { chartData: agg.data, chartSources: agg.sources, dateRange: agg.dateRange }
-  }, [aiDaily, sessionHistory])
-
-  if (loading && !status) {
-    return <p className="text-sm text-muted py-8 text-center">Loading traffic data…</p>
-  }
-
-  // Not connected state
-  if (!status?.connected) {
-    if (isEmbed() || isPublicDemo()) {
-      return (
-        <Card className="p-5">
-          <div className="text-sm text-secondary">
-            No Google Analytics 4 property connected yet.
-          </div>
-        </Card>
-      )
-    }
-    return (
-      <Ga4ConnectForm
-        projectName={projectName}
-        onConnected={() => {
-          void (async () => {
-            await invalidateProjectQueryDomain(queryClient, 'ga')
-            await loadData({ current: false })
-          })()
-        }}
-      />
-    )
-  }
-
-  const organicPctDisplay = traffic?.organicSharePctDisplay ?? '0%'
-  const breakdownOrganicPctDisplay = traffic?.channelBreakdown?.organic.sharePctDisplay ?? organicPctDisplay
-  const breakdownOrganicSessions = traffic?.channelBreakdown?.organic.sessions ?? traffic?.totalOrganicSessions ?? 0
-  const aiSessionsBySession = traffic?.channelBreakdown?.ai.sessions ?? traffic?.aiSessionsBySession ?? 0
-  const aiSharePctBySessionDisplay = traffic?.channelBreakdown?.ai.sharePctDisplay ?? traffic?.aiSharePctBySessionDisplay ?? '0%'
-  const paidAiSessionsBySession = traffic?.paidAiSessionsBySession ?? 0
-  const paidAiSharePctBySessionDisplay = traffic?.paidAiSharePctBySessionDisplay ?? '0%'
-  const aiSourceCount = traffic ? new Set(traffic.aiReferrals.map((referral) => referral.source.toLowerCase())).size : 0
-  const topAiSource = sortedAiReferrals[0] ?? null
-  const directSessions = traffic?.totalDirectSessions ?? 0
-  const directSharePctDisplay = traffic?.directSharePctDisplay ?? '0%'
-  const breakdownDirectSessions = traffic?.channelBreakdown?.direct.sessions ?? directSessions
-  const breakdownDirectPctDisplay = traffic?.channelBreakdown?.direct.sharePctDisplay ?? directSharePctDisplay
-  const otherSessions = traffic?.channelBreakdown?.other.sessions ?? traffic?.otherSessions ?? 0
-  const otherSharePctDisplay = traffic?.channelBreakdown?.other.sharePctDisplay ?? traffic?.otherSharePctDisplay ?? '0%'
-
-  const socialSessions = traffic?.socialSessions ?? 0
-  const socialSharePctDisplay = traffic?.socialSharePctDisplay ?? '0%'
-  const breakdownSocialSessions = traffic?.channelBreakdown?.social.sessions ?? socialSessions
-  const breakdownSocialPctDisplay = traffic?.channelBreakdown?.social.sharePctDisplay ?? socialSharePctDisplay
-  const socialSourceCount = traffic ? new Set(traffic.socialReferrals.map((r) => r.source.toLowerCase())).size : 0
-  const topSocialSource = sortedSocialReferrals[0] ?? null
+      : null
 
   return (
     <>
-      {/* Error / Notice banners */}
-      {error && (
-        <div className="mb-4 px-4 py-2 rounded-lg bg-negative-900/20 border border-negative-800/60 text-sm text-negative">
-          {error}
-        </div>
-      )}
-      {notice && (
-        <div className="mb-4 px-4 py-2 rounded-lg bg-positive-900/20 border border-positive-800/60 text-sm text-positive">
-          {notice}
-        </div>
-      )}
-
-      {/* Connection info bar */}
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
-          <span className="inline-block w-2 h-2 rounded-full bg-positive-500" />
-          <span className="text-xs text-secondary">
-            Property <span className="text-neutral">{status.propertyId}</span>
-            {status.clientEmail && <> &middot; <span className="text-muted">{status.clientEmail}</span></>}
-          </span>
-        </div>
-        {!isEmbed() && !isPublicDemo() && (
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={syncing}
-              onClick={asyncHandler(handleSync)}
-            >
-              <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${syncing ? 'animate-spin' : ''}`} />
-              {syncing ? 'Syncing…' : 'Sync'}
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-negative-400 hover:text-negative"
-              disabled={disconnecting}
-              onClick={asyncHandler(handleDisconnect)}
-            >
-              <Unplug className="w-3.5 h-3.5 mr-1.5" />
-              Disconnect
-            </Button>
-          </div>
-        )}
-      </div>
-
-      {/* Summary gauges */}
-      <section>
-        <div className="mb-4 flex items-start justify-between">
-          <div>
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted mb-1">Traffic Overview</p>
-            <h2 className="text-base font-semibold text-primary flex items-center gap-1.5">
-              Site Traffic
-              <InfoTooltip text={`Aggregated traffic metrics from Google Analytics 4.${traffic?.periodStart && traffic?.periodEnd ? ` Data available: ${new Date(traffic.periodStart + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })} – ${new Date(traffic.periodEnd + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}.` : ''} Distinct users are unavailable when the selected history extends beyond a stored aggregate. Organic sessions are Google organic search sessions specifically.`} />
-            </h2>
-          </div>
-        </div>
-
-        {traffic ? (
-          <div className="grid gap-4 md:grid-cols-3">
-            <TrafficMetric
-              value={formatCompact(traffic.totalSessions)}
-              label="Total Sessions"
-              subtitle={traffic.totalSessions.toLocaleString()}
-              tone="neutral"
-            />
-            <TrafficMetric
-              value={formatCompact(traffic.totalOrganicSessions)}
-              label="Organic Sessions"
-              subtitle={`${organicPctDisplay} of total`}
-              tone="positive"
-            />
-            <TrafficMetric
-              value={traffic.totalUsers === null ? '—' : formatCompact(traffic.totalUsers)}
-              label="Total Users"
-              subtitle={traffic.totalUsers === null ? 'Unavailable for this range' : traffic.totalUsers.toLocaleString()}
-              tone="neutral"
-            />
-          </div>
-        ) : (
-          <div className="surface-card rounded-lg p-6 text-center border border-default">
-            <p className="text-sm text-secondary mb-3">No traffic data yet.</p>
-            {!isEmbed() && !isPublicDemo() && (
-              <Button variant="outline" size="sm" disabled={syncing} onClick={asyncHandler(handleSync)}>
-                <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${syncing ? 'animate-spin' : ''}`} />
-                Sync from GA4
-              </Button>
-            )}
-          </div>
-        )}
-      </section>
-
-      {/* Traffic channel attribution */}
-      {traffic && (
+      {traffic && breakdown && (
         <>
           <div className="page-section-divider" />
 
-          <section>
-            <div className="mb-4 flex items-end justify-between">
-              <div>
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted mb-1">Traffic Attribution</p>
-                <h2 className="text-base font-semibold text-primary flex items-center gap-1.5">
-                  Traffic by channel
-                  <InfoTooltip text="Decomposes GA4 sessions into five disjoint channels — known AI referrers first, then organic search, social, direct, and other channels. Known AI includes paid and organic AI referrals; paid rows are labeled in the source table below. Known AI referrers are removed from their native GA4 channel before the residual Other bucket is computed." />
-                </h2>
-              </div>
-              {dateRange && (
-                <p className="text-xs text-muted">
-                  {new Date(dateRange.start + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-                  {' \u2013 '}
-                  {new Date(dateRange.end + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
-                </p>
-              )}
-            </div>
+          <section aria-labelledby="traffic-by-channel-heading">
+            <SectionHeading
+              id="traffic-by-channel-heading"
+              title="Traffic by channel"
+              tooltip={ACTIVITY_COPY.channelTooltip}
+              meta={windowLabel}
+            />
+            <KpiRow
+              label="Sessions by channel"
+              items={[
+                { label: 'Organic search', value: breakdown.organic.sharePctDisplay, detail: `${breakdown.organic.sessions.toLocaleString()} sessions`, tooltip: ACTIVITY_COPY.organicTooltip },
+                { label: 'Social', value: breakdown.social.sharePctDisplay, detail: `${breakdown.social.sessions.toLocaleString()} sessions`, tooltip: ACTIVITY_COPY.socialTooltip },
+                { label: 'Direct', value: breakdown.direct.sharePctDisplay, detail: `${breakdown.direct.sessions.toLocaleString()} sessions`, tooltip: ACTIVITY_COPY.directTooltip },
+                {
+                  label: 'AI (at least)',
+                  value: breakdown.ai.sharePctDisplay,
+                  detail: paidAiSessions > 0
+                    ? `${breakdown.ai.sessions.toLocaleString()} sessions · ${paidAiSessions.toLocaleString()} paid`
+                    : `${breakdown.ai.sessions.toLocaleString()} sessions`,
+                  tooltip: ACTIVITY_COPY.aiTooltip,
+                },
+                { label: 'Other channels', value: breakdown.other.sharePctDisplay, detail: `${breakdown.other.sessions.toLocaleString()} sessions`, tooltip: ACTIVITY_COPY.otherTooltip },
+              ]}
+            />
 
-            {/* Always show the sessions chart when we have date-level data */}
-            {chartData.length > 0 && (
-              <Card className="surface-card p-5 mb-4">
-                <div className="mb-4 flex items-end justify-between">
-                  <div>
-                    <p className="eyebrow eyebrow-soft">Trend</p>
-                    <h3 className="text-sm font-semibold text-heading">
-                      {chartSources.length > 0 ? 'AI vs. total sessions' : 'All sessions (baseline)'}
-                    </h3>
-                    {chartSources.length === 0 && (
-                      <p className="text-xs text-muted mt-0.5">AI referral sessions will be overlaid here once detected</p>
-                    )}
-                  </div>
-                  {chartSources.length === 0 && (
-                    <p className="text-xs text-muted">No AI referrals detected yet</p>
-                  )}
-                </div>
-                <div className="h-64">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <ComposedChart data={chartData} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
-                      <XAxis
-                        dataKey="date"
-                        tick={CHART_AXIS_TICK}
-                        tickLine={false}
-                        axisLine={{ stroke: CHART_AXIS_STROKE }}
-                        tickFormatter={formatChartDateTick}
-                      />
-                      <YAxis
-                        tick={CHART_AXIS_TICK}
-                        tickLine={false}
-                        axisLine={false}
-                        allowDecimals={false}
-                        width={36}
-                      />
-                      <RechartsTooltip
-                        {...CHART_TOOLTIP_STYLE}
-                        labelFormatter={formatChartDateLabel}
-                        formatter={(value, name) => {
-                          const formatted = typeof value === 'number' ? value.toLocaleString() : String(value ?? 0)
-                          const key = String(name ?? '')
-                          if (key === '_totalSessions') return [formatted, 'Total Sessions']
-                          if (key === '_organicSessions') return [formatted, 'Organic Sessions']
-                          return [formatted, key]
-                        }}
-                      />
-                      <Legend
-                        wrapperStyle={{ fontSize: 11, color: CHART_NEUTRAL.text }}
-                        formatter={(value: string) => {
-                          if (value === '_totalSessions') return 'Total Sessions'
-                          if (value === '_organicSessions') return 'Organic Sessions'
-                          return value
-                        }}
-                      />
-                      {/* Total sessions as a subtle area */}
-                      <Area
-                        type="monotone"
-                        dataKey="_totalSessions"
-                        stroke={CHART_NEUTRAL.textFaint}
-                        fill={CHART_NEUTRAL.surface}
-                        fillOpacity={0.4}
-                        strokeWidth={1.5}
-                        dot={false}
-                      />
-                      {/* AI referral sources stacked on top */}
-                      {chartSources.map((source, i) => (
-                        <Area
-                          key={source}
-                          type="monotone"
-                          dataKey={source}
-                          stackId="ai"
-                          stroke={SOURCE_COLORS[i % SOURCE_COLORS.length]}
-                          fill={SOURCE_COLORS[i % SOURCE_COLORS.length]}
-                          fillOpacity={0.4}
-                          strokeWidth={1.5}
-                        />
-                      ))}
-                    </ComposedChart>
-                  </ResponsiveContainer>
-                </div>
-              </Card>
-            )}
-
-            <Card className="surface-card p-5 mb-4">
-              <div className="mb-4">
-                <p className="eyebrow eyebrow-soft">Summary</p>
-                <h3 className="text-sm font-semibold text-heading">Sessions by channel</h3>
-              </div>
-
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-                <AttributionStat
-                  label="Organic"
-                  value={breakdownOrganicPctDisplay}
-                  hint={`${breakdownOrganicSessions.toLocaleString()} sessions`}
-                  tone="positive"
-                  tooltip="Sessions from Google organic search (sessionDefaultChannelGrouping = 'Organic Search'), after known AI referrers are removed for a disjoint channel breakdown."
-                />
-                <AttributionStat
-                  label="Social"
-                  value={breakdownSocialPctDisplay}
-                  hint={`${breakdownSocialSessions.toLocaleString()} sessions`}
-                  tone="neutral"
-                  tooltip="Sessions from social platforms (sessionDefaultChannelGrouping = 'Organic Social' or 'Paid Social'), after known AI referrers are removed for a disjoint channel breakdown."
-                />
-                <AttributionStat
-                  label="Direct"
-                  value={breakdownDirectPctDisplay}
-                  hint={`${breakdownDirectSessions.toLocaleString()} sessions`}
-                  tone="neutral"
-                  tooltip="Sessions with no source — bookmarks, typed URLs, untagged email, in-app browsers, and AI-driven traffic whose referrer header was stripped. Known AI referrers are removed if GA4 classified them as Direct."
-                />
-                <AttributionStat
-                  label="Visitors from AI (at least)"
-                  value={aiSharePctBySessionDisplay}
-                  hint={paidAiSessionsBySession > 0
-                    ? `${aiSessionsBySession.toLocaleString()} sessions · ${paidAiSessionsBySession.toLocaleString()} paid`
-                    : `${aiSessionsBySession.toLocaleString()} sessions`}
-                  tone="positive"
-                  tooltip="Sessions whose current sessionSource matched a known AI engine (e.g. chatgpt.com, claude.ai, gemini.google.com). Paid AI is inferred from paid/cpc/sponsored UTM values or GA4 paid channel groups. Untagged ad clicks with no referrer still fall under Direct because GA4 has no paid evidence for them."
-                />
-                <AttributionStat
-                  label="Other channels"
-                  value={otherSharePctDisplay}
-                  hint={`${otherSessions.toLocaleString()} sessions`}
-                  tone="neutral"
-                  tooltip="Remaining GA4 session default channel groups after Known AI, Organic Search, Organic/Paid Social, and Direct are accounted for. This is a residual bucket, not a single source. It can include Referral, Email, Paid Search, Display, Cross-network, Shopping, Video, Affiliates, SMS, Mobile Push Notifications, Paid Other, and unclassified traffic."
-                />
-              </div>
-
-              {topAiSource && (
-                <div className="mt-4 rounded-lg border border-positive-800/40 bg-positive-500/6 px-4 py-3 text-sm text-positive-100">
-                  Top AI referrer: <span className="font-medium">{topAiSource.source}</span> via {topAiSource.medium}, accounting for {topAiSource.sessions.toLocaleString()} sessions.
-                  {paidAiSessionsBySession > 0 && (
-                    <span> Paid AI: {paidAiSessionsBySession.toLocaleString()} sessions ({paidAiSharePctBySessionDisplay}).</span>
-                  )}
-                </div>
-              )}
-            </Card>
-
-            <Card className="surface-card p-5 mb-4">
-              <div className="mb-4 flex items-end justify-between gap-3">
-                <div>
-                  <p className="eyebrow eyebrow-soft">Detail</p>
-                  <h3 className="text-sm font-semibold text-heading">Where AI visitors came from</h3>
-                </div>
-                <p className="text-xs text-muted">
-                  {traffic.aiReferrals.length > 0 ? `${aiSourceCount} unique sources, ${traffic.aiReferrals.length} rows` : 'No source rows'}
-                </p>
-              </div>
-
-              {traffic.aiReferrals.length > 0 ? (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="text-[10px] uppercase tracking-wider text-muted">
-                        <SortHeader label="Source" sortKey="source" current={referralSortKey} dir={referralSortDir} onSort={handleReferralSort} align="left" />
-                        <SortHeader label="Medium" sortKey="medium" current={referralSortKey} dir={referralSortDir} onSort={handleReferralSort} align="left" />
-                        <th className="py-1 font-medium text-left">Class</th>
-                        <th className="py-1 font-medium text-left">Attribution</th>
-                        <SortHeader label="Sessions" sortKey="sessions" current={referralSortKey} dir={referralSortDir} onSort={handleReferralSort} align="right" />
-                        <th className="py-1 font-medium text-right">Share</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {sortedAiReferrals.map((referral) => (
-                        <AiReferralRow key={`${referral.source}:${referral.medium}:${referral.sourceDimension}`} referral={referral} />
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                <div className="flex flex-col items-center justify-center py-8 text-center">
-                  <p className="text-sm text-secondary mb-2">No AI referrer sessions detected yet</p>
-                  <p className="text-xs text-muted max-w-sm">
-                    AI engines that preserve a referrer (Perplexity, copy/paste from ChatGPT, etc.) will appear here. Most AI traffic strips the referrer — see the Direct cell above for the upper bound.
-                  </p>
-                </div>
-              )}
-            </Card>
-
-            <Card className="surface-card p-5">
-              <div className="mb-4 flex items-end justify-between gap-3">
-                <div>
-                  <p className="eyebrow eyebrow-soft">Detail</p>
-                  <h3 className="text-sm font-semibold text-heading">Pages AI visitors landed on</h3>
-                </div>
-                <p className="text-xs text-muted">
-                  {aiLandingRowCount}
-                </p>
-              </div>
-
-              {traffic.aiReferralLandingPages.length > 0 ? (
-                <>
-                  <DataTableSearch
-                    value={aiLandingTable.query}
-                    onChange={aiLandingTable.setQuery}
-                    label="Filter landing page URLs or query parameters"
-                    placeholder="Filter URL or query parameters"
-                    className="mb-4 max-w-md"
+            <DisclosureRows>
+              <DisclosureRow
+                label={ACTIVITY_COPY.aiChartLabel}
+                meta={aiDaily.days.length > 0 ? countOf(aiDaily.totalSessions, 'session') : ACTIVITY_COPY.noneInPeriod}
+              >
+                {aiDaily.days.length > 0 ? (
+                  <StackedSeriesChart
+                    input={aiDaily.byEngine}
+                    baseline={sessionBaseline}
+                    baselineLabel="Total sessions"
+                    label={ACTIVITY_COPY.aiChartLabel}
                   />
+                ) : (
+                  <p className="text-copy-14 text-secondary">{ACTIVITY_COPY.noAiReferrals}</p>
+                )}
+              </DisclosureRow>
 
-                  {aiLandingTable.totalRows > 0 ? (
-                    <>
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-sm">
-                          <thead>
-                            <tr className="text-[10px] uppercase tracking-wider text-muted">
-                              <SortHeader label="Landing Page" sortKey="landingPage" current={aiLandingSortKey} dir={aiLandingSortDir} onSort={handleAiLandingSort} align="left" />
-                              <SortHeader label="Source" sortKey="source" current={aiLandingSortKey} dir={aiLandingSortDir} onSort={handleAiLandingSort} align="left" />
-                              <th className="py-1 font-medium text-left">Attribution</th>
-                              <SortHeader label="Sessions" sortKey="sessions" current={aiLandingSortKey} dir={aiLandingSortDir} onSort={handleAiLandingSort} align="right" />
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {aiLandingTable.rows.map((row) => (
-                              <AiReferralLandingPageRow
-                                key={`${row.landingPage}:${row.source}:${row.medium}:${row.sourceDimension}`}
-                                row={row}
-                              />
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-
-                      <DataTablePagination
-                        page={aiLandingTable.page}
-                        pageSize={aiLandingTable.pageSize}
-                        visibleRows={aiLandingTable.rows.length}
-                        totalRows={aiLandingTable.totalRows}
-                        onPageChange={aiLandingTable.setPage}
-                        itemLabel={aiLandingTable.hasQuery ? 'matches' : 'rows'}
+              <DisclosureRow
+                label="Where AI visitors came from"
+                meta={aiEngines.length > 0
+                  ? `${countOf(aiEngines.filter((group) => group.engine !== null).length, 'engine')} · ${countOf(traffic.aiReferrals.length, 'source')}`
+                  : ACTIVITY_COPY.noneInPeriod}
+              >
+                {aiEngines.length > 0 ? (
+                  // The help sits beside the table, never in the row: a button
+                  // inside a summary toggles it and joins its accessible name.
+                  <div className="flex items-start gap-3">
+                    <div className="min-w-0 flex-1">
+                      <GroupedReferralTable
+                        groups={aiEngines}
+                        groupLabel="Engine"
+                        caption="AI referral sessions by engine"
+                        childColumns={AI_SOURCE_COLUMNS}
+                        childRowKey={(row) => `${row.source}:${row.medium}:${row.sourceDimension}:${row.trafficClass}`}
+                        renderChildCells={(row) => <AiSourceCells row={row} />}
+                        pinLast={isUnattributedAiGroup}
                       />
-                    </>
-                  ) : (
-                    <div className="flex flex-col items-center justify-center py-8 text-center">
-                      <p className="text-sm text-secondary">No landing pages match this filter</p>
-                      <button
-                        type="button"
-                        onClick={() => aiLandingTable.setQuery('')}
-                        className="mt-2 text-xs text-link hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-mono-500"
-                      >
-                        Clear filter
-                      </button>
                     </div>
-                  )}
-                </>
-              ) : (
-                <div className="flex flex-col items-center justify-center py-8 text-center">
-                  <p className="text-sm text-secondary mb-2">No AI visits recorded yet</p>
-                  <p className="text-xs text-muted max-w-sm">
-                    Pages appear here once a GA4 sync records a visit that arrived from an AI engine.
-                  </p>
-                </div>
-              )}
-            </Card>
-          </section>
-        </>
-      )}
+                    <InfoTooltip text={ACTIVITY_COPY.aiEnginesTooltip} />
+                  </div>
+                ) : (
+                  <p className="text-copy-14 text-secondary">{ACTIVITY_COPY.noAiReferrals}</p>
+                )}
+              </DisclosureRow>
 
-      {/* Social Media Referrals */}
-      {traffic && (
-        <>
+              <DisclosureRow label="Pages AI visitors landed on" meta={aiLandingRowCount ?? ACTIVITY_COPY.noneInPeriod}>
+                {traffic.aiReferralLandingPages.length > 0 ? (
+                  <>
+                    <DataTableSearch
+                      value={aiLandingTable.query}
+                      onChange={aiLandingTable.setQuery}
+                      label="Filter landing page URLs or query parameters"
+                      placeholder="Filter URL or query parameters"
+                      className="mb-4 max-w-md"
+                    />
+                    {aiLandingTable.totalRows > 0 ? (
+                      <>
+                        <div className="overflow-x-auto">
+                          <table className="w-full min-w-[36rem] text-label-14">
+                            <thead>
+                              <tr className="border-b border-default">
+                                <SortHeader label="Landing page" sortKey="landingPage" current={aiLandingSort.key} dir={aiLandingSort.dir} onSort={sortAiLanding} align="left" />
+                                <SortHeader label="Source" sortKey="source" current={aiLandingSort.key} dir={aiLandingSort.dir} onSort={sortAiLanding} align="left" />
+                                <PlainHeader label="Attribution" align="left" />
+                                <SortHeader label="Sessions" sortKey="sessions" current={aiLandingSort.key} dir={aiLandingSort.dir} onSort={sortAiLanding} align="right" />
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {aiLandingTable.rows.map((row) => (
+                                <AiReferralLandingPageRow
+                                  key={`${row.landingPage}:${row.source}:${row.medium}:${row.sourceDimension}`}
+                                  row={row}
+                                />
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                        <DataTablePagination
+                          page={aiLandingTable.page}
+                          pageSize={aiLandingTable.pageSize}
+                          visibleRows={aiLandingTable.rows.length}
+                          totalRows={aiLandingTable.totalRows}
+                          onPageChange={aiLandingTable.setPage}
+                          itemLabel={aiLandingTable.hasQuery ? 'matches' : 'rows'}
+                        />
+                      </>
+                    ) : (
+                      <div className="flex flex-wrap items-center gap-3 py-4">
+                        <p className="text-copy-14 text-secondary">No landing pages match this filter</p>
+                        <Button variant="outline" size="sm" onClick={() => aiLandingTable.setQuery('')}>Clear filter</Button>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <p className="text-copy-14 text-secondary">{ACTIVITY_COPY.noAiLandingPages}</p>
+                )}
+              </DisclosureRow>
+            </DisclosureRows>
+          </section>
+
           <div className="page-section-divider" />
 
-          <section>
-            <div className="mb-4">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted mb-1">Social Attribution</p>
-              <h2 className="text-base font-semibold text-primary flex items-center gap-1.5">
-                Social Media Traffic
-                <InfoTooltip text="Tracks sessions classified as social traffic by GA4's default channel grouping (Organic Social and Paid Social). Google maintains the source-to-channel mapping." />
-              </h2>
-            </div>
+          <section aria-labelledby="social-heading">
+            <SectionHeading id="social-heading" title="Social" tooltip={ACTIVITY_COPY.socialTooltip2} meta={windowLabel} />
+            <KpiRow
+              label="Social sessions"
+              items={[
+                { label: 'Social sessions', value: traffic.socialSessions.toLocaleString(), detail: `${traffic.socialSharePctDisplay} of all sessions` },
+                { label: 'Platforms', value: String(socialPlatforms.length), detail: `${traffic.socialReferrals.length} sources`, tooltip: ACTIVITY_COPY.platformsTooltip },
+                {
+                  label: 'Paid social',
+                  value: (traffic.paidSocialSessions ?? 0).toLocaleString(),
+                  detail: `${formatPercent(traffic.paidSocialShare ?? 0)} of social`,
+                  tooltip: ACTIVITY_COPY.paidSocialTooltip,
+                },
+                {
+                  label: 'Top platform',
+                  value: topPlatform?.label ?? 'None',
+                  detail: topPlatform ? `${topPlatform.sessions.toLocaleString()} sessions` : undefined,
+                },
+              ]}
+            />
 
+            <DisclosureRows>
+              <DisclosureRow
+                label={ACTIVITY_COPY.socialChartLabel}
+                meta={socialPlatforms.length > 0 ? countOf(traffic.socialSessions, 'session') : ACTIVITY_COPY.noneInPeriod}
+              >
+                {socialPlatforms.length > 0
+                  ? <StackedSeriesChart input={traffic.socialPlatformDaily} label={ACTIVITY_COPY.socialChartLabel} />
+                  : <p className="text-copy-14 text-secondary">{ACTIVITY_COPY.noSocial}</p>}
+              </DisclosureRow>
 
-            {/* Stacked, not side by side. The breakdown is a six-column table
-                (source, medium, channel, sessions, share, users) and at ~60% of
-                the row it wrapped or truncated the source names, which are the
-                column a reader actually scans. Full width also matches the
-                approved mock. The summary tiles above it are already a 3-up
-                grid, so they fill the width without changes. */}
-            <div className="grid gap-4">
-              <Card className="surface-card p-5">
-                <div className="mb-4">
-                  <p className="eyebrow eyebrow-soft">Summary</p>
-                  <h3 className="text-sm font-semibold text-heading">Visits from social</h3>
-                </div>
-
-                {traffic.socialReferrals.length > 0 ? (
-                  <>
-                    <div className="grid gap-3 sm:grid-cols-3">
-                      <AttributionStat
-                        label="Social Sessions"
-                        value={formatCompact(socialSessions)}
-                        hint={`${socialSessions.toLocaleString()} sessions`}
-                        tone="positive"
-                        tooltip="Total sessions classified as Organic Social or Paid Social by GA4's default channel grouping."
-                      />
-                      <AttributionStat
-                        label="Share of Traffic"
-                        value={socialSharePctDisplay}
-                        hint="of total sessions"
-                        tone="neutral"
-                        tooltip="Percentage of your total site sessions that originated from social media platforms."
-                      />
-                      <AttributionStat
-                        label="Platforms"
-                        value={String(socialSourceCount)}
-                        hint={`${traffic.socialReferrals.length} source rows`}
-                        tone="neutral"
-                        tooltip="Number of distinct social media platforms detected. Each unique source/medium combination counts as one source row."
-                      />
-                    </div>
-
-                    {topSocialSource && (
-                      <div className="mt-4 rounded-lg border border-info-800/40 bg-info-500/6 px-4 py-3 text-sm text-info-100">
-                        <p className="text-xs uppercase tracking-wider text-info-300/70 mb-1">Top social source</p>
-                        <p
-                          className="font-medium truncate"
-                          title={`${topSocialSource.source} via ${topSocialSource.medium}`}
-                        >
-                          {truncateLabel(decodeSocialSourceLabel(topSocialSource.source), 64)}
-                        </p>
-                        <p className="text-xs text-info-200/70 mt-0.5 truncate" title={topSocialSource.medium}>
-                          via {decodeSocialSourceLabel(topSocialSource.medium)} · {topSocialSource.sessions.toLocaleString()} sessions
-                        </p>
-                      </div>
-                    )}
-                  </>
+              <DisclosureRow
+                label="Social platforms"
+                meta={socialPlatforms.length > 0
+                  ? `${countOf(socialPlatforms.length, 'platform')} · ${countOf(traffic.socialReferrals.length, 'source')}`
+                  : ACTIVITY_COPY.noneInPeriod}
+              >
+                {socialPlatforms.length > 0 ? (
+                  <GroupedReferralTable
+                    groups={socialPlatforms}
+                    groupLabel="Platform"
+                    caption="Social sessions by platform"
+                    childColumns={SOCIAL_SOURCE_COLUMNS}
+                    childRowKey={(row) => `${row.source}:${row.medium}:${row.channelGroup}`}
+                    renderChildCells={(row) => <SocialSourceCells row={row} />}
+                  />
                 ) : (
-                  <div className="space-y-3">
-                    <div className="grid gap-3 sm:grid-cols-3">
-                      <AttributionStat label="Social Sessions" value="0" hint="0 sessions" tone="neutral" tooltip="Total sessions attributed to social media platforms." />
-                      <AttributionStat label="Share of Traffic" value="0%" hint="of total sessions" tone="neutral" tooltip="Percentage of your total site sessions from social media." />
-                      <AttributionStat label="Platforms" value="0" hint="known platforms" tone="neutral" tooltip="Number of distinct social media platforms detected." />
-                    </div>
-                    <div className="rounded-lg border border-default bg-surface px-4 py-3 text-sm text-secondary">
-                      <p className="mb-1.5 text-neutral">Monitoring social media traffic via GA4 channel grouping</p>
-                      <p className="text-xs text-muted">Sessions classified as Organic Social or Paid Social by GA4 will appear here. Google maintains the source-to-channel mapping, which includes Facebook, Instagram, X/Twitter, LinkedIn, Reddit, Pinterest, Snapchat, and other platforms.</p>
-                    </div>
-                  </div>
+                  <p className="text-copy-14 text-secondary">{ACTIVITY_COPY.noSocial}</p>
                 )}
-              </Card>
-              {socialChartData.length > 0 && (
-              <Card className="surface-card p-5">
-                <div className="mb-4 flex items-end justify-between gap-3">
-                  <div>
-                    <p className="eyebrow eyebrow-soft">Trend</p>
-                    <h3 className="text-sm font-semibold text-heading">Social sessions</h3>
-                  </div>
-                  {socialOtherCount > 0 && (
-                    <p className="text-xs text-muted">
-                      Showing top {socialChartSources.length - 1} sources · {socialOtherCount} more grouped as Other
-                    </p>
-                  )}
-                </div>
-                <div className="h-64">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <ComposedChart data={socialChartData} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
-                      <XAxis
-                        dataKey="date"
-                        tick={CHART_AXIS_TICK}
-                        tickLine={false}
-                        axisLine={{ stroke: CHART_AXIS_STROKE }}
-                        tickFormatter={formatChartDateTick}
-                      />
-                      <YAxis
-                        tick={CHART_AXIS_TICK}
-                        tickLine={false}
-                        axisLine={false}
-                        allowDecimals={false}
-                        width={36}
-                      />
-                      <RechartsTooltip
-                        {...CHART_TOOLTIP_STYLE}
-                        labelFormatter={formatChartDateLabel}
-                        formatter={(value, name) => {
-                          const formatted = typeof value === 'number' ? value.toLocaleString() : String(value ?? 0)
-                          const key = String(name ?? '')
-                          if (key === SOCIAL_TOTAL_KEY) return [formatted, 'Total Social']
-                          if (key === SOCIAL_OTHER_KEY) {
-                            const label = `Other (${socialOtherCount} source${socialOtherCount === 1 ? '' : 's'})`
-                            return [formatted, label]
-                          }
-                          return [formatted, decodeSocialSourceLabel(key)]
-                        }}
-                      />
-                      <Area
-                        type="monotone"
-                        dataKey={SOCIAL_TOTAL_KEY}
-                        stroke={SOCIAL_TOTAL_COLOR}
-                        fill={CHART_NEUTRAL.surface}
-                        fillOpacity={0.4}
-                        strokeWidth={1.5}
-                        dot={false}
-                      />
-                      {socialChartSources.map((source, i) => {
-                        const isOther = source === SOCIAL_OTHER_KEY
-                        const color = isOther ? SOCIAL_OTHER_COLOR : SOURCE_COLORS[i % SOURCE_COLORS.length]
-                        return (
-                          <Area
-                            key={source}
-                            type="monotone"
-                            dataKey={source}
-                            stackId="social"
-                            stroke={color}
-                            fill={color}
-                            fillOpacity={0.4}
-                            strokeWidth={1.5}
-                          />
-                        )
-                      })}
-                    </ComposedChart>
-                  </ResponsiveContainer>
-                </div>
-
-                <SocialChartLegend sources={socialChartSources} otherCount={socialOtherCount} />
-              </Card>
-              )}
-
-              <Card className="surface-card p-5">
-                <div className="mb-4 flex items-end justify-between gap-3">
-                  <div>
-                    <p className="eyebrow eyebrow-soft">Breakdown</p>
-                    <h3 className="text-sm font-semibold text-heading">Social sources</h3>
-                  </div>
-                  <p className="text-xs text-muted">
-                    {traffic.socialReferrals.length > 0
-                      ? sortedSocialReferrals.length > SOCIAL_TABLE_DEFAULT_LIMIT && !socialTableExpanded
-                        ? `Top ${SOCIAL_TABLE_DEFAULT_LIMIT} of ${sortedSocialReferrals.length}`
-                        : `${sortedSocialReferrals.length} rows`
-                      : 'No source rows'}
-                  </p>
-                </div>
-
-                {traffic.socialReferrals.length > 0 ? (
-                  <>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm table-fixed">
-                        <colgroup>
-                          <col className="w-[32%]" />
-                          <col className="w-[22%]" />
-                          <col className="w-[12%]" />
-                          <col className="w-[11%]" />
-                          <col className="w-[11%]" />
-                          <col className="w-[12%]" />
-                        </colgroup>
-                        <thead>
-                          <tr className="text-[10px] uppercase tracking-wider text-muted">
-                            <SortHeader label="Source" sortKey="source" current={socialSortKey} dir={socialSortDir} onSort={handleSocialSort} align="left" />
-                            <SortHeader label="Medium" sortKey="medium" current={socialSortKey} dir={socialSortDir} onSort={handleSocialSort} align="left" />
-                            <th className="py-1 font-medium text-left">Channel</th>
-                            <SortHeader label="Sessions" sortKey="sessions" current={socialSortKey} dir={socialSortDir} onSort={handleSocialSort} align="right" />
-                            <th className="py-1 font-medium text-right">Share</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {(socialTableExpanded
-                            ? sortedSocialReferrals
-                            : sortedSocialReferrals.slice(0, SOCIAL_TABLE_DEFAULT_LIMIT)
-                          ).map((referral) => (
-                            <SocialReferralRow key={`${referral.source}:${referral.medium}:${referral.channelGroup}`} referral={referral} />
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-
-                    {sortedSocialReferrals.length > SOCIAL_TABLE_DEFAULT_LIMIT && (
-                      <div className="mt-3 flex justify-center">
-                        <button
-                          type="button"
-                          onClick={() => setSocialTableExpanded((v) => !v)}
-                          className="rounded-md border border-base px-3 py-1.5 text-xs text-secondary transition-colors hover:border-strong hover:text-strong"
-                        >
-                          {socialTableExpanded
-                            ? `Show top ${SOCIAL_TABLE_DEFAULT_LIMIT}`
-                            : `Show all ${sortedSocialReferrals.length} sources`}
-                        </button>
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <div className="flex flex-col items-center justify-center py-8 text-center">
-                    <p className="text-sm text-secondary mb-2">No social media sessions detected yet</p>
-                    <p className="text-xs text-muted max-w-sm">
-                      When visitors arrive from Facebook, X/Twitter, LinkedIn, or other social platforms, their sessions will be broken down here by source and medium.
-                    </p>
-                  </div>
-                )}
-              </Card>
-            </div>
+              </DisclosureRow>
+            </DisclosureRows>
           </section>
         </>
       )}
 
-      {/* Top Landing Pages */}
       {traffic && traffic.topPages.length > 0 && (
         <>
           <div className="page-section-divider" />
 
-          <section>
-            <div className="mb-4">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted mb-1">Page Performance</p>
-              <h2 className="text-base font-semibold text-primary flex items-center gap-1.5">
-                Top Landing Pages
-                <InfoTooltip text="Landing pages ranked by session volume. Click column headers to sort. Organic % shows the share of sessions coming from Google organic search." />
-              </h2>
-            </div>
-
+          <section aria-labelledby="top-landing-pages-heading">
+            <SectionHeading
+              id="top-landing-pages-heading"
+              title="Top landing pages"
+              tooltip="Landing pages by sessions. Organic share is the share of a page's sessions that came from Google organic search."
+            />
             <DataTableSearch
               value={topPagesTable.query}
               onChange={topPagesTable.setQuery}
@@ -1233,15 +907,14 @@ export function ClickThroughActivity({ projectName, window: windowProp }: {
               placeholder="Filter landing pages"
               className="mb-4 max-w-md"
             />
-
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="w-full min-w-[36rem] text-label-14">
                 <thead>
-                  <tr className="text-[10px] uppercase tracking-wider text-muted">
-                    <SortHeader label="Landing Page" sortKey="landingPage" current={pageSortKey} dir={pageSortDir} onSort={handlePageSort} align="left" />
-                    <SortHeader label="Sessions" sortKey="sessions" current={pageSortKey} dir={pageSortDir} onSort={handlePageSort} align="right" />
-                    <SortHeader label="Organic" sortKey="organicSessions" current={pageSortKey} dir={pageSortDir} onSort={handlePageSort} align="right" />
-                    <th className="text-right py-1 font-medium">Organic %</th>
+                  <tr className="border-b border-default">
+                    <SortHeader label="Landing page" sortKey="landingPage" current={pageSort.key} dir={pageSort.dir} onSort={sortPages} align="left" />
+                    <SortHeader label="Sessions" sortKey="sessions" current={pageSort.key} dir={pageSort.dir} onSort={sortPages} align="right" />
+                    <SortHeader label="Organic" sortKey="organicSessions" current={pageSort.key} dir={pageSort.dir} onSort={sortPages} align="right" />
+                    <PlainHeader label="Organic share" align="right" />
                   </tr>
                 </thead>
                 <tbody>
@@ -1251,11 +924,9 @@ export function ClickThroughActivity({ projectName, window: windowProp }: {
                 </tbody>
               </table>
             </div>
-
             {topPagesTable.totalRows === 0 && topPagesTable.hasQuery && (
-              <p className="text-sm text-secondary mt-3">No landing pages match this filter</p>
+              <p className="mt-3 text-copy-14 text-secondary">No landing pages match this filter</p>
             )}
-
             <DataTablePagination
               page={topPagesTable.page}
               pageSize={topPagesTable.pageSize}
@@ -1268,15 +939,333 @@ export function ClickThroughActivity({ projectName, window: windowProp }: {
         </>
       )}
 
-      {/* Footer */}
-      <div className="mt-6 flex items-center justify-between text-xs text-muted">
-        <span>
-          {traffic?.lastSyncedAt
-            ? `Last synced ${relativeTime(traffic.lastSyncedAt)}`
-            : 'Never synced'}
-        </span>
-        <span>{traffic ? `${traffic.topPages.length} pages · ${traffic.aiReferrals.length} AI rows · ${traffic.socialReferrals.length} social rows` : ''}</span>
-      </div>
+      {/* GA4's Search Console landing-page report: its own window picker,
+          because GA4 stores it for 7, 28 and 90 days ending yesterday. */}
+      <GoogleOrganicSearchPagesPanel projectName={projectName} />
+
+      <p className="mt-6 text-copy-13 text-secondary">
+        {traffic?.lastSyncedAt ? `Last synced ${relativeTime(traffic.lastSyncedAt)}` : 'Never synced'}
+      </p>
+    </>
+  )
+}
+
+/** "1 engine", "8 engines": a row's count with its noun. */
+function countOf(count: number, noun: string): string {
+  return `${count.toLocaleString()} ${count === 1 ? noun : `${noun}s`}`
+}
+
+type SearchLandingSortKey = 'landingPage' | 'clicks' | 'impressions' | 'ctr' | 'position' | 'activeUsers'
+
+const SEARCH_LANDING_PAGE_SIZE = 25
+/** How a ratio with no impressions reads: undefined, never 0. */
+const SEARCH_LANDING_NOT_AVAILABLE = 'n/a'
+
+export const SEARCH_LANDING_COPY = {
+  heading: 'Google organic search traffic',
+  tooltip: 'GA4\'s "Google organic search traffic: Landing page + query string" report, from the property\'s Search Console link. Each window ends yesterday in the property time zone, as GA4\'s own date ranges do. The Total row is GA4\'s own total for all pages, not a sum of the rows, and it does not change with the filter. Search Console data arrives about two days late.',
+  windowLabel: 'Google organic search time period',
+  loading: 'Loading Google organic search pages…',
+  loadError: 'Could not load Google organic search pages.',
+  neverSynced: 'No Google organic search data has been synced yet.',
+  neverSyncedAction: 'Sync GA4 to load the Search Console landing-page report.',
+  unavailable: 'GA4 did not return Search Console data for this property.',
+  unavailableAction: 'Link Search Console to this GA4 property (Admin, Product links, Search Console links), then sync GA4 again.',
+  refreshFailed: 'The last refresh failed.',
+  /** The window's Total has 0 clicks and 0 impressions, whether or not pages are listed. */
+  noSearchTraffic: 'No landing pages had Google organic search traffic in this window.',
+  noSearchTrafficAction: 'If this property should have some, check its Search Console link in GA4 (Admin, Product links, Search Console links).',
+  /** Search Console's own data confirms the site had no Google search traffic either. */
+  noSearchTrafficConfirmed: 'Search Console also recorded no impressions for these days.',
+  notLinkedBadge: 'Search Console not linked',
+  /** GA4 has 0 clicks and 0 impressions while Canonry's Search Console data has impressions for the same days. */
+  notLinked: (impressions: number) => `GA4 has no Search Console data for this site, but Search Console recorded ${impressions.toLocaleString()} impressions in this window. Link the site's Search Console property in GA4 (Admin, Product links, Search Console links).`,
+  thresholded: 'GA4 applied thresholding to this report, so it may withhold some rows.',
+  retry: 'Retry',
+  refreshFailedBadge: 'Last refresh failed',
+  unavailableBadge: 'Search Console unavailable',
+  thresholdedBadge: 'Thresholded',
+  previousSnapshot: 'Showing the last good snapshot, synced',
+  totalLabel: 'Total',
+  totalScope: 'all pages',
+  noFilterMatch: 'No landing pages match this filter',
+  /** The filter and sorts see only the rows loaded, the top ones by clicks. */
+  noFilterMatchInLoaded: (loaded: number) => `No landing pages in the top ${loaded.toLocaleString()} by clicks match this filter. The filter searches only the pages loaded here.`,
+} as const
+
+function searchLandingSortValue(row: GaSearchLandingPageRow, key: SearchLandingSortKey): string | number | null {
+  switch (key) {
+    case 'landingPage': return row.landingPage
+    case 'clicks': return row.organicGoogleSearchClicks
+    case 'impressions': return row.organicGoogleSearchImpressions
+    case 'ctr': return row.organicGoogleSearchClickThroughRate
+    case 'position': return row.organicGoogleSearchAveragePosition
+    case 'activeUsers': return row.activeUsers
+  }
+}
+
+function formatSearchLandingPosition(value: number | null): string {
+  return value === null ? SEARCH_LANDING_NOT_AVAILABLE : value.toFixed(1)
+}
+
+function formatSearchLandingCtr(value: number | null): string {
+  return value === null ? SEARCH_LANDING_NOT_AVAILABLE : formatPercent(value)
+}
+
+/**
+ * GA4's "Google organic search traffic: Landing page + query string" report as
+ * the last GA sync stored it. Every figure is the API's: the Total row is GA4's
+ * own Total, pinned above the rows and untouched by the filter, because a
+ * filtered subset's Total cannot be rebuilt from its rows.
+ */
+export function GoogleOrganicSearchPagesPanel({ projectName }: { projectName: string }) {
+  const [searchWindow, setSearchWindow] = useState<GaSearchLandingWindow>(GA_SEARCH_LANDING_DEFAULT_WINDOW)
+  const [sortKey, setSortKey] = useState<SearchLandingSortKey>('clicks')
+  const [sortDir, setSortDir] = useState<SortDir>('desc')
+  const query = useQuery({
+    ...getApiV1ProjectsByNameGaSearchLandingPagesOptions({
+      client: heyClient,
+      path: { name: projectName },
+      query: { window: searchWindow, limit: GA_SEARCH_LANDING_MAX_LIMIT },
+    }),
+    staleTime: TRAFFIC_STALE_MS,
+  })
+  const data: GaSearchLandingPagesResponse | undefined = query.data
+
+  const sortedRows = useMemo(() => {
+    const rows = data?.rows ?? []
+    return [...rows].sort((a, b) => {
+      const av = searchLandingSortValue(a, sortKey)
+      const bv = searchLandingSortValue(b, sortKey)
+      // Rows with no reading stay last in either direction.
+      if (av === null || bv === null) return av === bv ? 0 : av === null ? 1 : -1
+      if (typeof av === 'string' && typeof bv === 'string') {
+        return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av)
+      }
+      return sortDir === 'asc' ? (av as number) - (bv as number) : (bv as number) - (av as number)
+    })
+  }, [data?.rows, sortKey, sortDir])
+
+  const table = useClientTable({
+    rows: sortedRows,
+    getSearchText: (row) => urlSearchText(gaSearchLandingPageLabel(row.landingPage)),
+    pageSize: SEARCH_LANDING_PAGE_SIZE,
+  })
+
+  function handleSort(key: SearchLandingSortKey) {
+    table.setPage(1)
+    if (sortKey === key) {
+      setSortDir((d) => (d === 'desc' ? 'asc' : 'desc'))
+    } else {
+      setSortKey(key)
+      setSortDir(key === 'landingPage' ? 'asc' : 'desc')
+    }
+  }
+
+  const total = data?.total ?? null
+  // GA4 reports no search data while Canonry's own Search Console data has impressions.
+  const searchConsoleNotLinked = data?.searchConsoleLink?.state === 'not-linked'
+  const canSync = !isEmbed() && !isPublicDemo()
+
+  return (
+    <>
+      <div className="page-section-divider" />
+
+      <section aria-labelledby="ga-search-landing-heading">
+        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            {/* The tooltip is the heading's SIBLING: the section and the table
+                take their accessible name from this heading. */}
+            <div className="flex items-center gap-1.5">
+              <h2 id="ga-search-landing-heading" className="text-heading-16 text-primary">
+                {SEARCH_LANDING_COPY.heading}
+              </h2>
+              <InfoTooltip text={SEARCH_LANDING_COPY.tooltip} />
+            </div>
+            {data?.windowStart && data.windowEnd && (
+              <p className="text-copy-14 text-secondary mt-1">
+                {formatDate(data.windowStart)} to {formatDate(data.windowEnd)}
+                {data.timeZone ? ` (${data.timeZone})` : ''}
+              </p>
+            )}
+          </div>
+          <MetricsWindowPicker
+            windows={GA_SEARCH_LANDING_WINDOWS}
+            value={searchWindow}
+            onChange={(next) => {
+              table.setPage(1)
+              setSearchWindow(next)
+            }}
+            label={SEARCH_LANDING_COPY.windowLabel}
+          />
+        </div>
+
+        {query.isPending ? (
+          <p className="text-copy-14 text-secondary py-6 text-center">{SEARCH_LANDING_COPY.loading}</p>
+        ) : query.isError || !data ? (
+          <div role="alert" className="flex flex-wrap items-center gap-3 px-4 py-2 rounded-md bg-negative-900/20 border border-negative-800/60 text-label-14 text-negative">
+            <span>{SEARCH_LANDING_COPY.loadError}</span>
+            <Button variant="outline" size="sm" onClick={() => { void query.refetch() }}>
+              {SEARCH_LANDING_COPY.retry}
+            </Button>
+          </div>
+        ) : (
+          <>
+            {(data.status === 'error' || data.status === 'unavailable' || data.subjectToThresholding || searchConsoleNotLinked) && (
+              <div className="mb-3 flex flex-wrap items-center gap-2" data-testid="ga-search-landing-status">
+                {searchConsoleNotLinked && (
+                  <span className="inline-flex items-center gap-1" data-testid="ga-search-landing-not-linked">
+                    <ToneBadge tone="caution">{SEARCH_LANDING_COPY.notLinkedBadge}</ToneBadge>
+                    <InfoTooltip text={SEARCH_LANDING_COPY.notLinked(data.searchConsoleLink?.searchConsoleImpressions ?? 0)} />
+                  </span>
+                )}
+                {data.status === 'error' && (
+                  <span className="inline-flex items-center gap-1">
+                    <ToneBadge tone="negative">{SEARCH_LANDING_COPY.refreshFailedBadge}</ToneBadge>
+                    {data.error && <InfoTooltip text={data.error} />}
+                  </span>
+                )}
+                {data.status === 'unavailable' && (
+                  <span className="inline-flex items-center gap-1">
+                    <ToneBadge tone="caution">{SEARCH_LANDING_COPY.unavailableBadge}</ToneBadge>
+                    {data.error && <InfoTooltip text={data.error} />}
+                  </span>
+                )}
+                {data.subjectToThresholding && (
+                  <span className="inline-flex items-center gap-1">
+                    <ToneBadge tone="caution">{SEARCH_LANDING_COPY.thresholdedBadge}</ToneBadge>
+                    <InfoTooltip text={SEARCH_LANDING_COPY.thresholded} />
+                  </span>
+                )}
+                {/* A failed or refused refresh keeps the last good snapshot;
+                    say so, or the old numbers read as current. */}
+                {data.status !== 'ready' && total && data.syncedAt && (
+                  <span className="text-label-14 text-secondary">
+                    {SEARCH_LANDING_COPY.previousSnapshot} {relativeTime(data.syncedAt)}.
+                  </span>
+                )}
+                {/* Same fix as the no-snapshot card and the CLI give. */}
+                {data.status === 'unavailable' && total && (
+                  <p className="w-full text-copy-14 text-secondary">{SEARCH_LANDING_COPY.unavailableAction}</p>
+                )}
+              </div>
+            )}
+
+            {!total ? (
+              <Card className="p-5">
+                {data.status === 'unavailable' ? (
+                  <div className="text-label-14 text-secondary space-y-1">
+                    <p className="text-neutral">{SEARCH_LANDING_COPY.unavailable}</p>
+                    <p>{SEARCH_LANDING_COPY.unavailableAction}</p>
+                  </div>
+                ) : data.status === 'error' ? (
+                  <div className="text-label-14 text-secondary space-y-1">
+                    <p className="text-neutral">{SEARCH_LANDING_COPY.refreshFailed}</p>
+                    {data.error && <p>{data.error}</p>}
+                  </div>
+                ) : (
+                  <div className="text-label-14 text-secondary space-y-1">
+                    <p className="text-neutral">{SEARCH_LANDING_COPY.neverSynced}</p>
+                    {canSync && <p>{SEARCH_LANDING_COPY.neverSyncedAction}</p>}
+                  </div>
+                )}
+              </Card>
+            ) : (
+              <>
+                <DataTableSearch
+                  value={table.query}
+                  onChange={table.setQuery}
+                  label="Filter Google organic search landing pages"
+                  placeholder="Filter landing pages"
+                  className="mb-4 max-w-md"
+                />
+
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[40rem] text-label-14" aria-labelledby="ga-search-landing-heading">
+                    <thead>
+                      <tr className="border-b border-default">
+                        <SortHeader label="Landing page" sortKey="landingPage" current={sortKey} dir={sortDir} onSort={handleSort} align="left" />
+                        <SortHeader label="Clicks" sortKey="clicks" current={sortKey} dir={sortDir} onSort={handleSort} align="right" />
+                        <SortHeader label="Impressions" sortKey="impressions" current={sortKey} dir={sortDir} onSort={handleSort} align="right" />
+                        <SortHeader label="CTR" sortKey="ctr" current={sortKey} dir={sortDir} onSort={handleSort} align="right" />
+                        <SortHeader label="Avg. position" sortKey="position" current={sortKey} dir={sortDir} onSort={handleSort} align="right" />
+                        <SortHeader label="Active users" sortKey="activeUsers" current={sortKey} dir={sortDir} onSort={handleSort} align="right" />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr className="border-t border-subtle text-label-14-strong" data-testid="ga-search-landing-total">
+                        <td className="py-1.5 text-primary">
+                          {SEARCH_LANDING_COPY.totalLabel} <span className="text-label-14 text-secondary">{SEARCH_LANDING_COPY.totalScope}</span>
+                        </td>
+                        <td className="py-1.5 pl-4 text-right text-primary tabular-nums">{total.organicGoogleSearchClicks.toLocaleString()}</td>
+                        <td className="py-1.5 pl-4 text-right text-primary tabular-nums">{total.organicGoogleSearchImpressions.toLocaleString()}</td>
+                        <td className="py-1.5 pl-4 text-right text-primary tabular-nums">{formatSearchLandingCtr(total.organicGoogleSearchClickThroughRate)}</td>
+                        <td className="py-1.5 pl-4 text-right text-primary tabular-nums">{formatSearchLandingPosition(total.organicGoogleSearchAveragePosition)}</td>
+                        <td className="py-1.5 pl-4 text-right text-primary tabular-nums">{total.activeUsers.toLocaleString()}</td>
+                      </tr>
+                      {table.rows.map((row) => (
+                        <tr key={row.landingPage} className="border-t border-subtle">
+                          <td className="py-1.5 text-neutral max-w-[400px] truncate" title={gaSearchLandingPageLabel(row.landingPage)}>{gaSearchLandingPageLabel(row.landingPage)}</td>
+                          <td className="py-1.5 pl-4 text-right text-strong tabular-nums">{row.organicGoogleSearchClicks.toLocaleString()}</td>
+                          <td className="py-1.5 pl-4 text-right text-secondary tabular-nums">{row.organicGoogleSearchImpressions.toLocaleString()}</td>
+                          <td className="py-1.5 pl-4 text-right text-secondary tabular-nums">{formatSearchLandingCtr(row.organicGoogleSearchClickThroughRate)}</td>
+                          <td className="py-1.5 pl-4 text-right text-secondary tabular-nums">{formatSearchLandingPosition(row.organicGoogleSearchAveragePosition)}</td>
+                          <td className="py-1.5 pl-4 text-right text-secondary tabular-nums">{row.activeUsers.toLocaleString()}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* GA4's Total, not the row count: pages with active users
+                    and no clicks or impressions are still listed. */}
+                {/* The not-linked badge above already explains a zero Total. */}
+                {!gaSearchLandingHasSearchData(total) && !searchConsoleNotLinked && (
+                  <div className="text-label-14 text-secondary mt-3 space-y-1">
+                    <p>{SEARCH_LANDING_COPY.noSearchTraffic}</p>
+                    <p>
+                      {data.searchConsoleLink?.state === 'no-search-data'
+                        ? SEARCH_LANDING_COPY.noSearchTrafficConfirmed
+                        : SEARCH_LANDING_COPY.noSearchTrafficAction}
+                    </p>
+                  </div>
+                )}
+                {table.totalRows === 0 && table.hasQuery && (
+                  <p className="text-copy-14 text-secondary mt-3">
+                    {data.totalRows > data.rows.length
+                      ? SEARCH_LANDING_COPY.noFilterMatchInLoaded(data.rows.length)
+                      : SEARCH_LANDING_COPY.noFilterMatch}
+                  </p>
+                )}
+
+                <DataTablePagination
+                  page={table.page}
+                  pageSize={table.pageSize}
+                  visibleRows={table.rows.length}
+                  totalRows={table.totalRows}
+                  onPageChange={table.setPage}
+                  itemLabel={table.hasQuery ? 'matches' : 'pages'}
+                />
+
+                {(data.totalRows > data.rows.length || data.rowsCapped) && (
+                  <p className="text-copy-14 text-secondary mt-3">
+                    {data.totalRows > data.rows.length
+                      ? `Showing the top ${data.rows.length.toLocaleString()} of ${data.totalRows.toLocaleString()} stored pages by clicks.`
+                      : ''}
+                    {data.totalRows > data.rows.length && data.rowsCapped ? ' ' : ''}
+                    {data.rowsCapped && data.reportRowCount !== null
+                      ? `GA4 reported ${data.reportRowCount.toLocaleString()} pages; the ${data.totalRows.toLocaleString()} with the most clicks are stored.`
+                      : ''}
+                  </p>
+                )}
+                {data.syncedAt && (
+                  <p className="mt-2 text-copy-13 text-muted">Synced {relativeTime(data.syncedAt)}</p>
+                )}
+              </>
+            )}
+          </>
+        )}
+      </section>
     </>
   )
 }
@@ -1346,20 +1335,20 @@ function Ga4ConnectForm({ projectName, onConnected }: { projectName: string; onC
 
   return (
     <Card className="surface-card p-6">
-      <h3 className="text-base font-semibold text-primary mb-1">Connect Google Analytics 4</h3>
-      <p className="text-sm text-secondary mb-5">
+      <h3 className="text-heading-16 text-primary mb-1">Connect Google Analytics 4</h3>
+      <p className="text-copy-14 text-secondary mb-5">
         Connect a GA4 property to see traffic data for this project. You'll need a service account key file from Google Cloud Console.
       </p>
 
       {error && (
-        <div className="mb-4 px-4 py-2 rounded-lg bg-negative-900/20 border border-negative-800/60 text-sm text-negative">
+        <div className="mb-4 px-4 py-2 rounded-md bg-negative-900/20 border border-negative-800/60 text-label-14 text-negative">
           {error}
         </div>
       )}
 
       {/* Step 1 — Property ID */}
       <div className="mb-4">
-        <label htmlFor="ga4-property-id" className="block text-xs font-medium text-secondary mb-1.5">
+        <label htmlFor="ga4-property-id" className="block text-label-12-strong text-secondary mb-1.5">
           GA4 Property ID
         </label>
         <input
@@ -1368,16 +1357,16 @@ function Ga4ConnectForm({ projectName, onConnected }: { projectName: string; onC
           placeholder="e.g. 123456789"
           value={propertyId}
           onChange={(e) => setPropertyId(e.target.value)}
-          className="w-full rounded-lg bg-bg-elevated/60 border border-default px-3 py-2 text-sm text-strong placeholder-mono-600 focus:outline-none focus:ring-1 focus:ring-mono-600"
+          className="w-full rounded-md bg-bg-elevated/60 border border-default px-3 py-2 text-label-14 text-strong placeholder-mono-400 focus:outline-none focus:ring-1 focus:ring-mono-600"
         />
-        <p className="mt-1 text-[11px] text-muted">
+        <p className="mt-1 text-copy-13 text-muted">
           Find this in GA4 → Admin → Property Settings. It's a numeric ID, not the Measurement ID (G-XXXXXX).
         </p>
       </div>
 
       {/* Step 2 — Service account key file */}
       <div className="mb-5">
-        <label className="block text-xs font-medium text-secondary mb-1.5">
+        <label className="block text-label-12-strong text-secondary mb-1.5">
           Service Account Key File
         </label>
         <input
@@ -1390,7 +1379,7 @@ function Ga4ConnectForm({ projectName, onConnected }: { projectName: string; onC
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
-          className="flex items-center gap-2 w-full rounded-lg bg-bg-elevated/60 border border-default border-dashed px-4 py-3 text-sm text-secondary hover:border-mono-600 hover:text-neutral transition-colors cursor-pointer"
+          className="flex items-center gap-2 w-full rounded-md bg-bg-elevated/60 border border-default border-dashed px-4 py-3 text-button-14 text-secondary hover:border-mono-600 hover:text-neutral transition-colors cursor-pointer"
         >
           <Upload className="w-4 h-4 shrink-0" />
           {fileName ? (
@@ -1399,7 +1388,7 @@ function Ga4ConnectForm({ projectName, onConnected }: { projectName: string; onC
             <span>Upload .json key file</span>
           )}
         </button>
-        <p className="mt-1 text-[11px] text-muted">
+        <p className="mt-1 text-copy-13 text-muted">
           Download from Google Cloud Console → IAM & Admin → Service Accounts → Keys → Add Key → JSON.
           The service account must have <span className="text-secondary">Viewer</span> access on the GA4 property.
         </p>
@@ -1418,280 +1407,30 @@ function Ga4ConnectForm({ projectName, onConnected }: { projectName: string; onC
   )
 }
 
-function SortHeader<K extends string>({
-  label,
-  sortKey: key,
-  current,
-  dir,
-  onSort,
-  align,
-}: {
-  label: string
-  sortKey: K
-  current: K
-  dir: SortDir
-  onSort: (key: K) => void
-  align: 'left' | 'right'
-}) {
-  const active = current === key
-  return (
-    <th className={`py-1 ${align === 'right' ? 'text-right' : 'text-left'}`}>
-      <button
-        type="button"
-        className="font-medium cursor-pointer select-none hover:text-neutral transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-mono-400 rounded"
-        onClick={() => onSort(key)}
-        aria-label={`Sort by ${label}${active ? ` (currently ${dir === 'asc' ? 'ascending' : 'descending'})` : ''}`}
-      >
-        {label}
-        {active && <span className="ml-0.5">{dir === 'asc' ? '↑' : '↓'}</span>}
-      </button>
-    </th>
-  )
-}
-
-const toneColor: Record<MetricTone, string> = {
-  positive: 'text-positive-400',
-  caution: 'text-caution-400',
-  negative: 'text-negative-400',
-  neutral: 'text-primary',
-}
-
-function TrafficMetric({
-  value,
-  label,
-  subtitle,
-  tone,
-}: {
-  value: string
-  label: string
-  subtitle: string
-  tone: MetricTone
-}) {
-  return (
-    <div className="rounded-lg bg-surface border border-default px-5 py-4">
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted mb-1">{label}</p>
-      <p className={`text-2xl font-bold tabular-nums ${toneColor[tone]}`}>{value}</p>
-      <p className="text-xs text-muted mt-1">{subtitle}</p>
-    </div>
-  )
-}
-
-function AttributionStat({
-  value,
-  label,
-  hint,
-  tone,
-  tooltip,
-}: {
-  value: string
-  label: string
-  hint: string
-  tone: MetricTone
-  tooltip?: string
-}) {
-  return (
-    <div className="rounded-lg border border-default bg-bg/40 px-4 py-3 flex flex-col">
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted mb-1 flex items-center gap-1">
-        {label}
-        {tooltip && <InfoTooltip text={tooltip} />}
-      </p>
-      <p className={`text-xl font-semibold tabular-nums ${toneColor[tone]}`}>{value}</p>
-      <p className="text-xs text-muted mt-1">{hint}</p>
-    </div>
-  )
-}
-
 function LandingPageRow({ page }: { page: ApiGaTrafficPage }) {
-  const organicShare = formatPercent(page.organicShare)
-
   return (
     <tr className="border-t border-subtle">
-      <td className="py-1.5 text-neutral max-w-[400px] truncate" title={page.landingPage}>
+      <td className="max-w-[400px] truncate py-1.5 pr-3 text-strong" title={page.landingPage}>
         {page.landingPage}
       </td>
-      <td className="py-1.5 text-right text-strong tabular-nums">
-        {page.sessions.toLocaleString()}
-      </td>
-      <td className="py-1.5 text-right text-positive-400 tabular-nums">
-        {page.organicSessions.toLocaleString()}
-      </td>
-      <td className="py-1.5 text-right text-secondary tabular-nums">
-        {organicShare}
-      </td>
-    </tr>
-  )
-}
-
-const DIMENSION_LABELS: Record<string, string> = {
-  session: 'Session',
-  first_user: 'First Visit',
-  manual_utm: 'UTM',
-}
-
-const DIMENSION_TOOLTIPS: Record<string, string> = {
-  session: 'Detected via GA4 sessionSource (referrer or utm_source for this session)',
-  first_user: 'Detected via GA4 firstUserSource (referrer from the user\'s first-ever visit)',
-  manual_utm: 'Detected via GA4 sessionManualSource (explicit utm_source parameter for the session)',
-}
-
-function AiReferralRow({ referral }: { referral: ApiGaTrafficReferral }) {
-  const share = formatPercent(referral.share)
-  const dimLabel = DIMENSION_LABELS[referral.sourceDimension] ?? referral.sourceDimension
-  const dimTooltip = DIMENSION_TOOLTIPS[referral.sourceDimension] ?? ''
-  const trafficClassLabel = referral.trafficClass === 'paid' ? 'Paid' : 'Organic'
-  const trafficClassTooltip = referral.trafficClass === 'paid'
-    ? 'Paid AI traffic inferred from paid/cpc/sponsored UTM values or a GA4 paid channel group'
-    : 'AI traffic without a paid attribution signal'
-
-  return (
-    <tr className="border-t border-subtle">
-      <td className="py-1.5 text-strong max-w-[220px] truncate" title={referral.source}>
-        {referral.source}
-      </td>
-      <td className="py-1.5 text-muted max-w-[180px] truncate" title={referral.medium}>
-        {referral.medium}
-      </td>
-      <td className="py-1.5">
-        <span
-          className={`inline-block text-[10px] px-1.5 py-0.5 rounded-full border ${
-            referral.trafficClass === 'paid'
-              ? 'border-caution-700 text-caution-300'
-              : 'border-strong text-secondary'
-          }`}
-          title={trafficClassTooltip}
-        >
-          {trafficClassLabel}
-        </span>
-      </td>
-      <td className="py-1.5">
-        <span
-          className="inline-block text-[10px] px-1.5 py-0.5 rounded-full border border-strong text-secondary"
-          title={dimTooltip}
-        >
-          {dimLabel}
-        </span>
-      </td>
-      <td className="py-1.5 text-right text-positive-400 tabular-nums">
-        {referral.sessions.toLocaleString()}
-      </td>
-      <td className="py-1.5 text-right text-secondary tabular-nums">
-        {share}
-      </td>
+      <td className="py-1.5 pl-4 text-right text-primary tabular-nums">{page.sessions.toLocaleString()}</td>
+      <td className="py-1.5 pl-4 text-right text-secondary tabular-nums">{page.organicSessions.toLocaleString()}</td>
+      <td className="py-1.5 pl-4 text-right text-secondary tabular-nums">{formatPercent(page.organicShare)}</td>
     </tr>
   )
 }
 
 function AiReferralLandingPageRow({ row }: { row: ApiGaTrafficAiLandingPage }) {
-  const dimLabel = DIMENSION_LABELS[row.sourceDimension] ?? row.sourceDimension
-  const dimTooltip = DIMENSION_TOOLTIPS[row.sourceDimension] ?? ''
-
   return (
     <tr className="border-t border-subtle">
-      <td className="max-w-[400px] py-1.5 text-neutral">
+      <td className="max-w-[400px] py-1.5 pr-3 text-strong">
         <MiddleTruncatedText value={row.landingPage} className="whitespace-nowrap" />
       </td>
-      <td className="py-1.5 text-strong max-w-[220px] truncate" title={row.source}>
-        {row.source}
+      <td className="max-w-[220px] truncate py-1.5 pr-3 text-secondary" title={row.source}>{row.source}</td>
+      <td className="py-1.5 pr-3 text-secondary" title={DIMENSION_TOOLTIPS[row.sourceDimension] ?? ''}>
+        {DIMENSION_LABELS[row.sourceDimension] ?? row.sourceDimension}
       </td>
-      <td className="py-1.5">
-        <span
-          className="inline-block text-[10px] px-1.5 py-0.5 rounded-full border border-strong text-secondary"
-          title={dimTooltip}
-        >
-          {dimLabel}
-        </span>
-      </td>
-      <td className="py-1.5 text-right text-positive-400 tabular-nums">
-        {row.sessions.toLocaleString()}
-      </td>
+      <td className="py-1.5 pl-4 text-right text-primary tabular-nums">{row.sessions.toLocaleString()}</td>
     </tr>
-  )
-}
-
-function SocialReferralRow({ referral }: { referral: ApiGaSocialReferral }) {
-  const share = formatPercent(referral.share)
-  const channelLabel = referral.channelGroup === 'Paid Social' ? 'Paid' : 'Organic'
-  const sourceDisplay = decodeSocialSourceLabel(referral.source)
-  const mediumDisplay = decodeSocialSourceLabel(referral.medium)
-
-  return (
-    <tr className="border-t border-subtle">
-      <td className="py-1.5 pr-3 text-strong truncate" title={referral.source}>
-        {sourceDisplay}
-      </td>
-      <td className="py-1.5 pr-3 text-muted truncate" title={referral.medium}>
-        {mediumDisplay}
-      </td>
-      <td className="py-1.5 pr-3">
-        <span
-          className="inline-block text-[10px] px-1.5 py-0.5 rounded-full border border-strong text-secondary"
-          title={`GA4 channel group: ${referral.channelGroup}`}
-        >
-          {channelLabel}
-        </span>
-      </td>
-      <td className="py-1.5 text-right text-info-400 tabular-nums">
-        {referral.sessions.toLocaleString()}
-      </td>
-      <td className="py-1.5 text-right text-secondary tabular-nums">
-        {share}
-      </td>
-    </tr>
-  )
-}
-
-function SocialChartLegend({
-  sources,
-  otherCount,
-}: {
-  sources: string[]
-  otherCount: number
-}) {
-  const items: Array<{ key: string; color: string; label: string; tooltip: string }> = [
-    {
-      key: SOCIAL_TOTAL_KEY,
-      color: SOCIAL_TOTAL_COLOR,
-      label: 'Total',
-      tooltip: 'All social sessions across every source.',
-    },
-  ]
-
-  for (let i = 0; i < sources.length; i++) {
-    const source = sources[i]!
-    if (source === SOCIAL_OTHER_KEY) {
-      items.push({
-        key: SOCIAL_OTHER_KEY,
-        color: SOCIAL_OTHER_COLOR,
-        label: `Other (${otherCount})`,
-        tooltip: `${otherCount} smaller source${otherCount === 1 ? '' : 's'} grouped together`,
-      })
-    } else {
-      const decoded = decodeSocialSourceLabel(source)
-      items.push({
-        key: source,
-        color: SOURCE_COLORS[i % SOURCE_COLORS.length] ?? SOCIAL_OTHER_COLOR,
-        label: truncateLabel(decoded, 32),
-        tooltip: decoded,
-      })
-    }
-  }
-
-  return (
-    <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-[11px] text-secondary">
-      {items.map((item) => (
-        <div
-          key={item.key}
-          className="flex items-center gap-1.5 min-w-0 max-w-[260px]"
-          title={item.tooltip}
-        >
-          <span
-            className="inline-block w-2.5 h-2.5 rounded-sm shrink-0"
-            style={{ backgroundColor: item.color }}
-            aria-hidden="true"
-          />
-          <span className="truncate">{item.label}</span>
-        </div>
-      ))}
-    </div>
   )
 }

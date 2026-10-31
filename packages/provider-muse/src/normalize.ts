@@ -14,8 +14,8 @@ import {
   type GroundingSource,
   type ProviderUsage,
   type RetrievalStatus,
-} from '@ainyc/canonry-contracts'
-import type { MuseConfig, MuseNormalizedResult, MuseRawResult, MuseTrackedQueryInput } from './types.js'
+} from '@canonry/canonry-contracts'
+import type { MuseConfig, MuseNormalizedResult, MuseRawResult, MuseTrackedQueryInput, RetrievedSource } from './types.js'
 
 export const MUSE_DEFAULT_MODEL = 'muse-spark-1.3'
 export const MUSE_BASE_URL = 'https://api.meta.ai/v1'
@@ -27,7 +27,7 @@ const MUSE_SELF_DOMAINS: readonly string[] = [AI_ENGINE_DOMAINS.metaAi]
 const MAX_RETRY_AFTER_MS = 60_000
 const RETRYABLE_RESPONSE_ERROR_CODES = new Set(['rate_limit_exceeded', 'server_error'])
 
-export function createClient(config: MuseConfig): OpenAI {
+function createClient(config: MuseConfig): OpenAI {
   return new OpenAI({
     apiKey: config.apiKey,
     baseURL: config.baseUrl || MUSE_BASE_URL,
@@ -136,16 +136,25 @@ export async function executeTrackedQuery(input: MuseTrackedQueryInput): Promise
     }
   }
   try {
-    const rawResponse = await createResponse(input.config, { model, input: input.query, tools: [tool] })
+    // `web_search_call.results` returns the pages each search listed, so the
+    // stored response shows what Muse could see. They are kept apart from
+    // citations: only `url_citation` annotations count as cited.
+    const rawResponse = await createResponse(input.config, {
+      model,
+      input: input.query,
+      tools: [tool],
+      include: ['web_search_call.results'],
+    } as OpenAI.Responses.ResponseCreateParamsNonStreaming)
     const parsed = parseResponse(rawResponse)
     if (!parsed) throw new Error('Meta Model API returned a malformed response')
     return {
       provider: 'muse',
       rawResponse,
       model,
-      servedModel: extractServedModel(rawResponse),
+      servedModel: normalizeServedModel(rawResponse.model),
       groundingSources: parsed.groundingSources,
       searchQueries: parsed.searchQueries,
+      retrievedSources: parsed.retrievedSources,
       retrievalStatus: parsed.retrievalStatus,
       usage: extractUsage(rawResponse),
       stopReason: extractStopReason(rawResponse),
@@ -153,10 +162,6 @@ export async function executeTrackedQuery(input: MuseTrackedQueryInput): Promise
   } catch (err: unknown) {
     throw new Error(`[provider-muse] ${describeError(err)}`)
   }
-}
-
-export function extractServedModel(rawResponse: Record<string, unknown>): string | undefined {
-  return normalizeServedModel(rawResponse.model)
 }
 
 /**
@@ -208,7 +213,7 @@ function responseToRecord(response: OpenAI.Responses.Response): Record<string, u
 
 export function reparseStoredResult(rawResponse: Record<string, unknown>): MuseNormalizedResult {
   return parseResponse(rawResponse) ?? {
-    provider: 'muse', answerText: '', citedDomains: [], groundingSources: [], searchQueries: [], retrievalStatus: 'unknown',
+    provider: 'muse', answerText: '', citedDomains: [], groundingSources: [], searchQueries: [], retrievedSources: null, retrievalStatus: 'unknown',
   }
 }
 
@@ -226,6 +231,12 @@ function parseResponse(rawResponse: Record<string, unknown>): MuseNormalizedResu
   const citedDomains = new Set<string>()
   const searchQueries = new Set<string>()
   const seenUrls = new Set<string>()
+  const retrievedSources: RetrievedSource[] = []
+  const seenRetrieved = new Set<string>()
+  // Cleared when a completed search carries no result list: responses stored
+  // before Canonry requested `include` report searches but not their pages,
+  // so their retrieved list is unknown (null), not empty.
+  let retrievalReported = true
   let completedSearch = false
   let failedSearch = false
 
@@ -242,6 +253,8 @@ function parseResponse(rawResponse: Record<string, unknown>): MuseNormalizedResu
           if (typeof query === 'string' && query) searchQueries.add(query)
         }
       }
+      collectRetrieved(item, action, retrievedSources, seenRetrieved)
+      if (action?.type !== 'open_page' && item.status === 'completed' && !Array.isArray(item.results)) retrievalReported = false
       continue
     }
     if (item.type !== 'message' || item.phase === 'commentary') continue
@@ -281,7 +294,37 @@ function parseResponse(rawResponse: Record<string, unknown>): MuseNormalizedResu
     citedDomains: [...citedDomains],
     groundingSources,
     searchQueries: [...searchQueries],
+    retrievedSources: retrievalReported ? retrievedSources : null,
     retrievalStatus,
+  }
+}
+
+/**
+ * Add one `web_search_call`'s pages: each result a completed search listed,
+ * or the page a completed `open_page` action read. Failed calls add nothing,
+ * and a URL is listed once per kind.
+ */
+function collectRetrieved(
+  item: Record<string, unknown>,
+  action: Record<string, unknown> | null,
+  sources: RetrievedSource[],
+  seen: Set<string>,
+): void {
+  if (item.status !== 'completed') return
+  if (action?.type === 'open_page') {
+    if (validCitedUrl(action.url) && !seen.has(`page-read ${action.url}`)) {
+      seen.add(`page-read ${action.url}`)
+      sources.push({ uri: action.url, title: '', kind: 'page-read', query: null })
+    }
+    return
+  }
+  if (!Array.isArray(item.results)) return
+  const query = typeof action?.query === 'string' && action.query ? action.query : null
+  for (const resultValue of item.results) {
+    const result = asRecord(resultValue)
+    if (!result || !validCitedUrl(result.url) || seen.has(`search-result ${result.url}`)) continue
+    seen.add(`search-result ${result.url}`)
+    sources.push({ uri: result.url, title: typeof result.title === 'string' ? result.title : '', kind: 'search-result', query })
   }
 }
 

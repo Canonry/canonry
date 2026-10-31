@@ -23,7 +23,7 @@ import {
   type MeasurementOverviewResponse,
   type MeasurementPlanV2,
   type MeasurementPortfolioSummaryResponse,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   createClient,
   measurementPlans,
@@ -33,7 +33,7 @@ import {
   querySnapshots,
   runs,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import { buildMeasurementPlanV2Manifest } from '../src/measurement-report-adapter.js'
 import { measurementPlanV2Fixture } from './measurement-plan-v2-fixture.js'
@@ -151,8 +151,14 @@ function seedMeasuredRun(versionId: string, values: Partial<typeof runs.$inferIn
   return runId
 }
 
+/**
+ * Continuity is under test here, not the class default: the overview and
+ * changes reads pool both classes on purpose, as these numbers were written.
+ */
+const POOLED = 'queryClass=all'
+
 async function overview(query: string): Promise<{ status: number; body: MeasurementOverviewResponse }> {
-  const response = await app.inject({ method: 'GET', url: `/api/v1/projects/northstar/measurement-overview?${query}` })
+  const response = await app.inject({ method: 'GET', url: `/api/v1/projects/northstar/measurement-overview?${query}&${POOLED}` })
   return { status: response.statusCode, body: response.json() as MeasurementOverviewResponse }
 }
 
@@ -167,7 +173,7 @@ async function portfolio(query = ''): Promise<{ status: number; body: Measuremen
 async function changes(query = ''): Promise<{ status: number; body: MeasurementChangesResponse }> {
   const response = await app.inject({
     method: 'GET',
-    url: `/api/v1/projects/northstar/measurement-changes${query === '' ? '' : `?${query}`}`,
+    url: `/api/v1/projects/northstar/measurement-changes?${query === '' ? POOLED : `${query}&${POOLED}`}`,
   })
   return { status: response.statusCode, body: response.json() as MeasurementChangesResponse }
 }

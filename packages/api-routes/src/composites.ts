@@ -16,11 +16,12 @@ import {
   querySnapshots,
   readNegativeReviewMaxStars,
   runs,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { SentimentService, type SentimentServiceOptions } from './sentiment-service.js'
 import { buildMentionShareInputs } from './mention-share-inputs.js'
 import {
   CitationStates,
+  competitorAutoAliasNames,
   formatPercent,
   PROJECT_OVERVIEW_QUERY_CLASS_SCOPE,
   parseRunError,
@@ -28,8 +29,10 @@ import {
   roundRatio,
   RunKinds,
   RunStatuses,
+  RunTriggers,
   type AttentionItemDto,
   type CitationState,
+  type MentionIdentity,
   type RunKind,
   type HealthSnapshotDto,
   type InsightDto,
@@ -55,8 +58,10 @@ import {
   escapeLikePattern,
   extractDomainsFromText,
   normalizeQueryText,
+  summarizeObservedQueryCounts,
   validationError,
-} from '@ainyc/canonry-contracts'
+  type ProviderRouteFamily,
+} from '@canonry/canonry-contracts'
 import {
   buildCompetitorPressureScore,
   compileCompetitiveSignalResolver,
@@ -76,8 +81,10 @@ import {
   DEFAULT_RUN_HISTORY_LIMIT,
   providerKey,
   type SuggestedQueryGscRow,
-} from '@ainyc/canonry-intelligence'
+} from '@canonry/canonry-intelligence'
 import { notProbeRun, resolveProject } from './helpers.js'
+import { compareInsightsForTriage } from './intelligence.js'
+import { runAdmissionState } from './run-queue.js'
 import {
   mergeGscQueryTotalsWithFallback, readGscQueryDailyFallbackRows, readGscQueryDailyRows,
   readLatestGscDataDate, resolveGscWindowDays,
@@ -107,7 +114,13 @@ const INTEGRATION_SYNC_KINDS: ReadonlySet<string> = new Set<RunKind>([
 type SnapshotMatchedField = ProjectSearchSnapshotHitDto['matchedField']
 type InsightMatchedField = ProjectSearchInsightHitDto['matchedField']
 
-export async function compositeRoutes(app: FastifyInstance, options: { sentiment?: SentimentServiceOptions }) {
+export async function compositeRoutes(app: FastifyInstance, options: {
+  sentiment?: SentimentServiceOptions
+  /** Current provider registry membership, for which providers the next sweep would call. */
+  getRunnableProviderNames?: () => readonly string[]
+  /** Route families of the host's adapters; routed connections never join "all configured". */
+  providerRouteFamilies?: readonly ProviderRouteFamily[]
+}) {
   const sentiment = options.sentiment ? new SentimentService(app.db, options.sentiment) : null
   // GET /projects/:name/overview — composite read for "how is project X doing?".
   // Bundles project info, latest run, top insights, health, and a transitions
@@ -156,9 +169,19 @@ export async function compositeRoutes(app: FastifyInstance, options: { sentiment
     const previousVisibilityRun = pickGroupRepresentative(previousVisRunGroup)
     const latestRunRow = allRuns[0] ?? null
 
+    // Project-wide, never narrowed by the location or window filters: it says
+    // whether the next sweep would be admitted, which no past run can.
+    const admissionParams = {
+      projectId: project.id,
+      now: new Date().toISOString(),
+      runnableProviders: options.getRunnableProviderNames?.(),
+      routeFamilies: options.providerRouteFamilies,
+    }
+    const admission = runAdmissionState(app.db, admissionParams)
+    const manualAdmission = runAdmissionState(app.db, { ...admissionParams, selection: RunTriggers.manual })
     const latestRun: LatestProjectRunDto = latestRunRow
-      ? { totalRuns, run: summarizeRun(latestRunRow) }
-      : { totalRuns: 0, run: null }
+      ? { totalRuns, run: summarizeRun(latestRunRow), admission, manualAdmission }
+      : { totalRuns: 0, run: null, admission, manualAdmission }
 
     const healthRow = app.db
       .select()
@@ -177,8 +200,9 @@ export async function compositeRoutes(app: FastifyInstance, options: { sentiment
       .all()
     const topInsights: InsightDto[] = insightRows
       .filter(row => !row.dismissed)
-      .slice(0, TOP_INSIGHT_LIMIT)
       .map(mapInsightRow)
+      .sort(compareInsightsForTriage)
+      .slice(0, TOP_INSIGHT_LIMIT)
 
     // Load snapshots for the latest visibility run + previous, then a window
     // of recent visibility runs for the sparkline. One DB hit gathers them
@@ -219,6 +243,7 @@ export async function compositeRoutes(app: FastifyInstance, options: { sentiment
       .select()
       .from(competitors)
       .where(eq(competitors.projectId, project.id))
+      .orderBy(competitors.domain)
       .all()
     const queryLookup = { byId: new Map(projectQueries.map(q => [q.id, q.query])) }
     for (const snapshots of snapshotsByRun.values()) {
@@ -246,14 +271,12 @@ export async function compositeRoutes(app: FastifyInstance, options: { sentiment
     }
     const mentionShareInputs = buildMentionShareInputs({
       project,
-      competitorDomains: competitorRows.map(c => c.domain),
+      competitors: competitorRows,
       snapshots: trackedLatest,
       queryTextById: queryLookup.byId,
       answerDomainsByText,
     })
-    const competitiveSignalResolver = compileCompetitiveSignalResolver(
-      competitorRows.map(c => c.domain),
-    )
+    const competitiveSignalResolver = compileCompetitiveSignalResolver(competitorRows)
     const gapSignalSnapshots = trackedLatest.map(snapshot => ({
       ...snapshot,
       ...competitiveSignalResolver.resolve({
@@ -307,7 +330,7 @@ export async function compositeRoutes(app: FastifyInstance, options: { sentiment
     })
     const overviewCompetitors: ProjectOverviewCompetitorDto[] = buildOverviewCompetitors(
       trackedLatest,
-      competitorRows.map(c => ({ id: c.id, domain: c.domain })),
+      competitorRows.map(c => ({ id: c.id, domain: c.domain, aliases: c.aliases, autoAliasNames: competitorAutoAliasNames(c) })),
       queryLookup,
     )
     const attentionItems = buildAttentionItems(insightRows, allRuns)
@@ -493,6 +516,7 @@ function summarizeRun(run: typeof runs.$inferSelect): RunDetailDto {
     startedAt: run.startedAt,
     finishedAt: run.finishedAt,
     error: parseRunError(run.error),
+    ...(run.skippedProviders && Object.keys(run.skippedProviders).length > 0 ? { skippedProviders: run.skippedProviders } : {}),
     createdAt: run.createdAt,
   }
 }
@@ -513,8 +537,10 @@ interface OverviewSnapshot {
   archived: boolean
   provider: string
   model: string | null
-  citationState: string
+  citationState: CitationState
   answerMentioned: boolean | null
+  /** Sentiment's stored identity verdict; `wrong-subject` keeps a name match from counting. */
+  mentionIdentity: MentionIdentity | null
   /** Raw LLM answer text — needed by Mention Share to scan for competitor
    *  brand mentions. Variable size; ~3-5KB per snapshot for an 80-snapshot
    *  run is ~400KB total — manageable to include in the overview payload. */
@@ -541,6 +567,7 @@ function loadSnapshotsByRunIds(
       model: querySnapshots.model,
       citationState: querySnapshots.citationState,
       answerMentioned: querySnapshots.answerMentioned,
+      mentionIdentity: querySnapshots.mentionIdentity,
       answerText: querySnapshots.answerText,
       rawResponse: querySnapshots.rawResponse,
       competitorOverlap: querySnapshots.competitorOverlap,
@@ -581,8 +608,9 @@ function loadSnapshotsByRunIds(
       archived,
       provider: row.provider,
       model: row.model,
-      citationState: row.citationState,
+      citationState: row.citationState as CitationState,
       answerMentioned: row.answerMentioned,
+      mentionIdentity: row.mentionIdentity,
       answerText: row.answerText,
       groundingSources: parseOverviewGroundingSources(row.rawResponse),
       competitorOverlap: row.competitorOverlap,
@@ -621,39 +649,19 @@ function summarizeFromSnapshots(
   }
   if (snapshots.length === 0) return empty
 
-  // Cited and mentioned are tracked per query as independent "any snapshot"
-  // rolls-ups — a query is cited if ANY snapshot is cited, mentioned if ANY
-  // snapshot has answerMentioned===true. Never derive one from the other.
-  const perQuery = new Map<string, boolean>()
-  const perQueryMentioned = new Map<string, boolean>()
+  const { totalQueries, citedQueries, mentionedQueries } = summarizeObservedQueryCounts(snapshots)
   const perProvider = new Map<string, { cited: number; total: number }>()
   for (const snap of snapshots) {
     const cited = snap.citationState === CitationStates.cited
-    if (!perQuery.has(snap.queryId) || cited) {
-      perQuery.set(snap.queryId, cited)
-    }
-    const mentioned = snap.answerMentioned === true
-    if (!perQueryMentioned.has(snap.queryId) || mentioned) {
-      perQueryMentioned.set(snap.queryId, mentioned)
-    }
     const bucket = perProvider.get(snap.provider) ?? { cited: 0, total: 0 }
     bucket.total += 1
     if (cited) bucket.cited += 1
     perProvider.set(snap.provider, bucket)
   }
 
-  const totalQueries = perQuery.size
-  let citedQueries = 0
-  for (const wasCited of perQuery.values()) {
-    if (wasCited) citedQueries += 1
-  }
   const notCitedQueries = totalQueries - citedQueries
   const citedRate = totalQueries === 0 ? 0 : Number((citedQueries / totalQueries).toFixed(4))
 
-  let mentionedQueries = 0
-  for (const wasMentioned of perQueryMentioned.values()) {
-    if (wasMentioned) mentionedQueries += 1
-  }
   const notMentionedQueries = totalQueries - mentionedQueries
   const mentionRate = totalQueries === 0 ? 0 : Number((mentionedQueries / totalQueries).toFixed(4))
 
@@ -906,7 +914,7 @@ function buildRunStatusScore(allRuns: readonly (typeof runs.$inferSelect)[]): Sc
       value: 'None',
       delta: 'No runs yet',
       tone: 'neutral',
-      description: 'Trigger a visibility sweep to start tracking.',
+      description: 'Run an AI Visibility check to start tracking.',
       tooltip,
       trend: [],
     }
@@ -984,7 +992,7 @@ function buildAttentionItems(
         id: 'stale_visibility',
         tone: 'caution',
         title: 'Stale visibility data',
-        detail: `Last visibility sweep was ${latestVisRun.createdAt}; integration syncs have run since.`,
+        detail: `Last AI Visibility check was ${latestVisRun.createdAt}; integration syncs have run since.`,
         actionLabel: 'Stale',
         href: '#runs',
       })
@@ -1047,6 +1055,7 @@ function formatProject(row: typeof projects.$inferSelect, negativeReviewMaxStars
     canonicalDomain: row.canonicalDomain,
     ownedDomains: row.ownedDomains,
     aliases: row.aliases,
+    qualifiedAliases: row.qualifiedAliases,
     country: row.country,
     language: row.language,
     tags: row.tags,
@@ -1059,7 +1068,9 @@ function formatProject(row: typeof projects.$inferSelect, negativeReviewMaxStars
     defaultLocation: row.defaultLocation,
     autoExtractBacklinks: row.autoExtractBacklinks,
     negativeReviewMaxStars,
-    configSource: row.configSource as ProjectDto['configSource'],
+    siteAuditMaxPages: row.siteAuditMaxPages ?? null,
+    competitorAutoAliases: row.competitorAutoAliases,
+    configSource: row.configSource,
     configRevision: row.configRevision,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,

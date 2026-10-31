@@ -1,5 +1,7 @@
 import { MutationCache, QueryClient } from '@tanstack/react-query'
+import { heyClient } from '../api.js'
 import { addToast } from '../lib/toast-store.js'
+import { refreshQueriesAfterWrite } from './query-invalidation.js'
 
 export const DEFAULT_QUERY_STALE_MS = 5 * 60_000
 export const STATIC_VISIBILITY_STALE_MS = 30 * 60_000
@@ -21,6 +23,7 @@ export const PROJECTS_REFRESH_IDLE_MS = 30_000
  * another's data out of memory.
  */
 let activeQueryClient: QueryClient | null = null
+let removeWriteRefresh: (() => void) | undefined
 
 /**
  * What the app currently holds cached, as readable strings.
@@ -62,6 +65,23 @@ export function createQueryClient() {
       },
     }),
   })
+  removeWriteRefresh?.()
+  const requests = new WeakSet<Request>()
+  const requestInterceptor = heyClient.interceptors.request.use(request => {
+    requests.add(request)
+    return request
+  })
+  const responseInterceptor = heyClient.interceptors.response.use((response, request, options) => {
+    // An old account's in-flight write cannot modify a replacement account's cache.
+    if (response.ok && requests.has(request)) {
+      refreshQueriesAfterWrite(client, request, options.body)
+    }
+    return response
+  })
+  removeWriteRefresh = () => {
+    heyClient.interceptors.request.eject(requestInterceptor)
+    heyClient.interceptors.response.eject(responseInterceptor)
+  }
   activeQueryClient = client
   return client
 }

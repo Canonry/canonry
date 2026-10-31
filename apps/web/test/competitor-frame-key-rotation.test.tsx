@@ -127,3 +127,35 @@ test('a competitor list that differs only in order or case does not rotate the k
 
   await waitFor(() => expect(analyticsMetricsKeys(queryClient).length).toBe(1))
 })
+
+test('the trend key rotates when a competitor\'s curated aliases change', async () => {
+  // Aliases change which answers count for a competitor, so mention share moves
+  // without the domain list changing.
+  const restore = mockFetch((url) => {
+    const path = url.split('?')[0]!
+    if (path.endsWith('/projects/test-project/analytics/metrics')) {
+      return jsonResponse(EMPTY_METRICS)
+    }
+    throw new Error(`Unexpected fetch: ${url}`)
+  })
+  onTestFinished(restore)
+
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const { rerender } = render(
+    <QueryClientProvider client={queryClient}>
+      <VisibilityTrendSection projectName="test-project" competitorDomains={['spoketuneworks.example']} competitorAliases={{ 'spoketuneworks.example': [] }} />
+    </QueryClientProvider>,
+  )
+  await waitFor(() => expect(analyticsMetricsKeys(queryClient).length).toBe(1))
+  const before = analyticsMetricsKeys(queryClient)[0]!
+
+  rerender(
+    <QueryClientProvider client={queryClient}>
+      <VisibilityTrendSection projectName="test-project" competitorDomains={['spoketuneworks.example']} competitorAliases={{ 'spoketuneworks.example': ['TuneSpoke'] }} />
+    </QueryClientProvider>,
+  )
+  await waitFor(() => expect(analyticsMetricsKeys(queryClient).length).toBe(2))
+  const after = analyticsMetricsKeys(queryClient).find(key => key !== before)!
+  expect(before[3]).toBe('spoketuneworks.example')
+  expect(after[3]).toBe('spoketuneworks.example=tunespoke')
+})

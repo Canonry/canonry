@@ -5,7 +5,7 @@ import { Button } from '../ui/button.js'
 import { applyProjectConfig, isEmbed } from '../../api.js'
 import { addToast } from '../../lib/toast-store.js'
 import { asyncHandler } from '../../lib/async-handler.js'
-import { describeError } from '@ainyc/canonry-contracts'
+import { describeError } from '@canonry/canonry-contracts'
 import { useAccount } from '../../contexts/account-context.js'
 
 export function YamlApplyPanel({ onApplied }: { onApplied: () => void }) {
@@ -67,12 +67,12 @@ export function YamlApplyPanel({ onApplied }: { onApplied: () => void }) {
       <div className="section-head mt-6">
         <div>
           <p className="eyebrow eyebrow-soft">Config as code</p>
-          <h2 className="text-sm font-medium text-strong">Apply YAML</h2>
+          <h2 className="text-heading-14 text-strong">Apply YAML</h2>
         </div>
       </div>
-      <p className="text-muted text-sm mb-3">Paste a <code className="text-secondary">canonry.yaml</code> config (multi-document YAML with <code className="text-secondary">---</code> separators supported).</p>
+      <p className="text-muted text-copy-14 mb-3">Paste a <code className="text-secondary">canonry.yaml</code> config (multi-document YAML with <code className="text-secondary">---</code> separators supported).</p>
       <textarea
-        className="setup-input w-full font-mono text-xs"
+        className="setup-input w-full text-copy-13-mono"
         rows={10}
         placeholder={'apiVersion: canonry/v1\nkind: Project\nmetadata:\n  name: my-project\nspec:\n  canonicalDomain: example.com\n  country: US\n  language: en\n  queries: []'}
         value={yamlText}
@@ -80,12 +80,12 @@ export function YamlApplyPanel({ onApplied }: { onApplied: () => void }) {
       />
       {results.length > 0 && (
         <ul className="mt-2 space-y-1">
-          {results.map((r, i) => <li key={i} className="text-positive-400 text-sm">{r}</li>)}
+          {results.map((r, i) => <li key={i} className="text-positive-400 text-label-14">{r}</li>)}
         </ul>
       )}
       {errors.length > 0 && (
         <ul className="mt-2 space-y-1">
-          {errors.map((e, i) => <li key={i} className="text-negative-400 text-sm">{e}</li>)}
+          {errors.map((e, i) => <li key={i} className="text-negative-400 text-label-14">{e}</li>)}
         </ul>
       )}
       <div className="mt-3">

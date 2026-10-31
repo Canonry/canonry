@@ -11,6 +11,9 @@ export interface DemoSeedContext {
   portfolio: DemoSeedProject
 }
 
+/** The demo GA4 connection's property; stored GA4 snapshots name it too. */
+export const DEMO_GA4_PROPERTY_ID = 'demo-property'
+
 export function createDemoSeedContext(now = new Date()): DemoSeedContext {
   return {
     now,

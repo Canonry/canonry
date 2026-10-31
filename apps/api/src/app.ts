@@ -1,11 +1,12 @@
 import Fastify from 'fastify'
 import { randomUUID } from 'node:crypto'
 
-import type { PlatformEnv } from '@ainyc/canonry-config'
-import { resolveOperatorApiKeyIds } from '@ainyc/canonry-config'
-import { createClient, migrate, OperationalLogStore } from '@ainyc/canonry-db'
-import { apiRoutes, resolveTrustProxy } from '@ainyc/canonry-api-routes'
-import { addLogListener, createFastifyLogger } from '@ainyc/canonry-api-routes/runtime-logger'
+import type { PlatformEnv } from '@canonry/canonry-config'
+import { resolveOperatorApiKeyIds } from '@canonry/canonry-config'
+import { OPENROUTER_MODEL_PATTERN } from '@canonry/canonry-contracts'
+import { createClient, migrate, OperationalLogStore } from '@canonry/canonry-db'
+import { apiRoutes, backfillProjectAnswerMentions, resolveTrustProxy } from '@canonry/canonry-api-routes'
+import { addLogListener, createFastifyLogger } from '@canonry/canonry-api-routes/runtime-logger'
 
 import { registerHealthRoutes } from './routes/health.js'
 import { registerTelemetryCollectorRoutes } from './routes/telemetry-collector.js'
@@ -30,7 +31,7 @@ export function buildApp(env: PlatformEnv) {
       'CANONRY_TRUST_PROXY is not set. This deployment always sits behind a load balancer, so '
       + 'leaving it unset makes every caller resolve to the load balancer\'s own address and '
       + 'collapses every per-caller rate limit / login budget into one shared bucket. Set it to the '
-      + 'trusted hop count (e.g. "1") or a comma-separated proxy CIDR list, or explicitly to "false" '
+      + 'comma-separated list of trusted proxy addresses or CIDRs, or explicitly to "false" '
       + 'only if this deployment is truly reachable directly with nothing in front of it.',
     )
   }
@@ -50,7 +51,7 @@ export function buildApp(env: PlatformEnv) {
     retention: env.databaseUrl === ':memory:' ? 'process' : 'durable',
   })
 
-  const providerSummary = (['gemini', 'openai', 'claude', 'perplexity', 'muse'] as const).map(name => ({
+  const providerSummary = (['gemini', 'openai', 'claude', 'perplexity', 'muse', 'openrouter'] as const).map(name => ({
     name,
     model: env.providers[name]?.model,
     configured: !!env.providers[name],
@@ -77,16 +78,25 @@ export function buildApp(env: PlatformEnv) {
   // and this list so they cannot drift.
   const providerAdapters = [
     {
+      name: 'openrouter', displayName: 'OpenRouter', mode: 'api' as const, modelConfigurable: true,
+      defaultModel: '', knownModels: [], modelValidationPattern: OPENROUTER_MODEL_PATTERN,
+      modelValidationHint: 'a concrete model ID (publisher/model)',
+    },
+    {
       name: 'gemini', displayName: 'Gemini', mode: 'api' as const, modelConfigurable: true,
-      defaultModel: 'gemini-2.5-flash',
+      defaultModel: 'gemini-flash-latest',
       knownModels: [
         { id: 'gemini-2.5-pro', displayName: 'Gemini 2.5 Pro', tier: 'flagship' as const },
+        { id: 'gemini-flash-latest', displayName: 'Gemini Flash (latest)', tier: 'standard' as const },
+        { id: 'gemini-flash-lite-latest', displayName: 'Gemini Flash-Lite (latest)', tier: 'economy' as const },
+        { id: 'gemini-3.8-flash', displayName: 'Gemini 3.8 Flash', tier: 'standard' as const },
+        { id: 'gemini-3.5-flash-lite', displayName: 'Gemini 3.5 Flash-Lite', tier: 'economy' as const },
         { id: 'gemini-2.5-flash', displayName: 'Gemini 2.5 Flash', tier: 'standard' as const },
         { id: 'gemini-2.5-flash-lite', displayName: 'Gemini 2.5 Flash-Lite', tier: 'economy' as const },
         { id: 'gemini-2.0-flash', displayName: 'Gemini 2.0 Flash', tier: 'standard' as const },
       ],
       modelValidationPattern: /./,
-      modelValidationHint: 'any valid Google model name (e.g. gemini-2.5-flash, learnlm-1.5-pro-experimental)',
+      modelValidationHint: 'any valid Google model name (e.g. gemini-flash-latest, gemini-3.8-flash)',
     },
     {
       name: 'openai', displayName: 'OpenAI', mode: 'api' as const, modelConfigurable: true,
@@ -194,11 +204,40 @@ export function buildApp(env: PlatformEnv) {
     trustProxyConfigured: trustProxy !== false,
     researchAllowViewers: env.research.allowViewers,
     researchViewerDailyRunLimit: env.research.viewerDailyRunLimit,
+    // A project alias change rescores stored answers in full, as local serve
+    // does: `answer_mentioned` and the competitor columns, which also covers a
+    // competitor alias the new project alias took over (that write fires only
+    // this hook). Inline for the same Cloud Run reason as the hook below.
+    onAliasesChanged: (projectId, projectName) => {
+      try {
+        const result = backfillProjectAnswerMentions(db, projectId)
+        app.log.info({ projectId, projectName, ...result }, 'aliases changed: recomputed mention fields on historical snapshots')
+      } catch (err) {
+        app.log.error({ err, projectId, projectName }, 'alias-triggered backfill failed')
+      }
+    },
+    // A competitor alias write refreshes the stored per-snapshot competitor
+    // columns (`competitor_overlap`, `recommended_competitors`) from stored
+    // answers, as local serve does; `answer_mentioned` is left alone. It runs
+    // inside the request, not after the response, because Cloud Run may
+    // throttle an instance once the response is sent. The write has already
+    // committed, so a failed refresh is logged and never fails the request.
+    onCompetitorAliasesChanged: (projectId, projectName) => {
+      try {
+        const result = backfillProjectAnswerMentions(db, projectId, { competitorFieldsOnly: true })
+        app.log.info(
+          { projectId, projectName, ...result },
+          'competitor aliases changed: recomputed competitor fields on historical snapshots',
+        )
+      } catch (err) {
+        app.log.error({ err, projectId, projectName }, 'competitor-alias-triggered backfill failed')
+      }
+    },
   })
 
   // NO MCP TRANSPORT AND NO OAUTH HERE, deliberately.
   //
-  // The MCP server lives in the engine package (@ainyc/canonry) and this app
+  // The MCP server lives in the engine package (@canonry/canonry) and this app
   // depends only on api-routes/config/contracts/db. Wiring it would mean taking
   // a dependency on the whole engine — providers, browser automation, the run
   // coordinator — inside a deployable that exists precisely to stay light.

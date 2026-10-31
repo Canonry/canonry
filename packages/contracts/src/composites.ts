@@ -5,6 +5,7 @@ import { citationStateSchema, latestProjectRunDtoSchema } from './run.js'
 import type { LatestProjectRunDto } from './run.js'
 import { projectDtoSchema } from './project.js'
 import type { ProjectDto } from './project.js'
+import { insightSeveritySchema } from './intelligence.js'
 import type { HealthSnapshotDto, InsightDto } from './intelligence.js'
 
 // One-call summary for "how is project X doing?". The shape stays stable so
@@ -184,6 +185,14 @@ export interface MovementComparisonDto {
 export interface ProjectOverviewCompetitorDto {
   id: string
   domain: string
+  /** Operator-curated answer-text names for this competitor (display only). */
+  aliases?: string[]
+  /**
+   * Names detected from the project's stored answers, minus blocked ones
+   * (display only; matched like curated aliases). Names only: the evidence
+   * behind each is on `CompetitorDto.autoAliases`.
+   */
+  autoAliasNames?: string[]
   citationCount: number
   totalQueries: number
   pressureLabel: 'None' | 'Low' | 'Moderate' | 'High'
@@ -412,7 +421,7 @@ const projectOverviewInsightSchema = z.object({
     'gbp-metric-drop',
     'gbp-keyword-drop',
   ]),
-  severity: z.enum(['critical', 'high', 'medium', 'low']),
+  severity: insightSeveritySchema,
   title: z.string(),
   query: z.string(),
   provider: z.string(),
@@ -501,6 +510,8 @@ export const projectOverviewDtoSchema = z.object({
   competitors: z.array(z.object({
     id: z.string(),
     domain: z.string(),
+    aliases: z.array(z.string()).optional(),
+    autoAliasNames: z.array(z.string()).optional(),
     citationCount: z.number().int().nonnegative(),
     totalQueries: z.number().int().nonnegative(),
     pressureLabel: z.enum(['None', 'Low', 'Moderate', 'High']),
@@ -586,7 +597,7 @@ export const projectSearchInsightHitSchema = z.object({
     'gbp-metric-drop',
     'gbp-keyword-drop',
   ]),
-  severity: z.enum(['critical', 'high', 'medium', 'low']),
+  severity: insightSeveritySchema,
   title: z.string(),
   query: z.string(),
   provider: z.string(),

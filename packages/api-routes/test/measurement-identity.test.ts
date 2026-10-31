@@ -4,6 +4,7 @@ import {
   buildMeasurementObservationSignals,
   buildMeasurementOverview,
   buildMeasurementReport,
+  createTargetMentionReader,
   type MeasurementOverviewInput,
 } from '../src/measurement-report.js'
 
@@ -207,12 +208,23 @@ describe('assignment-aware identity attribution', () => {
   it('keeps compact attribution identical to detailed evidence, including uncertainty and partial positive citations', () => {
     const input = fixture()
     input.observations[0]!.answerText = 'Which Harbor Point do you mean?'
-    input.observations[0]!.citedUrls = ['https://northstar.example/harbor']
+    // A sibling's page settles nothing about Harbor Point.
+    input.observations[0]!.citedUrls = ['https://northstar.example/loft']
     input.observations[0]!.citedUrlsComplete = false
-    const detailed = buildMeasurementEvidence(input).answers[0]!
-    const compact = buildMeasurementObservationSignals(input).find(row => row.observationId === detailed.observationId)!
-    expect(detailed).toMatchObject({ mentioned: null, cited: true, evidenceComplete: false })
-    expect(compact).toMatchObject({ mentionedTargetIds: [], unknownMentionTargetIds: ['harbor'], citedTargetIds: ['harbor'], sourceComplete: false })
+    const read = () => {
+      const detailed = buildMeasurementEvidence(input).answers[0]!
+      return { detailed, compact: buildMeasurementObservationSignals(input).find(row => row.observationId === detailed.observationId)! }
+    }
+    const uncertain = read()
+    expect(uncertain.detailed).toMatchObject({ mentioned: null, cited: null, evidenceComplete: false })
+    expect(uncertain.compact).toMatchObject({ mentionedTargetIds: [], unknownMentionTargetIds: ['harbor'], citedTargetIds: ['loft'], sourceComplete: false })
+
+    // Its own page, captured before capture failed, is a positive citation
+    // and settles which Harbor Point the answer meant.
+    input.observations[0]!.citedUrls = ['https://northstar.example/harbor']
+    const settled = read()
+    expect(settled.detailed).toMatchObject({ mentioned: true, cited: true, evidenceComplete: false })
+    expect(settled.compact).toMatchObject({ mentionedTargetIds: ['harbor'], unknownMentionTargetIds: [], citedTargetIds: ['harbor'], sourceComplete: false })
   })
 })
 
@@ -228,6 +240,10 @@ const HARBOR_ANSWERS = [
   'Which Harbor Point do you mean? There are several places with that name.',
 ] as const
 
+/**
+ * The queries name only the brand, never the Property, so an answer asking
+ * which Harbor Point was meant has nothing to settle it and stays unresolved.
+ */
 function brandedPopulation(answers: readonly string[] = HARBOR_ANSWERS): MeasurementOverviewInput {
   const input = fixture()
   const provider = (index: number) => index % 2 === 0 ? 'openai' : 'gemini'
@@ -236,12 +252,12 @@ function brandedPopulation(answers: readonly string[] = HARBOR_ANSWERS): Measure
     { id: 'edge-loft', type: 'target', targetId: 'loft', executionId: 'exec-loft', queryClass: 'branded' },
   ]
   input.expectedSlots = [
-    ...answers.map((_, index) => ({ id: `slot-harbor-${index}`, executionId: `exec-harbor-${index}`, queryText: 'is harbor point good', provider: provider(index), location: null })),
-    { id: 'slot-loft', executionId: 'exec-loft', queryText: 'is sail loft good', provider: 'openai', location: null },
+    ...answers.map((_, index) => ({ id: `slot-harbor-${index}`, executionId: `exec-harbor-${index}`, queryText: 'is northstar a good landlord', provider: provider(index), location: null })),
+    { id: 'slot-loft', executionId: 'exec-loft', queryText: 'northstar reviews', provider: 'openai', location: null },
   ]
   input.observations = [
-    ...answers.map((answerText, index) => ({ id: `answer-harbor-${index}`, executionId: `exec-harbor-${index}`, queryText: 'is harbor point good', provider: provider(index), location: null, answerText, citedUrls: [], citedUrlsComplete: true })),
-    { id: 'answer-loft', executionId: 'exec-loft', queryText: 'is sail loft good', provider: 'openai', location: null, answerText: 'No recommendation today.', citedUrls: [], citedUrlsComplete: true },
+    ...answers.map((answerText, index) => ({ id: `answer-harbor-${index}`, executionId: `exec-harbor-${index}`, queryText: 'is northstar a good landlord', provider: provider(index), location: null, answerText, citedUrls: [], citedUrlsComplete: true })),
+    { id: 'answer-loft', executionId: 'exec-loft', queryText: 'northstar reviews', provider: 'openai', location: null, answerText: 'No recommendation today.', citedUrls: [], citedUrlsComplete: true },
   ]
   return input
 }
@@ -299,5 +315,132 @@ describe('unattributable answers leave the mention rate instead of blanking it',
     const overview = buildMeasurementOverview(input)
     expect(overview.mentionCoverage).toEqual({ numerator: null, denominator: null, rate: null, reason: 'evidence-incomplete' })
     expect(overview.properties.find(row => row.targetId === 'harbor')!.mentionCoverage.reason).toBe('evidence-incomplete')
+  })
+})
+
+/**
+ * A branded query that names a brand-less Property, as stored: the frozen
+ * execution asks about Harbor Point by name, every engine answers it, and
+ * one engine replies only with a clarifying question.
+ */
+function clarifiedPopulation(queryText = 'is Harbor Point a good place to live'): MeasurementOverviewInput {
+  const input = fixture()
+  input.usageEdges = [
+    { id: 'edge-harbor', type: 'target', targetId: 'harbor', executionId: 'exec-harbor', queryClass: 'branded' },
+    { id: 'edge-loft', type: 'target', targetId: 'loft', executionId: 'exec-loft', queryClass: 'branded' },
+  ]
+  input.expectedSlots = [
+    { id: 'slot-harbor-openai', executionId: 'exec-harbor', queryText, provider: 'openai', location: null },
+    { id: 'slot-harbor-gemini', executionId: 'exec-harbor', queryText, provider: 'gemini', location: null },
+    { id: 'slot-loft', executionId: 'exec-loft', queryText: 'northstar reviews', provider: 'openai', location: null },
+  ]
+  input.observations = [
+    { id: 'answer-harbor-openai', executionId: 'exec-harbor', queryText, provider: 'openai', location: null, answerText: 'Harbor Point is popular with families.', citedUrls: [], citedUrlsComplete: true },
+    { id: 'answer-harbor-gemini', executionId: 'exec-harbor', queryText, provider: 'gemini', location: null, answerText: 'Which Harbor Point do you mean? There are a few apartment communities with that name.', citedUrls: [], citedUrlsComplete: true },
+    { id: 'answer-loft', executionId: 'exec-loft', queryText: 'northstar reviews', provider: 'openai', location: null, answerText: 'No recommendation today.', citedUrls: [], citedUrlsComplete: true },
+  ]
+  return input
+}
+
+describe('a clarifying question is settled by the Property\'s own page or by its branded query that names it', () => {
+  const harborRate = (input: MeasurementOverviewInput) => buildMeasurementOverview(input).properties.find(row => row.targetId === 'harbor')!.mentionCoverage
+  const clarifying = (input: MeasurementOverviewInput) => buildMeasurementEvidence(input).answers
+    .find(row => row.observationId === 'answer-harbor-gemini' && row.usageEdgeId === 'edge-harbor')!
+
+  it('names the Property when its branded query names it', () => {
+    const input = clarifiedPopulation()
+    expect(clarifying(input).mentioned).toBe(true)
+    // Both answers count: 2 of 2, nothing left out.
+    expect(harborRate(input)).toEqual({ numerator: 2, denominator: 2, rate: 1 })
+    expect(buildMeasurementReport(input).targets.find(row => row.id === 'harbor')!.mentionCoverage).toEqual({ numerator: 2, denominator: 2, rate: 1 })
+    expect(buildMeasurementObservationSignals(input).find(row => row.observationId === 'answer-harbor-gemini'))
+      .toMatchObject({ mentionedTargetIds: ['harbor'], unknownMentionTargetIds: [] })
+  })
+
+  it('names the Property when the answer cites its own page, whatever the query', () => {
+    const input = clarifiedPopulation('northstar apartments reviews')
+    expect(clarifying(input).mentioned).toBeNull()
+    expect(harborRate(input)).toEqual({ numerator: 1, denominator: 1, rate: 1, unattributed: 1 })
+
+    input.observations[1]!.citedUrls = ['https://northstar.example/harbor/floor-plans']
+    expect(clarifying(input)).toMatchObject({ mentioned: true, cited: true })
+    expect(harborRate(input)).toEqual({ numerator: 2, denominator: 2, rate: 1 })
+  })
+
+  it('stays not checked when only a sibling\'s page is cited and the query does not name the Property', () => {
+    const input = clarifiedPopulation('northstar apartments reviews')
+    input.observations[1]!.citedUrls = ['https://northstar.example/loft']
+    expect(clarifying(input).mentioned).toBeNull()
+    expect(harborRate(input)).toEqual({ numerator: 1, denominator: 1, rate: 1, unattributed: 1 })
+  })
+
+  it('stays not checked when a non-brand query uses the Property\'s name as a place', () => {
+    const input = clarifiedPopulation('best apartments near Harbor Point')
+    // The same question is now a market query for both Properties: the name
+    // reads as a neighbourhood, not as this Property.
+    input.usageEdges = [
+      { id: 'edge-harbor', type: 'target', targetId: 'harbor', executionId: 'exec-harbor', queryClass: 'non-brand' },
+      { id: 'edge-loft-market', type: 'target', targetId: 'loft', executionId: 'exec-harbor', queryClass: 'non-brand' },
+      { id: 'edge-loft', type: 'target', targetId: 'loft', executionId: 'exec-loft', queryClass: 'branded' },
+    ]
+    expect(clarifying(input).mentioned).toBeNull()
+    expect(buildMeasurementObservationSignals(input).find(row => row.observationId === 'answer-harbor-gemini'))
+      .toMatchObject({ mentionedTargetIds: [], unknownMentionTargetIds: ['harbor'] })
+    // The clarifying answer leaves the rate: the plain mention is 1 of 1.
+    expect(harborRate(input)).toEqual({ numerator: 1, denominator: 1, rate: 1, unattributed: 1 })
+    const overview = buildMeasurementOverview(input)
+    expect(overview.mentionCoverage).toMatchObject({ numerator: 1, denominator: 2, unattributed: 1 })
+  })
+
+  it('stays not checked on a schema v1 assignment, which records no query class', () => {
+    const input = clarifiedPopulation()
+    input.usageEdges = input.usageEdges.map(edge => edge.type === 'target' ? { ...edge, queryClass: null } : edge)
+    expect(clarifying(input).mentioned).toBeNull()
+  })
+
+  it('gives nothing to a Property the query names but was not assigned', () => {
+    const input = clarifiedPopulation()
+    // The same execution now serves Sail Loft only.
+    input.usageEdges = [
+      { id: 'edge-loft-harbor-query', type: 'target', targetId: 'loft', executionId: 'exec-harbor', queryClass: 'non-brand' },
+      { id: 'edge-loft', type: 'target', targetId: 'loft', executionId: 'exec-loft', queryClass: 'branded' },
+    ]
+    expect(buildMeasurementObservationSignals(input).find(row => row.observationId === 'answer-harbor-gemini'))
+      .toMatchObject({ mentionedTargetIds: [], unknownMentionTargetIds: ['harbor'] })
+  })
+
+  it('reads the query with the longest-name rule, so a query naming a longer sibling name does not name the shorter one', () => {
+    const input = clarifiedPopulation('is Harbor Point East a good place to live')
+    input.targets = [
+      ...input.targets,
+      { id: 'east', label: 'Harbor Point East', aliases: ['Harbor Point East'], urls: [{ id: 'url-east', mode: 'prefix', host: 'northstar.example', path: '/east' }] },
+    ]
+    input.usageEdges.push({ id: 'edge-east', type: 'target', targetId: 'east', executionId: 'exec-harbor', queryClass: 'branded' })
+    expect(clarifying(input).mentioned).toBeNull()
+  })
+
+  it('keeps the stricter rules for a "refers to several places" answer and for a Property with qualified names', () => {
+    const several = clarifiedPopulation()
+    several.observations[1]!.answerText = 'Harbor Point can refer to several different places.'
+    expect(clarifying(several).mentioned).toBeNull()
+
+    const qualified = clarifiedPopulation()
+    qualified.targets[0]!.identityAliases = ['Harbor Point in Eastport']
+    expect(clarifying(qualified).mentioned).toBeNull()
+    qualified.observations[1]!.citedUrls = ['https://northstar.example/harbor']
+    expect(clarifying(qualified).mentioned).toBe(true)
+  })
+
+  it('applies the same rule to a single stored answer read with its frozen query', () => {
+    const read = createTargetMentionReader(fixture().targets, ['northstar.example'])
+    const answer = 'Which Harbor Point do you mean?'
+    const branded = { text: 'is Harbor Point a good place to live', brandedTargetIds: ['harbor'] }
+    expect(read(answer, ['harbor'])).toBeNull()
+    expect(read(answer, ['harbor'], [], branded)).toBe(true)
+    expect(read(answer, ['loft'], [], branded)).toBe(false)
+    expect(read(answer, ['harbor'], ['https://northstar.example/harbor'])).toBe(true)
+    // A non-brand query containing the name settles nothing.
+    expect(read(answer, ['harbor', 'loft'], [], { text: 'best apartments near Harbor Point', brandedTargetIds: [] })).toBeNull()
+    expect(read(answer, ['harbor', 'loft'], [], { text: 'best apartments near Harbor Point', brandedTargetIds: ['loft'] })).toBeNull()
   })
 })

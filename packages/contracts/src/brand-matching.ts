@@ -248,6 +248,78 @@ export function matchedAliasKeys(
 }
 
 /**
+ * An apostrophe the word segmenter keeps inside one word: straight, and the
+ * curly right and left single quotes (`Joe's`, `Joe’s`, `don't`).
+ */
+const INNER_APOSTROPHE = /^['‘’]$/
+
+/**
+ * The word runs of an already-normalized string (exactly `wordsOfNormalized`'s
+ * runs, so matching sees the same words), each with the apostrophe that joins
+ * it to the run before it inside one written word, or null. `Joe's` is the
+ * runs `Joe` and `s`, the second joined by `'`.
+ */
+function wordRunsWithJoiners(normalized: string): { runs: string[]; joiners: (string | null)[] } {
+  const runs: string[] = []
+  const joiners: (string | null)[] = []
+  for (const segment of WORD_SEGMENTER.segment(normalized)) {
+    if (!segment.isWordLike) continue
+    let previousEnd = -1
+    for (const match of segment.segment.matchAll(WORD_RUNS)) {
+      const between = previousEnd === -1 ? '' : segment.segment.slice(previousEnd, match.index)
+      runs.push(match[0])
+      joiners.push(previousEnd !== -1 && INNER_APOSTROPHE.test(between) ? between : null)
+      previousEnd = match.index + match[0].length
+    }
+  }
+  return { runs, joiners }
+}
+
+/**
+ * Every occurrence of each matched alias, with its words AS WRITTEN (case
+ * kept). The same walk as {@link matchedAliasKeys}, over the text's words
+ * before lowercasing, for a reader that judges how a match is written (a
+ * capitalized name or a lowercase phrase). Whether an alias matched is still
+ * {@link matchedAliasKeys}'s answer; this only describes the matches.
+ *
+ * A possessive or contraction clitic stays part of the word it is written
+ * on: `Joe's Spokes` is the words `Joe's` and `Spokes`, never `Joe`, `s` and
+ * `Spokes`, so a reader judging capitalization never mistakes the clitic for
+ * a lowercase word.
+ */
+export function aliasOccurrencesAsWritten(
+  matcher: BrandAliasMatcher,
+  text: string | null | undefined,
+): Map<string, string[][]> {
+  const found = new Map<string, string[][]>()
+  if (!text || matcher.keys.size === 0) return found
+  const { runs, joiners } = wordRunsWithJoiners(foldAccents(text.normalize('NFKC')))
+  const lower = runs.map(word => word.toLocaleLowerCase('en'))
+  const writtenWords = (start: number, end: number): string[] => {
+    const words: string[] = []
+    for (let at = start; at <= end; at++) {
+      const joiner = joiners[at]
+      if (at > start && joiner) words[words.length - 1] += joiner + runs[at]!
+      else words.push(runs[at]!)
+    }
+    return words
+  }
+  for (let start = 0; start < lower.length; start++) {
+    let candidate = ''
+    for (let end = start; end < lower.length; end++) {
+      candidate += lower[end]
+      if (matcher.keys.has(candidate)) {
+        const occurrences = found.get(candidate) ?? []
+        occurrences.push(writtenWords(start, end))
+        found.set(candidate, occurrences)
+      }
+      if (candidate.length >= matcher.longest) break
+    }
+  }
+  return found
+}
+
+/**
  * Match an approved brand alias as one or more complete adjacent words.
  *
  * This tolerates presentation-only variants (`Vexlo IQ`, `Vexlo-IQ`,

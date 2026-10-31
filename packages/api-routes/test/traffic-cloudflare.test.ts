@@ -16,15 +16,20 @@ import {
   rawEventSamples,
   auditLog,
   trafficEventReceipts,
-} from '@ainyc/canonry-db'
-import { TrafficSourceStatuses, TrafficSourceTypes } from '@ainyc/canonry-contracts'
-import { canonicalizeCloudflareJson } from '@ainyc/canonry-integration-cloudflare-worker'
+  journeyEvents,
+  journeyVisitors,
+} from '@canonry/canonry-db'
+import { TrafficSourceStatuses, TrafficSourceTypes } from '@canonry/canonry-contracts'
+import { canonicalizeCloudflareJson } from '@canonry/canonry-integration-cloudflare-worker'
 import { apiRoutes } from '../src/index.js'
 import { CURRENT_CLOUDFLARE_WORKER_VERSION } from '../src/cloudflare-worker-version.js'
 import type {
   CloudflareTrafficCredentialRecord,
   CloudflareTrafficCredentialStore,
+  TrafficIngestedEvent,
 } from '../src/traffic.js'
+import type { OutcomeTelemetryEvent } from '../src/outcome-telemetry.js'
+import { connectionOutcomes } from './outcome-capture.js'
 
 const INGEST_URL = 'https://canonry.test/api/v1/projects/{name}/traffic/cloudflare/ingest'
 
@@ -34,6 +39,7 @@ async function buildHarness(opts: {
   ingestIpRateLimitMax?: number
   sampleLimit?: number
   canonicalDomain?: string
+  journeyKeySecret?: string
 } = {}) {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cf-traffic-routes-test-'))
   const dbPath = path.join(tmpDir, 'test.db')
@@ -56,15 +62,20 @@ async function buildHarness(opts: {
     deleteConnection: (projectName) => cloudflareCredentials.delete(projectName),
   }
 
+  const ingested: TrafficIngestedEvent[] = []
+  const outcomes: OutcomeTelemetryEvent[] = []
   const app = Fastify()
   app.register(apiRoutes, {
     db,
     skipAuth: true,
+    onTrafficIngested: event => { ingested.push(event) },
+    onOutcome: event => { outcomes.push(event) },
     cloudflareTrafficCredentialStore,
     cloudflareTrafficIngestUrl: opts.ingestUrl ?? INGEST_URL,
     cloudflareIngestRateLimitMax: opts.ingestRateLimitMax,
     cloudflareIngestIpRateLimitMax: opts.ingestIpRateLimitMax,
     defaultTrafficSampleLimit: opts.sampleLimit,
+    journeyKeySecret: opts.journeyKeySecret,
   })
   await app.ready()
 
@@ -84,6 +95,8 @@ async function buildHarness(opts: {
     app,
     db,
     cloudflareCredentials,
+    ingested,
+    connections: () => connectionOutcomes(outcomes),
     tmpDir,
     close: async () => {
       await app.close()
@@ -157,6 +170,31 @@ describe('POST /traffic/connect/cloudflare', () => {
     expect(credential?.deliveryMode).toBe('direct-push')
     expect(credential?.bearerToken).toMatch(/.+/)
     expect(credential?.hmacSecret).toMatch(/.+/)
+  })
+
+  it('generates a page-view Worker on request and keeps the setting across reconnects', async () => {
+    const connect = (payload: Record<string, unknown>) => h.app.inject({ method: 'POST', url: '/api/v1/projects/test-project/traffic/connect/cloudflare', payload })
+    const sourceConfig = () => h.db.select().from(trafficSources).get()!.configJson as Record<string, unknown>
+
+    const plain = JSON.parse((await connect({})).payload) as Record<string, unknown>
+    expect(plain).toMatchObject({ forwardPageViews: false, workerVersion: CURRENT_CLOUDFLARE_WORKER_VERSION })
+    expect(plain.workerScript).not.toContain('isPageView')
+    expect(sourceConfig()).toMatchObject({ forwardPageViews: false, workerVersion: CURRENT_CLOUDFLARE_WORKER_VERSION })
+
+    const on = JSON.parse((await connect({ forwardPageViews: true })).payload) as Record<string, unknown>
+    const pageViewVersion = `${CURRENT_CLOUDFLARE_WORKER_VERSION}+page-views`
+    expect(on).toMatchObject({ sourceId: plain.sourceId, forwardPageViews: true, workerVersion: pageViewVersion })
+    expect(on.workerScript).toContain('function isPageView')
+    expect(on.wranglerToml).toContain(`CANONRY_WORKER_VERSION = "${pageViewVersion}"`)
+    expect(on.instructions).toContain('also forwards page views')
+    expect(sourceConfig()).toMatchObject({ forwardPageViews: true, workerVersion: pageViewVersion })
+    expect(h.cloudflareCredentials.get('test-project')?.workerVersion).toBe(pageViewVersion)
+
+    // Omitted keeps the current setting; an explicit false turns it off.
+    expect(JSON.parse((await connect({})).payload)).toMatchObject({ forwardPageViews: true, workerVersion: pageViewVersion })
+    expect(JSON.parse((await connect({ forwardPageViews: false })).payload)).toMatchObject({ forwardPageViews: false, workerVersion: CURRENT_CLOUDFLARE_WORKER_VERSION })
+    expect(sourceConfig()).toMatchObject({ forwardPageViews: false })
+    expect(h.db.select().from(trafficSources).all()).toHaveLength(1)
   })
 
   it('keeps credentials out of generated Worker source and Wrangler config', async () => {
@@ -405,6 +443,23 @@ describe('POST /traffic/connect/cloudflare', () => {
   })
 })
 
+describe('Cloudflare connection outcomes', () => {
+  it('reports a direct-push connect, and a reconnect of the same source as a reauth', async () => {
+    const h = await buildHarness()
+    try {
+      for (let i = 0; i < 2; i += 1) {
+        expect((await h.app.inject({ method: 'POST', url: '/api/v1/projects/test-project/traffic/connect/cloudflare', payload: {} })).statusCode).toBe(200)
+      }
+      expect(h.connections()).toEqual([
+        { integration: 'traffic_cloudflare', action: 'connect', status: 'succeeded', durationBucket: 'under_1s' },
+        { integration: 'traffic_cloudflare', action: 'reauth', status: 'succeeded', durationBucket: 'under_1s' },
+      ])
+    } finally {
+      await h.close()
+    }
+  })
+})
+
 describe('POST /traffic/cloudflare/ingest', () => {
   let h: Awaited<ReturnType<typeof buildHarness>>
   let sourceId: string
@@ -412,7 +467,7 @@ describe('POST /traffic/cloudflare/ingest', () => {
   let secret: string
   let projectId: string
   beforeEach(async () => {
-    h = await buildHarness()
+    h = await buildHarness({ journeyKeySecret: 'journey-test-secret-at-least-32-characters' })
     const res = await h.app.inject({
       method: 'POST',
       url: '/api/v1/projects/test-project/traffic/connect/cloudflare',
@@ -485,6 +540,19 @@ describe('POST /traffic/cloudflare/ingest', () => {
       version: expect.any(String),
     }))
     expect(manifests[0]!.hits).toBe(1)
+  })
+
+  it('records an AI visitor journey once, even when the Worker retries the batch', async () => {
+    const browser = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.7 Mobile/15E148 Safari/604.1'
+    const at = (minutes: number) => new Date(Date.now() - (10 - minutes) * 60_000).toISOString()
+    const events = [
+      buildIngestEvent({ eventId: 'ray-ai', userAgent: browser, remoteIp: '198.51.100.7', path: '/', referer: 'https://chatgpt.com/', observedAt: at(0), cf: { verifiedBot: false, botScore: 90, country: 'US', asn: 64500, asOrganization: 'Example ISP' } }),
+      buildIngestEvent({ eventId: 'ray-next', userAgent: browser, remoteIp: '198.51.100.7', path: '/rooms', referer: 'https://example.com/', observedAt: at(1), cf: { verifiedBot: false, botScore: 90, country: 'US', asn: 64500, asOrganization: 'Example ISP' } }),
+    ]
+    const body = { schemaVersion: 1, workerVersion: CURRENT_CLOUDFLARE_WORKER_VERSION, events }
+    for (let i = 0; i < 2; i += 1) { const res = await ingest({ body }); expect(res.statusCode, `${i} ${res.payload}`).toBe(200) }
+    expect(h.db.select().from(journeyVisitors).all()).toMatchObject([{ projectId, keyBasis: 'ip-ua', firstAiEngine: 'ChatGPT' }])
+    expect(h.db.select().from(journeyEvents).all().map(e => e.sourceEventId).sort()).toEqual(['cloudflare-worker:ray-ai', 'cloudflare-worker:ray-next'])
   })
 
   it('writes NO sidecar for a classifier with no published manifest, so the hit reads as unattributed', async () => {
@@ -747,6 +815,30 @@ describe('POST /traffic/cloudflare/ingest', () => {
     const res = await ingest({ body })
 
     expect(res.statusCode).toBe(413)
+  })
+
+  it('reports each authenticated push with its counts, a refused batch with its reason, and nothing for an unauthenticated one', async () => {
+    const pushed = await ingest({
+      body: {
+        schemaVersion: 1,
+        workerVersion: '1.0.0',
+        events: [
+          buildIngestEvent(),
+          buildIngestEvent({ userAgent: 'ChatGPT-User/1.0' }),
+          buildIngestEvent({ userAgent: 'Mozilla/5.0', referer: 'https://chatgpt.com/' }),
+        ],
+      },
+    })
+    expect(pushed.statusCode).toBe(200)
+    const wrongHost = await ingest({ body: { schemaVersion: 1, workerVersion: '1.0.0', events: [buildIngestEvent({ host: 'other.example' })] } })
+    expect(wrongHost.statusCode).toBe(400)
+    const forged = await ingest({ body: { schemaVersion: 1, workerVersion: '1.0.0', events: [buildIngestEvent()] }, signatureOverride: 'f'.repeat(64) })
+    expect(forged.statusCode).toBe(401)
+
+    expect(h.ingested).toEqual([
+      { sourceType: 'cloudflare', status: 'succeeded', events: 3, crawlerHits: 1, aiUserFetchHits: 1, aiReferralHits: 1, durationMs: expect.any(Number) },
+      { sourceType: 'cloudflare', status: 'failed', events: 0, crawlerHits: 0, aiUserFetchHits: 0, aiReferralHits: 0, durationMs: expect.any(Number), reasonCode: 'VALIDATION' },
+    ])
   })
 
   it('routes an AI-referral event into the referral bucket, not the crawler bucket', async () => {

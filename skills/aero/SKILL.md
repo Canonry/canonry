@@ -1,6 +1,6 @@
 ---
 name: aero
-description: "Diagnose AEO regressions and interpret Canonry AI visibility, Advanced multi-property portfolios, and Site Health evidence. Use when a mention or citation coverage number moved and needs explaining, when comparing Properties or markets, diagnosing crawl or page findings, preparing a client report or month-over-month comparison, or analyzing a completed `cnry` sweep or site audit. Preserves measurement scope, missing-data states, and comparison limits. Use the canonry skill for setup and operations."
+description: "Diagnose AEO regressions and interpret Canonry AI visibility, SEO data, Advanced multi-property portfolios, and Site Health evidence. Use when prioritizing keyword or organic ranking opportunities, explaining mention or citation changes, comparing Properties or markets, diagnosing page findings, preparing reports, or analyzing a completed `cnry` sweep or site audit. Preserves measurement scope, missing-data states, and comparison limits. Use the canonry skill for setup and operations."
 metadata:
   homepage: https://canonry.ai
   repository: https://github.com/AINYC/aero
@@ -8,7 +8,7 @@ metadata:
 
 # Aero Orchestration Skill
 
-Use Canonry's stored evidence to explain AI visibility and site readiness. In
+Use Canonry's stored evidence to explain AI visibility, SEO opportunities, and site readiness. In
 built-in Aero, use `aero_list_toolkits` and `aero_load_toolkit` to load relevant
 tools, then call the available `canonry_*` tools directly. Project-scoped
 tools use the session's project; they do not accept a different project from
@@ -23,6 +23,12 @@ covering that work; an existing explicit authorization remains valid.
 
 ## Choose the evidence scope
 
+- **SEO data:** read `references/seo-analysis.md` before prioritizing keywords,
+  organic rankings, or domain comparisons. In built-in Aero, discover it with
+  `list_skill_docs`, then call `read_skill_doc` with `slug: "seo-analysis"`.
+  Load the `seo` toolkit and use the selected profile's saved evidence.
+  Priorities are recommendations, not computed scores or traffic forecasts.
+  Aero cannot edit SEO profiles or start paid SEO refreshes.
 - **Establish the portfolio type before answering; never infer it.**
   `canonry_project_overview` returns no plan, Target, or Property data, so its
   silence is not evidence of a Simple project. When the system prompt carries
@@ -49,12 +55,19 @@ covering that work; an existing explicit authorization remains valid.
     answers per engine. A Healthy run status and `canonry_doctor` are not
     completeness checks.
   - Which names answers give instead across the portfolio:
-    `canonry_competitor_landscape` with `queryClass` and `runId: latest`.
-    Per-Property named-instead lists are samples of weak Properties.
+    `canonry_competitor_landscape` with `answers: not-mentioned`,
+    `queryClass` and `runId: latest`. Report its selected answer count and
+    population. These conditioned reads provide counts, not competitive share
+    of voice. Per-Property named-instead lists sample weak Properties.
   - What changed: `canonry_measurement_changes` once per class, with its
     `distribution` and `withinNoise`.
-  - Which metros have the biggest gaps: the portfolio summary's `markets`
-    (every metro) and `tiedAtWeakest.byMetro`.
+  - Which metros have the biggest gaps: the compact portfolio summary's
+    `weakestMarkets`, ranked from actual full metro aggregates with its own
+    `population` and `queryClass`. Quote each row's mention and citation rates
+    with their numerators and denominators. Its eligible/excluded counts cover
+    every top-level metro; `list: markets` pages provide the remaining rollups.
+    `tiedAtWeakest.byMetro` counts zero-signal Properties within metros. Those
+    Property counts never supply metro rates or a ranking of metros.
 - **Noise.** Between two sweeps, a Property that moved 2 answers or fewer
   (`withinNoise: true`) is within noise. Never call it a gain, loss, trend,
   or regression.
@@ -65,10 +78,67 @@ covering that work; an existing explicit authorization remains valid.
   how many of how many you saw, and never call those rows the biggest, all,
   or the full picture.
   Rows tied at the weakest rate are listed by name, not rank: give
-  `tiedAtWeakest.count` and `.byMetro` and call the rows examples.
+  `tiedAtWeakest.count` and call the rows examples. Compact reads omit
+  `.byMetro`; request raw detail only when those tie counts are needed.
 - **Site Health:** read `references/site-health.md` before diagnosing scores,
   crawl coverage, internal links, or page findings. Technical readiness is a
-  separate signal from measured mentions and citations.
+  separate signal from measured mentions and citations. Use the latest audit
+  run selected by the tool. `runSelection` explains same-date ambiguity and
+  prefers complete scans, then the largest page sample, on the latest date.
+  For a dated question, pass `date: YYYY-MM-DD` to the crawl or crawl-pages
+  read. An empty read for an assumed year does not prove a historical scan is
+  missing. When the user omitted the year, use
+  `availableScanDates.matchingMonthDayDates` from the dated no-data result to
+  resolve it, then request the exact returned `YYYY-MM-DD`. If several years
+  match, clarify the year. Its date lists are bounded: `totalDates` and
+  `matchingMonthDayTotal` describe the full stored populations. Never silently
+  fall back to another date. Use `inventorySummary` for complete eligibility
+  and exclusion counts;
+  unknown indexability never means a canonical points elsewhere. Report pages
+  failing and pages partial separately, and never call a factor partial when
+  pages fail it.
+- **Sentiment (experimental):** questions about how answers describe a
+  Property or the brand (praise, criticism, complaints, tone, reputation) are
+  sentiment questions. Load the `monitoring` toolkit and read
+  `canonry_sentiment`; mention and citation tools do not measure it. One
+  branded call returns the headline, per-engine and per-Property breakdowns
+  and `criticizedProperties`. Take per-engine figures from its `provider`
+  breakdowns instead of filtering. A `provider` filter takes ids (`openai`
+  for ChatGPT, `gemini`, `claude`), and an empty filtered read means the
+  filter matched nothing, not that sentiment is missing.
+  `criticizedProperties.keys` lists up to five Properties, most criticized
+  first. Give favorable, mixed and unfavorable as counts over
+  `coverage.judged`, which counts assessments (one answer can assess several
+  Properties), and report rated answers of eligible answers separately as
+  coverage; never divide outcome counts by answers. Quote the most
+  criticized Properties' answers with `canonry_sentiment_evidence` (scope
+  `property`, `outcome: ["mixed", "unfavorable"]`). Non-brand is exceptions
+  only: list its mixed and unfavorable answers, never a non-brand favorable
+  share. Its rated share is low because most market answers do not name the
+  Property; that is not missing data. Never pool the two classes, and do not
+  quote `sentiment.overall` from the project overview, which pools them. An
+  absent subject is not unfavorable, an unrated or partial result is not "no
+  criticism", and partial values are provisional. Say the ratings are
+  model-classified and experimental. A trend needs two different rated runs:
+  pass `fromRunId: previous-rated` and the current `toRunId` to
+  `canonry_sentiment_compare`. If no compatible rated predecessor exists,
+  say there is no trend yet. Preserve population-change and incomplete-target
+  reasons; a bounded-search refusal needs an explicit older run, not a claim
+  that no rating history exists. Preserve other comparison refusal reasons.
+  Never compare a run with itself. Aero cannot turn sentiment on or
+  submit a backfill; send those requests to the operator.
+- **Portfolio counts:** Properties named is `metrics.propertiesMentioned`;
+  never named is `metrics.propertiesNeverMentioned`, also available per
+  market. Preserve unavailable identities and unmeasured states.
+  `tiedAtWeakest` requires zero mentions and zero citations. For names given
+  where none of an answer's targeted Properties was named, use
+  `answers: not-mentioned` on the landscape or portfolio summary and report
+  `answerCount` with `populationSize`. Summary reads use compact pages;
+  follow `nextCursor` with unchanged filters to complete only `pageList`.
+  Request the appropriate `list` for another ranking, markets or evidence;
+  the first-page sibling lists are bounded summaries, not complete lists.
+  When `__truncation` says a cursor skips omitted rows, retry the original
+  cursor with a smaller limit as instructed.
 - Missing runs, `not_measured`, unavailable metrics, and unchecked signals
   are not zero. Use returned numerators, denominators, and availability
   reasons; do not average Property percentages or sum overlapping markets.
@@ -107,10 +177,17 @@ estimate; a candidate burst is not confirmed automation. Read the Cloudflare
 `traffic sync`. Queue pull freshness requires an enabled `traffic-sync`
 schedule. Run the `traffic.source.*` doctor checks. Inspect
 `traffic.source.queue-backlog` before you quote current Queue data. If more than
-1,000 messages remain, report that one default tick cannot drain the backlog.
+1,000 messages remain, report the cause the check names from the last sync's
+stop reason (`cnry runs <project> --kind traffic-sync --format json`).
 Get approval before you run a manual sync or change the schedule. The full
 command reference is in the co-installed
 `canonry/references/canonry-cli.md`.
+
+When someone asks whether AI search sent visitors, whether they came back, or
+whether they bought, booked or became leads, read `references/ai-traffic-tracking.md`
+first. Report crawled, read, clicked, came back and converted as separate
+numbers, and never report zero conversions until you have checked that the
+conversion is tracked and reaches GA4.
 
 **Diagnosing a stuck Vercel/Cloud Run source:** if `cnry traffic status` shows `status=error` with a recent `lastError` of `refusing to advance` or `ExceedsBillingLimitError`, the source's `lastSyncedAt` has aged past the upstream retention boundary and every sync now throws. Recovery: `cnry traffic reset <project> --source <id> --advance-to-now`. This advances `lastSyncedAt` to NOW and resumes going-forward syncs — historical events in the gap are unrecoverable from the sync path; run `cnry traffic backfill --days N` separately if any of that history is needed (capped at retention).
 
@@ -169,8 +246,8 @@ A real (non-probe) sweep is appropriate when the user explicitly asks to refresh
   and never follow a table with a paragraph that repeats its top rows.
 - Chat is not a report. No emoji, no rank medals, no `##` headings and no
   `---` rules inside an answer. A short bold line is the heaviest
-  structure available; `references/reporting.md` governs the HTML report
-  surface instead.
+  structure available; `references/reporting.md` governs requested weekly
+  and monthly documents instead.
 - The closing next step is a recommendation, not an offer. "Start with the
   Properties at zero coverage" beats "want me to drill into one?".
 
@@ -180,6 +257,7 @@ Detailed playbooks live alongside this file. Read them on demand when the task m
 
 | File | Read when |
 |---|---|
+| `references/seo-analysis.md` | Prioritizing keyword or organic ranking opportunities from saved SEO data |
 | `references/portfolio-analysis.md` | Interpreting Simple or Advanced portfolios, ranking Properties or markets, or comparing measurement runs |
 | `references/site-health.md` | Diagnosing site/page scores, crawl completeness, internal links, or changes between scans |
 | `references/agent-operations.md` | Checking shared scope, evidence, comparison, or permission rules; generated from the canonical operations guide |
@@ -188,6 +266,7 @@ Detailed playbooks live alongside this file. Read them on demand when the task m
 | `references/aeo-discovery.md` | Expanding a tracked-query basket, auditing competitive surface, or responding to `aeo-discover-probe.completed` |
 | `references/memory-patterns.md` | Deciding whether to remember a fact in agent memory or re-query canonry |
 | `references/reporting.md` | Producing a client-facing weekly or monthly summary |
+| `references/ai-traffic-tracking.md` | Answering whether AI traffic led to visits, return visits, leads, bookings or sales, or whether tracking is broken; generated from the Canonry reference |
 | `references/wordpress-elementor-mcp.md` | Editing WordPress pages with the Elementor MCP integration |
 
 Aero (canonry's built-in agent) exposes `list_skill_docs` / `read_skill_doc` tools that walk this directory programmatically. External agents (Claude Code, Codex) can read the files directly.

@@ -2,33 +2,44 @@ import crypto from 'node:crypto'
 import { eq, desc, and, sql } from 'drizzle-orm'
 import type { SQL, SQLWrapper } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { gaTrafficSnapshots, gaTrafficSummaries, gaTrafficWindowSummaries, gaDailyTotals, gaAiReferrals, gaSocialReferrals, gaAcquisitionDaily, gaLeadEventsDaily, gaMeasurementSyncStates, runs } from '@ainyc/canonry-db'
-import { breakdownShares, classifyAiReferralTrafficClass, deltaPercent, formatPercent, percentOf, shareOf, validationError, notFound, forbidden, quotaExceeded, providerError, AppError, RunKinds, RunStatuses, RunTriggers, resolveDateRange, normalizeUrlPath, describeError, inclusiveDayCount } from '@ainyc/canonry-contracts'
-import type { GA4ChannelBreakdownDto, GaAttributionTrendResponse, GaSocialReferralTrendResponse, ResolvedDateRange } from '@ainyc/canonry-contracts'
-import { resolveProject, writeAuditLog } from './helpers.js'
+import { gaTrafficSnapshots, gaTrafficSummaries, gaTrafficWindowSummaries, gaWindowMetrics, gaDailyTotals, gaAiReferrals, gaSocialReferrals, gaAcquisitionDaily, gaLeadEventsDaily, gaMeasurementSyncStates, runs } from '@canonry/canonry-db'
+import { breakdownShares, classifyAiReferralTrafficClass, classifyOutcomeError, deltaPercent, formatPercent, GaOverviewPeriods, gaOverviewComparisonRanges, gaSyncOnlySchema, percentOf, shareOf, validationError, notFound, forbidden, quotaExceeded, providerError, AppError, FeatureNames, OutcomeReasonCodes, OutcomeStatuses, RunKinds, RunStatuses, resolveDateRange, normalizeUrlPath, describeError, inclusiveDayCount, countsKeyEvents, countedLeadEventNames } from '@canonry/canonry-contracts'
+import type { GA4ChannelBreakdownDto, GaAttributionTrendResponse, GaSearchLandingSyncResult, GaSocialReferralTrendResponse, ResolvedDateRange } from '@canonry/canonry-contracts'
+import { resolveProject, syncRunTrigger, writeAuditLog } from './helpers.js'
+import type { ScheduledSyncClaim } from './helpers.js'
 import { assertNotProjectScoped } from './auth.js'
+import { credentialFailure, startRouteOutcome } from './feature-outcome.js'
 import { buildSessionHistory } from './ga-session-history.js'
+import { buildGaOverview, parseGaOverviewWindow } from './ga-overview.js'
 import { findBiggestMover } from './ga-source-mover.js'
 import { buildAiReferralDailySeries, normalizeAiTrafficClass, pickWinningAttributionDimension, summarizeAiReferralCounts } from './ga-ai-referral-aggregation.js'
+import { groupAiEngines, groupSocialPlatforms, paidSocialSummary, socialPlatformDailySeries } from './ga-referral-groups.js'
+import { clearGaDataOnPropertyChange, clearGaPropertyData, projectsSharingGa4Connection, readGa4Properties } from './ga-property-data.js'
+import { persistSearchLandingFailure, persistSearchLandingSnapshot } from './ga-search-landing-pages.js'
 import {
   getAccessToken,
   fetchTrafficByLandingPage,
   fetchAggregateSummary,
   fetchWindowSummary,
+  fetchWindowMetrics,
   fetchDailyTotals,
   fetchAiReferrals,
   fetchSocialReferrals,
   fetchAcquisitionByChannel,
+  fetchKeyEventNames,
   fetchLeadEvents,
+  fetchSearchLandingPages,
   verifyConnection,
   verifyConnectionWithToken,
   resolveGa4SyncDays,
   GA4_MAX_SYNC_DAYS,
   listProperties,
   GA4ApiError,
-} from '@ainyc/canonry-integration-google-analytics'
+} from '@canonry/canonry-integration-google-analytics'
 import type { GoogleConnectionStore } from './google.js'
-import { refreshAccessToken } from '@ainyc/canonry-integration-google'
+import { connectionRoute } from './connection-telemetry.js'
+import { createRefusalBackoff, createVerifyCache, isInteractiveCaller, verifyCacheKey } from './connection-verify-cache.js'
+import { refreshAccessToken } from '@canonry/canonry-integration-google'
 
 function gaLog(level: 'info' | 'warn' | 'error', action: string, ctx?: Record<string, unknown>): void {
   const entry = { ts: new Date().toISOString(), level, module: 'GA4Routes', action, ...ctx }
@@ -229,6 +240,8 @@ function persistLeadMeasurement(
     runId: string
     syncedAt: string
     report: Awaited<ReturnType<typeof fetchLeadEvents>>
+    /** The event names this sync counted, sorted. */
+    eventNames: string[]
   },
 ): void {
   const { startDate, endDate } = input.report
@@ -269,6 +282,7 @@ function persistLeadMeasurement(
       leadError: null,
       leadSyncedAt: input.syncedAt,
       leadAttributionScope: input.report.attributionScope,
+      leadEventNames: input.eventNames,
       updatedAt: input.syncedAt,
     }).onConflictDoUpdate({
       target: gaMeasurementSyncStates.projectId,
@@ -277,6 +291,7 @@ function persistLeadMeasurement(
         leadError: null,
         leadSyncedAt: input.syncedAt,
         leadAttributionScope: input.report.attributionScope,
+        leadEventNames: input.eventNames,
         updatedAt: input.syncedAt,
       },
     }).run()
@@ -286,11 +301,37 @@ function persistLeadMeasurement(
 function resetLeadMeasurement(db: GaDatabase, projectId: string, updatedAt: string): void {
   db.transaction((tx) => {
     tx.delete(gaLeadEventsDaily).where(eq(gaLeadEventsDaily.projectId, projectId)).run()
-    tx.insert(gaMeasurementSyncStates).values({ projectId, leadStatus: 'never-synced', leadError: null, leadSyncedAt: null, leadAttributionScope: null, updatedAt }).onConflictDoUpdate({
+    tx.insert(gaMeasurementSyncStates).values({ projectId, leadStatus: 'never-synced', leadError: null, leadSyncedAt: null, leadAttributionScope: null, leadEventNames: null, updatedAt }).onConflictDoUpdate({
       target: gaMeasurementSyncStates.projectId,
-      set: { leadStatus: 'never-synced', leadError: null, leadSyncedAt: null, leadAttributionScope: null, updatedAt },
+      set: { leadStatus: 'never-synced', leadError: null, leadSyncedAt: null, leadAttributionScope: null, leadEventNames: null, updatedAt },
     }).run()
   })
+}
+
+/**
+ * Record the property's key-event read. A failed read keeps the previous
+ * list, so a transient Admin API error does not change what is counted.
+ */
+function persistKeyEventRead(db: GaDatabase, projectId: string, read: KeyEventRead, updatedAt: string): void {
+  if (read.status === 'disabled') return
+  const set = read.status === 'read'
+    ? { keyEventNames: read.names, keyEventsError: null, updatedAt }
+    : { keyEventsError: read.error ?? 'Key event read failed', updatedAt }
+  db.insert(gaMeasurementSyncStates).values({ projectId, ...set }).onConflictDoUpdate({
+    target: gaMeasurementSyncStates.projectId,
+    set,
+  }).run()
+}
+
+/** The property's key events as one sync sees them. */
+interface KeyEventRead {
+  status: 'read' | 'error' | 'disabled'
+  names: string[]
+  error?: string
+}
+
+function sameEventNames(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((name, index) => name === right[index])
 }
 
 function persistMeasurementError(
@@ -353,6 +394,7 @@ export interface GoogleAuthConfig {
 }
 
 export interface GA4RoutesOptions {
+  claimScheduledSync?: ScheduledSyncClaim
   ga4CredentialStore?: Ga4CredentialStore
   googleConnectionStore?: GoogleConnectionStore
   getGoogleAuthConfig?: () => GoogleAuthConfig
@@ -418,6 +460,29 @@ function ga4ErrorToAppError(err: unknown, context: string): AppError {
 }
 
 /**
+ * The error for a GA4 connect whose credential check failed.
+ *
+ * Google refusing the property (403) stays refused until someone grants the
+ * account access, so it is a 403 with its own reason a client can stop on,
+ * not the 400 a malformed body gets. Anything else keeps the 400.
+ */
+function ga4ConnectError(err: unknown, propertyId: string, principal: string, context: string): AppError {
+  if (err instanceof GA4ApiError && err.status === 403) {
+    return forbidden(
+      `Google refused access to GA4 property ${propertyId} for ${principal}. ` +
+      `Add ${principal} as a Viewer in Google Analytics (Admin > Property access management), then connect again. ` +
+      'Retrying will not help until access is granted.',
+      { reason: 'ga4-permission-missing', propertyId, retryable: false },
+    )
+  }
+  return validationError(`${context}: ${describeError(err)}`)
+}
+
+function isPermissionRefusal(error: AppError): boolean {
+  return error.details?.reason === 'ga4-permission-missing'
+}
+
+/**
  * Resolve a valid GA4 access token for a project.
  * Priority: service account (ga4CredentialStore) → OAuth token (googleConnectionStore).
  * Returns the access token and the resolved property ID.
@@ -468,6 +533,27 @@ async function resolveGa4AccessToken(
 }
 
 /**
+ * Why a GA4 sync failed. Before credentials resolve: no connection, no selected property, or a
+ * rejected token. After: a 404 is a property that is gone.
+ */
+function ga4SyncFailure(
+  err: unknown,
+  credentialsResolved: boolean,
+  opts: GA4RoutesOptions,
+  project: { name: string; canonicalDomain: string },
+): ReturnType<typeof classifyOutcomeError> {
+  const classified = classifyOutcomeError(err)
+  if (credentialsResolved) {
+    return err instanceof GA4ApiError && err.status === 404 ? { ...classified, reasonCode: OutcomeReasonCodes.PROPERTY_NOT_FOUND } : classified
+  }
+  if (!(err instanceof AppError)) return credentialFailure(err)
+  const oauth = opts.googleConnectionStore?.getConnection(project.canonicalDomain, 'ga4')
+  const serviceAccount = opts.ga4CredentialStore?.getConnection(project.name)
+  const unselected = Boolean(oauth?.refreshToken && !oauth.propertyId) || Boolean(serviceAccount?.clientEmail && !serviceAccount.propertyId)
+  return { ...classified, reasonCode: unselected ? OutcomeReasonCodes.PROPERTY_NOT_FOUND : OutcomeReasonCodes.NOT_CONNECTED }
+}
+
+/**
  * Check that a GA4 connection (service account or OAuth) exists for a project.
  * Throws if no connection is found.
  */
@@ -480,13 +566,44 @@ function requireGa4Connection(opts: GA4RoutesOptions, projectName: string, canon
 }
 
 export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
+  // Connect checks against Google. For API clients, a recent pass skips the
+  // check for an unchanged connect and a refusal that keeps coming back is
+  // replayed with backoff. The CLI and dashboard are always checked again.
+  const connectPasses = createVerifyCache<true>()
+  const connectRefusals = createRefusalBackoff()
+
+  async function checkGa4Access(key: string, verify: () => Promise<unknown>, toError: (err: unknown) => AppError): Promise<
+    { ok: true } | { ok: false; error: AppError; cause: unknown }
+  > {
+    if (!isInteractiveCaller()) {
+      if (connectPasses.get(key)) return { ok: true }
+      const replay = connectRefusals.replay(key)
+      if (replay) return { ok: false, ...replay }
+    }
+    try {
+      await verify()
+      connectPasses.set(key, true)
+      connectRefusals.cleared(key)
+      return { ok: true }
+    } catch (cause) {
+      const error = toError(cause)
+      // Only a refusal is stable enough to replay; a timeout or a bad key is checked again next time.
+      if (isPermissionRefusal(error)) connectRefusals.refused(key, error, cause)
+      return { ok: false, error, cause }
+    }
+  }
+
   // POST /projects/:name/ga/connect
   // Accepts an optional service account key. When omitted, checks for an existing
   // OAuth token from "canonry google connect --type ga4" and registers the property ID.
   app.post<{
     Params: { name: string }
     Body: { propertyId: string; keyJson?: string }
-  }>('/projects/:name/ga/connect', async (request, _reply) => {
+  }>('/projects/:name/ga/connect', connectionRoute(app, (request) => {
+    const body = request.body as { keyJson?: unknown } | undefined
+    // A key file connects; without one this picks the property for an OAuth connection.
+    return { integration: 'ga4', action: typeof body?.keyJson === 'string' && body.keyJson ? 'connect' : 'select' }
+  }, async (request, _reply, attempt) => {
     const project = resolveProject(app.db, request.params.name)
     const { propertyId, keyJson } = request.body ?? {}
 
@@ -513,17 +630,28 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       const clientEmail = parsed.client_email
       const privateKey = parsed.private_key
 
-      try {
-        await verifyConnection(clientEmail, privateKey, propertyId)
-        gaLog('info', 'connect.verified.service-account', { projectId: project.id, propertyId })
-      } catch (e) {
-        const msg = describeError(e)
-        gaLog('error', 'connect.verify-failed', { projectId: project.id, propertyId, error: msg })
-        throw validationError(`Failed to verify GA4 credentials: ${msg}`)
+      const check = await checkGa4Access(
+        verifyCacheKey('ga4-service-account', project.id, propertyId, clientEmail, privateKey),
+        () => verifyConnection(clientEmail, privateKey, propertyId),
+        (err) => ga4ConnectError(err, propertyId, clientEmail, 'Failed to verify GA4 credentials'),
+      )
+      if (!check.ok) {
+        gaLog('error', 'connect.verify-failed', { projectId: project.id, propertyId, error: check.error.message })
+        attempt.failed(check.cause)
+        throw check.error
       }
+      gaLog('info', 'connect.verified.service-account', { projectId: project.id, propertyId })
 
       const now = new Date().toISOString()
       const existing = opts.ga4CredentialStore.getConnection(project.name)
+      if (existing) attempt.update({ action: 'reauth' })
+      // A repeat of the stored connection changes nothing: no rewrite, no audit entry.
+      if (existing?.clientEmail === clientEmail && existing.privateKey === privateKey && existing.propertyId === propertyId) {
+        return { connected: true, propertyId, authMethod: 'service-account', clientEmail }
+      }
+      // GA rows belong to the property they were read from, so a connect that
+      // points the project at another property drops them.
+      const before = readGa4Properties(opts, [project])
       opts.ga4CredentialStore.upsertConnection({
         projectName: project.name,
         propertyId,
@@ -532,13 +660,15 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
         createdAt: existing?.createdAt ?? now,
         updatedAt: now,
       })
-
-      writeAuditLog(app.db, {
-        projectId: project.id,
-        actor: 'api',
-        action: 'ga4.connected',
-        entityType: 'ga_connection',
-        entityId: propertyId,
+      app.db.transaction((tx) => {
+        clearGaDataOnPropertyChange(tx, opts, before)
+        writeAuditLog(tx, {
+          projectId: project.id,
+          actor: 'api',
+          action: 'ga4.connected',
+          entityType: 'ga_connection',
+          entityId: propertyId,
+        })
       })
 
       return { connected: true, propertyId, authMethod: 'service-account', clientEmail }
@@ -556,88 +686,98 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
 
     const oauthConn = googleStore.getConnection(project.canonicalDomain, 'ga4')
     if (!oauthConn?.accessToken || !oauthConn?.refreshToken) {
+      attempt.failed(undefined, 'NOT_CONNECTED')
       throw validationError(
         'No GA4 OAuth token found. Run "canonry google connect <project> --type ga4" first, ' +
         'or pass --key-file to use a service account.',
       )
     }
 
-    // Get a valid (possibly refreshed) token
-    const accessToken = await refreshOAuthTokenIfNeeded(googleStore, authConfig, project.canonicalDomain, {
-      accessToken: oauthConn.accessToken,
-      refreshToken: oauthConn.refreshToken,
-      tokenExpiresAt: oauthConn.tokenExpiresAt,
-    })
-
-    // Verify the token works for this property
-    try {
-      await verifyConnectionWithToken(accessToken, propertyId)
-      gaLog('info', 'connect.verified.oauth', { projectId: project.id, propertyId })
-    } catch (e) {
-      const msg = describeError(e)
-      gaLog('error', 'connect.verify-failed.oauth', { projectId: project.id, propertyId, error: msg })
-      throw validationError(`Failed to verify GA4 access: ${msg}`)
+    // Verify the (possibly refreshed) token works for this property
+    const { accessToken: storedAccessToken, refreshToken } = oauthConn
+    const check = await checkGa4Access(
+      verifyCacheKey('ga4-oauth', project.id, propertyId, refreshToken),
+      async () => {
+        const accessToken = await refreshOAuthTokenIfNeeded(googleStore, authConfig, project.canonicalDomain, {
+          accessToken: storedAccessToken,
+          refreshToken,
+          tokenExpiresAt: oauthConn.tokenExpiresAt,
+        })
+        return verifyConnectionWithToken(accessToken, propertyId)
+      },
+      (err) => err instanceof AppError ? err : ga4ConnectError(err, propertyId, 'the connected Google account', 'Failed to verify GA4 access'),
+    )
+    if (!check.ok) {
+      gaLog('error', 'connect.verify-failed.oauth', { projectId: project.id, propertyId, error: check.error.message })
+      attempt.failed(check.cause)
+      throw check.error
+    }
+    gaLog('info', 'connect.verified.oauth', { projectId: project.id, propertyId })
+    // Selecting the property already selected changes nothing: no rewrite, no audit entry.
+    if (oauthConn.propertyId === propertyId) {
+      return { connected: true, propertyId, authMethod: 'oauth' }
     }
 
-    // Store the property ID on the OAuth connection record
+    // Store the property ID on the OAuth connection record. Same rule as the
+    // service-account path, for every project on this domain: they all
+    // resolve through this record, and a service-account connection still
+    // wins over it, so a project is cleared only when its property changed.
+    const before = readGa4Properties(opts, projectsSharingGa4Connection(app.db, project.canonicalDomain))
     googleStore.updateConnection(project.canonicalDomain, 'ga4', {
       propertyId,
       updatedAt: new Date().toISOString(),
     })
-
-    writeAuditLog(app.db, {
-      projectId: project.id,
-      actor: 'api',
-      action: 'ga4.connected',
-      entityType: 'ga_connection',
-      entityId: propertyId,
+    app.db.transaction((tx) => {
+      clearGaDataOnPropertyChange(tx, opts, before)
+      writeAuditLog(tx, {
+        projectId: project.id,
+        actor: 'api',
+        action: 'ga4.connected',
+        entityType: 'ga_connection',
+        entityId: propertyId,
+      })
     })
 
     return { connected: true, propertyId, authMethod: 'oauth' }
-  })
+  }))
 
   // DELETE /projects/:name/ga/disconnect
-  app.delete<{ Params: { name: string } }>('/projects/:name/ga/disconnect', async (request, reply) => {
+  app.delete<{ Params: { name: string } }>('/projects/:name/ga/disconnect', connectionRoute(app, () => ({ integration: 'ga4', action: 'disconnect' }), async (request, reply, attempt) => {
     const project = resolveProject(app.db, request.params.name)
 
     const saConn = opts.ga4CredentialStore?.getConnection(project.name)
     const oauthConn = opts.googleConnectionStore?.getConnection(project.canonicalDomain, 'ga4')
 
     if (!saConn && !oauthConn) {
+      attempt.failed(undefined, 'NOT_CONNECTED')
       throw notFound('GA4 connection', project.name)
     }
 
-    // Delete traffic data, summaries, AI and social referral rows along with the connection.
-    app.db.delete(gaTrafficSnapshots)
-      .where(eq(gaTrafficSnapshots.projectId, project.id))
-      .run()
-    app.db.delete(gaTrafficSummaries)
-      .where(eq(gaTrafficSummaries.projectId, project.id))
-      .run()
-    app.db.delete(gaDailyTotals)
-      .where(eq(gaDailyTotals.projectId, project.id))
-      .run()
-    app.db.delete(gaAiReferrals)
-      .where(eq(gaAiReferrals.projectId, project.id))
-      .run()
-    app.db.delete(gaSocialReferrals)
-      .where(eq(gaSocialReferrals.projectId, project.id))
-      .run()
-
     const propertyId = saConn?.propertyId ?? oauthConn?.propertyId ?? null
+    // The other projects on this domain lose the OAuth connection too.
+    const others = readGa4Properties(
+      opts,
+      projectsSharingGa4Connection(app.db, project.canonicalDomain).filter((other) => other.id !== project.id),
+    )
     opts.ga4CredentialStore?.deleteConnection(project.name)
     opts.googleConnectionStore?.deleteConnection(project.canonicalDomain, 'ga4')
 
-    writeAuditLog(app.db, {
-      projectId: project.id,
-      actor: 'api',
-      action: 'ga4.disconnected',
-      entityType: 'ga_connection',
-      entityId: propertyId,
+    app.db.transaction((tx) => {
+      // Every GA row came from the disconnected property, so all of them go,
+      // and every GA read shows the project as never synced.
+      clearGaPropertyData(tx, project.id)
+      clearGaDataOnPropertyChange(tx, opts, others)
+      writeAuditLog(tx, {
+        projectId: project.id,
+        actor: 'api',
+        action: 'ga4.disconnected',
+        entityType: 'ga_connection',
+        entityId: propertyId,
+      })
     })
 
     return reply.status(204).send()
-  })
+  }))
 
   // GET /projects/:name/ga/status
   // GET /projects/:name/ga/properties
@@ -722,7 +862,8 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
   // window. See `share denominator` discussion below.
   //
   // Valid `only` values: "traffic" (foundation only), "ai" (foundation + AI),
-  // "social" (foundation + social). Omit for the full set.
+  // "social" (foundation + social), "search-landing" (foundation + the GA4
+  // Search Console landing-page snapshot). Omit for the full set.
   app.post<{
     Params: { name: string }
     Body: { days?: number; only?: string }
@@ -736,9 +877,8 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
     const { requestedDays, effectiveDays: days, clamped } = resolveGa4SyncDays(request.body?.days)
     const only = request.body?.only
 
-    const validOnlyValues = ['traffic', 'ai', 'social'] as const
-    if (only !== undefined && !validOnlyValues.includes(only as typeof validOnlyValues[number])) {
-      throw validationError(`Invalid "only" value "${only}". Must be one of: ${validOnlyValues.join(', ')}`)
+    if (only !== undefined && !gaSyncOnlySchema.safeParse(only).success) {
+      throw validationError(`Invalid "only" value "${only}". Must be one of: ${gaSyncOnlySchema.options.join(', ')}`)
     }
 
     // Foundation (traffic snapshots + aggregate summary) always syncs — share
@@ -749,14 +889,17 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
     const syncSummary = true
     const syncAi = !only || only === 'ai'
     const syncSocial = !only || only === 'social'
+    const syncSearchLanding = !only || only === 'search-landing'
 
     const measurementState = app.db.select().from(gaMeasurementSyncStates)
       .where(eq(gaMeasurementSyncStates.projectId, project.id)).get()
     // `days` is already bounded, so an incremental refresh reuses it directly;
     // a first-ever measurement sync backfills the full supported window.
     const acquisitionDays = measurementState?.acquisitionSyncedAt != null ? days : GA4_MAX_SYNC_DAYS
-    const leadDays = measurementState?.leadSyncedAt != null ? days : GA4_MAX_SYNC_DAYS
-    const leadEventNames = project.measurement.leadEventNames
+    // Set once the property's key events are read, after the token resolves.
+    let leadDays: number = GA4_MAX_SYNC_DAYS
+    let leadEventNames: string[] = []
+    let keyEventRead: KeyEventRead = { status: 'disabled', names: [] }
 
     const startedAt = new Date().toISOString()
     const runId = crypto.randomUUID()
@@ -765,13 +908,35 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       projectId: project.id,
       kind: RunKinds['ga-sync'],
       status: RunStatuses.running,
-      trigger: RunTriggers.manual,
+      trigger: syncRunTrigger(opts.claimScheduledSync, project.name, RunKinds['ga-sync']),
       startedAt,
       createdAt: startedAt,
     }).run()
 
+    const outcome = startRouteOutcome(app, FeatureNames.ga4, 'sync')
+    let credentialsResolved = false
+    // The first measurement component that failed outright; the sync still completes.
+    let componentFailure: { error: unknown } | undefined
     try {
       const { accessToken, propertyId } = await resolveGa4AccessToken(opts, project.name, project.canonicalDomain)
+      credentialsResolved = true
+
+      // Count the configured lead events plus the property's own key events.
+      // A failed read keeps the last good list and never fails the sync.
+      if (countsKeyEvents(project.measurement)) {
+        try {
+          keyEventRead = { status: 'read', names: await fetchKeyEventNames(accessToken, propertyId) }
+        } catch (error) {
+          keyEventRead = { status: 'error', names: measurementState?.keyEventNames ?? [], error: describeError(error) }
+        }
+        persistKeyEventRead(app.db, project.id, keyEventRead, new Date().toISOString())
+      }
+      leadEventNames = countedLeadEventNames(project.measurement.leadEventNames, keyEventRead.names)
+      // A changed event set refreshes the whole GA4 window, so every stored
+      // day counts the same events. An unknown previous set counts as changed.
+      const previousLeadEvents = measurementState?.leadEventNames ?? null
+      const leadEventsChanged = previousLeadEvents === null || !sameEventNames(previousLeadEvents, leadEventNames)
+      leadDays = measurementState?.leadSyncedAt != null && !leadEventsChanged ? days : GA4_MAX_SYNC_DAYS
 
       let rows: Awaited<ReturnType<typeof fetchTrafficByLandingPage>> = []
       let aiReferrals: Awaited<ReturnType<typeof fetchAiReferrals>> = []
@@ -784,11 +949,15 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       // Daily totals carry NO landing-page dimension, so GA deduplicates
       // `users` per day. Fetched unconditionally alongside the summary for the
       // same reason the summary is: the daily series is a foundation read, not
-      // a channel breakdown the `only` flag scopes.
+      // a channel breakdown the `only` flag scopes. They always cover the
+      // overview history (GA_OVERVIEW_HISTORY_DAYS), whatever `days` is, so
+      // every window's previous period has its days too. The window metrics
+      // are GA4's own totals for each window and the period before it.
       const fetches: Promise<unknown>[] = [
         fetchAggregateSummary(accessToken, propertyId, days),
         ...WINDOW_KEYS.map((w) => fetchWindowSummary(accessToken, propertyId, w)),
-        fetchDailyTotals(accessToken, propertyId, days),
+        fetchDailyTotals(accessToken, propertyId),
+        ...WINDOW_KEYS.map((w) => fetchWindowMetrics(accessToken, propertyId, w)),
       ]
       if (syncTraffic) fetches.push(fetchTrafficByLandingPage(accessToken, propertyId, days))
       if (syncAi) fetches.push(fetchAiReferrals(accessToken, propertyId, days))
@@ -799,13 +968,18 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
         leadEventNames.length > 0
           ? fetchLeadEvents(accessToken, propertyId, leadEventNames, leadDays)
           : Promise.resolve(null),
+        // Fails soft like the components above: its own state, never the run.
+        syncSearchLanding
+          ? fetchSearchLandingPages(accessToken, propertyId)
+          : Promise.resolve(null),
       ])
 
       const results = await Promise.all(fetches)
       const summary: Awaited<ReturnType<typeof fetchAggregateSummary>> = results[0] as Awaited<ReturnType<typeof fetchAggregateSummary>>
       const windowSummaries = results.slice(1, 1 + WINDOW_KEYS.length) as Array<Awaited<ReturnType<typeof fetchWindowSummary>>>
       const dailyTotals = results[1 + WINDOW_KEYS.length] as Awaited<ReturnType<typeof fetchDailyTotals>>
-      let idx = 2 + WINDOW_KEYS.length
+      const windowMetrics = results.slice(2 + WINDOW_KEYS.length, 2 + 2 * WINDOW_KEYS.length) as Array<Awaited<ReturnType<typeof fetchWindowMetrics>>>
+      let idx = 2 + 2 * WINDOW_KEYS.length
       if (syncTraffic) { rows = results[idx++] as typeof rows }
       if (syncAi) { aiReferrals = results[idx++] as typeof aiReferrals }
       if (syncSocial) { socialReferrals = results[idx++] as typeof socialReferrals }
@@ -852,13 +1026,13 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
           .where(
             and(
               eq(gaDailyTotals.projectId, project.id),
-              sql`${gaDailyTotals.date} >= ${summary.periodStart}`,
-              sql`${gaDailyTotals.date} <= ${summary.periodEnd}`,
+              sql`${gaDailyTotals.date} >= ${dailyTotals.startDate}`,
+              sql`${gaDailyTotals.date} <= ${dailyTotals.endDate}`,
             ),
           )
           .run()
 
-        for (const row of dailyTotals) {
+        for (const row of dailyTotals.rows) {
           tx.insert(gaDailyTotals).values({
             id: crypto.randomUUID(),
             projectId: project.id,
@@ -871,10 +1045,49 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
             // row keeps only what GA4 actually reported.
             engagementRate: row.engagementRate,
             newUsers: row.newUsers,
+            activeUsers: row.activeUsers,
+            organicSessions: row.organicSessions,
+            views: row.views,
+            eventCount: row.eventCount,
+            keyEvents: row.keyEvents,
+            engagementSeconds: row.engagementSeconds,
+            bounceRate: row.bounceRate,
             syncedAt: now,
             syncRunId: runId,
             createdAt: now,
           }).run()
+        }
+
+        // GA4's totals per overview window, both periods, replaced together:
+        // one sync's view of every window, so no window keeps a stale period.
+        tx.delete(gaWindowMetrics).where(eq(gaWindowMetrics.projectId, project.id)).run()
+        for (const windowMetric of windowMetrics) {
+          for (const [period, totals] of [
+            [GaOverviewPeriods.current, windowMetric.current],
+            [GaOverviewPeriods.previous, windowMetric.previous],
+          ] as const) {
+            tx.insert(gaWindowMetrics).values({
+              id: crypto.randomUUID(),
+              projectId: project.id,
+              windowKey: windowMetric.windowKey,
+              period,
+              startDate: totals.startDate,
+              endDate: totals.endDate,
+              activeUsers: totals.activeUsers,
+              newUsers: totals.newUsers,
+              totalUsers: totals.totalUsers,
+              sessions: totals.sessions,
+              organicSessions: totals.organicSessions,
+              views: totals.views,
+              eventCount: totals.eventCount,
+              keyEvents: totals.keyEvents,
+              engagementRate: totals.engagementRate,
+              bounceRate: totals.bounceRate,
+              engagementSeconds: totals.engagementSeconds,
+              syncedAt: now,
+              syncRunId: runId,
+            }).run()
+          }
         }
 
         if (syncAi) {
@@ -982,13 +1195,14 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
         }
       })
 
-      const [acquisitionSettled, leadsSettled] = await measurementFetch
+      const [acquisitionSettled, leadsSettled, searchLandingSettled] = await measurementFetch
       const measurementNow = new Date().toISOString()
 
       const recordMeasurementFailure = (
         component: 'acquisition' | 'leads',
         reason: unknown,
       ) => {
+        componentFailure ??= { error: reason }
         const message = describeError(reason)
         gaLog('warn', 'measurement.component-failed', {
           projectId: project.id,
@@ -1044,15 +1258,68 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
             runId,
             syncedAt: measurementNow,
             report: leadsSettled.value,
+            eventNames: leadEventNames,
           })
           return {
             status: 'ready' as const,
             days: leadDays,
             rowCount: leadsSettled.value.rows.length,
             attributionScope: leadsSettled.value.attributionScope,
+            eventNames: leadEventNames,
+            keyEvents: keyEventRead,
           }
         } catch (error) {
           return recordMeasurementFailure('leads', error)
+        }
+      })()
+
+      // A failed or unavailable attempt records its state and KEEPS the last
+      // good snapshot of this property (one stored for another property is
+      // dropped). The `unavailable` branch (a property without a Search
+      // Console link) has not been captured live; see fetchSearchLandingPages.
+      const recordSearchLandingFailure = (
+        status: 'unavailable' | 'error',
+        reason: unknown,
+      ): GaSearchLandingSyncResult => {
+        if (status === 'error') componentFailure ??= { error: reason }
+        const message = describeError(reason)
+        gaLog('warn', 'search-landing.component-failed', {
+          projectId: project.id,
+          runId,
+          status,
+          error: message,
+        })
+        try {
+          persistSearchLandingFailure(app.db, project.id, propertyId, status, message, measurementNow)
+        } catch (stateError) {
+          gaLog('error', 'search-landing.state-write-failed', {
+            projectId: project.id,
+            runId,
+            error: describeError(stateError),
+          })
+        }
+        return { status, windows: [], rowCount: 0, error: message }
+      }
+
+      const searchLandingResult = ((): GaSearchLandingSyncResult | undefined => {
+        if (searchLandingSettled.status === 'rejected') {
+          return recordSearchLandingFailure('error', searchLandingSettled.reason)
+        }
+        const report = searchLandingSettled.value
+        if (report === null) return undefined
+        if (report.status === 'unavailable') {
+          return recordSearchLandingFailure('unavailable', report.reason)
+        }
+        try {
+          return persistSearchLandingSnapshot(app.db, {
+            projectId: project.id,
+            propertyId,
+            runId,
+            syncedAt: measurementNow,
+            windows: report.windows,
+          })
+        } catch (error) {
+          return recordSearchLandingFailure('error', error)
         }
       })()
 
@@ -1063,13 +1330,16 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
 
       // List every component that was actually written this run. Foundation
       // (traffic + summary) always syncs, so it always appears when `only`
-      // is set; the requested channel breakdown is appended.
+      // is set; the requested channel breakdown is appended. The Search
+      // Console snapshot fails soft, so it is listed only when it was stored;
+      // `measurement.searchLandingPages` carries a failed or refused attempt.
       const syncedComponents = only
         ? [
             ...(syncTraffic ? ['traffic'] : []),
             ...(syncSummary ? ['summary'] : []),
             ...(syncAi ? ['ai'] : []),
             ...(syncSocial ? ['social'] : []),
+            ...(searchLandingResult?.status === 'ready' ? ['search-landing'] : []),
           ]
         : undefined
 
@@ -1084,6 +1354,14 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
         totalUsers: summary.totalUsers,
         ...(only ? { only } : {}),
       })
+      const counts = { rows: rows.length + dailyTotals.rows.length + aiReferrals.length + socialReferrals.length }
+      if (componentFailure) {
+        outcome.report({ status: OutcomeStatuses.partial, ...classifyOutcomeError(componentFailure.error), counts })
+      } else if (rows.length === 0 && dailyTotals.rows.length === 0) {
+        outcome.report({ status: OutcomeStatuses.skipped, reasonCode: OutcomeReasonCodes.NO_DATA, counts })
+      } else {
+        outcome.report({ status: OutcomeStatuses.succeeded, counts })
+      }
 
       return {
         synced: true,
@@ -1097,6 +1375,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
         measurement: {
           acquisition: acquisitionResult,
           leads: leadResult,
+          ...(searchLandingResult ? { searchLandingPages: searchLandingResult } : {}),
         },
         ...(syncedComponents ? { syncedComponents } : {}),
       }
@@ -1107,6 +1386,7 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
         .set({ status: RunStatuses.failed, error: msg, finishedAt: new Date().toISOString() })
         .where(eq(runs.id, runId))
         .run()
+      outcome.report({ status: OutcomeStatuses.failed, ...ga4SyncFailure(e, credentialsResolved, opts, project) })
       throw e
     }
   })
@@ -1378,6 +1658,19 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       .orderBy(sql`SUM(${gaSocialReferrals.sessions}) DESC`)
       .all()
 
+    // Daily social sessions per source for the platform chart, from the same
+    // window as the rows above, so the chart cannot drift from the table.
+    const socialDailyRows = app.db
+      .select({
+        date: gaSocialReferrals.date,
+        source: gaSocialReferrals.source,
+        sessions: sql<number>`SUM(${gaSocialReferrals.sessions})`,
+      })
+      .from(gaSocialReferrals)
+      .where(and(...socialConditions))
+      .groupBy(gaSocialReferrals.date, gaSocialReferrals.source)
+      .all()
+
     // Session-scoped totals — no cross-dimension dedup needed since we only
     // query sessionDefaultChannelGroup (single attribution lens).
     const socialTotals = app.db
@@ -1416,6 +1709,20 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       aiSessionsByChannelGroup: aiSummary.bySessionChannelGroup,
     })
 
+    const aiReferralDtos = withSessionShares(aiReferrals.map((r) => ({
+      source: r.source,
+      medium: r.medium,
+      trafficClass: normalizeAiTrafficClass(r.trafficClass),
+      sourceDimension: r.sourceDimension,
+      sessions: r.sessions ?? 0,
+    })))
+    const socialReferralDtos = withSessionShares(socialReferrals.map((r) => ({
+      source: r.source,
+      medium: r.medium,
+      channelGroup: r.channelGroup,
+      sessions: r.sessions ?? 0,
+    })))
+
     return {
       totalSessions: total,
       totalOrganicSessions,
@@ -1442,13 +1749,8 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       // Shares of the rows' own sum, not of `aiSessionsDeduped`: that total
       // keeps the winning lens per day, these rows one lens per source over the
       // window, so it can exceed what the rows add up to.
-      aiReferrals: withSessionShares(aiReferrals.map((r) => ({
-        source: r.source,
-        medium: r.medium,
-        trafficClass: normalizeAiTrafficClass(r.trafficClass),
-        sourceDimension: r.sourceDimension,
-        sessions: r.sessions ?? 0,
-      }))),
+      aiReferrals: aiReferralDtos,
+      aiEngines: groupAiEngines(aiReferralDtos),
       aiReferralLandingPages: aiReferralLandingPages.map((r) => ({
         source: r.source,
         medium: r.medium,
@@ -1465,13 +1767,15 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       organicAiSessionsBySession: aiSummary.organicBySession.sessions,
       // These rows partition `socialSessions` (same window, one lens), so each
       // share is also the row's share of that total.
-      socialReferrals: withSessionShares(socialReferrals.map((r) => ({
+      socialReferrals: socialReferralDtos,
+      socialPlatforms: groupSocialPlatforms(socialReferralDtos),
+      socialPlatformDaily: socialPlatformDailySeries(socialDailyRows.map((r) => ({
+        date: r.date,
         source: r.source,
-        medium: r.medium,
-        channelGroup: r.channelGroup,
         sessions: r.sessions ?? 0,
       }))),
       socialSessions,
+      ...paidSocialSummary(socialReferralDtos),
       channelBreakdown,
       organicSharePct: percentOf(totalOrganicSessions, total) ?? 0,
       aiSharePct: percentOf(aiSummary.deduped.sessions, total) ?? 0,
@@ -1807,6 +2111,36 @@ export async function ga4Routes(app: FastifyInstance, opts: GA4RoutesOptions) {
       socialBiggestMover: findBiggestMover(socialSourceCurrent, socialSourcePrev),
     }
     return response
+  })
+
+  // GET /projects/:name/ga/overview — GA4's overview for a window beside the
+  // period before it: GA4's own totals, their change, and the days of both.
+  // Stored rows only; a sync is what asks GA4.
+  app.get<{
+    Params: { name: string }
+    Querystring: { window?: string }
+  }>('/projects/:name/ga/overview', async (request, _reply) => {
+    const project = resolveProject(app.db, request.params.name)
+    requireGa4Connection(opts, project.name, project.canonicalDomain)
+    const window = parseGaOverviewWindow(request.query.window)
+
+    const periodRows = app.db.select().from(gaWindowMetrics)
+      .where(and(eq(gaWindowMetrics.projectId, project.id), eq(gaWindowMetrics.windowKey, window)))
+      .all()
+    const current = periodRows.find((row) => row.period === GaOverviewPeriods.current) ?? null
+    const previous = periodRows.find((row) => row.period === GaOverviewPeriods.previous) ?? null
+    const fallback = gaOverviewComparisonRanges(window)
+    const from = previous?.startDate ?? fallback.previous.startDate
+    const to = current?.endDate ?? fallback.current.endDate
+    const daily = app.db.select().from(gaDailyTotals)
+      .where(and(
+        eq(gaDailyTotals.projectId, project.id),
+        sql`${gaDailyTotals.date} >= ${from}`,
+        sql`${gaDailyTotals.date} <= ${to}`,
+      ))
+      .all()
+
+    return buildGaOverview({ window, current, previous, daily, fallback })
   })
 
   // GET /projects/:name/ga/session-history

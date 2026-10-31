@@ -1,12 +1,13 @@
 import { eq } from 'drizzle-orm'
-import { projects } from '@ainyc/canonry-db'
+import { projects } from '@canonry/canonry-db'
 import {
   CheckCategories,
+  CheckNotificationPolicies,
   CheckScopes,
   CheckStatuses,
   classifyCitedSurface,
   formatPercent,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { loadOrchestratorInput } from '../../content-data.js'
 import type { CheckDefinition, CheckOutput, DoctorContext } from '../types.js'
 
@@ -36,6 +37,10 @@ const winnabilityCoverageCheck: CheckDefinition = {
   category: CheckCategories.integrations,
   scope: CheckScopes.project,
   title: 'Content winnability classification coverage',
+  // Advice about content targeting, not a broken instrument. Most projects sit
+  // below the threshold for good, and a check that never clears keeps the
+  // project permanently degraded, so no recovery could ever be sent.
+  notificationPolicy: CheckNotificationPolicies.silent,
   run: (ctx: DoctorContext): CheckOutput => {
     if (!ctx.project) return skippedNoProject()
 

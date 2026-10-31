@@ -1,12 +1,34 @@
 import type { FastifyInstance } from 'fastify'
-import type { ProviderModelRegistry, ProviderQuotaPolicy } from '@ainyc/canonry-contracts'
+import type {
+  AnswerServiceProfileSummary,
+  ProviderCapabilities,
+  ProviderCatalogEntryDto,
+  ProviderKeyCheck,
+  ProviderKind,
+  ProviderModelRegistry,
+  ProviderQuotaPolicy,
+  ProviderReloadRequest,
+  ProviderRouteFamily,
+  ProviderSettingsField,
+} from '@canonry/canonry-contracts'
 import {
+  AppError,
   validationError,
   notImplemented,
   internalError,
-} from '@ainyc/canonry-contracts'
-import { requireAdminSession, requireScope } from './auth.js'
+  OutcomeReasonCodes,
+  OutcomeStatuses,
+  providerReloadRequestSchema,
+  providerReloadResponseDtoSchema,
+  ProviderKinds,
+  providerRouteName,
+  routeFamiliesOf,
+} from '@canonry/canonry-contracts'
+import { requireAdminSession, requireInstanceAdministrator, requireScope } from './auth.js'
 import { auditFromRequest, type AuditEntry } from './helpers.js'
+import { connectionRoute, outcomeProviderName } from './connection-telemetry.js'
+import { withFeatureOutcome } from './feature-outcome.js'
+import { providerAdapterForName } from './provider-models.js'
 
 /**
  * Scope required to mutate any global setting — provider API keys,
@@ -33,6 +55,8 @@ export interface ProviderSummaryEntry {
   quota?: ProviderQuotaPolicy
   /** Whether Vertex AI is configured for this provider (Gemini only) */
   vertexConfigured?: boolean
+  /** Absent means an answer engine. */
+  kind?: ProviderKind
 }
 
 export interface GoogleSettingsSummary {
@@ -53,6 +77,38 @@ export interface ProviderAdapterInfo {
   knownModels: ProviderModelRegistry['knownModels']
   modelValidationPattern: RegExp
   modelValidationHint: string
+  /** Absent means an answer engine. */
+  kind?: ProviderKind
+  capabilities?: ProviderCapabilities
+  /** The route family a connection serves; its bare name is then never a target. */
+  routes?: ProviderRouteFamily
+  /** Answer-service profiles, from the service descriptor. */
+  profiles?: AnswerServiceProfileSummary[]
+  settingsFields?: ProviderSettingsField[]
+  keyCheck?: ProviderKeyCheck
+  keyUrl?: string
+  vendorDocsUrl?: string
+}
+
+/**
+ * The catalog fields an adapter description adds beyond the model registry.
+ * Only adapters that declare them gain them, so every answer engine's catalog
+ * entry keeps its exact shape.
+ */
+function descriptorFields(adapter: ProviderAdapterInfo): Partial<ProviderCatalogEntryDto> {
+  if (!adapter.kind && !adapter.routes && !adapter.profiles) return {}
+  return {
+    ...(adapter.kind ? { kind: adapter.kind } : {}),
+    connection: adapter.routes?.connection ?? adapter.name,
+    selectionKind: adapter.routes?.selectionKind ?? null,
+    ...(adapter.profiles ? { profiles: adapter.profiles } : {}),
+    ...(adapter.capabilities?.workflows ? { workflows: [...adapter.capabilities.workflows] } : {}),
+    ...(adapter.capabilities ? { textGeneration: adapter.capabilities.textGeneration } : {}),
+    ...(adapter.settingsFields ? { settingsFields: adapter.settingsFields } : {}),
+    ...(adapter.keyCheck ? { keyCheck: adapter.keyCheck } : {}),
+    ...(adapter.keyUrl ? { keyUrl: adapter.keyUrl } : {}),
+    ...(adapter.vendorDocsUrl ? { vendorDocsUrl: adapter.vendorDocsUrl } : {}),
+  }
 }
 
 export interface SettingsRoutesOptions {
@@ -62,6 +118,8 @@ export interface SettingsRoutesOptions {
   /** Adapter metadata for validation — keyed by provider name */
   providerAdapters?: ProviderAdapterInfo[]
   onProviderUpdate?: (provider: string, apiKey: string, model?: string, baseUrl?: string, quota?: Partial<ProviderQuotaPolicy>, auditContext?: Pick<AuditEntry, 'actor' | 'userAgent' | 'actorSession' | 'requestId' | 'credentialId'>) => ProviderSummaryEntry | null
+  /** Reload only this host's captured provider configuration; never select caller paths. */
+  onProviderReload?: (input: ProviderReloadRequest, auditContext?: Pick<AuditEntry, 'actor' | 'userAgent' | 'actorSession' | 'requestId' | 'credentialId'>) => ProviderSummaryEntry[] | Promise<ProviderSummaryEntry[]>
   google?: GoogleSettingsSummary
   onGoogleUpdate?: (clientId: string, clientSecret: string) => GoogleSettingsSummary | null
   bing?: BingSettingsSummary
@@ -77,23 +135,56 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
     requireAdminSession(request)
     return {
       providers: opts.providerSummary ?? [],
-      providerCatalog: await Promise.all((opts.providerAdapters ?? []).map(async adapter => {
+      providerCatalog: (await Promise.all((opts.providerAdapters ?? []).map(async adapter => {
         const configured = opts.providerSummary?.some(provider => provider.name === adapter.name && provider.configured)
         const discovered = configured && opts.getProviderModels ? await opts.getProviderModels(adapter.name) : []
-        return {
+        const knownModels = discovered.length ? discovered : adapter.knownModels
+        const descriptor = {
           name: adapter.name,
           displayName: adapter.displayName,
           mode: adapter.mode,
           modelConfigurable: adapter.modelConfigurable,
           defaultModel: adapter.defaultModel,
-          knownModels: discovered.length ? discovered : adapter.knownModels,
+          // Catalog entries can carry Aero's model metadata (limits, prices,
+          // tool support); the documented choice shape is id, name and tier.
+          knownModels: knownModels.map(({ id, displayName, tier }) => ({ id, displayName, tier })),
           modelValidationPattern: {
             source: adapter.modelValidationPattern.source,
             flags: adapter.modelValidationPattern.flags,
           },
           modelValidationHint: adapter.modelValidationHint,
+          ...descriptorFields(adapter),
         }
-      })),
+        // Descriptions that predate `routes` (the Cloud catalog) still know OpenRouter.
+        const family = routeFamiliesOf(opts.providerAdapters).find(item => item.connection === adapter.name)
+        if (!family) return [descriptor]
+        // A routed connection lists one entry per route it can serve: each
+        // catalog model of a gateway, each declared profile of an answer service.
+        const selections = family.selectionKind === 'profile'
+          ? (adapter.profiles ?? []).map(profile => profile.id)
+          : knownModels.map(model => model.id)
+        const routeAdapters = selections.flatMap(selection => {
+          let routeName: string
+          try { routeName = providerRouteName(family, selection) } catch { return [] }
+          const route = providerAdapterForName(routeName, [{ ...adapter, knownModels }])
+          if (!route) return []
+          const fields = descriptorFields(route)
+          return [{
+            ...descriptor,
+            ...fields,
+            name: route.name,
+            displayName: route.displayName,
+            modelConfigurable: false,
+            defaultModel: route.defaultModel,
+            knownModels: route.knownModels,
+            modelValidationPattern: { source: route.modelValidationPattern.source, flags: route.modelValidationPattern.flags },
+            modelValidationHint: route.modelValidationHint,
+            // A route is a target, not a connection: it selects nothing further and holds no key.
+            ...(Object.keys(fields).length > 0 ? { selectionKind: null, settingsFields: undefined, keyCheck: undefined } : {}),
+          }]
+        })
+        return [descriptor, ...routeAdapters]
+      }))).flat(),
       google: opts.google ?? { configured: false },
       bing: opts.bing ?? { configured: false },
     }
@@ -102,7 +193,14 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
   app.put<{
     Params: { name: string }
     Body: { apiKey?: string; baseUrl?: string; model?: string; quota?: Partial<ProviderQuotaPolicy> }
-  }>('/settings/providers/:name', async (request) => {
+  }>('/settings/providers/:name', connectionRoute(app, (request) => {
+    // A key or endpoint is a connection; a model or quota change alone is not.
+    const provider = outcomeProviderName(request.params.name)
+    const body = request.body as { apiKey?: unknown; baseUrl?: unknown } | undefined
+    if (!provider || (body?.apiKey === undefined && body?.baseUrl === undefined)) return undefined
+    const configured = (opts.providerSummary ?? []).some(entry => entry.name === provider && entry.configured)
+    return { integration: 'provider', provider, action: configured ? 'reauth' : 'connect' }
+  }, async (request) => {
     requireScope(request, SETTINGS_WRITE_SCOPE)
     const { apiKey, baseUrl, model, quota } = request.body ?? {}
     const name = request.params.name
@@ -151,6 +249,13 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
       }
     }
 
+    // An answer service takes a key and nothing else: its endpoint is fixed
+    // (so the key can never be sent elsewhere) and each route pins its profile.
+    if (adapterInfo.kind === ProviderKinds['answer-service']) {
+      if (baseUrl !== undefined) throw validationError(`${adapterInfo.displayName} uses a fixed endpoint; baseUrl is not accepted.`, { provider: name })
+      if (model !== undefined) throw validationError(`${adapterInfo.displayName} has no connection model; choose profiles per project instead.`, { provider: name })
+    }
+
     if (model !== undefined) {
       if (!adapterInfo.modelValidationPattern.test(model)) {
         throw validationError(
@@ -191,7 +296,25 @@ export async function settingsRoutes(app: FastifyInstance, opts: SettingsRoutesO
     }
 
     return result
-  })
+  }))
+
+  app.post('/settings/providers/reload', async (request) => withFeatureOutcome(app, { feature: 'providers', operation: 'reload' }, async (settle) => {
+    requireScope(request, SETTINGS_WRITE_SCOPE)
+    requireInstanceAdministrator(request)
+    const parsed = providerReloadRequestSchema.safeParse(request.body ?? {})
+    if (!parsed.success) {
+      throw validationError('Invalid provider reload request', parsed.error.flatten())
+    }
+    if (!opts.onProviderReload) {
+      throw notImplemented('Provider configuration reload is not supported in this deployment')
+    }
+    const { actor, userAgent, actorSession, requestId, credentialId } = auditFromRequest(request, {
+      actor: 'api', action: 'providers.reloaded', entityType: 'provider',
+    })
+    const providers = await opts.onProviderReload(parsed.data, { actor, userAgent, actorSession, requestId, credentialId })
+    settle({ status: OutcomeStatuses.succeeded, counts: { providers: providers.filter(provider => provider.configured).length } })
+    return providerReloadResponseDtoSchema.parse({ reloaded: true, providers })
+  }, err => (err instanceof AppError && err.code === 'NOT_IMPLEMENTED' ? OutcomeReasonCodes.UNSUPPORTED : undefined)))
 
   app.put<{
     Body: { clientId?: string; clientSecret?: string }

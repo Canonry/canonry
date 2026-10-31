@@ -1,7 +1,10 @@
-import type { AgentViewContext, AgentConversationList, AgentConversation, AeroPreviewStarterId } from '@ainyc/canonry-contracts'
+import { trackUiAction } from '../../lib/ui-telemetry.js'
+import type { AgentViewContext, AgentConversationList, AgentConversation, AeroPreviewStarterId } from '@canonry/canonry-contracts'
+import { AgentProviderIds, OPENROUTER_MODEL_PATTERN } from '@canonry/canonry-contracts'
 import { useAeroView } from '../../contexts/aero-view-context.js'
 import { aeroViewFromLocation } from '../../lib/aero-view.js'
-import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { useChatScroll } from '../../lib/use-chat-scroll.js'
 import {
   Radio,
@@ -29,13 +32,13 @@ import { heyClient, isDashboardManagedSweeps, listAgentConversations, createAgen
 import {
   getApiV1ProjectsByNameAgentProvidersOptions,
   getApiV1ProjectsOptions,
-} from '@ainyc/canonry-api-client/react-query'
+} from '@canonry/canonry-api-client/react-query'
 import { asyncHandler } from '../../lib/async-handler.js'
 import { useAccount } from '../../contexts/account-context.js'
 import { Button } from '../ui/button.js'
 import { MANAGED_SWEEPS_COPY } from '../project/ManagedSweepStatus.js'
 import { InfoTooltip } from './InfoTooltip.js'
-import { shellQuote, describeError } from '@ainyc/canonry-contracts'
+import { shellQuote, describeError } from '@canonry/canonry-contracts'
 import { playAeroPreview, prefersReducedMotion } from '../../lib/aero-preview.js'
 import {
   extractAssistantText,
@@ -80,8 +83,8 @@ interface AeroBarProps {
 }
 
 const STARTER_PROMPTS: Array<{ id: AeroPreviewStarterId; label: string; prompt: string }> = [
-  { id: 'status', label: 'Status', prompt: 'Give me a quick status: the latest sweep, which engines answered, and anything that needs attention.' },
-  { id: 'changes', label: 'What changed', prompt: 'Compare the latest complete sweep with the one before it. Lead with mentions, then citations. Keep branded and non-brand queries separate if the project splits them, and say which changes are bigger than normal run-to-run noise.' },
+  { id: 'status', label: 'Status', prompt: 'Give me a quick status: the latest check, which engines answered, and anything that needs attention.' },
+  { id: 'changes', label: 'What changed', prompt: 'Compare the latest complete check with the one before it. Lead with mentions, then citations. Keep branded and non-brand queries separate if the project splits them, and say which changes are bigger than normal run-to-run noise.' },
   { id: 'gaps', label: 'Biggest gaps', prompt: 'Which tracked queries does no engine mention us on, and who gets named instead? Group them by topic or market.' },
   { id: 'insights', label: 'Top insights', prompt: 'Walk me through the 3 most severe active insights and what to do about each.' },
 ]
@@ -115,12 +118,12 @@ const SLASH_COMMANDS: Array<SlashCommand> = [
   {
     command: '/status',
     label: 'Status',
-    prompt: 'Give me a quick status: the latest sweep, which engines answered, and anything that needs attention.',
+    prompt: 'Give me a quick status: the latest check, which engines answered, and anything that needs attention.',
   },
   {
     command: '/changes',
     label: 'What changed',
-    prompt: 'Compare the latest complete sweep with the one before it. Lead with mentions, then citations. Keep branded and non-brand queries separate if the project splits them, and say which changes are bigger than normal run-to-run noise.',
+    prompt: 'Compare the latest complete check with the one before it. Lead with mentions, then citations. Keep branded and non-brand queries separate if the project splits them, and say which changes are bigger than normal run-to-run noise.',
   },
   {
     command: '/gaps',
@@ -139,8 +142,8 @@ const SLASH_COMMANDS: Array<SlashCommand> = [
   },
   {
     command: '/run-sweep',
-    label: 'Run sweep now',
-    prompt: 'Run a new answer-visibility sweep for this project now and tell me when it lands.',
+    label: 'Run check now',
+    prompt: 'Run a new AI Visibility check for this project now and tell me when it lands.',
   },
   {
     command: '/queries',
@@ -160,6 +163,19 @@ const SLASH_COMMANDS: Array<SlashCommand> = [
 ]
 
 const PROVIDER_PREF_KEY = (project: string) => `canonry:aero:provider:${project}`
+const MODEL_PREF_KEY = (project: string, provider: AgentProviderId) => `canonry:aero:model:${project}:${provider}`
+// Where the OpenRouter model choice lived before every provider had one.
+const LEGACY_OPENROUTER_MODEL_PREF_KEY = (project: string) => `canonry:aero:openrouter-model:${project}`
+
+function readModelPreferences(project: string): Partial<Record<AgentProviderId, string>> {
+  const prefs: Partial<Record<AgentProviderId, string>> = {}
+  for (const id of Object.values(AgentProviderIds)) {
+    const stored = readPreference(MODEL_PREF_KEY(project, id))
+      ?? (id === AgentProviderIds.openrouter ? readPreference(LEGACY_OPENROUTER_MODEL_PREF_KEY(project)) : null)
+    if (stored) prefs[id] = stored
+  }
+  return prefs
+}
 const SCOPE_PREF_KEY = (project: string) => `canonry:aero:scope:${project}`
 
 function readPreference(key: string): string | null {
@@ -211,6 +227,7 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
   const conversationOperation = useRef(false)
   const [draft, setDraft] = useState('')
   const [streaming, setStreaming] = useState(false)
+  const [turnEnded, setTurnEnded] = useState(false)
   // Live trail for the in-flight turn. Persisted until the next user send so
   // users can see what tools were run while Aero was composing. Past-turn
   // trails are reconstructed from the transcript instead.
@@ -229,6 +246,10 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
   // clear would otherwise repin the session's provider on every prompt, and
   // the server persists that pin. Keep it stored for operator deployments.
   const providerOverride = managedSweeps || viewerMode || preview ? null : preferredProviderOverride
+  const [modelPreferences, setModelPreferences] = useState(() => readModelPreferences(projectName))
+  // The provider and model a turn that names neither runs on (the conversation's
+  // own model, or a pin), from the transcript. Shown when nothing is picked.
+  const [nextTurn, setNextTurn] = useState<{ provider: string; modelId: string } | null>(null)
   // Per-project tool scope. `read-only` (the server default) is the safe
   // choice; `all` lets Aero fire write tools like run_sweep without a
   // confirmation UX. Persist so the user doesn't have to re-opt-in each
@@ -292,21 +313,46 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
     staleTime: 60_000,
   })
 
-  // Active provider = user override if it's still configured, else the
-  // server-detected default. Reset stale overrides when the key goes away.
+  // Active provider = user override if it's still configured, else the one the
+  // next turn runs on (the conversation's, or a pin), else the server-detected
+  // default. Reset stale overrides when the key goes away.
   const activeProvider: AgentProviderOption | null = useMemo(() => {
     const list = providersQuery.data?.providers ?? []
     if (providerOverride) {
       const hit = list.find((p) => p.id === providerOverride && p.configured)
       if (hit) return hit
     }
+    const current = nextTurn ? list.find((p) => p.id === nextTurn.provider && p.configured) : undefined
+    if (current) return current
     const defaultId = providersQuery.data?.defaultProvider
     return defaultId ? (list.find((p) => p.id === defaultId) ?? null) : null
-  }, [providerOverride, providersQuery.data])
+  }, [providerOverride, providersQuery.data, nextTurn])
   // A viewer's bar is ready without a provider check: the server answers with
   // the install's configured model or reports why it cannot. The preview
   // answers from its script.
   const ready = viewerMode || preview || activeProvider !== null
+  const preferredModel = activeProvider ? modelPreferences[activeProvider.id] ?? '' : ''
+  // With no provider pick, a turn that names no model keeps the conversation's
+  // model, so that is the model to show until the operator picks one.
+  const conversationModel = !providerOverride && activeProvider && nextTurn?.provider === activeProvider.id ? nextTurn.modelId : undefined
+  // A picked model is sent, the default included, so the server answers with
+  // the model the bar shows. Picking the default must move a conversation off
+  // another model. With no pick nothing is sent and the conversation keeps
+  // the model it has.
+  const modelOverride = !managedSweeps && !viewerMode && !preview && activeProvider && preferredModel.trim()
+    ? preferredModel.trim()
+    : undefined
+  const turnProvider = (modelOverride ? activeProvider?.id : undefined) ?? providerOverride ?? undefined
+  const pickModel = useCallback(
+    (provider: AgentProviderId, value: string) => {
+      const modelId = value.trim()
+      setModelPreferences((prefs) => ({ ...prefs, [provider]: value }))
+      if (modelId) writePreference(MODEL_PREF_KEY(projectName, provider), modelId)
+      else removePreference(MODEL_PREF_KEY(projectName, provider))
+      if (provider === AgentProviderIds.openrouter) removePreference(LEGACY_OPENROUTER_MODEL_PREF_KEY(projectName))
+    },
+    [projectName],
+  )
 
   // The preview's scripts, fetched once the bar first opens.
   useQuery({ ...aeroPreviewQuery(projectName), enabled: preview && open })
@@ -344,13 +390,22 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
     return () => window.removeEventListener('keydown', onKey)
   }, [open, expanded, historyOpen])
 
+  const errorClearedFor = useRef<string | null>(null)
+  useEffect(() => { if (!open) errorClearedFor.current = null }, [open])
+
   // Load transcript when opened / when the project changes, and poll while
   // open so proactive turns (from RunCoordinator wake-ups) surface without a
   // page refresh or a user prompt.
   useEffect(() => {
     if (!open || !ready || preview) return
     let cancelled = false
-    setError(null)
+    // Clear a stale error when the bar opens or the project changes, never when
+    // a turn ends: this effect re-runs on `streaming`, and the error the turn
+    // just reported must stay visible.
+    if (errorClearedFor.current !== projectName) {
+      errorClearedFor.current = projectName
+      setError(null)
+    }
 
     const load = () => {
       if (cancelled || streaming || conversationOperation.current) return
@@ -359,6 +414,7 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
           if (cancelled || conversationOperation.current) return
           setServerBusy(t.isStreaming ?? false)
           setConversationId(t.conversationId ?? null)
+          setNextTurn(t.nextTurn ?? null)
           if (!cancelled && !t.isStreaming && (awaitingPersistence.current === null || (t.updatedAt && t.updatedAt !== awaitingPersistence.current.previous))) {
             setMessages(t.messages)
             lastPersistedAt.current = t.updatedAt
@@ -404,6 +460,7 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
     setRetry({ prompt: trimmed, context: turnContext })
     setDraft('')
     setStreaming(true)
+    setTurnEnded(false)
     setStreamingText('')
     partialRef.current = null
     // Wipe the live trail on a new prompt — any prior turn's trail is now
@@ -422,7 +479,8 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
         project: projectName,
         prompt: trimmed,
         conversationId,
-        provider: providerOverride ?? undefined,
+        provider: turnProvider,
+        modelId: modelOverride,
         scope,
         context: turnContext,
         signal: ctrl.signal,
@@ -433,6 +491,7 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
       const latest = await fetchAeroTranscript(projectName)
       if (mounted.current && !latest.isStreaming) {
         setConversationId(latest.conversationId ?? null)
+        setNextTurn(latest.nextTurn ?? null)
         setMessages(latest.messages)
         lastPersistedAt.current = latest.updatedAt
         awaitingPersistence.current = null
@@ -476,6 +535,7 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
     setRetry({ prompt })
     setDraft('')
     setStreaming(true)
+    setTurnEnded(false)
     setStreamingText('')
     partialRef.current = null
     setLiveTrail([])
@@ -526,9 +586,15 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
         }
         break
       case 'aero_turn_status':
+        setTurnEnded(true)
         if (event.status?.reason === 'tool-limit') setNotice('Tool-call limit reached. Partial response preserved.')
         else if (event.status?.reason === 'time-limit') setNotice('Time limit reached. Partial response preserved.')
         else if (event.status?.reason === 'completed') setRetry(null)
+        // A request that threw sends no error event (its failure message is filtered), only this status.
+        else if (event.status?.reason === 'error') setError((current) => current ?? 'Aero could not finish this answer. Retry to ask again.')
+        break
+      case 'agent_end':
+        setTurnEnded(true)
         break
       case 'tool_execution_start':
         setLiveTrail((prev) => [
@@ -546,6 +612,7 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
         )
         break
       case 'error':
+        setTurnEnded(true)
         setError(event.message)
         break
     }
@@ -568,6 +635,7 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
       awaitingPersistence.current = null
       lastPersistedAt.current = latest.updatedAt
       setConversationId(latest.conversationId ?? null)
+      setNextTurn(latest.nextTurn ?? null)
       setMessages(latest.messages)
       setLiveTrail([])
       setStreamingText('')
@@ -640,10 +708,10 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
       <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center p-3">
         <div
           role="status"
-          className="flex w-full max-w-3xl flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-base bg-bg/95 px-4 py-2 text-sm shadow-lg"
+          className="flex w-full max-w-3xl flex-wrap items-center gap-x-2 gap-y-1 material-base px-4 py-2 text-label-14"
         >
           <Radio className="h-4 w-4 text-muted" aria-hidden="true" />
-          <span className="font-medium text-strong">Aero could not check provider availability.</span>
+          <span className="text-label-14-strong text-strong">Aero could not check provider availability.</span>
           <Button
             variant="outline"
             size="sm"
@@ -665,12 +733,12 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
       <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center p-3">
         <div
           role="status"
-          className="flex w-full max-w-3xl flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-base bg-bg/95 px-4 py-2 text-sm shadow-lg"
+          className="flex w-full max-w-3xl flex-wrap items-center gap-x-2 gap-y-1 material-base px-4 py-2 text-label-14"
         >
           <Radio className="h-4 w-4 text-muted" aria-hidden="true" />
           {/* A bare product name told a first-run operator nothing, but this bar
               is persistent, so the explanation belongs behind the affordance. */}
-          <span className="flex items-center gap-1.5 font-medium text-strong">
+          <span className="flex items-center gap-1.5 text-label-14-strong text-strong">
             {unkeyedDefault
               ? `Aero is set to ${unkeyedDefault.label.replace(/\s+\(.+\)$/, '')}, which has no API key.`
               : 'Aero needs an answer-engine provider.'}
@@ -701,12 +769,12 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
     : 'pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center p-3'
 
   const panelClasses = expanded
-    ? 'pointer-events-auto flex h-full w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-mono-800/80 bg-bg/95 shadow-2xl'
+    ? 'material-fullscreen pointer-events-auto flex h-full w-full max-w-5xl flex-col overflow-hidden'
     : 'pointer-events-auto w-full max-w-3xl'
 
   const transcriptClasses = expanded
-    ? 'flex-1 overflow-y-auto px-6 py-5 text-sm text-strong'
-    : 'max-h-[40vh] min-h-[120px] overflow-y-auto px-4 py-3 text-sm text-strong'
+    ? 'flex-1 overflow-y-auto px-6 py-5 text-copy-14 text-strong'
+    : 'max-h-[40vh] min-h-[120px] overflow-y-auto px-4 py-3 text-copy-14 text-strong'
 
   return (
     <div
@@ -718,16 +786,16 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
     >
       <div className={panelClasses}>
         {open ? (
-          <div data-aero-panel className={expanded ? 'flex h-full flex-col' : 'flex flex-col overflow-hidden rounded-2xl border border-mono-800/80 bg-bg/95 shadow-xl backdrop-blur'}>
+          <div data-aero-panel className={expanded ? 'flex h-full flex-col' : 'material-menu flex flex-col overflow-hidden'}>
             <div className="flex items-center justify-between gap-2 border-b border-mono-800/70 px-4 py-2.5">
-              <div className="flex items-center gap-2">
-                <Radio className="h-4 w-4 text-positive-400" aria-hidden="true" />
-                <span className="text-sm font-medium text-heading">Aero</span>
-                <span className="text-[10px] uppercase tracking-wider text-muted">
+              <div className="flex min-w-0 items-center gap-2">
+                <Radio className="h-4 w-4 shrink-0 text-positive-400" aria-hidden="true" />
+                <span className="text-label-14-strong text-heading">Aero</span>
+                <span className="hidden min-w-0 truncate text-label-12 normal-case text-muted sm:inline">
                   {streaming || serverBusy ? 'working…' : projectName}
                 </span>
               </div>
-              <div className="flex items-center gap-1">
+              <div className="flex min-w-0 items-center gap-1">
                 {/* Managed deployments do not name the answering provider: the
                     client is buying an outcome, not choosing an engine. The
                     picker, and the model behind it, stays operator-only. */}
@@ -737,13 +805,16 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
                     active={activeProvider}
                     override={providerOverride}
                     onPick={pickProvider}
+                    modelId={preferredModel}
+                    fallbackModel={conversationModel}
+                    onModelChange={value => { if (activeProvider) pickModel(activeProvider.id, value) }}
                     disabled={streaming}
                   />
                 )}
                 <button
                   type="button"
                   onClick={() => setExpanded((v) => !v)}
-                  className="rounded-md p-1.5 text-muted transition hover:bg-surface-inset hover:text-strong"
+                  className="shrink-0 rounded-md p-1.5 text-muted transition hover:bg-surface-inset hover:text-strong"
                   aria-label={expanded ? 'Collapse' : 'Expand'}
                   title={expanded ? 'Collapse' : 'Expand'}
                 >
@@ -759,7 +830,7 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
                     setExpanded(false)
                     setOpen(false)
                   }}
-                  className="rounded-md p-1.5 text-muted transition hover:bg-surface-inset hover:text-strong"
+                  className="shrink-0 rounded-md p-1.5 text-muted transition hover:bg-surface-inset hover:text-strong"
                   aria-label="Close Aero"
                 >
                   <X className="h-4 w-4" aria-hidden="true" />
@@ -779,20 +850,20 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
             </div>
             {historyOpen ? (
               <div id="aero-history" className={transcriptClasses} aria-label="Conversation history">
-                <h3 className="mb-2 text-sm font-medium text-heading">Conversations in {projectName}</h3>
-                {!history ? <p className="text-sm text-secondary">{historyLoading ? 'Loading history…' : 'History could not be loaded. Close and reopen History to retry.'}</p> : history.conversations.length === 0 ? <p className="text-sm text-secondary">No saved conversations yet. Your conversations will appear here.</p> : (
+                <h3 className="mb-2 text-heading-14 text-heading">Conversations in {projectName}</h3>
+                {!history ? <p className="text-copy-14 text-secondary">{historyLoading ? 'Loading history…' : 'History could not be loaded. Close and reopen History to retry.'}</p> : history.conversations.length === 0 ? <p className="text-copy-14 text-secondary">No saved conversations yet. Your conversations will appear here.</p> : (
                   <ul className="divide-y divide-default">
                     {history.conversations.map(conversation => (
                       <li key={conversation.id} className="py-2">
                         <div className="flex items-center gap-2">
                           <button className="min-w-0 flex-1 rounded-md px-2 py-1 text-left hover:bg-surface-hover focus-visible:ring-2 focus-visible:ring-positive-500" disabled={streaming || serverBusy || changingConversation} onClick={() => { if (conversation.active) setHistoryOpen(false); else void changeConversation(() => resumeAgentConversation(projectName, conversation.id)) }}>
-                            <span className="block truncate text-sm text-heading">{conversation.title}</span>
-                            <span className="text-xs text-secondary">{conversation.active ? 'Current · ' : ''}{new Date(conversation.updatedAt).toLocaleString()}</span>
+                            <span className="block truncate text-label-14 text-heading">{conversation.title}</span>
+                            <span className="text-label-12 text-secondary">{conversation.active ? 'Current · ' : ''}{new Date(conversation.updatedAt).toLocaleString()}</span>
                           </button>
                           <Button variant="ghost" size="sm" disabled={streaming || serverBusy || changingConversation} aria-label={`Delete conversation: ${conversation.title}`} onClick={() => setDeleteId(conversation.id)}>Delete</Button>
                         </div>
                         {deleteId === conversation.id && (
-                          <div role="group" aria-label="Confirm conversation deletion" className="mt-2 rounded-md border border-default p-3 text-sm text-secondary">
+                          <div role="group" aria-label="Confirm conversation deletion" className="mt-2 rounded-md border border-default p-3 text-label-14 text-secondary">
                             <p>Delete this conversation permanently? Shared project notes will be kept.</p>
                             <div className="mt-2 flex gap-2">
                               <Button variant="destructive" size="sm" disabled={changingConversation} onClick={() => { void changeConversation(async () => { await deleteAgentConversation(projectName, conversation.id) }, true) }}>Delete conversation</Button>
@@ -809,7 +880,7 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
             ) : <div ref={transcriptRef} className={transcriptClasses}>
               {conversationIsEmpty && !streaming && (
                 <div className="flex flex-col gap-3 py-2">
-                  <p className="text-sm text-secondary">
+                  <p className="text-copy-14 text-secondary">
                     {preview
                       ? <>See how Aero answers about <span className="text-strong">{projectName}</span>. Choose a starting point.</>
                       : <>Ask about <span className="text-strong">{projectName}</span> or choose a starting point.</>}
@@ -817,28 +888,25 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
                   <StarterButtons onPick={(prompt) => { void send(prompt) }} />
                 </div>
               )}
-              {renderTranscript(messages, projectName, providerOverride, scope, liveTrail, streaming, !viewerMode && !preview)}
-              {streaming && streamingText && (
+              {renderTranscript(messages, projectName, turnProvider ?? null, scope, liveTrail, streaming && !turnEnded, Boolean(streamingText.trim()), !viewerMode && !preview, modelOverride)}
+              {streaming && streamingText.trim() && (
                 <div className="mt-3">
-                  <div className="mb-0.5 text-[10px] uppercase tracking-wider text-positive-400">Aero</div>
+                  <div className="mb-0.5 text-label-12 normal-case text-positive-400">Aero</div>
                   <AeroMarkdown content={streamingText} />
                 </div>
-              )}
-              {streaming && !streamingText && liveTrail.every((t) => t.endedAt !== undefined) && (
-                <TypingIndicator />
               )}
               {/* The preview answers nothing typed, so its starters stay in reach
                   after each answer instead of only in an empty conversation. */}
               {preview && !conversationIsEmpty && !streaming && (
                 <div className="mt-4 flex flex-col gap-2 border-t border-subtle pt-3">
-                  <p className="text-xs text-secondary">Try another starting point.</p>
+                  <p className="text-copy-13 text-secondary">Try another starting point.</p>
                   <StarterButtons onPick={(prompt) => { void send(prompt) }} />
                 </div>
               )}
             </div>}
 
               {(error || notice) && (
-                <div role={error ? 'alert' : 'status'} className="mx-3 my-2 flex flex-wrap items-center gap-2 rounded-md border border-base bg-surface px-3 py-2 text-sm text-secondary">
+                <div role={error ? 'alert' : 'status'} className="mx-3 my-2 flex flex-wrap items-center gap-2 material-base px-3 py-2 text-label-14 text-secondary">
                   <span className="flex-1">{error ?? notice}</span>
                   {retry && !streaming && <Button variant="outline" size="sm" onClick={() => {
                     if (scope === 'all') { setDraft(retry.prompt); textareaRef.current?.focus() }
@@ -848,7 +916,7 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
               )}
 
             {preview && (
-              <p className="border-t border-subtle px-4 py-2 text-xs text-secondary">
+              <p className="border-t border-subtle px-4 py-2 text-copy-13 text-secondary">
                 Sample answers on demo data.{' '}
                 <a
                   href={PREVIEW_SITE_URL}
@@ -936,7 +1004,7 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
                   placeholder={historyOpen ? 'Open a conversation to continue…' : preview ? 'Type / for a starting point' : 'Ask Aero, or / for commands…'}
                   aria-label="Message Aero"
                   rows={expanded ? 3 : 1}
-                  className="flex-1 resize-none overflow-y-auto bg-transparent text-sm text-heading placeholder:text-mono-600 focus:outline-none disabled:opacity-60"
+                  className="flex-1 resize-none overflow-y-auto bg-transparent text-copy-14 text-heading placeholder:text-mono-600 focus:outline-none disabled:opacity-60"
                 />
                 {streaming ? (
                   <Button type="button" variant="outline" size="sm" onClick={() => abortRef.current?.abort()} aria-label="Stop Aero">
@@ -953,8 +1021,8 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
         ) : (
           <button
             type="button"
-            onClick={() => setOpen(true)}
-            className="flex w-full items-center justify-between rounded-lg border border-mono-800/80 bg-bg/95 px-4 py-2 text-left text-sm text-secondary shadow-lg transition hover:border-strong hover:bg-bg-elevated/90 hover:text-strong"
+            onClick={() => { setOpen(true); trackUiAction('aero.open') }}
+            className="material-small flex w-full items-center justify-between px-4 py-2 text-left text-button-14 text-secondary transition hover:bg-bg-elevated hover:text-strong"
           >
             <span className="flex items-center gap-2">
               <Radio className="h-4 w-4 text-positive-400" aria-hidden="true" />
@@ -967,118 +1035,334 @@ export function AeroBar({ projectName, context, preview = isAeroPreview() }: Aer
   )
 }
 
+/** Why a typed Aero model ID cannot be used, or null when it can. */
+function modelIdProblem(provider: AgentProviderId, id: string): string | null {
+  if (/\s/.test(id)) return 'Model IDs have no spaces.'
+  if (provider === AgentProviderIds.openrouter && !OPENROUTER_MODEL_PATTERN.test(id)) return 'Use publisher/model, for example openai/gpt-6-luna.'
+  return null
+}
+
+type MenuPosition = { top?: number; bottom?: number; right: number; maxHeight: number }
+
 /**
- * Header popover for switching Aero's active LLM provider. Configured
- * providers are clickable; unconfigured entries render a concise setup state.
- * The selection lives
- * in AeroBar state + localStorage so it survives refreshes and per-project
- * context switches; clearing the override falls back to the server's
- * auto-detected default.
+ * Header menu for Aero's provider and model. It lists the providers that have
+ * a key, then the active provider's short model list, a typed "Other model"
+ * and a link to set up another provider. The choices live in AeroBar state +
+ * localStorage per project, so they survive refreshes; the default model is
+ * stored as no choice, so a conversation follows future defaults.
+ *
+ * The menu renders into document.body with fixed positioning: the compact
+ * Aero panel clips its own overflow, so an in-panel popover lost most of its
+ * rows. It opens toward the larger space and scrolls inside that space.
  */
 function ProviderPicker({
   providers,
   active,
   override,
   onPick,
+  modelId,
+  fallbackModel,
+  onModelChange,
   disabled,
 }: {
   providers: AgentProviderOption[]
   active: AgentProviderOption | null
   override: AgentProviderId | null
   onPick: (id: AgentProviderId | null) => void
+  modelId: string
+  /** The model shown when none is picked: the conversation's, else the provider default. */
+  fallbackModel?: string
+  onModelChange: (modelId: string) => void
   disabled?: boolean
 }) {
   const [open, setOpen] = useState(false)
-  const containerRef = useRef<HTMLDivElement | null>(null)
+  const [position, setPosition] = useState<MenuPosition | null>(null)
+  const [otherOpen, setOtherOpen] = useState(false)
+  const [otherDraft, setOtherDraft] = useState('')
+  const [otherError, setOtherError] = useState<string | null>(null)
+  const triggerRef = useRef<HTMLButtonElement | null>(null)
+  const menuRef = useRef<HTMLDivElement | null>(null)
+  const otherInputRef = useRef<HTMLInputElement | null>(null)
+  const menuId = useId()
+  const providerHeadingId = useId()
+  const modelHeadingId = useId()
+
+  const close = useCallback((returnFocus: boolean) => {
+    setOpen(false)
+    setPosition(null)
+    setOtherOpen(false)
+    setOtherError(null)
+    if (returnFocus) triggerRef.current?.focus()
+  }, [])
+
+  const place = useCallback(() => {
+    const rect = triggerRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const margin = 8
+    const below = window.innerHeight - rect.bottom - margin
+    const above = rect.top - margin
+    const right = Math.max(margin, window.innerWidth - rect.right)
+    setPosition(below >= above
+      ? { top: rect.bottom + 4, right, maxHeight: below - 4 }
+      : { bottom: window.innerHeight - rect.top + 4, right, maxHeight: above - 4 })
+  }, [])
+
+  useLayoutEffect(() => {
+    if (open) place()
+  }, [open, place])
+
+  // Focus the checked item once the menu is placed, so arrow keys start there.
+  const placed = position !== null
+  useEffect(() => {
+    if (!open || !placed) return
+    const items = menuItems(menuRef.current)
+    ;(items.find(item => item.getAttribute('aria-checked') === 'true' && item.closest('[data-menu-group="model"]')) ?? items[0])?.focus()
+  }, [open, placed])
+
+  useEffect(() => {
+    if (otherOpen) otherInputRef.current?.focus()
+  }, [otherOpen])
 
   useEffect(() => {
     if (!open) return
-    const onClick = (e: MouseEvent) => {
-      if (!containerRef.current?.contains(e.target as Node)) setOpen(false)
+    const onPointer = (event: MouseEvent) => {
+      const target = event.target as Node
+      if (triggerRef.current?.contains(target) || menuRef.current?.contains(target)) return
+      close(false)
     }
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false)
+    // Capture phase, so Escape closes the menu without also closing Aero.
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      event.stopImmediatePropagation()
+      close(true)
     }
-    window.addEventListener('mousedown', onClick)
-    window.addEventListener('keydown', onKey)
+    window.addEventListener('mousedown', onPointer)
+    window.addEventListener('keydown', onKey, true)
+    window.addEventListener('resize', place)
     return () => {
-      window.removeEventListener('mousedown', onClick)
-      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('mousedown', onPointer)
+      window.removeEventListener('keydown', onKey, true)
+      window.removeEventListener('resize', place)
     }
-  }, [open])
+  }, [open, close, place])
 
   if (providers.length === 0) return null
 
-  const label = active?.label.replace(/\s+\(.+\)$/, '') ?? 'No provider'
+  const configured = providers.filter(provider => provider.configured)
+  const canConnectMore = configured.length < providers.length
+  const choices = active?.configured ? active.models ?? [] : []
+  const selectedModel = modelId.trim() || fallbackModel || active?.defaultModel || ''
+  const selectedName = choices.find(model => model.id === selectedModel)?.displayName ?? selectedModel
+  const customSelected = Boolean(active?.configured && selectedModel && !choices.some(model => model.id === selectedModel))
+  const providerName = active ? active.label.replace(/\s+\(.+\)$/, '') : 'No provider'
+
+  const onMenuKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    const target = event.target as HTMLElement
+    if (event.key === 'Tab') {
+      // Inside the Other model form Tab moves between its field and button;
+      // anywhere else it leaves the menu, as a menu should.
+      const inForm = target.closest('[data-other-model-form]')
+      const isInput = target.tagName === 'INPUT'
+      if (inForm && ((isInput && !event.shiftKey) || (!isInput && event.shiftKey))) return
+      event.preventDefault()
+      close(true)
+      return
+    }
+    if (!target.matches('[role^="menuitem"]')) return
+    const items = menuItems(menuRef.current)
+    const index = items.indexOf(target)
+    const next = event.key === 'ArrowDown' ? items[(index + 1) % items.length]
+      : event.key === 'ArrowUp' ? items[(index - 1 + items.length) % items.length]
+        : event.key === 'Home' ? items[0]
+          : event.key === 'End' ? items[items.length - 1]
+            : undefined
+    if (!next) return
+    event.preventDefault()
+    next.focus()
+  }
+
+  const submitOther = () => {
+    if (!active) return
+    const id = otherDraft.trim()
+    if (!id) {
+      setOtherError('Enter a model ID.')
+      return
+    }
+    const problem = modelIdProblem(active.id, id)
+    if (problem) {
+      setOtherError(problem)
+      return
+    }
+    onModelChange(id)
+    close(true)
+  }
+
+  const itemClass = 'flex min-h-10 w-full items-center gap-2 px-3 py-2 text-left text-label-14 text-heading transition outline-none hover:bg-bg-elevated focus-visible:bg-bg-elevated focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-mono-400 disabled:opacity-60'
+  const check = (on: boolean) => (
+    <span className="flex h-4 w-4 shrink-0 items-center justify-center">
+      {on ? <Check className="h-3.5 w-3.5 text-positive-400" aria-hidden="true" /> : null}
+    </span>
+  )
+
   return (
-    <div ref={containerRef} className="relative">
+    <>
       <button
+        ref={triggerRef}
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => (open ? close(false) : setOpen(true))}
+        onKeyDown={(event) => {
+          if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
+          event.preventDefault()
+          setOpen(true)
+        }}
         disabled={disabled}
-        className="flex items-center gap-1 rounded-md px-2 py-1 text-sm text-secondary transition hover:bg-surface-inset hover:text-strong disabled:opacity-50"
-        aria-label="Switch agent model"
-        aria-haspopup="listbox"
+        className="flex min-h-8 min-w-0 items-center gap-1 rounded-md px-2 py-1 text-button-14 text-secondary transition hover:bg-surface-inset hover:text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400 disabled:opacity-50"
+        aria-haspopup="menu"
         aria-expanded={open}
-        title={active ? `${active.label} · ${active.defaultModel}` : 'Pick a provider'}
+        aria-controls={open ? menuId : undefined}
+        title={active ? `${active.label} · ${selectedModel}` : 'Pick a provider'}
       >
-        <span className="font-medium text-strong">{label}</span>
-        <ChevronDown className="h-3 w-3" aria-hidden="true" />
+        <span className="sr-only">Aero model: </span>
+        <span className="min-w-0 truncate text-button-14 text-strong">
+          {active ? <><span className="hidden sm:inline">{providerName} · </span>{selectedName}</> : providerName}
+        </span>
+        <ChevronDown className="h-3 w-3 shrink-0" aria-hidden="true" />
       </button>
-      {open && (
+      {open && position && createPortal(
         <div
-          role="listbox"
-          className="absolute right-0 top-full z-50 mt-1 w-64 overflow-hidden rounded-lg border border-base bg-bg shadow-xl"
+          ref={menuRef}
+          id={menuId}
+          role="menu"
+          aria-label="Aero model"
+          onKeyDown={onMenuKeyDown}
+          style={{ position: 'fixed', top: position.top, bottom: position.bottom, right: position.right, maxHeight: position.maxHeight }}
+          className="z-50 w-72 max-w-[calc(100vw-1rem)] overflow-y-auto material-menu py-1"
         >
-          <div className="border-b border-default px-3 py-2 text-sm font-medium text-secondary">
-            Answer engine
-          </div>
-          <ul className="max-h-72 overflow-y-auto py-1">
-            {providers.map((p) => {
-              const isActive = active?.id === p.id
-              const isOverride = override === p.id
+          <div role="group" aria-labelledby={providerHeadingId}>
+            <div id={providerHeadingId} className="px-3 pb-1 pt-2 text-label-14-strong text-secondary">Provider</div>
+            {configured.map((provider) => {
+              const isActive = active?.id === provider.id
               return (
-                <li key={p.id}>
-                  <button
-                    type="button"
-                    role="option"
-                    aria-selected={isActive}
-                    disabled={!p.configured}
-                    onClick={() => {
-                      if (!p.configured) return
-                      onPick(isOverride ? null : p.id)
-                      setOpen(false)
-                    }}
-                    className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm transition enabled:hover:bg-bg-elevated disabled:cursor-not-allowed disabled:opacity-60"
-                    title={!p.configured ? `Add ${envVarHint(p.id)} in Settings or your environment` : p.defaultModel}
-                  >
-                    <span className="flex h-4 w-4 shrink-0 items-center justify-center">
-                      {isActive ? <Check className="h-3 w-3 text-positive-400" aria-hidden="true" /> : null}
-                    </span>
-                    <span className="min-w-0 flex-1 truncate font-medium text-heading">{p.label.replace(/\s+\(.+\)$/, '')}</span>
-                    {isOverride && <span className="rounded-md border border-positive-800/60 bg-positive-950/60 px-2 py-0.5 text-[11px] text-positive">Selected</span>}
-                    {!p.configured && <span className="rounded-md border border-base px-2 py-0.5 text-[11px] text-secondary">Needs setup</span>}
-                  </button>
-                </li>
+                <button
+                  key={provider.id}
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={isActive}
+                  tabIndex={-1}
+                  onClick={() => {
+                    if (!isActive) onPick(provider.id)
+                    close(true)
+                  }}
+                  className={itemClass}
+                >
+                  {check(isActive)}
+                  <span className="min-w-0 flex-1 truncate">{provider.label.replace(/\s+\(.+\)$/, '')}</span>
+                </button>
               )
             })}
-          </ul>
-          {override && (
-            <button
-              type="button"
-              onClick={() => {
-                onPick(null)
-                setOpen(false)
-              }}
-              className="w-full border-t border-default px-3 py-2 text-left text-[11px] text-secondary transition hover:bg-bg-elevated hover:text-heading"
-            >
-              Reset to default
-            </button>
+            {override && (
+              <button type="button" role="menuitem" tabIndex={-1} onClick={() => { onPick(null); close(true) }} className={`${itemClass} text-secondary`}>
+                {check(false)}
+                <span className="min-w-0 flex-1 truncate">Use default provider</span>
+              </button>
+            )}
+            {canConnectMore && (
+              <Link to="/settings" role="menuitem" tabIndex={-1} onClick={() => close(false)} className={`${itemClass} text-secondary`}>
+                {check(false)}
+                <span className="min-w-0 flex-1 truncate">Connect another provider</span>
+              </Link>
+            )}
+          </div>
+          {active?.configured && (
+            <div role="group" aria-labelledby={modelHeadingId} data-menu-group="model" className="mt-1 border-t border-default">
+              <div id={modelHeadingId} className="px-3 pb-1 pt-2 text-label-14-strong text-secondary">Model</div>
+              {choices.map((model) => {
+                const isSelected = model.id === selectedModel
+                const isDefault = model.id === active.defaultModel
+                return (
+                  <button
+                    key={model.id}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={isSelected}
+                    tabIndex={-1}
+                    onClick={() => {
+                      onModelChange(model.id)
+                      close(true)
+                    }}
+                    className={itemClass}
+                    title={model.id}
+                  >
+                    {check(isSelected)}
+                    <span className="min-w-0 flex-1 truncate">{model.displayName}</span>
+                    {isDefault && <span className="shrink-0 text-label-14 text-secondary">Default</span>}
+                  </button>
+                )
+              })}
+              {customSelected && (
+                <button type="button" role="menuitemradio" aria-checked tabIndex={-1} onClick={() => close(true)} className={itemClass} title={selectedModel}>
+                  {check(true)}
+                  <span className="min-w-0 flex-1 truncate text-label-13-mono">{selectedModel}</span>
+                </button>
+              )}
+              <button
+                type="button"
+                role="menuitem"
+                aria-expanded={otherOpen}
+                tabIndex={-1}
+                onClick={() => {
+                  setOtherDraft(customSelected ? selectedModel : '')
+                  setOtherError(null)
+                  setOtherOpen(value => !value)
+                }}
+                className={`${itemClass} text-secondary`}
+              >
+                {check(false)}
+                <span className="min-w-0 flex-1 truncate">Other model…</span>
+              </button>
+              {otherOpen && (
+                <form
+                  data-other-model-form
+                  className="px-3 pb-2 pt-1"
+                  onSubmit={(event) => {
+                    event.preventDefault()
+                    submitOther()
+                  }}
+                >
+                  <div className="flex gap-2">
+                    <input
+                      ref={otherInputRef}
+                      className="setup-input min-w-0 flex-1"
+                      aria-label="Other model ID"
+                      aria-invalid={otherError ? true : undefined}
+                      aria-describedby={otherError ? `${menuId}-other-error` : undefined}
+                      value={otherDraft}
+                      placeholder={active.id === AgentProviderIds.openrouter ? 'publisher/model' : 'Model ID'}
+                      autoComplete="off"
+                      spellCheck={false}
+                      onChange={(event) => {
+                        setOtherDraft(event.target.value)
+                        setOtherError(null)
+                      }}
+                    />
+                    <Button type="submit" variant="secondary" size="sm" className="h-auto self-stretch md:h-auto">Use</Button>
+                  </div>
+                  {otherError && <p id={`${menuId}-other-error`} role="alert" className="mt-1.5 text-copy-14 text-negative-400">{otherError}</p>}
+                </form>
+              )}
+              <p className="px-3 pb-2 pt-1 text-copy-14 text-secondary">Applies to Aero only.</p>
+            </div>
           )}
-        </div>
+        </div>,
+        document.body,
       )}
-    </div>
+    </>
   )
+}
+
+function menuItems(menu: HTMLElement | null): HTMLElement[] {
+  return Array.from(menu?.querySelectorAll<HTMLElement>('[role^="menuitem"]') ?? [])
 }
 
 /** Tallest the composer grows before it scrolls: about 6 lines compact, 12 expanded. */
@@ -1137,8 +1421,8 @@ function SlashPalette({
   }, [selectedIndex])
 
   return (
-    <div ref={containerRef} className="absolute inset-x-3 bottom-full mb-2 overflow-hidden rounded-lg border border-base bg-bg/98 shadow-2xl">
-      <div ref={headerRef} className="border-b border-default px-3 py-1.5 text-[10px] uppercase tracking-wider text-muted">
+    <div ref={containerRef} className="absolute inset-x-3 bottom-full mb-2 overflow-hidden material-menu">
+      <div ref={headerRef} className="border-b border-default px-3 py-1.5 text-label-12 normal-case text-muted">
         {title}
       </div>
       <ul ref={listRef} role="listbox" className="overflow-y-auto py-1" style={{ maxHeight: listMaxHeight }}>
@@ -1152,12 +1436,12 @@ function SlashPalette({
                 aria-selected={active}
                 onMouseEnter={() => onHover(i)}
                 onClick={() => onPick(cmd)}
-                className={`flex w-full items-center gap-3 px-3 py-2 text-left text-sm transition ${
+                className={`flex w-full items-center gap-3 px-3 py-2 text-left text-button-14 transition ${
                   active ? 'bg-bg-elevated text-heading' : 'text-neutral hover:bg-bg-elevated/60'
                 }`}
               >
-                <span className="font-medium">{cmd.label}</span>
-                <span className="ml-auto font-mono text-[11px] text-secondary">{cmd.command}</span>
+                <span className="text-button-14">{cmd.label}</span>
+                <span className="ml-auto text-label-12-mono text-secondary">{cmd.command}</span>
               </button>
             </li>
           )
@@ -1176,7 +1460,7 @@ function StarterButtons({ onPick }: { onPick: (prompt: string) => void }) {
           key={s.label}
           type="button"
           onClick={() => onPick(s.prompt)}
-          className="rounded-md border border-base bg-bg-elevated/70 px-3 py-1.5 text-sm text-neutral transition hover:border-strong hover:bg-mono-800/70 hover:text-heading"
+          className="rounded-md border border-base bg-bg-elevated/70 px-3 py-1.5 text-button-14 text-neutral transition hover:border-strong hover:bg-mono-800/70 hover:text-heading"
         >
           {s.label}
         </button>
@@ -1187,16 +1471,16 @@ function StarterButtons({ onPick }: { onPick: (prompt: string) => void }) {
 
 function envVarHint(id: AgentProviderId): string {
   switch (id) {
-    case 'claude':
+    case AgentProviderIds.claude:
       return 'ANTHROPIC_API_KEY'
-    case 'openai':
+    case AgentProviderIds.openai:
       return 'OPENAI_API_KEY'
-    case 'gemini':
+    case AgentProviderIds.gemini:
       return 'GEMINI_API_KEY'
-    case 'zai':
+    case AgentProviderIds.zai:
       return 'ZAI_API_KEY'
-    case 'deepinfra':
-      return 'DEEPINFRA_TOKEN'
+    case AgentProviderIds.openrouter:
+      return 'OPENROUTER_API_KEY'
   }
 }
 
@@ -1206,15 +1490,21 @@ function messageKey(message: AeroMessage, fallbackIndex: number): string {
 }
 
 /**
- * Walk the transcript once, grouping each assistant turn with its following
- * toolResult messages so we can render an inline tool trail beside the
- * assistant bubble. User messages flush as standalone rows. System wake-ups
- * are hidden — they're an internal follow-up plumbing detail.
+ * Walk the transcript once, pairing each assistant message's tool calls with
+ * the toolResult messages that follow it. Tool calls collect into one working
+ * group per run: the calls of consecutive assistant messages with no assistant
+ * text between them. Assistant text renders above its own calls and closes the
+ * group, so later calls start a new one. User messages, system wake-ups
+ * included, close it too. System wake-ups are hidden: they're an internal
+ * follow-up plumbing detail.
  *
  * `projectName` + `providerOverride` + `scope` let user bubbles render a
  * "copy as CLI" affordance reproducing the turn via `canonry agent ask` —
  * including the current tool-scope so a pasted command cannot quietly
  * escalate from read-only to write-capable.
+ *
+ * `answerStreaming` is true while the answer's text is arriving: the run
+ * before it is then over, not between steps.
  */
 function renderTranscript(
   messages: AeroMessage[],
@@ -1223,14 +1513,44 @@ function renderTranscript(
   scope: AeroToolScope,
   liveTrail: ToolTrail[],
   streaming: boolean,
+  answerStreaming: boolean,
   cliCopy = true,
+  modelOverride?: string,
 ): ReactNode[] {
   const nodes: ReactNode[] = []
+  let group: ToolTrail[] = []
+  const lastMessage = messages.at(-1)
+  const answerComplete = lastMessage?.role === 'assistant' && lastMessage.stopReason === 'stop'
+  const awaitingResponse = streaming && !answerStreaming && !answerComplete
+  // Only the turn after the last user message can still be running. A call
+  // from an earlier turn that never got a result was cut off, so it reads as
+  // interrupted even while a later turn streams.
+  let currentTurnStart = 0
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === 'user') {
+      currentTurnStart = i + 1
+      break
+    }
+  }
+  // Only the run still open when the transcript ends can be waiting on its
+  // next step; every other run was closed by text or a new turn.
+  const closeGroup = (trailing = false) => {
+    if (group.length === 0) return
+    nodes.push(
+      <ToolRunGroup
+        key={`tools:${group[0].id}`}
+        trails={group}
+        betweenSteps={trailing && awaitingResponse}
+      />,
+    )
+    group = []
+  }
   for (let i = 0; i < messages.length; i++) {
     const msg = messages[i]
     const key = messageKey(msg, i)
 
     if (msg.role === 'user') {
+      closeGroup()
       const text = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
       if (text.startsWith('[system]')) continue
       nodes.push(
@@ -1239,6 +1559,7 @@ function renderTranscript(
           text={text}
           projectName={projectName}
           providerOverride={providerOverride}
+          modelOverride={modelOverride}
           scope={scope}
           context={msg.aeroContext}
           cliCopy={cliCopy}
@@ -1258,29 +1579,26 @@ function renderTranscript(
         results.set(r.toolCallId, r)
         cursor++
       }
+      const turnStreaming = streaming && i >= currentTurnStart
       const trails = extractTrails(msg, results).map(trail => {
         const live = liveTrail.find(item => item.id === trail.id)
-        const merged = { ...trail, ...live }
-        return { ...merged, interrupted: merged.endedAt === undefined && (!streaming || merged.interrupted) }
+        // A live start event can carry no label (the tool's toolkit was not
+        // loaded yet) while its saved result has one: keep the defined label,
+        // so the live run groups and names its steps as the saved one will.
+        const merged = { ...trail, ...live, label: trail.label ?? live?.label }
+        return { ...merged, interrupted: merged.endedAt === undefined && (!turnStreaming || merged.interrupted) }
       })
       const text = extractAssistantText(msg)
-      nodes.push(
-        <Fragment key={key}>
-          {text.trim() && (
-            <div className="mt-3">
-              <div className="mb-0.5 text-[10px] uppercase tracking-wider text-positive-400">Aero</div>
-              <AeroMarkdown content={text} />
-            </div>
-          )}
-          {trails.length > 0 && (
-            <div className="mt-3 space-y-1.5">
-              {trails.map((trail) => (
-                <ToolTrailRow key={trail.id} trail={trail} />
-              ))}
-            </div>
-          )}
-        </Fragment>,
-      )
+      if (text.trim()) {
+        closeGroup()
+        nodes.push(
+          <div key={key} className="mt-3">
+            <div className="mb-0.5 text-label-12 normal-case text-positive-400">Aero</div>
+            <AeroMarkdown content={text} />
+          </div>,
+        )
+      }
+      group.push(...trails)
       i = cursor - 1
       continue
     }
@@ -1288,6 +1606,8 @@ function renderTranscript(
     // Standalone toolResult messages (no preceding assistant in this window)
     // are dropped silently — pi's envelope always pairs them.
   }
+  if (group.length === 0 && awaitingResponse) nodes.push(<ThinkingIndicator key="thinking" />)
+  closeGroup(true)
   return nodes
 }
 
@@ -1302,6 +1622,7 @@ function UserMessageRow({
   text,
   projectName,
   providerOverride,
+  modelOverride,
   scope,
   context,
   cliCopy = true,
@@ -1309,6 +1630,7 @@ function UserMessageRow({
   text: string
   projectName: string
   providerOverride: AgentProviderId | null
+  modelOverride?: string
   scope: AeroToolScope
   context?: AgentViewContext
   /** False for a viewer: the command needs an operator's key to run. */
@@ -1317,8 +1639,8 @@ function UserMessageRow({
   const [copied, setCopied] = useState(false)
 
   const cliCommand = useMemo(
-    () => buildAgentAskCommand(projectName, text, providerOverride, scope, context),
-    [projectName, text, providerOverride, scope, context],
+    () => buildAgentAskCommand(projectName, text, providerOverride, scope, context, modelOverride),
+    [projectName, text, providerOverride, scope, context, modelOverride],
   )
 
   async function handleCopy() {
@@ -1336,11 +1658,11 @@ function UserMessageRow({
   return (
     <div className="group relative mt-3 rounded-md bg-bg-elevated/60 px-3 py-2 text-strong">
       <div className="flex items-center justify-between gap-2">
-        <div className="text-[10px] uppercase tracking-wider text-muted">You</div>
+        <div className="text-label-12 normal-case text-muted">You</div>
         {cliCopy && <button
           type="button"
           onClick={asyncHandler(handleCopy)}
-          className="inline-flex items-center gap-1 rounded border border-mono-800/70 bg-bg/60 px-1.5 py-0.5 text-[10px] text-secondary opacity-0 transition hover:border-strong hover:text-heading group-hover:opacity-100 focus:opacity-100"
+          className="inline-flex items-center gap-1 rounded border border-mono-800/70 bg-bg/60 px-1.5 py-0.5 text-button-14 text-secondary opacity-0 transition hover:border-strong hover:text-heading group-hover:opacity-100 focus:opacity-100"
           aria-label="Copy as CLI command"
           title={cliCommand}
         >
@@ -1377,9 +1699,11 @@ function buildAgentAskCommand(
   providerOverride: AgentProviderId | null,
   scope: AeroToolScope,
   context?: AgentViewContext,
+  modelOverride?: string,
 ): string {
   const parts = ['canonry', 'agent', 'ask', shellQuote(projectName), shellQuote(prompt)]
   if (providerOverride) parts.push('--provider', providerOverride)
+  if (modelOverride) parts.push('--model', shellQuote(modelOverride))
   if (scope === 'read-only') parts.push('--scope', 'read-only')
   if (context) parts.push('--context', shellQuote(JSON.stringify(context)))
   return parts.join(' ')
@@ -1409,6 +1733,280 @@ function extractTrails(
 }
 
 /**
+ * Toolkit discovery and loading. They prepare the real steps, so a run's
+ * header neither counts them nor names them as its current step.
+ */
+const SETUP_TOOL_NAMES = new Set(['aero_list_toolkits', 'aero_load_toolkit'])
+
+/** A tool label's leading verb, as the running header says it. */
+const PROGRESSIVE_VERBS = new Map([
+  ['Read', 'Reading'],
+  ['List', 'Listing'],
+  ['Get', 'Getting'],
+  ['Load', 'Loading'],
+  ['Find', 'Finding'],
+  ['Check', 'Checking'],
+  ['Compare', 'Comparing'],
+  ['Inspect', 'Inspecting'],
+  ['Preview', 'Previewing'],
+  ['Search', 'Searching'],
+  ['Show', 'Showing'],
+  ['Run', 'Running'],
+])
+
+function trailIsRunning(trail: ToolTrail): boolean {
+  return trail.endedAt === undefined && !trail.interrupted
+}
+
+function trailLabel(trail: ToolTrail): string {
+  return trail.label ?? trail.name.replace(/^(?:canonry|aero)_/, '').replace(/_/g, ' ')
+}
+
+function trailDurationMs(trail: ToolTrail): number | null {
+  const durationMs = trail.durationMs ?? (trail.endedAt != null && trail.startedAt != null ? trail.endedAt - trail.startedAt : null)
+  return durationMs == null || durationMs < 0 ? null : durationMs
+}
+
+/** Summed known durations, or null when no call reported one. */
+function totalDurationMs(trails: ToolTrail[]): number | null {
+  let total: number | null = null
+  for (const trail of trails) {
+    const durationMs = trailDurationMs(trail)
+    if (durationMs != null) total = (total ?? 0) + durationMs
+  }
+  return total
+}
+
+function formatDurationMs(durationMs: number): string {
+  return durationMs < 1000 ? `${durationMs}ms` : `${(durationMs / 1000).toFixed(1)}s`
+}
+
+/** Whole seconds, for a clock that ticks once a second. */
+function formatElapsedMs(elapsedMs: number): string {
+  const seconds = Math.floor(Math.max(0, elapsedMs) / 1000)
+  return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`
+}
+
+function countLabel(count: number, singular: string, plural: string): string {
+  return `${count} ${count === 1 ? singular : plural}`
+}
+
+function progressiveVerb(word = ''): string | undefined {
+  return PROGRESSIVE_VERBS.get(word.charAt(0).toUpperCase() + word.slice(1))
+}
+
+/**
+ * "Read sentiment evidence" becomes "Reading sentiment evidence…". A second
+ * verb after "or" or "and" needs its own -ing form too, so a pair the map
+ * cannot finish reads "Working…", as does an unknown leading verb.
+ */
+function progressiveLabel(label: string): string {
+  const [first, ...rest] = label.trim().split(/\s+/)
+  const verb = progressiveVerb(first)
+  if (!verb) return 'Working…'
+  if (rest[0] === 'or' || rest[0] === 'and') {
+    const second = progressiveVerb(rest[1])
+    if (!second) return 'Working…'
+    return `${[verb, rest[0], second.toLowerCase(), ...rest.slice(2)].join(' ')}…`
+  }
+  return `${[verb, ...rest].join(' ')}…`
+}
+
+/** The current time, refreshed every second while `active`. */
+function useTicker(active: boolean): number {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (!active) return
+    const tick = () => setNow(Date.now())
+    // Catch up at once: the clock stood still while inactive.
+    const first = window.setTimeout(tick, 0)
+    const timer = window.setInterval(tick, 1000)
+    return () => {
+      window.clearTimeout(first)
+      window.clearInterval(timer)
+    }
+  }, [active])
+  return now
+}
+
+/**
+ * One run of tool calls, collapsed to a single header row while it runs and
+ * after. Running, the header names the current step; done, it counts the real
+ * steps and sums their time. Failures and interruptions stay visible as pills.
+ * Expanded, calls with the same label merge into one row, and toolkit setup
+ * folds into one muted row. Keyed by the run's first call id, so the open or
+ * closed state survives the re-renders of a streaming turn.
+ */
+function ToolRunGroup({ trails, betweenSteps }: { trails: ToolTrail[]; betweenSteps: boolean }) {
+  const [expanded, setExpanded] = useState(false)
+  const panelId = useId()
+  const steps = trails.filter((trail) => !SETUP_TOOL_NAMES.has(trail.name))
+  const setup = trails.filter((trail) => SETUP_TOOL_NAMES.has(trail.name))
+  const runningSteps = steps.filter(trailIsRunning)
+  const current: ToolTrail | undefined = runningSteps.length > 0 ? runningSteps[runningSteps.length - 1] : undefined
+  const setupRunning = setup.some(trailIsRunning)
+  const running = current !== undefined || setupRunning || betweenSteps
+  // The header's count, failures and time describe the same calls: the real
+  // steps, or the setup alone when a run had nothing else. A failed setup
+  // call shows in the setup row, not as a failed step.
+  const counted = steps.length > 0 ? steps : setup
+  const failedCount = counted.filter((trail) => !trailIsRunning(trail) && trail.isError === true).length
+  const interrupted = trails.some((trail) => trail.interrupted)
+  const startTimes = trails.flatMap((trail) => (trail.startedAt === undefined ? [] : [trail.startedAt]))
+  const startedAt = startTimes.length > 0 ? Math.min(...startTimes) : undefined
+  const now = useTicker(running)
+  const totalMs = totalDurationMs(counted)
+
+  const title = running
+    ? current
+      ? progressiveLabel(trailLabel(current))
+      : setupRunning
+        ? 'Loading tools…'
+        : steps.length > 0 ? 'Reviewing results…' : 'Preparing next step…'
+    : steps.length > 0
+      ? countLabel(steps.length, 'step', 'steps')
+      : countLabel(setup.length, 'setup step', 'setup steps')
+
+  // Same-label calls share a row, in the order each label first ran.
+  const byLabel = new Map<string, ToolTrail[]>()
+  for (const step of steps) {
+    const label = trailLabel(step)
+    const rows = byLabel.get(label)
+    if (rows) rows.push(step)
+    else byLabel.set(label, [step])
+  }
+
+  return (
+    <div className="mt-3 material-base">
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left"
+        aria-expanded={expanded}
+        aria-controls={panelId}
+      >
+        <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center">
+          {running ? (
+            <Loader2 className="h-3 w-3 animate-spin text-positive-400 motion-reduce:animate-none" aria-hidden="true" />
+          ) : failedCount > 0 ? (
+            <AlertTriangle className="h-3 w-3 text-negative-400" aria-hidden="true" />
+          ) : interrupted ? (
+            <Square className="h-3 w-3 text-muted" aria-hidden="true" />
+          ) : (
+            <Check className="h-3 w-3 text-muted" aria-hidden="true" />
+          )}
+        </span>
+        <span role={running ? 'status' : undefined} className="min-w-0 truncate text-label-14-strong text-heading">{title}</span>
+        {failedCount > 0 && (
+          <span className="shrink-0 rounded-md border border-negative-800/50 bg-negative-950/20 px-1.5 py-0.5 text-label-12 text-negative-400">
+            {failedCount} failed
+          </span>
+        )}
+        {interrupted && (
+          <span className="shrink-0 rounded-md border border-mono-800/70 px-1.5 py-0.5 text-label-12 text-muted">interrupted</span>
+        )}
+        <span className="ml-auto flex shrink-0 items-center gap-2 text-label-12 text-muted">
+          {running ? (
+            <>
+              {current && <span>step {steps.indexOf(current) + 1}</span>}
+              {/* Ticks every second: kept out of the button's name so a screen reader does not reread it. */}
+              {startedAt !== undefined && <span className="tabular-nums" aria-hidden="true">{formatElapsedMs(now - startedAt)}</span>}
+            </>
+          ) : (
+            totalMs != null && <span className="tabular-nums">{formatDurationMs(totalMs)}</span>
+          )}
+          <ChevronRight className={`h-3 w-3 transition-transform ${expanded ? 'rotate-90' : ''}`} aria-hidden="true" />
+        </span>
+      </button>
+      {expanded && (
+        <div id={panelId} className="space-y-1.5 border-t border-default px-2.5 py-2">
+          {[...byLabel].map(([label, calls]) => (
+            <TrailFold key={`label:${label}`} trails={calls} title={label} />
+          ))}
+          {setup.length > 0 && (
+            <TrailFold key="setup" trails={setup} title={`+ ${countLabel(setup.length, 'setup step', 'setup steps')}`} muted />
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * A row standing for several calls: same-label steps ("×4" with their summed
+ * time) or the muted toolkit setup. Expanding lists each call's own card.
+ *
+ * A label that ran once shows its call's card with no fold header. The card
+ * sits where it will sit inside the fold, so when a second call joins it the
+ * card stays mounted, open and focused. Focusing or clicking that card opens
+ * the fold it turns into, so the user keeps the detail they were reading.
+ */
+function TrailFold({ trails, title, muted = false }: { trails: ToolTrail[]; title: string; muted?: boolean }) {
+  const [expanded, setExpanded] = useState(false)
+  const panelId = useId()
+  const single = !muted && trails.length === 1
+  const running = trails.some(trailIsRunning)
+  const failedCount = trails.filter((trail) => !trailIsRunning(trail) && trail.isError === true).length
+  const interrupted = trails.some((trail) => trail.interrupted)
+  const totalMs = totalDurationMs(trails)
+  const keepOpen = single ? () => setExpanded(true) : undefined
+
+  return (
+    <div
+      className={single ? undefined : muted ? 'rounded-md' : 'material-base'}
+      onFocus={keepOpen}
+      onClick={keepOpen}
+    >
+      {!single && (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left"
+          aria-expanded={expanded}
+          aria-controls={panelId}
+        >
+          {!muted && (
+            <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center">
+              {running ? (
+                <Loader2 className="h-3 w-3 animate-spin text-positive-400 motion-reduce:animate-none" aria-hidden="true" />
+              ) : failedCount > 0 ? (
+                <AlertTriangle className="h-3 w-3 text-negative-400" aria-hidden="true" />
+              ) : (
+                <Wrench className="h-3 w-3 text-muted" aria-hidden="true" />
+              )}
+            </span>
+          )}
+          <span className={muted ? 'text-label-12 text-muted' : 'text-label-14-strong text-heading'}>{title}</span>
+          {!muted && <span className="text-label-12 text-muted">×{trails.length}</span>}
+          <span className="ml-auto flex items-center gap-2 text-label-12 text-muted">
+            {running ? (
+              <span className="text-positive-400">running…</span>
+            ) : (
+              <>
+                {failedCount > 0 ? (
+                  <span className="text-negative-400">{failedCount} failed</span>
+                ) : (
+                  <span>{interrupted ? 'interrupted' : 'done'}</span>
+                )}
+                {totalMs != null && <span className="tabular-nums">{formatDurationMs(totalMs)}</span>}
+              </>
+            )}
+            <ChevronRight className={`h-3 w-3 transition-transform ${expanded ? 'rotate-90' : ''}`} aria-hidden="true" />
+          </span>
+        </button>
+      )}
+      {(single || expanded) && (
+        <div id={panelId} className={single ? undefined : 'space-y-1.5 px-2.5 pb-2'}>
+          {trails.map((trail) => (
+            <ToolTrailRow key={trail.id} trail={trail} />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
  * Collapsible card for a single tool invocation. Shows name + duration +
  * status glyph in the header; expanding reveals the args payload and a
  * truncated result preview. Args use zinc; errors pick up a rose accent so
@@ -1416,11 +2014,10 @@ function extractTrails(
  */
 function ToolTrailRow({ trail }: { trail: ToolTrail }) {
   const [expanded, setExpanded] = useState(false)
-  const running = trail.endedAt === undefined && !trail.interrupted
+  const running = trailIsRunning(trail)
   const failed = !running && trail.isError === true
-  const durationMs = trail.durationMs ?? (trail.endedAt != null && trail.startedAt != null ? trail.endedAt - trail.startedAt : null)
-  const durationLabel =
-    durationMs == null || durationMs < 0 ? null : durationMs < 1000 ? `${durationMs}ms` : `${(durationMs / 1000).toFixed(1)}s`
+  const durationMs = trailDurationMs(trail)
+  const durationLabel = durationMs == null ? null : formatDurationMs(durationMs)
 
   const borderClass = failed
     ? 'border-negative-800/50'
@@ -1446,8 +2043,8 @@ function ToolTrailRow({ trail }: { trail: ToolTrail }) {
             <Wrench className="h-3 w-3 text-muted" aria-hidden="true" />
           )}
         </span>
-        <span className="text-sm font-medium text-heading">{trail.label ?? trail.name.replace(/^(?:canonry|aero)_/, '').replace(/_/g, ' ')}</span>
-        <span className="ml-auto flex items-center gap-2 text-[10px] text-muted">
+        <span className="text-label-14-strong text-heading">{trailLabel(trail)}</span>
+        <span className="ml-auto flex items-center gap-2 text-label-12 text-muted">
           {running ? (
             <span className="text-positive-400">running…</span>
           ) : (
@@ -1463,18 +2060,18 @@ function ToolTrailRow({ trail }: { trail: ToolTrail }) {
         </span>
       </button>
       {expanded && (
-        <div className="border-t border-default px-2.5 py-2 text-[11px] text-secondary">
-          <div className="mb-2 text-xs text-secondary">{trail.name}</div>
-          <div className="mb-1 text-xs text-secondary">Inputs</div>
-          <pre className="mb-2 overflow-x-auto whitespace-pre-wrap break-all text-xs text-neutral">
+        <div className="border-t border-default px-2.5 py-2 text-label-12 text-secondary">
+          <div className="mb-2 text-label-12 text-secondary">{trail.name}</div>
+          <div className="mb-1 text-label-12 text-secondary">Inputs</div>
+          <pre className="mb-2 overflow-x-auto whitespace-pre-wrap break-all text-copy-13 text-neutral">
             {formatJsonPreview(trail.args)}
           </pre>
           {!running && trail.result !== undefined && (
             <>
-              <div className="mb-1 text-[9px] uppercase tracking-wider text-faint">
+              <div className="mb-1 text-label-12 normal-case text-faint">
                 {failed ? 'Error' : 'Result'}
               </div>
-              <pre className="overflow-x-auto whitespace-pre-wrap break-all text-xs text-neutral">
+              <pre className="overflow-x-auto whitespace-pre-wrap break-all text-copy-13 text-neutral">
                 {formatJsonPreview(trail.result)}
               </pre>
             </>
@@ -1509,20 +2106,20 @@ function AeroMarkdown({ content }: { content: string }) {
         // table node, so a piped table renders as one run-on paragraph.
         remarkPlugins={[remarkGfm]}
         components={{
-          h1: (props) => <h1 {...props} className="mt-3 mb-2 text-base font-semibold text-primary" />,
-          h2: (props) => <h2 {...props} className="mt-3 mb-2 text-sm font-semibold text-primary" />,
-          h3: (props) => <h3 {...props} className="mt-3 mb-1.5 text-sm font-semibold text-heading" />,
-          h4: (props) => <h4 {...props} className="mt-2 mb-1 text-xs font-semibold uppercase tracking-wide text-neutral" />,
-          p: (props) => <p {...props} className="mb-2 leading-relaxed" />,
+          h1: (props) => <h1 {...props} className="mt-3 mb-2 text-heading-16 text-primary" />,
+          h2: (props) => <h2 {...props} className="mt-3 mb-2 text-heading-14 text-primary" />,
+          h3: (props) => <h3 {...props} className="mt-3 mb-1.5 text-heading-14 text-heading" />,
+          h4: (props) => <h4 {...props} className="mt-2 mb-1 text-heading-14 normal-case text-neutral" />,
+          p: (props) => <p {...props} className="mb-2 text-copy-14" />,
           ul: (props) => <ul {...props} className="mb-2 ml-4 list-disc space-y-1" />,
           ol: (props) => <ol {...props} className="mb-2 ml-4 list-decimal space-y-1" />,
           li: (props) => <li {...props} className="marker:text-mono-600" />,
-          strong: (props) => <strong {...props} className="font-semibold text-primary" />,
+          strong: (props) => <strong {...props} className="text-primary" />,
           em: (props) => <em {...props} className="text-strong" />,
           code: ({ children, ...props }) => (
             <code
               {...props}
-              className="rounded bg-mono-800/70 px-1 py-0.5 font-mono text-[12px] text-positive-200"
+              className="rounded bg-mono-800/70 px-1 py-0.5 text-label-12-mono text-positive-200"
             >
               {children}
             </code>
@@ -1530,7 +2127,7 @@ function AeroMarkdown({ content }: { content: string }) {
           pre: (props) => (
             <pre
               {...props}
-              className="mb-2 overflow-x-auto rounded-md border border-base bg-bg-elevated/70 p-3 font-mono text-xs text-strong"
+              className="mb-2 overflow-x-auto material-base p-3 text-copy-13-mono text-strong"
             />
           ),
           a: (props) => (
@@ -1543,11 +2140,11 @@ function AeroMarkdown({ content }: { content: string }) {
           ),
           table: (props) => (
             <div className="mb-2 overflow-x-auto">
-              <table {...props} className="w-full border-collapse text-xs" />
+              <table {...props} className="w-full border-collapse text-label-12" />
             </div>
           ),
           thead: (props) => <thead {...props} className="border-b border-base" />,
-          th: (props) => <th {...props} className="px-2 py-1 text-left font-semibold text-neutral" />,
+          th: (props) => <th {...props} className="px-2 py-1 text-left text-label-14-strong text-neutral" />,
           tr: (props) => <tr {...props} className="border-b border-mono-900" />,
           td: (props) => <td {...props} className="px-2 py-1 text-strong" />,
           blockquote: (props) => (
@@ -1565,16 +2162,12 @@ function AeroMarkdown({ content }: { content: string }) {
   )
 }
 
-/** Three-dot "Aero is thinking" indicator. Shown pre-first-token and between tool rounds. */
-function TypingIndicator() {
+/** Before the first step; the tool group owns progress once calls arrive. */
+function ThinkingIndicator() {
   return (
-    <div className="mt-3 flex items-center gap-2">
-      <div className="text-[10px] uppercase tracking-wider text-positive-400">Aero</div>
-      <div className="flex items-center gap-1" aria-label="Aero is thinking">
-        <span className="aero-dot h-1.5 w-1.5 rounded-full bg-positive-400/80" />
-        <span className="aero-dot aero-dot-2 h-1.5 w-1.5 rounded-full bg-positive-400/60" />
-        <span className="aero-dot aero-dot-3 h-1.5 w-1.5 rounded-full bg-positive-400/40" />
-      </div>
+    <div role="status" className="mt-3 flex items-center gap-2 py-1.5 text-label-14 text-secondary">
+      <Loader2 className="h-3 w-3 shrink-0 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+      Thinking…
     </div>
   )
 }

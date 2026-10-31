@@ -29,6 +29,63 @@ function setClipboard(clipboard: { writeText: (text: string) => Promise<void> } 
 afterEach(cleanup)
 
 describe('AnswerMarkdown', () => {
+  test('highlights prose across headings, emphasis and lists while excluding links, URLs and code', () => {
+    const markdown = [
+      '# Northwind guide', '', '**Northwind** has *Northwind options*.', '',
+      '- Northwind widgets', '', '[Northwind](https://northwind.example)', '',
+      'https://northwind.example', '', '`Northwind`', '', '```text', 'Northwind', '```',
+    ].join('\n')
+    const { container } = render(<AnswerMarkdown highlightGroups={[{ terms: ['Northwind'], className: 'answer-highlight-brand' }]}>{markdown}</AnswerMarkdown>)
+    expect(container.querySelectorAll('mark')).toHaveLength(4)
+    expect(container.querySelector('h4 mark')?.textContent).toBe('Northwind')
+    expect(container.querySelector('strong mark')?.textContent).toBe('Northwind')
+    expect(container.querySelector('em mark')?.textContent).toBe('Northwind')
+    expect(container.querySelector('li mark')?.textContent).toBe('Northwind')
+    expect(container.querySelector('a mark, code mark')).toBeNull()
+    expect(screen.getByText('https://northwind.example').querySelector('mark')).toBeNull()
+  })
+
+  test('truncates a parsed link label without exposing Markdown syntax or changing its destination', () => {
+    const { container } = render(<AnswerMarkdown previewLength={8}>{'[Northwind reference](https://northwind.example/a-long-saved-destination) and more.'}</AnswerMarkdown>)
+    const link = screen.getByRole('link', { name: 'Northwin…' })
+    expect(link.getAttribute('href')).toBe('https://northwind.example/a-long-saved-destination')
+    expect(container.textContent).toBe('Northwin…')
+  })
+
+  test('truncates formatted list text while keeping emphasis and removing later items', () => {
+    const { container } = render(<AnswerMarkdown previewLength={12}>{'- **Northwind** widgets\n- Other choices'}</AnswerMarkdown>)
+    expect(container.querySelector('strong')?.textContent).toBe('Northwind…')
+    expect(screen.getAllByRole('listitem')).toHaveLength(1)
+    expect(screen.getByRole('listitem').textContent).toBe('Northwind…')
+    expect(container.textContent).not.toContain('Other choices')
+  })
+
+  test('keeps nearby whole words at the parsed preview cutoff', () => {
+    const { container } = render(<AnswerMarkdown previewLength={16}>{'Northwind offers useful widgets.'}</AnswerMarkdown>)
+    expect(container.textContent).toBe('Northwind offers…')
+  })
+
+  test('preserves a reference link destination when its definition is after the preview cutoff', () => {
+    render(<AnswerMarkdown previewLength={5}>{'[Northwind][saved]\n\nMore text\n\n[saved]: https://northwind.example/reference'}</AnswerMarkdown>)
+    expect(screen.getByRole('link', { name: 'North…' }).getAttribute('href')).toBe('https://northwind.example/reference')
+  })
+
+  test.each([
+    { length: 9, expected: 'Northwind' },
+    { length: 8, expected: 'Northwin…' },
+    { length: 0, expected: '…' },
+  ])('adds an ellipsis only when the parsed answer exceeds $length characters', ({ length, expected }) => {
+    const { container } = render(<AnswerMarkdown previewLength={length}>{'**Northwind**'}</AnswerMarkdown>)
+    expect(container.textContent).toBe(expected)
+  })
+
+  test('preview truncation retains safe-link and remote-image protections', () => {
+    const { container } = render(<AnswerMarkdown previewLength={20}>{'[Unsafe](javascript:alert%281%29) ![Remote map](https://example.com/map.png) more text'}</AnswerMarkdown>)
+    expect(screen.queryByRole('link')).toBeNull()
+    expect(container.querySelector('img')).toBeNull()
+    expect(container.textContent).toBe('Unsafe Remote map…')
+  })
+
   test('rebases the shallowest source heading to h4 and preserves nesting up to h6', () => {
     const { container } = render(<AnswerMarkdown>{headingFixture}</AnswerMarkdown>)
     expect(screen.getByRole('heading', { name: 'Local recommendations', level: 4 })).toBeTruthy()

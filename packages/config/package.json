@@ -1,5 +1,5 @@
 {
-  "name": "@ainyc/canonry-config",
+  "name": "@canonry/canonry-config",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -12,12 +12,12 @@
   },
   "types": "./src/index.ts",
   "scripts": {
-    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck": "node ../../scripts/typecheck.mjs --noEmit -p tsconfig.json",
     "test": "vitest run --config ../../vitest.package.config.ts",
-    "lint": "eslint src/ test/"
+    "lint": "oxlint -c ../../.oxlintrc.json --type-aware src/ test/"
   },
   "dependencies": {
-    "@ainyc/canonry-contracts": "workspace:*",
-    "zod": "^4.1.12"
+    "@canonry/canonry-contracts": "workspace:*",
+    "zod": "^4.6.7"
   }
 }

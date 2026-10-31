@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest'
-import type { ProjectDto } from '@ainyc/canonry-contracts'
+import type { ProjectDto } from '@canonry/canonry-contracts'
 
 const mockPutProject = vi.fn()
 const mockGetProject = vi.fn()
@@ -91,6 +91,12 @@ describe('project mutations — jsonl degrades to the json document', () => {
       expect(out).toContain('Project: Demo')
       expect(out).toContain('Name:             demo')
       expect(() => JSON.parse(out)).toThrow()
+    })
+
+    it('human text exposes a pending stored answer-field recompute', async () => {
+      mockGetProject.mockResolvedValue({ ...project, answerFieldsRecompute: 'competitors' })
+      const out = await captureLog(() => showProject('demo', undefined))
+      expect(out).toContain('Answer fields recompute: competitors')
     })
   })
 

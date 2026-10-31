@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import * as Dialog from '@radix-ui/react-dialog'
 
 import {
   BookOpen,
   ChevronRight,
   FileText,
-  Github,
+  CodeXml,
   Globe,
   History as HistoryIcon,
   LayoutDashboard,
@@ -17,11 +18,12 @@ import {
   Radar,
   Rocket,
   Settings,
+  Terminal,
   X,
   type LucideIcon,
 } from 'lucide-react'
 
-import { CitationStates, formatRunErrorOneLine } from '@ainyc/canonry-contracts'
+import { CitationStates, RunKinds, RunStatuses, embedProjectTabsError, formatRunErrorOneLine } from '@canonry/canonry-contracts'
 
 import { asyncHandler } from './lib/async-handler.js'
 import { formatErrorLog } from './lib/format-helpers.js'
@@ -38,8 +40,16 @@ import { viewerRoleLabel,
   type ApiRun,
 } from './api.js'
 import { useAccount } from './contexts/account-context.js'
-import { embedThemeMode, embedThemeStyle, embedViewIdForPath } from './embed.js'
-import { getApiV1ProjectsOptions, getApiV1RunsOptions } from '@ainyc/canonry-api-client/react-query'
+import {
+  embedTabToRemember,
+  embedTabToRestore,
+  embedThemeMode,
+  embedThemeStyle,
+  embedViewIdForPath,
+  readEmbedTabMemory,
+  writeEmbedTabMemory,
+} from './embed.js'
+import { getApiV1ProjectsOptions, getApiV1RunsOptions } from '@canonry/canonry-api-client/react-query'
 import { serviceStatusTooltip } from './lib/health-helpers.js'
 import { addToast, type ToastTone } from './lib/toast-store.js'
 import {
@@ -57,6 +67,7 @@ import { Button } from './components/ui/button.js'
 import { Badge } from './components/ui/badge.js'
 import { BrandLockup } from './components/shared/BrandLockup.js'
 import { ProviderBadge } from './components/shared/ProviderBadge.js'
+import { ThemeSelector } from './components/shared/ThemeSelector.js'
 import { StatusBadge } from './components/shared/StatusBadge.js'
 import { Drawer } from './components/layout/Drawer.js'
 import { EvidenceDetailModal } from './components/layout/EvidenceDetailModal.js'
@@ -82,10 +93,10 @@ import type {
   ServiceStatus,
 } from './view-models.js'
 
-import { Outlet, Link, useLocation } from '@tanstack/react-router'
+import { Outlet, Link, useLocation, useNavigate } from '@tanstack/react-router'
 
 const resources: { label: string; href: string; Icon: LucideIcon }[] = [
-  { label: 'GitHub', href: 'https://github.com/Canonry/canonry', Icon: Github },
+  { label: 'GitHub', href: 'https://github.com/Canonry/canonry', Icon: CodeXml },
   { label: 'Docs', href: 'https://github.com/Canonry/canonry/tree/main/docs', Icon: BookOpen },
   { label: 'Changelog', href: 'https://github.com/Canonry/canonry/releases', Icon: FileText },
 ]
@@ -321,6 +332,24 @@ export function RootLayout() {
   // would only duplicate that request every two seconds while the form is open.
   const location = useLocation()
 
+  // The host page re-loads an embedded dashboard every few minutes to refresh its
+  // access, and each reload lands on the project's first tab. Reopen the tab the
+  // client was on, then keep remembering where they are.
+  const navigate = useNavigate()
+  const embedTabRestored = useRef(false)
+  useEffect(() => {
+    if (!embed) return
+    if (!embedTabRestored.current) {
+      embedTabRestored.current = true
+      const target = embedTabToRestore(location.pathname, readEmbedTabMemory())
+      if (target) {
+        void navigate({ to: target, replace: true })
+        return
+      }
+    }
+    writeEmbedTabMemory(embedTabToRemember(location.pathname))
+  }, [embed, location.pathname, navigate])
+
   // ── Data fetching via TanStack Query ──
   const { dashboard, isLoading, refetch: refreshData } = useDashboard(undefined, {
     includeSettings: !embed,
@@ -417,7 +446,7 @@ export function RootLayout() {
 
   // Escape key closes drawer
   useEffect(() => {
-    if (typeof window === 'undefined' || (!runId && !evidenceId)) {
+    if (typeof window === 'undefined' || mobileNavOpen || (!runId && !evidenceId)) {
       return
     }
 
@@ -431,7 +460,7 @@ export function RootLayout() {
     return () => {
       window.removeEventListener('keydown', onKeyDown)
     }
-  }, [runId, evidenceId, closeDrawer])
+  }, [runId, evidenceId, closeDrawer, mobileNavOpen])
 
   // While loading or dashboard not yet available, use context data or null (no mock fallback)
   const safeDashboard = dashboard ?? contextDashboard?.dashboard ?? null
@@ -499,12 +528,13 @@ export function RootLayout() {
   // Derive breadcrumb label from current location
   const breadcrumbLabel = (() => {
     const path = location.pathname
-    if (path === '/') return 'Portfolio'
+    if (path === '/') return 'All projects'
     if (path === '/projects') return 'Projects'
     if (path === '/runs') return 'Runs'
     if (path === '/history') return 'History'
     if (path === '/settings') return 'Settings'
     if (path === '/setup') return 'Setup'
+    if (path === '/agent-setup') return 'Agent setup'
     if (path === '/backlinks') return 'Backlink data'
     if (path === '/traffic') return 'Traffic sources'
     if (path.startsWith('/traffic/')) return 'Traffic sources'
@@ -524,6 +554,7 @@ export function RootLayout() {
   // surfaces like /settings are never reachable inside the iframe. Placed after
   // every hook above so the Rules of Hooks hold on both render paths.
   if (embed) {
+    const projectTabsError = embedProjectTabsError(embed.projectTabs)
     const viewAllowed = !embed.views || embed.views.includes(embedViewIdForPath(location.pathname))
     return (
       <div
@@ -535,7 +566,11 @@ export function RootLayout() {
           Skip to content
         </a>
         <main id="content" className="page-shell">
-          {viewAllowed ? (
+          {projectTabsError ? (
+            <div className="embed-view-unavailable" role="status">
+              This embed uses the retired Report tab. Update its allowed tabs to show AI Visibility.
+            </div>
+          ) : viewAllowed ? (
             <Outlet />
           ) : (
             <div className="embed-view-unavailable" role="status">
@@ -547,8 +582,36 @@ export function RootLayout() {
     )
   }
 
+  const footer = (
+    <footer className="footer">
+      <span className="footer-brand">
+        <span><a href='https://canonry.ai'>Canonry</a></span>
+        {healthSnapshot.apiStatus.version && healthSnapshot.apiStatus.version !== 'unknown' ? (
+          <span className="footer-version">v{healthSnapshot.apiStatus.version}</span>
+        ) : null}
+      </span>
+      {resourceLinksVisible ? (
+        <div className="footer-links">
+          {resources.map(({ label, href, Icon }) => (
+            <a
+              key={href}
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={label}
+              aria-label={label}
+              className="footer-icon"
+            >
+              <Icon className="size-3.5" />
+            </a>
+          ))}
+        </div>
+      ) : null}
+    </footer>
+  )
+
   return (
-    <>
+    <Dialog.Root open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
     <a className="skip-link" href="#content">
       Skip to content
     </a>
@@ -574,7 +637,7 @@ export function RootLayout() {
             activeOptions={{ exact: true }}
           >
             <LayoutDashboard className="sidebar-icon" />
-            <span>Portfolio</span>
+            <span>All projects</span>
           </Link>
           <Link
             to="/projects"
@@ -620,6 +683,15 @@ export function RootLayout() {
           >
             <Link2 className="sidebar-icon" />
             <span>Backlink data</span>
+          </Link>}
+          {!isPublicDemo() && <Link
+            to="/agent-setup"
+            className="sidebar-link"
+            activeProps={{ className: 'sidebar-link sidebar-link-active' }}
+            activeOptions={{ exact: true }}
+          >
+            <Terminal className="sidebar-icon" />
+            <span>Agent setup</span>
           </Link>}
           {isAdmin && (
             <Link
@@ -702,28 +774,12 @@ export function RootLayout() {
           </div>
         )}
 
-        {resourceLinksVisible ? (
-          <div className="sidebar-footer">
-            {resources.map(({ label, href, Icon }) => (
-              <a
-                key={href}
-                className="sidebar-footer-icon"
-                href={href}
-                target="_blank"
-                rel="noopener noreferrer"
-                title={label}
-                aria-label={label}
-              >
-                <Icon className="size-4" />
-              </a>
-            ))}
-          </div>
-        ) : null}
+        {footer}
       </aside>
       )}
 
       {/* ── Main area ── */}
-      <div className="main-area">
+      <div className={`main-area ${agentBarVisible && currentProjectName ? 'main-area-agent-bar' : ''}`.trim()}>
         {/* Topbar */}
         <header className="topbar">
           <div className="topbar-left">
@@ -759,6 +815,7 @@ export function RootLayout() {
           </div>
 
           <div className="topbar-actions">
+            <ThemeSelector />
             <TaskCenter />
             <div className="health-pill-row">
               <span
@@ -775,37 +832,40 @@ export function RootLayout() {
               </span>
             </div>
             {!isFocusedSetup ? (
+              <Dialog.Trigger asChild>
               <Button
                 className="nav-toggle"
                 variant="secondary"
                 size="icon"
                 type="button"
-                aria-expanded={mobileNavOpen}
-                aria-controls="mobile-nav"
-                onClick={() => setMobileNavOpen((open) => !open)}
               >
                 <Menu className="size-4" />
                 <span className="sr-only">Open navigation</span>
               </Button>
+              </Dialog.Trigger>
             ) : null}
           </div>
         </header>
 
         {/* Mobile nav overlay */}
         {!isFocusedSetup ? (
-          <div id="mobile-nav" className={`mobile-nav ${mobileNavOpen ? 'mobile-nav-open' : ''}`}>
+          <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-40" />
+          <Dialog.Content className="mobile-nav mobile-nav-open" aria-describedby={undefined}>
+          <Dialog.Title className="sr-only">Navigation</Dialog.Title>
+          <Dialog.Close asChild>
           <Button
             className="mobile-nav-close"
             variant="ghost"
             size="icon"
             type="button"
-            onClick={() => setMobileNavOpen(false)}
           >
             <X className="size-5" />
             <span className="sr-only">Close navigation</span>
           </Button>
+          </Dialog.Close>
           <Link to="/" className="mobile-nav-link" activeProps={{ className: 'mobile-nav-link mobile-nav-link-active' }} activeOptions={{ exact: true }}>
-            Portfolio
+            All projects
           </Link>
           <Link to="/projects" className="mobile-nav-link" activeProps={{ className: 'mobile-nav-link mobile-nav-link-active' }} activeOptions={{ exact: false }}>
             Projects
@@ -821,6 +881,9 @@ export function RootLayout() {
           </Link>
           {!isPublicDemo() && <Link to="/backlinks" className="mobile-nav-link" activeProps={{ className: 'mobile-nav-link mobile-nav-link-active' }} activeOptions={{ exact: true }}>
             Backlink data
+          </Link>}
+          {!isPublicDemo() && <Link to="/agent-setup" className="mobile-nav-link" activeProps={{ className: 'mobile-nav-link mobile-nav-link-active' }} activeOptions={{ exact: true }}>
+            Agent setup
           </Link>}
           {isAdmin && (
             <Link to="/settings" className="mobile-nav-link" activeProps={{ className: 'mobile-nav-link mobile-nav-link-active' }} activeOptions={{ exact: true }}>
@@ -872,13 +935,15 @@ export function RootLayout() {
               </div>
             </div>
           )}
-          </div>
+          {footer}
+          </Dialog.Content>
+          </Dialog.Portal>
         ) : null}
 
         {/* Page content */}
         <main
           id="content"
-          className={`page-shell ${agentBarVisible && currentProjectName ? 'pb-20' : ''}`.trim()}
+          className="page-shell"
         >
           {isLoading && !contextDashboard ? (
             <div className="page-skeleton">
@@ -912,43 +977,17 @@ export function RootLayout() {
             <Outlet />
           )}
         </main>
-
-        <footer className="footer">
-          <span className="footer-brand">
-            <span><a href='https://canonry.ai'>Canonry</a></span>
-            {healthSnapshot.apiStatus.version && healthSnapshot.apiStatus.version !== 'unknown' ? (
-              <span className="footer-version">v{healthSnapshot.apiStatus.version}</span>
-            ) : null}
-          </span>
-          {resourceLinksVisible ? (
-            <div className="footer-links">
-              {resources.map(({ label, href, Icon }) => (
-                <a
-                  key={href}
-                  href={href}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  title={label}
-                  aria-label={label}
-                  className="footer-icon"
-                >
-                  <Icon className="size-3.5" />
-                </a>
-              ))}
-            </div>
-          ) : null}
-        </footer>
       </div>
 
       {/* ── Drawers ── */}
       {runId && !selectedRun && runDetailLoading ? (
         <Drawer open title="Loading run details" subtitle="Fetching the durable run record" onClose={closeDrawer}>
-          <p className="text-sm text-muted" role="status">Loading run details…</p>
+          <p className="text-copy-14 text-muted" role="status">Loading run details…</p>
         </Drawer>
       ) : null}
       {runId && !selectedRun && runDetailQuery.isError ? (
         <Drawer open title="Run unavailable" subtitle="The run could not be loaded" onClose={closeDrawer}>
-          <p className="text-sm text-negative">{runDetailQuery.error instanceof Error ? runDetailQuery.error.message : 'Run details are unavailable.'}</p>
+          <p className="text-copy-14 text-negative">{runDetailQuery.error instanceof Error ? runDetailQuery.error.message : 'Run details are unavailable.'}</p>
         </Drawer>
       ) : null}
       {selectedRun ? (
@@ -958,27 +997,27 @@ export function RootLayout() {
           subtitle={`${selectedRun.projectName} \u00b7 ${selectedRun.kindLabel}`}
           onClose={closeDrawer}
         >
-          <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-sm">
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-label-14">
             <StatusBadge status={selectedRun.status} />
             <span className="text-secondary">{selectedRun.startedAt}</span>
             <span className="text-muted">{selectedRun.duration}</span>
             <span className="text-faint">{selectedRun.triggerLabel}</span>
           </div>
           {selectedRun.status === 'failed' && selectedRun.statusDetail && (
-            <p className="mt-2 text-sm text-negative">{selectedRun.statusDetail}</p>
+            <p className="mt-2 text-copy-14 text-negative">{selectedRun.statusDetail}</p>
           )}
 
           {/* Run activity log */}
           <div className="mt-4">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted mb-2">Activity Log</p>
+            <p className="text-label-12-strong normal-case text-muted mb-2">Activity Log</p>
             {runDetailLoading ? (
-              <p className="text-sm text-muted">Loading run details...</p>
+              <p className="text-copy-14 text-muted">Loading run details...</p>
             ) : runDetail?.snapshots && runDetail.snapshots.length > 0 ? (
               <div className="space-y-2">
                 {runDetail.snapshots.map((snap) => (
-                  <div key={snap.id} className="rounded-lg border border-default bg-surface p-3">
+                  <div key={snap.id} className="material-base p-3">
                     <div className="flex items-center justify-between gap-2 mb-1">
-                      <p className="text-sm font-medium text-strong truncate">{snap.query ?? 'Unknown query'}</p>
+                      <p className="text-copy-14-strong text-strong truncate">{snap.query ?? 'Unknown query'}</p>
                       <div className="flex items-center gap-1.5">
                         <ProviderBadge provider={snap.provider} />
                         <Badge variant={snap.citationState === CitationStates.cited ? 'success' : 'neutral'}>
@@ -987,26 +1026,26 @@ export function RootLayout() {
                       </div>
                     </div>
                     {snap.model && (
-                      <p className="text-[11px] text-muted font-mono">{snap.model}</p>
+                      <p className="text-copy-13-mono text-muted">{snap.model}</p>
                     )}
                     {snap.citedDomains.length > 0 && (
-                      <p className="text-xs text-muted mt-1">
+                      <p className="text-copy-13 text-muted mt-1">
                         <span className="text-secondary">Sources:</span> {snap.citedDomains.join(', ')}
                       </p>
                     )}
                     {snap.citedCompetitorDomains.length > 0 && (
-                      <p className="text-xs text-negative-400/80 mt-0.5">
+                      <p className="text-copy-13 text-negative-400/80 mt-0.5">
                         Competitor cited: {snap.citedCompetitorDomains.join(', ')}
                       </p>
                     )}
                     {snap.mentionedCompetitorDomains.length > 0 && (
-                      <p className="text-xs text-negative-400/80 mt-0.5">
+                      <p className="text-copy-13 text-negative-400/80 mt-0.5">
                         Competitor mentioned: {snap.mentionedCompetitorDomains.join(', ')}
                       </p>
                     )}
                     {snap.groundingSources && snap.groundingSources.length > 0 && (
                       <details className="mt-2">
-                        <summary className="text-xs text-muted cursor-pointer hover:text-secondary">
+                        <summary className="text-label-12 text-muted cursor-pointer hover:text-secondary">
                           {snap.groundingSources.length} grounding source{snap.groundingSources.length !== 1 ? 's' : ''}
                         </summary>
                         <ul className="mt-2 space-y-3">
@@ -1018,36 +1057,44 @@ export function RootLayout() {
                     )}
                     {snap.answerText && (
                       <details className="mt-1">
-                        <summary className="text-xs text-muted cursor-pointer hover:text-secondary">Answer preview</summary>
-                        <p className="mt-1 text-xs text-secondary leading-relaxed whitespace-pre-wrap">{snap.answerText}</p>
+                        <summary className="text-label-12 text-muted cursor-pointer hover:text-secondary">Answer preview</summary>
+                        <p className="mt-1 text-copy-13 text-secondary whitespace-pre-wrap">{snap.answerText}</p>
                       </details>
                     )}
                   </div>
                 ))}
                 {runDetail.status === 'running' && (
-                  <div className="flex items-center gap-2 p-3 text-sm text-muted">
+                  <div className="flex items-center gap-2 p-3 text-label-14 text-muted">
                     <span className="inline-block h-2 w-2 rounded-full bg-caution-500 animate-pulse" />
                     Running remaining queries...
                   </div>
                 )}
               </div>
-            ) : runDetail && runDetail.status === 'running' ? (
-              <div className="flex items-center gap-2 p-3 text-sm text-muted">
+            ) : runDetail && runDetail.status === RunStatuses.running ? (
+              <div className="flex items-center gap-2 p-3 text-label-14 text-muted">
                 <span className="inline-block h-2 w-2 rounded-full bg-caution-500 animate-pulse" />
-                Waiting for first query result...
+                {runDetail.kind === RunKinds['answer-visibility'] ? 'Waiting for first query result...' : 'Run is in progress...'}
               </div>
-            ) : runDetail && runDetail.status === 'queued' ? (
-              <div className="flex items-center gap-2 p-3 text-sm text-muted">
+            ) : runDetail && runDetail.status === RunStatuses.queued ? (
+              <div className="flex items-center gap-2 p-3 text-label-14 text-muted">
                 <span className="inline-block h-2 w-2 rounded-full bg-mono-500 animate-pulse" />
                 Run queued, waiting for execution slot...
               </div>
             ) : runDetail && runDetail.error ? (
-              <div className="rounded-lg border border-negative-800/40 bg-negative-950/20 p-3">
-                <p className="text-sm font-medium text-negative mb-2">Run failed</p>
-                <pre className="max-h-48 overflow-y-auto whitespace-pre-wrap break-words font-mono text-xs leading-5 text-negative">{formatErrorLog(runDetail.error)}</pre>
+              <div className="rounded-md border border-negative-800/40 bg-negative-950/20 p-3">
+                <p className="text-copy-14-strong text-negative mb-2">Run failed</p>
+                <pre className="max-h-48 overflow-y-auto whitespace-pre-wrap break-words text-copy-13-mono text-negative">{formatErrorLog(runDetail.error)}</pre>
               </div>
+            ) : selectedRun.kind !== RunKinds['answer-visibility'] ? (
+              <p className="text-copy-14 text-secondary">
+                {selectedRun.status === RunStatuses.completed ? 'Run completed.'
+                  : selectedRun.status === RunStatuses.partial ? 'Run completed with partial results.'
+                  : selectedRun.status === RunStatuses.cancelled ? 'Run cancelled.'
+                  : selectedRun.status === RunStatuses.failed ? 'Run failed.'
+                  : 'No run details available.'}
+              </p>
             ) : (
-              <p className="text-sm text-muted">No snapshot data available.</p>
+              <p className="text-copy-14 text-muted">No snapshot data available.</p>
             )}
           </div>
         </Drawer>
@@ -1056,10 +1103,10 @@ export function RootLayout() {
       {evidenceId && !selectedEvidenceContext ? (
         <Drawer open title={evidenceLoading ? 'Loading answer' : 'Answer unavailable'} subtitle="Query evidence" onClose={closeDrawer}>
           {evidenceLoading ? (
-            <p role="status" className="text-sm text-secondary">Loading answer…</p>
+            <p role="status" className="text-copy-14 text-secondary">Loading answer…</p>
           ) : (
             <>
-              <p role="alert" className="text-sm text-secondary">{evidenceError || evidenceProjectError ? 'Could not load this answer.' : 'This answer is not in the available query evidence.'}</p>
+              <p role="alert" className="text-copy-14 text-secondary">{evidenceError || evidenceProjectError ? 'Could not load this answer.' : 'This answer is not in the available query evidence.'}</p>
               <Button type="button" variant="outline" onClick={() => { void refetchEvidence() }}>Retry</Button>
             </>
           )}
@@ -1073,6 +1120,6 @@ export function RootLayout() {
       <Toaster />
       {agentBarVisible ? <AeroBarHost /> : null}
     </div>
-    </>
+    </Dialog.Root>
   )
 }

@@ -3,7 +3,11 @@ import { locationContextSchema, providerNameSchema } from './provider.js'
 import { citedUrlCaptureStatusSchema } from './cited-urls.js'
 import { measurementExecutionIdentitySchema, measurementRunScopeRequestSchema, measurementRunScopeSchema } from './measurement-plan.js'
 import { retrievalContractSchema, retrievalStatusSchema } from './retrieval.js'
+import { answerEvidenceSchema } from './answer-evidence.js'
+import { mentionIdentitySchema } from './mention-identity.js'
+import { classifyProviderErrorMessage, providerErrorCodeSchema } from './provider-errors.js'
 import { pricingTierSchema, providerBatchStatusSchema, providerDispatchModeSchema, snapshotUsageSchema } from './provider-batch.js'
+import { runSyncSummarySchema } from './run-sync-summary.js'
 
 export const runStatusSchema = z.enum(['queued', 'running', 'completed', 'partial', 'failed', 'cancelled'])
 export type RunStatus = z.infer<typeof runStatusSchema>
@@ -25,6 +29,7 @@ export const runKindSchema = z.enum([
   'ads-sync',
   'google-ads-sync',
   'gtm-sync',
+  'seo-sync',
 ])
 export type RunKind = z.infer<typeof runKindSchema>
 export const RunKinds = runKindSchema.enum
@@ -37,6 +42,11 @@ export const RunKinds = runKindSchema.enum
  */
 export const runListFilterQuerySchema = z.object({
   kind: runKindSchema.optional(),
+  excludeKind: runKindSchema.optional(),
+  excludeKinds: z.preprocess(value => {
+    const items: readonly unknown[] | null = typeof value === 'string' ? [value] : Array.isArray(value) ? value : null
+    return items ? [...new Set(items.flatMap((item): unknown[] => typeof item === 'string' ? item.split(',').map(part => part.trim()) : [item]))] : value
+  }, z.array(runKindSchema).max(runKindSchema.options.length)).optional(),
   status: runStatusSchema.optional(),
 })
 export type RunListFilterQuery = z.infer<typeof runListFilterQuerySchema>
@@ -123,6 +133,12 @@ export const runTriggerRequestSchema = z.object({
    * run sync.
    */
   dispatchMode: providerDispatchModeSchema.optional(),
+  /**
+   * Queue the run even though it would be refused with `PROVIDERS_FAILING`
+   * (see `PROVIDER_ACCOUNT_FAILURE_STREAK`). Admission only: it changes
+   * nothing about what the run measures, and is not stored.
+   */
+  force: z.boolean().optional(),
 }).refine(
   (data) => Number(Boolean(data.location)) + Number(Boolean(data.allLocations)) + Number(Boolean(data.noLocation)) <= 1,
   { message: 'Only one of "location", "allLocations", or "noLocation" may be provided' },
@@ -130,11 +146,54 @@ export const runTriggerRequestSchema = z.object({
 
 export type RunTriggerRequest = z.infer<typeof runTriggerRequestSchema>
 
+/**
+ * Run admission refuses a new answer-visibility run (`PROVIDERS_FAILING`) when
+ * every provider it would call failed on its account (a rejected key, denied
+ * access, or no credit) in each of its last this-many runs.
+ */
+export const PROVIDER_ACCOUNT_FAILURE_STREAK = 10
+/** How long after the newest such failure one run is let through again. */
+export const PROVIDER_ACCOUNT_RETRY_HOURS = 24
+
+/**
+ * A provider held back because it keeps failing on its account: it failed
+ * with `PROVIDER_AUTH` or `PROVIDER_BILLING` in each of its last
+ * `PROVIDER_ACCOUNT_FAILURE_STREAK` runs that called it, the newest of those
+ * finished less than `PROVIDER_ACCOUNT_RETRY_HOURS` ago, and no settings save
+ * that could fix it came after the oldest. A run skips it; a run whose
+ * providers are all held is refused with `PROVIDERS_FAILING`.
+ */
+export const providerAccountStreakSchema = z.object({
+  /** How its newest failure was classified: `PROVIDER_AUTH` or `PROVIDER_BILLING`. */
+  code: providerErrorCodeSchema,
+  /** Runs in a row it failed this way (the threshold). */
+  consecutiveRuns: z.number().int().positive(),
+  /** When the oldest run of the streak was created. */
+  since: z.string(),
+  /** The newest run it failed in. */
+  latestRunId: z.string(),
+  /** When it is next called without `force`: the retry interval after its newest failure finished. */
+  retryAfter: z.string(),
+})
+export type ProviderAccountStreak = z.infer<typeof providerAccountStreakSchema>
+
 export const runProviderErrorSchema = z.object({
   /** Human-readable error message (best-effort extracted from `raw.error.message` / `raw.message`, otherwise the raw text with any `[provider-X]` prefix stripped). */
   message: z.string(),
   /** Original provider response payload, if the underlying error body parsed as JSON. Use this for structured fields like HTTP status, error code, etc. */
   raw: z.unknown().optional(),
+  /**
+   * What kind of failure this was, classified from the provider's full error
+   * text when it happened. Absent on errors stored before per-provider codes
+   * existed and on entries that are not a provider's own failure.
+   */
+  code: providerErrorCodeSchema.optional(),
+  /**
+   * True when the run did not call this provider because it keeps failing on
+   * its account (the run's `skippedProviders`). `code` is that failure. A
+   * skipped provider neither extends nor ends its failure streak.
+   */
+  skipped: z.boolean().optional(),
 })
 
 export type RunProviderErrorDto = z.infer<typeof runProviderErrorSchema>
@@ -201,6 +260,7 @@ export const runUsageSummaryRowSchema = z.object({
 export type RunUsageSummaryRow = z.infer<typeof runUsageSummaryRowSchema>
 
 export const runDtoSchema = z.object({
+  sourceId: z.string().nullable().optional(),
   id: z.string(),
   projectId: z.string(),
   kind: runKindSchema,
@@ -236,10 +296,38 @@ export const runDtoSchema = z.object({
    * measured a published plan; planless runs, which never batch, omit it.
    */
   dispatchModes: runDispatchModesSchema.optional(),
+  /**
+   * Providers this run does not call because each keeps failing on its
+   * account, decided when it was queued. A probe or a `force` run skips none.
+   * Each has an `error.providers` entry with `skipped: true` once the run
+   * finishes. Omitted when the run skips none.
+   */
+  skippedProviders: z.record(z.string(), providerAccountStreakSchema).optional(),
+  /**
+   * What a sync run did and why it stopped, for syncs that record one (a
+   * Cloudflare Queue traffic sync). Omitted on every other run.
+   */
+  syncSummary: runSyncSummarySchema.optional(),
   createdAt: z.string(),
 })
 
 export type RunDto = z.infer<typeof runDtoSchema>
+
+/**
+ * Whether the project's next full answer-visibility sweep would be admitted,
+ * for a selected provider list. Scheduled sweeps use the schedule's providers
+ * when it names some, while manual sweeps use the project's providers. Both
+ * use a published plan's frozen providers. A probe or a `force` run is never held back.
+ */
+export const runAdmissionDtoSchema = z.object({
+  /** Every provider the sweep would call is held back, so it is refused (`PROVIDERS_FAILING`); a scheduled one skips its slot. */
+  refused: z.boolean(),
+  /** When a refused sweep is next let through without `force`: the earliest provider `retryAfter`. Null when not refused. */
+  retryAfter: z.string().nullable(),
+  /** Each provider the sweep would call that is held back. Empty when none is. */
+  providers: z.record(z.string(), providerAccountStreakSchema),
+})
+export type RunAdmissionDto = z.infer<typeof runAdmissionDtoSchema>
 
 const PROVIDER_PREFIX = /^\[provider-[\w-]+\]\s+/
 
@@ -302,6 +390,49 @@ export function buildRunErrorFromMessages(messages: Iterable<readonly [string, s
   return { providers }
 }
 
+/**
+ * `buildRunErrorFromMessages` for answer-provider failures: each entry also
+ * carries its `code`, classified from the raw message. The stored `message`
+ * keeps only the readable part of a JSON body, which drops the very markers
+ * that tell a Gemini rate limit (`RESOURCE_EXHAUSTED`) from an exhausted
+ * account, so the code has to be decided here rather than read back later.
+ */
+export function buildProviderRunError(messages: Iterable<readonly [string, string]>): RunErrorDto {
+  const providers: Record<string, RunProviderErrorDto> = {}
+  for (const [name, msg] of messages) {
+    providers[name] = { ...parseProviderErrorMessage(msg), code: classifyProviderErrorMessage(msg) }
+  }
+  return { providers }
+}
+
+/** The stored error entry of a provider a run skipped because it keeps failing on its account. */
+export function skippedProviderRunError(provider: string, streak: ProviderAccountStreak): RunProviderErrorDto {
+  return {
+    message: `Not called: ${provider} failed on its account (${streak.code}) in each of its last ${streak.consecutiveRuns} runs. `
+      + `It is called again after ${streak.retryAfter}, or as soon as a new key, model or endpoint is saved for it `
+      + `(canonry settings provider ${provider}). Pass force (canonry run --force) to call it now.`,
+    code: streak.code,
+    skipped: true,
+  }
+}
+
+/**
+ * `error` with an entry for each provider the run skipped. A skip replaces any
+ * other entry for the same provider: a provider the run never called cannot
+ * have failed in it.
+ */
+export function withSkippedProviders(error: RunErrorDto, skipped: Readonly<Record<string, ProviderAccountStreak>>): RunErrorDto {
+  const entries = Object.entries(skipped)
+  if (entries.length === 0) return error
+  return {
+    ...error,
+    providers: {
+      ...error.providers,
+      ...Object.fromEntries(entries.map(([provider, streak]) => [provider, skippedProviderRunError(provider, streak)])),
+    },
+  }
+}
+
 /** Serialize a `RunErrorDto` for the `runs.error` DB column. */
 export function serializeRunError(err: RunErrorDto): string {
   return JSON.stringify(err)
@@ -333,6 +464,23 @@ export const groundingSourceSchema = z.object({
 })
 
 export type GroundingSource = z.infer<typeof groundingSourceSchema>
+
+/**
+ * A page an engine's search listed or opened while answering. Retrieval is
+ * not citation: a retrieved page shows what the engine could see, never that
+ * the answer relied on it. Citation readers use `groundingSources` and
+ * `citedDomains`; nothing derives either from this list.
+ */
+export const retrievedSourceSchema = z.object({
+  uri: z.string(),
+  title: z.string(),
+  /** `search-result`: listed by one of the engine's searches. `page-read`: opened by the engine. */
+  kind: z.enum(['search-result', 'page-read']),
+  /** The search that listed it; null for a page read. */
+  query: z.string().nullable(),
+})
+
+export type RetrievedSource = z.infer<typeof retrievedSourceSchema>
 
 /**
  * Whether a provider actually honoured the `LocationContext` a plan-aware run
@@ -385,10 +533,28 @@ export const querySnapshotDtoSchema = z.object({
   citedCompetitorDomains: z.array(z.string()).default([]),
   /** Tracked competitors present in answer prose. */
   mentionedCompetitorDomains: z.array(z.string()).default([]),
+  /**
+   * The competitor names (curated aliases, domain labels) and written hosts
+   * that produced `mentionedCompetitorDomains`, matched server-side, so a
+   * reader can highlight them without re-deriving competitor identity.
+   */
+  mentionedCompetitorTerms: z.array(z.string()).default([]),
   recommendedCompetitors: z.array(z.string()).default([]),
   matchedTerms: z.array(z.string()).default([]),
+  /**
+   * `wrong-subject` when sentiment found this answer is about another subject:
+   * `matchedTerms` still lists the name it wrote, but the answer does not count
+   * as mentioned. Null when no sentiment verdict changes the mention.
+   */
+  mentionIdentity: z.union([mentionIdentitySchema, z.null()]).default(null),
   groundingSources: z.array(groundingSourceSchema).default([]),
   searchQueries: z.array(z.string()).default([]),
+  /**
+   * Pages the engine's searches listed or opened for this answer, separate
+   * from cited sources. Null when the engine does not report them (or the
+   * answer predates capture); an empty list means it reported none.
+   */
+  retrievedSources: z.array(retrievedSourceSchema).nullable().default(null),
   /** The model we REQUESTED for this snapshot. Configuration, not attribution. */
   model: z.string().nullable().optional(),
   /**
@@ -415,6 +581,8 @@ export const querySnapshotDtoSchema = z.object({
   stopReason: z.string().nullable().optional(),
   /** Billable usage and the price estimated when the answer was recorded. */
   usage: snapshotUsageSchema.nullable().optional(),
+  /** Vendor-neutral answer evidence. Null for engines that record none and for older rows. */
+  evidence: answerEvidenceSchema.nullable().optional(),
   createdAt: z.string(),
 })
 
@@ -456,8 +624,18 @@ export const snapshotDiffResponseSchema = z.object({
 
 export type SnapshotDiffResponse = z.infer<typeof snapshotDiffResponseSchema>
 
+/** Distinct observed query IDs, with independent ANY-answer citation and mention signals. */
+export const observedQueryCountsSchema = z.object({
+  totalQueries: z.number().int().nonnegative(),
+  citedQueries: z.number().int().nonnegative(),
+  mentionedQueries: z.number().int().nonnegative(),
+})
+export type ObservedQueryCounts = z.infer<typeof observedQueryCountsSchema>
+
 export const runDetailDtoSchema = runDtoSchema.extend({
   snapshots: z.array(querySnapshotDtoSchema).optional(),
+  /** Observed queries in this exact run. Null when a snapshot lacks query identity; omitted by older servers. */
+  queryCounts: observedQueryCountsSchema.nullable().optional(),
   /** The run's provider batches, oldest first. Empty when nothing was batched. */
   providerBatches: z.array(providerBatchSummaryDtoSchema).optional(),
   /** Usage and estimated cost per provider and price tier. Empty when no answer carries usage. */
@@ -469,12 +647,38 @@ export type RunDetailDto = z.infer<typeof runDetailDtoSchema>
 export const latestProjectRunDtoSchema = z.object({
   totalRuns: z.number().int().nonnegative(),
   run: runDetailDtoSchema.nullable(),
+  /** Whether the next full sweep would be admitted, and which providers it would skip. Absent from servers before it existed. */
+  admission: runAdmissionDtoSchema.optional(),
+  /** Admission for a manual full sweep, using the project's providers rather than a schedule override. */
+  manualAdmission: runAdmissionDtoSchema.optional(),
 })
 
 export type LatestProjectRunDto = z.infer<typeof latestProjectRunDtoSchema>
 
+const auditTimestampSchema = z.string().refine(value => !Number.isNaN(Date.parse(value)), 'Must be a valid ISO 8601 timestamp')
+
+/** Shared additive investigation filters; pagination keeps the HTTP legacy coercion. */
+export const auditHistoryQuerySchema = z.object({
+  limit: z.union([z.string(), z.number()]).optional(),
+  offset: z.union([z.string(), z.number()]).optional(),
+  since: auditTimestampSchema.optional().describe('Inclusive ISO 8601 lower bound.'),
+  until: auditTimestampSchema.optional().describe('Inclusive ISO 8601 upper bound.'),
+  action: z.string().trim().min(1).optional().describe('Exact audit action filter.'),
+  actionPrefix: z.string().trim().min(1).optional().describe('Literal audit action prefix; percent and underscore are not wildcards.'),
+  actor: z.string().trim().min(1).optional().describe('Exact actor, or api for legacy API, API-key, and user actors.'),
+  entityType: z.string().trim().min(1).optional().describe('Exact entity type filter.'),
+  entityId: z.string().trim().min(1).optional().describe('Exact entity identity filter.'),
+  excludeEntityTypes: z.preprocess(value => {
+    const items: readonly unknown[] | null = typeof value === 'string' ? [value] : Array.isArray(value) ? value : null
+    return items ? [...new Set(items.flatMap((item): unknown[] => typeof item === 'string' ? item.split(',').map(part => part.trim()) : [item]))] : value
+  }, z.array(z.string().min(1))).optional(),
+})
+export type AuditHistoryQuery = z.infer<typeof auditHistoryQuerySchema>
+export type AuditHistoryOptions = Omit<AuditHistoryQuery, 'limit' | 'offset'> & { limit?: number; offset?: number }
+
 export const auditLogEntrySchema = z.object({
   id: z.string(),
+  project: z.string().nullable().optional(),
   projectId: z.string().nullable().optional(),
   actor: z.string(),
   action: z.string(),

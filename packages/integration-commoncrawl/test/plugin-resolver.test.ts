@@ -19,13 +19,31 @@ afterEach(async () => {
 
 describe('loadDuckdb', () => {
   test('throws MISSING_DEPENDENCY when module is absent', () => {
-    expect(() => loadDuckdb({ pluginPkgJson })).toThrow(/not installed/)
+    let error: unknown
     try {
       loadDuckdb({ pluginPkgJson })
     } catch (err) {
-      expect((err as { code?: string }).code).toBe('MISSING_DEPENDENCY')
-      expect((err as { statusCode?: number }).statusCode).toBe(422)
+      error = err
     }
+    expect(error).toBeInstanceOf(Error)
+    expect(error).toMatchObject({
+      message: '@duckdb/node-api is not installed. Run `canonry backlinks install` to enable the backlinks feature.',
+      code: 'MISSING_DEPENDENCY',
+      statusCode: 422,
+      details: { pluginDir },
+    })
+  })
+
+  test('says why an installed module failed to load', async () => {
+    const duckdbDir = path.join(pluginDir, 'node_modules', '@duckdb', 'node-api')
+    await fs.mkdir(duckdbDir, { recursive: true })
+    await fs.writeFile(path.join(duckdbDir, 'package.json'), JSON.stringify({ name: '@duckdb/node-api', main: 'index.js' }))
+    await fs.writeFile(path.join(duckdbDir, 'index.js'), "throw new Error('native binding missing\\nstack detail')")
+    expect(() => loadDuckdb({ pluginPkgJson })).toThrow(expect.objectContaining({
+      message: '@duckdb/node-api is installed but failed to load (native binding missing). Re-run `canonry backlinks install`.',
+      code: 'MISSING_DEPENDENCY',
+      details: { pluginDir, cause: 'native binding missing' },
+    }))
   })
 })
 

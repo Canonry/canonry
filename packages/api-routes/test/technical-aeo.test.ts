@@ -21,7 +21,7 @@ import {
   siteCrawlPages,
   siteCrawlRunRequests,
   siteCrawlSnapshots,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import type {
   SiteAuditFactorSummaryDto,
   SiteAuditLivePageHealthDto,
@@ -42,8 +42,8 @@ import type {
   SiteHealthPathResponseDto,
   SiteHealthScansResponseDto,
   SiteHealthSubgraphResponseDto,
-} from '@ainyc/canonry-contracts'
-import { deriveSiteHealthState, siteHealthStateSchema } from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
+import { deriveSiteHealthState, siteHealthStateSchema } from '@canonry/canonry-contracts'
 import { apiRoutes } from '../src/index.js'
 
 interface Ctx {
@@ -327,6 +327,45 @@ describe('GET /technical-aeo (score)', () => {
     expect(body.crossCuttingIssues[0]!.affectedPct).toBe(100)
   })
 
+  it.each([
+    {
+      population: 'recorded factor bands', pagesAudited: 100, unavailableFactorIds: [],
+      factors: [
+        { id: 'scarce-fail', name: 'Scarce failure', weight: 10, avgScore: 95, status: 'fail', pagesPassing: 95, pagesPartial: 0, pagesFailing: 5 },
+        { id: 'broad-partial', name: 'Broad partial', weight: 1, avgScore: 65, status: 'partial', pagesPassing: 10, pagesPartial: 90, pagesFailing: 0 },
+        { id: 'tie-b', name: 'Tie B', weight: 3, avgScore: 92, status: 'fail', pagesPassing: 92, pagesPartial: 0, pagesFailing: 8 },
+        { id: 'all-pass', name: 'All pass', weight: 20, avgScore: 100, status: 'pass', pagesPassing: 100, pagesPartial: 0, pagesFailing: 0 },
+        { id: 'tie-a', name: 'Tie A', weight: 2, avgScore: 94, status: 'partial', pagesPassing: 92, pagesPartial: 8, pagesFailing: 0 },
+      ] as SiteAuditFactorSummaryDto[],
+      expected: [
+        { factorId: 'broad-partial', pagesBelowPass: 90, pagesFailing: 0, pagesPartial: 90 },
+        { factorId: 'tie-a', pagesBelowPass: 8, pagesFailing: 0, pagesPartial: 8 },
+        { factorId: 'tie-b', pagesBelowPass: 8, pagesFailing: 8, pagesPartial: 0 },
+        { factorId: 'scarce-fail', pagesBelowPass: 5, pagesFailing: 5, pagesPartial: 0 },
+        { factorId: 'all-pass', pagesBelowPass: 0, pagesFailing: 0, pagesPartial: 0 },
+      ],
+    },
+    { population: 'zero audited pages', pagesAudited: 0, factors: [], expected: [], unavailableFactorIds: [] },
+    {
+      population: 'legacy missing bands', pagesAudited: 100,
+      factors: [
+        { id: 'missing-partial', name: 'Missing partial count', weight: 10, avgScore: 98, status: 'fail', pagesPassing: 98, pagesFailing: 2 },
+        { id: 'missing-failing', name: 'Missing failing count', weight: 2, avgScore: 96, status: 'partial', pagesPassing: 97, pagesPartial: 3 },
+      ] as unknown as SiteAuditFactorSummaryDto[],
+      expected: [], unavailableFactorIds: ['missing-failing', 'missing-partial'],
+    },
+  ])('ranks affected-page breadth independently of severity for $population', async ({ population, pagesAudited, factors, expected, unavailableFactorIds }) => {
+    ctx.db.update(siteAuditSnapshots).set({ pagesAudited, factorAverages: factors }).where(eq(siteAuditSnapshots.runId, ctx.runB)).run()
+    const { body } = await get<SiteAuditScoreDto & { affectedPageRanking?: unknown }>('/api/v1/projects/tech-aeo/technical-aeo')
+    expect(body.affectedPageRanking).toEqual({ basis: 'pages-below-pass', scope: 'audited-pages', pagesAudited, items: expected, unavailableFactorIds })
+    // This existing array is presentation order, not the new breadth ranking.
+    expect(body.factors.map(factor => factor.id)).toEqual(factors.map(factor => factor.id))
+    if (population === 'recorded factor bands') {
+      expect(body.factors[0]).toMatchObject({ id: 'scarce-fail', status: 'fail' })
+      expect(body.factors[1]).toMatchObject({ id: 'broad-partial', status: 'partial' })
+    }
+  })
+
   it('returns hasData=false for a project that was never audited', async () => {
     ctx.db.insert(projects).values({
       id: crypto.randomUUID(), name: 'fresh', displayName: 'Fresh', canonicalDomain: 'fresh.com',
@@ -338,6 +377,7 @@ describe('GET /technical-aeo (score)', () => {
     expect(body.aggregateScore).toBe(0)
     expect(body.deltaScore).toBeNull()
     expect(body.factors).toEqual([])
+    expect(body).not.toHaveProperty('affectedPageRanking')
   })
 
   it('returns a selected historical audit and computes its delta against the audit before it', async () => {
@@ -391,6 +431,18 @@ describe('GET /technical-aeo/pages', () => {
 })
 
 describe('audit factor shares on the site audit reads', () => {
+  it('corrects a stored partial mean label without combining failing and partial pages', async () => {
+    ctx.db.update(siteAuditSnapshots).set({ factorAverages: [{
+      id: 'structured-data', name: 'Structured Data', weight: 12, sharePct: 100,
+      avgScore: 51, status: 'partial', pagesPassing: 1, pagesPartial: 2, pagesFailing: 1,
+    }] }).where(eq(siteAuditSnapshots.runId, ctx.runB)).run()
+    const { body } = await get<SiteAuditScoreDto>('/api/v1/projects/tech-aeo/technical-aeo')
+    expect(body.factors).toEqual([{
+      id: 'structured-data', name: 'Structured Data', weight: 12, sharePct: 100,
+      avgScore: 51, status: 'fail', pagesPassing: 1, pagesPartial: 2, pagesFailing: 1,
+    }])
+  })
+
   it('returns each factor share of the site score beside its weight', async () => {
     const { body } = await get<SiteAuditScoreDto>('/api/v1/projects/tech-aeo/technical-aeo')
     expect(body.runId).toBe(ctx.runB)
@@ -502,8 +554,8 @@ describe('GET /technical-aeo crawl reads', () => {
     expect(body.runId).toBe(highRunId)
   })
 
-  it('keeps the last complete graph current when a newer partial crawl exists', async () => {
-    const now = new Date(Date.now() + 60_000).toISOString()
+  it('makes a newer-day page-capped crawl current while the older complete one stays selectable', async () => {
+    const now = new Date(Date.now() + 86_400_000).toISOString()
     const partialRun = crypto.randomUUID()
     const partialAttempt = crypto.randomUUID()
     ctx.db.insert(runs).values({
@@ -536,12 +588,14 @@ describe('GET /technical-aeo crawl reads', () => {
     }).run()
 
     const current = await get<SiteCrawlSummaryDto>('/api/v1/projects/tech-aeo/technical-aeo/crawl')
-    const historical = await get<SiteCrawlSummaryDto>(`/api/v1/projects/tech-aeo/technical-aeo/crawl?runId=${partialRun}`)
-    const subgraph = await get<SiteHealthSubgraphResponseDto>(`/api/v1/projects/tech-aeo/technical-aeo/subgraph?runId=${partialRun}`)
-    const path = await get<SiteHealthPathResponseDto>(`/api/v1/projects/tech-aeo/technical-aeo/path?runId=${partialRun}&toNodeKey=partial-target`)
-    expect(current.body.runId).toBe(ctx.runB)
-    expect(historical.body.runId).toBe(partialRun)
-    expect(historical.body.complete).toBe(false)
+    const historical = await get<SiteCrawlSummaryDto>(`/api/v1/projects/tech-aeo/technical-aeo/crawl?runId=${ctx.runB}`)
+    const subgraph = await get<SiteHealthSubgraphResponseDto>('/api/v1/projects/tech-aeo/technical-aeo/subgraph')
+    const path = await get<SiteHealthPathResponseDto>('/api/v1/projects/tech-aeo/technical-aeo/path?toNodeKey=partial-target')
+    const changes = await get<SiteHealthChangesResponseDto>('/api/v1/projects/tech-aeo/technical-aeo/changes')
+    expect(current.body).toMatchObject({ runId: partialRun, runStatus: 'partial', complete: false, termination: 'max-pages' })
+    expect(historical.body).toMatchObject({ runId: ctx.runB, runStatus: 'completed', complete: true })
+    // A diff still needs two complete crawls, so the partial one never enters it.
+    expect(changes.body).toMatchObject({ state: 'unavailable', reason: 'insufficient-history', toRunId: ctx.runB })
     expect(subgraph.body).toMatchObject({
       runId: partialRun,
       state: 'ready',
@@ -765,6 +819,7 @@ describe('GET /technical-aeo crawl reads', () => {
     const empty = await get<SiteCrawlGraphResponseDto>('/api/v1/projects/graph-fresh/technical-aeo/graph')
     expect(empty.body).toEqual({
       project: 'graph-fresh', hasCrawlData: false, runId: null, rootNodeKey: null,
+      complete: false, termination: null,
       layout: { state: 'unavailable', version: null, reason: 'no-crawl' },
       // Nothing was classified because nothing was crawled, and saying so
       // beats letting an empty edge list read as "this site has no nav".
@@ -1322,12 +1377,14 @@ describe('POST /technical-aeo/runs', () => {
     expect(ctx.db.select().from(siteCrawlRunRequests).where(eq(siteCrawlRunRequests.runId, firstId)).get()).toMatchObject({
       projectId: ctx.projectId,
       effectiveOptions: {
-        schemaVersion: 2,
+        schemaVersion: 3,
         sitemapUrl: null,
         maxPages: 50,
         maxEdges: null,
         maxDepth: null,
         checkDeadLinks: false,
+        includeGeo: false,
+        includeAgentSkills: true,
       },
     })
   })
@@ -1338,14 +1395,87 @@ describe('POST /technical-aeo/runs', () => {
     const runId = (first.json() as { runId: string }).runId
 
     expect((second.json() as { runId: string }).runId).toBe(runId)
+    // No saved budget and none requested: the full site.
     expect(ctx.db.select().from(siteCrawlRunRequests).where(eq(siteCrawlRunRequests.runId, runId)).get()).toMatchObject({
-      effectiveOptions: { maxPages: 1_000, maxEdges: null },
+      effectiveOptions: { maxPages: 50_000, maxEdges: null },
     })
     // The executor must receive no edge budget at all, so the crawl engine
     // derives it from the page count instead of inheriting a flat ceiling.
     expect(ctx.siteAuditRequested).toHaveLength(1)
-    expect(ctx.siteAuditRequested[0]!.opts).toMatchObject({ maxPages: 1_000 })
+    expect(ctx.siteAuditRequested[0]!.opts).toMatchObject({ maxPages: 50_000 })
     expect(ctx.siteAuditRequested[0]!.opts!.maxEdges).toBeUndefined()
+  })
+
+  // The saved budget reaches the run through the project write the dashboard
+  // and CLI use, not a seeded column, so the whole default path is exercised.
+  async function saveBudget(siteAuditMaxPages: number | null): Promise<void> {
+    const saved = await ctx.app.inject({
+      method: 'PUT',
+      url: '/api/v1/projects/tech-aeo',
+      payload: { displayName: 'Tech AEO', canonicalDomain: 'example.com', country: 'US', language: 'en', siteAuditMaxPages },
+    })
+    expect(saved.statusCode).toBe(200)
+    expect(saved.json().siteAuditMaxPages).toBe(siteAuditMaxPages)
+  }
+
+  it('runs a scan that sets no budget with the project\'s saved budget and records it', async () => {
+    await saveBudget(2_500)
+
+    const res = await ctx.app.inject({ method: 'POST', url: '/api/v1/projects/tech-aeo/technical-aeo/runs', payload: {} })
+    expect(res.statusCode).toBe(200)
+    const runId = (res.json() as { runId: string }).runId
+    expect(ctx.db.select().from(siteCrawlRunRequests).where(eq(siteCrawlRunRequests.runId, runId)).get()!.effectiveOptions).toEqual({
+      schemaVersion: 3,
+      sitemapUrl: null,
+      maxPages: 2_500,
+      maxEdges: null,
+      maxDepth: null,
+      checkDeadLinks: false,
+      includeGeo: false,
+      includeAgentSkills: true,
+    })
+    expect(ctx.siteAuditRequested).toHaveLength(1)
+    expect(ctx.siteAuditRequested[0]).toMatchObject({ runId, projectId: ctx.projectId })
+    expect(ctx.siteAuditRequested[0]!.opts).toMatchObject({ maxPages: 2_500 })
+
+    // A second scan with no budget is the same request, so it consolidates.
+    const again = await ctx.app.inject({ method: 'POST', url: '/api/v1/projects/tech-aeo/technical-aeo/runs', payload: {} })
+    expect((again.json() as { runId: string }).runId).toBe(runId)
+    expect(ctx.siteAuditRequested).toHaveLength(1)
+  })
+
+  it('lets an explicit maxPages override the saved budget', async () => {
+    await saveBudget(2_500)
+
+    const res = await ctx.app.inject({ method: 'POST', url: '/api/v1/projects/tech-aeo/technical-aeo/runs', payload: { maxPages: 40 } })
+    expect(res.statusCode).toBe(200)
+    const runId = (res.json() as { runId: string }).runId
+    expect(ctx.db.select().from(siteCrawlRunRequests).where(eq(siteCrawlRunRequests.runId, runId)).get()).toMatchObject({
+      effectiveOptions: { maxPages: 40 },
+    })
+    expect(ctx.siteAuditRequested[0]!.opts).toMatchObject({ maxPages: 40 })
+  })
+
+  it('refuses a scan with no budget once the saved budget changed under an active run', async () => {
+    // Full site first, then the budget is saved while that scan is still queued.
+    const first = await ctx.app.inject({ method: 'POST', url: '/api/v1/projects/tech-aeo/technical-aeo/runs', payload: {} })
+    const firstId = (first.json() as { runId: string }).runId
+    await saveBudget(2_500)
+
+    const second = await ctx.app.inject({ method: 'POST', url: '/api/v1/projects/tech-aeo/technical-aeo/runs', payload: {} })
+    expect(second.statusCode).toBe(409)
+    expect(second.json()).toMatchObject({
+      error: {
+        code: 'OPERATION_IN_PROGRESS',
+        details: {
+          activeRunId: firstId,
+          activeOptions: { maxPages: 50_000 },
+          requestedOptions: { maxPages: 2_500 },
+        },
+      },
+    })
+    expect(ctx.siteAuditRequested).toHaveLength(1)
+    expect(ctx.db.select().from(runs).where(eq(runs.projectId, ctx.projectId)).all().filter((run) => run.status === 'queued')).toHaveLength(1)
   })
 
   it('treats an explicit 100,000 as a different request from an omitted edge budget', async () => {
@@ -1372,6 +1502,8 @@ describe('POST /technical-aeo/runs', () => {
       { maxEdges: 500 },
       { maxDepth: 4 },
       { checkDeadLinks: true },
+      { includeGeo: true },
+      { includeAgentSkills: false },
     ]
 
     for (const payload of variants) {
@@ -1827,6 +1959,737 @@ describe('legacy score-only runs stay honest instead of 404ing', () => {
   it('keeps a probe run unreachable through the crawl reads', async () => {
     expect((await get(`/api/v1/projects/tech-aeo/technical-aeo/crawl?runId=${ctx.probeRun}`)).status).toBe(404)
     expect((await get(`/api/v1/projects/tech-aeo/technical-aeo/graph?runId=${ctx.probeRun}`)).status).toBe(404)
+  })
+})
+
+describe('same-date site audit selection', () => {
+  function seedScan(createdAt: string, pages: number, complete: boolean, trigger = 'manual', auditedPages = pages, aggregateScore = 60): string {
+    const runId = crypto.randomUUID()
+    ctx.db.insert(runs).values({
+      id: runId, projectId: ctx.projectId, kind: 'site-audit',
+      status: complete ? 'completed' : 'partial', trigger, createdAt, finishedAt: createdAt,
+    }).run()
+    // These are retained scan summaries after their detailed page rows expired.
+    ctx.db.insert(siteCrawlSnapshots).values({
+      id: crypto.randomUUID(), projectId: ctx.projectId, runId,
+      rootUrl: 'https://example.com/', requestedRootUrl: 'https://example.com/',
+      crawlSchemaVersion: '1.0', engineVersion: 'crawl-test', normalizationVersion: 'url-v1',
+      indexabilityVersion: 'index-v1', linkScoreVersion: 'links-v1',
+      complete, termination: complete ? 'complete' : 'max-pages', detailsAvailable: false,
+      pagesDiscovered: pages, pagesFetched: pages, pagesEligible: auditedPages, createdAt, updatedAt: createdAt,
+    }).run()
+    ctx.db.insert(siteAuditSnapshots).values({
+      id: crypto.randomUUID(), projectId: ctx.projectId, runId,
+      sitemapUrl: 'https://example.com/sitemap.xml', auditedAt: createdAt,
+      aggregateScore, pagesDiscovered: pages, pagesAudited: auditedPages,
+      pagesSkipped: 0, pagesErrored: 0, factorAverages: [], crossCuttingIssues: [], prioritizedFixes: [], createdAt,
+    }).run()
+    return runId
+  }
+
+  /** What a partial crawl that audited no page persists: a crawl snapshot and no scorecard. */
+  function seedCrawlOnlyScan(createdAt: string, pages: number): string {
+    const runId = seedScan(createdAt, pages, false, 'manual', 0)
+    ctx.db.delete(siteAuditSnapshots).where(eq(siteAuditSnapshots.runId, runId)).run()
+    return runId
+  }
+
+  it.each([
+    { complete: true, earlierPages: 2, earlierAudited: 2, laterPages: 4, laterAudited: 4, reason: 'latest-date-complete' },
+    { complete: false, earlierPages: 5, earlierAudited: 5, laterPages: 2, laterAudited: 2, reason: 'latest-date-most-pages' },
+    { complete: false, earlierPages: 600, earlierAudited: 200, laterPages: 450, laterAudited: 420, reason: 'latest-date-most-pages' },
+  ])('prefers $reason on the latest date and exposes the other same-date scan', async ({ complete, earlierPages, earlierAudited, laterPages, laterAudited, reason }) => {
+    const date = '2030-04-12'
+    seedScan('2030-04-11T18:00:00.000Z', 9, true)
+    const preferred = seedScan(`${date}T09:00:00.000Z`, earlierPages, complete, 'manual', earlierAudited)
+    const later = seedScan(`${date}T16:00:00.000Z`, laterPages, false, 'manual', laterAudited)
+    seedScan(`${date}T19:00:00.000Z`, 9, true, 'probe')
+
+    for (const suffix of ['', '/pages', '/crawl', '/crawl/pages', '/crawl/pages/audit?nodeKey=home']) {
+      const { status, body } = await get<{ runId: string; runSelection: SiteAuditScoreDto['runSelection'] }>(
+        `/api/v1/projects/tech-aeo/technical-aeo${suffix}`,
+      )
+      expect(status, suffix).toBe(200)
+      expect(body.runId, suffix).toBe(preferred)
+      expect(body.runSelection, suffix).toEqual({
+        reason, date, sameDateRunCount: 2, ambiguousDate: true, candidatesTruncated: false,
+        candidates: [
+          { runId: preferred, createdAt: `${date}T09:00:00.000Z`, complete, pages: earlierPages },
+          { runId: later, createdAt: `${date}T16:00:00.000Z`, complete: false, pages: laterPages },
+        ],
+      })
+    }
+    const scans = (await get<SiteHealthScansResponseDto>('/api/v1/projects/tech-aeo/technical-aeo/runs?limit=1')).body
+    expect(scans.preferredRunId).toBe(preferred)
+    expect(scans.scans).toHaveLength(1)
+    const pinned = await get<SiteCrawlSummaryDto>(`/api/v1/projects/tech-aeo/technical-aeo/crawl?runId=${later}`)
+    expect(pinned.body).toMatchObject({ runId: later, complete: false, runSelection: { reason: 'explicit-run' } })
+  })
+
+  it('scores default reads from the preferred scored crawl when the preferred crawl audited no page', async () => {
+    const crawlOnly = seedCrawlOnlyScan('2030-04-12T09:00:00.000Z', 30)
+    const today = (await get<SiteAuditScoreDto>(`/api/v1/projects/tech-aeo/technical-aeo?runId=${ctx.runB}`)).body.runSelection!.date
+    const score = (await get<SiteAuditScoreDto>('/api/v1/projects/tech-aeo/technical-aeo')).body
+    // The reason says this is a fallback, and the date is the scored scan's own.
+    expect(score).toMatchObject({
+      hasData: true, runId: ctx.runB, runStatus: 'completed', aggregateScore: 72,
+      runSelection: { reason: 'latest-scored-scan', date: today, sameDateRunCount: 1, candidates: [{ runId: ctx.runB }] },
+    })
+    const pages = (await get<SiteAuditPagesResponseDto>('/api/v1/projects/tech-aeo/technical-aeo/pages')).body
+    expect(pages).toMatchObject({ runId: ctx.runB, total: 3 })
+    // Crawl reads and the dashboard default keep the newer crawl itself.
+    expect((await get<SiteCrawlSummaryDto>('/api/v1/projects/tech-aeo/technical-aeo/crawl')).body.runId).toBe(crawlOnly)
+    expect((await get<SiteHealthScansResponseDto>('/api/v1/projects/tech-aeo/technical-aeo/runs')).body.preferredRunId).toBe(crawlOnly)
+    // An explicit run stays pinned and says it has no scorecard.
+    expect((await get<SiteAuditScoreDto>(`/api/v1/projects/tech-aeo/technical-aeo?runId=${crawlOnly}`)).body).toMatchObject({
+      hasData: false, runId: crawlOnly, runStatus: 'partial', runSelection: { reason: 'explicit-run' },
+    })
+    expect((await get<SiteAuditPagesResponseDto>(`/api/v1/projects/tech-aeo/technical-aeo/pages?runId=${crawlOnly}`)).body)
+      .toMatchObject({ runId: crawlOnly, total: 0, pages: [] })
+    expect((await get<SiteAuditScoreDto>(`/api/v1/projects/tech-aeo/technical-aeo?runId=${ctx.runA}`)).body).toMatchObject({ hasData: true, runId: ctx.runA })
+    // With no scored crawl left, legacy score-only audits still answer, still as a fallback.
+    ctx.db.delete(siteAuditSnapshots).where(eq(siteAuditSnapshots.runId, ctx.runB)).run()
+    expect((await get<SiteAuditScoreDto>('/api/v1/projects/tech-aeo/technical-aeo')).body).toMatchObject({
+      hasData: true, runId: ctx.runA, runSelection: { reason: 'latest-scored-scan', date: today },
+    })
+    // With no crawl at all, the legacy audit is the default itself.
+    ctx.db.delete(siteCrawlSnapshots).where(eq(siteCrawlSnapshots.projectId, ctx.projectId)).run()
+    expect((await get<SiteAuditScoreDto>('/api/v1/projects/tech-aeo/technical-aeo')).body).toMatchObject({
+      hasData: true, runId: ctx.runA, runSelection: { reason: 'latest-date-complete', date: today },
+    })
+    expect((await get<SiteHealthScansResponseDto>('/api/v1/projects/tech-aeo/technical-aeo/runs')).body.preferredRunId).toBe(ctx.runA)
+  })
+
+  it('answers no scorecard only when no scored scan exists at all', async () => {
+    ctx.db.delete(siteAuditSnapshots).where(eq(siteAuditSnapshots.projectId, ctx.projectId)).run()
+    const crawlOnly = seedCrawlOnlyScan('2030-04-12T09:00:00.000Z', 30)
+    expect((await get<SiteAuditScoreDto>('/api/v1/projects/tech-aeo/technical-aeo')).body).toMatchObject({
+      hasData: false, runId: crawlOnly, runStatus: 'partial', runSelection: { reason: 'latest-date-most-pages' },
+    })
+  })
+
+  it('falls back within the same date by the crawl ranking before reaching an older date', async () => {
+    const date = '2030-04-12'
+    seedScan('2030-04-11T09:00:00.000Z', 900, true, 'manual', 900, 90)
+    // The crawl ranking prefers more fetched pages even with fewer audited.
+    const mostFetched = seedScan(`${date}T08:00:00.000Z`, 600, false, 'manual', 200, 55)
+    const mostAudited = seedScan(`${date}T10:00:00.000Z`, 450, false, 'manual', 420, 65)
+    const crawlOnly = seedCrawlOnlyScan(`${date}T12:00:00.000Z`, 700)
+    expect((await get<SiteCrawlSummaryDto>('/api/v1/projects/tech-aeo/technical-aeo/crawl')).body.runId).toBe(crawlOnly)
+    const score = (await get<SiteAuditScoreDto>('/api/v1/projects/tech-aeo/technical-aeo')).body
+    // The count and candidates describe the whole date, including the scan with no scorecard.
+    expect(score).toMatchObject({
+      hasData: true, runId: mostFetched, aggregateScore: 55,
+      runSelection: {
+        reason: 'latest-scored-scan', date, sameDateRunCount: 3, ambiguousDate: true, candidatesTruncated: false,
+        candidates: [
+          { runId: crawlOnly, createdAt: `${date}T12:00:00.000Z`, complete: false, pages: 700 },
+          { runId: mostFetched, createdAt: `${date}T08:00:00.000Z`, complete: false, pages: 600 },
+          { runId: mostAudited, createdAt: `${date}T10:00:00.000Z`, complete: false, pages: 450 },
+        ],
+      },
+    })
+    expect((await get<SiteCrawlSummaryDto>('/api/v1/projects/tech-aeo/technical-aeo/crawl')).body.runSelection)
+      .toMatchObject({ reason: 'latest-date-most-pages', date, sameDateRunCount: 3 })
+    expect((await get<SiteAuditPagesResponseDto>('/api/v1/projects/tech-aeo/technical-aeo/pages')).body.runId).toBe(mostFetched)
+  })
+
+  it('compares the score with what a default read returned just before the scan was recorded', async () => {
+    const dayD = '2030-04-12'
+    const complete = seedScan(`${dayD}T08:00:00.000Z`, 100, true, 'manual', 100, 70)
+    const partial = seedScan(`${dayD}T14:00:00.000Z`, 80, false, 'manual', 80, 78)
+    expect((await get<SiteAuditScoreDto>('/api/v1/projects/tech-aeo/technical-aeo')).body).toMatchObject({ runId: complete, aggregateScore: 70 })
+    expect((await get<SiteAuditScoreDto>(`/api/v1/projects/tech-aeo/technical-aeo?runId=${partial}`)).body).toMatchObject({
+      runId: partial, previousScore: 70, deltaScore: 8, trend: 'up', previousAuditedAt: `${dayD}T08:00:00.000Z`,
+    })
+
+    const nextDay = seedScan('2030-04-13T08:00:00.000Z', 100, true, 'manual', 100, 72)
+    // Day D's default showed the complete scan (70), never the rejected partial (78).
+    expect((await get<SiteAuditScoreDto>('/api/v1/projects/tech-aeo/technical-aeo')).body).toMatchObject({
+      runId: nextDay, aggregateScore: 72, previousScore: 70, deltaScore: 2, trend: 'up', previousAuditedAt: `${dayD}T08:00:00.000Z`,
+    })
+    // The same rule applies when a crawl-only scan was the default crawl.
+    const crawlOnly = seedCrawlOnlyScan('2030-04-14T08:00:00.000Z', 30)
+    const later = seedScan('2030-04-15T08:00:00.000Z', 100, true, 'manual', 100, 75)
+    expect((await get<SiteAuditScoreDto>('/api/v1/projects/tech-aeo/technical-aeo')).body).toMatchObject({
+      runId: later, previousScore: 72, deltaScore: 3, previousAuditedAt: '2030-04-13T08:00:00.000Z',
+    })
+    expect((await get<SiteAuditScoreDto>(`/api/v1/projects/tech-aeo/technical-aeo?runId=${crawlOnly}`)).body)
+      .toMatchObject({ hasData: false, deltaScore: null, previousScore: null })
+  })
+
+  it.each([
+    { shape: 'crawl', crawls: true },
+    { shape: 'legacy score-only', crawls: false },
+  ])('never compares a complete $shape scan with a partial scan recorded earlier that date', async ({ crawls }) => {
+    const date = '2030-04-12'
+    seedScan('2030-04-11T08:00:00.000Z', 100, true, 'manual', 100, 68)
+    // A scheduled scan hit its budget, then a manual rescan completed the same day.
+    const scheduled = seedScan(`${date}T02:00:00.000Z`, 80, false, 'scheduled', 80, 50)
+    const rescan = seedScan(`${date}T10:00:00.000Z`, 100, true, 'manual', 100, 70)
+    if (!crawls) ctx.db.delete(siteCrawlSnapshots).where(eq(siteCrawlSnapshots.projectId, ctx.projectId)).run()
+    const expected = {
+      runId: rescan, aggregateScore: 70, previousScore: 68, deltaScore: 2, trend: 'up', previousAuditedAt: '2030-04-11T08:00:00.000Z',
+    }
+    const score = (await get<SiteAuditScoreDto>('/api/v1/projects/tech-aeo/technical-aeo')).body
+    expect(score).toMatchObject({ ...expected, runSelection: { date, sameDateRunCount: 2 } })
+    expect(score.runSelection!.candidates.map(candidate => candidate.runId)).toEqual([rescan, scheduled])
+    // The dashboard pins the preferred scan by run id and must show the same delta.
+    expect((await get<SiteAuditScoreDto>(`/api/v1/projects/tech-aeo/technical-aeo?runId=${rescan}`)).body).toMatchObject(expected)
+    // The partial scan itself still compares with what the default showed before it.
+    expect((await get<SiteAuditScoreDto>(`/api/v1/projects/tech-aeo/technical-aeo?runId=${scheduled}`)).body).toMatchObject({
+      runId: scheduled, previousScore: 68, deltaScore: -18, trend: 'down', previousAuditedAt: '2030-04-11T08:00:00.000Z',
+    })
+  })
+
+  it('skips a same-date partial baseline for a scored fallback too', async () => {
+    const date = '2030-04-12'
+    seedScan('2030-04-11T08:00:00.000Z', 100, true, 'manual', 100, 68)
+    seedScan(`${date}T02:00:00.000Z`, 80, false, 'scheduled', 80, 50)
+    const rescan = seedScan(`${date}T10:00:00.000Z`, 100, true, 'manual', 100, 70)
+    seedCrawlOnlyScan('2030-04-13T08:00:00.000Z', 30)
+    expect((await get<SiteAuditScoreDto>('/api/v1/projects/tech-aeo/technical-aeo')).body).toMatchObject({
+      runId: rescan, previousScore: 68, deltaScore: 2, previousAuditedAt: '2030-04-11T08:00:00.000Z',
+      runSelection: { reason: 'latest-scored-scan', date, sameDateRunCount: 2 },
+    })
+  })
+
+  it.each([
+    { rescanPages: 498, preferred: 'scheduled' },
+    { rescanPages: 502, preferred: 'rescan' },
+  ])('compares a complete same-date rescan with the complete scan before it ($preferred preferred)', async ({ rescanPages, preferred }) => {
+    const date = '2030-04-12'
+    seedScan('2030-04-11T08:00:00.000Z', 500, true, 'manual', 500, 68)
+    const scheduled = seedScan(`${date}T08:00:00.000Z`, 500, true, 'manual', 500, 60)
+    const rescan = seedScan(`${date}T14:00:00.000Z`, rescanPages, true, 'manual', rescanPages, 75)
+    // Two complete scans of the same site compare with each other whichever one the default prefers.
+    expect((await get<SiteHealthScansResponseDto>('/api/v1/projects/tech-aeo/technical-aeo/runs')).body.preferredRunId)
+      .toBe(preferred === 'rescan' ? rescan : scheduled)
+    expect((await get<SiteAuditScoreDto>(`/api/v1/projects/tech-aeo/technical-aeo?runId=${rescan}`)).body).toMatchObject({
+      runId: rescan, previousScore: 60, deltaScore: 15, trend: 'up', previousAuditedAt: `${date}T08:00:00.000Z`,
+    })
+  })
+
+  it('bounds same-date candidates while preserving the total and deterministic ties', async () => {
+    const runIds = Array.from({ length: 11 }, () => seedScan('2030-04-12T09:00:00.000Z', 2, false))
+    const { body } = await get<SiteCrawlSummaryDto>('/api/v1/projects/tech-aeo/technical-aeo/crawl')
+    expect(body.runId).toBe([...runIds].sort().at(-1))
+    expect(body.runSelection).toMatchObject({
+      sameDateRunCount: 11, ambiguousDate: true, candidatesTruncated: true,
+    })
+    expect(body.runSelection!.candidates).toHaveLength(10)
+  })
+
+  it.each([
+    { complete: true, pages: 2, reason: 'requested-date-complete' },
+    { complete: false, pages: 5, reason: 'requested-date-most-pages' },
+  ])('selects $reason from a historical UTC date rather than the newest scan', async ({ complete, pages, reason }) => {
+    const date = '2030-04-10'
+    const preferred = seedScan(`${date}T09:00:00.000Z`, pages, complete)
+    const later = seedScan(`${date}T16:00:00.000Z`, 3, false)
+    seedScan(`${date}T19:00:00.000Z`, 9, true, 'probe')
+    seedScan('2030-04-12T09:00:00.000Z', 9, true)
+    for (const suffix of ['crawl', 'crawl/pages']) {
+      const { status, body } = await get<SiteCrawlSummaryDto>(`/api/v1/projects/tech-aeo/technical-aeo/${suffix}?date=${date}`)
+      expect(status).toBe(200)
+      expect(body).toMatchObject({ runId: preferred, requestedDate: date, runSelection: { reason, date, sameDateRunCount: 2, ambiguousDate: true, candidatesTruncated: false } })
+      expect(body.runSelection!.candidates.map(candidate => candidate.runId)).toEqual([preferred, later])
+    }
+  })
+
+  it('preserves a missing requested date and unavailable inventory rather than returning the latest crawl', async () => {
+    for (const suffix of ['crawl', 'crawl/pages']) {
+      const { status, body } = await get<SiteCrawlSummaryDto>(`/api/v1/projects/tech-aeo/technical-aeo/${suffix}?date=2030-04-10`)
+      expect(status).toBe(200)
+      expect(body).toMatchObject({ hasCrawlData: false, runId: null, requestedDate: '2030-04-10', inventorySummary: null })
+    }
+    const runId = seedScan('2030-04-10T09:00:00.000Z', 5, false)
+    expect((await get<SiteCrawlSummaryDto>('/api/v1/projects/tech-aeo/technical-aeo/crawl?date=2030-04-10')).body)
+      .toMatchObject({ runId, inventorySummary: null, detailsAvailable: false })
+  })
+
+  it('offers exact visible scan dates for a missing year without substituting another crawl', async () => {
+    ctx.db.delete(siteCrawlSnapshots).where(eq(siteCrawlSnapshots.projectId, ctx.projectId)).run()
+    seedScan('2030-04-10T09:00:00.000Z', 2, true)
+    seedScan('2030-04-10T16:00:00.000Z', 3, false)
+    seedScan('2031-04-10T09:00:00.000Z', 4, true)
+    seedScan('2031-04-11T09:00:00.000Z', 5, false)
+    seedScan('2032-04-10T09:00:00.000Z', 9, true, 'probe')
+    const failed = seedScan('2033-04-10T09:00:00.000Z', 9, true)
+    ctx.db.update(runs).set({ status: 'failed' }).where(eq(runs.id, failed)).run()
+    const foreignProject = crypto.randomUUID()
+    const project = ctx.db.select().from(projects).where(eq(projects.id, ctx.projectId)).get()!
+    ctx.db.insert(projects).values({ ...project, id: foreignProject, name: 'other-site' }).run()
+    const foreignRun = crypto.randomUUID()
+    ctx.db.insert(runs).values({ id: foreignRun, projectId: foreignProject, kind: 'site-audit', status: 'completed', trigger: 'manual', createdAt: '2040-04-10T09:00:00.000Z' }).run()
+    ctx.db.insert(siteCrawlSnapshots).values({ id: crypto.randomUUID(), projectId: foreignProject, runId: foreignRun, rootUrl: 'https://other.example/', createdAt: '2040-04-10T09:00:00.000Z', updatedAt: '2040-04-10T09:00:00.000Z' }).run()
+    for (const suffix of ['crawl', 'crawl/pages']) {
+      const { body } = await get<SiteCrawlSummaryDto>(`/api/v1/projects/tech-aeo/technical-aeo/${suffix}?date=2029-04-10`)
+      expect(body).toMatchObject({ hasCrawlData: false, runId: null, requestedDate: '2029-04-10', inventorySummary: null })
+      expect(body.availableScanDates).toEqual({
+        recentDates: ['2031-04-11', '2031-04-10', '2030-04-10'], totalDates: 3,
+        matchingMonthDayDates: ['2031-04-10', '2030-04-10'], matchingMonthDayTotal: 2,
+      })
+      const otherDay = (await get<SiteCrawlSummaryDto>(`/api/v1/projects/tech-aeo/technical-aeo/${suffix}?date=2029-04-12`)).body
+      expect(otherDay.availableScanDates).toEqual({ recentDates: ['2031-04-11', '2031-04-10', '2030-04-10'], totalDates: 3, matchingMonthDayDates: [], matchingMonthDayTotal: 0 })
+      const selected = (await get<SiteCrawlSummaryDto>(`/api/v1/projects/tech-aeo/technical-aeo/${suffix}?date=2030-04-10`)).body
+      expect(selected.hasCrawlData).toBe(true)
+      expect(selected.availableScanDates).toBeUndefined()
+    }
+  })
+
+  it('bounds date recovery arrays while preserving full distinct totals and an explicit empty state', async () => {
+    ctx.db.delete(siteCrawlSnapshots).where(eq(siteCrawlSnapshots.projectId, ctx.projectId)).run()
+    for (const suffix of ['crawl', 'crawl/pages']) {
+      const { body } = await get<SiteCrawlSummaryDto>(`/api/v1/projects/tech-aeo/technical-aeo/${suffix}?date=2029-04-10`)
+      expect(body.availableScanDates).toEqual({ recentDates: [], totalDates: 0, matchingMonthDayDates: [], matchingMonthDayTotal: 0 })
+    }
+    for (let year = 2030; year <= 2041; year++) seedScan(`${year}-04-10T09:00:00.000Z`, 2, true)
+    seedScan('2041-04-10T16:00:00.000Z', 3, false)
+    seedScan('2041-04-11T09:00:00.000Z', 4, true)
+    for (const suffix of ['crawl', 'crawl/pages']) {
+      const { body } = await get<SiteCrawlSummaryDto>(`/api/v1/projects/tech-aeo/technical-aeo/${suffix}?date=2029-04-10`)
+      expect(body.availableScanDates).toEqual({
+        recentDates: ['2041-04-11', '2041-04-10', '2040-04-10', '2039-04-10', '2038-04-10', '2037-04-10', '2036-04-10', '2035-04-10', '2034-04-10', '2033-04-10'], totalDates: 13,
+        matchingMonthDayDates: ['2041-04-10', '2040-04-10', '2039-04-10', '2038-04-10', '2037-04-10', '2036-04-10', '2035-04-10', '2034-04-10', '2033-04-10', '2032-04-10'], matchingMonthDayTotal: 12,
+      })
+    }
+  })
+
+  it.each(['2030-02-30', '2030-4-10', 'yesterday'])('rejects invalid crawl calendar date %s', async date => {
+    for (const suffix of ['crawl', 'crawl/pages']) expect((await get(`/api/v1/projects/tech-aeo/technical-aeo/${suffix}?date=${date}`)).status).toBe(400)
+  })
+
+  it('rejects conflicting crawl run and date identities', async () => {
+    for (const suffix of ['crawl', 'crawl/pages']) expect((await get(`/api/v1/projects/tech-aeo/technical-aeo/${suffix}?runId=${ctx.runB}&date=2030-04-10`)).status).toBe(400)
+  })
+
+  it('lists pages or URL versions on request and counts the set-aside URL versions across the whole scan', async () => {
+    const original = ctx.db.select().from(siteCrawlPages).where(and(eq(siteCrawlPages.runId, ctx.runB), eq(siteCrawlPages.nodeKey, 'home'))).get()!
+    for (const row of [
+      { nodeKey: 'view-map', url: 'https://example.com/?view=map' },
+      { nodeKey: 'view-list', url: 'https://example.com/?view=list' },
+    ]) {
+      ctx.db.insert(siteCrawlPages).values({
+        ...original, ...row, id: crypto.randomUUID(), path: '/', inventoryEligible: false,
+        indexabilityState: 'unknown', indexabilityReasons: ['canonical-to-other'], healthState: 'hidden',
+        urlVersionOf: 'https://example.com/', auditState: 'url-version', auditScore: null,
+      }).run()
+    }
+    const path = '/api/v1/projects/tech-aeo/technical-aeo/crawl/pages'
+    const every = (await get<SiteCrawlPagesResponseDto>(path)).body
+    const pages = (await get<SiteCrawlPagesResponseDto>(`${path}?urlVersions=exclude`)).body
+    const versions = (await get<SiteCrawlPagesResponseDto>(`${path}?urlVersions=only`)).body
+    expect(versions.pages.map(page => [page.url, page.urlVersionOf, page.auditState])).toEqual([
+      ['https://example.com/?view=list', 'https://example.com/', 'url-version'],
+      ['https://example.com/?view=map', 'https://example.com/', 'url-version'],
+    ])
+    expect(pages.pages.map(page => page.urlVersionOf)).toEqual(pages.pages.map(() => null))
+    expect(pages.total + versions.total).toBe(every.total)
+    expect(versions.total).toBe(2)
+    // The summary describes the whole scan, whatever the list filter.
+    expect(every.inventorySummary!.urlVersions).toBe(2)
+    expect(pages.inventorySummary).toEqual(every.inventorySummary)
+    // The dashboard's Hidden pages list: hidden, and not a URL version.
+    const hidden = (await get<SiteCrawlPagesResponseDto>(`${path}?healthState=hidden&urlVersions=exclude`)).body
+    expect(hidden.pages.some(page => page.urlVersionOf !== null)).toBe(false)
+    expect((await get(`${path}?urlVersions=sometimes`)).status).toBe(400)
+  })
+
+  it('counts URL versions the crawl skipped without fetching apart from the stored rows', async () => {
+    const path = '/api/v1/projects/tech-aeo/technical-aeo/crawl/pages'
+    const before = (await get<SiteCrawlPagesResponseDto>(path)).body
+    expect(before.inventorySummary).toMatchObject({ urlVersionsNotFetched: 0 })
+    ctx.db.update(siteCrawlAttempts).set({ urlVersionsSkipped: 40 }).where(eq(siteCrawlAttempts.runId, ctx.runB)).run()
+    const after = (await get<SiteCrawlPagesResponseDto>(path)).body
+    // They have no rows, so the stored totals and the set-aside count stay as they were.
+    expect(after.inventorySummary).toEqual({ ...before.inventorySummary, urlVersionsNotFetched: 40 })
+    expect(after.total).toBe(before.total)
+    expect((await get<SiteCrawlSummaryDto>('/api/v1/projects/tech-aeo/technical-aeo/crawl')).body.inventorySummary)
+      .toMatchObject({ urlVersionsNotFetched: 40 })
+  })
+
+  it('reports exact exclusion reasons across the selected inventory and filtered pages before paging', async () => {
+    const scope = and(eq(siteCrawlPages.runId, ctx.runB), eq(siteCrawlPages.nodeKey, 'guide'))
+    ctx.db.update(siteCrawlPages).set({ inventoryEligible: false, indexabilityState: 'unknown', indexabilityReasons: ['canonical-to-other'] }).where(scope).run()
+    const original = ctx.db.select().from(siteCrawlPages).where(and(eq(siteCrawlPages.runId, ctx.runB), eq(siteCrawlPages.nodeKey, 'home'))).get()!
+    for (const row of [
+      { nodeKey: 'canonical', fetchState: 'html', indexabilityState: 'unknown', canonicalNodeKey: 'home' },
+      { nodeKey: 'noindex-canonical', fetchState: 'html', indexabilityState: 'noindex', canonicalNodeKey: 'home' },
+      { nodeKey: 'blocked-canonical', fetchState: 'html', indexabilityState: 'blocked', canonicalNodeKey: 'home' },
+      { nodeKey: 'redirect', fetchState: 'redirect', indexabilityState: 'unknown', canonicalNodeKey: 'home' },
+      { nodeKey: 'unknown', fetchState: 'html', indexabilityState: 'unknown', canonicalNodeKey: null },
+      { nodeKey: 'error', fetchState: 'fetch-error', indexabilityState: 'unknown', canonicalNodeKey: null },
+      { nodeKey: 'resource', fetchState: 'non-html', indexabilityState: 'unknown', canonicalNodeKey: null },
+    ]) ctx.db.insert(siteCrawlPages).values({ ...original, ...row, id: crypto.randomUUID(), inventoryEligible: false, url: `https://example.com/${row.nodeKey}`, path: `/${row.nodeKey}`, indexabilityReasons: row.indexabilityState === 'noindex' ? ['meta-robots-noindex'] : row.indexabilityState === 'blocked' ? ['robots-disallow'] : [] }).run()
+    const first = (await get<SiteCrawlPagesResponseDto>('/api/v1/projects/tech-aeo/technical-aeo/crawl/pages?limit=1')).body
+    expect(first.pages).toHaveLength(1)
+    expect(first.total).toBe(10)
+    expect(Object.fromEntries(first.healthReasonCounts!.map(row => [row.healthReason, row.pages]))).toEqual({ 'canonical-to-other': 2, 'fetch-error': 1, indexable: 1, noindex: 2, 'non-html': 1, 'redirect-terminal': 1, 'robots-disallow': 1, unknown: 1 })
+    expect(first.healthReasonCounts!.reduce((sum, row) => sum + row.pages, 0)).toBe(10)
+    expect(first.inventorySummary).toMatchObject({ scope: 'selected-snapshot', total: 10, eligible: 1, excluded: 9 })
+    expect(first.inventorySummary!.excludedReasons.reduce((sum, row) => sum + row.pages, 0)).toBe(9)
+    expect(first.inventorySummary!.excludedReasons.find(row => row.healthReason === 'canonical-to-other')).toEqual({ healthReason: 'canonical-to-other', pages: 2, exampleUrl: 'https://example.com/canonical' })
+    const filtered = (await get<SiteCrawlPagesResponseDto>('/api/v1/projects/tech-aeo/technical-aeo/crawl/pages?inventoryEligible=false&limit=1')).body
+    expect(filtered.total).toBe(9)
+    expect(filtered.healthReasonCounts!.reduce((sum, row) => sum + row.pages, 0)).toBe(9)
+    expect(filtered.healthReasonCounts!.some(row => row.healthReason === 'indexable')).toBe(false)
+    expect(filtered.inventorySummary).toEqual(first.inventorySummary)
+    const noindex = (await get<SiteCrawlPagesResponseDto>('/api/v1/projects/tech-aeo/technical-aeo/crawl/pages?indexabilityState=noindex')).body
+    expect(noindex.healthReasonCounts).toEqual([{ healthReason: 'noindex', pages: 2, exampleUrl: 'https://example.com/gone' }])
+    expect(noindex.pages.map(page => page.healthReason)).toEqual(['noindex', 'noindex'])
+    const empty = (await get<SiteCrawlPagesResponseDto>('/api/v1/projects/tech-aeo/technical-aeo/crawl/pages?nodeKey=not-in-this-snapshot')).body
+    expect(empty).toMatchObject({ total: 0, healthReasonCounts: [], pages: [], nextCursor: null })
+    expect(empty.inventorySummary).toEqual(first.inventorySummary)
+    const next = (await get<SiteCrawlPagesResponseDto>(`/api/v1/projects/tech-aeo/technical-aeo/crawl/pages?limit=1&cursor=${encodeURIComponent(first.nextCursor!)}`)).body
+    expect(next.healthReasonCounts).toEqual(first.healthReasonCounts)
+    expect(next.inventorySummary).toEqual(first.inventorySummary)
+    expect((await get<SiteCrawlSummaryDto>('/api/v1/projects/tech-aeo/technical-aeo/crawl')).body.inventorySummary).toEqual(first.inventorySummary)
+  })
+
+  it('binds new crawl-page cursors to the selected run and filters while accepting legacy offsets', async () => {
+    const first = (await get<SiteCrawlPagesResponseDto>('/api/v1/projects/tech-aeo/technical-aeo/crawl/pages?limit=1')).body
+    const encoded = encodeURIComponent(first.nextCursor!)
+    expect((await get(`/api/v1/projects/tech-aeo/technical-aeo/crawl/pages?inventoryEligible=false&cursor=${encoded}`)).status).toBe(400)
+    const replacement = seedScan('2030-04-12T09:00:00.000Z', 9, true)
+    const previousAttempt = ctx.db.select().from(siteCrawlAttempts).where(eq(siteCrawlAttempts.runId, ctx.runB)).get()!
+    const attemptId = crypto.randomUUID()
+    ctx.db.insert(siteCrawlAttempts).values({ ...previousAttempt, id: attemptId, runId: replacement }).run()
+    ctx.db.update(siteCrawlSnapshots).set({ attemptId, detailsAvailable: true }).where(eq(siteCrawlSnapshots.runId, replacement)).run()
+    expect((await get(`/api/v1/projects/tech-aeo/technical-aeo/crawl/pages?cursor=${encoded}`)).status).toBe(400)
+    const legacy = Buffer.from(JSON.stringify({ offset: 1 })).toString('base64url')
+    expect((await get<SiteCrawlPagesResponseDto>(`/api/v1/projects/tech-aeo/technical-aeo/crawl/pages?runId=${ctx.runB}&limit=1&cursor=${legacy}`)).body.pages).toHaveLength(1)
+  })
+
+  it('gives terminal redirects a concrete reason distinct from canonical or unknown indexability', async () => {
+    ctx.db.update(siteCrawlPages).set({
+      fetchState: 'redirect', httpStatus: 301, indexabilityState: 'unknown',
+      indexabilityReasons: ['redirect-terminal'], canonicalNodeKey: 'home',
+    }).where(and(eq(siteCrawlPages.runId, ctx.runB), eq(siteCrawlPages.nodeKey, 'guide'))).run()
+    ctx.db.update(siteCrawlPages).set({ indexabilityState: 'unknown', indexabilityReasons: [] })
+      .where(and(eq(siteCrawlPages.runId, ctx.runB), eq(siteCrawlPages.nodeKey, 'home'))).run()
+    const { body } = await get<SiteCrawlPagesResponseDto>('/api/v1/projects/tech-aeo/technical-aeo/crawl/pages')
+    expect(body.pages.find(page => page.nodeKey === 'guide')).toMatchObject({
+      indexabilityState: 'unknown', healthState: 'redirect', healthReason: 'redirect-terminal',
+    })
+    expect(body.pages.find(page => page.nodeKey === 'home')).toMatchObject({
+      indexabilityState: 'unknown', healthState: 'unchecked', healthReason: 'unknown',
+    })
+  })
+})
+
+describe('crawl reads without a runId use the newest crawl-bearing scan date', () => {
+  // The history a site larger than the page budget actually accumulates: every
+  // crawl stops at the cap and lands `partial`, and the only `completed` run is
+  // an older scorecard-only audit that published no crawl at all. Newer runs
+  // that never published a crawl (failed, still running) and a probe must not
+  // take the default either.
+  const CAPPED = 'capped-site'
+  const TARGET_URL = 'https://capped.example/target'
+
+  interface CappedSite {
+    projectId: string
+    legacyRun: string
+    olderPartial: string
+    newestPartial: string
+    probeRun: string
+  }
+
+  function seedCrawl(input: {
+    projectId: string
+    status: 'completed' | 'partial'
+    trigger: 'manual' | 'scheduled' | 'probe'
+    createdAt: string
+    complete: boolean
+    homeScore: number
+    targetScore: number
+    deadLinkFound?: boolean
+  }): string {
+    const { projectId, createdAt } = input
+    const runId = crypto.randomUUID()
+    const attemptId = crypto.randomUUID()
+    ctx.db.insert(runs).values({
+      id: runId, projectId, kind: 'site-audit', status: input.status, trigger: input.trigger, createdAt, finishedAt: createdAt,
+    }).run()
+    ctx.db.insert(siteCrawlAttempts).values({
+      id: attemptId, projectId, runId, attemptNumber: 1, state: input.status,
+      pagesDiscovered: 3, pagesFetched: 2, pagesEligible: 2, edgesDiscovered: 2,
+      startedAt: createdAt, finishedAt: createdAt, createdAt, updatedAt: createdAt,
+    }).run()
+    ctx.db.insert(siteCrawlSnapshots).values({
+      id: crypto.randomUUID(), projectId, runId, attemptId,
+      requestedRootUrl: 'https://capped.example/', rootUrl: 'https://capped.example/', crawlSchemaVersion: '1.0', engineVersion: 'crawl-test',
+      normalizationVersion: 'url-v1', indexabilityVersion: 'index-v1', linkScoreVersion: 'links-v1',
+      effectiveOptions: { maxPages: 2, checkDeadLinks: Boolean(input.deadLinkFound) }, pageBudget: 2,
+      checkDeadLinks: Boolean(input.deadLinkFound),
+      complete: input.complete, termination: input.complete ? 'complete' : 'max-pages', detailsAvailable: true,
+      pagesDiscovered: 3, pagesFetched: 2, pagesEligible: 2, edgesDiscovered: 2, findingsCount: input.deadLinkFound ? 1 : 0,
+      deadLinkState: input.deadLinkFound ? 'partial' : 'disabled',
+      deadLinksChecked: input.deadLinkFound ? 1 : 0, deadLinksFound: input.deadLinkFound ? 1 : 0, deadLinksUnverified: 0,
+      createdAt, updatedAt: createdAt,
+    }).run()
+    // A real crawl derives the node key from the normalized URL, so the same
+    // page keeps its key across scans; only the score tells the scans apart.
+    ctx.db.insert(siteCrawlPages).values([
+      {
+        id: crypto.randomUUID(), projectId, runId, attemptId, nodeKey: 'home',
+        url: 'https://capped.example/', finalUrl: 'https://capped.example/', path: '/', parentPath: '/', discoverySource: 'sitemap',
+        fetchState: 'html', httpStatus: 200, indexabilityState: 'indexable', auditState: 'complete', auditScore: input.homeScore,
+        auditFields: { schemaVersion: '1.0', factors: [], criticalDefects: [] },
+        inventoryEligible: true, depth: 0, outboundUniqueEdges: 2, createdAt, updatedAt: createdAt,
+      },
+      {
+        id: crypto.randomUUID(), projectId, runId, attemptId, nodeKey: 'target',
+        url: TARGET_URL, finalUrl: TARGET_URL, path: '/target', parentPath: '/', discoverySource: 'link',
+        fetchState: 'html', httpStatus: 200, indexabilityState: 'indexable', auditState: 'complete', auditScore: input.targetScore,
+        auditFields: {
+          schemaVersion: '1.0',
+          factors: [{
+            id: 'content-depth', name: 'Content Depth', weight: 12, score: input.targetScore, status: 'partial', applicable: true,
+            findings: [{ type: 'missing', code: 'content-depth.word-count.low', message: 'Low content depth.' }],
+            recommendations: ['Expand the page.'],
+          }],
+          criticalDefects: [],
+        },
+        inventoryEligible: true, depth: 1, inboundUniqueEdges: 1, createdAt, updatedAt: createdAt,
+      },
+    ]).run()
+    ctx.db.insert(siteCrawlEdges).values([
+      {
+        id: crypto.randomUUID(), projectId, runId, attemptId, edgeKey: 'home-target',
+        sourceNodeKey: 'home', sourceUrl: 'https://capped.example/', targetNodeKey: 'target', targetUrl: TARGET_URL,
+        relation: 'anchor', internal: true, followable: true, occurrences: 1, followableOccurrences: 1, nofollowOccurrences: 0,
+        anchors: ['Target'], isTemplate: false, createdAt, updatedAt: createdAt,
+      },
+      {
+        id: crypto.randomUUID(), projectId, runId, attemptId, edgeKey: 'home-missing',
+        sourceNodeKey: 'home', sourceUrl: 'https://capped.example/', targetNodeKey: null, targetUrl: 'https://capped.example/missing',
+        relation: 'anchor', internal: true, followable: true, occurrences: 1, followableOccurrences: 1, nofollowOccurrences: 0,
+        anchors: ['Missing'], isTemplate: false, createdAt, updatedAt: createdAt,
+      },
+    ]).run()
+    if (input.deadLinkFound) {
+      ctx.db.insert(siteCrawlFindings).values({
+        id: crypto.randomUUID(), projectId, runId, attemptId, findingKey: 'dead:missing', findingType: 'dead-link', severity: 'error',
+        sourceNodeKey: 'home', sourceUrl: 'https://capped.example/', targetNodeKey: null, targetUrl: 'https://capped.example/missing',
+        evidence: { statusCode: 404, reason: 'http-error' }, createdAt, updatedAt: createdAt,
+      }).run()
+    }
+    // A run that audited at least one page also publishes the scorecard.
+    ctx.db.insert(siteAuditSnapshots).values({
+      id: crypto.randomUUID(), projectId, runId, sitemapUrl: 'https://capped.example/sitemap.xml', auditedAt: createdAt,
+      aggregateScore: input.targetScore, aggregateGrade: 'C', pagesDiscovered: 3, pagesAudited: 2, pagesSkipped: 1, pagesErrored: 0,
+      factorAverages: [], crossCuttingIssues: [], prioritizedFixes: [], createdAt,
+    }).run()
+    return runId
+  }
+
+  function seedCappedSite(): CappedSite {
+    const base = Date.parse('2026-08-20T12:00:00.000Z')
+    const at = (offsetSeconds: number) => new Date(base + offsetSeconds * 1000).toISOString()
+    const projectId = crypto.randomUUID()
+    ctx.db.insert(projects).values({
+      id: projectId, name: CAPPED, displayName: 'Capped', canonicalDomain: 'capped.example',
+      country: 'US', language: 'en', providers: [], locations: [], createdAt: at(-500), updatedAt: at(-500),
+    }).run()
+
+    const legacyRun = crypto.randomUUID()
+    ctx.db.insert(runs).values({
+      id: legacyRun, projectId, kind: 'site-audit', status: 'completed', trigger: 'manual', createdAt: at(-86_400), finishedAt: at(-86_400),
+    }).run()
+    ctx.db.insert(siteAuditSnapshots).values({
+      id: crypto.randomUUID(), projectId, runId: legacyRun, sitemapUrl: 'https://capped.example/sitemap.xml', auditedAt: at(-86_400),
+      aggregateScore: 55, aggregateGrade: 'D', pagesDiscovered: 2, pagesAudited: 2, pagesSkipped: 0, pagesErrored: 0,
+      factorAverages: [], crossCuttingIssues: [], prioritizedFixes: [], createdAt: at(-86_400),
+    }).run()
+
+    const olderPartial = seedCrawl({
+      projectId, status: 'partial', trigger: 'scheduled', createdAt: at(-300), complete: false, homeScore: 50, targetScore: 31,
+    })
+    const newestPartial = seedCrawl({
+      projectId, status: 'partial', trigger: 'scheduled', createdAt: at(-200), complete: false, homeScore: 90, targetScore: 77,
+      deadLinkFound: true,
+    })
+
+    // Newer runs that never published a crawl: one failed, one still running.
+    ctx.db.insert(runs).values({
+      id: crypto.randomUUID(), projectId, kind: 'site-audit', status: 'failed', trigger: 'scheduled', createdAt: at(-100), finishedAt: at(-100),
+    }).run()
+    const runningRun = crypto.randomUUID()
+    ctx.db.insert(runs).values({
+      id: runningRun, projectId, kind: 'site-audit', status: 'running', trigger: 'manual', createdAt: at(-50),
+    }).run()
+    ctx.db.insert(siteCrawlAttempts).values({
+      id: crypto.randomUUID(), projectId, runId: runningRun, attemptNumber: 1, state: 'running',
+      pagesDiscovered: 1, pagesFetched: 1, startedAt: at(-50), createdAt: at(-50), updatedAt: at(-50),
+    }).run()
+
+    // Newest of all, and complete, but a probe: it must never become current.
+    const probeRun = seedCrawl({
+      projectId, status: 'completed', trigger: 'probe', createdAt: at(0), complete: true, homeScore: 1, targetScore: 2,
+    })
+
+    return { projectId, legacyRun, olderPartial, newestPartial, probeRun }
+  }
+
+  it('audits a page from the newest page-capped crawl instead of answering no-crawl', async () => {
+    const site = seedCappedSite()
+    const { status, body } = await get<SiteCrawlPageAuditDto>(
+      `/api/v1/projects/${CAPPED}/technical-aeo/crawl/pages/audit?url=${encodeURIComponent(TARGET_URL)}`,
+    )
+    expect(status).toBe(200)
+    expect(body).toMatchObject({
+      state: 'ready',
+      project: CAPPED,
+      runId: site.newestPartial,
+      complete: false,
+      termination: 'max-pages',
+      nodeKey: 'target',
+      url: TARGET_URL,
+      auditScore: 77,
+      factors: [{ id: 'content-depth', score: 77 }],
+    })
+
+    // An explicit run still pins the read to that run.
+    const pinned = await get<SiteCrawlPageAuditDto>(
+      `/api/v1/projects/${CAPPED}/technical-aeo/crawl/pages/audit?runId=${site.olderPartial}&nodeKey=target`,
+    )
+    expect(pinned.body).toMatchObject({ state: 'ready', runId: site.olderPartial, auditScore: 31 })
+  })
+
+  it('resolves every crawl-scoped read to that same scan', async () => {
+    const site = seedCappedSite()
+    const base = `/api/v1/projects/${CAPPED}/technical-aeo`
+
+    const crawl = await get<SiteCrawlSummaryDto>(`${base}/crawl`)
+    expect(crawl.body).toMatchObject({
+      hasCrawlData: true,
+      legacyAuditAvailable: true,
+      runId: site.newestPartial,
+      runStatus: 'partial',
+      complete: false,
+      termination: 'max-pages',
+      counts: { pagesDiscovered: 3, pagesFetched: 2, pagesEligible: 2, edges: 2, findings: 1 },
+    })
+
+    const pages = await get<SiteCrawlPagesResponseDto>(`${base}/crawl/pages?sort=path`)
+    expect(pages.body).toMatchObject({ hasCrawlData: true, runId: site.newestPartial, complete: false, termination: 'max-pages', total: 2 })
+    expect(pages.body.pages.map((page) => [page.nodeKey, page.auditScore])).toEqual([['home', 90], ['target', 77]])
+
+    const graph = await get<SiteCrawlGraphResponseDto>(`${base}/graph`)
+    expect(graph.body).toMatchObject({ hasCrawlData: true, runId: site.newestPartial, complete: false, termination: 'max-pages', rootNodeKey: 'home' })
+
+    const subgraph = await get<SiteHealthSubgraphResponseDto>(`${base}/subgraph`)
+    expect(subgraph.body).toMatchObject({
+      state: 'ready', runId: site.newestPartial, complete: false, termination: 'max-pages', focusNodeKey: 'home',
+    })
+
+    const path = await get<SiteHealthPathResponseDto>(`${base}/path?toUrl=${encodeURIComponent(TARGET_URL)}`)
+    expect(path.body).toMatchObject({ state: 'found', runId: site.newestPartial, complete: false })
+
+    const structure = await get<SiteCrawlStructureResponseDto>(`${base}/structure`)
+    expect(structure.body).toMatchObject({ hasCrawlData: true, runId: site.newestPartial, complete: false, termination: 'max-pages' })
+    expect(structure.body.children.map((child) => child.path)).toEqual(['/target'])
+
+    const links = await get<SiteCrawlInternalLinksResponseDto>(`${base}/internal-links`)
+    expect(links.body).toMatchObject({ hasCrawlData: true, runId: site.newestPartial, complete: false, termination: 'max-pages', total: 2 })
+
+    const neighbors = await get<SiteCrawlNeighborsResponseDto>(`${base}/internal-links/neighbors?nodeKey=target`)
+    expect(neighbors.body).toMatchObject({ hasCrawlData: true, runId: site.newestPartial, complete: false, termination: 'max-pages' })
+    expect(neighbors.body.inbound.map((edge) => edge.edgeKey)).toEqual(['home-target'])
+
+    const deadLinks = await get<SiteCrawlDeadLinksResponseDto>(`${base}/dead-links`)
+    expect(deadLinks.body).toMatchObject({ runId: site.newestPartial, state: 'partial', checked: 1, found: 1, total: 1 })
+
+    // The scorecard already defaulted to the newest scan that published one;
+    // the crawl reads now agree with it, so Aero can pair the two.
+    const score = await get<SiteAuditScoreDto>(base)
+    expect(score.body).toMatchObject({ hasData: true, runId: site.newestPartial, aggregateScore: 77 })
+
+    for (const runId of [crawl.body.runId, pages.body.runId, graph.body.runId, subgraph.body.runId, path.body.runId]) {
+      expect(runId).not.toBe(site.probeRun)
+    }
+  })
+
+  it('marks an empty neighbor list from a capped crawl as partial, not as a site-wide absence', async () => {
+    // An older complete crawl saw `docs -> home`; the newer capped one stopped
+    // before reaching `docs`, so it observed no inbound link to home at all.
+    const base = Date.parse('2026-08-20T12:00:00.000Z')
+    const projectId = crypto.randomUUID()
+    ctx.db.insert(projects).values({
+      id: projectId, name: CAPPED, displayName: 'Capped', canonicalDomain: 'capped.example',
+      country: 'US', language: 'en', providers: [], locations: [], createdAt: new Date(base - 500_000).toISOString(),
+      updatedAt: new Date(base - 500_000).toISOString(),
+    }).run()
+    const olderComplete = seedCrawl({
+      projectId, status: 'completed', trigger: 'scheduled', createdAt: new Date(base - 86_400_000).toISOString(),
+      complete: true, homeScore: 80, targetScore: 70,
+    })
+    const docsAttempt = ctx.db.select({ attemptId: siteCrawlSnapshots.attemptId }).from(siteCrawlSnapshots)
+      .where(eq(siteCrawlSnapshots.runId, olderComplete)).get()!.attemptId!
+    const at = new Date(base - 300_000).toISOString()
+    ctx.db.insert(siteCrawlEdges).values({
+      id: crypto.randomUUID(), projectId, runId: olderComplete, attemptId: docsAttempt, edgeKey: 'docs-home',
+      sourceNodeKey: 'docs', sourceUrl: 'https://capped.example/docs', targetNodeKey: 'home', targetUrl: 'https://capped.example/',
+      relation: 'anchor', internal: true, followable: true, occurrences: 1, followableOccurrences: 1, nofollowOccurrences: 0,
+      anchors: ['Home'], isTemplate: false, createdAt: at, updatedAt: at,
+    }).run()
+    const newerCapped = seedCrawl({
+      projectId, status: 'partial', trigger: 'scheduled', createdAt: new Date(base - 100_000).toISOString(),
+      complete: false, homeScore: 90, targetScore: 77,
+    })
+
+    const current = await get<SiteCrawlNeighborsResponseDto>(`/api/v1/projects/${CAPPED}/technical-aeo/internal-links/neighbors?nodeKey=home`)
+    expect(current.body).toMatchObject({
+      runId: newerCapped, complete: false, termination: 'max-pages', inbound: [], inboundTruncated: false,
+    })
+
+    const pinned = await get<SiteCrawlNeighborsResponseDto>(
+      `/api/v1/projects/${CAPPED}/technical-aeo/internal-links/neighbors?runId=${olderComplete}&nodeKey=home`,
+    )
+    expect(pinned.body).toMatchObject({ runId: olderComplete, complete: true, termination: 'complete' })
+    expect(pinned.body.inbound.map((edge) => edge.edgeKey)).toEqual(['docs-home'])
+  })
+
+  it('says a page-capped history is not comparable instead of claiming no crawl exists', async () => {
+    const site = seedCappedSite()
+    const { status, body } = await get<SiteHealthChangesResponseDto>(`/api/v1/projects/${CAPPED}/technical-aeo/changes`)
+    expect(status).toBe(200)
+    expect(body).toEqual({
+      project: CAPPED,
+      state: 'unavailable',
+      reason: 'partial-not-comparable',
+      fromRunId: null,
+      toRunId: site.newestPartial,
+    })
+  })
+
+  it('still answers no-crawl when no scan ever published a crawl', async () => {
+    const now = new Date().toISOString()
+    const projectId = crypto.randomUUID()
+    ctx.db.insert(projects).values({
+      id: projectId, name: 'scorecard-only', displayName: 'Scorecard only', canonicalDomain: 'scorecard.example',
+      country: 'US', language: 'en', providers: [], locations: [], createdAt: now, updatedAt: now,
+    }).run()
+    const runId = crypto.randomUUID()
+    ctx.db.insert(runs).values({ id: runId, projectId, kind: 'site-audit', status: 'completed', trigger: 'manual', createdAt: now, finishedAt: now }).run()
+    ctx.db.insert(siteAuditSnapshots).values({
+      id: crypto.randomUUID(), projectId, runId, sitemapUrl: 'https://scorecard.example/sitemap.xml', auditedAt: now,
+      aggregateScore: 60, aggregateGrade: 'D-', pagesDiscovered: 1, pagesAudited: 1, pagesSkipped: 0, pagesErrored: 0,
+      factorAverages: [], crossCuttingIssues: [], prioritizedFixes: [], createdAt: now,
+    }).run()
+
+    const base = '/api/v1/projects/scorecard-only/technical-aeo'
+    expect((await get<SiteCrawlPageAuditDto>(`${base}/crawl/pages/audit?nodeKey=home`)).body)
+      .toEqual({ state: 'no-crawl', project: 'scorecard-only', runId: null })
+    expect((await get<SiteCrawlSummaryDto>(`${base}/crawl`)).body).toMatchObject({ hasCrawlData: false, runId: null })
+    for (const read of ['crawl/pages', 'graph', 'structure', 'internal-links', 'internal-links/neighbors?nodeKey=home']) {
+      expect((await get<{ hasCrawlData: boolean; complete: boolean; termination: string | null }>(`${base}/${read}`)).body, read)
+        .toMatchObject({ hasCrawlData: false, complete: false, termination: null })
+    }
+    expect((await get<SiteHealthChangesResponseDto>(`${base}/changes`)).body).toMatchObject({
+      state: 'unavailable', reason: 'no-crawl', fromRunId: null, toRunId: null,
+    })
   })
 })
 

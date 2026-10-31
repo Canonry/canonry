@@ -4,9 +4,9 @@ import os from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
 import { eq } from 'drizzle-orm'
-import { apiRoutes } from '@ainyc/canonry-api-routes'
-import { type ScheduleDto, type SchedulableRunKind, SchedulableRunKinds } from '@ainyc/canonry-contracts'
-import { createClient, migrate, projects, schedules, trafficSources } from '@ainyc/canonry-db'
+import { apiRoutes } from '@canonry/canonry-api-routes'
+import { type ScheduleDto, type SchedulableRunKind, SchedulableRunKinds } from '@canonry/canonry-contracts'
+import { createClient, migrate, projects, schedules, trafficSources } from '@canonry/canonry-db'
 import { Scheduler } from '../src/scheduler.js'
 
 const NOW = '2026-09-05T12:00:00.000Z'
@@ -37,6 +37,7 @@ function harness() {
     onDoctorRequested: vi.fn(),
     onBacklinksSyncRequested: vi.fn(),
     onSiteAuditRequested: vi.fn(),
+    onSeoSyncRequested: vi.fn(),
   })
   cleanups.push(() => scheduler.stop())
   return { db, scheduler }

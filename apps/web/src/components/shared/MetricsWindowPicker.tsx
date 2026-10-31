@@ -1,3 +1,5 @@
+import { trackUiFilterChange } from '../../lib/ui-telemetry.js'
+
 /**
  * The segmented time-window control shared by every metrics surface.
  *
@@ -37,7 +39,10 @@ export function MetricsWindowPicker<TWindow extends string>({
           aria-pressed={value === window}
           disabled={disabled}
           className={`segmented-option ${value === window ? 'segmented-option-active' : ''}`}
-          onClick={() => onChange(window)}
+          onClick={() => {
+            if (window !== value) trackUiFilterChange('window')
+            onChange(window)
+          }}
         >
           {formatOption ? formatOption(window) : window}
         </button>

@@ -1,94 +1,39 @@
 import { GoogleGenAI } from '@google/genai'
 
-export const DEFAULT_EMBED_MODEL = 'gemini-embedding-001'
-export const DEFAULT_OUTPUT_DIMENSIONALITY = 768
-export const CLUSTERING_TASK_TYPE = 'CLUSTERING'
-
-export interface EmbedRequestOpts {
-  model: string
-  taskType: string
-  outputDimensionality?: number
-}
-
-export interface EmbedClient {
-  embedBatch: (queries: string[], opts: EmbedRequestOpts) => Promise<number[][]>
-}
+const DEFAULT_EMBED_MODEL = 'gemini-embedding-001'
+const DEFAULT_OUTPUT_DIMENSIONALITY = 768
+const CLUSTERING_TASK_TYPE = 'CLUSTERING'
 
 export interface EmbedQueriesOptions {
   apiKey: string
   model?: string
   outputDimensionality?: number
-  /**
-   * Custom API endpoint (e.g. a proxy in front of the Gemini API). Maps to the
-   * SDK's `httpOptions.baseUrl`. When unset, the SDK uses its default endpoint.
-   */
+  /** Optional proxy/gateway endpoint; its path prefix is preserved. */
   baseUrl?: string
-  /** Override client — used for tests and Vertex-mode adapters that bypass the default GenAI SDK. */
-  client?: EmbedClient
 }
 
-export async function embedQueries(
-  queries: string[],
-  options: EmbedQueriesOptions,
-): Promise<number[][]> {
+export async function embedQueries(queries: string[], options: EmbedQueriesOptions): Promise<number[][]> {
   if (queries.length === 0) return []
-  if (!options.apiKey && !options.client) {
-    throw new Error('embedQueries: missing apiKey')
-  }
-  const client = options.client ?? createGeminiEmbedClient(options.apiKey, options.baseUrl)
-  return client.embedBatch(queries, {
+  if (!options.apiKey) throw new Error('embedQueries: missing apiKey')
+  const genai = new GoogleGenAI({ apiKey: options.apiKey, ...(options.baseUrl ? { httpOptions: { baseUrl: options.baseUrl } } : {}) })
+  const response = await genai.models.embedContent({
     model: options.model ?? DEFAULT_EMBED_MODEL,
-    taskType: CLUSTERING_TASK_TYPE,
-    outputDimensionality: options.outputDimensionality ?? DEFAULT_OUTPUT_DIMENSIONALITY,
+    contents: queries,
+    config: { taskType: CLUSTERING_TASK_TYPE, outputDimensionality: options.outputDimensionality ?? DEFAULT_OUTPUT_DIMENSIONALITY },
   })
+  return extractEmbeddingVectors(response, queries.length)
 }
 
-/**
- * Pure helper that validates an `embedContent` response shape and projects
- * it down to ordered `number[][]`. Extracted from the default client so we
- * can test the validation paths without mocking `GoogleGenAI`.
- */
-export function extractEmbeddingVectors(
+function extractEmbeddingVectors(
   response: { embeddings?: Array<{ values?: number[] }> } | null | undefined,
   expectedLength: number,
 ): number[][] {
   const embeddings = response?.embeddings ?? []
   if (embeddings.length !== expectedLength) {
-    throw new Error(
-      `embedQueries: expected ${expectedLength} embeddings, got ${embeddings.length}`,
-    )
+    throw new Error(`embedQueries: expected ${expectedLength} embeddings, got ${embeddings.length}`)
   }
   return embeddings.map((e, i) => {
-    if (!e.values || e.values.length === 0) {
-      throw new Error(`embedQueries: missing values for query at index ${i}`)
-    }
+    if (!e.values || e.values.length === 0) throw new Error(`embedQueries: missing values for query at index ${i}`)
     return e.values
   })
-}
-
-/**
- * Construct the embeddings GenAI client, threading an optional `baseUrl` (e.g.
- * a proxy in front of the Gemini API) into the SDK's `httpOptions.baseUrl`.
- * Mirrors `createClient` in `normalize.ts` so discovery embeddings honor the
- * same configured endpoint as tracked-query sweeps.
- */
-export function createEmbedGenAI(apiKey: string, baseUrl?: string): GoogleGenAI {
-  return new GoogleGenAI({ apiKey, ...(baseUrl ? { httpOptions: { baseUrl } } : {}) })
-}
-
-function createGeminiEmbedClient(apiKey: string, baseUrl?: string): EmbedClient {
-  const genai = createEmbedGenAI(apiKey, baseUrl)
-  return {
-    async embedBatch(queries, opts) {
-      const response = await genai.models.embedContent({
-        model: opts.model,
-        contents: queries,
-        config: {
-          taskType: opts.taskType,
-          outputDimensionality: opts.outputDimensionality,
-        },
-      })
-      return extractEmbeddingVectors(response, queries.length)
-    },
-  }
 }

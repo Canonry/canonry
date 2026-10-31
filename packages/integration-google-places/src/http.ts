@@ -1,4 +1,4 @@
-import { withRetry } from '@ainyc/canonry-contracts'
+import { withRetry } from '@canonry/canonry-contracts'
 import { PLACES_REQUEST_TIMEOUT_MS } from './constants.js'
 import { PlacesApiError } from './types.js'
 import type { PlacesFetchOptions } from './types.js'

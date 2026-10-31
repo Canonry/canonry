@@ -7,6 +7,24 @@ export const analyticsWindowSchema = z.enum(['7d', '30d', '90d', 'all']).describ
 
 export const emptyInputSchema = z.object({})
 
+const mcpErrorEnvelopeSchema = z.object({
+  error: z.object({ code: z.string(), message: z.string(), details: z.unknown().optional() }).strict(),
+}).strict()
+
+/** Advertise both wire outcomes: clients validate structured errors after tools/list too. */
+export function mcpOutputSchema(success: z.ZodObject): z.ZodObject {
+  const outcomes = z.union([success, mcpErrorEnvelopeSchema])
+  // The MCP SDK requires a Zod object at the root. Keep the exact alternatives
+  // in JSON Schema and use the same alternatives for runtime validation.
+  return z.looseObject({}).superRefine((value, context) => {
+    const parsed = outcomes.safeParse(value)
+    if (!parsed.success) context.addIssue({ code: 'custom', message: 'Expected the declared success response or a Canonry error envelope.' })
+  }).meta({ anyOf: [
+    z.toJSONSchema(success, { target: 'draft-7' }),
+    z.toJSONSchema(mcpErrorEnvelopeSchema, { target: 'draft-7' }),
+  ] })
+}
+
 export const projectInputSchema = z.object({
   project: projectNameSchema,
 })

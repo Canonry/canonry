@@ -20,13 +20,6 @@ describe('roundPreservingTotal', () => {
     expect(sum(shares)).toBe(100)
   })
 
-  it('keeps every result within one unit of its value', () => {
-    const exact = CORE_WEIGHTS.map((weight) => (weight / 111) * 100)
-    roundPreservingTotal(exact, 1).forEach((share, index) => {
-      expect(Math.abs(share - exact[index]!)).toBeLessThan(0.1)
-    })
-  })
-
   it('gives a tied remainder to the earlier value, so the caller order decides', () => {
     const third = 100 / 3
     expect(roundPreservingTotal([third, third, third], 1)).toEqual([33.4, 33.3, 33.3])

@@ -5,9 +5,9 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { getPlatformEnv } from '@ainyc/canonry-config'
-import { PROVIDER_NAMES } from '@ainyc/canonry-contracts'
-import { createClient, migrate, MIGRATION_VERSIONS, apiKeys, queries, runs } from '@ainyc/canonry-db'
+import { getPlatformEnv } from '@canonry/canonry-config'
+import { isSweepProvider, PROVIDER_NAMES } from '@canonry/canonry-contracts'
+import { createClient, migrate, MIGRATION_VERSIONS, apiKeys, queries, runs } from '@canonry/canonry-db'
 
 import { buildApp } from '../src/app.js'
 import { loadApiEnv } from '../src/plugins/env.js'
@@ -36,7 +36,7 @@ afterEach(() => {
  * (`packages/canonry/src/server.ts`) — the registry local `canonry serve`
  * validates writes against — read from source rather than imported.
  *
- * apps/api deliberately does not depend on `@ainyc/canonry`: importing
+ * apps/api deliberately does not depend on `@canonry/canonry`: importing
  * `server.ts` pulls every provider SDK graph, which is the whole reason the
  * cloud catalog in `src/app.ts` is hand-mirrored in the first place. A
  * test-only workspace dependency would drag the same graphs into CI. So the
@@ -62,17 +62,20 @@ function registeredAdapterNames(): string[] {
       `${arrayName} was not found in packages/canonry/src/server.ts — the adapter registry moved, update this pin`,
     ).not.toBeNull()
     identifiers.push(
-      ...declaration![1]!.split(',').map(entry => entry.trim()).filter(Boolean),
+      ...declaration![1]!.split(',').map(entry => entry.trim()).filter(Boolean)
+        // Search answer services register as a spread from their own package.
+        // They run on local serve only; the cloud catalog does not offer them yet.
+        .filter(entry => entry !== '...answerServiceAdapters'),
     )
   }
   expect(identifiers.length).toBeGreaterThan(0)
 
   return identifiers.map(identifier => {
-    // e.g. `import { openaiAdapter } from "@ainyc/canonry-provider-openai";`
+    // e.g. `import { openaiAdapter } from "@canonry/canonry-provider-openai";`
     // (the gemini import is a multi-name block, hence the `[^}]*` on both sides).
     const importSite = server.match(
       new RegExp(
-        `import\\s*\\{[^}]*\\b${identifier}\\b[^}]*\\}\\s*from\\s*["']@ainyc/canonry-provider-([\\w-]+)["']`,
+        `import\\s*\\{[^}]*\\b${identifier}\\b[^}]*\\}\\s*from\\s*["']@canonry/canonry-provider-([\\w-]+)["']`,
       ),
     )
     expect(
@@ -268,6 +271,7 @@ test('cloud accepts every registered provider name', async () => {
   }))
 
   // The allowlist is what actually 400s a write, so exercise it end to end.
+  const sweepProviders = [...PROVIDER_NAMES.filter(name => isSweepProvider(name)), 'openrouter:google/gemini-3.1-flash-lite', 'openrouter:anthropic/claude-sonnet-4.6']
   const upsert = await app.inject({
     method: 'PUT',
     url: '/api/v1/projects/acme',
@@ -277,11 +281,11 @@ test('cloud accepts every registered provider name', async () => {
       canonicalDomain: 'acme.example',
       country: 'US',
       language: 'en',
-      providers: [...PROVIDER_NAMES],
+      providers: sweepProviders,
     },
   })
   expect(upsert.statusCode).toBe(201)
-  expect(upsert.json().providers).toEqual([...PROVIDER_NAMES])
+  expect(upsert.json().providers).toEqual(sweepProviders)
 
   // The mirrored Perplexity pattern still accepts a retired Sonar id, and the
   // override is stored as the Agent API preset that answers for it.
@@ -290,7 +294,7 @@ test('cloud accepts every registered provider name', async () => {
     canonicalDomain: 'acme.example',
     country: 'US',
     language: 'en',
-    providers: [...PROVIDER_NAMES],
+    providers: sweepProviders,
   }
   const legacy = await app.inject({
     method: 'PUT',
@@ -323,6 +327,8 @@ test('loadApiEnv delegates to shared platform config', () => {
     GEMINI_MAX_REQUESTS_PER_DAY: '500',
     MUSE_API_KEY: 'muse-key',
     MUSE_MAX_REQUESTS_PER_DAY: '250',
+    OPENROUTER_API_KEY: 'router-key',
+    OPENROUTER_MAX_REQUESTS_PER_DAY: '300',
   })
 
   expect(env.apiPort).toBe(4100)
@@ -338,6 +344,7 @@ test('loadApiEnv delegates to shared platform config', () => {
   expect(env.providers.muse).toMatchObject({
     apiKey: 'muse-key', quota: { maxRequestsPerDay: 250 },
   })
+  expect(env.providers.openrouter).toMatchObject({ apiKey: 'router-key', quota: { maxRequestsPerDay: 300 } })
 })
 
 test('a plan-pinned run queued on Cloud freezes the inherited provider model into its execution identity', async () => {
@@ -438,5 +445,5 @@ test('a plan-pinned run queued on Cloud freezes the inherited provider model int
   expect(run.measurementExecutionIdentity!.providers).toEqual(['gemini'])
   // The inherited default, not an empty object — this is the assertion that
   // fails when apps/api omits `getEffectiveProviderModels`.
-  expect(run.measurementExecutionIdentity!.models).toEqual({ gemini: 'gemini-2.5-flash' })
+  expect(run.measurementExecutionIdentity!.models).toEqual({ gemini: 'gemini-flash-latest' })
 })

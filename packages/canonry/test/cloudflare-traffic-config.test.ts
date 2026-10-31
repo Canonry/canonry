@@ -1,9 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import type { CanonryConfig, CloudflareTrafficConnectionConfigEntry } from '../src/config.js'
+import type {
+  CanonryConfig,
+  CloudflareDirectPushConnectionConfigEntry,
+  CloudflareQueuePullConnectionConfigEntry,
+  CloudflareTrafficConnectionConfigEntry,
+} from '../src/config.js'
 import {
   getCloudflareTrafficConnection,
   getCloudflareTrafficConnectionBySourceId,
-  listCloudflareTrafficConnections,
   removeCloudflareTrafficConnection,
   removeCloudflareTrafficConnectionBySourceId,
   upsertCloudflareTrafficConnection,
@@ -17,7 +21,7 @@ function emptyConfig(): CanonryConfig {
   }
 }
 
-function makeEntry(overrides: Partial<CloudflareTrafficConnectionConfigEntry> = {}): CloudflareTrafficConnectionConfigEntry {
+function makeEntry(overrides: Partial<CloudflareDirectPushConnectionConfigEntry> = {}): CloudflareDirectPushConnectionConfigEntry {
   return {
     projectName: 'demo',
     sourceId: 'src_abc',
@@ -35,8 +39,8 @@ function makeEntry(overrides: Partial<CloudflareTrafficConnectionConfigEntry> = 
 }
 
 function makeQueueEntry(
-  overrides: Partial<CloudflareTrafficConnectionConfigEntry> = {},
-): CloudflareTrafficConnectionConfigEntry {
+  overrides: Partial<CloudflareQueuePullConnectionConfigEntry> = {},
+): CloudflareQueuePullConnectionConfigEntry {
   return {
     projectName: 'demo',
     sourceId: 'src_queue',
@@ -52,22 +56,10 @@ function makeQueueEntry(
     createdAt: '2026-05-27T00:00:00Z',
     updatedAt: '2026-05-27T00:00:00Z',
     ...overrides,
-  } as CloudflareTrafficConnectionConfigEntry
+  }
 }
 
 describe('cloudflare-traffic-config', () => {
-  describe('listCloudflareTrafficConnections', () => {
-    it('returns [] when nothing is configured', () => {
-      expect(listCloudflareTrafficConnections(emptyConfig())).toEqual([])
-    })
-
-    it('returns the configured connections', () => {
-      const config = emptyConfig()
-      config.cloudflareTraffic = { connections: [makeEntry()] }
-      expect(listCloudflareTrafficConnections(config)).toHaveLength(1)
-    })
-  })
-
   describe('getCloudflareTrafficConnection', () => {
     it('returns undefined when no connection matches the project', () => {
       expect(getCloudflareTrafficConnection(emptyConfig(), 'demo')).toBeUndefined()
@@ -75,14 +67,22 @@ describe('cloudflare-traffic-config', () => {
 
     it('returns the connection by project name', () => {
       const config = emptyConfig()
-      const entry = makeEntry({ projectName: 'demo' })
-      config.cloudflareTraffic = { connections: [entry] }
-      expect(getCloudflareTrafficConnection(config, 'demo')).toEqual(entry)
+      config.cloudflareTraffic = { connections: [
+        makeEntry({ projectName: 'other', sourceId: 'src_other', bearerToken: 'other_token', hmacSecret: 'other_hmac' }),
+        makeEntry({ projectName: 'demo', sourceId: 'src_demo', bearerToken: 'demo_token', hmacSecret: 'demo_hmac' }),
+      ] }
+      expect(getCloudflareTrafficConnection(config, 'demo')).toEqual({
+        projectName: 'demo', sourceId: 'src_demo', deliveryMode: 'direct-push',
+        bearerToken: 'demo_token', hmacSecret: 'demo_hmac', workerVersion: '1.0.0',
+        expectedBotListVersion: '2026-05-27', zoneId: null, accountId: null,
+        createdAt: '2026-05-27T00:00:00Z', updatedAt: '2026-05-27T00:00:00Z',
+      })
+      expect(getCloudflareTrafficConnection(config, 'unknown')).toBeUndefined()
     })
 
     it('normalizes a legacy connection with no delivery mode to direct-push', () => {
       const config = emptyConfig()
-      const legacy = makeEntry() as CloudflareTrafficConnectionConfigEntry & { deliveryMode?: string }
+      const legacy: Omit<CloudflareDirectPushConnectionConfigEntry, 'deliveryMode'> & { deliveryMode?: 'direct-push' } = makeEntry()
       delete legacy.deliveryMode
       config.cloudflareTraffic = { connections: [legacy as CloudflareTrafficConnectionConfigEntry] }
 
@@ -129,7 +129,6 @@ describe('cloudflare-traffic-config', () => {
       config.cloudflareTraffic = { connections: [unsupported] }
 
       expect(() => getCloudflareTrafficConnection(config, 'demo')).toThrow(/unsupported.*webhook-push/i)
-      expect(() => listCloudflareTrafficConnections(config)).toThrow(/unsupported.*webhook-push/i)
     })
   })
 
@@ -152,9 +151,15 @@ describe('cloudflare-traffic-config', () => {
     it('appends when no entry exists for the project', () => {
       const config = emptyConfig()
       const entry = makeEntry()
+      const expected = {
+        projectName: 'demo', sourceId: 'src_abc', deliveryMode: 'direct-push',
+        bearerToken: 'tok_secret', hmacSecret: 'hmac_secret', workerVersion: '1.0.0',
+        expectedBotListVersion: '2026-05-27', zoneId: null, accountId: null,
+        createdAt: '2026-05-27T00:00:00Z', updatedAt: '2026-05-27T00:00:00Z',
+      }
       const result = upsertCloudflareTrafficConnection(config, entry)
-      expect(result).toEqual(entry)
-      expect(config.cloudflareTraffic?.connections).toHaveLength(1)
+      expect(result).toEqual(expected)
+      expect(config.cloudflareTraffic).toEqual({ connections: [expected] })
     })
 
     it('replaces the existing entry when source ids match', () => {
@@ -179,11 +184,6 @@ describe('cloudflare-traffic-config', () => {
       ])
     })
 
-    it('initializes the block when cloudflareTraffic is missing', () => {
-      const config = emptyConfig()
-      upsertCloudflareTrafficConnection(config, makeEntry())
-      expect(config.cloudflareTraffic?.connections).toHaveLength(1)
-    })
   })
 
   describe('removeCloudflareTrafficConnection', () => {

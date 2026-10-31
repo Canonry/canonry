@@ -1,6 +1,8 @@
 import { z } from 'zod'
+import { calendarDateSchema } from './google-ads.js'
 import { fraction, percent } from './ratio-unit.js'
 import { runStatusSchema } from './run.js'
+import { hostOf } from './url-normalize.js'
 
 // Keep this as an explicit union instead of `.nullable()`: OpenAPI 3.0 emits
 // the latter as `nullable: true` beside an enum, which some client generators
@@ -37,6 +39,16 @@ export function factorStatusFromScore(score: number): SiteAuditFactorStatus {
   return SiteAuditFactorStatuses.fail
 }
 
+/** A site summary must retain its worst observed page band, regardless of the mean. */
+export function factorStatusFromDistribution(input: {
+  pagesFailing: number
+  pagesPartial: number
+}): SiteAuditFactorStatus {
+  if (input.pagesFailing > 0) return SiteAuditFactorStatuses.fail
+  if (input.pagesPartial > 0) return SiteAuditFactorStatuses.partial
+  return SiteAuditFactorStatuses.pass
+}
+
 /** Direction of the latest score relative to the previous site-audit run. */
 export const siteAuditTrendDirectionSchema = z.enum(['up', 'down', 'flat'])
 export type SiteAuditTrendDirection = z.infer<typeof siteAuditTrendDirectionSchema>
@@ -69,7 +81,7 @@ export const siteAuditFactorSummarySchema = z.object({
    */
   sharePct: percent(z.number().min(0).max(100)).nullable().default(null),
   avgScore: z.number(),
-  /** Canonry's own pass/partial/fail banding of `avgScore` (aeo-audit v3 is gradeless). */
+  /** Worst observed page band: any failing page makes the factor fail, then partial, then pass. */
   status: siteAuditFactorStatusSchema,
   pagesPassing: z.number().int().nonnegative(),
   pagesPartial: z.number().int().nonnegative(),
@@ -100,13 +112,41 @@ export const siteAuditCrossCuttingIssueSchema = z.object({
 export type SiteAuditCrossCuttingIssueDto = z.infer<typeof siteAuditCrossCuttingIssueSchema>
 
 /**
- * The Technical AEO scorecard for a project — the latest completed/partial
- * `site-audit` run, with the delta vs the prior run computed server-side.
+ * Default reads stay on the latest UTC scan date, preferring complete, then
+ * largest scans. `latest-scored-scan` marks a scorecard read whose default scan
+ * stored no scorecard (a partial crawl that audited no page): the score is from
+ * the preferred scan that did, by the same rule, so `date` can be older than
+ * the latest scan date. Its count and candidates still cover every scan on
+ * `date`, including ones without a scorecard.
+ */
+export const siteAuditRunSelectionSchema = z.object({
+  reason: z.enum(['explicit-run', 'latest-date-complete', 'latest-date-most-pages', 'latest-scored-scan', 'requested-date-complete', 'requested-date-most-pages']),
+  date: z.string(),
+  /** All surfaceable scans on the selected UTC date; probes never count. */
+  sameDateRunCount: z.number().int().nonnegative(),
+  ambiguousDate: z.boolean(),
+  candidates: z.array(z.object({
+    runId: z.string(),
+    createdAt: z.string(),
+    complete: z.boolean(),
+    pages: z.number().int().nonnegative(),
+  })).max(10),
+  /** Candidate rows are bounded; sameDateRunCount always describes the full date. */
+  candidatesTruncated: z.boolean(),
+})
+export type SiteAuditRunSelectionDto = z.infer<typeof siteAuditRunSelectionSchema>
+
+/**
+ * The Technical AEO scorecard for the selected scan. Default reads use the
+ * preferred persisted crawl, or the preferred legacy score-only audit when
+ * no crawl exists. When the preferred crawl audited no page (a partial crawl
+ * stores no scorecard then), default reads use the preferred scored crawl
+ * instead, with `runSelection.reason` `latest-scored-scan`, so `runId` can
+ * differ from the default crawl reads.
  *
- * When the project has never been audited, `hasData` is `false`, `runId` /
- * `auditedAt` are `null`, the numeric fields are `0`, and the arrays are empty
- * — consumers should branch on `hasData` and render an onboarding state rather
- * than treating the zeros as a real score.
+ * `hasData: false` means no scored audit is available for the selected scan.
+ * Its crawl identity can still be present. The empty score is not a measured
+ * zero and does not establish that the project has never been audited.
  */
 export const siteAuditScoreSchema = z.object({
   project: z.string(),
@@ -123,9 +163,36 @@ export const siteAuditScoreSchema = z.object({
   /** `aggregateScore - previousScore`, or `null` when there is no prior run. */
   deltaScore: z.number().nullable(),
   trend: z.union([siteAuditTrendDirectionSchema, z.null()]),
+  /**
+   * The score a default read returned just before this scan was recorded: the
+   * same date-first selection, applied to the scans recorded before it. A
+   * complete scan is never compared with a partial scan from the same date,
+   * which that selection ranks below it; it is compared with the default from
+   * before that date instead. Two complete scans from one date compare with
+   * each other.
+   */
   previousScore: z.number().nullable(),
   previousAuditedAt: z.string().nullable(),
+  runSelection: siteAuditRunSelectionSchema.optional(),
   factors: z.array(siteAuditFactorSummarySchema).default([]),
+  /**
+   * Audited-page breadth, independent of severity, average score and weight.
+   * Rows use recorded failing + partial counts, largest first, then factor ID;
+   * zero rows stay visible. Factor populations overlap and must not be summed.
+   * Missing counts are unavailable, not zero. Absent when no scored audit exists.
+   */
+  affectedPageRanking: z.object({
+    basis: z.literal('pages-below-pass'),
+    scope: z.literal('audited-pages'),
+    pagesAudited: z.number().int().nonnegative(),
+    items: z.array(z.object({
+      factorId: z.string(),
+      pagesBelowPass: z.number().int().nonnegative(),
+      pagesFailing: z.number().int().nonnegative(),
+      pagesPartial: z.number().int().nonnegative(),
+    })),
+    unavailableFactorIds: z.array(z.string()),
+  }).optional(),
   crossCuttingIssues: z.array(siteAuditCrossCuttingIssueSchema).default([]),
   prioritizedFixes: z.array(z.string()).default([]),
 })
@@ -169,6 +236,7 @@ export const siteAuditPagesResponseSchema = z.object({
   project: z.string(),
   runId: z.string().nullable(),
   auditedAt: z.string().nullable(),
+  runSelection: siteAuditRunSelectionSchema.optional(),
   /** Total pages in the latest run matching the filter (before `limit`/`offset`). */
   total: z.number().int().nonnegative(),
   pages: z.array(siteAuditPageSchema).default([]),
@@ -194,6 +262,65 @@ export type SiteAuditTrendResponseDto = z.infer<typeof siteAuditTrendResponseSch
 export const siteCrawlDeadLinkStateSchema = z.enum(['disabled', 'complete', 'partial', 'unavailable'])
 export type SiteCrawlDeadLinkState = z.infer<typeof siteCrawlDeadLinkStateSchema>
 export const SiteCrawlDeadLinkStates = siteCrawlDeadLinkStateSchema.enum
+
+export const siteHealthReasonSchema = z.enum([
+  'indexable',
+  'redirect-terminal',
+  'canonical-to-other',
+  'robots-disallow',
+  'noindex',
+  'non-html',
+  'fetch-error',
+  'not-fetched',
+  'unknown',
+])
+export type SiteHealthReason = z.infer<typeof siteHealthReasonSchema>
+export const SiteHealthReasons = siteHealthReasonSchema.enum
+
+/** Exact counts with one deterministic example, never inferred from a returned page sample. */
+export const siteCrawlHealthReasonCountSchema = z.object({
+  healthReason: siteHealthReasonSchema,
+  pages: z.number().int().nonnegative(),
+  exampleUrl: z.string(),
+})
+export type SiteCrawlHealthReasonCountDto = z.infer<typeof siteCrawlHealthReasonCountSchema>
+
+/** Whole selected snapshot; request filters and pagination do not change these counts. */
+export const siteCrawlInventorySummarySchema = z.object({
+  scope: z.literal('selected-snapshot'),
+  total: z.number().int().nonnegative(),
+  eligible: z.number().int().nonnegative(),
+  excluded: z.number().int().nonnegative(),
+  /** Disjoint primary reasons: their page counts sum to excluded. */
+  excludedReasons: z.array(siteCrawlHealthReasonCountSchema).max(siteHealthReasonSchema.options.length),
+  /**
+   * URL versions the audit set aside (see `siteCrawlUrlVersionOf`): not scored
+   * and not counted in fixes. A subset of `excluded`; 0 for a scan made before
+   * the audit set them aside, which scored every address.
+   */
+  urlVersions: z.number().int().nonnegative().default(0),
+  /**
+   * URL versions the crawl did not fetch at all: once a few addresses with
+   * the same parameter pattern proved to be copies, it skipped the rest. They
+   * have no page rows, so they are outside `total` and `urlVersions`; the URL
+   * versions a scan found are `urlVersions + urlVersionsNotFetched`. 0 for a
+   * scan that fetched every address.
+   */
+  urlVersionsNotFetched: z.number().int().nonnegative().default(0),
+})
+export type SiteCrawlInventorySummaryDto = z.infer<typeof siteCrawlInventorySummarySchema>
+
+/** Candidate dates only; the caller must select one explicitly rather than silently changing the requested date. */
+export const siteCrawlAvailableScanDatesSchema = z.object({
+  /** Most recent distinct visible crawl dates, newest first. Fewer rows than totalDates means the list is bounded. */
+  recentDates: z.array(calendarDateSchema).max(10),
+  /** Full distinct-date count, excluding probe and non-surfaceable runs. */
+  totalDates: z.number().int().nonnegative(),
+  /** Same month/day as requestedDate, across years, newest first. Fewer rows than matchingMonthDayTotal means the list is bounded. */
+  matchingMonthDayDates: z.array(calendarDateSchema).max(10),
+  matchingMonthDayTotal: z.number().int().nonnegative(),
+})
+export type SiteCrawlAvailableScanDatesDto = z.infer<typeof siteCrawlAvailableScanDatesSchema>
 
 export const siteCrawlCountsSchema = z.object({
   pagesDiscovered: z.number().int().nonnegative(),
@@ -229,6 +356,13 @@ export const siteCrawlSummarySchema = z.object({
   hasCrawlData: z.boolean(),
   legacyAuditAvailable: z.boolean(),
   runId: z.string().nullable(),
+  runSelection: siteAuditRunSelectionSchema.optional(),
+  /** Explicit UTC date requested by the caller, including when no scan matches it. */
+  requestedDate: calendarDateSchema.optional(),
+  /** On dated no-data reads, discover available dates without guessing a year or changing requestedDate. */
+  availableScanDates: siteCrawlAvailableScanDatesSchema.optional(),
+  /** Null when retained detail rows are unavailable. */
+  inventorySummary: siteCrawlInventorySummarySchema.nullable().optional(),
   runStatus: nullableRunStatusSchema,
   /** Root URL originally requested by the operator; null for legacy snapshots. */
   requestedRootUrl: z.string().nullable(),
@@ -378,6 +512,27 @@ function pointsToOtherCanonical(input: SiteHealthStateInput): boolean {
       && input.canonicalNodeKey !== input.nodeKey)
 }
 
+/** A redirect's unknown indexability says nothing about its canonical target. */
+export function deriveSiteHealthReason(input: SiteHealthStateInput): SiteHealthReason {
+  switch (input.fetchState) {
+    case SiteCrawlFetchStates.redirect: return SiteHealthReasons['redirect-terminal']
+    case SiteCrawlFetchStates.nonHtml: return SiteHealthReasons['non-html']
+    case SiteCrawlFetchStates.fetchError: return SiteHealthReasons['fetch-error']
+    case SiteCrawlFetchStates.discovered: return SiteHealthReasons['not-fetched']
+    case SiteCrawlFetchStates.robotsBlocked: return SiteHealthReasons['robots-disallow']
+    case SiteCrawlFetchStates.html: break
+    default: return SiteHealthReasons.unknown
+  }
+  if (input.indexabilityState === SiteCrawlIndexabilityStates.noindex) return SiteHealthReasons.noindex
+  if (input.indexabilityState === SiteCrawlIndexabilityStates.blocked) return SiteHealthReasons['robots-disallow']
+  if (pointsToOtherCanonical(input)) return SiteHealthReasons['canonical-to-other']
+  switch (input.indexabilityState) {
+    case SiteCrawlIndexabilityStates.indexable: return SiteHealthReasons.indexable
+    case SiteCrawlIndexabilityStates.unknown:
+    default: return SiteHealthReasons.unknown
+  }
+}
+
 export function deriveSiteHealthState(input: SiteHealthStateInput): SiteHealthState {
   // Fetch state is decisive: a failed request cannot be visually eligible.
   switch (input.fetchState) {
@@ -416,6 +571,58 @@ export function deriveSiteHealthState(input: SiteHealthStateInput): SiteHealthSt
     default:
       return 'unchecked'
   }
+}
+
+/**
+ * The crawl pages `urlVersions` filter. `include` (the default) keeps every
+ * crawled address; `exclude` lists pages only, `only` lists URL versions only.
+ */
+export const siteCrawlUrlVersionFilterSchema = z.enum(['include', 'exclude', 'only'])
+export type SiteCrawlUrlVersionFilter = z.infer<typeof siteCrawlUrlVersionFilterSchema>
+export const SiteCrawlUrlVersionFilters = siteCrawlUrlVersionFilterSchema.enum
+
+/** Audit state of a URL version: fetched and classified, deliberately not scored. */
+export const SITE_CRAWL_URL_VERSION_AUDIT_STATE = 'url-version'
+
+export interface SiteCrawlUrlVersionInput {
+  fetchState: string
+  /** The address the crawler requested. */
+  url: string
+  /** The page's declared canonical URL, absolute, or null when it declared none. */
+  canonicalUrl: string | null | undefined
+}
+
+/**
+ * The page a URL version stands in for, or null when the address is a page of
+ * its own.
+ *
+ * A URL version is an HTML page whose address adds parameters (a filter, a
+ * view, a cache setting) to a path, and whose canonical names that same path on
+ * the same host with different parameters, usually none. The site has said the
+ * two addresses are one page, so the audit does not score the copy, count it
+ * in fixes, or list it among hidden pages.
+ *
+ * Only the site's own canonical decides it. A parameter URL with no canonical,
+ * or one naming a different path, stays a page: `?page=2` and `/listing?id=123`
+ * are often real pages, and an unmarked parameter copy is a duplicate-content
+ * risk worth seeing. Paths compare exactly; a trailing slash is a different
+ * path, as everywhere else in crawl identity.
+ */
+export function siteCrawlUrlVersionOf(input: SiteCrawlUrlVersionInput): string | null {
+  if (input.fetchState !== SiteCrawlFetchStates.html || !input.canonicalUrl) return null
+  let own: URL
+  let canonical: URL
+  try {
+    own = new URL(input.url)
+    canonical = new URL(input.canonicalUrl)
+  } catch {
+    return null
+  }
+  if (own.search === '') return null
+  if (hostOf(own.href) !== hostOf(canonical.href) || own.pathname !== canonical.pathname) return null
+  // A canonical naming this same address is a page declaring itself.
+  if (own.search === canonical.search) return null
+  return canonical.href
 }
 
 /**
@@ -1076,6 +1283,15 @@ export const siteCrawlPageSchema = z.object({
   /** Internal-link importance, 0..100 against the crawl's top page (the audit engine's `linkScore`). */
   linkScoreNormalized: percent().nullable(),
   healthState: siteHealthStateSchema,
+  /** Concrete fetch/indexability reason; unknown never implies a canonical points elsewhere. */
+  healthReason: siteHealthReasonSchema.optional(),
+  /**
+   * The page this address is a URL version of (its canonical), or null for a
+   * page. A URL version is not scored: its `auditState` is `url-version` and
+   * its `auditScore` null. Always null in a scan made before the audit set URL
+   * versions aside.
+   */
+  urlVersionOf: z.string().nullable().default(null),
 })
 export type SiteCrawlPageDto = z.infer<typeof siteCrawlPageSchema>
 
@@ -1098,6 +1314,8 @@ export const siteCrawlAuditFactorSchema = siteAuditPageFactorSchema.extend({
   applicable: z.boolean().nullable(),
   findings: z.array(siteCrawlAuditFindingSchema).default([]),
   recommendations: z.array(z.string()).default([]),
+  /** Optional review advice, also present in recommendations; absent on older evidence. */
+  advisoryRecommendations: z.array(z.string()).optional(),
 })
 export type SiteCrawlAuditFactorDto = z.infer<typeof siteCrawlAuditFactorSchema>
 
@@ -1120,6 +1338,7 @@ const siteCrawlPageAuditProvenanceSchema = z.object({
   runId: z.string(),
   complete: z.boolean(),
   termination: z.string().nullable(),
+  runSelection: siteAuditRunSelectionSchema.optional(),
 })
 const siteCrawlPageAuditIdentitySchema = z.object({
   nodeKey: z.string(),
@@ -1165,10 +1384,30 @@ export type SiteCrawlPageAuditDto = z.infer<typeof siteCrawlPageAuditSchema>
 export const siteCrawlPagesFilterStateSchema = z.enum(['applied', 'unavailable-legacy-scan'])
 export type SiteCrawlPagesFilterState = z.infer<typeof siteCrawlPagesFilterStateSchema>
 
+/**
+ * Whether the scan a crawl read answered from finished. `complete: false` means
+ * it stopped at the budget `termination` names, so a page or link missing from
+ * the result may exist beyond what was crawled. With no crawl to read, both are
+ * `false` / null.
+ */
+const siteCrawlCompletenessShape = {
+  complete: z.boolean(),
+  termination: z.string().nullable(),
+  runSelection: siteAuditRunSelectionSchema.optional(),
+}
+
 export const siteCrawlPagesResponseSchema = z.object({
   project: z.string(),
   hasCrawlData: z.boolean(),
   runId: z.string().nullable(),
+  ...siteCrawlCompletenessShape,
+  requestedDate: calendarDateSchema.optional(),
+  /** On dated no-data reads only; both candidate lists are bounded, with full distinct-date totals. */
+  availableScanDates: siteCrawlAvailableScanDatesSchema.optional(),
+  /** Whole selected inventory, independent of page filters and pagination; null without detail rows. */
+  inventorySummary: siteCrawlInventorySummarySchema.nullable().optional(),
+  /** Filtered counts before paging; sum to total. Null when details or the requested filter are unavailable. */
+  healthReasonCounts: z.array(siteCrawlHealthReasonCountSchema).max(siteHealthReasonSchema.options.length).nullable().optional(),
   total: z.number().int().nonnegative(),
   nextCursor: z.string().nullable(),
   /** Null when no `healthState` filter was requested. */
@@ -1192,6 +1431,7 @@ export const siteCrawlStructureResponseSchema = z.object({
   project: z.string(),
   hasCrawlData: z.boolean(),
   runId: z.string().nullable(),
+  ...siteCrawlCompletenessShape,
   parentPath: z.string(),
   nextCursor: z.string().nullable(),
   children: z.array(siteCrawlStructureChildSchema).default([]),
@@ -1253,6 +1493,7 @@ export const siteCrawlGraphNodeSchema = z.object({
   /** Internal-link importance, 0..100 against the crawl's top page. It sets the node's size. */
   linkScoreNormalized: percent().nullable(),
   healthState: siteHealthStateSchema,
+  healthReason: siteHealthReasonSchema.optional(),
   /** Publish-time ForceAtlas2 coordinate. Reads never run layout physics. */
   x: z.number(),
   /** Publish-time ForceAtlas2 coordinate. Reads never run layout physics. */
@@ -1327,6 +1568,7 @@ export const siteCrawlGraphResponseSchema = z.object({
    * and it can name a page that graph sampling left out of `nodes`.
    */
   rootNodeKey: z.string().nullable(),
+  ...siteCrawlCompletenessShape,
   layout: siteCrawlGraphLayoutSchema,
   /** Whether nav and footer links could be told apart for this scan. */
   templateDetection: siteHealthTemplateDetectionSchema,
@@ -1382,6 +1624,7 @@ export const siteHealthSubgraphResponseSchema = z.object({
   /** Selected snapshot provenance. Historical partial crawls stay explicit. */
   complete: z.boolean(),
   termination: z.string().nullable(),
+  runSelection: siteAuditRunSelectionSchema.optional(),
   state: z.enum(['no-crawl', 'details-unavailable', 'ready']),
   focusNodeKey: z.string().nullable(),
   focusUrl: z.string().nullable(),
@@ -1417,6 +1660,7 @@ export const siteHealthPathResponseSchema = z.object({
   /** Selected snapshot provenance. `unreachable` on a partial crawl is not a site-wide claim. */
   complete: z.boolean(),
   termination: z.string().nullable(),
+  runSelection: siteAuditRunSelectionSchema.optional(),
   state: z.enum(['no-crawl', 'details-unavailable', 'found', 'unreachable', 'truncated']),
   from: siteHealthNodeReferenceSchema.nullable(),
   to: siteHealthNodeReferenceSchema.nullable(),
@@ -1521,6 +1765,7 @@ export const siteCrawlInternalLinksResponseSchema = z.object({
   project: z.string(),
   hasCrawlData: z.boolean(),
   runId: z.string().nullable(),
+  ...siteCrawlCompletenessShape,
   /** Total links matching every requested filter, `linkKind` included. */
   total: z.number().int().nonnegative(),
   nextCursor: z.string().nullable(),
@@ -1536,6 +1781,7 @@ export const siteCrawlNeighborsResponseSchema = z.object({
   project: z.string(),
   hasCrawlData: z.boolean(),
   runId: z.string().nullable(),
+  ...siteCrawlCompletenessShape,
   nodeKey: z.string().nullable(),
   url: z.string().nullable(),
   /** Whether nav and footer links could be told apart for this scan. */
@@ -1569,16 +1815,18 @@ export type SiteCrawlDeadLinkDto = z.infer<typeof siteCrawlDeadLinkSchema>
  * timeout is not evidence of one.
  */
 export const siteCrawlDeadLinksResponseSchema = z.discriminatedUnion('state', [
-  z.object({ project: z.string(), runId: z.string().nullable(), state: z.literal('unavailable'), legacyAuditAvailable: z.boolean() }),
-  z.object({ project: z.string(), runId: z.string(), state: z.literal('disabled'), checkDeadLinks: z.literal(false) }),
+  z.object({ project: z.string(), runId: z.string().nullable(), state: z.literal('unavailable'), legacyAuditAvailable: z.boolean(), runSelection: siteAuditRunSelectionSchema.optional() }),
+  z.object({ project: z.string(), runId: z.string(), state: z.literal('disabled'), checkDeadLinks: z.literal(false), runSelection: siteAuditRunSelectionSchema.optional() }),
   z.object({
     project: z.string(), runId: z.string(), state: z.literal('complete'), checkDeadLinks: z.literal(true),
+    runSelection: siteAuditRunSelectionSchema.optional(),
     checked: z.number().int().nonnegative(), found: z.number().int().nonnegative(), unverified: z.number().int().nonnegative(),
     total: z.number().int().nonnegative(),
     nextCursor: z.string().nullable(), deadLinks: z.array(siteCrawlDeadLinkSchema).default([]),
   }),
   z.object({
     project: z.string(), runId: z.string(), state: z.literal('partial'), checkDeadLinks: z.literal(true),
+    runSelection: siteAuditRunSelectionSchema.optional(),
     checked: z.number().int().nonnegative(), found: z.number().int().nonnegative(), unverified: z.number().int().nonnegative(),
     total: z.number().int().nonnegative(),
     nextCursor: z.string().nullable(), deadLinks: z.array(siteCrawlDeadLinkSchema).default([]),
@@ -1587,8 +1835,23 @@ export const siteCrawlDeadLinksResponseSchema = z.discriminatedUnion('state', [
 export type SiteCrawlDeadLinksResponseDto = z.infer<typeof siteCrawlDeadLinksResponseSchema>
 
 /** Canonry-local crawl defaults. These are part of request identity. */
-export const SITE_AUDIT_DEFAULT_PAGE_LIMIT = 1_000
 export const SITE_AUDIT_MAX_PAGE_LIMIT = 50_000
+/**
+ * A scan with no page budget covers the full site, up to the hard limit, as a
+ * scheduled audit does: a smaller default silently left large sites partly
+ * unchecked. Pass `maxPages` for a quick look (onboarding sends its own 100).
+ */
+export const SITE_AUDIT_DEFAULT_PAGE_LIMIT = SITE_AUDIT_MAX_PAGE_LIMIT
+/** A crawl page budget, requested for one scan or saved on a project: whole pages, 1 to the hard limit. */
+export const siteAuditPageBudgetSchema = z.number().int().min(1).max(SITE_AUDIT_MAX_PAGE_LIMIT)
+/** A page count in words: "1 page", "2,500 pages". */
+export function formatPageCount(pages: number): string {
+  return `${pages.toLocaleString('en-US')} ${pages === 1 ? 'page' : 'pages'}`
+}
+/** A saved Site Health page budget in words, lower case: "2,500 pages", or "full site (up to 50,000 pages)" for null. */
+export function formatSiteAuditPageBudget(maxPages: number | null): string {
+  return maxPages === null ? `full site (up to ${formatPageCount(SITE_AUDIT_MAX_PAGE_LIMIT)})` : formatPageCount(maxPages)
+}
 /**
  * The crawler's own depth limit when a request sets none
  * (`DEFAULT_SITE_CRAWL_LIMITS.maxDepth` in `@canonry/aeo-audit`, which a test
@@ -1614,14 +1877,18 @@ export const siteAuditRunRequestSchema = z.object({
   sitemapUrl: z.string().url().optional(),
   /** @deprecated Prefer `maxPages`; retained for compatibility. */
   limit: z.number().int().positive().max(2000).optional(),
-  /** Crawl page budget. When omitted, Canonry crawls up to 1,000 pages. */
-  maxPages: z.number().int().positive().max(50_000).optional(),
+  /** Crawl page budget. When omitted, the project's saved budget applies, else the full site (up to 50,000 pages). */
+  maxPages: siteAuditPageBudgetSchema.optional(),
   /** Internal-link observation budget. When omitted, the crawl engine derives it from the page count. */
   maxEdges: z.number().int().positive().max(1_000_000).optional(),
   /** Maximum crawl depth from the root. */
   maxDepth: z.number().int().min(0).max(100).optional(),
   /** Off by default; derives findings only from observed internal targets. External links are never probed. */
   checkDeadLinks: z.boolean().default(false),
+  /** Opt in to geographic signals for sites serving a location or service area. */
+  includeGeo: z.boolean().default(false),
+  /** Check machine-discoverable actions, forms, and agent integrations unless explicitly disabled. */
+  includeAgentSkills: z.boolean().default(true),
 })
 export type SiteAuditRunRequest = z.infer<typeof siteAuditRunRequestSchema>
 
@@ -1635,28 +1902,37 @@ export type SiteAuditRunRequest = z.infer<typeof siteAuditRunRequestSchema>
  * budget and the engine derives one, which is a DIFFERENT crawl from any
  * explicit number — including the number that used to be substituted here.
  *
- * schemaVersion 2 supersedes 1, where an omitted `maxEdges` was persisted as
- * the literal 100000 and could not be told apart from an explicit 100000.
- * A version-1 row is therefore never identity-equal to a version-2 request.
+ * schemaVersion 3 adds optional factor selection to identity. Earlier rows
+ * cannot be reused: version 1 also conflated derived and explicit edge budgets.
  */
 export interface SiteAuditEffectiveRequest {
-  schemaVersion: 2
+  schemaVersion: 3
   sitemapUrl: string | null
   maxPages: number
   /** `null` = unset; the crawl engine derives the budget from the page count. */
   maxEdges: number | null
   maxDepth: number | null
   checkDeadLinks: boolean
+  includeGeo: boolean
+  includeAgentSkills: boolean
 }
 
-export function normalizeSiteAuditRunRequest(request: Partial<SiteAuditRunRequest>): SiteAuditEffectiveRequest {
+/**
+ * The request a scan runs with. Its page budget is the request's own (`maxPages`,
+ * then the deprecated `limit`), else the project's saved budget, else the full
+ * site. Every run creator (the manual route and the scheduler) resolves through
+ * here before computing identity, so a run records the budget it actually used.
+ */
+export function normalizeSiteAuditRunRequest(request: Partial<SiteAuditRunRequest>, savedMaxPages?: number | null): SiteAuditEffectiveRequest {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     sitemapUrl: request.sitemapUrl ? new URL(request.sitemapUrl).toString() : null,
-    maxPages: request.maxPages ?? request.limit ?? SITE_AUDIT_DEFAULT_PAGE_LIMIT,
+    maxPages: request.maxPages ?? request.limit ?? savedMaxPages ?? SITE_AUDIT_DEFAULT_PAGE_LIMIT,
     maxEdges: request.maxEdges ?? null,
     maxDepth: request.maxDepth ?? null,
     checkDeadLinks: request.checkDeadLinks === true,
+    includeGeo: request.includeGeo === true,
+    includeAgentSkills: request.includeAgentSkills ?? true,
   }
 }
 
@@ -1673,6 +1949,8 @@ export function siteAuditRequestIdentity(request: SiteAuditEffectiveRequest): st
     request.maxEdges,
     request.maxDepth,
     request.checkDeadLinks,
+    request.includeGeo,
+    request.includeAgentSkills,
   ])
 }
 
@@ -1701,6 +1979,8 @@ export type SiteHealthScanDto = z.infer<typeof siteHealthScanSchema>
 /** Non-probe site-audit runs for one project, newest first. */
 export const siteHealthScansResponseSchema = z.object({
   project: z.string(),
+  /** Default persisted scan selected by score/crawl reads, independent of the history page limit. */
+  preferredRunId: z.string().nullable().optional(),
   scans: z.array(siteHealthScanSchema).default([]),
 })
 export type SiteHealthScansResponseDto = z.infer<typeof siteHealthScansResponseSchema>
@@ -1791,3 +2071,100 @@ export const siteAuditLivePageHealthSchema = z.object({
   examples: z.array(siteAuditLivePageHealthExampleSchema).max(12).default([]),
 })
 export type SiteAuditLivePageHealthDto = z.infer<typeof siteAuditLivePageHealthSchema>
+
+/** Stored cross-page evidence. Null storage means the engine did not report this check. */
+export const siteCrawlIssueEvidenceSchema = z.object({
+  schemaVersion: z.literal('1.0'),
+  groupIdentityVersion: z.literal('duplicate-metadata-v1'),
+  siteIssues: z.array(z.object({
+    /** Null preserves unfamiliar evidence without inventing cross-run identity. */
+    key: z.string().min(1).nullable(),
+    code: z.string().min(1),
+    message: z.string(),
+    affectedUrls: z.array(z.string().min(1)),
+  })),
+})
+export type SiteCrawlIssueEvidence = z.infer<typeof siteCrawlIssueEvidenceSchema>
+
+export const SITE_AUDIT_ISSUES_DEFAULT_LIMIT = 25
+export const SITE_AUDIT_ISSUES_MAX_LIMIT = 100
+/** Plain schema shared with MCP; HTTP callers normalize only the numeric limit. */
+export const siteAuditIssueListQuerySchema = z.object({
+  runId: z.string().min(1).max(128).optional(),
+  cursor: z.string().min(1).max(2048).optional(),
+  limit: z.number().int().min(1).max(SITE_AUDIT_ISSUES_MAX_LIMIT).optional(),
+}).strict()
+
+export type SiteAuditIssueListQuery = z.infer<typeof siteAuditIssueListQuerySchema>
+
+export const SiteAuditIssueDispositions = {
+  actionable: 'actionable', advisory: 'advisory', unverified: 'unverified', informational: 'informational',
+} as const
+export const siteAuditIssueDispositionSchema = z.enum(['actionable', 'advisory', 'unverified', 'informational'])
+
+export const SiteAuditIssueRecommendationScopes = { factor: 'factor', issue: 'issue', none: 'none' } as const
+
+export const siteAuditIssuePageSchema = z.object({
+  nodeKey: z.string().nullable(),
+  url: z.string(),
+  message: z.string().max(400),
+  messageTruncated: z.boolean(),
+  /** Scope identifies whole-factor guidance versus the critical defect's own recommendation. */
+  recommendations: z.array(z.string().max(400)).max(3),
+  recommendationsScope: z.enum(['factor', 'issue', 'none']),
+  recommendationsTruncated: z.boolean(),
+})
+export type SiteAuditIssuePageDto = z.infer<typeof siteAuditIssuePageSchema>
+export const siteAuditIssueSchema = z.object({
+  id: z.string(),
+  stableIdentity: z.boolean(),
+  code: z.string(),
+  source: z.enum(['page-finding', 'cross-page', 'critical-defect']),
+  /** Independent critical-defect severity; page findings do not invent a severity from scores. */
+  severity: z.enum(['critical', 'warning']).nullable(),
+  factorId: z.string().nullable(),
+  findingType: siteCrawlAuditFindingSchema.shape.type,
+  /** Prioritization hint, not a score penalty, permission to edit, or proof of ranking impact. */
+  disposition: siteAuditIssueDispositionSchema,
+  message: z.string().max(400),
+  messageTruncated: z.boolean(),
+  affectedPages: z.number().int().nonnegative(),
+  examples: z.array(siteAuditIssuePageSchema).max(3),
+  examplesTruncated: z.boolean(),
+})
+export type SiteAuditIssueDto = z.infer<typeof siteAuditIssueSchema>
+const siteAuditIssueCoverageSchema = z.object({
+  pageFindings: z.enum(['available', 'partial', 'unavailable']),
+  crossPage: z.enum(['available', 'unavailable']),
+  /** Pages with a stored score or a versioned audit-evidence envelope. */
+  auditedPages: z.number().int().nonnegative(),
+  pagesWithFindingEvidence: z.number().int().nonnegative(),
+  pagesWithoutFindingEvidence: z.number().int().nonnegative(),
+  /** Malformed or uncoded records omitted from grouping; positive values preclude a clean verdict. */
+  omittedFindings: z.number().int().nonnegative(),
+})
+const siteAuditIssueProvenanceSchema = z.object({
+  project: z.string(),
+  runId: z.string().nullable(),
+  attemptId: z.string().nullable(),
+  /** Stored observation time, never the time of this read. */
+  auditedAt: z.string().nullable(),
+  runStatus: nullableRunStatusSchema,
+  complete: z.boolean(),
+  termination: z.string().nullable(),
+  runSelection: siteAuditRunSelectionSchema.optional(),
+  state: z.enum(['no-crawl', 'unavailable', 'partial', 'available']),
+  coverage: siteAuditIssueCoverageSchema,
+  /** Exact groups/members among retained evidence. Null means no usable evidence was retained. */
+  total: z.number().int().nonnegative().nullable(),
+  nextCursor: z.string().nullable(),
+})
+export const siteAuditIssuesResponseSchema = siteAuditIssueProvenanceSchema.extend({
+  issues: z.array(siteAuditIssueSchema).max(SITE_AUDIT_ISSUES_MAX_LIMIT),
+})
+export type SiteAuditIssuesResponseDto = z.infer<typeof siteAuditIssuesResponseSchema>
+export const siteAuditIssuePagesResponseSchema = siteAuditIssueProvenanceSchema.extend({
+  issueId: z.string(),
+  pages: z.array(siteAuditIssuePageSchema).max(SITE_AUDIT_ISSUES_MAX_LIMIT),
+})
+export type SiteAuditIssuePagesResponseDto = z.infer<typeof siteAuditIssuePagesResponseSchema>

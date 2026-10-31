@@ -1,18 +1,22 @@
 import crypto from 'node:crypto'
 import { eq, ne, sql, type SQL } from 'drizzle-orm'
-import type { DatabaseClient } from '@ainyc/canonry-db'
-import { projects, runs, auditLog, usageCounters, parseJsonColumn } from '@ainyc/canonry-db'
+import type { DatabaseClient } from '@canonry/canonry-db'
+import { projects, runs, auditLog, usageCounters, parseJsonColumn } from '@canonry/canonry-db'
 import {
+  countsAsMention,
   extractAnswerMentions,
   effectiveBrandNames,
   effectiveDomains,
   mentionStateFromAnswerMentioned,
   notFound,
   RunTriggers,
+  type MentionIdentity,
+  type RunKind,
+  type RunTrigger,
   visibilityStateFromAnswerMentioned,
   type MentionState,
   type VisibilityState,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { getRequestContext, requestAuditIdentity, sanitizeRequestContext } from './request-context.js'
 
 /**
@@ -30,6 +34,24 @@ import { getRequestContext, requestAuditIdentity, sanitizeRequestContext } from 
  */
 export function notProbeRun(): SQL {
   return ne(runs.trigger, RunTriggers.probe)
+}
+
+/** The host-only claim consumed when its scheduler calls a sync endpoint. */
+export type ScheduledSyncClaim = (projectName: string, kind: RunKind, sourceId?: string) => boolean
+
+/** Stable in-process key for one scheduled sync request. */
+export function syncRunClaimKey(projectName: string, kind: RunKind, sourceId?: string): string {
+  return [projectName, kind, sourceId].filter((part): part is string => part !== undefined).join('\u0000')
+}
+
+/** A scheduled trigger is server-owned; every unclaimed request stays manual. */
+export function syncRunTrigger(
+  claim: ScheduledSyncClaim | undefined,
+  projectName: string,
+  kind: RunKind,
+  sourceId?: string,
+): RunTrigger {
+  return claim?.(projectName, kind, sourceId) ? RunTriggers.scheduled : RunTriggers.manual
 }
 
 export function resolveProject(db: DatabaseClient, name: string) {
@@ -69,14 +91,14 @@ export interface AuditEntry {
 }
 
 /** Accepts both the main DatabaseClient and a Drizzle transaction context */
-export function writeAuditLog(db: Pick<DatabaseClient, 'insert'>, entry: AuditEntry) {
+function auditValues(entry: AuditEntry, id: string): typeof auditLog.$inferInsert {
   const context = getRequestContext()
   // `api` has always meant an ordinary HTTP caller. Keep explicit business
   // actors (scheduler, system, paid-workflow actors, etc.) exactly as named.
   const actor = entry.actor === 'api' ? context?.actor ?? entry.actor : entry.actor
   const now = new Date().toISOString()
-  db.insert(auditLog).values({
-    id: crypto.randomUUID(),
+  return {
+    id,
     projectId: entry.projectId ?? null,
     actor,
     action: entry.action,
@@ -88,7 +110,17 @@ export function writeAuditLog(db: Pick<DatabaseClient, 'insert'>, entry: AuditEn
     requestId: entry.requestId ?? context?.requestId ?? null,
     credentialId: entry.credentialId ?? context?.credentialId ?? null,
     createdAt: now,
-  }).run()
+  }
+}
+
+export function writeAuditLog(db: Pick<DatabaseClient, 'insert'>, entry: AuditEntry) {
+  db.insert(auditLog).values(auditValues(entry, crypto.randomUUID())).run()
+}
+
+/** Atomic immutable audit identity for a send-once claim/result. Never overwrites. */
+export function claimAuditLog(db: Pick<DatabaseClient, 'insert'>, id: string, entry: AuditEntry): boolean {
+  return db.insert(auditLog).values(auditValues(entry, id)).onConflictDoNothing()
+    .returning({id:auditLog.id}).get() !== undefined
 }
 
 /**
@@ -149,12 +181,25 @@ export interface SnapshotVisibilityProject {
   aliases?: string | string[] | null
 }
 
+/** A stored answer as the read-time mention helpers read it. */
+export interface SnapshotMentionInput {
+  answerMentioned?: boolean | null
+  answerText?: string | null
+  /**
+   * Sentiment's stored identity verdict; `wrong-subject` keeps a name match
+   * from counting. Required so a reader cannot silently skip it.
+   */
+  mentionIdentity: MentionIdentity | null
+}
+
 function resolveSnapshotMentionResult(
-  snapshot: { answerMentioned?: boolean | null; answerText?: string | null },
+  snapshot: SnapshotMentionInput,
   project: SnapshotVisibilityProject,
 ): { mentioned: boolean; matchedTerms: string[] } {
   // Prefer recomputing from answerText so mentioned and matchedTerms always
-  // derive from the same source of truth (no contradiction possible).
+  // derive from the same source of truth. The one exception is sentiment's
+  // `wrong-subject` verdict: the terms the answer wrote stay listed, and
+  // `mentionIdentity` on the DTO says why they do not count.
   if (snapshot.answerText) {
     const domains = effectiveDomains({
       canonicalDomain: project.canonicalDomain,
@@ -164,7 +209,8 @@ function resolveSnapshotMentionResult(
       displayName: project.displayName,
       aliases: normalizeOwnedDomains(project.aliases),
     })
-    return extractAnswerMentions(snapshot.answerText, brandNames, domains)
+    const matched = extractAnswerMentions(snapshot.answerText, brandNames, domains)
+    return { mentioned: countsAsMention(matched.mentioned, snapshot.mentionIdentity), matchedTerms: matched.matchedTerms }
   }
   // Legacy fallback: answerText was not stored; use the persisted boolean if available.
   // matchedTerms cannot be derived without text, so return [] — no contradiction.
@@ -175,14 +221,14 @@ function resolveSnapshotMentionResult(
 }
 
 export function resolveSnapshotAnswerMentioned(
-  snapshot: { answerMentioned?: boolean | null; answerText?: string | null },
+  snapshot: SnapshotMentionInput,
   project: SnapshotVisibilityProject,
 ): boolean {
   return resolveSnapshotMentionResult(snapshot, project).mentioned
 }
 
 export function resolveSnapshotVisibilityState(
-  snapshot: { answerMentioned?: boolean | null; answerText?: string | null },
+  snapshot: SnapshotMentionInput,
   project: SnapshotVisibilityProject,
 ): VisibilityState {
   return visibilityStateFromAnswerMentioned(resolveSnapshotMentionResult(snapshot, project).mentioned)
@@ -195,14 +241,14 @@ export function resolveSnapshotVisibilityState(
  * `Visibility` variant.
  */
 export function resolveSnapshotMentionState(
-  snapshot: { answerMentioned?: boolean | null; answerText?: string | null },
+  snapshot: SnapshotMentionInput,
   project: SnapshotVisibilityProject,
 ): MentionState {
   return mentionStateFromAnswerMentioned(resolveSnapshotMentionResult(snapshot, project).mentioned)
 }
 
 export function resolveSnapshotMatchedTerms(
-  snapshot: { answerMentioned?: boolean | null; answerText?: string | null },
+  snapshot: SnapshotMentionInput,
   project: SnapshotVisibilityProject,
 ): string[] {
   return resolveSnapshotMentionResult(snapshot, project).matchedTerms

@@ -1,5 +1,5 @@
 {
-  "name": "@ainyc/canonry-provider-gemini",
+  "name": "@canonry/canonry-provider-gemini",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -12,12 +12,12 @@
   },
   "types": "./src/index.ts",
   "scripts": {
-    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck": "node ../../scripts/typecheck.mjs --noEmit -p tsconfig.json",
     "test": "vitest run --config ../../vitest.package.config.ts",
-    "lint": "eslint src/ test/"
+    "lint": "oxlint -c ../../.oxlintrc.json --type-aware src/ test/"
   },
   "dependencies": {
-    "@ainyc/canonry-contracts": "workspace:*",
-    "@google/genai": "^1.46.0"
+    "@canonry/canonry-contracts": "workspace:*",
+    "@google/genai": "^2.30.0"
   }
 }

@@ -1,5 +1,5 @@
 import React, { useId, useState } from 'react'
-import { formatPercent, RatioUnits } from '@ainyc/canonry-contracts'
+import { formatPercent, RatioUnits } from '@canonry/canonry-contracts'
 import type { ProjectCommandCenterVm } from '../../view-models.js'
 import { splitPercentSign } from '../../lib/format-helpers.js'
 import { METRIC_TONE_TEXT_CLASS } from '../../lib/tone-helpers.js'
@@ -51,12 +51,12 @@ export function mentionClassFigures(
     return { headline: 'No data', numeric: false, detail: 'could not load, refresh to retry', showRows: false }
   }
   if (opts.noRun) {
-    return { headline: 'No data', numeric: false, detail: 'no sweep has run yet', showRows: false }
+    return { headline: 'No data', numeric: false, detail: 'no check has run yet', showRows: false }
   }
   if (breakdown.snapshotsTotal === 0) {
     // "none tracked" is only true when NOTHING is tracked. A basket that is
     // entirely branded has real snapshots one click away, and the server says
-    // so — `buildMentionShare` returns the value 'No non-brand queries' for
+    // so: `buildMentionShare` returns the value 'No non-brand queries' for
     // exactly this case. Saying "none tracked" there contradicts the control
     // sitting beside it.
     return opts.otherClassHasData
@@ -137,7 +137,7 @@ function MentionShareRows({
       <tbody className="mention-share-rows">
         {rows.map(row => (
           <tr key={row.label} className="mention-share-row">
-            <th scope="row" className={`mention-share-row-label ${row.isYou ? 'text-heading font-medium' : 'text-secondary'}`}>
+            <th scope="row" className={`mention-share-row-label ${row.isYou ? 'text-heading text-label-14-strong' : 'text-secondary'}`}>
               {row.label}
             </th>
             <td aria-hidden="true">

@@ -1,48 +1,72 @@
-import type { ReferralAssessment, ReferralAssessmentQuery } from '@ainyc/canonry-contracts'
-import { getApiV1ProjectsByNameTrafficReferralAssessment } from '@ainyc/canonry-api-client'
+import type { McpProfileDto } from '@canonry/canonry-contracts'
+import { getApiV1McpProfile } from '@canonry/canonry-api-client'
+import type { JourneyDetailQuery, JourneyDetailResponse, JourneySummaryQuery, JourneySummaryResponse, JourneysQuery, JourneysResponse } from '@canonry/canonry-contracts'
+import { getApiV1ProjectsByNameJourneys, getApiV1ProjectsByNameJourneysByVisitorKey, getApiV1ProjectsByNameJourneysSummary } from '@canonry/canonry-api-client'
+
+import { getApiV1ProjectsByNameGbpLocalPostAttempt } from '@canonry/canonry-api-client'
+import type { GbpLocalPostList, GbpLocalPostDto, GbpLocalPostCreate, GbpLocalPostAttempt, GbpLiveReviews } from '@canonry/canonry-contracts'
+import { getApiV1ProjectsByNameGbpLocalPosts, getApiV1ProjectsByNameGbpLocalPost, getApiV1ProjectsByNameGbpReviewsLive, postApiV1ProjectsByNameGbpLocalPosts } from '@canonry/canonry-api-client'
+import type { TrafficSamplesQuery, TrafficSamplesResponse } from '@canonry/canonry-contracts'
+import type { SeoOperatorTask, SeoReconcileInput, SeoReconcileResult } from '@canonry/canonry-contracts'
+import { getApiV1SeoOperatorTasksById, postApiV1SeoOperatorTasksByIdReconcile } from '@canonry/canonry-api-client'
+import type { SeoContext, SeoStatus, SeoProfileList, SeoProfile, SeoQuote, SeoRun, SeoRunList, SeoRunDetail, SeoOverview, SeoKeywordMetricsList, SeoDomainIntelligenceList, SeoRankedKeywordList, SeoMarketRankingList, SeoMarketRankingQuery, SeoMarketRankingSummary, SeoMarketRankingSummaryQuery, SeoProfileInput, SeoRefreshIntentInput, SeoSyncInput, SeoEvidenceQuery } from '@canonry/canonry-contracts'
+import { getApiV1ProjectsByNameSeoContext, getApiV1ProjectsByNameSeoStatus, getApiV1ProjectsByNameSeoProfiles, getApiV1ProjectsByNameSeoProfilesById, putApiV1ProjectsByNameSeoProfilesById, postApiV1ProjectsByNameSeoRefreshIntents, postApiV1ProjectsByNameSeoSync, getApiV1ProjectsByNameSeoRuns, getApiV1ProjectsByNameSeoRunsById, postApiV1ProjectsByNameSeoRunsByIdCancel, getApiV1ProjectsByNameSeoOverview, getApiV1ProjectsByNameSeoKeywordMetrics, getApiV1ProjectsByNameSeoDomainIntelligence, getApiV1ProjectsByNameSeoRankedKeywords, getApiV1ProjectsByNameSeoMarketRankings, getApiV1ProjectsByNameSeoMarketRankingsSummary } from '@canonry/canonry-api-client'
+import { getApiV1ProjectsByNameTrafficSamples } from '@canonry/canonry-api-client'
+
+import type { GaAcquisitionQuery, GaAcquisitionResponse } from '@canonry/canonry-contracts'
+import { getApiV1ProjectsByNameGaAcquisition } from '@canonry/canonry-api-client'
+import type { AuditHistoryOptions } from '@canonry/canonry-contracts'
+import type { ReferralAssessment, ReferralAssessmentQuery } from '@canonry/canonry-contracts'
+import { getApiV1ProjectsByNameTrafficReferralAssessment } from '@canonry/canonry-api-client'
+import { getApiV1ProjectsByNameCompetitorSuggestions } from '@canonry/canonry-api-client'
+import { postApiV1ProjectsByNameCompetitorChangesPreview } from '@canonry/canonry-api-client'
 
 import type { z } from 'zod'
 import type {
   SentimentBackfillSelection, sentimentSettingsUpdateSchema, sentimentEvidenceRequestSchema, sentimentSummaryRequestSchema,
   sentimentCompareRequestSchema, sentimentBackfillRequestSchema, sentimentJobRequestSchema, SentimentSummaryRead, SentimentSettingsRead,
   SentimentEvidencePageRead, SentimentComparisonRead, SentimentBackfillPreviewRead, SentimentJobRead, SentimentJobsRead,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   sentimentSummaryReadSchema, sentimentSettingsReadSchema, sentimentEvidencePageReadSchema, sentimentComparisonReadSchema,
   sentimentBackfillPreviewReadSchema, sentimentJobReadSchema, sentimentJobsReadSchema,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   getApiV1ProjectsByNameSentiment, getApiV1ProjectsByNameSentimentSettings, putApiV1ProjectsByNameSentimentSettings,
   getApiV1ProjectsByNameSentimentEvidence, getApiV1ProjectsByNameSentimentCompare, getApiV1ProjectsByNameSentimentBackfillPreview,
   postApiV1ProjectsByNameSentimentBackfills, getApiV1ProjectsByNameSentimentJobs, getApiV1ProjectsByNameSentimentJobsByJobId,
-} from '@ainyc/canonry-api-client'
-import type { AgentConversation, AgentConversationList, AgentConversationDelete } from '@ainyc/canonry-contracts'
-import type { RunCompletenessDto, RunFillRequest, RunFillResponseDto } from '@ainyc/canonry-contracts'
-import { getApiV1ProjectsByNameAgentConversations, getApiV1ProjectsByNameAgentConversationsById, postApiV1ProjectsByNameAgentConversations, postApiV1ProjectsByNameAgentConversationsByIdResume, deleteApiV1ProjectsByNameAgentConversationsById } from '@ainyc/canonry-api-client'
+} from '@canonry/canonry-api-client'
+import type { AgentConversation, AgentConversationList, AgentConversationDelete } from '@canonry/canonry-contracts'
+import type { RunCompletenessDto, RunFillRequest, RunFillResponseDto } from '@canonry/canonry-contracts'
+import { getApiV1ProjectsByNameAgentConversations, getApiV1ProjectsByNameAgentConversationsById, postApiV1ProjectsByNameAgentConversations, postApiV1ProjectsByNameAgentConversationsByIdResume, deleteApiV1ProjectsByNameAgentConversationsById } from '@canonry/canonry-api-client'
 import { AsyncLocalStorage } from 'node:async_hooks'
-import { detectAgentRuntime, normalizeAgentSlug, USAGE_TELEMETRY_HEADERS, type UsageSurface } from '@ainyc/canonry-contracts'
+import { detectAgentRuntime, normalizeAgentSlug, USAGE_TELEMETRY_HEADERS, type OutcomeSurface } from '@canonry/canonry-contracts'
 import { CliError, EXIT_SYSTEM_ERROR, EXIT_USER_ERROR } from './cli-error.js'
 import { loadConfig } from './config.js'
 import { connectionFailureMessage, httpErrorDetails, isConnectionFailure, redactRequestTarget } from './client-reliability.js'
 import { PACKAGE_VERSION } from './package-version.js'
-import { getApiV1ProjectsByNameSchedules, getApiV1NotificationsEvents } from '@ainyc/canonry-api-client'
-import type { LogQuery, OperationalLogListDto, NotificationEvent } from '@ainyc/canonry-contracts'
-import { normalizeTelemetryStatus, type TelemetryStatusInput } from '@ainyc/canonry-contracts'
-import { OPERATIONAL_LOG_FIELDS_HEADER, OPERATIONAL_LOG_OPT_IN_CONTEXT_FIELDS, operationalLogListReadSchema } from '@ainyc/canonry-contracts'
-import { getApiV1OperationsLogs } from '@ainyc/canonry-api-client'
+import { getApiV1ProjectsByNameSchedules, getApiV1NotificationsEvents } from '@canonry/canonry-api-client'
+import type { LogQuery, OperationalLogListDto, NotificationEvent } from '@canonry/canonry-contracts'
+import { normalizeTelemetryStatus, type FeedbackAcceptedDto, type FeedbackSubmission, type TelemetryStatusInput } from '@canonry/canonry-contracts'
+import { OPERATIONAL_LOG_FIELDS_HEADER, OPERATIONAL_LOG_OPT_IN_CONTEXT_FIELDS, OPERATION_ACCESS_HEADER, STORED_ONLY_HEADER, OperationAccesses, matchOperationTemplate, operationAccess, operationalLogListReadSchema } from '@canonry/canonry-contracts'
+import { getApiV1OperationsLogs } from '@canonry/canonry-api-client'
 import type {
   VisibilityReportRequest, VisibilityReportResponse,
   QueryTrackingWorkspaceResponse, QueryTrackingPreviewRequest, QueryTrackingPreviewResponse,
   QueryTrackingCommitRequest, QueryTrackingCommitResponse,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   getApiV1ProjectsByNameVisibilityReport, getApiV1ProjectsByNameQueryTracking,
   postApiV1ProjectsByNameQueryTrackingPreview, postApiV1ProjectsByNameQueryTrackingCommit,
-} from '@ainyc/canonry-api-client'
+} from '@canonry/canonry-api-client'
 import type {
   ProjectDto,
   ProjectConfig,
+  ProjectConfigExport,
+  KeywordGenerateResponse,
+  QueryGenerateResponse,
   ProjectUpsertRequest,
+  ProjectPatchRequest,
   RunDto,
   RunDetailDto,
   MeasurementPlanInput,
@@ -55,6 +79,7 @@ import type {
   MeasurementSegmentRetirementResponse,
   MeasurementDiscoveryRequest,
   MeasurementDiscoveryResponse,
+  MeasurementQueryClassFilter,
   MeasurementReportResponse,
   MeasurementSetupResponse,
   MeasurementOverviewQuery,
@@ -82,8 +107,10 @@ import type {
   MeasurementDraftDiffPreviewResponse,
   MeasurementDraftPreviewAssignmentsRequest,
   MeasurementDraftPreviewAssignmentsResponse,
+  MeasurementDraftPreviewMarketRoutingResponse,
   MeasurementDraftPreviewGroupMembershipRequest,
   MeasurementDraftPreviewGroupMembershipResponse,
+  MeasurementDraftRouteMarketsRequest,
   MeasurementDraftReplaceAssignmentsRequest,
   MeasurementPlanV2PublishResponse,
   MeasurementQuerySetDetail,
@@ -92,8 +119,11 @@ import type {
   LatestProjectRunDto,
   SiteAuditScoreDto,
   SiteAuditPagesResponseDto,
+  SiteAuditIssuesResponseDto,
+  SiteAuditIssuePagesResponseDto,
   SiteAuditTrendResponseDto,
   SiteAuditRunResponseDto,
+  SiteAuditRunRequest,
   SiteAuditRunProgressDto,
   SiteCrawlSummaryDto,
   SiteCrawlPagesResponseDto,
@@ -115,17 +145,21 @@ import type {
   BrandMetricsDto,
   CompetitorLandscapeQuery,
   CompetitorLandscapeResponse,
+  CompetitorSuggestionsQuery,
+  CompetitorSuggestionsResponse,
+  CompetitorChangePreviewRequest,
+  CompetitorChangePreviewResponse,
   GapAnalysisDto,
   SourceBreakdownDto,
   VisibilityStatsDto,
   VisibilityCompareDto,
   VisibilityCompareSelection,
   LocationContext,
-  WordpressAuditIssueDto,
-  WordpressAuditPageDto,
+  WordpressAuditDto,
   WordpressBulkMetaResultDto,
   WordpressDiffDto,
   WordpressEnv,
+  WordpressLlmsTxtDto,
   WordpressManualAssistDto,
   WordpressOnboardResultDto,
   WordpressPageDetailDto,
@@ -141,14 +175,18 @@ import type {
   GaTrafficResponse,
   GaCoverageResponse,
   GaMeasurementAnalysisDto,
+  GaSearchLandingPagesResponse,
   GaSocialReferralTrendResponse,
   GaAttributionTrendResponse,
   GA4AiReferralDailyDto,
   GA4AiReferralHistoryEntry,
   GA4SocialReferralHistoryEntry,
   GA4SessionHistoryEntry,
+  GaOverviewResponse,
+  GaOverviewWindow,
   AuditLogEntry,
   GoogleConnectionDto,
+  GoogleOAuthStartResponse,
   GoogleAdsAccessibleCustomersResponse,
   GoogleAdsConnectionStatusDto,
   GoogleAdsCustomerSelectionRequest,
@@ -225,6 +263,7 @@ import type {
   InsightDto,
   HealthSnapshotDto,
   CitationVisibilityResponse,
+  BingCoverageSummaryDto,
   BingCoverageSnapshotDto,
   AgentProvidersResponse,
   BacklinkHistoryEntry,
@@ -243,17 +282,23 @@ import type {
   ContentTargetsResponseDto,
   ContentSourcesResponseDto,
   ContentGapsResponseDto,
+  ContentTargetDismissalDto,
+  ContentTargetDismissalsResponseDto,
+  ContentTargetDismissRequest,
   DomainClassificationsResponseDto,
   RecommendationBriefDto,
   WinnabilityClass,
   CompetitorDto,
+  CompetitorAutoAliasDetectionDto,
+  CompetitorEntry,
   KeywordDto,
   QueryDto,
   ProjectOverviewDto,
   ProjectSearchResponseDto,
   DoctorReportDto,
-  ProjectReportDto,
-  ReportPeriodDays,
+  InstanceStatusDto,
+  TrafficAnalyticsResponse,
+  TrafficAnalyticsPeriodDays,
   OrganicEvidenceDto,
   OrganicEvidencePeriodDays,
   TrafficSourceDto,
@@ -292,8 +337,10 @@ import type {
   ResultsExportFormat,
   IntegrationSettingsSummaryDto,
   ProviderSummaryEntryDto,
+  ProviderReloadRequest,
+  ProviderReloadResponseDto,
   TelemetryStatusDto,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   createClient as createHeyClient,
   type Client,
@@ -308,15 +355,18 @@ import {
   // Projects
   getApiV1Projects,
   getApiV1ProjectsByName,
+  getApiV1Status,
   putApiV1ProjectsByName,
+  patchApiV1ProjectsByName,
   deleteApiV1ProjectsByName,
   getApiV1ProjectsByNameDeletePreview,
   getApiV1ProjectsByNameExport,
   getApiV1ProjectsByNameOverview,
   getApiV1ProjectsByNameSearch,
-  getApiV1ProjectsByNameReport,
+  getApiV1ProjectsByNameTrafficAnalytics,
   getApiV1ProjectsByNameOrganicEvidence,
   postApiV1Apply,
+  postApiV1ApplyPreview,
   // Queries / keywords / competitors
   getApiV1ProjectsByNameQueries,
   putApiV1ProjectsByNameQueries,
@@ -331,6 +381,11 @@ import {
   postApiV1ProjectsByNameKeywordsGenerate,
   getApiV1ProjectsByNameCompetitors,
   postApiV1ProjectsByNameCompetitors,
+  putApiV1ProjectsByNameCompetitorsByDomainAliases,
+  getApiV1ProjectsByNameCompetitorAutoAliases,
+  postApiV1ProjectsByNameCompetitorAutoAliases,
+  postApiV1ProjectsByNameCompetitorsByDomainAliasesBlock,
+  postApiV1ProjectsByNameCompetitorsByDomainAliasesUnblock,
   deleteApiV1ProjectsByNameCompetitors,
   // Runs / timeline / history / snapshots
   getApiV1ProjectsByNameRuns,
@@ -356,9 +411,11 @@ import {
   getApiV1Settings,
   putApiV1SettingsGoogle,
   putApiV1SettingsProvidersByName,
+  postApiV1SettingsProvidersReload,
   postApiV1Snapshot,
   getApiV1Telemetry,
   putApiV1Telemetry,
+  postApiV1Feedback,
   // API key management
   getApiV1Keys,
   getApiV1KeysSelf,
@@ -500,6 +557,7 @@ import {
   getApiV1ProjectsByNameGaProperties,
   getApiV1ProjectsByNameGaStatus,
   getApiV1ProjectsByNameGaMeasurementAnalysis,
+  getApiV1ProjectsByNameGaSearchLandingPages,
   postApiV1ProjectsByNameGaSync,
   getApiV1ProjectsByNameGaTraffic,
   getApiV1ProjectsByNameGaCoverage,
@@ -509,6 +567,7 @@ import {
   getApiV1ProjectsByNameGaSocialReferralTrend,
   getApiV1ProjectsByNameGaAttributionTrend,
   getApiV1ProjectsByNameGaSessionHistory,
+  getApiV1ProjectsByNameGaOverview,
   // Traffic
   postApiV1ProjectsByNameTrafficConnectCloudRun,
   postApiV1ProjectsByNameTrafficConnectWordpress,
@@ -518,6 +577,7 @@ import {
   postApiV1ProjectsByNameTrafficSourcesByIdSync,
   postApiV1ProjectsByNameTrafficSourcesByIdBackfill,
   postApiV1ProjectsByNameTrafficSourcesByIdReset,
+  postApiV1ProjectsByNameTrafficSourcesByIdDeclareGap,
   getApiV1ProjectsByNameTrafficSources,
   getApiV1ProjectsByNameTrafficStatus,
   getApiV1ProjectsByNameTrafficSourcesById,
@@ -536,6 +596,8 @@ import {
   // Technical AEO (site-audit)
   getApiV1ProjectsByNameTechnicalAeo,
   getApiV1ProjectsByNameTechnicalAeoPages,
+  getApiV1ProjectsByNameTechnicalAeoIssues,
+  getApiV1ProjectsByNameTechnicalAeoIssuesByIssueIdPages,
   getApiV1ProjectsByNameTechnicalAeoTrend,
   getApiV1ProjectsByNameTechnicalAeoCrawl,
   getApiV1ProjectsByNameTechnicalAeoChanges,
@@ -574,10 +636,13 @@ import {
   getApiV1ProjectsByNameInsights,
   getApiV1ProjectsByNameInsightsById,
   postApiV1ProjectsByNameInsightsByIdDismiss,
-  // Content / health / search / report / doctor / citation visibility
+  // Content / health / search / doctor / citation visibility
   getApiV1ProjectsByNameContentTargets,
   getApiV1ProjectsByNameContentSources,
   getApiV1ProjectsByNameContentGaps,
+  getApiV1ProjectsByNameContentDismissals,
+  postApiV1ProjectsByNameContentDismissals,
+  deleteApiV1ProjectsByNameContentDismissalsByTargetRef,
   getApiV1ProjectsByNameContentDomainClassifications,
   getApiV1ProjectsByNameContentRecommendationsByTargetRefBrief,
   postApiV1ProjectsByNameContentRecommendationsByTargetRefBrief,
@@ -635,6 +700,8 @@ import {
   postApiV1ProjectsByNameMeasurementPlanDraftActionsPreviewAssignments,
   postApiV1ProjectsByNameMeasurementPlanDraftActionsReplaceAssignments,
   postApiV1ProjectsByNameMeasurementPlanDraftActionsApplyPairedAssignments,
+  postApiV1ProjectsByNameMeasurementPlanDraftActionsPreviewRouteMarkets,
+  postApiV1ProjectsByNameMeasurementPlanDraftActionsRouteMarkets,
   postApiV1ProjectsByNameMeasurementPlanDraftActionsRemoveAssignment,
   postApiV1ProjectsByNameMeasurementPlanDraftActionsClearAssignments,
   postApiV1ProjectsByNameMeasurementPlanDraftActionsClassifyAssignments,
@@ -666,7 +733,7 @@ import {
   type GetApiV1ProjectsByNameMeasurementQueryTemplatesResponse,
   type PostApiV1ProjectsByNameMeasurementPlanDraftActionsDiscardResponse,
   type PostApiV1ProjectsByNameMeasurementPlanActionsDeactivateResponse,
-} from '@ainyc/canonry-api-client'
+} from '@canonry/canonry-api-client'
 import {
   CANONRY_NPM_PACKAGE_URL,
   compareSemver,
@@ -675,7 +742,7 @@ import {
   isStrictSemver,
   upgradeCommandFor,
   type InstallMethod,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 
 /** A newer published canonry, as the connected server reports it on `/health`. */
 export interface ServerUpdateAvailable {
@@ -711,10 +778,11 @@ export function parseServerUpdateAvailable(value: unknown): ServerUpdateAvailabl
 export type { BrandMetricsDto, GapAnalysisDto, SourceBreakdownDto, AuditLogEntry, CompetitorDto, KeywordDto, QueryDto }
 
 /** Settings response from GET /settings. */
-export type SettingsDto = import('@ainyc/canonry-contracts').SettingsDto
+export type SettingsDto = import('@canonry/canonry-contracts').SettingsDto
 
 /** Apply response */
 export type ApplyResultDto = ProjectDto
+export type ApplyPreviewDto = import('@canonry/canonry-contracts').ApplyPreviewDto
 
 export interface ProjectDeletePreviewDto {
   project: { id: string; name: string }
@@ -738,7 +806,7 @@ export interface QueriesReplacePreviewDto {
   snapshotImpact: { affectedQueries: number; snapshotsDetached: number }
 }
 
-/** @deprecated Use `TelemetryStatusDto` from `@ainyc/canonry-contracts`. */
+/** @deprecated Use `TelemetryStatusDto` from `@canonry/canonry-contracts`. */
 export type TelemetryDto = TelemetryStatusDto
 
 /** Aero transcript response from GET /projects/{name}/agent/transcript. Loose shape — messages are pi-agent-core `AgentMessage` union types which we don't re-export here. */
@@ -762,7 +830,7 @@ export interface TimelineDto {
 }
 
 /** Export DTO */
-export interface ExportDto extends ProjectConfig {
+export interface ExportDto extends ProjectConfigExport {
   results?: unknown
 }
 
@@ -810,16 +878,22 @@ export interface DiscoveryRunStartResponse {
  */
 export interface ApiClientOptions {
   skipProbe?: boolean
+  /** Enforce stored evidence only for this client, independently of process flags. */
+  storedOnly?: boolean
+  /** Cancel every request when the owning serving unit ends. */
+  signal?: AbortSignal
   /** A short, token-safe client identity (for example, `canonry-mcp`). */
   clientName?: string
   /** A bounded opaque operator/session correlation value. */
   actorSession?: string
-  /** Usage-telemetry label for the interface this client serves. Defaults to `cli`. Never identity. */
-  surface?: UsageSurface
+  /** Usage-telemetry label for the interface this client serves. Defaults to `cli`; `system` is the server's scheduler. Never identity. */
+  surface?: OutcomeSurface
 }
 
 /** Per-call usage labels, e.g. the MCP tool that issued the requests. */
 export interface UsageTags {
+  /** Cancellation belongs to this call, including clients reused by legacy sessions. */
+  signal?: AbortSignal
   mcpTool?: string
   mcpCall?: string
   mcpClient?: string
@@ -836,6 +910,36 @@ const usageTagStore = new AsyncLocalStorage<UsageTags>()
 export function runWithUsageTags<T>(client: unknown, tags: UsageTags, fn: () => Promise<T>): Promise<T> {
   if (!(client instanceof ApiClient)) return fn()
   return usageTagStore.run(tags, fn)
+}
+
+/** Classify a request before the HTTP client can open a socket. */
+export function classifyStoredOnlyRequest(method: string, url: string): { operation: string; access: ReturnType<typeof operationAccess> } {
+  const operation = matchOperationTemplate(method, url)
+  const separator = operation.indexOf(' ')
+  return {
+    operation,
+    access: operationAccess(operation.slice(0, separator), operation.slice(separator + 1), OperationAccesses.live),
+  }
+}
+
+function storedOnlyRequestHeaders(method: string, url: string, storedOnly = false): Record<string, string> {
+  if (!storedOnly && !['1', 'true'].includes((process.env.CANONRY_STORED_ONLY ?? '').toLowerCase())) return {}
+  const { operation, access } = classifyStoredOnlyRequest(method, url)
+  if (access !== OperationAccesses.stored) {
+    throw new CliError({
+      code: 'STORED_ONLY_REFUSED',
+      message: `Stored-only mode refuses ${access} operation ${operation}`,
+      details: { operation, access },
+      exitCode: EXIT_USER_ERROR,
+    })
+  }
+  return { [STORED_ONLY_HEADER]: '1' }
+}
+
+function storedOnlyProbeHeaders(storedOnly = false): Record<string, string> {
+  return storedOnly || ['1', 'true'].includes((process.env.CANONRY_STORED_ONLY ?? '').toLowerCase())
+    ? { [STORED_ONLY_HEADER]: '1' }
+    : {}
 }
 
 const SAFE_CLIENT_NAME = /^\w[\w./-]{0,127}$/
@@ -873,8 +977,8 @@ export function createApiClient(opts: ApiClientOptions = {}): ApiClient {
 type SdkResult = {
   data?: unknown
   error?: unknown
-  request: Request
-  response: Response
+  request?: Request
+  response?: Response
 }
 
 type MeasurementPlanDraftCreateRequest = Parameters<typeof postApiV1ProjectsByNameMeasurementPlanDraftActionsCreate>[0]['body']
@@ -947,6 +1051,8 @@ export class ApiClient {
   private apiKey: string
   private probePromise: Promise<void> | null = null
   private probeSkipped: boolean
+  private readonly storedOnly: boolean
+  private readonly signal?: AbortSignal
   private heyClient: Client
   private readonly requestHeaders: Record<string, string>
   /** Tracks the base URL most recently applied to `heyClient` so probe-driven updates only re-configure when something actually changed. */
@@ -956,6 +1062,8 @@ export class ApiClient {
     this.originUrl = baseUrl.replace(/\/$/, '')
     this.apiKey = apiKey
     this.probeSkipped = opts?.skipProbe ?? false
+    this.storedOnly = opts?.storedOnly === true
+    this.signal = opts?.signal
     this.heyClientBaseUrl = this.originUrl
     const actorSession = safeActorSession(opts?.actorSession)
     const surface = opts?.surface ?? 'cli'
@@ -972,6 +1080,7 @@ export class ApiClient {
     }
     this.heyClient = createHeyClient({ baseUrl: this.originUrl, apiKey: this.apiKey, headers: this.requestHeaders })
     this.heyClient.interceptors.request.use((request) => {
+      for (const [key, value] of Object.entries(storedOnlyRequestHeaders(request.method, request.url.toString(), this.storedOnly))) request.headers.set(key, value)
       const tags = usageTagStore.getStore()
       if (tags?.mcpTool) request.headers.set(USAGE_TELEMETRY_HEADERS.mcpTool, tags.mcpTool)
       if (tags?.mcpCall) request.headers.set(USAGE_TELEMETRY_HEADERS.mcpCall, tags.mcpCall)
@@ -979,8 +1088,14 @@ export class ApiClient {
       // control character would make Headers.set throw and fail the tool call.
       const mcpClient = normalizeAgentSlug(tags?.mcpClient)
       if (mcpClient) request.headers.set(USAGE_TELEMETRY_HEADERS.mcpClient, mcpClient)
-      return request
+      return this.signal || tags?.signal ? new Request(request, { signal: this.requestSignal(request.signal) }) : request
     })
+  }
+
+  private requestSignal(signal?: AbortSignal): AbortSignal | undefined {
+    const signals = [this.signal, usageTagStore.getStore()?.signal, signal]
+      .filter((entry): entry is AbortSignal => entry !== undefined)
+    return signals.length > 1 ? AbortSignal.any(signals) : signals[0]
   }
 
   /**
@@ -996,7 +1111,8 @@ export class ApiClient {
         try {
           const origin = new URL(this.originUrl).origin
           const res = await fetch(`${origin}/health`, {
-            signal: AbortSignal.timeout(2000),
+            headers: storedOnlyProbeHeaders(this.storedOnly),
+            signal: this.requestSignal(AbortSignal.timeout(2000)),
           })
           if (res.ok) {
             const body = (await res.json()) as { basePath?: string }
@@ -1037,9 +1153,13 @@ export class ApiClient {
     const traceEnabled = process.env.CANONRY_TRACE === '1'
     const traceStart = traceEnabled ? Date.now() : 0
 
-    let result: SdkResult
+    let result: SdkResult & { request: Request; response: Response }
     try {
-      result = await call()
+      const received = await call()
+      if (!received.request || !received.response || received.error instanceof Error) {
+        throw received.error ?? new Error('API request failed before receiving a response')
+      }
+      result = { ...received, request: received.request, response: received.response }
     } catch (err) {
       if (err instanceof CliError) throw err
       const msg = describeError(err)
@@ -1051,6 +1171,7 @@ export class ApiClient {
           code: 'CONNECTION_ERROR',
           message: connectionFailureMessage(this.originUrl),
           exitCode: EXIT_SYSTEM_ERROR,
+          details: { connectionUnavailable: true },
         })
       }
       throw new CliError({ code: 'CONNECTION_ERROR', message: msg, exitCode: EXIT_SYSTEM_ERROR })
@@ -1059,7 +1180,7 @@ export class ApiClient {
     if (traceEnabled) {
       const durMs = Date.now() - traceStart
       process.stderr.write(
-        `[trace] ${result.request.method} ${redactRequestTarget(result.request.url)} → ${result.response.status} (${durMs}ms)\n`,
+        `[trace] ${result.request.method} ${redactRequestTarget(result.request.url)} → ${result.response.status} (${durMs}ms) access=${result.response.headers.get(OPERATION_ACCESS_HEADER) ?? 'unknown'}\n`,
       )
     }
 
@@ -1199,17 +1320,21 @@ export class ApiClient {
    * and releases the response when done.
    */
   async streamPost(path: string, body: unknown, signal?: AbortSignal): Promise<Response> {
+    const candidateUrl = `${this.originUrl}/api/v1${path}`
+    const storedOnlyHeaders = storedOnlyRequestHeaders('POST', candidateUrl, this.storedOnly)
     await this.probeBasePath()
     const url = `${this.originUrl}/api/v1${path}`
     const headers: Record<string, string> = {
       ...this.requestHeaders,
+      ...storedOnlyHeaders,
       'Content-Type': 'application/json',
       Accept: 'text/event-stream',
     }
 
     let res: Response
     try {
-      res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body ?? {}), signal })
+      res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body ?? {}),
+        signal: this.requestSignal(signal) })
     } catch (err) {
       if (err instanceof CliError) throw err
       const msg = describeError(err)
@@ -1251,6 +1376,12 @@ export class ApiClient {
     )
   }
 
+  async patchProject(name: string, body: ProjectPatchRequest): Promise<ProjectDto> {
+    return this.invoke<ProjectDto>(() =>
+      patchApiV1ProjectsByName({ client: this.heyClient, path: { name }, body: body as never }),
+    )
+  }
+
   async listProjects(): Promise<ProjectDto[]> {
     return this.invoke<ProjectDto[]>(() => getApiV1Projects({ client: this.heyClient }))
   }
@@ -1269,20 +1400,32 @@ export class ApiClient {
     )
   }
 
-  async getStatus(project: string): Promise<ProjectDto> {
-    return this.invoke<ProjectDto>(() =>
-      getApiV1ProjectsByName({ client: this.heyClient, path: { name: project } }),
+  async getMcpProfile(): Promise<McpProfileDto> {
+    return this.invoke<McpProfileDto>(() => getApiV1McpProfile({ client: this.heyClient }))
+  }
+
+  async getStatus(opts?: { project?: string; problems?: boolean }): Promise<InstanceStatusDto> {
+    return this.invoke<InstanceStatusDto>(() =>
+      getApiV1Status({ client: this.heyClient, query: { project: opts?.project, problems: opts?.problems } }),
     )
   }
 
-  async getExport(project: string): Promise<ExportDto> {
+  async getExport(project: string, opts?: { includeSecrets?: boolean }): Promise<ExportDto> {
     return this.invoke<ExportDto>(() =>
-      getApiV1ProjectsByNameExport({ client: this.heyClient, path: { name: project } }),
+      getApiV1ProjectsByNameExport({
+        client: this.heyClient,
+        path: { name: project },
+        query: { includeSecrets: opts?.includeSecrets },
+      }),
     )
   }
 
   async apply(config: ProjectConfig): Promise<ApplyResultDto> {
     return this.invoke<ApplyResultDto>(() => postApiV1Apply({ client: this.heyClient, body: config as never }))
+  }
+
+  async previewApply(config: ProjectConfig): Promise<ApplyPreviewDto> {
+    return this.invoke<ApplyPreviewDto>(() => postApiV1ApplyPreview({ client: this.heyClient, body: config as never }))
   }
 
   async getProjectOverview(
@@ -1304,16 +1447,6 @@ export class ApiClient {
         client: this.heyClient,
         path: { name: project },
         query: { q: opts.q, limit: opts.limit !== undefined ? String(opts.limit) : undefined } as never,
-      }),
-    )
-  }
-
-  async getReport(project: string, opts?: { period?: ReportPeriodDays }): Promise<ProjectReportDto> {
-    return this.invoke<ProjectReportDto>(() =>
-      getApiV1ProjectsByNameReport({
-        client: this.heyClient,
-        path: { name: project },
-        ...(opts?.period !== undefined && { query: { period: opts.period } }),
       }),
     )
   }
@@ -1342,13 +1475,15 @@ export class ApiClient {
     if (opts.until) params.set('until', opts.until)
     if (opts.includeProbes) params.set('includeProbes', 'true')
     const url = `${this.originUrl}/api/v1/projects/${encodeURIComponent(project)}/results/export?${params.toString()}`
+    const storedOnlyHeaders = storedOnlyRequestHeaders('GET', url, this.storedOnly)
 
     let res: Response
     try {
       // The shared headers carry the surface label; without them a CLI export
       // is indistinguishable from a raw API caller in usage telemetry.
       res = await fetch(url, {
-        headers: { ...this.requestHeaders },
+        headers: { ...this.requestHeaders, ...storedOnlyHeaders },
+        signal: this.requestSignal(),
       })
     } catch (err) {
       const message = describeError(err)
@@ -1415,18 +1550,19 @@ export class ApiClient {
     )
   }
 
-  async appendQueries(project: string, queries: string[]): Promise<void> {
-    await this.invoke<unknown>(() =>
+  /** Appends (existing texts are skipped) and returns the project's full query list, each row with its `queryClass`. */
+  async appendQueries(project: string, queries: string[]): Promise<QueryDto[]> {
+    return this.invoke<QueryDto[]>(() =>
       postApiV1ProjectsByNameQueries({ client: this.heyClient, path: { name: project }, body: { queries } }),
     )
   }
 
-  async generateQueries(project: string, provider: string, count?: number): Promise<{ queries: string[]; provider: string }> {
-    return this.invoke<{ queries: string[]; provider: string }>(() =>
+  async generateQueries(project: string, provider: string, count?: number): Promise<QueryGenerateResponse> {
+    return this.invoke<QueryGenerateResponse>(() =>
       postApiV1ProjectsByNameQueriesGenerate({
         client: this.heyClient,
         path: { name: project },
-        body: { provider, count } as never,
+        body: { provider, count },
       }),
     )
   }
@@ -1455,12 +1591,12 @@ export class ApiClient {
     )
   }
 
-  async generateKeywords(project: string, provider: string, count?: number): Promise<{ keywords: string[]; provider: string }> {
-    return this.invoke<{ keywords: string[]; provider: string }>(() =>
+  async generateKeywords(project: string, provider: string, count?: number): Promise<KeywordGenerateResponse> {
+    return this.invoke<KeywordGenerateResponse>(() =>
       postApiV1ProjectsByNameKeywordsGenerate({
         client: this.heyClient,
         path: { name: project },
-        body: { provider, count } as never,
+        body: { provider, count },
       }),
     )
   }
@@ -1471,12 +1607,76 @@ export class ApiClient {
     )
   }
 
-  async appendCompetitors(project: string, competitors: string[]): Promise<CompetitorDto[]> {
+  async suggestCompetitors(project: string, query: CompetitorSuggestionsQuery = {}): Promise<CompetitorSuggestionsResponse> {
+    return this.invoke<CompetitorSuggestionsResponse>(() =>
+      getApiV1ProjectsByNameCompetitorSuggestions({
+        client: this.heyClient,
+        path: { name: project },
+        query,
+      }),
+    )
+  }
+
+  async previewCompetitorChange(project: string, request: CompetitorChangePreviewRequest): Promise<CompetitorChangePreviewResponse> {
+    return this.invoke<CompetitorChangePreviewResponse>(() =>
+      postApiV1ProjectsByNameCompetitorChangesPreview({ client: this.heyClient, path: { name: project }, body: request }),
+    )
+  }
+
+  /** Each entry is a domain or `{ domain, aliases }`; stated aliases are added to that competitor's list. */
+  async appendCompetitors(project: string, competitors: CompetitorEntry[], options?: { acknowledgeBulkAdd?: boolean }): Promise<CompetitorDto[]> {
     return this.invoke<CompetitorDto[]>(() =>
       postApiV1ProjectsByNameCompetitors({
         client: this.heyClient,
         path: { name: project },
-        body: { competitors },
+        body: { competitors, ...(options?.acknowledgeBulkAdd !== undefined ? { acknowledgeBulkAdd: options.acknowledgeBulkAdd } : {}) },
+      }),
+    )
+  }
+
+  /** Set one competitor's curated aliases exactly (`[]` clears). Returns that competitor. */
+  async setCompetitorAliases(project: string, domain: string, aliases: string[]): Promise<CompetitorDto> {
+    return this.invoke<CompetitorDto>(() =>
+      putApiV1ProjectsByNameCompetitorsByDomainAliases({
+        client: this.heyClient,
+        path: { name: project, domain },
+        body: { aliases },
+      }),
+    )
+  }
+
+  /** Dry run of answer-derived competitor alias detection over stored answers. Writes nothing. */
+  async previewCompetitorAutoAliases(project: string): Promise<CompetitorAutoAliasDetectionDto> {
+    return this.invoke<CompetitorAutoAliasDetectionDto>(() =>
+      getApiV1ProjectsByNameCompetitorAutoAliases({ client: this.heyClient, path: { name: project } }),
+    )
+  }
+
+  /** Run answer-derived competitor alias detection now and store the result. */
+  async applyCompetitorAutoAliases(project: string): Promise<CompetitorAutoAliasDetectionDto> {
+    return this.invoke<CompetitorAutoAliasDetectionDto>(() =>
+      postApiV1ProjectsByNameCompetitorAutoAliases({ client: this.heyClient, path: { name: project } }),
+    )
+  }
+
+  /** Block names from auto-detection for one competitor (a stored auto name among them is removed). */
+  async blockCompetitorAliases(project: string, domain: string, aliases: string[]): Promise<CompetitorDto> {
+    return this.invoke<CompetitorDto>(() =>
+      postApiV1ProjectsByNameCompetitorsByDomainAliasesBlock({
+        client: this.heyClient,
+        path: { name: project, domain },
+        body: { aliases },
+      }),
+    )
+  }
+
+  /** Release blocked names back to auto-detection for one competitor. */
+  async unblockCompetitorAliases(project: string, domain: string, aliases: string[]): Promise<CompetitorDto> {
+    return this.invoke<CompetitorDto>(() =>
+      postApiV1ProjectsByNameCompetitorsByDomainAliasesUnblock({
+        client: this.heyClient,
+        path: { name: project, domain },
+        body: { aliases },
       }),
     )
   }
@@ -1576,12 +1776,17 @@ export class ApiClient {
     )
   }
 
-  async getMeasurementReport(project: string, revision: number, runId?: string): Promise<MeasurementReportResponse> {
+  async getMeasurementReport(
+    project: string,
+    revision: number,
+    runId?: string,
+    queryClass?: MeasurementQueryClassFilter,
+  ): Promise<MeasurementReportResponse> {
     return this.invoke<MeasurementReportResponse>(() =>
       getApiV1ProjectsByNameMeasurementReport({
         client: this.heyClient,
         path: { name: project },
-        query: { revision, runId },
+        query: { revision, runId, ...(queryClass === undefined ? {} : { queryClass }) },
       }),
     )
   }
@@ -1929,6 +2134,35 @@ export class ApiClient {
     )
   }
 
+  async previewMeasurementDraftMarketRouting(
+    project: string,
+    request: MeasurementDraftRouteMarketsRequest,
+  ): Promise<MeasurementDraftPreviewMarketRoutingResponse> {
+    return this.invoke<MeasurementDraftPreviewMarketRoutingResponse>(() =>
+      postApiV1ProjectsByNameMeasurementPlanDraftActionsPreviewRouteMarkets({
+        client: this.heyClient,
+        path: { name: project },
+        body: request,
+      }),
+    )
+  }
+
+  async routeMeasurementDraftMarkets(
+    project: string,
+    request: MeasurementDraftRouteMarketsRequest,
+    idempotencyKey: string,
+    etag?: string,
+  ): Promise<DraftMutationResponse> {
+    return this.invoke<DraftMutationResponse>(() =>
+      postApiV1ProjectsByNameMeasurementPlanDraftActionsRouteMarkets({
+        client: this.heyClient,
+        path: { name: project },
+        body: request,
+        headers: this.measurementDraftMutationHeaders(idempotencyKey, etag) as never,
+      }),
+    )
+  }
+
   async removeMeasurementDraftAssignment(
     project: string,
     request: MeasurementPlanDraftRemoveAssignmentRequest,
@@ -2232,13 +2466,13 @@ export class ApiClient {
     )
   }
 
-  async listRuns(project: string, limit?: number, kind?: string, status?: string): Promise<RunDto[]> {
+  async listRuns(project: string, limit?: number, kind?: string, status?: string, excludeKind?: string, excludeKinds?: string[], since?: string): Promise<RunDto[]> {
     return this.invoke<RunDto[]>(() =>
       getApiV1ProjectsByNameRuns({
         client: this.heyClient,
         path: { name: project },
-        // kind/status arrive as free CLI strings; the server validates them against the enums.
-        query: { limit, kind, status } as GetApiV1ProjectsByNameRunsData['query'],
+        // Filters arrive as free CLI strings; the server validates them against the enums.
+        query: { limit, kind, status, excludeKind, excludeKinds, since } as GetApiV1ProjectsByNameRunsData['query'],
       }),
     )
   }
@@ -2273,7 +2507,7 @@ export class ApiClient {
 
   async getHistory(
     project: string,
-    opts?: { limit?: number; offset?: number; since?: string; action?: string; actor?: string; entityType?: string },
+    opts?: AuditHistoryOptions,
   ): Promise<AuditLogEntry[]> {
     return this.invoke<AuditLogEntry[]>(() =>
       getApiV1ProjectsByNameHistory({ client: this.heyClient, path: { name: project }, query: opts }),
@@ -2281,7 +2515,7 @@ export class ApiClient {
   }
 
   async getGlobalHistory(
-    opts?: { limit?: number; offset?: number; since?: string; action?: string; actor?: string; entityType?: string },
+    opts?: AuditHistoryOptions,
   ): Promise<AuditLogEntry[]> {
     return this.invoke<AuditLogEntry[]>(() =>
       getApiV1History({ client: this.heyClient, query: opts }),
@@ -2313,12 +2547,13 @@ export class ApiClient {
 
   // ── Analytics ───────────────────────────────────────────────────────────
 
-  async getAnalyticsMetrics(project: string, window?: string): Promise<BrandMetricsDto> {
+  /** `queryClass` reads branded or non-brand answers only; omitted pools both (server default). */
+  async getAnalyticsMetrics(project: string, window?: string, queryClass?: 'all' | 'branded' | 'non-brand'): Promise<BrandMetricsDto> {
     return this.invoke<BrandMetricsDto>(() =>
       getApiV1ProjectsByNameAnalyticsMetrics({
         client: this.heyClient,
         path: { name: project },
-        query: { window } as never,
+        query: { window, queryClass } as never,
       }),
     )
   }
@@ -2396,9 +2631,10 @@ export class ApiClient {
    * never run the CLI about a newer release.
    */
   async getServerUpdateAvailable(): Promise<ServerUpdateAvailable | null> {
+    if (storedOnlyProbeHeaders(this.storedOnly)[STORED_ONLY_HEADER]) return null
     try {
       await this.probeBasePath()
-      const res = await fetch(`${this.originUrl}/health`, { signal: AbortSignal.timeout(2000) })
+      const res = await fetch(`${this.originUrl}/health`, { signal: this.requestSignal(AbortSignal.timeout(2000)) })
       if (!res.ok) return null
       const body = (await res.json()) as { updateAvailable?: unknown }
       return parseServerUpdateAvailable(body?.updateAvailable)
@@ -2443,13 +2679,19 @@ export class ApiClient {
     },
   ): Promise<ProviderSummaryEntryDto> {
     return this.invoke<ProviderSummaryEntryDto>(() =>
-      putApiV1SettingsProvidersByName({ client: this.heyClient, path: { name } as never, body }),
+      putApiV1SettingsProvidersByName({ client: this.heyClient, path: { name }, body }),
     )
   }
 
   async updateGoogleSettings(body: { clientId: string; clientSecret: string }): Promise<IntegrationSettingsSummaryDto> {
     return this.invoke<IntegrationSettingsSummaryDto>(() =>
       putApiV1SettingsGoogle({ client: this.heyClient, body }),
+    )
+  }
+
+  async reloadProviders(body: ProviderReloadRequest = {}, signal?: AbortSignal): Promise<ProviderReloadResponseDto> {
+    return this.invoke<ProviderReloadResponseDto>(() =>
+      postApiV1SettingsProvidersReload({ client: this.heyClient, body, signal }),
     )
   }
 
@@ -2477,6 +2719,11 @@ export class ApiClient {
 
   async updateTelemetry(enabled: boolean): Promise<TelemetryDto> {
     return normalizeTelemetryStatus(await this.invoke<TelemetryStatusInput>(() => putApiV1Telemetry({ client: this.heyClient, body: { enabled } })))
+  }
+
+  /** Forward product feedback about Canonry to canonry.ai through the server. */
+  async sendFeedback(body: FeedbackSubmission): Promise<FeedbackAcceptedDto> {
+    return this.invoke<FeedbackAcceptedDto>(() => postApiV1Feedback({ client: this.heyClient, body }))
   }
 
   // ── Schedules / notifications / locations ───────────────────────────────
@@ -2585,8 +2832,8 @@ export class ApiClient {
   async googleConnect(
     project: string,
     body: { type: string; propertyId?: string; publicUrl?: string },
-  ): Promise<{ authUrl: string; redirectUri?: string }> {
-    return this.invoke<{ authUrl: string; redirectUri?: string }>(() =>
+  ): Promise<GoogleOAuthStartResponse> {
+    return this.invoke<GoogleOAuthStartResponse>(() =>
       postApiV1ProjectsByNameGoogleConnect({
         client: this.heyClient,
         path: { name: project },
@@ -2917,6 +3164,21 @@ export class ApiClient {
   }
 
   // Google Business Profile (Phase 1: auth + discovery)
+  async listGbpLocalPosts(project: string, query: {accountName:string;locationName:string;pageToken?:string}): Promise<GbpLocalPostList> {
+    return this.invoke<GbpLocalPostList>(() => getApiV1ProjectsByNameGbpLocalPosts({client:this.heyClient,path:{name:project},query}))
+  }
+  async getGbpLocalPost(project: string, postName: string): Promise<GbpLocalPostDto> {
+    return this.invoke<GbpLocalPostDto>(() => getApiV1ProjectsByNameGbpLocalPost({client:this.heyClient,path:{name:project},query:{postName}}))
+  }
+  async getGbpLocalPostAttempt(project:string,attemptId:string,packageId:string):Promise<GbpLocalPostAttempt>{
+    return this.invoke<GbpLocalPostAttempt>(()=>getApiV1ProjectsByNameGbpLocalPostAttempt({client:this.heyClient,path:{name:project},query:{attemptId,packageId}}))
+  }
+  async createGbpLocalPost(project: string, body: GbpLocalPostCreate): Promise<GbpLocalPostAttempt> {
+    return this.invoke<GbpLocalPostAttempt>(() => postApiV1ProjectsByNameGbpLocalPosts({client:this.heyClient,path:{name:project},body}))
+  }
+  async readGbpReviewsLive(project: string, query: {accountName:string;locationName:string}): Promise<GbpLiveReviews> {
+    return this.invoke<GbpLiveReviews>(() => getApiV1ProjectsByNameGbpReviewsLive({client:this.heyClient,path:{name:project},query}))
+  }
   async listGbpAccounts(project: string): Promise<GbpAccountListResponse> {
     return this.invoke<GbpAccountListResponse>(() =>
       getApiV1ProjectsByNameGbpAccounts({
@@ -3528,8 +3790,8 @@ export class ApiClient {
     )
   }
 
-  async bingCoverage(project: string): Promise<object> {
-    return this.invoke<object>(() =>
+  async bingCoverage(project: string): Promise<BingCoverageSummaryDto> {
+    return this.invoke<BingCoverageSummaryDto>(() =>
       getApiV1ProjectsByNameBingCoverage({ client: this.heyClient, path: { name: project } }),
     )
   }
@@ -3641,6 +3903,10 @@ export class ApiClient {
     )
   }
 
+  async gaAcquisition(project: string, query?: GaAcquisitionQuery): Promise<GaAcquisitionResponse> {
+    return this.invoke<GaAcquisitionResponse>(() => getApiV1ProjectsByNameGaAcquisition({ client: this.heyClient, path: { name: project }, query }))
+  }
+
   async gaMeasurementAnalysis(
     project: string,
     params?: Record<string, string>,
@@ -3654,12 +3920,31 @@ export class ApiClient {
     )
   }
 
+  /**
+   * One stored window of GA4's Search Console landing-page report
+   * (`window`, `limit`, `offset`). Its `total` is GA4's own Total row.
+   */
+  async gaSearchLandingPages(
+    project: string,
+    params?: Record<string, string>,
+  ): Promise<GaSearchLandingPagesResponse> {
+    return this.invoke<GaSearchLandingPagesResponse>(() =>
+      getApiV1ProjectsByNameGaSearchLandingPages({
+        client: this.heyClient,
+        path: { name: project },
+        query: params as never,
+      }),
+    )
+  }
+
   async gaSync(project: string, body?: { days?: number; only?: string }): Promise<GaSyncResponse> {
     return this.invoke<GaSyncResponse>(() =>
       postApiV1ProjectsByNameGaSync({
         client: this.heyClient,
         path: { name: project },
-        body: body ?? {},
+        // `--only` is forwarded verbatim: the server validates it against
+        // `gaSyncOnlySchema` and names the accepted values in its 400.
+        body: (body ?? {}) as never,
       }),
     )
   }
@@ -3719,6 +4004,16 @@ export class ApiClient {
   async gaAttributionTrend(project: string): Promise<GaAttributionTrendResponse> {
     return this.invoke<GaAttributionTrendResponse>(() =>
       getApiV1ProjectsByNameGaAttributionTrend({ client: this.heyClient, path: { name: project } }),
+    )
+  }
+
+  async gaOverview(project: string, window?: GaOverviewWindow): Promise<GaOverviewResponse> {
+    return this.invoke<GaOverviewResponse>(() =>
+      getApiV1ProjectsByNameGaOverview({
+        client: this.heyClient,
+        path: { name: project },
+        query: window ? { window } : undefined,
+      }),
     )
   }
 
@@ -3830,9 +4125,29 @@ export class ApiClient {
     )
   }
 
+  async trafficDeclareGap(project: string, sourceId: string, skippedThroughAt: string): Promise<TrafficSourceDetailDto> {
+    return this.invoke<TrafficSourceDetailDto>(() =>
+      postApiV1ProjectsByNameTrafficSourcesByIdDeclareGap({
+        client: this.heyClient,
+        path: { name: project, id: sourceId },
+        body: { skippedThroughAt },
+      }),
+    )
+  }
+
   async trafficStatus(project: string): Promise<TrafficStatusResponse> {
     return this.invoke<TrafficStatusResponse>(() =>
       getApiV1ProjectsByNameTrafficStatus({ client: this.heyClient, path: { name: project } }),
+    )
+  }
+
+  async getTrafficAnalytics(project: string, period?: TrafficAnalyticsPeriodDays): Promise<TrafficAnalyticsResponse> {
+    return this.invoke<TrafficAnalyticsResponse>(() =>
+      getApiV1ProjectsByNameTrafficAnalytics({
+        client: this.heyClient,
+        path: { name: project },
+        ...(period !== undefined && { query: { period } }),
+      }),
     )
   }
 
@@ -3849,6 +4164,22 @@ export class ApiClient {
     return this.invoke<ReferralAssessment>(() => getApiV1ProjectsByNameTrafficReferralAssessment({
       client: this.heyClient, path: { name: project }, query,
     }))
+  }
+
+  async trafficListSamples(project: string, query?: TrafficSamplesQuery): Promise<TrafficSamplesResponse> {
+    return this.invoke<TrafficSamplesResponse>(() => getApiV1ProjectsByNameTrafficSamples({ client: this.heyClient, path: { name: project }, query }))
+  }
+
+  async journeysSummary(project: string, query?: JourneySummaryQuery): Promise<JourneySummaryResponse> {
+    return this.invoke<JourneySummaryResponse>(() => getApiV1ProjectsByNameJourneysSummary({ client: this.heyClient, path: { name: project }, query }))
+  }
+
+  async journeysList(project: string, query?: JourneysQuery): Promise<JourneysResponse> {
+    return this.invoke<JourneysResponse>(() => getApiV1ProjectsByNameJourneys({ client: this.heyClient, path: { name: project }, query }))
+  }
+
+  async journeyGet(project: string, visitorKey: string, query?: JourneyDetailQuery): Promise<JourneyDetailResponse> {
+    return this.invoke<JourneyDetailResponse>(() => getApiV1ProjectsByNameJourneysByVisitorKey({ client: this.heyClient, path: { name: project, visitorKey }, query }))
   }
 
   async trafficListEvents(
@@ -3943,6 +4274,110 @@ export class ApiClient {
         query: { limit: opts?.limit !== undefined ? String(opts.limit) : undefined, cursor: opts?.cursor } as never,
       }),
     )
+  }
+
+  async getSeoContext(project: string): Promise<SeoContext> {
+    return this.invoke<SeoContext>(() => getApiV1ProjectsByNameSeoContext({
+      client: this.heyClient, path: { name: project },
+    }))
+  }
+
+  async getSeoOperatorTask(id: string): Promise<SeoOperatorTask> {
+    return this.invoke<SeoOperatorTask>(() => getApiV1SeoOperatorTasksById({ client: this.heyClient, path: { id } }))
+  }
+
+  async reconcileSeoTask(id: string, request: SeoReconcileInput): Promise<SeoReconcileResult> {
+    return this.invoke<SeoReconcileResult>(() => postApiV1SeoOperatorTasksByIdReconcile({ client: this.heyClient, path: { id }, body: request }))
+  }
+
+  async getSeoStatus(project: string): Promise<SeoStatus> {
+    return this.invoke<SeoStatus>(() => getApiV1ProjectsByNameSeoStatus({
+      client: this.heyClient, path: { name: project },
+    }))
+  }
+
+  async listSeoProfiles(project: string): Promise<SeoProfileList> {
+    return this.invoke<SeoProfileList>(() => getApiV1ProjectsByNameSeoProfiles({
+      client: this.heyClient, path: { name: project },
+    }))
+  }
+
+  async getSeoProfile(project: string, id: string): Promise<SeoProfile> {
+    return this.invoke<SeoProfile>(() => getApiV1ProjectsByNameSeoProfilesById({
+      client: this.heyClient, path: { name: project, id },
+    }))
+  }
+
+  async putSeoProfile(project: string, id: string, request: SeoProfileInput): Promise<SeoProfile> {
+    return this.invoke<SeoProfile>(() => putApiV1ProjectsByNameSeoProfilesById({
+      client: this.heyClient, path: { name: project, id }, body: request,
+    }))
+  }
+
+  async createSeoRefreshIntent(project: string, request: SeoRefreshIntentInput): Promise<SeoQuote> {
+    return this.invoke<SeoQuote>(() => postApiV1ProjectsByNameSeoRefreshIntents({
+      client: this.heyClient, path: { name: project }, body: request,
+    }))
+  }
+
+  async syncSeo(project: string, request: SeoSyncInput): Promise<SeoRun> {
+    return this.invoke<SeoRun>(() => postApiV1ProjectsByNameSeoSync({
+      client: this.heyClient, path: { name: project }, body: request,
+    }))
+  }
+
+  async listSeoRuns(project: string, query?: { profileId?: string }): Promise<SeoRunList> {
+    return this.invoke<SeoRunList>(() => getApiV1ProjectsByNameSeoRuns({
+      client: this.heyClient, path: { name: project }, query,
+    }))
+  }
+
+  async getSeoRun(project: string, id: string): Promise<SeoRunDetail> {
+    return this.invoke<SeoRunDetail>(() => getApiV1ProjectsByNameSeoRunsById({
+      client: this.heyClient, path: { name: project, id },
+    }))
+  }
+
+  async cancelSeoRun(project: string, id: string): Promise<SeoRun> {
+    return this.invoke<SeoRun>(() => postApiV1ProjectsByNameSeoRunsByIdCancel({
+      client: this.heyClient, path: { name: project, id },
+    }))
+  }
+
+  async getSeoOverview(project: string, query?: SeoEvidenceQuery): Promise<SeoOverview> {
+    return this.invoke<SeoOverview>(() => getApiV1ProjectsByNameSeoOverview({
+      client: this.heyClient, path: { name: project }, query,
+    }))
+  }
+
+  async getSeoKeywordMetrics(project: string, query?: SeoEvidenceQuery): Promise<SeoKeywordMetricsList> {
+    return this.invoke<SeoKeywordMetricsList>(() => getApiV1ProjectsByNameSeoKeywordMetrics({
+      client: this.heyClient, path: { name: project }, query,
+    }))
+  }
+
+  async getSeoDomainIntelligence(project: string, query?: SeoEvidenceQuery): Promise<SeoDomainIntelligenceList> {
+    return this.invoke<SeoDomainIntelligenceList>(() => getApiV1ProjectsByNameSeoDomainIntelligence({
+      client: this.heyClient, path: { name: project }, query,
+    }))
+  }
+
+  async getSeoRankedKeywords(project: string, query?: SeoEvidenceQuery): Promise<SeoRankedKeywordList> {
+    return this.invoke<SeoRankedKeywordList>(() => getApiV1ProjectsByNameSeoRankedKeywords({
+      client: this.heyClient, path: { name: project }, query,
+    }))
+  }
+
+  async getSeoMarketRankings(project: string, query?: SeoMarketRankingQuery): Promise<SeoMarketRankingList> {
+    return this.invoke<SeoMarketRankingList>(() => getApiV1ProjectsByNameSeoMarketRankings({
+      client: this.heyClient, path: { name: project }, query,
+    }))
+  }
+
+  async getSeoMarketRankingSummary(project: string, query?: SeoMarketRankingSummaryQuery): Promise<SeoMarketRankingSummary> {
+    return this.invoke<SeoMarketRankingSummary>(() => getApiV1ProjectsByNameSeoMarketRankingsSummary({
+      client: this.heyClient, path: { name: project }, query,
+    }))
   }
 
   async getResearchRun(project: string, runId: string): Promise<ResearchRunDetailDto> {
@@ -4067,12 +4502,41 @@ export class ApiClient {
   }
 
   /** Persisted full-crawl metadata. This never synthesizes a graph from legacy audit rows. */
-  async getTechnicalAeoCrawl(project: string, opts?: { runId?: string }): Promise<SiteCrawlSummaryDto> {
+  async getTechnicalAeoCrawl(project: string, opts?: { runId?: string; date?: string }): Promise<SiteCrawlSummaryDto> {
     return this.invoke<SiteCrawlSummaryDto>(() =>
       getApiV1ProjectsByNameTechnicalAeoCrawl({
         client: this.heyClient,
         path: { name: project },
-        query: { runId: opts?.runId },
+        query: { runId: opts?.runId, date: opts?.date },
+      }),
+    )
+  }
+
+  /** Stored findings across audited pages, including score-independent duplicate groups. */
+  async getSiteAuditIssues(
+    project: string,
+    opts?: { runId?: string; cursor?: string; limit?: number },
+  ): Promise<SiteAuditIssuesResponseDto> {
+    return this.invoke<SiteAuditIssuesResponseDto>(() =>
+      getApiV1ProjectsByNameTechnicalAeoIssues({
+        client: this.heyClient,
+        path: { name: project },
+        query: { runId: opts?.runId, cursor: opts?.cursor, limit: opts?.limit },
+      }),
+    )
+  }
+
+  /** Page evidence for one stored audit issue; continuation stays pinned to its crawl. */
+  async getSiteAuditIssuePages(
+    project: string,
+    issueId: string,
+    opts?: { runId?: string; cursor?: string; limit?: number },
+  ): Promise<SiteAuditIssuePagesResponseDto> {
+    return this.invoke<SiteAuditIssuePagesResponseDto>(() =>
+      getApiV1ProjectsByNameTechnicalAeoIssuesByIssueIdPages({
+        client: this.heyClient,
+        path: { name: project, issueId },
+        query: { runId: opts?.runId, cursor: opts?.cursor, limit: opts?.limit },
       }),
     )
   }
@@ -4145,10 +4609,12 @@ export class ApiClient {
     project: string,
     opts?: {
       runId?: string
+      date?: string
       inventoryEligible?: boolean
       fetchState?: string
       indexabilityState?: string
       auditState?: string
+      urlVersions?: 'include' | 'exclude' | 'only'
       sort?: 'url' | 'path' | 'score-asc' | 'score-desc'
       cursor?: string
       limit?: number
@@ -4160,10 +4626,12 @@ export class ApiClient {
         path: { name: project },
         query: {
           runId: opts?.runId,
+          date: opts?.date,
           inventoryEligible: opts?.inventoryEligible,
           fetchState: opts?.fetchState,
           indexabilityState: opts?.indexabilityState,
           auditState: opts?.auditState,
+          urlVersions: opts?.urlVersions,
           sort: opts?.sort,
           cursor: opts?.cursor,
           limit: opts?.limit !== undefined ? String(opts.limit) : undefined,
@@ -4279,7 +4747,7 @@ export class ApiClient {
 
   async triggerSiteAudit(
     project: string,
-    body?: { sitemapUrl?: string; limit?: number; maxPages?: number; maxEdges?: number; maxDepth?: number; checkDeadLinks?: boolean },
+    body?: Partial<SiteAuditRunRequest>,
   ): Promise<SiteAuditRunResponseDto> {
     return this.invoke<SiteAuditRunResponseDto>(() =>
       postApiV1ProjectsByNameTechnicalAeoRuns({
@@ -4473,11 +4941,8 @@ export class ApiClient {
     )
   }
 
-  async wordpressLlmsTxt(
-    project: string,
-    env?: WordpressEnv,
-  ): Promise<{ env: WordpressEnv; url: string; content: string | null }> {
-    return this.invoke<{ env: WordpressEnv; url: string; content: string | null }>(() =>
+  async wordpressLlmsTxt(project: string, env?: WordpressEnv): Promise<WordpressLlmsTxtDto> {
+    return this.invoke<WordpressLlmsTxtDto>(() =>
       getApiV1ProjectsByNameWordpressLlmsTxt({
         client: this.heyClient,
         path: { name: project },
@@ -4499,11 +4964,8 @@ export class ApiClient {
     )
   }
 
-  async wordpressAudit(
-    project: string,
-    env?: WordpressEnv,
-  ): Promise<{ env: WordpressEnv; pages: WordpressAuditPageDto[]; issues: WordpressAuditIssueDto[] }> {
-    return this.invoke<{ env: WordpressEnv; pages: WordpressAuditPageDto[]; issues: WordpressAuditIssueDto[] }>(() =>
+  async wordpressAudit(project: string, env?: WordpressEnv): Promise<WordpressAuditDto> {
+    return this.invoke<WordpressAuditDto>(() =>
       getApiV1ProjectsByNameWordpressAudit({
         client: this.heyClient,
         path: { name: project },
@@ -4574,7 +5036,7 @@ export class ApiClient {
     )
   }
 
-  // ── Content / health / search / report / doctor / citation visibility ──
+  // ── Content / health / search / doctor / citation visibility ──
 
   async getContentTargets(
     project: string,
@@ -4603,6 +5065,24 @@ export class ApiClient {
   async getContentGaps(project: string): Promise<ContentGapsResponseDto> {
     return this.invoke<ContentGapsResponseDto>(() =>
       getApiV1ProjectsByNameContentGaps({ client: this.heyClient, path: { name: project } }),
+    )
+  }
+
+  async getContentDismissals(project: string): Promise<ContentTargetDismissalsResponseDto> {
+    return this.invoke<ContentTargetDismissalsResponseDto>(() =>
+      getApiV1ProjectsByNameContentDismissals({ client: this.heyClient, path: { name: project } }),
+    )
+  }
+
+  async dismissContentTarget(project: string, request: ContentTargetDismissRequest): Promise<ContentTargetDismissalDto> {
+    return this.invoke<ContentTargetDismissalDto>(() =>
+      postApiV1ProjectsByNameContentDismissals({ client: this.heyClient, path: { name: project }, body: request }),
+    )
+  }
+
+  async restoreContentTarget(project: string, targetRef: string): Promise<void> {
+    await this.invoke<unknown>(() =>
+      deleteApiV1ProjectsByNameContentDismissalsByTargetRef({ client: this.heyClient, path: { name: project, targetRef } }),
     )
   }
 

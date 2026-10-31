@@ -1,4 +1,5 @@
-import { and, eq, gte, lte, or, sql } from 'drizzle-orm'
+import { literalPathPrefixCondition } from './path-prefix-condition.js'
+import { and, eq, gte, inArray, lte, or, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
 import {
   gaAcquisitionDaily,
@@ -8,21 +9,37 @@ import {
   gscDailyTotals,
   gscQueryDailyTotals,
   gscSearchData,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import {
+  AiEngineLeadRateUnavailableReasons,
+  aiEngineForReferralSource,
+  aiReferralEngineLabel,
+  AiReferralTrafficClasses,
+  classifyAiReferralTrafficClass,
+  countedLeadEventNames,
+  countsKeyEvents,
+  ignoredKeyEventNames,
   filterBrandedSeedCandidates,
   gaMeasurementAnalysisDtoSchema,
-  gaMeasurementAnalysisWindowSchema,
+  WINDOW_SETS, parseWindowIn,
   gaMeasurementHostScopeSchema,
   hostOf,
   hostMatchesAnyDomain,
+  isGa4AiAssistantChannel,
   normalizeUrlPath,
+  normalizePathPrefix,
+  RatioUnits,
+  roundRatio,
   validationError,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import type {
+  AiEngineLeadRateUnavailableReason,
+  AiReferralEngine,
+  AiReferralTrafficClass,
   GaMeasurementAnalysisDto,
   GaMeasurementAnalysisWindow,
-} from '@ainyc/canonry-contracts'
+  GaMeasurementComponentStatus,
+} from '@canonry/canonry-contracts'
 import { resolveProject } from './helpers.js'
 
 type Database = FastifyInstance['db']
@@ -109,6 +126,239 @@ function clickPeriods(periods: Period[], clicks: number[], impressions: number[]
   }))
 }
 
+// Plain code-unit order, so the wire order of raw source strings does not
+// depend on the server's locale.
+function compareCodeUnits(left: string, right: string): number {
+  if (left < right) return -1
+  return left > right ? 1 : 0
+}
+
+function aiEngineLeadPeriods(
+  periods: Period[],
+  eventCounts: number[],
+  sessionCounts: number[],
+  leadRateAvailable: boolean,
+) {
+  return periods.map((period, index) => {
+    const eventCount = eventCounts[index] ?? 0
+    const sessions = sessionCounts[index] ?? 0
+    return {
+      ...period,
+      eventCount,
+      sessions,
+      leadRate: leadRateAvailable && sessions > 0
+        ? roundRatio(eventCount / sessions, RatioUnits.fraction)
+        : null,
+    }
+  })
+}
+
+type AiSourceRow = {
+  date: string
+  source: string
+  medium: string
+  channelGroup: string
+  landingPage: string
+}
+
+const UNATTRIBUTED_AI = '(unattributed)'
+type AiAttributionKey = AiReferralEngine | typeof UNATTRIBUTED_AI
+
+type AttributedAiRow = {
+  date: string
+  source: string
+  key: AiAttributionKey
+  trafficClass: AiReferralTrafficClass
+  value: number
+}
+
+/** One traffic class of the breakdown: engine rows, the unattributed AI channel rows, and their total. */
+function buildAiEngineLeadClass(input: {
+  periods: Period[]
+  leads: AttributedAiRow[]
+  sessions: AttributedAiRow[]
+  leadRateAvailable: boolean
+}) {
+  const { periods, leadRateAvailable } = input
+  const sourcesByKey = new Map<AiAttributionKey, Set<string>>()
+  for (const row of [...input.leads, ...input.sessions]) {
+    const sources = sourcesByKey.get(row.key) ?? new Set<string>()
+    sources.add(row.source)
+    sourcesByKey.set(row.key, sources)
+  }
+  const leadsByKey = aggregateByKey(input.leads, periods, row => row.key, row => row.value)
+  const sessionsByKey = aggregateByKey(input.sessions, periods, row => row.key, row => row.value)
+  const zeros = Array<number>(periods.length).fill(0)
+  const sum = (values: number[]) => values.reduce((total, value) => total + value, 0)
+  const countsFor = (key: AiAttributionKey) => ({
+    leads: leadsByKey.get(key) ?? zeros,
+    sessions: sessionsByKey.get(key) ?? zeros,
+  })
+  const sourcesFor = (key: AiAttributionKey) => (
+    [...(sourcesByKey.get(key) ?? [])].sort(compareCodeUnits)
+  )
+  const engineRows = [...sourcesByKey.keys()]
+    .filter((key): key is AiReferralEngine => key !== UNATTRIBUTED_AI)
+    .map(engine => ({ engine, ...countsFor(engine) }))
+    .sort((left, right) => (
+      (right.leads.at(-1) ?? 0) - (left.leads.at(-1) ?? 0)
+      || sum(right.leads) - sum(left.leads)
+      || (right.sessions.at(-1) ?? 0) - (left.sessions.at(-1) ?? 0)
+      || sum(right.sessions) - sum(left.sessions)
+      || left.engine.localeCompare(right.engine)
+    ))
+  const unattributed = countsFor(UNATTRIBUTED_AI)
+  const allRows = [...engineRows, unattributed]
+  const totalLeads = periods.map((_, index) => sum(allRows.map(row => row.leads[index] ?? 0)))
+  const totalSessions = periods.map((_, index) => sum(allRows.map(row => row.sessions[index] ?? 0)))
+
+  return {
+    periods: aiEngineLeadPeriods(periods, totalLeads, totalSessions, leadRateAvailable),
+    engines: engineRows.map(row => ({
+      engine: row.engine,
+      label: aiReferralEngineLabel(row.engine),
+      sources: sourcesFor(row.engine),
+      periods: aiEngineLeadPeriods(periods, row.leads, row.sessions, leadRateAvailable),
+    })),
+    unattributed: {
+      sources: sourcesFor(UNATTRIBUTED_AI),
+      periods: aiEngineLeadPeriods(periods, unattributed.leads, unattributed.sessions, leadRateAvailable),
+    },
+  }
+}
+
+/**
+ * Attribute lead and session rows to an AI engine and a traffic class. Both
+ * sides go through `aiEngineForReferralSource` on GA4 `sessionSource` and
+ * `classifyAiReferralTrafficClass`, on the same evidence: when the lead rows
+ * are channel-scoped they carry no landing page, so `landingPageEvidence` is
+ * false and neither side reads one. A row whose source matches no engine is
+ * kept, as unattributed, only when GA4 put it in its own AI channel group.
+ *
+ * `paidOnlyByLandingPage` is true when some attributed row is paid with its
+ * landing page and organic without it: dropping the landing page moved it to
+ * organic, so the paid/organic split (and every rate on it) is not honest.
+ */
+function attributeAiEngineRows(input: {
+  leads: Array<AiSourceRow & { eventCount: number }>
+  sessions: Array<AiSourceRow & { sessions: number }>
+  landingPageEvidence: boolean
+}): { leads: AttributedAiRow[]; sessions: AttributedAiRow[]; paidOnlyByLandingPage: boolean } {
+  const engineBySource = new Map<string, AiReferralEngine | null>()
+  const engineOf = (source: string) => {
+    let engine = engineBySource.get(source)
+    if (engine === undefined) {
+      engine = aiEngineForReferralSource(source)
+      engineBySource.set(source, engine)
+    }
+    return engine
+  }
+  let paidOnlyByLandingPage = false
+  const attribute = <T extends AiSourceRow>(
+    rows: T[],
+    valueOf: (row: T) => number,
+  ): AttributedAiRow[] => rows.flatMap((row) => {
+    const engine = engineOf(row.source)
+    if (engine === null && !isGa4AiAssistantChannel(row.channelGroup)) return []
+    const evidence = { source: row.source, medium: row.medium, channelGroup: row.channelGroup }
+    // The raw landing page keeps the utm parameters the classifier reads.
+    const withLandingPage = classifyAiReferralTrafficClass({ ...evidence, landingPage: row.landingPage })
+    const trafficClass = input.landingPageEvidence
+      ? withLandingPage
+      : classifyAiReferralTrafficClass({ ...evidence, landingPage: null })
+    if (trafficClass !== withLandingPage) paidOnlyByLandingPage = true
+    return [{
+      date: row.date,
+      source: row.source,
+      key: engine ?? UNATTRIBUTED_AI,
+      trafficClass,
+      value: valueOf(row),
+    }]
+  })
+  const leads = attribute(input.leads, row => row.eventCount)
+  const sessions = attribute(input.sessions, row => row.sessions)
+  return { leads, sessions, paidOnlyByLandingPage }
+}
+
+/**
+ * Lead events and sessions per AI engine, in the same buckets as the channel
+ * breakdown, split into organic and paid. Both sides arrive here attributed
+ * on the same evidence and already host/path filtered the way the channel
+ * breakdown filters them, so a rate divides like by like unless the caller
+ * gives a reason it cannot.
+ */
+function buildAiEngineLeads(input: {
+  periods: Period[]
+  leads: AttributedAiRow[]
+  sessions: AttributedAiRow[]
+  leadRateUnavailableReason: AiEngineLeadRateUnavailableReason | null
+}) {
+  const leadRateAvailable = input.leadRateUnavailableReason === null
+  const classBlock = (trafficClass: AiReferralTrafficClass) => buildAiEngineLeadClass({
+    periods: input.periods,
+    leads: input.leads.filter(row => row.trafficClass === trafficClass),
+    sessions: input.sessions.filter(row => row.trafficClass === trafficClass),
+    leadRateAvailable,
+  })
+
+  return {
+    leadRateAvailable,
+    leadRateUnavailableReason: input.leadRateUnavailableReason,
+    organic: classBlock(AiReferralTrafficClasses.organic),
+    paid: classBlock(AiReferralTrafficClasses.paid),
+  }
+}
+
+function latestDate(rows: Array<{ date: string }>): string | null {
+  let latest: string | null = null
+  for (const row of rows) {
+    if (latest === null || row.date > latest) latest = row.date
+  }
+  return latest
+}
+
+/** True when some day with a stored lead row has no stored acquisition row at all. */
+function hasLeadDayWithoutSessions(
+  acquisitionRows: Array<{ date: string }>,
+  leadRows: Array<{ date: string }>,
+): boolean {
+  const acquisitionDates = new Set(acquisitionRows.map(row => row.date))
+  return leadRows.some(row => !acquisitionDates.has(row.date))
+}
+
+/**
+ * Why a lead rate would divide unlike data, or null when it is honest. The
+ * coverage checks read the unfiltered rows of the window: acquisition and
+ * leads are separate sync components, and when acquisition stops landing (or
+ * skips days) while leads keep landing, a bucket holds leads for days with no
+ * stored sessions.
+ */
+function aiEngineLeadRateUnavailableReason(input: {
+  hasData: boolean
+  acquisitionStatus: GaMeasurementComponentStatus | undefined
+  leadStatus: GaMeasurementComponentStatus | undefined
+  channelLeadsUnfiltered: boolean
+  paidOnlyByLandingPage: boolean
+  latestAcquisitionDate: string | null
+  latestLeadDate: string | null
+  leadDayWithoutSessions: boolean
+}): AiEngineLeadRateUnavailableReason | null {
+  if (!input.hasData) return AiEngineLeadRateUnavailableReasons['no-data']
+  if (input.acquisitionStatus !== 'ready' || input.leadStatus !== 'ready') {
+    return AiEngineLeadRateUnavailableReasons['sync-not-ready']
+  }
+  if (input.channelLeadsUnfiltered) return AiEngineLeadRateUnavailableReasons['channel-leads-unfiltered']
+  if (input.paidOnlyByLandingPage) return AiEngineLeadRateUnavailableReasons['paid-split-needs-landing-page']
+  if (
+    input.latestLeadDate !== null
+    && (input.latestAcquisitionDate === null || input.latestAcquisitionDate < input.latestLeadDate)
+  ) {
+    return AiEngineLeadRateUnavailableReasons['sessions-behind-leads']
+  }
+  if (input.leadDayWithoutSessions) return AiEngineLeadRateUnavailableReasons['sessions-missing-on-lead-days']
+  return null
+}
+
 type EngagementRow = typeof gaDailyTotals.$inferSelect
 
 /**
@@ -192,13 +442,6 @@ function normalizeLandingPage(value: string | null | undefined): string {
   return normalizeUrlPath(value) ?? UNKNOWN_LANDING_PAGE
 }
 
-function normalizePathPrefix(value: string | undefined): string | null {
-  if (!value) return null
-  const normalized = normalizeUrlPath(value)
-  if (!normalized) return null
-  return normalized.startsWith('/') ? normalized : `/${normalized}`
-}
-
 function matchesPathPrefix(value: string, prefix: string | null): boolean {
   if (!prefix) return true
   const pathname = value.split('?')[0] ?? value
@@ -230,10 +473,7 @@ export function buildGaMeasurementAnalysis(
   projectName: string,
   options: GaMeasurementAnalysisOptions = {},
 ): GaMeasurementAnalysisDto {
-  const parsedWindow = gaMeasurementAnalysisWindowSchema.safeParse(options.window ?? '90d')
-  if (!parsedWindow.success) {
-    throw validationError('"window" must be one of: 30d, 60d, 90d')
-  }
+  const window = parseWindowIn(options.window, WINDOW_SETS.gaMeasurementAnalysis, { fallback: '90d' })
   const parsedHostScope = gaMeasurementHostScopeSchema.safeParse(
     options.hostScope ?? 'marketing',
   )
@@ -246,7 +486,7 @@ export function buildGaMeasurementAnalysis(
   }
 
   const project = resolveProject(db, projectName)
-  const days = windowDays(parsedWindow.data)
+  const days = windowDays(window)
   const pathPrefix = normalizePathPrefix(options.pathPrefix)
   const marketingHosts = stableUnique(
     [
@@ -284,16 +524,34 @@ export function buildGaMeasurementAnalysis(
     if (pathPrefix && pathPrefix !== '/') {
       const rawPath = sql`case when instr(${rawPathColumn}, '?') = 0 then ${rawPathColumn} else substr(${rawPathColumn}, 1, instr(${rawPathColumn}, '?') - 1) end`
       const landingPath = sql`case when trim(coalesce(${normalizedPathColumn}, '')) = '' then ${rawPath} else ${normalizedPathColumn} end`
-      conditions.push(or(sql`${landingPath} = ${pathPrefix}`, sql`${landingPath} like ${`${pathPrefix}/%`}`))
+      conditions.push(literalPathPrefixCondition(landingPath, pathPrefix))
     }
     return conditions
   }
   const acquisitionScope = scopedConditions(gaAcquisitionDaily.hostName, gaAcquisitionDaily.landingPageNormalized, gaAcquisitionDaily.landingPage)
   const leadLandingScope = scopedConditions(gaLeadEventsDaily.hostName, gaLeadEventsDaily.landingPageNormalized, gaLeadEventsDaily.landingPage)
+  const state = db.select().from(gaMeasurementSyncStates)
+    .where(eq(gaMeasurementSyncStates.projectId, project.id)).get()
+  // The events the project counts now: configured lead events, plus the
+  // property's key events when that is on.
+  const configuredLeadEvents = [...project.measurement.leadEventNames]
+  const keyEventsEnabled = countsKeyEvents(project.measurement)
+  const keyEventNames = keyEventsEnabled ? (state?.keyEventNames ?? null) : null
+  const countedEventNames = countedLeadEventNames(configuredLeadEvents, keyEventNames ?? [])
+  // An event is measured once a lead sync fetched its history: it is in the
+  // last successfully synced set. A sync from before that set was recorded
+  // fetched the configured events. Only counted AND measured events are read,
+  // so an event that left the set, or one not fetched yet, never shapes the
+  // anchor, the attribution scope or a total, and never reads as a zero.
+  const measuredEventSet = new Set(state?.leadEventNames ?? configuredLeadEvents)
+  const reportedEventNames = countedEventNames.filter(name => measuredEventSet.has(name))
+  const leadEventCondition = reportedEventNames.length > 0
+    ? inArray(gaLeadEventsDaily.eventName, reportedEventNames)
+    : null
   const acquisitionAnchor = db.select({ date: sql<string | null>`max(${gaAcquisitionDaily.date})` })
     .from(gaAcquisitionDaily).where(and(eq(gaAcquisitionDaily.projectId, project.id), ...acquisitionScope)).get()?.date ?? null
-  const leadAnchor = db.select({ date: sql<string | null>`max(${gaLeadEventsDaily.date})` })
-    .from(gaLeadEventsDaily).where(and(eq(gaLeadEventsDaily.projectId, project.id), or(
+  const leadAnchor = leadEventCondition === null ? null : db.select({ date: sql<string | null>`max(${gaLeadEventsDaily.date})` })
+    .from(gaLeadEventsDaily).where(and(eq(gaLeadEventsDaily.projectId, project.id), leadEventCondition, or(
       eq(gaLeadEventsDaily.attributionScope, 'channel'),
       and(eq(gaLeadEventsDaily.attributionScope, 'landing-page'), ...leadLandingScope),
     ))).get()?.date ?? null
@@ -301,7 +559,7 @@ export function buildGaMeasurementAnalysis(
   const gaPeriods = gaAnchor ? buildPeriods(gaAnchor, days) : []
   const gaStartDate = gaPeriods[0]?.startDate
   const acquisitionRows = gaStartDate ? db.select().from(gaAcquisitionDaily).where(and(eq(gaAcquisitionDaily.projectId, project.id), gte(gaAcquisitionDaily.date, gaStartDate), lte(gaAcquisitionDaily.date, gaAnchor!))).all() : []
-  const leadRows = gaStartDate ? db.select().from(gaLeadEventsDaily).where(and(eq(gaLeadEventsDaily.projectId, project.id), gte(gaLeadEventsDaily.date, gaStartDate), lte(gaLeadEventsDaily.date, gaAnchor!))).all() : []
+  const leadRows = gaStartDate && leadEventCondition !== null ? db.select().from(gaLeadEventsDaily).where(and(eq(gaLeadEventsDaily.projectId, project.id), leadEventCondition, gte(gaLeadEventsDaily.date, gaStartDate), lte(gaLeadEventsDaily.date, gaAnchor!))).all() : []
   // The engagement series is anchored on its OWN table rather than on the
   // acquisition/lead anchor: `ga_daily_totals` is written by every GA sync,
   // while acquisition and leads are a separate measurement sync that may never
@@ -337,8 +595,6 @@ export function buildGaMeasurementAnalysis(
   const propertyRows = gscStartDate ? db.select().from(gscDailyTotals).where(and(eq(gscDailyTotals.projectId, project.id), gte(gscDailyTotals.date, gscStartDate), lte(gscDailyTotals.date, gscAnchor!))).all() : []
   const queryRows = gscStartDate ? db.select().from(gscQueryDailyTotals).where(and(eq(gscQueryDailyTotals.projectId, project.id), gte(gscQueryDailyTotals.date, gscStartDate), lte(gscQueryDailyTotals.date, gscAnchor!))).all() : []
   const rawPageRows = gscStartDate ? db.select().from(gscSearchData).where(and(eq(gscSearchData.projectId, project.id), gte(gscSearchData.date, gscStartDate), lte(gscSearchData.date, gscAnchor!))).all() : []
-  const state = db.select().from(gaMeasurementSyncStates)
-    .where(eq(gaMeasurementSyncStates.projectId, project.id)).get()
   const acquisition = acquisitionRows.filter((row) => {
     const landingPage = normalizeLandingPage(row.landingPageNormalized ?? row.landingPage)
     return hostIsIncluded(row.hostName) && pageIsIncluded(landingPage)
@@ -394,6 +650,54 @@ export function buildGaMeasurementAnalysis(
     row => row.channelGroup,
     row => row.eventCount,
   )
+  // A measured event with no rows is a real zero; an event not fetched yet
+  // is listed without a series instead.
+  const leadEvents = aggregateByKey(
+    leads,
+    gaPeriods,
+    row => row.eventName,
+    row => row.eventCount,
+  )
+  for (const eventName of reportedEventNames) {
+    if (!leadEvents.has(eventName)) leadEvents.set(eventName, gaPeriods.map(() => 0))
+  }
+  const unmeasuredEventNames = countedEventNames.filter(name => !measuredEventSet.has(name))
+  const configuredEventSet = new Set(configuredLeadEvents)
+  const keyEventSet = new Set(keyEventNames ?? [])
+  const eventOrigin = (eventName: string) => configuredEventSet.has(eventName) && keyEventSet.has(eventName)
+    ? 'both' as const
+    : keyEventSet.has(eventName) ? 'key-event' as const : 'configured' as const
+  // Channel-scoped lead rows carry no landing page, so the host/path filters
+  // that narrow the session side cannot narrow them. A rate is only honest
+  // when those filters are no-ops (every host, whole site).
+  const filtersNarrowSessions = parsedHostScope.data === 'marketing'
+    || (pathPrefix !== null && pathPrefix !== '/')
+  // Without a lead timeline there is nothing to divide, so the block stays
+  // empty even when AI sessions exist.
+  const hasAiEngineLeadData = gaAnchor !== null && hasLeadTimeline
+  // Channel-scoped lead rows carry no landing page either, so the sessions
+  // are classified without theirs: otherwise one session's lead and the
+  // session itself could land in different traffic classes.
+  const aiEngineRows = attributeAiEngineRows({
+    leads: hasAiEngineLeadData ? leads : [],
+    sessions: hasAiEngineLeadData ? acquisition : [],
+    landingPageEvidence: attributionScope !== 'channel',
+  })
+  const aiEngineLeads = buildAiEngineLeads({
+    periods: hasAiEngineLeadData ? gaPeriods : [],
+    leads: aiEngineRows.leads,
+    sessions: aiEngineRows.sessions,
+    leadRateUnavailableReason: aiEngineLeadRateUnavailableReason({
+      hasData: hasAiEngineLeadData,
+      acquisitionStatus: state?.acquisitionStatus,
+      leadStatus: state?.leadStatus,
+      channelLeadsUnfiltered: attributionScope === 'channel' && filtersNarrowSessions,
+      paidOnlyByLandingPage: aiEngineRows.paidOnlyByLandingPage,
+      latestAcquisitionDate: latestDate(acquisitionRows),
+      latestLeadDate: latestDate(leadRows),
+      leadDayWithoutSessions: hasLeadDayWithoutSessions(acquisitionRows, leadRows),
+    }),
+  })
 
   const propertyClicks = aggregateByKey(
     propertyRows,
@@ -468,7 +772,7 @@ export function buildGaMeasurementAnalysis(
   )
 
   return gaMeasurementAnalysisDtoSchema.parse({
-    window: parsedWindow.data,
+    window,
     bucketDays: 30,
     filters: {
       hostScope: parsedHostScope.data,
@@ -508,6 +812,30 @@ export function buildGaMeasurementAnalysis(
         channelGroup,
         periods: eventPeriods(gaPeriods, values),
       })),
+      aiEngines: aiEngineLeads,
+      countedEvents: {
+        configured: configuredLeadEvents,
+        keyEventsEnabled,
+        keyEvents: keyEventNames,
+        keyEventsError: keyEventsEnabled ? state?.keyEventsError ?? null : null,
+        ignoredKeyEvents: ignoredKeyEventNames(configuredLeadEvents, keyEventNames ?? []),
+      },
+      events: [
+        ...(gaAnchor && hasLeadTimeline
+          ? rankEntries(leadEvents).map(([eventName, values]) => ({
+              eventName,
+              origin: eventOrigin(eventName),
+              measured: true,
+              periods: eventPeriods(gaPeriods, values),
+            }))
+          : []),
+        ...unmeasuredEventNames.map(eventName => ({
+          eventName,
+          origin: eventOrigin(eventName),
+          measured: false,
+          periods: [],
+        })),
+      ],
     },
     engagement: {
       status: engagementAnchor === null ? 'unavailable' : 'ready',

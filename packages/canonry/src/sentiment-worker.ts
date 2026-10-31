@@ -1,12 +1,14 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { and, asc, eq, gt } from 'drizzle-orm'
 import {
-  backoffDelayMs, canonicalSentimentJson, hasCurrentSentimentTemplate, storedSentimentClassifierInputSchema, sentimentClassifierOutputSchema,
+  backoffDelayMs, canonicalSentimentJson, hasCurrentSentimentTemplate, storedSentimentClassifierInputSchema, sentimentClassifierOutputSchema, sentimentEvaluatorProvider,
   sentimentSelectionSchema, type SentimentClassifier, type SentimentClassifierInput, type SentimentClassifierOutput, type SentimentOutcome,
-} from '@ainyc/canonry-contracts'
-import { SentimentIdempotencyConflict, SentimentRepository, sentimentCompletionReceipts, sentimentSettings, type DatabaseClient, type SentimentDispatchBlock } from '@ainyc/canonry-db'
-import { SentimentService, selectSentimentSources, sentimentClassifierInput, sentimentHash } from '@ainyc/canonry-api-routes'
-import { sentimentInstallReadiness, type SentimentInstallConfig } from '@ainyc/canonry-config'
+  OutcomeReasonCodes, OutcomeStatuses, OutcomeSurfaces, OutcomeTriggers, type FeatureCompletedProperties, type OutcomeReasonCode,
+} from '@canonry/canonry-contracts'
+import { SentimentIdempotencyConflict, SentimentRepository, sentimentCompletionReceipts, sentimentSettings, type DatabaseClient, type SentimentDispatchBlock } from '@canonry/canonry-db'
+import { SentimentService, refreshSnapshotMentionIdentity, selectSentimentSources, sentimentClassifierInput, sentimentHash } from '@canonry/canonry-api-routes'
+import { sentimentInstallReadiness, type SentimentInstallConfig } from '@canonry/canonry-config'
+import { createOutcomeSampler, outcomeFailure, startOutcomeTimer, trackFeatureCompleted } from './outcome-telemetry.js'
 
 export interface SentimentWorkerOptions {
   configuration: () => SentimentInstallConfig
@@ -31,6 +33,41 @@ export function sentimentRateLimitDelayMs(streak: number, retryAfterMs: number |
   return Math.max(retryAfterMs ?? 0, base + Math.floor(random() * base))
 }
 
+/** TypeSafe failure codes as outcome reasons. `canceled` is the worker's own per-attempt timeout. */
+const CLASSIFIER_FAILURE_REASONS: Readonly<Record<string, OutcomeReasonCode>> = {
+  'provider-authorization': OutcomeReasonCodes.INVALID_CREDENTIALS,
+  'provider-rate-limit': OutcomeReasonCodes.RATE_LIMITED,
+  'provider-context-limit': OutcomeReasonCodes.VALIDATION,
+  'provider-unavailable': OutcomeReasonCodes.HTTP_5XX,
+  'provider-rejected': OutcomeReasonCodes.HTTP_4XX,
+  'provider-timeout': OutcomeReasonCodes.TIMEOUT,
+  'provider-network': OutcomeReasonCodes.NETWORK,
+  canceled: OutcomeReasonCodes.TIMEOUT,
+  'credential-missing': OutcomeReasonCodes.NOT_CONNECTED,
+  'invalid-timeout': OutcomeReasonCodes.VALIDATION,
+  'input-contract': OutcomeReasonCodes.VALIDATION,
+  'response-contract': OutcomeReasonCodes.VALIDATION,
+  'model-mismatch': OutcomeReasonCodes.VALIDATION,
+}
+
+/** Why an answer was not sent to the classifier: nothing to judge, an input it refuses, or one it cannot read. */
+function abstentionReason(outcome: SentimentOutcome): OutcomeReasonCode {
+  if (outcome === 'input-too-large' || outcome === 'invalid-conclusion-evidence') return OutcomeReasonCodes.VALIDATION
+  if (outcome === 'unsupported-language' || outcome === 'ambiguous-judgment') return OutcomeReasonCodes.UNSUPPORTED
+  return OutcomeReasonCodes.NO_DATA
+}
+
+type WorkOutcome = Pick<FeatureCompletedProperties, 'status' | 'reasonCode' | 'errorName' | 'counts'>
+
+/**
+ * A stored verdict can settle whether the answer's name match is a mention
+ * (`wrong-subject`), so the snapshot's mention fields are refreshed in the
+ * transaction that stores it.
+ */
+const applyMentionIdentity: Parameters<SentimentRepository['completeWork']>[1] = (tx, work) => {
+  refreshSnapshotMentionIdentity(tx, [work.snapshotId])
+}
+
 /** One-way, so a rotated key lifts an authorization pause without the key being stored. */
 function credentialFingerprint(apiKey: string | undefined): string {
   return createHash('sha256').update('canonry-sentiment-credential\0').update(apiKey ?? '').digest('hex')
@@ -40,9 +77,11 @@ function credentialFingerprint(apiKey: string | undefined): string {
 export class SentimentWorker {
   private readonly owner = randomUUID()
   private readonly repository: SentimentRepository
+  /** A backfill classifies one answer per item, so per-item outcomes are sampled per status and reason. */
+  private readonly sampleOutcome = createOutcomeSampler({ burst: 5, refillMs: 120_000 })
   constructor(private readonly db: DatabaseClient, private readonly options: SentimentWorkerOptions) { this.repository = new SentimentRepository(db) }
   private now() { return (this.options.now?.() ?? new Date()).toISOString() }
-  private service() { return new SentimentService(this.db, { install: () => { const config = this.options.configuration(); return { ...sentimentInstallReadiness(config), model: config.model } }, previewSecret: this.owner, now: this.options.now }) }
+  private service() { return new SentimentService(this.db, { install: () => { const config = this.options.configuration(); return { ...sentimentInstallReadiness(config), model: config.model, provider: config.provider } }, previewSecret: this.owner, now: this.options.now }) }
   /** The completion callback is merely a wakeup; receipts make a missed callback recoverable. */
   reconcile(): number {
     const configuration = this.options.configuration()
@@ -57,7 +96,7 @@ export class SentimentWorker {
       if (!receipts.length) continue
       const definition = service.definition(settings.evaluationDefinitionId)
       // An earlier evaluator template waits for reconfiguration; its receipts stay unreconciled until then.
-      if (!hasCurrentSentimentTemplate(definition)) continue
+      if (!hasCurrentSentimentTemplate(definition) || sentimentEvaluatorProvider(definition) !== configuration.provider || definition.requestedModel !== configuration.model) continue
       let reconciled = start
       try {
         for (const receipt of receipts) {
@@ -101,63 +140,159 @@ export class SentimentWorker {
     // A provider refusal pauses the whole install; when the pause ends, one request tests the provider first.
     const gate = this.repository.dispatchGate({ now: this.now(), credentialFingerprint: credentialFingerprint(config.apiKey) })
     if (gate === 'closed') return 0
+    // Claim only what this minute's budget still allows. startAttempt enforces the same window,
+    // but work claimed past it is deferred a minute instead of waiting for the next free slot.
+    const used = this.repository.recentDispatch(this.now())
+    if (used.tokens >= config.maxInputTokensPerMinute) return 0
+    const allowed = Math.min(gate === 'probe' ? 1 : config.maxConcurrency, config.maxRequestsPerMinute - used.requests)
     const claims = []
-    for (let index = 0; index < (gate === 'probe' ? 1 : config.maxConcurrency); index++) {
+    for (let index = 0; index < allowed; index++) {
       const claim = this.repository.claim({ owner: randomUUID(), now: this.now(), leaseMs: 120_000, maxConcurrent: config.maxConcurrency })
       if (!claim) break
       claims.push(claim)
     }
-    await Promise.all(claims.map(work => this.execute(work)))
-    return claims.length
+    // Work released for lack of budget is not progress, so the poller waits for capacity instead of re-claiming it.
+    const outcomes = await Promise.all(claims.map(work => this.execute(work)))
+    return outcomes.filter(outcome => outcome !== 'released').length
   }
-  private async execute(work: NonNullable<ReturnType<SentimentRepository['claim']>>): Promise<void> {
+  /** One item's `sentiment.run` outcome: automatic work is scheduled, a backfill is manual, a second attempt is a retry. */
+  private reportOutcome(work: NonNullable<ReturnType<SentimentRepository['claim']>>, elapsed: () => FeatureCompletedProperties['durationBucket'], outcome: WorkOutcome): void {
+    const sampled = this.sampleOutcome(`${outcome.status}:${outcome.reasonCode ?? ''}`)
+    if (!sampled.send) return
+    const trigger = work.attemptCount > 0 ? OutcomeTriggers.retry : work.dispatchPriority === 0 ? OutcomeTriggers.scheduled : OutcomeTriggers.manual
+    trackFeatureCompleted({
+      feature: 'sentiment',
+      operation: 'run',
+      trigger,
+      ...(trigger === OutcomeTriggers.manual ? {} : { surface: OutcomeSurfaces.system }),
+      durationBucket: elapsed(),
+      ...outcome,
+      ...(sampled.droppedBefore ? { droppedBefore: sampled.droppedBefore } : {}),
+    })
+  }
+  private async execute(work: NonNullable<ReturnType<SentimentRepository['claim']>>): Promise<'released' | void> {
     const owner = work.leaseOwner!
+    const elapsed = startOutcomeTimer()
+    const report = (outcome: WorkOutcome) => this.reportOutcome(work, elapsed, outcome)
     const parsed = storedSentimentClassifierInputSchema.safeParse(work.input)
-    if (!parsed.success) { this.repository.failWork({ workItemId: work.id, owner, now: this.now(), errorCode: 'INVALID_FROZEN_INPUT' }); return }
+    if (!parsed.success) {
+      this.repository.failWork({ workItemId: work.id, owner, now: this.now(), errorCode: 'INVALID_FROZEN_INPUT' })
+      report({ status: OutcomeStatuses.failed, reasonCode: OutcomeReasonCodes.VALIDATION })
+      return
+    }
     const input = parsed.data
-    if (!hasCurrentSentimentTemplate(input.definition)) { this.repository.failWork({ workItemId: work.id, owner, now: this.now(), errorCode: 'UNSUPPORTED_EVALUATOR_DEFINITION' }); return }
+    if (!hasCurrentSentimentTemplate(input.definition)) {
+      this.repository.failWork({ workItemId: work.id, owner, now: this.now(), errorCode: 'UNSUPPORTED_EVALUATOR_DEFINITION' })
+      report({ status: OutcomeStatuses.failed, reasonCode: OutcomeReasonCodes.UNSUPPORTED })
+      return
+    }
     const unavailable = input.subject.mentionNotApplicable ? 'subject-not-applicable' : !input.sourceText.trim() ? 'missing-source-text' : !/^en(?:[-_]|$)/i.test(input.language) ? 'unsupported-language' : null
     const prepared = this.options.prepare?.(input)
     if (unavailable || prepared?.ok === false) {
       const result: SentimentClassifierOutput = { kind: 'abstained', outcome: unavailable ?? (prepared!.ok === false ? prepared!.outcome : 'input-too-large'), reason: unavailable ?? (prepared!.ok === false ? prepared!.reason : 'Input unavailable'), returnedModel: null, usage: { kind: 'unknown', inputTokens: null, outputTokens: null } }
-      this.repository.completeWork({ workItemId: work.id, owner, outcome: result.outcome, result, returnedModel: null, now: this.now() })
+      this.repository.completeWork({ workItemId: work.id, owner, outcome: result.outcome, result, returnedModel: null, now: this.now() }, applyMentionIdentity)
+      report({ status: OutcomeStatuses.skipped, reasonCode: abstentionReason(result.outcome) })
       return
     }
     // Reload immediately before every attempt, including attempts recovered after a restart.
     const config = this.options.configuration()
-    if (this.holdUnlessReady(config)) { this.repository.failWork({ workItemId: work.id, owner, now: this.now(), errorCode: 'INSTALL_NOT_READY', retryAt: new Date(Date.parse(this.now()) + 60_000).toISOString() }); return }
+    if (this.holdUnlessReady(config)) {
+      this.repository.failWork({ workItemId: work.id, owner, now: this.now(), errorCode: 'INSTALL_NOT_READY', retryAt: new Date(Date.parse(this.now()) + 60_000).toISOString() })
+      report({ status: OutcomeStatuses.skipped, reasonCode: OutcomeReasonCodes.NOT_CONNECTED })
+      return
+    }
+    if (sentimentEvaluatorProvider(input.definition) !== config.provider || input.definition.requestedModel !== config.model) {
+      this.repository.failWork({ workItemId: work.id, owner, now: this.now(), errorCode: 'EVALUATOR_ROUTE_CHANGED', retryAt: new Date(Date.parse(this.now()) + 60_000).toISOString() })
+      report({ status: OutcomeStatuses.skipped, reasonCode: OutcomeReasonCodes.NOT_CONNECTED })
+      return
+    }
     const settings = this.repository.getSettings(work.projectId)
-    if (!settings?.enabled || settings.enablementEpoch !== work.enablementEpoch) { this.repository.cancelProject(work.projectId, this.now()); return }
+    if (!settings?.enabled || settings.enablementEpoch !== work.enablementEpoch) {
+      this.repository.cancelProject(work.projectId, this.now())
+      report({ status: OutcomeStatuses.cancelled, reasonCode: OutcomeReasonCodes.CANCELLED_BY_USER })
+      return
+    }
     const estimate = prepared?.ok ? prepared.estimatedInputTokens : Math.ceil(canonicalSentimentJson(input).length / 3)
-    if (estimate > config.maxInputTokensPerMinute) { this.repository.failWork({ workItemId: work.id, owner, now: this.now(), errorCode: 'INPUT_EXCEEDS_INSTALL_TOKEN_BUDGET' }); return }
-    if (work.attemptCount - work.attemptBudgetStart >= config.maxAttempts) { this.repository.failWork({ workItemId: work.id, owner, now: this.now(), errorCode: 'ATTEMPT_BUDGET_EXHAUSTED' }); return }
+    if (estimate > config.maxInputTokensPerMinute) {
+      this.repository.failWork({ workItemId: work.id, owner, now: this.now(), errorCode: 'INPUT_EXCEEDS_INSTALL_TOKEN_BUDGET' })
+      report({ status: OutcomeStatuses.failed, reasonCode: OutcomeReasonCodes.QUOTA_EXCEEDED })
+      return
+    }
+    if (work.attemptCount - work.attemptBudgetStart >= config.maxAttempts) {
+      this.repository.failWork({ workItemId: work.id, owner, now: this.now(), errorCode: 'ATTEMPT_BUDGET_EXHAUSTED' })
+      report({ status: OutcomeStatuses.failed, reasonCode: CLASSIFIER_FAILURE_REASONS[work.errorCode ?? ''] ?? OutcomeReasonCodes.UNKNOWN })
+      return
+    }
     const attempt = this.repository.startAttempt({ workItemId: work.id, owner, requestedModel: input.definition.requestedModel, now: this.now(), estimatedInputTokens: estimate, maxRequestsPerMinute: config.maxRequestsPerMinute, maxAttempts: config.maxAttempts, maxInputTokensPerMinute: config.maxInputTokensPerMinute })
     if (!attempt) {
+      // Out of this minute's request or token budget: leave the work queued so it dispatches as soon
+      // as capacity returns. Any other refusal keeps the one-minute wait.
+      const used = this.repository.recentDispatch(this.now())
+      if (used.requests >= config.maxRequestsPerMinute || used.tokens + estimate > config.maxInputTokensPerMinute) {
+        this.repository.releaseWork({ workItemId: work.id, owner, now: this.now() })
+        return 'released'
+      }
       this.repository.failWork({ workItemId: work.id, owner, now: this.now(), errorCode: 'RATE_LIMIT_WAIT', retryAt: new Date(Date.parse(this.now()) + 60_000).toISOString() })
+      report({ status: OutcomeStatuses.skipped, reasonCode: OutcomeReasonCodes.RATE_LIMITED })
       return
     }
     let result: SentimentClassifierOutput
+    let transportError: { error: unknown } | undefined
     try { result = sentimentClassifierOutputSchema.parse(await this.options.classifier(config).classify(input, { signal: AbortSignal.timeout(60_000) })) }
-    catch { result = { kind: 'failed', outcome: 'failed', returnedModel: null, usage: { kind: 'unknown', inputTokens: null, outputTokens: null }, error: { code: 'CLASSIFIER_TRANSPORT_ERROR', message: 'The classifier attempt did not return a usable response.', retryable: true, retryAfterMs: null } } }
+    catch (error) {
+      transportError = { error }
+      result = { kind: 'failed', outcome: 'failed', returnedModel: null, usage: { kind: 'unknown', inputTokens: null, outputTokens: null }, error: { code: 'CLASSIFIER_TRANSPORT_ERROR', message: 'The classifier attempt did not return a usable response.', retryable: true, retryAfterMs: null } }
+    }
     const now = this.now()
-    const usage = result.usage.inputTokens !== null && result.usage.outputTokens !== null ? { inputTokens: result.usage.inputTokens, outputTokens: result.usage.outputTokens, costMillicents: Math.round(result.usage.inputTokens * 0.0042) } : undefined
-    this.repository.finishAttempt({ attemptId: attempt.id, now, returnedModel: result.returnedModel, usageStatus: result.usage.kind, usage, safeFailure: result.kind === 'failed' ? result.error.code : null })
+    const evaluatorProvider = sentimentEvaluatorProvider(input.definition)
+    const usage = result.usage.inputTokens !== null && result.usage.outputTokens !== null ? { inputTokens: result.usage.inputTokens, outputTokens: result.usage.outputTokens, ...(evaluatorProvider === 'typesafe' ? { costMillicents: Math.round(result.usage.inputTokens * 0.0042) } : {}) } : undefined
+    this.repository.finishAttempt({ attemptId: attempt.id, now, provider: evaluatorProvider, returnedModel: result.returnedModel, usageStatus: result.usage.kind, usage, safeFailure: result.kind === 'failed' ? result.error.code : null })
+    const counts = { attempts: attempt.attemptNumber, ...(usage ? { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens } : {}) }
     if (result.kind === 'failed') {
+      const failure = transportError
+        ? outcomeFailure(transportError.error)
+        : { reasonCode: CLASSIFIER_FAILURE_REASONS[result.error.code] ?? OutcomeReasonCodes.UNKNOWN }
+      const reportFailed = () => report({ status: OutcomeStatuses.failed, ...failure, counts })
       const latest = this.options.configuration()
       // The attempt-budget check at the next execution still bounds retries of a held item.
-      if (this.holdUnlessReady(latest)) { this.repository.failWork({ workItemId: work.id, owner, now, errorCode: result.error.code, ...(result.error.retryable ? { retryAt: new Date(Date.parse(now) + 60_000).toISOString() } : {}) }); return }
+      if (this.holdUnlessReady(latest)) { this.repository.failWork({ workItemId: work.id, owner, now, errorCode: result.error.code, ...(result.error.retryable ? { retryAt: new Date(Date.parse(now) + 60_000).toISOString() } : {}) }); reportFailed(); return }
       const refusal = providerRefusal(result.error.code)
       if (refusal) {
         const retryAfterMs = result.error.retryAfterMs
         this.repository.recordProviderRefusal({ workItemId: work.id, owner, now, dispatchedAt: attempt.dispatchedAt, reason: refusal, credentialFingerprint: credentialFingerprint(config.apiKey),
           delayMs: streak => refusal === 'provider-rate-limit' ? sentimentRateLimitDelayMs(streak, retryAfterMs) : AUTHORIZATION_PROBE_INTERVAL_MS })
+        reportFailed()
         return
       }
       const retryMs = Math.max(result.error.retryAfterMs ?? 0, backoffDelayMs(attempt.attemptNumber - work.attemptBudgetStart - 1))
       this.repository.failWork({ workItemId: work.id, owner, now, errorCode: result.error.code, ...(result.error.retryable && attempt.attemptNumber - work.attemptBudgetStart < latest.maxAttempts ? { retryAt: new Date(Date.parse(now) + retryMs).toISOString() } : {}) })
+      reportFailed()
     } else {
-      this.repository.completeWork({ workItemId: work.id, owner, outcome: result.outcome, result, returnedModel: result.returnedModel, now })
+      this.repository.completeWork({ workItemId: work.id, owner, outcome: result.outcome, result, returnedModel: result.returnedModel, now }, applyMentionIdentity)
       this.repository.releaseDispatchPause({ now, dispatchedAt: attempt.dispatchedAt })
+      report({ status: OutcomeStatuses.succeeded, counts })
     }
+  }
+}
+
+/**
+ * Runs `tick` again straight away while it keeps claiming work, so a queued backfill drains at the
+ * install's rate limits rather than one batch per poll interval. A poll that arrives while a tick
+ * is in flight is dropped; a failed tick reports through `onError` and waits for the next poll.
+ */
+export function createSentimentPoller(tick: () => Promise<number>, onError: () => void, schedule: (next: () => void) => void = setImmediate) {
+  let inFlight: Promise<void> | null = null
+  let stopped = false
+  const poll = (): void => {
+    if (inFlight || stopped) return
+    inFlight = tick()
+      .catch(() => { onError(); return 0 })
+      .then(claimed => { inFlight = null; if (claimed > 0 && !stopped) schedule(poll) })
+  }
+  return {
+    poll,
+    /** The tick in flight, if any. */
+    settled: (): Promise<void> | null => inFlight,
+    stop: (): void => { stopped = true },
   }
 }

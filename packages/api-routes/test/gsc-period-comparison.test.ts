@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
   computeGscPeriodComparison,
-  gscCalendarDates,
   type GscDailyRow,
 } from '../src/gsc-period-comparison.js'
 
@@ -15,41 +14,6 @@ function day(
 ): GscDailyRow {
   return { date, clicks, impressions, position, fromPropertyTotals }
 }
-
-
-describe('gscCalendarDates', () => {
-  it('is inclusive of both ends', () => {
-    expect(gscCalendarDates('2026-03-01', '2026-03-04')).toEqual([
-      '2026-03-01', '2026-03-02', '2026-03-03', '2026-03-04',
-    ])
-  })
-
-  it('crosses a month and a leap day without dropping one', () => {
-    expect(gscCalendarDates('2028-02-27', '2028-03-02')).toEqual([
-      '2028-02-27', '2028-02-28', '2028-02-29', '2028-03-01', '2028-03-02',
-    ])
-  })
-
-  /**
-   * Stepped in UTC on purpose. Stepping a local Date across a spring-forward
-   * boundary can repeat or skip a calendar label; these are dates, not instants.
-   */
-  it('is unaffected by a DST transition in the host zone', () => {
-    expect(gscCalendarDates('2026-03-07', '2026-03-10')).toEqual([
-      '2026-03-07', '2026-03-08', '2026-03-09', '2026-03-10',
-    ])
-  })
-
-  it('rejects impossible dates instead of normalizing them', () => {
-    expect(gscCalendarDates('2026-02-30', '2026-03-05')).toEqual([])
-  })
-
-  it('bounds fixture-sized date materialization', () => {
-    const dates = gscCalendarDates('0001-01-01', '9999-12-31')
-    expect(dates).toHaveLength(800)
-    expect(dates[0]).toBe('0001-01-01')
-  })
-})
 
 describe('computeGscPeriodComparison', () => {
   it('returns null for no data', () => {
@@ -162,9 +126,20 @@ describe('computeGscPeriodComparison', () => {
       { startDate: '0001-01-01', endDate: '9999-12-31' },
     )!
 
-    expect(result.days).toBeGreaterThan(1_000_000)
-    expect(result.trailing.endDate).toBe('9999-12-31')
-    expect(result.trailing.clicks).toBe(5)
+    expect(result).toEqual({
+      days: 1_826_029,
+      basis: 'split-window',
+      prior: {
+        startDate: '0001-01-02', endDate: '5000-07-02',
+        clicks: 0, impressions: 0, ctr: null, position: null, source: 'empty',
+      },
+      trailing: {
+        startDate: '5000-07-03', endDate: '9999-12-31',
+        clicks: 5, impressions: 50, ctr: 0.1, position: null, source: 'property-daily',
+      },
+      comparable: true,
+      change: { clicks: null, impressions: null, ctr: null, position: null },
+    })
   })
 
   it('rejects impossible authoritative bounds instead of normalizing them', () => {
@@ -275,29 +250,36 @@ describe('computeGscPeriodComparison', () => {
    * in which the real position got worse.
    */
   it('produces a real figure where the fitted-line baseline produced none', () => {
-    const rows: GscDailyRow[] = []
-    // Prior 69 days: 14 clicks on 483 impressions, position 22.6.
-    gscCalendarDates('2026-03-30', '2026-06-06').forEach((date, i) => {
-      rows.push(day(date, i < 14 ? 1 : 0, 7, 22.6))
-    })
-    // Trailing 69 days: 35 clicks on 2829 impressions, position 24.2.
-    gscCalendarDates('2026-06-07', '2026-08-14').forEach((date, i) => {
-      rows.push(day(date, i < 35 ? 1 : 0, 41, 24.2))
+    // Independent raw UTC date seed: 138 days, two 69-day halves.
+    const rows: GscDailyRow[] = Array.from({ length: 138 }, (_, index) => {
+      const date = new Date('2026-03-30T00:00:00Z')
+      date.setUTCDate(date.getUTCDate() + index)
+      const prior = index < 69
+      return day(date.toISOString().slice(0, 10),
+        index % 69 < (prior ? 14 : 35) ? 1 : 0,
+        prior ? 7 : 41, prior ? 22.6 : 24.2)
     })
     const result = computeGscPeriodComparison(rows)!
-    expect(result.days).toBe(69)
-    expect(result.prior.clicks).toBe(14)
-    expect(result.trailing.clicks).toBe(35)
-    expect(result.change.impressions).not.toBeNull()
-    expect(result.change.impressions!).toBeGreaterThan(4) // > +400%
-    // Position rose, which is WORSE. The sign must be positive, and the
-    // renderer is what turns that into a downward arrow.
-    expect(result.change.position!).toBeGreaterThan(0)
-    // CTR fell even though clicks rose, because impressions rose faster.
-    // 14/483 = 2.90% -> 35/2829 = 1.24%
-    expect(result.prior.ctr!).toBeCloseTo(14 / 483, 10)
-    expect(result.trailing.ctr!).toBeCloseTo(35 / 2829, 10)
-    expect(result.change.ctr!).toBeLessThan(0)
+    expect(result).toEqual({
+      days: 69,
+      basis: 'split-window',
+      prior: {
+        startDate: '2026-03-30', endDate: '2026-06-06',
+        clicks: 14, impressions: 483, ctr: expect.closeTo(14 / 483, 10),
+        position: expect.closeTo(22.6, 10), source: 'property-daily',
+      },
+      trailing: {
+        startDate: '2026-06-07', endDate: '2026-08-14',
+        clicks: 35, impressions: 2829, ctr: expect.closeTo(35 / 2829, 10),
+        position: expect.closeTo(24.2, 10), source: 'property-daily',
+      },
+      comparable: true,
+      change: {
+        clicks: 1.5, impressions: expect.closeTo(34 / 7, 10),
+        // CTR fell by 47/82; position rose by 1.6/22.6, a worse rank.
+        ctr: expect.closeTo(-47 / 82, 10), position: expect.closeTo(1.6 / 22.6, 10),
+      },
+    })
   })
 })
 
@@ -418,13 +400,25 @@ describe('computeGscPeriodComparison basis', () => {
   })
 
   it('reports the basis the caller passed without inferring it from the span', () => {
-    // The module does not decide the basis and must not try: the same eight-day
-    // span is a split 8-day window or a doubled 4-day one depending only on
-    // what the route asked for.
-    const result = computeGscPeriodComparison(march, {
-      startDate: '2026-03-01', endDate: '2026-03-08', basis: 'prior-window',
-    })
-    expect(result?.basis).toBe('prior-window')
+    // The caller selects the label; both bases retain the same measured span.
+    for (const basis of ['prior-window', 'split-window'] as const) {
+      expect(computeGscPeriodComparison(march, {
+        startDate: '2026-03-01', endDate: '2026-03-08', basis,
+      })).toEqual({
+        days: 4,
+        basis,
+        prior: {
+          startDate: '2026-03-01', endDate: '2026-03-04',
+          clicks: 40, impressions: 400, ctr: 0.1, position: null, source: 'property-daily',
+        },
+        trailing: {
+          startDate: '2026-03-05', endDate: '2026-03-08',
+          clicks: 120, impressions: 400, ctr: 0.3, position: null, source: 'property-daily',
+        },
+        comparable: true,
+        change: { clicks: 2, impressions: 0, ctr: expect.closeTo(2, 10), position: null },
+      })
+    }
   })
 
   /**
@@ -444,21 +438,5 @@ describe('computeGscPeriodComparison basis', () => {
       startDate: '2026-03-01', endDate: '2026-03-04', clicks: 40,
     })
     expect(result?.change.clicks).toBe(2)
-  })
-
-  /**
-   * Same rows, same numbers on both sides — the ONLY difference between a
-   * doubled span and a window twice as wide is which two periods the reader is
-   * told about. That is exactly why the label has to travel with the figure.
-   */
-  it('produces identical periods for a doubled span and an equally wide split', () => {
-    const doubled = computeGscPeriodComparison(march, {
-      startDate: '2026-03-01', endDate: '2026-03-08', basis: 'prior-window',
-    })
-    const split = computeGscPeriodComparison(march, {
-      startDate: '2026-03-01', endDate: '2026-03-08',
-    })
-    expect({ ...doubled, basis: null }).toEqual({ ...split, basis: null })
-    expect(doubled?.basis).not.toBe(split?.basis)
   })
 })

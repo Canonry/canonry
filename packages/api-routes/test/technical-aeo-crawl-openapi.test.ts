@@ -103,5 +103,10 @@ test('crawl summary nullability and run budgets are machine-readable in OpenAPI'
   expect(properties.maxDepth).toMatchObject({ minimum: 0, maximum: 100 })
   expect(run.responses?.['409']).toBeDefined()
   expect(run.description).toMatch(/reused only when.*match exactly/i)
-  expect(paths['/api/v1/projects/{name}/technical-aeo/crawl']!.get?.description).toMatch(/latest complete/i)
+  // Selection stays date-scoped, excludes probes, and qualifies incomplete evidence.
+  const crawlDescription = paths['/api/v1/projects/{name}/technical-aeo/crawl']!.get?.description
+  expect(crawlDescription).toMatch(/non-probe.*requested UTC date.*latest scan date/i)
+  expect(crawlDescription).toMatch(/complete scans, then the largest page sample, then the latest scan on that date/i)
+  expect(crawlDescription).toMatch(/`complete` and `termination` qualify budget-limited evidence/i)
+  expect(crawlDescription).toMatch(/dated no-data.*bounded `availableScanDates`.*full distinct-date totals/i)
 })

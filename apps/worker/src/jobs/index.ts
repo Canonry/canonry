@@ -1,4 +1,4 @@
-import type { PlatformEnv } from '@ainyc/canonry-config'
+import type { PlatformEnv } from '@canonry/canonry-config'
 
 import { createHeartbeatLog } from './healthcheck.js'
 

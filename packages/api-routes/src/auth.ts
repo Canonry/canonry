@@ -1,18 +1,23 @@
 import crypto from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
-import { apiKeys, projects, runs, users } from '@ainyc/canonry-db'
+import { apiKeys, oauthGrants, projects, runs, users } from '@canonry/canonry-db'
 import {
   ADS_ACTIVATE_SCOPE,
   ADS_APPROVE_SCOPE,
   ADS_WRITE_SCOPE,
   authRequired,
   authInvalid,
+  EMBED_QUERY_LIMIT_HEADER,
+  EMBED_QUERIES_WRITE_SCOPE,
   forbidden,
   isReadOnlyKey,
   intersectScopes,
   normalizeIdTokens,
+  parseEmbedQueryLimit,
   READ_ONLY_SCOPE,
+  READ_SEMANTIC_OPERATIONS,
+  matchOperationTemplate,
   RESEARCH_RUN_SCOPE,
   restrictedWriteScopes,
   RunKinds,
@@ -20,7 +25,7 @@ import {
   UserRoles,
   WILDCARD_SCOPE,
   type UserRole,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { assertSameOriginWrite } from './same-origin.js'
 import {
   anyUsersExist,
@@ -81,6 +86,8 @@ export interface AuthedApiKey {
  */
 export interface AuthPrincipal {
   kind: 'api-key' | 'user'
+  /** Present for OAuth bearers and the internal keys they delegate. */
+  oauthGrantId?: string | null
   id: string
   name: string
   scopes: string[]
@@ -137,8 +144,9 @@ declare module 'fastify' {
      *
      * Set this ONLY on a route that performs no writes at all. It is the entire
      * allowance; every other write method stays refused for a viewer. It also
-     * changes nothing for an API key — a read-only key is refused here exactly
-     * as it was before.
+     * alone grants nothing to an API key. A read-only key can reach a pure
+     * preview only when READ_SEMANTIC_OPERATIONS also classifies it; the
+     * handler's explicit scope checks still apply.
      */
     readSemantic?: boolean
 
@@ -186,6 +194,12 @@ function isReadSemanticRoute(request: FastifyRequest): boolean {
   return request.routeOptions.config.readSemantic === true
 }
 
+/** Key exemptions additionally require the shared catalog to prove a pure preview. */
+function isReadOnlyPreview(request: FastifyRequest): boolean {
+  return isReadSemanticRoute(request)
+    && READ_SEMANTIC_OPERATIONS.has(matchOperationTemplate(request.method, request.routeOptions.url ?? request.url))
+}
+
 /** True when the route has an explicit paid-read authorization gate. */
 function isPaidReadRoute(request: FastifyRequest): boolean {
   return request.routeOptions.config.paidRead === true
@@ -197,6 +211,13 @@ function isPaidReadRoute(request: FastifyRequest): boolean {
  */
 function isTransportEnvelopeRoute(request: FastifyRequest): boolean {
   return request.routeOptions.config.transportEnvelope === true
+}
+
+/** The connection profile is a read inside the MCP audience, not a transport exemption. */
+function isMcpAuthorizationRoute(request: FastifyRequest): boolean {
+  return isTransportEnvelopeRoute(request)
+    || ((request.method === 'GET' || request.method === 'HEAD')
+      && matchOperationTemplate('GET', request.routeOptions.url ?? request.url) === 'GET /api/v1/mcp/profile')
 }
 
 /**
@@ -248,6 +269,20 @@ export function requireAdminSession(request: FastifyRequest): void {
   const role = principal?.kind === 'user' ? principal.role : principal?.delegatedUser?.role
   if (!role || role === UserRoles.admin) return
   throw forbidden(ADMIN_ONLY_MESSAGE)
+}
+
+/**
+ * Gate the opt-in export of notification URLs. A project-scoped wildcard key
+ * is allowed after the route's project scope check; named and read-only keys
+ * never receive webhook URL material.
+ */
+export function requireSecretExportScope(request: FastifyRequest): void {
+  requireAdminSession(request)
+  const principal = request.principal
+  if (!principal) return
+  if (principal.kind === 'user') return
+  if (principal.kind === 'api-key' && principal.scopes.includes(WILDCARD_SCOPE)) return
+  throw forbidden(NARROW_KEY_DENIED_MESSAGE)
 }
 
 /** What a key narrower than the install is told on an administrator surface. */
@@ -326,16 +361,14 @@ export function requireOperator(request: FastifyRequest): void {
  * list. "Read-only" is a statement about Canonry's own data; it was never a
  * licence to spend, and now neither is silence.
  */
-export function requirePaidReadScope(request: FastifyRequest): void {
+export function requirePaidReadScope(request: FastifyRequest, allowedScopes: readonly string[] = [ADS_WRITE_SCOPE, ADS_APPROVE_SCOPE, ADS_ACTIVATE_SCOPE], denialMessage = 'This API key was not granted access to OpenAI Ads paid reads.'): void {
   const principal = request.principal
   if (!principal || principal.kind !== 'api-key') return
   const grantsAdsAccess = principal.scopes.some(scope =>
     scope === WILDCARD_SCOPE
-    || scope === ADS_WRITE_SCOPE
-    || scope === ADS_APPROVE_SCOPE
-    || scope === ADS_ACTIVATE_SCOPE)
+    || allowedScopes.includes(scope))
   if (!grantsAdsAccess) {
-    throw forbidden('This API key was not granted access to OpenAI Ads paid reads.')
+    throw forbidden(denialMessage)
   }
 }
 
@@ -475,6 +508,9 @@ export function shouldSkipAuth(url: string): boolean {
   return false
 }
 
+/** OAuth-backed internal MCP credentials cannot outlive their transport cleanup indefinitely. */
+export const MCP_DELEGATED_KEY_MAX_AGE_MS = 60 * 60 * 1000
+
 /** Reading the install's account list. */
 export const USERS_READ_SCOPE = 'users.read'
 
@@ -487,10 +523,21 @@ function scopesForRole(role: UserRole, researchAllowViewers = false): string[] {
     : researchAllowViewers ? [READ_ONLY_SCOPE, RESEARCH_RUN_SCOPE] : [READ_ONLY_SCOPE]
 }
 
+/** Delegation must retain an actual consented scope after the account's role changes. */
+function delegatedScopesForRole(role: UserRole, requested: readonly string[], researchAllowViewers = false): string[] {
+  // The shared helper preserves a read fallback for legacy callers. Delegated
+  // consent cannot acquire that fallback when no requested scope survives.
+  const effective = intersectScopes(scopesForRole(role, researchAllowViewers), requested)
+    .filter(scope => requested.includes(WILDCARD_SCOPE) || requested.includes(scope))
+  if (effective.length === 0) throw forbidden('This credential no longer has any authorized scopes.')
+  return effective
+}
+
 /** What an OAuth access token resolved to. */
 export interface ResolvedOAuthToken {
   userId: string
   clientId: string
+  grantId?: string | null
   scope: string | null
 }
 
@@ -543,16 +590,31 @@ function queryValue(request: FastifyRequest, key: string): string | undefined {
  * and `[]` must still be treated as an ACTIVE (maximally narrow) restriction
  * by the caller, not as "nothing to enforce".
  */
+interface EmbedTabPolicy {
+  tabs: string[]
+  /**
+   * True when THIS request carried the tab header, which only the embed render
+   * proxy sets. It is the one signal that a request is actually the public
+   * iframe rather than a trusted server-side caller, and the write refusal keys
+   * on it.
+   *
+   * The instance env is an install-wide DEFAULT for what an iframe may read. It
+   * says nothing about who is calling, so it must never on its own turn a
+   * request into an embed-surface request.
+   */
+  fromEmbedSurface: boolean
+}
+
 function requestEmbedProjectTabs(
   request: FastifyRequest,
   configuredTabs: readonly string[] | undefined,
-): string[] | undefined {
+): EmbedTabPolicy | undefined {
   const headerTabs = normalizeIdTokens(splitList(request.headers['x-canonry-embed-tabs']))
   const configured = configuredTabs && configuredTabs.length > 0 ? configuredTabs : undefined
 
-  if (!configured) return headerTabs
-  if (!headerTabs) return [...configured]
-  return headerTabs.filter((tab) => configured.includes(tab))
+  if (!configured) return headerTabs ? { tabs: headerTabs, fromEmbedSurface: true } : undefined
+  if (!headerTabs) return { tabs: [...configured], fromEmbedSurface: false }
+  return { tabs: headerTabs.filter((tab) => configured.includes(tab)), fromEmbedSurface: true }
 }
 
 function projectRouteRest(url: string): string | null {
@@ -644,33 +706,62 @@ function isTechnicalAeoRead(request: FastifyRequest, url: string): boolean {
     || rest === 'technical-aeo/dead-links'
 }
 
-function isReportRead(url: string): boolean {
-  const rest = projectRouteRest(url)
-  return rest === 'report' || rest === 'report.html'
+/**
+ * A query write from an embedded dashboard's own restricted key. The key's
+ * restricted grant and the route's declared write scope already pin it to the
+ * two query-tracking writes (see `applyScopedWriteGates`), and those routes
+ * apply the dashboard's limit. Any other write from the iframe stays refused.
+ */
+function isEmbedQueryWrite(request: FastifyRequest): boolean {
+  return request.routeOptions.config.writeScope === EMBED_QUERIES_WRITE_SCOPE
+    && (principalScopes(request) ?? []).includes(EMBED_QUERIES_WRITE_SCOPE)
+}
+
+/**
+ * The Queries tab reads its query workspace only when the render proxy says
+ * the agency lets this dashboard's clients manage their own queries. The header
+ * comes from the proxy, never from the end client.
+ */
+function isEmbedQueryRead(request: FastifyRequest, url: string): boolean {
+  if (parseEmbedQueryLimit(request.headers[EMBED_QUERY_LIMIT_HEADER]) === undefined) return false
+  return projectRouteRest(url) === 'query-tracking'
 }
 
 function enforceEmbedProjectTabs(request: FastifyRequest, configuredTabs: readonly string[] | undefined): void {
-  const tabs = requestEmbedProjectTabs(request, configuredTabs)
+  const policy = requestEmbedProjectTabs(request, configuredTabs)
   // `undefined` is the only "nothing to enforce" value now. An empty ARRAY is
   // a real, maximally-narrow restriction (a header that named no tab the
   // install permits) and must fall through to the checks below, where an
   // empty `tabs.includes(...)` never matches and the request is refused
   // rather than waved through as if no allowlist applied.
-  if (tabs === undefined) return
+  if (policy === undefined) return
   if (request.method === 'OPTIONS') return
+  const { tabs } = policy
 
-  // In embed mode with a tab allowlist, the public iframe is a read surface.
-  // The read-only key already blocks writes, but this makes the tab policy
-  // independent of key shape and future write routes.
-  if (WRITE_METHODS.has(request.method)) {
+  // In embed mode with a tab allowlist, the public IFRAME is a read surface. The
+  // read-only key it carries already blocks writes; refusing them here as well
+  // keeps the policy independent of key shape and of future write routes.
+  //
+  // Only for a request that IS the iframe, though. Keying this on the configured
+  // allowlist alone made an install-wide default refuse every write to the
+  // instance, including the control plane's own provisioning calls with a full
+  // key and no header, so no client could be created on any embed instance that
+  // had tabs configured. The header is what identifies the render proxy; nothing
+  // else sets it.
+  if (policy.fromEmbedSurface && WRITE_METHODS.has(request.method) && !isEmbedQueryWrite(request)) {
     throw forbidden('This endpoint is not available in embed mode.')
   }
 
+  // Read scoping still applies to BOTH sources: a dashboard with no per-dashboard
+  // allowlist relies on the install default to narrow what its iframe can read,
+  // and losing that would widen the surface rather than fix anything.
+  if (WRITE_METHODS.has(request.method)) return
+
   const url = request.url.split('?')[0]!
   if (isProjectShellRead(request, url)) return
+  if (isEmbedQueryRead(request, url)) return
   if (tabs.includes('overview') && isOverviewRead(url)) return
   if (tabs.includes('technical-aeo') && isTechnicalAeoRead(request, url)) return
-  if (tabs.includes('report') && isReportRead(url)) return
 
   throw forbidden('This endpoint is not available for the configured embed tabs.')
 }
@@ -746,6 +837,7 @@ function applyRoleGates(request: FastifyRequest): void {
     isReadOnlyKey(principal.scopes)
     && WRITE_METHODS.has(request.method)
     && !request.readSemanticGrant
+    && !isReadOnlyPreview(request)
     && !isPaidReadRoute(request)
     && !isTransportEnvelopeRoute(request)
   ) {
@@ -755,7 +847,7 @@ function applyRoleGates(request: FastifyRequest): void {
 
 /** Named capabilities never become general write access, on either carrier. */
 function applyScopedWriteGates(request: FastifyRequest): void {
-  if (!WRITE_METHODS.has(request.method) || isTransportEnvelopeRoute(request) || request.readSemanticGrant) return
+  if (!WRITE_METHODS.has(request.method) || isTransportEnvelopeRoute(request) || request.readSemanticGrant || isReadOnlyPreview(request)) return
   // A signed-in person on a paid-read route meets that route's own gate
   // instead. Their role scopes are not a credential's narrowed grant: a viewer
   // on an install with viewer research holds `research.run`, and listing it
@@ -808,35 +900,20 @@ export async function authPlugin(app: FastifyInstance, opts: AuthPluginOptions =
         // wider REST surface would let a connector approved for one thing act
         // on everything the person can reach. Checked before the token is even
         // looked up, so a non-MCP route cannot be probed with one.
-        const granted = isTransportEnvelopeRoute(request)
+        const granted = isMcpAuthorizationRoute(request)
           ? opts.resolveOAuthToken?.(token) ?? null
           : null
         if (granted) {
           const account = app.db.select().from(users).where(eq(users.id, granted.userId)).get()
           if (!account) throw authInvalid()
-          // Authority is the INTERSECTION of what the person can do and what
-          // they granted the client. Taking the role alone was a privilege
-          // escalation: an admin approving a `scope=read` connector handed it
-          // full admin, including minting root api keys.
-          const roleScopes = scopesForRole(account.role, opts.researchAllowViewers)
           // `offline_access` governs refresh tokens, not API authority.
-          const requested = (granted.scope ?? '')
+          const requested = (granted.scope ?? READ_ONLY_SCOPE)
             .split(/\s+/)
             .filter(part => part.length > 0 && part !== 'offline_access')
-          // The role is a CEILING, the grant is the request, and the effective
-          // authority is the smaller of the two. A literal set intersection is
-          // wrong here because an admin's role scope is the wildcard `*`, which
-          // does not textually contain `read` — intersecting would leave an
-          // admin who granted `scope=read` with no authority at all.
-          // An EMPTY set is not "no authority" — isReadOnlyKey([]) is false,
-          // because empty means "no read-only marker", so an empty set reads as
-          // NOT read-only and widens the catalog. A grant that intersects
-          // nothing must therefore floor at read, never at nothing: otherwise
-          // the narrowest possible grant to the least privileged account yields
-          // the WIDEST tool surface.
-          const effective = intersectScopes(roleScopes, requested)
+          const effective = delegatedScopesForRole(account.role, requested, opts.researchAllowViewers)
           request.principal = {
             kind: 'user',
+            oauthGrantId: granted.grantId,
             id: account.id,
             name: account.name,
             scopes: effective,
@@ -902,10 +979,17 @@ export async function authPlugin(app: FastifyInstance, opts: AuthPluginOptions =
       ? app.db.select().from(users).where(eq(users.id, key.delegatedUserId)).get()
       : undefined
     if (key.delegatedUserId && !delegatedUser) throw authInvalid()
-    if (delegatedUser) scopes = intersectScopes(scopesForRole(delegatedUser.role, opts.researchAllowViewers), scopes)
+    if (key.delegatedOAuthGrantId) {
+      const age = Date.now() - Date.parse(key.createdAt)
+      if (!Number.isFinite(age) || age < 0 || age >= MCP_DELEGATED_KEY_MAX_AGE_MS) throw authInvalid()
+      const grant = app.db.select().from(oauthGrants).where(eq(oauthGrants.id, key.delegatedOAuthGrantId)).get()
+      if (!grant || grant.revokedAt || grant.userId !== key.delegatedUserId) throw authInvalid()
+    }
+    if (delegatedUser) scopes = delegatedScopesForRole(delegatedUser.role, scopes, opts.researchAllowViewers)
     request.apiKey = { id: key.id, name: key.name, scopes, projectId: key.projectId ?? null }
     request.principal = {
       kind: 'api-key',
+      oauthGrantId: key.delegatedOAuthGrantId,
       id: key.id,
       name: key.name,
       scopes,
@@ -931,6 +1015,7 @@ export async function authPlugin(app: FastifyInstance, opts: AuthPluginOptions =
       isReadOnlyKey(scopes) &&
       WRITE_METHODS.has(request.method) &&
       !request.readSemanticGrant &&
+      !isReadOnlyPreview(request) &&
       !isTransportEnvelopeRoute(request)
     ) {
       throw forbidden('This API key is read-only and cannot perform write operations.')

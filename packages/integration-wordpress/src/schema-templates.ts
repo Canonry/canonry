@@ -41,10 +41,6 @@ export function isSupportedSchemaType(type: string): boolean {
   return SUPPORTED_TYPES.has(type)
 }
 
-export function supportedSchemaTypes(): string[] {
-  return [...SUPPORTED_TYPES]
-}
-
 function buildAddress(address: BusinessAddress): Record<string, unknown> {
   return {
     '@type': 'PostalAddress',

@@ -1,5 +1,6 @@
-import { AiReferralTrafficClasses } from '@ainyc/canonry-contracts'
-import type { AiReferralTrafficClass, GA4AiReferralDailyDto } from '@ainyc/canonry-contracts'
+import { AiReferralTrafficClasses } from '@canonry/canonry-contracts'
+import type { AiReferralTrafficClass, GA4AiReferralDailyDto } from '@canonry/canonry-contracts'
+import { aiEngineDailySeries } from './ga-referral-groups.js'
 
 /**
  * CONSERVATION INVARIANT for `ga_ai_referrals`. Read this before changing any
@@ -294,8 +295,9 @@ export function buildAiReferralDailySeries(
   let totalSessions = 0
   let totalPaidSessions = 0
   let totalOrganicSessions = 0
+  const winners = resolveWinningDimensions(rows)
 
-  for (const winner of resolveWinningDimensions(rows)) {
+  for (const winner of winners) {
     const sessions = winner.paidSessions + winner.organicSessions
     let bySource = byDate.get(winner.date)
     if (!bySource) {
@@ -338,5 +340,11 @@ export function buildAiReferralDailySeries(
       bSessions - aSessions || aSource.localeCompare(bSource))
     .map(([source]) => source)
 
-  return { days, sources, totalSessions, totalPaidSessions, totalOrganicSessions }
+  const byEngine = aiEngineDailySeries(winners.map(winner => ({
+    date: winner.date,
+    source: winner.source,
+    sessions: winner.paidSessions + winner.organicSessions,
+  })))
+
+  return { days, sources, totalSessions, totalPaidSessions, totalOrganicSessions, byEngine }
 }

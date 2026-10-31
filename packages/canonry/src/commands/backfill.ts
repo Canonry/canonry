@@ -1,25 +1,33 @@
-import { createRunCompetitorResolver } from '@ainyc/canonry-api-routes'
-import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
-import type { GroundingSource, NormalizedQueryResult, NormalizedTrafficRequest, RetrievalContract, RetrievalStatus } from '@ainyc/canonry-contracts'
-import type { DatabaseClient } from '@ainyc/canonry-db'
-import { aiUserFetchEventsHourly, auditLog, crawlerEventsHourly, createClient, gaAiReferrals, gaTrafficSnapshots, migrate, parseJsonColumn, competitors, projects, querySnapshots, rawEventSamples, runs } from '@ainyc/canonry-db'
-import { determineAnswerMentioned, effectiveBrandNames, effectiveDomains, normalizeUrlPath, ProviderNames, RetrievalContracts, RunKinds, TrafficEventConfidences, TrafficEventKinds, TrafficEvidenceKinds, TrafficSourceTypes } from '@ainyc/canonry-contracts'
-import { classifyAiUserFetch, classifyCrawler } from '@ainyc/canonry-integration-traffic'
-import { OPENAI_RETRIEVAL_CONTRACT, reparseStoredResult as reparseOpenAIStoredResult } from '@ainyc/canonry-provider-openai'
-import { reparseStoredResult as reparseClaudeStoredResult } from '@ainyc/canonry-provider-claude'
-import { reparseStoredResult as reparseGeminiStoredResult } from '@ainyc/canonry-provider-gemini'
-import { reparseStoredResult as reparsePerplexityStoredResult } from '@ainyc/canonry-provider-perplexity'
-import { reparseStoredResult as reparseMuseStoredResult } from '@ainyc/canonry-provider-muse'
+import { setImmediate as yieldToEventLoop } from 'node:timers/promises'
+import { backfillProjectAnswerMentions, competitorIdentityColumns, createRunCompetitorResolver, readMarketCompetitorNames, refreshSnapshotMentionIdentity } from '@canonry/canonry-api-routes'
+import { and, asc, desc, eq, gt, inArray, isNull, lte, sql } from 'drizzle-orm'
+import type { GroundingSource, NormalizedQueryResult, NormalizedTrafficRequest, RetrievalContract, RetrievalStatus } from '@canonry/canonry-contracts'
+import { aiUserFetchEventsHourly, auditLog, crawlerEventsHourly, createClient, gaAiReferrals, gaTrafficSnapshots, migrate, parseJsonColumn, competitors, projects, querySnapshots, rawEventSamples, runs } from '@canonry/canonry-db'
+import { computeCompetitorOverlap, countsAsMention, determineAnswerMentioned, effectiveBrandNames, effectiveDomains, extractRecommendedCompetitors, normalizeUrlPath, openRouterRouteModel, ProviderNames, RetrievalContracts, RunKinds, TrafficEventConfidences, TrafficEventKinds, TrafficEvidenceKinds, TrafficSourceTypes } from '@canonry/canonry-contracts'
+import { classifyAiUserFetch, classifyCrawler } from '@canonry/canonry-integration-traffic'
+import { OPENAI_RETRIEVAL_CONTRACT, reparseStoredResult as reparseOpenAIStoredResult } from '@canonry/canonry-provider-openai'
+import { reparseStoredResult as reparseClaudeStoredResult } from '@canonry/canonry-provider-claude'
+import { reparseStoredResult as reparseGeminiStoredResult } from '@canonry/canonry-provider-gemini'
+import { reparseStoredResult as reparsePerplexityStoredResult } from '@canonry/canonry-provider-perplexity'
+import { reparseStoredResult as reparseMuseStoredResult } from '@canonry/canonry-provider-muse'
+import { openrouterAdapter } from '@canonry/canonry-provider-openrouter'
 import { loadConfig } from '../config.js'
+import { resolveStoredApiResponse } from '../stored-answer-anchors.js'
 import type { CliFormat } from '../cli-error.js'
 import { isMachineFormat } from '../cli-error.js'
-import {
-  computeCompetitorOverlap,
-  determineCitationState,
-  extractRecommendedCompetitors,
-} from '../citation-utils.js'
+import { determineCitationState } from '../citation-utils.js'
+
+// The snapshot rescore lives in api-routes so Cloud can run it after an alias
+// write; existing imports from this module keep working.
+export {
+  backfillProjectAnswerMentions,
+  backfillProjectAnswerMentionsInChunks,
+  type ProjectAnswerMentionsBackfillResult,
+} from '@canonry/canonry-api-routes'
 
 const SNAPSHOT_BATCH_SIZE = 500
+// Short pages keep each write transaction brief while a server shares the database.
+const PATH_REPAIR_PAGE_SIZE = 128
 
 export async function backfillAnswerVisibilityCommand(opts?: {
   project?: string
@@ -69,13 +77,14 @@ export async function backfillAnswerVisibilityCommand(opts?: {
     }
 
     for (const project of scopedProjects) {
-      const competitorDomains = db
-        .select({ domain: competitors.domain })
+      // Curated and auto-detected competitor aliases score the recomputed
+      // overlap and named competitors the same way a new sweep does.
+      const competitorsForRun = createRunCompetitorResolver(db, db
+        .select(competitorIdentityColumns)
         .from(competitors)
         .where(eq(competitors.projectId, project.id))
-        .all()
-        .map(row => row.domain)
-      const competitorsForRun = createRunCompetitorResolver(db, competitorDomains)
+        .orderBy(competitors.domain)
+        .all(), readMarketCompetitorNames(db, project.id))
       const runIds = runIdsByProject.get(project.id) ?? []
       if (runIds.length === 0) continue
 
@@ -97,6 +106,7 @@ export async function backfillAnswerVisibilityCommand(opts?: {
           provider: querySnapshots.provider,
           citationState: querySnapshots.citationState,
           answerMentioned: querySnapshots.answerMentioned,
+          mentionIdentity: querySnapshots.mentionIdentity,
           answerText: querySnapshots.answerText,
           citedDomains: querySnapshots.citedDomains,
           competitorOverlap: querySnapshots.competitorOverlap,
@@ -108,6 +118,7 @@ export async function backfillAnswerVisibilityCommand(opts?: {
           .where(inArray(querySnapshots.runId, batchRunIds))
           .all()
         const pendingUpdates: Array<{ id: string; patch: Record<string, unknown> }> = []
+        const rewrittenIds: string[] = []
 
         for (const snapshot of snapshotRows) {
           examined++
@@ -116,7 +127,14 @@ export async function backfillAnswerVisibilityCommand(opts?: {
           if (reparsedResult?.providerError) providerErrors++
 
           const answerText = reparsedResult?.answerText ?? snapshot.answerText ?? ''
-          const nextValue = determineAnswerMentioned(answerText, projectBrandNames, projectDomains)
+          // A name match sentiment judged wrong-subject stays not mentioned,
+          // but only while the text it judged stands: a rewritten answer's
+          // verdict is re-read from the results for its new text below.
+          const textChanged = (snapshot.answerText ?? '') !== answerText
+          const nextValue = countsAsMention(
+            determineAnswerMentioned(answerText, projectBrandNames, projectDomains),
+            textChanged ? null : snapshot.mentionIdentity,
+          )
 
           if (nextValue) mentioned++
 
@@ -126,8 +144,9 @@ export async function backfillAnswerVisibilityCommand(opts?: {
             nextPatch.answerMentioned = nextValue
           }
 
-          if ((snapshot.answerText ?? '') !== answerText) {
+          if (textChanged) {
             nextPatch.answerText = answerText
+            rewrittenIds.push(snapshot.id)
           }
 
           if (reparsedResult) {
@@ -199,6 +218,8 @@ export async function backfillAnswerVisibilityCommand(opts?: {
                   .where(eq(querySnapshots.id, update.id))
                   .run()
               }
+              // A verdict judged the old text; re-read the rewritten answers'.
+              if (rewrittenIds.length > 0) refreshSnapshotMentionIdentity(tx, rewrittenIds)
             })
             updated += pendingUpdates.length
           }
@@ -253,10 +274,20 @@ export interface NormalizedPathsBackfillResult {
   unchanged: number
 }
 
+export interface PathBackfillOptions {
+  projectId?: string
+  /** A concurrent change left a candidate unwritten; called after its page commits. */
+  onConflict?: () => void
+  /** Rows read and committed per page. */
+  pageSize?: number
+}
+
+type StoredPathTable = typeof gaTrafficSnapshots | typeof gaAiReferrals
+
 /**
- * Pure helper: backfill `ga_traffic_snapshots.landing_page_normalized` for
- * rows where it is currently null, using whatever DB client the caller has
- * already opened. Idempotent — only touches rows with null normalized.
+ * Repair missing and stale `ga_traffic_snapshots.landing_page_normalized`
+ * values in bounded pages, using the caller's database. Each page commits
+ * before yielding; completed pages remain repaired if a later page fails.
  *
  * Used by both the CLI command (`canonry backfill normalized-paths`) and
  * the server startup path (`canonry serve` runs it post-migrate so users
@@ -269,57 +300,80 @@ export interface NormalizedPathsBackfillResult {
  */
 export function backfillNormalizedPaths(
   db: ReturnType<typeof createClient>,
-  opts?: { projectId?: string },
-): NormalizedPathsBackfillResult {
-  const baseConditions = []
-  if (opts?.projectId) {
-    baseConditions.push(eq(gaTrafficSnapshots.projectId, opts.projectId))
-  }
+  opts?: PathBackfillOptions,
+): Promise<NormalizedPathsBackfillResult> {
+  return repairStoredPaths(db, gaTrafficSnapshots, opts)
+}
 
-  const rows = db
-    .select({
-      id: gaTrafficSnapshots.id,
-      landingPage: gaTrafficSnapshots.landingPage,
-      landingPageNormalized: gaTrafficSnapshots.landingPageNormalized,
-    })
-    .from(gaTrafficSnapshots)
-    .where(baseConditions.length > 0 ? and(...baseConditions) : undefined)
-    .all()
+async function repairStoredPaths(
+  db: ReturnType<typeof createClient>,
+  table: StoredPathTable,
+  opts?: PathBackfillOptions,
+): Promise<NormalizedPathsBackfillResult> {
+  const pageSize = opts?.pageSize ?? PATH_REPAIR_PAGE_SIZE
+  // Unary `+` keeps SQLite walking the id index for a project-scoped pass,
+  // filtering as it goes, instead of sorting the project's rows for every page.
+  const projectScope = opts?.projectId ? sql`+${table.projectId} = ${opts.projectId}` : undefined
+  // Do not chase new ids beyond the end of this pass while yielding to writers.
+  const lastId = db.select({ id: table.id }).from(table)
+    .where(projectScope).orderBy(desc(table.id)).limit(1).get()?.id
+  if (lastId === undefined) return { examined: 0, updated: 0, unchanged: 0 }
 
+  let cursor: string | undefined
+  let examined = 0
   let updated = 0
-  let unchanged = 0
 
-  if (rows.length > 0) {
-    db.transaction((tx) => {
-      for (const row of rows) {
-        const next = normalizeUrlPath(row.landingPage)
-        // If normalization still can't produce a canonical path, leave the
-        // row as-is. Otherwise, rewrite whenever the stored normalized value
-        // is missing or stale, so improved normalization logic can repair
-        // older rows after upgrades.
-        if (next === null) {
-          unchanged++
-          continue
-        }
-        if (row.landingPageNormalized === next) {
-          unchanged++
-          continue
-        }
-        tx.update(gaTrafficSnapshots)
-          .set({ landingPageNormalized: next })
-          .where(eq(gaTrafficSnapshots.id, row.id))
-          .run()
-        updated++
-      }
+  for (;;) {
+    const rows = db.select({
+      id: table.id,
+      projectId: table.projectId,
+      landingPage: table.landingPage,
+      landingPageNormalized: table.landingPageNormalized,
+    }).from(table).where(and(
+      projectScope,
+      lte(table.id, lastId),
+      cursor === undefined ? undefined : gt(table.id, cursor),
+    )).orderBy(asc(table.id)).limit(pageSize).all()
+    examined += rows.length
+
+    const changes = rows.flatMap(row => {
+      const next = normalizeUrlPath(row.landingPage)
+      return next === null || row.landingPageNormalized === next ? [] : [{ row, next }]
     })
+    if (changes.length > 0) {
+      const written = db.transaction((tx) => {
+        let written = 0
+        for (const { row, next } of changes) {
+          // A concurrent sync may replace or repair a row after the page read.
+          // Leave that row untouched; a later pass can inspect its new value.
+          written += tx.update(table).set({ landingPageNormalized: next }).where(and(
+            eq(table.id, row.id),
+            eq(table.projectId, row.projectId),
+            eq(table.landingPage, row.landingPage),
+            row.landingPageNormalized === null
+              ? isNull(table.landingPageNormalized)
+              : eq(table.landingPageNormalized, row.landingPageNormalized),
+          )).run().changes
+        }
+        return written
+      })
+      updated += written
+      if (written < changes.length) opts?.onConflict?.()
+    }
+
+    if (rows.length < pageSize) break
+    cursor = rows.at(-1)!.id
+    if (cursor === lastId) break
+    await yieldToEventLoop()
   }
 
-  return { examined: rows.length, updated, unchanged }
+  // Unchanged means this pass did not write the examined row, including races.
+  return { examined, updated, unchanged: examined - updated }
 }
 
 /**
  * CLI entrypoint. Loads config, opens the DB, runs migrations, calls the
- * pure helper, and prints a human or JSON summary.
+ * bounded repair, and prints a human or JSON summary.
  */
 export async function backfillNormalizedPathsCommand(opts?: {
   project?: string
@@ -354,7 +408,7 @@ export async function backfillNormalizedPathsCommand(opts?: {
     projectId = project.id
   }
 
-  const { examined, updated, unchanged } = backfillNormalizedPaths(db, { projectId })
+  const { examined, updated, unchanged } = await backfillNormalizedPaths(db, { projectId })
 
   const result = {
     project: projectFilter ?? null,
@@ -376,9 +430,9 @@ export async function backfillNormalizedPathsCommand(opts?: {
 }
 
 /**
- * Pure helper: backfill `ga_ai_referrals.landing_page_normalized` for rows
- * where it is currently null. Mirrors `backfillNormalizedPaths` but for the
- * AI referral table, which gained landing-page columns in v46. Idempotent.
+ * Repair missing and stale `ga_ai_referrals.landing_page_normalized` values
+ * with the same bounded pages as `backfillNormalizedPaths`. The AI referral
+ * table gained landing-page columns in v46. Idempotent.
  *
  * Used by both the CLI command (`canonry backfill ai-referral-paths`) and
  * the server startup path (`canonry serve` runs it post-migrate so legacy
@@ -386,48 +440,9 @@ export async function backfillNormalizedPathsCommand(opts?: {
  */
 export function backfillAiReferralPaths(
   db: ReturnType<typeof createClient>,
-  opts?: { projectId?: string },
-): NormalizedPathsBackfillResult {
-  const baseConditions = []
-  if (opts?.projectId) {
-    baseConditions.push(eq(gaAiReferrals.projectId, opts.projectId))
-  }
-
-  const rows = db
-    .select({
-      id: gaAiReferrals.id,
-      landingPage: gaAiReferrals.landingPage,
-      landingPageNormalized: gaAiReferrals.landingPageNormalized,
-    })
-    .from(gaAiReferrals)
-    .where(baseConditions.length > 0 ? and(...baseConditions) : undefined)
-    .all()
-
-  let updated = 0
-  let unchanged = 0
-
-  if (rows.length > 0) {
-    db.transaction((tx) => {
-      for (const row of rows) {
-        const next = normalizeUrlPath(row.landingPage)
-        if (next === null) {
-          unchanged++
-          continue
-        }
-        if (row.landingPageNormalized === next) {
-          unchanged++
-          continue
-        }
-        tx.update(gaAiReferrals)
-          .set({ landingPageNormalized: next })
-          .where(eq(gaAiReferrals.id, row.id))
-          .run()
-        updated++
-      }
-    })
-  }
-
-  return { examined: rows.length, updated, unchanged }
+  opts?: PathBackfillOptions,
+): Promise<NormalizedPathsBackfillResult> {
+  return repairStoredPaths(db, gaAiReferrals, opts)
 }
 
 export async function backfillAiReferralPathsCommand(opts?: {
@@ -463,7 +478,7 @@ export async function backfillAiReferralPathsCommand(opts?: {
     projectId = project.id
   }
 
-  const { examined, updated, unchanged } = backfillAiReferralPaths(db, { projectId })
+  const { examined, updated, unchanged } = await backfillAiReferralPaths(db, { projectId })
 
   const result = {
     project: projectFilter ?? null,
@@ -482,151 +497,6 @@ export async function backfillAiReferralPathsCommand(opts?: {
   console.log(`  Examined:  ${examined}`)
   console.log(`  Updated:   ${updated}`)
   console.log(`  Unchanged: ${unchanged}`)
-}
-
-export interface ProjectAnswerMentionsBackfillResult {
-  examined: number
-  updated: number
-  wouldUpdate?: number
-  mentioned: number
-}
-
-/**
- * Recomputes `answerMentioned`, `competitorOverlap`, and `recommendedCompetitors`
- * for every answer-visibility snapshot owned by `projectId` using the snapshot's
- * stored `answerText` + `citedDomains` and the `groundingSources` already cached
- * in the `rawResponse` envelope. Synchronous — better-sqlite3 has no async I/O.
- *
- * Does not touch `citationState`, `citedDomains`, or `rawResponse` — those are
- * computed by domain-to-domain matching which aliases do not affect.
- */
-export function backfillProjectAnswerMentions(
-  db: DatabaseClient,
-  projectId: string,
-  opts?: { dryRun?: boolean },
-): ProjectAnswerMentionsBackfillResult {
-  const isDryRun = opts?.dryRun === true
-  const project = db.select().from(projects).where(eq(projects.id, projectId)).get()
-  if (!project) return { examined: 0, updated: 0, mentioned: 0 }
-
-  const competitorDomains = db
-    .select({ domain: competitors.domain })
-    .from(competitors)
-    .where(eq(competitors.projectId, projectId))
-    .all()
-    .map(row => row.domain)
-
-  const runRows = db
-    .select({ id: runs.id, planVersionId: runs.measurementPlanVersionId })
-    .from(runs)
-    .where(and(eq(runs.kind, RunKinds['answer-visibility']), eq(runs.projectId, projectId)))
-    .all()
-  const runIds = runRows.map(r => r.id)
-  const planVersionByRun = new Map(runRows.map(run => [run.id, run.planVersionId]))
-  const competitorsForRun = createRunCompetitorResolver(db, competitorDomains)
-
-  let examined = 0
-  let updated = 0
-  let wouldUpdate = 0
-  let mentioned = 0
-  if (runIds.length === 0) {
-    return isDryRun ? { examined, updated, wouldUpdate, mentioned } : { examined, updated, mentioned }
-  }
-
-  const projectDomains = effectiveDomains({
-    canonicalDomain: project.canonicalDomain,
-    ownedDomains: project.ownedDomains,
-  })
-  const projectBrandNames = effectiveBrandNames({
-    displayName: project.displayName,
-    aliases: project.aliases,
-  })
-
-  for (let offset = 0; offset < runIds.length; offset += SNAPSHOT_BATCH_SIZE) {
-    const batchRunIds = runIds.slice(offset, offset + SNAPSHOT_BATCH_SIZE)
-    const snapshotRows = db.select({
-      id: querySnapshots.id,
-      runId: querySnapshots.runId,
-      executionId: querySnapshots.measurementExecutionId,
-      provider: querySnapshots.provider,
-      answerMentioned: querySnapshots.answerMentioned,
-      answerText: querySnapshots.answerText,
-      citedDomains: querySnapshots.citedDomains,
-      competitorOverlap: querySnapshots.competitorOverlap,
-      recommendedCompetitors: querySnapshots.recommendedCompetitors,
-      rawResponse: querySnapshots.rawResponse,
-    }).from(querySnapshots)
-      .where(inArray(querySnapshots.runId, batchRunIds))
-      .all()
-    const pendingUpdates: Array<{ id: string; patch: Record<string, unknown> }> = []
-
-    for (const snapshot of snapshotRows) {
-      examined++
-
-      const answerText = snapshot.answerText ?? ''
-      const nextAnswerMentioned = determineAnswerMentioned(answerText, projectBrandNames, projectDomains)
-      if (nextAnswerMentioned) mentioned++
-
-      const citedDomains = snapshot.citedDomains
-      const groundingSources = readStoredGroundingSources(snapshot.rawResponse)
-
-      const normalized: NormalizedQueryResult = {
-        provider: snapshot.provider,
-        answerText,
-        citedDomains,
-        groundingSources,
-        // Only feeds the competitor helpers, which ignore it. This pass never
-        // observes or writes retrieval.
-        retrievalStatus: 'unknown',
-
-        searchQueries: [],
-      }
-
-      const runCompetitors = competitorsForRun(planVersionByRun.get(snapshot.runId), snapshot.executionId)
-      const nextCompetitorOverlap = computeCompetitorOverlap(normalized, runCompetitors.domains, runCompetitors.aliases)
-      const nextRecommendedCompetitors = extractRecommendedCompetitors(
-        answerText,
-        projectDomains,
-        citedDomains,
-        runCompetitors.domains,
-        projectBrandNames,
-        runCompetitors.aliases,
-      )
-
-      const nextPatch: Record<string, unknown> = {}
-      if (snapshot.answerMentioned !== nextAnswerMentioned) {
-        nextPatch.answerMentioned = nextAnswerMentioned
-      }
-      if (JSON.stringify(snapshot.competitorOverlap) !== JSON.stringify(nextCompetitorOverlap)) {
-        nextPatch.competitorOverlap = nextCompetitorOverlap
-      }
-      if (JSON.stringify(snapshot.recommendedCompetitors) !== JSON.stringify(nextRecommendedCompetitors)) {
-        nextPatch.recommendedCompetitors = nextRecommendedCompetitors
-      }
-
-      if (Object.keys(nextPatch).length > 0) {
-        pendingUpdates.push({ id: snapshot.id, patch: nextPatch })
-      }
-    }
-
-    if (pendingUpdates.length > 0) {
-      if (isDryRun) {
-        wouldUpdate += pendingUpdates.length
-      } else {
-        db.transaction((tx) => {
-          for (const update of pendingUpdates) {
-            tx.update(querySnapshots)
-              .set(update.patch)
-              .where(eq(querySnapshots.id, update.id))
-              .run()
-          }
-        })
-        updated += pendingUpdates.length
-      }
-    }
-  }
-
-  return isDryRun ? { examined, updated, wouldUpdate, mentioned } : { examined, updated, mentioned }
 }
 
 /**
@@ -700,23 +570,6 @@ export async function backfillAnswerMentionsCommand(opts?: {
   if (isDryRun) {
     console.log(`\nNo DB writes performed. Re-run without --dry-run to apply.`)
   }
-}
-
-function readStoredGroundingSources(rawResponse: string | null): GroundingSource[] {
-  const envelope = parseJsonColumn<Record<string, unknown>>(rawResponse, {})
-  const sources = envelope.groundingSources
-  if (!Array.isArray(sources)) return []
-  const result: GroundingSource[] = []
-  for (const source of sources) {
-    if (source && typeof source === 'object') {
-      const uri = (source as { uri?: unknown }).uri
-      const title = (source as { title?: unknown }).title
-      if (typeof uri === 'string') {
-        result.push({ uri, title: typeof title === 'string' ? title : '' })
-      }
-    }
-  }
-  return result
 }
 
 export async function backfillInsightsCommand(
@@ -1180,6 +1033,12 @@ function reparseProviderSnapshot(
   const apiResponse = resolveStoredApiResponse(envelope)
   if (!apiResponse) return null
 
+  const routedModel = openRouterRouteModel(provider)
+  if (routedModel) {
+    try { return openrouterAdapter.normalizeResult(openrouterAdapter.parseTrackedQueryResponse!(apiResponse, routedModel)) }
+    catch { return null }
+  }
+
   switch (provider) {
     case ProviderNames.openai:
       return reparseOpenAIStoredResult(apiResponse)
@@ -1194,28 +1053,6 @@ function reparseProviderSnapshot(
     default:
       return null
   }
-}
-
-function resolveStoredApiResponse(
-  parsed: Record<string, unknown>,
-): Record<string, unknown> | null {
-  const nested = parsed.apiResponse
-  if (nested !== null && typeof nested === 'object' && !Array.isArray(nested)) {
-    return nested as Record<string, unknown>
-  }
-
-  if (looksLikeProviderApiResponse(parsed)) {
-    return parsed
-  }
-
-  return null
-}
-
-function looksLikeProviderApiResponse(value: Record<string, unknown>): boolean {
-  return Array.isArray(value.output)
-    || Array.isArray(value.content)
-    || Array.isArray(value.candidates)
-    || Array.isArray(value.choices)
 }
 
 function stringifyStoredSnapshotEnvelope(

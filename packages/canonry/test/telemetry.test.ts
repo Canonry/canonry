@@ -1,14 +1,15 @@
-import { describe, it, beforeEach, afterEach, expect } from 'vitest'
+import { describe, it, beforeEach, afterEach, expect, vi } from 'vitest'
 import os from 'node:os'
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { parse } from 'yaml'
-import { createClient, migrate, projects, runs } from '@ainyc/canonry-db'
+import { createClient, migrate, projects, runs } from '@canonry/canonry-db'
 import { JobRunner } from '../src/job-runner.js'
 import { ProviderRegistry } from '../src/provider-registry.js'
 
 const tmpDir = path.join(os.tmpdir(), `canonry-telemetry-test-${crypto.randomUUID()}`)
+const packageVersion = (JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string }).version
 
 function restoreEnvVar(name: string, original: string | undefined) {
   if (original === undefined) {
@@ -35,6 +36,9 @@ describe('telemetry', () => {
     'DO_NOT_TRACK',
     'CI',
     'CANONRY_ANONYMOUS_ID',
+    'CANONRY_TELEMETRY_SOURCE',
+    'CANONRY_PORT',
+    'CANONRY_BASE_PATH',
   ]
 
   beforeEach(() => {
@@ -49,9 +53,14 @@ describe('telemetry', () => {
     delete process.env.DO_NOT_TRACK
     delete process.env.CI
     delete process.env.CANONRY_ANONYMOUS_ID
+    delete process.env.CANONRY_TELEMETRY_SOURCE
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}')))
   })
 
   afterEach(() => {
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+    fs.rmSync(tmpDir, { recursive: true, force: true })
     for (const name of envVarsToSave) {
       restoreEnvVar(name, savedEnvVars[name])
     }
@@ -136,16 +145,33 @@ describe('telemetry', () => {
 
   describe('effective telemetry status', () => {
     it('uses the documented environment precedence over persisted configuration', async () => {
-      const { resolveTelemetryStatus } = await import('../src/telemetry.js')
-      const base = { configuredEnabled: false, configState: 'present' as const }
-      expect(resolveTelemetryStatus({ ...base, canonryTelemetryDisabled: '1', doNotTrack: '1', ci: '1' }))
-        .toMatchObject({ enabled: false, configuredEnabled: false, reason: 'CANONRY_TELEMETRY_DISABLED' })
-      expect(resolveTelemetryStatus({ ...base, doNotTrack: '1', ci: '1' }))
-        .toMatchObject({ enabled: false, configuredEnabled: false, reason: 'DO_NOT_TRACK' })
-      expect(resolveTelemetryStatus({ ...base, ci: '1' }))
-        .toMatchObject({ enabled: false, configuredEnabled: false, reason: 'CI' })
-      expect(resolveTelemetryStatus(base))
-        .toMatchObject({ enabled: false, configuredEnabled: false, reason: 'configured_disabled' })
+      const { getTelemetryStatus } = await import('../src/telemetry.js')
+      const { saveConfig, getConfigPath } = await import('../src/config.js')
+      saveConfig(makeConfig({ telemetry: false }))
+      for (const [disabled, doNotTrack, ci, reason] of [
+        ['1', '1', '1', 'CANONRY_TELEMETRY_DISABLED'],
+        [undefined, '1', '1', 'DO_NOT_TRACK'],
+        [undefined, undefined, 'false', 'CI'],
+        [undefined, undefined, undefined, 'configured_disabled'],
+      ] as const) {
+        restoreEnvVar('CANONRY_TELEMETRY_DISABLED', disabled)
+        restoreEnvVar('DO_NOT_TRACK', doNotTrack)
+        restoreEnvVar('CI', ci)
+        expect(getTelemetryStatus(), reason).toEqual({
+          enabled: false, configuredEnabled: false, reason, target: 'local',
+        })
+      }
+      fs.unlinkSync(getConfigPath())
+      expect(getTelemetryStatus()).toEqual({
+        enabled: true, configuredEnabled: true, reason: 'NO_CONFIG', target: 'local',
+      })
+      expect(fs.existsSync(getConfigPath())).toBe(false)
+      fs.writeFileSync(getConfigPath(), 'apiUrl: http://localhost:4100\n')
+      const invalidConfig = fs.readFileSync(getConfigPath(), 'utf8')
+      expect(getTelemetryStatus()).toEqual({
+        enabled: true, configuredEnabled: true, reason: 'CONFIG_UNAVAILABLE', target: 'local',
+      })
+      expect(fs.readFileSync(getConfigPath(), 'utf8')).toBe(invalidConfig)
     })
 
     it('inspects status without creating an anonymous identifier', async () => {
@@ -182,18 +208,6 @@ describe('telemetry', () => {
       const id1 = getOrCreateAnonymousId()
       const id2 = getOrCreateAnonymousId()
       expect(id1).toBe(id2)
-    })
-
-    it('falls back to a stable ID when no config exists (no longer returns undefined)', async () => {
-      // Pre-existing behavior was to return undefined when ~/.canonry/config.yaml
-      // didn't exist. That caused subprocess invocations (e.g. a WP plugin
-      // spawning canonry without a writable HOME) to either skip telemetry
-      // entirely OR — if init somehow fired — generate a fresh UUID per call,
-      // poisoning install counts. Now we always return a stable ID.
-      const { getOrCreateAnonymousId } = await import('../src/telemetry.js')
-      const id = getOrCreateAnonymousId()
-      expect(id).toBeTruthy()
-      expect(id!).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
     })
 
     it('returns existing anonymousId from config without generating a new one', async () => {
@@ -242,16 +256,32 @@ describe('telemetry', () => {
 
     it('falls back to a deterministic machine-derived ID when no config exists', async () => {
       const { getOrCreateAnonymousId } = await import('../src/telemetry.js')
-
-      const id1 = getOrCreateAnonymousId()
-      const id2 = getOrCreateAnonymousId()
-
-      expect(id1).toBeTruthy()
-      // Same machine, same ID — this is the whole point of the fallback,
-      // so a WP plugin spawning canonry without a writable HOME doesn't
-      // emit a brand-new UUID per invocation.
-      expect(id1).toBe(id2)
-      expect(id1!).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
+      const hostname = vi.spyOn(os, 'hostname').mockReturnValue('host-a')
+      const external = {
+        address: '192.0.2.1', netmask: '255.255.255.0', family: 'IPv4' as const,
+        mac: '02:00:00:00:00:01', internal: false, cidr: '192.0.2.1/24',
+      }
+      const network = vi.spyOn(os, 'networkInterfaces').mockReturnValue({ eth0: [external] })
+      const id = getOrCreateAnonymousId()
+      expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
+      expect(getOrCreateAnonymousId()).toBe(id)
+      hostname.mockReturnValue('host-b')
+      expect(getOrCreateAnonymousId()).not.toBe(id)
+      hostname.mockReturnValue('host-a')
+      network.mockReturnValue({ eth0: [{ ...external, mac: '02:00:00:00:00:02' }] })
+      expect(getOrCreateAnonymousId()).not.toBe(id)
+      network.mockReturnValue({
+        lo0: [{ ...external, internal: true, mac: '02:00:00:00:00:03' }],
+        empty: [{ ...external, mac: '' }],
+        zero: [{ ...external, mac: '00:00:00:00:00:00' }],
+        eth0: [external],
+      })
+      expect(getOrCreateAnonymousId()).toBe(id)
+      network.mockReturnValue({})
+      const withoutMac = getOrCreateAnonymousId()
+      expect(withoutMac).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
+      expect(withoutMac).not.toBe(id)
+      expect(getOrCreateAnonymousId()).toBe(withoutMac)
     })
 
     it('deterministic fallback differs from a randomly generated config ID', async () => {
@@ -291,6 +321,44 @@ describe('telemetry', () => {
       expect(config.anonymousId).toBeTruthy()
     })
 
+    it('saves only the new ID, never a runtime port or base path override', async () => {
+      const { getOrCreateAnonymousId } = await import('../src/telemetry.js')
+      const { saveConfig, getConfigPath } = await import('../src/config.js')
+      saveConfig(makeConfig())
+      process.env.CANONRY_PORT = '4999'
+      process.env.CANONRY_BASE_PATH = '/proxied/'
+
+      const id = getOrCreateAnonymousId()
+
+      expect(parse(fs.readFileSync(getConfigPath(), 'utf8'))).toEqual({ ...makeConfig(), anonymousId: id })
+    })
+
+    it('reads but never saves an ID while any server holds writes, and saves once all release', async () => {
+      const { getOrCreateAnonymousId, holdAnonymousIdWrites } = await import('../src/telemetry.js')
+      const { saveConfig, getConfigPath } = await import('../src/config.js')
+      saveConfig(makeConfig())
+      const before = fs.readFileSync(getConfigPath(), 'utf8')
+      // The machine-derived fallback, as when the file cannot be written.
+      const machineDerived = /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+
+      const first = holdAnonymousIdWrites()
+      const second = holdAnonymousIdWrites()
+      try {
+        expect(getOrCreateAnonymousId()).toMatch(machineDerived)
+        first()
+        // Releasing twice must not end the other server's hold.
+        first()
+        expect(getOrCreateAnonymousId()).toMatch(machineDerived)
+        expect(fs.readFileSync(getConfigPath(), 'utf8')).toBe(before)
+      } finally {
+        first()
+        second()
+      }
+
+      const id = getOrCreateAnonymousId()
+      expect(parse(fs.readFileSync(getConfigPath(), 'utf8')).anonymousId).toBe(id)
+    })
+
     it('keeps one ID across a command that creates the config, as `canonry bootstrap` does', async () => {
       const { getOrCreateAnonymousId } = await import('../src/telemetry.js')
       const { saveConfig, loadConfig } = await import('../src/config.js')
@@ -324,6 +392,135 @@ describe('telemetry', () => {
 
   // ── isFirstRun ──────────────────────────────────────────────────────
 
+  describe('getMachineId', () => {
+    const hostDerived = /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+    const external = {
+      address: '192.0.2.1', netmask: '255.255.255.0', family: 'IPv4' as const,
+      mac: '02:00:00:00:00:01', internal: false, cidr: '192.0.2.1/24',
+    }
+
+    // The ID is memoized per process, so each case loads a fresh module and
+    // leaves none behind for later tests to inherit a mocked host from.
+    async function freshTelemetry() {
+      vi.resetModules()
+      return import('../src/telemetry.js')
+    }
+
+    let home: string
+    let savedInstallMethod: string | undefined
+
+    beforeEach(() => {
+      home = path.join(tmpDir, crypto.randomUUID())
+      vi.spyOn(os, 'homedir').mockReturnValue(home)
+      savedInstallMethod = process.env.CANONRY_INSTALL_METHOD
+      process.env.CANONRY_INSTALL_METHOD = 'npm'
+    })
+
+    afterEach(() => {
+      vi.resetModules()
+      restoreEnvVar('CANONRY_INSTALL_METHOD', savedInstallMethod)
+    })
+
+    async function captureEnvelope(trackEvent: (event: string) => void): Promise<Record<string, unknown>> {
+      const upstream = vi.fn<typeof fetch>().mockResolvedValue(new Response('{}'))
+      vi.stubGlobal('fetch', upstream)
+      trackEvent('test.event')
+      await new Promise(resolve => setTimeout(resolve, 10))
+      expect(upstream).toHaveBeenCalledTimes(1)
+      return JSON.parse(upstream.mock.calls[0]![1]!.body as string) as Record<string, unknown>
+    }
+
+    it('is stable for the process and never equals the fallback anonymousId', async () => {
+      const hostname = vi.spyOn(os, 'hostname').mockReturnValue('host-a')
+      vi.spyOn(os, 'networkInterfaces').mockReturnValue({ eth0: [external] })
+      const { getMachineId, getOrCreateAnonymousId } = await freshTelemetry()
+      const id = getMachineId()
+      expect(id).toMatch(hostDerived)
+      // No config exists, so this is the hostname + MAC fallback.
+      expect(getOrCreateAnonymousId()).not.toBe(id)
+      hostname.mockReturnValue('host-b')
+      expect(getMachineId()).toBe(id)
+    })
+
+    it('saves the first ID and keeps it in later processes after the hostname or network changes', async () => {
+      const hostname = vi.spyOn(os, 'hostname').mockReturnValue('host-a')
+      const interfaces = vi.spyOn(os, 'networkInterfaces').mockReturnValue({ eth0: [external] })
+      const first = (await freshTelemetry()).getMachineId()
+      expect(fs.readFileSync(path.join(home, '.canonry', 'machine-id'), 'utf8')).toBe(`${first}\n`)
+      hostname.mockReturnValue('host-b')
+      interfaces.mockReturnValue({ en0: [{ ...external, mac: '02:00:00:00:00:02' }] })
+      expect((await freshTelemetry()).getMachineId()).toBe(first)
+    })
+
+    it('gives another machine its own ID', async () => {
+      const hostname = vi.spyOn(os, 'hostname').mockReturnValue('host-a')
+      vi.spyOn(os, 'networkInterfaces').mockReturnValue({ eth0: [external] })
+      const first = (await freshTelemetry()).getMachineId()
+      vi.mocked(os.homedir).mockReturnValue(path.join(tmpDir, crypto.randomUUID()))
+      hostname.mockReturnValue('host-b')
+      expect((await freshTelemetry()).getMachineId()).not.toBe(first)
+    })
+
+    it('sends none from a container, whose hostname and MAC change on every restart', async () => {
+      process.env.CANONRY_ANONYMOUS_ID = crypto.randomUUID()
+      process.env.CANONRY_INSTALL_METHOD = 'docker'
+      const { getMachineId, trackEvent } = await freshTelemetry()
+      expect(getMachineId()).toBeUndefined()
+      expect(fs.existsSync(path.join(home, '.canonry', 'machine-id'))).toBe(false)
+      const payload = await captureEnvelope(trackEvent)
+      expect(payload).not.toHaveProperty('machineId')
+    })
+
+    it('rides on every event, including when CANONRY_ANONYMOUS_ID pins the install', async () => {
+      const pinned = crypto.randomUUID()
+      process.env.CANONRY_ANONYMOUS_ID = pinned
+      const { getMachineId, trackEvent } = await freshTelemetry()
+      const payload = await captureEnvelope(trackEvent)
+      expect(payload.anonymousId).toBe(pinned)
+      expect(payload.machineId).toBe(getMachineId())
+      expect(payload.machineId).toMatch(hostDerived)
+    })
+
+    it('omits the field instead of dropping the event when derivation throws', async () => {
+      process.env.CANONRY_ANONYMOUS_ID = crypto.randomUUID()
+      vi.spyOn(os, 'hostname').mockImplementation(() => {
+        throw new Error('hostname unavailable')
+      })
+      const { getMachineId, trackEvent } = await freshTelemetry()
+      expect(getMachineId()).toBeUndefined()
+      const payload = await captureEnvelope(trackEvent)
+      expect(payload.anonymousId).toBe(process.env.CANONRY_ANONYMOUS_ID)
+      expect(payload).not.toHaveProperty('machineId')
+    })
+
+    describe('resolveMachineId', () => {
+      const filePath = () => path.join(home, '.canonry', 'machine-id')
+      const derivedId = '0a1b2c3d-0000-5000-8000-000000000001'
+
+      it('keeps an ID another process saved first', async () => {
+        const { resolveMachineId } = await freshTelemetry()
+        const saved = crypto.randomUUID()
+        fs.mkdirSync(path.dirname(filePath()), { recursive: true })
+        fs.writeFileSync(filePath(), `${saved.toUpperCase()}\n`)
+        expect(resolveMachineId({ filePath: filePath(), inContainer: false, derive: () => derivedId })).toBe(saved)
+      })
+
+      it('ignores a file that does not hold a UUID', async () => {
+        const { resolveMachineId } = await freshTelemetry()
+        fs.mkdirSync(path.dirname(filePath()), { recursive: true })
+        fs.writeFileSync(filePath(), 'not-an-id\n')
+        expect(resolveMachineId({ filePath: filePath(), inContainer: false, derive: () => derivedId })).toBe(derivedId)
+      })
+
+      it('still answers when the ID cannot be saved', async () => {
+        const { resolveMachineId } = await freshTelemetry()
+        fs.writeFileSync(path.join(tmpDir, 'blocker'), '')
+        const unwritable = path.join(tmpDir, 'blocker', 'machine-id')
+        expect(resolveMachineId({ filePath: unwritable, inContainer: false, derive: () => derivedId })).toBe(derivedId)
+      })
+    })
+  })
+
   describe('isFirstRun', () => {
     it('returns false when no config exists (pre-init)', async () => {
       const { isFirstRun } = await import('../src/telemetry.js')
@@ -351,6 +548,7 @@ describe('telemetry', () => {
     it('writes notice to stderr (not stdout)', async () => {
       const { showFirstRunNotice } = await import('../src/telemetry.js')
       const chunks: Buffer[] = []
+      const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
       const originalWrite = process.stderr.write
       process.stderr.write = (chunk: string | Uint8Array) => {
         chunks.push(Buffer.from(chunk))
@@ -363,6 +561,7 @@ describe('telemetry', () => {
         expect(output.includes('anonymous telemetry')).toBeTruthy()
         expect(output.includes('canonry telemetry disable')).toBeTruthy()
         expect(output.includes('canonry.ai/telemetry')).toBeTruthy()
+        expect(stdout).not.toHaveBeenCalled()
       } finally {
         process.stderr.write = originalWrite
       }
@@ -436,29 +635,28 @@ describe('telemetry', () => {
 
   describe('trackEvent', () => {
     it('drops known no-provider test-location run telemetry before fetch', async () => {
-      const { shouldDropTelemetryEvent, trackEvent } = await import('../src/telemetry.js')
+      const { trackEvent } = await import('../src/telemetry.js')
       const { saveConfig } = await import('../src/config.js')
       saveConfig(makeConfig({ anonymousId: crypto.randomUUID() }))
+      const upstream = vi.fn<typeof fetch>().mockResolvedValue(new Response('{}'))
+      vi.stubGlobal('fetch', upstream)
 
-      expect(shouldDropTelemetryEvent('run.aborted', { location: 'nyc', providerCount: 0 })).toBe(true)
-      expect(shouldDropTelemetryEvent('run.completed', { location: ' LAX ', providerCount: 0 })).toBe(true)
-      expect(shouldDropTelemetryEvent('run.completed', { location: 'chi', providerCount: 1 })).toBe(false)
-      expect(shouldDropTelemetryEvent('cli.init', { location: 'nyc', providerCount: 0 })).toBe(false)
+      trackEvent('run.aborted', { location: 'nyc', providerCount: 0 })
+      trackEvent('run.completed', { location: ' LAX ', providerCount: 0 })
+      trackEvent('run.aborted', { location: 'chi', providerCount: 0 })
+      expect(upstream).not.toHaveBeenCalled()
 
-      const originalFetch = globalThis.fetch
-      let fetchCalled = false
-      globalThis.fetch = async () => {
-        fetchCalled = true
-        return new Response()
-      }
-
-      try {
-        trackEvent('run.aborted', { location: 'chi', providerCount: 0 })
-        await new Promise(resolve => setTimeout(resolve, 10))
-        expect(fetchCalled, 'ghost test telemetry should be dropped before fetch').toBe(false)
-      } finally {
-        globalThis.fetch = originalFetch
-      }
+      trackEvent('run.completed', { location: 'chi', providerCount: 1 })
+      trackEvent('cli.init', { location: 'nyc', providerCount: 0 })
+      await Promise.resolve()
+      expect(upstream).toHaveBeenCalledTimes(2)
+      expect(upstream.mock.calls.map(([, init]) => {
+        const payload = JSON.parse(String(init?.body))
+        return { event: payload.event, properties: payload.properties }
+      })).toEqual([
+        { event: 'run.completed', properties: { location: 'chi', providerCount: 1 } },
+        { event: 'cli.init', properties: { location: 'nyc', providerCount: 0 } },
+      ])
     })
 
     it('is a no-op when telemetry is disabled via env var', async () => {
@@ -531,9 +729,11 @@ describe('telemetry', () => {
 
       let capturedBody: string | undefined
       let capturedMethod: string | undefined
+      let capturedUrl: string | undefined
       let capturedHeaders: Record<string, string> = {}
       const originalFetch = globalThis.fetch
       globalThis.fetch = async (url: string | URL | Request, init?: RequestInit) => {
+        capturedUrl = String(url)
         capturedMethod = init?.method
         capturedBody = init?.body as string
         capturedHeaders = Object.fromEntries(
@@ -548,6 +748,7 @@ describe('telemetry', () => {
         // Give the fire-and-forget fetch a tick to execute
         await new Promise(resolve => setTimeout(resolve, 10))
 
+        expect(capturedUrl).toBe('https://canonry.ai/api/telemetry')
         expect(capturedMethod, 'fetch body should be set').toBe('POST')
         expect(capturedHeaders['content-type']).toBe('application/json')
 
@@ -557,11 +758,13 @@ describe('telemetry', () => {
           /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
         )
         expect(payload.anonymousId, 'version should be set').toBe(anonId)
+        expect(payload.machineId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
+        expect(payload.machineId).not.toBe(anonId)
         expect(payload.event).toBe('cli.command')
         expect(payload.os).toBe(process.platform)
         expect(payload.arch).toBe(process.arch)
         expect(payload.nodeVersion).toBe(process.versions.node)
-        expect(payload.version).toBeTruthy()
+        expect(payload.version).toBe(packageVersion)
         expect(payload.timestamp, 'timestamp should be set').toBeTruthy()
         expect(payload.properties).toEqual({ command: 'run' })
         // Source attribution + session id ride on every event so the
@@ -636,27 +839,6 @@ describe('telemetry', () => {
       }
     })
 
-    it('sends to the correct endpoint', async () => {
-      const { trackEvent } = await import('../src/telemetry.js')
-      const { saveConfig } = await import('../src/config.js')
-      saveConfig(makeConfig({ anonymousId: crypto.randomUUID() }))
-
-      let capturedUrl: string | undefined
-      const originalFetch = globalThis.fetch
-      globalThis.fetch = async (url: string | URL | Request, _init?: RequestInit) => {
-        capturedUrl = String(url)
-        return new Response(JSON.stringify({ ok: true }))
-      }
-
-      try {
-        trackEvent('test.event')
-        await new Promise(resolve => setTimeout(resolve, 10))
-        expect(capturedUrl).toBe('https://canonry.ai/api/telemetry')
-      } finally {
-        globalThis.fetch = originalFetch
-      }
-    })
-
     it('does not throw when fetch rejects (network error)', async () => {
       const { trackEvent } = await import('../src/telemetry.js')
       const { saveConfig } = await import('../src/config.js')
@@ -708,7 +890,7 @@ describe('telemetry', () => {
       const { telemetryCommand } = await import('../src/commands/telemetry.js')
       saveConfig(makeConfig())
 
-      telemetryCommand('disable')
+      await telemetryCommand('disable')
 
       const config = loadConfig()
       expect(config.telemetry).toBe(false)
@@ -736,7 +918,7 @@ describe('telemetry', () => {
       const { isTelemetryEnabled } = await import('../src/telemetry.js')
       saveConfig(makeConfig())
 
-      telemetryCommand('disable')
+      await telemetryCommand('disable')
       expect(isTelemetryEnabled()).toBe(false)
 
       telemetryCommand('enable')
@@ -860,7 +1042,7 @@ describe('telemetry', () => {
         anonymousId: crypto.randomUUID(),
       }))
 
-      telemetryCommand('disable')
+      await telemetryCommand('disable')
 
       const config = loadConfig()
       expect(config.telemetry).toBe(false)
@@ -873,31 +1055,6 @@ describe('telemetry', () => {
   // ── privacy contract ─────────────────────────────────────────────────
 
   describe('privacy contract', () => {
-    it('trackEvent does not fire for telemetry commands', async () => {
-      // Simulates the cli.ts logic: telemetry commands should not be tracked
-      const { trackEvent } = await import('../src/telemetry.js')
-      const { saveConfig } = await import('../src/config.js')
-      saveConfig(makeConfig({ anonymousId: crypto.randomUUID() }))
-
-      const originalFetch = globalThis.fetch
-      let fetchCalled = false
-      globalThis.fetch = async () => {
-        fetchCalled = true
-        return new Response()
-      }
-
-      try {
-        // Simulate cli.ts guard: skip tracking for telemetry commands
-        const command = 'telemetry'
-        if (command !== 'telemetry') {
-          trackEvent('cli.command', { command: 'telemetry.disable' })
-        }
-        expect(fetchCalled, 'telemetry commands must not be tracked').toBe(false)
-      } finally {
-        globalThis.fetch = originalFetch
-      }
-    })
-
     it('disabled config has no anonymousId by default', async () => {
       const { isTelemetryEnabled } = await import('../src/telemetry.js')
       const { saveConfig, loadConfig } = await import('../src/config.js')
@@ -909,21 +1066,6 @@ describe('telemetry', () => {
       // A disabled config should not have anonymousId unless one was previously created
       const config = loadConfig()
       expect(config.anonymousId, 'anonymousId should not exist in a fresh disabled config').toBe(undefined)
-    })
-
-    it('first-run notice is not shown for telemetry or init commands', async () => {
-      const { isFirstRun, isTelemetryEnabled } = await import('../src/telemetry.js')
-      const { saveConfig } = await import('../src/config.js')
-      saveConfig(makeConfig())
-
-      // Simulates cli.ts logic: skip first-run notice for 'telemetry' and 'init'
-      function shouldShowNotice(command: string): boolean {
-        return command !== 'telemetry' && command !== 'init' && isTelemetryEnabled() && isFirstRun()
-      }
-
-      expect(shouldShowNotice('telemetry'), 'first-run notice must not show for telemetry').toBe(false)
-      expect(shouldShowNotice('init'), 'first-run notice must not show for init').toBe(false)
-      expect(shouldShowNotice('run'), 'first-run notice should show for normal commands').toBe(true)
     })
   })
 
@@ -991,33 +1133,16 @@ describe('telemetry', () => {
       expect(events.find((e) => e.event === 'cli.upgraded')).toBe(undefined)
 
       // The current version is still recorded, so a real upgrade later does fire.
-      expect(loadConfig().lastSeenVersion).toBeTruthy()
+      expect(loadConfig().lastSeenVersion).toBe(packageVersion)
     })
 
     it('does not emit when the stored version matches current', async () => {
-      const { saveConfig } = await import('../src/config.js')
-      const { trackEvent: _t } = await import('../src/telemetry.js') // load module to read VERSION
-      // Read the current version through the public API by emitting once
-      // and inspecting payload.version.
-      let currentVersion: string | undefined
-      const originalFetch = globalThis.fetch
-      globalThis.fetch = async (_u: string | URL | Request, init?: RequestInit) => {
-        if (init?.body) currentVersion = (JSON.parse(init.body as string) as { version: string }).version
-        return new Response()
-      }
-      try {
-        saveConfig(makeConfig({ anonymousId: crypto.randomUUID() }))
-        _t('seed')
-        await new Promise((resolve) => setTimeout(resolve, 20))
-      } finally {
-        globalThis.fetch = originalFetch
-      }
-      expect(currentVersion).toBeTruthy()
-
-      saveConfig(makeConfig({ anonymousId: crypto.randomUUID(), lastSeenVersion: currentVersion }))
+      const { saveConfig, loadConfig } = await import('../src/config.js')
+      saveConfig(makeConfig({ anonymousId: crypto.randomUUID(), lastSeenVersion: packageVersion }))
       const { detectAndTrackUpgrade } = await import('../src/telemetry.js')
       const events = await captureFetch(() => detectAndTrackUpgrade())
-      expect(events.find((e) => e.event === 'cli.upgraded')).toBe(undefined)
+      expect(events).toEqual([])
+      expect(loadConfig().lastSeenVersion).toBe(packageVersion)
     })
 
     it('emits cli.upgraded when the stored version differs and updates the config', async () => {
@@ -1029,15 +1154,16 @@ describe('telemetry', () => {
       const upgrade = events.find((e) => e.event === 'cli.upgraded')
       expect(upgrade).toBeTruthy()
       expect((upgrade!.properties as Record<string, unknown>).fromVersion).toBe('0.0.1-test')
-      expect((upgrade!.properties as Record<string, unknown>).toVersion).toBeTruthy()
+      expect(upgrade!.properties).toEqual({ fromVersion: '0.0.1-test', toVersion: packageVersion })
+      expect(upgrade!.version).toBe(packageVersion)
+      expect(events).toHaveLength(1)
 
       // Subsequent calls must be a no-op — lastSeenVersion is now current.
       const after = loadConfig().lastSeenVersion
-      expect(after).toBeTruthy()
-      expect(after).not.toBe('0.0.1-test')
+      expect(after).toBe(packageVersion)
 
       const second = await captureFetch(() => detectAndTrackUpgrade())
-      expect(second.find((e) => e.event === 'cli.upgraded')).toBe(undefined)
+      expect(second).toEqual([])
     })
   })
 

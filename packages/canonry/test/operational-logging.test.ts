@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, onTestFinished, test, vi } from 'vitest'
-import { createClient, migrate, OperationalLogStore } from '@ainyc/canonry-db'
+import { createClient, migrate, OperationalLogStore } from '@canonry/canonry-db'
 import { addLogListener, createLogger } from '../src/logger.js'
 
 describe('operational logging', () => {

@@ -1,11 +1,13 @@
 import crypto from 'node:crypto'
 import { and, eq, sql } from 'drizzle-orm'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
-import { projects, queries, competitors, schedules, notifications, runs, querySnapshots, insights, auditLog, readAllNegativeReviewMaxStars, readNegativeReviewMaxStars, writeNegativeReviewMaxStars } from '@ainyc/canonry-db'
+import { projects, queries, competitors, schedules, notifications, runs, querySnapshots, insights, auditLog, readAllNegativeReviewMaxStars, readNegativeReviewMaxStars, writeNegativeReviewMaxStars, type DatabaseClient } from '@canonry/canonry-db'
 import type { InferSelectModel } from 'drizzle-orm'
 import {
+  ProviderWorkflows,
   alreadyExists,
   describeError,
+  competitorAliasProjectIdentity,
   forbidden,
   hostOf,
   notFound,
@@ -13,22 +15,33 @@ import {
   locationContextSchema,
   normalizeProjectAliases,
   normalizeProjectName,
+  OutcomeStatuses,
+  projectPatchRequestSchema,
   projectCreateRequestSchema,
   projectUpsertRequestSchema,
+  projectRevisionConflict,
+  resolveProjectQualifiedAliases,
   findDuplicateLocationLabels,
   hasLocationLabel,
+  DEFAULT_COMPETITOR_AUTO_ALIAS_MODE,
   DEFAULT_MEASUREMENT_CONFIG,
   PROJECTS_WRITE_SCOPE,
   SchedulableRunKinds,
-} from '@ainyc/canonry-contracts'
-import type { LocationContext, MeasurementConfig, ProjectCreateRequest, ProviderDispatchModesMap, ProviderModels } from '@ainyc/canonry-contracts'
-import { requireAdminSession, requireScope } from './auth.js'
+  buildRedactedNotificationUrl,
+} from '@canonry/canonry-contracts'
+import type { CompetitorAliasRejection, CompetitorAutoAliasDrop, CompetitorAutoAliasMode, ConfigNotification, LocationContext, MeasurementConfig, ProjectConfigExport, ProjectCreateRequest, ProjectPatchRequest, ProjectUpsertRequest, ProviderDispatchModesMap, ProviderModels } from '@canonry/canonry-contracts'
+import { requireAdminSession, requireScope, requireSecretExportScope } from './auth.js'
 import { resolveProject, writeAuditLog } from './helpers.js'
+import { withFeatureOutcome } from './feature-outcome.js'
+import { competitorIdentityChanged, competitorIdentityColumns, competitorNames, planCompetitorSet, readStoredCompetitors, syncCompetitorSet } from './competitor-writes.js'
+import { readMarketCompetitorPins } from './plan-competitors.js'
+import { marketNameChanges, readMarketCompetitorNames, type MarketNameChange } from './market-competitor-names.js'
 import { SETTINGS_WRITE_SCOPE } from './settings.js'
 import type { ProviderAdapterInfo } from './settings.js'
-import { pruneProviderDispatchModes, pruneProviderModelsForProviders, validateProviderDispatchModes, validateProviderModels } from './provider-models.js'
+import { assertProviderRouteScope, invalidProviderSelections, providerRouteFamilies, pruneProviderDispatchModes, pruneProviderModelsForProviders, validateProviderDispatchModes, validateProviderModels } from './provider-models.js'
 import { activeRevisionProviders } from './run-queue.js'
 import { readProjectRunsWithOutstandingProviderBatch } from './provider-batches.js'
+import { redactNotificationUrl } from './notification-redaction.js'
 
 export interface ProjectRoutesOptions {
   /**
@@ -62,11 +75,14 @@ export interface ProjectRoutesOptions {
    * Skipped when only other fields change.
    */
   onAliasesChanged?: (projectId: string, projectName: string) => void
+  /** Fired when a project identity change drops a competitor alias. See `CompetitorRoutesOptions`. */
+  onCompetitorAliasesChanged?: (projectId: string, projectName: string) => void
   /** Full descriptors from registered adapters — validate names and model overrides. */
   providerAdapters?: ProviderAdapterInfo[]
 }
 
 export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOptions) {
+  const routeFamilies = providerRouteFamilies(opts.providerAdapters)
   const notifyProjectCreated = (projectId: string, projectName: string): void => {
     try {
       opts.onProjectCreated?.(projectId, projectName)
@@ -106,7 +122,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
     // Validate provider names against registered adapters.
     const validNames = opts.providerAdapters?.map(adapter => adapter.name) ?? []
     if (validNames.length && body.providers?.length) {
-      const invalid = body.providers.filter(p => !validNames.includes(p))
+      const invalid = invalidProviderSelections(body.providers, validNames, opts.providerAdapters, ProviderWorkflows['visibility-sweep'])
       if (invalid.length) {
         throw validationError(`Invalid provider(s): ${invalid.join(', ')}. Must be one of: ${validNames.join(', ')}`, {
           invalidProviders: invalid,
@@ -115,6 +131,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
       }
     }
     const nextProviders = body.providers ?? []
+    assertProviderRouteScope(request, nextProviders, [], routeFamilies)
     const providerModels = pruneProviderModelsForProviders(
       validateProviderModels(body.providerModels ?? {}, opts.providerAdapters),
       nextProviders,
@@ -152,6 +169,10 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
     const id = crypto.randomUUID()
     const now = new Date().toISOString()
     const nextAliases = normalizeProjectAliases(body.displayName, body.aliases ?? [])
+    // A new project has no competitors yet, so only the alias rules apply.
+    const qualifiedAliases = body.qualifiedAliases === undefined
+      ? []
+      : requireQualifiedAliases({ displayName: body.displayName, aliases: nextAliases }, body.qualifiedAliases, [])
     const inserted = app.db.transaction((tx) => {
       const result = tx.insert(projects).values({
         id,
@@ -160,6 +181,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
         canonicalDomain,
         ownedDomains: body.ownedDomains ?? [],
         aliases: nextAliases,
+        qualifiedAliases,
         country: body.country,
         language: body.language,
         tags: body.tags ?? [],
@@ -171,6 +193,8 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
         locations: nextLocations,
         defaultLocation: nextDefaultLocation,
         autoExtractBacklinks: body.autoExtractBacklinks ?? false,
+        siteAuditMaxPages: body.siteAuditMaxPages ?? null,
+        competitorAutoAliases: body.competitorAutoAliases ?? DEFAULT_COMPETITOR_AUTO_ALIAS_MODE,
         configSource: body.configSource ?? 'api',
         configRevision: 1,
         createdAt: now,
@@ -196,6 +220,197 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
     return reply.status(201).send(formatProject(created, body.negativeReviewMaxStars ?? null))
   })
 
+  type PreparedProjectUpdate = {
+    now: string
+    providerModels: ProviderModels
+    providerDispatchModes: ProviderDispatchModesMap
+    nextLocations: LocationContext[]
+    nextDefaultLocation: string | null
+    nextAutoExtractBacklinks: boolean
+    nextSiteAuditMaxPages: number | null
+    nextCompetitorAutoAliases: CompetitorAutoAliasMode
+    nextNegativeReviewMaxStars: number | null
+    nextMeasurement: MeasurementConfig
+    nextAliases: string[]
+    nextAliasIdentity: ReturnType<typeof competitorAliasProjectIdentity>
+    competitorAliasPrune: ReturnType<typeof planCompetitorSet> | null
+    nextQualifiedAliases: string[]
+  }
+
+  const prepareProjectUpdate = (
+    request: FastifyRequest,
+    body: ProjectUpsertRequest,
+    existing: InferSelectModel<typeof projects> | undefined,
+  ): PreparedProjectUpdate => {
+    const validNames = opts.providerAdapters?.map(adapter => adapter.name) ?? []
+    if (validNames.length && body.providers?.length) {
+      const invalid = invalidProviderSelections(body.providers, validNames, opts.providerAdapters, ProviderWorkflows['visibility-sweep'])
+      if (invalid.length) {
+        throw validationError(`Invalid provider(s): ${invalid.join(', ')}. Must be one of: ${validNames.join(', ')}`, {
+          invalidProviders: invalid,
+          validProviders: validNames,
+        })
+      }
+    }
+    const nextProviders = body.providers ?? []
+    assertProviderRouteScope(request, nextProviders, existing?.providers ?? [], routeFamilies)
+    const providerModels = pruneProviderModelsForProviders(
+      validateProviderModels(body.providerModels ?? {}, opts.providerAdapters),
+      nextProviders,
+    )
+    const now = new Date().toISOString()
+    assertProviderModelScope(request, existing?.providerModels ?? {}, providerModels, nextProviders)
+    const providerDispatchModes = pruneProviderDispatchModes(
+      body.providerDispatchModes !== undefined
+        ? validateProviderDispatchModes(body.providerDispatchModes, opts.providerAdapters)
+        : existing?.providerDispatchModes ?? {},
+      nextProviders,
+      existing ? activeRevisionProviders(app.db, existing.id) : [],
+    )
+    const existingLocations = existing ? existing.locations : []
+    const nextLocations = body.locations ?? existingLocations
+    const duplicateLabels = findDuplicateLocationLabels(nextLocations)
+    if (duplicateLabels.length > 0) {
+      throw validationError(`Duplicate location labels are not allowed: ${duplicateLabels.join(', ')}`, { duplicateLabels })
+    }
+    const nextDefaultLocation = body.defaultLocation !== undefined
+      ? (body.defaultLocation ?? null)
+      : existing?.defaultLocation ?? null
+    if (!hasLocationLabel(nextLocations, nextDefaultLocation)) {
+      throw validationError(`defaultLocation "${nextDefaultLocation}" must match a configured location label`, { defaultLocation: nextDefaultLocation })
+    }
+    const nextAutoExtractBacklinks = body.autoExtractBacklinks !== undefined
+      ? body.autoExtractBacklinks
+      : existing?.autoExtractBacklinks ?? false
+    const nextSiteAuditMaxPages = body.siteAuditMaxPages !== undefined ? body.siteAuditMaxPages : existing?.siteAuditMaxPages ?? null
+    const nextCompetitorAutoAliases = body.competitorAutoAliases
+      ?? existing?.competitorAutoAliases
+      ?? DEFAULT_COMPETITOR_AUTO_ALIAS_MODE
+    const nextNegativeReviewMaxStars = body.negativeReviewMaxStars !== undefined
+      ? body.negativeReviewMaxStars
+      : existing ? readNegativeReviewMaxStars(app.db, existing.id) : null
+    const nextMeasurement = body.measurement ?? existing?.measurement ?? DEFAULT_MEASUREMENT_CONFIG
+    const nextAliases = normalizeProjectAliases(body.displayName, body.aliases ?? [])
+    const nextIdentity = { displayName: body.displayName, aliases: nextAliases }
+    const nextAliasIdentity = competitorAliasProjectIdentity({
+      displayName: body.displayName,
+      aliases: nextAliases,
+      canonicalDomain: body.canonicalDomain,
+      ownedDomains: body.ownedDomains ?? [],
+    })
+    const competitorAliasPrune = existing
+      ? planCompetitorSet(readStoredCompetitors(app.db, existing.id), [], {
+          replace: false,
+          project: nextAliasIdentity,
+          marketPins: readMarketCompetitorPins(app.db, existing.id),
+        })
+      : null
+    const liveCompetitors = competitorAliasPrune ? competitorNames(competitorAliasPrune.final) : []
+    const nextQualifiedAliases = body.qualifiedAliases !== undefined
+      ? requireQualifiedAliases(nextIdentity, body.qualifiedAliases, liveCompetitors)
+      : resolveProjectQualifiedAliases(nextIdentity, existing?.qualifiedAliases ?? [], liveCompetitors).value
+    return {
+      now,
+      providerModels,
+      providerDispatchModes,
+      nextLocations,
+      nextDefaultLocation,
+      nextAutoExtractBacklinks,
+      nextSiteAuditMaxPages,
+      nextCompetitorAutoAliases,
+      nextNegativeReviewMaxStars,
+      nextMeasurement,
+      nextAliases,
+      nextAliasIdentity,
+      competitorAliasPrune,
+      nextQualifiedAliases,
+    }
+  }
+
+  const updateExistingProject = async (
+    reply: import('fastify').FastifyReply,
+    name: string,
+    existing: InferSelectModel<typeof projects>,
+    body: ProjectUpsertRequest,
+    prepared: PreparedProjectUpdate,
+    options: { preserveConfigSource?: boolean; expectedConfigRevision?: number; patchedFields?: string[] } = {},
+  ) => {
+    if (options.expectedConfigRevision !== undefined && options.expectedConfigRevision !== existing.configRevision) {
+      throw projectRevisionConflict(options.expectedConfigRevision, existing.configRevision)
+    }
+    const prevAliases = existing.aliases
+    const aliasesChanged = !aliasArraysEqual(prevAliases, prepared.nextAliases)
+    let droppedCompetitorAliases: CompetitorAliasRejection[] = []
+    let droppedAutoAliases: CompetitorAutoAliasDrop[] = []
+    let marketNamesChanged: MarketNameChange[] = []
+    const autoAliasModeChange = existing.competitorAutoAliases !== prepared.nextCompetitorAutoAliases
+      ? { before: existing.competitorAutoAliases, after: prepared.nextCompetitorAutoAliases }
+      : null
+
+    app.db.transaction((tx) => {
+      const marketNamesBefore = readMarketCompetitorNames(tx, existing.id)
+      const changed = tx.update(projects).set({
+        displayName: body.displayName,
+        canonicalDomain: body.canonicalDomain,
+        ownedDomains: body.ownedDomains ?? [],
+        aliases: prepared.nextAliases,
+        qualifiedAliases: prepared.nextQualifiedAliases,
+        country: body.country,
+        language: body.language,
+        tags: body.tags ?? [],
+        labels: body.labels ?? {},
+        providers: body.providers ?? [],
+        providerModels: prepared.providerModels,
+        providerDispatchModes: prepared.providerDispatchModes,
+        measurement: prepared.nextMeasurement,
+        locations: prepared.nextLocations,
+        defaultLocation: prepared.nextDefaultLocation,
+        autoExtractBacklinks: prepared.nextAutoExtractBacklinks,
+        siteAuditMaxPages: prepared.nextSiteAuditMaxPages,
+        competitorAutoAliases: prepared.nextCompetitorAutoAliases,
+        ...(options.preserveConfigSource ? {} : { configSource: body.configSource ?? 'api' }),
+        configRevision: existing.configRevision + 1,
+        updatedAt: prepared.now,
+      }).where(and(eq(projects.id, existing.id), eq(projects.configRevision, existing.configRevision))).run()
+      if (changed.changes !== 1) {
+        const actual = app.db.select({ configRevision: projects.configRevision }).from(projects).where(eq(projects.id, existing.id)).get()?.configRevision ?? existing.configRevision
+        throw projectRevisionConflict(options.expectedConfigRevision ?? existing.configRevision, actual)
+      }
+      writeNegativeReviewMaxStars(tx, existing.id, prepared.nextNegativeReviewMaxStars, prepared.now)
+      if (prepared.competitorAliasPrune && competitorIdentityChanged(prepared.competitorAliasPrune)) {
+        const pruned = syncCompetitorSet(tx, existing.id, [], {
+          replace: false,
+          project: prepared.nextAliasIdentity,
+          now: prepared.now,
+        })
+        droppedCompetitorAliases = pruned.droppedAliases
+        droppedAutoAliases = pruned.autoAliasChanges.length ? pruned.droppedAutoAliases : []
+      }
+      marketNamesChanged = marketNameChanges(marketNamesBefore, readMarketCompetitorNames(tx, existing.id))
+      const diff = {
+        ...(options.patchedFields ? { patchedFields: options.patchedFields } : {}),
+        ...(droppedCompetitorAliases.length ? { droppedCompetitorAliases } : {}),
+        ...(droppedAutoAliases.length ? { droppedAutoAliases } : {}),
+        ...(marketNamesChanged.length ? { marketNameChanges: marketNamesChanged } : {}),
+        ...(autoAliasModeChange ? { competitorAutoAliases: autoAliasModeChange } : {}),
+      }
+      writeAuditLog(tx, {
+        projectId: existing.id,
+        actor: 'api',
+        action: 'project.updated',
+        entityType: 'project',
+        entityId: existing.id,
+        ...(Object.keys(diff).length ? { diff } : {}),
+      })
+    })
+
+    opts.onProjectUpserted?.(existing.id, name)
+    if (aliasesChanged) opts.onAliasesChanged?.(existing.id, name)
+    else if (droppedCompetitorAliases.length || droppedAutoAliases.length || marketNamesChanged.length) opts.onCompetitorAliasesChanged?.(existing.id, name)
+    const updated = app.db.select().from(projects).where(eq(projects.id, existing.id)).get()!
+    return reply.status(200).send(formatProject(updated, prepared.nextNegativeReviewMaxStars))
+  }
+
   // PUT /projects/:name — upsert project
   app.put<{
     Params: { name: string }
@@ -204,6 +419,7 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
       canonicalDomain: string
       ownedDomains?: string[]
       aliases?: string[]
+      qualifiedAliases?: string[]
       country: string
       language: string
       tags?: string[]
@@ -213,6 +429,8 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
       defaultLocation?: string | null
       autoExtractBacklinks?: boolean
       negativeReviewMaxStars?: number | null
+      siteAuditMaxPages?: number | null
+      competitorAutoAliases?: CompetitorAutoAliasMode
       configSource?: string
       providerModels?: Record<string, string>
       providerDispatchModes?: ProviderDispatchModesMap
@@ -231,106 +449,11 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
     }
     const body = parsedBody.data
 
-    // Validate provider names against registered adapters
-    const validNames = opts.providerAdapters?.map(adapter => adapter.name) ?? []
-    if (validNames.length && body.providers?.length) {
-      const invalid = body.providers.filter(p => !validNames.includes(p))
-      if (invalid.length) {
-        throw validationError(`Invalid provider(s): ${invalid.join(', ')}. Must be one of: ${validNames.join(', ')}`, {
-          invalidProviders: invalid,
-          validProviders: validNames,
-        })
-      }
-    }
-    const nextProviders = body.providers ?? []
-    const providerModels = pruneProviderModelsForProviders(
-      validateProviderModels(body.providerModels ?? {}, opts.providerAdapters),
-      nextProviders,
-    )
-
-    const now = new Date().toISOString()
     const existing = app.db.select().from(projects).where(eq(projects.name, name)).get()
-    assertProviderModelScope(request, existing?.providerModels ?? {}, providerModels, nextProviders)
-    // Omitted keeps the stored preference (the dashboard's settings save and
-    // other full-replace callers predate the field and never send it).
-    const providerDispatchModes = pruneProviderDispatchModes(
-      body.providerDispatchModes !== undefined
-        ? validateProviderDispatchModes(body.providerDispatchModes, opts.providerAdapters)
-        : existing?.providerDispatchModes ?? {},
-      nextProviders,
-      existing ? activeRevisionProviders(app.db, existing.id) : [],
-    )
-    const existingLocations = existing ? existing.locations : []
-    const nextLocations = body.locations ?? existingLocations
-    const duplicateLabels = findDuplicateLocationLabels(nextLocations)
-    if (duplicateLabels.length > 0) {
-      throw validationError(`Duplicate location labels are not allowed: ${duplicateLabels.join(', ')}`, {
-        duplicateLabels,
-      })
-    }
-
-    const nextDefaultLocation = body.defaultLocation !== undefined
-      ? (body.defaultLocation ?? null)
-      : existing?.defaultLocation ?? null
-    if (!hasLocationLabel(nextLocations, nextDefaultLocation)) {
-      throw validationError(`defaultLocation "${nextDefaultLocation}" must match a configured location label`, {
-        defaultLocation: nextDefaultLocation,
-      })
-    }
-
-    const nextAutoExtractBacklinks = body.autoExtractBacklinks !== undefined
-      ? body.autoExtractBacklinks
-      : existing?.autoExtractBacklinks ?? false
-    // Omitted keeps the stored threshold; an explicit null resets it to the default.
-    const nextNegativeReviewMaxStars = body.negativeReviewMaxStars !== undefined
-      ? body.negativeReviewMaxStars
-      : existing ? readNegativeReviewMaxStars(app.db, existing.id) : null
-
-    const nextMeasurement = body.measurement ?? existing?.measurement ?? DEFAULT_MEASUREMENT_CONFIG
-
-    const nextAliases = normalizeProjectAliases(body.displayName, body.aliases ?? [])
+    const prepared = prepareProjectUpdate(request, body, existing)
 
     if (existing) {
-      const prevAliases = existing.aliases
-      const aliasesChanged = !aliasArraysEqual(prevAliases, nextAliases)
-
-      app.db.transaction((tx) => {
-        tx.update(projects).set({
-          displayName: body.displayName,
-          canonicalDomain: body.canonicalDomain,
-          ownedDomains: body.ownedDomains ?? [],
-          aliases: nextAliases,
-          country: body.country,
-          language: body.language,
-          tags: body.tags ?? [],
-          labels: body.labels ?? {},
-          providers: body.providers ?? [],
-          providerModels,
-          providerDispatchModes,
-          measurement: nextMeasurement,
-          locations: nextLocations,
-          defaultLocation: nextDefaultLocation,
-          autoExtractBacklinks: nextAutoExtractBacklinks,
-          configSource: body.configSource ?? 'api',
-          configRevision: existing.configRevision + 1,
-          updatedAt: now,
-        }).where(eq(projects.id, existing.id)).run()
-        writeNegativeReviewMaxStars(tx, existing.id, nextNegativeReviewMaxStars, now)
-
-        writeAuditLog(tx, {
-          projectId: existing.id,
-          actor: 'api',
-          action: 'project.updated',
-          entityType: 'project',
-          entityId: existing.id,
-        })
-      })
-
-      opts.onProjectUpserted?.(existing.id, name)
-      if (aliasesChanged) opts.onAliasesChanged?.(existing.id, name)
-
-      const updated = app.db.select().from(projects).where(eq(projects.id, existing.id)).get()!
-      return reply.status(200).send(formatProject(updated, nextNegativeReviewMaxStars))
+      return updateExistingProject(reply, name, existing, body, prepared)
     }
 
     const id = crypto.randomUUID()
@@ -341,24 +464,27 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
         displayName: body.displayName,
         canonicalDomain: body.canonicalDomain,
         ownedDomains: body.ownedDomains ?? [],
-        aliases: nextAliases,
+        aliases: prepared.nextAliases,
+        qualifiedAliases: prepared.nextQualifiedAliases,
         country: body.country,
         language: body.language,
         tags: body.tags ?? [],
         labels: body.labels ?? {},
         providers: body.providers ?? [],
-        providerModels,
-        providerDispatchModes,
-        measurement: nextMeasurement,
-        locations: nextLocations,
-        defaultLocation: nextDefaultLocation,
-        autoExtractBacklinks: nextAutoExtractBacklinks,
+        providerModels: prepared.providerModels,
+        providerDispatchModes: prepared.providerDispatchModes,
+        measurement: prepared.nextMeasurement,
+        locations: prepared.nextLocations,
+        defaultLocation: prepared.nextDefaultLocation,
+        autoExtractBacklinks: prepared.nextAutoExtractBacklinks,
+        siteAuditMaxPages: prepared.nextSiteAuditMaxPages,
+        competitorAutoAliases: prepared.nextCompetitorAutoAliases,
         configSource: body.configSource ?? 'api',
         configRevision: 1,
-        createdAt: now,
-        updatedAt: now,
+        createdAt: prepared.now,
+        updatedAt: prepared.now,
       }).run()
-      writeNegativeReviewMaxStars(tx, id, nextNegativeReviewMaxStars, now)
+      writeNegativeReviewMaxStars(tx, id, prepared.nextNegativeReviewMaxStars, prepared.now)
 
       writeAuditLog(tx, {
         projectId: id,
@@ -373,7 +499,68 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
     opts.onProjectUpserted?.(id, name)
 
     const created = app.db.select().from(projects).where(eq(projects.id, id)).get()!
-    return reply.status(201).send(formatProject(created, nextNegativeReviewMaxStars))
+    return reply.status(201).send(formatProject(created, prepared.nextNegativeReviewMaxStars))
+  })
+
+  // PATCH /projects/:name - update only named fields on an existing project.
+  app.patch<{ Params: { name: string }; Body: ProjectPatchRequest }>('/projects/:name', async (request, reply) => {
+    const parsedBody = projectPatchRequestSchema.safeParse(request.body)
+    if (!parsedBody.success) {
+      throw validationError('Invalid project patch', {
+        issues: parsedBody.error.issues.map(issue => ({
+          path: issue.path.join('.') || ('keys' in issue && Array.isArray(issue.keys) ? issue.keys.join('.') : ''),
+          message: issue.message,
+        })),
+      })
+    }
+    const patch = parsedBody.data
+    const patchedFields = Object.keys(patch)
+      .filter(field => field !== 'expectedConfigRevision')
+      .flatMap(field => field === 'measurement'
+        ? Object.keys(patch.measurement ?? {}).map(child => `measurement.${child}`)
+        : [field])
+    if (patchedFields.length === 0) throw validationError('Project patch must name at least one field to update.')
+    const { name } = request.params
+    const existing = app.db.select().from(projects).where(eq(projects.name, name)).get()
+    if (!existing) throw notFound('Project', name)
+
+    const body: ProjectUpsertRequest = {
+      displayName: patch.displayName ?? existing.displayName,
+      canonicalDomain: patch.canonicalDomain ?? existing.canonicalDomain,
+      ownedDomains: patch.ownedDomains ?? existing.ownedDomains,
+      aliases: patch.aliases ?? existing.aliases,
+      country: patch.country ?? existing.country,
+      language: patch.language ?? existing.language,
+      tags: patch.tags ?? existing.tags,
+      labels: patch.labels ?? existing.labels,
+      providers: patch.providers ?? existing.providers,
+      providerModels: patch.providerModels ?? existing.providerModels,
+      ...(patch.providerDispatchModes !== undefined ? { providerDispatchModes: patch.providerDispatchModes } : {}),
+      ...(patch.locations !== undefined ? { locations: patch.locations } : {}),
+      ...(patch.defaultLocation !== undefined ? { defaultLocation: patch.defaultLocation } : {}),
+      ...(patch.measurement !== undefined ? {
+        measurement: {
+          marketingHosts: patch.measurement.marketingHosts ?? existing.measurement.marketingHosts,
+          brandTerms: patch.measurement.brandTerms ?? existing.measurement.brandTerms,
+          leadEventNames: patch.measurement.leadEventNames ?? existing.measurement.leadEventNames,
+          // Omitted stays omitted, which means on.
+          ...((patch.measurement.countKeyEvents ?? existing.measurement.countKeyEvents) !== undefined
+            ? { countKeyEvents: patch.measurement.countKeyEvents ?? existing.measurement.countKeyEvents }
+            : {}),
+        },
+      } : {}),
+      ...(patch.autoExtractBacklinks !== undefined ? { autoExtractBacklinks: patch.autoExtractBacklinks } : {}),
+      ...(patch.qualifiedAliases !== undefined ? { qualifiedAliases: patch.qualifiedAliases } : {}),
+      ...(patch.negativeReviewMaxStars !== undefined ? { negativeReviewMaxStars: patch.negativeReviewMaxStars } : {}),
+      ...(patch.siteAuditMaxPages !== undefined ? { siteAuditMaxPages: patch.siteAuditMaxPages } : {}),
+      ...(patch.competitorAutoAliases !== undefined ? { competitorAutoAliases: patch.competitorAutoAliases } : {}),
+    }
+    const prepared = prepareProjectUpdate(request, body, existing)
+    return updateExistingProject(reply, name, existing, body, prepared, {
+      preserveConfigSource: true,
+      expectedConfigRevision: patch.expectedConfigRevision,
+      patchedFields,
+    })
   })
 
   // GET /projects — list all. A project-scoped key sees ONLY its own project,
@@ -611,19 +798,27 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
   })
 
   // GET /projects/:name/export — export as canonry.yaml format
-  app.get<{ Params: { name: string } }>('/projects/:name/export', async (request, reply) => {
+  app.get<{ Params: { name: string }; Querystring: { includeSecrets?: string } }>('/projects/:name/export', async (request, reply) => withFeatureOutcome(app, { feature: 'exports', operation: 'export' }, async (settle) => {
     const project = resolveProject(app.db, request.params.name)
+    const includeSecrets = request.query.includeSecrets === 'true'
+    if (includeSecrets) requireSecretExportScope(request)
     const negativeReviewMaxStars = readNegativeReviewMaxStars(app.db, project.id)
 
     const qs = app.db.select().from(queries).where(eq(queries.projectId, project.id)).all()
-    const comps = app.db.select().from(competitors).where(eq(competitors.projectId, project.id)).all()
+    const comps = app.db.select().from(competitors).where(eq(competitors.projectId, project.id)).orderBy(competitors.domain).all()
     const schedule = app.db.select().from(schedules).where(and(
       eq(schedules.projectId, project.id),
       eq(schedules.kind, SchedulableRunKinds['answer-visibility']),
     )).get()
     const notificationRows = app.db.select().from(notifications).where(eq(notifications.projectId, project.id)).all()
+    // Filtered by the rules `POST /apply` enforces, so an export always re-applies.
+    const exportedQualifiedAliases = resolveProjectQualifiedAliases(
+      project,
+      project.qualifiedAliases,
+      competitorNames(comps),
+    ).value
 
-    const config = {
+    const config: ProjectConfigExport = {
       apiVersion: 'canonry/v1',
       kind: 'Project',
       metadata: {
@@ -635,10 +830,14 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
         canonicalDomain: project.canonicalDomain,
         ownedDomains: project.ownedDomains,
         aliases: project.aliases,
+        ...(exportedQualifiedAliases.length ? { qualifiedAliases: exportedQualifiedAliases } : {}),
         country: project.country,
         language: project.language,
         queries: qs.map(q => q.query),
-        competitors: comps.map(c => c.domain),
+        // A competitor with curated aliases exports as `{ domain, aliases }`,
+        // so export -> apply round-trips them; one without stays a bare
+        // domain, so an alias-free export is unchanged.
+        competitors: comps.map(c => c.aliases.length > 0 ? { domain: c.domain, aliases: c.aliases } : c.domain),
         providers: project.providers,
         ...(Object.keys(project.providerModels).length > 0 ? { providerModels: project.providerModels } : {}),
         ...(Object.keys(project.providerDispatchModes).length > 0 ? { providerDispatchModes: project.providerDispatchModes } : {}),
@@ -647,12 +846,19 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
         ...(project.defaultLocation ? { defaultLocation: project.defaultLocation } : {}),
         ...(project.autoExtractBacklinks ? { autoExtractBacklinks: true } : {}),
         ...(negativeReviewMaxStars !== null ? { negativeReviewMaxStars } : {}),
+        ...(project.siteAuditMaxPages !== null ? { siteAuditMaxPages: project.siteAuditMaxPages } : {}),
+        // Only a mode other than the default, so a preview project's export is unchanged.
+        ...(project.competitorAutoAliases !== DEFAULT_COMPETITOR_AUTO_ALIAS_MODE ? { competitorAutoAliases: project.competitorAutoAliases } : {}),
         notifications: notificationRows.map((row) => {
           const cfg = row.config
+          // Text and JSON columns; both write paths validate them against
+          // configNotificationSchema's channel and events.
+          const redacted = redactNotificationUrl(cfg.url)
           return {
-            channel: row.channel,
-            url: cfg.url,
-            events: cfg.events,
+            id: row.id,
+            channel: row.channel as ConfigNotification['channel'],
+            url: includeSecrets ? cfg.url : buildRedactedNotificationUrl(redacted.urlHost, row.id),
+            events: cfg.events as ConfigNotification['events'],
           }
         }),
         ...(schedule ? {
@@ -666,8 +872,9 @@ export async function projectRoutes(app: FastifyInstance, opts: ProjectRoutesOpt
       },
     }
 
+    settle({ status: OutcomeStatuses.succeeded, counts: { queries: qs.length } })
     return reply.send(config)
-  })
+  }))
 }
 
 /**
@@ -711,6 +918,59 @@ export function assertProviderModelScope(
   requireScope(request, SETTINGS_WRITE_SCOPE)
 }
 
+/**
+ * An explicit `qualifiedAliases` write is all-or-nothing: any rejected entry is
+ * a 400 naming each entry and its reason, in the message and in details.
+ * Shared with `POST /apply`.
+ */
+export function requireQualifiedAliases(
+  identity: { displayName: string; aliases: readonly string[] },
+  requested: readonly string[],
+  competitorNames: readonly string[],
+): string[] {
+  const resolved = resolveProjectQualifiedAliases(identity, requested, competitorNames)
+  if (resolved.rejected.length > 0) {
+    const reasons = resolved.rejected.map(entry => `${entry.name} (${entry.reason})`).join(', ')
+    throw validationError(`Rejected qualifiedAliases: ${reasons}`, {
+      rejectedQualifiedAliases: resolved.rejected,
+    })
+  }
+  return resolved.value
+}
+
+/**
+ * A project's live competitor names as a Simple run freezes them: each
+ * competitor's brand label plus its curated aliases.
+ */
+export function liveCompetitorNames(db: Pick<DatabaseClient, 'select'>, projectId: string): string[] {
+  return competitorNames(db.select(competitorIdentityColumns).from(competitors)
+    .where(eq(competitors.projectId, projectId)).orderBy(competitors.domain).all())
+}
+
+/**
+ * Drops stored qualified aliases that now share a brand key with a live
+ * competitor. Competitor writes outside a project PUT or apply call this in
+ * their transaction, so the stored list, its export and a Simple run's frozen
+ * list always agree. Returns the dropped names for the caller's audit entry.
+ */
+export function pruneQualifiedAliasesForCompetitors(
+  tx: Pick<DatabaseClient, 'select' | 'update'>,
+  projectId: string,
+  now: string,
+): string[] {
+  const project = tx.select({
+    displayName: projects.displayName,
+    aliases: projects.aliases,
+    qualifiedAliases: projects.qualifiedAliases,
+  }).from(projects).where(eq(projects.id, projectId)).get()
+  if (!project?.qualifiedAliases.length) return []
+  const kept = resolveProjectQualifiedAliases(project, project.qualifiedAliases, liveCompetitorNames(tx, projectId)).value
+  const dropped = project.qualifiedAliases.filter(name => !kept.includes(name))
+  if (dropped.length === 0) return []
+  tx.update(projects).set({ qualifiedAliases: kept, updatedAt: now }).where(eq(projects.id, projectId)).run()
+  return dropped
+}
+
 function providerModelsEqual(a: ProviderModels, b: ProviderModels): boolean {
   const aKeys = Object.keys(a)
   if (aKeys.length !== Object.keys(b).length) return false
@@ -730,6 +990,7 @@ export function formatProject(row: InferSelectModel<typeof projects>, negativeRe
     canonicalDomain: row.canonicalDomain,
     ownedDomains: row.ownedDomains,
     aliases: row.aliases,
+    qualifiedAliases: row.qualifiedAliases,
     country: row.country,
     language: row.language,
     tags: row.tags,
@@ -742,6 +1003,9 @@ export function formatProject(row: InferSelectModel<typeof projects>, negativeRe
     defaultLocation: row.defaultLocation,
     autoExtractBacklinks: row.autoExtractBacklinks,
     negativeReviewMaxStars,
+    siteAuditMaxPages: row.siteAuditMaxPages ?? null,
+    competitorAutoAliases: row.competitorAutoAliases,
+    answerFieldsRecompute: row.answerFieldsRecompute,
     configSource: row.configSource,
     configRevision: row.configRevision,
     createdAt: row.createdAt,
@@ -753,7 +1017,7 @@ export function formatProject(row: InferSelectModel<typeof projects>, negativeRe
 // stable order). Two sets that differ only in casing match the same answer
 // text and produce the same persisted `answerMentioned` / overlap fields, so
 // the compare is case-insensitive — a casing rename doesn't need a backfill.
-function aliasArraysEqual(a: readonly string[], b: readonly string[]): boolean {
+export function aliasArraysEqual(a: readonly string[], b: readonly string[]): boolean {
   if (a.length !== b.length) return false
   for (let i = 0; i < a.length; i++) {
     if (a[i]!.toLowerCase() !== b[i]!.toLowerCase()) return false

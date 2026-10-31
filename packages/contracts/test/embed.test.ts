@@ -4,11 +4,27 @@ import {
   parseOriginList,
   frameAncestorsHeaderValue,
   buildEmbedClientConfig,
+  embedProjectTabsError,
   embedClientConfigForRequest,
   normalizeIdTokens,
+  parseEmbedQueryLimit,
   serializeForInlineScript,
   type ResolvedEmbedConfig,
 } from '../src/embed.js'
+
+describe('embedProjectTabsError', () => {
+  it('requires explicit replacement of retired Report grants, including mixed and legacy-cased lists', () => {
+    for (const projectTabs of [['report'], ['report', 'overview'], ['technical-aeo', ' REPORT ']]) {
+      expect(embedProjectTabsError(projectTabs)).toContain('The report embed tab has been retired')
+    }
+  })
+
+  it('accepts absent and supported allowlists without changing their grants', () => {
+    expect(embedProjectTabsError(undefined)).toBeUndefined()
+    expect(embedProjectTabsError([])).toBeUndefined()
+    expect(embedProjectTabsError(['overview', 'technical-aeo'])).toBeUndefined()
+  })
+})
 
 describe('normalizeFrameOrigin', () => {
   it('lowercases scheme + host and strips a trailing slash / path', () => {
@@ -152,6 +168,20 @@ describe('normalizeIdTokens', () => {
   })
 })
 
+describe('parseEmbedQueryLimit', () => {
+  it('reads a whole number from 1 to 1000, including a multi-value header', () => {
+    expect(parseEmbedQueryLimit('10')).toBe(10)
+    expect(parseEmbedQueryLimit('1000')).toBe(1000)
+    expect(parseEmbedQueryLimit(['30', '5'])).toBe(30)
+  })
+
+  it('refuses anything else rather than clamping it', () => {
+    for (const bad of [undefined, '', '0', '010', '-3', '2.5', '1001', '99999', 'ten', ' 10', 10]) {
+      expect(parseEmbedQueryLimit(bad), String(bad)).toBeUndefined()
+    }
+  })
+})
+
 describe('embedClientConfigForRequest', () => {
   const enabled: ResolvedEmbedConfig = {
     enabled: true,
@@ -237,6 +267,18 @@ describe('embedClientConfigForRequest', () => {
       enabled: true,
       projectTabs: ['overview', 'technical-aeo', 'report'],
       theme: { mode: 'light' },
+    })
+  })
+
+  it('adds the question limit when the proxy grants editing, and nothing for a bad value', () => {
+    expect(embedClientConfigForRequest(enabled, undefined, undefined, undefined, '10')).toEqual({
+      enabled: true,
+      projectTabs: ['overview', 'technical-aeo', 'report'],
+      queries: { limit: 10 },
+    })
+    expect(embedClientConfigForRequest(enabled, undefined, undefined, undefined, '0')).toEqual({
+      enabled: true,
+      projectTabs: ['overview', 'technical-aeo', 'report'],
     })
   })
 

@@ -5,23 +5,26 @@ import {
   parseJsonColumn,
   projects,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import type { Agent, AgentMessage, AgentTool } from '@earendil-works/pi-agent-core'
 import type { Api, Model } from '@earendil-works/pi-ai'
-import { agentBusy, AgentProviderIds, describeError, missingDependency } from '@ainyc/canonry-contracts'
+import { agentBusy, AgentProviderIds, OutcomeTriggers, describeError, missingDependency } from '@canonry/canonry-contracts'
 import { createLogger } from '../logger.js'
 import type { ApiClient } from '../client.js'
 import type { CanonryConfig } from '../config.js'
+import { resolveAgentReasoning } from '../agent-config.js'
 import {
   buildApiKeyResolver,
   createAeroSession,
+  detectAgentProvider,
   loadAeroSystemPrompt,
+  missingProviderMessage,
   resolveAeroModel,
   resolveConfiguredAgentProvider,
   resolveSessionProviderAndModel,
   type SupportedAgentProvider,
 } from './session.js'
-import { agentProviderApiKeyEnvVar, coerceAgentProvider, getAgentProvider, isAgentModelAvailable, resolveApiKeyFor } from './providers.js'
+import { agentProviderApiKeyEnvVar, coerceAgentProvider, getAgentProvider, isAgentModelAvailable, isAgentModelUnchecked, refreshAgentModels, resolveApiKeyFor } from './providers.js'
 import { buildSkillDocTools } from './skill-tools.js'
 import {
   AeroToolProfiles,
@@ -33,9 +36,10 @@ import {
 import { loadExternalMcpTools } from './remote-mcp.js'
 import { loadRecentForHydrate } from './memory-store.js'
 import { configureAeroRuntime, isSystemMessage, setAeroSystemPrompt } from './runtime.js'
-import { buildAeroViewTool, aeroViewPrompt, readAeroViewEvidence } from './view-context.js'
+import { trackAeroTurn } from './turn-telemetry.js'
+import { buildAeroViewTool, aeroViewPrompt, readAeroViewEvidenceForTurn } from './view-context.js'
 import { aeroProjectShape } from './project-shape.js'
-import type { AgentViewContext, AgentTurnLimits } from '@ainyc/canonry-contracts'
+import type { AgentViewContext, AgentTurnLimits } from '@canonry/canonry-contracts'
 import { compactMessages, shouldCompact } from './compaction.js'
 
 const log = createLogger('SessionRegistry')
@@ -431,6 +435,12 @@ export class SessionRegistry {
    */
   async acquireForTurn(projectName: string, preferences?: SessionPreferences): Promise<Agent> {
     preferences?.signal?.throwIfAborted()
+    // Before anything resolves the model: on OpenRouter this loads the live
+    // list (a cached read unless the shared catalog expired), so a model newer
+    // than pi-ai's bundled list resolves. It changes no session state, so it
+    // runs ahead of the busy check.
+    await refreshAgentModels(this.turnProvider(projectName, preferences), preferences?.signal)
+    preferences?.signal?.throwIfAborted()
     if (this.acquisitions.has(projectName)) throw agentBusy(projectName)
     // Preferences reach construction too: a cold session built from the pin
     // alone would throw on a bad `agent.model` even for a request that named
@@ -462,7 +472,7 @@ export class SessionRegistry {
       // which rebuilds state.tools from the local registry. Idempotent + fail-soft.
       await this.mergeExternalTools(agent)
       const view = { client: this.opts.client, projectName, basePath: this.opts.config.basePath, context: preferences?.context }
-      const evidence = preferences?.context ? await readAeroViewEvidence(view) : undefined
+      const evidence = preferences?.context ? await readAeroViewEvidenceForTurn(view, preferences?.signal) : undefined
       preferences?.signal?.throwIfAborted()
       await this.maybeCompact(projectName, agent)
       preferences?.signal?.throwIfAborted()
@@ -596,16 +606,30 @@ export class SessionRegistry {
     current: { provider?: string | null; modelId?: string | null },
   ): { provider: SupportedAgentProvider; modelId: string } {
     const pinned = resolveConfiguredAgentProvider(this.opts.config)
-    const provider = (preferences?.provider
+    // A row written by a provider Canonry has since removed (e.g. deepinfra)
+    // keeps its transcript and resumes on whatever detection picks now. With no
+    // key to detect, the turn fails like a fresh install's and the row is left
+    // alone: a provider recorded on a guess would outrank detection on every
+    // later turn, so a key added afterwards would never be picked up.
+    const stored = coerceAgentProvider(current.provider ?? undefined)
+    const provider = preferences?.provider
       ?? pinned
-      ?? current.provider
-      ?? AgentProviderIds.claude) as SupportedAgentProvider
+      ?? stored
+      ?? detectAgentProvider(this.opts.config)
+    if (!provider) throw new Error(missingProviderMessage())
     // A stored model the installed catalog no longer has (pi-ai drops retired
     // ids, e.g. glm-5.1 in 0.87) falls back to the provider default instead of
     // failing every turn. Only the stored value: a request or pin is kept, so
-    // a mistyped one still fails loudly.
+    // a mistyped one still fails loudly. An OpenRouter model that cannot be
+    // checked because no live list is loaded (the catalog could not be read)
+    // is kept too, and the row is not rewritten: if the turn cannot resolve
+    // it, the turn fails naming the model rather than moving to the default.
+    // With no key the list can never load, so that case takes the default and
+    // fails with the missing-key error instead of blaming the model.
     const carried = !preferences?.provider && !pinned && provider === current.provider
-      && current.modelId && isAgentModelAvailable(provider, current.modelId)
+      && current.modelId
+      && (isAgentModelAvailable(provider, current.modelId)
+        || (isAgentModelUnchecked(provider, current.modelId) && !!resolveApiKeyFor(provider, this.opts.config)))
       ? current.modelId
       : undefined
     const pinnedModelId = provider === pinned ? this.opts.config.agent?.model ?? undefined : undefined
@@ -614,6 +638,28 @@ export class SessionRegistry {
       ?? carried
       ?? getAgentProvider(provider).defaultModel
     return { provider, modelId }
+  }
+
+  /** The provider the next turn would run on; undefined when none can (the turn then fails as before). */
+  private turnProvider(projectName: string, preferences?: SessionPreferences): SupportedAgentProvider | undefined {
+    return this.nextTurnModel(projectName, preferences)?.provider
+  }
+
+  /**
+   * The provider and model the next turn would run on, resolved exactly as the
+   * turn resolves them: a request's choice, then the `agent.provider` pin, then
+   * the conversation's stored model, then the provider default. With no
+   * preferences this is what the dashboard shows when the operator has picked
+   * nothing. Null when no provider can run.
+   */
+  nextTurnModel(projectName: string, preferences?: SessionPreferences): { provider: SupportedAgentProvider; modelId: string } | null {
+    const projectId = this.tryResolveProjectId(projectName)
+    const row = projectId ? this.loadRow(projectId) : null
+    try {
+      return this.resolveTurnModel(preferences, { provider: row?.modelProvider, modelId: row?.modelId })
+    } catch {
+      return null
+    }
   }
 
   private alignModel(
@@ -629,13 +675,16 @@ export class SessionRegistry {
     // keeps the pre-existing behaviour of never issuing an UPDATE that matches
     // nothing.
     if (!row) return
-    const currentProvider = row.modelProvider as SupportedAgentProvider
+    const currentProvider = row.modelProvider
     const currentModelId = row.modelId
     const { provider: nextProvider, modelId: nextModelId } =
       this.resolveTurnModel(preferences, { provider: row.modelProvider, modelId: row.modelId })
     if (nextProvider === currentProvider && nextModelId === currentModelId) return
 
     agent.state.model = resolveAeroModel(nextProvider, nextModelId)
+    // The reasoning level follows the model: each provider has its own default,
+    // and an OpenRouter model takes its direct provider's.
+    agent.state.thinkingLevel = resolveAgentReasoning(process.env, this.opts.config, nextProvider, agent.state.model.id)
     this.opts.db
       .update(agentSessions)
       .set({
@@ -736,7 +785,14 @@ export class SessionRegistry {
       const msgs = this.consumePending(projectName)
       if (msgs.length === 0) return
       await agent.prompt(msgs)
-      this.save(projectName)
+      // Aero woke itself: no request, so the turn is attributed to the system.
+      try {
+        this.save(projectName)
+      } catch (err) {
+        trackAeroTurn(agent, { trigger: OutcomeTriggers.agent, error: err })
+        throw err
+      }
+      trackAeroTurn(agent, { trigger: OutcomeTriggers.agent })
     } catch (err) {
       log.error('drain.failed', {
         projectName,
@@ -822,6 +878,10 @@ export class SessionRegistry {
       })
       return
     }
+    // A row no provider can answer for (one left on a removed provider, with
+    // no key to detect) refuses the wake as the no-row branch above does, so
+    // the first keyed turn does not inherit every wake raised meanwhile.
+    this.resolveTurnModel(undefined, { provider: row.modelProvider, modelId: row.modelId })
     const existing = parseJsonColumn<AgentMessage[]>(row.followUpQueue, [])
     this.updateRow(projectId, { followUpQueue: JSON.stringify([...existing, message]) })
   }
@@ -873,14 +933,15 @@ export class SessionRegistry {
     followUpQueue: AgentMessage[]
   }): void {
     const now = new Date().toISOString()
+    const modelProvider = params.provider ?? params.modelProvider ?? AgentProviderIds.claude
     this.opts.db
       .insert(agentSessions)
       .values({
         id: params.id ?? crypto.randomUUID(),
         projectId: params.projectId,
         systemPrompt: params.systemPrompt,
-        modelProvider: params.provider ?? params.modelProvider ?? AgentProviderIds.claude,
-        modelId: params.modelId ?? 'claude-opus-4-7',
+        modelProvider,
+        modelId: params.modelId ?? getAgentProvider(coerceAgentProvider(modelProvider) ?? AgentProviderIds.claude).defaultModel,
         messages: JSON.stringify(withoutPersistedToolDetails(params.messages)),
         followUpQueue: JSON.stringify(params.followUpQueue),
         createdAt: now,

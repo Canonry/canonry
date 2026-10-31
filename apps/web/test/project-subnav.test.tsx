@@ -1,8 +1,6 @@
 import { act, cleanup, fireEvent, render, waitFor, within } from '@testing-library/react'
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, RouterProvider } from '@tanstack/react-router'
-import { readFile } from 'node:fs/promises'
-import { dirname, resolve } from 'node:path'
-import { compile } from 'tailwindcss'
+import { compileAppStyles } from './compiled-app-css.js'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 
 import { ProjectSubnav, type ProjectPageTab } from '../src/pages/ProjectPage.js'
@@ -18,7 +16,6 @@ const items = [
   { key: 'backlinks', label: 'Backlinks' },
 ].map(item => ({ ...item, key: item.key as ProjectPageTab, href: `/projects/demo/${item.key}` }))
 const overflowItems = [
-  { key: 'report' as const, label: 'Report', href: '/projects/demo/report' },
   { key: 'history' as const, label: 'Change History', href: '/projects/demo/history' },
 ]
 const settingsItem = { key: 'settings' as const, label: 'Settings', href: '/projects/demo/settings' }
@@ -84,7 +81,7 @@ test('wide navigation keeps primary sections and Settings visible', async () => 
   const { nav } = await renderNav()
   expect(within(nav).getAllByRole('link')).toHaveLength(9)
   fireEvent.click(within(nav).getByRole('button', { name: 'More' }))
-  expect(within(nav).getAllByRole('menuitem').map(item => item.textContent)).toEqual(['Report', 'Change History'])
+  expect(within(nav).getAllByRole('menuitem').map(item => item.textContent)).toEqual(['Change History'])
 })
 
 test('a narrow container moves excess sections into More without a viewport resize', async () => {
@@ -96,7 +93,7 @@ test('a narrow container moves excess sections into More without a viewport resi
   expect(within(nav).getByRole('link', { name: 'Site Health' })).toBeTruthy()
   fireEvent.click(within(nav).getByRole('button', { name: 'More' }))
   expect(within(nav).getAllByRole('menuitem').map(item => item.textContent)).toEqual([
-    'Conversions', 'Local Presence', 'Queries', 'Backlinks', 'Report', 'Change History',
+    'Conversions', 'Local Presence', 'Queries', 'Backlinks', 'Change History',
   ])
   act(() => { containerWidth = 1600; resize?.() })
   expect(within(nav).getByRole('link', { name: 'Queries' })).toBeTruthy()
@@ -155,11 +152,11 @@ test('embed-filtered sections remain filtered when they overflow', async () => {
 })
 
 test('an active low-frequency section remains identified inside More', async () => {
-  const { nav } = await renderNav('report')
+  const { nav } = await renderNav('history')
   const trigger = within(nav).getByRole('button', { name: 'More' })
   expect(trigger.classList.contains('project-subnav-link-active')).toBe(true)
   fireEvent.click(trigger)
-  expect(within(nav).getByRole('menuitem', { name: 'Report' }).getAttribute('aria-current')).toBe('page')
+  expect(within(nav).getByRole('menuitem', { name: 'Change History' }).getAttribute('aria-current')).toBe('page')
   fireEvent.pointerDown(document.body)
   expect(within(nav).queryByRole('menu')).toBeNull()
 })
@@ -189,16 +186,7 @@ test('font or label width changes remeasure the available tab budget', async () 
 })
 
 test('compiled navigation styles prevent wrapping without hiding the overflow menu', async () => {
-  const stylesheet = resolve(import.meta.dirname, '../src/styles.css')
-  const compiler = await compile(await readFile(stylesheet, 'utf8'), {
-    from: stylesheet,
-    base: dirname(stylesheet),
-    loadStylesheet: async id => {
-      const path = resolve(import.meta.dirname, '../node_modules/tailwindcss', id === 'tailwindcss' ? 'index.css' : `${id.slice('tailwindcss/'.length)}.css`)
-      return { path, base: dirname(path), content: await readFile(path, 'utf8') }
-    },
-  })
-  const css = compiler.build([])
+  const css = await compileAppStyles([])
   const rule = (name: string) => css.match(new RegExp(`\\.${name} \\{([^}]+)`))![1]
   expect(rule('project-subnav')).toContain('flex-wrap: nowrap')
   expect(rule('project-subnav')).not.toContain('overflow: hidden')

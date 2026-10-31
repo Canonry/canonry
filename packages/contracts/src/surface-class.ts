@@ -1,8 +1,7 @@
 import { z } from 'zod'
 import { categorizeSource, type SourceCategory } from './source-categories.js'
-import { normalizeProjectDomain } from './project.js'
 import { DiscoveryCompetitorTypes, type DiscoveryCompetitorType } from './discovery.js'
-import { hostMatchesAnyDomain } from './url-normalize.js'
+import { hostMatchesAnyDomain, normalizeProjectDomain } from './url-normalize.js'
 
 /**
  * Actionable classification of a cited domain, layered on top of the generic
@@ -90,7 +89,6 @@ export interface SurfaceClassContext {
  *
  * Use this when the caller already ran `categorizeSource` (e.g. an aggregation
  * loop that needs the `domain`/`label` anyway) so the rule scan isn't repeated.
- * {@link classifySurface} is the URI-level convenience wrapper over it.
  *
  * `storedClass` is an optional LLM-derived classification (from discovery's
  * `domain_classifications`, mapped via {@link surfaceClassFromCompetitorType}).
@@ -131,16 +129,6 @@ export function classifySurfaceFromCategory(
     case 'other':
       return SurfaceClasses.other
   }
-}
-
-/**
- * Classify a single cited domain (or URL) into a {@link SurfaceClass}. Pure and
- * deterministic — categorizes the URI, then delegates to
- * {@link classifySurfaceFromCategory}.
- */
-export function classifySurface(uri: string, context: SurfaceClassContext): SurfaceClass {
-  const { domain, category } = categorizeSource(uri)
-  return classifySurfaceFromCategory(domain, category, context)
 }
 
 /**

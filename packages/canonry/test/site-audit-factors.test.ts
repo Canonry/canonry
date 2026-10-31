@@ -52,7 +52,17 @@ describe('computeFactorAverages', () => {
       { audit: null },
     ]
     const [sd] = computeFactorAverages(pages)
-    expect(sd).toMatchObject({ id: 'sd', avgScore: 70, pagesPassing: 1, pagesPartial: 1, pagesFailing: 0 })
+    expect(sd).toMatchObject({ id: 'sd', avgScore: 70, status: 'partial', pagesPassing: 1, pagesPartial: 1, pagesFailing: 0 })
+  })
+
+  it('retains failing pages even when their site-level average is partial', () => {
+    const factors = [0, 50, 60, 95].map(score => ({
+      audit: { factors: [{ id: 'structured-data', name: 'Structured Data', weight: 12, score, sharePct: 100 }] },
+    }))
+    expect(computeFactorAverages(factors)).toEqual([{
+      id: 'structured-data', name: 'Structured Data', weight: 12, sharePct: 100,
+      avgScore: 51, status: 'fail', pagesPassing: 1, pagesPartial: 2, pagesFailing: 1,
+    }])
   })
 
   it('reports the engine share, not the weight, for a real factor set, and the shares add up to exactly 100', () => {

@@ -1,8 +1,9 @@
 import { and, asc, eq, gte, lte } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { parseJsonColumn, queries, querySnapshots, runs } from '@ainyc/canonry-db'
+import { parseJsonColumn, queries, querySnapshots, runs } from '@canonry/canonry-db'
 import {
   CitationStates,
+  OutcomeStatuses,
   parseInclusiveEndMs,
   RunKinds,
   runStatusSchema,
@@ -13,8 +14,9 @@ import {
   type ResultsExportDto,
   type ResultsExportFormat,
   type ResultsExportRecord,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { notProbeRun, resolveProject } from './helpers.js'
+import { withFeatureOutcome } from './feature-outcome.js'
 
 const CSV_COLUMNS = [
   'export_schema_version',
@@ -51,6 +53,8 @@ const CSV_COLUMNS = [
   'answer_text',
   'grounding_sources_json',
   'search_queries_json',
+  // Vendor-neutral evidence (search answer services); empty for engines.
+  'answer_evidence_json',
 ] as const
 
 function parseFormat(value: string | undefined): ResultsExportFormat {
@@ -158,6 +162,7 @@ export function renderResultsExportCsv(report: ResultsExportDto): string {
     record.answerText,
     JSON.stringify(record.groundingSources),
     JSON.stringify(record.searchQueries),
+    record.answerEvidence ? JSON.stringify(record.answerEvidence) : null,
   ].map(csvCell).join(','))
   return [CSV_COLUMNS.join(','), ...rows].join('\r\n') + '\r\n'
 }
@@ -172,7 +177,7 @@ export async function resultsExportRoutes(app: FastifyInstance) {
   app.get<{
     Params: { name: string }
     Querystring: { format?: string; since?: string; until?: string; includeProbes?: string }
-  }>('/projects/:name/results/export', async (request, reply) => {
+  }>('/projects/:name/results/export', async (request, reply) => withFeatureOutcome(app, { feature: 'exports', operation: 'export' }, async (settle) => {
     const project = resolveProject(app.db, request.params.name)
     const format = parseFormat(request.query.format)
     const includeProbes = parseBoolean(request.query.includeProbes, 'includeProbes')
@@ -217,6 +222,7 @@ export async function resultsExportRoutes(app: FastifyInstance) {
         recommendedCompetitors: querySnapshots.recommendedCompetitors,
         answerText: querySnapshots.answerText,
         rawResponse: querySnapshots.rawResponse,
+        answerEvidence: querySnapshots.answerEvidence,
       })
       .from(querySnapshots)
       .innerJoin(runs, eq(querySnapshots.runId, runs.id))
@@ -260,6 +266,7 @@ export async function resultsExportRoutes(app: FastifyInstance) {
         answerText: row.answerText,
         groundingSources: evidence.groundingSources,
         searchQueries: evidence.searchQueries,
+        answerEvidence: row.answerEvidence ?? null,
       }
     })
 
@@ -286,11 +293,10 @@ export async function resultsExportRoutes(app: FastifyInstance) {
     reply.header('Content-Disposition', `attachment; filename="${filenameFor(project.name, format)}"`)
     reply.header('Cache-Control', 'private, no-store')
     reply.header('X-Content-Type-Options', 'nosniff')
-    if (format === 'csv') {
-      reply.type('text/csv; charset=utf-8')
-      return reply.send(renderResultsExportCsv(dto))
-    }
-    reply.type('application/json; charset=utf-8')
-    return reply.send(dto)
-  })
+    // Serialized here, exactly as Fastify would, so the export's size is known.
+    const body = format === 'csv' ? renderResultsExportCsv(dto) : JSON.stringify(dto)
+    settle({ status: OutcomeStatuses.succeeded, counts: { rows: records.length, bytes: Buffer.byteLength(body) } })
+    reply.type(format === 'csv' ? 'text/csv; charset=utf-8' : 'application/json; charset=utf-8')
+    return reply.send(body)
+  }))
 }

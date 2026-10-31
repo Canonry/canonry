@@ -29,7 +29,7 @@ import {
   measurementRunRevisionMismatch,
 } from '../src/errors.js'
 
-const AUTHORING: MeasurementDraftAuthoring = measurementDraftAuthoringSchema.parse({
+const AUTHORING: MeasurementDraftAuthoring = {
   defaultContext: { providers: ['gemini'], models: { gemini: 'gemini-3-pro' }, locations: ['northbridge'] },
   targets: [{
     stableKey: 'harbor-point',
@@ -53,17 +53,20 @@ const AUTHORING: MeasurementDraftAuthoring = measurementDraftAuthoringSchema.par
     targetKeys: ['harbor-point'],
     competitors: [{ stableKey: 'harborview', label: 'Harborview', domain: 'harborview.example', aliases: ['Harborview'] }],
   }],
-})
+}
 
 describe('measurement plan draft', () => {
   it('accepts exact frozen contexts but refuses a simultaneous mutable override', () => {
     const assignment = {
       ...AUTHORING.assignments[0],
-      executionContexts: [{ providers: ['openai'], models: {}, location: null, executionNodeKey: 'imported-node' }],
+      executionContexts: [
+        { providers: ['openai'], models: {}, location: null, executionNodeKey: 'imported-node' },
+        { providers: ['gemini'], models: { gemini: 'gemini-3-pro' }, location: { label: 'Northbridge', city: 'Northbridge', region: 'NB', country: 'US' }, executionNodeKey: 'imported-northbridge' },
+      ],
       queryProvenance: { source: 'manual', sourceId: null, capturedAt: '2026-08-01T00:00:00.000Z' },
     }
-    const frozen = measurementDraftAuthoringSchema.parse({ ...AUTHORING, assignments: [assignment] })
-    expect(frozen.assignments[0]!.executionContexts![0]!.executionNodeKey).toBe('imported-node')
+    const input = { ...AUTHORING, assignments: [assignment] }
+    expect(measurementDraftAuthoringSchema.parse(input)).toEqual(input)
     expect(measurementDraftAuthoringSchema.safeParse({
       ...AUTHORING, assignments: [{ ...assignment, contextOverride: { providers: ['gemini'] } }],
     }).success).toBe(false)
@@ -73,7 +76,7 @@ describe('measurement plan draft', () => {
   })
 
   it('stores authoring intent and the active revision it was created from', () => {
-    const draft = measurementPlanDraftSchema.parse({
+    const input = {
       id: 'mpd-1',
       projectId: 'prj-1',
       schemaVersion: 2,
@@ -81,12 +84,13 @@ describe('measurement plan draft', () => {
       baseActiveRevision: 4,
       authoring: AUTHORING,
       createdBy: { kind: 'user', id: 'usr-1', label: 'operator' },
-      updatedBy: { kind: 'user', id: 'usr-1', label: 'operator' },
+      updatedBy: { kind: 'api-key', id: 'key-2', label: 'automation' },
       createdAt: '2026-08-01T00:00:00.000Z',
-      updatedAt: '2026-08-01T00:00:00.000Z',
-    })
-    expect(draft.baseActiveRevision).toBe(4)
-    expect(draft.authoring.assignments[0]!.queryClass).toBe('unclassified')
+      updatedAt: '2026-08-02T00:00:00.000Z',
+    }
+    expect(measurementPlanDraftSchema.parse(input)).toEqual(input)
+    const planless = { ...input, baseActiveVersionId: null, baseActiveRevision: null }
+    expect(measurementPlanDraftSchema.parse(planless)).toEqual(planless)
   })
 
   it('refuses compiled output on a draft, which stores authoring intent only', () => {
@@ -102,8 +106,10 @@ describe('measurement plan draft', () => {
 
 describe('measurement draft ETag', () => {
   it('is a quoted strong tag derived from the monotonic counter, not a content hash', () => {
-    expect(measurementDraftEtag(7)).toBe(`"${MEASUREMENT_DRAFT_ETAG_PREFIX}7"`)
-    expect(measurementDraftEtag(7)).not.toBe(measurementDraftEtag(8))
+    expect(MEASUREMENT_DRAFT_ETAG_PREFIX).toBe('mpd_')
+    for (const [counter, expected] of [[1, '"mpd_1"'], [7, '"mpd_7"'], [8, '"mpd_8"'], [9007199254740991, '"mpd_9007199254740991"']] as const) {
+      expect(measurementDraftEtag(counter)).toBe(expected)
+    }
   })
 
   it('reads back a counter from either the quoted or bare header form', () => {
@@ -214,7 +220,7 @@ describe('measurement draft action payloads', () => {
   })
 
   it('returns the new ETag, what changed, warnings and counts from every mutation', () => {
-    const response = measurementDraftMutationResponseSchema.parse({
+    const input = {
       etag: '"mpd_8"',
       changed: true,
       warnings: [{ code: 'target-alias-prefix-overlap', message: 'Target aliases overlap by mention prefix', path: ['targets'] }],
@@ -226,21 +232,19 @@ describe('measurement draft action payloads', () => {
         groups: 1,
         competitors: 1,
       },
-    })
-    expect(response.etag).toBe('"mpd_8"')
-    expect(response.counts.unclassifiedAssignments).toBe(1)
+    }
+    expect(measurementDraftMutationResponseSchema.parse(input)).toEqual(input)
   })
 })
 
 describe('measurement draft collections', () => {
-  it('pages Targets by cursor rather than truncating them', () => {
-    const page = measurementDraftTargetPageSchema.parse({
+  it('preserves a Target cursor page and its total estimate', () => {
+    const input = {
       items: AUTHORING.targets,
       nextCursor: 'harbor-point',
       totalEstimate: 194,
-    })
-    expect(page.nextCursor).toBe('harbor-point')
-    expect(page.totalEstimate).toBe(194)
+    }
+    expect(measurementDraftTargetPageSchema.parse(input)).toEqual(input)
   })
 })
 
@@ -254,11 +258,11 @@ describe('measurement query assets', () => {
     expect(parsed.queryIds).toEqual(['q-best', 'q-nearby'])
   })
 
-  it('expands a template through explicit bindings', () => {
-    const parsed = measurementQueryTemplateApplyRequestSchema.parse({
+  it('preserves explicit template bindings', () => {
+    const input = {
       bindings: [{ city: 'Northbridge' }, { city: 'Southbridge' }],
-    })
-    expect(parsed.bindings).toHaveLength(2)
+    }
+    expect(measurementQueryTemplateApplyRequestSchema.parse(input)).toEqual(input)
   })
 })
 

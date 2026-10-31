@@ -4,7 +4,7 @@ import React from 'react'
 import { render, screen, act, cleanup, fireEvent } from '@testing-library/react'
 
 import { handleAuthExpired } from '../src/api.js'
-import { AuthGate } from '../src/components/auth/AuthGate.js'
+import { AuthGate, SETUP_DESCRIPTION, SETUP_ROOT_KEY_COPY } from '../src/components/auth/AuthGate.js'
 import { accountStateForApiKey } from '../src/contexts/account-context.js'
 import { mockFetch as installMockFetch, jsonResponse } from './mock-fetch.js'
 
@@ -84,6 +84,29 @@ describe('AuthGate', () => {
       expect(await screen.findByText('Sign in to Canonry')).toBeTruthy()
     })
 
+    test('opens an embedded dashboard read-only without asking for key metadata', async () => {
+      window.__CANONRY_CONFIG__ = { embed: { enabled: true } }
+      onTestFinished(() => { delete window.__CANONRY_CONFIG__ })
+      const requested: string[] = []
+      mockFetch((url) => {
+        const urlStr = String(url)
+        requested.push(urlStr)
+        if (urlStr.includes(API_SESSION)) return jsonResponse({ authenticated: true, setupRequired: false })
+        // The Embed proxy never forwards /keys, so the request must not be made.
+        if (urlStr.includes('/api/v1/keys/self')) return jsonResponse({ error: { code: 'FORBIDDEN', message: 'Forbidden' } }, 403)
+        return dashboardFallback(urlStr)
+      })
+
+      render(<AuthGate />)
+      await act(async () => {
+        await new Promise(resolve => setTimeout(resolve, 0))
+      })
+      expect(screen.queryByText('Could not verify API key access')).toBeNull()
+      expect(requested.some(url => url.includes('/api/v1/keys/self'))).toBe(false)
+      expect(accountStateForApiKey({ id: 'embed', scopes: ['read', 'embed'], projectId: 'embed', readOnly: true }))
+        .toEqual({ account: null, canWrite: false, isAdmin: false })
+    })
+
     test('renders setup form when session returns setupRequired', async () => {
       mockFetch((url) => {
         if (String(url).includes(API_SESSION)) return jsonResponse({ authenticated: false, setupRequired: true })
@@ -95,7 +118,10 @@ describe('AuthGate', () => {
       // One screen, one thing to act on. What the CLI's API key is for belongs
       // where that key is printed, not in front of someone who has not reached
       // a terminal yet.
-      expect(screen.getByText('This password protects the dashboard on this computer.')).toBeTruthy()
+      expect(screen.getByText(SETUP_DESCRIPTION)).toBeTruthy()
+      // The password signs in from any browser, also when setup ran from
+      // another machine with the root key, so the copy names no machine.
+      expect(screen.queryByText(/this computer/i)).toBeNull()
       // The sign-in screen already offers "Forgot password? Use API key", so a
       // warning that it cannot be recovered contradicts the product.
       expect(screen.queryByText(/cannot recover/i)).toBeNull()
@@ -182,7 +208,7 @@ describe('AuthGate', () => {
       expect(screen.queryByRole('button', { name: 'Create password and continue' })).toBeNull()
       expect(screen.queryByLabelText('Password')).toBeNull()
       expect(screen.queryByLabelText('Confirm password')).toBeNull()
-      expect(screen.queryByRole('heading', { name: 'Portfolio' })).toBeNull()
+      expect(screen.queryByRole('heading', { name: 'All projects' })).toBeNull()
       expect(setupRequests).toBe(1)
       expect(metadataReads).toBe(1)
 
@@ -191,9 +217,128 @@ describe('AuthGate', () => {
       cleanup()
       metadataUnavailable = false
       render(<AuthGate />)
-      expect(await screen.findByRole('heading', { name: 'Portfolio' })).toBeTruthy()
+      expect(await screen.findByRole('heading', { name: 'All projects' })).toBeTruthy()
       expect(setupRequests).toBe(1)
       expect(metadataReads).toBe(2)
+    })
+
+    test('asks for the root API key when the server refuses a keyless setup and sends it only with setup', async () => {
+      const ROOT_KEY = 'cnry_root_key'
+      const setupAuthorizations: Array<string | null> = []
+      const otherAuthorizations: Array<string | null> = []
+      let passwordCreated = false
+      mockFetch((url, init) => {
+        const authorization = new Headers(init?.headers).get('authorization')
+        if (url.endsWith('/session/setup') && init?.method === 'POST') {
+          setupAuthorizations.push(authorization)
+          if (authorization !== `Bearer ${ROOT_KEY}`) {
+            return jsonResponse({ error: { code: 'AUTH_REQUIRED', message: 'Root API key required' } }, 401)
+          }
+          passwordCreated = true
+          return jsonResponse({ authenticated: true })
+        }
+        otherAuthorizations.push(authorization)
+        if (url.includes('/auth/session')) return jsonResponse({ authRequired: false, user: null })
+        if (url.endsWith('/session')) return jsonResponse({ authenticated: passwordCreated, setupRequired: !passwordCreated })
+        return dashboardFallback(url)
+      })
+      const stored = vi.spyOn(Storage.prototype, 'setItem')
+      onTestFinished(() => { stored.mockRestore() })
+
+      render(<AuthGate />)
+      await screen.findByRole('heading', { name: 'Create a dashboard password' })
+      expect(screen.queryByLabelText(SETUP_ROOT_KEY_COPY.label)).toBeNull()
+      const password = screen.getByLabelText('Password') as HTMLInputElement
+      fireEvent.change(password, { target: { value: 'long-enough' } })
+      fireEvent.change(screen.getByLabelText('Confirm password'), { target: { value: 'long-enough' } })
+      const submit = screen.getByRole('button', { name: 'Create password and continue' }) as HTMLButtonElement
+      await act(async () => { fireEvent.click(submit) })
+
+      // The keyless attempt was refused: the key field appears, the password stays.
+      const rootKey = await screen.findByLabelText(SETUP_ROOT_KEY_COPY.label) as HTMLInputElement
+      expect(rootKey.type).toBe('password')
+      expect(rootKey.autocomplete).toBe('off')
+      expect(document.activeElement).toBe(rootKey)
+      expect(screen.getByText(SETUP_ROOT_KEY_COPY.help)).toBeTruthy()
+      expect(screen.queryByRole('alert')).toBeNull()
+      expect(password.value).toBe('long-enough')
+      expect(submit.disabled).toBe(true)
+
+      // A submit that bypasses the disabled button does not send an empty key.
+      await act(async () => { fireEvent.submit(submit.form!) })
+      expect((await screen.findByRole('alert')).textContent).toBe(SETUP_ROOT_KEY_COPY.missing)
+      expect(setupAuthorizations).toEqual([null])
+
+      fireEvent.change(rootKey, { target: { value: 'cnry_not_the_root_key' } })
+      expect(submit.disabled).toBe(false)
+      await act(async () => { fireEvent.click(submit) })
+      expect((await screen.findByRole('alert')).textContent).toBe(SETUP_ROOT_KEY_COPY.rejected)
+      expect(rootKey.getAttribute('aria-invalid')).toBe('true')
+
+      fireEvent.change(rootKey, { target: { value: ` ${ROOT_KEY} ` } })
+      await act(async () => { fireEvent.click(submit) })
+
+      expect(await screen.findByRole('heading', { name: 'All projects' })).toBeTruthy()
+      expect(setupAuthorizations).toEqual([null, 'Bearer cnry_not_the_root_key', `Bearer ${ROOT_KEY}`])
+      // Every other request, before and after setup, rides the cookie only.
+      expect(otherAuthorizations.length).toBeGreaterThan(0)
+      expect(otherAuthorizations.filter(value => value !== null)).toEqual([])
+      expect(stored.mock.calls.filter(call => call.some(arg => String(arg).includes(ROOT_KEY)))).toEqual([])
+    })
+
+    test('keeps the root API key field hidden for setup errors other than a missing key', async () => {
+      mockFetch((url, init) => {
+        if (url.includes('/auth/session')) return jsonResponse({ authRequired: false, user: null })
+        if (url.endsWith('/session/setup') && init?.method === 'POST') {
+          return jsonResponse({ error: { code: 'AUTH_INVALID', message: 'Server API key not found' } }, 401)
+        }
+        if (url.endsWith('/session')) return jsonResponse({ authenticated: false, setupRequired: true })
+        return dashboardFallback(url)
+      })
+
+      render(<AuthGate />)
+      await screen.findByRole('heading', { name: 'Create a dashboard password' })
+      fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'long-enough' } })
+      fireEvent.change(screen.getByLabelText('Confirm password'), { target: { value: 'long-enough' } })
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Create password and continue' }))
+      })
+
+      expect((await screen.findByRole('alert')).textContent).toBe('Server API key not found')
+      expect(screen.queryByLabelText(SETUP_ROOT_KEY_COPY.label)).toBeNull()
+    })
+
+    test('reveals the root API key with the passwords so a pasted key can be checked', async () => {
+      mockFetch((url, init) => {
+        if (url.includes('/auth/session')) return jsonResponse({ authRequired: false, user: null })
+        if (url.endsWith('/session/setup') && init?.method === 'POST') {
+          return jsonResponse({ error: { code: 'AUTH_REQUIRED', message: 'Root API key required' } }, 401)
+        }
+        if (url.endsWith('/session')) return jsonResponse({ authenticated: false, setupRequired: true })
+        return dashboardFallback(url)
+      })
+
+      render(<AuthGate />)
+      await screen.findByRole('heading', { name: 'Create a dashboard password' })
+      const password = screen.getByLabelText('Password') as HTMLInputElement
+      fireEvent.change(password, { target: { value: 'long-enough' } })
+      fireEvent.change(screen.getByLabelText('Confirm password'), { target: { value: 'long-enough' } })
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Create password and continue' }))
+      })
+
+      const rootKey = await screen.findByLabelText(SETUP_ROOT_KEY_COPY.label) as HTMLInputElement
+      expect(screen.queryByLabelText('Show passwords')).toBeNull()
+      const show = screen.getByLabelText(SETUP_ROOT_KEY_COPY.show) as HTMLInputElement
+      expect(rootKey.type).toBe('password')
+
+      fireEvent.click(show)
+      expect(rootKey.type).toBe('text')
+      expect(password.type).toBe('text')
+
+      fireEvent.click(show)
+      expect(rootKey.type).toBe('password')
+      expect(password.type).toBe('password')
     })
 
     test('hides the saved password and dashboard while initial access verification is pending', async () => {
@@ -216,9 +361,9 @@ describe('AuthGate', () => {
 
       expect(screen.getByText('Connecting to Canonry…')).toBeTruthy()
       expect(screen.queryByLabelText('Password')).toBeNull()
-      expect(screen.queryByRole('heading', { name: 'Portfolio' })).toBeNull()
+      expect(screen.queryByRole('heading', { name: 'All projects' })).toBeNull()
       await act(async () => { resolveMetadata(dashboardFallback('/api/v1/keys/self')) })
-      expect(await screen.findByRole('heading', { name: 'Portfolio' })).toBeTruthy()
+      expect(await screen.findByRole('heading', { name: 'All projects' })).toBeTruthy()
     })
 
     test('gives the shared-password login browser metadata and an accessible error', async () => {
@@ -322,7 +467,7 @@ describe('AuthGate', () => {
         fireEvent.submit(screen.getByRole('button', { name: 'Open dashboard' }))
       })
 
-      expect(await screen.findByRole('heading', { name: 'Portfolio' })).toBeTruthy()
+      expect(await screen.findByRole('heading', { name: 'All projects' })).toBeTruthy()
       expect(screen.queryByText('Settings')).toBeNull()
       expect(requested.some(url => url.includes('/api/v1/settings'))).toBe(false)
     })
@@ -335,7 +480,7 @@ describe('AuthGate', () => {
       })
 
       render(<AuthGate />)
-      expect(await screen.findByRole('heading', { name: 'Portfolio' })).toBeTruthy()
+      expect(await screen.findByRole('heading', { name: 'All projects' })).toBeTruthy()
     })
 
     test('keeps a restored session locked when its API-key access cannot be verified', async () => {
@@ -354,7 +499,7 @@ describe('AuthGate', () => {
 
       expect(await screen.findByRole('heading', { name: 'Could not verify API key access' })).toBeTruthy()
       expect(screen.getByRole('button', { name: 'Try again' })).toBeTruthy()
-      expect(screen.queryByRole('heading', { name: 'Portfolio' })).toBeNull()
+      expect(screen.queryByRole('heading', { name: 'All projects' })).toBeNull()
     })
 
     test('clears a restored session whose bound API key is no longer valid', async () => {
@@ -380,7 +525,7 @@ describe('AuthGate', () => {
       expect(await screen.findByRole('heading', { name: 'Sign in to Canonry' })).toBeTruthy()
       expect(screen.getByText(/Your session expired/i)).toBeTruthy()
       expect(screen.queryByRole('heading', { name: 'Could not verify API key access' })).toBeNull()
-      expect(screen.queryByRole('heading', { name: 'Portfolio' })).toBeNull()
+      expect(screen.queryByRole('heading', { name: 'All projects' })).toBeNull()
       expect(sessionMethods).toContain('DELETE')
     })
 
@@ -413,7 +558,7 @@ describe('AuthGate', () => {
       })
 
       render(<AuthGate />)
-      expect(await screen.findByRole('heading', { name: 'Portfolio' })).toBeTruthy()
+      expect(await screen.findByRole('heading', { name: 'All projects' })).toBeTruthy()
 
       await act(async () => {
         handleAuthExpired()
@@ -430,7 +575,7 @@ describe('AuthGate', () => {
       })
 
       render(<AuthGate />)
-      expect(await screen.findByRole('heading', { name: 'Portfolio' })).toBeTruthy()
+      expect(await screen.findByRole('heading', { name: 'All projects' })).toBeTruthy()
 
       await act(async () => {
         handleAuthExpired()
@@ -454,7 +599,7 @@ describe('AuthGate', () => {
       vi.useFakeTimers({ shouldAdvanceTime: true })
 
       render(<AuthGate />)
-      expect(await screen.findByRole('heading', { name: 'Portfolio' })).toBeTruthy()
+      expect(await screen.findByRole('heading', { name: 'All projects' })).toBeTruthy()
 
       // Change the session state to unauthenticated
       sessionState.authenticated = false
@@ -489,7 +634,7 @@ describe('AuthGate', () => {
       vi.useFakeTimers({ shouldAdvanceTime: true })
 
       render(<AuthGate />)
-      expect(await screen.findByRole('heading', { name: 'Portfolio' })).toBeTruthy()
+      expect(await screen.findByRole('heading', { name: 'All projects' })).toBeTruthy()
 
       shouldThrow = true
 
@@ -499,7 +644,7 @@ describe('AuthGate', () => {
 
       // User is still on the dashboard, not kicked to login
       expect(screen.queryByText('Sign in to Canonry')).toBeNull()
-      expect(screen.getAllByText('Portfolio').length).toBeGreaterThan(0)
+      expect(screen.getAllByText('All projects').length).toBeGreaterThan(0)
 
       vi.useRealTimers()
     })

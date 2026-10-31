@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { ALL_CHECKS } from './doctor/registry.js'
 import { runChecks } from './doctor/runner.js'
-import type { AgentPluginState, BundledSkillSnapshot } from '@ainyc/canonry-contracts'
+import type { AgentPluginState, BundledSkillSnapshot } from '@canonry/canonry-contracts'
 import type { DoctorContext, DoctorUpdateStatus, TrafficSourceValidator } from './doctor/types.js'
 import type { AdsCredentialStore } from './ads.js'
 import type { GoogleConnectionStore } from './google.js'
@@ -9,8 +9,8 @@ import type { BingConnectionStore } from './bing.js'
 import type { WordpressConnectionStore } from './wordpress.js'
 import type { Ga4CredentialStore } from './ga.js'
 import type { ProviderSummaryEntry } from './settings.js'
-import type { AgentProviderOption } from '@ainyc/canonry-contracts'
-import { reportMonthSchema, validationError } from '@ainyc/canonry-contracts'
+import type { AgentProviderOption } from '@canonry/canonry-contracts'
+import { reportMonthSchema, validationError } from '@canonry/canonry-contracts'
 import { isInstanceAdministrator } from './auth.js'
 import { resolveProject } from './helpers.js'
 import type { GoogleMarketingDoctorInputResolver } from './doctor/checks/google-marketing.js'
@@ -19,6 +19,8 @@ export interface DoctorRoutesOptions {
   googleConnectionStore?: GoogleConnectionStore
   bingConnectionStore?: BingConnectionStore
   wordpressConnectionStore?: WordpressConnectionStore
+  /** See `DoctorContext.allowLoopbackWebhooks`. */
+  allowLoopbackWebhooks?: boolean
   ga4CredentialStore?: Ga4CredentialStore
   adsCredentialStore?: AdsCredentialStore
   getGoogleAuthConfig?: () => { clientId?: string; clientSecret?: string }
@@ -47,6 +49,7 @@ export interface DoctorRoutesOptions {
   getUpdateStatus?: () => DoctorUpdateStatus
   /** Synchronous, secret-free metadata resolver. It must not call Google APIs. */
   getGoogleMarketingDoctorInput?: GoogleMarketingDoctorInputResolver
+  probeApiHost?: DoctorContext['probeApiHost']
 }
 
 function parseReportMonth(raw: string | undefined): string | undefined {
@@ -85,6 +88,7 @@ export async function doctorRoutes(app: FastifyInstance, opts: DoctorRoutesOptio
       googleConnectionStore: opts.googleConnectionStore,
       bingConnectionStore: opts.bingConnectionStore,
       wordpressConnectionStore: opts.wordpressConnectionStore,
+      allowLoopbackWebhooks: opts.allowLoopbackWebhooks,
       ga4CredentialStore: opts.ga4CredentialStore,
       adsCredentialStore: opts.adsCredentialStore,
       getGoogleAuthConfig: opts.getGoogleAuthConfig,
@@ -100,6 +104,7 @@ export async function doctorRoutes(app: FastifyInstance, opts: DoctorRoutesOptio
       getAgentPluginState: opts.getAgentPluginState,
       getUpdateStatus: opts.getUpdateStatus,
       getGoogleMarketingDoctorInput: opts.getGoogleMarketingDoctorInput,
+      probeApiHost: opts.probeApiHost,
     }
     return runChecks(ctx, ALL_CHECKS, { checkIds })
   })
@@ -123,6 +128,7 @@ export async function doctorRoutes(app: FastifyInstance, opts: DoctorRoutesOptio
       googleConnectionStore: opts.googleConnectionStore,
       bingConnectionStore: opts.bingConnectionStore,
       wordpressConnectionStore: opts.wordpressConnectionStore,
+      allowLoopbackWebhooks: opts.allowLoopbackWebhooks,
       ga4CredentialStore: opts.ga4CredentialStore,
       adsCredentialStore: opts.adsCredentialStore,
       getGoogleAuthConfig: opts.getGoogleAuthConfig,
@@ -138,6 +144,7 @@ export async function doctorRoutes(app: FastifyInstance, opts: DoctorRoutesOptio
       getAgentPluginState: opts.getAgentPluginState,
       getUpdateStatus: opts.getUpdateStatus,
       getGoogleMarketingDoctorInput: opts.getGoogleMarketingDoctorInput,
+      probeApiHost: opts.probeApiHost,
     }
     return runChecks(ctx, ALL_CHECKS, { checkIds })
   })

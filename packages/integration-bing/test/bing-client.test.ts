@@ -22,6 +22,14 @@ describe('getSites', () => {
     globalThis.fetch = originalFetch
   })
 
+  it('includes the provider host and dialed address for transport failures', async () => {
+    const cause = Object.assign(new Error('connect failed'), {
+      code: 'ECONNREFUSED', syscall: 'connect', address: '203.0.113.8', port: 443,
+    })
+    globalThis.fetch = async () => { throw Object.assign(new TypeError('fetch failed'), { cause }) }
+    await expect(() => getSites('test-key')).rejects.toThrow(/ECONNREFUSED.*ssl\.bing\.com.*203\.0\.113\.8:443/)
+  })
+
   it('returns parsed site entries (matches Bing\'s real GetUserSites response shape — IsVerified, not Verified)', async () => {
     // Fixture mirrors a real production response: `IsVerified`, plus the
     // additional fields (`__type`, `AuthenticationCode`, `DnsVerificationCode`)

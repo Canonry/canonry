@@ -3,74 +3,9 @@ name: CI
 on:
   push:
     branches: [main]
-    paths:
-      # Every workflow, not just this one: a change to a deploy workflow is a
-      # change to how something reaches production, and it went unvalidated
-      # while only `ci.yml` was listed.
-      - '.github/workflows/**'
-      - '.github/actions/setup/action.yml'
-      - '.husky/**'
-      - '.dockerignore'
-      - 'Dockerfile'
-      - 'docker/**'
-      - 'apps/**'
-      - 'packages/**'
-      - 'package.json'
-      - 'pnpm-lock.yaml'
-      - 'pnpm-workspace.yaml'
-      - 'tsconfig.base.json'
-      - 'eslint.config.js'
-      - 'scripts/**'
-      # Workspace-level guards live here and belong to no single package.
-      # Without this, a PR that changes only a guard never runs it.
-      - 'test/**'
-      - 'test-setup/**'
-      - 'vitest.config.ts'
-      - 'skills/**'
-      - 'plugins/**'
-      - '.agents/**'
-      - '.claude-plugin/**'
-      - 'docs/CODEMAP.md'
-      - 'docs/GUARDS.md'
-      - 'docs/DOC_UPDATE.md'
-      - 'docs/agent-operations/**'
-      - 'AGENTS.md'
+  # Every contribution, including docs-only changes and stacked PRs, reaches
+  # the policy job. Ownership determines whether full validation runs.
   pull_request:
-    # No `branches:` filter — run CI on every PR, including stacked PRs
-    # targeting feature branches. This keeps each step of a stack green
-    # without waiting until rebase-to-main.
-    paths:
-      # Every workflow, not just this one: a change to a deploy workflow is a
-      # change to how something reaches production, and it went unvalidated
-      # while only `ci.yml` was listed.
-      - '.github/workflows/**'
-      - '.github/actions/setup/action.yml'
-      - '.husky/**'
-      - '.dockerignore'
-      - 'Dockerfile'
-      - 'docker/**'
-      - 'apps/**'
-      - 'packages/**'
-      - 'package.json'
-      - 'pnpm-lock.yaml'
-      - 'pnpm-workspace.yaml'
-      - 'tsconfig.base.json'
-      - 'eslint.config.js'
-      - 'scripts/**'
-      # Workspace-level guards live here and belong to no single package.
-      # Without this, a PR that changes only a guard never runs it.
-      - 'test/**'
-      - 'test-setup/**'
-      - 'vitest.config.ts'
-      - 'skills/**'
-      - 'plugins/**'
-      - '.agents/**'
-      - '.claude-plugin/**'
-      - 'docs/CODEMAP.md'
-      - 'docs/GUARDS.md'
-      - 'docs/DOC_UPDATE.md'
-      - 'docs/agent-operations/**'
-      - 'AGENTS.md'
 
 # New PR commits replace obsolete validation. Keep main runs for release evidence.
 concurrency:
@@ -78,10 +13,25 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  policy:
+    uses: ./.github/workflows/change-policy.yml
+    permissions:
+      contents: read
+      pull-requests: read
+
   typecheck:
+    needs: policy
+    if: ${{ !cancelled() && needs.policy.outputs.owner_only != 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        # Exercise both the default checker and upstream TypeScript 7.
+        typechecker: [tsrs, tsc]
+    env:
+      CANONRY_TYPECHECKER: ${{ matrix.typechecker }}
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
@@ -90,10 +40,11 @@ jobs:
         with:
           # Cache one archive: a recursive glob walks node_modules during save
           # and has cost over a minute for less than 1 MB of compiler state.
+          # One archive per compiler: each discards the other's tsbuildinfo.
           path: .tmp/ci/tsbuildinfo.tar
-          key: tsbuildinfo-v2-${{ runner.os }}-${{ runner.arch }}-node22-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.run_id }}
+          key: tsbuildinfo-v3-${{ matrix.typechecker }}-${{ runner.os }}-${{ runner.arch }}-node26-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.run_id }}
           restore-keys: |
-            tsbuildinfo-v2-${{ runner.os }}-${{ runner.arch }}-node22-${{ hashFiles('pnpm-lock.yaml') }}-
+            tsbuildinfo-v3-${{ matrix.typechecker }}-${{ runner.os }}-${{ runner.arch }}-node26-${{ hashFiles('pnpm-lock.yaml') }}-
       - name: Unpack TypeScript incremental state
         run: |
           if [ -f .tmp/ci/tsbuildinfo.tar ]; then
@@ -105,21 +56,23 @@ jobs:
         run: |
           mkdir -p .tmp/ci
           shopt -s nullglob
-          files=(packages/*/*.tsbuildinfo apps/*/*.tsbuildinfo scripts/*.tsbuildinfo test/*.tsbuildinfo)
+          files=(packages/*/*.tsbuildinfo apps/*/*.tsbuildinfo scripts/*.tsbuildinfo test/*.tsbuildinfo test-setup/*.tsbuildinfo)
           tar -cf .tmp/ci/tsbuildinfo.tar --files-from /dev/null "${files[@]}"
 
   test_shards:
+    needs: policy
+    if: ${{ !cancelled() && needs.policy.outputs.owner_only != 'true' }}
     name: test ${{ matrix.shard }} (node ${{ matrix.node }})
     runs-on: ubuntu-latest
     permissions:
       contents: read
     strategy:
       fail-fast: false
-      # Both majors run the whole suite across six shards. Four Node 22 shards
+      # All supported majors run the whole suite across six shards. Four Node 22 shards
       # took 239–322 seconds in CI run 35875195112. Replaying its 914 files
       # across six shards reduces the largest measured test workload by 30%.
-      # Node 22 is the deployment major; Node 26 is the highest supported major
-      # in scripts/check-node.mjs. Keep full coverage on both.
+      # Node 22 is the oldest supported major; Node 26 is the deployment major
+      # in package.json. Keep full coverage on every supported major.
       #
       # The pairing is the point: better-sqlite3 is a NATIVE module, so a major
       # is only "supported" if its prebuilt binary resolves and loads.
@@ -128,18 +81,24 @@ jobs:
       # did while the guard sat at 25 for months.
       matrix:
         include:
-          - { node: '22', shard: '1/6' }
-          - { node: '22', shard: '2/6' }
-          - { node: '22', shard: '3/6' }
-          - { node: '22', shard: '4/6' }
-          - { node: '22', shard: '5/6' }
-          - { node: '22', shard: '6/6' }
-          - { node: '26', shard: '1/6' }
-          - { node: '26', shard: '2/6' }
-          - { node: '26', shard: '3/6' }
-          - { node: '26', shard: '4/6' }
-          - { node: '26', shard: '5/6' }
-          - { node: '26', shard: '6/6' }
+          - { node: '22.23.4', shard: '1/6' }
+          - { node: '22.23.4', shard: '2/6' }
+          - { node: '22.23.4', shard: '3/6' }
+          - { node: '22.23.4', shard: '4/6' }
+          - { node: '22.23.4', shard: '5/6' }
+          - { node: '22.23.4', shard: '6/6' }
+          - { node: '24.22.1', shard: '1/6' }
+          - { node: '24.22.1', shard: '2/6' }
+          - { node: '24.22.1', shard: '3/6' }
+          - { node: '24.22.1', shard: '4/6' }
+          - { node: '24.22.1', shard: '5/6' }
+          - { node: '24.22.1', shard: '6/6' }
+          - { node: '26.12.1', shard: '1/6' }
+          - { node: '26.12.1', shard: '2/6' }
+          - { node: '26.12.1', shard: '3/6' }
+          - { node: '26.12.1', shard: '4/6' }
+          - { node: '26.12.1', shard: '5/6' }
+          - { node: '26.12.1', shard: '6/6' }
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
@@ -172,8 +131,8 @@ jobs:
 
   test:
     name: test
-    needs: test_shards
-    if: always()
+    needs: [policy, test_shards]
+    if: always() && needs.policy.outputs.owner_only != 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -189,6 +148,8 @@ jobs:
           echo "All test shards passed"
 
   lint:
+    needs: policy
+    if: ${{ !cancelled() && needs.policy.outputs.owner_only != 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -205,6 +166,8 @@ jobs:
   # plugin change would ship to client sites untested. ubuntu-latest bundles
   # PHP, and the suite is a dependency-free custom runner (no composer).
   wp-plugin-tests:
+    needs: policy
+    if: ${{ !cancelled() && needs.policy.outputs.owner_only != 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -216,6 +179,8 @@ jobs:
         name: WordPress traffic-logger plugin suite
 
   ts-prune:
+    needs: policy
+    if: ${{ !cancelled() && needs.policy.outputs.owner_only != 'true' }}
     # Lightweight dead-export check via npx (no heavy dep in repo). Reports unused exports not used outside their module; filtered to exclude "used in module" noise. Non-blocking — surfaces in logs without failing CI.
     runs-on: ubuntu-latest
     permissions:
@@ -227,20 +192,24 @@ jobs:
         name: Report unused exports (ts-prune, no heavy dep)
 
   codegen-drift:
+    needs: policy
+    if: ${{ !cancelled() && needs.policy.outputs.owner_only != 'true' }}
     # Regenerates the hey-api client from the OpenAPI spec and fails if the
     # committed output differs. Run separately from `lint` so a stale client
     # surfaces as its own check name and a contributor knows to run
-    # `pnpm --filter @ainyc/canonry-api-client gen` locally.
+    # `pnpm --filter @canonry/canonry-api-client gen` locally.
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
-      - run: pnpm --filter @ainyc/canonry-api-client gen:check
+      - run: pnpm --filter @canonry/canonry-api-client gen:check
         name: Verify generated API client matches OpenAPI spec
 
   plugin-drift:
+    needs: policy
+    if: ${{ !cancelled() && needs.policy.outputs.owner_only != 'true' }}
     # The native plugin mirrors the canonical Canonry/Aero skills and package
     # version, and CODEMAP.md indexes key files. Fail with a focused check when a generated copy is stale, CODEMAP is stale, or a plugin-affecting change reuses the version already present on the base.
     runs-on: ubuntu-latest
@@ -284,7 +253,8 @@ jobs:
     #
     # So compare against the BASE BRANCH TIP, which is what the version will be
     # measured against after the merge lands.
-    if: github.event_name == 'pull_request'
+    needs: policy
+    if: ${{ !cancelled() && needs.policy.outputs.owner_only != 'true' && github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -336,6 +306,8 @@ jobs:
           echo "OK: $HEAD_V is ahead of the base tip ($TIP_V) and unpublished."
 
   build:
+    needs: policy
+    if: ${{ !cancelled() && needs.policy.outputs.owner_only != 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -365,21 +337,23 @@ jobs:
     # aren't published). Packs canonry the same way the publish workflow
     # does and runs `npm install` against the build job's tarball from a scratch
     # directory — exactly what external users do when they `npm i -g`.
-    # No checkout or workspace dependencies: reuse the completed build while
-    # keeping the install independent of workspace resolution.
-    needs: build
+    # Source dependencies only seed synthetic fixtures and run the harness;
+    # runtime behavior uses the completed build installed outside the checkout.
+    needs: [policy, build]
+    if: ${{ !cancelled() && needs.policy.outputs.owner_only != 'true' && needs.build.result == 'success' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
     steps:
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
       - uses: actions/download-artifact@v4
         with:
           name: canonry-package
           path: ${{ runner.temp }}/canonry-package
       - name: Install canonry from tarball into scratch project
+        id: install
         shell: bash
         run: |
           shopt -s nullglob
@@ -388,16 +362,32 @@ jobs:
             echo "Expected exactly one Canonry package tarball" >&2
             exit 1
           fi
-          SCRATCH=$(mktemp -d)
+          SCRATCH=$(mktemp -d "$RUNNER_TEMP/canonry-install.XXXXXX")
           cd "$SCRATCH"
           npm init -y > /dev/null
           npm install "${tarballs[0]}"
           ./node_modules/.bin/canonry --version
+          echo "package_root=$SCRATCH/node_modules/@canonry/canonry" >> "$GITHUB_OUTPUT"
+      - name: Run synthetic packaged sentiment scenario
+        env:
+          CANONRY_SMOKE_PACKAGE_ROOT: ${{ steps.install.outputs.package_root }}
+          TMPDIR: ${{ runner.temp }}
+        run: pnpm exec tsx scripts/smoke-sentiment.mjs --package-root "$CANONRY_SMOKE_PACKAGE_ROOT"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: packaged-sentiment-smoke
+          path: |
+            ${{ runner.temp }}/canonry-sentiment-stub-*/report.json
+            ${{ runner.temp }}/canonry-sentiment-stub-*/provider-receipts.jsonl
+            ${{ runner.temp }}/canonry-sentiment-stub-*/server-redacted.log
+          if-no-files-found: ignore
+          retention-days: 7
 
   validate:
     runs-on: ubuntu-latest
-    needs: [typecheck, test, lint, codegen-drift, plugin-drift, build, publish-smoke-test, wp-plugin-tests]
-    if: always()
+    needs: [policy, typecheck, test, lint, codegen-drift, plugin-drift, build, publish-smoke-test, wp-plugin-tests]
+    if: always() && needs.policy.outputs.owner_only != 'true'
     steps:
       - name: Verify all validate jobs succeeded
         run: |
@@ -415,11 +405,19 @@ jobs:
           echo "All validate jobs passed"
 
   docker-build:
+    needs: policy
+    if: ${{ !cancelled() && needs.policy.outputs.owner_only != 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@v4
+
+      # A registry 429 while BuildKit resolves FROM fails the build at once.
+      # Pull the base images first, with retries and a Docker Hub fallback; the
+      # build then uses the local copies. Keep build-push-action's `pull` off.
+      - name: Pull base images
+        run: bash scripts/pull-docker-base-images.sh Dockerfile
 
       # Use the runner's bundled buildx/docker driver so CI doesn't have to pull
       # an extra BuildKit image from Docker Hub before the actual image build.

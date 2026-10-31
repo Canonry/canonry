@@ -162,25 +162,6 @@ export function categorizeSource(uri: string): { category: SourceCategory; label
 }
 
 /**
- * Tracked competitors are categorized BEFORE rule matching — a tracked
- * competitor that happens to also match a rule (e.g. a competitor whose
- * domain ends in `.com` and happens to be on a directory) should still be
- * counted as `competitor` so users see how often AI engines route them to
- * the tracked rivals.
- */
-export function categorizeSourceWithCompetitors(
-  uri: string,
-  competitorDomains: readonly string[],
-  isCompetitorMatch: (domain: string, competitors: readonly string[]) => boolean,
-): { category: SourceCategory; label: string; domain: string } {
-  const base = categorizeSource(uri)
-  if (isCompetitorMatch(base.domain, competitorDomains)) {
-    return { category: 'competitor', label: CATEGORY_LABELS.competitor, domain: base.domain }
-  }
-  return base
-}
-
-/**
  * Consumer listing marketplaces: sites that list many providers' inventory,
  * such as rentals and homes. An answer that cites or names one is pointing at a
  * marketplace, never at a competitor.

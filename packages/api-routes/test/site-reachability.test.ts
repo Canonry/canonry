@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from 'vitest'
+import dns from 'node:dns/promises'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   lookupSiteAddresses,
   probeSiteReachability,
@@ -149,9 +150,23 @@ describe('lookupSiteAddresses', () => {
     expect(await lookupSiteAddresses(PUBLIC_V4)).toEqual({ kind: 'addresses', addresses: [{ address: PUBLIC_V4, family: 4 }] })
   })
 
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  // The resolver is stubbed with the error codes c-ares gives, so the test
+  // never sends a real DNS query (the shared test setup refuses one).
   it('separates a name with no address from a resolver that did not answer', async () => {
-    const missing = await lookupSiteAddresses('nxdomain.invalid')
-    expect(missing.kind).toBe('no-such-host')
+    const answerWith = (code: string) => {
+      const error = Object.assign(new Error(`query ${code} nxdomain.invalid`), { code })
+      vi.spyOn(dns, 'resolve4').mockRejectedValue(error)
+      vi.spyOn(dns, 'resolve6').mockRejectedValue(error)
+    }
+
+    answerWith('ENOTFOUND')
+    expect((await lookupSiteAddresses('nxdomain.invalid')).kind).toBe('no-such-host')
+    answerWith('ESERVFAIL')
+    expect((await lookupSiteAddresses('nxdomain.invalid')).kind).toBe('resolver-error')
   })
 })
 
@@ -197,13 +212,13 @@ describe('site.reachability check', () => {
 
   it('fails with the reason when the site is down', async () => {
     const result = await check.run(withProbe({ state: 'down', url: 'https://client.example/', finalUrl: 'https://client.example/', httpStatus: 503, reason: 'HTTP 503', attempts: 2, durationMs: 2100 }))
-    expect(result).toMatchObject({ status: 'fail', code: 'site.reachability.down' })
+    expect(result).toMatchObject({ status: 'fail', code: 'site.reachability.down', urgent: true })
     expect(result.summary).toContain('HTTP 503')
   })
 
   it('fails a sinkholed domain instead of going quiet about it', async () => {
     const result = await check.run(withProbe({ state: 'unreachable', url: 'https://client.example/', finalUrl: 'https://client.example/', reason: 'client.example resolves to 127.0.0.1, a loopback address', attempts: 2, durationMs: 40 }))
-    expect(result).toMatchObject({ status: 'fail', code: 'site.reachability.refused-address' })
+    expect(result).toMatchObject({ status: 'fail', code: 'site.reachability.refused-address', urgent: true })
   })
 
   it('skips, never fails, when this host could not run the probe', async () => {

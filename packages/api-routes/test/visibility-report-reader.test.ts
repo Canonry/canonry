@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildVisibilityReport,
+  visibilityComparisonPopulation,
   type VisibilityReportReaderInput,
 } from '../src/visibility-report-reader.js'
 
@@ -62,6 +63,67 @@ describe('per-target uncertain identity and positive citation evidence', () => {
     observations[0]!.mentionedTargetKeys = ['north']
     const known = buildVisibilityReport(input({ runs: [{ ...selected, observations }], selection: { queryClass: 'non-brand', scope: 'market', scopeKey: 'alpha', location: { kind: 'all' }, limit: 50 } }))
     expect(known.populations[0]!.summary.mentionCoverage).toEqual({ numerator: 1, denominator: 1, rate: 1 })
+  })
+})
+
+describe('answers whose source list was partly saved', () => {
+  function partlySavedReport(selected: ReturnType<typeof brandedRun>) {
+    return buildVisibilityReport(input({
+      activeDefinition: selected.definition,
+      runs: [selected],
+      selection: { queryClass: 'branded', scope: 'project', location: { kind: 'all' }, limit: 50 },
+    })).populations[0]!
+  }
+
+  it('shows on each engine row what the saved links cite, outside the rate', () => {
+    // Three one-answer rows. Answer 0 saved a link to North; answer 1 saved none.
+    const selected = brandedRun(['mentioned', 'mentioned', 'not-mentioned'])
+    selected.observations[0]!.citationComplete = false
+    selected.observations[1]!.citationComplete = false
+    const population = partlySavedReport(selected)
+
+    expect(population.queries.items.map(row => [row.queryKey, row.citationCoverage, row.uncheckedSources])).toEqual([
+      ['brand:0', { numerator: null, denominator: null, rate: null, reason: 'evidence-incomplete' }, { answers: 1, citedAnswers: 1, citedTargetKeys: ['north'] }],
+      ['brand:1', { numerator: null, denominator: null, rate: null, reason: 'evidence-incomplete' }, { answers: 1, citedAnswers: 0, citedTargetKeys: [] }],
+      ['brand:2', { numerator: 0, denominator: 1, rate: 0 }, undefined],
+    ])
+    // The saved North link never enters the rate: 0 of the 1 checked answer.
+    expect(population.summary.citationCoverage).toEqual({ numerator: 0, denominator: 1, rate: 0, unchecked: 2 })
+  })
+
+  it('counts the Properties that read not measured only because of a partly saved answer', () => {
+    // North is mentioned, its one checked answer cites nothing, and its other
+    // answer's sources were partly saved. South has no branded answer at all,
+    // which is a different reason to be not measured.
+    const selected = brandedRun(['mentioned', 'not-mentioned'])
+    selected.observations[0]!.citedTargetKeys = []
+    selected.observations[1]!.citationComplete = false
+    const population = partlySavedReport(selected)
+    expect(population.summary.outcomes).toEqual({ bothSignals: 0, mentionedOnly: 0, citedOnly: 0, neither: 0, notMeasured: 2, total: 2 })
+    expect(population.summary.notMeasuredUnchecked).toBe(1)
+  })
+
+  it('does not blame a partly saved answer when another gap also leaves the Property unmeasured', () => {
+    // An unknown mention: the answer kept no text.
+    const noText = brandedRun(['no-text'])
+    noText.observations[0]!.citedTargetKeys = []
+    noText.observations[0]!.citationComplete = false
+    expect(partlySavedReport(noText).summary).not.toHaveProperty('notMeasuredUnchecked')
+
+    // A missing answer beside the unchecked one.
+    const missing = brandedRun(['mentioned', 'mentioned'])
+    missing.observations[0]!.citedTargetKeys = []
+    missing.observations[0]!.citationComplete = false
+    missing.observations = missing.observations.slice(0, 1)
+    const population = partlySavedReport(missing)
+    expect(population.summary.outcomes.notMeasured).toBe(2)
+    expect(population.summary).not.toHaveProperty('notMeasuredUnchecked')
+  })
+
+  it('leaves both fields off when every answer was fully saved', () => {
+    const population = partlySavedReport(brandedRun(['mentioned', 'not-mentioned']))
+    expect(population.summary).not.toHaveProperty('notMeasuredUnchecked')
+    expect(population.queries.items.every(row => !('uncheckedSources' in row))).toBe(true)
   })
 })
 
@@ -174,6 +236,142 @@ describe('mention coverage over attributable answers', () => {
     expect(comparison?.state).toBe('available')
     if (comparison?.state !== 'available') return
     expect(comparison.mentionCoverage).toEqual({ state: 'available', previous: { numerator: 9, denominator: 12, rate: 0.75 }, delta: 10 / 11 - 0.75 })
+  })
+})
+
+type CitationAnswer = 'cited' | 'not-cited' | 'unchecked' | 'unchecked-cited' | 'missing'
+
+/**
+ * One non-brand population for North, one answer per slot, stored the way
+ * `v2Observations` maps a snapshot: `citationComplete` is false for an answer
+ * that was saved with incomplete source-link capture. A captured positive may
+ * still be on such an answer (`unchecked-cited`). `missing` has no saved answer.
+ * The tracked competitor is cited exactly where North is.
+ */
+function citationRun(answers: readonly CitationAnswer[], id = 'run-2', createdAt = AT) {
+  const base = definition(2)
+  const slots = answers.map((_, index) => ({
+    id: `cite-slot-${index}`, executionId: `cite-exec-${index}`, queryKey: `nearby:${index % 3}`, queryId: `nearby-${index % 3}`,
+    query: `Best service nearby? (${index % 3})`, provider: index % 2 === 0 ? 'openai' : 'gemini', location: 'Alpha',
+  }))
+  const edges = slots.map((slot, index) => ({
+    id: `north-cite-${index}`, executionId: slot.executionId, targetKey: 'north', queryId: slot.queryId, queryClass: 'non-brand' as const,
+    groupKeys: ['collection'], marketKeys: ['alpha'], competitorDomains: ['rival.example'],
+  }))
+  const observations = answers.flatMap((answer, index) => {
+    if (answer === 'missing') return []
+    const cited = answer === 'cited' || answer === 'unchecked-cited'
+    return [{
+      slotId: slots[index]!.id, answerId: `cite-answer-${index}`, model: 'gpt-5', answerText: 'North and Rival are options.',
+      mentionedTargetKeys: ['north'], citedTargetKeys: cited ? ['north'] : [],
+      citationComplete: answer === 'cited' || answer === 'not-cited',
+      competitorMentionDomains: ['rival.example'], competitorCitationDomains: cited ? ['rival.example'] : [], observedCompetitorNames: [],
+      sources: cited ? ['https://north.example/alpha', 'https://rival.example/alpha'] : [], createdAt,
+    }]
+  })
+  return run({ id, createdAt, definition: { ...base, slots, edges }, observations })
+}
+
+function citationReport(answers: readonly CitationAnswer[], selection: Partial<VisibilityReportReaderInput['selection']> = {}) {
+  const selected = citationRun(answers)
+  return buildVisibilityReport(input({
+    activeDefinition: selected.definition,
+    runs: [selected],
+    selection: { queryClass: 'non-brand', scope: 'project', location: { kind: 'all' }, limit: 50, ...selection },
+  })).populations[0]!
+}
+
+/** Three cited, six not cited, one saved answer whose sources could not be checked. */
+const TEN: readonly CitationAnswer[] = [
+  'cited', 'cited', 'cited', 'not-cited', 'not-cited', 'not-cited', 'not-cited', 'not-cited', 'not-cited', 'unchecked',
+]
+
+describe('citation coverage over checked answers', () => {
+  it('takes the rate over the checked answers and counts the unchecked one beside it', () => {
+    const population = citationReport(TEN)
+    const expected = { numerator: 3, denominator: 9, rate: 3 / 9, unchecked: 1 }
+    expect(population.summary.answerCount).toBe(10)
+    expect(population.summary.citationCoverage).toEqual(expected)
+    // Every other surface of the same rate agrees with the summary.
+    expect(population.trend.at(-1)!.citationCoverage).toEqual(expected)
+    expect(population.breakdown.properties.find(row => row.id === 'north')!.citationCoverage).toEqual(expected)
+    expect(population.breakdown.groups.find(row => row.id === 'collection')!.citationCoverage).toEqual(expected)
+    // Mention and citation are independent: the unchecked answer still counts for mention.
+    expect(population.summary.mentionCoverage).toEqual({ numerator: 10, denominator: 10, rate: 1 })
+  })
+
+  it('carries the count onto the query row that holds the unchecked answer only', () => {
+    const rows = citationReport(TEN).queries.items
+    // Answer 9 is nearby:0 on gemini (9 % 3 = 0, odd index).
+    expect(rows.filter(row => row.citationCoverage.unchecked !== undefined)
+      .map(row => [row.queryKey, row.provider, row.citationCoverage]))
+      .toEqual([['nearby:0', 'gemini', { numerator: 0, denominator: 1, rate: 0, unchecked: 1 }]])
+    expect(rows.reduce((total, row) => total + (row.citationCoverage.denominator ?? 0) + (row.citationCoverage.unchecked ?? 0), 0)).toBe(10)
+  })
+
+  it('applies the same rule to a tracked competitor, leaving its mention rate untouched', () => {
+    expect(citationReport(TEN).competitors).toEqual([{
+      domain: 'rival.example',
+      answerCount: 10,
+      mentionCoverage: { numerator: 10, denominator: 10, rate: 1 },
+      citationCoverage: { numerator: 3, denominator: 9, rate: 3 / 9, unchecked: 1 },
+    }])
+  })
+
+  it('excludes an unchecked answer even when it carries a captured positive', () => {
+    const answers = TEN.map((answer, index) => index === 9 ? 'unchecked-cited' as const : answer)
+    const population = citationReport(answers, { queryKey: 'nearby:0' })
+    expect(population.summary.citationCoverage).toEqual({ numerator: 3, denominator: 9, rate: 3 / 9, unchecked: 1 })
+    expect(population.competitors[0]!.citationCoverage).toEqual({ numerator: 3, denominator: 9, rate: 3 / 9, unchecked: 1 })
+    // The answer evidence still shows the link that was seen.
+    expect(population.evidence.items.find(row => row.answerId === 'cite-answer-9')).toMatchObject({ cited: true })
+  })
+
+  it('is unavailable as evidence-incomplete only when every answer is unchecked', () => {
+    const population = citationReport(['unchecked', 'unchecked-cited'])
+    expect(population.summary.citationCoverage).toEqual({ numerator: null, denominator: null, rate: null, reason: 'evidence-incomplete' })
+    expect(population.competitors[0]!.citationCoverage).toEqual({ numerator: null, denominator: null, rate: null, reason: 'evidence-incomplete' })
+  })
+
+  it('still withholds the rate for a missing answer, even beside an unchecked one', () => {
+    const answers = TEN.map((answer, index) => index === 8 ? 'missing' as const : answer)
+    const population = citationReport(answers)
+    expect(population.summary.answerCount).toBe(9)
+    expect(population.summary.citationCoverage).toEqual({ numerator: null, denominator: null, rate: null, reason: 'evidence-incomplete' })
+    expect(population.breakdown.properties.find(row => row.id === 'north')!.citationCoverage)
+      .toEqual({ numerator: null, denominator: null, rate: null, reason: 'evidence-incomplete' })
+    expect(population.competitors[0]!.citationCoverage).toEqual({ numerator: null, denominator: null, rate: null, reason: 'evidence-incomplete' })
+  })
+
+  it('keeps a Property whose only possible citation is unchecked an unknown outcome', () => {
+    // Mentioned in both answers, not cited in the checked one: 0 of 1, one unchecked.
+    const population = citationReport(['not-cited', 'unchecked'])
+    expect(population.summary.citationCoverage).toEqual({ numerator: 0, denominator: 1, rate: 0, unchecked: 1 })
+    // North is never "mentioned only": its citation outcome is unknown. (South
+    // has no assignment in this population, so it is not measured either.)
+    expect(population.summary.outcomes).toMatchObject({ mentionedOnly: 0, notMeasured: 2, total: 2 })
+  })
+
+  it('compares the checked rate with the previous sweep', () => {
+    const previous = citationRun(['cited', ...Array.from({ length: 9 }, () => 'not-cited' as const)], 'run-1', '2026-09-03T12:00:00.000Z')
+    const current = citationRun(TEN)
+    const report = buildVisibilityReport(input({
+      activeDefinition: current.definition,
+      runs: [previous, current],
+      previous: { run: previous },
+      selection: { queryClass: 'non-brand', scope: 'project', location: { kind: 'all' }, limit: 50 },
+    }))
+    const comparison = report.populations[0]!.comparison
+    expect(comparison?.state).toBe('available')
+    if (comparison?.state !== 'available') return
+    expect(comparison.citationCoverage).toEqual({ state: 'available', previous: { numerator: 1, denominator: 10, rate: 0.1 }, delta: 3 / 9 - 0.1 })
+  })
+
+  it('keeps the per-answer unknown in the monthly comparison population, which excludes it itself', () => {
+    const snapshots = visibilityComparisonPopulation(citationRun(TEN), {
+      queryClass: 'all', scope: 'project', location: { kind: 'all' }, limit: 50,
+    }).snapshots
+    expect(snapshots.map(snapshot => snapshot.citation)).toEqual([true, true, true, false, false, false, false, false, false, null])
   })
 })
 

@@ -1,7 +1,9 @@
+import { mcpProfileRoutes } from './mcp-profile.js'
 export { registerAgentConversationRoutes } from './agent-conversations.js'
+export { blockedAddressReason, stripIpv6Brackets } from './egress-policy.js'
 import type { FastifyInstance, FastifyError } from 'fastify'
 import rateLimit from '@fastify/rate-limit'
-import type { DatabaseClient } from '@ainyc/canonry-db'
+import type { DatabaseClient } from '@canonry/canonry-db'
 import fs from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { sentimentRoutes, type SentimentRoutesOptions } from './sentiment.js'
@@ -9,17 +11,26 @@ export { SentimentService } from './sentiment-service.js'
 export type { SentimentServiceOptions, SentimentInstallState } from './sentiment-service.js'
 export { selectSentimentSources } from './sentiment-source.js'
 export { sentimentClassifierInput, sentimentHash } from './sentiment-input.js'
-import { AppError, runtimeStateMissing, describeError } from '@ainyc/canonry-contracts'
+export {
+  refreshSnapshotMentionIdentity,
+  snapshotsWithSentimentResults,
+  type SnapshotMentionIdentityRefresh,
+} from './sentiment-mention-identity.js'
+import { AppError, routeFamiliesOf, runtimeStateMissing, describeError, operationAccess, OperationAccesses, OPERATION_ACCESS_HEADER, STORED_ONLY_HEADER, matchOperationTemplate, storedOnlyRefused } from '@canonry/canonry-contracts'
 import { authPlugin } from './auth.js'
 import { registerRequestContext, type RequestContextOptions } from './request-context.js'
+import { createOutcomeEmitter, type OutcomeTelemetryEvent, type OutcomeTelemetryInput } from './outcome-telemetry.js'
 import { createCredentialChecker, type CredentialChecker } from './user-session.js'
 import { resolveOAuthAccessToken } from './oauth.js'
 import { projectRoutes } from './projects.js'
 import type { ProjectRoutesOptions } from './projects.js'
 import { queryRoutes } from './queries.js'
 import type { QueryRoutesOptions } from './queries.js'
-import { competitorRoutes } from './competitors.js'
+import { competitorRoutes, type CompetitorRoutesOptions } from './competitors.js'
+import type { AppliedCompetitorAutoAliases, CompetitorAnswerAnchorReader } from './competitor-auto-aliases.js'
 import { competitorLandscapeRoutes } from './competitor-landscape.js'
+import { competitorSuggestionRoutes } from './competitor-suggestions.js'
+import { competitorChangePreviewRoutes } from './competitor-change-preview.js'
 import { runRoutes } from './runs.js'
 import type { RunRoutesOptions } from './runs.js'
 import { measurementPlanRoutes } from './measurement-plan.js'
@@ -40,7 +51,9 @@ import type { ApplyRoutesOptions } from './apply.js'
 import { historyRoutes } from './history.js'
 import { analyticsRoutes } from './analytics.js'
 import { intelligenceRoutes } from './intelligence.js'
-import { reportRoutes } from './report.js'
+import { trafficAnalyticsRoutes } from './traffic-analytics.js'
+import { trafficSamplesRoutes } from './traffic-samples.js'
+import { journeyRoutes } from './journeys.js'
 import { referralAssessmentRoutes } from './referral-assessment.js'
 import { organicEvidenceRoutes } from './organic-evidence.js'
 import { citationRoutes } from './citations.js'
@@ -59,8 +72,10 @@ import type { UserSessionCookieOptions } from './user-session.js'
 import { snapshotRoutes } from './snapshot.js'
 import type { SnapshotRoutesOptions } from './snapshot.js'
 import { telemetryRoutes } from './telemetry.js'
+import { feedbackRoutes } from './feedback.js'
 import { operationalLogsRoutes } from './operational-logs.js'
 import type { TelemetryRoutesOptions } from './telemetry.js'
+import type { FeedbackRoutesOptions } from './feedback.js'
 import { scheduleRoutes } from './schedules.js'
 import type { ScheduleRoutesOptions } from './schedules.js'
 import { notificationRoutes, type NotificationRoutesOptions } from './notifications.js'
@@ -77,6 +92,9 @@ import type { CDPRoutesOptions } from './cdp.js'
 import { ga4Routes } from './ga.js'
 import type { GA4RoutesOptions, Ga4CredentialStore } from './ga.js'
 import { gaMeasurementAnalysisRoutes } from './ga-measurement-analysis.js'
+import { gaAcquisitionRoutes } from './ga-acquisition.js'
+import { gaSearchLandingPagesRoutes } from './ga-search-landing-pages.js'
+import type { GaSearchLandingRoutesOptions } from './ga-search-landing-pages.js'
 import { wordpressRoutes } from './wordpress.js'
 import type { WordpressRoutesOptions } from './wordpress.js'
 import { backlinksRoutes } from './backlinks.js'
@@ -90,30 +108,38 @@ import type { TrafficRoutesOptions, CloudRunCredentialStore } from './traffic.js
 import {
   listWordpressTrafficEvents,
   WordpressTrafficApiError,
-} from '@ainyc/canonry-integration-wordpress-traffic'
+} from '@canonry/canonry-integration-wordpress-traffic'
+import { createGuardedFetch } from './guarded-fetch.js'
 import {
   listVercelTrafficEvents,
   VercelLogsApiError,
-} from '@ainyc/canonry-integration-vercel'
+} from '@canonry/canonry-integration-vercel'
 import { doctorRoutes, type DoctorRoutesOptions } from './doctor.js'
+import { statusRoutes, type StatusRoutesOptions } from './status.js'
 import { discoveryRoutes } from './discovery/index.js'
 import type { DiscoveryRoutesOptions } from './discovery/index.js'
 import { technicalAeoRoutes } from './technical-aeo.js'
 import type { TechnicalAeoRoutesOptions } from './technical-aeo.js'
 import { researchRoutes } from './research.js'
+import { seoRoutes, type SeoRoutesOptions } from './seo.js'
 import type { ResearchRoutesOptions } from './research.js'
-import { CheckStatuses, TrafficSourceTypes } from '@ainyc/canonry-contracts'
-import type { AgentPluginState, BundledSkillSnapshot } from '@ainyc/canonry-contracts'
+import { CheckStatuses, TrafficSourceTypes } from '@canonry/canonry-contracts'
+import type { ScheduledSyncClaim } from './helpers.js'
+import type { AgentPluginState, BundledSkillSnapshot } from '@canonry/canonry-contracts'
 import type { CheckOutput, DoctorUpdateStatus, TrafficSourceProbe, TrafficSourceValidator } from './doctor/types.js'
 
 declare module 'fastify' {
   interface FastifyInstance {
     db: DatabaseClient
+    /** Report an outcome (`integration.connection`, `feature.completed`) to the host; a no-op without `onOutcome`. */
+    emitOutcome: (event: OutcomeTelemetryInput) => void
   }
 }
 
 export { registerOAuthRoutes, registerOAuthAdminRoutes, resolveOAuthAccessToken } from './oauth.js'
-export { hashApiKey } from './auth.js'
+export { hashApiKey, MCP_DELEGATED_KEY_MAX_AGE_MS } from './auth.js'
+export { syncRunClaimKey, syncRunTrigger } from './helpers.js'
+export type { ScheduledSyncClaim } from './helpers.js'
 export {
   mergeGscQueryTotalsWithFallback,
   readGscQueryDailyRows,
@@ -122,14 +148,21 @@ export {
 export type { OAuthRoutesOptions } from './oauth.js'
 export type { CredentialChecker } from './user-session.js'
 export type { ApiRequestCompletedInfo, RequestContextOptions } from './request-context.js'
+export type { OutcomeAttribution, OutcomeTelemetryEvent, OutcomeTelemetryInput } from './outcome-telemetry.js'
+export type { FeedbackRequestContext, FeedbackRoutesOptions } from './feedback.js'
+export { credentialFailure } from './feature-outcome.js'
 export { SITE_REACHABILITY_CHECK_ID, SITE_REACHABILITY_CHECKS } from './doctor/checks/site-reachability.js'
 export { runChecks } from './doctor/runner.js'
 export { scheduledHealthCheckIds } from './doctor/registry.js'
 export * from './notifications/alert.js'
 export * from './notifications/destinations.js'
-export { resolveVercelSyncDeadlineMs, VERCEL_MAX_SYNC_WINDOW_MS, DEFAULT_VERCEL_SYNC_DEADLINE_MS, TRAFFIC_SOURCE_MAX_CATCHUP_MS } from './traffic-limits.js'
+export { resolveVercelSyncDeadlineMs, resolveCloudflareQueueSyncDeadlineMs, VERCEL_MAX_SYNC_WINDOW_MS, DEFAULT_VERCEL_SYNC_DEADLINE_MS, DEFAULT_CLOUDFLARE_QUEUE_SYNC_DEADLINE_MS, TRAFFIC_SOURCE_MAX_CATCHUP_MS } from './traffic-limits.js'
 export interface ApiRoutesOptions {
   db: DatabaseClient
+  /** Host-reported MCP prerequisites; never starts a connection or provider probe. */
+  getMcpHealth?: StatusRoutesOptions['getMcpHealth']
+  /** Consumes a host-owned scheduler claim at a sync run insert. */
+  claimScheduledSync?: ScheduledSyncClaim
   /** Host-approved direct bearer IDs, never inferred from customer roles or scopes. */
   operatorApiKeyIds?: readonly string[]
   /**
@@ -171,7 +204,7 @@ export interface ApiRoutesOptions {
   embedProjectTabs?: readonly string[]
 
   /** Callback when a run is created (wire up job runner) */
-  onRunCreated?: (runId: string, projectId: string, providers?: string[], location?: import('@ainyc/canonry-contracts').LocationContext | null) => void
+  onRunCreated?: (runId: string, projectId: string, providers?: string[], location?: import('@canonry/canonry-contracts').LocationContext | null) => void
   /** Callback after a run is durably cancelled; local hosts use this to abort active work. */
   onRunCancelled?: RunRoutesOptions['onRunCancelled']
   /** Fired after a run fill is admitted. See `RunRoutesOptions.onRunFillCreated`. */
@@ -194,22 +227,25 @@ export interface ApiRoutesOptions {
   /** Provider configuration summary for settings endpoint */
   providerSummary?: ProviderSummaryEntry[]
   /** Resolves agent LLM provider key status for the `config.agent-providers` doctor check. See `DoctorContext.getAgentProviderSummary`. */
-  getAgentProviderSummary?: () => import('@ainyc/canonry-contracts').AgentProviderOption[]
+  getAgentProviderSummary?: () => import('@canonry/canonry-contracts').AgentProviderOption[]
   /** The `agent.provider` pin for the same check. See `DoctorContext.getAgentPin`. */
   getAgentPin?: DoctorRoutesOptions['getAgentPin']
   /** Offline, secret-free Google Ads/GTM metadata for project Doctor checks. */
   getGoogleMarketingDoctorInput?: DoctorRoutesOptions['getGoogleMarketingDoctorInput']
+  probeApiHost?: DoctorRoutesOptions['probeApiHost']
   /** Adapter metadata for provider validation */
   providerAdapters?: ProviderAdapterInfo[]
   getProviderModels?: SettingsRoutesOptions['getProviderModels']
   getCachedProviderModels?: ResearchRoutesOptions['getCachedProviderModels']
   /** Callback when a provider config is updated via API */
   onProviderUpdate?: SettingsRoutesOptions['onProviderUpdate']
+  /** Reload the execution host's provider configuration without restarting it. */
+  onProviderReload?: SettingsRoutesOptions['onProviderReload']
   /** Google OAuth configuration summary + update callback */
   googleSettingsSummary?: SettingsRoutesOptions['google']
   onGoogleSettingsUpdate?: SettingsRoutesOptions['onGoogleUpdate']
   /** Callback when a schedule is created/updated/deleted. `kind` scopes which run-kind schedule changed. */
-  onScheduleUpdated?: (action: 'upsert' | 'delete', projectId: string, kind: import('@ainyc/canonry-contracts').SchedulableRunKind) => void
+  onScheduleUpdated?: (action: 'upsert' | 'delete', projectId: string, kind: import('@canonry/canonry-contracts').SchedulableRunKind) => void
   /** Callback when a project is deleted */
   onProjectDeleted?: (projectId: string) => void
   /** Pre-delete durable cleanup. May throw to abort the database delete. */
@@ -226,6 +262,36 @@ export interface ApiRoutesOptions {
    * reflect the new aliases. Skipped when only other fields change.
    */
   onAliasesChanged?: (projectId: string, projectName: string) => void
+  /**
+   * Callback when a competitor's curated aliases change (alias route, add with
+   * aliases, apply, discovery promote, or a project identity change that drops
+   * one). Wire it to a competitor-fields-only backfill so the stored
+   * per-snapshot competitor columns follow the new names without touching the
+   * project's own `answer_mentioned`.
+   */
+  onCompetitorAliasesChanged?: (projectId: string, projectName: string) => void
+  /**
+   * Callback asking for an answer-derived competitor alias detection pass
+   * off the request path: a competitor was added by any surface (REST,
+   * apply, discovery promote), a name was unblocked, or a market pin write
+   * changed the pins. The local server queues it, and the project's
+   * `competitorAutoAliases` mode decides what the pass does (`apply` stores,
+   * `preview` logs only, `off` skips). Without it, detection still runs on
+   * `POST /competitor-auto-aliases`, which stores in every mode.
+   */
+  onCompetitorAutoAliasRescan?: (projectId: string, projectName: string) => void
+  /**
+   * Reads one stored snapshot's provider citation structure for competitor
+   * auto-alias detection (packages/canonry `extractStoredAnswerAnchors`).
+   * api-routes has no provider dependency, so the host injects it.
+   */
+  competitorAnswerAnchors?: CompetitorAnswerAnchorReader
+  /**
+   * Runs one competitor auto-alias detection pass through the host's
+   * per-project queue (`POST /competitor-auto-aliases` awaits it), so an
+   * apply-now never races the post-run pass. See `CompetitorRoutesOptions`.
+   */
+  runCompetitorAutoAliasPass?: (projectId: string) => Promise<AppliedCompetitorAutoAliases | null>
   /** Callback to generate a one-shot AI perception snapshot */
   onSnapshotRequested?: SnapshotRoutesOptions['onSnapshotRequested']
   /** Callback to generate query suggestions using an LLM provider */
@@ -256,6 +322,10 @@ export interface ApiRoutesOptions {
   setTelemetryEnabled?: TelemetryRoutesOptions['setTelemetryEnabled']
   /** Privacy-safe dashboard onboarding milestones. */
   recordOnboardingEvent?: TelemetryRoutesOptions['recordOnboardingEvent']
+  /** Dashboard usage telemetry (page views, actions, UI errors, web vitals). */
+  recordUiEvent?: TelemetryRoutesOptions['recordUiEvent']
+  /** Forwards product feedback (CLI, MCP, dashboard) to the canonry.ai collector. */
+  submitFeedback?: FeedbackRoutesOptions['submitFeedback']
   /** Per-request usage telemetry hook (route template + usage labels only). The host validates labels and applies rate limits. */
   onRequestCompleted?: RequestContextOptions['onRequestCompleted']
   /** Google auth config and storage */
@@ -329,18 +399,25 @@ export interface ApiRoutesOptions {
   defaultWordpressMaxPages?: TrafficRoutesOptions['defaultWordpressMaxPages']
   /** Vercel traffic credential store — stores Vercel API tokens in config, not DB */
   vercelTrafficCredentialStore?: TrafficRoutesOptions['vercelTrafficCredentialStore']
+  /** Install secret for AI visitor journey keys. Absent: journeys are not recorded. */
+  journeyKeySecret?: TrafficRoutesOptions['journeyKeySecret']
   /** Override Vercel traffic pull (tests) — see `TrafficRoutesOptions` */
   pullVercelTrafficEvents?: TrafficRoutesOptions['pullVercelTrafficEvents']
   /** Wall-clock budget (ms) for a Vercel sync's adaptive drain — see `TrafficRoutesOptions` */
   vercelSyncDeadlineMs?: TrafficRoutesOptions['vercelSyncDeadlineMs']
+  trafficBackfillLeaseRenewMs?: TrafficRoutesOptions['trafficBackfillLeaseRenewMs']
   /** Cloudflare Worker traffic credentials — direct-push secrets or Queue API tokens in config, not DB. */
   cloudflareTrafficCredentialStore?: TrafficRoutesOptions['cloudflareTrafficCredentialStore']
   /** Override Cloudflare Queue pull (tests/hosts). */
   pullCloudflareQueueMessages?: TrafficRoutesOptions['pullCloudflareQueueMessages']
   /** Override Cloudflare Queue acknowledgement (tests/hosts). */
   ackCloudflareQueueMessages?: TrafficRoutesOptions['ackCloudflareQueueMessages']
+  /** Injectable live Queue retention read for tests; see `TrafficRoutesOptions`. */
+  getCloudflareQueueRetentionSeconds?: TrafficRoutesOptions['getCloudflareQueueRetentionSeconds']
   /** Bounded Cloudflare Queue short-poll batches per traffic sync. */
   cloudflareQueueMaxBatches?: TrafficRoutesOptions['cloudflareQueueMaxBatches']
+  /** Wall-clock budget for one Cloudflare Queue sync's drain; see `resolveCloudflareQueueSyncDeadlineMs`. */
+  cloudflareQueueSyncDeadlineMs?: TrafficRoutesOptions['cloudflareQueueSyncDeadlineMs']
   /** Override the canonry ingest URL embedded into generated Worker scripts (tests) */
   cloudflareTrafficIngestUrl?: TrafficRoutesOptions['cloudflareTrafficIngestUrl']
   /** Per-source Cloudflare direct-push request budget per minute (tests/hosts). */
@@ -351,6 +428,8 @@ export interface ApiRoutesOptions {
   defaultTrafficSampleLimit?: TrafficRoutesOptions['defaultSampleLimit']
   /** Fired after every traffic sync (success OR failure). Used by canonry to emit `traffic.synced` telemetry. */
   onTrafficSynced?: TrafficRoutesOptions['onTrafficSynced']
+  /** Fired after every authenticated traffic push. Used by canonry to emit the sampled `server_traffic` ingest outcome. */
+  onTrafficIngested?: TrafficRoutesOptions['onTrafficIngested']
   /** Discovery feature callback — fires after a discovery_sessions row + matching runs row are inserted. */
   onDiscoveryRunRequested?: DiscoveryRoutesOptions['onDiscoveryRunRequested']
   /** Executes an isolated research batch. Never creates a tracked run or query snapshots. */
@@ -359,6 +438,8 @@ export interface ApiRoutesOptions {
   researchAllowViewers?: boolean
   /** Viewer-created research runs allowed per project and UTC day. Defaults to 20. */
   researchViewerDailyRunLimit?: number
+  getSeoRuntime?: SeoRoutesOptions['getSeoRuntime']
+  onSeoRunRequested?: SeoRoutesOptions['onSeoRunRequested']
   /** Discovery harvest seam — extracts issued search queries (fan-out) from a stored probe payload, provider-shaped. Wire to the provider adapter's extractor. */
   harvestSearchQueries?: DiscoveryRoutesOptions['harvestSearchQueries']
   /** Discovery harvest embed seam — embeds query strings for the semantic novelty pass. Wire to the Gemini embedder; unset/rejecting degrades novelty to exact-match. */
@@ -414,11 +495,34 @@ export interface ApiRoutesOptions {
   getAgentPluginState?: () => AgentPluginState
   /** Running vs latest published version for the `canonry.version.current` doctor check. */
   getUpdateStatus?: () => DoctorUpdateStatus
+  /**
+   * Outcome telemetry sink. Route code reports through `app.emitOutcome`; the
+   * host validates and sends. Hosts without telemetry (Cloud Run) omit it.
+   */
+  onOutcome?: (event: OutcomeTelemetryEvent) => void
+}
+
+export function canonicalRouteTemplate(route: string, prefix: string): string {
+  const trimmedPrefix = prefix.replace(/^\/+|\/+$/g, '')
+  const configuredPrefix = trimmedPrefix ? `/${trimmedPrefix}` : '/api/v1'
+  const normalizedRoute = route.startsWith('/') ? route : `/${route}`
+  const suffix = normalizedRoute === configuredPrefix
+    ? ''
+    : normalizedRoute.startsWith(`${configuredPrefix}/`)
+      ? normalizedRoute.slice(configuredPrefix.length)
+      : normalizedRoute === '/api/v1'
+        ? ''
+        : normalizedRoute.startsWith('/api/v1/')
+          ? normalizedRoute.slice('/api/v1'.length)
+          : normalizedRoute
+  return `/api/v1${suffix}`
 }
 
 export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
   // Decorate with db
   app.decorate('db', opts.db)
+  // Before any route plugin registers, so every one of them inherits it.
+  app.decorate('emitOutcome', createOutcomeEmitter(opts.onOutcome))
 
   // Global error handler — serializes AppError consistently, prevents stack trace leaks
   app.setErrorHandler((error: FastifyError | AppError, _request, reply) => {
@@ -523,6 +627,32 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       })
     }
 
+    // Make the execution boundary visible to API and CLI callers. Fastify
+    // keeps the registered route template, so parameters never enter this
+    // classification or the response header.
+    api.addHook('onSend', async (request, reply) => {
+      const route = request.routeOptions.url
+      if (!route) return
+      const prefix = opts.routePrefix ?? '/api/v1'
+      const routePath = canonicalRouteTemplate(route, prefix)
+      const pathTemplate = routePath.replace(/:(\w+)/g, '{$1}').replace(/\*/g, '{wildcard}')
+      const operation = matchOperationTemplate(request.method, pathTemplate)
+      const separator = operation.indexOf(' ')
+      reply.header(OPERATION_ACCESS_HEADER, operationAccess(operation.slice(0, separator), operation.slice(separator + 1)))
+    })
+
+    api.addHook('preHandler', async (request) => {
+      const header = request.headers[STORED_ONLY_HEADER]
+      if (header !== '1' && header !== 'true') return
+      const route = request.routeOptions.url ?? request.url
+      const prefix = opts.routePrefix ?? '/api/v1'
+      const routePath = canonicalRouteTemplate(route, prefix)
+      const operation = matchOperationTemplate(request.method, routePath)
+      const separator = operation.indexOf(' ')
+      const access = operationAccess(operation.slice(0, separator), operation.slice(separator + 1))
+      if (access !== OperationAccesses.stored) throw storedOnlyRefused('Stored-only mode refuses this operation', { operation, access })
+    })
+
     // Sign-in surface. Registered inside the authenticated scope so it shares
     // the error handler and prefix, but each of its routes is on the auth
     // skip-list — a sign-in screen cannot present a credential it has not been
@@ -542,6 +672,10 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     await api.register(userRoutes)
 
     await api.register(openApiRoutes, { ...opts.openApiInfo, routePrefix: opts.routePrefix })
+    // Route families of every adapter this host knows (OpenRouter models,
+    // answer-service profiles). Their bare connections never join "all
+    // configured", so connecting one never widens an existing project.
+    const providerRouteFamilies = routeFamiliesOf(opts.providerAdapters)
     await api.register(projectRoutes, {
       onProjectDeleting: opts.onProjectDeleting,
       onProjectDeleted: opts.onProjectDeleted,
@@ -549,14 +683,22 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       onProjectUpserted: opts.onProjectUpserted,
       onProjectCreated: opts.onProjectCreated,
       onAliasesChanged: opts.onAliasesChanged,
+      onCompetitorAliasesChanged: opts.onCompetitorAliasesChanged,
       providerAdapters: opts.providerAdapters,
     } satisfies ProjectRoutesOptions)
     await api.register(queryRoutes, {
       onGenerateQueries: opts.onGenerateQueries,
       validProviderNames: opts.providerAdapters?.filter(a => a.mode === 'api').map(a => a.name),
     } satisfies QueryRoutesOptions)
-    await api.register(competitorRoutes)
+    await api.register(competitorRoutes, {
+      onCompetitorAliasesChanged: opts.onCompetitorAliasesChanged,
+      onCompetitorAutoAliasRescan: opts.onCompetitorAutoAliasRescan,
+      competitorAnswerAnchors: opts.competitorAnswerAnchors,
+      runCompetitorAutoAliasPass: opts.runCompetitorAutoAliasPass,
+    } satisfies CompetitorRoutesOptions)
     await api.register(competitorLandscapeRoutes)
+    await api.register(competitorSuggestionRoutes)
+    await api.register(competitorChangePreviewRoutes)
     await api.register(runRoutes, {
       onRunCreated: opts.onRunCreated,
       onRunCancelled: opts.onRunCancelled,
@@ -566,9 +708,13 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       getRunnableProviderNames: opts.getRunnableProviderNames,
       getEffectiveProviderModels: opts.getEffectiveProviderModels,
       getBatchEligibleProviderNames: opts.getBatchEligibleProviderNames,
+      providerAdapters: opts.providerAdapters,
     } satisfies RunRoutesOptions)
     await api.register(measurementPlanRoutes, {
       getRunnableProviderNames: opts.getRunnableProviderNames,
+      providerRouteFamilies,
+      onCompetitorAliasesChanged: opts.onCompetitorAliasesChanged,
+      onCompetitorAutoAliasRescan: opts.onCompetitorAutoAliasRescan,
     } satisfies MeasurementPlanRoutesOptions)
     await api.register(measurementServiceRoutes, {
       fetchSitemap: opts.fetchMeasurementSitemap,
@@ -577,6 +723,10 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     // handlers never have to touch this file or `openapi.ts`.
     await api.register(measurementDraftRoutes, {
       getRunnableProviderNames: opts.getRunnableProviderNames,
+      providerRouteFamilies,
+      providerAdapters: opts.providerAdapters,
+      onCompetitorAliasesChanged: opts.onCompetitorAliasesChanged,
+      onCompetitorAutoAliasRescan: opts.onCompetitorAutoAliasRescan,
     } satisfies MeasurementDraftRoutesOptions)
     await api.register(measurementDiscoveryV2Routes)
     await api.register(measurementOverviewRoutes, { cache: opts.measurementOverviewCache })
@@ -586,6 +736,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     await api.register(visibilityReportRoutes)
     await api.register(queryTrackingRoutes, {
       getRunnableProviderNames: opts.getRunnableProviderNames,
+      providerRouteFamilies,
       providerSummary: opts.providerSummary,
     })
     await api.register(applyRoutes, {
@@ -593,6 +744,8 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       onProjectUpserted: opts.onProjectUpserted,
       onProjectCreated: opts.onProjectCreated,
       onAliasesChanged: opts.onAliasesChanged,
+      onCompetitorAliasesChanged: opts.onCompetitorAliasesChanged,
+      onCompetitorAutoAliasRescan: opts.onCompetitorAutoAliasRescan,
       providerAdapters: opts.providerAdapters,
       allowLoopbackWebhooks: opts.allowLoopbackWebhooks,
       onGoogleConnectionPropertyUpdated: (domain, connectionType, propertyId) => {
@@ -605,13 +758,15 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     await api.register(historyRoutes)
     await api.register(analyticsRoutes)
     await api.register(intelligenceRoutes)
-    await api.register(reportRoutes)
+    await api.register(trafficAnalyticsRoutes)
     await api.register(organicEvidenceRoutes)
     await api.register(referralAssessmentRoutes)
+    await api.register(trafficSamplesRoutes)
+    await api.register(journeyRoutes)
     await api.register(citationRoutes)
     await api.register(visibilityStatsRoutes)
     await api.register(resultsExportRoutes)
-    await api.register(compositeRoutes, { sentiment: opts.sentiment })
+    await api.register(compositeRoutes, { sentiment: opts.sentiment, getRunnableProviderNames: opts.getRunnableProviderNames, providerRouteFamilies })
     await api.register(contentRoutes, {
       explainContentRecommendation: opts.explainContentRecommendation,
       briefContentRecommendation: opts.briefContentRecommendation,
@@ -622,6 +777,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       providerSummary: opts.providerSummary,
       providerAdapters: opts.providerAdapters,
       onProviderUpdate: opts.onProviderUpdate,
+      onProviderReload: opts.onProviderReload,
       google: opts.googleSettingsSummary,
       onGoogleUpdate: opts.onGoogleSettingsUpdate,
       bing: opts.bingSettingsSummary,
@@ -630,10 +786,12 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     await api.register(keysRoutes)
     await api.register(snapshotRoutes, {
       onSnapshotRequested: opts.onSnapshotRequested,
+      providerAdapters: opts.providerAdapters,
     } satisfies SnapshotRoutesOptions)
     await api.register(scheduleRoutes, {
       onScheduleUpdated: opts.onScheduleUpdated,
       validProviderNames: opts.providerAdapters?.map(a => a.name),
+      providerAdapters: opts.providerAdapters,
     } satisfies ScheduleRoutesOptions)
     await api.register(notificationRoutes, {
       allowLoopbackWebhooks: opts.allowLoopbackWebhooks,
@@ -644,7 +802,11 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       getTelemetryStatus: opts.getTelemetryStatus,
       setTelemetryEnabled: opts.setTelemetryEnabled,
       recordOnboardingEvent: opts.recordOnboardingEvent,
+      recordUiEvent: opts.recordUiEvent,
     } satisfies TelemetryRoutesOptions)
+    await api.register(feedbackRoutes, {
+      submitFeedback: opts.submitFeedback,
+    } satisfies FeedbackRoutesOptions)
     await api.register(adsRoutes, {
       adsCredentialStore: opts.adsCredentialStore,
       verifyAdsAccount: opts.verifyAdsAccount,
@@ -653,6 +815,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       adsLiveDeliveryMinIntervalMs: opts.adsLiveDeliveryMinIntervalMs,
       adsLiveDeliveryMaxPagesPerReaderCall: opts.adsLiveDeliveryMaxPagesPerReaderCall,
       onAdsSyncRequested: opts.onAdsSyncRequested,
+      claimScheduledSync: opts.claimScheduledSync,
       adsOperator: opts.adsOperator,
       adsReconcileSweepIntervalMs: opts.adsReconcileSweepIntervalMs,
       adsReconcilePendingStaleMs: opts.adsReconcilePendingStaleMs,
@@ -665,16 +828,19 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
     await api.register(bingRoutes, {
       bingConnectionStore: opts.bingConnectionStore,
       onInspectSitemapRequested: opts.onBingInspectSitemapRequested,
+      claimScheduledSync: opts.claimScheduledSync,
     } satisfies BingRoutesOptions)
     await api.register(googleRoutes, {
       getGoogleAuthConfig: opts.getGoogleAuthConfig,
       googleConnectionStore: opts.googleConnectionStore,
+      ga4CredentialStore: opts.ga4CredentialStore,
       googleStateSecret: opts.googleStateSecret,
       publicUrl: opts.publicUrl,
       routePrefix: opts.routePrefix,
       onGscSyncRequested: opts.onGscSyncRequested,
       onInspectSitemapRequested: opts.onInspectSitemapRequested,
       onGbpSyncRequested: opts.onGbpSyncRequested,
+      claimScheduledSync: opts.claimScheduledSync,
     } satisfies GoogleRoutesOptions)
     await api.register(googleMarketingRoutes, {
       googleMarketingCredentialStore: opts.googleMarketingCredentialStore,
@@ -684,6 +850,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       assessConversionTrackingIntegrity: opts.assessConversionTrackingIntegrity,
       onGoogleAdsSyncRequested: opts.onGoogleAdsSyncRequested,
       onGtmSyncRequested: opts.onGtmSyncRequested,
+      claimScheduledSync: opts.claimScheduledSync,
       googleStateSecret: opts.googleStateSecret,
       publicUrl: opts.publicUrl,
       routePrefix: opts.routePrefix,
@@ -703,9 +870,16 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       ga4CredentialStore: opts.ga4CredentialStore,
       googleConnectionStore: opts.googleConnectionStore,
       getGoogleAuthConfig: opts.getGoogleAuthConfig,
+      claimScheduledSync: opts.claimScheduledSync,
     } satisfies GA4RoutesOptions)
     await api.register(gaMeasurementAnalysisRoutes)
+    await api.register(gaAcquisitionRoutes)
+    await api.register(gaSearchLandingPagesRoutes, {
+      ga4CredentialStore: opts.ga4CredentialStore,
+      googleConnectionStore: opts.googleConnectionStore,
+    } satisfies GaSearchLandingRoutesOptions)
     await api.register(trafficRoutes, {
+      journeyKeySecret: opts.journeyKeySecret,
       cloudRunCredentialStore: opts.cloudRunCredentialStore,
       pullCloudRunEvents: opts.pullCloudRunEvents,
       resolveCloudRunAccessToken: opts.resolveCloudRunAccessToken,
@@ -716,15 +890,20 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       vercelTrafficCredentialStore: opts.vercelTrafficCredentialStore,
       pullVercelTrafficEvents: opts.pullVercelTrafficEvents,
       vercelSyncDeadlineMs: opts.vercelSyncDeadlineMs,
+      trafficBackfillLeaseRenewMs: opts.trafficBackfillLeaseRenewMs,
       cloudflareTrafficCredentialStore: opts.cloudflareTrafficCredentialStore,
       pullCloudflareQueueMessages: opts.pullCloudflareQueueMessages,
       ackCloudflareQueueMessages: opts.ackCloudflareQueueMessages,
+      getCloudflareQueueRetentionSeconds: opts.getCloudflareQueueRetentionSeconds,
       cloudflareQueueMaxBatches: opts.cloudflareQueueMaxBatches,
+      cloudflareQueueSyncDeadlineMs: opts.cloudflareQueueSyncDeadlineMs,
       cloudflareTrafficIngestUrl: opts.cloudflareTrafficIngestUrl,
       cloudflareIngestRateLimitMax: opts.cloudflareIngestRateLimitMax,
       cloudflareIngestIpRateLimitMax: opts.cloudflareIngestIpRateLimitMax,
       defaultSampleLimit: opts.defaultTrafficSampleLimit,
       onTrafficSynced: opts.onTrafficSynced,
+      onTrafficIngested: opts.onTrafficIngested,
+      claimScheduledSync: opts.claimScheduledSync,
       onScheduleUpdated: opts.onScheduleUpdated,
       allowLoopbackWebhooks: opts.allowLoopbackWebhooks,
     } satisfies TrafficRoutesOptions)
@@ -746,12 +925,17 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       onDiscoveryRunRequested: opts.onDiscoveryRunRequested,
       harvestSearchQueries: opts.harvestSearchQueries,
       embedQueries: opts.embedQueries,
+      onCompetitorAliasesChanged: opts.onCompetitorAliasesChanged,
+      onCompetitorAutoAliasRescan: opts.onCompetitorAutoAliasRescan,
     } satisfies DiscoveryRoutesOptions)
+    await api.register(seoRoutes, { getSeoRuntime: opts.getSeoRuntime, onSeoRunRequested: opts.onSeoRunRequested } satisfies SeoRoutesOptions)
     await api.register(researchRoutes, {
       getCachedProviderModels: opts.getCachedProviderModels,
       getEffectiveProviderModels: opts.getEffectiveProviderModels,
       providerAdapters: opts.providerAdapters,
-      configuredProviderNames: opts.providerSummary?.filter(provider => provider.configured).map(provider => provider.name),
+      getConfiguredProviderNames: () => opts.getRunnableProviderNames?.()
+        ?? opts.providerSummary?.filter(provider => provider.configured).map(provider => provider.name)
+        ?? [],
       onResearchRunRequested: opts.onResearchRunRequested,
       allowViewers: opts.researchAllowViewers,
       viewerDailyRunLimit: opts.researchViewerDailyRunLimit,
@@ -763,6 +947,7 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       googleConnectionStore: opts.googleConnectionStore,
       bingConnectionStore: opts.bingConnectionStore,
       wordpressConnectionStore: opts.wordpressConnectionStore,
+      allowLoopbackWebhooks: opts.allowLoopbackWebhooks,
       ga4CredentialStore: opts.ga4CredentialStore,
       adsCredentialStore: opts.adsCredentialStore,
       getGoogleAuthConfig: opts.getGoogleAuthConfig,
@@ -777,6 +962,16 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
       getAgentPluginState: opts.getAgentPluginState,
       getUpdateStatus: opts.getUpdateStatus,
       getGoogleMarketingDoctorInput: opts.getGoogleMarketingDoctorInput,
+      probeApiHost: opts.probeApiHost,
+    })
+    await api.register(mcpProfileRoutes, { oauthResourceUrl: opts.oauthResourceUrl })
+    await api.register(statusRoutes, {
+      db: opts.db,
+      getMcpHealth: opts.getMcpHealth,
+      googleConnectionStore: opts.googleConnectionStore,
+      bingConnectionStore: opts.bingConnectionStore,
+      ga4CredentialStore: opts.ga4CredentialStore,
+      getGoogleMarketingDoctorInput: opts.getGoogleMarketingDoctorInput,
     })
     // Local-only extension hook: canonry passes the Aero agent routes here
     // so they live inside the authenticated scope. Cloud leaves it undefined.
@@ -786,15 +981,15 @@ export async function apiRoutes(app: FastifyInstance, opts: ApiRoutesOptions) {
   }, { prefix: opts.routePrefix ?? '/api/v1' })
 }
 
-export type { DatabaseClient } from '@ainyc/canonry-db'
+export type { DatabaseClient } from '@canonry/canonry-db'
 // Whether this install has named accounts. The host needs the same answer the
 // auth layer uses, so it is exported rather than reimplemented.
-export { anyUsersExist, createCredentialChecker, createUserSession, parseCookieHeader, resolveUserSession, serializeUserSessionCookie, USER_SESSION_COOKIE_NAME, USER_SESSION_TTL_MS } from './user-session.js'
+export { anyUsersExist, cookieIsSecure, createCredentialChecker, createUserSession, hashSessionToken, parseCookieHeader, resolveUserSession, serializeUserSessionCookie, USER_SESSION_COOKIE_NAME, USER_SESSION_TTL_MS } from './user-session.js'
 export type { UserSessionCookieOptions } from './user-session.js'
 export { requireAdminSession, requireBroadInstanceKey, requireInstanceAdministrator, isInstanceAdministrator, requirePaidReadScope, requireResearchGrant } from './auth.js'
 export { assertSameOriginWrite, assertCookieWriteOrigin, FOREIGN_ORIGIN_MESSAGE } from './same-origin.js'
 // How a host decides which proxy hops may be believed about who is calling.
-export { resolveTrustProxy, resolveCallerKey, hasForwardedHeaders } from './trust-proxy.js'
+export { resolveTrustProxy, resolveCallerKey, hasForwardedHeaders, hasProxyHeaders } from './trust-proxy.js'
 // Password storage, exported so a host can seed an account without
 // reimplementing the derivation that `auth` verifies against.
 export { hashUserPassword, verifyUserPassword } from './user-password.js'
@@ -803,6 +998,23 @@ export { hasActiveMeasurementPlan, queueRunIfProjectIdle } from './run-queue.js'
 export { evaluateRunFill, formatRunFill, newerFullSweep, queueRunFill, readRunCompleteness } from './run-fill.js'
 export { formatProviderBatchSummary, hasOutstandingProviderBatch, readRunProviderBatches, runHadProviderBatch } from './provider-batches.js'
 export { createRunCompetitorResolver, measurementPlanCompetitorDomains, measurementPlanCompetitors, type PlanCompetitor, type RunCompetitors } from './plan-competitors.js'
+export {
+  applyCompetitorAutoAliases,
+  previewCompetitorAutoAliases,
+  scanCompetitorAutoAliasEvidence,
+  type AppliedCompetitorAutoAliases,
+  type CompetitorAnswerAnchorReader,
+} from './competitor-auto-aliases.js'
+export { competitorIdentityColumns } from './competitor-writes.js'
+export { answerIdentityChanged, answerIdentityFrom, readAnswerIdentity, type AnswerIdentity, type AnswerIdentityFingerprint } from './answer-identity.js'
+export { readMarketCompetitorNames } from './market-competitor-names.js'
+export { createProjectPassQueue, type ProjectPassQueue } from './project-pass-queue.js'
+export {
+  backfillProjectAnswerMentions,
+  backfillProjectAnswerMentionsInChunks,
+  type ProjectAnswerMentionsBackfillOptions,
+  type ProjectAnswerMentionsBackfillResult,
+} from './snapshot-competitor-refresh.js'
 export { captureSimpleMeasurementDefinition } from './simple-measurement-definitions.js'
 export { ensureCurrentQueryBasketRevision, latestQueryBasketRevision } from './query-basket.js'
 export { nextRunFromCron, nextRunFromRecurrence, nextRunFromSchedule } from './schedule-utils.js'
@@ -823,15 +1035,23 @@ export type {
   ExecuteDiscoveryResult,
   OnDiscoveryRunRequested,
 } from './discovery/index.js'
-export { deliverWebhook, resolveWebhookTarget } from './webhooks.js'
+export { deliverWebhook, resolveWebhookTarget, verifyCanonryWebhook } from './webhooks.js'
+export type { WebhookDeliveryResult } from './webhooks.js'
+// One classification of a webhook destination and its answer, shared by the test route and deliveries.
+export { webhookOutcomeTarget, webhookResponseReason, webhookTargetRefusalReason } from './connection-telemetry.js'
+// Audit rows written by a host route, so they carry the same request context.
+export { auditFromRequest, notProbeRun, writeAuditLog } from './helpers.js'
 // Shared public-egress preflight: validates every resolved address class and
 // returns the exact address callers must dial to prevent DNS rebinding.
 export { resolveMeasurementSitemapTarget as resolvePublicHttpTarget } from './measurement-sitemap-fetch.js'
+// A fetch that applies the shared egress policy to every request and redirect
+// hop and dials only the addresses it checked, for a URL this instance did not
+// choose (the canonry sitemap parser).
+export { createGuardedFetch, EgressFailedError, EgressRefusedError } from './guarded-fetch.js'
 export { redactNotificationDiff, redactNotificationUrl } from './notification-redaction.js'
 export type { SafeWebhookTarget } from './webhooks.js'
+export type { TrafficIngestedEvent, TrafficSyncedEvent } from './traffic.js'
 export type { RunRoutesOptions } from './runs.js'
-export { renderReportHtml } from './report-renderer.js'
-export type { RenderReportHtmlOptions } from './report-renderer.js'
 // Pure GBP summary math — reused by the intelligence service to derive
 // per-location signals (window deltas, lodging/CTA flags) for gbp-sync insights.
 export {
@@ -927,6 +1147,7 @@ function buildTrafficSourceValidators(opts: ApiRoutesOptions): Record<string, Tr
   if (opts.wordpressTrafficCredentialStore) {
     const store = opts.wordpressTrafficCredentialStore
     const pullEvents = opts.pullWordpressTrafficEvents ?? listWordpressTrafficEvents
+    const wordpressTrafficFetch = createGuardedFetch({ allowLoopback: opts.allowLoopbackWebhooks === true })
     validators[TrafficSourceTypes.wordpress] = {
       validateCredentials: async (source: TrafficSourceProbe): Promise<CheckOutput> => {
         const record = store.getConnection(source.projectName)
@@ -945,6 +1166,9 @@ function buildTrafficSourceValidators(opts: ApiRoutesOptions): Record<string, Tr
             applicationPassword: record.applicationPassword,
             pageSize: 1,
             maxPages: 1,
+            // The probe carries Basic-auth credentials: check the stored URL
+            // and every redirect hop as the sync route does.
+            fetchImpl: wordpressTrafficFetch,
           })
           return {
             status: CheckStatuses.ok,
@@ -1138,3 +1362,6 @@ function buildTrafficSourceValidators(opts: ApiRoutesOptions): Record<string, Tr
   }
   return Object.keys(validators).length > 0 ? validators : undefined
 }
+
+export type { SeoRoutesOptions, SeoConnection, SeoPolicy, ScheduledSeoRefreshOutcome } from './seo.js'
+export { startScheduledSeoRefreshes } from './seo.js'

@@ -1,3 +1,4 @@
+import { createApiClient } from '../client.js'
 import fs from 'node:fs'
 import path from 'node:path'
 import { createRequire } from 'node:module'
@@ -8,7 +9,7 @@ import {
   type McpClientFormat,
 } from '../mcp-clients.js'
 import { CliError, isMachineFormat } from '../cli-error.js'
-import { describeError } from '@ainyc/canonry-contracts'
+import { describeError } from '@canonry/canonry-contracts'
 
 export interface McpInstallOptions {
   client: string
@@ -258,4 +259,17 @@ function emitInstallResult(result: McpInstallResult, format?: string): void {
     console.log()
     console.log(result.snippet)
   }
+}
+
+/** Read the same connection identity exposed by the HTTP MCP profile. */
+export async function showMcpProfile(format?: string): Promise<void> {
+  const profile = await createApiClient().getMcpProfile()
+  if (isMachineFormat(format)) {
+    console.log(JSON.stringify(profile, null, 2))
+    return
+  }
+  console.log(`${profile.displayName} (${profile.userId})`)
+  console.log(`Instance: ${profile.instance.issuer}`)
+  console.log(`Resource: ${profile.instance.resource}`)
+  console.log(`Scopes: ${profile.scopes.join(', ')}`)
 }

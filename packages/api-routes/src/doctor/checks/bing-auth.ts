@@ -1,11 +1,61 @@
+import { and, desc, eq, inArray } from 'drizzle-orm'
 import {
   CheckCategories,
   CheckScopes,
   CheckStatuses,
   describeError,
-} from '@ainyc/canonry-contracts'
-import { getSites } from '@ainyc/canonry-integration-bing'
-import type { CheckDefinition } from '../types.js'
+} from '@canonry/canonry-contracts'
+import { auditLog, bingCoverageSnapshots, bingKeywordStats, bingUrlInspections } from '@canonry/canonry-db'
+import { getSites } from '@canonry/canonry-integration-bing'
+import type { CheckDefinition, DoctorContext, ProjectInfo } from '../types.js'
+
+const BING_CONNECTION_ENTITY = 'bing_connection'
+const BING_CONNECTED_ACTION = 'bing.connected'
+const BING_DISCONNECTED_ACTION = 'bing.disconnected'
+
+/**
+ * Whether a project with no Bing connection used Bing and lost it, as opposed
+ * to never connecting or disconnecting on purpose.
+ *
+ * The connection itself lives in the config file, so the database trace of
+ * past use is the data a connected project stores: coverage snapshots, URL
+ * inspections and keyword stats. Disconnecting keeps those rows (unlike GBP,
+ * whose disconnect clears its data), so stored data alone would fail every
+ * project that ever disconnected, forever. The connect and disconnect routes
+ * both write the audit log: when the latest of those two entries is a
+ * disconnect, the operator chose to stop, and there is nothing to fix.
+ *
+ * That entry is read for the connection, by its domain, not for the project.
+ * Every project on a domain shares the one connection and stores data through
+ * it, but the audit row carries only the project that ran the command, and
+ * only the owning project may disconnect. Read per project, the others would
+ * fail for good after a deliberate disconnect, with no command left to clear
+ * it.
+ */
+function lostBingConnection(ctx: DoctorContext, project: ProjectInfo): boolean {
+  const hasRow = (row: unknown): boolean => row !== undefined
+  const storedData =
+    hasRow(ctx.db.select({ id: bingCoverageSnapshots.id }).from(bingCoverageSnapshots)
+      .where(eq(bingCoverageSnapshots.projectId, project.id)).limit(1).get())
+    || hasRow(ctx.db.select({ id: bingUrlInspections.id }).from(bingUrlInspections)
+      .where(eq(bingUrlInspections.projectId, project.id)).limit(1).get())
+    || hasRow(ctx.db.select({ id: bingKeywordStats.id }).from(bingKeywordStats)
+      .where(eq(bingKeywordStats.projectId, project.id)).limit(1).get())
+  if (!storedData) return false
+
+  const lastChange = ctx.db
+    .select({ action: auditLog.action })
+    .from(auditLog)
+    .where(and(
+      eq(auditLog.entityType, BING_CONNECTION_ENTITY),
+      eq(auditLog.entityId, project.canonicalDomain),
+      inArray(auditLog.action, [BING_CONNECTED_ACTION, BING_DISCONNECTED_ACTION]),
+    ))
+    .orderBy(desc(auditLog.createdAt))
+    .limit(1)
+    .get()
+  return lastChange?.action !== BING_DISCONNECTED_ACTION
+}
 
 export const BING_AUTH_CHECKS: readonly CheckDefinition[] = [
   {
@@ -35,10 +85,20 @@ export const BING_AUTH_CHECKS: readonly CheckDefinition[] = [
 
       const conn = store.getConnection(ctx.project.canonicalDomain)
       if (!conn) {
+        // Bing is optional: a project that never used it, or disconnected it,
+        // has nothing to fix.
+        if (!lostBingConnection(ctx, ctx.project)) {
+          return {
+            status: CheckStatuses.skipped,
+            code: 'bing.auth.not-connected',
+            summary: `${ctx.project.name} has not connected Bing Webmaster Tools.`,
+            remediation: `Optional: run \`canonry bing connect ${ctx.project.name} --api-key <key>\` to track Bing indexing.`,
+          }
+        }
         return {
           status: CheckStatuses.fail,
           code: 'bing.auth.no-connection',
-          summary: `No Bing connection for ${ctx.project.canonicalDomain}.`,
+          summary: `No Bing connection for ${ctx.project.canonicalDomain}, but ${ctx.project.name} has stored Bing data from an earlier connection.`,
           remediation: `Run \`canonry bing connect ${ctx.project.name} --api-key <key>\` to authorize.`,
         }
       }

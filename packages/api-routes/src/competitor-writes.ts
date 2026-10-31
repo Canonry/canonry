@@ -1,0 +1,698 @@
+import crypto from 'node:crypto'
+import { competitors, marketCompetitorNames, runs, type DatabaseClient } from '@canonry/canonry-db'
+import { and, eq, inArray, ne } from 'drizzle-orm'
+import {
+  brandKeyFromText,
+  RunKinds,
+  RunStatuses,
+  RunTriggers,
+  COMPETITOR_BULK_ADD_REFUSAL_REASON,
+  COMPETITOR_BULK_ADD_THRESHOLD,
+  COMPETITOR_BULK_ADD_WINDOW_HOURS,
+  competitorDomainProjectClaim,
+  competitorEntryParts,
+  competitorIdentityAliases,
+  competitorLabelFromDomain,
+  describeMarketPinAliasClaim,
+  marketPinAliasClaims,
+  normalizeCompetitorAliases,
+  normalizeCompetitorDomain,
+  planCompetitorAliases,
+  planCompetitorAutoAliases,
+  requireCompetitorAliasPlan,
+  validationError,
+  type AppError,
+  type CompetitorAliasMarketPin,
+  type CompetitorAliasChange,
+  type CompetitorAliasPlanEntry,
+  type CompetitorAliasProjectIdentity,
+  type CompetitorAliasRejection,
+  type CompetitorAutoAlias,
+  type CompetitorAutoAliasDrop,
+  type CompetitorEntry,
+  type CompetitorIdentityInput,
+} from '@canonry/canonry-contracts'
+import { changedMarketPins, readMarketCompetitorPins, type MarketPinGroup } from './plan-competitors.js'
+
+/**
+ * The one write path that adds competitors or changes their curated aliases
+ * (auto-detected names are written by `competitor-auto-aliases.ts`, but every
+ * write here re-plans them so curated identity always wins).
+ * REST (`PUT`/`POST /competitors`, the alias route), config-as-code apply,
+ * discovery promote, and a project identity change all plan through
+ * `planCompetitorSet`, so the same alias rules hold whichever surface wrote
+ * last, and a domain-only write never wipes stored aliases. The two DELETE
+ * routes remove rows directly (removing a competitor cannot break another
+ * competitor's alias) and audit the aliases they discard.
+ *
+ * Blocked names outlive the row: every removal keeps them on the project's
+ * `market_competitor_names` row for the registrable domain
+ * (`keepBlockedAliasesOfRemovedCompetitors`), and every new row starts with
+ * the blocked names stored there, so removing and re-adding a competitor
+ * (the duplicate-row remedy, a config apply that drops and re-adds it) or
+ * promoting a competitor only a market pinned never lets detection re-apply a
+ * name the operator blocked.
+ *
+ * Every write stores the registrable form (`normalizeCompetitorDomain`), and
+ * every lookup by domain compares stored rows in that form too, so a row an
+ * older build stored unnormalized (a promoted subdomain) is still found by any
+ * spelling. Two stored rows that normalize to one domain are duplicates of one
+ * competitor: a write that must change one of them fails
+ * (`duplicateCompetitorRowsError`) instead of picking one. No write starts
+ * tracking the project's own site (`competitorDomainProjectClaim`).
+ *
+ * An Advanced read counts the tracked competitors and the competitors the
+ * project's markets pin together, so a curated alias stays clear of every
+ * pin's names too (`readMarketCompetitorPins`, 'market-competitor'), and a new
+ * domain stays clear of a pin's label and curated aliases ('claimed-by-alias').
+ */
+
+/** Normalize and dedupe a list of competitor domains, keeping first-seen order. */
+export function normalizeCompetitorList(domains: readonly string[]): string[] {
+  const seen = new Set<string>()
+  const result: string[] = []
+  for (const raw of domains) {
+    const trimmed = raw.trim()
+    if (!trimmed) continue
+    const normalized = normalizeCompetitorDomain(trimmed)
+    if (!normalized || seen.has(normalized)) continue
+    seen.add(normalized)
+    result.push(normalized)
+  }
+  return result
+}
+
+/** One desired competitor. `aliases` undefined means "no opinion": keep stored. */
+export interface CompetitorWrite {
+  domain: string
+  aliases?: readonly string[]
+  /** `set` (default) replaces the stored list; `add` appends to it. */
+  aliasMode?: 'set' | 'add'
+}
+
+/**
+ * Normalize writes to registrable domains, first-seen order, duplicates merged
+ * (their stated aliases concatenated, the first write's `aliasMode` kept).
+ */
+function mergeCompetitorWrites(writes: readonly CompetitorWrite[]): CompetitorWrite[] {
+  const byDomain = new Map<string, CompetitorWrite>()
+  for (const write of writes) {
+    const trimmed = write.domain.trim()
+    if (!trimmed) continue
+    const domain = normalizeCompetitorDomain(trimmed)
+    if (!domain) continue
+    const existing = byDomain.get(domain)
+    if (!existing) {
+      byDomain.set(domain, { ...write, domain, ...(write.aliases !== undefined ? { aliases: [...write.aliases] } : {}) })
+      continue
+    }
+    if (write.aliases !== undefined) {
+      existing.aliases = [...(existing.aliases ?? []), ...write.aliases]
+    }
+  }
+  return [...byDomain.values()]
+}
+
+/**
+ * Normalize request or config entries into writes: registrable domains,
+ * first-seen order, duplicates merged (their stated aliases concatenated).
+ */
+export function competitorWritesFromEntries(
+  entries: readonly CompetitorEntry[],
+  aliasMode: 'set' | 'add' = 'set',
+): CompetitorWrite[] {
+  return mergeCompetitorWrites(entries.map((entry) => {
+    const parts = competitorEntryParts(entry)
+    return { domain: parts.domain, aliasMode, ...(parts.aliases !== undefined ? { aliases: parts.aliases } : {}) }
+  }))
+}
+
+export interface StoredCompetitor {
+  id: string
+  domain: string
+  aliases: string[]
+  autoAliases: CompetitorAutoAlias[]
+  blockedAliases: string[]
+}
+
+/**
+ * The columns a competitor identity reader selects: the domain, curated
+ * aliases, auto-detected names and blocked names. Pass the row to
+ * `competitorNameAliases` / `competitorBrandAliases` / `competitorIdentityAliases`
+ * (contracts), which merge curated + auto minus blocked.
+ */
+export const competitorIdentityColumns = {
+  domain: competitors.domain,
+  aliases: competitors.aliases,
+  autoAliases: competitors.autoAliases,
+  blockedAliases: competitors.blockedAliases,
+}
+
+export type { CompetitorAliasChange } from '@canonry/canonry-contracts'
+
+export interface CompetitorSetPlan {
+  /** Every competitor after the write, existing rows first (by domain, as `readStoredCompetitors` returns them). */
+  final: { domain: string; aliases: string[]; autoAliases: CompetitorAutoAlias[]; blockedAliases: string[] }[]
+  added: string[]
+  removed: StoredCompetitor[]
+  /** Alias lists that change, including a new competitor added with aliases. */
+  aliasChanges: CompetitorAliasChange[]
+  /** Carried-over aliases dropped because they no longer qualify. */
+  droppedAliases: CompetitorAliasRejection[]
+  /** Auto-detected name lists this write prunes (curated identity won). */
+  autoAliasChanges: CompetitorAliasChange[]
+  /** The auto names those changes dropped, with the rule each failed. */
+  droppedAutoAliases: CompetitorAutoAliasDrop[]
+}
+
+export interface BulkCompetitorAddSummary {
+  acknowledged: boolean
+  measured: boolean
+  limit: number
+  windowHours: number
+  wouldAdd: string[]
+  recentlyAdded: number
+  trackedBefore: number
+  trackedAfter: number
+}
+
+export function summarizeBulkCompetitorAdd(
+  db: Pick<DatabaseClient, 'select'>,
+  projectId: string,
+  plan: Pick<CompetitorSetPlan, 'added' | 'final'>,
+  options: { acknowledged?: boolean; now: string; trackedBefore: number },
+): BulkCompetitorAddSummary | null {
+  const wouldAdd = [...plan.added]
+  if (wouldAdd.length === 0) return null
+  const measured = db.select({ id: runs.id }).from(runs).where(and(
+    eq(runs.projectId, projectId),
+    eq(runs.kind, RunKinds['answer-visibility']),
+    inArray(runs.status, [RunStatuses.completed, RunStatuses.partial]),
+    ne(runs.trigger, RunTriggers.probe),
+  )).limit(1).get()
+  const finalDomains = new Set(plan.final.map(row => normalizeCompetitorDomain(row.domain)))
+  const addedSet = new Set(wouldAdd.map(normalizeCompetitorDomain))
+  const cutoff = Date.parse(options.now) - COMPETITOR_BULK_ADD_WINDOW_HOURS * 60 * 60 * 1000
+  const recentlyAdded = measured
+    ? db.select({ domain: competitors.domain, createdAt: competitors.createdAt }).from(competitors)
+      .where(eq(competitors.projectId, projectId)).all()
+      .filter(row => finalDomains.has(normalizeCompetitorDomain(row.domain)))
+      .filter(row => !addedSet.has(normalizeCompetitorDomain(row.domain)))
+      .filter(row => Date.parse(row.createdAt) >= cutoff).length
+    : 0
+  return {
+    acknowledged: options.acknowledged === true,
+    measured: measured !== undefined,
+    limit: COMPETITOR_BULK_ADD_THRESHOLD,
+    windowHours: COMPETITOR_BULK_ADD_WINDOW_HOURS,
+    wouldAdd,
+    recentlyAdded,
+    trackedBefore: options.trackedBefore,
+    trackedAfter: plan.final.length,
+  }
+}
+
+export function bulkCompetitorAddPreview(summary: BulkCompetitorAddSummary | null): { limit: number; count: number; acknowledgementRequired: boolean } {
+  return {
+    limit: COMPETITOR_BULK_ADD_THRESHOLD,
+    count: summary ? summary.wouldAdd.length + summary.recentlyAdded : 0,
+    acknowledgementRequired: summary?.measured === true && summary.wouldAdd.length + summary.recentlyAdded > COMPETITOR_BULK_ADD_THRESHOLD,
+  }
+}
+
+export function requireBulkCompetitorAddAcknowledged(
+  db: Pick<DatabaseClient, 'select'>,
+  projectId: string,
+  plan: Pick<CompetitorSetPlan, 'added' | 'final'>,
+  options: { acknowledged?: boolean; now: string; trackedBefore: number; projectName?: string },
+): BulkCompetitorAddSummary | null {
+  const summary = summarizeBulkCompetitorAdd(db, projectId, plan, options)
+  if (!summary) return null
+  const { wouldAdd, trackedAfter } = summary
+  if (!summary.measured || summary.recentlyAdded + wouldAdd.length <= COMPETITOR_BULK_ADD_THRESHOLD || summary.acknowledged) return summary
+  throw validationError(
+    `Adding ${wouldAdd.length} competitors would grow the tracked list from ${options.trackedBefore} to ${trackedAfter} within ${COMPETITOR_BULK_ADD_WINDOW_HOURS} hours. Review the stored evidence with canonry competitor suggest ${options.projectName ?? '<project>'} or canonry competitor add ${options.projectName ?? '<project>'} <domain...> --dry-run before acknowledging the bulk add.`,
+    { reason: COMPETITOR_BULK_ADD_REFUSAL_REASON, ...summary, suggest: `canonry competitor suggest ${options.projectName ?? '<project>'}`, preview: `canonry competitor add ${options.projectName ?? '<project>'} <domain...> --dry-run` },
+  )
+}
+
+export function bulkCompetitorAddAuditFields(summary: BulkCompetitorAddSummary | null): Record<string, unknown> {
+  return summary && summary.acknowledged && summary.wouldAdd.length > 0
+    ? { bulkAddAcknowledged: true, bulkAddLimit: summary.limit, bulkAddWindowHours: summary.windowHours, bulkAddCount: summary.wouldAdd.length, bulkAddRecentlyAdded: summary.recentlyAdded }
+    : {}
+}
+
+/** True when a plan changes any name a competitor answers to (curated or auto). */
+export function competitorIdentityChanged(plan: Pick<CompetitorSetPlan, 'aliasChanges' | 'autoAliasChanges'>): boolean {
+  return plan.aliasChanges.length > 0 || plan.autoAliasChanges.length > 0
+}
+
+/**
+ * Read a project's competitors, ordered by domain. The order is deliberate,
+ * not incidental: it is the entry order of `planCompetitorAutoAliases`, so
+ * when an identity change makes two competitors' STORED auto names overlap,
+ * the competitor whose domain sorts first keeps its name.
+ */
+export function readStoredCompetitors(db: Pick<DatabaseClient, 'select'>, projectId: string): StoredCompetitor[] {
+  return db.select({ id: competitors.id, ...competitorIdentityColumns })
+    .from(competitors)
+    .where(eq(competitors.projectId, projectId))
+    .orderBy(competitors.domain)
+    .all()
+}
+
+/** Every stored row that is the competitor `domain` names, in any spelling. */
+export function storedCompetitorMatches<T extends { domain: string }>(rows: readonly T[], domain: string): T[] {
+  const key = normalizeCompetitorDomain(domain.trim())
+  return rows.filter(row => normalizeCompetitorDomain(row.domain) === key)
+}
+
+/**
+ * Two or more stored rows are one competitor (a subdomain an older build
+ * stored next to its registrable form). A write cannot pick one, so the error
+ * names every row and the way out every surface has: remove the competitor
+ * (every row goes) and add it again, restating the curated aliases the rows
+ * carry (`aliases`), which the removal discards. Their blocked names are kept
+ * through the removal (`keepBlockedAliasesOfRemovedCompetitors`), so the
+ * re-added row starts with them.
+ */
+export function duplicateCompetitorRowsError(
+  domain: string,
+  rows: readonly { id: string; domain: string; aliases?: readonly string[] | null }[],
+): AppError {
+  const key = normalizeCompetitorDomain(domain.trim())
+  const sorted = [...rows].sort((a, b) => a.domain.localeCompare(b.domain))
+  const matches = sorted.map(row => ({ id: row.id, domain: row.domain }))
+  const aliases = normalizeCompetitorAliases(sorted.flatMap(row => row.aliases ?? []))
+  const addAgain = aliases.length > 0
+    ? `then add it again with its curated aliases (canonry competitor add <project> ${key} ${aliases.map(alias => `--alias ${JSON.stringify(alias)}`).join(' ')})`
+    : `then add it again (canonry competitor add <project> ${key})`
+  return validationError(
+    `Competitor ${key} is stored as ${matches.length} rows (${matches.map(row => row.domain).join(', ')}), so this write cannot pick one. `
+    + `Remove the competitor, which removes every row (canonry competitor remove <project> ${key}), ${addAgain}`,
+    { domain: key, matches, aliases },
+  )
+}
+
+/**
+ * New competitor domains that are the project's own site, a subdomain of it,
+ * or a parent of an owned domain. Every citation of the project would count
+ * for such a competitor, so no write starts tracking one.
+ */
+function ownSiteCompetitorError(claims: readonly { domain: string; projectDomain: string }[]): AppError {
+  return validationError(
+    `Cannot track the project's own site as a competitor: ${claims.map(claim => `${claim.domain} overlaps the project domain ${claim.projectDomain}`).join('; ')}, so every citation of the project would count for it`,
+    { ownSiteCompetitors: claims },
+  )
+}
+
+/**
+ * The one stored row for the competitor `domain` names, in any spelling, or
+ * null when it is not tracked. Throws `duplicateCompetitorRowsError` rather
+ * than pick one of several.
+ */
+export function findStoredCompetitor<T extends { id: string; domain: string }>(rows: readonly T[], domain: string): T | null {
+  const matches = storedCompetitorMatches(rows, domain)
+  if (matches.length > 1) throw duplicateCompetitorRowsError(domain, matches)
+  return matches[0] ?? null
+}
+
+function sameAliases(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((alias, i) => alias === b[i])
+}
+
+export interface CompetitorSetPlanOptions {
+  /** True makes `writes` the whole domain set; false merges them into it. */
+  replace: boolean
+  /** `competitorAliasProjectIdentity(project)` for the identity being written. */
+  project: CompetitorAliasProjectIdentity
+  /**
+   * The competitors the project's Advanced markets pin
+   * (`readMarketCompetitorPins`). No curated alias may overlap their names,
+   * and an auto-detected name that does is dropped. `syncCompetitorSet` reads
+   * them itself when omitted.
+   */
+  marketPins?: readonly CompetitorAliasMarketPin[]
+}
+
+/**
+ * Plan a write against the stored competitors. `replace` makes `writes` the
+ * whole domain set (rows not named are removed); otherwise writes merge into
+ * the stored set. Writes are normalized to registrable domains and match
+ * stored rows in that form, so a row stored unnormalized is retained, not
+ * duplicated. Retained rows keep their id, domain, provenance and aliases
+ * unless a write states aliases. Throws a validation error when a stated alias
+ * fails the shared rules (`requireCompetitorAliasPlan`), when a new domain's
+ * name overlaps another competitor's stored alias or a market pin's label or
+ * curated alias, when a new domain is the project's own site
+ * (`competitorDomainProjectClaim`), or when a write states aliases for a
+ * competitor stored as several rows; a stored alias the project's identity or
+ * a market pin (`marketPins`) now claims is dropped and reported instead.
+ */
+export function planCompetitorSet(
+  stored: readonly StoredCompetitor[],
+  writes: readonly CompetitorWrite[],
+  opts: CompetitorSetPlanOptions,
+): CompetitorSetPlan {
+  const writeByDomain = new Map(mergeCompetitorWrites(writes).map(write => [write.domain, write]))
+  const storedByDomain = new Map(stored.map(row => [row.domain, row]))
+  const storedKeys = new Set(stored.map(row => normalizeCompetitorDomain(row.domain)))
+  for (const write of writeByDomain.values()) {
+    if (write.aliases === undefined) continue
+    const matches = storedCompetitorMatches(stored, write.domain)
+    if (matches.length > 1) throw duplicateCompetitorRowsError(write.domain, matches)
+  }
+  const writeFor = (row: StoredCompetitor) => writeByDomain.get(normalizeCompetitorDomain(row.domain))
+  const removed = opts.replace ? stored.filter(row => !writeFor(row)) : []
+  const retained = stored.filter(row => !opts.replace || writeFor(row))
+  const added = [...writeByDomain.keys()].filter(domain => !storedKeys.has(domain))
+  const ownSite = added.flatMap((domain) => {
+    const projectDomain = competitorDomainProjectClaim(domain, opts.project.domains)
+    return projectDomain ? [{ domain, projectDomain }] : []
+  })
+  if (ownSite.length > 0) throw ownSiteCompetitorError(ownSite)
+
+  const entryFor = (domain: string, write: CompetitorWrite | undefined, storedAliases: readonly string[], isNew: boolean): CompetitorAliasPlanEntry => {
+    if (!write || write.aliases === undefined) return { domain, aliases: storedAliases, explicit: false, added: isNew }
+    const aliases = write.aliasMode === 'add' ? [...storedAliases, ...write.aliases] : write.aliases
+    return { domain, aliases, explicit: true, added: isNew }
+  }
+  const entries = [
+    ...retained.map(row => entryFor(row.domain, writeFor(row), row.aliases, false)),
+    ...added.map(domain => entryFor(domain, writeByDomain.get(domain), [], true)),
+  ]
+  const plan = requireCompetitorAliasPlan(entries, opts.project, opts.marketPins)
+
+  const aliasChanges: CompetitorAliasChange[] = []
+  for (const competitor of plan.competitors) {
+    const before = storedByDomain.get(competitor.domain)?.aliases ?? []
+    if (!sameAliases(before, competitor.aliases)) {
+      aliasChanges.push({ domain: competitor.domain, before: [...before], after: competitor.aliases })
+    }
+  }
+
+  // Auto names never fail a write: whatever the final curated identity now
+  // claims is dropped (curated wins), including a name a newly added domain
+  // takes over or a market pin answers to.
+  const pruned = pruneAutoAliases(
+    plan.competitors.map(competitor => ({ ...competitor, row: storedByDomain.get(competitor.domain) })),
+    opts.project,
+    opts.marketPins,
+  )
+  const final = plan.competitors.map((competitor, index) => ({
+    domain: competitor.domain,
+    aliases: competitor.aliases,
+    autoAliases: pruned.autoAliases[index]!,
+    blockedAliases: storedByDomain.get(competitor.domain)?.blockedAliases ?? [],
+  }))
+  return {
+    final,
+    added,
+    removed,
+    aliasChanges,
+    droppedAliases: plan.dropped,
+    autoAliasChanges: pruned.autoAliasChanges,
+    droppedAutoAliases: pruned.droppedAutoAliases,
+  }
+}
+
+/**
+ * Re-plan stored auto names against a final curated identity
+ * (`planCompetitorAutoAliases`): a name the project, a curated alias, another
+ * competitor or a market pin of another domain (`marketPins`) claims is
+ * dropped, never a reason to fail the write. Entries in plan order; `row` is
+ * the stored competitor, absent for a new one.
+ */
+function pruneAutoAliases(
+  entries: readonly { domain: string; aliases: readonly string[]; row?: Pick<StoredCompetitor, 'autoAliases' | 'blockedAliases'> }[],
+  project: CompetitorAliasProjectIdentity,
+  marketPins: readonly CompetitorAliasMarketPin[] | undefined,
+): { autoAliases: CompetitorAutoAlias[][] } & Pick<CompetitorSetPlan, 'autoAliasChanges' | 'droppedAutoAliases'> {
+  const autoPlan = planCompetitorAutoAliases(entries.map(entry => ({
+    domain: entry.domain,
+    aliases: entry.aliases,
+    autoAliases: (entry.row?.autoAliases ?? []).map(record => record.name),
+    blockedAliases: entry.row?.blockedAliases ?? [],
+  })), project, marketPins)
+  const autoAliasChanges: CompetitorAliasChange[] = []
+  const autoAliases = entries.map((entry, index) => {
+    const before = (entry.row?.autoAliases ?? []).map(record => record.name)
+    const keptKeys = new Set(autoPlan.competitors[index]!.autoAliases.map(brandKeyFromText))
+    const kept = (entry.row?.autoAliases ?? []).filter(record => keptKeys.has(brandKeyFromText(record.name)))
+    if (kept.length !== before.length) {
+      autoAliasChanges.push({ domain: entry.domain, before, after: kept.map(record => record.name) })
+    }
+    return kept
+  })
+  return { autoAliases, autoAliasChanges, droppedAutoAliases: autoPlan.dropped }
+}
+
+/**
+ * Inside a market pin writer's transaction, after the pins are written: drop
+ * every tracked competitor's stored auto name the pins now claim (with the
+ * current project identity and curated aliases, against
+ * `readMarketCompetitorPins`), the same pruning `planCompetitorSet` does on a
+ * competitor write. Curated aliases are left as stored: a pin a curated alias
+ * claims is refused instead (`requireMarketPinsClearOfCompetitorAliases`).
+ */
+export function replanCompetitorAutoAliases(
+  tx: Pick<DatabaseClient, 'select' | 'update'>,
+  projectId: string,
+  project: CompetitorAliasProjectIdentity,
+): Pick<CompetitorSetPlan, 'autoAliasChanges' | 'droppedAutoAliases'> {
+  const stored = readStoredCompetitors(tx, projectId)
+  const pruned = pruneAutoAliases(stored.map(row => ({ domain: row.domain, aliases: row.aliases, row })), project, readMarketCompetitorPins(tx, projectId))
+  if (pruned.autoAliasChanges.length > 0) {
+    stored.forEach((row, index) => {
+      if (pruned.autoAliases[index]!.length !== row.autoAliases.length) {
+        tx.update(competitors).set({ autoAliases: pruned.autoAliases[index]! }).where(eq(competitors.id, row.id)).run()
+      }
+    })
+  }
+  return { autoAliasChanges: pruned.autoAliasChanges, droppedAutoAliases: pruned.droppedAutoAliases }
+}
+
+/** Names deduplicated by brand key, first spelling kept. */
+function uniqueByBrandKey(names: readonly string[]): string[] {
+  const seen = new Set<string>()
+  return names.filter((name) => {
+    const key = brandKeyFromText(name)
+    if (!key || seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
+/**
+ * The blocked names stored for `domain` (registrable form) on the project's
+ * `market_competitor_names` row: a market-only pin's blocks, or the blocks a
+ * removed project competitor left there. Empty when there is no row.
+ */
+function storedDomainBlockedAliases(tx: Pick<DatabaseClient, 'select'>, projectId: string, domain: string): string[] {
+  const row = tx.select({ blockedAliases: marketCompetitorNames.blockedAliases })
+    .from(marketCompetitorNames)
+    .where(and(eq(marketCompetitorNames.projectId, projectId), eq(marketCompetitorNames.domain, domain)))
+    .get()
+  return row?.blockedAliases ?? []
+}
+
+/**
+ * Inside the removing transaction: keep the blocked names of removed project
+ * competitors on the project's `market_competitor_names` row for each one's
+ * registrable domain (a row with no learned names when there was none), so a
+ * later add of the same competitor starts with them (`applyCompetitorSetPlan`)
+ * and a market pin of the domain keeps them. The stored list becomes exactly
+ * the removed rows' blocks: the project row was the live list while it
+ * existed (it started from the stored one), so an unblock made meanwhile is
+ * kept too. A row without learned names is read by nothing but block targets
+ * and adds; a market row's learned names are left as stored.
+ */
+export function keepBlockedAliasesOfRemovedCompetitors(
+  tx: Pick<DatabaseClient, 'select' | 'insert' | 'update'>,
+  projectId: string,
+  removed: readonly Pick<StoredCompetitor, 'domain' | 'blockedAliases'>[],
+  now: string,
+): void {
+  const byDomain = new Map<string, string[]>()
+  for (const row of removed) {
+    const domain = normalizeCompetitorDomain(row.domain)
+    if (!domain) continue
+    byDomain.set(domain, uniqueByBrandKey([...(byDomain.get(domain) ?? []), ...row.blockedAliases]))
+  }
+  for (const [domain, blockedAliases] of byDomain) {
+    const stored = tx.select({ id: marketCompetitorNames.id, blockedAliases: marketCompetitorNames.blockedAliases })
+      .from(marketCompetitorNames)
+      .where(and(eq(marketCompetitorNames.projectId, projectId), eq(marketCompetitorNames.domain, domain)))
+      .get()
+    if (stored) {
+      if (!sameAliases(stored.blockedAliases, blockedAliases)) {
+        tx.update(marketCompetitorNames).set({ blockedAliases, updatedAt: now }).where(eq(marketCompetitorNames.id, stored.id)).run()
+      }
+      continue
+    }
+    if (blockedAliases.length === 0) continue
+    tx.insert(marketCompetitorNames).values({
+      id: crypto.randomUUID(),
+      projectId,
+      domain,
+      autoAliases: [],
+      blockedAliases,
+      createdAt: now,
+      updatedAt: now,
+    }).run()
+  }
+}
+
+/**
+ * Write a plan made against `stored` (read in the same transaction). New rows
+ * take `provenance` (default `cli`, the value every REST and apply write has
+ * always stored) and the blocked names stored for their domain
+ * (`market_competitor_names`); removed rows leave theirs there
+ * (`keepBlockedAliasesOfRemovedCompetitors`).
+ */
+export function applyCompetitorSetPlan(
+  tx: Pick<DatabaseClient, 'select' | 'insert' | 'update' | 'delete'>,
+  projectId: string,
+  stored: readonly StoredCompetitor[],
+  plan: CompetitorSetPlan,
+  now: string,
+  provenance = 'cli',
+): void {
+  for (const row of plan.removed) {
+    tx.delete(competitors).where(eq(competitors.id, row.id)).run()
+  }
+  keepBlockedAliasesOfRemovedCompetitors(tx, projectId, plan.removed, now)
+  const storedByDomain = new Map(stored.map(row => [row.domain, row]))
+  const aliasesByDomain = new Map(plan.final.map(competitor => [competitor.domain, competitor.aliases]))
+  for (const change of plan.aliasChanges) {
+    const row = storedByDomain.get(change.domain)
+    if (row) tx.update(competitors).set({ aliases: change.after }).where(eq(competitors.id, row.id)).run()
+  }
+  const finalByDomain = new Map(plan.final.map(competitor => [competitor.domain, competitor]))
+  for (const change of plan.autoAliasChanges) {
+    const row = storedByDomain.get(change.domain)
+    const next = finalByDomain.get(change.domain)
+    if (row && next) tx.update(competitors).set({ autoAliases: next.autoAliases }).where(eq(competitors.id, row.id)).run()
+  }
+  for (const domain of plan.added) {
+    tx.insert(competitors).values({
+      id: crypto.randomUUID(),
+      projectId,
+      domain,
+      aliases: aliasesByDomain.get(domain) ?? [],
+      blockedAliases: storedDomainBlockedAliases(tx, projectId, domain),
+      provenance,
+      createdAt: now,
+    }).onConflictDoNothing({
+      target: [competitors.projectId, competitors.domain],
+    }).run()
+  }
+}
+
+/**
+ * The new domains a domain-only add of `domains` would be refused for, each
+ * with its rejections: a domain whose name overlaps another competitor's
+ * stored alias, or a market pin's label or curated alias (`marketPins`,
+ * `readMarketCompetitorPins`), as 'claimed-by-alias'. Discovery promote leaves
+ * those out and reports them instead of failing every other promoted row.
+ */
+export function claimedCompetitorAdds(
+  stored: readonly StoredCompetitor[],
+  domains: readonly string[],
+  project: CompetitorAliasProjectIdentity,
+  marketPins: readonly CompetitorAliasMarketPin[] = [],
+): Map<string, CompetitorAliasRejection[]> {
+  const storedKeys = new Set(stored.map(row => normalizeCompetitorDomain(row.domain)))
+  const added = normalizeCompetitorList(domains).filter(domain => !storedKeys.has(domain))
+  const plan = planCompetitorAliases([
+    ...stored.map(row => ({ domain: row.domain, aliases: row.aliases, explicit: false })),
+    ...added.map(domain => ({ domain, aliases: [], explicit: false, added: true })),
+  ], project, marketPins)
+  const claimed = new Map<string, CompetitorAliasRejection[]>()
+  for (const rejection of plan.rejected) {
+    claimed.set(rejection.domain, [...(claimed.get(rejection.domain) ?? []), rejection])
+  }
+  return claimed
+}
+
+/**
+ * Fails a market pin write (the Advanced pin route, a draft action, a draft
+ * publish, a v1 plan publish) when a pin it adds, from `before` to `after`, or
+ * a name it gives an existing pin answers to a curated alias of a different
+ * tracked competitor (`marketPinAliasClaims`, 'claimed-by-alias'), or when the
+ * pin's label or alias overlaps such a competitor's own domain name
+ * ('other-competitor'): the pin side of the rules an alias write and an add
+ * enforce against pins. Pins and names the write leaves unchanged are not
+ * checked (`changedMarketPins`), so an overlap stored before the rule never
+ * blocks an unrelated edit.
+ */
+export function requireMarketPinsClearOfCompetitorAliases(
+  db: Pick<DatabaseClient, 'select'>,
+  projectId: string,
+  before: readonly MarketPinGroup[],
+  after: readonly MarketPinGroup[],
+): void {
+  const pins = changedMarketPins(before, after)
+  if (pins.length === 0) return
+  const claims = marketPinAliasClaims(pins, readStoredCompetitors(db, projectId))
+  if (claims.length === 0) return
+  const renamed = new Set(pins.filter(pin => pin.renamed).map(pin => pin.domain))
+  throw validationError(
+    `Invalid market competitor pins: ${claims.map(claim => `${claim.domain} ${describeMarketPinAliasClaim(claim, renamed.has(claim.domain))}`).join('; ')}`,
+    { rejectedAliases: claims },
+  )
+}
+
+/** Read, plan and write in one call, inside the caller's transaction. */
+export function syncCompetitorSet(
+  tx: Pick<DatabaseClient, 'select' | 'insert' | 'update' | 'delete'>,
+  projectId: string,
+  writes: readonly CompetitorWrite[],
+  opts: CompetitorSetPlanOptions & { now: string; provenance?: string },
+): CompetitorSetPlan {
+  const stored = readStoredCompetitors(tx, projectId)
+  const plan = planCompetitorSet(stored, writes, { ...opts, marketPins: opts.marketPins ?? readMarketCompetitorPins(tx, projectId) })
+  applyCompetitorSetPlan(tx, projectId, stored, plan, opts.now, opts.provenance)
+  return plan
+}
+
+/**
+ * The names a competitor set answers to, as a Simple run freezes them (domain
+ * label plus curated and auto-detected aliases, minus blocked names).
+ * Qualified own-brand aliases must not collide with any of them.
+ */
+export function competitorNames(rows: readonly CompetitorIdentityInput[]): string[] {
+  return rows.flatMap(row => [competitorLabelFromDomain(row.domain), ...competitorIdentityAliases(row)])
+}
+
+/** Audit-diff fields for alias activity; empty when nothing alias-related happened. */
+export function competitorAliasAuditFields(
+  plan: Pick<CompetitorSetPlan, 'aliasChanges' | 'droppedAliases'> & Partial<Pick<CompetitorSetPlan, 'autoAliasChanges' | 'droppedAutoAliases'>>,
+): Record<string, unknown> {
+  return {
+    ...(plan.aliasChanges.length ? { aliasChanges: plan.aliasChanges } : {}),
+    ...(plan.droppedAliases.length ? { droppedCompetitorAliases: plan.droppedAliases } : {}),
+    ...(plan.autoAliasChanges?.length ? { autoAliasChanges: plan.autoAliasChanges } : {}),
+    ...(plan.droppedAutoAliases?.length ? { droppedAutoAliases: plan.droppedAutoAliases } : {}),
+  }
+}
+
+/**
+ * Names a delete discards (curated, auto-detected and blocked), kept in the
+ * audit row so they can be restored.
+ */
+export function deletedAliasesDiff(rows: readonly { domain: string; aliases: string[]; autoAliases: { name: string }[]; blockedAliases: string[] }[]): Record<string, unknown> {
+  const withAliases = rows.filter(row => row.aliases.length > 0)
+  const withAuto = rows.filter(row => row.autoAliases.length > 0)
+  const withBlocked = rows.filter(row => row.blockedAliases.length > 0)
+  return {
+    ...(withAliases.length ? { deletedAliases: Object.fromEntries(withAliases.map(row => [row.domain, row.aliases])) } : {}),
+    ...(withAuto.length ? { deletedAutoAliases: Object.fromEntries(withAuto.map(row => [row.domain, row.autoAliases.map(record => record.name)])) } : {}),
+    ...(withBlocked.length ? { deletedBlockedAliases: Object.fromEntries(withBlocked.map(row => [row.domain, row.blockedAliases])) } : {}),
+  }
+}
+
+/** Set membership and discarded names for both replacement audit writers. */
+export function competitorSetChangeAuditFields(plan: CompetitorSetPlan): Record<string, unknown> {
+  return { added: plan.added, removed: plan.removed.map(row => row.domain), ...deletedAliasesDiff(plan.removed) }
+}

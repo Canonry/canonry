@@ -1,15 +1,68 @@
-import type { ProjectDto, RunDto } from '@ainyc/canonry-contracts'
+import { HostedMcpStatuses, HostedMcpUnavailableReasons, type InstanceStatusDto, type LatestProjectRunDto, type McpHealth, type ProjectDto, type RunDto } from '@canonry/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { isEndpointMissing, isMachineFormat } from '../cli-error.js'
+import { emitJsonl } from '../cli-output.js'
+import { runAdmissionLines } from './run.js'
 
 function getClient() {
   return createApiClient()
 }
 
-export async function showStatus(project: string, format?: string): Promise<void> {
+function printHostedMcpStatus(mcp: McpHealth | undefined): void {
+  const hosted = mcp?.hosted
+  if (!hosted) return
+  if (hosted.status === HostedMcpStatuses.ready) {
+    const plugin = hosted.plugin ? `\n  Canonry plugin: ${hosted.plugin.gatewayUrl} (workspace ${hosted.plugin.workspace})` : ''
+    console.log(`Hosted MCP: ready\n  URL: ${hosted.url}${plugin}\n`)
+    return
+  }
+  const reasons = {
+    [HostedMcpUnavailableReasons['public-url-required']]: 'Set a public URL for this instance.',
+    [HostedMcpUnavailableReasons['https-required']]: 'The public URL must use HTTPS.',
+    [HostedMcpUnavailableReasons['public-host-required']]: 'The public URL must use a public host.',
+    [HostedMcpUnavailableReasons['public-path-mismatch']]: 'The public URL path must match this instance\'s base path.',
+    [HostedMcpUnavailableReasons['oauth-unavailable']]: 'OAuth authorization is unavailable.',
+    [HostedMcpUnavailableReasons['account-required']]: 'Create a Canonry account to authorize your agent.',
+    [HostedMcpUnavailableReasons['transport-unavailable']]: 'The HTTP MCP transport is unavailable.',
+  }
+  console.log(`Hosted MCP: unavailable\n  ${reasons[hosted.reason]}\n`)
+}
+
+export async function showStatus(project: string | undefined, format?: string, options: { all?: boolean; problems?: boolean } = {}): Promise<void> {
   const client = getClient()
+  if (options.all) {
+    const status = await client.getStatus({ problems: options.problems })
+    if (format === 'jsonl') {
+      emitJsonl(status.projects.flatMap(item => item.integrations.length > 0
+        ? item.integrations.map(row => ({ project: item.project, health: item.health, ...row }))
+        : [{ project: item.project, state: item.state, health: item.health }]))
+      return
+    }
+    if (isMachineFormat(format)) {
+      console.log(JSON.stringify(status, null, 2))
+      return
+    }
+    printHostedMcpStatus(status.mcp)
+    for (const item of status.projects) {
+      console.log(`Status: ${item.displayName} (${item.project})`)
+      console.log(`  State: ${item.state}`)
+      if (item.health) console.log(`  Health: ${item.health.status} ${item.health.summary}`)
+      for (const row of item.integrations) {
+        console.log(`  ${row.label}: ${row.state} (last success: ${row.lastSuccessAt ?? 'never'}; streak: ${row.consecutiveFailures}; data through: ${row.dataThrough ?? 'unknown'}; data age: ${row.dataAgeDays === null ? 'unknown' : `${row.dataAgeDays} days`}; latest error: ${row.latestError ?? 'none'})`)
+      }
+      console.log('')
+    }
+    return
+  }
+  if (!project) throw new Error('A project is required unless --all is used.')
   const projectData: ProjectDto = await client.getProject(project)
   const latest = await getLatestRunSummary(client, project)
+  let storedStatus: InstanceStatusDto | null = null
+  try {
+    storedStatus = await client.getStatus({ project, problems: options.problems })
+  } catch (error) {
+    if (!isEndpointMissing(error)) throw error
+  }
 
   if (isMachineFormat(format)) {
     let runs: RunDto[] = []
@@ -18,16 +71,24 @@ export async function showStatus(project: string, format?: string): Promise<void
     } catch {
       // Runs endpoint may not be available (e.g. older server)
     }
-    console.log(JSON.stringify({
+    const result = {
       project: projectData,
       runs,
       latestRun: latest.run,
       totalRuns: latest.totalRuns,
-    }, null, 2))
+      // Absent from a server that predates it.
+      ...(latest.admission ? { admission: latest.admission } : {}),
+      ...(latest.manualAdmission ? { manualAdmission: latest.manualAdmission } : {}),
+      ...(storedStatus?.projects[0] ? { integrations: storedStatus.projects[0].integrations, health: storedStatus.projects[0].health } : {}),
+      ...(storedStatus?.mcp ? { mcp: storedStatus.mcp } : {}),
+    }
+    if (format === 'jsonl') emitJsonl([result])
+    else console.log(JSON.stringify(result, null, 2))
     return
   }
 
   console.log(`Status: ${projectData.displayName ?? projectData.name} (${projectData.name})\n`)
+  printHostedMcpStatus(storedStatus?.mcp)
   console.log(`  Domain:   ${projectData.canonicalDomain}`)
   console.log(`  Country:  ${projectData.country}`)
   console.log(`  Language: ${projectData.language}`)
@@ -49,12 +110,20 @@ export async function showStatus(project: string, format?: string): Promise<void
       : `'${project.replaceAll("'", `'\\''`)}'`
     console.log(`\n  No runs yet. Capture Page Health with "canonry technical-aeo run ${projectArg}", or run an AI Visibility sweep after adding a provider.`)
   }
+
+  const admission = runAdmissionLines(project, latest.admission, latest.manualAdmission)
+  if (admission.length > 0) console.log(`\n${admission.map(line => `  ${line}`).join('\n')}`)
+  const projectStatus = storedStatus?.projects[0]
+  if (projectStatus) {
+    console.log(`\n  Health: ${projectStatus.health?.status ?? 'unknown'}`)
+    for (const row of projectStatus.integrations) console.log(`  ${row.label}: ${row.state}`)
+  }
 }
 
 async function getLatestRunSummary(
   client: ReturnType<typeof getClient>,
   project: string,
-): Promise<{ totalRuns: number; run: RunDto | null }> {
+): Promise<LatestProjectRunDto> {
   try {
     return await client.getLatestRun(project)
   } catch (err) {

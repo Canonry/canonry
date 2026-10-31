@@ -89,12 +89,8 @@ export async function getCommand(opts: GetOptions): Promise<void> {
  * for any path that doesn't resolve (missing key, out-of-range index,
  * scalar where the path expected an object). Bracket syntax for arrays
  * only — `foo[0].bar`, not `foo.0.bar`.
- *
- * Exported for unit testing — the walk semantics are subtle enough
- * (bracket parsing, undefined propagation) that tests want to exercise
- * the function directly without spinning up the API client.
  */
-export function walkPath(value: unknown, path: string): unknown {
+function walkPath(value: unknown, path: string): unknown {
   if (!path || path === '.') return value
   const segments = path
     .split('.')

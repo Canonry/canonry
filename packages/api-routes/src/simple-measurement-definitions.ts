@@ -5,14 +5,16 @@ import {
   compileQueryClassifier,
   effectiveBrandNames,
   notFound,
+  resolveProjectQualifiedAliases,
   RunKinds,
   RunStatuses,
   RunTriggers,
+  simpleMeasurementCompetitorNames,
   simpleMeasurementDefinitionSchema,
   validationError,
   type SimpleMeasurementDefinition,
-} from '@ainyc/canonry-contracts'
-import { competitors, queries, querySnapshots, runs, simpleMeasurementDefinitions, type DatabaseClient } from '@ainyc/canonry-db'
+} from '@canonry/canonry-contracts'
+import { competitors, queries, querySnapshots, runs, simpleMeasurementDefinitions, type DatabaseClient } from '@canonry/canonry-db'
 
 /**
  * Record actual dispatch inputs, not the configuration at queue time.
@@ -41,14 +43,34 @@ export function captureSimpleMeasurementDefinition(db: DatabaseClient, input: {
     if (definition.queries.some(query => query.queryClass !== (classifier?.classify(query.queryText) ?? null))) {
       throw validationError('Query classes must match the captured identity and text.')
     }
+    if (definition.identity.qualifiedAliases !== undefined) {
+      const expected = resolveProjectQualifiedAliases(
+        definition.identity,
+        definition.identity.qualifiedAliases,
+        simpleMeasurementCompetitorNames(definition.competitors),
+      ).value
+      const captured = definition.identity.qualifiedAliases
+      if (captured.length !== expected.length || captured.some((name, index) => name !== expected[index])) {
+        throw validationError('Qualified aliases must be a sorted subset of the captured aliases.')
+      }
+    }
     const existing = tx.select().from(simpleMeasurementDefinitions)
       .where(and(eq(simpleMeasurementDefinitions.projectId, input.projectId), eq(simpleMeasurementDefinitions.runId, input.runId))).get()
     if (existing) {
       const frozen = simpleMeasurementDefinitionSchema.parse(existing.definition)
       // A later invocation must keep the original timestamp, but cannot change
       // any execution input or reinterpret its captured classification.
+      // Qualified aliases are the one exception: they only change what the
+      // sentiment evaluator is told, never provider execution, so a retry keeps
+      // the first capture's list (or its absence) instead of failing the run.
+      const { qualifiedAliases: _liveQualifiedAliases, ...liveIdentity } = definition.identity
       const replayDefinition = {
-        ...definition, capturedAt: frozen.capturedAt,
+        ...definition,
+        capturedAt: frozen.capturedAt,
+        identity: {
+          ...liveIdentity,
+          ...(frozen.identity.qualifiedAliases?.length ? { qualifiedAliases: frozen.identity.qualifiedAliases } : {}),
+        },
       }
       const replayChecksum = crypto.createHash('sha256').update(canonicalSimpleMeasurementDefinitionJson(replayDefinition)).digest('hex')
       if (existing.checksum !== replayChecksum) {
@@ -82,7 +104,7 @@ export function captureSimpleMeasurementDefinition(db: DatabaseClient, input: {
     }
     if (definition.competitors !== undefined) {
       const liveCompetitorDomains = new Set(tx.select({ domain: competitors.domain }).from(competitors)
-        .where(eq(competitors.projectId, input.projectId)).all()
+        .where(eq(competitors.projectId, input.projectId)).orderBy(competitors.domain).all()
         .map(competitor => competitor.domain))
       const capturedDomains = new Set(definition.competitors.map(competitor => competitor.domain))
       if (liveCompetitorDomains.size !== capturedDomains.size

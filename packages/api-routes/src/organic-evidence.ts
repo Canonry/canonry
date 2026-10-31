@@ -14,7 +14,7 @@ import {
   querySnapshots,
   runs,
   trafficSources,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import {
   AiReferralTrafficClasses,
   CitationStates,
@@ -27,11 +27,10 @@ import {
   hostOf,
   hostMatchesAnyDomain,
   normalizeUrlPath,
-  organicEvidencePeriodSchema,
-  validationError,
+  parseOrganicEvidencePeriod,
   type OrganicEvidenceDto,
-} from '@ainyc/canonry-contracts'
-import { buildBrandTokens, categorizeQueryByIntent } from '@ainyc/canonry-intelligence'
+} from '@canonry/canonry-contracts'
+import { buildBrandTokens, categorizeQueryByIntent } from '@canonry/canonry-intelligence'
 import { notProbeRun, resolveProject } from './helpers.js'
 import { buildGaMeasurementAnalysis } from './ga-measurement-analysis.js'
 
@@ -603,7 +602,7 @@ export function buildOrganicEvidence(
   if (visibility && visibility.ageDays > 30) {
     limitations.push({
       code: 'stale-visibility-sweep',
-      detail: `The latest answer-visibility sweep is ${Math.floor(visibility.ageDays)} days old and may not represent current model behavior.`,
+      detail: `The latest AI Visibility check is ${Math.floor(visibility.ageDays)} days old and may not represent current model behavior.`,
     })
   }
 
@@ -634,11 +633,7 @@ export async function organicEvidenceRoutes(app: FastifyInstance) {
   app.get<{ Params: { name: string }; Querystring: { period?: string } }>(
     '/projects/:name/organic-evidence',
     async request => {
-      const parsed = organicEvidencePeriodSchema.safeParse(
-        request.query.period === undefined ? 90 : Number(request.query.period),
-      )
-      if (!parsed.success) throw validationError('period must be 60 or 90')
-      return buildOrganicEvidence(app.db, request.params.name, parsed.data)
+      return buildOrganicEvidence(app.db, request.params.name, parseOrganicEvidencePeriod(request.query.period))
     },
   )
 }

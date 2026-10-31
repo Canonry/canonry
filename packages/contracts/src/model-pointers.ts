@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import { formatIsoDate } from './formatting.js'
+import { formatCalendarDay, formatIsoDate } from './formatting.js'
 
 /**
  * KNOWN MODEL-POINTER EVENTS — a hand-maintained record of the dates on which a
@@ -438,8 +438,12 @@ function sortedUnique(days: (string | null)[]): string[] {
   return [...new Set(days.filter((d): d is string => d !== null))].sort()
 }
 
-function normalizeEngineChange(provider: string, entry: WireModelPointerChange): EngineModelChange {
-  const engine = answerEngineName(provider)
+function normalizeEngineChange(
+  provider: string,
+  entry: WireModelPointerChange,
+  engineName: (provider: string) => string,
+): EngineModelChange {
+  const engine = engineName(provider)
   const perChange = Array.isArray(entry.changes) ? entry.changes : []
   const changeCount = countOf(entry.changeCount) || perChange.length
   // `unverifiedChangeCount` is the field the current server sends;
@@ -489,11 +493,11 @@ function joinNames(names: readonly string[]): string {
   return `${names.slice(0, -1).join(', ')}, and ${names[names.length - 1]}`
 }
 
-/** "on 2026-06-24" for a single dated update, a range for several. */
+/** "on Jun 24" for a single dated update, a range for several. */
 function whenPhrase(dates: readonly string[], count: number): string | null {
   if (dates.length === 0) return null
-  if (dates.length === 1 && count <= 1) return `on ${dates[0]}`
-  return `more than once between ${dates[0]} and ${dates[dates.length - 1]}`
+  if (dates.length === 1 && count <= 1) return `on ${formatCalendarDay(dates[0]!)}`
+  return `more than once between ${formatCalendarDay(dates[0]!)} and ${formatCalendarDay(dates[dates.length - 1]!)}`
 }
 
 /**
@@ -538,7 +542,7 @@ function uncheckedTailSentence(entries: readonly EngineModelChange[]): string | 
   // The oldest check is the honest one to quote: it bounds what we know across
   // every engine on the surface.
   const oldest = unchecked.map(e => e.knownGoodAsOf!).sort()[0]!
-  return `We last checked for model updates on ${oldest}, and this period runs past that date,`
+  return `We last checked for model updates on ${formatCalendarDay(oldest)}, and this period runs past that date,`
     + ' so there may be later updates we do not know about.'
 }
 
@@ -557,9 +561,18 @@ function uncheckedTailSentence(entries: readonly EngineModelChange[]): string | 
  */
 export function buildModelChangeNotice(
   disclosures: Record<string, WireModelPointerChange | null | undefined> | undefined,
+  options: {
+    /**
+     * Names an engine where a surface already labels it its own way (the web's
+     * What changed table reads "OpenAI"), so the note beside it matches. The
+     * wording is otherwise the shared one.
+     */
+    engineName?: (provider: string) => string
+  } = {},
 ): ModelChangeNotice | null {
+  const engineName = options.engineName ?? answerEngineName
   const entries = Object.entries(disclosures ?? {})
-    .map(([provider, entry]) => normalizeEngineChange(provider, entry ?? {}))
+    .map(([provider, entry]) => normalizeEngineChange(provider, entry ?? {}, engineName))
     .sort((a, b) => a.engine.localeCompare(b.engine))
   if (entries.length === 0) return null
 
@@ -577,7 +590,7 @@ export function buildModelChangeNotice(
     // it — saying both would name the same date twice in two sentences.
     const tail = uncheckedTailSentence(entries)
     const checked = [...new Set(entries.map(e => e.knownGoodAsOf).filter((d): d is string => d !== null))].sort()
-    const freshness = tail ?? (checked.length > 0 ? `We last checked for model updates on ${checked[0]}.` : null)
+    const freshness = tail ?? (checked.length > 0 ? `We last checked for model updates on ${formatCalendarDay(checked[0]!)}.` : null)
     return {
       kind: 'no-known-change',
       text: `No model updates are on record for ${joinNames(engines)} in this period.`,

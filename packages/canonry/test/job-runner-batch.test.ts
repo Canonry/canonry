@@ -1,13 +1,14 @@
 import { eq, sql } from 'drizzle-orm'
 import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
-import { ProviderBatchSubmitError, parseRunError, type ProviderAdapter, type ProviderBatchResultLine } from '@ainyc/canonry-contracts'
-import { queueRunFill, queueRunIfProjectIdle } from '@ainyc/canonry-api-routes'
-import { claudeAdapter } from '@ainyc/canonry-provider-claude'
-import { providerBatches, runFills, runs, sentimentCompletionReceipts, type DatabaseClient } from '@ainyc/canonry-db'
+import { ProviderBatchSubmitError, parseRunError, type ProviderAdapter, type ProviderBatchResultLine } from '@canonry/canonry-contracts'
+import { queueRunFill, queueRunIfProjectIdle } from '@canonry/canonry-api-routes'
+import { claudeAdapter } from '@canonry/canonry-provider-claude'
+import { providerBatches, runFills, runs, sentimentCompletionReceipts, type DatabaseClient } from '@canonry/canonry-db'
 import { JobRunner } from '../src/job-runner.js'
 import { addLogListener } from '../src/logger.js'
 import { ProviderBatchPoller } from '../src/provider-batch-poller.js'
 import { resetSharedProviderExecutionGates } from '../src/provider-execution-gate.js'
+import { assertProviderReloadKeepsPendingBatches } from '../src/provider-reload-batch-guard.js'
 import {
   CLAUDE_BATCH_COST,
   CLAUDE_MODEL,
@@ -17,6 +18,7 @@ import {
   GEMINI_PRICING,
   GEMINI_STANDARD_COST,
   NORTH,
+  NOW,
   batchRows,
   deferred,
   dispatchOf,
@@ -239,6 +241,35 @@ describe('a mixed run: one sync provider, one batch provider', () => {
   })
 })
 
+// A sync provider the run skipped (it keeps failing on its account) is not
+// called, and the finalizer that runs after the batch ends still records it as
+// skipped: a gap message in its place would read as a non-account failure and
+// end its streak, so the next run would call it again.
+describe('a provider skipped across a batch handoff', () => {
+  it('stays skipped in the final error and in telemetry', async () => {
+    const { db, projectId } = seedPlannedProject({ count: 2 })
+    const runId = queueBatchRun(db, projectId)
+    const streak = { code: 'PROVIDER_BILLING' as const, consecutiveRuns: 10, since: NOW, latestRunId: 'run-9', retryAfter: '2026-09-25T06:00:00.000Z' }
+    db.update(runs).set({ skippedProviders: { gemini: streak } }).where(eq(runs.id, runId)).run()
+    const { runner, transport, poller, syncCalls } = harness(db)
+
+    await runner.executeRun(runId, projectId)
+    expect(syncCalls.filter(call => call.provider === 'gemini')).toEqual([])
+    expect(runRow(db, runId).status).toBe('running')
+    transport.end(transport.only().id)
+    await poller.tick()
+
+    const run = runRow(db, runId)
+    expect(run.status).toBe('partial')
+    expect(parseRunError(run.error)?.providers).toEqual({
+      gemini: expect.objectContaining({ code: 'PROVIDER_BILLING', skipped: true, message: expect.stringMatching(/^Not called: gemini/) }),
+    })
+    expect(snapshotRows(db, runId).map(row => row.provider)).toEqual(['claude', 'claude'])
+    expect(events('run.completed').map(([, props, options]) => [(props as { providerOutcomes?: unknown }).providerOutcomes, options]))
+      .toEqual([[{ claude: 'ok', gemini: 'skipped' }, { errorCode: 'PROVIDER_BILLING' }]])
+  })
+})
+
 // Sentiment classifies completed sweeps from durable completion receipts, so a
 // sweep the batch finalizer completes needs its receipt from that same write.
 describe('sentiment completion receipts', () => {
@@ -311,7 +342,7 @@ describe('batch lines that produce no answer', () => {
     const run = runRow(db, runId)
     expect(run.status).toBe('partial')
     expect(parseRunError(run.error)?.providers?.claude?.message)
-      .toBe('2 of 3 batch answer(s) were not recorded. First: [fake] errored line')
+      .toBe('Batch answers not recorded: 2 of 3. First: [fake] errored line')
     expect(parseRunError(run.error)?.providers?.gemini).toBeUndefined()
     expect(snapshotRows(db, runId).filter(row => row.provider === 'claude').map(row => row.measurementExecutionId)).toEqual(['exec-1'])
     expect(requestRows(db, batch!.id).map(row => [row.executionId, row.outcome, row.error])).toEqual([
@@ -372,7 +403,7 @@ describe('batch lines that produce no answer', () => {
     ])
     const run = runRow(db, runId)
     expect(run.status).toBe('partial')
-    expect(parseRunError(run.error)?.providers?.claude?.message).toMatch(/^1 of 2 batch answer\(s\) were not recorded\. First: \[provider-claude\] .*max_uses_exceeded/)
+    expect(parseRunError(run.error)?.providers?.claude?.message).toMatch(/^Batch answers not recorded: 1 of 2\. First: \[provider-claude\] .*max_uses_exceeded/)
     // An answer that came back was billed, readable or not: nothing is released.
     expect(batchRows(db, runId)[0]).toMatchObject({ quotaReleased: 0 })
     expect(quotaUsed(db, projectId, 'claude')).toBe(2)
@@ -609,6 +640,44 @@ describe('splitting a provider\'s slots into batches', () => {
   })
 })
 
+describe('reloading a provider before its queued batch starts', () => {
+  it('keeps the batch registration while an earlier provider holds the fanout slot, then releases it after execution', async () => {
+    vi.stubEnv('CANONRY_PROVIDER_FANOUT', '1')
+    const { db, projectId } = seedPlannedProject({ count: 1, providers: ['aaa-sync', 'claude'] })
+    const runId = queueBatchRun(db, projectId)
+    const syncGate = deferred()
+    const syncStarted = deferred()
+    const transport = new FakeBatchTransport()
+    const registry = registryOf([
+      { adapter: fakeAdapter('aaa-sync', { syncGate: syncGate.promise, onSyncCall: () => syncStarted.resolve() }) },
+      { adapter: fakeAdapter('claude', { transport }), config: { batch: { enabled: true } } },
+    ])
+    const runner = new JobRunner(db, registry)
+    const changed = registry.getAll().map(provider => provider.adapter.name === 'claude'
+      ? { ...provider, config: { ...provider.config, apiKey: 'replacement-batch-account' } }
+      : provider)
+    const quotaOnly = registry.getAll().map(provider => ({
+      ...provider, config: { ...provider.config, quotaPolicy: { maxConcurrency: 1, maxRequestsPerMinute: 3, maxRequestsPerDay: 300 } },
+    }))
+    const execution = runner.executeRun(runId, projectId)
+    try {
+      await syncStarted.promise
+      expect(batchRows(db, runId)).toEqual([])
+      expect(() => assertProviderReloadKeepsPendingBatches(db, registry.getAll(), quotaOnly, runner.getExecutingBatchRegistrations())).not.toThrow()
+      expect(() => assertProviderReloadKeepsPendingBatches(db, registry.getAll(), changed, runner.getExecutingBatchRegistrations()))
+        .toThrowError(expect.objectContaining({ code: 'OPERATION_IN_PROGRESS' }))
+    } finally {
+      syncGate.resolve()
+      await execution
+      vi.unstubAllEnvs()
+    }
+    const batch = batchRows(db, runId)[0]!
+    expect(batch.status).toBe('submitted')
+    await runner.abandonProviderBatches([batch.id], 'Fixture finished.')
+    expect(() => assertProviderReloadKeepsPendingBatches(db, registry.getAll(), changed, runner.getExecutingBatchRegistrations())).not.toThrow()
+  })
+})
+
 describe('cancelling a run with a batch', () => {
   it('cancels at the provider, never ingests, and reports the cancellation once', async () => {
     const { db, projectId } = seedPlannedProject({ count: 2 })
@@ -719,6 +788,8 @@ describe('cancelling a run with a batch', () => {
       expect(batchRows(db, runId)[0]?.status).toBe('submitting')
       expect(syncCalls.filter(call => call.provider === 'gemini')).toHaveLength(3)
     })
+    const captured = runner.getExecutingBatchRegistrations().map(snapshot => snapshot.registration)
+    const rotated = captured.map(provider => ({ ...provider, config: { ...provider.config, apiKey: 'replacement-batch-account' } }))
 
     cancelLikeTheRoute(db, runId)
     await runner.cancelRunBatches(runId, projectId)
@@ -730,8 +801,14 @@ describe('cancelling a run with a batch', () => {
     expect(events('run.completed').map(([, props]) => (props as { status: string }).status)).toEqual(['cancelled'])
     expect(completed).toHaveBeenCalledTimes(1)
 
-    submitGate.resolve()
-    await vi.waitFor(() => expect(logged).toContain(expected.settled))
+    try {
+      expect(() => assertProviderReloadKeepsPendingBatches(db, captured, rotated, runner.getExecutingBatchRegistrations()))
+        .toThrowError(expect.objectContaining({ code: 'OPERATION_IN_PROGRESS' }))
+    } finally {
+      submitGate.resolve()
+      await vi.waitFor(() => expect(logged).toContain(expected.settled))
+    }
+    expect(() => assertProviderReloadKeepsPendingBatches(db, captured, rotated, runner.getExecutingBatchRegistrations())).not.toThrow()
 
     expect(batchRows(db, runId)[0]).toMatchObject({
       status: 'cancelled', providerBatchId: expected.providerBatchId, quotaReserved: 3, quotaReleased: expected.quotaReleased,
@@ -763,7 +840,7 @@ describe('a run that already reached a provider batch', () => {
   })
 
   it('stops an ingest midway when the run is cancelled, recording nothing after it', async () => {
-    const { db, projectId } = seedPlannedProject({ count: 3 })
+    const { db, projectId } = seedPlannedProject({ count: 35 })
     const runId = queueBatchRun(db, projectId)
     const { runner, transport, completed } = harness(db)
     await runner.executeRun(runId, projectId)
@@ -771,17 +848,17 @@ describe('a run that already reached a provider batch', () => {
     transport.end(batch!.providerBatchId!)
     db.update(providerBatches).set({ status: 'ended' }).where(eq(providerBatches.id, batch!.id)).run()
     transport.onResultLine = (index) => {
-      if (index !== 1) return
+      if (index !== 33) return
       cancelLikeTheRoute(db, runId)
       void runner.cancelRunBatches(runId, projectId)
     }
 
     expect(await runner.ingestProviderBatch(batch!.id)).toEqual({ kind: 'cancelled' })
 
-    expect(snapshotRows(db, runId).filter(row => row.provider === 'claude')).toHaveLength(1)
-    // It reports the line it recorded before the cancel; its reservation stays.
-    expect(batchRows(db, runId)[0]).toMatchObject({ status: 'cancelled', ingestedCount: 1, recordedCount: 1, quotaReleased: 0 })
-    expect(quotaUsed(db, projectId, 'claude')).toBe(3)
+    expect(snapshotRows(db, runId).filter(row => row.provider === 'claude')).toHaveLength(32)
+    // Only the committed chunk is retained; the prepared tail is discarded.
+    expect(batchRows(db, runId)[0]).toMatchObject({ status: 'cancelled', ingestedCount: 32, recordedCount: 32, quotaReleased: 0 })
+    expect(quotaUsed(db, projectId, 'claude')).toBe(35)
     expect(runRow(db, runId).status).toBe('cancelled')
     expect(events('run.completed').map(([, props]) => (props as { status: string }).status)).toEqual(['cancelled'])
     expect(completed).toHaveBeenCalledTimes(1)
@@ -806,9 +883,14 @@ describe('filling a batch run', () => {
     const startedAt = new Date(finishedAt - 30 * HOUR).toISOString()
     db.update(runs).set({ createdAt: startedAt, startedAt }).where(eq(runs.id, runId)).run()
 
-    expect(queueRunFill(db, runId, { now: new Date(finishedAt + 25 * HOUR) })).toMatchObject({ kind: 'refused', code: 'too_old' })
-    const admitted = queueRunFill(db, runId, { now: new Date(finishedAt + 23 * HOUR) })
+    vi.useFakeTimers({ toFake: ['Date'] })
+    onTestFinished(() => vi.useRealTimers())
+    vi.setSystemTime(finishedAt + 25 * HOUR)
+    expect(queueRunFill(db, runId)).toMatchObject({ kind: 'refused', code: 'too_old' })
+    vi.setSystemTime(finishedAt + 23 * HOUR)
+    const admitted = queueRunFill(db, runId)
     if (admitted.kind !== 'queued') throw new Error(`fill not admitted: ${admitted.kind}`)
+    expect(admitted.fill.createdAt).toBe(new Date(finishedAt + 23 * HOUR).toISOString())
     await runner.executeRunFill(admitted.fill.id)
 
     expect(db.select().from(runFills).where(eq(runFills.id, admitted.fill.id)).get()).toMatchObject({ status: 'completed', filled: 1 })

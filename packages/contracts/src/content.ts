@@ -231,10 +231,9 @@ export type ContentTargetsResponseDto = z.infer<typeof contentTargetsResponseDto
 // ─── Content target dismissals ──────────────────────────────────────────────
 //
 // Manual "mark addressed" affordance for content opportunities. Recommendations
-// are recomputed on every report load from live GSC/GA inventory; a dismissal
-// row drops the matching recommendation from the report until explicitly
-// un-dismissed. See `packages/db/src/schema.ts → contentTargetDismissals` and
-// the AGENTS.md "Report parity" rule.
+// are recomputed from stored GSC/GA inventory; a dismissal row hides the
+// matching recommendation from content-target reads until explicitly restored.
+// See `packages/db/src/schema.ts → contentTargetDismissals`.
 
 export const contentTargetDismissalDtoSchema = z.object({
   targetRef: z.string(),

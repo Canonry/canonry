@@ -89,6 +89,7 @@ function absoluteLink(url: string | undefined): string | undefined {
 export interface DiscordWebhookBody {
   username: string
   embeds: Array<{
+    author?: { name: string }
     title: string
     description?: string
     color: number
@@ -103,7 +104,10 @@ export function renderDiscord(view: AlertView): DiscordWebhookBody {
   return {
     username: 'Canonry',
     embeds: [{
-      title: `${SEVERITY_ICONS[view.severity]} ${view.title}`,
+      // The category line names who is speaking; the embed's colour carries
+      // the severity, so the title stays the problem alone.
+      ...(view.category ? { author: { name: view.category } } : {}),
+      title: view.category ? view.title : `${SEVERITY_ICONS[view.severity]} ${view.title}`,
       ...(view.body ? { description: clamp(view.body, DISCORD_MAX_DESCRIPTION) } : {}),
       color: DISCORD_COLORS[view.severity],
       fields: view.fields.map(field => ({
@@ -135,6 +139,7 @@ export interface SlackWebhookBody {
   text: string
   attachments: Array<{
     color: string
+    author_name?: string
     title: string
     title_link?: string
     text?: string
@@ -152,6 +157,7 @@ export function renderSlack(view: AlertView): SlackWebhookBody {
     text: headline,
     attachments: [{
       color: SLACK_COLORS[view.severity],
+      ...(view.category ? { author_name: view.category } : {}),
       title: headline,
       ...(absoluteLink(view.url) ? { title_link: absoluteLink(view.url) } : {}),
       ...(view.body ? { text: clamp(view.body, SLACK_MAX_TEXT) } : {}),

@@ -1,6 +1,6 @@
 import { test, expect, describe } from 'vitest'
 
-import type { InsightDto } from '@ainyc/canonry-contracts'
+import type { InsightDto } from '@canonry/canonry-contracts'
 import { mapInsightDtoToVm, mapInsightDtosToVms } from '../src/mappers/insight-mapper.js'
 
 /* ── helpers ─────────────────────────────────────────── */
@@ -72,6 +72,17 @@ describe('mapInsightDtoToVm', () => {
   test('gain → citationState emerging', () => {
     const vm = mapInsightDtoToVm(makeInsightDto({ type: 'gain' }))
     expect(vm.affectedPhrases[0]!.citationState).toBe('emerging')
+  })
+
+  test('marks which citation states are the project\'s own site-wide citation', () => {
+    const site = (type: InsightDto['type']) => mapInsightDtoToVm(makeInsightDto({ type })).affectedPhrases[0]!.siteCitation
+    for (const type of ['regression', 'gain', 'opportunity', 'first-citation', 'provider-pickup', 'persistent-gap'] as const) {
+      expect(site(type), type).toBe(true)
+    }
+    // These borrow the same states for a competitor or a Business Profile signal.
+    for (const type of ['competitor-gained', 'competitor-lost', 'gbp-lodging-gap', 'gbp-metric-drop'] as const) {
+      expect(site(type), type).toBe(false)
+    }
   })
 
   test('opportunity → citationState not-cited', () => {

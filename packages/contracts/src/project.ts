@@ -3,10 +3,14 @@ import { validationError } from './errors.js'
 import { locationContextSchema, providerModelsSchema, providerNameSchema, type LocationContext } from './provider.js'
 import { measurementConfigSchema, defaultMeasurementConfig } from './measurement.js'
 import { providerDispatchModesSchema } from './provider-batch.js'
-import { brandLabelFromDomain, hostOf } from './url-normalize.js'
+import { brandLabelFromDomain, normalizeProjectDomain } from './url-normalize.js'
 import { brandKeyFromText } from './brand-matching.js'
 import { gbpNegativeReviewMaxStarsSchema } from './gbp.js'
+import { siteAuditPageBudgetSchema } from './technical-aeo.js'
 import { MIN_DOMAIN_BRAND_KEY_LENGTH } from './answer-visibility.js'
+import { competitorDomainSchema, competitorEntrySchema, type CompetitorAliasProjectIdentity } from './competitor-aliases.js'
+import { competitorAutoAliasSchema } from './competitor-auto-aliases.js'
+import { queryClassSchema } from './query-class.js'
 
 export const configSourceSchema = z.enum(['cli', 'api', 'config-file'])
 export type ConfigSource = z.infer<typeof configSourceSchema>
@@ -89,6 +93,41 @@ export function resolveLocations(
   return resolved
 }
 
+/**
+ * What answer-derived competitor alias detection does for a project
+ * (`projects.competitor_auto_aliases`) in the unattended passes the local
+ * server queues after a completed or partial sweep (probes excluded), a
+ * competitor add (REST, apply, discovery promote), an unblock, and a market
+ * pin write that changes the pins. A curated alias edit, a competitor
+ * removal, a block and a project edit queue none.
+ * - `off`: no unattended pass runs;
+ * - `preview` (the default for every project): the pass scores the stored
+ *   answers and logs what it would add or remove, and the dry run
+ *   (`GET /competitor-auto-aliases`) shows the evidence, but no name is
+ *   stored;
+ * - `apply`: the pass stores the names that qualify and removes the stored
+ *   names it no longer keeps; the read-time competitor matchers then use
+ *   them (and history is restated).
+ * An explicit apply (`POST /competitor-auto-aliases`, `canonry competitor
+ * aliases detect --apply`) runs one pass and stores its result in every mode.
+ * Short of removing the competitor, a stored name leaves only through a
+ * block, a write whose identity claims it, or a storing pass (an
+ * `apply`-mode pass or an explicit apply) that drops it; switching to `off`
+ * or `preview` never deletes one.
+ */
+export const competitorAutoAliasModeSchema = z.enum(['off', 'preview', 'apply'])
+export type CompetitorAutoAliasMode = z.infer<typeof competitorAutoAliasModeSchema>
+export const COMPETITOR_AUTO_ALIAS_MODES = competitorAutoAliasModeSchema.options
+export const DEFAULT_COMPETITOR_AUTO_ALIAS_MODE: CompetitorAutoAliasMode = 'preview'
+
+/** The request and config-spec field: optional, omitted keeps the stored mode. */
+export const competitorAutoAliasModeInputSchema = competitorAutoAliasModeSchema.optional()
+  .describe('Answer-derived competitor alias detection mode for the unattended passes queued after a completed or partial sweep, a competitor add, an unblock or a market pin write that changes pins: `off` (no pass), `preview` (the pass logs what it would add or remove and stores nothing; a new project starts here) or `apply` (the pass stores detected names and removes stored ones it no longer keeps, which restates every period\'s competitor counts). Omit to keep the stored mode. An explicit apply (POST /projects/{name}/competitor-auto-aliases) stores in every mode.')
+
+/** Bounds for `qualifiedAliases` on project writes (see `resolveProjectQualifiedAliases`). */
+export const PROJECT_QUALIFIED_ALIAS_LIMIT = 20
+export const PROJECT_QUALIFIED_ALIAS_MAX_LENGTH = 200
+
 export const projectUpsertRequestSchema = z.object({
   displayName: z.string().min(1),
   canonicalDomain: z.string().min(1),
@@ -110,15 +149,64 @@ export const projectUpsertRequestSchema = z.object({
   measurement: measurementConfigSchema.optional(),
   autoExtractBacklinks: z.boolean().optional(),
   /**
+   * Aliases the sentiment evaluator is told are this brand's own names. Each
+   * entry must already be one of `aliases`. Omitted keeps the stored list,
+   * minus names that no longer qualify; `[]` clears.
+   */
+  qualifiedAliases: z.array(z.string().trim().min(1).max(PROJECT_QUALIFIED_ALIAS_MAX_LENGTH))
+    .max(PROJECT_QUALIFIED_ALIAS_LIMIT).optional(),
+  /**
    * Highest star rating that counts as a negative Google review for this
    * project's `review.negative` webhook (1-4). Omit to keep the stored value;
    * null resets to the default of 3.
    */
   negativeReviewMaxStars: gbpNegativeReviewMaxStarsSchema.nullable().optional(),
+  /**
+   * Site Health page budget for scans that set none, manual or scheduled (1 to
+   * 50,000). Omit to keep the stored value; null means the full site.
+   */
+  siteAuditMaxPages: siteAuditPageBudgetSchema.nullable().optional(),
+  /**
+   * Answer-derived competitor alias detection: `off`, `preview` (log only) or
+   * `apply` (`competitorAutoAliasModeSchema`). Omit to keep the stored mode; a
+   * new project starts in `preview`.
+   */
+  competitorAutoAliases: competitorAutoAliasModeInputSchema,
   configSource: configSourceSchema.optional(),
 })
 
 export type ProjectUpsertRequest = z.infer<typeof projectUpsertRequestSchema>
+
+/**
+ * Existing-project partial update. The outer object is strict so a typo can
+ * never become a successful no-op. Measurement lists merge one level in the
+ * route, with each named list replacing that list and omitted lists preserved.
+ */
+export const projectPatchRequestSchema = z.object({
+  displayName: z.string().min(1).optional(),
+  canonicalDomain: z.string().min(1).optional(),
+  ownedDomains: z.array(z.string().min(1)).optional(),
+  aliases: z.array(z.string()).optional(),
+  country: z.string().length(2).optional(),
+  language: z.string().min(2).optional(),
+  tags: z.array(z.string()).optional(),
+  labels: z.record(z.string(), z.string()).optional(),
+  providers: z.array(providerNameSchema).optional(),
+  providerModels: providerModelsSchema.optional(),
+  providerDispatchModes: providerDispatchModesSchema.optional(),
+  locations: z.array(locationContextSchema).optional(),
+  defaultLocation: z.string().nullable().optional(),
+  measurement: measurementConfigSchema.partial().strict().optional(),
+  autoExtractBacklinks: z.boolean().optional(),
+  qualifiedAliases: z.array(z.string().trim().min(1).max(PROJECT_QUALIFIED_ALIAS_MAX_LENGTH))
+    .max(PROJECT_QUALIFIED_ALIAS_LIMIT).optional(),
+  negativeReviewMaxStars: gbpNegativeReviewMaxStarsSchema.nullable().optional(),
+  siteAuditMaxPages: siteAuditPageBudgetSchema.nullable().optional(),
+  competitorAutoAliases: competitorAutoAliasModeInputSchema,
+  expectedConfigRevision: z.number().int().positive().optional(),
+}).strict()
+
+export type ProjectPatchRequest = z.infer<typeof projectPatchRequestSchema>
 
 /**
  * Body for create-only project creation. `name` is intentionally separate from
@@ -155,6 +243,8 @@ export const projectDtoSchema = z.object({
   canonicalDomain: z.string(),
   ownedDomains: z.array(z.string()).default([]),
   aliases: z.array(z.string()).default([]),
+  /** Operator-chosen subset of `aliases` that Simple sentiment treats as this brand's own names. */
+  qualifiedAliases: z.array(z.string()).default([]),
   country: z.string().length(2),
   language: z.string().min(2),
   tags: z.array(z.string()).default([]),
@@ -180,6 +270,16 @@ export const projectDtoSchema = z.object({
   autoExtractBacklinks: z.boolean().default(false),
   /** Negative Google review threshold in stars; null means the default of 3. */
   negativeReviewMaxStars: gbpNegativeReviewMaxStarsSchema.nullable().optional(),
+  /** Site Health page budget for scans that set none; null means the full site (up to 50,000 pages). */
+  siteAuditMaxPages: siteAuditPageBudgetSchema.nullable().optional(),
+  /**
+   * Answer-derived competitor alias detection mode (`competitorAutoAliasModeSchema`).
+   * Absent only from a server that predates the setting.
+   */
+  competitorAutoAliases: competitorAutoAliasModeSchema.optional()
+    .describe('Answer-derived competitor alias detection mode for the unattended passes queued after a completed or partial sweep, a competitor add, an unblock or a market pin write that changes pins. `preview` (every project\'s default): the pass scores the stored answers and logs what it would add or remove, storing nothing. `apply`: the pass stores the detected names and removes stored ones it no longer keeps; the read-time competitor matchers then use them, restating every period\'s competitor counts (see competitorIdentityChangedAt). `off`: no pass runs. An explicit apply (POST /projects/{name}/competitor-auto-aliases) stores in every mode; switching to preview or off keeps names already stored. Absent only from a server that predates the setting.'),
+  /** Persisted answer-field pass still owed; null means clear. Does not track alias detection. */
+  answerFieldsRecompute: z.enum(['full', 'competitors']).nullable().optional(),
   configSource: configSourceSchema.default('cli'),
   configRevision: z.number().int().positive().default(1),
   createdAt: z.string().optional(),
@@ -188,10 +288,29 @@ export const projectDtoSchema = z.object({
 
 export type ProjectDto = z.infer<typeof projectDtoSchema>
 
+export const projectDefaultLocationResponseSchema = z.object({
+  defaultLocation: z.string(),
+})
+export type ProjectDefaultLocationResponse = z.infer<typeof projectDefaultLocationResponseSchema>
+
 export const queryDtoSchema = z.object({
   id: z.string(),
   query: z.string(),
   createdAt: z.string(),
+  /**
+   * The class this query is measured under, resolved by the server so every
+   * surface that lists queries shows the same one. Without an active schema v2
+   * measurement plan it is `compileQueryClassifier(effectiveBrandNames(project))`
+   * over the query text. With one it is the class stored on the query's
+   * assignments in the active revision.
+   *
+   * `null` means no single class exists, never a default: the project has no
+   * usable brand name, the query has no assignment in the active revision, or
+   * its assignments carry both classes.
+   * Optional so a row from an older server still parses: an absent field means
+   * the server did not report a class, which is not the same as `null`.
+   */
+  queryClass: queryClassSchema.nullable().optional(),
 })
 
 export type QueryDto = z.infer<typeof queryDtoSchema>
@@ -227,29 +346,78 @@ export const queryGenerateRequestSchema = z.object({
 
 export type QueryGenerateRequest = z.infer<typeof queryGenerateRequestSchema>
 
+export const queryGenerateResponseSchema = z.object({
+  queries: z.array(z.string()),
+  provider: z.string(),
+})
+export type QueryGenerateResponse = z.infer<typeof queryGenerateResponseSchema>
+
 /** @deprecated Legacy alias kept for the `/keywords/generate` back-compat surface. New code should use {@link queryGenerateRequestSchema}. */
 export const keywordGenerateRequestSchema = queryGenerateRequestSchema
 /** @deprecated Legacy alias kept for the `/keywords/generate` back-compat surface. New code should use {@link QueryGenerateRequest}. */
 export type KeywordGenerateRequest = QueryGenerateRequest
 
+/** The legacy `/keywords/generate` response: the suggestions {@link queryGenerateResponseSchema} sends as `queries`, under `keywords`. */
+export const keywordGenerateResponseSchema = z.object({
+  keywords: z.array(z.string()),
+  provider: z.string(),
+})
+export type KeywordGenerateResponse = z.infer<typeof keywordGenerateResponseSchema>
+
 export const competitorDtoSchema = z.object({
   id: z.string(),
   domain: z.string(),
+  /**
+   * Operator-curated names this competitor goes by in answer text, layered onto
+   * the domain label by every competitor mention matcher. Always present;
+   * `[]` means the domain label alone identifies it.
+   */
+  aliases: z.array(z.string()),
+  /**
+   * Names detected automatically from the project's own stored answers, each
+   * with the evidence that applied it. Matched exactly like curated aliases
+   * (curated wins a conflict). Absent from servers before auto-detection.
+   */
+  autoAliases: z.array(competitorAutoAliasSchema).optional(),
+  /** Names the operator blocked from auto-detection; never applied again until unblocked. */
+  blockedAliases: z.array(z.string()).optional(),
+  /**
+   * Present only on a block or unblock of a competitor an Advanced market pins
+   * without tracking it project-wide: the active plan's markets (group keys)
+   * that pin it. Its `aliases` are then its plan label and aliases, and `id`
+   * names its stored market names, not a project competitor.
+   */
+  marketKeys: z.array(z.string()).optional(),
   createdAt: z.string(),
 })
 
 export type CompetitorDto = z.infer<typeof competitorDtoSchema>
 
 export const competitorBatchRequestSchema = z.object({
+  // Removal accepts legacy rows written before domain validation so operators
+  // can clean them up instead of making invalid stored data permanent.
   competitors: z.array(z.string().trim().min(1)).min(1),
 })
 
 export type CompetitorBatchRequest = z.infer<typeof competitorBatchRequestSchema>
 
-/** Normalize a user-supplied project domain for matching and deduplication. */
-export function normalizeProjectDomain(input: string): string {
-  return hostOf(input) ?? input.trim().toLowerCase().replace(/^www\./, '')
-}
+/**
+ * `POST /projects/{name}/competitors`: each entry is a bare domain or
+ * `{ domain, aliases }`. Aliases on an already-tracked domain are added to its
+ * stored list; a bare domain leaves stored aliases alone.
+ */
+export const competitorAppendRequestSchema = z.object({
+  competitors: z.array(competitorEntrySchema).min(1),
+  acknowledgeBulkAdd: z.boolean().optional(),
+})
+
+export type CompetitorAppendRequest = z.infer<typeof competitorAppendRequestSchema>
+
+export const competitorReplaceRequestSchema = z.object({
+  competitors: z.array(competitorDomainSchema),
+  acknowledgeBulkAdd: z.boolean().optional(),
+})
+export type CompetitorReplaceRequest = z.infer<typeof competitorReplaceRequestSchema>
 
 /** Returns deduplicated list of all domains owned by the project. */
 export function effectiveDomains(project: { canonicalDomain: string; ownedDomains?: string[] }): string[] {
@@ -294,6 +462,58 @@ export function normalizeProjectAliases(
   return result
 }
 
+export type ProjectQualifiedAliasRejectionReason = 'not-an-alias' | 'display-name' | 'too-short' | 'competitor-collision'
+
+/**
+ * Resolves the operator-chosen subset of a project's aliases that Simple
+ * sentiment tells the evaluator are this brand's own names. Entries are
+ * trimmed, blanks skipped, and duplicates dropped case-insensitively, never by
+ * brand key: "Acme Co" and "AcmeCo" are both kept because the evaluator sees
+ * each literal spelling. Each kept entry is returned in its stored alias
+ * spelling and the list is sorted by code unit. An entry is rejected when it
+ * is not a stored alias, shares the display name's brand key, has a brand key
+ * shorter than `MIN_DOMAIN_BRAND_KEY_LENGTH`, or shares a brand key with a
+ * competitor name. It never changes mention detection or query classes.
+ */
+export function resolveProjectQualifiedAliases(
+  identity: { displayName?: string | null; aliases?: readonly string[] | null },
+  requested: readonly string[] | null | undefined,
+  competitorNames: readonly string[] = [],
+): { value: string[]; rejected: { name: string; reason: ProjectQualifiedAliasRejectionReason }[] } {
+  const stored = new Map<string, string>()
+  for (const alias of normalizeProjectAliases(identity.displayName, identity.aliases)) {
+    stored.set(alias.toLowerCase(), alias)
+  }
+  const displayKey = brandKeyFromText(identity.displayName ?? '')
+  const competitorKeys = new Set(competitorNames.map(brandKeyFromText).filter(key => key.length > 0))
+  const value: string[] = []
+  const rejected: { name: string; reason: ProjectQualifiedAliasRejectionReason }[] = []
+  const seen = new Set<string>()
+  for (const raw of requested ?? []) {
+    const name = raw.trim()
+    if (!name) continue
+    const lower = name.toLowerCase()
+    if (seen.has(lower)) continue
+    seen.add(lower)
+    const alias = stored.get(lower)
+    if (alias === undefined) {
+      rejected.push({ name, reason: 'not-an-alias' })
+      continue
+    }
+    const key = brandKeyFromText(alias)
+    if (displayKey && key === displayKey) {
+      rejected.push({ name, reason: 'display-name' })
+    } else if (key.length < MIN_DOMAIN_BRAND_KEY_LENGTH) {
+      rejected.push({ name, reason: 'too-short' })
+    } else if (competitorKeys.has(key)) {
+      rejected.push({ name, reason: 'competitor-collision' })
+    } else {
+      value.push(alias)
+    }
+  }
+  return { value: value.sort(), rejected }
+}
+
 /**
  * Returns the brand-name identities used for mention detection: `displayName`
  * (when set), normalized aliases, then every owned domain's registrable
@@ -335,4 +555,25 @@ export function effectiveBrandNames(project: {
     }
   }
   return names
+}
+
+/**
+ * The project identity a competitor alias must stay clear of: its brand names
+ * (`effectiveBrandNames`) and its own domains (canonical plus owned), which
+ * answer prose can write out as hosts. Every competitor alias write plans
+ * against this (`planCompetitorAliases`).
+ */
+export function competitorAliasProjectIdentity(project: {
+  displayName?: string | null
+  aliases?: string[] | null
+  canonicalDomain?: string | null
+  ownedDomains?: string[] | null
+}): CompetitorAliasProjectIdentity {
+  return {
+    brandNames: effectiveBrandNames(project),
+    domains: effectiveDomains({
+      canonicalDomain: project.canonicalDomain ?? '',
+      ownedDomains: project.ownedDomains ?? [],
+    }).map(normalizeProjectDomain),
+  }
 }

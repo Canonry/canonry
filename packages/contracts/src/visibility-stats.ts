@@ -1,6 +1,7 @@
 import { shareOfVoiceContextFields } from './share-of-voice.js'
 import { z } from 'zod'
 import { fraction, percent } from './ratio-unit.js'
+import { competitorIdentityChangedAtSchema, competitorSetChangedAtSchema } from './analytics.js'
 
 /**
  * Aggregated answer-visibility stats — per-query mention / citation counts
@@ -213,6 +214,14 @@ export const visibilityCompareMetricPeriodSchema = z.object({
    * completeness (Advanced), for the pooled cited rate and cited share of voice.
    */
   excludedUnknown: z.number().int().nonnegative().optional(),
+  /**
+   * Cited-rate rows the provider answered with no retrieval step at all
+   * (`retrievalStatus = 'not-used'`). They cite nothing by construction, so
+   * they leave the cited denominator rather than count as a searched miss;
+   * they remain in the mention denominator, since brand recall does not need
+   * search. Only set on frames that record retrieval status.
+   */
+  excludedNoRetrieval: z.number().int().nonnegative().optional(),
 })
 export type VisibilityCompareMetricPeriod = z.infer<typeof visibilityCompareMetricPeriodSchema>
 
@@ -419,6 +428,19 @@ export const visibilityCompareDtoSchema = z.object({
     from: z.array(visibilityStatsShareCompetitorSchema),
     to: z.array(visibilityStatsShareCompetitorSchema),
   }),
+  /**
+   * When the project's competitor names last changed (`competitorIdentityChangedAtSchema`).
+   * Project-frame share of voice reads both months with the tracked
+   * competitors' current names (curated plus auto-detected, minus blocked),
+   * so a comparison quoted before a change to those names was restated at
+   * that time; a market pin or learned-name change moves this time without
+   * changing share of voice. Absent from a scoped comparison (a `scope` of
+   * group, market or property, or a `marketKey`), which reads the frozen
+   * plan frame only.
+   */
+  competitorIdentityChangedAt: competitorIdentityChangedAtSchema.optional(),
+  /** When the tracked competitor set was last changed; absent from scoped frozen comparisons. */
+  competitorSetChangedAt: competitorSetChangedAtSchema.optional(),
 })
 export type VisibilityCompareDto = z.infer<typeof visibilityCompareDtoSchema>
 

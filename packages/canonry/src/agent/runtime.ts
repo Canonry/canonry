@@ -1,4 +1,6 @@
 import { z } from 'zod'
+import { randomUUID } from 'node:crypto'
+import { isDeepStrictEqual } from 'node:util'
 import type { Agent, AgentTool } from '@earendil-works/pi-agent-core'
 import {
   Type,
@@ -8,10 +10,10 @@ import {
   type AssistantMessage,
   type AssistantMessageEventStream,
 } from '@earendil-works/pi-ai'
-import { agentTurnLimitsSchema, type AgentTurnLimits } from '@ainyc/canonry-contracts'
-import { canonryMcpTools } from '../mcp/tool-registry.js'
+import { agentTurnLimitsSchema, MeasurementPortfolioLists, type AgentTurnLimits } from '@canonry/canonry-contracts'
+import { canonryMcpTools, CanonryMcpToolNames } from '../mcp/tool-registry.js'
 import { CANONRY_MCP_TOOLKITS } from '../mcp/toolkits.js'
-import { truncateToolResult } from './mcp-to-agent-tool.js'
+import { isStoredPageReadTool, isStoredReadTool, truncateToolResult } from './mcp-to-agent-tool.js'
 
 const DISCOVER = 'aero_list_toolkits'
 /**
@@ -23,6 +25,24 @@ export const MAX_VISIBLE_TOOLS = 128
 const LOAD = 'aero_load_toolkit'
 const metadata = new Map(canonryMcpTools.map(tool => [tool.name as string, tool]))
 
+const PAGE_REFERENCE_PREFIX = 'aero-page:'
+const PAGE_SIZE_PARAMS = new Set(['limit', 'queryLimit', 'attemptLimit'])
+/** Recognized native stored-read page owners and their public request parameters. */
+const PAGE_CURSORS = [
+  { owner: [], key: 'nextCursor', parameter: 'cursor' },
+  { owner: ['properties'], key: 'nextCursor', parameter: 'cursor' },
+  { owner: ['queryPage'], key: 'nextCursor', parameter: 'queryCursor' },
+  { owner: [], key: 'nextAttemptCursor', parameter: 'attemptCursor' },
+] as const
+type ToolResult = Awaited<ReturnType<AgentTool['execute']>>
+interface PageReference {
+  tool: AgentTool
+  token: string
+  parameter: string
+  params: Record<string, unknown>
+  selection: Record<string, unknown>
+}
+
 interface Runtime {
   allowed: AgentTool[]
   loaded: Set<string>
@@ -33,21 +53,202 @@ interface Runtime {
   finishedAt?: number
   reason: 'completed' | 'stopped' | 'tool-limit' | 'time-limit' | 'error'
   timer?: ReturnType<typeof setTimeout>
+  deadlineTimer?: ReturnType<typeof setTimeout>
+  research?: AbortController
+  hardDeadline: boolean
+  memo: Map<string, { id: string; value: Promise<Awaited<ReturnType<AgentTool['execute']>>> }>
+  pageReferences: Map<string, PageReference>
+  pageNamespace: string
+  pageTurn: number
   progressive: boolean
   /** Tools a progressive turn keeps visible without loading their toolkit. */
   pinned: Set<string>
   /** The misspelled name the model wrote, by tool call id, for calls renamed to a visible tool. */
   corrected: Map<string, string>
+  /** Set once a bounded turn has been asked for its final answer. */
+  wrapUp: boolean
+  usage: AeroTurnUsage
 }
 const runtimes = new WeakMap<Agent, Runtime>()
+
+/**
+ * What one turn's model calls reported and how many of its tool calls failed,
+ * for outcome telemetry. Server-side only: `aero_turn_status` is streamed to
+ * viewers, who never see cost.
+ */
+export interface AeroTurnUsage {
+  /** Model calls that came back with a response, as `llm_usage_events` records them. */
+  responses: number
+  inputTokens: number
+  outputTokens: number
+  cachedTokens: number
+  costUsd: number
+  /** Counted tool calls that returned an error; calls the turn's limits blocked are not. */
+  toolErrors: number
+}
+
+function emptyTurnUsage(): AeroTurnUsage {
+  return { responses: 0, inputTokens: 0, outputTokens: 0, cachedTokens: 0, costUsd: 0, toolErrors: 0 }
+}
+
+function nonNegative(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 0
+}
+
+/**
+ * Sent with every tool removed to a turn that used its tool budget, so what
+ * it already read becomes an answer instead of an empty reply.
+ */
+export const TOOL_LIMIT_WRAP_UP =
+  'This turn has used its tool budget, and no tools are available now. Answer the question from the tool results above: '
+  + 'give what they establish with their numbers, say plainly which parts you could not check, '
+  + 'and suggest one narrower question the user could ask next.'
+
+const TIME_LIMIT_WRAP_UP = TOOL_LIMIT_WRAP_UP.replace('used its tool budget', 'used its research time budget')
 
 function result(value: unknown) {
   return { content: [{ type: 'text' as const, text: truncateToolResult(value) }], details: value }
 }
 
+/** Native schema defaults make omitted and explicitly defaulted scope equivalent. */
+function pageDefaults(tool: AgentTool, params: Record<string, unknown>): Record<string, unknown> {
+  const filled = { ...params }
+  for (const [key, property] of Object.entries(pageOwner(tool.parameters, ['properties']) ?? {})) {
+    const schema = pageOwner(property, [])
+    if (filled[key] === undefined && schema && Object.hasOwn(schema, 'default')) filled[key] = structuredClone(schema.default)
+  }
+  return filled
+}
+
+function pageSelection(tool: AgentTool, params: Record<string, unknown>, parameter: string): Record<string, unknown> {
+  const selection = pageDefaults(tool, params)
+  // Omission keeps first-page summaries at dispatch, but selects the same continuation list.
+  if (tool.name === CanonryMcpToolNames.canonry_measurement_portfolio_summary && selection.list === undefined) {
+    selection.list = MeasurementPortfolioLists['weakest-properties']
+  }
+  return Object.fromEntries(Object.entries(selection).filter(([key, value]) => key !== parameter && !PAGE_SIZE_PARAMS.has(key) && value !== undefined))
+}
+
+/** Inherit scope before pi validates required inputs; keep short references in its transcript. */
+function inheritPageArguments(runtime: Runtime, message: AssistantMessage, visible: ReadonlySet<string>): void {
+  for (const block of message.content) {
+    if (block.type !== 'toolCall' || !visible.has(block.name)) continue
+    const tool = runtime.allowed.find(candidate => candidate.name === block.name)
+    if (!tool || !isStoredPageReadTool(tool) || !pageOwner(block.arguments, [])) continue
+    let params = block.arguments as Record<string, unknown>
+    for (const parameter of new Set(PAGE_CURSORS.map(cursor => cursor.parameter))) {
+      const reference = params[parameter]
+      const page = typeof reference === 'string' ? runtime.pageReferences.get(reference) : undefined
+      if (page?.tool === tool && page.parameter === parameter) params = { ...page.params, ...params }
+    }
+    block.arguments = pageDefaults(tool, params) as typeof block.arguments
+  }
+}
+
+function resolvePageReferences(runtime: Runtime, tool: AgentTool, params: unknown): unknown {
+  if (params === null || typeof params !== 'object' || Array.isArray(params)) return params
+  let resolved = params as Record<string, unknown>
+  for (const parameter of new Set(PAGE_CURSORS.map(cursor => cursor.parameter))) {
+    const value = resolved[parameter]
+    if (typeof value !== 'string' || !value.startsWith(PAGE_REFERENCE_PREFIX)) continue
+    const page = runtime.pageReferences.get(value)
+    if (!page) throw new Error('This Aero page reference is no longer available. Read the first page again with the original filters.')
+    const inherited = { ...page.params, ...resolved }
+    if (page.tool !== tool || page.parameter !== parameter || !isDeepStrictEqual(page.selection, pageSelection(tool, inherited, parameter))) {
+      throw new Error('Use this Aero page reference with the same tool and original filters; only limit, queryLimit or attemptLimit may change.')
+    }
+    resolved = { ...inherited, [parameter]: page.token }
+  }
+  return resolved
+}
+
+function pageOwner(value: unknown, path: readonly string[]): Record<string, unknown> | undefined {
+  let owner = value
+  for (const key of path) {
+    if (owner === null || typeof owner !== 'object' || Array.isArray(owner)) return undefined
+    owner = (owner as Record<string, unknown>)[key]
+  }
+  return owner !== null && typeof owner === 'object' && !Array.isArray(owner) ? owner as Record<string, unknown> : undefined
+}
+
+/** Short local continuations preserve the raw API result and never bless a cap-cut next cursor. */
+function referencePages(runtime: Runtime, tool: AgentTool, params: unknown, value: ToolResult): ToolResult {
+  if (!isStoredPageReadTool(tool) || value.isError || value.content.length !== 1 || params === null || typeof params !== 'object' || Array.isArray(params)) return value
+  const block = value.content[0]!
+  if (block.type !== 'text') return value
+  let shown: unknown
+  try { shown = JSON.parse(block.text) as unknown } catch { return value }
+  const root = pageOwner(shown, [])
+  if (!root || root.__truncated === true) return value
+  let changed = false
+  for (const cursor of PAGE_CURSORS) {
+    const owner = pageOwner(root, cursor.owner)
+    const token = owner?.[cursor.key]
+    if (!Object.hasOwn(pageOwner(tool.parameters, ['properties']) ?? {}, cursor.parameter) || !owner || owner.__truncated === true || typeof token !== 'string' || token !== pageOwner(value.details, cursor.owner)?.[cursor.key]) continue
+    if (runtime.pageReferences.size >= runtime.limits.maxToolCalls * PAGE_CURSORS.length) break
+    const reference = `${PAGE_REFERENCE_PREFIX}${runtime.pageNamespace}-${runtime.pageTurn}:${runtime.pageReferences.size + 1}`
+    if (token.length <= reference.length) continue
+    runtime.pageReferences.set(reference, {
+      tool, token, parameter: cursor.parameter,
+      params: structuredClone(params as Record<string, unknown>),
+      selection: structuredClone(pageSelection(tool, params as Record<string, unknown>, cursor.parameter)),
+    })
+    owner[cursor.key] = reference
+    const pagination = pageOwner(root.__pagination, [])
+    for (const [path, note] of Object.entries(pagination ?? {})) {
+      if (typeof note === 'string') pagination![path] = note.split(token).join(reference)
+    }
+    changed = true
+  }
+  if (!changed) return value
+  root.__pageReferences = 'Aero page references expire at the end of this turn. Pass them unchanged to the same tool. Omitted filters inherit the original scope; supplied filters must match. Only the page size may change.'
+  let text = JSON.stringify(root)
+  // The adapter already enforced its cap. A reference must never make that text larger.
+  if (text.length > block.text.length) {
+    delete root.__pageReferences
+    text = JSON.stringify(root)
+  }
+  return { ...value, content: [{ ...block, text }] }
+}
+
 function visibleTools(runtime: Runtime): AgentTool[] {
-  if (!runtime.progressive) return runtime.allowed
-  const visible = runtime.allowed.filter(tool => {
+  const allowed = runtime.allowed.map(tool => ({
+    ...tool,
+    execute: async (id: string, params: unknown, signal?: AbortSignal, onUpdate?: Parameters<AgentTool['execute']>[3]) => {
+      const dispatchedParams = resolvePageReferences(runtime, tool, params)
+      const safeRead = isStoredReadTool(tool)
+      const key = safeRead ? `${tool.name}:${JSON.stringify(dispatchedParams)}` : undefined
+      const prior = key === undefined ? undefined : runtime.memo.get(key)
+      if (prior) {
+        const previous = await prior.value
+        if (!previous.isError) return result({ alreadyReturned: true, toolCallId: prior.id, note: 'Already returned above. Use that result and follow its pagination instruction. A cap-cut page must be re-requested from the original cursor with a smaller limit.' })
+      }
+      if (!safeRead) runtime.memo.clear()
+      const research = runtime.research?.signal
+      const signals = [signal, research].filter((value): value is AbortSignal => value !== undefined)
+      const combined = signals.length > 0 ? AbortSignal.any(signals) : undefined
+      let interrupted: (() => void) | undefined
+      const work = Promise.race([
+        tool.execute(id, dispatchedParams, combined, onUpdate),
+        new Promise<never>((_resolve, reject) => {
+          interrupted = () => reject(new Error('Research time budget elapsed; dispatched work may still settle.'))
+          research?.addEventListener('abort', interrupted, { once: true })
+          if (research?.aborted) interrupted()
+        }),
+      ]).then(value => referencePages(runtime, tool, dispatchedParams, value)).finally(() => { if (interrupted) research?.removeEventListener('abort', interrupted) })
+      if (key !== undefined) runtime.memo.set(key, { id, value: work })
+      try {
+        const value = await work
+        if (key !== undefined && value.isError) runtime.memo.delete(key)
+        return value
+      } catch (error) {
+        if (key !== undefined) runtime.memo.delete(key)
+        throw error
+      }
+    },
+  }))
+  if (!runtime.progressive) return allowed
+  const visible = allowed.filter(tool => {
     const entry = metadata.get(tool.name)
     return !entry || entry.tier === 'core' || runtime.pinned.has(tool.name) || runtime.loaded.has(entry.tier)
   })
@@ -164,11 +365,26 @@ function correctToolNames(runtime: Runtime, message: AssistantMessage, visible: 
 }
 
 /** Rename misspelled calls in the final message, which is what pi executes and stores. */
-function withCorrectedToolNames(runtime: Runtime, response: AssistantMessageEventStream, visible: ReadonlySet<string>): AssistantMessageEventStream {
+function withCorrectedToolNames(runtime: Runtime, response: AssistantMessageEventStream, visible: ReadonlySet<string>, wrapUp: boolean, signal?: AbortSignal): AssistantMessageEventStream {
   const result = response.result.bind(response)
   response.result = async () => {
     const message = await result()
+    const researchEnded = !wrapUp && runtime.research?.signal.aborted && !signal?.aborted
+    const canFinish = wrapUp && (!signal?.aborted || runtime.hardDeadline)
+    const failedAnswer = canFinish && !runtime.hardDeadline && (message.stopReason === 'error' || message.stopReason === 'aborted')
+    if (researchEnded) {
+      message.content = message.content.filter(block => block.type !== 'toolCall')
+      if (!message.content.some(block => block.type === 'text' && block.text.trim())) message.content.push({ type: 'text', text: 'Research time budget elapsed; preparing an answer from the evidence already gathered.' })
+      message.stopReason = 'stop'
+      delete message.errorMessage
+    } else if (canFinish && (message.stopReason === 'error' || message.stopReason === 'aborted' || !message.content.some(block => block.type === 'text' && block.text.trim()))) {
+      message.content.push({ type: 'text', text: `I reached this turn's ${runtime.reason === 'time-limit' ? 'time' : 'tool'} limit and could not complete the answer. The results above are partial; ask a narrower question to continue.` })
+      message.stopReason = 'stop'
+      delete message.errorMessage
+    }
+    if (failedAnswer) runtime.reason = 'error'
     correctToolNames(runtime, message, visible)
+    inheritPageArguments(runtime, message, visible)
     return message
   }
   return response
@@ -222,7 +438,7 @@ function explainMissingTool(runtime: Runtime, message: { isError?: boolean; cont
 export function configureAeroRuntime(agent: Agent, allowed: AgentTool[], limits?: AgentTurnLimits, progressive = true, pinned: readonly string[] = []): void {
   let runtime = runtimes.get(agent)
   if (!runtime) {
-    runtime = { allowed, loaded: new Set(), limits: agentTurnLimitsSchema.parse(limits ?? {}), calls: 0, rounds: 0, startedAt: 0, reason: 'completed', progressive, pinned: new Set(pinned), corrected: new Map() }
+    runtime = { allowed, loaded: new Set(), limits: agentTurnLimitsSchema.parse(limits ?? {}), calls: 0, rounds: 0, startedAt: 0, reason: 'completed', progressive, pinned: new Set(pinned), corrected: new Map(), wrapUp: false, hardDeadline: false, memo: new Map(), pageReferences: new Map(), pageNamespace: randomUUID().slice(0, 8), pageTurn: 0, usage: emptyTurnUsage() }
     runtimes.set(agent, runtime)
     const state = runtime
     const stream = agent.streamFunction
@@ -232,23 +448,54 @@ export function configureAeroRuntime(agent: Agent, allowed: AgentTool[], limits?
       // The loop sends a normalized transcript: its system messages, not
       // `context.tools`, declare the tools this request can call.
       const visible = new Set(getCurrentTools(context.messages).map(tool => tool.name))
-      const response = stream(model, context, options)
+      const wrapUp = state.wrapUp
+      const signals = [options?.signal, wrapUp ? undefined : state.research?.signal].filter((value): value is AbortSignal => value !== undefined)
+      // Keep the reusable static prompt prefix, then supply a trusted clock only to this request.
+      const messages = [...context.messages]
+      let clockIndex = 0
+      while (messages[clockIndex]?.role === 'system') clockIndex++
+      messages.splice(clockIndex, 0, {
+        role: 'system', timestamp: state.startedAt,
+        content: `Current turn clock (UTC): ${new Date(state.startedAt).toISOString()}. Use this current UTC date and year for relative dates or omitted years unless the user explicitly specifies a year. Stored run and scan dates remain authoritative; this clock is not an observation date.`,
+      })
+      const response = stream(model, { ...context, messages }, { ...options, ...(signals.length > 0 ? { signal: AbortSignal.any(signals) } : {}) })
       return response instanceof Promise
-        ? response.then(ready => withCorrectedToolNames(state, ready, visible))
-        : withCorrectedToolNames(state, response, visible)
+        ? response.then(ready => withCorrectedToolNames(state, ready, visible, wrapUp, options?.signal))
+        : withCorrectedToolNames(state, response, visible, wrapUp, options?.signal)
     }
     const before = agent.beforeToolCall
     const after = agent.afterToolCall
     // Calls past the tool limit, marked at tool_execution_start.
     const overLimit = new Set<string>()
+    // Calls this runtime refused to run, so their error results are not tool failures.
+    const blocked = new Set<string>()
     agent.beforeToolCall = async (event, signal) => {
-      if (signal?.aborted || overLimit.has(event.toolCall.id)) return { block: true, reason: 'Turn stopped.' }
+      if (signal?.aborted || state.reason === 'time-limit' || state.wrapUp || overLimit.has(event.toolCall.id)) {
+        blocked.add(event.toolCall.id)
+        return { block: true, reason: 'Turn stopped.' }
+      }
       return before?.(event, signal)
     }
     const finish = agent.finishTurn
-    // A turn that hit the tool limit ends the run once its batch settles,
-    // without another model call.
-    agent.finishTurn = (turn, signal) => state.reason === 'tool-limit' ? { action: 'end' } : finish?.(turn, signal)
+    // A turn that hit the tool limit gets one more model call once its batch
+    // settles, with no tools and a request to answer from what it read. The
+    // run ends after that call, whatever it returns.
+    agent.finishTurn = (turn, signal) => {
+      if (state.reason !== 'tool-limit' && state.reason !== 'time-limit') return finish?.(turn, signal)
+      if (state.wrapUp) return { action: 'end' }
+      state.wrapUp = true
+      return { action: 'continue' }
+    }
+    const prepare = agent.prepareNextTurnWithContext
+    agent.prepareNextTurnWithContext = (turn, signal) => {
+      if ((state.reason === 'tool-limit' || state.reason === 'time-limit') && state.wrapUp) {
+        return {
+          context: { ...turn.context, tools: [] },
+          messages: [{ role: 'system', content: state.reason === 'time-limit' ? TIME_LIMIT_WRAP_UP : TOOL_LIMIT_WRAP_UP, timestamp: Date.now() }],
+        }
+      }
+      return prepare ? prepare(turn, signal) : agent.prepareNextTurn?.(signal)
+    }
     agent.afterToolCall = async (event, signal) => {
       const override = await after?.(event, signal)
       if (event.toolCall.name === LOAD && !event.isError) {
@@ -270,7 +517,7 @@ export function configureAeroRuntime(agent: Agent, allowed: AgentTool[], limits?
         // parallel batch only after preparing every call in it, so an abort
         // would also cancel the calls already allowed.
         if (state.calls >= state.limits.maxToolCalls) {
-          state.reason = 'tool-limit'
+          if (state.reason !== 'time-limit') state.reason = 'tool-limit'
           overLimit.add(event.toolCallId)
         } else if (!agent.signal?.aborted) {
           state.calls++
@@ -284,8 +531,19 @@ export function configureAeroRuntime(agent: Agent, allowed: AgentTool[], limits?
         if (startedAt !== undefined) toolDurations.set(event.toolCallId, Date.now() - startedAt)
         toolStarts.delete(event.toolCallId)
       }
+      if (event.type === 'turn_end' && event.message.role === 'assistant' && !isRunFailureMessage(event.message)) {
+        // Read loosely: a malformed message must not break the turn it is counted in.
+        const usage = event.message.usage as { input?: unknown; output?: unknown; cacheRead?: unknown; cost?: { total?: unknown } } | undefined
+        state.usage.responses++
+        // Whole tokens per response, as `llm_usage_events` stores them: a fractional count is not a valid outcome count.
+        state.usage.inputTokens += Math.round(nonNegative(usage?.input))
+        state.usage.outputTokens += Math.round(nonNegative(usage?.output))
+        state.usage.cachedTokens += Math.round(nonNegative(usage?.cacheRead))
+        state.usage.costUsd += nonNegative(usage?.cost?.total)
+      }
       if (event.type === 'message_end' && event.message.role === 'toolResult') {
         const message = event.message
+        if (message.isError && !overLimit.has(message.toolCallId) && !blocked.has(message.toolCallId)) state.usage.toolErrors++
         explainMissingTool(state, message)
         const durationMs = toolDurations.get(message.toolCallId)
         const requested = state.corrected.get(message.toolCallId)
@@ -301,22 +559,45 @@ export function configureAeroRuntime(agent: Agent, allowed: AgentTool[], limits?
         toolStarts.clear()
         toolDurations.clear()
         overLimit.clear()
+        blocked.clear()
+        state.usage = emptyTurnUsage()
         state.corrected.clear()
+        state.wrapUp = false
+        state.hardDeadline = false
+        state.memo.clear()
+        state.pageReferences.clear()
+        state.pageTurn++
+        state.research = new AbortController()
         state.calls = 0
         state.rounds = 0
         state.reason = 'completed'
         state.startedAt = Date.now()
         state.finishedAt = undefined
-        state.timer = setTimeout(() => { state.reason = 'time-limit'; agent.abort() }, state.limits.timeoutMs)
+        const reservedMs = Math.min(15_000, Math.max(250, Math.floor(state.limits.timeoutMs / 10)))
+        state.timer = setTimeout(() => {
+          if (state.wrapUp) return
+          state.reason = 'time-limit'
+          state.research?.abort()
+        }, state.limits.timeoutMs - reservedMs)
+        state.deadlineTimer = setTimeout(() => {
+          state.reason = 'time-limit'
+          state.hardDeadline = true
+          agent.abort()
+        }, state.limits.timeoutMs)
         state.timer.unref()
+        state.deadlineTimer.unref()
       } else if (event.type === 'agent_end') {
         state.finishedAt = Date.now()
         clearTimeout(state.timer)
-        if (state.reason === 'completed' && agent.signal?.aborted) state.reason = 'stopped'
+        clearTimeout(state.deadlineTimer)
+        state.memo.clear()
+        state.pageReferences.clear()
+        if (agent.signal?.aborted && !state.hardDeadline) state.reason = 'stopped'
         if (state.reason === 'completed' && agent.state.errorMessage) state.reason = 'error'
       }
     })
   }
+  runtime.pageReferences.clear()
   runtime.allowed = allowed
   runtime.loaded = new Set()
   runtime.limits = agentTurnLimitsSchema.parse(limits ?? {})
@@ -369,6 +650,11 @@ export function setAeroSystemPrompt(agent: Agent, prompt: string = agent.state.s
   const system = createInitialSystemMessage(prompt, agent.state.tools.map(toToolDeclaration))
   const rest = agent.state.messages.filter(message => message.role !== 'system')
   agent.state.messages = system ? [system, ...rest] : rest
+}
+
+/** Token, cost and tool-error totals of the agent's latest turn. Never streamed to clients. */
+export function aeroTurnUsage(agent: Agent): Readonly<AeroTurnUsage> | undefined {
+  return runtimes.get(agent)?.usage
 }
 
 export function aeroTurnStatus(agent: Agent) {

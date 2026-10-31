@@ -32,12 +32,24 @@ const KNOWN_WITHOUT_RETRY = new Set([
   // Each of these predates the rule. They are exposed to exactly the failure
   // mode that motivated it, and are worth fixing in their own PRs.
   'integration-cloud-run',
-  'integration-google', // Google Search Console — same dashboard refresh as Bing
   'integration-openai-ads',
   'integration-vercel',
   'integration-wordpress',
   'integration-wordpress-traffic',
+  // These two call through an injected `fetchImpl`, which the scanner below
+  // did not recognise until it matched that form too; they predate the rule
+  // like the rest. Cloudflare Queue retries in its own bounded loop
+  // (`withQueueRetry`) rather than `withRetry`; Common Crawl does not retry.
+  'integration-cloudflare-queue',
+  'integration-commoncrawl',
 ])
+
+/**
+ * An outbound call: global `fetch(`, an injected `fetchImpl(`, or a fallback
+ * such as `(options.fetchImpl ?? fetch)(`. Integrations take the fetch as a
+ * parameter so a host can guard their egress, and that must not hide them.
+ */
+const HTTP_CALL = /\bfetch(?:Impl)?\)?\s*\(/
 
 /** Integration packages whose `src/` issues outbound HTTP calls. */
 function integrationPackagesMakingHttpCalls(): string[] {
@@ -47,7 +59,7 @@ function integrationPackagesMakingHttpCalls(): string[] {
     if (!entry.isDirectory() || !entry.name.startsWith('integration-')) continue
     const srcDir = path.join(PACKAGES_DIR, entry.name, 'src')
     if (!fs.existsSync(srcDir)) continue
-    if (sourceFiles(srcDir).some((file) => /\bfetch\s*\(/.test(fs.readFileSync(file, 'utf8')))) {
+    if (sourceFiles(srcDir).some((file) => HTTP_CALL.test(fs.readFileSync(file, 'utf8')))) {
       names.push(entry.name)
     }
   }
@@ -82,7 +94,7 @@ describe('integration retry coverage', () => {
       `These integrations make HTTP calls but never use withRetry:\n` +
       `  ${unprotected.join('\n  ')}\n\n` +
       `A third party that rate-limits or blips will fail the call outright. Wrap the ` +
-      `HTTP layer in withRetry from @ainyc/canonry-contracts (see ` +
+      `HTTP layer in withRetry from @canonry/canonry-contracts (see ` +
       `packages/integration-bing/src/bing-client.ts), or, if it genuinely cannot be ` +
       `retried, add it to KNOWN_WITHOUT_RETRY in this file with a reason.`,
     ).toEqual([])
@@ -99,6 +111,11 @@ describe('integration retry coverage', () => {
       [...KNOWN_WITHOUT_RETRY].filter((pkg) => !stillMissing.includes(pkg)),
       'These packages are in KNOWN_WITHOUT_RETRY but no longer need to be — remove them from the set.',
     ).toEqual([])
+  })
+
+  it('every known gap is still detected as an HTTP caller, so dropping it unfixed fails the first check', () => {
+    const detected = integrationPackagesMakingHttpCalls()
+    expect([...KNOWN_WITHOUT_RETRY].filter((pkg) => !detected.includes(pkg))).toEqual([])
   })
 
   it('integration-bing retries, since its outage is why this test exists', () => {

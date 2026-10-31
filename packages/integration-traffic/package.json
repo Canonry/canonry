@@ -1,5 +1,5 @@
 {
-  "name": "@ainyc/canonry-integration-traffic",
+  "name": "@canonry/canonry-integration-traffic",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -12,12 +12,12 @@
   },
   "types": "./src/index.ts",
   "scripts": {
-    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.scripts.json",
+    "typecheck": "node ../../scripts/typecheck.mjs --noEmit -p tsconfig.json && node ../../scripts/typecheck.mjs --noEmit -p tsconfig.scripts.json",
     "test": "vitest run --config ../../vitest.package.config.ts",
-    "lint": "eslint src/ test/ scripts/",
+    "lint": "oxlint -c ../../.oxlintrc.json --type-aware src/ test/ scripts/",
     "refresh-ip-ranges": "tsx scripts/refresh-ip-ranges.ts"
   },
   "dependencies": {
-    "@ainyc/canonry-contracts": "workspace:*"
+    "@canonry/canonry-contracts": "workspace:*"
   }
 }

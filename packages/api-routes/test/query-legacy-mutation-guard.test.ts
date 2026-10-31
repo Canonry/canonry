@@ -18,13 +18,13 @@ import {
   queries,
   querySnapshots,
   runs,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import {
   RunStatuses,
   canonicalMeasurementPlanJson,
   canonicalMeasurementPlanV2Json,
   compileMeasurementPlan,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { apiRoutes } from '../src/index.js'
 import { hashApiKey } from '../src/auth.js'
 import { measurementPlanV2Fixture } from './measurement-plan-v2-fixture.js'
@@ -382,7 +382,7 @@ describe('legacy query catalog mutation guard', () => {
     expect(db.select().from(queries).where(eq(queries.id, unassignedId)).get()).toBeUndefined()
   })
 
-  it('rolls back earlier apply config writes when the incoming query set would change an active plan', async () => {
+  it.each(['/api/v1/apply', '/api/v1/apply/preview'])('%s rolls back earlier config writes when the incoming query set would change an active plan', async url => {
     const { app, db } = buildApp()
     const projectId = seedProject(db, 'apply-guard', 'Original name')
     const assignedId = seedQuery(db, projectId, 'homes near harbor', 'q-nearby')
@@ -391,7 +391,7 @@ describe('legacy query catalog mutation guard', () => {
 
     const response = await app.inject({
       method: 'POST',
-      url: '/api/v1/apply',
+      url,
       payload: applyBody('apply-guard', ['replacement catalog wording'], {
         displayName: 'Changed name',
         canonicalDomain: 'changed.example',

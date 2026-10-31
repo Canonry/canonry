@@ -29,7 +29,7 @@ describe('buildGapQueryScore', () => {
     ]
     const result = buildGapQueryScore(snapshots)
     expect(result.value).toBe('1')
-    expect(result.delta).toBe('1 of 1 queries at risk')
+    expect(result.delta).toBe('1 of 1 query')
   })
 
   it('does not count a query as a gap when cited, even if competitors are present', () => {
@@ -144,7 +144,7 @@ describe('buildMentionGapScore', () => {
     ]
     const result = buildMentionGapScore(snapshots)
     expect(result.value).toBe('1')
-    expect(result.delta).toBe('1 of 1 queries at risk')
+    expect(result.delta).toBe('1 of 1 query')
   })
 
   it('keeps mention-gap progress at wire precision', () => {

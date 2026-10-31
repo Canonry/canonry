@@ -94,10 +94,12 @@ describe('resolveMeasurementRunScope', () => {
   })
 
   it('unions groups and targets', () => {
-    const resolution = resolve({ groups: ['metro-group'], targets: ['south-branch'] })
-
-    expect(resolution.scope.resolvedTargets).toEqual(['north-branch', 'south-branch'])
-    expect(resolution.executionNodes).toHaveLength(2)
+    const resolved = resolveMeasurementRunScope(compiled(), { groups: ['metro-group', 'metro-group'], targets: ['south-branch', 'north-branch', 'south-branch'] })
+    expect(resolved.scope).toEqual({ groups: ['metro-group'], targets: ['north-branch', 'south-branch'], queries: [], resolvedTargets: ['north-branch', 'south-branch'] })
+    expect(resolved.executionNodes).toEqual([
+      { stableKey: "execution-d2lkZ2V0IHByaWNpbmcAeyJjaXR5IjoiTm9ydGggQ2l0eSIsImNvdW50cnkiOiJVUyIsImxhYmVsIjoibm9ydGgtY2l0eSIsInJlZ2lvbiI6Ik5DIn0", queryText: 'widget pricing', context: NORTH, expectedSnapshots: 2 },
+      { stableKey: "execution-d2lkZ2V0IHJlcGFpcgB7ImNpdHkiOiJTb3V0aCBDaXR5IiwiY291bnRyeSI6IlVTIiwibGFiZWwiOiJzb3V0aC1jaXR5IiwicmVnaW9uIjoiU0MifQ", queryText: 'widget repair', context: SOUTH, expectedSnapshots: 2 },
+    ])
   })
 
   it('names an unknown group key', () => {

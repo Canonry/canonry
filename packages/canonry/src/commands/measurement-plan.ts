@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import { parse } from 'yaml'
 import {
   MeasurementEvidenceShapes,
+  MentionIdentities,
   formatPercent,
   measurementChangesQuerySchema,
   measurementDataQualityQuerySchema,
@@ -14,10 +15,12 @@ import {
   measurementPlanInputSchema,
   measurementPortfolioSummaryQuerySchema,
   measurementPropertyCompetitorsQuerySchema,
-  reportUnattributedAnswers,
+  unattributedAnswersLabel,
+  uncheckedSourcesLabel,
   UNATTRIBUTED_MENTION_REASON,
   type MeasurementAnswerEvidence,
   type MeasurementAttributionEvidence,
+  type MeasurementOtherQueryCitation,
   type MeasurementDiscoveryRequest,
   type MeasurementDiscoveryRule,
   type MeasurementEvidenceShape,
@@ -34,7 +37,7 @@ import {
   visibilityReportRequestSchema,
   queryTrackingPreviewRequestSchema,
   queryTrackingCommitRequestSchema,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { z } from 'zod'
 import { isMachineFormat, systemError } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
@@ -178,12 +181,16 @@ export async function runAdvancedMeasurementOperation(
       advancedEmptyInputSchema.parse(input)
       result = await client.getMeasurementSetup(project)
       break
-    case 'overview':
-      result = await client.getMeasurementOverview(project, measurementOverviewQuerySchema.parse(input))
+    case 'overview': {
+      const query = measurementOverviewQuerySchema.parse(input)
+      result = await client.getMeasurementOverview(project, { ...query, compact: typeof input === 'object' && input !== null && 'compact' in input ? query.compact : true })
       break
-    case 'portfolio-summary':
-      result = await client.getMeasurementPortfolioSummary(project, measurementPortfolioSummaryQuerySchema.parse(input))
+    }
+    case 'portfolio-summary': {
+      const query = measurementPortfolioSummaryQuerySchema.parse(input)
+      result = await client.getMeasurementPortfolioSummary(project, { ...query, compact: typeof input === 'object' && input !== null && 'compact' in input ? query.compact : true })
       break
+    }
     case 'property-questions':
       result = await client.getMeasurementPropertyQuestions(project, measurementPropertyQuestionsQuerySchema.parse(input))
       break
@@ -416,8 +423,24 @@ export async function discoverMeasurementTargets(
   console.log(JSON.stringify(await createApiClient().discoverMeasurementTargets(project, request), null, 2))
 }
 
-export async function showMeasurementReport(project: string, revision: number): Promise<void> {
-  console.log(JSON.stringify(await createApiClient().getMeasurementReport(project, revision), null, 2))
+export async function showMeasurementReport(
+  project: string,
+  revision: number,
+  queryClass?: MeasurementQueryClassFilter,
+): Promise<void> {
+  console.log(JSON.stringify(await createApiClient().getMeasurementReport(project, revision, undefined, queryClass), null, 2))
+}
+
+/**
+ * The query population a figure was taken over, as a reader should see it.
+ * `all` is the explicit pooled read, so it says so.
+ */
+function queryClassText(queryClass: MeasurementQueryClassFilter): string {
+  switch (queryClass) {
+    case 'non-brand': return 'non-brand queries'
+    case 'branded': return 'branded queries'
+    case 'all': return 'branded and non-brand queries pooled'
+  }
 }
 
 /**
@@ -436,7 +459,17 @@ const METRIC_REASONS: Record<string, string> = {
 
 /** Answers a mention rate left out because they could not be tied to one property. */
 function unattributedText(metric: MetricValue): string | null {
-  return metric.state === 'available' ? reportUnattributedAnswers(metric) : null
+  return metric.state === 'available' ? unattributedAnswersLabel(metric) : null
+}
+
+/** Answers a citation rate left out because their source-link capture was incomplete. */
+function uncheckedText(metric: MetricValue): string | null {
+  return metric.state === 'available' ? uncheckedSourcesLabel(metric) : null
+}
+
+/** A rate followed by the note naming the answers it left out, when there is one. */
+function metricWithNote(metric: MetricValue, note: string | null): string {
+  return `${metricText(metric)}${note ? ` · ${note}` : ''}`
 }
 
 function metricText(metric: MetricValue): string {
@@ -481,23 +514,28 @@ export async function showMeasurementProperty(project: string, opts: Measurement
 function printMeasurementProperty(response: MeasurementOverviewResponse): void {
   const row = response.properties.items.at(0)
   const lines: string[] = []
-  lines.push(`${response.scope.label} — ${response.queryClass} questions`)
+  lines.push(`${response.scope.label} · ${queryClassText(response.queryClass)}`)
   lines.push(`Measurement: ${response.measurement.state}${response.measurement.displayedRunId ? ` · run ${response.measurement.displayedRunId}` : ''}`)
   lines.push('')
   const mention = row ? row.mentionCoverage : response.metrics.mentionCoverage
-  const unattributed = unattributedText(mention)
-  lines.push(`Mentioned  ${metricText(mention)}${unattributed ? ` · ${unattributed}` : ''}`)
-  lines.push(`Cited      ${metricText(row ? row.citationCoverage : response.metrics.citationCoverage)}`)
+  const citation = row ? row.citationCoverage : response.metrics.citationCoverage
+  lines.push(`Mentioned  ${metricWithNote(mention, unattributedText(mention))}`)
+  lines.push(`Cited      ${metricWithNote(citation, uncheckedText(citation))}`)
   if (row && row.flags > 0) lines.push(`Flagged    ${row.flags} ${row.flags === 1 ? 'result needs' : 'results need'} review`)
 
   if (row && row.providers.length > 0) {
+    const engineWidth = 14
+    const mentionWidth = 34
     lines.push('')
-    lines.push(`${'Engine'.padEnd(14)}${'Mentioned'.padEnd(34)}Cited`)
+    lines.push(`${'Engine'.padEnd(engineWidth)}${'Mentioned'.padEnd(mentionWidth)}Cited`)
     for (const provider of row.providers) {
-      lines.push(`${provider.provider.padEnd(14)}${metricText(provider.mentionCoverage).padEnd(34)}${metricText(provider.citationCoverage)}`)
-      // Continues under the Mentioned column so the table's columns stay aligned.
+      lines.push(`${provider.provider.padEnd(engineWidth)}${metricText(provider.mentionCoverage).padEnd(mentionWidth)}${metricText(provider.citationCoverage)}`)
+      // Each note continues on its own line under its own column (mention
+      // under Mentioned, citation under Cited) so the columns stay aligned.
       const providerUnattributed = unattributedText(provider.mentionCoverage)
-      if (providerUnattributed) lines.push(`${''.padEnd(14)}${providerUnattributed}`)
+      if (providerUnattributed) lines.push(`${''.padEnd(engineWidth)}${providerUnattributed}`)
+      const providerUnchecked = uncheckedText(provider.citationCoverage)
+      if (providerUnchecked) lines.push(`${''.padEnd(engineWidth + mentionWidth)}${providerUnchecked}`)
     }
   }
   console.log(lines.join('\n'))
@@ -524,6 +562,7 @@ interface ShapedPage<Row> {
 type ShapedEvidencePage =
   | ({ shape: typeof MeasurementEvidenceShapes.sources } & ShapedPage<MeasurementAttributionEvidence>)
   | ({ shape: typeof MeasurementEvidenceShapes.answers } & ShapedPage<MeasurementAnswerEvidence>)
+  | ({ shape: typeof MeasurementEvidenceShapes['other-queries'] } & ShapedPage<MeasurementOtherQueryCitation>)
 
 /**
  * Which page arrived IS the shape the endpoint served, so the header and the
@@ -534,7 +573,8 @@ type ShapedEvidencePage =
 function shapedPage(response: MeasurementPropertyEvidenceResponse): ShapedEvidencePage {
   if (response.answers !== undefined) return { shape: MeasurementEvidenceShapes.answers, ...response.answers }
   if (response.evidence !== undefined) return { shape: MeasurementEvidenceShapes.sources, ...response.evidence }
-  throw systemError('The measurement property evidence response carried neither an evidence nor an answers page.')
+  if (response.otherQueries !== undefined) return { shape: MeasurementEvidenceShapes['other-queries'], ...response.otherQueries }
+  throw systemError('The measurement property evidence response carried no evidence, answers or otherQueries page.')
 }
 
 /**
@@ -602,6 +642,7 @@ function printMeasurementPropertyEvidence(response: MeasurementPropertyEvidenceR
   }
   const page = shapedPage(response)
   const answerShape = page.shape === MeasurementEvidenceShapes.answers
+  const otherQueriesShape = page.shape === MeasurementEvidenceShapes['other-queries']
   lines.push(`Measurement: ${response.measurement.state}${response.measurement.displayedRunId ? ` · run ${response.measurement.displayedRunId}` : ''}`)
   if (page.items.length === 0) {
     // Named for what was looked for. "No source evidence" under the answer
@@ -609,21 +650,39 @@ function printMeasurementPropertyEvidence(response: MeasurementPropertyEvidenceR
     // with no answers at all.
     lines.push(answerShape
       ? 'No answers matched this Property in the displayed run.'
-      : 'No source evidence matched this Property in the displayed run.')
+      : otherQueriesShape
+        ? 'No answer to another query cited this Property\'s pages in the displayed run.'
+        : 'No source evidence matched this Property in the displayed run.')
     console.log(lines.join('\n'))
     return
   }
-  lines.push(`${page.items.length} of ${page.totalEstimate ?? page.items.length} ${answerShape ? 'answers' : 'evidence rows'}`)
+  lines.push(`${page.items.length} of ${page.totalEstimate ?? page.items.length} ${answerShape || otherQueriesShape ? 'answers' : 'evidence rows'}`)
+  if (otherQueriesShape) lines.push('Cited on queries not assigned to this Property; not counted in its rates.')
   lines.push('')
-  if (page.shape === MeasurementEvidenceShapes.answers) {
+  if (page.shape === MeasurementEvidenceShapes['other-queries']) {
+    lines.push(`${'Engine'.padEnd(12)}${'Question'.padEnd(40)}${'Class'.padEnd(11)}${'Assigned to'.padEnd(24)}Pages`)
+    for (const item of page.items) {
+      lines.push(
+        `${item.provider.padEnd(12)}${item.queryText.slice(0, 39).padEnd(40)}${item.queryClass.padEnd(11)}`
+        + `${item.assignedTargetKeys.join(', ').slice(0, 23).padEnd(24)}${item.sources.map(source => source.sourceUrl).join(' ')}`,
+      )
+    }
+  } else if (page.shape === MeasurementEvidenceShapes.answers) {
     // Both signals on every row: a single cell that flipped between them would
     // leave a reader unable to tell which one they are looking at.
     lines.push(`${'Engine'.padEnd(12)}${'Question'.padEnd(40)}${'Mentioned'.padEnd(15)}${'Cited'.padEnd(8)}Sources`)
+    let differentSubject = 0
     for (const item of page.items) {
+      const ruledOut = item.mentionIdentity === MentionIdentities['wrong-subject']
+      if (ruledOut) differentSubject++
       lines.push(
         `${item.provider.padEnd(12)}${item.queryText.slice(0, 39).padEnd(40)}`
-        + `${signalText(item.mentioned).padEnd(15)}${signalText(item.cited).padEnd(8)}${item.sources.length}`,
+        + `${signalText(item.mentioned).padEnd(15)}${signalText(item.cited).padEnd(8)}${item.sources.length}`
+        + (ruledOut ? '  · different subject' : ''),
       )
+    }
+    if (differentSubject > 0) {
+      lines.push('· different subject: the answer uses this Property\'s name, but sentiment found it is about something else, so it is not counted as mentioned.')
     }
   } else {
     lines.push(`${'Match'.padEnd(14)}${'Engine'.padEnd(12)}${'Question'.padEnd(40)}URL`)

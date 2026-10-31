@@ -61,8 +61,8 @@ export const GA4_INITIAL_RETRY_DELAY_MS = 1000
  * that broke CI when source/test diverged) is impossible — every call site
  * and every test imports the same identifier.
  *
- * ESLint blocks raw use of these string values outside this file via
- * `canonry-guards/no-inline-ga4-dimension` in the workspace config.
+ * Lint blocks raw use of these string values outside this file via
+ * `canonry-guards/no-inline-ga4-dimension` in `.oxlintrc.json`.
  */
 export const GA4_DIMENSIONS = {
   date: 'date',
@@ -73,6 +73,12 @@ export const GA4_DIMENSIONS = {
   sessionManualMedium: 'sessionManualMedium',
   firstUserSource: 'firstUserSource',
   firstUserMedium: 'firstUserMedium',
+  /**
+   * The channel group of the source and medium that first acquired the user,
+   * the first-user counterpart of `sessionDefaultChannelGroup` (deprecated
+   * name `firstUserDefaultChannelGrouping`, getMetadata, captured live).
+   */
+  firstUserDefaultChannelGroup: 'firstUserDefaultChannelGroup',
   sessionDefaultChannelGrouping: 'sessionDefaultChannelGrouping',
   sessionDefaultChannelGroup: 'sessionDefaultChannelGroup',
   hostName: 'hostName',
@@ -94,4 +100,45 @@ export const GA4_METRICS = {
    * reconstruct one.
    */
   newUsers: 'newUsers',
+  /**
+   * GA4's "Active users". In the Search Console landing-page report it is the
+   * plain metric from the same request as the Search Console metrics: that
+   * reproduced GA4's own report exactly, while filtering it to google / organic
+   * sessions did not (captured live, 2026-10-08).
+   */
+  activeUsers: 'activeUsers',
+  /** GA4's "Views": web pages and app screens viewed. */
+  screenPageViews: 'screenPageViews',
+  /** GA4's "Key events" (named "conversions" until 2024). */
+  keyEvents: 'keyEvents',
+  /**
+   * Engaged time in seconds, summed. GA4's "Average engagement time" is this
+   * divided by `activeUsers` over the same span.
+   */
+  userEngagementDuration: 'userEngagementDuration',
+  /** Share of sessions that were not engaged (0-1), GA4's own figure. */
+  bounceRate: 'bounceRate',
+  /**
+   * Search Console metrics a GA4 property exposes once it is linked to Search
+   * Console. Compatible only with the landing page, device and country
+   * dimensions: `date`, `sessionSource`, `sessionMedium` and
+   * `sessionDefaultChannelGroup` are INCOMPATIBLE (checkCompatibility, captured
+   * live), so the report is one request per window with no daily rows and no
+   * source filter.
+   */
+  organicGoogleSearchClicks: 'organicGoogleSearchClicks',
+  organicGoogleSearchImpressions: 'organicGoogleSearchImpressions',
+  organicGoogleSearchClickThroughRate: 'organicGoogleSearchClickThroughRate',
+  organicGoogleSearchAveragePosition: 'organicGoogleSearchAveragePosition',
 } as const
+
+/**
+ * Most landing-page rows stored per window of the Search Console landing-page
+ * report. Rows are requested by clicks, then impressions (both descending), so
+ * a capped window keeps the pages with the most search traffic, and the stored
+ * window says it was capped.
+ */
+export const GA4_SEARCH_LANDING_MAX_ROWS = 10_000
+
+/** Rows requested per page of the Search Console landing-page report. */
+export const GA4_SEARCH_LANDING_PAGE_SIZE = 10_000

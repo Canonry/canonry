@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import type { ContentTargetRowDto } from '@ainyc/canonry-contracts'
+import type { ContentTargetRowDto } from '@canonry/canonry-contracts'
 
 // Stub `completeOnce` at module-load time so the explainer's
 // `import { completeOnce }` resolves to the mock. Each test seeds
@@ -270,9 +270,9 @@ describe('createRecommendationExplainer', () => {
     // The chosen model id should match the analyze tier for that provider.
     const callModel = (mockState.lastCall?.model ?? { id: '' }) as { id: string; provider: string }
     expect(callModel.provider).toBe('google')
-    // pi-ai's gemini analyze tier is gemini-2.5-flash today; assert at least
+    // The gemini analyze tier is gemini-3.8-flash today; assert at least
     // that it is one of the configured flash variants.
-    expect(callModel.id).toMatch(/^gemini-2\.5-flash/)
+    expect(callModel.id).toMatch(/^gemini-3\.\d+-flash/)
   })
 
   it('honors a provider override that has a configured key', async () => {
@@ -530,6 +530,6 @@ describe('createRecommendationBriefSynthesizer', () => {
     })
     const callModel = (mockState.lastCall?.model ?? { id: '' }) as { id: string; provider: string }
     expect(callModel.provider).toBe('google')
-    expect(callModel.id).toMatch(/^gemini-2\.5-flash/)
+    expect(callModel.id).toMatch(/^gemini-3\.\d+-flash/)
   })
 })

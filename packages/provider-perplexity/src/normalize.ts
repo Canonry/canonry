@@ -1,6 +1,7 @@
 import OpenAI from 'openai'
 import {
   AI_ENGINE_SELF_DOMAINS,
+  AnchoredSpanSources,
   hostMatchesAnyDomain,
   hostOf,
   normalizeServedModel,
@@ -8,8 +9,8 @@ import {
   resolveProviderModel,
   describeError,
   usageCount,
-} from '@ainyc/canonry-contracts'
-import type { ProviderUsage, TrackedQueryRequest } from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
+import type { AnchoredAnswerSpan, ProviderUsage, TrackedQueryRequest } from '@canonry/canonry-contracts'
 import { withRetry } from './utils.js'
 import type {
   PerplexityAgentRequest,
@@ -39,7 +40,7 @@ const BASE_URL = 'https://api.perplexity.ai/v1'
 const AGENT_PATH = '/agent'
 
 /** The path a tracked query is posted to, relative to the API host (`BASE_URL` + `AGENT_PATH`). */
-export const PERPLEXITY_AGENT_ENDPOINT = '/v1/agent'
+const PERPLEXITY_AGENT_ENDPOINT = '/v1/agent'
 
 /**
  * The measurement contract this provider executes. `search-required-v1`: the
@@ -65,7 +66,7 @@ const RETRIEVAL_OUTPUT_TYPES: ReadonlySet<string> = new Set(['search_results', '
  * resolves through the shared alias table (`sonar` → `fast`, …), so this is
  * also the value recorded as the requested model.
  */
-export function resolveModel(model: string | undefined): string {
+function resolveModel(model: string | undefined): string {
   const trimmed = model?.trim()
   return resolveProviderModel('perplexity', trimmed ? trimmed : DEFAULT_MODEL)
 }
@@ -77,14 +78,14 @@ export function resolveModel(model: string | undefined): string {
  * reasoning before any answer appears.
  * Docs: https://docs.perplexity.ai/api-reference/agent-post
  */
-export const ANTHROPIC_MAX_OUTPUT_TOKENS = 4096
+const ANTHROPIC_MAX_OUTPUT_TOKENS = 4096
 
 /**
  * A `vendor/model` slug names one model; anything else is a preset. Every
  * request path (sweep, key check, text generation) builds on this, so a
  * model's required fields travel with it.
  */
-export function agentSelection(model: string): PerplexityAgentSelection {
+function agentSelection(model: string): PerplexityAgentSelection {
   if (!model.includes('/')) return { preset: model }
   return model.startsWith('anthropic/') ? { model, max_output_tokens: ANTHROPIC_MAX_OUTPUT_TOKENS } : { model }
 }
@@ -96,7 +97,7 @@ export function agentSelection(model: string): PerplexityAgentSelection {
  * one) keeps the request shape identical with and without a location, and it
  * is required for `tool_choice` on a model slug.
  */
-export function buildAgentRequest(
+function buildAgentRequest(
   query: string,
   model: string,
   location?: PerplexityTrackedQueryInput['location'],
@@ -199,7 +200,7 @@ export function parseTrackedQueryResponse(body: Record<string, unknown>, model: 
     provider: 'perplexity',
     rawResponse: body,
     model: resolveModel(model),
-    servedModel: extractServedModel(body),
+    servedModel: normalizeServedModel(body.model),
     groundingSources: parsed.groundingSources,
     searchQueries: parsed.searchQueries,
     retrievalStatus: parsed.retrievalStatus,
@@ -241,16 +242,6 @@ function hasParsedResponseContent(rawResponse: Record<string, unknown>): boolean
 }
 
 /**
- * Read the model Perplexity reported serving off a stored raw response. Both
- * Sonar and Agent API responses carry it as top-level `model`; for a preset it
- * is the model the preset resolved to. A response that omits `model` yields
- * undefined rather than the configured preset.
- */
-export function extractServedModel(rawResponse: Record<string, unknown>): string | undefined {
-  return normalizeServedModel(rawResponse.model)
-}
-
-/**
  * Parse a raw response, either shape, direct or wrapped under `apiResponse` as
  * the job runner stores it. Agent API responses carry an `output` array; rows
  * written before the migration are Sonar Chat Completions and keep their own
@@ -260,6 +251,66 @@ export function reparseStoredResult(rawResponse: Record<string, unknown>): Perpl
   const agent = agentResponseOf(rawResponse)
   if (agent) return parseAgentResponse(agent)
   return parseSonarResponse(rawResponse)
+}
+
+/**
+ * The answer prose each `[N]` citation marker ties to its source, for
+ * competitor auto-alias detection (contracts `competitor-auto-aliases.ts`).
+ *
+ * A marker group (`[1]`, or `[1][5]` written back to back) cites the text
+ * before it on the same line, from the end of the previous group. Agent API
+ * responses resolve `N` to the `search_results` entry with `id` N (ids run on
+ * across `search_results` items; message annotations are always empty); Sonar
+ * history resolves it to `citations[N - 1]`. Reads the stored response only;
+ * never resolves a URL.
+ */
+export function extractAnchoredSpans(rawResponse: Record<string, unknown>): AnchoredAnswerSpan[] {
+  const agent = agentResponseOf(rawResponse)
+  let text: string
+  let sourceFor: (marker: number) => string | undefined
+  if (agent) {
+    text = extractAgentAnswerText(agent)
+    const byId = new Map<number, string>()
+    for (const item of agentOutput(agent)) {
+      if (item.type !== 'search_results' || !Array.isArray(item.results)) continue
+      for (const result of item.results) {
+        if (!isRecord(result) || typeof result.id !== 'number' || typeof result.url !== 'string' || !result.url) continue
+        if (!byId.has(result.id)) byId.set(result.id, result.url)
+      }
+    }
+    sourceFor = marker => byId.get(marker)
+  } else {
+    text = extractAnswerText(rawResponse)
+    const citations = extractCitations(rawResponse)
+    sourceFor = marker => citations[marker - 1]
+  }
+  const spans: AnchoredAnswerSpan[] = []
+  if (!text.includes('[')) return spans
+  let groupStart = -1
+  let groupEnd = -1
+  let previousEnd = 0
+  let markers: number[] = []
+  const flush = () => {
+    if (markers.length === 0) return
+    const lineStart = groupStart === 0 ? 0 : text.lastIndexOf('\n', groupStart - 1) + 1
+    const from = Math.max(lineStart, previousEnd)
+    const window = text.slice(from, groupStart)
+    if (window.trim()) {
+      for (const source of new Set(markers.map(sourceFor).filter((url): url is string => typeof url === 'string' && url.length > 0))) {
+        spans.push({ text: window, source, kind: 'window', via: AnchoredSpanSources['perplexity-marker'] })
+      }
+    }
+    previousEnd = groupEnd
+    markers = []
+  }
+  for (const match of text.matchAll(/\[(\d{1,3})\]/g)) {
+    if (markers.length > 0 && match.index !== groupEnd) flush()
+    if (markers.length === 0) groupStart = match.index
+    markers.push(Number(match[1]))
+    groupEnd = match.index + match[0].length
+  }
+  flush()
+  return spans
 }
 
 // --- Agent API (current) ---
@@ -450,7 +501,7 @@ function parseSonarResponse(rawResponse: Record<string, unknown>): PerplexityNor
  * the `search_results` output item instead.
  * Docs: https://docs.perplexity.ai/docs/sonar/openai-compatibility
  */
-export function extractCitations(rawResponse: Record<string, unknown>): string[] {
+function extractCitations(rawResponse: Record<string, unknown>): string[] {
   // Shape 1: direct API response (used at execution time)
   if (Array.isArray(rawResponse.citations)) {
     return rawResponse.citations.filter((c): c is string => typeof c === 'string')
@@ -547,7 +598,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
-export function extractCitedDomains(groundingSources: GroundingSource[]): string[] {
+function extractCitedDomains(groundingSources: GroundingSource[]): string[] {
   const domains = new Set<string>()
   for (const source of groundingSources) {
     const domain = extractDomainFromUri(source.uri)
@@ -561,7 +612,7 @@ function extractDomainFromUri(uri: string): string | null {
   if (
     !hostname
     || !registrableDomain(hostname)
-    || hostMatchesAnyDomain(hostname, AI_ENGINE_SELF_DOMAINS.chatgpt)
+    || hostMatchesAnyDomain(hostname, AI_ENGINE_SELF_DOMAINS.perplexity)
   ) return null
   return hostname
 }

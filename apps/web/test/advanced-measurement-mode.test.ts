@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  advancedProjectTagDetail,
   resolveAdvancedMeasurementMode,
 } from '../src/components/project/advanced-measurement/model.js'
 
@@ -38,5 +39,22 @@ describe('advanced measurement mode', () => {
       surface: 'advanced-overview',
       setupAction: 'continue',
     })
+  })
+})
+
+describe('advanced project tag', () => {
+  it('counts every property and only top-level markets', () => {
+    expect(advancedProjectTagDetail({
+      targets: [{}, {}, {}, {}],
+      groups: [{}, {}, { parentGroupKey: 'east' }],
+    })).toBe('4 properties · 2 markets')
+  })
+
+  it('uses singular nouns for one property and one market', () => {
+    expect(advancedProjectTagDetail({ targets: [{}], groups: [{}] })).toBe('1 property · 1 market')
+  })
+
+  it('omits markets when the setup has none', () => {
+    expect(advancedProjectTagDetail({ targets: [{}, {}], groups: [] })).toBe('2 properties')
   })
 })

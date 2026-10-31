@@ -1,10 +1,30 @@
 import type { ReactNode } from 'react'
 import React from 'react'
-import { brandKeyFromText } from '@ainyc/canonry-contracts'
+import { brandKeyFromText, brandLabelFromDomain, escapeRegExp } from '@canonry/canonry-contracts'
 
 export interface HighlightTermGroup {
   terms: string[]
   className: string
+}
+
+/**
+ * Competitor terms to highlight in one answer: the names and written hosts the
+ * server matched (`mentionedCompetitorTerms`, curated aliases included) plus
+ * the recommended competitor names. The matching stays server-side; only a row
+ * from a payload without matched terms falls back to each mentioned domain's
+ * label (4 or more characters).
+ */
+export function competitorHighlightTerms(item: {
+  mentionedCompetitorDomains?: readonly string[]
+  mentionedCompetitorTerms?: readonly string[]
+  recommendedCompetitors?: readonly string[]
+}): string[] {
+  const mentioned = item.mentionedCompetitorTerms
+    ?? (item.mentionedCompetitorDomains ?? []).flatMap(domain => {
+      const brand = brandLabelFromDomain(domain)
+      return brand.length >= 4 ? [brand] : []
+    })
+  return [...mentioned, ...(item.recommendedCompetitors ?? [])].filter(term => term.trim().length > 2)
 }
 
 const SEPARATOR_CHARS = /[\s\-_]+/
@@ -19,7 +39,7 @@ const SEPARATOR_CHARS = /[\s\-_]+/
 function termToRegexSource(term: string): string | null {
   const parts = term.split(SEPARATOR_CHARS).filter(Boolean)
   if (parts.length === 0) return null
-  return parts.map(p => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[\\s\\-_]*')
+  return parts.map(escapeRegExp).join('[\\s\\-_]*')
 }
 
 /**
@@ -45,7 +65,7 @@ export function highlightTermsInText(text: string, terms: string[] | HighlightTe
   if (allTerms.length === 0) {
     return segments.map((seg, i) =>
       seg.type === 'bold'
-        ? React.createElement('strong', { key: `b-${i}`, className: 'text-strong font-semibold' }, seg.value)
+        ? React.createElement('strong', { key: `b-${i}`, className: 'text-strong' }, seg.value)
         : seg.value,
     ).filter(Boolean) as ReactNode[]
   }
@@ -60,7 +80,7 @@ export function highlightTermsInText(text: string, terms: string[] | HighlightTe
   if (sources.length === 0) {
     return segments.map((seg, i) =>
       seg.type === 'bold'
-        ? React.createElement('strong', { key: `b-${i}`, className: 'text-strong font-semibold' }, seg.value)
+        ? React.createElement('strong', { key: `b-${i}`, className: 'text-strong' }, seg.value)
         : seg.value,
     ).filter(Boolean) as ReactNode[]
   }
@@ -88,11 +108,11 @@ export function highlightTermsInText(text: string, terms: string[] | HighlightTe
         const cls = termClassMap.get(brandKeyFromText(part)) ?? 'answer-highlight'
         return seg.type === 'bold'
           ? React.createElement('mark', { key: `hl-${si}-${pi}`, className: cls },
-              React.createElement('strong', { className: 'text-strong font-semibold' }, part))
+              React.createElement('strong', { className: 'text-strong' }, part))
           : React.createElement('mark', { key: `hl-${si}-${pi}`, className: cls }, part)
       }
       return seg.type === 'bold'
-        ? React.createElement('strong', { key: `b-${si}-${pi}`, className: 'text-strong font-semibold' }, part)
+        ? React.createElement('strong', { key: `b-${si}-${pi}`, className: 'text-strong' }, part)
         : part
     })
   }).filter(Boolean) as ReactNode[]

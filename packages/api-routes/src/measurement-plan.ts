@@ -18,21 +18,28 @@ import {
   type MeasurementPlanContext,
   type MeasurementPlanCounts,
   type MeasurementPlanInput,
-} from '@ainyc/canonry-contracts'
+  isSweepProvider,
+  type ProviderRouteFamily,
+} from '@canonry/canonry-contracts'
 import {
   measurementPlans,
   measurementPlanVersions,
   measurementSegments,
   projects,
   queries,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { requireScope } from './auth.js'
+import { requireMarketPinsClearOfCompetitorAliases } from './competitor-writes.js'
+import { beginMarketPinWrite, marketPinWriteAuditFields, notifyMarketPinWrite, type MarketPinWriteEffect, type MarketPinWriteHooks } from './market-pin-writes.js'
 import { resolveProject, writeAuditLog } from './helpers.js'
+import { storedPlanPinGroups } from './plan-competitors.js'
 
 export const MEASUREMENT_PLAN_WRITE_SCOPE = 'measurement-plan.write'
 
-export interface MeasurementPlanRoutesOptions {
+export interface MeasurementPlanRoutesOptions extends MarketPinWriteHooks {
   getRunnableProviderNames?: () => readonly string[]
+  /** Route families of the host's adapters; routed connections never join "all configured". */
+  providerRouteFamilies?: readonly ProviderRouteFamily[]
 }
 
 type PlanCounts = MeasurementPlanCounts
@@ -118,9 +125,11 @@ function compileContextForProject(
     ? project.locations.find(location => location.label === project.defaultLocation) ?? null
     : null
   const projectProviders = normalizedProviderNames(project.providers)
+  // "All configured" counts concrete engines only: a routed connection
+  // (a gateway or an answer service) answers nothing by itself.
   const selectedProviders = projectProviders.length > 0
     ? projectProviders
-    : normalizedProviderNames(opts.getRunnableProviderNames?.() ?? [])
+    : normalizedProviderNames(opts.getRunnableProviderNames?.() ?? []).filter(name => isSweepProvider(name, opts.providerRouteFamilies))
 
   return {
     canonicalDomain: project.canonicalDomain,
@@ -367,7 +376,9 @@ export async function measurementPlanRoutes(app: FastifyInstance, opts: Measurem
     const checksum = crypto.createHash('sha256').update(canonicalJson).digest('hex')
     const now = new Date().toISOString()
     const desired = desiredSegmentKinds(compiled)
+    let pinEffect: MarketPinWriteEffect | null = null
     const published = app.db.transaction(tx => {
+      const pinWrite = beginMarketPinWrite(tx, project)
       const activePlan = tx.select().from(measurementPlans)
         .where(eq(measurementPlans.projectId, project.id)).get()
       const activeVersion = activePlan
@@ -397,6 +408,12 @@ export async function measurementPlanRoutes(app: FastifyInstance, opts: Measurem
       if (actualActiveRevision !== expectedActiveRevision) {
         throw measurementPlanRevisionConflict(expectedActiveRevision, actualActiveRevision)
       }
+      requireMarketPinsClearOfCompetitorAliases(
+        tx,
+        project.id,
+        activeVersion ? storedPlanPinGroups(activeVersion.canonicalJson) : [],
+        compiled.groups,
+      )
 
       const revision = (activeVersion?.revision ?? 0) + 1
       const versionId = crypto.randomUUID()
@@ -436,15 +453,19 @@ export async function measurementPlanRoutes(app: FastifyInstance, opts: Measurem
           updatedAt: now,
         }).run()
       }
+      pinEffect = pinWrite.finish()
+      const auditFields = marketPinWriteAuditFields(pinEffect)
       writeAuditLog(tx, {
         projectId: project.id,
         actor: 'api',
         action: 'measurement-plan.published',
         entityType: 'measurement-plan',
         entityId: String(revision),
+        ...(Object.keys(auditFields).length > 0 ? { diff: auditFields } : {}),
       })
       return { kind: 'created' as const, versionId }
     })
+    notifyMarketPinWrite(opts, project, pinEffect)
     if (published.kind === 'existing') return reply.status(200).send({ active: activeDto(published.version) })
 
     const created = app.db.select().from(measurementPlanVersions)

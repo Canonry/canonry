@@ -1,15 +1,4 @@
-import {
-  addLocation,
-  createProject,
-  deleteProject,
-  listLocations,
-  listProjects,
-  removeLocation,
-  setDefaultLocation,
-  showProject,
-  updateProjectSettings,
-} from '../commands/project.js'
-import type { CliCommandSpec } from '../cli-dispatch.js'
+import type { CliCommandSpec, CliValues } from '../cli-dispatch.js'
 import {
   getBoolean,
   getString,
@@ -21,47 +10,64 @@ import {
   unknownSubcommand,
 } from '../cli-command-helpers.js'
 import { usageError } from '../cli-error.js'
-import { gbpNegativeReviewMaxStarsSchema, providerDispatchModeSchema, type ProviderDispatchModesMap } from '@ainyc/canonry-contracts'
+import {
+  competitorAutoAliasModeSchema,
+  OperationAccesses,
+  gbpNegativeReviewMaxStarsSchema,
+  providerDispatchModeSchema,
+  SITE_AUDIT_MAX_PAGE_LIMIT,
+  siteAuditPageBudgetSchema,
+  type CompetitorAutoAliasMode,
+  type ProviderDispatchModesMap,
+} from '@canonry/canonry-contracts'
+import type { MeasurementUpdateFlags } from '../commands/project.js'
 
 export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['project', 'create'],
-    usage: 'canonry project create <name> [--domain <domain>] [--owned-domain <domain>...] [--alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--provider-model provider=model...] [--dispatch-mode provider=sync|batch...] [--format json]',
+    usage: 'canonry project create <name> [--domain <domain>] [--owned-domain <domain>...] [--alias <name>...] [--qualified-alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--provider-model provider=model...] [--dispatch-mode provider=sync|batch...] [--site-audit-max-pages <1-50000|full>] [--format json]',
     help: 'Create a project. Pass --domain for the public site to scan. Provider credentials are not required for Page Health.',
     options: {
       domain: { type: 'string', short: 'd' },
       'owned-domain': multiStringOption(),
       alias: multiStringOption(),
+      'qualified-alias': multiStringOption(),
       country: stringOption(),
       language: stringOption(),
       'display-name': stringOption(),
       provider: multiStringOption(),
       'provider-model': multiStringOption(),
       'dispatch-mode': multiStringOption(),
+      'site-audit-max-pages': stringOption(),
     },
     run: async (input) => {
+      const { createProject } = await import('../commands/project.js')
       const name = requireProject(
         input,
         'project.create',
-        'canonry project create <name> [--domain <domain>] [--owned-domain <domain>...] [--alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--provider-model provider=model...] [--dispatch-mode provider=sync|batch...] [--format json]',
+        'canonry project create <name> [--domain <domain>] [--owned-domain <domain>...] [--alias <name>...] [--qualified-alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--provider-model provider=model...] [--dispatch-mode provider=sync|batch...] [--site-audit-max-pages <1-50000|full>] [--format json]',
       )
       await createProject(name, {
         domain: getString(input.values, 'domain') ?? name,
         ownedDomains: getStringArray(input.values, 'owned-domain') ?? [],
         aliases: getStringArray(input.values, 'alias') ?? [],
+        qualifiedAliases: getStringArray(input.values, 'qualified-alias') ?? [],
         country: getString(input.values, 'country') ?? 'US',
         language: getString(input.values, 'language') ?? 'en',
         displayName: getString(input.values, 'display-name') ?? name,
         providers: getStringArray(input.values, 'provider') ?? [],
         providerModels: parseProviderModelAssignments(getStringArray(input.values, 'provider-model')),
         providerDispatchModes: parseDispatchModeAssignments(getStringArray(input.values, 'dispatch-mode')),
+        siteAuditMaxPages: parseSiteAuditMaxPages(getString(input.values, 'site-audit-max-pages'), 'project.create'),
         format: input.format,
       })
     },
   },
   {
     path: ['project', 'update'],
-    usage: 'canonry project update <name> [--domain <domain>] [--owned-domain <domain>...] [--add-domain <domain>...] [--remove-domain <domain>...] [--alias <name>...] [--add-alias <name>...] [--remove-alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--all-providers] [--provider-model provider=model...] [--clear-provider-model <provider>...] [--dispatch-mode provider=sync|batch...] [--clear-dispatch-mode <provider>...] [--negative-review-max-stars <1-4|default>] [--format json]',
+    supportsDryRun: true,
+    usage: 'canonry project update <name> [--domain <domain>] [--owned-domain <domain>...] [--add-domain <domain>...] [--remove-domain <domain>...] [--alias <name>...] [--add-alias <name>...] [--remove-alias <name>...] [--add-qualified-alias <name>...] [--remove-qualified-alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--all-providers] [--provider-model provider=model...] [--clear-provider-model <provider>...] [--dispatch-mode provider=sync|batch...] [--clear-dispatch-mode <provider>...] [--negative-review-max-stars <1-4|default>] [--site-audit-max-pages <1-50000|full>] [--competitor-auto-aliases <off|preview|apply>] [--expect-revision <n>] [--lead-event <name>...] [--add-lead-event <name>...] [--remove-lead-event <name>...] [--count-key-events | --no-count-key-events] [--brand-term <term>...] [--add-brand-term <term>...] [--remove-brand-term <term>...] [--marketing-host <host>...] [--add-marketing-host <host>...] [--remove-marketing-host <host>...] [--format json] [--dry-run]',
+    accessFor: ({ values, dryRun }) => dryRun && getString(values, 'competitor-auto-aliases') === 'apply' ? OperationAccesses.stored : OperationAccesses.write,
     options: {
       domain: { type: 'string', short: 'd' },
       'owned-domain': multiStringOption(),
@@ -70,6 +76,8 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
       alias: multiStringOption(),
       'add-alias': multiStringOption(),
       'remove-alias': multiStringOption(),
+      'add-qualified-alias': multiStringOption(),
+      'remove-qualified-alias': multiStringOption(),
       country: stringOption(),
       language: stringOption(),
       'display-name': stringOption(),
@@ -80,14 +88,34 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
       'dispatch-mode': multiStringOption(),
       'clear-dispatch-mode': multiStringOption(),
       'negative-review-max-stars': stringOption(),
+      'site-audit-max-pages': stringOption(),
+      'competitor-auto-aliases': stringOption(),
+      'expect-revision': stringOption(),
+      'lead-event': multiStringOption(),
+      'add-lead-event': multiStringOption(),
+      'remove-lead-event': multiStringOption(),
+      'count-key-events': { type: 'boolean' },
+      'no-count-key-events': { type: 'boolean' },
+      'brand-term': multiStringOption(),
+      'add-brand-term': multiStringOption(),
+      'remove-brand-term': multiStringOption(),
+      'marketing-host': multiStringOption(),
+      'add-marketing-host': multiStringOption(),
+      'remove-marketing-host': multiStringOption(),
     },
     run: async (input) => {
+      const { updateProjectSettings } = await import('../commands/project.js')
       const name = requireProject(
         input,
         'project.update',
-        'canonry project update <name> [--domain <domain>] [--owned-domain <domain>...] [--add-domain <domain>...] [--remove-domain <domain>...] [--alias <name>...] [--add-alias <name>...] [--remove-alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--all-providers] [--provider-model provider=model...] [--clear-provider-model <provider>...] [--dispatch-mode provider=sync|batch...] [--clear-dispatch-mode <provider>...] [--negative-review-max-stars <1-4|default>] [--format json]',
+        'canonry project update <name> [--domain <domain>] [--owned-domain <domain>...] [--add-domain <domain>...] [--remove-domain <domain>...] [--alias <name>...] [--add-alias <name>...] [--remove-alias <name>...] [--add-qualified-alias <name>...] [--remove-qualified-alias <name>...] [--country <code>] [--language <lang>] [--display-name <name>] [--provider <name>...] [--all-providers] [--provider-model provider=model...] [--clear-provider-model <provider>...] [--dispatch-mode provider=sync|batch...] [--clear-dispatch-mode <provider>...] [--negative-review-max-stars <1-4|default>] [--site-audit-max-pages <1-50000|full>] [--competitor-auto-aliases <off|preview|apply>] [--expect-revision <n>] [--lead-event <name>...] [--add-lead-event <name>...] [--remove-lead-event <name>...] [--count-key-events | --no-count-key-events] [--brand-term <term>...] [--add-brand-term <term>...] [--remove-brand-term <term>...] [--marketing-host <host>...] [--add-marketing-host <host>...] [--remove-marketing-host <host>...] [--format json]',
       )
       const providers = getStringArray(input.values, 'provider')
+      const expectedRevisionRaw = getString(input.values, 'expect-revision')
+      const expectedConfigRevision = expectedRevisionRaw === undefined ? undefined : Number(expectedRevisionRaw)
+      if (expectedConfigRevision !== undefined && (!Number.isInteger(expectedConfigRevision) || expectedConfigRevision < 1)) {
+        throw usageError('Error: --expect-revision must be a positive integer')
+      }
       const allProviders = getBoolean(input.values, 'all-providers')
       if (allProviders && providers?.length) throw usageError('Error: --all-providers conflicts with --provider')
       const providerModels = parseProviderModelAssignments(getStringArray(input.values, 'provider-model'))
@@ -109,6 +137,8 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
         aliases: getStringArray(input.values, 'alias'),
         addAlias: getStringArray(input.values, 'add-alias'),
         removeAlias: getStringArray(input.values, 'remove-alias'),
+        addQualifiedAlias: getStringArray(input.values, 'add-qualified-alias'),
+        removeQualifiedAlias: getStringArray(input.values, 'remove-qualified-alias'),
         country: getString(input.values, 'country'),
         language: getString(input.values, 'language'),
         providers: allProviders ? [] : providers,
@@ -117,6 +147,11 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
         dispatchModes,
         clearDispatchModes,
         negativeReviewMaxStars: parseNegativeReviewMaxStars(getString(input.values, 'negative-review-max-stars')),
+        siteAuditMaxPages: parseSiteAuditMaxPages(getString(input.values, 'site-audit-max-pages'), 'project.update'),
+        competitorAutoAliases: parseCompetitorAutoAliasMode(getString(input.values, 'competitor-auto-aliases')),
+        expectedConfigRevision,
+        measurement: parseMeasurementFlags(input.values),
+        ...(input.dryRun ? { dryRun: true } : {}),
         format: input.format,
       })
     },
@@ -126,6 +161,7 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
     usage: 'canonry project list [--format json]',
     allowPositionals: false,
     run: async (input) => {
+      const { listProjects } = await import('../commands/project.js')
       await listProjects(input.format)
     },
   },
@@ -133,6 +169,7 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['project', 'show'],
     usage: 'canonry project show <name> [--format json]',
     run: async (input) => {
+      const { showProject } = await import('../commands/project.js')
       const name = requireProject(input, 'project.show', 'canonry project show <name>')
       await showProject(name, input.format)
     },
@@ -142,6 +179,7 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
     usage: 'canonry project delete <name> [--dry-run] [--format json]',
     supportsDryRun: true,
     run: async (input) => {
+      const { deleteProject } = await import('../commands/project.js')
       const name = requireProject(input, 'project.delete', 'canonry project delete <name> [--dry-run] [--format json]')
       await deleteProject(name, { dryRun: input.dryRun, format: input.format })
     },
@@ -157,6 +195,7 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
       timezone: stringOption(),
     },
     run: async (input) => {
+      const { addLocation } = await import('../commands/project.js')
       const name = requireProject(
         input,
         'project.add-location',
@@ -190,6 +229,7 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['project', 'locations'],
     usage: 'canonry project locations <name> [--format json]',
     run: async (input) => {
+      const { listLocations } = await import('../commands/project.js')
       const name = requireProject(input, 'project.locations', 'canonry project locations <name> [--format json]')
       await listLocations(name, input.format)
     },
@@ -198,6 +238,7 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['project', 'remove-location'],
     usage: 'canonry project remove-location <name> <label> [--format json]',
     run: async (input) => {
+      const { removeLocation } = await import('../commands/project.js')
       const name = requireProject(input, 'project.remove-location', 'canonry project remove-location <name> <label> [--format json]')
       const label = requirePositional(input, 1, {
         command: 'project.remove-location',
@@ -211,6 +252,7 @@ export const PROJECT_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['project', 'set-default-location'],
     usage: 'canonry project set-default-location <name> <label> [--format json]',
     run: async (input) => {
+      const { setDefaultLocation } = await import('../commands/project.js')
       const name = requireProject(input, 'project.set-default-location', 'canonry project set-default-location <name> <label> [--format json]')
       const label = requirePositional(input, 1, {
         command: 'project.set-default-location',
@@ -277,4 +319,69 @@ function parseNegativeReviewMaxStars(raw: string | undefined): number | null | u
     })
   }
   return parsed.data
+}
+
+/**
+ * A whole number from 1 to the hard limit saves a Site Health page budget,
+ * `full` saves null (scans cover the full site), absent leaves the stored
+ * budget alone. Validated here so a typo never reaches the server.
+ */
+function parseSiteAuditMaxPages(raw: string | undefined, command: string): number | null | undefined {
+  if (raw === undefined) return undefined
+  const value = raw.trim()
+  if (value.toLowerCase() === 'full') return null
+  const parsed = /^\d+$/.test(value) ? siteAuditPageBudgetSchema.safeParse(Number(value)) : undefined
+  if (!parsed?.success) {
+    throw usageError(`Error: --site-audit-max-pages must be a whole number of pages from 1 to ${SITE_AUDIT_MAX_PAGE_LIMIT}, or "full" for the full site`, {
+      message: `--site-audit-max-pages must be 1-${SITE_AUDIT_MAX_PAGE_LIMIT} or "full"`,
+      details: { command, option: 'site-audit-max-pages', value: raw },
+    })
+  }
+  return parsed.data
+}
+
+/**
+ * `off`, `preview` or `apply` sets what answer-derived competitor alias
+ * detection does after each sweep; absent leaves the stored mode alone.
+ */
+function parseCompetitorAutoAliasMode(raw: string | undefined): CompetitorAutoAliasMode | undefined {
+  if (raw === undefined) return undefined
+  const parsed = competitorAutoAliasModeSchema.safeParse(raw.trim().toLowerCase())
+  if (!parsed.success) {
+    throw usageError('Error: --competitor-auto-aliases must be off, preview or apply', {
+      message: '--competitor-auto-aliases must be off, preview or apply',
+      details: { command: 'project.update', option: 'competitor-auto-aliases', value: raw },
+    })
+  }
+  return parsed.data
+}
+
+function parseMeasurementFlags(values: CliValues): MeasurementUpdateFlags | undefined {
+  const countKeyEvents = getBoolean(values, 'count-key-events')
+  const noCountKeyEvents = getBoolean(values, 'no-count-key-events')
+  if (countKeyEvents && noCountKeyEvents) {
+    throw usageError('Error: use either --count-key-events or --no-count-key-events, not both', {
+      message: 'use either --count-key-events or --no-count-key-events, not both',
+      details: { command: 'project.update' },
+    })
+  }
+  const result: MeasurementUpdateFlags = {
+    countKeyEvents: countKeyEvents ? true : noCountKeyEvents ? false : undefined,
+    leadEvents: getStringArray(values, 'lead-event'),
+    addLeadEvents: getStringArray(values, 'add-lead-event'),
+    removeLeadEvents: getStringArray(values, 'remove-lead-event'),
+    brandTerms: getStringArray(values, 'brand-term'),
+    addBrandTerms: getStringArray(values, 'add-brand-term'),
+    removeBrandTerms: getStringArray(values, 'remove-brand-term'),
+    marketingHosts: getStringArray(values, 'marketing-host'),
+    addMarketingHosts: getStringArray(values, 'add-marketing-host'),
+    removeMarketingHosts: getStringArray(values, 'remove-marketing-host'),
+  }
+  const touched = [
+    result.countKeyEvents,
+    result.leadEvents, result.addLeadEvents, result.removeLeadEvents,
+    result.brandTerms, result.addBrandTerms, result.removeBrandTerms,
+    result.marketingHosts, result.addMarketingHosts, result.removeMarketingHosts,
+  ].some(value => value !== undefined)
+  return touched ? result : undefined
 }

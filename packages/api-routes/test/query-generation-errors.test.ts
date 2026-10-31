@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
 import { afterEach, describe, expect, it } from 'vitest'
-import { createClient, migrate } from '@ainyc/canonry-db'
+import { createClient, migrate } from '@canonry/canonry-db'
 
 import { apiRoutes } from '../src/index.js'
 
@@ -69,6 +69,14 @@ describe('query generation preserves the provider failure kind', () => {
     const response = await generateWith(new Error('401 Unauthorized: invalid api key'))
     expect(response.json().error.code).toBe('PROVIDER_AUTH')
     expect(response.statusCode).toBe(502)
+  })
+
+  it('reports an account out of credit as an account problem, not an internal error', async () => {
+    const response = await generateWith(new Error(
+      '400 {"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the Anthropic API."}}',
+    ))
+    expect(response.json().error.code).toBe('PROVIDER_AUTH')
+    expect(response.json().error.message).toMatch(/credit balance is too low/)
   })
 
   it('reports a dropped connection as an upstream failure', async () => {

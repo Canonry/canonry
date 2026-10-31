@@ -23,6 +23,7 @@ flowchart LR
     JobRunner --> Registry["Provider<br/>Registry"]
     Registry --> Gemini["provider-gemini"]
     Registry --> OpenAI["provider-openai"]
+    Registry --> OpenRouter["provider-openrouter (model routes)"]
     Registry --> Muse["provider-muse"]
     Registry --> Claude["provider-claude"]
     Registry --> Perplexity["provider-perplexity"]
@@ -42,7 +43,7 @@ flowchart LR
 
 ### Key components
 
-- **`packages/canonry/`** — publishable npm package (`@canonry/canonry`, plus compatibility publish as `@ainyc/canonry`). Bundles CLI, Fastify server, job runner, and pre-built SPA.
+- **`packages/canonry/`** — publishable npm package (`@canonry/canonry`). Bundles CLI, Fastify server, job runner, and pre-built SPA.
 - **`packages/api-routes/`** — shared Fastify route plugins. The HTTP surface consumed by the local `cnry serve` process.
 - **`packages/db/`** — Drizzle ORM schema, backed by SQLite. Auto-migration on startup.
 - **`packages/provider-*/`** — Provider adapters. Each implements `ProviderAdapter` from contracts.
@@ -78,6 +79,7 @@ flowchart TD
   subgraph Providers
     gemini["provider-gemini"]
     openai["provider-openai"]
+    openrouter["provider-openrouter"]
     muse["provider-muse"]
     claude["provider-claude"]
     local["provider-local"]
@@ -99,13 +101,13 @@ flowchart TD
   canonry --> config
   canonry --> contracts
   canonry --> intelligence
-  canonry --> gemini & openai & muse & claude & local & perplexity & cdp
+  canonry --> gemini & openai & openrouter & muse & claude & local & perplexity & cdp
 
   routes --> db
   routes --> contracts
   routes --> gsc & ga4 & bing & wp
 
-  gemini & openai & muse & claude & local & perplexity & cdp --> contracts
+  gemini & openai & openrouter & muse & claude & local & perplexity & cdp --> contracts
   gsc & ga4 & bing & wp --> contracts
   db --> contracts
 ```
@@ -113,7 +115,7 @@ flowchart TD
 **Key rules:**
 - `packages/api-routes/` must not import from `apps/*`.
 - Only `packages/canonry/` is published to npm. All other packages are bundled via tsup.
-- All internal packages use `@ainyc/canonry-*` naming convention.
+- All internal packages use `@canonry/canonry-*` naming convention.
 
 ## Run Lifecycle
 
@@ -178,8 +180,7 @@ Canonry ships as a **self-hosted single-process install** — that is the only s
 - **`@canonry/aeo-audit`** — published audit engine used by the local
   `packages/canonry` Technical AEO executor. It provides the full-site crawl
   event and graph contract.
-- **`apps/worker`** — retains its explicit `@ainyc/aeo-audit@4.2.0` pin.
-  The local crawl work does not change or wire cloud execution.
+- **`apps/worker`** — has no audit-engine dependency or audit execution path.
 - **`packages/api-routes/`** — HTTP surface, validation, orchestration, read APIs.
 - **`packages/canonry/`** — CLI, local server, job runner (the publishable artifact).
 - **`packages/provider-*/`** — Provider adapters and normalization layers.
@@ -193,7 +194,7 @@ Canonry ships as a **self-hosted single-process install** — that is the only s
 
 - This repo remains independent from the audit package repo
 - Consume only published audit-engine releases; keep the local
-  `@canonry/aeo-audit` and worker `@ainyc/aeo-audit@4.2.0` pins explicit
+  `@canonry/aeo-audit` pin explicit
 - API key-based auth
 - Raw observation snapshots only; transitions computed at query time
 - Agent-first Site Health parity: browser color, size, focus, and scan-change
@@ -221,4 +222,4 @@ The agent layer is a consumer of the same CLI/API surface — nothing in it is p
 
 ### Experimental sentiment integration
 
-`packages/canonry` bundles `@ainyc/canonry-integration-typesafe`, whose only internal dependency is contracts. The adapter owns pinned Jev request construction and parsing; the host owns credentials and scheduling. Evidence is resolved to exact original sentence spans. Offline corpus scoring and unmet independent-evaluation release gates live under `evals/sentiment/`.
+`packages/canonry` bundles `@canonry/canonry-integration-typesafe`, whose only internal dependency is contracts. The adapter owns pinned Jev request construction and parsing; the host owns credentials and scheduling. Evidence is resolved to exact original sentence spans. Offline corpus scoring and unmet independent-evaluation release gates live under `evals/sentiment/`.

@@ -2,11 +2,17 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
-import { competitors, createClient, migrate, projects, researchRunQueries, researchRuns, usageCounters } from '@ainyc/canonry-db'
+import Fastify from 'fastify'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { registerRequestContext } from '@canonry/canonry-api-routes/request-context'
+import { competitors, createClient, migrate, projects, researchRunQueries, researchRuns, usageCounters } from '@canonry/canonry-db'
 import { executeResearchRun } from '../src/research-runner.js'
 import { ProviderRegistry } from '../src/provider-registry.js'
 import { reserveDailyQueryQuota } from '../src/usage-quota.js'
+
+const trackEvent = vi.hoisted(() => vi.fn())
+vi.mock('../src/telemetry.js', () => ({ trackEvent }))
+beforeEach(() => trackEvent.mockReset())
 
 const cleanup: string[] = []
 afterEach(() => cleanup.splice(0).forEach(dir => fs.rmSync(dir, { recursive: true, force: true })))
@@ -15,9 +21,21 @@ function setup(opts: {
   answer?: string
   citedDomains?: string[]
   competitorDomains?: string[]
+  /** Curated aliases per competitor domain. */
+  competitorAliases?: Record<string, string[]>
   failQueries?: boolean
   blockBad?: Promise<void>
+  /** The registered provider name; `test` is not one telemetry knows. */
+  provider?: string
+  /** Register the shared connection while the saved run selects a routed model. */
+  connectionProvider?: string
+  /** The text a failing provider call throws, as adapters word it. */
+  failWith?: string
+  /** What the engine reports it retrieved; undefined when it reports nothing. */
+  retrievedSources?: Array<{ uri: string; title: string; kind: 'search-result' | 'page-read'; query: string | null }>
 } = {}) {
+  const provider = opts.provider ?? 'test'
+  const connectionProvider = opts.connectionProvider ?? provider
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-research-runner-'))
   cleanup.push(dir)
   const db = createClient(path.join(dir, 'test.db'))
@@ -25,38 +43,51 @@ function setup(opts: {
   const now = new Date().toISOString()
   db.insert(projects).values({ id: 'p', name: 'p', displayName: 'Alpha', canonicalDomain: 'alpha.com', country: 'US', language: 'en', createdAt: now, updatedAt: now }).run()
   for (const domain of opts.competitorDomains ?? []) {
-    db.insert(competitors).values({ id: crypto.randomUUID(), projectId: 'p', domain, createdAt: now }).run()
+    db.insert(competitors).values({ id: crypto.randomUUID(), projectId: 'p', domain, aliases: opts.competitorAliases?.[domain] ?? [], createdAt: now }).run()
   }
-  db.insert(researchRuns).values({ id: 'r', projectId: 'p', status: 'queued', provider: 'test', resolvedModel: 'exact-model', totalQueries: 2, completedQueries: 0, failedQueries: 0, createdAt: now }).run()
-  for (const [position, queryText] of ['good', 'bad'].entries()) {
-    db.insert(researchRunQueries).values({
-      id: crypto.randomUUID(), researchRunId: 'r', position, queryText,
-      status: 'queued', resolvedModel: 'exact-model', groundingSources: [],
-      citedDomains: [], searchQueries: [], createdAt: now,
-    }).run()
-  }
+  seedResearchRun(db, { id: 'r', provider, queries: ['good', 'bad'], createdAt: now })
   const registry = new ProviderRegistry()
   const models: string[] = []
   registry.register({
-    name: 'test',
+    name: connectionProvider,
     executeTrackedQuery: async (_input: { query: string }, config: { model?: string }) => {
       models.push(config.model ?? '')
       if (_input.query === 'bad') await opts.blockBad
       if (opts.failQueries === true || (opts.failQueries === undefined && _input.query === 'bad')) {
-        throw new Error('provider failed')
+        throw new Error(opts.failWith ?? 'provider failed')
       }
       return { rawResponse: {}, servedModel: undefined }
     },
     normalizeResult: () => ({
       provider: 'test', answerText: opts.answer ?? 'Alpha is cited',
       citedDomains: opts.citedDomains ?? ['alpha.com'], groundingSources: [], searchQueries: [],
+      ...(opts.retrievedSources !== undefined ? { retrievedSources: opts.retrievedSources } : {}),
     }),
     healthcheck: async () => ({ ok: true, provider: 'test', message: 'ok' }),
   } as never, {
-    provider: 'test', model: 'wrong',
+    provider: connectionProvider, model: 'wrong',
     quotaPolicy: { maxConcurrency: 2, maxRequestsPerMinute: 100, maxRequestsPerDay: 10 },
   })
   return { db, registry, models }
+}
+
+function seedResearchRun(
+  db: ReturnType<typeof createClient>,
+  input: { id: string; provider: string; queries: string[]; createdAt?: string },
+): void {
+  const createdAt = input.createdAt ?? new Date().toISOString()
+  db.insert(researchRuns).values({
+    id: input.id, projectId: 'p', status: 'queued', provider: input.provider,
+    resolvedModel: 'exact-model', totalQueries: input.queries.length,
+    completedQueries: 0, failedQueries: 0, createdAt,
+  }).run()
+  for (const [position, queryText] of input.queries.entries()) {
+    db.insert(researchRunQueries).values({
+      id: crypto.randomUUID(), researchRunId: input.id, position, queryText,
+      status: 'queued', resolvedModel: 'exact-model', groundingSources: [],
+      citedDomains: [], searchQueries: [], createdAt,
+    }).run()
+  }
 }
 describe('executeResearchRun', () => {
   it('records partial results, preserves a null served model, and charges dispatched calls only', async () => {
@@ -72,6 +103,22 @@ describe('executeResearchRun', () => {
     expect(completed.citationState).toBe('cited')
     expect(db.select().from(usageCounters).get()?.count).toBe(2)
   })
+  it('stores the pages an engine retrieved apart from citations, and null when it reports none', async () => {
+    const retrieved = [
+      { uri: 'https://listing.example/best', title: 'Best picks', kind: 'search-result' as const, query: 'best alpha' },
+      { uri: 'https://listing.example/best', title: '', kind: 'page-read' as const, query: null },
+    ]
+    const reported = setup({ retrievedSources: retrieved, failQueries: false })
+    await executeResearchRun(reported.db, reported.registry, 'r', 'p')
+    for (const row of reported.db.select().from(researchRunQueries).all()) {
+      expect(row.retrievedSources).toEqual(retrieved)
+      expect(row.citedDomains).toEqual(['alpha.com'])
+    }
+    const silent = setup({ failQueries: false })
+    await executeResearchRun(silent.db, silent.registry, 'r', 'p')
+    expect(silent.db.select().from(researchRunQueries).all().map(row => row.retrievedSources)).toEqual([null, null])
+  })
+
   it('fails before dispatch when daily quota would be exceeded', async () => {
     const { db, registry } = setup()
     const now = new Date().toISOString()
@@ -116,6 +163,27 @@ describe('executeResearchRun', () => {
     const completed = db.select().from(researchRunQueries).all()
     expect(completed.every(row => row.namedCompetitors.includes('Rival'))).toBe(true)
     expect(completed.map(row => row.citedCompetitorDomains)).toEqual([['rival.example'], ['rival.example']])
+  })
+
+  it('names a competitor by its curated alias when the answer uses that name', async () => {
+    const answer = '- **TuneSpoke**: a strong alternative for growing teams.'
+    const run = async (aliases: string[]) => {
+      const { db, registry } = setup({
+        answer,
+        citedDomains: ['independent.example'],
+        competitorDomains: ['spoketuneworks.example'],
+        competitorAliases: { 'spoketuneworks.example': aliases },
+        failQueries: false,
+      })
+      await executeResearchRun(db, registry, 'r', 'p')
+      return db.select().from(researchRunQueries).all()
+    }
+    // Without the alias the bullet's name lines up with no known competitor.
+    expect((await run([])).map(row => row.namedCompetitors)).toEqual([[], []])
+    const withAlias = await run(['TuneSpoke'])
+    expect(withAlias.map(row => row.namedCompetitors)).toEqual([['TuneSpoke'], ['TuneSpoke']])
+    // A name is not a citation.
+    expect(withAlias.every(row => row.citedCompetitorDomains.length === 0)).toBe(true)
   })
 
   it('does not turn an answer-text competitor name into a citation', async () => {
@@ -216,5 +284,98 @@ describe('executeResearchRun', () => {
     const second = reserveDailyQueryQuota(db, { scope: 'p:test', period, count: 3, limit: 10 })
     expect(second).toEqual({ reserved: false, used: 8 })
     expect(db.select().from(usageCounters).get()?.count).toBe(8)
+  })
+
+  it('shares visibility quota across sibling OpenRouter research routes', async () => {
+    const firstRoute = 'openrouter:google/gemini-3.1-flash-lite'
+    const secondRoute = 'openrouter:anthropic/claude-sonnet-4.6'
+    const { db, registry } = setup({
+      provider: firstRoute,
+      connectionProvider: 'openrouter',
+      failQueries: false,
+    })
+    const period = new Date().toISOString().slice(0, 10)
+    expect(reserveDailyQueryQuota(db, {
+      scope: 'p:openrouter', period, count: 6, limit: 10,
+    }).reserved).toBe(true)
+    seedResearchRun(db, { id: 'r2', provider: secondRoute, queries: ['one', 'two'] })
+
+    await executeResearchRun(db, registry, 'r', 'p')
+    await executeResearchRun(db, registry, 'r2', 'p')
+
+    expect(db.select().from(researchRuns).all().map(row => row.status)).toEqual(['completed', 'completed'])
+    expect(db.select().from(usageCounters).all().map(row => ({ scope: row.scope, count: row.count }))).toEqual([
+      { scope: 'p:openrouter', count: 10 },
+    ])
+  })
+})
+
+describe('research run outcome telemetry', () => {
+  const researched = { feature: 'research', operation: 'run', durationBucket: expect.any(String) }
+
+  it('reports a finished batch with its queries, saved answers and failures, and the provider when telemetry knows it', async () => {
+    for (const provider of ['gemini', 'openrouter:google/gemini-3.1-flash-lite']) {
+      const complete = setup({ failQueries: false, provider })
+      await executeResearchRun(complete.db, complete.registry, 'r', 'p')
+    }
+    // One query fails on the provider's account; the adapter's text is classified, never sent.
+    const partial = setup({ failWith: '[provider-test] 401 Incorrect API key provided: sk-live-123' })
+    await executeResearchRun(partial.db, partial.registry, 'r', 'p')
+
+    expect(trackEvent.mock.calls).toEqual([
+      ['feature.completed', { ...researched, trigger: 'manual', provider: 'gemini', status: 'succeeded', counts: { queries: 2, snapshots: 2, failures: 0 } }, undefined],
+      ['feature.completed', { ...researched, trigger: 'manual', provider: 'openrouter', status: 'succeeded', counts: { queries: 2, snapshots: 2, failures: 0 } }, undefined],
+      ['feature.completed', {
+        ...researched, trigger: 'manual', status: 'partial', reasonCode: 'INVALID_CREDENTIALS', errorName: 'Error',
+        counts: { queries: 2, snapshots: 1, failures: 1 },
+      }, { errorCode: 'INVALID_CREDENTIALS' }],
+    ])
+    expect(JSON.stringify(trackEvent.mock.calls)).not.toContain('sk-live')
+    expect(JSON.stringify(trackEvent.mock.calls)).not.toContain('google/gemini')
+  })
+
+  it('reports a batch refused before dispatch, and one recovered at startup, as failed with the reason', async () => {
+    const quota = setup()
+    const now = new Date().toISOString()
+    quota.db.insert(usageCounters).values({ id: 'u', scope: 'p:test', period: now.slice(0, 10), metric: 'queries', count: 9, updatedAt: now }).run()
+    await executeResearchRun(quota.db, quota.registry, 'r', 'p')
+    const unregistered = setup()
+    await executeResearchRun(unregistered.db, new ProviderRegistry(), 'r', 'p', { trigger: 'startup' })
+
+    expect(trackEvent.mock.calls).toEqual([
+      ['feature.completed', { ...researched, trigger: 'manual', status: 'failed', reasonCode: 'QUOTA_EXCEEDED', counts: { queries: 2, snapshots: 0, failures: 2 } }, { errorCode: 'QUOTA_EXCEEDED' }],
+      ['feature.completed', {
+        ...researched, trigger: 'startup', surface: 'system', status: 'failed', reasonCode: 'NOT_CONNECTED',
+        counts: { queries: 2, snapshots: 0, failures: 2 },
+      }, { errorCode: 'NOT_CONNECTED' }],
+    ])
+  })
+
+  it('reports a batch an agent requested as that agent, after the request has ended', async () => {
+    const { db, registry } = setup({ failQueries: false, provider: 'gemini' })
+    const app = Fastify()
+    registerRequestContext(app)
+    let execution: Promise<void> | undefined
+    // Dispatched from the request, as the route's callback does, and finished after it.
+    app.post('/research', async () => {
+      execution = executeResearchRun(db, registry, 'r', 'p')
+      return { queued: true }
+    })
+    await app.inject({ method: 'POST', url: '/research', headers: { 'user-agent': 'canonry-mcp', 'x-canonry-surface': 'mcp-stdio', 'x-canonry-agent': 'claude' } })
+    await app.close()
+    await execution
+
+    expect(trackEvent.mock.calls).toEqual([
+      ['feature.completed', {
+        ...researched, trigger: 'agent', surface: 'mcp-stdio', agent: 'claude', provider: 'gemini', status: 'succeeded',
+        counts: { queries: 2, snapshots: 2, failures: 0 },
+      }, undefined],
+    ])
+  })
+
+  it('reports nothing for a batch another worker already claimed', async () => {
+    const { db, registry } = setup({ failQueries: false })
+    await Promise.all([executeResearchRun(db, registry, 'r', 'p'), executeResearchRun(db, registry, 'r', 'p')])
+    expect(trackEvent).toHaveBeenCalledTimes(1)
   })
 })

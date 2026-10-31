@@ -1,9 +1,9 @@
-import type { ResolvedEmbedConfig } from '@ainyc/canonry-contracts'
-import { normalizeIdTokens, parseOriginList, splitList } from '@ainyc/canonry-contracts'
+import type { ResolvedEmbedConfig } from '@canonry/canonry-contracts'
+import { embedProjectTabsError, normalizeIdTokens, parseOriginList, splitList } from '@canonry/canonry-contracts'
 import type { CanonryConfig } from './config.js'
 
 const DEFAULT_EMBED_PROJECT_TABS = ['overview']
-export const SERVER_ENFORCED_EMBED_PROJECT_TABS = ['overview', 'technical-aeo', 'report'] as const
+export const SERVER_ENFORCED_EMBED_PROJECT_TABS = ['overview', 'technical-aeo'] as const
 
 export function unsupportedEmbedProjectTabs(projectTabs: readonly string[] | undefined): string[] {
   if (!projectTabs) return []
@@ -58,6 +58,8 @@ export function resolveEmbedConfig(env: NodeJS.ProcessEnv, config: CanonryConfig
       ? splitList(env.CANONRY_EMBED_PROJECT_TABS)
       : splitList(embed?.projectTabs)
   const projectTabs = normalizeIdTokens(rawProjectTabs) ?? (enabled ? DEFAULT_EMBED_PROJECT_TABS : undefined)
+  const projectTabsError = enabled ? embedProjectTabsError(projectTabs) : undefined
+  if (projectTabsError) throw new Error(projectTabsError)
 
   return {
     enabled,

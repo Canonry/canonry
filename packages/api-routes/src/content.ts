@@ -5,10 +5,13 @@ import {
   buildContentTargetRows,
   buildContentSourceRows,
   buildContentGapRows,
-} from '@ainyc/canonry-intelligence'
+} from '@canonry/canonry-intelligence'
 import {
+  AppError,
   contentTargetDismissRequestSchema,
   notFound,
+  OutcomeReasonCodes,
+  OutcomeStatuses,
   providerError,
   recommendationExplainRequestSchema,
   winnabilityClassSchema,
@@ -25,18 +28,20 @@ import {
   type RecommendationBriefDto,
   type RecommendationExplainRequest,
   type RecommendationExplanationDto,
+  type OutcomeReasonCode,
   type WinnabilityClass,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   contentTargetDismissals,
   domainClassifications,
   recommendationBriefs,
   recommendationExplanations,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 
 import { resolveProject } from './helpers.js'
 import { loadOrchestratorInput } from './content-data.js'
+import { withFeatureOutcome } from './feature-outcome.js'
 
 /**
  * Pluggable LLM explainer for content recommendations. The api-routes
@@ -119,8 +124,7 @@ export interface ContentRoutesOptions {
 /**
  * Load the set of dismissed `targetRef`s for a project. Caller filters
  * orchestrator output through this set so dismissed recommendations don't
- * resurface on the next report load. Exported so `report.ts` can share the
- * same load path (single source of truth for the dismissal filter).
+ * resurface on the next content read.
  */
 export function loadDismissedTargetRefs(
   db: DatabaseClient,
@@ -185,6 +189,24 @@ function findRecommendationByRef(
   return rows.find((r) => r.targetRef === targetRef) ?? null
 }
 
+/**
+ * Content routes throw PROVIDER_ERROR only when no LLM provider is configured
+ * (no explainer wired, or no API key for the chosen provider). LLM call
+ * failures keep their own error class and status.
+ */
+function contentFailureReason(err: unknown): OutcomeReasonCode | undefined {
+  return err instanceof AppError && err.code === 'PROVIDER_ERROR' ? OutcomeReasonCodes.NOT_CONNECTED : undefined
+}
+
+/** One generated explanation or brief: one model call and its cost (1 millicent is 10 micro-USD). */
+function generatedCounts(unit: 'targets' | 'briefs', costMillicents: number): Record<string, number> {
+  return {
+    [unit]: 1,
+    modelCalls: 1,
+    ...(Number.isInteger(costMillicents) && costMillicents >= 0 ? { costMicros: costMillicents * 10 } : {}),
+  }
+}
+
 export async function contentRoutes(app: FastifyInstance, opts: ContentRoutesOptions = {}) {
   // GET /projects/:name/content/targets — ranked, action-typed opportunity list
   app.get<{
@@ -210,8 +232,7 @@ export async function contentRoutes(app: FastifyInstance, opts: ContentRoutesOpt
     if (!includeInProgress) {
       rows = rows.filter((r) => r.existingAction === null)
     }
-    // Filter persistently-dismissed recommendations. Same filter applied in
-    // report.ts so SPA report, HTML report, and this endpoint stay aligned.
+    // Filter persistently dismissed recommendations.
     const dismissed = loadDismissedTargetRefs(app.db, project.id)
     if (dismissed.size > 0) {
       rows = rows.filter((r) => !dismissed.has(r.targetRef))
@@ -396,7 +417,7 @@ export async function contentRoutes(app: FastifyInstance, opts: ContentRoutesOpt
   app.post<{
     Params: { name: string; targetRef: string }
     Body: unknown
-  }>('/projects/:name/content/recommendations/:targetRef/analyze', async (request, reply) => {
+  }>('/projects/:name/content/recommendations/:targetRef/analyze', async (request, reply) => withFeatureOutcome(app, { feature: 'content', operation: 'analyze' }, async (settle) => {
     const project = resolveProject(app.db, request.params.name)
     const explainer = opts.explainContentRecommendation
     if (!explainer) {
@@ -440,7 +461,10 @@ export async function contentRoutes(app: FastifyInstance, opts: ContentRoutesOpt
         .orderBy(desc(recommendationExplanations.generatedAt))
         .limit(1)
         .get()
-      if (cached) return reply.send(formatExplanationRow(cached))
+      if (cached) {
+        settle({ status: OutcomeStatuses.succeeded, counts: { targets: 1 } })
+        return reply.send(formatExplanationRow(cached))
+      }
     }
 
     // No cache (or forceRefresh) — call the LLM via the injected
@@ -488,6 +512,7 @@ export async function contentRoutes(app: FastifyInstance, opts: ContentRoutesOpt
         },
       })
       .run()
+    settle({ status: OutcomeStatuses.succeeded, counts: generatedCounts('targets', result.costMillicents) })
 
     const row = app.db
       .select()
@@ -500,7 +525,7 @@ export async function contentRoutes(app: FastifyInstance, opts: ContentRoutesOpt
       .get()
     if (!row) throw notFound('recommendationExplanation', targetRef)
     return reply.send(formatExplanationRow(row))
-  })
+  }, contentFailureReason))
 
   // GET /projects/:name/content/recommendations/:targetRef/brief — return the
   // cached structured brief (current prompt version) or 404. Cache-only read;
@@ -534,7 +559,7 @@ export async function contentRoutes(app: FastifyInstance, opts: ContentRoutesOpt
   app.post<{
     Params: { name: string; targetRef: string }
     Body: unknown
-  }>('/projects/:name/content/recommendations/:targetRef/brief', async (request, reply) => {
+  }>('/projects/:name/content/recommendations/:targetRef/brief', async (request, reply) => withFeatureOutcome(app, { feature: 'content', operation: 'brief' }, async (settle) => {
     const project = resolveProject(app.db, request.params.name)
     const synthesizer = opts.briefContentRecommendation
     if (!synthesizer) {
@@ -557,6 +582,7 @@ export async function contentRoutes(app: FastifyInstance, opts: ContentRoutesOpt
 
     // The winnability gate — never synthesize a brief for a ceded head term.
     if (recommendation.winnabilityClass === WinnabilityClasses.ceded) {
+      settle({ status: OutcomeStatuses.skipped, reasonCode: OutcomeReasonCodes.GATE_REFUSED })
       throw validationError(
         `Cannot synthesize a brief for "${recommendation.query}": its cited surface is ceded (dominated by aggregators/editorial). This is not a query first-party content can realistically win.`,
       )
@@ -564,7 +590,10 @@ export async function contentRoutes(app: FastifyInstance, opts: ContentRoutesOpt
 
     if (!body.forceRefresh) {
       const cached = lookupCachedBrief(app.db, project.id, targetRef, opts.briefPromptVersion)
-      if (cached) return reply.send(formatBriefRow(cached))
+      if (cached) {
+        settle({ status: OutcomeStatuses.succeeded, counts: { briefs: 1 } })
+        return reply.send(formatBriefRow(cached))
+      }
     }
 
     const result = await synthesizer({
@@ -605,6 +634,7 @@ export async function contentRoutes(app: FastifyInstance, opts: ContentRoutesOpt
         },
       })
       .run()
+    settle({ status: OutcomeStatuses.succeeded, counts: generatedCounts('briefs', result.costMillicents) })
 
     const row = app.db
       .select()
@@ -617,7 +647,7 @@ export async function contentRoutes(app: FastifyInstance, opts: ContentRoutesOpt
       .get()
     if (!row) throw notFound('recommendationBrief', targetRef)
     return reply.send(formatBriefRow(row))
-  })
+  }, contentFailureReason))
 
   // GET /projects/:name/content/domain-classifications — the per-domain
   // cited-surface classifications discovery has produced for the project, the

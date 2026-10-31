@@ -16,7 +16,7 @@ Perplexity adapter — implements `ProviderAdapter` over Perplexity's Agent API 
 
 ## Patterns
 
-All provider packages follow the same 4-file structure and implement the same `ProviderAdapter` interface from `@ainyc/canonry-contracts`:
+All provider packages follow the same 4-file structure and implement the same `ProviderAdapter` interface from `@canonry/canonry-contracts`:
 
 - **`validateConfig(config)`** — verify API key and model are valid
 - **`healthcheck(config)`** — test connectivity to the provider
@@ -24,6 +24,8 @@ All provider packages follow the same 4-file structure and implement the same `P
   - It is `buildTrackedQueryRequest` (the exact wire body) → the SDK call → `parseTrackedQueryResponse` (status check, usage, and stop reason included). Batch dispatch reuses both halves, so change the request or its reading there, never inline in `executeTrackedQuery`; `test/tracked-query-request.test.ts` pins the built body against the wire.
 - **`normalizeResult(raw)`** — convert provider-specific response to standard `NormalizedQueryResult`
 - **`generateText(config, prompt)`** — general-purpose text generation
+
+- **Answer anchors for competitor auto-aliases.** `extractAnchoredSpans` (in `src/normalize.ts`, next to the parsers it reuses) pairs each `[N]` marker group with the text before it on the same line: Agent responses resolve N to the `search_results` entry with `id` N (ids run on across items), Sonar history to `citations[N - 1]`. Stored data only.
 
 ## Rules
 
@@ -42,3 +44,12 @@ All provider packages follow the same 4-file structure and implement the same `P
 
 - `docs/providers/README.md` — provider system overview
 - `packages/contracts/src/provider.ts` — `ProviderAdapter` interface definition
+
+## Test ownership
+
+`tracked-query-request.test.ts` owns native SDK request delivery, complete public
+sync/batch result projections, and served identity. `agent-api.test.ts` owns
+Agent output parsing, retrieval, run-status errors, health and text generation.
+`normalize.test.ts` owns historical Sonar and stored-envelope compatibility.
+HTTP support only records SDK requests and serves independent literal bodies;
+fixtures remain schema-derived examples, not live provider captures.

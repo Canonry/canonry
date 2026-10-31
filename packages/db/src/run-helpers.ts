@@ -11,7 +11,6 @@ import type { runs } from './schema.js'
  * `runs[0]` as "latest" and `runs[1]` as "previous" is wrong under fan-out;
  * each consumer should walk groups instead. See:
  * - `packages/api-routes/src/composites.ts` — `/projects/:name/overview`
- * - `packages/api-routes/src/report.ts`     — `/projects/:name/report`
  * - `packages/api-routes/src/analytics.ts`  — gap analysis + source breakdown
  * - `packages/canonry/src/notifier.ts`      — citation-change webhooks
  * - `packages/canonry/src/intelligence-service.ts` — recurrence lookback

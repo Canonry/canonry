@@ -2,7 +2,7 @@ import { afterEach, describe, expect, onTestFinished, test, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
-import { ConversionIntegrityWorkspace, gtmSelectionSummary } from '../src/components/project/ConversionIntegrityWorkspace.js'
+import { ConversionIntegrityWorkspace } from '../src/components/project/ConversionIntegrityWorkspace.js'
 import { getRunTrackerState, resetRunTracker } from '../src/lib/run-tracker-store.js'
 import { jsonResponse, mockFetch, pathOf } from './mock-fetch.js'
 
@@ -241,6 +241,7 @@ function installScrollSpy(reducedMotion = false) {
 describe('ConversionIntegrityWorkspace', () => {
   test('reads the generated Google Ads, GTM, snapshot, and integrity endpoints into one workspace', async () => {
     const requested: string[] = []
+    let selectedWorkspaceId: string | null = null
     const restore = mockFetch((url) => {
       const path = pathOf(url)
       requested.push(path)
@@ -269,8 +270,11 @@ describe('ConversionIntegrityWorkspace', () => {
         return jsonResponse({
           connected: true,
           status: 'connected',
-          connection: gtmConnection,
-          selection: gtmConnection.selection,
+          connection: {
+            ...gtmConnection,
+            selection: { ...gtmConnection.selection, workspaceId: selectedWorkspaceId },
+          },
+          selection: { ...gtmConnection.selection, workspaceId: selectedWorkspaceId },
         })
       }
       if (path.startsWith('/api/v1/projects/example/conversion-tracking/contracts/contract_purchase/integrity')) {
@@ -330,6 +334,12 @@ describe('ConversionIntegrityWorkspace', () => {
     ]))
 
     queryClient.clear()
+    cleanup()
+    selectedWorkspaceId = 'workspace_7'
+    const { queryClient: pinnedWorkspaceClient } = renderWorkspace()
+    try {
+      expect(await screen.findByText('Container GTM-TEST123 · account account_example · workspace workspace_7')).toBeTruthy()
+    } finally { pinnedWorkspaceClient.clear() }
   })
 
   test.each([
@@ -473,7 +483,12 @@ describe('ConversionIntegrityWorkspace', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh Google Ads evidence' })).toBeTruthy())
     expect(screen.getByText('Selected customer 5550001234')).toBeTruthy()
 
-    const storedReadCount = requested.filter((path) => path.includes('/google-ads/status') || path.includes('/google-ads/snapshots')).length
+    await waitFor(() => {
+      expect(queryClient.isFetching()).toBe(0)
+      expect(queryClient.isMutating()).toBe(0)
+    })
+    const storedReads = requested.filter((path) => path.includes('/google-ads/status') || path.includes('/google-ads/snapshots')).sort()
+    expect(storedReads).toEqual(['/api/v1/projects/example/google-ads/status', '/api/v1/projects/example/google-ads/snapshots?limit=5'].sort())
     fireEvent.click(screen.getByRole('button', { name: 'Refresh Google Ads evidence' }))
 
     await waitFor(() => expect(getRunTrackerState().runs.run_google_ads_sync).toMatchObject({
@@ -481,7 +496,13 @@ describe('ConversionIntegrityWorkspace', () => {
       kind: 'google-ads-sync',
       sourceAction: 'google-ads-sync',
     }))
-    expect(requested.filter((path) => path.includes('/google-ads/status') || path.includes('/google-ads/snapshots'))).toHaveLength(storedReadCount)
+    await waitFor(() => {
+      expect(queryClient.isMutating()).toBe(0)
+      expect(queryClient.isFetching()).toBe(0)
+    })
+    expect(requested.filter((path) => path.includes('/google-ads/status') || path.includes('/google-ads/snapshots')).sort()).toEqual(storedReads)
+    expect(requested.filter((path) => path === '/api/v1/projects/example/google-ads/sync')).toEqual(['/api/v1/projects/example/google-ads/sync'])
+    expect(getRunTrackerState().runs.run_google_ads_sync).toMatchObject({ runId: 'run_google_ads_sync', projectLabel: 'example', lastAnnouncedStatus: 'queued' })
     expect(screen.getByRole('button', { name: 'Working…' }).hasAttribute('disabled')).toBe(true)
 
     queryClient.clear()
@@ -494,7 +515,12 @@ describe('ConversionIntegrityWorkspace', () => {
     const { queryClient } = renderWorkspace()
 
     await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh Tag Manager evidence' })).toBeTruthy())
-    const storedReadCount = requested.filter((path) => path.includes('/gtm/status') || path.includes('/gtm/snapshots')).length
+    await waitFor(() => {
+      expect(queryClient.isFetching()).toBe(0)
+      expect(queryClient.isMutating()).toBe(0)
+    })
+    const storedReads = requested.filter((path) => path.includes('/gtm/status') || path.includes('/gtm/snapshots')).sort()
+    expect(storedReads).toEqual(['/api/v1/projects/example/gtm/status', '/api/v1/projects/example/gtm/snapshots?limit=5'].sort())
     fireEvent.click(screen.getByRole('button', { name: 'Refresh Tag Manager evidence' }))
 
     await waitFor(() => expect(getRunTrackerState().runs.run_gtm_sync).toMatchObject({
@@ -502,7 +528,13 @@ describe('ConversionIntegrityWorkspace', () => {
       kind: 'gtm-sync',
       sourceAction: 'gtm-sync',
     }))
-    expect(requested.filter((path) => path.includes('/gtm/status') || path.includes('/gtm/snapshots'))).toHaveLength(storedReadCount)
+    await waitFor(() => {
+      expect(queryClient.isMutating()).toBe(0)
+      expect(queryClient.isFetching()).toBe(0)
+    })
+    expect(requested.filter((path) => path.includes('/gtm/status') || path.includes('/gtm/snapshots')).sort()).toEqual(storedReads)
+    expect(requested.filter((path) => path === '/api/v1/projects/example/gtm/sync')).toEqual(['/api/v1/projects/example/gtm/sync'])
+    expect(getRunTrackerState().runs.run_gtm_sync).toMatchObject({ runId: 'run_gtm_sync', projectLabel: 'example', lastAnnouncedStatus: 'queued' })
 
     queryClient.clear()
   })
@@ -971,6 +1003,7 @@ describe('ConversionIntegrityWorkspace', () => {
       },
     }
     let created = false
+    const submittedContracts: RequestInit[] = []
     installMarketingFetch({
       contracts,
       createdContract,
@@ -988,6 +1021,9 @@ describe('ConversionIntegrityWorkspace', () => {
         }
       },
       onRequest: (path, init) => {
+        if (path === '/api/v1/projects/example/conversion-tracking/contracts' && init?.method === 'POST') {
+          submittedContracts.push(init)
+        }
         if (!created && path === '/api/v1/projects/example/conversion-tracking/contracts' && init?.method === 'POST') {
           contracts.push(createdContract)
           created = true
@@ -1024,6 +1060,14 @@ describe('ConversionIntegrityWorkspace', () => {
 
     await waitFor(() => expect((screen.getByLabelText('Conversion to inspect') as HTMLSelectElement).value).toBe(createdContract.id))
     expect(screen.getByRole('heading', { name: createdContract.name })).toBeTruthy()
+    expect(submittedContracts).toHaveLength(1)
+    expect(JSON.parse(String(submittedContracts[0]?.body))).toEqual({
+      name: 'Refund confirmed',
+      eventName: 'refund',
+      googleAds: { customerId: '5550001234', conversionActionId: 'refund-confirmed', campaignIds: [], requireBiddableGoal: true, requirePrimaryAction: true },
+      gtm: { accountId: 'account_example', containerId: 'GTM-TEST123', tagId: 'tag_refund_confirmation', triggerIds: [], variableIds: [] },
+      runtime: { verificationRequired: true, requireTransactionId: true, requireValue: true, requireCurrency: true, productionHosts: [] },
+    })
     expect(requested).toContain('/api/v1/projects/example/conversion-tracking/contracts')
     await waitFor(() => expect(document.activeElement).toBe(addContractTrigger))
 
@@ -1152,13 +1196,3 @@ describe('ConversionIntegrityWorkspace', () => {
     queryClient.clear()
   })
 })
-
-describe('gtmSelectionSummary', () => {
-  test('names the container, its account, and a pinned draft workspace', () => {
-    expect(gtmSelectionSummary('GTM-TEST123', 'account_example', null))
-      .toBe('Container GTM-TEST123 · account account_example')
-    expect(gtmSelectionSummary('GTM-TEST123', 'account_example', 'workspace_7'))
-      .toBe('Container GTM-TEST123 · account account_example · workspace workspace_7')
-  })
-})
-

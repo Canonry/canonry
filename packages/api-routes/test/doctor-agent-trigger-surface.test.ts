@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { AGENT_CHECKS } from '../src/doctor/checks/agent.js'
-import type { BundledSkillSnapshot } from '@ainyc/canonry-contracts'
+import type { BundledSkillSnapshot } from '@canonry/canonry-contracts'
 
 /**
  * Every other agent.skills.* check measures DISTRIBUTION: is the skill present,

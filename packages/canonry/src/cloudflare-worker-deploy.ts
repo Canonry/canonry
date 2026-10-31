@@ -11,7 +11,7 @@ import {
   DEFAULT_BOT_LIST,
   generateWorkerScript,
   generateWranglerToml,
-} from '@ainyc/canonry-integration-cloudflare-worker'
+} from '@canonry/canonry-integration-cloudflare-worker'
 
 export interface CloudflareWorkerArtifacts {
   outputDirectory: string
@@ -323,6 +323,8 @@ async function runWranglerCapture(
  */
 export async function preflightCloudflareWrangler(opts: {
   deliveryMode?: 'direct-push' | 'queue-pull'
+  /** Bundle-check the page-view variant of the Worker. */
+  forwardPageViews?: boolean
   run?: WranglerCaptureRunner
   cwd?: string
   tempRoot?: string
@@ -356,6 +358,7 @@ export async function preflightCloudflareWrangler(opts: {
       deliveryMode,
       workerVersion: 'preflight',
       botList: DEFAULT_BOT_LIST,
+      forwardPageViews: opts.forwardPageViews === true,
     }), { encoding: 'utf-8', flag: 'wx', mode: 0o600 })
     fs.writeFileSync(wranglerTomlPath, generateWranglerToml(
       deliveryMode === 'queue-pull'

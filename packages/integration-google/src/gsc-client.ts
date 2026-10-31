@@ -1,4 +1,5 @@
 import { GSC_API_BASE, URL_INSPECTION_API, GSC_MAX_ROWS_PER_REQUEST, INDEXING_API_BASE, GOOGLE_REQUEST_TIMEOUT_MS, GSC_MAX_PAGES } from './constants.js'
+import { describeFetchError } from '@canonry/canonry-contracts'
 import type {
   GscSite,
   GscSitemap,
@@ -117,12 +118,17 @@ async function gscFetchResponse(accessToken: string, url: string, opts?: { metho
     'Content-Type': 'application/json',
   }
 
-  const res = await fetch(url, {
-    method,
-    headers,
-    body: opts?.body != null ? JSON.stringify(opts.body) : undefined,
-    signal: AbortSignal.timeout(GOOGLE_REQUEST_TIMEOUT_MS),
-  })
+  let res: Response
+  try {
+    res = await fetch(url, {
+      method,
+      headers,
+      body: opts?.body != null ? JSON.stringify(opts.body) : undefined,
+      signal: AbortSignal.timeout(GOOGLE_REQUEST_TIMEOUT_MS),
+    })
+  } catch (error) {
+    throw new Error(describeFetchError(error, url), { cause: error })
+  }
 
   if (res.status === 401) {
     gscClientLog('error', 'http.auth-expired', { url, method, httpStatus: 401 })
@@ -273,19 +279,6 @@ export async function publishUrlNotification(
       method: 'POST',
       body: { url, type },
     },
-  )
-}
-
-export async function getUrlNotificationStatus(
-  accessToken: string,
-  url: string,
-): Promise<IndexingApiResponse> {
-  validateAccessToken(accessToken)
-  validateUrl(url)
-  const encodedUrl = encodeURIComponent(url)
-  return gscFetchJson<IndexingApiResponse>(
-    accessToken,
-    `${INDEXING_API_BASE}/urlNotifications/metadata?url=${encodedUrl}`,
   )
 }
 

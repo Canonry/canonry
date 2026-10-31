@@ -30,9 +30,9 @@ import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import Fastify, { type FastifyInstance } from 'fastify'
-import { createClient, migrate, agentMemory, agentSessions, projects, type DatabaseClient } from '@ainyc/canonry-db'
-import { AGENT_PROVIDER_IDS, AppError } from '@ainyc/canonry-contracts'
-import type { AuthPrincipal } from '@ainyc/canonry-api-routes'
+import { createClient, migrate, agentMemory, agentSessions, projects, type DatabaseClient } from '@canonry/canonry-db'
+import { AGENT_PROVIDER_IDS, AppError } from '@canonry/canonry-contracts'
+import type { AuthPrincipal } from '@canonry/canonry-api-routes'
 import { registerAgentRoutes } from '../src/agent/agent-routes.js'
 import { SessionRegistry } from '../src/agent/session-registry.js'
 import { AGENT_PROVIDERS, PROVIDER_MODELS } from '../src/agent/providers.js'
@@ -40,8 +40,8 @@ import type { ApiClient } from '../src/client.js'
 import type { CanonryConfig } from '../src/config.js'
 
 const PROJECT = 'acme'
-const SESSION_PROVIDER = 'deepinfra'
-const SESSION_MODEL = 'deepseek-ai/DeepSeek-V4-Flash'
+const SESSION_PROVIDER = 'zai'
+const SESSION_MODEL = 'glm-5.2'
 const ANSWER_TEXT = 'Coverage held steady across the tracked basket.'
 const QUESTION_TEXT = 'How did coverage move this week?'
 
@@ -51,8 +51,8 @@ const QUESTION_TEXT = 'How did coverage move this week?'
  * which is precisely the route with the most to disclose: `writeCompactionNote`
  * persists LLM summaries of the operator's transcript here.
  */
-const MEMORY_NOTE = 'Aero answers through DeepInfra (GLM / DeepSeek) on deepseek-ai/DeepSeek-V4-Flash.'
-const COMPACTION_NOTE = 'Earlier turns summarized: deepseek-ai/DeepSeek-V4-Flash reported the basket held.'
+const MEMORY_NOTE = 'Aero answers through Z.ai (GLM) on glm-5.2.'
+const COMPACTION_NOTE = 'Earlier turns summarized: glm-5.2 reported the basket held.'
 
 /**
  * Every string that would disclose provider or model identity, derived from
@@ -87,7 +87,7 @@ function stubConfig(): CanonryConfig {
     apiKey: 'cnry_test',
     // Two configured providers, so the catalog is not empty for an admin and a
     // redacted catalog is visibly different rather than coincidentally equal.
-    providers: { claude: { apiKey: 'anthropic-key' }, deepinfra: { apiKey: 'deepinfra-key' } },
+    providers: { claude: { apiKey: 'anthropic-key' }, zai: { apiKey: 'zai-key' } },
   } as CanonryConfig
 }
 
@@ -290,11 +290,15 @@ describe('Aero model identity is administrator-only', () => {
       const body = (await get(`/projects/${PROJECT}/agent/transcript`)).json() as {
         modelProvider: string
         modelId: string
+        nextTurn: { provider: string; modelId: string } | null
         messages: Record<string, unknown>[]
       }
 
       expect(body.modelProvider).toBe(SESSION_PROVIDER)
       expect(body.modelId).toBe(SESSION_MODEL)
+      // The model an unnamed turn would run on: the conversation's own, since
+      // nothing pins another.
+      expect(body.nextTurn).toEqual({ provider: SESSION_PROVIDER, modelId: SESSION_MODEL })
       const assistant = body.messages.find(message => message.role === 'assistant')!
       expect(assistant.model).toBe(SESSION_MODEL)
       expect(assistant.provider).toBe(SESSION_PROVIDER)
@@ -320,8 +324,8 @@ describe('Aero model identity is administrator-only', () => {
       }
 
       expect(body.providers.length).toBe(AGENT_PROVIDER_IDS.length)
-      const deepinfra = body.providers.find(entry => entry.id === SESSION_PROVIDER)
-      expect(deepinfra?.defaultModel).toBe(AGENT_PROVIDERS[SESSION_PROVIDER].defaultModel)
+      const sessionProvider = body.providers.find(entry => entry.id === SESSION_PROVIDER)
+      expect(sessionProvider?.defaultModel).toBe(AGENT_PROVIDERS[SESSION_PROVIDER].defaultModel)
       expect(body.defaultProvider).not.toBeNull()
     })
   })

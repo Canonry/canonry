@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { createClient, measurementPlans, measurementPlanVersions, migrate, projects, queries, type DatabaseClient } from '@ainyc/canonry-db'
+import { createClient, measurementPlans, measurementPlanVersions, migrate, projects, queries, type DatabaseClient } from '@canonry/canonry-db'
 import { aeroProjectShape } from '../src/agent/project-shape.js'
 import { MAX_VISIBLE_TOOLS } from '../src/agent/runtime.js'
 import { canonryMcpTools } from '../src/mcp/tool-registry.js'
@@ -60,6 +60,10 @@ describe('aeroProjectShapePrompt', () => {
     const shape = aeroProjectShape(db, 'proj_acme')
     expect(shape.prompt).toContain('an Advanced Measurement portfolio (plan revision 7) with 3 Properties in 3 groups (1 top-level, 2 nested), 2 branded and 2 non-brand queries')
     expect(shape.prompt).toContain('never pool branded and non-brand')
+    // Grounding rules the benchmark showed a cheaper model needs spelled out.
+    for (const rule of ['mentionWithinNoise, citationWithinNoise', 'Quote every coverage figure with its counts', 'ownDomainAnswers', 'Property names often carry the brand']) {
+      expect(shape.prompt).toContain(rule)
+    }
     // Every tool the prompt tells Aero to start with is pinned visible.
     for (const tool of shape.pinned) expect(shape.prompt).toContain(tool)
     expect(shape.pinned).toContain('canonry_measurement_portfolio_summary')
@@ -77,8 +81,10 @@ describe('aeroProjectShapePrompt', () => {
     expect(shape.prompt).toContain('Group Properties only by the metro and submarkets the tools return')
     expect(shape.prompt).toContain('written in the answer text, not cited')
     expect(shape.prompt).toContain('Denominators count answers (queries x engines)')
-    expect(shape.prompt).toContain('tied at the weakest rate are not ranked')
-    expect(shape.prompt).toContain('say how many tie (tiedAtWeakest.count), give tiedAtWeakest.byMetro')
+    expect(shape.prompt).toContain('zero mentions and zero citations')
+    expect(shape.prompt).toContain('tiedAtWeakest.count')
+    expect(shape.prompt).toContain('propertiesNeverMentioned')
+    expect(shape.prompt).not.toContain('give tiedAtWeakest.byMetro')
     expect(shape.prompt).toContain('canonry_measurement_plan_get is plan structure with no metrics')
     expect(shape.prompt).not.toContain('—')
   })
@@ -105,11 +111,23 @@ describe('aeroProjectShapePrompt', () => {
     expect(route('Is the sweep complete')).toContain('A Healthy run status and canonry_doctor are not completeness checks')
     // Portfolio-wide names come from the landscape on the latest sweep, not from a few weak rows.
     expect(route('Which names answers give instead')).toContain('canonry_competitor_landscape with queryClass and runId "latest"')
-    expect(route('Which names answers give instead')).toContain('samples')
+    expect(route('Which names answers give instead')).toContain('answers=not-mentioned')
     expect(route('Where answers get their sources')).toContain('canonry_analytics_sources with queryClass and runId "latest"')
     expect(route('What changed')).toContain('canonry_measurement_changes once per class')
     expect(route('What changed')).toContain('distribution')
-    expect(route('Which metros')).toContain('tiedAtWeakest.byMetro')
+    expect(route('Which metros')).toContain('weakestMarkets')
+    expect(route('Which metros')).not.toContain('markets (every metro)')
+    expect(route('Weakest or strongest Properties')).toContain('detailsOmitted')
+    expect(route('Weakest or strongest Properties')).toContain('list=strongest-mentions')
+    expect(route('Which metros')).toContain('list=markets')
+    // The overview is read one class at a time, and a market through its own
+    // scope, so a pooled or group figure never answers for a market.
+    expect(route('Weakest or strongest Properties')).toContain('canonry_measurement_overview with queryClass "non-brand"')
+    expect(route('Rates for one Property, group or market')).toContain('canonry_measurement_overview with queryClass "non-brand"')
+    expect(route('Rates for one Property, group or market')).toContain('Branded is a separate call')
+    expect(route('Rates for one Property, group or market')).toContain('never quote queryClass "all"')
+    expect(route('Rates for one Property, group or market')).toContain('scope "market" with its marketKey')
+    expect(route('Rates for one Property, group or market')).toContain('never quote a group figure under a market\'s name')
     // Sweep-over-sweep noise and partial results are hard rules, not hints.
     expect(prompt).toContain('a Property that moved 2 answers or fewer is within noise (withinNoise)')
     expect(prompt).toContain('never call those rows the biggest, all, or the full picture')

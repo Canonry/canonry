@@ -1,14 +1,17 @@
 import { describe, expect, test, vi } from 'vitest'
 
 import { gaRefreshDays, refreshAllIntegrations, type DataRefreshClient } from '../src/data-refresh.js'
+import { RunKinds } from '@canonry/canonry-contracts'
+import { syncRunClaimKey } from '@canonry/canonry-api-routes'
+import { addLogListener, type LogEntry } from '../src/logger.js'
 
 function makeClient(overrides: Partial<DataRefreshClient> = {}): DataRefreshClient {
   return {
-    gscSync: vi.fn(async () => ({})),
-    bingInspectSitemap: vi.fn(async () => ({})),
-    gaSync: vi.fn(async () => ({})),
-    triggerGbpSync: vi.fn(async () => ({ runId: 'r', status: 'running' })),
-    triggerAdsSync: vi.fn(async () => ({ runId: 'a', status: 'queued' })),
+    gscSync: vi.fn(async () => ({ id: 'gsc-run', status: 'queued' })),
+    bingInspectSitemap: vi.fn(async () => ({ id: 'bing-run', status: 'queued' })),
+    gaSync: vi.fn(async () => ({ synced: true })),
+    triggerGbpSync: vi.fn(async () => ({ runId: 'gbp-run', status: 'running' })),
+    triggerAdsSync: vi.fn(async () => ({ runId: 'ads-run', status: 'queued' })),
     triggerGoogleAdsSync: vi.fn(async () => ({ id: 'google-ads-run', status: 'queued' })),
     triggerGtmSync: vi.fn(async () => ({ id: 'gtm-run', status: 'queued' })),
     ...overrides,
@@ -34,6 +37,50 @@ describe('gaRefreshDays', () => {
 })
 
 describe('refreshAllIntegrations', () => {
+  test('holds one claim per integration while its scheduled call is pending and clears every claim', async () => {
+    const claims = new Set<string>()
+    const pending = Array.from({ length: 7 }, () => deferred<void>())
+    const client = makeClient({
+      gscSync: vi.fn(async () => { await pending[0]!.promise; return { id: 'gsc-run', status: 'queued' } }),
+      bingInspectSitemap: vi.fn(async () => { await pending[1]!.promise; return { id: 'bing-run', status: 'queued' } }),
+      gaSync: vi.fn(async () => { await pending[2]!.promise; return { synced: true } }),
+      triggerGbpSync: vi.fn(async () => { await pending[3]!.promise; return { runId: 'gbp-run', status: 'running' } }),
+      triggerAdsSync: vi.fn(async () => { await pending[4]!.promise; return { runId: 'ads-run', status: 'queued' } }),
+      triggerGoogleAdsSync: vi.fn(async () => { await pending[5]!.promise; return { id: 'google-ads-run', status: 'queued' } }),
+      triggerGtmSync: vi.fn(async () => { await pending[6]!.promise; return { id: 'gtm-run', status: 'queued' } }),
+    })
+
+    const refresh = refreshAllIntegrations(client, 'proj', new Date('2026-09-28T12:00:00Z'), {
+      add: (key) => claims.add(key),
+      delete: (key) => claims.delete(key),
+    })
+    await vi.waitFor(() => expect(claims.has(syncRunClaimKey('proj', RunKinds['gsc-sync']))).toBe(true))
+    expect(claims).toEqual(new Set([
+      syncRunClaimKey('proj', RunKinds['gsc-sync']),
+      syncRunClaimKey('proj', RunKinds['bing-inspect-sitemap']),
+      syncRunClaimKey('proj', RunKinds['ga-sync']),
+      syncRunClaimKey('proj', RunKinds['gbp-sync']),
+      syncRunClaimKey('proj', RunKinds['ads-sync']),
+      syncRunClaimKey('proj', RunKinds['google-ads-sync']),
+      syncRunClaimKey('proj', RunKinds['gtm-sync']),
+    ]))
+    pending.forEach(item => item.resolve())
+    await refresh
+    expect(claims).toHaveLength(0)
+  })
+
+  test('clears a claim when an endpoint refuses before inserting a run', async () => {
+    const claims = new Set<string>()
+    const client = makeClient({
+      gscSync: vi.fn(async () => { throw new Error('No GSC connection') }),
+    })
+
+    await refreshAllIntegrations(client, 'proj', new Date('2026-09-28T12:00:00Z'), {
+      add: (key) => claims.add(key),
+      delete: (key) => claims.delete(key),
+    })
+    expect(claims).toHaveLength(0)
+  })
   test('fans out every integration sync for the project with explicit Google provider calls', async () => {
     const client = makeClient()
 
@@ -86,4 +133,39 @@ describe('refreshAllIntegrations', () => {
     await expect(refreshAllIntegrations(client, 'proj')).resolves.toBeUndefined()
     expect(boom).toHaveBeenCalledTimes(7)
   })
+
+  test('logs refreshed only for the synchronous GA sync and queued, with the run id, for the rest', async () => {
+    const entries: LogEntry[] = []
+    const remove = addLogListener(entry => { if (entry.module === 'DataRefresh') entries.push(entry) })
+    const client = makeClient({
+      // An endpoint that refuses (not connected) still logs as a failure.
+      bingInspectSitemap: vi.fn(async () => { throw new Error('No Bing site configured') }),
+    })
+
+    try {
+      await refreshAllIntegrations(client, 'proj', new Date('2026-09-28T12:00:00Z'))
+    } finally {
+      remove()
+    }
+
+    const byIntegration = Object.fromEntries(entries.map(entry => [entry.integration, entry]))
+    expect(byIntegration.ga).toMatchObject({ action: 'integration.refreshed', projectName: 'proj' })
+    expect(byIntegration.bing).toMatchObject({ action: 'integration.refresh-failed', error: 'No Bing site configured' })
+    // A queued run's real outcome lands later on its run row, so the log
+    // names the run instead of claiming the sync succeeded.
+    expect(byIntegration.gsc).toMatchObject({ action: 'integration.queued', runId: 'gsc-run', runStatus: 'queued' })
+    expect(byIntegration.gbp).toMatchObject({ action: 'integration.queued', runId: 'gbp-run', runStatus: 'running' })
+    expect(byIntegration.ads).toMatchObject({ action: 'integration.queued', runId: 'ads-run', runStatus: 'queued' })
+    expect(byIntegration['google-ads']).toMatchObject({ action: 'integration.queued', runId: 'google-ads-run', runStatus: 'queued' })
+    expect(byIntegration.gtm).toMatchObject({ action: 'integration.queued', runId: 'gtm-run', runStatus: 'queued' })
+    expect(entries.filter(entry => entry.action === 'integration.refreshed').map(entry => entry.integration)).toEqual(['ga'])
+    expect(entries).toHaveLength(7)
+  })
 })
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej })
+  return { promise, resolve, reject }
+}

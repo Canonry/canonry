@@ -145,6 +145,21 @@ export const visibilityReportRateSchema = z.object({
    * unavailable with reason `identity-ambiguous` instead.
    */
   unattributed: z.number().int().positive().optional(),
+  /**
+   * Saved answers left out of a citation rate because their source-link
+   * capture was incomplete (`citationComplete: false`). They leave the
+   * numerator AND the denominator: a link that was never read is not counted as
+   * not cited, and a link that was read on such an answer is not counted as
+   * cited either, since counting only those positives would bias the rate up.
+   * Present only on an available rate that left at least one answer out;
+   * absent means none were. When every answer is unchecked the rate is
+   * unavailable with reason `evidence-incomplete`, and a missing answer (no
+   * saved observation) still withholds the rate that way. Never beside
+   * `unattributed`: one rate reads one signal. A Simple project's citation
+   * state comes from stored cited domains, not URL capture, so its rates never
+   * carry this field.
+   */
+  unchecked: z.number().int().positive().optional(),
 }).strict().superRefine((value, ctx) => {
   const unavailable = value.numerator === null || value.denominator === null || value.rate === null
   if (unavailable) {
@@ -154,10 +169,16 @@ export const visibilityReportRateSchema = z.object({
     if (value.unattributed !== undefined) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['unattributed'], message: 'Only an available rate can leave answers out' })
     }
+    if (value.unchecked !== undefined) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['unchecked'], message: 'Only an available rate can leave answers out' })
+    }
     return
   }
   if (value.reason !== undefined) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Available rates cannot carry a reason' })
+  }
+  if (value.unattributed !== undefined && value.unchecked !== undefined) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['unchecked'], message: 'A rate reads one signal: unattributed (mention) and unchecked (citation) cannot share it' })
   }
   const { numerator, denominator } = value
   if (denominator === null || numerator === null) return
@@ -229,7 +250,18 @@ export const visibilityReportSummarySchema = z.object({
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Outcome partition must sum to total' })
     }
   }),
-}).strict()
+  /**
+   * Of `outcomes.notMeasured`, the Properties whose mention was measured and
+   * whose citation is unknown only because an answer's source list was partly
+   * saved (`unchecked`). It says why those Properties read not measured, and is
+   * a subset, never an extra bucket. Present only when at least one is.
+   */
+  notMeasuredUnchecked: z.number().int().positive().optional(),
+}).strict().superRefine((value, ctx) => {
+  if (value.notMeasuredUnchecked !== undefined && value.notMeasuredUnchecked > value.outcomes.notMeasured) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['notMeasuredUnchecked'], message: 'notMeasuredUnchecked is a subset of outcomes.notMeasured' })
+  }
+})
 export type VisibilityReportSummary = z.output<typeof visibilityReportSummarySchema>
 
 export const visibilityReportTrendPointSchema = z.object({
@@ -265,6 +297,26 @@ export const visibilityReportQueryRowSchema = z.object({
   answerCount: z.number().int().nonnegative(),
   mentionCoverage: visibilityReportRateSchema,
   citationCoverage: visibilityReportRateSchema,
+  /**
+   * Answers in this row whose source list was only partly saved, so they are in
+   * neither side of `citationCoverage` (its `unchecked`, or the reason a
+   * one-answer rate is unavailable). Their saved links still show what they
+   * cited: `citedAnswers` of them cite one of the row's Properties, and
+   * `citedTargetKeys` names which. That is evidence, never a rate. Absent when
+   * every answer's sources were fully saved.
+   */
+  uncheckedSources: z.object({
+    answers: z.number().int().positive(),
+    citedAnswers: z.number().int().nonnegative(),
+    citedTargetKeys: z.array(nonBlankIdSchema),
+  }).strict().superRefine((value, ctx) => {
+    if (value.citedAnswers > value.answers) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['citedAnswers'], message: 'citedAnswers cannot exceed answers' })
+    }
+    if ((value.citedAnswers === 0) !== (value.citedTargetKeys.length === 0)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['citedTargetKeys'], message: 'citedTargetKeys is empty exactly when no saved link cites a Property' })
+    }
+  }).optional(),
 }).strict()
 export type VisibilityReportQueryRow = z.output<typeof visibilityReportQueryRowSchema>
 

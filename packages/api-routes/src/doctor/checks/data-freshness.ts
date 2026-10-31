@@ -1,6 +1,6 @@
 import { and, desc, eq, inArray } from 'drizzle-orm'
-import { CheckCategories, CheckScopes, CheckStatuses, formatIsoDateInTimeZone } from '@ainyc/canonry-contracts'
-import { gaDailyTotals, gscDailyTotals, gscDataWatermarks, runs } from '@ainyc/canonry-db'
+import { CheckCategories, CheckScopes, CheckStatuses, formatIsoDateInTimeZone } from '@canonry/canonry-contracts'
+import { gaDailyTotals, gscDailyTotals, gscDataWatermarks, runs } from '@canonry/canonry-db'
 import type { CheckDefinition, CheckOutput, DoctorContext } from '../types.js'
 
 /**
@@ -26,6 +26,13 @@ export const GSC_DATA_AGING_DAYS = 5
 export const GSC_DATA_STALE_DAYS = 7
 /** No successful sync in this window means the pipeline is idle, not that data stopped. */
 export const SYNC_IDLE_DAYS = 3
+/**
+ * `not-syncing` turns urgent only after this long without a completed sync
+ * (and once the data is stale). Three idle days is the normal state of a
+ * project that syncs weekly or by hand; calling that urgent would page the
+ * urgent channel every week on a project working as configured.
+ */
+export const NOT_SYNCING_URGENT_DAYS = 8
 /** Search Console reports on Pacific dates, so a UTC "today" reads a day high for most of the UTC morning. */
 export const GSC_REPORTING_TIME_ZONE = 'America/Los_Angeles'
 
@@ -126,6 +133,9 @@ function grade(ctx: DoctorContext, spec: FreshnessSpec, newestDate: string | und
     return {
       status: CheckStatuses.warn,
       code: code('not-syncing'),
+      // The daily numbers have a real gap and nothing has fetched them for
+      // longer than any schedule would leave them.
+      ...(age >= spec.staleDays && (syncAge === null || syncAge >= NOT_SYNCING_URGENT_DAYS) ? { urgent: true } : {}),
       summary: `No ${spec.label} sync has completed in ${syncAge === null ? 'any recorded run' : `${syncAge} days`}, and stored data ends ${newestDate}.`,
       remediation: `Run \`${sync}\`, or set a data-refresh schedule: \`canonry schedule set ${projectName} --kind data-refresh --preset daily\`.`,
       details,
@@ -133,9 +143,12 @@ function grade(ctx: DoctorContext, spec: FreshnessSpec, newestDate: string | und
   }
   // Syncs are running and still bringing nothing back.
   const remediation = `${spec.quietExplanation} ${spec.brokenExplanation}`
+  const stale = age >= spec.staleDays
   return {
     status: CheckStatuses.warn,
-    code: code(age >= spec.staleDays ? 'stale' : 'aging'),
+    code: code(stale ? 'stale' : 'aging'),
+    // Aging data is often a quiet site; stale data is a gap in the record.
+    ...(stale ? { urgent: true } : {}),
     summary: `${spec.label} syncs are running but have stored nothing newer than ${newestDate} (${age} days).`,
     remediation,
     details,
@@ -165,7 +178,8 @@ const GSC_SPEC: FreshnessSpec = {
   brokenExplanation: 'If the site did have impressions, check that the property still lists this site and the connected account still has access.',
 }
 
-function gaConnected(ctx: DoctorContext): 'connected' | 'not-connected' | 'store-unavailable' {
+/** GA4 is connected through its credential store (service account) or a Google OAuth `ga4` connection. */
+export function gaConnected(ctx: DoctorContext): 'connected' | 'not-connected' | 'store-unavailable' {
   const project = ctx.project!
   if (!ctx.ga4CredentialStore && !ctx.googleConnectionStore) return 'store-unavailable'
   if (ctx.ga4CredentialStore?.getConnection(project.name)) return 'connected'

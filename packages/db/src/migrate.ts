@@ -10,7 +10,7 @@ import {
   templateLinkRatio,
   templateLinkUbiquityAvailable,
   type TemplateLinkEdgeInput,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import type { DatabaseClient } from './client.js'
 import { parseJsonColumn } from './json.js'
 
@@ -4470,6 +4470,563 @@ export const MIGRATION_VERSIONS: ReadonlyArray<MigrationVersion> = [
     name: 'aero-ledger-conversation-ids',
     statements: [],
     run: dropAeroLedgerConversationKeys,
+  },
+  {
+    // Sentiment-only project setting: the aliases the evaluator is told are
+    // the brand's own names. Defaulted, so an older writer that omits it and
+    // every existing project read as not opted in.
+    version: 166,
+    name: 'projects-qualified-aliases',
+    statements: [
+      `ALTER TABLE projects ADD COLUMN qualified_aliases TEXT NOT NULL DEFAULT '[]'`,
+    ],
+  },
+  {
+    version: 167,
+    name: 'data-repair-completions',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS data_repair_completions (
+        name TEXT PRIMARY KEY NOT NULL,
+        version INTEGER NOT NULL,
+        completed_at TEXT NOT NULL
+      )`,
+    ],
+  },
+  {
+    // Operator-curated competitor names for answer-text matching. Defaulted,
+    // so every competitor stored before it reads as having no curated alias
+    // (domain label only, as before), and an older writer that omits the
+    // column still inserts.
+    version: 168,
+    name: 'competitors-aliases',
+    statements: [
+      `ALTER TABLE competitors ADD COLUMN aliases TEXT NOT NULL DEFAULT '[]'`,
+    ],
+  },
+  {
+    // Saved Site Health page budget for scans that set none. Nullable with no
+    // default: every existing project reads as full site, and an older writer
+    // that never sets it leaves it null.
+    version: 169,
+    name: 'projects-site-audit-max-pages',
+    statements: [
+      `ALTER TABLE projects ADD COLUMN site_audit_max_pages INTEGER`,
+    ],
+  },
+  {
+    // Run admission reads a project's ten newest runs of one kind on every
+    // queue; without this it sorted every run the project ever had.
+    version: 170,
+    name: 'runs-project-kind-created-index',
+    statements: [
+      `CREATE INDEX IF NOT EXISTS idx_runs_project_kind_created ON runs(project_id, kind, created_at)`,
+    ],
+  },
+  {
+    // Competitor names detected from the project's stored answers (with their
+    // evidence) and the names an operator blocked from that detection. Both
+    // defaulted, so every competitor stored before reads as having none, and
+    // an older writer that omits the columns still inserts.
+    // `projects.competitor_auto_aliases` is the per-project detection mode;
+    // every existing and new project starts in `preview` (detect and log,
+    // store nothing) until an operator opts it into `apply`.
+    // `projects.answer_fields_recompute` marks a recompute of the stored
+    // answer fields that is owed (null: none), so a restart can resume it.
+    version: 171,
+    name: 'competitors-auto-aliases',
+    statements: [
+      `ALTER TABLE competitors ADD COLUMN auto_aliases TEXT NOT NULL DEFAULT '[]'`,
+      `ALTER TABLE competitors ADD COLUMN blocked_aliases TEXT NOT NULL DEFAULT '[]'`,
+      `ALTER TABLE projects ADD COLUMN competitor_auto_aliases TEXT NOT NULL DEFAULT 'preview'`,
+      `ALTER TABLE projects ADD COLUMN answer_fields_recompute TEXT`,
+    ],
+  },
+  {
+    // Answer-derived names of competitors an Advanced market pins without a
+    // project competitors row. A new table: no existing row changes, and an
+    // older build simply never reads it.
+    version: 172,
+    name: 'market-competitor-names',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS market_competitor_names (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        domain TEXT NOT NULL,
+        auto_aliases TEXT NOT NULL DEFAULT '[]',
+        blocked_aliases TEXT NOT NULL DEFAULT '[]',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_market_competitor_names_project_domain ON market_competitor_names(project_id, domain)`,
+    ],
+  },
+  {
+    version: 173,
+    name: 'durable-dashboard-sessions',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS dashboard_sessions (
+        token_hash TEXT PRIMARY KEY,
+        api_key_id TEXT NOT NULL REFERENCES api_keys(id) ON DELETE CASCADE,
+        created_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_dashboard_sessions_key ON dashboard_sessions(api_key_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_dashboard_sessions_expires ON dashboard_sessions(expires_at)`,
+    ],
+  },
+  {
+    version: 174,
+    name: 'dashboard-session-credential-binding',
+    statements: [
+      `ALTER TABLE dashboard_sessions ADD COLUMN api_key_hash TEXT NOT NULL DEFAULT ''`,
+      `ALTER TABLE dashboard_sessions ADD COLUMN password_fingerprint TEXT`,
+    ],
+  },
+  {
+    // Providers a run does not call because each keeps failing on its
+    // account, frozen at queue time. Nullable with no default: every existing
+    // run, and every run an older writer queues, skips none.
+    version: 175,
+    name: 'runs-skipped-providers',
+    statements: [
+      `ALTER TABLE runs ADD COLUMN skipped_providers TEXT`,
+    ],
+  },
+  {
+    // GA4's "Google organic search traffic: Landing page + query string"
+    // report (Search Console link): one GA4-computed snapshot per window
+    // (7d / 28d / 90d), its Total in the window table, never a row sum. The
+    // sync-state columns are defaulted, so every existing row reads
+    // `never-synced` and an older writer that omits them still upserts.
+    // `property_id` ties the snapshot to the GA4 property it came from, so a
+    // failed sync against another property never keeps it as its own.
+    version: 176,
+    name: 'ga-search-landing-pages',
+    statements: [
+      `ALTER TABLE ga_measurement_sync_state ADD COLUMN search_landing_status TEXT NOT NULL DEFAULT 'never-synced' CHECK (search_landing_status IN ('never-synced', 'ready', 'unavailable', 'error'))`,
+      `ALTER TABLE ga_measurement_sync_state ADD COLUMN search_landing_error TEXT`,
+      `ALTER TABLE ga_measurement_sync_state ADD COLUMN search_landing_synced_at TEXT`,
+      `ALTER TABLE ga_measurement_sync_state ADD COLUMN search_landing_attempted_at TEXT`,
+      `CREATE TABLE IF NOT EXISTS ga_search_landing_windows (
+        id                        TEXT PRIMARY KEY,
+        project_id                TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        property_id               TEXT NOT NULL,
+        window_key                TEXT NOT NULL CHECK (window_key IN ('7d', '28d', '90d')),
+        period_start              TEXT NOT NULL,
+        period_end                TEXT NOT NULL,
+        time_zone                 TEXT,
+        total_clicks              INTEGER NOT NULL DEFAULT 0,
+        total_impressions         INTEGER NOT NULL DEFAULT 0,
+        total_ctr                 REAL CHECK (total_ctr IS NULL OR (total_ctr >= 0 AND total_ctr <= 1)),
+        total_average_position    REAL,
+        total_active_users        INTEGER NOT NULL DEFAULT 0,
+        report_row_count          INTEGER NOT NULL DEFAULT 0,
+        rows_capped               INTEGER NOT NULL DEFAULT 0,
+        subject_to_thresholding   INTEGER NOT NULL DEFAULT 0,
+        data_loss_from_other_row  INTEGER NOT NULL DEFAULT 0,
+        synced_at                 TEXT NOT NULL,
+        sync_run_id               TEXT REFERENCES runs(id) ON DELETE CASCADE,
+        created_at                TEXT NOT NULL,
+        CHECK (total_clicks >= 0 AND total_impressions >= 0 AND total_active_users >= 0 AND report_row_count >= 0)
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_ga_search_landing_windows_project_window ON ga_search_landing_windows(project_id, window_key)`,
+      `CREATE INDEX IF NOT EXISTS idx_ga_search_landing_windows_run ON ga_search_landing_windows(sync_run_id)`,
+      `CREATE TABLE IF NOT EXISTS ga_search_landing_pages (
+        id                TEXT PRIMARY KEY,
+        project_id        TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        window_key        TEXT NOT NULL CHECK (window_key IN ('7d', '28d', '90d')),
+        landing_page      TEXT NOT NULL,
+        clicks            INTEGER NOT NULL DEFAULT 0,
+        impressions       INTEGER NOT NULL DEFAULT 0,
+        ctr               REAL CHECK (ctr IS NULL OR (ctr >= 0 AND ctr <= 1)),
+        average_position  REAL,
+        active_users      INTEGER NOT NULL DEFAULT 0,
+        synced_at         TEXT NOT NULL,
+        sync_run_id       TEXT REFERENCES runs(id) ON DELETE CASCADE,
+        created_at        TEXT NOT NULL,
+        CHECK (clicks >= 0 AND impressions >= 0 AND active_users >= 0)
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_ga_search_landing_pages_grain ON ga_search_landing_pages(project_id, window_key, landing_page)`,
+      `CREATE INDEX IF NOT EXISTS idx_ga_search_landing_pages_order ON ga_search_landing_pages(project_id, window_key, clicks)`,
+      `CREATE INDEX IF NOT EXISTS idx_ga_search_landing_pages_run ON ga_search_landing_pages(sync_run_id)`,
+    ],
+  },
+  {
+    // The failing set the last DELIVERED health alert reported. A pass that
+    // only clears checks now sends nothing, so the stored signature moves on
+    // without the operator hearing about it; the next alert reads this to say
+    // what cleared since the one they last saw, and an alert no webhook
+    // accepted is sent again. Nullable with no default: existing rows, and
+    // rows an older writer keeps updating, read as "no alert on record" and
+    // fall back to the previous pass.
+    version: 177,
+    name: 'doctor-health-notified-signature',
+    statements: [
+      `ALTER TABLE doctor_health_state ADD COLUMN notified_signature TEXT`,
+    ],
+  },
+  {
+    // The last pass's failing set with check ids (`status:code:id`). A check
+    // changes its code when its severity changes, so without the id a check
+    // easing from fail to warn read as one entry cleared and another gained,
+    // and paged. It sits beside `failing_signature` instead of changing that
+    // column's format: an older binary compares it as a string, and would page
+    // every degraded project after a rollback. Nullable with no default: rows
+    // without it are compared by code for one pass.
+    version: 178,
+    name: 'doctor-health-failing-checks',
+    statements: [
+      `ALTER TABLE doctor_health_state ADD COLUMN failing_checks TEXT`,
+    ],
+  },
+  {
+    // Delivery debt is separate from the last delivered clearance baseline:
+    // a check can clear quietly and recur with a code that baseline knows.
+    // NULL preserves existing rows without inventing an undelivered alert.
+    version: 179,
+    name: 'doctor-health-pending-signature',
+    statements: [
+      `ALTER TABLE doctor_health_state ADD COLUMN pending_signature TEXT`,
+    ],
+  },
+  {
+    version: 180,
+    name: 'site-crawl-issue-evidence',
+    statements: [
+      `ALTER TABLE site_crawl_snapshots ADD COLUMN issue_evidence TEXT`,
+    ],
+  },
+  {
+    // The urgent problems a health.urgent subscriber was last told about. NULL
+    // on every existing row: nothing has been sent, so a problem already open
+    // when this ships is reported once to a webhook that subscribes.
+    version: 181,
+    name: 'doctor-health-urgent-notified',
+    statements: [
+      `ALTER TABLE doctor_health_state ADD COLUMN urgent_notified TEXT`,
+    ],
+  },
+  {
+    // The same record for the website liveness loop, which keeps its own row.
+    version: 182,
+    name: 'site-liveness-urgent-notified-at',
+    statements: [
+      `ALTER TABLE site_liveness_state ADD COLUMN urgent_notified_at TEXT`,
+    ],
+  },
+  {
+    version: 183,
+    name: 'urgent-health-recipient-receipts',
+    statements: [
+      `ALTER TABLE doctor_health_state ADD COLUMN urgent_receipts TEXT`,
+      `ALTER TABLE site_liveness_state ADD COLUMN urgent_receipts TEXT`,
+    ],
+  },
+  {
+    // Pages an engine's searches listed or opened for a Research answer. NULL
+    // on every existing row and for engines that do not report retrievals.
+    version: 184,
+    name: 'research-retrieved-sources',
+    statements: [
+      `ALTER TABLE research_run_queries ADD COLUMN retrieved_sources TEXT`,
+    ],
+  },
+  {
+    // Sentiment's identity verdicts as they bear on mentions: a Simple answer's
+    // `wrong-subject` verdict, and the Advanced Properties judged wrong-subject.
+    // NULL on every existing row; the local server fills them from stored
+    // sentiment results once on startup (`sentiment-mention-identity`).
+    version: 185,
+    name: 'snapshot-sentiment-mention-identity',
+    statements: [
+      `ALTER TABLE query_snapshots ADD COLUMN mention_identity TEXT`,
+      `ALTER TABLE query_snapshots ADD COLUMN wrong_subject_target_keys TEXT`,
+    ],
+  },
+  {
+    // Vendor-neutral answer evidence from hosted web-search answer services.
+    // NULL on every existing row and for every other engine: no evidence was
+    // recorded, which never reads as "no sources".
+    version: 186,
+    name: 'answer-service-evidence',
+    statements: [
+      `ALTER TABLE query_snapshots ADD COLUMN answer_evidence TEXT`,
+      `ALTER TABLE research_run_queries ADD COLUMN answer_evidence TEXT`,
+    ],
+  },
+  {
+    // The upstream job a `waiting-upstream` research query waits on, so a job
+    // executor can find and resume it by id instead of submitting it again.
+    // NULL on every existing row and for every query not waiting on a job.
+    version: 187,
+    name: 'research-upstream-job-id',
+    statements: [
+      `ALTER TABLE research_run_queries ADD COLUMN upstream_job_id TEXT`,
+      `CREATE INDEX IF NOT EXISTS idx_research_run_queries_upstream_job ON research_run_queries(upstream_job_id) WHERE upstream_job_id IS NOT NULL`,
+    ],
+  },
+  {
+    // The GA4 overview: the rest of GA4's daily figures beside the ones already
+    // stored, and GA4's own totals for each window and the period before it.
+    // Every new figure is NULL on existing rows: they were synced before the
+    // metric was requested, and a 0 would read as a measured day with no views.
+    version: 188,
+    name: 'ga-overview-metrics',
+    statements: [
+      `ALTER TABLE ga_daily_totals ADD COLUMN active_users INTEGER`,
+      `ALTER TABLE ga_daily_totals ADD COLUMN organic_sessions INTEGER`,
+      `ALTER TABLE ga_daily_totals ADD COLUMN views INTEGER`,
+      `ALTER TABLE ga_daily_totals ADD COLUMN event_count INTEGER`,
+      `ALTER TABLE ga_daily_totals ADD COLUMN key_events REAL`,
+      `ALTER TABLE ga_daily_totals ADD COLUMN engagement_seconds REAL`,
+      `ALTER TABLE ga_daily_totals ADD COLUMN bounce_rate REAL`,
+      `CREATE TABLE IF NOT EXISTS ga_window_metrics (
+        id                 TEXT PRIMARY KEY,
+        project_id         TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        window_key         TEXT NOT NULL,
+        period             TEXT NOT NULL,
+        start_date         TEXT NOT NULL,
+        end_date           TEXT NOT NULL,
+        active_users       INTEGER,
+        new_users          INTEGER,
+        total_users        INTEGER,
+        sessions           INTEGER,
+        organic_sessions   INTEGER,
+        views              INTEGER,
+        event_count        INTEGER,
+        key_events         REAL,
+        engagement_rate    REAL,
+        bounce_rate        REAL,
+        engagement_seconds REAL,
+        synced_at          TEXT NOT NULL,
+        sync_run_id        TEXT REFERENCES runs(id) ON DELETE CASCADE
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_ga_window_metrics_unique ON ga_window_metrics(project_id, window_key, period)`,
+      `CREATE INDEX IF NOT EXISTS idx_ga_window_metrics_run ON ga_window_metrics(sync_run_id)`,
+    ],
+  },
+  {
+    // Durable review-webhook delivery: one row per review event and configured
+    // destination, so a receiver that failed keeps its debt after another one
+    // succeeded. Empty on upgrade: no historical backfill, nothing activated.
+    version: 189,
+    name: 'durable-review-webhook-deliveries',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS review_webhook_deliveries (
+        id              TEXT PRIMARY KEY,
+        project_id      TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        notification_id TEXT NOT NULL REFERENCES notifications(id) ON DELETE CASCADE,
+        event_id        TEXT NOT NULL,
+        target_digest   TEXT NOT NULL,
+        payload         TEXT NOT NULL,
+        state           TEXT NOT NULL DEFAULT 'pending',
+        attempts        INTEGER NOT NULL DEFAULT 0,
+        attempted_at    TEXT,
+        retry_at        TEXT,
+        delivered_at    TEXT,
+        created_at      TEXT NOT NULL
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS uniq_review_webhook_delivery ON review_webhook_deliveries(project_id, notification_id, event_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_review_webhook_deliveries_due ON review_webhook_deliveries(state, retry_at)`,
+    ],
+  },
+  {
+    version: 190,
+    name: 'seo-durable-sync',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS seo_profiles (project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE, id TEXT NOT NULL, revision INTEGER NOT NULL, input TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(project_id,id))`,
+      `CREATE TABLE IF NOT EXISTS seo_jobs (id TEXT PRIMARY KEY, project_id TEXT REFERENCES projects(id) ON DELETE SET NULL, project_key TEXT NOT NULL, run_id TEXT REFERENCES runs(id) ON DELETE SET NULL, profile_id TEXT NOT NULL, profile_revision INTEGER NOT NULL, profile TEXT NOT NULL, scope_snapshot TEXT NOT NULL, request_hash TEXT NOT NULL, idempotency_key TEXT NOT NULL, principal_id TEXT NOT NULL, connection_id TEXT NOT NULL, account_key TEXT NOT NULL, buckets TEXT NOT NULL, status TEXT NOT NULL, cancel_requested INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, started_at TEXT, finished_at TEXT, error TEXT)`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_seo_jobs_idempotency ON seo_jobs(project_key,idempotency_key)`,
+      `CREATE INDEX IF NOT EXISTS idx_seo_jobs_project ON seo_jobs(project_id,created_at)`,
+      `CREATE INDEX IF NOT EXISTS idx_seo_jobs_run ON seo_jobs(run_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_seo_jobs_status ON seo_jobs(status)`,
+      `CREATE TABLE IF NOT EXISTS seo_tasks (id TEXT PRIMARY KEY, job_id TEXT NOT NULL REFERENCES seo_jobs(id), request TEXT NOT NULL, status TEXT NOT NULL, lease_owner TEXT, lease_until TEXT, catalog_revision TEXT NOT NULL, collection_outcome TEXT, reserved_micros INTEGER NOT NULL, actual_micros INTEGER, receipts TEXT NOT NULL DEFAULT '[]', results TEXT NOT NULL, reconciliation TEXT, started_at TEXT, finished_at TEXT, error TEXT)`,
+      `CREATE INDEX IF NOT EXISTS idx_seo_tasks_job ON seo_tasks(job_id)`,
+      `CREATE TABLE IF NOT EXISTS seo_budgets (scope TEXT NOT NULL, period TEXT NOT NULL, reserved_micros INTEGER NOT NULL DEFAULT 0, spent_micros INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(scope,period))`,
+    ],
+  },
+  {
+    version: 191,
+    name: 'seo-intent-replay-lookup',
+    statements: [
+      `CREATE INDEX IF NOT EXISTS idx_seo_jobs_intent ON seo_jobs(project_key,request_hash)`,
+    ],
+  },
+  {
+    // AI visitor journeys: visitors who arrived from an AI engine, their
+    // visits within 30 days after an AI visit, and those visits'
+    // requests. Visitor keys are keyed hashes; no IP is stored. New tables
+    // only, so every existing row and query is unchanged.
+    version: 192,
+    name: 'ai-visitor-journeys',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS journey_visitors (
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        visitor_key TEXT NOT NULL,
+        key_basis TEXT NOT NULL,
+        user_agent TEXT,
+        first_ai_at TEXT NOT NULL,
+        first_ai_engine TEXT NOT NULL,
+        last_ai_at TEXT NOT NULL,
+        last_seen_at TEXT NOT NULL,
+        capped_days TEXT NOT NULL DEFAULT '[]',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (project_id, visitor_key)
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_journey_visitors_project_first_ai ON journey_visitors(project_id, first_ai_at)`,
+      `CREATE INDEX IF NOT EXISTS idx_journey_visitors_last_seen ON journey_visitors(last_seen_at)`,
+      `CREATE TABLE IF NOT EXISTS journey_visits (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        visitor_key TEXT NOT NULL,
+        source_id TEXT NOT NULL REFERENCES traffic_sources(id) ON DELETE CASCADE,
+        started_at TEXT NOT NULL,
+        ended_at TEXT NOT NULL,
+        entry_class TEXT NOT NULL,
+        entry_name TEXT,
+        entry_host TEXT,
+        paid INTEGER NOT NULL DEFAULT 0,
+        landing_path TEXT NOT NULL,
+        request_count INTEGER NOT NULL,
+        page_count INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_journey_visits_visitor ON journey_visits(project_id, visitor_key, started_at)`,
+      `CREATE INDEX IF NOT EXISTS idx_journey_visits_project_started ON journey_visits(project_id, started_at)`,
+      `CREATE INDEX IF NOT EXISTS idx_journey_visits_ended ON journey_visits(ended_at)`,
+      `CREATE TABLE IF NOT EXISTS journey_events (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        visit_id TEXT NOT NULL REFERENCES journey_visits(id) ON DELETE CASCADE,
+        source_id TEXT NOT NULL REFERENCES traffic_sources(id) ON DELETE CASCADE,
+        source_event_id TEXT NOT NULL,
+        ts TEXT NOT NULL,
+        method TEXT,
+        path TEXT NOT NULL,
+        status INTEGER,
+        kind TEXT NOT NULL,
+        ai_touch INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_journey_events_source_event ON journey_events(project_id, source_id, source_event_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_journey_events_visit_ts ON journey_events(visit_id, ts)`,
+      `CREATE INDEX IF NOT EXISTS idx_journey_events_ts ON journey_events(ts)`,
+    ],
+  },
+  {
+    // What a sync run did and why it stopped (a Cloudflare Queue drain's
+    // counts and stop reason). Nullable with no default: every existing run,
+    // and every run an older writer finishes, records none.
+    version: 193,
+    name: 'runs-sync-summary',
+    statements: [
+      `ALTER TABLE runs ADD COLUMN sync_summary TEXT`,
+    ],
+  },
+  {
+    // Which GA4 events a lead sync counted (configured lead events plus the
+    // property's key events) and the last key-event read. Nullable with no
+    // default: until a sync records them, the configured events are the set.
+    version: 194,
+    name: 'ga-lead-key-events',
+    statements: [
+      `ALTER TABLE ga_measurement_sync_state ADD COLUMN lead_event_names TEXT`,
+      `ALTER TABLE ga_measurement_sync_state ADD COLUMN key_event_names TEXT`,
+      `ALTER TABLE ga_measurement_sync_state ADD COLUMN key_events_error TEXT`,
+    ],
+  },
+  {
+    // A market-rankings search that hit a search-engine error is sent once
+    // more at the end of its refresh, as a new task that points at the first
+    // attempt. Nullable with no default: existing tasks and every task an
+    // older writer adds are first attempts.
+    version: 195,
+    name: 'seo-task-retry',
+    statements: [
+      `ALTER TABLE seo_tasks ADD COLUMN retry_of TEXT`,
+      `CREATE INDEX IF NOT EXISTS idx_seo_tasks_retry ON seo_tasks(retry_of)`,
+    ],
+  },
+  {
+    // When a schedule last turned on, so a schedule enabled long after it was
+    // created is graded from that point. Nullable with no default: existing
+    // rows read as enabled since creation, and an older writer leaves it null.
+    version: 196,
+    name: 'schedules-enabled-at',
+    statements: [
+      `ALTER TABLE schedules ADD COLUMN enabled_at TEXT`,
+    ],
+  },
+  {
+    // The page a crawled address is a URL version of: a parameter copy whose
+    // canonical names the same path, which the audit no longer scores.
+    // Nullable with no default and no backfill: a scan published before this
+    // scored every address, so its rows truthfully read as pages.
+    version: 197,
+    name: 'site-crawl-url-versions',
+    statements: [
+      `ALTER TABLE site_crawl_pages ADD COLUMN url_version_of TEXT`,
+    ],
+  },
+  {
+    // URL versions a crawl skipped without fetching, once their parameter
+    // pattern proved to make copies. They have no page rows, so the count
+    // lives on the attempt. 0 for earlier scans, which fetched every address.
+    version: 198,
+    name: 'site-crawl-url-versions-skipped',
+    statements: [
+      `ALTER TABLE site_crawl_attempts ADD COLUMN url_versions_skipped INTEGER NOT NULL DEFAULT 0`,
+    ],
+  },
+  {
+    version: 199,
+    name: 'oauth-authorization-grants',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS oauth_grants (
+        id TEXT PRIMARY KEY,
+        client_id TEXT NOT NULL REFERENCES oauth_clients(id) ON DELETE CASCADE,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        resource TEXT,
+        scope TEXT,
+        created_at TEXT NOT NULL,
+        revoked_at TEXT
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_oauth_grants_client ON oauth_grants(client_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_oauth_grants_user ON oauth_grants(user_id)`,
+      `ALTER TABLE oauth_tokens ADD COLUMN grant_id TEXT REFERENCES oauth_grants(id) ON DELETE CASCADE`,
+      `ALTER TABLE api_keys ADD COLUMN delegated_oauth_grant_id TEXT REFERENCES oauth_grants(id) ON DELETE CASCADE`,
+      `CREATE INDEX IF NOT EXISTS idx_oauth_tokens_grant ON oauth_tokens(grant_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_api_keys_oauth_grant ON api_keys(delegated_oauth_grant_id)`,
+      // Credentials whose account or client was removed with foreign keys off
+      // are already unusable. Drop them before enforcing the new grant FKs.
+      `DELETE FROM oauth_tokens WHERE NOT EXISTS (SELECT 1 FROM oauth_clients WHERE id = oauth_tokens.client_id)
+         OR NOT EXISTS (SELECT 1 FROM users WHERE id = oauth_tokens.user_id)`,
+      // Historical rotations carry no lineage. Preserve access while grouping
+      // only the same client, person, audience and consented scope for revocation.
+      `INSERT OR IGNORE INTO oauth_grants (id, client_id, user_id, resource, scope, created_at)
+       SELECT 'legacy:' || MIN(token_hash), client_id, user_id, resource, scope, MIN(created_at)
+       FROM oauth_tokens WHERE grant_id IS NULL
+         AND EXISTS (SELECT 1 FROM oauth_clients WHERE id = oauth_tokens.client_id)
+         AND EXISTS (SELECT 1 FROM users WHERE id = oauth_tokens.user_id)
+       GROUP BY client_id, user_id, resource, scope`,
+      `UPDATE oauth_tokens SET grant_id = (
+         SELECT id FROM oauth_grants g
+         WHERE g.id LIKE 'legacy:%' AND g.client_id = oauth_tokens.client_id
+           AND g.user_id = oauth_tokens.user_id AND g.resource IS oauth_tokens.resource AND g.scope IS oauth_tokens.scope
+       ) WHERE grant_id IS NULL`,
+      // Old MCP keys lack a grant link and cannot be assigned safely. Match
+      // the bound constructor and the older reserved namespace without user
+      // linkage. A manually named key in that namespace also requires reissue.
+      `DELETE FROM dashboard_sessions WHERE api_key_id IN (
+         SELECT id FROM api_keys WHERE (delegated_user_id IS NOT NULL AND name = 'mcp-session:' || delegated_user_id)
+           OR (delegated_user_id IS NULL AND name GLOB 'mcp-session:*')
+       )`,
+      `UPDATE api_keys SET revoked_at = COALESCE(revoked_at, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+       WHERE (delegated_user_id IS NOT NULL AND name = 'mcp-session:' || delegated_user_id)
+         OR (delegated_user_id IS NULL AND name GLOB 'mcp-session:*')`,
+    ],
   },
 ]
 

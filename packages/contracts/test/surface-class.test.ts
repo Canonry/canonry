@@ -1,98 +1,92 @@
 import { describe, it, expect } from 'vitest'
-import { classifySurface, classifySurfaceFromCategory, classifyCitedSurface, surfaceClassFromCompetitorType, surfaceClassLabel, SurfaceClasses, surfaceClassSchema } from '../src/surface-class.js'
-import { categorizeSource } from '../src/source-categories.js'
+import { classifySurfaceFromCategory, classifyCitedSurface, surfaceClassFromCompetitorType, surfaceClassLabel, SurfaceClasses } from '../src/surface-class.js'
 import { DiscoveryCompetitorTypes } from '../src/discovery.js'
 
 const project = { projectDomains: ['acme.com', 'acme.io'], competitorDomains: ['rival.com', 'yelp.com'] }
 
-describe('classifySurface', () => {
+describe('classifyCitedSurface heuristic classifications', () => {
   it('classifies the project canonical domain as own', () => {
-    expect(classifySurface('acme.com', project)).toBe(SurfaceClasses.own)
+    expect(classifyCitedSurface([{ domain: 'acme.com' }], project).get('acme.com')).toBe(SurfaceClasses.own)
   })
 
   it('classifies an owned alias domain as own', () => {
-    expect(classifySurface('acme.io', project)).toBe(SurfaceClasses.own)
+    expect(classifyCitedSurface([{ domain: 'acme.io' }], project).get('acme.io')).toBe(SurfaceClasses.own)
   })
 
   it('classifies a subdomain of an owned domain as own', () => {
-    expect(classifySurface('blog.acme.com', project)).toBe(SurfaceClasses.own)
+    expect(classifyCitedSurface([{ domain: 'blog.acme.com' }], project).get('blog.acme.com')).toBe(SurfaceClasses.own)
   })
 
   it('own takes priority even if the domain also matches a category rule', () => {
-    // acme.com is owned; even if it were a known directory it must read own.
-    expect(classifySurface('www.acme.com', project)).toBe(SurfaceClasses.own)
+    const owner = { projectDomains: ['booking.com'], competitorDomains: project.competitorDomains }
+    expect(classifyCitedSurface([{ domain: 'booking.com' }], owner).get('booking.com')).toBe(SurfaceClasses.own)
+    expect(classifySurfaceFromCategory('www.acme.com', 'other', project)).toBe(SurfaceClasses.own)
   })
 
   it('classifies a tracked competitor as direct-competitor', () => {
-    expect(classifySurface('rival.com', project)).toBe(SurfaceClasses['direct-competitor'])
+    expect(classifyCitedSurface([{ domain: 'rival.com' }], project).get('rival.com')).toBe(SurfaceClasses['direct-competitor'])
   })
 
   it('classifies a subdomain of a tracked competitor as direct-competitor', () => {
-    expect(classifySurface('shop.rival.com', project)).toBe(SurfaceClasses['direct-competitor'])
+    expect(classifyCitedSurface([{ domain: 'shop.rival.com' }], project).get('shop.rival.com')).toBe(SurfaceClasses['direct-competitor'])
   })
 
   it('direct-competitor takes priority over the generic category', () => {
     // yelp.com is a directory by categorizeSource, but it is ALSO a tracked
     // competitor here — competitor membership must win.
-    expect(classifySurface('yelp.com', project)).toBe(SurfaceClasses['direct-competitor'])
+    expect(classifyCitedSurface([{ domain: 'yelp.com' }], project).get('yelp.com')).toBe(SurfaceClasses['direct-competitor'])
   })
 
   it('maps directory domains to ota-aggregator', () => {
-    expect(classifySurface('https://www.tripadvisor.com/Hotel', project)).toBe(SurfaceClasses['ota-aggregator'])
-    expect(classifySurface('homeadvisor.com', project)).toBe(SurfaceClasses['ota-aggregator'])
+    expect(classifyCitedSurface([{ domain: 'tripadvisor.com' }, { domain: 'homeadvisor.com' }], project)).toEqual(new Map([
+      ['tripadvisor.com', SurfaceClasses['ota-aggregator']],
+      ['homeadvisor.com', SurfaceClasses['ota-aggregator']],
+    ]))
   })
 
   it('maps ecommerce domains to ota-aggregator', () => {
-    expect(classifySurface('amazon.com', project)).toBe(SurfaceClasses['ota-aggregator'])
+    expect(classifyCitedSurface([{ domain: 'amazon.com' }], project).get('amazon.com')).toBe(SurfaceClasses['ota-aggregator'])
   })
 
   it('maps news domains to editorial-media', () => {
-    expect(classifySurface('https://www.forbes.com/sites/x', project)).toBe(SurfaceClasses['editorial-media'])
+    expect(classifyCitedSurface([{ domain: 'forbes.com' }], project).get('forbes.com')).toBe(SurfaceClasses['editorial-media'])
   })
 
   it('maps blog domains to editorial-media', () => {
-    expect(classifySurface('medium.com/@a/b', project)).toBe(SurfaceClasses['editorial-media'])
+    expect(classifyCitedSurface([{ domain: 'medium.com' }], project).get('medium.com')).toBe(SurfaceClasses['editorial-media'])
   })
 
   it('maps reference domains to editorial-media', () => {
-    expect(classifySurface('https://en.wikipedia.org/wiki/Acme', project)).toBe(SurfaceClasses['editorial-media'])
+    expect(classifyCitedSurface([{ domain: 'en.wikipedia.org' }], project).get('en.wikipedia.org')).toBe(SurfaceClasses['editorial-media'])
   })
 
-  it('maps social / forum / video / academic / unknown to other', () => {
-    expect(classifySurface('reddit.com/r/x', project)).toBe(SurfaceClasses.other)
-    expect(classifySurface('linkedin.com/in/x', project)).toBe(SurfaceClasses.other)
-    expect(classifySurface('youtube.com/watch?v=x', project)).toBe(SurfaceClasses.other)
-    expect(classifySurface('cs.stanford.edu/x', project)).toBe(SurfaceClasses.other)
-    expect(classifySurface('some-random-site.io/page', project)).toBe(SurfaceClasses.other)
-  })
-
-  it('handles a bare hostname (no protocol) the same as a full URL', () => {
-    expect(classifySurface('forbes.com', project)).toBe(SurfaceClasses['editorial-media'])
+  it('omits social / forum / video / academic / unknown domains', () => {
+    expect(classifyCitedSurface([
+      { domain: 'reddit.com' },
+      { domain: 'linkedin.com' },
+      { domain: 'youtube.com' },
+      { domain: 'cs.stanford.edu' },
+      { domain: 'some-random-site.io' },
+    ], project)).toEqual(new Map())
   })
 
   it('classifies against empty project/competitor lists as a pure category map', () => {
     const empty = { projectDomains: [], competitorDomains: [] }
-    expect(classifySurface('acme.com', empty)).toBe(SurfaceClasses.other)
-    expect(classifySurface('yelp.com', empty)).toBe(SurfaceClasses['ota-aggregator'])
-  })
-
-  it('falls back to other for malformed input', () => {
-    expect(classifySurface('', project)).toBe(SurfaceClasses.other)
+    expect(classifyCitedSurface([{ domain: 'acme.com' }, { domain: 'yelp.com' }], empty)).toEqual(new Map([
+      ['yelp.com', SurfaceClasses['ota-aggregator']],
+    ]))
   })
 })
 
 describe('surfaceClassLabel', () => {
-  it('returns a human label for every surface class', () => {
-    for (const value of surfaceClassSchema.options) {
-      expect(typeof surfaceClassLabel(value)).toBe('string')
-      expect(surfaceClassLabel(value).length).toBeGreaterThan(0)
-    }
-  })
-
-  it('uses distinct labels for OTA vs competitor (the actionable distinction)', () => {
-    expect(surfaceClassLabel(SurfaceClasses['ota-aggregator'])).not.toBe(
-      surfaceClassLabel(SurfaceClasses['direct-competitor']),
-    )
+  it.each([
+    [SurfaceClasses.own, 'Your domains'],
+    [SurfaceClasses['direct-competitor'], 'Direct competitors'],
+    [SurfaceClasses['ota-aggregator'], 'Aggregators & marketplaces'],
+    [SurfaceClasses['editorial-media'], 'Editorial & media'],
+    [SurfaceClasses.other, 'Other sources'],
+  ] as const)('labels %s as %s', (surfaceClass, label) => {
+    expect(surfaceClassLabel(surfaceClass)).toBe(label)
   })
 })
 
@@ -111,13 +105,6 @@ describe('classifySurfaceFromCategory', () => {
   it('matches subdomains of owned / competitor domains', () => {
     expect(classifySurfaceFromCategory('blog.acme.com', 'other', project)).toBe(SurfaceClasses.own)
     expect(classifySurfaceFromCategory('shop.rival.com', 'other', project)).toBe(SurfaceClasses['direct-competitor'])
-  })
-
-  it('agrees with the classifySurface URI wrapper for the same source', () => {
-    for (const uri of ['https://www.tripadvisor.com/Hotel', 'acme.io', 'rival.com', 'forbes.com', 'some-random.io/x']) {
-      const { domain, category } = categorizeSource(uri)
-      expect(classifySurfaceFromCategory(domain, category, project)).toBe(classifySurface(uri, project))
-    }
   })
 })
 
@@ -149,24 +136,22 @@ describe('classifySurfaceFromCategory with a stored (LLM) classification', () =>
     expect(classifySurfaceFromCategory('rival.com', 'other', project, SurfaceClasses['editorial-media']))
       .toBe(SurfaceClasses['direct-competitor'])
   })
-
-  it('falls back to the heuristic when no stored class is supplied', () => {
-    expect(classifySurfaceFromCategory('forbes.com', 'news', project, undefined)).toBe(SurfaceClasses['editorial-media'])
-  })
 })
 
 describe('classifyCitedSurface', () => {
   it('recognizes a well-known aggregator via the allow-list with no stored class (the gate-coverage fix)', () => {
-    const map = classifyCitedSurface([{ domain: 'booking.com' }], project)
-    expect(map.get('booking.com')).toBe(SurfaceClasses['ota-aggregator'])
+    const map = classifyCitedSurface([{ domain: 'booking.com' }, { domain: 'booking.com' }], project)
+    expect(map).toEqual(new Map([['booking.com', SurfaceClasses['ota-aggregator']]]))
   })
 
   it('keeps own and tracked competitor authoritative over the heuristic', () => {
     const map = classifyCitedSurface([{ domain: 'acme.com' }, { domain: 'yelp.com' }], project)
     // yelp.com is in this project's competitorDomains, so it reads as a competitor
     // surface here even though the allow-list would call it an aggregator.
-    expect(map.get('acme.com')).toBe(SurfaceClasses.own)
-    expect(map.get('yelp.com')).toBe(SurfaceClasses['direct-competitor'])
+    expect(map).toEqual(new Map([
+      ['acme.com', SurfaceClasses.own],
+      ['yelp.com', SurfaceClasses['direct-competitor']],
+    ]))
   })
 
   it('omits domains that resolve to `other` so the map reflects only recognized surfaces', () => {
@@ -179,10 +164,5 @@ describe('classifyCitedSurface', () => {
     const stored = new Map([['niche-regional-listings.com', DiscoveryCompetitorTypes['ota-aggregator']]])
     const map = classifyCitedSurface([{ domain: 'niche-regional-listings.com' }], project, stored)
     expect(map.get('niche-regional-listings.com')).toBe(SurfaceClasses['ota-aggregator'])
-  })
-
-  it('dedupes repeated domains', () => {
-    const map = classifyCitedSurface([{ domain: 'booking.com' }, { domain: 'booking.com' }], project)
-    expect(map.size).toBe(1)
   })
 })

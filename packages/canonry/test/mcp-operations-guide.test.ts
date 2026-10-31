@@ -1,8 +1,8 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { Client } from '@modelcontextprotocol/sdk/client/index.js'
-import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
+import { Client } from '@modelcontextprotocol/client'
+import { InMemoryTransport } from '@modelcontextprotocol/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { parse } from 'yaml'
 import type { ApiClient } from '../src/client.js'
@@ -39,7 +39,7 @@ describe('universal MCP operations guidance', () => {
     const response = await client.callTool({ name: 'canonry_help', arguments: { intent: 'status' } })
     expect(response.isError).not.toBe(true)
     const help = response.structuredContent!
-    expect(help).toMatchObject({ guideVersion: 'v1', mode: 'hosted-fixed-catalog', next: ['canonry_projects_list', 'canonry_project_overview'] })
+    expect(help).toMatchObject({ guideVersion: 'v1', mode: 'hosted-fixed-catalog', next: ['canonry_status', 'canonry_projects_list', 'canonry_project_overview'] })
     expect(help).not.toHaveProperty('loadToolkits')
     expect(help).not.toHaveProperty('toolkits')
     expect(JSON.stringify(help).length).toBeLessThan(2000)
@@ -50,6 +50,38 @@ describe('universal MCP operations guidance', () => {
     await client.callTool({ name: 'canonry_project_overview', arguments: { project: 'demo' } })
     expect(listProjects).toHaveBeenCalledOnce()
     expect(getProjectOverview).toHaveBeenCalledOnce()
+  })
+
+  it('preserves the complete live tool list when includeCatalog expands help', async () => {
+    const { client } = await connect({ tiers: CANONRY_MCP_TIERS })
+    const compact = await client.callTool({ name: 'canonry_help', arguments: { intent: 'status' } })
+    const expanded = await client.callTool({ name: 'canonry_help', arguments: { intent: 'status', includeCatalog: true } })
+    const compactLive = compact.structuredContent?.liveTools as string[]
+    const expandedLive = expanded.structuredContent?.liveTools as string[]
+    const billedTools = [
+      'canonry_ads_account',
+      'canonry_ads_geo_search',
+      'canonry_ads_live_delivery',
+      'canonry_ads_conversion_pixels',
+      'canonry_ads_conversion_event_settings',
+    ]
+    const googleMarketingDiscoveryTools = [
+      'canonry_google_ads_customers',
+      'canonry_gtm_accounts',
+      'canonry_gtm_containers',
+      'canonry_gtm_workspaces',
+    ]
+    expect(expandedLive).toEqual(compactLive)
+    expect(expandedLive).toContain('canonry_ga_properties')
+    expect(compactLive).toEqual(expect.arrayContaining([...billedTools, ...googleMarketingDiscoveryTools]))
+    expect(expandedLive).toEqual(expect.arrayContaining([...billedTools, ...googleMarketingDiscoveryTools]))
+    for (const name of ['canonry_google_ads_sync', 'canonry_gtm_sync']) {
+      const tool = canonryMcpTools.find(candidate => candidate.name === name)
+      expect(tool).toMatchObject({
+        access: 'write',
+        annotations: { readOnlyHint: false, openWorldHint: true },
+      })
+    }
   })
 
   it.each(CANONRY_MCP_TIERS)('only routes to offered stored reads on hosted %s profiles', async tier => {
@@ -76,10 +108,10 @@ describe('universal MCP operations guidance', () => {
     const { client } = await connect({ scope: 'read-only' })
     const before = await client.callTool({ name: 'canonry_help', arguments: { intent: 'reports' } })
     expect(before.structuredContent).toMatchObject({ mode: 'stdio-progressive', loadToolkits: ['monitoring'] })
-    expect(before.structuredContent?.next).not.toContain('canonry_report')
+    expect(before.structuredContent?.next).not.toContain('canonry_organic_evidence')
     await client.callTool({ name: 'canonry_load_toolkit', arguments: { name: 'monitoring' } })
     const after = await client.callTool({ name: 'canonry_help', arguments: { intent: 'reports' } })
-    expect(after.structuredContent?.next).toContain('canonry_report')
+    expect(after.structuredContent?.next).toContain('canonry_organic_evidence')
     expect(after.structuredContent).not.toHaveProperty('loadToolkits')
   })
 

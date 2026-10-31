@@ -254,14 +254,16 @@ describe('report kernel', () => {
       executed: 2, expected: 2, sourceCompleteObservations: 1, complete: true, sourceComplete: false, answerComplete: true,
     })
     // The openai observation cites the harbor target, so it counts under the harbor edge
-    // and not under the north edge. The gemini row contributes to neither side of the ratio.
-    expect(harbor.answerCoverage).toEqual({ numerator: 1, denominator: 1, rate: 1 })
-    expect(north.answerCoverage).toEqual({ numerator: 0, denominator: 1, rate: 0 })
+    // and not under the north edge. The gemini row contributes to neither side of the ratio
+    // and is counted as unchecked, even though its partial capture still saw a north URL.
+    expect(harbor.answerCoverage).toEqual({ numerator: 1, denominator: 1, rate: 1, unchecked: 1 })
+    expect(north.answerCoverage).toEqual({ numerator: 0, denominator: 1, rate: 0, unchecked: 1 })
+    // Target coverage counts Properties, not answers, so it carries no answer count.
     expect(harbor.targetCoverage).toEqual({ numerator: 1, denominator: 2, rate: 0.5 })
     expect(report.targets.find(target => target.id === 'harbor')?.citationCoverage)
-      .toEqual({ numerator: 1, denominator: 1, rate: 1 })
+      .toEqual({ numerator: 1, denominator: 1, rate: 1, unchecked: 1 })
     expect(report.targets.find(target => target.id === 'north')?.citationCoverage)
-      .toEqual({ numerator: 0, denominator: 1, rate: 0 })
+      .toEqual({ numerator: 0, denominator: 1, rate: 0, unchecked: 1 })
   })
 
   it('exposes the partial basis next to every source-dependent rate', () => {
@@ -521,10 +523,34 @@ describe('scoped overview', () => {
     expect(overview.mentionCoverage).toEqual({ numerator: null, denominator: null, rate: null, reason: 'evidence-incomplete' })
   })
 
-  it('withholds citation coverage when a selected slot has incomplete source capture', () => {
+  it('takes citation coverage over the checked answers and counts an unchecked one beside it', () => {
+    // The gemini answer was saved, but its source capture is partial. The north
+    // URL it did capture is not counted: every unchecked answer leaves both sides.
     const overview = buildMeasurementOverview(overviewInput(withPartialSources(['observation-gemini'])))
 
-    expect(overview.citationCoverage).toEqual({ numerator: null, denominator: null, rate: null, reason: 'evidence-incomplete' })
+    expect(overview.citationCoverage).toEqual({ numerator: 1, denominator: 1, rate: 1, unchecked: 1 })
+    expect(overview.properties.map(row => [row.targetId, row.citationCoverage])).toEqual([
+      ['harbor', { numerator: 1, denominator: 1, rate: 1, unchecked: 1 }],
+      ['north', { numerator: 0, denominator: 1, rate: 0, unchecked: 1 }],
+    ])
+    // An engine whose only answer is unchecked has nothing left to read.
+    expect(overview.properties.find(row => row.targetId === 'north')!.providers).toEqual([
+      { provider: 'gemini', mentionCoverage: { numerator: 1, denominator: 1, rate: 1 }, citationCoverage: { numerator: null, denominator: null, rate: null, reason: 'evidence-incomplete' } },
+      { provider: 'openai', mentionCoverage: { numerator: 0, denominator: 1, rate: 0 }, citationCoverage: { numerator: 0, denominator: 1, rate: 0 } },
+    ])
+    // Mention is a separate signal and reads both answers.
+    expect(overview.mentionCoverage).toEqual({ numerator: 2, denominator: 2, rate: 1 })
+  })
+
+  it('withholds citation coverage when every answer is unchecked or one is missing', () => {
+    expect(buildMeasurementOverview(overviewInput(withPartialSources(['observation-openai', 'observation-gemini']))).citationCoverage)
+      .toEqual({ numerator: null, denominator: null, rate: null, reason: 'evidence-incomplete' })
+    // A missing answer is not an unchecked one: the rate is withheld even beside a checked answer.
+    expect(buildMeasurementOverview(overviewInput({ observations: [baseInput().observations[0]!] })).citationCoverage)
+      .toEqual({ numerator: null, denominator: null, rate: null, reason: 'evidence-incomplete' })
+    const partialOnly = withPartialSources(['observation-gemini']).observations!.filter(observation => observation.id === 'observation-gemini')
+    expect(buildMeasurementOverview(overviewInput({ observations: partialOnly })).citationCoverage)
+      .toEqual({ numerator: null, denominator: null, rate: null, reason: 'evidence-incomplete' })
   })
 
   it('withholds every metric with a reason instead of reporting zero', () => {
@@ -641,5 +667,72 @@ describe('scoped overview', () => {
     // deterministic structural work instead of a machine-dependent duration.
     expect(evidencePasses).toEqual([6])
     expect(overview.properties.map(row => row.targetId)).toEqual(['harbor', 'north'])
+  })
+})
+
+type CitationAnswer = 'cited' | 'not-cited' | 'unchecked' | 'unchecked-cited' | 'missing'
+
+/** One Property over one execution per answer, each answered by one engine. */
+function citationInput(answers: readonly CitationAnswer[]): MeasurementOverviewInput {
+  const slots = answers.map((_, index) => ({
+    id: `slot-${String(index).padStart(2, '0')}`, executionId: `exec-${index}`, queryText: `service ${index}`,
+    provider: 'openai', location: null,
+  }))
+  return {
+    ...baseInput(),
+    groups: [{ id: 'north-region', label: 'North region', targetIds: ['north'], competitors: [] }],
+    expectedSlots: slots,
+    usageEdges: slots.map((slot, index) => ({ id: `north-edge-${index}`, type: 'target' as const, executionId: slot.executionId, targetId: 'north' })),
+    observations: answers.flatMap((answer, index) => answer === 'missing' ? [] : [{
+      id: `observation-${index}`, executionId: `exec-${index}`, queryText: `service ${index}`, provider: 'openai', location: null,
+      answerText: 'Northstar North is an option.',
+      citedUrls: answer === 'cited' || answer === 'unchecked-cited' ? ['https://northstar.example/locations/north'] : [],
+      citedUrlsComplete: answer === 'cited' || answer === 'not-cited',
+    }]),
+    scopeTargetIds: ['north'],
+  }
+}
+
+function northTarget(report: ReturnType<typeof buildMeasurementReport>) {
+  return report.targets.find(target => target.id === 'north')!
+}
+
+/** Three cited, six not cited, one saved answer whose sources could not be checked. */
+const TEN: readonly CitationAnswer[] = [
+  'cited', 'cited', 'cited', 'not-cited', 'not-cited', 'not-cited', 'not-cited', 'not-cited', 'not-cited', 'unchecked',
+]
+
+describe('citation coverage over checked answers', () => {
+  it('reads 3 of 9 with one unchecked on the overview, its Property row, and the revision report', () => {
+    const expected = { numerator: 3, denominator: 9, rate: 3 / 9, unchecked: 1 }
+    const overview = buildMeasurementOverview(citationInput(TEN))
+    expect(overview.citationCoverage).toEqual(expected)
+    expect(overview.properties[0]!.citationCoverage).toEqual(expected)
+    expect(overview.properties[0]!.providers[0]!.citationCoverage).toEqual(expected)
+    const report = buildMeasurementReport(citationInput(TEN))
+    expect(northTarget(report).citationCoverage).toEqual(expected)
+    expect(report.groups[0]!.answerCoverage).toEqual(expected)
+    expect(report.groups[0]!.completeness).toMatchObject({ executed: 10, expected: 10, sourceCompleteObservations: 9 })
+  })
+
+  it('excludes an unchecked answer that carries a captured positive', () => {
+    const answers = TEN.map((answer, index) => index === 9 ? 'unchecked-cited' as const : answer)
+    const expected = { numerator: 3, denominator: 9, rate: 3 / 9, unchecked: 1 }
+    expect(buildMeasurementOverview(citationInput(answers)).citationCoverage).toEqual(expected)
+    expect(northTarget(buildMeasurementReport(citationInput(answers))).citationCoverage).toEqual(expected)
+  })
+
+  it('is unavailable only when every answer is unchecked', () => {
+    const unavailable = { numerator: null, denominator: null, rate: null, reason: 'evidence-incomplete' }
+    expect(buildMeasurementOverview(citationInput(['unchecked', 'unchecked-cited'])).citationCoverage).toEqual(unavailable)
+    expect(northTarget(buildMeasurementReport(citationInput(['unchecked', 'unchecked-cited']))).citationCoverage).toEqual(unavailable)
+  })
+
+  it('still withholds the rate for a missing answer beside an unchecked one', () => {
+    const answers = TEN.map((answer, index) => index === 8 ? 'missing' as const : answer)
+    expect(buildMeasurementOverview(citationInput(answers)).citationCoverage)
+      .toEqual({ numerator: null, denominator: null, rate: null, reason: 'evidence-incomplete' })
+    expect(northTarget(buildMeasurementReport(citationInput(answers))).citationCoverage)
+      .toEqual({ numerator: null, denominator: null, rate: null, reason: 'incomplete' })
   })
 })

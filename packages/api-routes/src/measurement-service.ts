@@ -4,11 +4,13 @@ import {
   effectiveDomains,
   measurementDiscoveryRequestSchema,
   measurementDiscoveryResponseSchema,
+  measurementQueryClassFilterSchema,
   measurementReportResponseSchema,
   notFound,
+  type MeasurementQueryClassFilter,
   validationError,
   describeError,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { requireScope } from './auth.js'
 import {
   classifyMeasurementSitemapUrls,
@@ -35,10 +37,9 @@ function messageOf(error: unknown): string {
 /** Network and persistence adapters around the pure Target discovery/report kernels. */
 export async function measurementServiceRoutes(app: FastifyInstance, opts: MeasurementServiceRoutesOptions) {
   // A POST only because the rules it classifies against are too large for a
-  // URL. It fetches a sitemap and sorts the URLs; it writes nothing and starts
-  // nothing, so a view-only account can run it — see `readSemantic` in
-  // `auth.ts`. This is the first step of the setup wizard, and a viewer who
-  // could not run it could not look at the plan at all.
+  // URL. It fetches a sitemap and sorts the URLs; the operation catalog marks
+  // this as live because it reaches an operator-supplied URL. It writes
+  // nothing, so a view-only account can run it through readSemantic.
   app.post<{ Params: { name: string } }>('/projects/:name/measurement-discovery', {
     config: { readSemantic: true },
   }, async request => {
@@ -71,7 +72,7 @@ export async function measurementServiceRoutes(app: FastifyInstance, opts: Measu
     }
   })
 
-  app.get<{ Params: { name: string }; Querystring: { revision?: string; runId?: string } }>('/projects/:name/measurement-report', async request => {
+  app.get<{ Params: { name: string }; Querystring: { revision?: string; runId?: string; queryClass?: string } }>('/projects/:name/measurement-report', async request => {
     const project = resolveProject(app.db, request.params.name)
     const rawRevision = request.query.revision
     if (typeof rawRevision !== 'string' || !/^[1-9]\d*$/.test(rawRevision)) {
@@ -84,7 +85,14 @@ export async function measurementServiceRoutes(app: FastifyInstance, opts: Measu
       throw validationError('"runId" must be a non-empty string')
     }
 
-    const result = buildStoredMeasurementReport(app.db, project.id, revision, runId)
+    let queryClass: MeasurementQueryClassFilter | undefined
+    if (request.query.queryClass !== undefined) {
+      const parsedClass = measurementQueryClassFilterSchema.safeParse(request.query.queryClass)
+      if (!parsedClass.success) throw validationError('"queryClass" must be one of non-brand, branded or all')
+      queryClass = parsedClass.data
+    }
+
+    const result = buildStoredMeasurementReport(app.db, project.id, revision, runId, queryClass)
     if (result.kind === 'no-plan') throw notFound('Measurement plan revision', rawRevision)
     if (runId !== undefined && result.report.run?.id !== runId) throw notFound('Measurement run', runId)
     return measurementReportResponseSchema.parse(result.report)

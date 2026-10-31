@@ -1,6 +1,6 @@
 import { and, count, eq } from 'drizzle-orm'
-import { MEASUREMENT_CHANGES_NOISE_ANSWERS, MEASUREMENT_PLAN_V2_SCHEMA_VERSION } from '@ainyc/canonry-contracts'
-import { measurementPlans, measurementPlanVersions, queries, type DatabaseClient } from '@ainyc/canonry-db'
+import { MEASUREMENT_CHANGES_NOISE_ANSWERS, MEASUREMENT_PLAN_V2_SCHEMA_VERSION } from '@canonry/canonry-contracts'
+import { measurementPlans, measurementPlanVersions, queries, type DatabaseClient } from '@canonry/canonry-db'
 
 interface StoredPlanShape {
   schemaVersion?: number
@@ -47,10 +47,11 @@ const SIMPLE_TOOLS = ['canonry_visibility_report']
  * ranking), so the prompt names the read rather than restating its rules.
  */
 const ADVANCED_ROUTES = [
-  'Weakest or strongest Properties: canonry_measurement_portfolio_summary (rows with metro, names written instead and cited domains; mentionRanking for both ends). For more rows pass groupKey, or page canonry_measurement_overview.',
-  'Which metros have the biggest gaps: the summary\'s markets (every metro) and tiedAtWeakest.byMetro.',
+  'Weakest or strongest Properties: canonry_measurement_portfolio_summary (mentionRanking for both ends). Compact results carry detailsOmitted; use Property evidence reads for omitted names and cited domains. The default cursor enumerates weakest Properties only; set list=strongest-mentions or list=weakest-mentions to enumerate the chosen ranking. Follow nextCursor with unchanged list and filters; pageList names that selection. Use groupKey, or page canonry_measurement_overview with queryClass "non-brand", for all Property rows.',
+  'Rates for one Property, group or market: canonry_measurement_overview with queryClass "non-brand". Branded is a separate call (queryClass "branded"), reported as its own figure; never quote queryClass "all", which pools both. For a market, use scope "market" with its marketKey (a kind market id in canonry_visibility_report scopeOptions): it counts only that market\'s queries, as the dashboard does. Scope "group" counts every query of its Properties, so never quote a group figure under a market\'s name; quote the returned scope kind and label.',
+  'Which metros have the biggest gaps: the compact summary\'s weakestMarkets, whose rates cover full top-level metros. Set list=markets and follow nextCursor with unchanged list and filters for every market; tiedAtWeakest describes only the zero-signal Property cohort, never full metro rates.',
   'One Property: canonry_measurement_property_evidence and canonry_measurement_property_competitors (names written instead of it, and citedDomains, its own cited sources). Portfolio lists such as weakestAnswerSources pool many Properties.',
-  'Which names answers give instead across the portfolio: canonry_competitor_landscape with queryClass and runId "latest". Per-Property named-instead lists are samples of weak Properties.',
+  'Which names answers give instead across the portfolio: canonry_competitor_landscape with queryClass and runId "latest", answers=not-mentioned. This selects answers naming none of their targeted Properties; preserve populationSize, answerCount and unknownMentionAnswers. Per-Property named-instead lists are samples of weak Properties.',
   'Where answers get their sources: canonry_analytics_sources with queryClass and runId "latest"; without them it pools both classes and every sweep.',
   'What changed since the last sweep: canonry_measurement_changes once per class. Quote its distribution for how many Properties moved.',
   'Is the sweep complete, or is anything unreliable: canonry_measurement_data_quality (quote completeness expected, executed and missing, unattributedByClass and latestFill), then canonry_run_completeness with its run.displayedRunId for missing answers per engine. A Healthy run status and canonry_doctor are not completeness checks.',
@@ -94,7 +95,10 @@ export function aeroProjectShape(db: DatabaseClient, projectId: string): AeroPro
         prompt: `\n\nProject shape: an Advanced Measurement portfolio (plan revision ${version.revision}) with ${size}, ${queriesIn('branded')} branded and ${queriesIn('non-brand')} non-brand queries. This line settles the project type.`
           + '\nRules: measure per Property, group or market, never pool branded and non-brand, and a query shared by several Properties is one answer scored for each. Denominators count answers (queries x engines), not queries; label them answers. Group Properties only by the metro and submarkets the tools return, never by name. Names given instead were written in the answer text, not cited; cited domains are sources and never go under a named-instead heading. Name only engines a tool returned.'
           + ` Between two sweeps, a Property that moved ${MEASUREMENT_CHANGES_NOISE_ANSWERS} answers or fewer is within noise (withinNoise): never call it a gain, loss, trend or regression.`
-          + ' Properties tied at the weakest rate are not ranked: they are listed by name, so say how many tie (tiedAtWeakest.count), give tiedAtWeakest.byMetro, and call the listed rows examples of the tie, not a ranked bottom list.'
+          + ` Judge mention and citation separately (mentionWithinNoise, citationWithinNoise): a signal that moved ${MEASUREMENT_CHANGES_NOISE_ANSWERS} answers or fewer is within noise even when the Property's other signal moved more.`
+          + ' Quote every coverage figure with its counts, headline and branded figures included; the value text carries them, as in 25.0% (6/24).'
+          + ' A Property\'s citation coverage counts only citations of its own page: 0% does not mean your domain went uncited (weakestAnswerSources.ownDomainAnswers counts that). Property names often carry the brand, so that most listed Properties carry it is not a finding.'
+          + ' tiedAtWeakest counts Properties with zero mentions and zero citations, separate from propertiesNeverMentioned (which may include cited Properties). Say how many tie (tiedAtWeakest.count); compact results omit the cohort\'s byMetro details. Call listed tie rows examples, not a ranked bottom list.'
           + ' A result with truncated true, a total above its rows, __partialLists or __truncation is partial: say how many of how many you saw, and never call those rows the biggest, all, or the full picture.'
           + `\nRoute each question to its read:\n${ADVANCED_ROUTES.map(route => `- ${route}`).join('\n')}`
           + '\ncanonry_visibility_report describes the whole project, not one Property. canonry_measurement_plan_get is plan structure with no metrics; do not read it for analysis.',

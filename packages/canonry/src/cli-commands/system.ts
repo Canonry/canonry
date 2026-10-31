@@ -1,13 +1,10 @@
-import { bootstrapCommand } from '../commands/bootstrap.js'
+import { usageError } from '../cli-error.js'
 import { startDaemon, stopDaemon } from '../commands/daemon.js'
-import { initCommand } from '../commands/init.js'
-import { serveCommand } from '../commands/serve.js'
-import { telemetryCommand } from '../commands/telemetry.js'
-import { showOperationalLogs } from '../commands/logs.js'
+import { FEEDBACK_USAGE, feedbackCommand } from '../commands/feedback.js'
 import type { CliCommandSpec, CliValues } from '../cli-dispatch.js'
 import { getBoolean, getString, getStringArray, multiStringOption, stringOption, unknownSubcommand } from '../cli-command-helpers.js'
 
-export function applyServerEnv(values: CliValues): void {
+function applyServerEnv(values: CliValues): void {
   const port = typeof values.port === 'string' ? values.port : undefined
   const host = typeof values.host === 'string' ? values.host : undefined
   const basePath = typeof values['base-path'] === 'string' ? values['base-path'] : undefined
@@ -30,25 +27,39 @@ export function applyServerEnv(values: CliValues): void {
 
 export const SYSTEM_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
+    path: ['help'],
+    usage: 'canonry help [<group>] [--access stored|live|write] [--format json|jsonl]',
+    options: { access: stringOption() },
+    run: async input => {
+      if (input.positionals.length > 1) throw usageError('Expected at most one command group')
+      const [{ printCliCatalog }, { REGISTERED_CLI_COMMANDS }] = await Promise.all([import('../cli-catalog.js'), import('../cli-commands.js')])
+      printCliCatalog(REGISTERED_CLI_COMMANDS, input.format, input.positionals[0], getString(input.values, 'access'))
+    },
+  },
+  {
     path: ['logs'],
     usage: 'canonry logs [--level trace|debug|info|warn|error|fatal] [--module <name>] [--run-id <id>] [--project-id <id>] [--actor <user:id|api-key:id>] [--request-id <id>] [--since <ISO>] [--until <ISO>] [--limit <1..200>] [--cursor <cursor>] [--format json|jsonl]',
     help: 'Read bounded, redacted runtime logs. Inspect retention and captureErrors for coverage. Requires an instance-wide logs.read grant; project filters do not grant access. Use history for audit events.',
     options: { level: stringOption(), module: stringOption(), 'run-id': stringOption(), 'project-id': stringOption(), actor: stringOption(), 'request-id': stringOption(), since: stringOption(), until: stringOption(), limit: stringOption(), cursor: stringOption() },
     allowPositionals: false,
-    run: async input => showOperationalLogs({
-      level: getString(input.values, 'level'), module: getString(input.values, 'module'),
-      runId: getString(input.values, 'run-id'), projectId: getString(input.values, 'project-id'),
-      actor: getString(input.values, 'actor'), requestId: getString(input.values, 'request-id'),
-      since: getString(input.values, 'since'), until: getString(input.values, 'until'),
-      limit: getString(input.values, 'limit'), cursor: getString(input.values, 'cursor'),
-    }, input.format),
+    run: async input => {
+      const { showOperationalLogs } = await import('../commands/logs.js')
+      return showOperationalLogs({
+        level: getString(input.values, 'level'), module: getString(input.values, 'module'),
+        runId: getString(input.values, 'run-id'), projectId: getString(input.values, 'project-id'),
+        actor: getString(input.values, 'actor'), requestId: getString(input.values, 'request-id'),
+        since: getString(input.values, 'since'), until: getString(input.values, 'until'),
+        limit: getString(input.values, 'limit'), cursor: getString(input.values, 'cursor'),
+      }, input.format)
+    },
   },
   {
     path: ['init'],
-    usage: 'canonry init [--force] [--gemini-key <key>] [--openai-key <key>] [--claude-key <key>] [--perplexity-key <key>] [--muse-key <key>] [--local-url <url>] [--local-model <name>] [--local-key <key>] [--google-client-id <id>] [--google-client-secret <key>] [--skip-skills] [--skip-mcp] [--skills-dir <path>] [--format json]',
+    usage: 'canonry init [--force] [--ref <tag>] [--gemini-key <key>] [--openai-key <key>] [--claude-key <key>] [--perplexity-key <key>] [--muse-key <key>] [--local-url <url>] [--local-model <name>] [--local-key <key>] [--google-client-id <id>] [--google-client-secret <key>] [--skip-skills] [--skip-mcp] [--skills-dir <path>] [--format json]',
     help: 'Optional interactive provider and OAuth setup. First-run Page Health does not need this: use "canonry bootstrap", then "canonry serve". At least one provider is required here. --format json needs provider flags or environment variables.',
     options: {
       force: { type: 'boolean', short: 'f', default: false },
+      ref: stringOption(),
       'gemini-key': stringOption(),
       'openai-key': stringOption(),
       'claude-key': stringOption(),
@@ -65,8 +76,10 @@ export const SYSTEM_CLI_COMMANDS: readonly CliCommandSpec[] = [
     },
     allowPositionals: false,
     run: async (input) => {
+      const { initCommand } = await import('../commands/init.js')
       await initCommand({
         force: getBoolean(input.values, 'force'),
+        ref: getString(input.values, 'ref'),
         geminiKey: getString(input.values, 'gemini-key'),
         openaiKey: getString(input.values, 'openai-key'),
         claudeKey: getString(input.values, 'claude-key'),
@@ -86,17 +99,20 @@ export const SYSTEM_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['bootstrap'],
-    usage: 'canonry bootstrap [--format json]',
+    usage: 'canonry bootstrap [--ref <tag>] [--format json]',
     help: 'Create or reconcile the local config, SQLite database, and default API key from supported environment variables. Provider credentials are optional. Safe to rerun: existing settings are preserved and the result reports created, updated, or unchanged. The legacy --force/-f flag is accepted but has no effect.',
     options: {
       // Compatibility for scripts written before bootstrap became idempotent.
       // Keep this out of usage: the flag is unnecessary and has no behavior.
       force: { type: 'boolean', short: 'f', default: false },
+      ref: stringOption(),
     },
     allowPositionals: false,
     run: async (input) => {
+      const { bootstrapCommand } = await import('../commands/bootstrap.js')
       await bootstrapCommand({
         format: input.format,
+        ref: getString(input.values, 'ref'),
       })
     },
   },
@@ -115,6 +131,7 @@ export const SYSTEM_CLI_COMMANDS: readonly CliCommandSpec[] = [
     allowPositionals: false,
     run: async (input) => {
       applyServerEnv(input.values)
+      const { serveCommand } = await import('../commands/serve.js')
       await serveCommand(input.format)
     },
   },
@@ -153,11 +170,38 @@ export const SYSTEM_CLI_COMMANDS: readonly CliCommandSpec[] = [
     },
   },
   {
+    path: ['support'],
+    usage: 'canonry support [--format json]',
+    help: 'Where to get help: the Canonry Discord, the issue tracker, and canonry feedback.',
+    allowPositionals: false,
+    run: async (input) => {
+      const { supportCommand } = await import('../commands/support.js')
+      supportCommand(input.format)
+    },
+  },
+  {
+    path: ['feedback'],
+    usage: FEEDBACK_USAGE,
+    help: 'Send a struggle, bug, improvement or note about Canonry itself to the Canonry team. Credentials are redacted before sending; never include customer data. The anonymous install id is attached only while telemetry is enabled.',
+    options: { kind: stringOption(), details: stringOption(), area: stringOption(), command: stringOption(), 'error-code': stringOption() },
+    run: async (input) => {
+      await feedbackCommand({
+        summary: input.positionals.join(' ').trim() || undefined,
+        kind: getString(input.values, 'kind'),
+        details: getString(input.values, 'details'),
+        area: getString(input.values, 'area'),
+        command: getString(input.values, 'command'),
+        errorCode: getString(input.values, 'error-code'),
+      }, input.format)
+    },
+  },
+  {
     path: ['telemetry', 'status'],
     usage: 'canonry telemetry status [--target local|server] [--format json]',
     options: { target: stringOption() },
     allowPositionals: false,
     run: async (input) => {
+      const { telemetryCommand } = await import('../commands/telemetry.js')
       await telemetryCommand('status', input.format, getString(input.values, 'target'))
     },
   },
@@ -167,6 +211,7 @@ export const SYSTEM_CLI_COMMANDS: readonly CliCommandSpec[] = [
     options: { target: stringOption() },
     allowPositionals: false,
     run: async (input) => {
+      const { telemetryCommand } = await import('../commands/telemetry.js')
       await telemetryCommand('enable', input.format, getString(input.values, 'target'))
     },
   },
@@ -176,6 +221,7 @@ export const SYSTEM_CLI_COMMANDS: readonly CliCommandSpec[] = [
     options: { target: stringOption() },
     allowPositionals: false,
     run: async (input) => {
+      const { telemetryCommand } = await import('../commands/telemetry.js')
       await telemetryCommand('disable', input.format, getString(input.values, 'target'))
     },
   },

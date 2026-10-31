@@ -1,4 +1,4 @@
-import type { AgentViewContext, AgentTurnLimits } from '@ainyc/canonry-contracts'
+import type { AgentViewContext, AgentTurnLimits } from '@canonry/canonry-contracts'
 import type { AgentEvent, AgentMessage } from '@earendil-works/pi-agent-core'
 import {
   CliError,

@@ -1,4 +1,4 @@
-import { CheckNotificationPolicies, CheckScopes } from '@ainyc/canonry-contracts'
+import { CheckNotificationPolicies, CheckScopes } from '@canonry/canonry-contracts'
 import { reportSweepsCheck } from './checks/report-sweeps.js'
 import { reportModelsCheck } from './checks/report-models.js'
 import { reportDailyDataCheck } from './checks/report-daily-data.js'
@@ -10,7 +10,9 @@ import { CONTENT_CHECKS } from './checks/content.js'
 import { ADS_CHECKS } from './checks/ads.js'
 import { GA_AUTH_CHECKS } from './checks/ga-auth.js'
 import { DATA_FRESHNESS_CHECKS } from './checks/data-freshness.js'
+import { SEO_REFRESH_CHECKS } from './checks/seo-refresh.js'
 import { SITE_REACHABILITY_CHECKS } from './checks/site-reachability.js'
+import { API_HOST_CHECKS } from './checks/api-hosts.js'
 import { GBP_AUTH_CHECKS } from './checks/gbp-auth.js'
 import { PLACES_CHECKS } from './checks/places.js'
 import { GBP_REVIEWS_CHECKS } from './checks/gbp-reviews.js'
@@ -20,6 +22,7 @@ import { RUNTIME_STATE_CHECKS } from './checks/runtime-state.js'
 import { TRAFFIC_SOURCE_CHECKS } from './checks/traffic-source.js'
 import { WORDPRESS_PUBLISH_CHECKS } from './checks/wordpress-publish.js'
 import { GOOGLE_MARKETING_DOCTOR_CHECKS } from './checks/google-marketing.js'
+import { INTEGRATION_SYNC_CHECKS } from './checks/integration-sync.js'
 import { VERSION_CHECKS } from './checks/version.js'
 import type { CheckDefinition } from './types.js'
 
@@ -36,17 +39,20 @@ export const ALL_CHECKS: readonly CheckDefinition[] = [
   ...WORDPRESS_PUBLISH_CHECKS,
   ...GA_AUTH_CHECKS,
   ...DATA_FRESHNESS_CHECKS,
+  ...SEO_REFRESH_CHECKS,
   reportSweepsCheck,
   reportModelsCheck,
   reportDailyDataCheck,
   ...REFERRAL_ASSESSMENT_CHECKS,
   ...ADS_CHECKS,
   ...GOOGLE_MARKETING_DOCTOR_CHECKS,
+  ...INTEGRATION_SYNC_CHECKS,
   ...PROVIDERS_CHECKS,
   ...TRAFFIC_SOURCE_CHECKS,
   ...BACKLINKS_CHECKS,
   ...CONTENT_CHECKS,
   ...AGENT_CHECKS,
+  ...API_HOST_CHECKS,
   // Network probe last, so a slow or unreachable site never delays the local checks.
   ...SITE_REACHABILITY_CHECKS,
 ]

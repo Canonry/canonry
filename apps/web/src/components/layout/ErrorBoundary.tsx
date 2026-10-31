@@ -1,9 +1,12 @@
 import { Component, type ReactNode } from 'react'
 import { AlertTriangle, RotateCcw } from 'lucide-react'
 import { Button } from '../ui/button.js'
+import { recordUiError } from '../../lib/ui-telemetry.js'
 
 interface Props {
   children: ReactNode
+  /** Slug reported with `ui.error` (`kind: render`): which boundary caught it. */
+  name?: string
 }
 
 interface State {
@@ -19,6 +22,7 @@ export class ErrorBoundary extends Component<Props, State> {
 
   override componentDidCatch(error: Error, info: React.ErrorInfo) {
     console.error('[ErrorBoundary]', error, info.componentStack)
+    recordUiError({ kind: 'render', error, component: this.props.name ?? 'root' })
   }
 
   private handleReset = () => {
@@ -34,8 +38,8 @@ export class ErrorBoundary extends Component<Props, State> {
           <div className="rounded-full bg-negative-950/40 p-3">
             <AlertTriangle className="size-6 text-negative-400" />
           </div>
-          <h2 className="text-lg font-semibold text-heading">Something went wrong</h2>
-          <p className="text-sm text-secondary max-w-md">
+          <h2 className="text-heading-20 text-heading">Something went wrong</h2>
+          <p className="text-copy-14 text-secondary max-w-md">
             {this.state.error.message || 'An unexpected error occurred while rendering this page.'}
           </p>
           <div className="flex gap-3 mt-2">

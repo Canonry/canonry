@@ -1,0 +1,162 @@
+# Google Business Profile posts and review events
+
+This change is opt-in. It creates no Google posts, review replies, subscriptions,
+credentials, schedules or enabled notification destinations. Existing Google
+connections and selected account/location mappings are reused. Existing clients'
+publication and social holds remain authoritative.
+
+## Local Posts transport
+
+The engine exposes project-bound Local Posts list/get and an audited create
+transport. Reads require an explicit `gbp.read` (or full-instance) key; creates
+require `gbp.posts.write`. That write scope cannot be used for unrelated writes.
+The low-level create endpoint is intentionally excluded from MCP: the approved
+social outbox owns exact content review and publication authority.
+
+Supported content is deliberately limited to English STANDARD editorial article
+updates, one PHOTO source URL and a LEARN_MORE article link. Offers, events and
+scheduledTime are rejected. Every linked article is checked for promotional copy
+and links, even when location category metadata is missing or localized. This
+conservative policy protects hotel locations and can refuse an editorial page
+whose shared navigation advertises an offer. It is not a semantic policy
+classifier and does not add promotional posting support.
+
+This initial transport is editorial-only for every client, even when a
+location's category is missing or localized.
+Valid JSON-LD with a schema.org context may use `Offer`, `AggregateOffer`,
+`OfferCatalog` and `offers` as schema identifiers without advertising a deal.
+Those identifiers alone do not block an article. Descriptions, names, links,
+discount/coupon fields and sale-price data are still checked, including escaped
+strings and duplicate JSON members. Malformed JSON-LD, unsupported contexts and
+excessive nesting fail closed. A malformed percent escape is read as a space
+rather than refusing the page. No schema is removed from the article.
+
+Commands (machine-readable JSON):
+
+- `cnry gbp posts list PROJECT --account accounts/ID --location locations/ID`
+- `cnry gbp posts get PROJECT --post accounts/ID/locations/ID/localPosts/ID`
+- `cnry gbp posts attempt PROJECT --attempt UUID --package SHA256`
+- `cnry gbp posts create PROJECT --request APPROVED_REQUEST.json`
+- `cnry gbp reviews live PROJECT --account accounts/ID --location locations/ID`
+
+Create requests bind account, selected location, attempt UUID, package SHA256 and
+strict content. A durable audit claim precedes the single Google POST; a repeated
+identity cannot change content or issue another POST. A lost response remains
+uncertain. The attempt GET can recover a saved accepted result without posting.
+An interrupted claim without a provider identity requires explicit investigation;
+it is never silently reset. List pagination retains the next token. Unknown
+states, malformed media and incomplete live review coverage fail closed.
+
+Historical discovery keeps posts whose media is a video or lacks an original
+PHOTO source URL. Their identity, caption, article link and pagination remain
+available for duplicate detection. List results set `mediaSourceUrlsComplete`
+to false and return no image URLs rather than presenting partial image evidence.
+Malformed media containers/items still make coverage unknown. Exact post GET
+and create-response parsing continue to reject unsupported media; the outbox's
+exact verifier still requires one approved image. A historical listing cannot
+verify an approved post's image.
+
+Local Posts list/get failures retain HTTP 502 and unknown coverage. Error details
+identify `token`, `google_api`, `response` or `unclassified`, with an allowlisted
+reason and bounded upstream HTTP status when available. Raw Google/OAuth bodies,
+messages, credentials and post content are never included. A malformed response
+cannot become an empty, complete post list. These diagnostics authorize no retry
+of a create request and do not relax duplicate checks.
+
+The orchestrator companion change performs live source/image preflight, exact
+owner Discord approval, duplicate scans, final hold/configuration checks, durable
+submission and LIVE readback. `PROCESSING` is not success. Verification requires
+the exact caption, article, PHOTO source, account/location and a supported Google
+live link. The original source image is hash-checked; Google may transform its
+rendered image, so this proves the returned source identity rather than pixel
+identity of Google's final presentation. No live write was used to validate this
+change; production write eligibility remains untested.
+
+## Engine-owned review events
+
+Review observation/baselines already belong to the engine's GBP sync. Reuse an
+existing configurable hourly `gbp-sync` schedule rather than adding an
+orchestrator poller. The existing negative-review setting defaults to three
+stars; notification subscriptions and schedules are independently configurable
+per project. A first successful sync silently baselines historical reviews.
+New material rating/comment changes can emit `review.negative`; timestamp-only
+and owner-reply changes do not generate another alert. The existing 30-day alert
+window remains. Alerts never reply to, delete or alter Google reviews.
+
+Each material revision has an immutable `evt_…` ID. The delivery table
+(migration 189) is empty on upgrade, has a unique project/destination/event key,
+and preserves per-destination debt across restarts. One accepted destination
+cannot acknowledge another failed destination. Acknowledgement compares the exact
+observed rating, comment and material revision, so an older send cannot hide a
+concurrent edit. Each review is its own message, with its own link and its own
+delivery record.
+
+Due deliveries drain every minute on an engine timer, and after every GBP sync,
+up to 100 per project per pass, never-attempted and oldest-due first. Chat
+destinations (Discord, Slack) take at most three sends per pass, so a burst of
+reviews goes out over a few minutes instead of tripping their webhook rate
+limits. A failed send retries after one minute, doubling to six hours, never
+sooner than a `Retry-After` asks. A destination that refuses the request (a 4xx
+other than 408, 425 or 429) fails at once, and a send still failing after ten
+attempts fails too. Failed DNS/preflight reads back off by the event's age
+without counting as provider attempts, so unavailable targets do not monopolize
+later passes. An older still-negative material event retains its original
+payload and can finish after a newer event succeeds, without repeating
+destinations that already accepted it.
+
+Before a retry and again after DNS resolution, the engine checks the current
+project, selected account/location, destination subscription and review rating.
+Pending debt is canceled when its review was removed, became nonnegative under
+the current threshold, expired outside the 30-day window, or lost its selected
+location/destination authority. A silent/suppressed review or Places review now
+covered by Business Profile is canceled too. Cancellation preserves the immutable
+event and records one `notification.review-canceled` audit entry with a bounded
+reason and exact event/destination identity. It never claims delivery or
+reactivates old debt when settings later change. Already attempting or uncertain
+outcomes retain their evidence and remain held when authority is revoked;
+cancellation cannot erase an ambiguous send. No historical baseline is replayed.
+
+Native Discord/Slack rendering reuses engine adapters, with bounded excerpts,
+validated Google review/profile links and disabled Discord mentions. No
+orchestrator dependency is involved.
+
+Generic receivers use existing HMAC credentials. Events retain the legacy
+signature and add `X-Canonry-Event-Id`, `Idempotency-Key`,
+`X-Canonry-Timestamp`, and `X-Canonry-Signature-V2`.
+`verifyCanonryWebhook` validates freshness (five minutes by default), event ID
+and an HMAC over `timestamp.body`. Consumers must atomically deduplicate the
+stable event ID before effects; signature verification alone does not stop a
+replay within the freshness window. No secrets are created by migration.
+
+A definitive failed delivery retries only notification delivery. A lost generic
+webhook acknowledgement can retry with the same deduplicated event ID. A request
+that never reached the network (DNS, connect or TLS failure) is retried for every
+destination, because no receiver can have it. A Discord/Slack request that did
+reach the network but got no answer is held as `uncertain`, since those endpoints
+do not deduplicate; it is never resent. Uncertain and failed deliveries are
+listed by the `gbp.reviews.delivery` doctor check for seven days, with the
+destination and the review link, and each one writes a
+`notification.review-undelivered` audit entry. No historical backlog is dumped
+into channels.
+
+Google Pub/Sub NEW_REVIEW/UPDATED_REVIEW notifications could later replace the
+upstream polling wake-up. That requires separately approved cloud topic/IAM and
+account notification settings; no such resources or permissions are provisioned
+here. The outgoing engine webhook contract remains the same.
+
+## Activation checklist (not performed)
+
+1. Confirm each selected account/location and project credential scopes.
+2. Confirm each client's engine notification destination. Orchestrator manifest
+   targets are not proof of engine webhook routing; confirm each route with its
+   owner before enabling alerts.
+3. Approve deployment/migration, then configure hourly sync and the intended
+   `review.negative` subscriptions with the existing settings. Preserve a silent
+   baseline and verify routing before enabling alerts.
+4. Enable GBP social delivery separately per client in the companion outbox.
+   Any existing social hold remains until separately authorized.
+
+On October 23, authorized read-only Google requests returned HTTP 200 for Local
+Posts and Reviews on the pilot locations. These were access checks, not complete
+scans or claims that no negative reviews exist. No live notifications, previews
+or posts were sent.

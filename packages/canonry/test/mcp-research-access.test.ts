@@ -5,12 +5,12 @@ import path from 'node:path'
 import Fastify from 'fastify'
 import { eq } from 'drizzle-orm'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { Client } from '@modelcontextprotocol/sdk/client/index.js'
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
-import { apiRoutes, createUserSession, hashApiKey, USER_SESSION_COOKIE_NAME, type ApiRoutesOptions } from '@ainyc/canonry-api-routes'
-import { apiKeys, createClient, measurementPlans, measurementPlanVersions, measurementQueryTemplates, migrate, oauthClients, oauthTokens, projects, researchRuns, users } from '@ainyc/canonry-db'
-import { canonicalMeasurementPlanV2Json } from '@ainyc/canonry-contracts'
-import { openaiAdapter } from '@ainyc/canonry-provider-openai'
+import { Client } from '@modelcontextprotocol/client'
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
+import { apiRoutes, createUserSession, hashApiKey, USER_SESSION_COOKIE_NAME, type ApiRoutesOptions } from '@canonry/canonry-api-routes'
+import { apiKeys, createClient, measurementPlans, measurementPlanVersions, measurementQueryTemplates, migrate, oauthClients, oauthTokens, projects, researchRuns, users } from '@canonry/canonry-db'
+import { canonicalMeasurementPlanV2Json } from '@canonry/canonry-contracts'
+import { openaiAdapter } from '@canonry/canonry-provider-openai'
 import { ApiClient } from '../src/client.js'
 import { registerMcpHttpRoutes, type McpHttpOptions } from '../src/mcp-http.js'
 import { createProviderModelCatalog } from '../src/provider-model-catalog.js'
@@ -67,9 +67,10 @@ async function harness(allowViewers = true, catalogOptions: Pick<ApiRoutesOption
   mcpOptions.selfApiUrl = origin
   cleanups.push(async () => { await app.close(); db.$client.close(); fs.rmSync(dir, { recursive: true, force: true }) })
   async function connectWithSession(token: string, suffix = '') {
-    const client = new Client({ name: 'research-test', version: '1' })
+    const client = new Client({ name: 'research-test', version: '1' }, { versionNegotiation: { mode: 'legacy' } })
     const transport = new StreamableHTTPClientTransport(new URL(`${origin}/api/v1/mcp${suffix}`), { requestInit: { headers: { authorization: `Bearer ${token}` } } })
     await client.connect(transport)
+    expect(transport.sessionId).toBeTruthy()
     cleanups.push(() => client.close())
     return { client, sessionId: transport.sessionId! }
   }
@@ -137,7 +138,7 @@ describe('research capability across the real MCP and REST boundary', () => {
     const { db, connect, connectWithSession, reuseSession, dispatch } = await harness()
     const { client: research, sessionId } = await connectWithSession('oauth-research')
     const reader = await connect('oauth-read')
-    expect((await reader.callTool({ name: 'canonry_research_run_start', arguments: { project: 'demo', request: request('read-only') } })).isError).toBe(true)
+    await expect(reader.callTool({ name: 'canonry_research_run_start', arguments: { project: 'demo', request: request('read-only') } })).rejects.toMatchObject({ code: -32602, message: 'Tool canonry_research_run_start not found' })
     expect(await reuseSession('oauth-read', sessionId, method)).toBe(404)
     expect(dispatch).not.toHaveBeenCalled()
     expect(db.select().from(researchRuns).all()).toHaveLength(0)
@@ -295,8 +296,8 @@ describe('research capability across the real MCP and REST boundary', () => {
     expect(tools.some(tool => tool.name === 'canonry_research_run_start')).toBe(false)
     expect(tools.some(tool => tool.name === 'canonry_research_batch_start')).toBe(false)
     expect(tools.every(tool => tool.annotations?.readOnlyHint === true)).toBe(true)
-    expect((await mcp.callTool({ name: 'canonry_research_run_start', arguments: { project: 'demo', request: request('forbidden') } })).isError).toBe(true)
-    expect((await mcp.callTool({ name: 'canonry_research_batch_start', arguments: { project: 'demo', request: reviewedBatchRequest('forbidden-batch', templateVersion) } })).isError).toBe(true)
+    await expect(mcp.callTool({ name: 'canonry_research_run_start', arguments: { project: 'demo', request: request('forbidden') } })).rejects.toMatchObject({ code: -32602, message: 'Tool canonry_research_run_start not found' })
+    await expect(mcp.callTool({ name: 'canonry_research_batch_start', arguments: { project: 'demo', request: reviewedBatchRequest('forbidden-batch', templateVersion) } })).rejects.toMatchObject({ code: -32602, message: 'Tool canonry_research_batch_start not found' })
     expect(db.select().from(researchRuns).all()).toHaveLength(0)
   })
 })

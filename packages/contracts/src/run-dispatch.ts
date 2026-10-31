@@ -8,6 +8,7 @@ import {
   type SnapshotUsage,
 } from './provider-batch.js'
 import { RunTriggers, type RunDispatchModes, type RunTrigger, type RunUsageSummaryRow } from './run.js'
+import { compareText } from './text-order.js'
 
 /**
  * How one run's providers are dispatched, decided once at queue time (#1201).
@@ -160,7 +161,7 @@ export function describeBatchIneligibility(provider: string, reason: ProviderBat
     case ProviderBatchIneligibilityReasons.not_plan_run:
       return 'the project has no published measurement plan; batch dispatch needs a plan run, whose missing answers can be filled.'
     case ProviderBatchIneligibilityReasons.scoped_run:
-      return 'the run measures a slice (a measurement scope or a query list); only a full sweep can batch.'
+      return 'the run measures a slice (a measurement scope or a query list); only a full AI Visibility check can batch.'
     case ProviderBatchIneligibilityReasons.probe_run:
       return 'probe runs always run sync.'
     case ProviderBatchIneligibilityReasons.batch_unavailable:
@@ -189,10 +190,6 @@ export interface RunUsageSource {
 }
 
 const PRICING_TIER_ORDER: readonly PricingTier[] = [PricingTiers.standard, PricingTiers.batch]
-
-function compareText(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0
-}
 
 /**
  * Sum a run's stored usage per provider and price tier: the one computation

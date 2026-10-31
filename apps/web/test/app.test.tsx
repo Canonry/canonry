@@ -5,12 +5,12 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { RouterProvider } from '@tanstack/react-router'
 
-import type { VisibilityReportResponse } from '@ainyc/canonry-contracts'
-import { visibilityReportResponseSchema } from '@ainyc/canonry-contracts'
+import type { VisibilityReportResponse } from '@canonry/canonry-contracts'
+import { visibilityReportResponseSchema } from '@canonry/canonry-contracts'
 import {
   getApiV1ProjectsByNameMeasurementPlanQueryKey,
   getApiV1ProjectsByNameVisibilityReportQueryKey,
-} from '@ainyc/canonry-api-client/react-query'
+} from '@canonry/canonry-api-client/react-query'
 import { fetchHealthCheck, fetchServiceStatus, heyClient } from '../src/api.js'
 import type { VisibilitySelectionState } from '../src/lib/measurement-view-url.js'
 import { parseVisibilitySelection, visibilityReportFirstPageQuery } from '../src/lib/measurement-view-url.js'
@@ -188,7 +188,10 @@ async function renderApp(
 test('overview route renders the premium portfolio dashboard', async () => {
   const html = await renderApp('/')
 
-  expect(html).toMatch(/Portfolio/)
+  expect(html).toMatch(/All projects/)
+  expect(html).toContain('<span>All projects</span>')
+  expect(html).toContain('<span class="breadcrumb-current">All projects</span>')
+  expect(html).toContain('Open navigation')
   expect(html).toMatch(/Visibility across all projects/)
   expect(html).toMatch(/Infrastructure/)
   expect(html).toMatch(/Citypoint Dental NYC/)
@@ -202,7 +205,8 @@ test('project route renders a concise visibility summary with progressive detail
   expect(html).toMatch(/Citypoint Dental NYC/)
   // The compact Aero bar is fixed to the viewport, so project content reserves
   // a matching bottom lane instead of letting the bar cover the final row.
-  expect(html).toMatch(/<main id="content" class="page-shell pb-20">/)
+  expect(html).toMatch(/<div class="main-area main-area-agent-bar">/)
+  expect(html).toMatch(/<main id="content" class="page-shell">/)
   // The tab is labelled for what it shows. The route id stays `overview` —
   // embed configs pass that id on the wire (CANONRY_EMBED_PROJECT_TABS), so
   // renaming it would break an existing install's allowlist.
@@ -211,20 +215,25 @@ test('project route renders a concise visibility summary with progressive detail
   // The route/embed token remains `technical-aeo`; only the product label changes.
   expect(html).toMatch(/Site Health/)
   expect(html).toMatch(/Queries/)
-  expect(html).toMatch(/Visibility/)
-  expect(html).toMatch(/Coverage now/)
-  expect(html).toMatch(/Since last sweep/)
+  // The trend chart is the first card after the tabs: no Visibility card above it.
+  const doc = new DOMParser().parseFromString(html, 'text/html')
+  expect(doc.getElementById('overview-brief-title')).toBeNull()
+  expect([...doc.querySelectorAll('.av-card-title')].map(title => title.textContent)).toEqual([
+    'AI answers over time', 'Where competitors are winning', 'By engine', 'Past checks', 'Competitors over time',
+  ])
+  // The competitive card keeps its own section head, after the trend and before the query table.
+  const trend = html.indexOf('class="av-card-title">AI answers over time<')
+  const competitive = html.indexOf('class="av-card-title">Where competitors are winning<')
+  expect(trend).toBeGreaterThan(-1)
+  expect(competitive).toBeGreaterThan(trend)
+  expect(competitive).toBeLessThan(html.indexOf('<details id="evidence-section"'))
+  expect(html).toMatch(/<details class="av-details"><summary>Details<\/summary>/)
+  expect(html).not.toMatch(/Coverage now|Tracking scope changed|comparable queries/)
   expect(html).toMatch(/Mentioned/)
   expect(html).toMatch(/Cited/)
-  // The hero figures arrive formatted by the API ("66.7%"); the sign is set
-  // apart once, never appended to a value that already carries it.
-  expect(html).toMatch(/<p class="aeo-hero-row-value [^"]*">66\.7<span class="text-faint">%<\/span><\/p>/)
-  expect(html).toMatch(/<p class="aeo-hero-row-value [^"]*">61\.0<span class="text-faint">%<\/span><\/p>/)
   expect(html).not.toMatch(/%<span class="text-faint">%/)
-  // Per-model citation rates are 0..100 at wire precision and read through formatPercent.
-  expect(html).toContain('<span class="font-semibold text-strong">55.6%</span>')
-  expect(html).toContain('<span class="font-semibold text-strong">66.7%</span>')
-  expect(html).toMatch(/1 query added · 8 comparable queries\./)
+  // By engine keeps per-engine counts only; the per-model rate table is gone.
+  expect(html).not.toMatch(/Citation rate by model/)
   expect(html).not.toMatch(/Latest signals/)
   expect(html).not.toMatch(/Emergency-intent prompts stopped grounding Citypoint/)
   expect(html).not.toMatch(/Suggested query/)
@@ -235,8 +244,12 @@ test('project route renders a concise visibility summary with progressive detail
   expect(html).not.toMatch(/What needs your attention/)
   expect(html).toMatch(/<details id="evidence-section"/)
   expect(html).toMatch(/Query evidence/)
-  expect(html).toMatch(/Citation and engine diagnostics/)
-  expect(html).toMatch(/Recent execution history/)
+  expect(html).toMatch(/class="av-card-title">By engine<\/h2>/)
+  // Past sweeps: one line per sweep, its time opening the run.
+  expect(html).toMatch(/class="av-card-title">Past checks<\/h2>/)
+  expect(html).toContain('aria-label="View the Mar 8, 12:15 PM check"')
+  expect(html).toContain('6 minutes 12 seconds')
+  expect(html).not.toMatch(/Citation and engine diagnostics|Recent execution history/)
 })
 
 test('runs route renders the operational timeline and filters', async () => {
@@ -282,7 +295,7 @@ test('setup route skips completed health checks and starts at project creation',
 
   expect(html).toMatch(/Setup/)
   expect(html).toMatch(/Create project/)
-  expect(html).toMatch(/Step 2 of 5/)
+  expect(html).toMatch(/<h2>Create project<\/h2>/)
 })
 
 test('setup resumes at queries when a durable project has no query basket', async () => {
@@ -293,7 +306,7 @@ test('setup resumes at queries when a durable project has no query basket', asyn
     fixture.dashboard.runs = []
   })
 
-  expect(html).toMatch(/Step 3 of 5/)
+  expect(html).toMatch(/setup-queries-heading">Add queries</)
   expect(html).toMatch(/Add queries/)
 })
 
@@ -324,7 +337,7 @@ test('setup treats a cancelled first run as retryable, not complete', async () =
   })
 
   expect(html).toMatch(/Cancelled/)
-  expect(html).toMatch(/Retry visibility sweep/)
+  expect(html).toMatch(/Retry check/)
   expect(html).not.toMatch(/Setup is complete/)
 })
 
@@ -335,7 +348,7 @@ test('setup recognizes an older baseline outside the global run window', async (
   })
 
   expect(html).toMatch(/Setup is complete/)
-  expect(html).not.toMatch(/Launch visibility sweep/)
+  expect(html).not.toMatch(/Launch AI Visibility check/)
 })
 
 test('overview route renders first-run onboarding guidance when there are no projects', async () => {
@@ -367,7 +380,7 @@ test('setup route renders step indicator with all step labels', async () => {
 test('runs route renders partial runs clearly', async () => {
   const html = await renderApp('/runs', { runScenario: 'partial' })
 
-  expect(html).toMatch(/Partial visibility sweep after quota cap/)
+  expect(html).toMatch(/Partial AI Visibility check after quota cap/)
   expect(html).toMatch(/Quota window closed mid-run/)
 })
 
@@ -384,7 +397,7 @@ test('project route keeps server insights out of the Simple overview', async () 
       id: 'stale_visibility',
       tone: 'caution',
       title: 'Visibility data needs refresh',
-      detail: 'A newer integration sync landed after the latest visibility sweep.',
+      detail: 'A newer integration sync landed after the latest AI Visibility check.',
       actionLabel: 'Stale',
       actionGroup: 'investigate',
       affectedPhrases: [],
@@ -394,7 +407,7 @@ test('project route keeps server insights out of the Simple overview', async () 
   expect(html).not.toMatch(/Latest signals/)
   expect(html).not.toMatch(/Sharp citation drop detected/)
   expect(html).not.toMatch(/Visibility data needs refresh/)
-  expect(html).not.toMatch(/A newer integration sync landed after the latest visibility sweep/)
+  expect(html).not.toMatch(/A newer integration sync landed after the latest AI Visibility check/)
   expect(html).not.toMatch(/Action queue/)
   expect(html).not.toMatch(/What needs your attention/)
 })

@@ -2,8 +2,8 @@ import type {
   MeasurementOverviewResponse,
   MeasurementPlanResponse,
   MeasurementReportResponse,
-} from '@ainyc/canonry-api-client'
-import { REPORT_VISIBILITY_COPY } from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-api-client'
+import { VISIBILITY_DISPLAY_COPY } from '@canonry/canonry-contracts'
 
 import type {
   AdvancedMeasurementEvidence,
@@ -48,13 +48,14 @@ function metric(value: OverviewMetric): AdvancedMeasurementMetric {
     numerator: value.numerator,
     denominator: value.denominator,
     ...(value.unattributed === undefined ? {} : { unattributed: value.unattributed }),
+    ...(value.unchecked === undefined ? {} : { unchecked: value.unchecked }),
   }
 }
 
 /** The one rendering of a frozen URL matcher. The Property page reuses it so the two surfaces cannot print the same matcher differently. */
 export function matcherLabel(matcher: PlanV2['targets'][number]['urlMatchers'][number]): string {
   if (matcher.kind === 'exact') return matcher.url
-  if (matcher.kind === 'prefix') return `https://${matcher.host}${matcher.pathPrefix}/*`
+  if (matcher.kind === 'prefix') return `https://${matcher.host}${matcher.pathPrefix === '/' ? '' : matcher.pathPrefix}/*`
   return `https://${matcher.host}/*`
 }
 
@@ -124,7 +125,7 @@ function propertyStatus(row: MeasurementOverviewResponse['properties']['items'][
   if (reasons.includes('plan_v1')) return { label: 'Update setup', tone: 'caution' }
   if (reasons.includes('evidence_incomplete')) return { label: 'Evidence incomplete', tone: 'caution' }
   // Every answer asked which property was meant: not complete, and not a zero.
-  if (reasons.includes('identity_ambiguous')) return { label: REPORT_VISIBILITY_COPY.ambiguous, tone: 'caution' }
+  if (reasons.includes('identity_ambiguous')) return { label: VISIBILITY_DISPLAY_COPY.ambiguous, tone: 'caution' }
   if (reasons.includes('no_population')) return { label: 'No queries', tone: 'neutral' }
   if (reasons.includes('not_applicable')) return { label: 'Not applicable', tone: 'neutral' }
   return { label: 'Complete', tone: 'positive' }

@@ -5,7 +5,10 @@ import viteConfig from './vite.config'
 export default mergeConfig(viteConfig, defineConfig({
   test: {
     include: ['test/**/*.test.ts', 'test/**/*.test.tsx'],
-    setupFiles: [path.resolve(import.meta.dirname, '../../test-setup/vitest-defaults.ts')],
+    setupFiles: [
+      path.resolve(import.meta.dirname, '../../test-setup/vitest-defaults.ts'),
+      path.resolve(import.meta.dirname, 'test/testing-library-defaults.ts'),
+    ],
     environment: 'jsdom',
   },
 }))

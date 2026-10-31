@@ -1,27 +1,4 @@
-import {
-  googleConnect,
-  googleCoverage,
-  googleCoverageHistory,
-  googleDeindexed,
-  googleDisconnect,
-  googleDiscoverSitemaps,
-  googleInspect,
-  googleInspectSitemap,
-  googleInspections,
-  googleListSitemaps,
-  googlePerformance,
-  googlePerformanceDaily,
-  googleTopPages,
-  googleQueryTotals,
-  googleProperties,
-  googleRefresh,
-  googleRequestIndexing,
-  googleSetProperty,
-  googleSetSitemap,
-  googleSubmitSitemaps,
-  googleStatus,
-  googleSync,
-} from '../commands/google.js'
+import { WINDOW_SETS } from '@canonry/canonry-contracts'
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import {
   getBoolean,
@@ -35,7 +12,7 @@ import {
 import { usageError } from '../cli-error.js'
 
 const GOOGLE_PERFORMANCE_USAGE =
-  'canonry google performance <project> [--days <n> | --start <YYYY-MM-DD> --end <YYYY-MM-DD>] [--keyword <kw>] [--page <url>] [--limit <n>] [--offset <n>] [--order-by clicks|impressions|date] [--format json]'
+  'canonry google performance <project> [--window 7d|30d|90d|all] [--days <n> | --start <YYYY-MM-DD> --end <YYYY-MM-DD>] [--keyword <kw>] [--page <url>] [--limit <n>] [--offset <n>] [--order-by clicks|impressions|date] [--format json]'
 
 const GOOGLE_QUERY_TOTALS_USAGE =
   'canonry google query-totals <project> [--start <YYYY-MM-DD>] [--end <YYYY-MM-DD>] [--window 7d|30d|90d|all] [--limit <n>] [--offset <n>] [--format json]'
@@ -49,6 +26,7 @@ export const GOOGLE_CLI_COMMANDS: readonly CliCommandSpec[] = [
       'public-url': stringOption(),
     },
     run: async (input) => {
+      const { googleConnect } = await import('../commands/google.js')
       const project = requireProject(input, 'google.connect', 'canonry google connect <project> [--type gsc|ga4] [--public-url <url>] [--format json]')
       await googleConnect(project, {
         type: getString(input.values, 'type') ?? 'gsc',
@@ -64,6 +42,7 @@ export const GOOGLE_CLI_COMMANDS: readonly CliCommandSpec[] = [
       type: stringOption(),
     },
     run: async (input) => {
+      const { googleDisconnect } = await import('../commands/google.js')
       const project = requireProject(input, 'google.disconnect', 'canonry google disconnect <project> [--type gsc|ga4] [--format json]')
       await googleDisconnect(project, {
         type: getString(input.values, 'type') ?? 'gsc',
@@ -75,6 +54,7 @@ export const GOOGLE_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['google', 'status'],
     usage: 'canonry google status <project> [--format json]',
     run: async (input) => {
+      const { googleStatus } = await import('../commands/google.js')
       const project = requireProject(input, 'google.status', 'canonry google status <project> [--format json]')
       await googleStatus(project, input.format)
     },
@@ -83,6 +63,7 @@ export const GOOGLE_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['google', 'properties'],
     usage: 'canonry google properties <project> [--format json]',
     run: async (input) => {
+      const { googleProperties } = await import('../commands/google.js')
       const project = requireProject(input, 'google.properties', 'canonry google properties <project> [--format json]')
       await googleProperties(project, input.format)
     },
@@ -91,6 +72,7 @@ export const GOOGLE_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['google', 'set-property'],
     usage: 'canonry google set-property <project> <url> [--format json]',
     run: async (input) => {
+      const { googleSetProperty } = await import('../commands/google.js')
       const project = requireProject(input, 'google.set-property', 'canonry google set-property <project> <url> [--format json]')
       const propertyUrl = requirePositional(input, 1, {
         command: 'google.set-property',
@@ -104,6 +86,7 @@ export const GOOGLE_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['google', 'set-sitemap'],
     usage: 'canonry google set-sitemap <project> <url> [--format json]',
     run: async (input) => {
+      const { googleSetSitemap } = await import('../commands/google.js')
       const project = requireProject(input, 'google.set-sitemap', 'canonry google set-sitemap <project> <url> [--format json]')
       const sitemapUrl = requirePositional(input, 1, {
         command: 'google.set-sitemap',
@@ -117,6 +100,7 @@ export const GOOGLE_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['google', 'list-sitemaps'],
     usage: 'canonry google list-sitemaps <project> [--format json]',
     run: async (input) => {
+      const { googleListSitemaps } = await import('../commands/google.js')
       const project = requireProject(input, 'google.list-sitemaps', 'canonry google list-sitemaps <project> [--format json]')
       await googleListSitemaps(project, { format: input.format })
     },
@@ -130,6 +114,7 @@ export const GOOGLE_CLI_COMMANDS: readonly CliCommandSpec[] = [
       'all-files': { type: 'boolean', default: false },
     },
     run: async (input) => {
+      const { googleSubmitSitemaps } = await import('../commands/google.js')
       const project = requireProject(input, 'google.submit-sitemap', 'canonry google submit-sitemap <project> [url...] [--configured|--all|--all-files] [--format json|jsonl]')
       const sitemapUrls = input.positionals.slice(1)
       const configured = getBoolean(input.values, 'configured')
@@ -163,6 +148,7 @@ export const GOOGLE_CLI_COMMANDS: readonly CliCommandSpec[] = [
       wait: { type: 'boolean', default: false },
     },
     run: async (input) => {
+      const { googleSync } = await import('../commands/google.js')
       const project = requireProject(input, 'google.sync', 'canonry google sync <project> [--type gsc|ga4] [--days <n>] [--full] [--wait] [--format json]')
       await googleSync(project, {
         type: getString(input.values, 'type') ?? 'gsc',
@@ -179,6 +165,7 @@ export const GOOGLE_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['google', 'performance'],
+    windows: WINDOW_SETS.metrics,
     usage: GOOGLE_PERFORMANCE_USAGE,
     options: {
       days: stringOption(),
@@ -191,6 +178,7 @@ export const GOOGLE_CLI_COMMANDS: readonly CliCommandSpec[] = [
       'order-by': stringOption(),
     },
     run: async (input) => {
+      const { googlePerformance } = await import('../commands/google.js')
       const project = requireProject(input, 'google.performance', GOOGLE_PERFORMANCE_USAGE)
       const startDate = getString(input.values, 'start')
       const endDate = getString(input.values, 'end')
@@ -211,6 +199,7 @@ export const GOOGLE_CLI_COMMANDS: readonly CliCommandSpec[] = [
         )
       }
       await googlePerformance(project, {
+        window: getString(input.values, 'window'),
         days,
         startDate,
         endDate,
@@ -233,6 +222,7 @@ export const GOOGLE_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['google', 'performance-daily'],
+    windows: WINDOW_SETS.metrics,
     usage: 'canonry google performance-daily <project> [--window 7d|30d|90d|all] [--start <YYYY-MM-DD>] [--end <YYYY-MM-DD>] [--format json]',
     options: {
       window: stringOption(),
@@ -240,6 +230,7 @@ export const GOOGLE_CLI_COMMANDS: readonly CliCommandSpec[] = [
       end: stringOption(),
     },
     run: async (input) => {
+      const { googlePerformanceDaily } = await import('../commands/google.js')
       const project = requireProject(input, 'google.performance-daily', 'canonry google performance-daily <project> [--window 7d|30d|90d|all] [--start <YYYY-MM-DD>] [--end <YYYY-MM-DD>] [--format json]')
       await googlePerformanceDaily(project, {
         window: getString(input.values, 'window'),
@@ -251,6 +242,7 @@ export const GOOGLE_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['google', 'top-pages'],
+    windows: WINDOW_SETS.metrics,
     usage: 'canonry google top-pages <project> [--window 7d|30d|90d|all] [--start <YYYY-MM-DD>] [--end <YYYY-MM-DD>] [--limit <n>] [--format json]',
     options: {
       window: stringOption(),
@@ -259,6 +251,7 @@ export const GOOGLE_CLI_COMMANDS: readonly CliCommandSpec[] = [
       limit: stringOption(),
     },
     run: async (input) => {
+      const { googleTopPages } = await import('../commands/google.js')
       const usage = 'canonry google top-pages <project> [--window 7d|30d|90d|all] [--start <YYYY-MM-DD>] [--end <YYYY-MM-DD>] [--limit <n>] [--format json]'
       const project = requireProject(input, 'google.top-pages', usage)
       await googleTopPages(project, {
@@ -276,6 +269,7 @@ export const GOOGLE_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['google', 'query-totals'],
+    windows: WINDOW_SETS.metrics,
     usage: GOOGLE_QUERY_TOTALS_USAGE,
     options: {
       window: stringOption(),
@@ -285,6 +279,7 @@ export const GOOGLE_CLI_COMMANDS: readonly CliCommandSpec[] = [
       offset: stringOption(),
     },
     run: async (input) => {
+      const { googleQueryTotals } = await import('../commands/google.js')
       const project = requireProject(input, 'google.query-totals', GOOGLE_QUERY_TOTALS_USAGE)
       await googleQueryTotals(project, {
         window: getString(input.values, 'window'),
@@ -308,6 +303,7 @@ export const GOOGLE_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['google', 'inspect'],
     usage: 'canonry google inspect <project> <url> [--format json]',
     run: async (input) => {
+      const { googleInspect } = await import('../commands/google.js')
       const project = requireProject(input, 'google.inspect', 'canonry google inspect <project> <url> [--format json]')
       const url = requirePositional(input, 1, {
         command: 'google.inspect',
@@ -324,6 +320,7 @@ export const GOOGLE_CLI_COMMANDS: readonly CliCommandSpec[] = [
       url: stringOption(),
     },
     run: async (input) => {
+      const { googleInspections } = await import('../commands/google.js')
       const project = requireProject(input, 'google.inspections', 'canonry google inspections <project> [--url <url>] [--format json]')
       await googleInspections(project, {
         url: getString(input.values, 'url'),
@@ -339,6 +336,7 @@ export const GOOGLE_CLI_COMMANDS: readonly CliCommandSpec[] = [
       wait: { type: 'boolean', default: false },
     },
     run: async (input) => {
+      const { googleInspectSitemap } = await import('../commands/google.js')
       const project = requireProject(input, 'google.inspect-sitemap', 'canonry google inspect-sitemap <project> [--sitemap-url <url>] [--wait] [--format json]')
       await googleInspectSitemap(project, {
         sitemapUrl: getString(input.values, 'sitemap-url'),
@@ -351,6 +349,7 @@ export const GOOGLE_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['google', 'coverage'],
     usage: 'canonry google coverage <project> [--format json]',
     run: async (input) => {
+      const { googleCoverage } = await import('../commands/google.js')
       const project = requireProject(input, 'google.coverage', 'canonry google coverage <project> [--format json]')
       await googleCoverage(project, input.format)
     },
@@ -362,6 +361,7 @@ export const GOOGLE_CLI_COMMANDS: readonly CliCommandSpec[] = [
       limit: stringOption(),
     },
     run: async (input) => {
+      const { googleCoverageHistory } = await import('../commands/google.js')
       const project = requireProject(input, 'google.coverage-history', 'canonry google coverage-history <project> [--limit <n>] [--format json]')
       await googleCoverageHistory(project, {
         limit: parseIntegerOption(input, 'limit', {
@@ -377,6 +377,7 @@ export const GOOGLE_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['google', 'deindexed'],
     usage: 'canonry google deindexed <project> [--format json]',
     run: async (input) => {
+      const { googleDeindexed } = await import('../commands/google.js')
       const project = requireProject(input, 'google.deindexed', 'canonry google deindexed <project> [--format json]')
       await googleDeindexed(project, input.format)
     },
@@ -388,6 +389,7 @@ export const GOOGLE_CLI_COMMANDS: readonly CliCommandSpec[] = [
       wait: { type: 'boolean', default: false },
     },
     run: async (input) => {
+      const { googleDiscoverSitemaps } = await import('../commands/google.js')
       const project = requireProject(input, 'google.discover-sitemaps', 'canonry google discover-sitemaps <project> [--wait] [--format json]')
       await googleDiscoverSitemaps(project, {
         wait: getBoolean(input.values, 'wait'),
@@ -403,6 +405,7 @@ export const GOOGLE_CLI_COMMANDS: readonly CliCommandSpec[] = [
       wait: { type: 'boolean', default: false },
     },
     run: async (input) => {
+      const { googleRequestIndexing } = await import('../commands/google.js')
       const project = requireProject(input, 'google.request-indexing', 'canonry google request-indexing <project> [url] [--all-unindexed] [--wait] [--format json]')
       const url = input.positionals[1]
       const allUnindexed = getBoolean(input.values, 'all-unindexed')
@@ -427,6 +430,7 @@ export const GOOGLE_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['google', 'refresh'],
     usage: 'canonry google refresh <project> [--format json]',
     run: async (input) => {
+      const { googleRefresh } = await import('../commands/google.js')
       const project = requireProject(input, 'google.refresh', 'canonry google refresh <project> [--format json]')
       await googleRefresh(project, input.format)
     },

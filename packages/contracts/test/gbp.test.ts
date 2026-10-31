@@ -33,11 +33,15 @@ describe('formatGbpMetricLabel', () => {
 
 describe('classifyGbpMetric', () => {
   it('classifies the three conversion outcomes', () => {
-    for (const m of GBP_CONVERSION_METRICS) expect(classifyGbpMetric(m)).toBe('conversion')
+    const metrics = ['BUSINESS_DIRECTION_REQUESTS', 'WEBSITE_CLICKS', 'CALL_CLICKS']
+    expect(GBP_CONVERSION_METRICS).toEqual(metrics)
+    expect(metrics.map(classifyGbpMetric)).toEqual(['conversion', 'conversion', 'conversion'])
   })
 
   it('classifies the four impression metrics as reach', () => {
-    for (const m of GBP_REACH_METRICS) expect(classifyGbpMetric(m)).toBe('reach')
+    const metrics = ['BUSINESS_IMPRESSIONS_DESKTOP_SEARCH', 'BUSINESS_IMPRESSIONS_MOBILE_SEARCH', 'BUSINESS_IMPRESSIONS_DESKTOP_MAPS', 'BUSINESS_IMPRESSIONS_MOBILE_MAPS']
+    expect(GBP_REACH_METRICS).toEqual(metrics)
+    expect(metrics.map(classifyGbpMetric)).toEqual(['reach', 'reach', 'reach', 'reach'])
   })
 
   it('classifies everything else as other', () => {
@@ -47,9 +51,4 @@ describe('classifyGbpMetric', () => {
     expect(classifyGbpMetric('SOMETHING_UNKNOWN')).toBe('other')
   })
 
-  it('conversion and reach metric sets are disjoint', () => {
-    const overlap = (GBP_CONVERSION_METRICS as readonly string[]).filter((m) =>
-      (GBP_REACH_METRICS as readonly string[]).includes(m))
-    expect(overlap).toEqual([])
-  })
 })

@@ -79,6 +79,7 @@ function performanceDaily(overrides: Record<string, unknown> = {}) {
 function renderSection(daily: Record<string, unknown> = performanceDaily()) {
   const restoreFetch = mockFetch((url) => {
     const path = pathOf(url)
+    if (path.split('?')[0]?.endsWith('/runs')) return jsonResponse([])
     if (path === '/api/v1/settings') {
       return jsonResponse({
         providers: [],

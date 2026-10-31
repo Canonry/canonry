@@ -25,10 +25,11 @@ import {
   RunKinds,
   RunStatuses,
   RunTriggers,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   apiKeys,
   auditLog,
+  competitors,
   createClient,
   measurementOperationReceipts,
   measurementPlanDrafts,
@@ -42,12 +43,13 @@ import {
   runs,
   schedules,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
-import { apiRoutes } from '../src/index.js'
+} from '@canonry/canonry-db'
+import { apiRoutes, type OutcomeTelemetryEvent } from '../src/index.js'
 import { plansAreLabelOnlyVariants } from '../src/measurement-draft-compile.js'
-import { buildMeasurementPlanV2Manifest } from '../src/measurement-report-adapter.js'
+import { buildMeasurementPlanV2Manifest, measurementRunExpectedSlots } from '../src/measurement-report-adapter.js'
 import { hashApiKey } from '../src/auth.js'
 import { sha256Hex } from '../src/measurement-draft-repo.js'
+import { featureOutcomes } from './feature-outcome-capture.js'
 
 const ROOT_KEY = 'cnry_draft_root'
 const NOW = '2026-08-02T00:00:00.000Z'
@@ -55,6 +57,7 @@ const PROJECT = 'northwind'
 
 let tmpDir: string
 let db: DatabaseClient
+let outcomes: OutcomeTelemetryEvent[]
 let app: ReturnType<typeof Fastify>
 let tracked: Array<{ id: string; query: string }>
 let runnableProviders: string[]
@@ -186,8 +189,9 @@ beforeEach(async () => {
   tracked = db.select({ id: queries.id, query: queries.query }).from(queries).all()
 
   runnableProviders = ['gemini', 'openai']
+  outcomes = []
   app = Fastify()
-  app.register(apiRoutes, { db, getRunnableProviderNames: () => runnableProviders })
+  app.register(apiRoutes, { db, getRunnableProviderNames: () => runnableProviders, onOutcome: (event: OutcomeTelemetryEvent) => { outcomes.push(event) } })
   await app.ready()
 })
 
@@ -255,6 +259,37 @@ describe('measurement draft lifecycle', () => {
       models: { gemini: 'gemini-test', perplexity: 'sonar-test' },
       locations: ['nyc'],
     })
+  })
+})
+
+describe('measurement draft Property names', () => {
+  it('saves the names an operator gives and returns advice on the risky ones without refusing them', async () => {
+    const etag = await createDraft()
+    const target = {
+      ...WIDGETS_TARGET,
+      aliases: ['Northwind Widgets', 'Elm Court', 'NW'],
+      identityAliases: ['Northwind Widgets Larkfield', 'Larkfield Commons'],
+    }
+    const response = await action('upsert-target', { payload: { target }, ifMatch: etag })
+    expect(response.statusCode, response.body).toBe(200)
+    // The project's brand is "Northwind": "Elm Court" lacks it, "NW" is under
+    // the name floor, and "Larkfield Commons" contains no stored name.
+    expect(response.json()).toMatchObject({
+      changed: true,
+      warnings: [
+        { code: 'target-name-without-brand', path: ['target', 'aliases', 1], message: '"Elm Court" does not include your brand name, so answers about other places with this name can count for this property.' },
+        { code: 'target-name-short', path: ['target', 'aliases', 2], message: '"NW" is too short to match safely. A name needs at least 4 letters or numbers, or it can match unrelated words in an answer.' },
+        { code: 'target-qualified-name-without-name', path: ['target', 'identityAliases', 1], message: '"Larkfield Commons" must include one of this property\'s names plus more words, such as a street or city. Publishing is refused until it does.' },
+      ],
+    })
+    const authoring = JSON.parse(db.select().from(measurementPlanDrafts).get()!.authoringJson)
+    expect(authoring.targets[0]).toMatchObject({ aliases: target.aliases, identityAliases: target.identityAliases })
+  })
+
+  it('returns no advice for names that carry the brand', async () => {
+    const etag = await createDraft()
+    const response = await action('upsert-target', { payload: { target: WIDGETS_TARGET }, ifMatch: etag })
+    expect(response.json()).toMatchObject({ changed: true, warnings: [] })
   })
 })
 
@@ -1065,6 +1100,97 @@ async function publish(session: DraftSession, expectedActiveRevision: number | n
 }
 
 describe('measurement draft publish', () => {
+  it.each(['apply-assignments', 'apply-paired-assignments', 'route-markets'] as const)(
+    'keeps reports readable when %s returns to another Property’s frozen engine',
+    async (routeAction) => {
+      const sourceQueryId = queryId('best widget supplier')
+      const initial = await DraftSession.start()
+      await initial.run('upsert-target', { target: WIDGETS_TARGET })
+      await initial.run('upsert-target', { target: GADGETS_TARGET })
+      await initial.run('apply-assignments', {
+        targetKeys: ['widgets', 'gadgets'], queryIds: [sourceQueryId],
+        contextOverride: { providers: ['gemini'], models: { gemini: 'gemini-test' }, locations: routeAction === 'apply-assignments' ? [] : ['nyc'] },
+      })
+      expect((await publish(initial, null)).statusCode).toBe(200)
+      const original = measurementPlanV2Schema.parse(JSON.parse(db.select().from(measurementPlanVersions).get()!.canonicalJson))
+      expect(original.executionNodes).toHaveLength(1)
+      const originalKey = original.executionNodes[0]!.stableKey
+      const session = await DraftSession.start(1)
+      for (const targetKey of ['widgets', 'gadgets']) {
+        await session.run('upsert-market', { market: {
+          stableKey: `${targetKey}-market`, label: `${targetKey} market`, kind: 'market',
+          usageEdges: [{ targetKey, queryId: sourceQueryId, executionNodeKey: originalKey }],
+        } })
+      }
+      const selection = routeAction === 'route-markets'
+        ? { marketKeys: ['widgets-market'] }
+        : routeAction === 'apply-paired-assignments'
+          ? { pairs: [{ targetKey: 'widgets', queryId: sourceQueryId }] }
+          : { targetKeys: ['widgets'], queryIds: [sourceQueryId] }
+      const route = 'openrouter:google/gemini-2.5-flash'
+      await session.run(routeAction, { ...selection, contextOverride: { providers: [route] } })
+      const separated = await action('compile-preview')
+      const separatedPlan = measurementPlanV2Schema.parse(separated.json().plan)
+      expect(separatedPlan.executionNodes).toHaveLength(2)
+      expect(separatedPlan.executionNodes.map(node => node.context.providers[0]).sort()).toEqual(['gemini', route])
+      expect(separatedPlan.reportingScopes?.find(scope => scope.stableKey === 'gadgets-market')?.usageEdges)
+        .toEqual([{ targetKey: 'gadgets', queryId: sourceQueryId, executionNodeKey: originalKey }])
+
+      await session.run(routeAction, {
+        ...selection, contextOverride: { providers: ['gemini'], models: { gemini: 'gemini-test' } },
+      })
+      const published = await publish(session, 1)
+      expect(published.statusCode, published.body).toBe(200)
+      const queued = await request('POST', '/runs', { payload: {} })
+      expect(queued.statusCode, queued.body).toBe(201)
+      const run = db.select().from(runs).get()!
+      const version = db.select().from(measurementPlanVersions).where(eq(measurementPlanVersions.id, run.measurementPlanVersionId!)).get()!
+      const plan = measurementPlanV2Schema.parse(JSON.parse(version.canonicalJson))
+      expect(measurementRunExpectedSlots(run, plan).expectedSlots).toHaveLength(1)
+      expect(plan.executionNodes).toEqual(original.executionNodes)
+      expect(plan.reportingScopes?.flatMap(scope => scope.usageEdges).map(edge => edge.executionNodeKey))
+        .toEqual([originalKey, originalKey])
+      db.update(runs).set({ status: RunStatuses.completed, finishedAt: NOW }).where(eq(runs.id, run.id)).run()
+      const report = await request('GET', `/visibility-report?runId=${run.id}&queryClass=non-brand`)
+      expect(report.statusCode, report.body).toBe(200)
+
+      const merged = await DraftSession.start(published.json().active.revision as number)
+      await merged.run('merge-targets', { targetKey: 'widgets', mergedKeys: ['gadgets'] })
+      const mergePreview = await action('compile-preview')
+      expect(mergePreview.json()).toMatchObject({ ok: true })
+      expect(measurementPlanV2Schema.parse(mergePreview.json().plan).executionNodes).toHaveLength(1)
+    },
+  )
+
+  it('reports a publish with the plan it made live, a no-op as skipped, a refusal as failed, and a replay not again', async () => {
+    const first = await readyDraft()
+    await first.run('upsert-group', { group: { stableKey: 'catalog', label: 'Catalog', targetKeys: ['widgets'], competitors: [] } })
+    const compiled = await request('POST', '/measurement-plan/draft/actions/compile-preview', { payload: {} })
+    const publishFirst = () => action('publish', {
+      payload: { expectedActiveRevision: null, expectedCompiledChecksum: compiled.json().compiledChecksum },
+      ifMatch: first.etag,
+      idempotencyKey: 'publish-first',
+    })
+    const published = await publishFirst()
+    expect(published.json()).toMatchObject({ published: true, active: { revision: 1 } })
+    // A retry with the same key replays the receipt; the publish already reported.
+    expect((await publishFirst()).json()).toEqual(published.json())
+
+    const unchanged = await DraftSession.start(1)
+    expect((await publish(unchanged, 1)).json()).toMatchObject({ published: false })
+    const stale = await DraftSession.start(1)
+    const moved = await action('publish', { payload: { expectedActiveRevision: 7, expectedCompiledChecksum: '0'.repeat(64) }, ifMatch: stale.etag })
+    expect(moved.statusCode).toBe(409)
+
+    const base = { feature: 'measurement', operation: 'publish', durationBucket: expect.any(String) }
+    expect(featureOutcomes(outcomes)).toEqual([
+      // One group, its one Target, and the two queries assigned to it.
+      { ...base, status: 'succeeded', counts: { items: 1, targets: 1, queries: 2 } },
+      { ...base, status: 'skipped', reasonCode: 'NO_DATA' },
+      { ...base, status: 'failed', reasonCode: 'HTTP_4XX', errorName: 'AppError' },
+    ])
+  })
+
   it('preserves qualified identity phrases through publish and draft seeding, and treats changes as material', async () => {
     const session = await readyDraft()
     const identityAliases = ['Northwind Widgets in Eastport', 'Eastport Northwind Widgets']
@@ -1086,6 +1212,56 @@ describe('measurement draft publish', () => {
     expect(next.statusCode, next.body).toBe(200)
     const versions = db.select().from(measurementPlanVersions).all()
     expect(versions.find(version => version.revision === 2)?.comparableToVersionId).toBeNull()
+  })
+
+  it('seeds a domain-only pin with the tracked competitor\'s curated aliases, through publish', async () => {
+    const session = await readyDraft()
+    await session.run('upsert-group', { group: { stableKey: 'catalog', label: 'Catalog', targetKeys: ['widgets'], competitors: [] } })
+    expect((await publish(session, null)).statusCode).toBe(200)
+    // A Simple run would freeze these names for rival.example; an Advanced pin
+    // by domain alone carries the same ones.
+    db.insert(competitors).values({
+      id: crypto.randomUUID(),
+      projectId: 'prj_northwind',
+      domain: 'rival.example',
+      aliases: ['RVL Widgets', 'Rivalo'],
+      provenance: 'cli',
+      createdAt: NOW,
+    }).run()
+
+    const pinned = await action('pin-competitor', { payload: { expectedActiveRevision: 1, groupKey: 'catalog', domain: 'https://www.rival.example/catalog' } })
+    expect(pinned.statusCode, pinned.body).toBe(200)
+    expect(pinned.json().competitor).toMatchObject({ domain: 'rival.example', label: 'rival', aliases: ['RVL Widgets', 'Rivalo'] })
+
+    // A tracked row an older build stored as a subdomain is found by its
+    // registrable domain too.
+    db.insert(competitors).values({
+      id: crypto.randomUUID(),
+      projectId: 'prj_northwind',
+      domain: 'offers.vexlo.example',
+      aliases: ['Vexlo Widgets'],
+      provenance: 'discovery:legacy',
+      createdAt: NOW,
+    }).run()
+    const legacy = await action('pin-competitor', { payload: { expectedActiveRevision: 1, groupKey: 'catalog', domain: 'vexlo.example' } })
+    expect(legacy.statusCode, legacy.body).toBe(200)
+    expect(legacy.json().competitor).toMatchObject({ domain: 'vexlo.example', aliases: ['Vexlo Widgets'] })
+
+    // An explicit list still wins over the tracked one.
+    const explicit = await action('pin-competitor', { payload: { expectedActiveRevision: 1, groupKey: 'catalog', domain: 'other-rival.example', aliases: ['Other Rival'] } })
+    expect(explicit.statusCode, explicit.body).toBe(200)
+    expect(explicit.json().competitor.aliases).toEqual(['Other Rival'])
+
+    const published = await publish(new DraftSession(explicit.json().etag as string), 1)
+    expect(published.statusCode, published.body).toBe(200)
+    const revision = db.select().from(measurementPlanVersions).all().find(version => version.revision === 2)!
+    const frozen = JSON.parse(revision.canonicalJson) as { groups: Array<{ competitors: Array<{ domain: string; aliases: string[] }> }> }
+    // The canonical revision orders competitors by domain.
+    expect(frozen.groups[0]!.competitors.map(competitor => [competitor.domain, competitor.aliases])).toEqual([
+      ['other-rival.example', ['Other Rival']],
+      ['rival.example', ['RVL Widgets', 'Rivalo']],
+      ['vexlo.example', ['Vexlo Widgets']],
+    ])
   })
 
   it.each(['changed', 'removed'])('refuses automatic pin seeding when a frozen location was %s, but permits an explicit draft review', async change => {
@@ -1376,6 +1552,94 @@ describe('measurement draft publish', () => {
     expect(noOp.statusCode, noOp.body).toBe(200)
     expect(noOp.json()).toMatchObject({ published: false, active: { revision: 1, compiledChecksum: frozen.compiledChecksum } })
     expect(db.select().from(measurementPlanVersions).all()).toHaveLength(1)
+
+    const marketRoute = await DraftSession.start(1)
+    const routeRequest = {
+      marketKeys: ['named-market'],
+      contextOverride: { providers: ['gemini'], models: { gemini: 'gemini-test' } },
+    }
+    const routePreview = await request('POST', '/measurement-plan/draft/actions/preview-route-markets', { payload: routeRequest })
+    expect(routePreview.statusCode, routePreview.body).toBe(200)
+    expect(routePreview.json()).toMatchObject({
+      draftEtag: marketRoute.etag,
+      markets: [{ marketKey: 'named-market', label: 'Named market', matchedEdges: 1, changedEdges: 1 }],
+      matchedEdges: 1,
+      changedEdges: 1,
+      execution: { fullRunNodes: expect.any(Number), fullRunProviderCalls: expect.any(Number) },
+    })
+    const routed = await marketRoute.run('route-markets', routeRequest)
+    expect(routed.statusCode, routed.body).toBe(200)
+    const routedPreview = await request('POST', '/measurement-plan/draft/actions/compile-preview', { payload: {} })
+    expect(routedPreview.statusCode, routedPreview.body).toBe(200)
+    const routedPlan = measurementPlanV2Schema.parse(routedPreview.json().plan)
+    const namedMarket = routedPlan.reportingScopes?.find(scope => scope.stableKey === 'named-market')
+    expect(namedMarket).toBeDefined()
+    const namedEdge = namedMarket?.usageEdges[0]
+    expect(namedEdge).toBeDefined()
+    if (!namedEdge) throw new Error('Routed market should retain its exact usage edge')
+    const routedNode = routedPlan.executionNodes.find(node => node.stableKey === namedEdge.executionNodeKey)
+    expect(routedNode).toBeDefined()
+    if (!routedNode) throw new Error('Routed market should point at a compiled execution node')
+    expect(routedNode.context).toEqual({ providers: ['gemini'], models: { gemini: 'gemini-test' }, location: namedContext.location })
+    expect(routedPlan.reportingScopes?.find(scope => scope.stableKey === 'location-free-market')?.usageEdges)
+      .toEqual([{ executionNodeKey: nullKey, targetKey: originalAssignment.targetKey, queryId: sourceQueryId }])
+    await marketRoute.run('discard', {})
+
+    const locationThenMarket = await DraftSession.start(1)
+    await locationThenMarket.run('apply-assignments', {
+      targetKey: originalAssignment.targetKey,
+      queryIds: [sourceQueryId],
+      contextOverride: { providers: ['gemini'], models: { gemini: 'gemini-test' }, locations: [] },
+    })
+    const locationRouteRequest = {
+      marketKeys: ['named-market'],
+      contextOverride: { providers: ['openai'], models: { openai: 'gpt-test' } },
+    }
+    const locationRoutePreview = await request('POST', '/measurement-plan/draft/actions/preview-route-markets', {
+      payload: locationRouteRequest,
+    })
+    expect(locationRoutePreview.statusCode, locationRoutePreview.body).toBe(200)
+    expect(locationRoutePreview.json()).toMatchObject({ matchedEdges: 1, changedEdges: 1 })
+    await locationThenMarket.run('route-markets', locationRouteRequest)
+    const locationCompile = await request('POST', '/measurement-plan/draft/actions/compile-preview', { payload: {} })
+    expect(locationCompile.statusCode, locationCompile.body).toBe(200)
+    const locationPlan = measurementPlanV2Schema.parse(locationCompile.json().plan)
+    const namedLocationEdge = locationPlan.reportingScopes?.find(scope => scope.stableKey === 'named-market')?.usageEdges[0]
+    const locationFreeEdge = locationPlan.reportingScopes?.find(scope => scope.stableKey === 'location-free-market')?.usageEdges[0]
+    expect(namedLocationEdge).toBeDefined()
+    expect(locationFreeEdge).toBeDefined()
+    expect(locationPlan.executionNodes.find(node => node.stableKey === namedLocationEdge?.executionNodeKey)?.context)
+      .toEqual({ providers: ['openai'], models: { openai: 'gpt-test' }, location: null })
+    expect(locationPlan.executionNodes.find(node => node.stableKey === locationFreeEdge?.executionNodeKey)?.context)
+      .toEqual({ providers: ['gemini'], models: { gemini: 'gemini-test' }, location: null })
+    await locationThenMarket.run('discard', {})
+
+    for (const destructiveAction of ['replace-assignments', 'remove-assignment'] as const) {
+      const cleanup = await DraftSession.start(1)
+      if (destructiveAction === 'replace-assignments') {
+        await cleanup.run('upsert-target', { target: GADGETS_TARGET })
+        await cleanup.run('replace-assignments', { targetKeys: ['gadgets'], queryIds: [sourceQueryId] })
+      } else {
+        await cleanup.run('remove-assignment', { targetKey: originalAssignment.targetKey, queryId: sourceQueryId })
+      }
+
+      const cleanupPreview = await request('POST', '/measurement-plan/draft/actions/preview-route-markets', { payload: routeRequest })
+      expect(cleanupPreview.statusCode, cleanupPreview.body).toBe(200)
+      expect(cleanupPreview.json()).toMatchObject({
+        markets: [{ marketKey: 'named-market', label: 'Named market', matchedEdges: 0, changedEdges: 0 }],
+        matchedEdges: 0,
+        changedEdges: 0,
+      })
+      const cleanupApplied = await cleanup.run('route-markets', routeRequest)
+      expect(cleanupApplied.json()).toMatchObject({ changed: false })
+      const cleanedDraft = (await request('GET', '/measurement-plan/draft')).json().draft
+      expect(cleanedDraft.authoring.reportingScopes
+        .flatMap((scope: { usageEdges: Array<{ targetKey: string; queryId: string }> }) => scope.usageEdges)
+        .some((edge: { targetKey: string; queryId: string }) => (
+          edge.targetKey === originalAssignment.targetKey && edge.queryId === sourceQueryId
+        ))).toBe(false)
+      await cleanup.run('discard', {})
+    }
 
     const labelEdit = await DraftSession.start(1)
     await labelEdit.run('upsert-target', { target: { ...WIDGETS_TARGET, label: 'Widgets renamed' } })

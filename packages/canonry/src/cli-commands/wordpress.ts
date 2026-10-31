@@ -1,31 +1,9 @@
 import fs from 'node:fs'
-import type { WordpressEnv } from '@ainyc/canonry-contracts'
+import type { WordpressEnv } from '@canonry/canonry-contracts'
 import type { CliCommandInput, CliCommandSpec } from '../cli-dispatch.js'
 import { getBoolean, getString, requirePositional, requireProject, requireStringOption, stringOption, unknownSubcommand } from '../cli-command-helpers.js'
 import { usageError } from '../cli-error.js'
-import {
-  wordpressAudit,
-  wordpressBulkSetMeta,
-  wordpressConnect,
-  wordpressCreatePage,
-  wordpressDiff,
-  wordpressDisconnect,
-  wordpressLlmsTxt,
-  wordpressOnboard,
-  wordpressPage,
-  wordpressPages,
-  wordpressSchema,
-  wordpressSchemaDeploy,
-  wordpressSchemaStatus,
-  wordpressSetLlmsTxt,
-  wordpressSetMeta,
-  wordpressSetSchema,
-  wordpressStagingPush,
-  wordpressStagingStatus,
-  wordpressStatus,
-  wordpressUpdatePage,
-} from '../commands/wordpress.js'
-import { describeError } from '@ainyc/canonry-contracts'
+import { describeError } from '@canonry/canonry-contracts'
 
 function resolveEnv(input: CliCommandInput, command: string, usage: string): WordpressEnv | undefined {
   const live = getBoolean(input.values, 'live')
@@ -109,6 +87,7 @@ export const WORDPRESS_CLI_COMMANDS: readonly CliCommandSpec[] = [
       'default-env': stringOption(),
     },
     run: async (input) => {
+      const { wordpressConnect } = await import('../commands/wordpress.js')
       const usage = 'canonry wordpress connect <project> --url <url> --user <user> [--app-password <password>] [--staging-url <url>] [--default-env live|staging] [--format json]'
       const project = requireProject(input, 'wordpress.connect', usage)
       const url = requireStringOption(input, 'url', {
@@ -142,6 +121,7 @@ export const WORDPRESS_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['wordpress', 'disconnect'],
     usage: 'canonry wordpress disconnect <project> [--format json]',
     run: async (input) => {
+      const { wordpressDisconnect } = await import('../commands/wordpress.js')
       const project = requireProject(input, 'wordpress.disconnect', 'canonry wordpress disconnect <project> [--format json]')
       await wordpressDisconnect(project, input.format)
     },
@@ -150,6 +130,7 @@ export const WORDPRESS_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['wordpress', 'status'],
     usage: 'canonry wordpress status <project> [--format json]',
     run: async (input) => {
+      const { wordpressStatus } = await import('../commands/wordpress.js')
       const project = requireProject(input, 'wordpress.status', 'canonry wordpress status <project> [--format json]')
       await wordpressStatus(project, input.format)
     },
@@ -159,6 +140,7 @@ export const WORDPRESS_CLI_COMMANDS: readonly CliCommandSpec[] = [
     usage: 'canonry wordpress pages <project> [--live|--staging] [--format json]',
     options: envOptions,
     run: async (input) => {
+      const { wordpressPages } = await import('../commands/wordpress.js')
       const usage = 'canonry wordpress pages <project> [--live|--staging] [--format json]'
       const project = requireProject(input, 'wordpress.pages', usage)
       await wordpressPages(project, {
@@ -172,6 +154,7 @@ export const WORDPRESS_CLI_COMMANDS: readonly CliCommandSpec[] = [
     usage: 'canonry wordpress page <project> <slug> [--live|--staging] [--format json]',
     options: envOptions,
     run: async (input) => {
+      const { wordpressPage } = await import('../commands/wordpress.js')
       const usage = 'canonry wordpress page <project> <slug> [--live|--staging] [--format json]'
       const project = requireProject(input, 'wordpress.page', usage)
       const slug = requirePositional(input, 1, {
@@ -197,6 +180,7 @@ export const WORDPRESS_CLI_COMMANDS: readonly CliCommandSpec[] = [
       ...envOptions,
     },
     run: async (input) => {
+      const { wordpressCreatePage } = await import('../commands/wordpress.js')
       const usage = 'canonry wordpress create-page <project> --title <title> --slug <slug> [--content <content>|--content-file <path>] [--status draft|publish] [--live|--staging] [--format json]'
       const project = requireProject(input, 'wordpress.create-page', usage)
       await wordpressCreatePage(project, {
@@ -229,6 +213,7 @@ export const WORDPRESS_CLI_COMMANDS: readonly CliCommandSpec[] = [
       ...envOptions,
     },
     run: async (input) => {
+      const { wordpressUpdatePage } = await import('../commands/wordpress.js')
       const usage = 'canonry wordpress update-page <project> <slug> [--title <title>] [--slug <slug>] [--content <content>|--content-file <path>] [--status draft|publish] [--live|--staging] [--format json]'
       const project = requireProject(input, 'wordpress.update-page', usage)
       const currentSlug = requirePositional(input, 1, {
@@ -259,6 +244,7 @@ export const WORDPRESS_CLI_COMMANDS: readonly CliCommandSpec[] = [
       ...envOptions,
     },
     run: async (input) => {
+      const { wordpressBulkSetMeta, wordpressSetMeta } = await import('../commands/wordpress.js')
       const fromFile = getString(input.values, 'from')
       if (fromFile) {
         const usage = 'canonry wordpress set-meta <project> --from <file> [--live|--staging] [--format json]'
@@ -295,6 +281,7 @@ export const WORDPRESS_CLI_COMMANDS: readonly CliCommandSpec[] = [
       ...envOptions,
     },
     run: async (input) => {
+      const { wordpressSchemaDeploy } = await import('../commands/wordpress.js')
       const usage = 'canonry wordpress schema deploy <project> --profile <file> [--live|--staging] [--format json]'
       const project = requireProject(input, 'wordpress.schema.deploy', usage)
       const profile = requireStringOption(input, 'profile', {
@@ -314,6 +301,7 @@ export const WORDPRESS_CLI_COMMANDS: readonly CliCommandSpec[] = [
     usage: 'canonry wordpress schema status <project> [--live|--staging] [--format json]',
     options: envOptions,
     run: async (input) => {
+      const { wordpressSchemaStatus } = await import('../commands/wordpress.js')
       const usage = 'canonry wordpress schema status <project> [--live|--staging] [--format json]'
       const project = requireProject(input, 'wordpress.schema.status', usage)
       await wordpressSchemaStatus(project, {
@@ -327,6 +315,7 @@ export const WORDPRESS_CLI_COMMANDS: readonly CliCommandSpec[] = [
     usage: 'canonry wordpress schema <project> <slug> [--live|--staging] [--format json]',
     options: envOptions,
     run: async (input) => {
+      const { wordpressSchema } = await import('../commands/wordpress.js')
       const usage = 'canonry wordpress schema <project> <slug> [--live|--staging] [--format json]'
       const project = requireProject(input, 'wordpress.schema', usage)
       const slug = requirePositional(input, 1, {
@@ -349,6 +338,7 @@ export const WORDPRESS_CLI_COMMANDS: readonly CliCommandSpec[] = [
       ...envOptions,
     },
     run: async (input) => {
+      const { wordpressSetSchema } = await import('../commands/wordpress.js')
       const usage = 'canonry wordpress set-schema <project> <slug> --json <json> [--type <type>] [--live|--staging] [--format json]'
       const project = requireProject(input, 'wordpress.set-schema', usage)
       const slug = requirePositional(input, 1, {
@@ -374,6 +364,7 @@ export const WORDPRESS_CLI_COMMANDS: readonly CliCommandSpec[] = [
     usage: 'canonry wordpress llms-txt <project> [--live|--staging] [--format json]',
     options: envOptions,
     run: async (input) => {
+      const { wordpressLlmsTxt } = await import('../commands/wordpress.js')
       const usage = 'canonry wordpress llms-txt <project> [--live|--staging] [--format json]'
       const project = requireProject(input, 'wordpress.llms-txt', usage)
       await wordpressLlmsTxt(project, {
@@ -390,6 +381,7 @@ export const WORDPRESS_CLI_COMMANDS: readonly CliCommandSpec[] = [
       ...envOptions,
     },
     run: async (input) => {
+      const { wordpressSetLlmsTxt } = await import('../commands/wordpress.js')
       const usage = 'canonry wordpress set-llms-txt <project> --content <content> [--live|--staging] [--format json]'
       const project = requireProject(input, 'wordpress.set-llms-txt', usage)
       await wordpressSetLlmsTxt(project, {
@@ -417,6 +409,7 @@ export const WORDPRESS_CLI_COMMANDS: readonly CliCommandSpec[] = [
       ...envOptions,
     },
     run: async (input) => {
+      const { wordpressOnboard } = await import('../commands/wordpress.js')
       const usage = 'canonry wordpress onboard <project> --url <url> --user <user> [--app-password <pw>] [--profile <file>] [--format json]'
       const project = requireProject(input, 'wordpress.onboard', usage)
       const url = requireStringOption(input, 'url', {
@@ -447,6 +440,7 @@ export const WORDPRESS_CLI_COMMANDS: readonly CliCommandSpec[] = [
     usage: 'canonry wordpress audit <project> [--live|--staging] [--format json]',
     options: envOptions,
     run: async (input) => {
+      const { wordpressAudit } = await import('../commands/wordpress.js')
       const usage = 'canonry wordpress audit <project> [--live|--staging] [--format json]'
       const project = requireProject(input, 'wordpress.audit', usage)
       await wordpressAudit(project, {
@@ -459,6 +453,7 @@ export const WORDPRESS_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['wordpress', 'diff'],
     usage: 'canonry wordpress diff <project> <slug> [--format json]',
     run: async (input) => {
+      const { wordpressDiff } = await import('../commands/wordpress.js')
       const usage = 'canonry wordpress diff <project> <slug> [--format json]'
       const project = requireProject(input, 'wordpress.diff', usage)
       const slug = requirePositional(input, 1, {
@@ -473,6 +468,7 @@ export const WORDPRESS_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['wordpress', 'staging', 'status'],
     usage: 'canonry wordpress staging status <project> [--format json]',
     run: async (input) => {
+      const { wordpressStagingStatus } = await import('../commands/wordpress.js')
       const project = requireProject(input, 'wordpress.staging.status', 'canonry wordpress staging status <project> [--format json]')
       await wordpressStagingStatus(project, input.format)
     },
@@ -481,6 +477,7 @@ export const WORDPRESS_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['wordpress', 'staging', 'push'],
     usage: 'canonry wordpress staging push <project> [--format json]',
     run: async (input) => {
+      const { wordpressStagingPush } = await import('../commands/wordpress.js')
       const project = requireProject(input, 'wordpress.staging.push', 'canonry wordpress staging push <project> [--format json]')
       await wordpressStagingPush(project, input.format)
     },

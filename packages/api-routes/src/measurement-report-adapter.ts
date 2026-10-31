@@ -14,6 +14,7 @@ import {
   deriveCitedUrlCandidates,
   filterCapturedCitedUrls,
   isVertexGroundingRedirect,
+  MEASUREMENT_DEFAULT_QUERY_CLASS,
   MEASUREMENT_PLAN_V2_SCHEMA_VERSION,
   parseMeasurementRunManifestV1,
   parseStoredMeasurementPlanAnyVersion,
@@ -24,19 +25,22 @@ import {
   type MeasurementPlan,
   type MeasurementPlanV2,
   type MeasurementQueryClass,
+  type MeasurementQueryClassFilter,
   type MeasurementReportResponse,
   type MeasurementRunManifestV1,
   type MeasurementTargetUrlMatcher,
   type MeasurementV2UrlMatcher,
   type RunStatus,
   type StoredMeasurementPlan,
-} from '@ainyc/canonry-contracts'
+  compareText,
+  validationError,
+} from '@canonry/canonry-contracts'
 import {
   measurementPlanVersions,
   querySnapshots,
   runs,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import {
   buildMeasurementReport,
   normalizeMeasurementLocation,
@@ -50,10 +54,6 @@ export type StoredMeasurementReport =
   | { kind: 'no-plan'; revision: number }
   | { kind: 'no-population'; reason: 'no-run'; report: MeasurementReportResponse }
   | { kind: 'report'; report: MeasurementReportResponse }
-
-function compareText(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0
-}
 
 function normalizedProviders(values: readonly string[]): string[] {
   const providers = values.map(value => value.trim().toLocaleLowerCase('en'))
@@ -228,6 +228,12 @@ function historicalEvidence(rawResponse: string | null): { urls: string[]; compl
   }
 }
 
+/** The canonical stored source population, including pre-capture raw grounding recovery. */
+export function measurementSnapshotSources(snapshot: Pick<typeof querySnapshots.$inferSelect, 'citedUrls' | 'captureStatus' | 'rawResponse'>): { urls: string[]; complete: boolean; historical: boolean } {
+  if (snapshot.citedUrls !== null) return { urls: snapshot.citedUrls, complete: snapshot.captureStatus === 'complete', historical: false }
+  return { ...historicalEvidence(snapshot.rawResponse), historical: true }
+}
+
 function slotLocation(slot: MeasurementRunManifestV1['expectedSlots'][number]): string | null {
   return slot.context?.label ?? null
 }
@@ -295,7 +301,7 @@ function observationInputs(
       if (!supportsRequestedContext(snapshot, slot)) return []
       validateSupportedLocation(snapshot, slot)
     }
-    const directCitations = snapshot.citedUrls
+    const sources = measurementSnapshotSources(snapshot)
     return [{
       id: snapshot.id,
       executionId: snapshot.measurementExecutionId,
@@ -303,12 +309,10 @@ function observationInputs(
       provider: snapshot.provider.trim().toLocaleLowerCase('en'),
       location: snapshot.location,
       answerText: snapshot.answerText,
-      citedUrls: directCitations,
-      citedUrlsComplete: directCitations !== null && snapshot.captureStatus === 'complete',
-      ...(directCitations === null ? (() => {
-        const historical = historicalEvidence(snapshot.rawResponse)
-        return { historicalCitedUrls: historical.urls, historicalCitedUrlsComplete: historical.complete }
-      })() : {}),
+      citedUrls: sources.historical ? null : sources.urls,
+      citedUrlsComplete: !sources.historical && sources.complete,
+      ...(sources.historical ? { historicalCitedUrls: sources.urls, historicalCitedUrlsComplete: sources.complete } : {}),
+      ...(snapshot.wrongSubjectTargetKeys?.length ? { wrongSubjectTargetIds: snapshot.wrongSubjectTargetKeys } : {}),
     }]
   })
 }
@@ -351,7 +355,8 @@ function reportInput(
   }
 }
 
-function v2UsageEdgeId(edge: MeasurementPlanV2['usageEdges'][number]): string {
+/** The report kernel's id for one frozen v2 usage edge. */
+export function v2UsageEdgeId(edge: MeasurementPlanV2['usageEdges'][number]): string {
   return `target:${edge.targetKey}:${edge.queryId}:${edge.executionNodeKey}`
 }
 
@@ -364,6 +369,17 @@ export interface MeasurementPlanV2ReportInput {
    * edges, never questions.
    */
   edgeQueryClass: ReadonlyMap<string, MeasurementQueryClass>
+}
+
+/** Frozen Property identity conversion shared by aggregates and landscape filtering. */
+export function measurementPlanV2ReportTargets(plan: MeasurementPlanV2): MeasurementReportInput['targets'] {
+  return plan.targets.map(target => ({
+    id: target.stableKey,
+    label: target.label,
+    aliases: target.mentionNotApplicable ? [] : target.aliases,
+    ...(target.identityAliases === undefined ? {} : { identityAliases: target.identityAliases }),
+    urls: target.urlMatchers.map((matcher, index) => matcherInput(target.stableKey, matcher, index)),
+  }))
 }
 
 /**
@@ -394,15 +410,7 @@ export function buildMeasurementPlanV2ReportInput(
       ownedHosts: plan.identities.projectBrand.ownedHosts,
       projectBrandNames: plan.identities.projectBrand.names,
       projectDomain: plan.identities.projectBrand.canonicalHost,
-      targets: plan.targets.map(target => ({
-        id: target.stableKey,
-        label: target.label,
-        // The revision already decided this Property cannot be mentioned. Feeding
-        // its aliases in anyway would turn "not applicable" into a 0% reading.
-        aliases: target.mentionNotApplicable ? [] : target.aliases,
-        ...(target.identityAliases === undefined ? {} : { identityAliases: target.identityAliases }),
-        urls: target.urlMatchers.map((matcher, index) => matcherInput(target.stableKey, matcher, index)),
-      })),
+      targets: measurementPlanV2ReportTargets(plan),
       groups: plan.groups.map(group => ({
         id: group.stableKey,
         label: group.label,
@@ -440,9 +448,11 @@ function responseFromReport(
   revision: number,
   report: ReturnType<typeof buildMeasurementReport>,
   run: MeasurementReportResponse['run'],
+  queryClass: MeasurementQueryClassFilter | null,
 ): MeasurementReportResponse {
   return {
     revision,
+    queryClass,
     run,
     groups: report.groups,
     targets: report.targets,
@@ -584,7 +594,8 @@ function storedMeasurementPlanV2Report(
   projectId: string,
   version: typeof measurementPlanVersions.$inferSelect,
   plan: MeasurementPlanV2,
-  runId?: string,
+  runId: string | undefined,
+  queryClass: MeasurementQueryClassFilter,
 ): StoredMeasurementReport {
   const run = runId
     ? pinnedMeasurementRun(db, projectId, version.id, runId, { exactVersion: true })
@@ -594,29 +605,49 @@ function storedMeasurementPlanV2Report(
     return {
       kind: 'no-population',
       reason: 'no-run',
-      report: responseFromReport(version.revision, buildMeasurementReport(empty.input), null),
+      report: responseFromReport(version.revision, buildMeasurementReport(classInput(empty, queryClass)), null, queryClass),
     }
   }
   const manifest = measurementRunExpectedSlots(run, plan)
   const snapshots = db.select().from(querySnapshots).where(eq(querySnapshots.runId, run.id)).all()
-  const { input } = buildMeasurementPlanV2ReportInput(version.revision, plan, manifest, snapshots)
+  const materialized = buildMeasurementPlanV2ReportInput(version.revision, plan, manifest, snapshots)
   return {
     kind: 'report',
-    report: responseFromReport(version.revision, buildMeasurementReport(input), {
+    report: responseFromReport(version.revision, buildMeasurementReport(classInput(materialized, queryClass)), {
       id: run.id,
       status: run.status === RunStatuses.completed ? RunStatuses.completed : RunStatuses.partial,
       createdAt: run.createdAt,
       startedAt: run.startedAt,
       finishedAt: run.finishedAt,
-    }),
+    }, queryClass),
   }
 }
 
+/**
+ * One question class's report input. The class belongs to the assignment
+ * behind each usage edge, so the filter selects edges, never questions; `all`
+ * keeps every edge and pools both classes.
+ */
+function classInput(materialized: MeasurementPlanV2ReportInput, queryClass: MeasurementQueryClassFilter): MeasurementReportInput {
+  if (queryClass === 'all') return materialized.input
+  return {
+    ...materialized.input,
+    usageEdges: materialized.input.usageEdges.filter(edge => materialized.edgeQueryClass.get(edge.id) === queryClass),
+  }
+}
+
+/**
+ * `queryClass` narrows a schema v2 report to one class; omitted, it reads
+ * non-brand, and `all` pools both. A schema v1 revision records no class, so
+ * its report covers every answer, echoes `queryClass: null`, and refuses a
+ * request for one class rather than presenting unclassified answers as it.
+ */
 export function buildStoredMeasurementReport(
   db: DatabaseClient,
   projectId: string,
   revision: number,
   runId?: string,
+  queryClass?: MeasurementQueryClassFilter,
 ): StoredMeasurementReport {
   const version = db.select().from(measurementPlanVersions).where(and(
     eq(measurementPlanVersions.projectId, projectId),
@@ -626,7 +657,12 @@ export function buildStoredMeasurementReport(
 
   const stored = parseStoredMeasurementPlanAnyVersion(version.canonicalJson)
   if (stored.schemaVersion === MEASUREMENT_PLAN_V2_SCHEMA_VERSION) {
-    return storedMeasurementPlanV2Report(db, projectId, version, stored, runId)
+    return storedMeasurementPlanV2Report(db, projectId, version, stored, runId, queryClass ?? MEASUREMENT_DEFAULT_QUERY_CLASS)
+  }
+  if (queryClass !== undefined && queryClass !== 'all') {
+    throw validationError(
+      `Revision ${revision} is a schema v1 plan, which records no query class. Omit queryClass to read every answer.`,
+    )
   }
   const plan = stored
 
@@ -659,7 +695,7 @@ export function buildStoredMeasurementReport(
     )).orderBy(desc(runs.createdAt), desc(runs.id)).get()
     if (!selectedRun) {
       const report = buildMeasurementReport(reportInput(version.revision, plan, { schemaVersion: 1, expectedSlots: [] }, [], false))
-      return { kind: 'no-population', reason: 'no-run', report: responseFromReport(version.revision, report, null) }
+      return { kind: 'no-population', reason: 'no-run', report: responseFromReport(version.revision, report, null, null) }
     }
     const legacySnapshots = db.select().from(querySnapshots).where(eq(querySnapshots.runId, selectedRun.id)).all()
     const providers = [...new Set(legacySnapshots.map(snapshot => snapshot.provider.trim().toLocaleLowerCase('en')).filter(Boolean))]
@@ -667,12 +703,12 @@ export function buildStoredMeasurementReport(
       manifest = buildMeasurementRunManifest(plan, providers)
     } catch {
       const report = buildMeasurementReport(reportInput(version.revision, plan, { schemaVersion: 1, expectedSlots: [] }, [], false))
-      return { kind: 'no-population', reason: 'no-run', report: responseFromReport(version.revision, report, null) }
+      return { kind: 'no-population', reason: 'no-run', report: responseFromReport(version.revision, report, null, null) }
     }
     legacy = true
   } else {
     const report = buildMeasurementReport(reportInput(version.revision, plan, { schemaVersion: 1, expectedSlots: [] }, [], false))
-    return { kind: 'no-population', reason: 'no-run', report: responseFromReport(version.revision, report, null) }
+    return { kind: 'no-population', reason: 'no-run', report: responseFromReport(version.revision, report, null, null) }
   }
   const snapshots = db.select().from(querySnapshots).where(eq(querySnapshots.runId, selectedRun.id)).all()
   const report = buildMeasurementReport(reportInput(version.revision, plan, manifest, snapshots, legacy))
@@ -684,6 +720,6 @@ export function buildStoredMeasurementReport(
       createdAt: selectedRun.createdAt,
       startedAt: selectedRun.startedAt,
       finishedAt: selectedRun.finishedAt,
-    }),
+    }, null),
   }
 }

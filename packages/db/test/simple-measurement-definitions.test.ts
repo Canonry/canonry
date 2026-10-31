@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { eq, sql } from 'drizzle-orm'
 import { expect, onTestFinished, test } from 'vitest'
-import { RunKinds, RunStatuses, RunTriggers, type SimpleMeasurementDefinition } from '@ainyc/canonry-contracts'
+import { RunKinds, RunStatuses, RunTriggers, type SimpleMeasurementDefinition } from '@canonry/canonry-contracts'
 import {
   MIGRATION_VERSIONS,
   createClient,

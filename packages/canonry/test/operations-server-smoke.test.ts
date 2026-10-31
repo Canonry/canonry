@@ -3,11 +3,12 @@ import os from 'node:os'
 import path from 'node:path'
 import { performance } from 'node:perf_hooks'
 import { afterEach, expect, it, vi } from 'vitest'
-import { apiKeys, auditLog, createClient, migrate } from '@ainyc/canonry-db'
-import { hashApiKey } from '@ainyc/canonry-api-routes'
+import { apiKeys, auditLog, createClient, migrate } from '@canonry/canonry-db'
+import { hashApiKey } from '@canonry/canonry-api-routes'
 import { createServer } from '../src/server.js'
 import { getConfigPath, saveConfig } from '../src/config.js'
 import { createLogger } from '../src/logger.js'
+import { awaitPendingServerRefresh, resetServerUpdateCheckCache } from '../src/update-check.js'
 
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs() })
 
@@ -44,6 +45,45 @@ it('keeps health responsive when runtime capture encounters a database writer lo
     if (lock.$client.inTransaction) lock.$client.exec('ROLLBACK')
     await app?.close()
     lock.$client.close()
+    db.$client.close()
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+}, 30_000)
+
+it('keeps flagged health probes cached-only at every mounted health route', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-stored-health-smoke-'))
+  vi.stubEnv('CANONRY_CONFIG_DIR', dir)
+  vi.stubEnv('CANONRY_TELEMETRY_DISABLED', '1')
+  vi.stubEnv('CI', '')
+  vi.stubEnv('DO_NOT_TRACK', '')
+  vi.stubEnv('CANONRY_DISABLE_UPDATE_CHECK', '')
+  const config = { apiUrl: 'http://localhost:4100', basePath: '/canonry', apiKey: 'cnry_health_fixture', database: path.join(dir, 'test.db'), telemetry: false }
+  saveConfig(config)
+  const db = createClient(config.database)
+  migrate(db)
+  const registryResponse = () => new Response(JSON.stringify({ latest: '999.0.0' }), { status: 200, headers: { 'content-type': 'application/json' } })
+  const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => registryResponse())
+  let app: Awaited<ReturnType<typeof createServer>> | undefined
+  try {
+    await resetServerUpdateCheckCache()
+    app = await createServer({ config, db, logger: false, assetsDir: path.join(dir, 'assets') })
+    await app.ready()
+    await awaitPendingServerRefresh()
+    await resetServerUpdateCheckCache()
+    fetchSpy.mockClear()
+    for (const url of ['/health', '/canonry/health']) {
+      const response = await app.inject({ url, headers: { 'x-canonry-stored-only': '1' } })
+      expect(response.statusCode, response.body).toBe(200)
+    }
+    expect(fetchSpy).not.toHaveBeenCalled()
+
+    await app.inject('/health')
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+    await awaitPendingServerRefresh()
+  } finally {
+    await app?.close()
+    await awaitPendingServerRefresh()
+    await resetServerUpdateCheckCache()
     db.$client.close()
     fs.rmSync(dir, { recursive: true, force: true })
   }

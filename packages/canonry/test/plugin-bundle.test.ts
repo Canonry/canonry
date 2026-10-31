@@ -8,6 +8,9 @@ import { describe, expect, it } from 'vitest'
 import { parse } from 'yaml'
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..')
+const { AERO_MIRRORED_REFERENCES } = await import(new URL('../../../scripts/sync-agent-operations.mjs', import.meta.url).href) as {
+  AERO_MIRRORED_REFERENCES: Array<{ source: string }>
+}
 const pluginRoot = path.join(repoRoot, 'plugins', 'canonry')
 const managedSkills = ['aero', 'canonry']
 
@@ -36,6 +39,17 @@ interface CodexMarketplace {
 
 interface ClaudeMarketplace {
   plugins: Array<{ name: string; source: string }>
+}
+
+interface RemoteMcp {
+  mcpServers: {
+    canonry: {
+      url: string
+      type?: string
+      oauth?: { clientId?: string }
+      extensions?: { 'com.openai'?: { auth?: { client?: { clientId?: string } } } }
+    }
+  }
 }
 
 function walkFiles(dir: string, prefix = ''): string[] {
@@ -187,12 +201,34 @@ describe('native Canonry plugin bundle', () => {
   it('publishes matching repository marketplaces for both clients', () => {
     const codexMarketplace = readJson<CodexMarketplace>(path.join(repoRoot, '.agents', 'plugins', 'marketplace.json'))
     const claudeMarketplace = readJson<ClaudeMarketplace>(path.join(repoRoot, '.claude-plugin', 'marketplace.json'))
-    expect(codexMarketplace.plugins).toHaveLength(1)
-    expect(codexMarketplace.plugins[0].name).toBe('canonry')
-    expect(codexMarketplace.plugins[0].source.path).toBe('./plugins/canonry')
-    expect(claudeMarketplace.plugins).toHaveLength(1)
-    expect(claudeMarketplace.plugins[0].name).toBe('canonry')
-    expect(claudeMarketplace.plugins[0].source).toBe('./plugins/canonry')
+    const listed = [
+      ['canonry', './plugins/canonry'],
+      ['canonry-remote', './plugins/canonry-remote'],
+    ]
+    expect(codexMarketplace.plugins.map(plugin => [plugin.name, plugin.source.path])).toEqual(listed)
+    expect(claudeMarketplace.plugins.map(plugin => [plugin.name, plugin.source])).toEqual(listed)
+    const shipped = ['plugin.json', 'mcp.json', '.claude-plugin/plugin.json', '.mcp.json'].map(file => path.join('plugins', 'canonry-remote', file))
+    for (const file of shipped) expect(fs.existsSync(path.join(repoRoot, file))).toBe(true)
+    // Marketplace installs read the repository, so an ignored manifest exists in a checkout but never reaches users.
+    expect(spawnSync('git', ['check-ignore', '--no-index', ...shipped], { cwd: repoRoot, encoding: 'utf8' }).stdout).toBe('')
+  })
+
+  it('connects the Claude Code remote adapter to the same gateway with its own public client', () => {
+    const remoteRoot = path.join(repoRoot, 'plugins', 'canonry-remote')
+    const portable = readJson<VersionManifest>(path.join(remoteRoot, 'plugin.json'))
+    const claude = readJson<VersionManifest & { name: string; mcpServers: string }>(path.join(remoteRoot, '.claude-plugin', 'plugin.json'))
+    const openaiServer = readJson<RemoteMcp>(path.join(remoteRoot, 'mcp.json')).mcpServers.canonry
+    const claudeServer = readJson<RemoteMcp>(path.join(remoteRoot, '.mcp.json')).mcpServers.canonry
+    expect(claude.name).toBe('canonry-remote')
+    expect(claude.version).toBe(portable.version)
+    expect(claude.mcpServers).toBe('./.mcp.json')
+    // Claude Code names streamable HTTP `http`, and it receives the code on a loopback
+    // port, which the HTTPS-only ChatGPT client cannot register.
+    expect(claudeServer.type).toBe('http')
+    expect(claudeServer.url).toBe(openaiServer.url)
+    expect(claudeServer.oauth?.clientId).toBeTruthy()
+    expect(claudeServer.oauth?.clientId).not.toBe(openaiServer.extensions?.['com.openai']?.auth?.client?.clientId)
+    expect(JSON.stringify(claudeServer)).not.toMatch(/secret|cnry_[a-z0-9]+|api[_-]?key/i)
   })
 
   it('documents native initialization and operator approval boundaries', () => {
@@ -227,6 +263,11 @@ describe('native Canonry plugin bundle', () => {
       const guidePath = path.join(scratch, 'docs/agent-operations/v1.md')
       fs.mkdirSync(path.dirname(guidePath), { recursive: true })
       fs.copyFileSync(path.join(repoRoot, 'docs/agent-operations/v1.md'), guidePath)
+      // The sync also mirrors these Canonry references into Aero's folder.
+      for (const { source } of AERO_MIRRORED_REFERENCES) {
+        fs.mkdirSync(path.dirname(path.join(scratch, source)), { recursive: true })
+        fs.copyFileSync(path.join(repoRoot, source), path.join(scratch, source))
+      }
 
       const sharedPluginMetadata = {
         name: 'canonry',
@@ -284,6 +325,11 @@ describe('native Canonry plugin bundle', () => {
         '# CODEMAP\nvisibility-attribution\ngsc-sitemap-submission\nGUARDS.md\nDOC_UPDATE.md\nfind apps packages -type f -name\n',
       )
 
+      const remoteManifests = ['plugins/canonry-remote/plugin.json', 'plugins/canonry-remote/.claude-plugin/plugin.json']
+      for (const relativePath of remoteManifests) writeJson(path.join(scratch, relativePath), { name: 'canonry-remote', version: '1.0.0' })
+      const remoteMcpPath = path.join(scratch, 'plugins/canonry-remote/mcp.json')
+      writeJson(remoteMcpPath, { mcpServers: { canonry: { type: 'streamable-http', url: 'https://mcp.example/mcp' } } })
+
       execFileSync(process.execPath, [scriptPath], { cwd: scratch })
       execFileSync('git', ['init', '--quiet'], { cwd: scratch })
       execFileSync('git', ['config', 'user.email', 'plugin-test@canonry.invalid'], { cwd: scratch })
@@ -318,6 +364,21 @@ describe('native Canonry plugin bundle', () => {
         encoding: 'utf8',
       })
       expect(advancedCheck.status).toBe(0)
+
+      // The remote plugin versions on its own: an edit under its folder must
+      // advance both of its manifests, and needs no Canonry release.
+      execFileSync('git', ['add', '.'], { cwd: scratch })
+      execFileSync('git', ['commit', '--quiet', '-m', 'native release'], { cwd: scratch })
+      const releaseRef = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: scratch, encoding: 'utf8' }).trim()
+      writeJson(remoteMcpPath, { mcpServers: { canonry: { type: 'streamable-http', url: 'https://mcp.example/v2/mcp' } } })
+      const remoteCheck = spawnSync(process.execPath, [scriptPath, '--check', '--base-ref', releaseRef], { cwd: scratch, encoding: 'utf8' })
+      expect(remoteCheck.status).toBe(1)
+      expect(remoteCheck.stderr).toContain('plugins/canonry-remote/plugin.json version must advance beyond 1.0.0 because the remote plugin changed')
+      expect(remoteCheck.stderr).toContain('plugins/canonry-remote/.claude-plugin/plugin.json version must advance beyond 1.0.0')
+      expect(remoteCheck.stderr).not.toContain('plugins/canonry/plugin.json version must advance')
+      for (const relativePath of remoteManifests) writeJson(path.join(scratch, relativePath), { name: 'canonry-remote', version: '1.1.0' })
+      const remoteAdvanced = spawnSync(process.execPath, [scriptPath, '--check', '--base-ref', releaseRef], { cwd: scratch, encoding: 'utf8' })
+      expect(remoteAdvanced.status).toBe(0)
     } finally {
       fs.rmSync(scratch, { recursive: true, force: true })
     }

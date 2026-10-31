@@ -26,8 +26,8 @@ import {
   gaTrafficSnapshots,
   gaAiReferrals,
   domainClassifications,
-} from '@ainyc/canonry-db'
-import type { DatabaseClient } from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
+import type { DatabaseClient } from '@canonry/canonry-db'
 import {
   buildInventory,
   type CandidateQuery,
@@ -37,19 +37,21 @@ import {
   type SitePage,
   isBlogShapedQuery,
   compileCompetitiveSignalResolver,
-} from '@ainyc/canonry-intelligence'
+} from '@canonry/canonry-intelligence'
 import {
   CitationStates,
   hostMatchesDomain,
   hostOf,
   RunKinds,
   RunStatuses,
+  type CompetitorIdentityInput,
   type GroundingSource,
   type LocationContext,
   type ProviderName,
   type DiscoveryCompetitorType,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { notProbeRun } from './helpers.js'
+import { competitorIdentityColumns } from './competitor-writes.js'
 
 const RECENT_RUNS_WINDOW = 5
 
@@ -86,8 +88,12 @@ export function loadOrchestratorInput(
   const trackedQueries = listQueries(db, projectId)
   const candidateQueryStrings = trackedQueries.filter(isBlogShapedQuery)
 
-  const trackedCompetitors = listCompetitorDomains(db, projectId).map(domain => hostOf(domain) ?? '')
+  const competitorRows = listCompetitors(db, projectId)
+  const trackedCompetitors = competitorRows.map(row => hostOf(row.domain) ?? '')
   const competitorSet = new Set(trackedCompetitors)
+  // Mention matching also reads each competitor's curated aliases; citation
+  // matching stays on the host set above.
+  const competitorIdentities = competitorRows.map(row => ({ domain: hostOf(row.domain) ?? '', aliases: row.aliases }))
 
   // Limit the orchestrator window to runs at the latest run's location so
   // content opportunities and gaps reflect the same geographic context as
@@ -105,6 +111,7 @@ export function loadOrchestratorInput(
     latestRunId,
     ourDomains,
     competitorSet,
+    competitorIdentities,
     gscWindowDays,
   })
 
@@ -236,13 +243,13 @@ function listQueries(db: DatabaseClient, projectId: string): string[] {
   return rows.map((r) => r.text)
 }
 
-function listCompetitorDomains(db: DatabaseClient, projectId: string): string[] {
-  const rows = db
-    .select({ domain: competitorsTable.domain })
+function listCompetitors(db: DatabaseClient, projectId: string): CompetitorIdentityInput[] {
+  return db
+    .select(competitorIdentityColumns)
     .from(competitorsTable)
     .where(eq(competitorsTable.projectId, projectId))
+    .orderBy(competitorsTable.domain)
     .all()
-  return rows.map((r) => r.domain)
 }
 
 function listRecentAnswerVisibilityRunIds(
@@ -373,10 +380,9 @@ function resolveContentGaWindow(
  * total by roughly the number of lenses (measured 800 vs 264, a 3.0x inflation,
  * on a live project).
  *
- * Every other consumer already guards this: `report.ts` pins `session` and
- * `ga.ts` takes the winning lens per tuple via `pickWinningDimension`. Pinning
- * the same lens here keeps the content engine's denominator consistent with the
- * report's numerator.
+ * `ga.ts` takes the winning lens per tuple via `pickWinningDimension`.
+ * Pinning one lens here prevents overlapping dimensions from inflating the
+ * content engine denominator.
  */
 function sumAiReferralSessions(
   db: DatabaseClient,
@@ -412,6 +418,8 @@ interface BuildCandidateQueriesOpts {
   latestRunId: string
   ourDomains: Set<string>
   competitorSet: Set<string>
+  /** Tracked competitors with curated aliases, for the mention tally. */
+  competitorIdentities: readonly CompetitorIdentityInput[]
   /** Days of GSC history to score demand over. See resolveContentGscWindow. */
   gscWindowDays: number
 }
@@ -495,6 +503,7 @@ function buildCandidateQueries(opts: BuildCandidateQueriesOpts): CandidateQuery[
       gsc,
       ourDomains: opts.ourDomains,
       competitorSet: opts.competitorSet,
+      competitorIdentities: opts.competitorIdentities,
       latestRunId: opts.latestRunId,
     })
   })
@@ -650,6 +659,8 @@ interface AggregateCandidateOpts {
   gsc: AggregateGscEntry | null
   ourDomains: Set<string>
   competitorSet: Set<string>
+  /** Tracked competitors with curated aliases, for the mention tally. */
+  competitorIdentities: readonly CompetitorIdentityInput[]
   latestRunId: string
 }
 
@@ -674,7 +685,7 @@ function aggregateCandidate(opts: AggregateCandidateOpts): CandidateQuery {
   // both, and the two observations must remain independent.
   const competitorTally = new Map<string, number>()
   const competitorMentionTally = new Map<string, number>()
-  const competitiveSignalResolver = compileCompetitiveSignalResolver([...opts.competitorSet])
+  const competitiveSignalResolver = compileCompetitiveSignalResolver(opts.competitorIdentities)
   const competitorGroundingTally = new Map<string, GroundingUrlEvidence>()
   const ourGroundingTally = new Map<string, GroundingUrlEvidence>()
   // Full cited surface: every non-own cited domain → citation count, NOT

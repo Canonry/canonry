@@ -10,14 +10,14 @@ import {
   getApiV1ProjectsByNameGbpPlacesOptions,
   postApiV1ProjectsByNameGbpSyncMutation,
   putApiV1ProjectsByNameGbpLocationsByLocationNameSelectionMutation,
-} from '@ainyc/canonry-api-client/react-query'
+} from '@canonry/canonry-api-client/react-query'
 import type {
   GbpLocationDto,
   GbpLodgingListResponse,
   GbpPlaceActionListResponse,
   GbpPlaceDetailsListResponse,
   GbpSummaryDto,
-} from '@ainyc/canonry-api-client'
+} from '@canonry/canonry-api-client'
 
 import {
   formatGbpMetricLabel,
@@ -28,7 +28,7 @@ import {
   RatioUnits,
   RunKinds,
   type InsightType,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 
 import { Button } from '../ui/button.js'
 import { WriteButton } from '../shared/AccessControls.js'
@@ -204,12 +204,12 @@ export function GbpSection({ projectName, projectId }: { projectName: string; pr
       {
         title: 'Select locations',
         command: `canonry gbp locations discover ${projectName}`,
-        note: <>Then adopt the ones to sync: <code className="rounded bg-bg-elevated/80 px-1 py-0.5 font-mono text-[11px] text-secondary">canonry gbp locations select {projectName} &lt;location&gt;</code></>,
+        note: <>Then adopt the ones to sync: <code className="rounded bg-bg-elevated/80 px-1 py-0.5 text-label-12-mono text-secondary">canonry gbp locations select {projectName} &lt;location&gt;</code></>,
       },
       {
         title: 'Sync, and keep it fresh',
         command: `canonry gbp sync ${projectName}`,
-        note: <>Schedule it: <code className="rounded bg-bg-elevated/80 px-1 py-0.5 font-mono text-[11px] text-secondary">canonry schedule set {projectName} --kind gbp-sync --preset daily</code></>,
+        note: <>Schedule it: <code className="rounded bg-bg-elevated/80 px-1 py-0.5 text-label-12-mono text-secondary">canonry schedule set {projectName} --kind gbp-sync --preset daily</code></>,
       },
     ]
     return (
@@ -217,22 +217,22 @@ export function GbpSection({ projectName, projectId }: { projectName: string; pr
         <Card className="surface-card">
           <p className="eyebrow eyebrow-soft">Local presence</p>
           <h2>Connect Google Business Profile</h2>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-muted">
+          <p className="mt-2 max-w-2xl text-copy-14 text-muted">
             Track local performance, search terms, place-action CTAs, and how your public Maps listing compares to
             the profile you control. Four steps from the CLI:
           </p>
           <ol className="mt-5 space-y-4">
             {steps.map((step, index) => (
               <li key={step.title} className="grid grid-cols-[1.5rem_1fr] gap-x-3">
-                <span className="mt-0.5 inline-flex h-6 w-6 items-center justify-center rounded-full bg-mono-800 text-xs font-medium tabular-nums text-neutral" aria-hidden="true">
+                <span className="mt-0.5 inline-flex h-6 w-6 items-center justify-center rounded-full bg-mono-800 text-label-12-strong tabular-nums text-neutral" aria-hidden="true">
                   {index + 1}
                 </span>
                 <div className="min-w-0">
-                  <p className="text-sm font-medium text-strong">{step.title}</p>
-                  <code className="mt-1.5 inline-block w-fit max-w-full overflow-x-auto rounded bg-bg-elevated/80 px-2 py-1 font-mono text-xs text-neutral">
+                  <p className="text-copy-14-strong text-strong">{step.title}</p>
+                  <code className="mt-1.5 inline-block w-fit max-w-full overflow-x-auto rounded bg-bg-elevated/80 px-2 py-1 text-label-12-mono text-neutral">
                     {step.command}
                   </code>
-                  <p className="mt-1 text-xs leading-5 text-muted">{step.note}</p>
+                  <p className="mt-1 text-copy-13 text-muted">{step.note}</p>
                 </div>
               </li>
             ))}
@@ -301,7 +301,7 @@ export function GbpSection({ projectName, projectId }: { projectName: string; pr
           </div>
         </div>
 
-        <p className="mb-4 text-xs text-muted">
+        <p className="mb-4 text-copy-13 text-muted">
           {account ? <>Account <span className="font-mono text-secondary">{account}</span> · </> : null}
           {locationsQuery.data ? `${locationsQuery.data.totalSelected} of ${locationsQuery.data.totalDiscovered} locations tracked` : 'Loading locations…'}
         </p>
@@ -309,12 +309,12 @@ export function GbpSection({ projectName, projectId }: { projectName: string; pr
         {/* Location scope selector — only when more than one location is tracked. */}
         {trackedLocations.length > 1 && (
           <div className="mb-5 max-w-xs">
-            <label htmlFor="local-presence-location" className="mb-1 block text-sm font-medium text-secondary">Location</label>
+            <label htmlFor="local-presence-location" className="mb-1 block text-label-14-strong text-secondary">Location</label>
             <select
               id="local-presence-location"
               value={scopeLocation ?? ''}
               onChange={(event) => setScopeLocation(event.target.value || null)}
-              className="w-full rounded-md border border-base bg-bg px-3 py-2 text-sm text-strong focus:outline-none focus-visible:ring-2 focus-visible:ring-mono-500/60"
+              className="w-full rounded-md border border-base bg-bg px-3 py-2 text-label-14 text-strong focus:outline-none focus-visible:ring-2 focus-visible:ring-mono-500/60"
             >
               <option value="">All locations</option>
               {trackedLocations.map((loc) => (
@@ -325,8 +325,8 @@ export function GbpSection({ projectName, projectId }: { projectName: string; pr
         )}
 
         {trackedLocations.length === 0 ? (
-          <p className="text-sm text-muted">
-            No locations are tracked yet. Open <span className="font-medium text-neutral">Manage locations</span> below to track the one(s) for this business.
+          <p className="text-copy-14 text-muted">
+            No locations are tracked yet. Open <span className="text-copy-14-strong text-neutral">Manage locations</span> below to track the one(s) for this business.
           </p>
         ) : (
           <>
@@ -334,8 +334,8 @@ export function GbpSection({ projectName, projectId }: { projectName: string; pr
               <div className="mb-6 grid gap-2">
                 <p className="eyebrow eyebrow-soft">Needs attention</p>
                 {attentionInsights.map((ins) => (
-                  <div key={ins.id} className={['insight-card', insightCardToneClass(ins.severity), 'rounded-r-lg border border-default bg-surface p-3 pl-4'].filter(Boolean).join(' ')}>
-                    <p className="flex items-center gap-2 text-sm font-medium text-strong">
+                  <div key={ins.id} className={['surface-card insight-card', insightCardToneClass(ins.severity), 'p-3'].filter(Boolean).join(' ')}>
+                    <p className="flex items-center gap-2 text-copy-14-strong text-strong">
                       {ins.title}
                       {ins.recommendation?.reason && <InfoTooltip text={ins.recommendation.reason} />}
                     </p>
@@ -377,15 +377,15 @@ export function GbpSection({ projectName, projectId }: { projectName: string; pr
               <div className="section-head section-head-inline mb-2">
                 <p className="eyebrow eyebrow-soft">Search terms</p>
                 {keywordsQuery.data && keywordsQuery.data.total > 0 && (
-                  <span className="text-[11px] text-faint">
+                  <span className="text-label-12 text-faint">
                     {formatPercent(keywordsQuery.data.thresholdedPct, RatioUnits.percent)} privacy-thresholded
                   </span>
                 )}
               </div>
               {visibleKeywords.length === 0 ? (
-                <p className="text-sm text-muted">No keyword impressions stored yet.</p>
+                <p className="text-copy-14 text-muted">No keyword impressions stored yet.</p>
               ) : (
-                <table className="data-table w-full text-sm">
+                <table className="data-table w-full text-label-14">
                   <thead>
                     <tr>
                       <th className="text-left">Search term</th>
@@ -408,7 +408,7 @@ export function GbpSection({ projectName, projectId }: { projectName: string; pr
                             ? kw.valueCount.toLocaleString()
                             : <span className="text-muted" title="Privacy floor — Google withheld the exact count">{'<'}{kw.valueThreshold}</span>}
                         </td>
-                        <td className="text-right font-mono text-[11px] text-faint">{kw.periodStart}–{kw.periodEnd}</td>
+                        <td className="text-right text-label-12-mono text-faint">{kw.periodStart}–{kw.periodEnd}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -424,7 +424,7 @@ export function GbpSection({ projectName, projectId }: { projectName: string; pr
         <div className="mt-6 border-t border-default pt-4">
           <button
             type="button"
-            className="flex items-center gap-1.5 text-xs font-medium text-secondary hover:text-strong"
+            className="flex items-center gap-1.5 text-button-14 text-secondary hover:text-strong"
             onClick={() => setShowManage((v) => !v)}
             aria-expanded={showManage}
           >
@@ -433,9 +433,9 @@ export function GbpSection({ projectName, projectId }: { projectName: string; pr
           {showManage && (
             <div className="mt-3">
               {locations.length === 0 ? (
-                <p className="text-sm text-muted">No locations discovered. Run <span className="font-mono">canonry gbp locations discover</span>.</p>
+                <p className="text-copy-14 text-muted">No locations discovered. Run <span className="font-mono">canonry gbp locations discover</span>.</p>
               ) : (
-                <table className="data-table w-full text-sm">
+                <table className="data-table w-full text-label-14">
                   <thead>
                     <tr>
                       <th className="text-left">Location</th>
@@ -539,9 +539,9 @@ function GbpProfileCompleteness({ summary }: { summary: ProfileCompletenessSumma
       <div className="grid gap-x-5 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
         {rows.map((row) => (
           <div key={row.label} className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-3">
-            <span className="text-xs text-muted">{row.label}</span>
-            <span className={`font-mono text-sm tabular-nums ${toneTextClass(row.tone)}`}>{row.value}</span>
-            {row.detail && <span className="col-span-2 text-[11px] text-faint">{row.detail}</span>}
+            <span className="text-label-12 text-muted">{row.label}</span>
+            <span className={`text-label-14-mono tabular-nums ${toneTextClass(row.tone)}`}>{row.value}</span>
+            {row.detail && <span className="col-span-2 text-label-12 text-faint">{row.detail}</span>}
           </div>
         ))}
       </div>
@@ -580,7 +580,7 @@ function GbpLocationEvidenceTable({
           <p className="eyebrow eyebrow-soft">Source evidence</p>
           <InfoTooltip text={isEmbed() ? 'Each column names the Google surface it came from. Missing or empty means that surface did not return a value in the latest sync, not that every Google product lacks the information.' : 'Each column names the Google surface it came from. Missing or empty means that surface did not return a value in the latest Canonry sync, not that every Google product lacks the information.'} />
         </div>
-        <span className="text-[11px] text-faint">{locations.length} location{locations.length === 1 ? '' : 's'}</span>
+        <span className="text-label-12 text-faint">{locations.length} location{locations.length === 1 ? '' : 's'}</span>
       </div>
       <div className="data-table-wrapper">
         <table className="data-table">
@@ -605,8 +605,8 @@ function GbpLocationEvidenceTable({
                   <tr>
                     <td>
                       <div className="min-w-0">
-                        <p className="font-medium text-strong">{loc.displayName}</p>
-                        <p className="mt-1 text-xs text-faint">{loc.primaryCategoryDisplayName ?? 'Primary category not returned'}</p>
+                        <p className="text-copy-14-strong text-strong">{loc.displayName}</p>
+                        <p className="mt-1 text-copy-13 text-faint">{loc.primaryCategoryDisplayName ?? 'Primary category not returned'}</p>
                         <div className="mt-2 flex flex-wrap gap-1.5">
                           <ToneBadge tone={loc.selected ? 'positive' : 'neutral'}>
                             {loc.selected ? 'Tracked' : 'Not tracked'}
@@ -760,7 +760,7 @@ function SourceCell({
   return (
     <div>
       <ToneBadge tone={tone}>{label}</ToneBadge>
-      <p className="mt-1.5 text-xs leading-5 text-faint">{detail}</p>
+      <p className="mt-1.5 text-copy-13 text-faint">{detail}</p>
     </div>
   )
 }
@@ -778,7 +778,7 @@ function LocationEvidenceDetail({
 }) {
   const lodgingGroups = lodging ? populatedLodgingGroups(lodging.attributes) : []
   return (
-    <div className="grid gap-5 text-xs lg:grid-cols-3">
+    <div className="grid gap-5 text-label-12 lg:grid-cols-3">
       <EvidenceDetailGroup title="Owner profile · Business Information">
         <EvidenceRow label="Primary category" value={location.primaryCategoryDisplayName ?? 'Not returned'} />
         <EvidenceRow label="Secondary categories" value={location.additionalCategories.length > 0 ? location.additionalCategories.join(', ') : 'Not returned'} />
@@ -799,7 +799,7 @@ function LocationEvidenceDetail({
             <EvidenceRow label="Populated groups" value={lodgingGroups.length > 0 ? lodgingGroups.join(', ') : 'None returned'} />
           </>
         ) : (
-          <p className="leading-5 text-muted">No Lodging API snapshot was stored for this location.</p>
+          <p className="text-copy-13 text-secondary">No Lodging API snapshot was stored for this location.</p>
         )}
       </EvidenceDetailGroup>
 
@@ -811,7 +811,7 @@ function LocationEvidenceDetail({
             <EvidenceRow label="Public signals" value={place.amenities.length > 0 ? place.amenities.join(', ') : 'No supported signals detected'} />
           </>
         ) : (
-          <p className="leading-5 text-muted">No Places Details snapshot was stored for this location.</p>
+          <p className="text-copy-13 text-secondary">No Places Details snapshot was stored for this location.</p>
         )}
         {location.mapsUri && (
           <a href={location.mapsUri} target="_blank" rel="noopener noreferrer" className="inline-block text-muted hover:text-neutral">
@@ -820,12 +820,12 @@ function LocationEvidenceDetail({
         )}
         <div className="mt-3 border-t border-default pt-3">
           {placeActions.length === 0 ? (
-            <p className="leading-5 text-muted">No placeActionLinks returned.</p>
+            <p className="text-copy-13 text-secondary">No placeActionLinks returned.</p>
           ) : (
             <div className="grid gap-2">
               {placeActions.map((action) => (
                 <div key={action.placeActionLinkName} className="grid gap-0.5">
-                  <span className="font-medium text-neutral">
+                  <span className="text-label-12-strong text-neutral">
                     {formatToken(action.placeActionType)}
                     {action.isPreferred ? ' · preferred' : ''}
                   </span>
@@ -845,7 +845,7 @@ function LocationEvidenceDetail({
 function EvidenceDetailGroup({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div>
-      <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted">{title}</p>
+      <p className="mb-2 text-label-12-strong normal-case text-muted">{title}</p>
       <div className="grid gap-2">{children}</div>
     </div>
   )
@@ -982,16 +982,16 @@ function GbpPerformance({
       <div>
         <div className="mb-2 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
           <p className="eyebrow eyebrow-soft">Profile actions · daily</p>
-          {freshnessLabel && <span className="text-[11px] text-muted">{freshnessLabel}</span>}
+          {freshnessLabel && <span className="text-label-12 text-muted">{freshnessLabel}</span>}
         </div>
         {!hasSeries || profileActionMetrics.length === 0 ? (
-          <p className="text-sm text-muted">No profile action activity yet — run a sync.</p>
+          <p className="text-copy-14 text-muted">No profile action activity yet — run a sync.</p>
         ) : (
           <>
             <GbpTrendChart data={chartData} metrics={profileActionMetrics} kind="line" firstPending={firstPending} lastDate={lastDate} />
             <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1">
               {profileActionStats.map((m) => (
-                <span key={m} className="text-sm text-secondary">
+                <span key={m} className="text-label-14 text-secondary">
                   {formatGbpMetricLabel(m)}{' '}
                   <span className="font-mono text-heading">{(totals[m] ?? 0).toLocaleString()}</span>
                 </span>
@@ -1009,7 +1009,7 @@ function GbpPerformance({
       )}
 
       {notActive.length > 0 && (
-        <p className="text-xs text-faint">
+        <p className="text-copy-13 text-faint">
           Not active: {notActive.map((m) => formatGbpMetricLabel(m)).join(', ')}
         </p>
       )}
@@ -1052,7 +1052,7 @@ function GbpTrendChart({
               return [formatted, formatGbpMetricLabel(String(name ?? ''))]
             }}
           />
-          <Legend wrapperStyle={{ fontSize: 11, color: CHART_NEUTRAL.text }} formatter={(value: string) => formatGbpMetricLabel(value)} />
+          <Legend wrapperStyle={{ fontSize: 12, color: CHART_NEUTRAL.text }} formatter={(value: string) => formatGbpMetricLabel(value)} />
           {/* The reporting-lag tail: a greyed band so a not-yet-reported day is
               never read as a real dip. */}
           {firstPending && lastDate && (
@@ -1062,7 +1062,7 @@ function GbpTrendChart({
               fill={CHART_NEUTRAL.surface}
               fillOpacity={0.55}
               stroke="none"
-              label={{ value: 'pending', position: 'insideTopRight', fill: CHART_NEUTRAL.textDim, fontSize: 10 }}
+              label={{ value: 'pending', position: 'insideTopRight', fill: CHART_NEUTRAL.textDim, fontSize: 12 }}
             />
           )}
           {metrics.map((m, i) => (

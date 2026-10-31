@@ -2,9 +2,15 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createClient, migrate, projects, researchRunQueries, researchRuns } from '@ainyc/canonry-db'
-import { ResearchQueryStatuses, ResearchRunStatuses } from '@ainyc/canonry-contracts'
+import { createClient, migrate, projects, researchRunQueries, researchRuns } from '@canonry/canonry-db'
+import { ResearchQueryStatuses, ResearchRunStatuses } from '@canonry/canonry-contracts'
 import { createServer, waitForServerRuntimeStartup } from '../src/server.js'
+
+const telemetry = vi.hoisted(() => ({ trackEvent: vi.fn() }))
+vi.mock('../src/telemetry.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/telemetry.js')>()),
+  trackEvent: telemetry.trackEvent,
+}))
 
 const cleanup: string[] = []
 afterEach(async () => {
@@ -36,6 +42,15 @@ describe('research run recovery', () => {
         expect(db.select().from(researchRuns).get()?.status).toBe(ResearchRunStatuses.failed)
         expect(db.select().from(researchRunQueries).get()?.status).toBe(ResearchQueryStatuses.failed)
       })
+      // Startup dispatched it, not a request.
+      expect(telemetry.trackEvent.mock.calls.filter(([event, properties]) => event === 'feature.completed' && (properties as { feature: string }).feature === 'research')).toEqual([[
+        'feature.completed',
+        {
+          feature: 'research', operation: 'run', status: 'failed', trigger: 'startup', surface: 'system', reasonCode: 'NOT_CONNECTED',
+          durationBucket: expect.any(String), counts: { queries: 1, snapshots: 0, failures: 1 },
+        },
+        { errorCode: 'NOT_CONNECTED' },
+      ]])
     } finally {
       await app.close()
     }

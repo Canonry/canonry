@@ -226,8 +226,12 @@ cnry doctor --project my-site --check 'google-ads.*' --format json
 cnry doctor --project my-site --check 'gtm.*' --format json
 ```
 
-Doctor reports credential metadata, OAuth scopes, selected resources, and
-snapshot age. Doctor does not call Google or prove browser tag firing.
+Doctor reports credential metadata, OAuth scopes, selected resources, snapshot
+age, and repeated sync failures from stored run rows (the latest run error and
+the last successful sync). Doctor does not call Google or prove browser tag
+firing. While a credential, scope, or selection check fails, the sync-failure
+check is reported as superseded, so the health alert names that fix rather
+than the syncs it breaks.
 
 Then review each integrity assessment. Inspect every `fail` or `unknown`
 finding and its evidence IDs.
@@ -402,3 +406,7 @@ or publish path. A live read never changes that boundary.
 Write support must be proposal-bound. Google Ads mutations require a reviewable
 plan and explicit approval. GTM workspace edits and GTM publish are separate
 approval events; approval to edit a draft never implies approval to publish it.
+
+## Provider host troubleshooting
+
+`canonry doctor --project <project>` includes API host checks that send no credentials for Google Ads and GTM. The check completes a TLS handshake without sending an HTTP request or credentials. A DNS block fails with the provider host and the sync command to retry; private, connect, and TLS results warn, while a local resolver outage is skipped. Use the check details to correct host filtering or outbound access before re-running the affected sync.

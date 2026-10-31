@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ProjectDto, RunDetailDto } from '@ainyc/canonry-contracts'
+import type { ProjectDto, RunDetailDto } from '@canonry/canonry-contracts'
 
 const mockTriggerRun = vi.fn()
 const mockListProjects = vi.fn()
 const mockGetRun = vi.fn()
 const mockGetProject = vi.fn()
 const mockPutProject = vi.fn()
+const mockPatchProject = vi.fn()
 
 vi.mock('../src/client.js', () => ({
   createApiClient: () => ({
@@ -14,6 +15,7 @@ vi.mock('../src/client.js', () => ({
     getRun: mockGetRun,
     getProject: mockGetProject,
     putProject: mockPutProject,
+    patchProject: mockPatchProject,
   }),
 }))
 
@@ -75,6 +77,7 @@ const detail: RunDetailDto = {
 }
 
 let output: string[]
+let patchedProject: ProjectDto
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -84,6 +87,11 @@ beforeEach(() => {
   mockGetRun.mockResolvedValue(detail)
   mockGetProject.mockResolvedValue(project)
   mockPutProject.mockImplementation(async (name: string, body: Record<string, unknown>) => ({ ...project, ...body, name }))
+  patchedProject = { ...project }
+  mockPatchProject.mockImplementation(async (name: string, body: Record<string, unknown>) => {
+    patchedProject = { ...patchedProject, ...body, name } as ProjectDto
+    return patchedProject
+  })
 })
 
 afterEach(() => {
@@ -175,29 +183,33 @@ describe('canonry run show', () => {
 })
 
 describe('canonry project --dispatch-mode', () => {
-  function putBody(): Record<string, unknown> {
-    expect(mockPutProject).toHaveBeenCalledTimes(1)
-    return mockPutProject.mock.calls[0]![1] as Record<string, unknown>
+  function patchBody(): Record<string, unknown> {
+    expect(mockPatchProject).toHaveBeenCalledTimes(1)
+    return mockPatchProject.mock.calls[0]![1] as Record<string, unknown>
   }
 
   it('merges assignments into the stored preference on update', async () => {
     await dispatchRegisteredCommand(['project', 'update', 'acme', '--dispatch-mode', 'claude=batch'], 'json', PROJECT_CLI_COMMANDS)
-    expect(putBody().providerDispatchModes).toEqual({ openai: 'batch', claude: 'batch' })
+    expect(patchBody()).toEqual({ expectedConfigRevision: 1, providerDispatchModes: { openai: 'batch', claude: 'batch' } })
+    expect(patchedProject.providerDispatchModes).toEqual({ openai: 'batch', claude: 'batch' })
   })
 
   it('clears a provider\'s preference', async () => {
     await dispatchRegisteredCommand(['project', 'update', 'acme', '--clear-dispatch-mode', 'openai'], 'json', PROJECT_CLI_COMMANDS)
-    expect(putBody().providerDispatchModes).toEqual({})
+    expect(patchBody()).toEqual({ expectedConfigRevision: 1, providerDispatchModes: {} })
+    expect(patchedProject.providerDispatchModes).toEqual({})
   })
 
   it('leaves the preference to the server when no dispatch flag is given', async () => {
     await dispatchRegisteredCommand(['project', 'update', 'acme', '--display-name', 'Acme Inc'], 'json', PROJECT_CLI_COMMANDS)
-    expect(putBody()).not.toHaveProperty('providerDispatchModes')
+    expect(patchBody()).toEqual({ expectedConfigRevision: 1, displayName: 'Acme Inc' })
+    expect(patchedProject.providerDispatchModes).toEqual(project.providerDispatchModes)
   })
 
   it('sets it on create', async () => {
     await dispatchRegisteredCommand(['project', 'create', 'acme', '--domain', 'acme.com', '--dispatch-mode', 'claude=batch'], 'json', PROJECT_CLI_COMMANDS)
-    expect(putBody().providerDispatchModes).toEqual({ claude: 'batch' })
+    expect(mockPutProject).toHaveBeenCalledTimes(1)
+    expect(mockPutProject.mock.calls[0]![1]).toMatchObject({ providerDispatchModes: { claude: 'batch' } })
   })
 
   it('refuses a malformed or unknown mode before calling the API', async () => {
@@ -205,6 +217,7 @@ describe('canonry project --dispatch-mode', () => {
     await expect(dispatchRegisteredCommand(['project', 'update', 'acme', '--dispatch-mode', 'claude'], 'json', PROJECT_CLI_COMMANDS)).rejects.toThrow(CliError)
     await expect(dispatchRegisteredCommand(['project', 'update', 'acme', '--dispatch-mode', 'claude=batch', '--clear-dispatch-mode', 'claude'], 'json', PROJECT_CLI_COMMANDS)).rejects.toThrow(CliError)
     expect(mockPutProject).not.toHaveBeenCalled()
+    expect(mockPatchProject).not.toHaveBeenCalled()
   })
 
   it('shows the preference', async () => {

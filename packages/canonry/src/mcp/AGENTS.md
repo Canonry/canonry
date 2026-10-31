@@ -1,18 +1,28 @@
 # MCP adapter (`canonry-mcp`)
 
+The `seo` toolkit mirrors stored SEO reads, profiles and explicit refreshes. Mutations require `seo.write` or `seo.run`; host receipt tools additionally require `requiresOperator` and remain absent from customer catalogs. Never promote local intent preparation into permission to refresh.
+
 For MCP clients such as Claude Desktop, Codex, or custom agent shells that
 prefer a typed tool catalog over shell or HTTP, the package ships a separate
 `canonry-mcp` bin. It is a thin stdio adapter over `createApiClient()` — not
-a parallel surface. v1 exposes a curated API tool catalog (`tool-registry.ts` holds the list and counts) — including
+a parallel surface. v1 exposes a curated API tool catalog (`tool-registry.ts` holds the list and tool metadata) — including
 the `canonry_project_overview` and `canonry_search` core composites; the
 catalog is split across a small **core tier** (always loaded) and the
 **toolkits** listed in `CANONRY_MCP_TIERS` (`toolkits.ts`; `ads` is OpenAI / ChatGPT Ads, `google-ads` is separate) that the client
 loads on demand via `canonry_load_toolkit`. The catalog coalesces enable
-side effects so each `canonry_load_toolkit` call emits exactly one
-`notifications/tools/list_changed`. Pass `--read-only` to surface
-only the read tools, or `--eager` (or `CANONRY_MCP_EAGER=1`) to register
+side effects so a newly loaded toolkit emits exactly one
+`notifications/tools/list_changed`. Legacy clients receive it directly; modern
+clients must open `subscriptions/listen` (SDK `listChanged` does this automatically). Pass `--read-only` to surface
+only the read tools, `--stored-only` or `--scope=stored-only` to expose only
+stored evidence reads, or `--eager` (or `CANONRY_MCP_EAGER=1`) to register
 every tool at startup like the previous flat catalog. Auth is inherited
 from `~/.canonry/config.yaml`.
+
+Stored-only is also selected by `CANONRY_STORED_ONLY=1` or
+`CANONRY_MCP_SCOPE=stored-only` and is monotonic if later options request a
+wider scope. Provider and write tools are refused before an HTTP request, with
+`STORED_ONLY_REFUSED` on CLI surfaces; hosted catalogs remain fixed and server
+startup or autonomous jobs are unchanged.
 
 Key files:
 - `packages/canonry/src/mcp/server.ts` — `createCanonryMcpServer` (one client per server instance, registers core tier + meta tools)
@@ -37,14 +47,25 @@ or `excluded-protocol` with a short security/protocol/product rationale in
 
 ## Adapter rules
 
-HTTP sessions bind the exact bearer and current effective scopes/project boundary,
-not a user ID alone. Changed credentials or authority require re-initialization.
+Use SDK v2 serving entries. Stdio uses `serveStdio` with one server per connection
+and preserves modern `2026-07-28` plus legacy initialization and dynamic toolkits.
+HTTP routes modern traffic through `createMcpHandler` and legacy traffic through
+the SDK classifier and session transport. Malformed modern envelopes must never
+fall back to legacy. Modern requests have a fresh server, bind their own verified
+principal, and retire internal credentials only after the response body finishes
+or cancels. Propagate request cancellation into the internal API fetch.
+
+Legacy HTTP sessions bind the exact bearer and current effective scopes/project
+boundary, not a user ID alone. Changed credentials or authority require
+re-initialization.
 Research history uses the model catalog's cached-only read; live discovery stays
 out of stored-evidence workflows, including on cold or expired caches.
 
+`canonry_mcp_profile` mirrors `mcp profile` and `GET /mcp/profile`. Its immutable user ID is local to the discovered instance issuer; never identify a person by display name. The endpoint also accepts MCP-audience OAuth tokens without granting general REST access. Advertise the tool only for a verified named connection with instance-wide read access and configured OAuth identity; stdio probes the public profile, and native Aero excludes this connection-only tool.
+
 Reject invalid MCP opening messages before minting internal OAuth keys. A failed initialization must revoke its temporary key and close its transport even if no session ID was registered.
 
-Hosted `/api/v1/mcp` and `/api/v1/mcp/readonly` expose every tier at initialization, filtered by existing access permissions. Specialist `/api/v1/mcp/x/<toolkit>` endpoints retain core plus one toolkit. Keep hosted catalogs fixed and preserve both credential-based and endpoint-based read-only filtering.
+Hosted `/api/v1/mcp` and `/api/v1/mcp/readonly` expose every tier at initialization, filtered by existing access permissions. Every `/readonly` segment limits its catalog and its API client to stored evidence; OAuth callers must already hold read authority, and narrowing must never add it; a tool annotation or handler mistake cannot permit a provider read or mutation. Ordinary `/mcp`, specialist endpoints without `/readonly`, and stdio retain their existing scopes. Specialist `/api/v1/mcp/x/<toolkit>` endpoints retain core plus one toolkit. Keep hosted catalogs fixed and preserve both credential-based and endpoint-based read-only filtering.
 
 MCP is the universal guide; skills are optional upgrades. Initialization must
 route agents through `canonry_help(intent)` without requiring resources,
@@ -62,6 +83,12 @@ MCP parity is the default for every new public API/CLI capability. When adding a
 
 Cloudflare connect is intentionally deferred. It is a local deployment workflow that reads Canonry's local credential store. Direct push installs Worker secret bindings; Queue pull keeps its API token server-side. Do not add `canonry_traffic_connect_cloudflare` to MCP or Aero; agents may instruct the operator to run the CLI, inspect the exact zone route, attach it manually with Fail open, and pass both acknowledgement flags. Credentials and deployment material must not enter a transcript.
 
+`canonry dashboard reset-password` has no MCP tool and no API route to classify. It edits the local `config.yaml` and exists for an operator who cannot sign in; reopening first-run setup is a root action on the host. Do not add a tool or a route for it: agents tell the operator to run the CLI.
+
+`canonry_providers_reload` mirrors `settings reload-providers` and `POST /settings/providers/reload`: explicit operator approval, install administrator authority and `settings.write`. It reloads the connected host's own saved providers without accepting credentials or arbitrary file paths. Optional config/database path pins are one install identity pair. Read-only catalogs and native Aero exclude this install-wide mutation.
+
+Reload refuses provider removal or non-quota configuration changes while that provider has submitting, submitted or ended batches, or an executing sweep can still submit or cancel one (`OPERATION_IN_PROGRESS`); quota-only updates stay available. The host preserves the registration that work needs for dispatch, polling, ingestion and cancellation.
+
 ## Commands
 
 ```bash
@@ -77,11 +104,14 @@ canonry mcp config  --client codex                   # print snippet for clients
 
 ## Agent workflow
 
-MCP workflows (agent): inspect → diagnose → act. Inspect: get-project / report / property / property-evidence / visibility-stats ; diagnose: doctor / coverage-refresh / technical-aeo score ; act: query add/replace, measurement-plan publish, gsc sitemap submit (gsc-sitemap-submission), discovery promote. Start with canonry_help(intent); native skills are optional. Only progressive stdio offers canonry_load_toolkit. Permissions remain server-enforced.
+MCP workflows (agent): inspect → diagnose → act. Inspect: get-project / visibility-report / property / property-evidence / visibility-stats / bing coverage ; diagnose: doctor / coverage-refresh / technical-aeo score ; act: query add/replace, measurement-plan publish, gsc sitemap submit (gsc-sitemap-submission), discovery promote. Start with canonry_help(intent); native skills are optional. Only progressive stdio offers canonry_load_toolkit. Permissions remain server-enforced.
 
 ## Kept out of MCP on purpose
 
-- MCP/Aero expose task-shaped Site Health overview/page-audit/subgraph/path/changes reads; the 20k/50k Sigma layout payload stays API/dashboard-only. CLI aliases: `canonry site-health overview|pages|page-audit|structure|links|neighbors|dead-links|subgraph|path|changes`.
+- `canonry help` describes the local CLI binary and has no API route. MCP discovery remains `canonry_help({ includeCatalog: true })`, which describes the tool catalog.
+
+- MCP/Aero expose task-shaped Site Health overview/issues/issue-pages/page-audit/subgraph/path/changes reads; the 20k/50k Sigma layout payload stays API/dashboard-only. CLI aliases: `canonry site-health overview|issues|issue-pages|pages|page-audit|structure|links|neighbors|dead-links|subgraph|path|changes`.
+- `canonry_site_health_issues` and `canonry_site_health_issue_pages` use the typed stored API and shared bounded query/response schemas. Preserve scan date and identity, missing/partial coverage, nullable totals, truncation and pagination. Use the returned run ID for continuation; `stableIdentity: false` never proves continuity across scans. Keep critical-defect severity and `recommendationsScope`: factor recommendations differ from issue-specific defect guidance. Read access grants no edit authority.
 - Ads archive is classified `deferred`: it is irreversible and stays a human API surface.
 - `canonry serve --embed` is not an `/api/v1` operation, so it has no MCP tool (same precedent as `--base-path`).
 - Cloudflare connect: see "Adapter rules" above.
@@ -107,6 +137,8 @@ selection when following evidence cursors. Summary query rows are compact and pa
 `include` or a named `queryId`, so an ordinary project's summary fits the MCP output
 limit. The jobs tool lists summaries with `attemptCount`, and the job tool pages
 attempts. Evidence-only `assessmentId` narrows the stored verdict without
-widening project, class, source or subject scope. Configure accepts only enabled
-state, and no active tool accepts theme settings. Credentials are never accepted. Native Aero defers all nine tools until its
-separate sentiment evaluation and release gate.
+widening project, class, source or subject scope; evidence-only `outcome` (an array of
+outcome codes) narrows the page to those outcomes, is echoed as `selection.outcome` and
+is bound into the cursor. Branded summaries carry the server's `criticizedProperties`. Configure accepts only enabled
+state, and no active tool accepts theme settings. Credentials are never accepted. Native Aero gets the seven reads; configure
+and backfill submit start paid classifier work and stay excluded (`AERO_EXCLUDED_MCP_TOOLS`).

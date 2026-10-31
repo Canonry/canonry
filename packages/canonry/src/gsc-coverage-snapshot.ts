@@ -1,6 +1,6 @@
 import crypto from 'node:crypto'
 import { and, desc, eq, gte } from 'drizzle-orm'
-import type { DatabaseClient } from '@ainyc/canonry-db'
+import type { DatabaseClient } from '@canonry/canonry-db'
 import {
   gscCoverageSnapshots,
   gscSearchData,
@@ -10,8 +10,8 @@ import {
   siteCrawlPages,
   siteCrawlSnapshots,
   runs,
-} from '@ainyc/canonry-db'
-import { deriveIndexCoverage, normalizeUrlPath } from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-db'
+import { deriveIndexCoverage, normalizeUrlPath } from '@canonry/canonry-contracts'
 
 /**
  * The ONE place a GSC index-coverage snapshot is written.

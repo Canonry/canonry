@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from '@tanstack/react-router'
 
 import { Button } from '../components/ui/button.js'
 import { Card } from '../components/ui/card.js'
@@ -15,7 +16,7 @@ import { addToast } from '../lib/toast-store.js'
 import { useDashboardOverview as useDashboard } from '../queries/use-dashboard-overview.js'
 import { useHealth } from '../queries/use-health.js'
 import { useInitialDashboard } from '../contexts/dashboard-context.js'
-import type { HealthSnapshot } from '../view-models.js'
+import type { HealthSnapshot, ProviderStatusVm } from '../view-models.js'
 
 const defaultHealthSnapshot: HealthSnapshot = {
   apiStatus: { label: 'API', state: 'checking', detail: 'Checking service health' },
@@ -27,6 +28,18 @@ const defaultHealthSnapshot: HealthSnapshot = {
  * keys. The server refuses this whole surface to a view-only account; the
  * wrapper below is so a viewer gets an explanation rather than an empty page.
  */
+/** A connection whose projects pick routes (OpenRouter models, answer-service profiles). */
+function isRoutedProvider(provider: ProviderStatusVm): boolean {
+  return provider.name === 'openrouter' || provider.kind === 'model-gateway' || provider.kind === 'answer-service'
+}
+
+function routedConnectionCopy(provider: ProviderStatusVm): { connected: string; choose: string } {
+  const name = provider.displayName ?? provider.name
+  return provider.kind === 'answer-service'
+    ? { connected: `${name} connected. Projects use it only where you choose its profiles.`, choose: 'Choose project profiles' }
+    : { connected: `${name} connected. Choose the models for each project.`, choose: 'Choose project models' }
+}
+
 export function SettingsPage() {
   return (
     <AdminOnly title="Settings">
@@ -44,6 +57,8 @@ function SettingsPageBody() {
   const healthSnapshot = healthQuery.data ?? contextDashboard?.health ?? defaultHealthSnapshot
 
   const [configuringProvider, setConfiguringProvider] = useState<string | null>(null)
+  const [savedRoutedConnections, setSavedRoutedConnections] = useState<ReadonlySet<string>>(new Set())
+  const [modelProject, setModelProject] = useState('')
   const [configuringGoogle, setConfiguringGoogle] = useState(false)
   const [configuringBing, setConfiguringBing] = useState(false)
   const [bingApiKey, setBingApiKey] = useState('')
@@ -52,6 +67,8 @@ function SettingsPageBody() {
   const [bingSuccess, setBingSuccess] = useState(false)
 
   if (!settings) return null
+  const projects = dashboard?.projects ?? contextDashboard?.dashboard?.projects ?? []
+  const selectedModelProject = modelProject || projects[0]?.project.name
 
   return (
     <div className="page-container">
@@ -72,15 +89,16 @@ function SettingsPageBody() {
           </div>
           <div className="divide-y divide-default border-y border-default">
             {settings.providerStatuses.map((provider) => (
-              <div key={provider.name} className="py-4">
+              // The project notice for a provider that keeps failing links here.
+              <div key={provider.name} id={`provider-${provider.name}`} className="scroll-mt-24 py-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <p className="font-medium text-heading">{provider.displayName ?? provider.name}</p>
-                    <p className="text-sm text-secondary">{provider.detail}</p>
+                    <p className="text-copy-14-strong text-heading">{provider.displayName ?? provider.name}</p>
+                    <p className="text-copy-14 text-secondary">{provider.detail}</p>
                   </div>
                   <div className="flex items-center gap-2">
                     <ToneBadge tone={provider.state === 'ready' ? 'positive' : 'caution'}>
-                      {provider.state === 'ready' ? 'Ready' : 'Needs config'}
+                      {provider.state === 'ready' ? 'Ready' : 'Not connected'}
                     </ToneBadge>
                     <Button
                       type="button"
@@ -97,17 +115,17 @@ function SettingsPageBody() {
                   </div>
                 </div>
                 <details className="mt-3">
-                  <summary className="cursor-pointer text-sm text-secondary hover:text-strong">Advanced</summary>
+                  <summary className="cursor-pointer text-label-14 text-secondary hover:text-strong">Advanced</summary>
                   <dl className="definition-list mt-2">
-                    <div>
+                    {!isRoutedProvider(provider) && <div>
                       <dt>Model</dt>
-                      <dd className="font-mono text-xs">
+                      <dd className="text-label-12-mono">
                         {provider.model ?? provider.defaultModel ?? 'unknown'}
                         {!provider.model && provider.defaultModel && (
                           <span className="ml-1 font-sans text-muted">(default)</span>
                         )}
                       </dd>
-                    </div>
+                    </div>}
                     {provider.quota && (
                       <>
                         <div>
@@ -127,11 +145,18 @@ function SettingsPageBody() {
                     providerName={provider.name}
                     keyUrl={provider.keyUrl}
                     modelHint={provider.modelHint}
+                    {...(provider.kind ? { kind: provider.kind } : {})}
                     onSaved={() => {
                       setConfiguringProvider(null)
+                      if (isRoutedProvider(provider)) setSavedRoutedConnections(current => new Set([...current, provider.name]))
                     }}
                   />
                 )}
+                {isRoutedProvider(provider) && (provider.state === 'ready' || savedRoutedConnections.has(provider.name)) && <div className="mt-3 flex flex-wrap items-end gap-3">
+                  <p role={savedRoutedConnections.has(provider.name) ? 'status' : undefined} className="w-full text-copy-14 text-secondary">{routedConnectionCopy(provider).connected}</p>
+                  {projects.length > 1 && <label className="text-label-14 text-secondary">Project<select className="setup-input ml-2" value={selectedModelProject} onChange={event => setModelProject(event.target.value)}>{projects.map(project => <option key={project.project.name} value={project.project.name}>{project.project.displayName ?? project.project.name}</option>)}</select></label>}
+                  <Button type="button" variant="outline" asChild>{selectedModelProject ? <Link to="/projects/$projectName/settings" params={{ projectName: selectedModelProject }} hash="answer-engines">{routedConnectionCopy(provider).choose}</Link> : <Link to="/setup">Create a project</Link>}</Button>
+                </div>}
               </div>
             ))}
           </div>
@@ -152,12 +177,12 @@ function SettingsPageBody() {
               <h2>Google OAuth</h2>
             </div>
             <ToneBadge tone={settings.google.state === 'ready' ? 'positive' : 'caution'}>
-              {settings.google.state === 'ready' ? 'Ready' : 'Needs config'}
+              {settings.google.state === 'ready' ? 'Ready' : 'Not connected'}
             </ToneBadge>
           </div>
-          <p className="mt-2 text-sm text-secondary">{settings.google.detail}</p>
+          <p className="mt-2 text-copy-14 text-secondary">{settings.google.detail}</p>
           <details className="mt-3">
-            <summary className="cursor-pointer text-sm text-secondary hover:text-strong">Advanced</summary>
+            <summary className="cursor-pointer text-label-14 text-secondary hover:text-strong">Advanced</summary>
             <dl className="definition-list mt-2">
               <div>
                 <dt>Auth model</dt>
@@ -165,7 +190,7 @@ function SettingsPageBody() {
               </div>
               <div>
                 <dt>Storage</dt>
-                <dd className="font-mono text-xs">~/.canonry/config.yaml</dd>
+                <dd className="text-label-12-mono">~/.canonry/config.yaml</dd>
               </div>
             </dl>
           </details>
@@ -195,12 +220,12 @@ function SettingsPageBody() {
               <h2>Webmaster Tools</h2>
             </div>
             <ToneBadge tone={settings.bing.state === 'ready' ? 'positive' : 'caution'}>
-              {settings.bing.state === 'ready' ? 'Ready' : 'Needs config'}
+              {settings.bing.state === 'ready' ? 'Ready' : 'Not connected'}
             </ToneBadge>
           </div>
-          <p className="mt-2 text-sm text-secondary">{settings.bing.detail}</p>
+          <p className="mt-2 text-copy-14 text-secondary">{settings.bing.detail}</p>
           <details className="mt-3">
-            <summary className="cursor-pointer text-sm text-secondary hover:text-strong">Advanced</summary>
+            <summary className="cursor-pointer text-label-14 text-secondary hover:text-strong">Advanced</summary>
             <dl className="definition-list mt-2">
               <div>
                 <dt>Auth model</dt>
@@ -208,7 +233,7 @@ function SettingsPageBody() {
               </div>
               <div>
                 <dt>Storage</dt>
-                <dd className="font-mono text-xs">~/.canonry/config.yaml</dd>
+                <dd className="text-label-12-mono">~/.canonry/config.yaml</dd>
               </div>
             </dl>
           </details>
@@ -223,15 +248,15 @@ function SettingsPageBody() {
             </Button>
           </div>
           {configuringBing && (
-            <div className="mt-3 rounded-lg border border-base bg-bg-elevated/40 p-3 space-y-2">
+            <div className="mt-3 material-base p-3 space-y-2">
               <div>
                 <div className="flex items-center justify-between">
-                  <label className="text-sm text-secondary" htmlFor="bing-api-key">API key</label>
+                  <label className="text-label-14 text-secondary" htmlFor="bing-api-key">API key</label>
                   <a
                     href="https://www.bing.com/webmasters/"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-sm text-secondary hover:text-neutral underline underline-offset-2"
+                    className="text-label-14 text-secondary hover:text-neutral underline underline-offset-2"
                   >
                     Bing Webmaster Tools
                   </a>
@@ -239,15 +264,15 @@ function SettingsPageBody() {
                 <input
                   id="bing-api-key"
                   type="password"
-                  className="mt-0.5 w-full rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
+                  className="mt-0.5 w-full rounded border border-strong bg-transparent px-2 py-1.5 text-label-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none"
                   placeholder="Bing Webmaster Tools API key"
                   value={bingApiKey}
                   onChange={(e) => setBingApiKey(e.target.value)}
                 />
               </div>
-              <p className="text-sm text-secondary">Used for project-level Bing connections.</p>
-              {bingError && <p className="text-sm text-negative-400">{bingError}</p>}
-              {bingSuccess && <p className="text-sm text-positive-400">Bing API key updated.</p>}
+              <p className="text-copy-14 text-secondary">Used for project-level Bing connections.</p>
+              {bingError && <p className="text-copy-14 text-negative-400">{bingError}</p>}
+              {bingSuccess && <p className="text-copy-14 text-positive-400">Bing API key updated.</p>}
               <Button type="button" size="sm" disabled={!bingApiKey.trim() || bingSaving} onClick={asyncHandler(async () => {
                 if (!bingApiKey.trim()) return
                 setBingSaving(true)
@@ -293,7 +318,7 @@ function SettingsPageBody() {
               <div>
                 <p className="run-row-title">API</p>
                 {healthSnapshot.apiStatus.state !== 'ok' && (
-                  <p className="mt-1 text-sm text-secondary">{serviceStatusTooltip(healthSnapshot.apiStatus)}</p>
+                  <p className="mt-1 text-copy-14 text-secondary">{serviceStatusTooltip(healthSnapshot.apiStatus)}</p>
                 )}
               </div>
               <ToneBadge tone={toneFromService(healthSnapshot.apiStatus)} title={serviceStatusTooltip(healthSnapshot.apiStatus)}>
@@ -304,7 +329,7 @@ function SettingsPageBody() {
               <div>
                 <p className="run-row-title">Worker</p>
                 {healthSnapshot.workerStatus.state !== 'ok' && (
-                  <p className="mt-1 text-sm text-secondary">{serviceStatusTooltip(healthSnapshot.workerStatus)}</p>
+                  <p className="mt-1 text-copy-14 text-secondary">{serviceStatusTooltip(healthSnapshot.workerStatus)}</p>
                 )}
               </div>
               <ToneBadge tone={toneFromService(healthSnapshot.workerStatus)} title={serviceStatusTooltip(healthSnapshot.workerStatus)}>
@@ -316,7 +341,7 @@ function SettingsPageBody() {
       </section>
 
       <details className="page-section">
-        <summary className="cursor-pointer text-sm font-medium text-secondary hover:text-strong">Self-hosting details</summary>
+        <summary className="cursor-pointer text-label-14-strong text-secondary hover:text-strong">Self-hosting details</summary>
         <Card className="surface-card mt-3">
           <ul className="detail-list">
             {settings.selfHostNotes.map((note) => (

@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import {
+  buildProviderRunError,
   buildRunErrorFromMessages,
   formatRunErrorOneLine,
   parseProviderErrorMessage,
   parseRunError,
   serializeRunError,
+  withSkippedProviders,
+  type ProviderAccountStreak,
 } from '../src/run.js'
 
 describe('parseProviderErrorMessage', () => {
@@ -46,6 +49,22 @@ describe('buildRunErrorFromMessages', () => {
   })
 })
 
+describe('buildProviderRunError', () => {
+  it('stamps each provider with the code its full message classifies to, not the readable part', () => {
+    const geminiRateLimit = `[provider-gemini] ${JSON.stringify({
+      error: { code: 429, message: 'You exceeded your current quota, please check your plan and billing details.', status: 'RESOURCE_EXHAUSTED' },
+    })}`
+    const stored = buildProviderRunError(new Map([
+      ['gemini', geminiRateLimit],
+      ['openai', '[provider-openai] 429 You exceeded your current quota, please check your plan and billing details.'],
+    ])).providers!
+    // The stored message drops RESOURCE_EXHAUSTED, the one marker that makes
+    // this a rate limit and not an exhausted account.
+    expect(stored.gemini).toMatchObject({ message: 'You exceeded your current quota, please check your plan and billing details.', code: 'RATE_LIMITED' })
+    expect(stored.openai).toMatchObject({ code: 'PROVIDER_BILLING' })
+  })
+})
+
 describe('parseRunError back-compat', () => {
   it('returns null for null/empty', () => {
     expect(parseRunError(null)).toBeNull()
@@ -59,9 +78,7 @@ describe('parseRunError back-compat', () => {
   })
 
   it('passes through the new providers shape', () => {
-    const stored = serializeRunError({
-      providers: { gemini: { message: 'API key not valid', raw: { error: { code: 400 } } } },
-    })
+    const stored = '{"providers":{"gemini":{"message":"API key not valid","raw":{"error":{"code":400}}}}}'
     expect(parseRunError(stored)).toEqual({
       providers: { gemini: { message: 'API key not valid', raw: { error: { code: 400 } } } },
     })
@@ -85,17 +102,20 @@ describe('parseRunError back-compat', () => {
   })
 })
 
-describe('runErrorSchema', () => {
-  it('round-trips through serialize/parse', () => {
+describe('serializeRunError', () => {
+  it('serializes the durable provider-error envelope', () => {
     const err = { providers: { gemini: { message: 'boom', raw: { error: { code: 500 } } } } }
-    const serialized = serializeRunError(err)
-    expect(parseRunError(serialized)).toEqual(err)
+    expect(JSON.parse(serializeRunError(err))).toEqual({
+      providers: { gemini: { message: 'boom', raw: { error: { code: 500 } } } },
+    })
   })
 })
 
 describe('formatRunErrorOneLine', () => {
   it('formats a single provider as "name: message"', () => {
-    expect(formatRunErrorOneLine({ providers: { gemini: { message: 'API key not valid' } } }))
+    expect(formatRunErrorOneLine({
+      providers: { gemini: { message: 'API key not valid', raw: { weird: { circular: 1 } } } },
+    }))
       .toBe('gemini: API key not valid')
   })
 
@@ -115,9 +135,38 @@ describe('formatRunErrorOneLine', () => {
   it('falls back to a default when neither providers nor message is present', () => {
     expect(formatRunErrorOneLine({})).toBe('Run failed.')
   })
+})
 
-  it('never returns "[object Object]"', () => {
-    const err = { providers: { gemini: { message: 'boom', raw: { weird: { circular: 1 } } } } }
-    expect(formatRunErrorOneLine(err)).not.toContain('[object Object]')
+describe('withSkippedProviders', () => {
+  const streak: ProviderAccountStreak = {
+    code: 'PROVIDER_AUTH',
+    consecutiveRuns: 10,
+    since: '2026-10-01T00:00:00.000Z',
+    latestRunId: 'run-9',
+    retryAfter: '2026-10-08T09:00:00.000Z',
+  }
+
+  it('adds a skipped entry with the account code, replacing any other entry for that provider', () => {
+    // A restart or a gap count can name a provider the run never called.
+    const error = buildRunErrorFromMessages([['openai', 'Server restarted while run was in progress'], ['gemini', 'timeout']])
+    expect(withSkippedProviders(error, { openai: streak })).toEqual({
+      providers: {
+        gemini: { message: 'timeout' },
+        openai: {
+          message: 'Not called: openai failed on its account (PROVIDER_AUTH) in each of its last 10 runs. '
+            + 'It is called again after 2026-10-08T09:00:00.000Z, or as soon as a new key, model or endpoint is saved for it '
+            + '(canonry settings provider openai). Pass force (canonry run --force) to call it now.',
+          code: 'PROVIDER_AUTH',
+          skipped: true,
+        },
+      },
+    })
+  })
+
+  it('leaves an error untouched when nothing was skipped, and gives a skip-only run its own entries', () => {
+    const error = { providers: { gemini: { message: 'timeout' } } }
+    expect(withSkippedProviders(error, {})).toBe(error)
+    expect(Object.keys(withSkippedProviders({}, { openai: streak, claude: { ...streak, code: 'PROVIDER_BILLING' } }).providers ?? {}).sort())
+      .toEqual(['claude', 'openai'])
   })
 })

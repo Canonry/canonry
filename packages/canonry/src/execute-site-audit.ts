@@ -1,6 +1,6 @@
 import crypto from 'node:crypto'
 import { and, eq, ne, sql } from 'drizzle-orm'
-import type { DatabaseClient } from '@ainyc/canonry-db'
+import type { DatabaseClient } from '@canonry/canonry-db'
 import {
   projects,
   runs,
@@ -12,7 +12,7 @@ import {
   siteCrawlFindings,
   siteCrawlPages,
   siteCrawlSnapshots,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { runSiteCrawl } from '@canonry/aeo-audit'
 import type {
   CrawlEdgeObservation,
@@ -25,25 +25,29 @@ import {
   SITE_AUDIT_DEFAULT_PAGE_LIMIT,
   SITE_AUDIT_MAX_EDGE_LIMIT,
   SITE_AUDIT_MAX_PAGE_LIMIT,
+  SITE_CRAWL_URL_VERSION_AUDIT_STATE,
   deriveSiteHealthState,
   factorStatusFromScore,
+  siteCrawlUrlVersionOf,
   isSelfLink,
   percentOf,
   type RunStatus,
   type SiteAuditCrossCuttingIssueDto,
   type SiteAuditFactorSummaryDto,
   type SiteAuditPageFactorDto,
+  type SiteAuditRunRequest,
   type SiteCrawlAuditFactorDto,
   type SiteCrawlCriticalDefectDto,
   ONBOARDING_FLOW_VERSION,
   RunTriggers,
   bucketOnboardingCount,
   describeError,
-} from '@ainyc/canonry-contracts'
-import { resolvePublicHttpTarget, resolveWebhookTarget } from '@ainyc/canonry-api-routes'
+} from '@canonry/canonry-contracts'
+import { resolvePublicHttpTarget, resolveWebhookTarget } from '@canonry/canonry-api-routes'
 import { createLogger } from './logger.js'
 import {
   buildSiteAuditCompletedProps,
+  describeRunFailure,
   type SiteAuditCrawlOutcome,
   type SiteAuditTelemetryStatus,
 } from './run-telemetry.js'
@@ -56,6 +60,7 @@ import {
 } from './site-crawl-graph-layout.js'
 import { classifySiteCrawlTemplateLinks } from './site-crawl-template-links.js'
 import { computeFactorAverages, recordedSharePct } from './site-audit-factors.js'
+import { buildSiteCrawlIssueEvidence } from './site-audit-issues.js'
 
 const log = createLogger('SiteAudit')
 
@@ -63,16 +68,9 @@ export {
   SITE_AUDIT_DEFAULT_PAGE_LIMIT,
   SITE_AUDIT_MAX_EDGE_LIMIT,
   SITE_AUDIT_MAX_PAGE_LIMIT,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 
-export interface SiteAuditOptions {
-  sitemapUrl?: string
-  /** @deprecated Compatibility alias for maxPages. */
-  limit?: number
-  maxPages?: number
-  maxEdges?: number
-  maxDepth?: number
-  checkDeadLinks?: boolean
+export interface SiteAuditOptions extends Partial<SiteAuditRunRequest> {
   /** The local server owns this controller; never accepted from an HTTP body. */
   signal?: AbortSignal
   /** Internal test/operations seam; never accepted from an HTTP body. */
@@ -100,6 +98,15 @@ class SiteAuditCancelledError extends Error {
  * references no page row. That is tolerable for media (the edge is dropped by
  * the layout's INNER JOIN) and is the reason the exclusion is not widened.
  */
+/**
+ * Copies of one parameter pattern (a site section plus a set of query
+ * parameter names) the crawl fetches before it stops fetching that pattern.
+ * A URL version is only learned from, never scored, so after a few proven
+ * copies the rest are skipped and their fetches and page slots go to pages.
+ * One page of the pattern that is not a copy keeps the whole pattern fetched.
+ */
+const SITE_AUDIT_SKIP_URL_VERSIONS_AFTER = 3
+
 const NON_PAGE_MEDIA_EXTENSIONS = /\.(?:jpe?g|png|gif|webp|avif|bmp|ico|tiff?|svg|mp4|webm|mov|avi|mp3|wav|ogg|woff2?|ttf|otf|eot)(?:$|\?)/i
 
 /** Media content types, for a server that serves an image from an extensionless URL. */
@@ -161,6 +168,7 @@ function toCrawlAuditFactor(factor: AuditFactor): SiteCrawlAuditFactorDto {
     applicable: factor.applicable ?? null,
     findings: factor.findings,
     recommendations: factor.recommendations,
+    ...(factor.advisoryRecommendations === undefined ? {} : { advisoryRecommendations: factor.advisoryRecommendations }),
   }
 }
 
@@ -195,7 +203,22 @@ function pageDiscoverySource(page: CrawlPageObservation): string {
   return 'link'
 }
 
+/**
+ * The page this observation is a URL version of, or null for a page. The
+ * crawler fetches a parameter address to learn what it is; once its canonical
+ * says it is a copy of the same path, the audit sets it aside.
+ */
+function urlVersionOf(page: Pick<CrawlPageObservation, 'state' | 'requestedUrl' | 'canonicalUrl'>): string | null {
+  return siteCrawlUrlVersionOf({ fetchState: page.state, url: page.requestedUrl, canonicalUrl: page.canonicalUrl })
+}
+
+/** A crawled page that carries an audit and is not a URL version, so it is scored. */
+function isScoredPage(page: CrawlPageObservation): page is CrawlPageObservation & { audit: NonNullable<CrawlPageObservation['audit']> } {
+  return page.audit != null && urlVersionOf(page) === null
+}
+
 function pageAuditState(page: CrawlPageObservation): string {
+  if (urlVersionOf(page) !== null) return SITE_CRAWL_URL_VERSION_AUDIT_STATE
   if (page.audit) return 'success'
   if (page.state === 'fetch-error') return 'error'
   return 'not-applicable'
@@ -221,8 +244,9 @@ function isLegacyScorecardPage(page: CrawlPageObservation): boolean {
   // Legacy `site_audit_pages` means a page received a scorecard, or the
   // request itself failed. Crawl-only observations (robots, redirects,
   // non-HTML, and depth-budget stubs) have useful graph state but no legacy
-  // audit failure to report.
-  return page.audit != null || page.state === 'fetch-error'
+  // audit failure to report. A URL version is a copy of a page, not a page,
+  // so it has no scorecard of its own either.
+  return isScoredPage(page) || page.state === 'fetch-error'
 }
 
 function emptyCompleteCrawlError(rootUrl: string, finalRootUrl: string | null, pagesObserved: number): Error {
@@ -308,12 +332,17 @@ function trackSiteAuditOutcome(db: DatabaseClient, input: {
   trigger: string | null
   canonicalDomain: string | null
   crawl?: SiteAuditCrawlOutcome
+  /** The exception that failed the audit, described without its message. */
+  error?: unknown
 }): void {
   try {
-    const errorCode = input.status === 'cancelled' ? 'RUN_CANCELLED' : input.status === 'failed' ? 'UNKNOWN' : undefined
+    const errorCode = input.status === 'cancelled' ? 'RUN_CANCELLED' : input.status === 'failed' ? 'INTERNAL' : undefined
     trackEvent(
       'site_audit.completed',
-      buildSiteAuditCompletedProps(input),
+      {
+        ...buildSiteAuditCompletedProps(input),
+        ...(input.status === 'failed' ? describeRunFailure(input.error) : {}),
+      },
       errorCode ? { errorCode } : undefined,
     )
 
@@ -343,8 +372,8 @@ function trackSiteAuditOutcome(db: DatabaseClient, input: {
  *
  * Events update an attempt-local graph durably as they arrive.  A distinct
  * immutable `site_crawl_snapshot` records every terminal traversal. Default
- * reads publish only complete snapshots as current; an explicitly selected
- * partial run remains inspectable without replacing the last known-good graph.
+ * reads use the newest snapshot, complete or stopped at its budget (`partial`);
+ * an explicitly selected run stays inspectable after a newer scan replaces it.
  */
 
 export async function executeSiteAudit(
@@ -456,7 +485,10 @@ export async function executeSiteAudit(
   }
 
   const persistPage = (tx: DatabaseTransaction, page: CrawlPageObservation, now: string): void => {
-    const audit = page.audit
+    // A URL version keeps its crawl facts (status, canonical, links) but no
+    // score or factor evidence: the engine scored a copy of another page.
+    const versionOf = urlVersionOf(page)
+    const audit = versionOf === null ? page.audit : null
     const canonicalNodeKey = page.canonicalUrl ? nodeKeyByUrl.get(page.canonicalUrl) ?? null : null
     // Persisted once here, by the SAME function the map, the API filter, and
     // the agents read, so no consumer has to recompute it and none can drift.
@@ -495,6 +527,7 @@ export async function executeSiteAudit(
       indexabilityState: page.indexability.state,
       indexabilityReasons: page.indexability.reasons,
       healthState,
+      urlVersionOf: versionOf,
       auditState: pageAuditState(page),
       auditScore: audit?.overallScore ?? null,
       auditFields: audit ? crawlAuditFields(audit) : {},
@@ -531,6 +564,7 @@ export async function executeSiteAudit(
         indexabilityState: page.indexability.state,
         indexabilityReasons: page.indexability.reasons,
         healthState,
+        urlVersionOf: versionOf,
         auditState: pageAuditState(page),
         auditScore: audit?.overallScore ?? null,
         auditFields: audit ? crawlAuditFields(audit) : {},
@@ -693,6 +727,10 @@ export async function executeSiteAudit(
             ? observedPages.size === 0 ? 0 : [...observedPages.values()].filter(isInventoryEligible).length
             : sql`${siteCrawlAttempts.pagesEligible}`,
           pagesErrored: event.type === 'summary' ? observedErrorCount(observedPages.values()) : sql`${siteCrawlAttempts.pagesErrored}`,
+          // Only the summary knows how many URL versions the crawl left unfetched.
+          urlVersionsSkipped: event.type === 'summary'
+            ? event.summary.urlVersions?.skipped ?? 0
+            : sql`${siteCrawlAttempts.urlVersionsSkipped}`,
           edgesDiscovered: progress.edgesObserved,
           updatedAt: now,
         }).where(eq(siteCrawlAttempts.id, attemptId)).run()
@@ -743,13 +781,15 @@ export async function executeSiteAudit(
       maxEdges,
       maxDepth: opts.maxDepth,
       checkDeadLinks: opts.checkDeadLinks ?? false,
+      includeGeo: opts.includeGeo ?? false,
+      includeAgentSkills: opts.includeAgentSkills ?? true,
+      skipUrlVersionsAfter: SITE_AUDIT_SKIP_URL_VERSIONS_AFTER,
       signal: opts.signal,
       onEvent: persistEvent,
     })
 
     const crawlSummary = report.summary
-    const hasAuditedPages = crawlSummary.auditRollup.auditedPages > 0
-    if (crawlSummary.complete && !hasAuditedPages) {
+    if (crawlSummary.complete && crawlSummary.auditRollup.auditedPages === 0) {
       throw emptyCompleteCrawlError(crawlSummary.rootUrl, crawlSummary.finalRootUrl, crawlSummary.pagesObserved)
     }
 
@@ -781,7 +821,18 @@ export async function executeSiteAudit(
       rootUrl: crawlSummary.finalRootUrl ?? crawlSummary.rootUrl,
     }, { signal: opts.signal, timeoutMs: opts.graphLayoutTimeoutMs })
     const finishedAt = new Date().toISOString()
-    const factors = computeFactorAverages([...observedPages.values()])
+    // The engine's rollup counts every audited address. A URL version was
+    // fetched only to learn it is a copy of another page, so the score, the
+    // factor rollup, the fix counts and the legacy scorecard describe pages:
+    // the rollup is recomputed over them with the engine's own formula, the
+    // rounded mean page score.
+    const pageObservations = [...observedPages.values()].filter((page) => urlVersionOf(page) === null)
+    const scoredPages = pageObservations.filter(isScoredPage)
+    const pagesAudited = scoredPages.length
+    const aggregateScore = pagesAudited > 0
+      ? Math.round(scoredPages.reduce((total, page) => total + page.audit.overallScore, 0) / pagesAudited)
+      : null
+    const factors = computeFactorAverages(pageObservations)
     const errorCount = observedErrorCount(observedPages.values())
     const terminalStatus: RunStatus = crawlSummary.complete ? 'completed' : 'partial'
     const deadLinksChecked = opts.checkDeadLinks ? deadLinkCheckedCount(observedEdges.values(), observedPages.values()) : 0
@@ -802,7 +853,8 @@ export async function executeSiteAudit(
     // `deadLinksFound` stays per-finding on purpose: a broken link is an edge,
     // and each one is a separate thing to fix.
     const deadLinksUnverified = new Set(unverifiedLinks.map((finding) => finding.to)).size
-    const legacyIssues = factors.map((factor) => toLegacyIssue(factor, crawlSummary.auditRollup.auditedPages)).filter((issue): issue is SiteAuditCrossCuttingIssueDto => issue !== null)
+    const legacyIssues = factors.map((factor) => toLegacyIssue(factor, pagesAudited)).filter((issue): issue is SiteAuditCrossCuttingIssueDto => issue !== null)
+    const issueEvidence = buildSiteCrawlIssueEvidence(crawlSummary.siteIssues, pageObservations)
 
     // Derived layout persistence is isolated from the canonical crawl
     // publication. A worker timeout, package/runtime incompatibility, or row
@@ -852,14 +904,14 @@ export async function executeSiteAudit(
       // Preserve compatibility only when a real scorecard exists. A partial
       // traversal with zero successful page audits still publishes its graph
       // below, but must not surface a deceptive legacy score of zero.
-      if (hasAuditedPages) {
+      if (aggregateScore !== null) {
         tx.insert(siteAuditSnapshots).values({
           id: crypto.randomUUID(), projectId, runId,
           sitemapUrl: opts.sitemapUrl ?? new URL('/sitemap.xml', crawlRootUrl).href,
           auditedAt: crawlSummary.completedAt,
-          aggregateScore: crawlSummary.auditRollup.aggregateScore ?? 0,
+          aggregateScore,
           pagesDiscovered: crawlSummary.pagesDiscovered,
-          pagesAudited: crawlSummary.auditRollup.auditedPages,
+          pagesAudited,
           pagesSkipped: Math.max(0, crawlSummary.pagesDiscovered - crawlSummary.pagesObserved),
           pagesErrored: errorCount,
           factorAverages: factors,
@@ -895,6 +947,7 @@ export async function executeSiteAudit(
           // no edge budget and the engine derived one" from a missing field.
           mode: 'summary', sitemapUrl: opts.sitemapUrl ?? null, maxPages, maxEdges: maxEdges ?? null,
           maxDepth: opts.maxDepth ?? null, checkDeadLinks: opts.checkDeadLinks ?? false,
+          includeGeo: opts.includeGeo ?? false, includeAgentSkills: opts.includeAgentSkills ?? true,
         },
         pageBudget: maxPages,
         edgeBudget: maxEdges ?? null,
@@ -909,6 +962,7 @@ export async function executeSiteAudit(
         pagesErrored: errorCount,
         edgesDiscovered: crawlSummary.edgesObserved,
         findingsCount: deadLinksFound,
+        issueEvidence,
         deadLinkState: report.deadLinks.state,
         deadLinksChecked,
         deadLinksFound,
@@ -970,7 +1024,20 @@ export async function executeSiteAudit(
       throw new Error(`Site audit run was no longer running before publication: ${runId}`)
     }
 
-    log.info('completed', { runId, projectId, status: terminalStatus, complete: crawlSummary.complete, pages: crawlSummary.pagesObserved })
+    log.info('completed', {
+      runId,
+      projectId,
+      status: terminalStatus,
+      complete: crawlSummary.complete,
+      pages: crawlSummary.pagesObserved,
+      urlVersionsSkipped: crawlSummary.urlVersions?.skipped ?? 0,
+      urlVersionPatterns: (crawlSummary.urlVersions?.patterns ?? []).map((pattern) => ({
+        section: pattern.section,
+        parameters: pattern.parameters,
+        copies: pattern.copies,
+        skipped: pattern.skipped,
+      })),
+    })
     trackSiteAuditOutcome(db, {
       runId,
       projectId,
@@ -983,9 +1050,9 @@ export async function executeSiteAudit(
         termination: crawlSummary.terminationReason,
         pagesDiscovered: crawlSummary.pagesDiscovered,
         pagesFetched: crawlSummary.pagesFetched,
-        pagesAudited: crawlSummary.auditRollup.auditedPages,
+        pagesAudited,
         pagesErrored: errorCount,
-        aggregateScore: crawlSummary.auditRollup.aggregateScore,
+        aggregateScore,
         pageBudget: maxPages,
         checkDeadLinks: opts.checkDeadLinks ?? false,
         deadLinksFound,
@@ -1016,6 +1083,7 @@ export async function executeSiteAudit(
       startTime,
       trigger,
       canonicalDomain,
+      error,
     })
     throw error
   }

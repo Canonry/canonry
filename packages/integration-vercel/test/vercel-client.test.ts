@@ -49,7 +49,10 @@ const favicon404Row: VercelRequestLogRow = {
 
 describe('normalizeVercelLogRow', () => {
   it('maps a Vercel request-logs row into Canonry request evidence', () => {
-    expect(normalizeVercelLogRow(statusZeroRow)).toEqual({
+    expect(normalizeVercelLogRow({
+      ...statusZeroRow,
+      events: [{ httpStatus: 200 }, { httpStatus: 404 }, { httpStatus: 0 }],
+    })).toEqual({
       sourceType: 'vercel',
       evidenceKind: 'raw-request',
       confidence: 'observed',
@@ -60,7 +63,7 @@ describe('normalizeVercelLogRow', () => {
       host: 'project-5umza.vercel.app',
       path: '/api/no-log',
       queryString: 'probe=nomw-chatgpt-1778784320',
-      status: 200,
+      status: 404,
       userAgent: 'ChatGPT-User/1.0',
       remoteIp: null,
       referer: 'https://chatgpt.com/',
@@ -79,12 +82,8 @@ describe('normalizeVercelLogRow', () => {
     })
   })
 
-  it('falls back to the last events[] httpStatus when top-level statusCode is 0', () => {
-    expect(normalizeVercelLogRow(statusZeroRow)?.status).toBe(200)
-  })
-
   it('uses the top-level statusCode when it is a valid HTTP status', () => {
-    expect(normalizeVercelLogRow(favicon404Row)?.status).toBe(404)
+    expect(normalizeVercelLogRow({ ...favicon404Row, statusCode: 201 })?.status).toBe(201)
   })
 
   it('coerces an empty referer and empty query params to null', () => {
@@ -171,21 +170,6 @@ describe('listVercelTrafficEvents', () => {
 
     expect(fetchSpy).toHaveBeenCalledTimes(2)
     expect(result.hasMore).toBe(true)
-  })
-
-  it('throws VercelLogsApiError with the HTTP status on a non-2xx response', async () => {
-    fetchSpy.mockImplementation(async () => new Response('forbidden', { status: 403 }))
-
-    const error = await listVercelTrafficEvents({
-      token: 'vcp_bad',
-      projectId: 'prj_abc',
-      teamId: 'team_xyz',
-      startDate: 0,
-      endDate: 1,
-    }).catch((err: unknown) => err)
-
-    expect(error).toBeInstanceOf(VercelLogsApiError)
-    expect((error as VercelLogsApiError).status).toBe(403)
   })
 
   it('counts rows that fail to normalize as skipped', async () => {
@@ -324,6 +308,7 @@ describe('listVercelTrafficEvents', () => {
       }).catch((err: unknown) => err)
       expect(error).toBeInstanceOf(VercelLogsApiError)
       expect((error as VercelLogsApiError).status).toBe(403)
+      expect((error as VercelLogsApiError).body).toBe('forbidden')
       expect(fetchSpy).toHaveBeenCalledTimes(1)
     })
 
@@ -345,6 +330,7 @@ describe('listVercelTrafficEvents', () => {
       }).catch((err: unknown) => err)
       expect(error).toBeInstanceOf(VercelLogsApiError)
       expect((error as VercelLogsApiError).status).toBe(400)
+      expect((error as VercelLogsApiError).body).toBe('{"error":{"name":"ExceedsBillingLimitError","message":"out of retention"}}')
       expect(fetchSpy).toHaveBeenCalledTimes(1)
     })
 

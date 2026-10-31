@@ -1,3 +1,4 @@
+import { WINDOW_SETS, parseWindowIn, windowDays } from './time-window.js'
 import { shareOfVoiceContextFields } from './share-of-voice.js'
 import { z } from 'zod'
 import { fraction, percent } from './ratio-unit.js'
@@ -8,7 +9,7 @@ import { queryClassFilterSchema } from './query-class.js'
 import { sourceCategorySchema } from './source-categories.js'
 import { surfaceClassSchema } from './surface-class.js'
 
-export const metricsWindowSchema = z.enum(['7d', '30d', '90d', 'all'])
+export const metricsWindowSchema = z.enum(WINDOW_SETS.metrics)
 export type MetricsWindow = z.infer<typeof metricsWindowSchema>
 export const trendDirectionSchema = z.enum(['improving', 'declining', 'stable'])
 export type TrendDirection = z.infer<typeof trendDirectionSchema>
@@ -327,10 +328,43 @@ export const executionIdentityChangeEventSchema = z.object({
 })
 export type ExecutionIdentityChangeEvent = z.infer<typeof executionIdentityChangeEventSchema>
 
+/**
+ * When the names the project's competitors are matched by last changed; null
+ * when they never did (`readCompetitorIdentityChangedAt` in api-routes): a
+ * tracked competitor's curated or stored auto-detected names (a block counts
+ * only when it removes a stored name), a detection pass that stored or removed
+ * a market-only competitor's learned names, a write that claimed, released or
+ * dropped a market-only competitor's learned names (all from the audit trail), or a published revision that renamed a market pin
+ * (from the revisions). The competitor landscape reads every one of these
+ * names as the project has them now, so every period it reports, including
+ * one already reported, was restated at this time: a figure quoted before it
+ * may differ from the same period read after it. Analytics mention share and
+ * project-frame `visibility-compare` share of voice read only the tracked
+ * competitors' names (curated plus auto-detected, minus blocked), so a market
+ * pin or learned-name change moves this time without changing those figures.
+ * Frozen names (a Simple definition, an Advanced revision's own pins) are
+ * never restated. Adding or removing a competitor or a pin is a names change
+ * only when it moves a stored or learned name. Absent from a server that predates the
+ * field.
+ */
+export const competitorIdentityChangedAtSchema = z.string().nullable()
+  .describe('When the names the project\'s competitors are matched by last changed: a tracked competitor\'s curated or stored auto-detected names (a block counts only when it removes a stored name), a detection pass that stored or removed a market-only competitor\'s learned names, a write that claimed, released or dropped a market-only competitor\'s learned names, or a published revision that renamed a market pin; null if never. The competitor landscape reads every period with the current names, so a figure for any period quoted before this time was restated at this time. Analytics mention share and project-frame visibility-compare share of voice read only tracked competitors\' names, so a market pin or learned-name change moves this time without changing them. Adding or removing a competitor or a pin is a names change only when it moves a stored or learned name.')
+
+/** When the tracked competitor set last changed; null when it never did. */
+export const competitorSetChangedAtSchema = z.string().nullable()
+  .describe('When the tracked competitor set last changed: a non-empty competitor add, removal, replacement, or discovery promotion. Older replacement audit rows without added/removed fields count conservatively; an identical replacement with both arrays empty does not. Null when the set never changed.')
+
 export const brandMetricsDtoSchema = z.object({
   window: metricsWindowSchema,
   /** Scope that applies even when `buckets` is empty. `pooled` means classification was unavailable. */
   mentionShareScope: z.enum(['non-brand', 'pooled']),
+  /**
+   * The answers every rate, bucket, change and query-set event in this response
+   * reads: `branded` or `non-brand` only, or `all` for both pooled. Mention
+   * share is always non-brand, so it is empty under `branded`. A server that
+   * predates the field read `all`.
+   */
+  queryClass: queryClassFilterSchema.default('all'),
   buckets: z.array(timeBucketSchema),
   overall: providerMetricSchema,
   byProvider: z.record(z.string(), providerMetricSchema),
@@ -394,6 +428,15 @@ export const brandMetricsDtoSchema = z.object({
    * exists to prevent. Empty only for a project entirely on fixed model ids.
    */
   modelPointerChanges: z.record(z.string(), modelPointerChangeDisclosureSchema).default({}),
+  /**
+   * See `competitorIdentityChangedAtSchema`. The mention share series reads
+   * the tracked competitors' current names, so it was restated at this time
+   * when the change was to a tracked competitor's names; a market pin or
+   * learned-name change moves the time without changing the series.
+   */
+  competitorIdentityChangedAt: competitorIdentityChangedAtSchema.optional(),
+  /** When the tracked competitor set was last changed. */
+  competitorSetChangedAt: competitorSetChangedAtSchema.optional(),
 })
 export type BrandMetricsDto = z.infer<typeof brandMetricsDtoSchema>
 
@@ -449,6 +492,12 @@ export type SourceCategoryCount = z.infer<typeof sourceCategoryCountSchema>
  */
 export const sourceRankEntrySchema = z.object({
   domain: z.string(),
+  /**
+   * 1-based position by `count` over the whole scope, before any `limit`.
+   * Domains with equal counts share a rank (competition ranking: 1, 2, 2, 4).
+   * Optional only so an older server's response still parses.
+   */
+  rank: z.number().int().positive().optional(),
   count: z.number().int(),
   /** Share of the list's `totalCitedSlots`, 0..1 (at wire precision). */
   percentage: fraction(),
@@ -671,6 +720,8 @@ export const competitorLandscapeQuerySchema = z.object({
   location: z.string().trim().min(1).optional(),
   /** One stored answer-visibility run, or `latest` (`LATEST_RUN_ID`) for the project's latest sweep. Omit to pool every run in the window. */
   runId: z.string().trim().min(1).optional(),
+  /** Answer evidence where no frozen target Property (or Simple project brand) was mentioned. */
+  answers: z.enum(['all', 'not-mentioned']).optional(),
 }).strict().superRefine((value, context) => {
   if (value.scope === 'all-markets' && value.groupKey !== undefined) {
     context.addIssue({
@@ -794,6 +845,13 @@ export const competitorLandscapeResponseSchema = z.object({
   observedNames: z.array(z.object({ name: z.string(), answerCount: z.number().int().nonnegative() })).optional(),
   /** Distinct observed names before the cap. Greater than `observedNames.length` when the list was cut. */
   observedNamesTotal: z.number().int().nonnegative().optional(),
+  answerSelection: z.object({
+    answers: z.literal('not-mentioned'),
+    /** Stored answers in the selected scope before filtering. */
+    populationSize: z.number().int().nonnegative(),
+    answerCount: z.number().int().nonnegative(),
+    unknownMentionAnswers: z.number().int().nonnegative(),
+  }).strict().optional(),
   window: metricsWindowSchema,
   scope: competitorLandscapeScopeSchema,
   project: competitorLandscapeRowSchema,
@@ -825,6 +883,7 @@ export const competitorLandscapeResponseSchema = z.object({
     queryClass: competitorLandscapeQueryClassSchema,
     location: z.string().nullable(),
     runId: z.string().nullable(),
+    answers: z.enum(['all', 'not-mentioned']).optional(),
   }).strict(),
   /** True when ranked observed/source lists exceed the server cap; pinned rows are never dropped. */
   truncated: z.boolean(),
@@ -834,6 +893,11 @@ export const competitorLandscapeResponseSchema = z.object({
   runIds: z.array(z.string()).optional(),
   /** What each count counts: answers or distinct names. See `COMPETITOR_LANDSCAPE_COUNT_UNITS`. */
   countUnits: competitorLandscapeCountUnitsSchema.optional(),
+  competitorIdentityChangedAt: competitorIdentityChangedAtSchema.optional(),
+  /** When the tracked competitor set was last changed. */
+  competitorSetChangedAt: competitorSetChangedAtSchema.optional(),
+  /** True when either competitor change marker is newer than the oldest run counted by this exact response. */
+  competitorListRestated: z.boolean().optional(),
 }).strict()
 export type CompetitorLandscapeResponse = z.infer<typeof competitorLandscapeResponseSchema>
 
@@ -847,19 +911,12 @@ export type CompetitorLandscapeResponse = z.infer<typeof competitorLandscapeResp
  * loudly is the only way the caller can tell.
  */
 export function parseWindow(value?: string): MetricsWindow {
-  if (value === undefined || value === '') return 'all'
-  const parsed = metricsWindowSchema.safeParse(value)
-  if (!parsed.success) {
-    throw validationError(
-      `Invalid window "${value}". Must be one of: ${metricsWindowSchema.options.join(', ')}.`,
-    )
-  }
-  return parsed.data
+  return parseWindowIn(value, WINDOW_SETS.metrics, { fallback: 'all' })
 }
 
 export function windowCutoff(window: MetricsWindow): string | null {
   if (window === 'all') return null
-  const days = window === '7d' ? 7 : window === '30d' ? 30 : 90
+  const days = windowDays(window)
   const d = new Date()
   d.setDate(d.getDate() - days)
   return d.toISOString()

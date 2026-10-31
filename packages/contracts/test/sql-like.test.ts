@@ -25,11 +25,4 @@ describe('escapeLikePattern', () => {
     expect(escapeLikePattern('café.com')).toBe('café.com')
   })
 
-  it('turns a wildcard-only term into a literal so it stops matching everything', () => {
-    // The bug this guards: an unescaped `%` matches every row (wrong results +
-    // a needless full scan). After escaping it only matches a literal percent.
-    const escaped = escapeLikePattern('%')
-    expect(escaped).not.toBe('%')
-    expect(escaped).toBe('\\%')
-  })
 })

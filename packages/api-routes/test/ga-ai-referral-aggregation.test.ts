@@ -162,6 +162,7 @@ describe('buildAiReferralDailySeries', () => {
       totalSessions: 0,
       totalPaidSessions: 0,
       totalOrganicSessions: 0,
+      byEngine: { series: [], otherCount: 0, days: [] },
     })
   })
 })

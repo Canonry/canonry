@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { eq } from 'drizzle-orm'
 import Fastify from 'fastify'
+import { RunKinds, runKindSchema } from '@canonry/canonry-contracts'
 import {
   adsCampaigns,
   adsInsightsDaily,
@@ -13,18 +14,24 @@ import {
   createClient,
   gaAiReferrals,
   gaDailyTotals,
+  gaWindowMetrics,
+  gbpDailyMetrics,
   gbpLocations,
   gscDailyTotals,
+  gscQueryDailyTotals,
   insights,
   migrate,
   projects,
+  runs,
   siteCrawlFindings,
   siteCrawlGraphNodes,
   siteCrawlSnapshots,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
-import { apiRoutes } from '@ainyc/canonry-api-routes'
+} from '@canonry/canonry-db'
+import { GA_OVERVIEW_HISTORY_DAYS } from '@canonry/canonry-contracts'
+import { apiRoutes } from '@canonry/canonry-api-routes'
 import { seedDemoSignals } from '../src/demo/seed-signals.js'
+import { demoReadOptions } from '../src/demo/stores.js'
 import { createDemoSeedContext } from '../src/demo/types.js'
 
 let tmpDir: string
@@ -53,6 +60,27 @@ beforeEach(() => {
 afterEach(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
 
 describe('seedDemoSignals', () => {
+  it('stores valid jobs and attributes each integration snapshot to its own refresh job', async () => {
+    await seedDemoSignals(db, context)
+    const jobs = db.select().from(runs).all()
+    for (const job of jobs) expect(() => runKindSchema.parse(job.kind), job.id).not.toThrow()
+    const jobsById = new Map(jobs.map(job => [job.id, job]))
+
+    for (const project of [context.simple, context.portfolio]) {
+      const evidence = [
+        [db.select().from(gscQueryDailyTotals).where(eq(gscQueryDailyTotals.projectId, project.id)).get()!.syncRunId, RunKinds['gsc-sync']],
+        [db.select().from(bingCoverageSnapshots).where(eq(bingCoverageSnapshots.projectId, project.id)).get()!.syncRunId, RunKinds['bing-inspect-sitemap']],
+        [db.select().from(gaDailyTotals).where(eq(gaDailyTotals.projectId, project.id)).get()!.syncRunId, RunKinds['ga-sync']],
+        [db.select().from(gaAiReferrals).where(eq(gaAiReferrals.projectId, project.id)).get()!.syncRunId, RunKinds['ga-sync']],
+        [db.select().from(gbpDailyMetrics).where(eq(gbpDailyMetrics.projectId, project.id)).get()!.syncRunId, RunKinds['gbp-sync']],
+        [db.select().from(adsInsightsDaily).where(eq(adsInsightsDaily.projectId, project.id)).get()!.syncRunId, RunKinds['ads-sync']],
+      ] as const
+      for (const [runId, kind] of evidence) {
+        expect(jobsById.get(runId!)).toMatchObject({ projectId: project.id, kind })
+      }
+    }
+  })
+
   it('stores broad synthetic signals and serves them through representative read routes', async () => {
     await seedDemoSignals(db, context)
 
@@ -60,7 +88,10 @@ describe('seedDemoSignals', () => {
       const where = eq(gscDailyTotals.projectId, project.id)
       expect(db.select().from(gscDailyTotals).where(where).all()).toHaveLength(14)
       expect(db.select().from(bingCoverageSnapshots).where(eq(bingCoverageSnapshots.projectId, project.id)).all().length).toBeGreaterThan(1)
-      expect(db.select().from(gaDailyTotals).where(eq(gaDailyTotals.projectId, project.id)).all()).toHaveLength(14)
+      // Every daily total a sync keeps, so each overview window has its previous period.
+      expect(db.select().from(gaDailyTotals).where(eq(gaDailyTotals.projectId, project.id)).all()).toHaveLength(GA_OVERVIEW_HISTORY_DAYS)
+      // Both periods of each overview window.
+      expect(db.select().from(gaWindowMetrics).where(eq(gaWindowMetrics.projectId, project.id)).all()).toHaveLength(6)
       expect(db.select().from(gaAiReferrals).where(eq(gaAiReferrals.projectId, project.id)).all().length).toBeGreaterThan(1)
       expect(db.select().from(siteCrawlSnapshots).where(eq(siteCrawlSnapshots.projectId, project.id)).get()?.complete).toBe(true)
       expect(db.select().from(siteCrawlGraphNodes).where(eq(siteCrawlGraphNodes.projectId, project.id)).all().length).toBeGreaterThan(2)
@@ -84,6 +115,9 @@ describe('seedDemoSignals', () => {
       db,
       skipAuth: true,
       googleStateSecret: 'test-only-google-state-secret-32b',
+      // The demo server's GA4 connection: the Search Console landing-page read
+      // presents only a snapshot of the property the project resolves to.
+      ga4CredentialStore: demoReadOptions(db, context).ga4CredentialStore,
       assessConversionTrackingIntegrity: async ({ contract }) => ({ contract, status: 'statically-consistent', findings: [], evaluatedAt: context.now.toISOString() }),
     })
     await app.ready()
@@ -92,6 +126,16 @@ describe('seedDemoSignals', () => {
       expect(gsc.statusCode).toBe(200)
       expect(JSON.parse(gsc.payload)).toMatchObject({ totals: { days: 7 } })
       expect(JSON.parse(gsc.payload).totals.clicks).toBeGreaterThan(0)
+
+      // GA4's Search Console landing-page report: the Total is GA4's own figure,
+      // never the sum of the two sample rows.
+      const searchLanding = await app.inject({ method: 'GET', url: `/api/v1/projects/${context.simple.name}/ga/search-landing-pages` })
+      expect(searchLanding.statusCode).toBe(200)
+      const searchLandingBody = JSON.parse(searchLanding.payload)
+      expect(searchLandingBody).toMatchObject({ status: 'ready', window: '28d', windowStart: '2026-08-12', windowEnd: '2026-09-08', windowDays: 28, totalRows: 2, reportRowCount: 24, rowsCapped: true })
+      expect(searchLandingBody.total.organicGoogleSearchClicks).toBe(560)
+      expect(searchLandingBody.rows.map((row: { landingPage: string }) => row.landingPage)).toEqual(['/', '/services/'])
+      expect(searchLandingBody.rows.reduce((sum: number, row: { organicGoogleSearchClicks: number }) => sum + row.organicGoogleSearchClicks, 0)).toBe(426)
 
       const crawl = await app.inject({ method: 'GET', url: `/api/v1/projects/${context.simple.name}/technical-aeo/crawl` })
       expect(crawl.statusCode).toBe(200)

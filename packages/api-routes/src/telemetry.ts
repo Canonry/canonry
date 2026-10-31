@@ -7,15 +7,26 @@ import {
   validationError,
   type OnboardingTelemetryEvent,
   type TelemetryStatusInput,
-} from '@ainyc/canonry-contracts'
+  type UiTelemetryEvent,
+  uiTelemetryEventSchema,
+} from '@canonry/canonry-contracts'
 import { requireOperator, requireScope } from './auth.js'
 import { SETTINGS_WRITE_SCOPE } from './settings.js'
 import { auditFromRequest, writeAuditLog } from './helpers.js'
+import type { OutcomeAttribution } from './outcome-telemetry.js'
+import { currentOutcomeAttribution } from './request-context.js'
 
 export interface TelemetryRoutesOptions {
   getTelemetryStatus?: () => TelemetryStatusInput
-  setTelemetryEnabled?: (enabled: boolean) => void
+  /** `attribution` is who asked, for the `telemetry.disabled` event's surface and agent. */
+  setTelemetryEnabled?: (enabled: boolean, attribution?: OutcomeAttribution) => void
   recordOnboardingEvent?: (event: OnboardingTelemetryEvent) => void
+  /**
+   * Dashboard usage: page views, feature actions, UI errors, web vitals.
+   * Returns whether the event was accepted: `false` while telemetry is off or
+   * the host's rate limit is spent, which tells the dashboard to stop sending.
+   */
+  recordUiEvent?: (event: UiTelemetryEvent) => boolean
 }
 
 export async function telemetryRoutes(app: FastifyInstance, opts: TelemetryRoutesOptions) {
@@ -40,7 +51,7 @@ export async function telemetryRoutes(app: FastifyInstance, opts: TelemetryRoute
       throw validationError('enabled (boolean) is required')
     }
 
-    opts.setTelemetryEnabled(enabled)
+    opts.setTelemetryEnabled(enabled, currentOutcomeAttribution())
     const status = opts.getTelemetryStatus?.()
     const effective = normalizeTelemetryStatus(status ?? { enabled })
 
@@ -82,5 +93,30 @@ export async function telemetryRoutes(app: FastifyInstance, opts: TelemetryRoute
     // telemetry (for example, apps/api or an opted-out local instance).
     opts.recordOnboardingEvent?.(normalizeOnboardingEventForCollection(parsed.data))
     return reply.status(202).send({ accepted: Boolean(opts.recordOnboardingEvent) })
+  })
+
+  // A POST only because the event travels in a body. It changes nothing on
+  // this install (no row, no setting): it validates one anonymous usage event
+  // and hands it to the opt-in forwarder. So a view-only account's dashboard
+  // can send it; see `readSemantic` in `auth.ts`. A read-only API key is still
+  // refused: this is the dashboard's route, not a key's.
+  app.post<{ Body: unknown }>('/telemetry/ui', {
+    config: { readSemantic: true },
+  }, async (request, reply) => {
+    const parsed = uiTelemetryEventSchema.safeParse(request.body)
+    if (!parsed.success) {
+      throw validationError('Invalid UI telemetry event', {
+        issues: parsed.error.issues.map(issue => ({
+          code: issue.code,
+          path: issue.path.join('.'),
+        })),
+      })
+    }
+
+    // A host that does not collect telemetry (apps/api), an opted-out local
+    // instance, or one past its rate limit answers accepted:false, and the
+    // dashboard stops sending for the session.
+    const accepted = opts.recordUiEvent ? opts.recordUiEvent(parsed.data) : false
+    return reply.status(202).send({ accepted })
   })
 }

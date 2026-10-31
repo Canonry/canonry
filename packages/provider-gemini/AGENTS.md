@@ -15,7 +15,7 @@ Gemini adapter — implements `ProviderAdapter` for Google's Gemini API using th
 
 ## Patterns
 
-All provider packages follow the same 4-file structure and implement the same `ProviderAdapter` interface from `@ainyc/canonry-contracts`:
+All provider packages follow the same 4-file structure and implement the same `ProviderAdapter` interface from `@canonry/canonry-contracts`:
 
 - **`validateConfig(config)`** — verify API key and model are valid
 - **`healthcheck(config)`** — test connectivity to the provider
@@ -25,6 +25,10 @@ All provider packages follow the same 4-file structure and implement the same `P
 - **`generateText(config, prompt)`** — general-purpose text generation
 
 The adapter object in `adapter.ts` wires these functions together with metadata (`name`, `displayName`, `mode`, `keyUrl`).
+
+Retrieval status is `used` when tool-result tokens are positive or the first candidate has nonempty search queries or web chunks. Google Search is the only offered tool, so `usageMetadata.toolUsePromptTokenCount` proves retrieval even without grounding metadata or a completed answer. Without search evidence, a completed nonempty answer is `not-used` only when its `usageMetadata.promptTokenCount` is at most 60 (`QUERY_ONLY_PROMPT_TOKEN_LIMIT`), the size of a query alone. Gemini 3.5 and 3.6 never report tool-result tokens, count search input as prompt tokens, and sometimes search without returning grounding metadata, so a larger or missing count stays `unknown`, as do empty or unfinished responses. `searchQueries` and `usage.searchCount` hold listed queries only; never infer a search count from the prompt size. The request contract remains `native-auto-v1`. `test/tracked-query-request.test.ts` covers sync, batch parsing, and historical response reconstruction.
+
+- **Answer anchors for competitor auto-aliases.** `extractAnchoredSpans` (`src/anchored-spans.ts`) pairs each grounding support's `segment.text` with the site of every chunk it cites: `web.title` (the source domain), since `web.uri` is a Vertex redirect that is never resolved. Segment offsets are UTF-8 bytes and `startIndex` is omitted when 0, so they are never used to slice. Stored data only.
 
 ## Common Mistakes
 
@@ -37,3 +41,7 @@ The adapter object in `adapter.ts` wires these functions together with metadata 
 - `docs/providers/gemini.md` — Gemini-specific API quirks and grounding source behavior
 - `docs/providers/README.md` — provider system overview
 - `packages/contracts/src/provider.ts` — `ProviderAdapter` interface definition
+
+## Test ownership
+
+Native adapter/SDK wire, credential-file OAuth, endpoint routing, stored-response projection and served identity are owned by `test/base-url.test.ts` and `test/tracked-query-request.test.ts`. `test/embeddings.test.ts` exercises the real SDK with independent HTTP payloads and literal defaults/errors/order. Keep public batch build/parse and historical reparse contracts; constructor internals and injected embedding clients are not production interfaces.

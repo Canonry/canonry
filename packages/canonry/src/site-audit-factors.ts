@@ -1,9 +1,10 @@
 import {
   factorStatusFromScore,
+  factorStatusFromDistribution,
   roundPreservingTotal,
   SiteAuditFactorStatuses,
   type SiteAuditFactorSummaryDto,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 
 /**
  * The factor fields the site rollup reads: a `@canonry/aeo-audit` scored factor
@@ -90,7 +91,7 @@ export function computeFactorAverages(pages: readonly SiteAuditFactorPage[]): Si
       weight: rollup.weight,
       sharePct: shares?.[index] ?? null,
       avgScore,
-      status: factorStatusFromScore(avgScore),
+      status: factorStatusFromDistribution({ pagesFailing: rollup.fail, pagesPartial: rollup.partial }),
       pagesPassing: rollup.pass,
       pagesPartial: rollup.partial,
       pagesFailing: rollup.fail,

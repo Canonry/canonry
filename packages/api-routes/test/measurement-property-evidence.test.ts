@@ -12,7 +12,7 @@ import {
   type MeasurementPropertyEvidenceResponse,
   type MeasurementReportResponse,
   type MeasurementPlanV2,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   createClient,
   measurementPlans,
@@ -22,7 +22,7 @@ import {
   querySnapshots,
   runs,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import { buildMeasurementPlanV2Manifest } from '../src/measurement-report-adapter.js'
 import { measurementPlanV2Fixture } from './measurement-plan-v2-fixture.js'
@@ -326,7 +326,8 @@ describe('measurement property evidence', () => {
     const scoped = await evidence('targetKey=harbor&limit=100')
     const reportResponse = await app.inject({
       method: 'GET',
-      url: `/api/v1/projects/northstar/measurement-report?revision=1&runId=${runId}`,
+      // Both reads over every class: Property evidence pools them by default.
+      url: `/api/v1/projects/northstar/measurement-report?revision=1&runId=${runId}&queryClass=all`,
     })
     const report = reportResponse.json() as MeasurementReportResponse
 

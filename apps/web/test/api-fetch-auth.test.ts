@@ -5,7 +5,7 @@ import { fetchAeroTranscript, fetchAgentProviders, resetAeroTranscript, promptAe
 
 function mockFetch(status: number, body?: unknown) {
   const realFetch = globalThis.fetch
-  const fetchMock = vi.fn(async () =>
+  const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
     new Response(body != null ? JSON.stringify(body) : null, {
       status,
       headers: body != null ? { 'content-type': 'application/json' } : {},
@@ -25,6 +25,19 @@ describe('apiFetch auth expiry', () => {
     setOnAuthExpired(null)
   })
 
+  test.each([new TypeError('Failed to fetch'), new DOMException('Canceled', 'AbortError')])(
+    'preserves transport failures without expiring the session: %s', async (failure) => {
+      const realFetch = globalThis.fetch
+      globalThis.fetch = vi.fn().mockRejectedValue(failure)
+      onTestFinished(() => { globalThis.fetch = realFetch })
+      const handler = vi.fn()
+      setOnAuthExpired(handler)
+
+      await expect(fetchProjects()).rejects.toBe(failure)
+      expect(handler).not.toHaveBeenCalled()
+    },
+  )
+
   test('calls auth expired handler on 401', async () => {
     mockFetch(401, { error: 'Unauthorized' })
     const handler = vi.fn()
@@ -32,6 +45,19 @@ describe('apiFetch auth expiry', () => {
 
     await expect(fetchProjects()).rejects.toThrow()
     expect(handler).toHaveBeenCalledOnce()
+  })
+
+  test('preserves malformed JSON as a parsing failure without expiring the session', async () => {
+    const realFetch = globalThis.fetch
+    globalThis.fetch = vi.fn(async () => new Response('not valid JSON', {
+      status: 200, headers: { 'content-type': 'application/json' },
+    }))
+    onTestFinished(() => { globalThis.fetch = realFetch })
+    const handler = vi.fn()
+    setOnAuthExpired(handler)
+
+    await expect(fetchProjects()).rejects.toBeInstanceOf(SyntaxError)
+    expect(handler).not.toHaveBeenCalled()
   })
 
   test('does NOT call auth expired handler on 403 (forbidden ≠ session expiry)', async () => {
@@ -81,6 +107,16 @@ describe('apiFetch auth expiry', () => {
 
     await expect(setupDashboardPassword('password123')).rejects.toThrow()
     expect(handler).not.toHaveBeenCalled()
+  })
+
+  test('setupDashboardPassword sends a root API key as the bearer of that request only', async () => {
+    const fetchMock = mockFetch(200, { authenticated: true })
+
+    await setupDashboardPassword('password123', 'cnry_root_key')
+    await setupDashboardPassword('password123')
+
+    const authorizations = fetchMock.mock.calls.map(([, init]) => new Headers(init?.headers).get('authorization'))
+    expect(authorizations).toEqual(['Bearer cnry_root_key', null])
   })
 
   test('does nothing when no handler is registered (401)', async () => {

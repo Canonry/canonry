@@ -1,5 +1,5 @@
 {
-  "name": "@ainyc/canonry-provider-cdp",
+  "name": "@canonry/canonry-provider-cdp",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -12,15 +12,15 @@
   },
   "types": "./src/index.ts",
   "scripts": {
-    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck": "node ../../scripts/typecheck.mjs --noEmit -p tsconfig.json",
     "test": "vitest run --config ../../vitest.package.config.ts",
-    "lint": "eslint src/ test/"
+    "lint": "oxlint -c ../../.oxlintrc.json --type-aware src/ test/"
   },
   "dependencies": {
-    "@ainyc/canonry-contracts": "workspace:*",
-    "chrome-remote-interface": "^0.33.2"
+    "@canonry/canonry-contracts": "workspace:*",
+    "chrome-remote-interface": "^0.34.0"
   },
   "devDependencies": {
-    "@types/chrome-remote-interface": "^0.31.14"
+    "@types/chrome-remote-interface": "^0.34.0"
   }
 }

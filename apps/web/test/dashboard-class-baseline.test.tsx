@@ -1,14 +1,14 @@
 import { readFileSync, readdirSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 
 import { beforeAll, expect, test } from 'vitest'
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { RouterProvider } from '@tanstack/react-router'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { compile } from 'tailwindcss'
+import { compileAppStyles } from './compiled-app-css.js'
 import ts from 'typescript'
-import { visibilityReportResponseSchema } from '@ainyc/canonry-contracts'
+import { escapeRegExp, visibilityReportResponseSchema } from '@canonry/canonry-contracts'
 
 import { DashboardProvider } from '../src/contexts/dashboard-context.js'
 import { createDashboardFixture } from '../src/mock-data.js'
@@ -17,13 +17,12 @@ import { preloadAllLazyRoutes } from '../src/router/routes.js'
 import {
   getApiV1ProjectsByNameMeasurementPlanQueryKey,
   getApiV1ProjectsByNameVisibilityReportQueryKey,
-} from '@ainyc/canonry-api-client/react-query'
+} from '@canonry/canonry-api-client/react-query'
 import { heyClient } from '../src/api.js'
 import { parseVisibilitySelection } from '../src/lib/measurement-view-url.js'
 
 const stylesPath = resolve(import.meta.dirname, '../src/styles.css')
 const sourceRoot = resolve(import.meta.dirname, '../src')
-const tailwindRoot = resolve(import.meta.dirname, '../node_modules/tailwindcss')
 
 beforeAll(async () => {
   await preloadAllLazyRoutes()
@@ -206,7 +205,10 @@ test('project route keeps the core metric and evidence class baseline stable', a
   const html = await renderRoute('/projects/Citypoint%20Dental%20NYC')
 
   // Operator project pages render the project context row instead of the
-  // page header; only embeds keep `.page-header`.
+  // page header; only embeds keep `.page-header`. The AI Visibility cards are
+  // number grids, so the first metric bar is the competitive card's Mention
+  // gaps row, in its tone. The trend chart is the first section after the
+  // tabs, with no Visibility card above it.
   expect({
     pageContainer: classFor(html, '.page-container'),
     pageHeader: classOrNull(html, '.page-header'),
@@ -214,22 +216,26 @@ test('project route keeps the core metric and evidence class baseline stable', a
     projectContextRow: classFor(html, '.project-context-row'),
     projectContextTitle: classFor(html, '.project-context-title'),
     projectContextDomain: classFor(html, '.project-context-domain'),
-    projectContextMeta: classFor(html, '.project-context-meta'),
+    projectContextMeta: classOrNull(html, '.project-context-meta'),
     projectContextActions: classFor(html, '.project-context-actions'),
     firstSectionDivider: classFor(html, '.page-section-divider'),
-    firstMetricFill: classFor(html, '.metric-card-bar-fill'),
+    firstSectionCard: classFor(html, 'nav.project-subnav + .page-section-divider section'),
+    firstMetricFill: classOrNull(html, '.metric-card-bar-fill'),
+    firstCard: classFor(html, '.overview-brief'),
     evidenceDisclosure: classFor(html, '#evidence-section'),
   }).toMatchInlineSnapshot(`
     {
       "evidenceDisclosure": "overview-disclosure page-section-divider scroll-mt-24",
-      "firstMetricFill": "metric-card-bar-fill progress-fill-positive",
+      "firstCard": "overview-brief",
+      "firstMetricFill": "metric-card-bar-fill progress-fill-caution",
+      "firstSectionCard": "visibility-trend",
       "firstSectionDivider": "page-section-divider",
       "pageContainer": "page-container",
       "pageHeader": null,
       "pageTitle": null,
       "projectContextActions": "project-context-actions",
       "projectContextDomain": "project-context-domain",
-      "projectContextMeta": "project-context-meta",
+      "projectContextMeta": null,
       "projectContextRow": "project-context-row",
       "projectContextTitle": "project-context-title md:sr-only",
     }
@@ -307,10 +313,6 @@ function staticClassNames() {
   return [...classes]
 }
 
-function escapeRegExp(value: string) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
-
 function cssClassSelector(token: string) {
   const escaped = token.replace(/(^-?\d)|[^\w-]/g, (character, leadingDigit) => (
     leadingDigit ? `\\${character.codePointAt(0)?.toString(16)} ` : `\\${character}`
@@ -322,25 +324,31 @@ function isTailwindMarker(token: string) {
   return token === 'group' || token.startsWith('group/') || token === 'peer' || token.startsWith('peer/')
 }
 
-async function loadTailwindStylesheet(id: string) {
-  if (id !== 'tailwindcss' && !id.startsWith('tailwindcss/')) {
-    throw new Error(`Unexpected stylesheet import: ${id}`)
-  }
-  const filename = id === 'tailwindcss' ? 'index.css' : `${id.slice('tailwindcss/'.length)}.css`
-  const path = resolve(tailwindRoot, filename)
-  return { path, base: dirname(path), content: readFileSync(path, 'utf8') }
-}
-
 test('every static className token has a stylesheet selector or Tailwind utility', async () => {
-  const styles = readFileSync(stylesPath, 'utf8')
   const classNames = staticClassNames().sort()
-  const compiler = await compile(styles, {
-    from: stylesPath,
-    base: dirname(stylesPath),
-    loadStylesheet: loadTailwindStylesheet,
-  })
-  const css = compiler.build(classNames)
+  const css = await compileAppStyles(classNames)
   const missing = classNames.filter((token) => !isTailwindMarker(token) && !cssClassSelector(token).test(css))
 
   expect(missing).toEqual([])
+})
+
+// The AI Visibility card classes (`av-*`) are hand-written, so a card that is
+// removed can leave its rules behind. Every one must still have a user.
+function avStylesheetClasses(styles: string) {
+  return [...new Set([...styles.matchAll(/\.(av-[\w-]+)/g)].map((match) => match[1]))].sort()
+}
+
+test('every av- stylesheet class is used by a source className', () => {
+  const used = new Set(staticClassNames())
+  const unused = avStylesheetClasses(readFileSync(stylesPath, 'utf8')).filter((token) => !used.has(token))
+
+  expect(unused).toEqual([])
+})
+
+test('every av- class the web AGENTS.md names has a stylesheet rule', () => {
+  const defined = new Set(avStylesheetClasses(readFileSync(stylesPath, 'utf8')))
+  const agents = readFileSync(resolve(import.meta.dirname, '../AGENTS.md'), 'utf8')
+  const named = [...new Set([...agents.matchAll(/`\.?(av-[\w-]+)`/g)].map((match) => match[1]))].sort()
+
+  expect(named.filter((token) => !defined.has(token))).toEqual([])
 })

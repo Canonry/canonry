@@ -15,7 +15,7 @@ import { ProjectsPage } from '../pages/ProjectsPage.js'
 import { OnboardingSetupPage } from '../pages/OnboardingSetupPage.js'
 import { NotFoundPage } from '../pages/NotFoundPage.js'
 import { heyClient } from '../api.js'
-import { getApiV1ProjectsQueryKey, getApiV1ProjectsOptions } from '@ainyc/canonry-api-client/react-query'
+import { getApiV1ProjectsQueryKey, getApiV1ProjectsOptions } from '@canonry/canonry-api-client/react-query'
 
 // `lazyRouteComponent` (not React.lazy) handles route-level code splitting
 // in TanStack Router. The key advantage over `React.lazy` + `Suspense` is
@@ -29,6 +29,7 @@ const LazyProjectPage = lazyRouteComponent(() => import('../pages/ProjectPage.js
 const LazyRunsPage = lazyRouteComponent(() => import('../pages/RunsPage.js'), 'RunsPage')
 const LazyHistoryPage = lazyRouteComponent(() => import('../pages/HistoryPage.js'), 'HistoryPage')
 const LazySettingsPage = lazyRouteComponent(() => import('../pages/SettingsPage.js'), 'SettingsPage')
+const LazyAgentSetupPage = lazyRouteComponent(() => import('../pages/AgentSetupPage.js'), 'AgentSetupPage')
 const LazyBacklinksPage = lazyRouteComponent(() => import('../pages/BacklinksPage.js'), 'BacklinksPage')
 const LazyTrafficPage = lazyRouteComponent(() => import('../pages/TrafficPage.js'), 'TrafficPage')
 const LazyTrafficSourceDetailPage = lazyRouteComponent(() => import('../pages/TrafficSourceDetailPage.js'), 'TrafficSourceDetailPage')
@@ -55,6 +56,7 @@ export async function preloadAllLazyRoutes(): Promise<void> {
     LazyRunsPage.preload?.(),
     LazyHistoryPage.preload?.(),
     LazySettingsPage.preload?.(),
+    LazyAgentSetupPage.preload?.(),
     LazyBacklinksPage.preload?.(),
     LazyTrafficPage.preload?.(),
     LazyTrafficSourceDetailPage.preload?.(),
@@ -72,6 +74,15 @@ type SearchParams = {
   runId?: string
   /** Exact Site Health onboarding handoff; separate from the global run drawer. */
   siteHealthRunId?: string
+  seoProfileId?: string
+  seoRunId?: string
+  /** Market rankings drill-in: one region (a top-level group of markets), one market, or both. */
+  seoRegion?: string
+  seoMarket?: string
+  /** Market rankings queries: the Show filter, the order and the search. The view validates the values. */
+  seoShow?: string
+  seoSort?: string
+  seoQ?: string
   evidenceId?: string
   runStatus?: string
   runKind?: string
@@ -129,6 +140,13 @@ export const rootRoute = createRootRouteWithContext<RouterContext>()({
     manageQueries: search.manageQueries === true || search.manageQueries === 'true' ? true : undefined,
     runId: typeof search.runId === 'string' ? search.runId : undefined,
     siteHealthRunId: typeof search.siteHealthRunId === 'string' ? search.siteHealthRunId : undefined,
+    seoProfileId: typeof search.seoProfileId === 'string' ? search.seoProfileId : undefined,
+    seoRunId: typeof search.seoRunId === 'string' ? search.seoRunId : undefined,
+    seoRegion: typeof search.seoRegion === 'string' && search.seoRegion ? search.seoRegion : undefined,
+    seoMarket: typeof search.seoMarket === 'string' && search.seoMarket ? search.seoMarket : undefined,
+    seoShow: typeof search.seoShow === 'string' && search.seoShow ? search.seoShow : undefined,
+    seoSort: typeof search.seoSort === 'string' && search.seoSort ? search.seoSort : undefined,
+    seoQ: typeof search.seoQ === 'string' && search.seoQ ? search.seoQ : undefined,
     evidenceId: typeof search.evidenceId === 'string' ? search.evidenceId : undefined,
     runStatus: typeof search.runStatus === 'string' ? search.runStatus : undefined,
     runKind: typeof search.runKind === 'string' ? search.runKind : undefined,
@@ -190,8 +208,8 @@ export const projectsRoute = createRoute({
 })
 
 // Project URLs key off the human-readable project name (a kebab-case slug),
-// not the opaque UUID — `/projects/acme-co/report` instead of
-// `/projects/<uuid>/report`. The API already resolves projects by name, so
+// not the opaque UUID — `/projects/acme-co/activity` instead of
+// `/projects/<uuid>/activity`. The API already resolves projects by name, so
 // the name is the canonical identifier across the whole surface.
 const PROJECT_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -253,6 +271,12 @@ export const projectSearchConsoleRoute = createRoute({
   component: () => <LazyProjectPage tab="search-console" />,
 })
 
+export const projectSeoDataRoute = createRoute({
+  getParentRoute: () => projectLayoutRoute,
+  path: '/seo-data',
+  component: () => <LazyProjectPage tab="seo-data" />,
+})
+
 export const projectConversionsRoute = createRoute({
   getParentRoute: () => projectLayoutRoute,
   path: '/conversions',
@@ -277,6 +301,13 @@ export const projectQueriesRoute = createRoute({
   component: () => <LazyProjectPage tab="queries" />,
 })
 
+/** The embedded client's Queries tab. Present only when the embed grants query editing. */
+export const projectClientQueriesRoute = createRoute({
+  getParentRoute: () => projectLayoutRoute,
+  path: '/client-queries',
+  component: () => <LazyProjectPage tab="client-queries" />,
+})
+
 // One Property has its own page rather than an inline row expansion: it is a
 // destination an operator links to and comes back to, and the row cannot hold
 // the class comparison, the per-engine split, and paged evidence at once.
@@ -289,7 +320,9 @@ export const projectMeasurementPropertyRoute = createRoute({
 export const projectReportRoute = createRoute({
   getParentRoute: () => projectLayoutRoute,
   path: '/report',
-  component: () => <LazyProjectPage tab="report" />,
+  beforeLoad: ({ params }) => {
+    throw redirect({ to: '/projects/$projectName', params, replace: true })
+  },
 })
 
 export const projectActivityRoute = createRoute({
@@ -349,6 +382,12 @@ export const setupRoute = createRoute({
   component: OnboardingSetupPage,
 })
 
+export const agentSetupRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/agent-setup',
+  component: LazyAgentSetupPage,
+})
+
 export const backlinksRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/backlinks',
@@ -380,10 +419,12 @@ export const routeTree = rootRoute.addChildren([
     projectOverviewRoute,
     projectPortfolioRoute,
     projectSearchConsoleRoute,
+    projectSeoDataRoute,
     projectConversionsRoute,
     projectLocalRoute,
     projectDiscoveryRoute,
     projectQueriesRoute,
+    projectClientQueriesRoute,
     projectMeasurementPropertyRoute,
     projectReportRoute,
     projectActivityRoute,
@@ -396,6 +437,7 @@ export const routeTree = rootRoute.addChildren([
   historyRoute,
   settingsRoute,
   setupRoute,
+  agentSetupRoute,
   backlinksRoute,
   trafficRoute,
   trafficSourceDetailRoute,

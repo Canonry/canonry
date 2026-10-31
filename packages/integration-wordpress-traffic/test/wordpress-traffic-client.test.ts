@@ -46,31 +46,25 @@ describe('normalizeWordpressTrafficEvent', () => {
     })
   })
 
-  it('returns null for events missing required fields', () => {
-    expect(normalizeWordpressTrafficEvent({
-      id: 0,
-      observed_at: '',
-      method: null,
-      host: null,
-      path: '',
-      query_string: null,
-      status: null,
-      user_agent: null,
-      remote_ip: null,
-      referer: null,
-    })).toBeNull()
-
+  it.each([
+    ['missing timestamp', { observed_at: '' }],
+    ['NaN id', { id: Number.NaN }],
+    ['positive infinite id', { id: Number.POSITIVE_INFINITY }],
+    ['negative infinite id', { id: Number.NEGATIVE_INFINITY }],
+    ['missing path', { path: '' }],
+  ])('returns null for an otherwise valid event with %s', (_description, invalidField) => {
     expect(normalizeWordpressTrafficEvent({
       id: 1,
       observed_at: '2026-05-11T12:00:00.000Z',
       method: null,
       host: null,
-      path: '',
+      path: '/valid',
       query_string: null,
       status: null,
       user_agent: null,
       remote_ip: null,
       referer: null,
+      ...invalidField,
     })).toBeNull()
   })
 
@@ -286,6 +280,30 @@ describe('listWordpressTrafficEvents', () => {
     expect(result.nextCursor).toBeUndefined()
   })
 
+  it('sends every page through the injected fetch instead of global fetch', async () => {
+    // The caller's egress guard sees only what goes through `fetchImpl`.
+    const cursors: Array<string | null> = []
+    const fetchImpl = vi.fn(async (url: URL, init: RequestInit) => {
+      cursors.push(url.searchParams.get('cursor'))
+      expect(new Headers(init.headers).get('authorization')).toBe(`Basic ${Buffer.from('u:p', 'utf8').toString('base64')}`)
+      return new Response(JSON.stringify(cursors.length === 1
+        ? { events: [], next_cursor: 'next', has_more: true }
+        : { events: [], next_cursor: null, has_more: false }), { status: 200 })
+    })
+
+    const result = await listWordpressTrafficEvents({
+      baseUrl: 'https://example.com',
+      username: 'u',
+      applicationPassword: 'p',
+      maxPages: 5,
+      fetchImpl,
+    })
+
+    expect(fetchSpy).not.toHaveBeenCalled()
+    expect(cursors).toEqual([null, 'next'])
+    expect(result.hasMore).toBe(false)
+  })
+
   it('stops paginating once maxPages is reached and surfaces the next cursor', async () => {
     fetchSpy.mockImplementation(async () => (
       new Response(JSON.stringify({
@@ -306,6 +324,7 @@ describe('listWordpressTrafficEvents', () => {
 
     expect(fetchSpy).toHaveBeenCalledTimes(1)
     expect(result.nextCursor).toBe('999')
+    expect(result.hasMore).toBe(true)
   })
 
   it.each([
@@ -357,7 +376,7 @@ describe('listWordpressTrafficEvents', () => {
 
   it('throws WordpressTrafficApiError on non-2xx responses with truncated body', async () => {
     fetchSpy.mockImplementation(async () => (
-      new Response('Unauthorized — bad Application Password', {
+      new Response('A'.repeat(500) + 'PRIVATE-TAIL', {
         status: 401,
         headers: { 'Content-Type': 'text/plain' },
       })
@@ -370,6 +389,7 @@ describe('listWordpressTrafficEvents', () => {
     })).rejects.toMatchObject({
       name: 'WordpressTrafficApiError',
       status: 401,
+      body: 'A'.repeat(500) + '... [truncated]',
     })
   })
 
@@ -492,25 +512,28 @@ describe('listWordpressTrafficEvents', () => {
     const urls: string[] = []
     fetchSpy.mockImplementation(async (input) => {
       urls.push(String(input))
-      return new Response(JSON.stringify({ events: [], next_cursor: null, has_more: false }), {
+      const firstPage = new URL(String(input)).searchParams.get('cursor') === null
+      return new Response(JSON.stringify({
+        events: [],
+        next_cursor: firstPage ? 'NEXT' : null,
+        has_more: firstPage,
+      }), {
         status: 200, headers: { 'Content-Type': 'application/json' },
       })
     })
 
-    // Two separate syncs against the same site. A page cache keys on the URL,
-    // so the cache-buster must differ between calls or the second sync reads
-    // the first sync's cached (now stale) page.
-    await listWordpressTrafficEvents({ baseUrl: 'https://example.com', username: 'u', applicationPassword: 'p' })
-    await listWordpressTrafficEvents({ baseUrl: 'https://example.com', username: 'u', applicationPassword: 'p' })
+    const options = { baseUrl: 'https://example.com', username: 'u', applicationPassword: 'p', maxPages: 2 }
+    await listWordpressTrafficEvents(options)
+    await listWordpressTrafficEvents(options)
 
-    expect(urls).toHaveLength(2)
-    const cb1 = new URL(urls[0]!).searchParams.get('_cb')
-    const cb2 = new URL(urls[1]!).searchParams.get('_cb')
-    expect(cb1).toBeTruthy()
-    expect(cb2).toBeTruthy()
-    expect(cb1).not.toBe(cb2)
-
-    const init = fetchSpy.mock.calls[0]![1] as RequestInit
-    expect((init.headers as Record<string, string>)['Cache-Control']).toBe('no-cache')
+    expect(urls).toHaveLength(4)
+    const requests = urls.map(url => new URL(url))
+    expect(requests.map(url => url.searchParams.get('cursor'))).toEqual([null, 'NEXT', null, 'NEXT'])
+    const cacheBusters = requests.map(url => url.searchParams.get('_cb'))
+    expect(cacheBusters.every(value => typeof value === 'string' && value.length > 0)).toBe(true)
+    expect(new Set(cacheBusters).size).toBe(4)
+    expect(fetchSpy.mock.calls.map(([, init]) => (
+      ((init as RequestInit).headers as Record<string, string>)['Cache-Control']
+    ))).toEqual(['no-cache', 'no-cache', 'no-cache', 'no-cache'])
   })
 })

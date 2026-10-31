@@ -4,8 +4,8 @@ import os from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { createClient, migrate, projects, runs } from '@ainyc/canonry-db'
-import { RunKinds, RunStatuses, RunTriggers, type RunStatus } from '@ainyc/canonry-contracts'
+import { createClient, migrate, projects, runs } from '@canonry/canonry-db'
+import { RunKinds, RunStatuses, RunTriggers, type RunStatus } from '@canonry/canonry-contracts'
 import { apiRoutes } from '../src/index.js'
 
 /**
@@ -186,10 +186,9 @@ describe('GET /runs ?kind= filter', () => {
     expect(err.error.message).toMatch(/kind/i)
   })
 
-  it('empty ?kind= behaves like no filter (returns all kinds)', async () => {
-    const { body } = await get<Array<{ kind: string }>>(`/api/v1/runs?kind=`)
-    const kinds = new Set(body.map(r => r.kind))
-    expect(kinds.size).toBeGreaterThan(1) // both bing-inspect and answer-visibility
+  it('rejects an explicitly empty filter', async () => {
+    const { status } = await get(`/api/v1/runs?kind=`)
+    expect(status).toBe(400)
   })
 })
 
@@ -219,9 +218,97 @@ describe('GET /projects/:name/runs ?kind= filter', () => {
     expect(err.error.message).toMatch(/kind/i)
   })
 
-  it('empty ?kind= behaves like no filter', async () => {
-    const { body } = await get<Array<{ kind: string }>>(`/api/v1/projects/runs-filter/runs?kind=`)
-    expect(new Set(body.map(r => r.kind)).size).toBeGreaterThan(1)
+  it('rejects an explicitly empty filter', async () => {
+    const { status } = await get(`/api/v1/projects/runs-filter/runs?kind=`)
+    expect(status).toBe(400)
+  })
+})
+
+describe.each(['/api/v1/runs', '/api/v1/projects/runs-filter/runs'])('%s ?excludeKind= filter', (route) => {
+  it('excludes the newest kind before applying the limit', async () => {
+    const { status, body } = await get<Array<{ id: string }>>(`${route}?excludeKind=bing-inspect&limit=3`)
+    expect(status).toBe(200)
+    expect(new Set(body.map(r => r.id))).toEqual(new Set(ctx.answerVisibilityRunIds))
+  })
+
+  it('intersects kind and excludeKind, including a contradictory selection', async () => {
+    const match = await get<Array<{ id: string }>>(`${route}?kind=answer-visibility&excludeKind=bing-inspect`)
+    expect(match.status).toBe(200)
+    expect(new Set(match.body.map(r => r.id))).toEqual(new Set(ctx.answerVisibilityRunIds))
+
+    const none = await get<Array<{ id: string }>>(`${route}?kind=answer-visibility&excludeKind=answer-visibility`)
+    expect(none.status).toBe(200)
+    expect(none.body).toEqual([])
+  })
+
+  it('rejects an unknown excluded kind with its allowed values', async () => {
+    const { status, body } = await get<{ error: { code: string; message: string } }>(`${route}?excludeKind=not-a-real-kind`)
+    expect(status).toBe(400)
+    expect(body.error.code).toBe('VALIDATION_ERROR')
+    expect(body.error.message).toBe(`"excludeKind" must be one of: ${Object.values(RunKinds).join(', ')}`)
+  })
+
+  it('rejects an explicitly empty filter', async () => {
+    const { status } = await get(`${route}?excludeKind=`)
+    expect(status).toBe(400)
+  })
+})
+
+describe.each(['/api/v1/runs', '/api/v1/projects/runs-filter/runs'])('%s ?excludeKinds= filter', (route) => {
+  it.each([
+    'excludeKinds=bing-inspect&excludeKinds=traffic-sync',
+    'excludeKinds=bing-inspect,traffic-sync',
+    'excludeKind=bing-inspect&excludeKinds=traffic-sync',
+  ])('excludes routine jobs before the five-row cap (%s)', async (filter) => {
+    const meaningful = [
+      { id: 'failed-sweep', kind: RunKinds['answer-visibility'], status: RunStatuses.failed },
+      { id: 'audit', kind: RunKinds['site-audit'], status: RunStatuses.completed },
+      { id: 'backlinks', kind: RunKinds['backlink-extract'], status: RunStatuses.completed },
+      { id: 'discovery', kind: RunKinds['aeo-discover-probe'], status: RunStatuses.completed },
+      { id: 'ads', kind: RunKinds['google-ads-sync'], status: RunStatuses.running },
+      { id: 'sitemap', kind: RunKinds['inspect-sitemap'], status: RunStatuses.completed },
+    ]
+    const now = Date.now()
+    ctx.db.delete(runs).run()
+    ctx.db.insert(runs).values([
+      ...Array.from({ length: 10 }, (_, index) => ({
+        id: `routine-${index}`, projectId: ctx.projectId,
+        kind: index % 2 ? RunKinds['bing-inspect'] : RunKinds['traffic-sync'],
+        status: RunStatuses.completed, trigger: RunTriggers.scheduled,
+        createdAt: new Date(now - index * 30 * 60_000).toISOString(),
+      })),
+      ...meaningful.map((run, index) => ({
+        ...run, projectId: ctx.projectId, trigger: RunTriggers.manual,
+        createdAt: new Date(now - (12 + index) * 30 * 60_000).toISOString(),
+      })),
+    ]).run()
+
+    const { status, body } = await get<Array<{ id: string; status: string }>>(`${route}?${filter}&limit=5`)
+    expect(status).toBe(200)
+    const expected = ['failed-sweep', 'audit', 'backlinks', 'discovery', 'ads']
+    expect(body.map(run => run.id)).toEqual(route === '/api/v1/runs' ? expected : expected.reverse())
+    expect(body.find(run => run.id === 'failed-sweep')?.status).toBe(RunStatuses.failed)
+  })
+
+  it('combines multiple exclusions with kind and status', async () => {
+    const match = await get<Array<{ id: string }>>(`${route}?kind=answer-visibility&status=completed&excludeKinds=bing-inspect,traffic-sync`)
+    expect(match.status).toBe(200)
+    expect(new Set(match.body.map(run => run.id))).toEqual(new Set(ctx.answerVisibilityRunIds))
+    const none = await get<Array<{ id: string }>>(`${route}?kind=answer-visibility&excludeKinds=bing-inspect,answer-visibility`)
+    expect(none.status).toBe(200)
+    expect(none.body).toEqual([])
+  })
+
+  it('rejects an unknown member instead of ignoring the multi-kind filter', async () => {
+    const { status, body } = await get<{ error: { code: string; message: string } }>(`${route}?excludeKinds=bing-inspect,not-a-real-kind`)
+    expect(status).toBe(400)
+    expect(body.error.code).toBe('VALIDATION_ERROR')
+    expect(body.error.message).toContain('"excludeKinds"')
+  })
+
+  it('rejects an explicitly empty filter', async () => {
+    const { status } = await get(`${route}?excludeKinds=`)
+    expect(status).toBe(400)
   })
 })
 
@@ -270,9 +357,9 @@ describe('GET /runs ?status= filter', () => {
     )
   })
 
-  it('empty ?status= behaves like no filter', async () => {
-    const { body } = await get<Array<{ status: string }>>(`/api/v1/runs?status=`)
-    expect(body).toHaveLength(SEEDED_TOTAL)
+  it('rejects an explicitly empty filter', async () => {
+    const { status } = await get(`/api/v1/runs?status=`)
+    expect(status).toBe(400)
   })
 })
 
@@ -314,16 +401,47 @@ describe('GET /projects/:name/runs ?status= filter', () => {
 })
 
 describe('OpenAPI: runs list filter params', () => {
-  it('kind and status enums on both list routes are the contracts enums', async () => {
+  it('run kind and status filters on both list routes use the contracts enums', async () => {
     // The kind enum was a hand-copied list that had fallen behind RunKinds;
-    // both filters now derive from the schema the server validates against.
+    // All filters derive from the schema the server validates against.
     const { body } = await get<{
-      paths: Record<string, { get?: { parameters?: Array<{ name: string; schema?: { enum?: string[] } }> } }>
+      paths: Record<string, { get?: { parameters?: Array<{ name: string; schema?: { type?: string; enum?: string[]; items?: { enum?: string[] } } }> } }>
     }>('/api/v1/openapi.json')
     for (const path of ['/api/v1/runs', '/api/v1/projects/{name}/runs']) {
       const params = body.paths[path]?.get?.parameters ?? []
       expect(params.find(p => p.name === 'kind')?.schema?.enum, path).toEqual(Object.values(RunKinds))
+      expect(params.find(p => p.name === 'excludeKind')?.schema?.enum, path).toEqual(Object.values(RunKinds))
+      expect(params.find(p => p.name === 'excludeKinds')?.schema?.type, path).toBe('array')
+      expect(params.find(p => p.name === 'excludeKinds')?.schema?.items?.enum, path).toEqual(Object.values(RunKinds))
       expect(params.find(p => p.name === 'status')?.schema?.enum, path).toEqual(ALL_STATUSES)
     }
+  })
+})
+
+describe('project run history time and source evidence', () => {
+  it('normalizes offset timestamps, preserves probes, and filters before the newest-row limit', async () => {
+    ctx.db.delete(runs).run()
+    ctx.db.insert(runs).values([
+      { id: 'before', projectId: ctx.projectId, kind: RunKinds['traffic-sync'], status: RunStatuses.failed, trigger: RunTriggers.manual, createdAt: '2026-10-01T03:59:59.999Z' },
+      { id: 'boundary', projectId: ctx.projectId, kind: RunKinds['traffic-sync'], status: RunStatuses.failed, trigger: RunTriggers.scheduled, sourceId: 'source-sample', createdAt: '2026-10-01T04:00:00.000Z' },
+      { id: 'probe', projectId: ctx.projectId, kind: RunKinds['answer-visibility'], status: RunStatuses.completed, trigger: RunTriggers.probe, createdAt: '2026-10-01T04:00:01.000Z' },
+    ]).run()
+    const all = await get<Array<{ id: string; sourceId?: string }>>('/api/v1/projects/runs-filter/runs')
+    expect(all.body.map(run => run.id)).toEqual(['before', 'boundary', 'probe'])
+    expect(all.body.find(run => run.id === 'probe')).not.toHaveProperty('sourceId')
+    expect(all.body.find(run => run.id === 'boundary')?.sourceId).toBe('source-sample')
+    const since = encodeURIComponent('2026-10-01T00:00:00-04:00')
+    const filtered = await get<Array<{ id: string }>>(`/api/v1/projects/runs-filter/runs?since=${since}`)
+    expect(filtered.status).toBe(200)
+    expect(filtered.body.map(run => run.id)).toEqual(['boundary', 'probe'])
+    const capped = await get<Array<{ id: string }>>(`/api/v1/projects/runs-filter/runs?since=${since}&kind=traffic-sync&status=failed&limit=1`)
+    expect(capped.body.map(run => run.id)).toEqual(['boundary'])
+  })
+
+  it('rejects invalid time input instead of returning unbounded history', async () => {
+    const result = await get<{ error: { code: string; message: string } }>('/api/v1/projects/runs-filter/runs?since=not-a-date')
+    expect(result.status).toBe(400)
+    expect(result.body.error.code).toBe('VALIDATION_ERROR')
+    expect(result.body.error.message).toContain('since')
   })
 })

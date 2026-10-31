@@ -1,6 +1,7 @@
-import { and, eq } from 'drizzle-orm'
-import { gbpLocations, gbpReviewRatings, notifications } from '@ainyc/canonry-db'
-import { CheckCategories, CheckScopes, CheckStatuses, businessProfileReviewsCover } from '@ainyc/canonry-contracts'
+import { and, desc, eq, gte, inArray, sql } from 'drizzle-orm'
+import { gbpLocations, gbpReviewRatings, notifications, reviewWebhookDeliveries } from '@canonry/canonry-db'
+import { CheckCategories, CheckScopes, CheckStatuses, ReviewDeliveryStates, businessProfileReviewsCover, googleBusinessReviewUrl } from '@canonry/canonry-contracts'
+import { redactNotificationUrl } from '../../notification-redaction.js'
 import type { CheckDefinition, CheckOutput, DoctorContext } from '../types.js'
 
 const REVIEW_EVENTS = new Set(['review.negative', 'review.rating-dropped'])
@@ -144,7 +145,84 @@ const reviewsAccessCheck: CheckDefinition = {
   },
 }
 
-export const GBP_REVIEWS_CHECKS: readonly CheckDefinition[] = [reviewsAccessCheck]
+/** How long an undelivered review alert keeps the delivery check warning. */
+const UNDELIVERED_ATTENTION_DAYS = 7
+
+/**
+ * `gbp.reviews.delivery` — review alerts that did not reach a destination and
+ * will not be retried. `uncertain` is a chat send that reached the network
+ * with no answer: it is never resent, because a channel that did post it would
+ * get a duplicate. `failed` is a destination that refused the alert, or a send
+ * out of retries. Nothing else retries either, so someone has to look at the
+ * channel. Reads stored deliveries only.
+ */
+const reviewDeliveryCheck: CheckDefinition = {
+  id: 'gbp.reviews.delivery',
+  category: CheckCategories.integrations,
+  scope: CheckScopes.project,
+  title: 'Google Business Profile review alert delivery',
+  run: (ctx: DoctorContext): CheckOutput => {
+    if (!ctx.project) {
+      return { status: CheckStatuses.skipped, code: 'gbp.reviews.delivery.no-project', summary: 'Project context required.', remediation: null }
+    }
+    const since = new Date(Date.now() - UNDELIVERED_ATTENTION_DAYS * 86_400_000).toISOString()
+    const lastTouched = sql<string>`coalesce(${reviewWebhookDeliveries.attemptedAt}, ${reviewWebhookDeliveries.createdAt})`
+    const rows = ctx.db.select({
+      id: reviewWebhookDeliveries.id,
+      notificationId: reviewWebhookDeliveries.notificationId,
+      state: reviewWebhookDeliveries.state,
+      attempts: reviewWebhookDeliveries.attempts,
+      lastTouched,
+      payload: reviewWebhookDeliveries.payload,
+    }).from(reviewWebhookDeliveries)
+      .where(and(
+        eq(reviewWebhookDeliveries.projectId, ctx.project.id),
+        inArray(reviewWebhookDeliveries.state, [ReviewDeliveryStates.Uncertain, ReviewDeliveryStates.Failed]),
+        gte(lastTouched, since),
+      ))
+      .orderBy(desc(lastTouched))
+      .all()
+    if (rows.length === 0) {
+      return {
+        status: CheckStatuses.ok,
+        code: 'gbp.reviews.delivery.ok',
+        summary: `No review alert in the last ${UNDELIVERED_ATTENTION_DAYS} days stopped short of its destination.`,
+        remediation: null,
+      }
+    }
+    const destinations = new Map(ctx.db.select({ id: notifications.id, config: notifications.config }).from(notifications)
+      .where(eq(notifications.projectId, ctx.project.id))
+      .all()
+      .map((row) => [row.id, redactNotificationUrl(row.config.url).urlDisplay]))
+    const deliveries = rows.map((row) => {
+      const review = row.payload.reviews[0]
+      return {
+        state: row.state,
+        attempts: row.attempts,
+        lastAttemptAt: row.lastTouched,
+        destination: destinations.get(row.notificationId) ?? 'removed destination',
+        starRating: review?.starRating ?? null,
+        reviewerName: review?.reviewerName ?? null,
+        reviewUrl: googleBusinessReviewUrl(review?.reviewUri ?? null) ?? googleBusinessReviewUrl(review?.location.mapsUri ?? null),
+      }
+    })
+    const uncertain = deliveries.filter((row) => row.state === ReviewDeliveryStates.Uncertain).length
+    const failed = deliveries.length - uncertain
+    const parts = [
+      uncertain > 0 ? `${uncertain} got no answer from a chat webhook` : null,
+      failed > 0 ? `${failed} were refused or ran out of retries` : null,
+    ].filter((part): part is string => part !== null)
+    return {
+      status: CheckStatuses.warn,
+      code: 'gbp.reviews.delivery.undelivered',
+      summary: `${deliveries.length} review alert(s) in the last ${UNDELIVERED_ATTENTION_DAYS} days may not have reached their destination: ${parts.join('; ')}.`,
+      remediation: `Check each destination in details for the alert, and open the review from its link if it is missing. A chat send with no answer is never resent, so a channel that did post it gets no duplicate. A refused destination needs its webhook fixed. This warning clears ${UNDELIVERED_ATTENTION_DAYS} days after the attempt.`,
+      details: { deliveries },
+    }
+  },
+}
+
+export const GBP_REVIEWS_CHECKS: readonly CheckDefinition[] = [reviewsAccessCheck, reviewDeliveryCheck]
 
 export const GBP_REVIEWS_CHECK_BY_ID = Object.fromEntries(
   GBP_REVIEWS_CHECKS.map((check) => [check.id, check]),

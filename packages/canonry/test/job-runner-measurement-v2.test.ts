@@ -15,8 +15,8 @@ import {
   type ProviderHealthcheckResult,
   type RawQueryResult,
   type TrackedQueryInput,
-} from '@ainyc/canonry-contracts'
-import { queueRunIfProjectIdle } from '@ainyc/canonry-api-routes'
+} from '@canonry/canonry-contracts'
+import { queueRunIfProjectIdle } from '@canonry/canonry-api-routes'
 import {
   createClient,
   measurementPlans,
@@ -27,7 +27,7 @@ import {
   querySnapshots,
   runs,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { JobRunner } from '../src/job-runner.js'
 import { ProviderRegistry } from '../src/provider-registry.js'
 

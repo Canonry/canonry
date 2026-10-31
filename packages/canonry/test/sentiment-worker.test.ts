@@ -1,14 +1,18 @@
 import { eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { buildSimpleMeasurementDefinition, createSentimentEvaluationDefinition, type SentimentClassifierInput, type SentimentClassifierOutput } from '@ainyc/canonry-contracts'
-import { createClient, llmUsageEvents, migrate, projects, queries, querySnapshots, recordSentimentCompletion, runs, SentimentRepository, sentimentAttempts, sentimentJobs, sentimentSettings, sentimentWorkItems, simpleMeasurementDefinitions, type DatabaseClient } from '@ainyc/canonry-db'
-import { SentimentService, selectSentimentSources, sentimentHash } from '@ainyc/canonry-api-routes'
-import { resolveSentimentInstallConfig, type SentimentInstallConfig } from '@ainyc/canonry-config'
-import { SentimentWorker, sentimentRateLimitDelayMs } from '../src/sentiment-worker.js'
+import { buildSimpleMeasurementDefinition, createSentimentEvaluationDefinition, type SentimentClassifierInput, type SentimentClassifierOutput, type SentimentOutcome } from '@canonry/canonry-contracts'
+import { createClient, llmUsageEvents, migrate, projects, queries, querySnapshots, recordSentimentCompletion, runs, SentimentRepository, sentimentAttempts, sentimentJobs, sentimentSettings, sentimentWorkItems, simpleMeasurementDefinitions, type DatabaseClient } from '@canonry/canonry-db'
+import { SentimentService, backfillProjectAnswerMentions, selectSentimentSources, sentimentHash } from '@canonry/canonry-api-routes'
+import { resolveSentimentInstallConfig, type SentimentInstallConfig } from '@canonry/canonry-config'
+import { SentimentWorker, createSentimentPoller, sentimentRateLimitDelayMs } from '../src/sentiment-worker.js'
+import { repairSentimentMentionIdentityOnStartup } from '../src/startup-sentiment-mention-identity.js'
+
+const trackEvent = vi.hoisted(() => vi.fn())
+vi.mock('../src/telemetry.js', () => ({ trackEvent }))
 
 // Pass-through spy: counts the worker's source selections without changing them.
-vi.mock('@ainyc/canonry-api-routes', async importOriginal => {
-  const actual = await importOriginal<typeof import('@ainyc/canonry-api-routes')>()
+vi.mock('@canonry/canonry-api-routes', async importOriginal => {
+  const actual = await importOriginal<typeof import('@canonry/canonry-api-routes')>()
   return { ...actual, selectSentimentSources: vi.fn(actual.selectSentimentSources) }
 })
 
@@ -24,6 +28,7 @@ const classified = (input: SentimentClassifierInput): SentimentClassifierOutput 
 const refused = (code: 'provider-rate-limit' | 'provider-authorization', retryAfterMs: number | null = null): SentimentClassifierOutput => ({ kind: 'failed', outcome: 'failed', returnedModel: null, usage: { kind: 'unknown', inputTokens: null, outputTokens: null }, error: { code, message: 'Safe refusal', retryable: code === 'provider-rate-limit', retryAfterMs } })
 const later = (ms: number) => new Date(Date.parse(time) + ms).toISOString()
 beforeEach(() => {
+  trackEvent.mockReset()
   enabled = true; apiKey = 'private-test-key'; maxAttempts = 3; time = '2026-09-28T00:00:00.000Z'
   vi.mocked(selectSentimentSources).mockClear()
   db = createClient(':memory:'); migrate(db)
@@ -32,11 +37,11 @@ beforeEach(() => {
   service = new SentimentService(db, { install: () => ({ enabled, ready: enabled, reason: enabled ? null : 'install-disabled', model: 'jev-1.13.0' }), now, previewSecret: 'secret' })
 })
 afterEach(() => { db.$client.close() })
-function source(id: string, receipt = true, queryText = 'Acme reviews', projectId = 'p', brand = 'Acme') {
+function source(id: string, receipt = true, queryText = 'Acme reviews', projectId = 'p', brand = 'Acme', identity: { aliases?: string[]; qualifiedAliases?: string[] } = {}) {
   const queryId = projectId === 'p' ? 'q' : `${projectId}-q`
   db.insert(runs).values({ id, projectId, kind: 'answer-visibility', trigger: 'manual', status: 'completed', createdAt: time }).run()
   db.insert(querySnapshots).values({ id: `s-${id}`, runId: id, queryId, provider: 'openai', model: 'gpt-test', servedModel: 'gpt-test-v1', answerText: `${brand} is excellent.`, citationState: 'cited', createdAt: time }).run()
-  db.insert(simpleMeasurementDefinitions).values({ runId: id, projectId, checksum: 'x', capturedAt: time, definition: buildSimpleMeasurementDefinition({ capturedAt: time, identity: { displayName: brand, aliases: [], canonicalDomain: `https://${brand}.Example/`, ownedDomains: [] }, country: 'US', language: 'en', location: null, engines: [{ provider: 'openai', requestedModel: 'gpt-test' }], queries: [{ queryId, queryText, provenance: null }] }) }).run()
+  db.insert(simpleMeasurementDefinitions).values({ runId: id, projectId, checksum: 'x', capturedAt: time, definition: buildSimpleMeasurementDefinition({ capturedAt: time, identity: { displayName: brand, aliases: identity.aliases ?? [], canonicalDomain: `https://${brand}.Example/`, ownedDomains: [], qualifiedAliases: identity.qualifiedAliases }, country: 'US', language: 'en', location: null, engines: [{ provider: 'openai', requestedModel: 'gpt-test' }], queries: [{ queryId, queryText, provenance: null }] }) }).run()
   if (receipt) recordSentimentCompletion(db, { projectId, runId: id, completionKey: 'initial', completedAt: time })
 }
 function secondProject() {
@@ -47,6 +52,59 @@ function secondProject() {
 function worker(classify = vi.fn(async (input: SentimentClassifierInput) => classified(input))) { return { classify, runtime: new SentimentWorker(db, { configuration, classifier: () => ({ classify }), now }) } }
 
 describe('durable sentiment worker', () => {
+  it('holds frozen TypeSafe work after a route change and requires a new evaluator epoch before OpenRouter dispatch', async () => {
+    service.configure('p', { enabled: true }); source('r')
+    let active = configuration()
+    const classify = vi.fn(async (input: SentimentClassifierInput) => ({ ...classified(input), returnedModel: 'typesafe/jev-1.13-20260917' }))
+    const runtime = new SentimentWorker(db, { configuration: () => active, classifier: () => ({ classify }), now })
+    runtime.reconcile()
+    const directDefinitionId = service.settings('p').evaluationDefinitionId
+    active = resolveSentimentInstallConfig({}, { enabled: true, provider: 'openrouter' }, { openrouter: 'shared-router-key' })
+    await runtime.tick()
+    expect(classify).not.toHaveBeenCalled()
+    expect(db.select().from(sentimentAttempts).all()).toHaveLength(0)
+    const routed = new SentimentService(db, { install: () => ({ enabled: true, ready: true, reason: null, provider: active.provider, model: active.model }), now, previewSecret: 'secret' })
+    expect(routed.settings('p')).toMatchObject({ ready: false })
+    const changed = routed.configure('p', { enabled: true })
+    expect(changed.evaluationDefinitionId).not.toBe(directDefinitionId)
+    expect(changed.enablementEpoch).toBe(2)
+    source('next'); await runtime.tick()
+    expect(classify).toHaveBeenCalledTimes(1)
+    expect(classify.mock.calls[0]![0].definition).toMatchObject({ provider: 'openrouter', requestedModel: 'typesafe/jev-1.13', expectedReturnedModel: 'typesafe/jev-1.13-20260917' })
+    expect(db.select().from(llmUsageEvents).all()).toMatchObject([{ provider: 'openrouter', model: 'typesafe/jev-1.13-20260917', costMillicents: 0, metadata: { costStatus: 'unknown' } }])
+    expect(db.select().from(sentimentAttempts).get()?.usage).toEqual({ inputTokens: 1000, outputTokens: 10 })
+  })
+
+  it('claims only what the minute\'s request budget allows, leaving the rest queued instead of deferred', async () => {
+    service.configure('p', { enabled: true }); for (const id of ['r1', 'r2', 'r3', 'r4', 'r5']) source(id)
+    const classify = vi.fn(async (input: SentimentClassifierInput) => classified(input))
+    const budgeted = () => resolveSentimentInstallConfig({}, { enabled, apiKey, maxConcurrency: 8, maxRequestsPerMinute: 2 })
+    const runtime = new SentimentWorker(db, { configuration: budgeted, classifier: () => ({ classify }), now })
+    expect(await runtime.tick()).toBe(2)
+    expect(await runtime.tick()).toBe(0)
+    expect(classify).toHaveBeenCalledTimes(2)
+    const waiting = db.select().from(sentimentWorkItems).where(eq(sentimentWorkItems.status, 'pending')).all()
+    expect(waiting).toHaveLength(3)
+    expect(waiting.map(item => [item.errorCode, item.nextAttemptAt])).toEqual([[null, null], [null, null], [null, null]])
+    time = later(61_000)
+    expect(await runtime.tick()).toBe(2)
+    expect(classify).toHaveBeenCalledTimes(4)
+  })
+  it('leaves work queued when the minute\'s token budget cannot fit it, and dispatches it once tokens free up', async () => {
+    service.configure('p', { enabled: true }); for (const id of ['t1', 't2', 't3', 't4', 't5']) source(id)
+    const classify = vi.fn(async (input: SentimentClassifierInput) => classified(input))
+    const budgeted = () => resolveSentimentInstallConfig({}, { enabled, apiKey, maxConcurrency: 8, maxInputTokensPerMinute: 2500 })
+    const prepare = () => ({ ok: true as const, estimatedInputTokens: 1000 })
+    const runtime = new SentimentWorker(db, { configuration: budgeted, classifier: () => ({ classify }), prepare, now })
+    expect(await runtime.tick()).toBe(2)
+    expect(await runtime.tick()).toBe(0)
+    expect(classify).toHaveBeenCalledTimes(2)
+    const waiting = db.select().from(sentimentWorkItems).where(eq(sentimentWorkItems.status, 'pending')).all()
+    expect(waiting.map(item => [item.errorCode, item.nextAttemptAt, item.attemptCount])).toEqual([[null, null, 0], [null, null, 0], [null, null, 0]])
+    time = later(61_000)
+    expect(await runtime.tick()).toBe(2)
+    expect(classify).toHaveBeenCalledTimes(4)
+  })
 
   it('admits both future query classes and persists absent non-brand preflight without a paid attempt', async () => {
     service.configure('p', { enabled: true }); source('branded'); source('non-brand', true, 'best service options')
@@ -63,6 +121,24 @@ describe('durable sentiment worker', () => {
     expect(service.jobList('p').jobs).toHaveLength(2)
     expect(service.summary('p', { runId: 'non-brand', mode: 'simple', scope: 'project', queryClass: 'non-brand' })).toMatchObject({ state: 'complete', coverage: { selected: 1, judged: 0, counts: { 'subject-not-mentioned': 1, unfavorable: 0 } }, score: { favorableRate: null, favorableDisplay: 'Unavailable' } })
   })
+  it('sends an opted-in run\'s frozen qualified aliases on automatic admission, and an empty list for a run that never opted in', async () => {
+    service.configure('p', { enabled: true })
+    const aliases = ['AcmeNYC', 'Acme NYC']
+    source('plain', true, 'Acme reviews', 'p', 'Acme', { aliases })
+    source('qualified', true, 'Acme reviews', 'p', 'Acme', { aliases, qualifiedAliases: ['AcmeNYC', 'Acme NYC'] })
+    const { runtime, classify } = worker()
+    await runtime.tick(); await runtime.tick()
+    expect(classify).toHaveBeenCalledTimes(2)
+    const sent = new Map(classify.mock.calls.map(([input]) => [input.sourceSnapshotId, input]))
+    expect(sent.get('s-qualified')!.subject.qualifiedAliases).toEqual(['Acme NYC', 'AcmeNYC'])
+    expect(sent.get('s-plain')!.subject.qualifiedAliases).toEqual([])
+    expect(sent.get('s-qualified')!.subjectHash).not.toBe(sent.get('s-plain')!.subjectHash)
+    const stored = db.select({ snapshotId: sentimentWorkItems.snapshotId, input: sentimentWorkItems.input }).from(sentimentWorkItems).all()
+    expect(Object.fromEntries(stored.map(item => [item.snapshotId, (item.input as SentimentClassifierInput).subject.qualifiedAliases]))).toEqual({
+      's-plain': [], 's-qualified': ['Acme NYC', 'AcmeNYC'],
+    })
+  })
+
   it('upgrades an enabled legacy evaluator at a new future-completion boundary without automatic historical non-brand work', async () => {
     const old = { ...createSentimentEvaluationDefinition(), schemaVersion: 1, verdictVersion: 'stance-v1', identityVersion: 'qualified-subject-v1', themes: [], questions: { ...createSentimentEvaluationDefinition().questions, theme: 'Archived question' } }
     const repository = new SentimentRepository(db), id = sentimentHash(old)
@@ -356,3 +432,142 @@ describe('durable sentiment worker', () => {
     expect(db.select().from(llmUsageEvents).all()).toHaveLength(1)
   })
 })
+
+describe('sentiment identity verdicts on stored mentions', () => {
+  const judged = (outcome: SentimentOutcome) => vi.fn(async (input: SentimentClassifierInput): Promise<SentimentClassifierOutput> => outcome === 'favorable'
+    ? classified(input)
+    : { kind: 'abstained', outcome, reason: 'Fixture identity verdict.', returnedModel: 'jev-1.13.0', usage: { kind: 'reported', inputTokens: 1000, outputTokens: 10 } })
+  const stored = () => db.select({ answerMentioned: querySnapshots.answerMentioned, mentionIdentity: querySnapshots.mentionIdentity })
+    .from(querySnapshots).where(eq(querySnapshots.id, 's-r1')).get()
+
+  it.each([
+    ['wrong-subject', false, 'wrong-subject'],
+    ['ambiguous-subject', true, null],
+    ['favorable', true, null],
+  ] as const)('stores a %s verdict with the answer\'s mention, and an answer-field recompute keeps it', async (outcome, answerMentioned, mentionIdentity) => {
+    service.configure('p', { enabled: true }); source('r1')
+    // Captured as a name match: the answer reads "Acme is excellent."
+    db.update(querySnapshots).set({ answerMentioned: true }).where(eq(querySnapshots.id, 's-r1')).run()
+    const { runtime } = worker(judged(outcome))
+    await runtime.tick(); await runtime.tick()
+    expect(stored()).toEqual({ answerMentioned, mentionIdentity })
+    // An alias edit rescores every stored answer; the verdict must survive it.
+    backfillProjectAnswerMentions(db, 'p')
+    expect(stored()).toEqual({ answerMentioned, mentionIdentity })
+  })
+
+  it('applies a verdict stored before answers recorded it once, on startup', async () => {
+    service.configure('p', { enabled: true }); source('r1')
+    const { runtime } = worker(judged('wrong-subject'))
+    await runtime.tick(); await runtime.tick()
+    // An upgraded database: the verdict is stored, the answer predates its columns.
+    db.update(querySnapshots).set({ answerMentioned: true, mentionIdentity: null }).where(eq(querySnapshots.id, 's-r1')).run()
+    expect(repairSentimentMentionIdentityOnStartup(db)).toEqual({ examined: 1, updated: 1 })
+    expect(stored()).toEqual({ answerMentioned: false, mentionIdentity: 'wrong-subject' })
+    expect(repairSentimentMentionIdentityOnStartup(db)).toBeNull()
+  })
+})
+
+describe('sentiment run outcome telemetry', () => {
+  const run = { feature: 'sentiment', operation: 'run', durationBucket: expect.any(String) }
+  const automatic = { ...run, trigger: 'scheduled', surface: 'system' }
+  const failedOnce = (input: SentimentClassifierInput, attempt: number): SentimentClassifierOutput => attempt === 1
+    ? { kind: 'failed', outcome: 'failed', returnedModel: null, usage: { kind: 'unknown', inputTokens: null, outputTokens: null }, error: { code: 'provider-unavailable', message: 'TypeSafe returned HTTP 503.', retryable: true, retryAfterMs: null } }
+    : classified(input)
+
+  it('reports each answer once it is saved: automatic work as scheduled, its retry as a retry, with attempts and reported tokens', async () => {
+    service.configure('p', { enabled: true }); source('r')
+    let attempt = 0
+    const { runtime } = worker(vi.fn(async (input: SentimentClassifierInput) => failedOnce(input, ++attempt)))
+    await runtime.tick()
+    time = later(10 * 60_000)
+    await runtime.tick()
+    expect(trackEvent.mock.calls).toEqual([
+      ['feature.completed', { ...automatic, status: 'failed', reasonCode: 'HTTP_5XX', counts: { attempts: 1 } }, { errorCode: 'HTTP_5XX' }],
+      ['feature.completed', { ...run, trigger: 'retry', surface: 'system', status: 'succeeded', counts: { attempts: 2, inputTokens: 1000, outputTokens: 10 } }, undefined],
+    ])
+  })
+
+  it('reports answers it never sends: a preflight abstention as skipped, and a project disabled after the claim as cancelled', async () => {
+    service.configure('p', { enabled: true }); source('abstains')
+    const abstaining = new SentimentWorker(db, {
+      configuration, classifier: () => ({ classify: vi.fn() }), now,
+      prepare: () => ({ ok: false, outcome: 'subject-not-mentioned', reason: 'Frozen subject absent from this answer.' }),
+    })
+    await abstaining.tick()
+    source('canceled')
+    const disabling = new SentimentWorker(db, {
+      configuration, classifier: () => ({ classify: vi.fn() }), now,
+      prepare: () => { service.configure('p', { enabled: false }); return { ok: true, estimatedInputTokens: 1000 } },
+    })
+    await disabling.tick()
+    expect(trackEvent.mock.calls).toEqual([
+      ['feature.completed', { ...automatic, status: 'skipped', reasonCode: 'NO_DATA' }, { errorCode: 'NO_DATA' }],
+      ['feature.completed', { ...automatic, status: 'cancelled', reasonCode: 'CANCELLED_BY_USER' }, { errorCode: 'CANCELLED_BY_USER' }],
+    ])
+  })
+
+  it('reports a refused credential and a transport failure by reason and class, never the provider text', async () => {
+    maxAttempts = 1
+    service.configure('p', { enabled: true }); source('r')
+    const { runtime } = worker(vi.fn(async (): Promise<SentimentClassifierOutput> => refused('provider-authorization')))
+    await runtime.tick()
+    // A rotated key lifts the authorization pause: the refused answer is retried beside a new one.
+    apiKey = 'rotated-key'; source('next')
+    const unreachable = worker(vi.fn(async () => { throw Object.assign(new TypeError('fetch failed for https://typesafe.example/v1 with key private-test-key'), { code: 'ECONNRESET' }) }))
+    await unreachable.runtime.tick()
+    const network = { status: 'failed', reasonCode: 'NETWORK', errorName: 'TypeError' }
+    expect(trackEvent.mock.calls[0]).toEqual(
+      ['feature.completed', { ...automatic, status: 'failed', reasonCode: 'INVALID_CREDENTIALS', counts: { attempts: 1 } }, { errorCode: 'INVALID_CREDENTIALS' }],
+    )
+    expect(trackEvent.mock.calls.slice(1)).toHaveLength(2)
+    expect(trackEvent.mock.calls.slice(1)).toEqual(expect.arrayContaining([
+      ['feature.completed', { ...automatic, ...network, counts: { attempts: 1 } }, { errorCode: 'NETWORK' }],
+      ['feature.completed', { ...run, trigger: 'retry', surface: 'system', ...network, counts: { attempts: 2 } }, { errorCode: 'NETWORK' }],
+    ]))
+    expect(JSON.stringify(trackEvent.mock.calls)).not.toMatch(/typesafe\.example|private-test-key/)
+  })
+
+  it('samples a long stream of answers per status and reason, carrying the count it dropped', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      service.configure('p', { enabled: true })
+      for (const id of ['a', 'b', 'c', 'd', 'e', 'f', 'g']) source(id)
+      const { runtime } = worker()
+      while (await runtime.tick() > 0) { /* drain */ }
+      expect(trackEvent).toHaveBeenCalledTimes(5)
+      vi.setSystemTime(Date.now() + 120_000)
+      source('h')
+      await runtime.tick()
+      expect(trackEvent).toHaveBeenCalledTimes(6)
+      expect(trackEvent.mock.calls[5]![1]).toEqual({ ...automatic, status: 'succeeded', counts: { attempts: 1, inputTokens: 1000, outputTokens: 10 }, droppedBefore: 2 })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+describe('sentiment poller', () => {
+  it('ticks again straight away while work is claimed, and drops a poll that arrives mid-tick', async () => {
+    const claimed = [3, 2, 0]
+    const tick = vi.fn(async () => claimed.shift() ?? 0)
+    const scheduled: Array<() => void> = []
+    const poller = createSentimentPoller(tick, () => {}, fn => scheduled.push(fn))
+    poller.poll(); poller.poll()
+    for (let index = 0; index < 5; index++) { await poller.settled(); scheduled.shift()?.() }
+    expect(tick).toHaveBeenCalledTimes(3)
+    expect(scheduled).toHaveLength(0)
+  })
+  it('stops after a failed tick and after stop()', async () => {
+    const onError = vi.fn()
+    const failing = createSentimentPoller(vi.fn(async () => { throw new Error('boom') }), onError, fn => fn())
+    failing.poll(); await failing.settled()
+    expect(onError).toHaveBeenCalledTimes(1)
+    const tick = vi.fn(async () => 1)
+    const scheduled: Array<() => void> = []
+    const poller = createSentimentPoller(tick, () => {}, fn => scheduled.push(fn))
+    poller.poll(); await poller.settled(); poller.stop(); scheduled.shift()?.(); poller.poll()
+    expect(tick).toHaveBeenCalledTimes(1)
+  })
+})
+

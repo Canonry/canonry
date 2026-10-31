@@ -1,6 +1,8 @@
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 
+import { SITE_HEALTH_CHECK_HELP } from '../src/components/project/site-health-check-help.js'
+
 import { PageAuditEvidence, factorShareOfScoreLabel } from '../src/components/project/PageAuditEvidence.js'
 
 afterEach(cleanup)
@@ -86,10 +88,10 @@ test('every technical check starts collapsed, and opens on click', () => {
             recommendations: ['Answer the key questions visitors ask on this page.'],
           },
           {
-            id: 'ai-crawler-access', name: 'AI crawler access', weight: 20, score: 55,
+            id: 'agent-skill-exposure', name: 'Agent Skill Exposure', weight: 6, score: 55,
             status: 'partial', applicable: true,
-            findings: [{ type: 'missing', code: 'ai-crawler-access.crawler.blocked', message: 'GPTBot is blocked.' }],
-            recommendations: ['Allow GPTBot in robots.txt.'],
+            findings: [{ type: 'missing', code: 'agent-skill-exposure.schema-action.missing', message: 'No declared site actions.' }],
+            recommendations: ['Describe the available site actions.'],
           },
         ],
       }}
@@ -109,18 +111,26 @@ test('every technical check starts collapsed, and opens on click', () => {
   // collapse costs no information: name, score, and pass/partial/fail.
   for (const [name, score, state] of [
     ['Content depth', '20/100', 'Fail'],
-    ['AI crawler access', '55/100', 'Partial'],
+    ['Agent Skill Exposure', '55/100', 'Partial'],
   ]) {
     const section = screen.getByText(name).closest('details')!
     expect(within(section).getByText(score)).not.toBeNull()
     expect(within(section).getByText(state)).not.toBeNull()
   }
 
+  // Help must remain independent of the findings disclosure.
+  const help = screen.getByRole('button', { name: SITE_HEALTH_CHECK_HELP['agent-skill-exposure'] })
+  fireEvent.click(help)
+  expect(help.getAttribute('aria-expanded')).toBe('true')
+  expect(sections.every((section) => section.open)).toBe(false)
+  fireEvent.keyDown(help, { key: 'Escape' })
+  expect(help.getAttribute('aria-expanded')).toBe('false')
+
   // Clicking the disclosure opens exactly that one.
   const first = screen.getByText('Content depth').closest('details')!
   fireEvent.click(within(first).getByText('Content depth'))
   expect(first.open).toBe(true)
-  expect(screen.getByText('AI crawler access').closest('details')!.open).toBe(false)
+  expect(screen.getByText('Agent Skill Exposure').closest('details')!.open).toBe(false)
 
   // The summary is still there once expanded: it is the row, not a placeholder
   // the expansion replaces.

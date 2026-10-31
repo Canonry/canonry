@@ -5,7 +5,7 @@ import path from 'node:path'
 import Fastify from 'fastify'
 import { eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { RunKinds, RunStatuses, RunTriggers, type VisibilityReportResponse } from '@ainyc/canonry-contracts'
+import { RunKinds, RunStatuses, RunTriggers, type ContentTargetsResponseDto, type VisibilityReportResponse } from '@canonry/canonry-contracts'
 import {
   createClient,
   migrate,
@@ -14,7 +14,8 @@ import {
   competitors,
   runs,
   querySnapshots,
-} from '@ainyc/canonry-db'
+  siteCrawlSnapshots,
+} from '@canonry/canonry-db'
 import { apiRoutes } from '../src/index.js'
 
 /**
@@ -278,14 +279,6 @@ describe('probe runs are excluded from dashboard / analytics aggregates', () => 
     expect(allRunIds.has(ctx.probeRunId)).toBe(false)
   })
 
-  it('report citations trend does not include the probe', async () => {
-    const { body } = await get<{ citationsTrend: { points: Array<{ runId: string }> } }>(
-      `/api/v1/projects/probe-excl/report`,
-    )
-    const trendRunIds = new Set((body.citationsTrend?.points ?? []).map(p => p.runId))
-    expect(trendRunIds.has(ctx.probeRunId)).toBe(false)
-  })
-
   it('visibility-report never compares against a probe between two sweeps', async () => {
     // A later real sweep makes the newer probe sit between two real sweeps.
     const realRun = ctx.db.select().from(runs).where(eq(runs.id, ctx.realRunId)).get()!
@@ -328,16 +321,36 @@ describe('probe runs are excluded from dashboard / analytics aggregates', () => 
     ])
   })
 
+  it('competitor auto-alias detection scans the real run only', async () => {
+    const { status, body } = await get<{ scan: { runs: number; snapshots: number; answers: number } }>('/api/v1/projects/probe-excl/competitor-auto-aliases')
+    expect(status).toBe(200)
+    expect(body.scan).toMatchObject({ runs: 1, snapshots: 1, answers: 1 })
+  })
+
   it('content/targets pulls recent answer-visibility runs without the probe', async () => {
-    // Probes must not poison the orchestrator input that drives the
-    // content-engine recommendations.
-    const res = await ctx.app.inject({ method: 'GET', url: `/api/v1/projects/probe-excl/content/targets` })
-    expect(res.statusCode).toBe(200)
-    // No specific assertion on shape — the test exists to catch regression where
-    // the probe snapshot poisons the orchestrator input and crashes the route
-    // (or shifts recommendations). If it returns 200, the filter held.
-    const body = res.json() as { targets?: unknown[] }
-    expect(body.targets === undefined || Array.isArray(body.targets)).toBe(true)
+    const poisonQuery = 'best probe-only AEO platforms'
+    const poisonQueryId = crypto.randomUUID()
+    const createdAt = ctx.db.select().from(runs).where(eq(runs.id, ctx.probeRunId)).get()!.createdAt
+    ctx.db.insert(queriesTable).values({
+      id: poisonQueryId, projectId: ctx.projectId, query: poisonQuery, createdAt,
+    }).run()
+    // Only the probe supplies demand for this tracked query; it must never
+    // create a content recommendation or become the response's current run.
+    ctx.db.insert(querySnapshots).values({
+      id: crypto.randomUUID(), runId: ctx.probeRunId, queryId: poisonQueryId,
+      provider: 'openai', citationState: 'not-cited', answerMentioned: false,
+      citedDomains: ['competitor.example.com'], competitorOverlap: ['competitor.example.com'],
+      recommendedCompetitors: [],
+      rawResponse: JSON.stringify({
+        groundingSources: [{ uri: 'https://competitor.example.com/probe-only', title: 'Probe-only competitor' }],
+      }),
+      createdAt,
+    }).run()
+
+    const { status, body } = await get<ContentTargetsResponseDto>('/api/v1/projects/probe-excl/content/targets')
+    expect(status).toBe(200)
+    expect(body.contextMetrics.latestRunId).toBe(ctx.realRunId)
+    expect(body.targets.map(target => target.query)).not.toContain(poisonQuery)
   })
 })
 
@@ -355,9 +368,19 @@ describe('probe runs remain queryable for operators', () => {
     expect(body.trigger).toBe('probe')
   })
 
-  it('GET /projects/:name/runs lists probes alongside real runs (operator visibility)', async () => {
+  it.each(['excludeKind=bing-inspect', 'excludeKinds=bing-inspect&excludeKinds=traffic-sync'])('GET /runs keeps its default probe exclusion and explicit opt-in with %s', async filter => {
+    const { status, body } = await get<Array<{ id: string }>>(`/api/v1/runs?${filter}`)
+    expect(status).toBe(200)
+    expect(body.map(r => r.id)).toEqual([ctx.realRunId])
+
+    const included = await get<Array<{ id: string }>>(`/api/v1/runs?${filter}&includeProbe=1`)
+    expect(included.status).toBe(200)
+    expect(included.body.map(r => r.id)).toEqual([ctx.probeRunId, ctx.realRunId])
+  })
+
+  it.each(['', '?excludeKind=bing-inspect', '?excludeKinds=bing-inspect,traffic-sync'])('GET /projects/:name/runs%s lists probes alongside real runs', async (query) => {
     const { body } = await get<{ id: string; trigger: string }[]>(
-      `/api/v1/projects/probe-excl/runs`,
+      `/api/v1/projects/probe-excl/runs${query}`,
     )
     const triggers = new Set(body.map(r => r.trigger))
     expect(triggers.has('manual')).toBe(true)
@@ -392,4 +415,42 @@ describe("POST /projects/:name/runs accepts trigger='probe' end-to-end", () => {
     })
     expect(res.statusCode).toBe(400)
   })
+})
+
+describe('GET /projects/:name/competitor-suggestions excludes probe evidence', () => {
+  it('reports the probe exclusion without admitting its candidate', async () => {
+    const response = await ctx.app.inject({
+      method: 'GET',
+      url: '/api/v1/projects/probe-excl/competitor-suggestions?window=all&minAnswers=1',
+    })
+    expect(response.statusCode).toBe(200)
+    const body = response.json() as {
+      candidates: Array<{ domain: string }>
+      evidence: { excludedProbeResults: number }
+    }
+    expect(body.evidence.excludedProbeResults).toBe(1)
+    expect(body.candidates).toEqual([])
+  })
+  it('stored audit issue groups exclude probe snapshots from default and explicit selection', async () => {
+    const realId = crypto.randomUUID()
+    const probeId = crypto.randomUUID()
+    for (const [id, trigger, createdAt, code] of [
+      [realId, 'manual', '2026-10-11T12:00:00.000Z', 'site.duplicate-title'],
+      [probeId, 'probe', '2026-10-12T12:00:00.000Z', 'probe-only'],
+    ]) {
+      ctx.db.insert(runs).values({ id: id!, projectId: ctx.projectId, kind: 'site-audit', status: 'completed',
+        trigger: trigger!, createdAt: createdAt!, finishedAt: createdAt! }).run()
+      ctx.db.insert(siteCrawlSnapshots).values({ id: crypto.randomUUID(), projectId: ctx.projectId, runId: id!,
+        rootUrl: 'https://real-brand.example.com/', complete: true, termination: 'completed',
+        issueEvidence: { schemaVersion: '1.0', groupIdentityVersion: 'duplicate-metadata-v1', siteIssues: [
+          { key: `site-issue:${code}`, code: code!, message: code!, affectedUrls: ['https://real-brand.example.com/'] },
+        ] }, createdAt: createdAt!, updatedAt: createdAt! }).run()
+    }
+    const response = await ctx.app.inject('/api/v1/projects/probe-excl/technical-aeo/issues')
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toMatchObject({ runId: realId, total: 1, issues: [{ code: 'site.duplicate-title' }] })
+    expect((await ctx.app.inject(`/api/v1/projects/probe-excl/technical-aeo/issues?runId=${probeId}`)).statusCode).toBe(404)
+    expect((await ctx.app.inject(`/api/v1/projects/probe-excl/technical-aeo/issues/site-issue:probe-only/pages?runId=${probeId}`)).statusCode).toBe(404)
+  })
+
 })

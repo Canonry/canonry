@@ -5,7 +5,7 @@ import {
   withRetry,
   type ModelDefinition,
   type ProviderConfig,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { MUSE_BASE_URL, MUSE_SPARK_MODEL } from './normalize.js'
 
 export function listModels(config: ProviderConfig, signal: AbortSignal): Promise<ModelDefinition[]> {

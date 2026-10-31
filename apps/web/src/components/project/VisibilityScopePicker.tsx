@@ -1,9 +1,9 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react'
-import type { VisibilityReportScopeOption } from '@ainyc/canonry-contracts'
+import type { VisibilityReportScopeOption } from '@canonry/canonry-contracts'
 
-const CONTROL = 'min-h-11 w-full rounded-md border border-default bg-surface px-3 py-2 text-sm text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400'
-const ROW = 'flex min-h-11 w-full items-center justify-between gap-3 rounded px-2 text-left text-sm text-primary hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400'
+const CONTROL = 'min-h-11 w-full rounded-md border border-default bg-surface px-3 py-2 text-label-14 text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400'
+const ROW = 'flex min-h-11 w-full items-center justify-between gap-3 rounded px-2 text-left text-label-14 text-primary hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400'
 const labelFor = (scope: VisibilityReportScopeOption) => scope.kind === 'project' ? 'Whole site' : scope.label
 export const MARKET_SCOPE_COPY = {
   allMarkets: 'All markets',
@@ -120,21 +120,21 @@ export function VisibilityScopePicker({ options: suppliedOptions, selected, onSe
       aria-current={selected.kind === scope.kind && selected.id === scope.id ? 'true' : undefined}
       onClick={() => scope.kind === 'group' && !allowGroupSelect ? browse(scope) : choose(scope)}
     >
-      <span className="min-w-0 break-words">{displayLabel}{query && parentLabels(scope) ? <span className="block text-[13px] text-secondary">{parentLabels(scope)}</span> : null}</span>
-      <span className="shrink-0 text-right text-[13px] text-secondary">{scope.kind === 'market' ? allowGroupSelect ? 'Query context' : 'Market' : scope.kind === 'property' ? 'Property' : countFor(scope.targetCount)}</span>
+      <span className="min-w-0 break-words">{displayLabel}{query && parentLabels(scope) ? <span className="block text-label-13 text-secondary">{parentLabels(scope)}</span> : null}</span>
+      <span className="shrink-0 text-right text-label-13 text-secondary">{scope.kind === 'market' ? allowGroupSelect ? 'Query context' : 'Market' : scope.kind === 'property' ? 'Property' : countFor(scope.targetCount)}</span>
     </button>
     {allowGroupSelect && scope.kind === 'group' && scope.id !== current?.id && options.some(option => option.parentGroupIds?.includes(scope.id)) ? <button type="button" aria-label={MARKET_SCOPE_COPY.browse(scope.label)} title={`Browse ${scope.label}`} className="flex min-h-11 min-w-11 items-center justify-center rounded text-secondary hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400" onClick={() => browse(scope)}><ChevronRight size={18} aria-hidden="true" /></button> : null}
   </div>
   const section = (label: string, scopes: VisibilityReportScopeOption[]) => scopes.length > 0 ? <section aria-label={label} className="mt-2">
-    <h3 className="px-2 py-2 text-[13px] font-medium text-secondary">{label}</h3>{scopes.map(scope => row(scope))}
+    <h3 className="px-2 py-2 text-heading-14 text-secondary">{label}</h3>{scopes.map(scope => row(scope))}
   </section> : null
   const disclosure = (label: string, scopes: VisibilityReportScopeOption[], open: boolean) => scopes.length > 0 ? <details key={`${current?.id ?? 'root'}:${label}`} open={open} className="mt-2 border-y border-default">
-    <summary className="min-h-11 cursor-pointer px-2 py-3 text-sm text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400">{label} ({scopes.length})</summary>
+    <summary className="min-h-11 cursor-pointer px-2 py-3 text-label-14 text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400">{label} ({scopes.length})</summary>
     {scopes.map(scope => row(scope))}
   </details> : null
 
   return <div className="min-w-0">
-    <span id={`${id}-label`} className={labelVisibility === 'sr-only' ? 'sr-only' : 'mb-1 block text-sm font-medium text-heading'}>{label}</span>
+    <span id={`${id}-label`} className={labelVisibility === 'sr-only' ? 'sr-only' : 'mb-1 block text-label-14-strong text-heading'}>{label}</span>
     <details ref={picker} className="relative" onToggle={event => {
       if (event.target === event.currentTarget && event.currentTarget.open) searchInput.current?.focus()
     }} onKeyDown={event => {
@@ -146,7 +146,7 @@ export function VisibilityScopePicker({ options: suppliedOptions, selected, onSe
       <div className="visibility-scope-menu">
         {current || allProperties ? <div className="mb-2 border-b border-default pb-2">
           <button type="button" className={ROW} aria-label={`Back to ${parent?.label ?? 'all groups'}`} onClick={() => { setPath(path.slice(0, -1)); setAllProperties(false); setSearch(''); searchInput.current?.focus() }}><span className="flex items-center gap-1"><ChevronLeft size={16} aria-hidden="true" />{parent?.label ?? 'All groups'}</span></button>
-          <p className="px-2 py-1 text-sm font-medium text-heading" aria-live="polite">{current?.label ?? 'All properties'}</p>
+          <p className="px-2 py-1 text-copy-14-strong text-heading" aria-live="polite">{current?.label ?? 'All properties'}</p>
         </div> : null}
         <input ref={searchInput} type="search" aria-label="Search scopes" className={CONTROL} placeholder={current ? 'Search within this group' : allProperties ? 'Search properties' : 'Search groups or properties'} value={search} onChange={event => setSearch(event.target.value)} />
         <div className="mt-2 max-h-80 overflow-y-auto">
@@ -156,7 +156,7 @@ export function VisibilityScopePicker({ options: suppliedOptions, selected, onSe
           {query ? section('Properties', visibleProperties) : disclosure(current && visibleGroups.length > 0 ? 'All properties' : 'Properties', visibleProperties, !current || visibleGroups.length === 0)}
           {section('Markets', markets)}
           {!current && !allProperties && !query && groups.length > 0 && properties.length > 0 ? <button type="button" className={`${ROW} mt-2 border-t border-default`} aria-label={MARKET_SCOPE_COPY.browseAll} onClick={() => { setAllProperties(true); searchInput.current?.focus() }}><span>All properties</span><ChevronRight size={18} aria-hidden="true" /></button> : null}
-          {query && visibleGroups.length + visibleProperties.length + markets.length + projects.length === 0 ? <p className="py-3 text-sm text-secondary">No matching scopes.</p> : null}
+          {query && visibleGroups.length + visibleProperties.length + markets.length + projects.length === 0 ? <p className="py-3 text-copy-14 text-secondary">No matching scopes.</p> : null}
         </div>
       </div>
     </details>

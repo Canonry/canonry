@@ -27,7 +27,7 @@ project pins + frozen market competitors + stored classifications
 - `basis` is `tracked` when any pin is configured. Only pins enter that denominator. Observed rows remain visible with null shares. Without pins, `basis` is `observed` if the selected history contains classified competitor evidence; otherwise it is null.
 - Observed comparisons require at least **3 direct competitors, each mentioned in at least 3 distinct answers**. Each candidate must meet the answer floor before entering the denominator. This publication floor rejects a lone alternative and one-answer lists; it is not a statistical confidence claim. Evaluate it separately after class, market, provider, model, location, run, and window filters, before display caps.
 - `availability` is `measured` or `not-measured`, with a machine-readable `reason`. No comparison set, an unsplit class, insufficient observed evidence, no answers, and no brand mentions all produce null percentages. Failed reads remain HTTP errors and render as `unavailable`.
-- `comparison` publishes the complete selected domain/count set even when display rows are capped. `evidence.mentionCredits` is the project count plus that set's mention counts. CLI, dashboard, and reports label each percentage with its basis and query class.
+- `comparison` publishes the complete selected domain/count set even when display rows are capped. `evidence.mentionCredits` is the project count plus that set's mention counts. CLI and dashboard label each percentage with its basis and query class. Include both labels when preparing a report from these reads.
 - `observedNames` lists raw provider recommendations and answer counts, including unknown names and platforms. They are observations, never rate inputs. Only stored direct-competitor classifications and frozen identities supply candidates. The shared exact brand matcher recounts their presence from answer text. Domain normalization deduplicates identities, and repeated names or domain aliases within an answer earn one credit. No suffix-stripping, fuzzy identity guesses, new classification calls, or provider requests occur during the read.
 - Share of voice needs one query class behind it. `queryClass=all`, and omitting the parameter, pool branded and non-brand queries, and a brand wins its own branded queries by definition. Pooled readings return `shareOfVoice: null` on every row and publish the counts instead. Request `queryClass=branded` or `queryClass=non-brand` for a ratio. A project with no brand name or alias cannot split the classes, so a class-scoped read on one is refused rather than answered with an empty landscape.
 - Citation count is independent from mention count. Each answer gives a domain at most one citation credit.
@@ -53,13 +53,27 @@ Adding a Simple-project competitor changes the identity set used by the next rea
 
 This means a newly pinned brand can acquire historical mentions and citations when the old evidence contains a matching brand alias or domain. Evidence that was never captured cannot be reconstructed.
 
+Curated competitor aliases (`canonry competitor aliases`, `PUT /projects/{name}/competitors/{domain}/aliases`, or `{ domain, aliases }` in a config spec) work the same way: a Simple pin matches its domain label (4 or more letters or digits), its written host, and its curated aliases (3 or more letters or digits) against stored answer text at read time, so setting "TuneSpoke" on `spoketuneworks.example` re-credits the selected history immediately. The generated domain label stays the display label; aliases are never generated from it.
+
+Answer-derived auto aliases (`autoAliases`) are matched the same way. Canonry detects them from the project's own stored answers, never from a competitor's website. The local server queues a detection pass after every completed or partial sweep (probes excluded), when a competitor is added (REST, apply or discovery promote), when a name is unblocked and when a market pin write changes the pins; a curated alias edit, a competitor removal, a block and a project edit queue none. What it does follows the project's `competitorAutoAliases` setting: `preview`, the default for every project, scores the answers and logs what it would add or remove but stores nothing; `apply` stores the names; `off` skips the pass. `canonry competitor aliases detect <project> --apply` stores one pass in any mode. Switching to `preview` or `off` never deletes names already stored.
+
+A name is applied only when the answers tie it to the competitor's site (a provider citation anchoring the name to a page on the domain, a named link, or `Name (domain)`) in at least 2 answers from 2 sweeps, at least 3 answers name it, at least 10% of those cite the site, the site is cited at least 3 times as often when the name appears as when it does not (lift), at least 75% of them write it capitalized as a name, it reads as a business name of at least 4 letters or digits and is not written as a place ("Larkfield, CO", "Oakvale County", "Metro Larkfield", "West LA"), this competitor holds at least twice the pairings of any other tracked competitor in the answers that measure it, and the name visibly belongs to the domain. That tie holds when consecutive words of the name spell the domain label ("Spoke Garage Bikes" for `spokegarage.example`); when a name of two or more words opens the label whole, at its start or right after a lead word such as "my", "the", "get" or "try", and covers at least half of it ("SpokeIQ" for `myspokeiq.example`); when two or more of its words sit back to back in the label from that opening and cover at least half of it, one of them 4 or more letters long and inside fewer than two tracked identity labels (the project's and every competitor's), so a shared industry word such as "roofing" proves nothing ("TuneSpoke" for `spoketuneworks.example`); or when a name of two or more words is an in-order abbreviation of the label that opens like it, with the same first 4 letters or a first word of 3 or more letters the label starts with ("FoamSeal" for `foamandsealworks.example`). One shared word is not enough unless it is the whole label, because a city or a neighbouring business often shares one word with it. An answer counts as naming a candidate only outside the competitor's longer names (its domain label, curated aliases and longer stored names, and for a competitor only a market pins, its plan label and aliases), so "Lark Bay" gets no credit from answers that write only "Lark Bay Suites". New names fill the 10-name cap strongest evidence first, and a name built on an accepted shorter one is dropped. A name that passes everything except the tie to the domain, or that has only 3 letters, is listed for review and never applied. Review names are checked at the 3-character floor against the project's names and hosts, other competitors' domain labels, hosts and curated aliases, market pins of another domain, blocks, and the competitor's own names and planned auto names. Unlike applied names, they are not checked against other competitors' auto-detected names, so a name another competitor already stores can still be listed.
+
+A stored name stays until it is blocked; claimed by identity (the competitor's own curated aliases or domain label already cover it, or it overlaps the project's names or hosts, another competitor's domain label, host or curated alias, a market pin of another domain, or, after an identity change, another competitor's stored auto name that resolves first (tracked competitors before market-only ones, each in domain order)); replaced by an accepted shorter name it is built on; or contradicted by the scanned answers: named in 3 or more with precision under 5%, lift under 1.5 or name casing under half, another tracked competitor now pairing it in at least 2 answers and at least twice as often as this one, or no tie to the domain label left. The dashboard labels these names "auto"; `canonry competitor aliases <project> <domain> --block <name>` removes one and keeps it out, also after the competitor is removed and added again. Curated aliases always win a conflict, and so do the plan label and aliases a market pin gives a competitor, in the active revision, a pending draft, or an earlier revision the project's runs were measured under. The names of a competitor's own active or draft pin already cover a new name built on them ("Velo Hub Springfield" under the pin "Velo Hub"), so detection does not learn it, and a name that pin carries cannot be blocked, because the pin keeps counting it. A competitor an Advanced market pins without being a project competitor is detected from that market's answers only; its plan label and aliases are its curated names, and its learned names apply wherever a run's plan revision pins it (including runs measured before a newer revision dropped the pin), never in other markets and never as a project pin. A names change does not break the AI Visibility comparison with the previous sweep, but it restates the competitor counts of every period (see `competitorIdentityChangedAt` below).
+
 ## Simple and Advanced Measurement
 
 | Surface | Pin source | Historical scope | Write behavior |
 | --- | --- | --- | --- |
-| Simple | Project competitors | Project answer-visibility snapshots | `competitor add/remove` updates the project pin set. |
-| Advanced market | Project pins plus that market's frozen competitors | Usage edges and query classes frozen into each contributing run revision | A pin updates a draft. A published draft becomes active measurement configuration. |
+| Simple | Project competitors (with curated and auto-detected aliases) | Project answer-visibility snapshots | `competitor add/remove` updates the project pin set; `competitor aliases` updates the names a pin matches. |
+| Advanced market | Project pins plus that market's frozen competitors, with names learned for a market-only competitor | Usage edges and query classes frozen into each contributing run revision | A pin updates a draft. A pin by domain alone copies a tracked competitor's curated aliases only. Its auto-detected names, and a market-only competitor's learned names, are layered onto the pin when answers are read, never frozen into a revision, so a later block can still take them back. A pin's names and a tracked competitor's names never overlap, in either direction, so one answer never counts for both; that includes the pins of an earlier revision the project's runs were measured under, since those runs are still scored with them, and a learned name is dropped rather than overlap any pin of another domain. A pin on a tracked competitor's host, or under it, is that competitor and counts once. A published draft becomes active measurement configuration. |
 | Advanced all markets | Union of project pins and every market's identities | Raw in-scope evidence across all markets | Read-only because there is no single target market. Percentages are recomputed from raw evidence, never averaged from market percentages. |
+
+Every landscape response carries `competitorIdentityChangedAt`: the newest change to the names any pin matches by (null if never). That is a change to a tracked competitor's curated or stored auto-detected names (a block counts only when it removes a stored name; an unblock only when it releases a learned market name); a detection pass that stores or removes a market-only competitor's learned names; a write that claims, releases or drops a market-only competitor's learned names (a project edit, an apply, a competitor add, alias edit, block, unblock or removal, a discovery promote, or a market pin write; all from the audit trail); and a published revision that renames a market pin the previous revision already had (from the revisions themselves). Adding or removing a competitor or a pin is a names change only when it moves a stored or learned name. Because the landscape matches by the names the project has now, that change restated every period, including ones already reported; a figure quoted before that time may differ from the same period read after it. Project-frame `visibility-compare` and the analytics metrics carry the same field, but their share of voice and mention share read only tracked competitors' names, so a pin or learned-name change moves the time without changing those figures. A scoped `visibility-compare` (a group, market or property scope, or a `marketKey`) reads frozen plan history and has no such field.
+
+Every landscape, project-frame comparison, and analytics metrics response also carries `competitorSetChangedAt`, the newest non-empty tracked competitor add, removal, replacement, or discovery promotion. Older replacement audit rows without `added` and `removed` arrays count conservatively. An identical replacement carries empty arrays and does not move the marker. Landscape responses include the optional server-computed `competitorListRestated` flag. It is true only when either change marker is newer than the oldest counted run after every requested window, run, provider, model, group, location, query-class, and probe filter has been applied. The CLI uses this exact flag and makes no second run-list request. The field is absent on scoped comparisons, which read frozen plan history. The human CLI prints `Competitor list changed <timestamp>: earlier periods were restated` when the flag is true.
+
+The tracked set marker covers the project tracked competitor set and its audit history. Changes to an Advanced market's frozen pin set are excluded because those changes belong to the market revision boundary. Deleting and later re-adding a domain creates a new set change; the marker has no historical backfill and its interpretation after that reset follows the stored audit history.
 
 Draft-only market pins appear in `marketState.draft.pendingCompetitorDomains`.
 Project pins and active or pending-draft market competitors express current operator intent. They reinterpret selected stored history.
@@ -84,14 +98,25 @@ GET /api/v1/projects/{name}/analytics/competitors
 ```
 
 `groupKey` and `scope=all-markets` are mutually exclusive. An Advanced scope requires an active version 2 measurement plan.
+For a competitive percentage, explicitly select `queryClass=non-brand`, CLI `--query-class non-brand`, or MCP `queryClass: "non-brand"`. The default is `all`, which returns pooled counts and null shares.
 
 ```bash
-canonry competitor landscape <project> --window 30d
-canonry competitor landscape <project> --group-key north
-canonry competitor landscape <project> --scope all-markets --format json
+canonry competitor landscape <project> --window 30d --query-class non-brand
+canonry competitor landscape <project> --group-key north --query-class non-brand
+canonry competitor landscape <project> --scope all-markets --query-class non-brand --format json
 ```
 
 The read-only MCP equivalent is `canonry_competitor_landscape`. Advanced market pinning uses the revision-guarded draft action endpoint. MCP agents can use the generic measurement-draft action workflow.
+
+## Stored competitor suggestions
+
+`GET /api/v1/projects/{name}/competitor-suggestions` ranks possible direct competitors from stored answer text and source lists. It defaults to the 30-day window, a three-answer naming floor, and non-brand queries when the project has a usable brand identity. A Simple project without a usable brand alias falls back to `queryClass=all`; an explicit branded or non-brand filter then returns a validation error. Advanced projects default to all markets and use frozen assignment classes, including when the project has no usable brand alias. `groupKey` selects one market.
+
+```bash
+canonry competitor suggest <project> --window 30d --min-answers 3 --query-class non-brand --format json
+```
+
+The result keeps naming and citation counts separate, pairs a name with a domain only through the canonical answer matcher and stored answer anchors, excludes cited-only domains, own sites, listing and marketplace surfaces, probes, and failed runs, and includes at most three sample URLs per candidate. `candidates[].status` is `suggested`, `tracked`, or `excluded`; `reason` explains an excluded candidate. `evidence`, `runIds`, `countUnits`, and `truncated` describe the denominator. This read performs no provider, classifier, discovery, or write operation. The exact read refuses with `VALIDATION_ERROR` when the eligible population exceeds 10,000 answer rows instead of sampling; narrow `--window` or use `--group-key` for one Advanced market. The MCP equivalent is `canonry_competitors_suggest`.
 
 ## Optional model comparison for agents
 
@@ -126,10 +151,10 @@ Existing query-class, location, run, and window filters still apply. Advanced re
 The feature does not create model-specific pins or change sweep selection.
 
 ```bash
-canonry competitor landscape <project> --by-model --format json
-canonry competitor landscape <project> --by-model --provider gemini --model gemini-3-flash-preview --window 30d
+canonry competitor landscape <project> --by-model --query-class non-brand --format json
+canonry competitor landscape <project> --by-model --provider gemini --model gemini-3-flash-preview --window 30d --query-class non-brand
 canonry competitor landscape <project> --group-key north --by-model --query-class non-brand --format jsonl
-canonry competitor landscape <project> --scope all-markets --by-model --provider openai --format json
+canonry competitor landscape <project> --scope all-markets --by-model --provider openai --query-class non-brand --format json
 ```
 
 The CLI maps `--by-model` to `groupBy=model`. Text output shows each group with separate requested and served identities, counts, and share of voice.
@@ -160,10 +185,20 @@ The web table displays stored sample URLs for the selected window. It does not l
 
 ## Shared readers
 
-`visibility-stats --share-of-voice` and both report renderers use this same
-landscape reader and comparison policy. Their existing run windows still apply.
-Simple visibility stats retain the current tracked-query basket. Advanced
-portfolio stats and reports select all markets through frozen execution/Target
-assignments, retaining their query classes even when query text suggests another
-class. Reports publish non-brand and branded shares separately. Overview and
-trend mention-share instruments retain their explicitly tracked comparison sets.
+`visibility-stats --share-of-voice` uses this landscape reader and comparison policy. Its existing run windows still apply. Simple visibility stats retain the current tracked-query basket. Advanced portfolio stats select all markets through frozen execution/Target assignments. Their query classes remain fixed even when query text suggests another class. Branded and non-brand shares retain separate denominators. Overview and trend mention-share instruments retain their explicitly tracked comparison sets.
+
+## Previewing competitor changes
+
+`POST /api/v1/projects/{name}/competitor-changes/preview` uses this landscape
+reader for both stored identity and a proposed add, remove, replacement or alias
+change. It selects the latest eligible sweep, non-brand answers (pooled only
+when a Simple project has no usable brand), and all Advanced markets. The
+response names the run IDs, counts and competitor basis alongside percentages.
+Learned market names are recalculated against the hypothetical identity, just
+as they are after a real write. Nothing is persisted by the preview.
+
+The estimate is for one stored sweep; the eventual identity change restates
+all stored periods. Automatic alias detection can move an apply-mode add again.
+This instrument can differ from the overview card's population. Block/unblock,
+market pins, project identity edits, apply and discovery promotion are outside
+this preview endpoint.

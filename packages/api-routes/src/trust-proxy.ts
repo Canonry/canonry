@@ -16,6 +16,7 @@
  *      budget keyed on it would punish everybody for one attacker.
  */
 import type { FastifyRequest } from 'fastify'
+import { validationError } from '@canonry/canonry-contracts'
 
 /**
  * Parse the operator's trust setting into what Fastify wants.
@@ -26,10 +27,10 @@ import type { FastifyRequest } from 'fastify'
  *   - `true` → trust every hop. Correct ONLY when the server is unreachable
  *     except through the proxy, because anyone who can reach it directly can
  *     otherwise forge the header.
- *   - a number → trust that many hops closest to this server
+ *   - positive hop counts are rejected: they cannot validate the proxy peer
  *   - a comma-separated list of addresses/CIDRs → trust exactly those
  */
-export function resolveTrustProxy(raw: string | undefined): boolean | number | string[] {
+export function resolveTrustProxy(raw: string | undefined): boolean | string[] {
   const value = raw?.trim()
   if (!value) return false
 
@@ -37,7 +38,9 @@ export function resolveTrustProxy(raw: string | undefined): boolean | number | s
   if (lowered === 'false' || lowered === '0' || lowered === 'no') return false
   if (lowered === 'true' || lowered === 'yes') return true
 
-  if (/^\d+$/.test(value)) return Number(value)
+  if (/^\d+$/.test(value)) {
+    throw validationError('CANONRY_TRUST_PROXY no longer accepts hop counts. Use a comma-separated list of trusted proxy addresses or CIDRs instead.')
+  }
 
   const hops = value.split(',').map(part => part.trim()).filter(Boolean)
   return hops.length > 0 ? hops : false
@@ -48,6 +51,24 @@ const FORWARDED_HEADERS = ['x-forwarded-for', 'forwarded', 'x-real-ip'] as const
 
 export function hasForwardedHeaders(request: FastifyRequest): boolean {
   return FORWARDED_HEADERS.some(header => request.headers[header] !== undefined)
+}
+
+/**
+ * Headers that a proxy, tunnel, or CDN adds besides the client-address headers
+ * above: any `X-Forwarded-*` header (the original host, scheme, port, prefix,
+ * or URI), a `Via` hop, or a CDN's client address. A proxy that sends only one
+ * of these still put itself in the path. None of them names the caller Fastify
+ * resolves, so `resolveCallerKey` does not read them.
+ */
+const PROXY_PATH_HEADERS = ['via', 'cf-connecting-ip', 'true-client-ip'] as const
+const FORWARDED_HEADER_PREFIX = 'x-forwarded-'
+
+/** Whether any header a proxy, tunnel, or CDN adds is present. */
+export function hasProxyHeaders(request: FastifyRequest): boolean {
+  return hasForwardedHeaders(request)
+    || PROXY_PATH_HEADERS.some(header => request.headers[header] !== undefined)
+    // Node lowercases incoming header names.
+    || Object.keys(request.headers).some(header => header.startsWith(FORWARDED_HEADER_PREFIX))
 }
 
 /**

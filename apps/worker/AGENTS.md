@@ -10,7 +10,6 @@ Cloud background worker. Processes jobs from a queue (pg-boss) — visibility sw
 |------|------|
 | `src/index.ts` | Entry point — connects to job queue and starts processing |
 | `src/health-server.ts` | HTTP health check endpoint for container orchestration |
-| `src/audit-client.ts` | Audit log client for cloud worker context |
 | `src/jobs/` | Job handler implementations |
 
 ## Patterns
@@ -19,6 +18,7 @@ Cloud background worker. Processes jobs from a queue (pg-boss) — visibility sw
 - Each job type has a handler in `src/jobs/`.
 - The health server exposes a `/health` endpoint for liveness probes.
 - Local equivalent is `packages/canonry/src/job-runner.ts` (in-process, no queue).
+- Audit execution belongs to `packages/canonry`; this worker does not depend on the audit engine.
 
 ## See Also
 

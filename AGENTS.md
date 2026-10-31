@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-`canonry` is an **agent-first** open-source AEO operating platform that tracks how AI answer engines cite a domain for tracked queries and acts on the signal through the content engine and integrations. Published as `@canonry/canonry` on npm, with `@ainyc/canonry` kept as a compatibility package at the same versions. The CLI and API are the primary interfaces — the web dashboard is supplementary.
+`canonry` is an **agent-first** open-source AEO operating platform that tracks how AI answer engines cite a domain for tracked queries and acts on the signal through the content engine and integrations. Published exclusively as `@canonry/canonry` on npm. The CLI and API are the primary interfaces — the web dashboard is supplementary.
 
 It ships a built-in analyst agent, Aero (`packages/canonry/src/agent/`), and a stdio MCP adapter, `canonry-mcp` (`packages/canonry/src/mcp/`).
 
@@ -39,6 +39,18 @@ docs/                     Architecture, data model, setup guides, testing
 
 Key types, scope gates, read-only keys, `keys.write`, and what a multi-tenant migration would cost: `packages/api-routes/AGENTS.md` → "Deployment posture and key authority".
 
+## Local validation and merging (Critical)
+
+- During local iteration, do not run tests, test watchers, or `pnpm verify`. Run tests only after changes are finalized and ready for push or review.
+- At final validation, run `pnpm check`, affected package **tests, typechecks, and type-aware lint**. Include dependent packages for shared runtime, contract, dependency, DB, or auth changes. Reuse passing results while their inputs remain unchanged. For owner changes, `pnpm verify` is optional locally, not a per-push requirement.
+- Before opening an outside code PR (including drafts), run `pnpm check` and `pnpm verify`. Follow [CONTRIBUTING.md](CONTRIBUTING.md#before-submitting-a-pr) and the [PR template](.github/pull_request_template.md): 1–3 summary bullets, security review, styling checks, and exact-head results. Missing or failed required checks block submission without an explicit maintainer exception.
+- Build and smoke affected CLI/API/MCP/UI surfaces; smoke installed tarballs for packaging changes. Check SDK/plugin/Val drift; fix its source.
+- Fetch and integrate the latest target, resolve conflicts, and review the full PR diff. At final validation, rerun only checks whose inputs changed. Recheck release versions against the target tip and npm.
+- After pushing, match the tested SHA to the remote branch and PR head; require GitHub `MERGEABLE` before handoff or merge. Report commands, results, SHA, and blockers; failed or unrun required checks block readiness. Skipped owner CI proves nothing.
+- Outside work runs full CI; `arberx` validation is local. All releases stay enabled. Hooks remain staged lint and drift only. Docs/config: diff/live checks; no new tests needed.
+- Vals remain manual; see [Val kit rules](packages/val-kit/AGENTS.md).
+- Merge traps and commands: [Testing Guide](docs/testing.md#before-merging).
+
 ## Commands
 
 ```bash
@@ -46,11 +58,12 @@ Key types, scope gates, read-only keys, `keys.write`, and what a multi-tenant mi
 pnpm install
 pnpm check                      # fast lint of staged, unstaged, and untracked JS/TS files
 pnpm lint:staged                # fast lint of the exact staged JS/TS content
-pnpm verify                     # optional full check: drift checks + all workspace checks
+pnpm verify                     # full check; required before outside code PRs
 pnpm build:cli                  # CLI/server bundle only; skips the dashboard
 pnpm build:web                  # build or reuse dashboard output and copy changed assets
 pnpm build                      # complete publishable package
 pnpm run typecheck && pnpm run test && pnpm run lint
+pnpm typecheck:tsc              # typecheck with TypeScript's own tsc instead of tsrs (docs/testing.md)
 pnpm gen                        # regenerate the API client after changing openapi.ts
 pnpm plugin:sync                # refresh plugin skill mirrors + portable/client manifest versions
 pnpm plugin:check               # fail on plugin spec, skill, or version drift (CI gate)
@@ -88,7 +101,7 @@ When proposing work, requesting feedback, or showcasing changes:
   shared host kit. Every other package is internal and bundled via tsup.
 - `packages/val-kit/` must stay runtime-neutral (web standards + Deno-compatible): it is consumed by the Val Town Vals,
   not by the Node server, so it must not import `packages/canonry/`, `packages/db/`, or anything Node-only.
-- All internal packages use `@ainyc/canonry-*` naming convention.
+- All internal packages use `@canonry/canonry-*` naming convention.
 - Keep environment parsing in `packages/config`, provider logic in `packages/provider-*/`, and route plugins in `packages/api-routes` (no app-level concerns; thin handlers).
 - Keep the canonry app independent from the audit package repo except for the published npm dependency.
 - Store raw observation snapshots only (`cited` / `not-cited`); compute transitions at query time.
@@ -108,31 +121,32 @@ Every (query × provider) snapshot carries two independent signals — a model c
 4. When you mean both, say "citation + mention coverage" or "visibility (cited or mentioned)" and disambiguate immediately.
 5. Public API field names use this vocabulary from the start; a rename needs a version bump.
 6. Render both signals in CLI/UI snapshot output: a two-glyph cell (`C/c` cited or not, `M/m` mentioned or not, `–` missing) with the legend above the table, as `canonry citations` and `canonry run` do.
-7. `canonry-vocabulary/no-banned-metric-literal` bans conflating literals (`'answerRate'`, `'visibility run'`, `'paid mentions'`, …) in the CLI, api-routes, and web trees; the list is in `eslint.config.js`. Bare `'visible'` stays legal (DOM, legacy enum) — review owns it.
+7. `canonry-vocabulary/no-banned-metric-literal` bans conflating literals (`'answerRate'`, `'visibility run'`, `'paid mentions'`, …) in the CLI, api-routes, and web trees; the list is in `eslint-rules/canonry-vocabulary.js`. Bare `'visible'` stays legal (DOM, legacy enum) — review owns it.
 
 ### Branded vs non-brand (Critical)
 
-**Branded and non-brand queries never share a denominator.** A branded query names the project, so the model was handed the answer; pooling lets brand recall outvote the category and can invert a ranking (measured on a real basket: pooled ranked the subject FIRST at 42%, non-brand ranked it LAST at 3%).
+**Branded and non-brand queries never share a denominator, except the API's compatibility `overall` sentiment headline (rule 7).** A branded query names the project, so the model was handed the answer; pooling lets brand recall outvote the category and can invert a ranking (measured on a real basket: pooled ranked the subject FIRST at 42%, non-brand ranked it LAST at 3%).
 
-1. Competitive metrics default to non-brand: Mention Share (card, breakdown chart, trend buckets), `visibility-stats --share-of-voice`, `visibility-compare`, and the report's mention landscape.
+1. Mention Share (card, breakdown chart, trend buckets), `visibility-stats --share-of-voice`, and `visibility-compare` default to non-brand. Historical competitor landscapes require explicit `queryClass=non-brand` (`--query-class non-brand`) for competitive percentages; omitted class or `all` returns pooled counts with null shares.
 2. Branded stays visible as a sibling field (`branded`) with its own labelled section and denominator — never dropped, never pooled.
 3. The class travels with the number: `scope` / `queryClass` on the wire; "· non-brand queries" in the delta, chart title, column header, and CLI line. A GROUP of figures sitting directly under a heading that names the class may rely on that heading for the visible label (the dashboard's AI Visibility headline strip names the class once in its `h2`), but each figure still carries the class in its own accessible text via an `sr-only` suffix beside the value. A reader who sees only the number, or hears only the figure, must still be able to tell which instrument produced it.
 4. `pooled` appears only when the project has no usable brand alias. Never label an unsplit figure `non-brand`, and never silently classify an unclassifiable basket.
-5. One classifier: `compileQueryClassifier` (`packages/contracts/src/query-class.ts`) runs `effectiveBrandNames` through the shared brand matcher; `queryClassSchema` IS `measurementQueryClassSchema`. No hand-rolled regex, no second enum.
+5. One classifier: `compileQueryClassifier` (`packages/contracts/src/query-class.ts`) runs `effectiveBrandNames` through the shared brand matcher; `queryClassSchema` IS `measurementQueryClassSchema`. No hand-rolled regex, no second enum (`canonry-guards/no-second-query-classifier`). Surfaces show the server's `queryClass` (`canonry query list`).
 6. `competitorOverlap` is legacy MIXED evidence (answer text, source links, or both). Citation metrics use `citedDomains` plus grounding-source hosts; mention metrics use answer text with the shared matcher.
+7. Sentiment is a branded figure: a non-brand answer almost always names the brand to recommend it, so its favorable share says little. The portfolio overview shows the server's `sentiment.branded`, or no metric when no branded judgment exists. `overall` (`queryClass = 'all'`, computed server-side from distinct answer-subject assessments, never averaged class rates) stays in the API for compatibility and is not shown on the dashboard or the human CLI overview. The dashboard shows non-brand sentiment only as its unfavorable and mixed answers (exceptions), never a favorable share; the detailed `canonry sentiment --query-class non-brand` read keeps the class's full counts. Preserve both class summaries in the API; competitive metrics remain separate.
 
 ### Query vs question
 
 The tracked thing (`canonry query add`, the `queries` / `query_snapshots` tables, `queryText` / `queryId` / `queryClass` on the wire) is a **query**.
 
-1. Human-facing copy says `query`: UI labels, headings, tooltips, `aria-label`, placeholders, CLI output, and both report renderers — with correct agreement ("Assign at least one query", "3 query assignments").
+1. Human-facing copy says `query`: UI labels, headings, tooltips, `aria-label`, placeholders, CLI output, and exported output — with correct agreement ("Assign at least one query", "3 query assignments").
 2. The frozen wire names stay: routes `/measurement-property-questions` and `/measurement-question-result`, MCP tools `canonry_measurement_property_questions` and `canonry_measurement_question_result`, and every SDK symbol, field, prop, and file built on them. The copy/wire mismatch is deliberate.
 3. Discovery's generative framing ("questions your customers might ask") is a real-world noun; once a candidate is promoted into the basket it is a query.
 4. `canonry-vocabulary/no-question-ui-copy` enforces this in `apps/web/src`. Machine tokens (no whitespace, e.g. `property-questions`) and `className` / `id` / `aria-labelledby` values are exempt; only two files are excluded, permanently: `DiscoverySection.tsx` (rule 3's framing can't be separated by regex) and `mock-data.ts` (test fixture).
 
 ## Enum Constants (Critical)
 
-Never compare domain values as raw string literals: write `kind === RunKinds['answer-visibility']`, not `kind === 'answer-visibility'`. The constant objects (`RunKinds`, `RunStatuses`, `RunTriggers`, `CitationStates`, `VisibilityStates`, `ComputedTransitions`) come from `packages/contracts/src/run.ts` via `@ainyc/canonry-contracts`.
+Never compare domain values as raw string literals: write `kind === RunKinds['answer-visibility']`, not `kind === 'answer-visibility'`. The constant objects (`RunKinds`, `RunStatuses`, `RunTriggers`, `CitationStates`, `VisibilityStates`, `ComputedTransitions`) come from `packages/contracts/src/run.ts` via `@canonry/canonry-contracts`.
 
 1. Type parameters with the union type (`kind: RunKind`, not `string`).
 2. Use exhaustive switches with no `default`, or `default: { const _exhaustive: never = value }`.
@@ -162,24 +176,11 @@ Every derived number — percentage, trend, score, rank, bucket, residual, roll-
 4. The canonical calculation lives and is tested in the API/shared layer; UI tests check the UI renders API values without recomputing.
 5. Test the machine-readable contract (CLI JSON, reports, MCP/API) as well as any display string.
 
-### Report parity (Critical)
-
-The downloadable HTML report (`packages/api-routes/src/report-renderer.ts`, `canonry report`, `GET /report.html`) and the in-app report (`apps/web/src/pages/ReportPage.tsx`) are two renderers of one `ProjectReportDto` — clients and agencies see one report.
-
-1. Any change to one lands in the other in the same change.
-2. Per audience (`client` / `agency`), both render the same ordered sections with the same eyebrows, titles, and subtitles.
-3. Tile labels, headlines, action-card copy, evidence-card titles, and chart axis labels match verbatim.
-4. Every SPA chart, progress bar, hero block, and badge has an HTML equivalent (inline SVG, CSS, or table).
-5. Update `packages/api-routes/test/report-renderer.test.ts` when client/agency copy or structure changes, and check the SPA visually.
-6. Copy both renderers show lives in shared modules: `packages/contracts/src/report-sections.ts` (`REPORT_SECTION_COPY` plus copy functions such as `reportExecutiveHeadline` and `reportServerActivityHeading`) for section copy, `report-visibility.ts` for the visibility summary, and `share-of-voice.ts` for share of voice. Both renderers read all three; never write report copy inline in either one.
-7. `renderReportHtml` assembles its own ordered section list in `report-renderer.ts`, and `reportSectionOrder(report, audience)` encodes that same order for the SPA, which renders it through an exhaustive switch over `ReportSectionIds`. `report-renderer-bytes.test.ts` (`ORDER_CASES` / `ORDER_MATRIX`) asserts the two agree, so adding, removing or re-conditioning a section means editing both in the same commit.
-8. `packages/api-routes/test/report-renderer-bytes.test.ts` pins the HTML bytes and writes the outline goldens in `packages/api-routes/test/fixtures/report-outline/`. `apps/web/test/report-page.test.tsx` holds the SPA to them, whole and for both audiences, through its `data-report-*` hooks, and `apps/web/test/report-agency-*.test.tsx` pin the per-section values, rows, badges and tones an outline does not record. Only the api-routes suite regenerates the goldens, and never to make a failing test pass.
-
 ### Agent & automation design principles
 
 The CLI and API **are** the agent interface. If an agent can't do something with `canonry <command> --format json` or an HTTP call, it's a bug.
 
-1. **No interactive prompts.** Everything works through flags, env vars, or `config.yaml`; `node:readline` is ESLint-banned in command files. Only `canonry init` may prompt, and all its values are also flags.
+1. **No interactive prompts.** Everything works through flags, env vars, or `config.yaml`; `node:readline` is lint-banned in command files. Only `canonry init` may prompt, and all its values are also flags.
 2. **JSON everywhere.** `--format json` goes to stdout; errors go to stderr as `{ "error": { "code": "...", "message": "..." } }` with a code from `CliError`.
 3. **Idempotent writes**, with `canonry apply` as the model. Creating POSTs (runs) return a stable identifier and handle conflicts (e.g. `runInProgress` with the existing run id).
 4. **Single-call reads.** If a common question needs two calls, add a composite endpoint (`/projects/:name/runs/latest`, `/projects/:name/search?q=`).
@@ -217,7 +218,7 @@ Fit trends and other statistics server-side (`linearTrend`, `wilsonInterval`) an
 
 Each rule is detailed in the linked file. The one-liners live here because these have caused real bugs.
 
-- **API errors.** Throw `AppError` factories from `@ainyc/canonry-contracts` (`notFound()`, `validationError()`, …) and let the global handler serialize them; never catch-and-reply or hand-build an `{ error }` envelope. → `packages/api-routes/AGENTS.md` "Error handling"
+- **API errors.** Throw `AppError` factories from `@canonry/canonry-contracts` (`notFound()`, `validationError()`, …) and let the global handler serialize them; never catch-and-reply or hand-build an `{ error }` envelope. → `packages/api-routes/AGENTS.md` "Error handling"
 - **Schema changes.** Every new table or column in `packages/db/src/schema.ts` needs a new `MIGRATION_VERSIONS` entry in `migrate.ts`; never edit `MIGRATION_SQL` or a shipped version. → `packages/db/AGENTS.md`
 - **JSON / boolean columns.** `projects` uses Drizzle's native modes (direct access); other tables still need `parseJsonColumn<T>()` and manual boolean coercion. → `packages/db/AGENTS.md`
 - **Transactions and counters.** Wrap multi-table writes in one `db.transaction()` (async I/O before it, the audit log inside it, callbacks after commit). Increment counters with `INSERT … ON CONFLICT DO UPDATE`, never read-then-write. → `packages/db/AGENTS.md`
@@ -226,7 +227,7 @@ Each rule is detailed in the linked file. The one-liners live here because these
 
 ## Third-party HTTP calls (Critical)
 
-Every integration that calls a third party over HTTP must back off when that service pushes back. Wrap the package's HTTP layer in `withRetry` from `@ainyc/canonry-contracts` — one private `fetchOnce`, one exported wrapper (reference: `packages/integration-bing/src/bing-client.ts`) — and use `isRetryableHttpError` rather than a hand-written status check. `packages/contracts/test/integration-retry-coverage.test.ts` fails CI for a new HTTP-calling integration without it. Throttles that aren't HTTP 429, `Retry-After`, base-delay tuning, and testing both directions: `packages/contracts/AGENTS.md` → "Third-party HTTP calls".
+Every integration that calls a third party over HTTP must back off when that service pushes back. Wrap the package's HTTP layer in `withRetry` from `@canonry/canonry-contracts` — one private `fetchOnce`, one exported wrapper (reference: `packages/integration-bing/src/bing-client.ts`) — and use `isRetryableHttpError` rather than a hand-written status check. `packages/contracts/test/integration-retry-coverage.test.ts` fails CI for a new HTTP-calling integration without it. Throttles that aren't HTTP 429, `Retry-After`, base-delay tuning, and testing both directions: `packages/contracts/AGENTS.md` → "Third-party HTTP calls".
 
 ## Authentication Storage
 
@@ -259,45 +260,30 @@ Canonry can run behind a reverse proxy sub-path (e.g. `/canonry/`); code that ig
 
 ## Versioning
 
-**Bump the package version only for non-documentation changes of more than 100 changed lines** (features, bug fixes, refactors, dependency updates, and the tests that accompany them); documentation-only changes (README, `docs/`, `AGENTS.md`) and smaller changes don't bump. A bump updates the root `package.json` and `packages/canonry/package.json` together, in sync with the latest published `@canonry/canonry` (and the compatibility `@ainyc/canonry`). Use semver: patch for fixes, minor for features, major for breaking changes.
+**Bump the package version only for non-documentation changes of more than 100 changed lines** (features, bug fixes, refactors, dependency updates, and the tests that accompany them); documentation-only changes (README, `docs/`, `AGENTS.md`) and smaller changes don't bump. A bump updates the root `package.json` and `packages/canonry/package.json` together, in sync with the latest published `@canonry/canonry`. Use semver: patch for fixes, minor for features, major for breaking changes.
 
 - **Native-plugin exception:** any change shipped through `plugins/canonry/` or its canonical `skills/canonry/` / `skills/aero/` sources bumps Canonry, the portable manifest, and both client manifests even when the diff is small — clients use the manifest version to discover updates. `pnpm plugin:sync` copies the package version into all three manifests.
 
 ## Testing
 
+**Use the repository [test-audit skill](.agents/skills/test-audit/SKILL.md) whenever writing, changing, reviewing, running, or auditing tests.** Read it before selecting or editing tests. Apply its authoring gate to new or changed tests; for routine runs, check the affected tests' observable contract and credible failure mode without starting a full-suite audit. Follow its evidence and retention bars before removing coverage. Canonry validation commands and workflow details live in [docs/testing.md](docs/testing.md).
+
 **Every non-trivial change ships with tests** — features, bug fixes, and refactors. Typo, comment, and config-only changes are exempt. Vitest runs the workspace projects in `vitest.config.ts`; tests live in each package's `test/` directory.
 
 - Test the public API of each module, not internals. Cover the happy path plus meaningful edge cases (invalid input, env var overrides, error handling).
 - CLI tests capture stdout/stderr and assert on the output, not only side effects. File-system tests use `os.tmpdir()` and clean up in `afterEach`.
-- Run focused tests during development; CI runs the full suite. Hooks never run tests or builds.
+- Run tests only when changes are finalized and ready for push or review. Do not run tests during local iteration. Owner changes use affected checks. Outside code contributions require full workspace results before opening a PR and full CI afterward. Hooks never run tests or builds.
 - **Test boundary matchers with data as STORED, not idealized.** Check how a column is actually populated before matching on it (project upsert/apply store `canonicalDomain` raw — full URLs and mixed case included) and use the canonical helpers (`hostOf`, `normalizeQueryText`). A clean-fixture-only suite passes while production values miss the match.
 - **Test default-value propagation end-to-end.** When a stored default (e.g. a project's `defaultLocation`) feeds another feature (run creation), exercise the full path with no explicit override — not just "the default is stored" and "the consumer accepts a value".
 
 ## Code Comments
 
-- **Never use comments as a substitute for code.** `// else use project default` is a wish, not an implementation: a branch a comment describes must exist. ESLint's `no-warning-comments` flags `TODO` / `FIXME` / `HACK` so deferred work doesn't rot.
+- **Never use comments as a substitute for code.** `// else use project default` is a wish, not an implementation: a branch a comment describes must exist. The `no-warning-comments` lint rule flags `TODO` / `FIXME` / `HACK` so deferred work doesn't rot.
 - **No placeholder branches.** Write the code for a case that should do something; an intentional no-op gets an explicit empty block with a comment saying why (`// allLocations handled in the block below`).
 
 ## Lint Guards (Critical)
 
-Several rules in this file are true only because a lint guard enforces them — see `docs/GUARDS.md` for the full guard table and `Adding a guard` procedure. Every guard has its own rule id in `eslint.config.js`; **never add options to core `no-restricted-syntax`** (flat config last-wins override clobbers prior guards with no diagnostic — 4 dead guards found 2026-08-05). Key guards: `canonry-guards/no-raw-http-web` (apps/web → SDK), `canonry-guards/no-raw-http-cli` (canonry → ApiClient), `canonry-vocabulary/no-banned-metric-literal`, `design-tokens/no-literal-palette` — full list in `docs/GUARDS.md`.
-
-## CI Guidance
-
-- **CI owns full workspace validation** (typecheck, test, lint on PRs, explicit job permissions). Locally, run `pnpm check` plus the tests or package typechecks relevant to your change; run `pnpm verify` only when asked or reproducing a CI failure. After another edit or rebase, rerun only the affected checks. Report local results and CI status separately.
-- **Git hooks stay fast.** Commits lint staged JS/TS only (content caches shared across worktrees; `--no-cache` to diagnose) and never run tests, builds, or typechecks; documentation-only commits skip ESLint. ESLint config or rule changes trigger full type-aware lint, so code and config must match the index — don't hide staged errors with unstaged fixes. The commit-message hook checks Conventional Commits. Pre-push runs only `gen:check --committed`, `plugin:check`, and `val:skills:check`, and drift inputs must match each pushed commit.
-- **Build only the affected surface:** `pnpm build:cli` for CLI/server, `pnpm build:web` for the dashboard.
-- **Fix drift at its source** (`pnpm gen`, `pnpm plugin:sync`, `pnpm val:skills`), review the generated changes, and stage generated SDK changes before `gen:check`. Never weaken assertions to obtain a pass.
-- **Vals have no CI/CD** — manual validation, publish, and deploy order: `packages/val-kit/AGENTS.md`. **Adding a guard:** `docs/GUARDS.md`.
-
-### Landing a PR here (read before opening one)
-
-Four traps have cost real time here. CI validates the branch, and these are all about the branch's relationship to `main`, so a green run never reveals them.
-
-1. **The version race.** `publish.yml` releases only when `packages/canonry/package.json` differs from the *previous commit on main*. A PR bumping to a version `main` has since reached merges with no version change: npm and Homebrew are skipped while Docker still moves `latest` — a silent half-release. `plugin:check --base-ref` compares against the merge base, so it passes in exactly this case; the `version-guard` job (base-branch tip and npm) predicts the post-merge outcome. **Re-check the version right before you push**, not when you branch.
-2. **Stacked PRs after a squash merge.** `main` squashes, so a branch stacked on a merged parent still carries the parent's individual commits. GitHub retargets the base but does not rewrite history. Rebase with `git rebase --onto origin/main <old-base-tip> <branch>`.
-3. **Waiting for CI.** `gh pr checks` returns an EMPTY list between a push landing and the workflows queueing, so a "wait until nothing is pending" loop reports success against no checks. Require a non-empty list before believing a green result.
-4. **Auto-merge is disabled repo-wide**, so `gh pr merge --auto` is rejected and a green, approved PR still needs a manual merge.
+Several rules in this file are true only because a lint guard enforces them — see `docs/GUARDS.md` for the full guard table and `Adding a guard` procedure. Lint runs on oxlint: `.oxlintrc.json`, with the custom rules as JS plugins in `eslint-rules/`. Every guard has its own rule id; **never add options to core `no-restricted-syntax`** (overrides resolve rules last-wins, so a later block clobbers prior guards with no diagnostic — 4 dead guards found 2026-08-05). Key guards: `canonry-guards/no-raw-http-web` (apps/web → SDK), `canonry-guards/no-raw-http-cli` (canonry → ApiClient), `canonry-vocabulary/no-banned-metric-literal`, `design-tokens/no-literal-palette` — full list in `docs/GUARDS.md`.
 
 ## Keeping Documentation Current
 
@@ -307,4 +293,59 @@ Put a new rule in the `AGENTS.md` closest to the code it governs; add it here on
 
 `AGENTS.md` is the only agent-instruction file. Claude Code v2.1.277+ reads it directly, but only where no `CLAUDE.md`, `.claude/CLAUDE.md`, or `CLAUDE.local.md` is on the path, so never add one: it hides the `AGENTS.md` beside and below it. Claude Code sessions that cannot read `AGENTS.md` directly (before v2.1.277, on Bedrock / Vertex / Foundry, or with telemetry disabled) get no project instructions from this repo.
 
-**Documentation-only changes do not require a version bump.**
+## Carrick
+
+**If the answer is defined by another service — its endpoints, its real
+request/response types, who consumes it, or any local type, constant, or
+SDK helper that mirrors it — ask Carrick before you rely on anything
+local.** Local copies of another service's contract drift and lie; the
+producing service defines the contract, and if two definitions disagree,
+the producer's definition wins. Load the Carrick tools now so they are ready at that
+moment.
+
+**Read the file you are editing. For anything that lives elsewhere in
+the workspace (a helper, an endpoint, a consumer, a type), ask Carrick
+first, then grep to confirm a location.**
+Run `search_by_intent` before writing any helper, parser, validator, or
+domain function, even when you are sure it is new. Grep can prove a name
+is absent; it can never prove the behaviour is.
+
+Then, before you write new code, state one line naming what you asked and
+what came back:
+
+`Carrick checked: <query> -> <result count>`
+
+Start a session with `get_project_map`, passing your own service so the
+map splits this repo from its siblings: one cheap call that names the
+sibling services this project indexes, the contracts crossing into and
+out of this repo, the calls that reach no route, and the drill-down tool
+for each section.
+
+`get_endpoint_types` returns another service's real request and response
+types. Before adding or bumping an npm package, `get_service_dependencies`
+shows version conflicts across services. For audit-shaped work, such as
+listing what a service calls outside itself, `list_external_calls` names
+each recorded outbound call with its file and line.
+
+Carrick indexes every service in the project **canonry**
+(workspace **arberx**): every function with an intent
+description, its dependencies, and API endpoints with their real
+request/response types, on each repo's main branch, exported or not. Pass
+`project: "canonry"` (or `repo: "<owner/repo>"` from the git
+remote) on every call. Carrick is read-only; data reflects the most recent
+scan of each repo. The index at main is what production integrates
+against, so build against a sibling's contract from the index and merge —
+your unmerged local state does not need to be visible to Carrick.
+
+Write correct, idiomatic, explicitly typed code; never contort code so the
+scanner can read it. If Carrick fails to extract something written
+normally, that is a Carrick bug to report, not a constraint to code
+around.
+
+### Connect the agent
+
+```
+claude mcp add --scope user --transport http carrick https://api.carrick.tools/mcp
+```
+
+One install serves every project in the workspace.

@@ -1,7 +1,7 @@
 import CDP from 'chrome-remote-interface'
 import type { CDPTarget } from './targets/types.js'
 import { CDPProviderError } from './targets/types.js'
-import { describeError } from '@ainyc/canonry-contracts'
+import { describeError } from '@canonry/canonry-contracts'
 
 interface TabEntry {
   client: CDP.Client

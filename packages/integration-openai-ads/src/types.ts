@@ -3,7 +3,7 @@ import {
   AdsCampaignBiddingTypes,
   type AdsAdGroupBillingEventType,
   type AdsCampaignBiddingType,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 
 // Types mirror OpenAI Advertiser API responses captured live on 2026-06-10,
 // except where a type-level comment identifies a provider-documented contract

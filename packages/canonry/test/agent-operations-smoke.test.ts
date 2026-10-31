@@ -3,10 +3,10 @@ import os from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { Client } from '@modelcontextprotocol/sdk/client/index.js'
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
-import { apiRoutes, hashApiKey } from '@ainyc/canonry-api-routes'
-import { apiKeys, createClient, migrate, projects, OperationalLogStore } from '@ainyc/canonry-db'
+import { Client } from '@modelcontextprotocol/client'
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
+import { apiRoutes, hashApiKey } from '@canonry/canonry-api-routes'
+import { apiKeys, createClient, migrate, projects, OperationalLogStore } from '@canonry/canonry-db'
 import { ApiClient } from '../src/client.js'
 import { registerMcpHttpRoutes, type McpHttpOptions } from '../src/mcp-http.js'
 
@@ -152,8 +152,7 @@ describe('agent operations cross-surface smoke', () => {
     for (const name of ['read', 'research', 'scopedLogs']) {
       const mcp = await connect(name)
       expect((await mcp.listTools()).tools.some(tool => tool.name === 'canonry_logs_list')).toBe(false)
-      const result = await mcp.callTool({ name: 'canonry_logs_list', arguments: { projectId: 'project-demo' } })
-      expect(result.isError, name).toBe(true)
+      await expect(mcp.callTool({ name: 'canonry_logs_list', arguments: { projectId: 'project-demo' } }), name).rejects.toMatchObject({ code: -32602, message: 'Tool canonry_logs_list not found' })
     }
     const mcp = await connect('logs')
     const result = await mcp.callTool({ name: 'canonry_logs_list', arguments: {} })
@@ -186,7 +185,6 @@ describe('agent operations cross-surface smoke', () => {
     expect(secret.isError).toBe(true)
     const unrelated = await connect('unrelated')
     expect((await unrelated.listTools()).tools.some(tool => tool.name === 'canonry_telemetry_update')).toBe(false)
-    const denied = await unrelated.callTool({ name: 'canonry_telemetry_update', arguments: { enabled: false } })
-    expect(denied.isError).toBe(true)
+    await expect(unrelated.callTool({ name: 'canonry_telemetry_update', arguments: { enabled: false } })).rejects.toMatchObject({ code: -32602, message: 'Tool canonry_telemetry_update not found' })
   })
 })

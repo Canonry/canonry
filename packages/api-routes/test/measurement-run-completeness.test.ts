@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import crypto from 'node:crypto'
-import { createClient, migrate, projects, runs, querySnapshots } from '@ainyc/canonry-db'
+import { createClient, migrate, projects, runs, querySnapshots } from '@canonry/canonry-db'
 import { measurementRunCompleteness } from '../src/measurement-run-completeness.js'
 
 function harness() {

@@ -48,7 +48,7 @@ The silent `report.ai-referral-bursts` doctor advisory warns
 to review; otherwise it passes (`no-bursts`) with these coverage limits in its
 details. It skips a project whose traffic sources are all archived.
 A high quotient does not confirm automation, and this diagnostic does not
-replace GA or change any existing report headline.
+replace GA or change the raw traffic totals.
 
 ## Architecture
 
@@ -232,9 +232,12 @@ bounded-window-capable Canonry traffic logger before syncing again.
 Do not run generic replace-mode backfill for a WordPress source. The plugin
 prunes retained events and cannot prove that it covers every bucket a replace
 transaction would delete, even when no continuation is pending. Canonry
-rejects that generic path universally. Keep existing rollups intact, use a
-retention-aware repair, and explicitly declare any unrecoverable portion before
-reporting a historical trend.
+rejects that generic path universally. Keep existing rollups intact. Once a
+skipped span cannot be recovered, record it with
+`cnry traffic declare-gap <project> --source <id>`: the span goes into the audit
+log, the unrecovered marker clears, and the `traffic.sync-lag.unrecovered-skip`
+doctor check stops failing. Mention the gap before reporting a historical trend
+across it.
 
 After upgrading from the former unbounded WordPress sync, a source with an old
 continuation cursor is intentionally rejected rather than guessed at. Keep its
@@ -291,6 +294,16 @@ Run `cnry traffic backfill <project> --source <id> --days N` (capped at
 ~14 to stay inside retention) if you need any of the pre-connect
 history. It's an explicit operator action; the connect flow never pulls
 it implicitly.
+
+A backfill holds the source's sync lease until it finishes, however long the
+pull takes. Scheduled syncs for that source skip while it runs and resume
+from the same watermark afterwards, so nothing commits into the window the
+backfill replaces. A backfill requested while a sync is running returns
+`OPERATION_IN_PROGRESS`; retry when that sync ends. A reset, reconnect or
+deactivation during a backfill stops it within a minute: it releases the
+source, stops pulling, and fails without writing. The CLI stops waiting
+after 5 minutes, but the run continues on the server: follow it with
+`cnry runs <project> --kind traffic-sync`.
 
 ## Connecting a Cloudflare source
 
@@ -730,7 +743,7 @@ transactional receipt protects each event ID for ten minutes. Receipt claims,
 hourly rollups, samples, and source progress commit in one transaction.
 
 Direct push sends one selected event per batch. It does not batch or sample at
-the edge. Canonry stores at most 100 raw samples per source per UTC hour, while
+the edge. Canonry retains at most 100 direct-push samples per source per UTC hour, while
 it continues to add all classified events to hourly rollups.
 
 The Worker transports the raw client IP, full query string, and full referer
@@ -918,16 +931,35 @@ Cloudflare to redeliver after the visibility timeout.
 
 The source lease rejects concurrent scheduler and operator drains. A stale
 lease can be recovered after its expiry, and only its owner can release it.
-Receipts remain for Cloudflare's current 14-day platform maximum plus a replay
-margin. This stays safe even when the locally recorded retention is stale or
-lower than the Queue's actual setting.
+Each sync reads the Queue's live message retention from Cloudflare and keeps
+receipts for that long plus a 10-minute replay margin, since a message can only
+be redelivered while it is retained. When the retention goes up, live receipts
+are extended to it; when it goes down, new receipts never expire before the
+newest receipt from the longer retention. If the read fails or returns no
+usable value, receipts keep Cloudflare's 14-day maximum plus the margin.
 
-Each default Queue sync drains at most 10 batches of 100 messages: **1,000
-messages per tick**. Doctor reports a residual of 1–1,000 messages as within
-that budget. If no new messages arrive, the next scheduled sync can clear it.
-Doctor warns when more than 1,000 messages remain because one default tick
-cannot drain the residual. Run a manual sync to accelerate the drain. If the
-backlog remains above 1,000, shorten the `traffic-sync` schedule interval.
+Each Queue sync drains in batches of up to 100 messages for as long as
+Cloudflare reports a backlog, up to a 4-minute time limit per sync
+(`CANONRY_CLOUDFLARE_QUEUE_SYNC_DEADLINE_MS`, 30 seconds to 15 minutes) and a
+300-pull safety cap. Cloudflare can return a partial or briefly empty batch
+while a backlog waits, so a sync stops only when Cloudflare reports no backlog,
+two pulls in a row come back empty, or the limit is reached. If a pull fails
+after earlier batches were saved, the run ends `partial` and keeps them.
+
+Each sync run records what it did and why it stopped in `syncSummary`: pulls,
+empty pulls, messages pulled and acknowledged, redelivered (duplicate) events,
+the backlog Cloudflare reported on the first and last pull, and `stopReason`
+(`backlog-empty`, `empty-pulls`, `unleased-only`, `deadline`, `batch-cap` or
+`error`). Read it with `cnry runs <project> --kind traffic-sync --format json`;
+`cnry traffic status` shows the latest one.
+
+Doctor treats a residual of up to 1,000 messages as normal (they arrived during
+the drain) and warns above that, with the cause taken from the last stop
+reason. After `deadline` or `batch-cap` the drain hit its limit: shorten the
+`traffic-sync` interval or raise the time limit, or messages will pass the
+Queue's retention and be dropped. After `empty-pulls` or `unleased-only`
+Cloudflare still counted messages it would not return (leased or not yet
+visible); later syncs pull them, and raising the time limit does not help.
 
 ## Syncing data
 
@@ -1025,9 +1057,20 @@ schema change, the stored rollups are untouched.
 |---|---|
 | Project dashboard `/projects/:name/activity` | Live source table + 24h totals + GA4 referrals (combined view) |
 | Top-level `/traffic` route | Cross-project source admin (connect, sync, archive) |
-| `cnry report <project>` (HTML + SPA) | "AI Visibility — Server-Side" section, ranked above Indexing Health |
+| `cnry traffic analytics <project> --period 30 --format json` | Complete stored 7/14/30/90-day totals, prior-window changes, operator/path/product breakdowns, and daily history |
+| `cnry journeys summary <project>` | AI visitors, how many came back and through which entry, from every traffic source |
 | `cnry doctor --project <name>` | Source health checks, including last-observed Worker drift for direct and Queue sources plus Queue local credential/sync state |
 | MCP toolkit `traffic` | Read/status tools plus pull-source setup/sync tools. Cloudflare connect is local-CLI-only so Worker secrets cannot enter an MCP transcript. |
+
+Traffic analytics aggregates every matching stored row before limiting ranked
+paths. A zero count means no matching events were stored for that metric and
+window; it does not prove source sync or measurement coverage. Preserve
+`coverageStart`, the earliest project
+observation or null, and `priorWindowComplete`, which tests whether recording
+began by the prior window's start. If false, headline, arrival-class, and
+operator changes are unavailable (`deltaPct: null`) while raw totals remain.
+These fields do not establish continuous collection or matching sources in
+both windows. Check source status and sync evidence before interpreting changes.
 
 ## Doctor signals
 
@@ -1064,9 +1107,9 @@ schedule. Recurring syncs are safe because of the adapter's overlap ring or
 durable Queue receipts.
 
 Keep the auto-created 30-minute schedule for Queue pull. The Worker sends one
-selected event in each Queue message. At its 1,000-message limit, this cadence
-drains about 0.56 selected events per second. If the Queue backlog remains
-above 1,000, run a manual sync. Then shorten the interval:
+selected event in each Queue message, and each sync drains for up to 4 minutes.
+If doctor reports more than 1,000 messages remaining after syncs, shorten the
+interval:
 
 ```bash
 cnry schedule set <project> --kind traffic-sync \
@@ -1123,10 +1166,11 @@ domains, or PII are surfaced.
   citation store is domain-grain (`query_snapshots.cited_domains`). A
   future iteration that lands URL-grain citation evidence will extend
   the `topCrawledPaths` entry with a `citationState` flag. Until then,
-  treat the report's crawled-paths table as "engine attention" — the
+  treat traffic analytics' crawled-paths table as "engine attention" — the
   signal is the bot fetched it, not whether it was cited.
-- **Verified vs unverified.** The headline numbers count only
-  published-IP-range-verified hits. Unverified bots claim a known UA but
+- **Verified vs unverified.** Verified crawler counts include only
+  published-IP-range-verified hits. Unverified crawler counts remain separate:
+  those bots claim a known UA but
   do not match the operator's published IP ranges. The bot can be real or an
   imitator. Do not promote unverified counts in client-facing copy.
   **Vercel sources are a special case:** the Vercel pull API returns
@@ -1134,7 +1178,7 @@ domains, or PII are surfaced.
   construction (UA-only). A Vercel source reading 100% unverified is
   expected, not a misconfiguration.
 - **Four adapters ship: Cloud Run, WordPress, Vercel, and Cloudflare with
-  direct-push and queue-pull delivery. More adapters are planned.** The doctor checks and report renderer are
+  direct-push and queue-pull delivery. More adapters are planned.** The doctor checks and traffic analytics are
   adapter-agnostic — adding a new adapter is just a new entry in
   `traffic_sources.source_type` and a `TrafficSourceValidator`
   registration.
@@ -1156,4 +1200,51 @@ Cache exclusions for the selected AI agents can recover crawler and user-fetch
 coverage, but they do not recover ordinary browser referrals served from cache.
 Use GA4 for landed browser visits or edge/access logs for cache-independent
 request coverage. The `traffic.source.cache-blindspot` doctor check is a static
-warning; it does not request or impersonate traffic against the public origin.
+warning; it does not request or impersonate traffic against the public origin,
+and it never sends a `health.degraded` alert.
+
+### AI visitor journeys
+
+Every sync, backfill and push also follows visitors who arrived from an AI
+engine: their later visits, how they came back (search, direct, social, paid,
+referral, another AI visit) and each page or API request. It works the same for
+every source and needs no site snippet or goal setup. Read it with
+`cnry journeys summary|list|show` or the `canonry_journeys_summary`,
+`canonry_journeys_list` and `canonry_journey_get` MCP tools.
+
+- A visitor key is an HMAC of IP and user agent under the install secret
+  `journeys.visitorKeySecret` (generated on first `serve` and saved in
+  config.yaml, or `CANONRY_JOURNEY_KEY_SECRET`). No IP is stored. Changing the
+  secret starts new keys.
+- Vercel logs carry no IP, so those visitors are keyed by user agent only.
+  Chrome reports the same user agent for every Mac on one version, so a key can
+  merge people: such visitors undercount people and can overstate return rates.
+  Read `keyBasis` before quoting a return rate. A key stores at most 300
+  requests per UTC day besides AI touches; `cappedDays` counts the days it hit
+  that cap.
+- By default the Cloudflare Worker forwards only AI-referred and bot requests,
+  so journeys from a Cloudflare source record AI landings but not later visits.
+  Reconnect with `--forward-page-views` and redeploy to forward page views too
+  (one Queue message or push per page view; see the Cloudflare setup guide for
+  volume and Queue drain limits). Reads list a source in `partialSources` until
+  its deployed Worker reports the `+page-views` version.
+- Only requests within 30 days after an AI visit are kept, plus the rest of a
+  visit already kept; rows are deleted after 180 days. Journeys start from the
+  first sync after upgrade; backfill a Cloud Run or Vercel source to seed
+  history it still retains.
+- Sign-in, payment and booking-engine return pages (Google accounts, Stripe,
+  PayPal, hosted hotel booking engines and the like) are steps inside a
+  visit, not new arrivals. Listing marketplaces still count as referrals. Query strings keep only
+  `utm_*`; path segments that look like secrets are masked.
+
+### Inspect stored samples
+
+`cnry traffic samples <project> --kind ai-referral --format json` exposes exact
+stored timestamps, normalized paths, status, referer host, user agent and
+classifier evidence. It never exposes IP hashes. These are a sampled tail with
+30-day retention: pull syncs keep up to 100 per sync, backfills 500 per run, and
+direct push up to 100 per source per UTC hour. There is no universal hourly cap.
+`totalRows` counts matching samples, not visits. Use `traffic events` for rollup
+totals; `traffic status` already reports last-24h sample counts per source across
+all kinds. The new read excludes unknown requests by default and requires them
+explicitly with `--kind unknown`. Viewers and embeds cannot read sample rows.

@@ -14,12 +14,15 @@ import {
   measurementDraftRemoveCompetitorRequestSchema,
   measurementDraftRemoveGroupRequestSchema,
   measurementDraftReplaceAssignmentsRequestSchema,
+  measurementDraftRouteMarketsRequestSchema,
   measurementDraftRenameTargetRequestSchema,
   measurementDraftUpsertCompetitorRequestSchema,
   measurementDraftUpsertGroupRequestSchema,
   measurementDraftUpsertMarketRequestSchema,
   measurementV2UsageEdgeKey,
   measurementDraftUpsertTargetRequestSchema,
+  measurementTargetNameIssueMessage,
+  measurementTargetNameIssues,
   notFound,
   validationError,
   type MeasurementDraftAssignment,
@@ -28,10 +31,15 @@ import {
   type MeasurementDraftAuthoring,
   type MeasurementDraftGroup,
   type MeasurementDraftResolvedAudienceGroup,
+  type MeasurementDraftRouteMarketsRequest,
   type MeasurementDraftTarget,
   type MeasurementDraftWarning,
-} from '@ainyc/canonry-contracts'
-import { proposeQueryClassForTarget } from './measurement-draft-compile.js'
+  type LocationContext,
+  compareText,
+  openRouterRouteModel,
+} from '@canonry/canonry-contracts'
+import { frozenMeasurementDraftExecutionKeys, proposeQueryClassForTarget } from './measurement-draft-compile.js'
+import { canonicalJson, sha256Hex } from './measurement-draft-repo.js'
 import type { ZodType } from 'zod'
 
 /** Every typed action the draft service owns. Sitemap import and rebind selection live in the discovery slice. */
@@ -44,6 +52,7 @@ export const MEASUREMENT_DRAFT_ACTIONS = [
   'apply-assignments',
   'replace-assignments',
   'apply-paired-assignments',
+  'route-markets',
   'remove-assignment',
   'clear-assignments',
   'classify-assignments',
@@ -65,6 +74,7 @@ export const MAX_ASSIGNMENTS_PER_ACTION = MEASUREMENT_DRAFT_MAX_ASSIGNMENTS_PER_
 export interface DraftActionContext {
   brandNames: readonly string[]
   queriesById: ReadonlyMap<string, string>
+  locationsByLabel?: ReadonlyMap<string, LocationContext>
 }
 
 export interface DraftActionResult {
@@ -86,6 +96,17 @@ export interface AssignmentAuthoringResult extends DraftActionResult {
     added: number
     alreadyPresent: number
   }
+}
+
+export interface MarketRoutingAuthoringResult extends DraftActionResult {
+  markets: Array<{
+    marketKey: string
+    label: string
+    matchedEdges: number
+    changedEdges: number
+  }>
+  matchedEdges: number
+  changedEdges: number
 }
 
 function parseBody<T>(schema: ZodType<T>, body: unknown, action: string): T {
@@ -110,10 +131,6 @@ function requireGroup(authoring: MeasurementDraftAuthoring, groupKey: string): M
 
 function unique(values: readonly string[]): string[] {
   return [...new Set(values)]
-}
-
-function compareText(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0
 }
 
 function knownQueryIds(queryIds: readonly string[], context: DraftActionContext): string[] {
@@ -255,6 +272,223 @@ function warn(code: string, message: string, path: (string | number)[]): Measure
   return { code, message, path }
 }
 
+type ExactExecutionContext = NonNullable<MeasurementDraftAssignment['executionContexts']>[number]
+type ProviderModelOverride = Pick<NonNullable<MeasurementDraftAssignment['contextOverride']>, 'providers' | 'models'>
+type UsageEdge = NonNullable<MeasurementDraftAuthoring['reportingScopes']>[number]['usageEdges'][number]
+
+function normalizedProviders(values: readonly string[]): string[] {
+  return unique(values.map(value => value.trim().toLowerCase()).filter(Boolean)).sort(compareText)
+}
+
+function normalizedModels(values: Readonly<Record<string, string>>): Record<string, string> {
+  return Object.fromEntries(Object.entries(values)
+    .map(([provider, model]) => [provider.trim().toLowerCase(), model] as const)
+    .sort(([left], [right]) => compareText(left, right)))
+}
+
+function normalizedExactContext(
+  exact: ExactExecutionContext,
+  queryId: string,
+  override: ProviderModelOverride,
+  frozenKeys: ReadonlyMap<string, string>,
+): ExactExecutionContext {
+  const providers = normalizedProviders(override.providers ?? exact.providers)
+  const models = normalizedModels(override.models ?? (override.providers === undefined ? exact.models : {}))
+  for (const provider of providers) {
+    const pinned = openRouterRouteModel(provider)
+    if (pinned) models[provider] = pinned
+  }
+  const next = { providers, models, location: exact.location }
+  const current = {
+    providers: normalizedProviders(exact.providers),
+    models: normalizedModels(exact.models),
+    location: exact.location,
+  }
+  if (canonicalJson(next) === canonicalJson(current)) return exact
+  const signature = canonicalJson({ queryId, ...next })
+  return {
+    ...next,
+    executionNodeKey: frozenKeys.get(signature) ?? `execution-${sha256Hex(signature)}`,
+  }
+}
+
+function edgeKey(targetKey: string, queryId: string, executionNodeKey: string): string {
+  return measurementV2UsageEdgeKey({ targetKey, queryId, executionNodeKey })
+}
+
+function remapReportingScopeEdges(
+  reportingScopes: MeasurementDraftAuthoring['reportingScopes'],
+  remaps: ReadonlyMap<string, UsageEdge>,
+): MeasurementDraftAuthoring['reportingScopes'] {
+  if (reportingScopes === undefined || remaps.size === 0) return reportingScopes
+  return reportingScopes.map(scope => {
+    const seen = new Set<string>()
+    const usageEdges: UsageEdge[] = []
+    for (const edge of scope.usageEdges) {
+      const next = remaps.get(measurementV2UsageEdgeKey(edge)) ?? edge
+      const key = measurementV2UsageEdgeKey(next)
+      if (seen.has(key)) continue
+      seen.add(key)
+      usageEdges.push(next)
+    }
+    return { ...scope, usageEdges }
+  })
+}
+
+function pruneReportingScopeEdges(
+  reportingScopes: MeasurementDraftAuthoring['reportingScopes'],
+  assignments: readonly MeasurementDraftAssignment[],
+): MeasurementDraftAuthoring['reportingScopes'] {
+  if (reportingScopes === undefined) return undefined
+  // Keep context-stale membership while its target/query pair survives. The
+  // compiler can deterministically rebuild a one-to-one successor after an
+  // explicit location change; only a deleted assignment makes membership
+  // unequivocally stale at authoring time.
+  const validPairs = new Set(assignments.map(assignment => `${assignment.targetKey}\u0000${assignment.queryId}`))
+  return reportingScopes.map(scope => ({
+    ...scope,
+    usageEdges: scope.usageEdges.filter(edge => validPairs.has(`${edge.targetKey}\u0000${edge.queryId}`)),
+  }))
+}
+
+function authoringWithAssignments(
+  authoring: MeasurementDraftAuthoring,
+  assignments: MeasurementDraftAssignment[],
+  reportingScopes: MeasurementDraftAuthoring['reportingScopes'] = authoring.reportingScopes,
+): MeasurementDraftAuthoring {
+  return {
+    ...authoring,
+    assignments,
+    ...(reportingScopes === undefined
+      ? {}
+      : { reportingScopes: pruneReportingScopeEdges(reportingScopes, assignments) }),
+  }
+}
+
+function mutableAssignmentContext(
+  authoring: MeasurementDraftAuthoring,
+  assignment: MeasurementDraftAssignment,
+): { providers: string[]; models: Record<string, string>; locationLabels: string[] } {
+  const override = assignment.contextOverride
+  const providers = normalizedProviders(override?.providers ?? authoring.defaultContext.providers)
+  const rawModels = normalizedModels(override?.models ?? authoring.defaultContext.models ?? {})
+  const models = Object.fromEntries(Object.entries(rawModels).filter(([provider]) => providers.includes(provider)))
+  for (const provider of providers) {
+    const pinned = openRouterRouteModel(provider)
+    if (pinned) models[provider] = pinned
+  }
+  const locationLabels = unique(override?.locations ?? authoring.defaultContext.locations).sort(compareText)
+  return { providers, models, locationLabels }
+}
+
+function mutableAssignmentExactContext(
+  authoring: MeasurementDraftAuthoring,
+  assignment: MeasurementDraftAssignment,
+  context: DraftActionContext,
+  frozenKeys: ReadonlyMap<string, string>,
+): ExactExecutionContext {
+  const { providers, models, locationLabels } = mutableAssignmentContext(authoring, assignment)
+  if (locationLabels.length > 1) {
+    throw validationError(
+      `Market routing cannot safely choose among ${locationLabels.length} locations for ${assignment.targetKey}/${assignment.queryId}. Route the Property to one location first.`,
+      { displayToOperator: true },
+    )
+  }
+  const location = locationLabels.length === 0
+    ? null
+    : context.locationsByLabel?.get(locationLabels[0]!)
+  if (locationLabels.length === 1 && !location) {
+    throw validationError(`Location "${locationLabels[0]}" is unavailable for market routing. Reload the draft and try again.`, {
+      displayToOperator: true,
+    })
+  }
+  const resolvedLocation = location ?? null
+  const locationIdentity = resolvedLocation
+    ? [resolvedLocation.label, resolvedLocation.city, resolvedLocation.region, resolvedLocation.country].join('\u0000')
+    : ''
+  // Identical provider work that is already frozen keeps its key, exactly as
+  // the compiler reuses it. A second key for the same question, location and
+  // provider/model map compiles into a second node that the run queue drops,
+  // and the run's report then fails its slot count.
+  const executionNodeKey = frozenKeys.get(canonicalJson({
+    queryId: assignment.queryId,
+    location: resolvedLocation,
+    providers,
+    models,
+  })) ?? `execution-${sha256Hex(canonicalJson({
+    queryId: assignment.queryId,
+    location: locationIdentity,
+    providers,
+    models,
+  }))}`
+  return { providers, models, location: resolvedLocation, executionNodeKey }
+}
+
+function normalizeSelectedOneToOneMarketEdges(
+  authoring: MeasurementDraftAuthoring,
+  selectedMarkets: ReadonlySet<string>,
+  selectsEdge: (edge: UsageEdge) => boolean,
+  context: DraftActionContext,
+): MeasurementDraftAuthoring {
+  const assignmentsByPair = new Map(authoring.assignments.map((assignment, index) => [
+    `${assignment.targetKey}\u0000${assignment.queryId}`,
+    { assignment, index },
+  ]))
+  const successorByPair = new Map<string, ExactExecutionContext>()
+  const mutableIndexes = new Set<number>()
+  const frozenKeys = frozenMeasurementDraftExecutionKeys(authoring)
+
+  for (const scope of authoring.reportingScopes ?? []) {
+    if (!selectedMarkets.has(scope.stableKey)) continue
+    for (const edge of scope.usageEdges) {
+      if (!selectsEdge(edge)) continue
+      const pair = `${edge.targetKey}\u0000${edge.queryId}`
+      const found = assignmentsByPair.get(pair)
+      if (!found) continue
+      if (found.assignment.executionContexts?.some(exact => exact.executionNodeKey === edge.executionNodeKey)) continue
+      if (successorByPair.has(pair)) continue
+
+      if (found.assignment.executionContexts !== undefined) {
+        if (found.assignment.executionContexts.length !== 1 || !found.assignment.executionContexts[0]!.executionNodeKey) {
+          throw validationError(
+            `Market routing cannot safely map stale membership for ${edge.targetKey}/${edge.queryId} across multiple contexts. Publish or restore one exact context first.`,
+            { displayToOperator: true, marketEdge: edge },
+          )
+        }
+        successorByPair.set(pair, found.assignment.executionContexts[0]!)
+        continue
+      }
+
+      successorByPair.set(pair, mutableAssignmentExactContext(authoring, found.assignment, context, frozenKeys))
+      mutableIndexes.add(found.index)
+    }
+  }
+  if (successorByPair.size === 0) return authoring
+
+  const assignments = authoring.assignments.map((assignment, index) => {
+    if (!mutableIndexes.has(index)) return assignment
+    const successor = successorByPair.get(`${assignment.targetKey}\u0000${assignment.queryId}`)!
+    const { contextOverride: _contextOverride, ...frozen } = assignment
+    return { ...frozen, executionContexts: [successor] }
+  })
+  const reportingScopes = authoring.reportingScopes?.map(scope => {
+    const seen = new Set<string>()
+    const usageEdges: UsageEdge[] = []
+    for (const edge of scope.usageEdges) {
+      const successor = successorByPair.get(`${edge.targetKey}\u0000${edge.queryId}`)
+      const next = successor?.executionNodeKey
+        ? { ...edge, executionNodeKey: successor.executionNodeKey }
+        : edge
+      const key = measurementV2UsageEdgeKey(next)
+      if (seen.has(key)) continue
+      seen.add(key)
+      usageEdges.push(next)
+    }
+    return { ...scope, usageEdges }
+  })
+  return authoringWithAssignments(authoring, assignments, reportingScopes)
+}
+
 /**
  * Seeded v2 assignments carry exact frozen execution nodes. A routine
  * assignment action must leave those alone unless the operator explicitly
@@ -264,19 +498,55 @@ function warn(code: string, message: string, path: (string | number)[]): Measure
 function withRequestedContext(
   assignment: MeasurementDraftAssignment,
   contextOverride: MeasurementDraftAssignmentAudienceRequest['contextOverride'],
+  frozenKeys: ReadonlyMap<string, string>,
+  edgeRemaps?: Map<string, UsageEdge>,
 ): MeasurementDraftAssignment {
   if (contextOverride === undefined) return assignment
+  if (assignment.executionContexts !== undefined && contextOverride.locations === undefined) {
+    const contextsByIdentity = new Map<string, ExactExecutionContext>()
+    for (const exact of assignment.executionContexts) {
+      const rewritten = normalizedExactContext(exact, assignment.queryId, contextOverride, frozenKeys)
+      const identity = canonicalJson({
+        providers: normalizedProviders(rewritten.providers),
+        models: normalizedModels(rewritten.models),
+        location: rewritten.location,
+      })
+      const kept = contextsByIdentity.get(identity) ?? rewritten
+      contextsByIdentity.set(identity, kept)
+      if (edgeRemaps && exact.executionNodeKey && kept.executionNodeKey && exact.executionNodeKey !== kept.executionNodeKey) {
+        edgeRemaps.set(
+          edgeKey(assignment.targetKey, assignment.queryId, exact.executionNodeKey),
+          { targetKey: assignment.targetKey, queryId: assignment.queryId, executionNodeKey: kept.executionNodeKey },
+        )
+      }
+    }
+    return { ...assignment, executionContexts: [...contextsByIdentity.values()] }
+  }
   const { executionContexts: _frozenContexts, ...withoutFrozenContexts } = assignment
-  return { ...withoutFrozenContexts, contextOverride }
+  const locations = contextOverride.locations ?? assignment.contextOverride?.locations
+  return {
+    ...withoutFrozenContexts,
+    contextOverride: { ...contextOverride, ...(locations === undefined ? {} : { locations }) },
+  }
 }
 
-function upsertTarget(authoring: MeasurementDraftAuthoring, body: unknown): DraftActionResult {
+/**
+ * Name advice rides on the response rather than refusing the write: a short or
+ * brand-less name is sometimes the operator's deliberate choice, and the publish
+ * review still refuses a qualified name with no stored name inside it.
+ */
+function upsertTarget(authoring: MeasurementDraftAuthoring, body: unknown, context: DraftActionContext): DraftActionResult {
   const { target } = parseBody(measurementDraftUpsertTargetRequestSchema, body, 'upsert-target')
   const index = authoring.targets.findIndex(candidate => candidate.stableKey === target.stableKey)
   const targets = [...authoring.targets]
   if (index === -1) targets.push(target)
   else targets[index] = target
-  return { authoring: { ...authoring, targets }, warnings: [] }
+  const warnings = measurementTargetNameIssues({
+    aliases: target.aliases,
+    ...(target.identityAliases === undefined ? {} : { identityAliases: target.identityAliases }),
+    brandNames: context.brandNames,
+  }).map(issue => warn(issue.code, measurementTargetNameIssueMessage(issue), ['target', issue.field, issue.index]))
+  return { authoring: { ...authoring, targets }, warnings }
 }
 
 function renameTarget(authoring: MeasurementDraftAuthoring, body: unknown): DraftActionResult {
@@ -320,27 +590,77 @@ function mergeTargets(authoring: MeasurementDraftAuthoring, body: unknown): Draf
   }
 
   const assignments: MeasurementDraftAssignment[] = []
-  const seen = new Set<string>()
+  const assignmentIndexes = new Map<string, number>()
   for (const assignment of authoring.assignments) {
     const owner = absorbedSet.has(assignment.targetKey) ? targetKey : assignment.targetKey
-    const key = `${owner} ${assignment.queryId}`
-    if (seen.has(key)) continue
-    seen.add(key)
-    assignments.push({ ...assignment, targetKey: owner })
+    const key = `${owner}\u0000${assignment.queryId}`
+    const mapped = { ...assignment, targetKey: owner }
+    const index = assignmentIndexes.get(key)
+    if (index === undefined) {
+      assignmentIndexes.set(key, assignments.length)
+      assignments.push(mapped)
+      continue
+    }
+
+    const existing = assignments[index]!
+    if ((existing.executionContexts === undefined) !== (mapped.executionContexts === undefined)) {
+      throw validationError(
+        `Cannot merge duplicate assignment ${targetKey}/${assignment.queryId} because it combines exact and editable execution contexts. Publish the editable context first or remove one duplicate assignment, then merge.`,
+        { displayToOperator: true },
+      )
+    }
+    if (
+      existing.executionContexts === undefined
+      && mapped.executionContexts === undefined
+      && canonicalJson(mutableAssignmentContext(authoring, existing)) !== canonicalJson(mutableAssignmentContext(authoring, mapped))
+    ) {
+      throw validationError(
+        `Cannot merge duplicate assignment ${targetKey}/${assignment.queryId} because its editable execution contexts differ. Align their providers, models, and locations or remove one duplicate assignment, then merge.`,
+        { displayToOperator: true },
+      )
+    }
+    const currentIsSurvivor = assignment.targetKey === targetKey
+    const winner = currentIsSurvivor ? mapped : existing
+    if (existing.executionContexts === undefined || mapped.executionContexts === undefined) {
+      assignments[index] = winner
+      continue
+    }
+    const contexts = new Map<string, ExactExecutionContext>()
+    for (const exact of [...existing.executionContexts, ...mapped.executionContexts]) {
+      const identity = exact.executionNodeKey ?? canonicalJson({
+        providers: normalizedProviders(exact.providers),
+        models: normalizedModels(exact.models),
+        location: exact.location,
+      })
+      if (!contexts.has(identity)) contexts.set(identity, exact)
+    }
+    assignments[index] = { ...winner, executionContexts: [...contexts.values()] }
   }
 
+  const reportingScopes = authoring.reportingScopes?.map(scope => {
+    const seenEdges = new Set<string>()
+    const usageEdges: UsageEdge[] = []
+    for (const edge of scope.usageEdges) {
+      const next = absorbedSet.has(edge.targetKey) ? { ...edge, targetKey } : edge
+      const key = measurementV2UsageEdgeKey(next)
+      if (seenEdges.has(key)) continue
+      seenEdges.add(key)
+      usageEdges.push(next)
+    }
+    return { ...scope, usageEdges }
+  })
+
   return {
-    authoring: {
+    authoring: authoringWithAssignments({
       ...authoring,
       targets: authoring.targets
         .filter(target => !absorbedSet.has(target.stableKey))
         .map(target => (target.stableKey === targetKey ? merged : target)),
-      assignments,
       groups: authoring.groups.map(group => ({
         ...group,
         targetKeys: unique(group.targetKeys.map(key => (absorbedSet.has(key) ? targetKey : key))),
       })),
-    },
+    }, assignments, reportingScopes),
     warnings: [],
   }
 }
@@ -351,16 +671,16 @@ function excludeTarget(authoring: MeasurementDraftAuthoring, body: unknown): Dra
   const targetIndex = authoring.targets.indexOf(target)
   const stranded = authoring.assignments.filter(assignment => assignment.targetKey === targetKey).length
   if (cleanup === 'assignments-and-group-memberships') {
+    const assignments = authoring.assignments.filter(assignment => assignment.targetKey !== targetKey)
     return {
-      authoring: {
+      authoring: authoringWithAssignments({
         ...authoring,
         targets: authoring.targets.map(target => (target.stableKey === targetKey ? { ...target, status: 'excluded' as const } : target)),
-        assignments: authoring.assignments.filter(assignment => assignment.targetKey !== targetKey),
         groups: authoring.groups.map(group => ({
           ...group,
           targetKeys: group.targetKeys.filter(key => key !== targetKey),
         })),
-      },
+      }, assignments),
       warnings: [],
     }
   }
@@ -419,6 +739,8 @@ export function applyAssignmentsToAuthoring(
 
   const targetByKey = new Map(authoring.targets.map(target => [target.stableKey, target]))
   const assignments = [...authoring.assignments]
+  const frozenKeys = frozenMeasurementDraftExecutionKeys(authoring)
+  const edgeRemaps = new Map<string, UsageEdge>()
   const assignmentIndexes = new Map(assignments.map((assignment, index) => [
     `${assignment.targetKey}\u0000${assignment.queryId}`,
     index,
@@ -442,7 +764,7 @@ export function applyAssignmentsToAuthoring(
       }
       const existing = assignments[index]!
       assignments[index] = {
-        ...withRequestedContext(existing, request.contextOverride),
+        ...withRequestedContext(existing, request.contextOverride, frozenKeys, edgeRemaps),
         ...(existing.classificationSource === 'operator'
           ? {}
           : { queryClass: proposeQueryClassForTarget(context.queriesById.get(queryId)!, context.brandNames, targetByKey.get(targetKey)) }),
@@ -451,7 +773,11 @@ export function applyAssignmentsToAuthoring(
   }
   const requested = audience.targetKeys.length * queryIds.length
   return {
-    authoring: { ...authoring, assignments },
+    authoring: authoringWithAssignments(
+      authoring,
+      assignments,
+      remapReportingScopeEdges(authoring.reportingScopes, edgeRemaps),
+    ),
     warnings: [],
     audience,
     assignments: { requested, added, alreadyPresent: requested - added },
@@ -537,6 +863,8 @@ function applyPairedAssignments(
 
   const targetByKey = new Map(authoring.targets.map(target => [target.stableKey, target]))
   const assignments = [...authoring.assignments]
+  const frozenKeys = frozenMeasurementDraftExecutionKeys(authoring)
+  const edgeRemaps = new Map<string, UsageEdge>()
   const assignmentIndexes = new Map(assignments.map((assignment, index) => [
     `${assignment.targetKey}\u0000${assignment.queryId}`,
     index,
@@ -558,13 +886,218 @@ function applyPairedAssignments(
     // An operator classification outranks the rule, exactly as in the cross-product path.
     const existing = assignments[index]!
     assignments[index] = {
-      ...withRequestedContext(existing, contextOverride),
+      ...withRequestedContext(existing, contextOverride, frozenKeys, edgeRemaps),
       ...(existing.classificationSource === 'operator'
         ? {}
         : { queryClass: proposeQueryClassForTarget(context.queriesById.get(queryId)!, context.brandNames, targetByKey.get(targetKey)) }),
     }
   }
-  return { authoring: { ...authoring, assignments }, warnings: [] }
+  return {
+    authoring: authoringWithAssignments(
+      authoring,
+      assignments,
+      remapReportingScopeEdges(authoring.reportingScopes, edgeRemaps),
+    ),
+    warnings: [],
+  }
+}
+
+/**
+ * Route the exact edges that one or more markets own. A context shared with an
+ * unselected market is cloned; an exclusive context is replaced. Either way,
+ * the location bytes stay frozen and unrelated market membership is untouched.
+ */
+export function routeMarketsInAuthoring(
+  authoring: MeasurementDraftAuthoring,
+  request: MeasurementDraftRouteMarketsRequest,
+  context: DraftActionContext,
+): MarketRoutingAuthoringResult {
+  const assignmentPairs = new Set(authoring.assignments.map(assignment => `${assignment.targetKey}\u0000${assignment.queryId}`))
+  const originalScopesByKey = new Map((authoring.reportingScopes ?? []).map(scope => [scope.stableKey, scope]))
+  const pairPrunedAuthoring = authoringWithAssignments(authoring, authoring.assignments)
+  const marketKeys = unique(request.marketKeys)
+  const availableScopesByKey = new Map((pairPrunedAuthoring.reportingScopes ?? []).map(scope => [scope.stableKey, scope]))
+  for (const marketKey of marketKeys) {
+    const scope = availableScopesByKey.get(marketKey)
+    if (!scope) {
+      throw validationError(`Selected market "${marketKey}" is no longer available. Reload the draft and try again.`, {
+        displayToOperator: true,
+      })
+    }
+  }
+
+  const targetFilter = request.targetKeys ? new Set(unique(request.targetKeys)) : null
+  if (targetFilter) {
+    for (const targetKey of targetFilter) {
+      const target = requireTarget(pairPrunedAuthoring, targetKey)
+      if (target.status !== 'included') {
+        throw validationError(`Property "${target.label}" is ${target.status}, not included.`, { displayToOperator: true })
+      }
+    }
+  }
+  const queryFilter = request.queryIds ? new Set(knownQueryIds(request.queryIds, context)) : null
+  const selectedMarkets = new Set(marketKeys)
+  const selectsEdge = (edge: UsageEdge) => (
+    (targetFilter === null || targetFilter.has(edge.targetKey))
+    && (queryFilter === null || queryFilter.has(edge.queryId))
+  )
+  const routableAuthoring = normalizeSelectedOneToOneMarketEdges(
+    pairPrunedAuthoring,
+    selectedMarkets,
+    selectsEdge,
+    context,
+  )
+  const routableScopesByKey = new Map((routableAuthoring.reportingScopes ?? []).map(scope => [scope.stableKey, scope]))
+  const markets = marketKeys.map(marketKey => routableScopesByKey.get(marketKey)!)
+
+  const staleSelectedEdges = new Map<string, UsageEdge>()
+  for (const scope of authoring.reportingScopes ?? []) {
+    if (!selectedMarkets.has(scope.stableKey)) continue
+    for (const edge of scope.usageEdges) {
+      if (!selectsEdge(edge) || assignmentPairs.has(`${edge.targetKey}\u0000${edge.queryId}`)) continue
+      staleSelectedEdges.set(measurementV2UsageEdgeKey(edge), edge)
+    }
+  }
+
+  const selectedEdges = new Map<string, UsageEdge>()
+  const unselectedUses = new Set<string>()
+  for (const scope of routableAuthoring.reportingScopes ?? []) {
+    for (const edge of scope.usageEdges) {
+      const key = measurementV2UsageEdgeKey(edge)
+      if (selectedMarkets.has(scope.stableKey) && selectsEdge(edge)) selectedEdges.set(key, edge)
+      else unselectedUses.add(key)
+    }
+  }
+
+  const assignmentsByPair = new Map(routableAuthoring.assignments.map((assignment, index) => [
+    `${assignment.targetKey}\u0000${assignment.queryId}`,
+    { assignment, index },
+  ]))
+  const selectedKeysByAssignment = new Map<number, Set<string>>()
+  for (const edge of selectedEdges.values()) {
+    const found = assignmentsByPair.get(`${edge.targetKey}\u0000${edge.queryId}`)
+    const exact = found?.assignment.executionContexts?.find(item => item.executionNodeKey === edge.executionNodeKey)
+    if (!found || !exact) {
+      throw validationError('A selected market contains a stale execution edge. Reload the draft and review its membership.', {
+        displayToOperator: true,
+        marketEdge: edge,
+      })
+    }
+    const keys = selectedKeysByAssignment.get(found.index) ?? new Set<string>()
+    keys.add(edge.executionNodeKey)
+    selectedKeysByAssignment.set(found.index, keys)
+  }
+
+  const selectedEdgeRemaps = new Map<string, UsageEdge>()
+  const frozenKeys = frozenMeasurementDraftExecutionKeys(routableAuthoring)
+  const assignments = routableAuthoring.assignments.map((assignment, assignmentIndex) => {
+    const selectedKeys = selectedKeysByAssignment.get(assignmentIndex)
+    if (!selectedKeys || assignment.executionContexts === undefined) return assignment
+
+    const rewrittenByKey = new Map<string, ExactExecutionContext>()
+    for (const exact of assignment.executionContexts) {
+      if (!exact.executionNodeKey || !selectedKeys.has(exact.executionNodeKey)) continue
+      rewrittenByKey.set(
+        exact.executionNodeKey,
+        normalizedExactContext(exact, assignment.queryId, request.contextOverride, frozenKeys),
+      )
+    }
+
+    // Retain every unselected/shared context first so a selected edge that is
+    // routed to an already-existing context can reuse its stable key.
+    const contextsByIdentity = new Map<string, ExactExecutionContext>()
+    const identityOf = (exact: ExactExecutionContext) => canonicalJson({
+      providers: normalizedProviders(exact.providers),
+      models: normalizedModels(exact.models),
+      location: exact.location,
+    })
+    for (const exact of assignment.executionContexts) {
+      const rewritten = exact.executionNodeKey ? rewrittenByKey.get(exact.executionNodeKey) : undefined
+      const changed = rewritten !== undefined && identityOf(rewritten) !== identityOf(exact)
+      const originalEdgeKey = exact.executionNodeKey
+        ? edgeKey(assignment.targetKey, assignment.queryId, exact.executionNodeKey)
+        : null
+      if (!changed || (originalEdgeKey !== null && unselectedUses.has(originalEdgeKey))) {
+        contextsByIdentity.set(identityOf(exact), exact)
+      }
+    }
+
+    for (const exact of assignment.executionContexts) {
+      if (!exact.executionNodeKey || !selectedKeys.has(exact.executionNodeKey)) continue
+      const rewritten = rewrittenByKey.get(exact.executionNodeKey)!
+      const identity = identityOf(rewritten)
+      const kept = contextsByIdentity.get(identity) ?? rewritten
+      contextsByIdentity.set(identity, kept)
+      if (!kept.executionNodeKey) continue
+      selectedEdgeRemaps.set(
+        edgeKey(assignment.targetKey, assignment.queryId, exact.executionNodeKey),
+        { targetKey: assignment.targetKey, queryId: assignment.queryId, executionNodeKey: kept.executionNodeKey },
+      )
+    }
+    return { ...assignment, executionContexts: [...contextsByIdentity.values()] }
+  })
+
+  const marketStats = markets.map(scope => {
+    const matched = scope.usageEdges.filter(selectsEdge)
+    const stale = (originalScopesByKey.get(scope.stableKey)?.usageEdges ?? [])
+      .filter(edge => selectsEdge(edge) && !assignmentPairs.has(`${edge.targetKey}\u0000${edge.queryId}`))
+    return {
+      marketKey: scope.stableKey,
+      label: scope.label,
+      matchedEdges: matched.length + stale.length,
+      changedEdges: stale.length + matched.filter(edge => {
+        const next = selectedEdgeRemaps.get(measurementV2UsageEdgeKey(edge))
+        return next !== undefined && next.executionNodeKey !== edge.executionNodeKey
+      }).length,
+    }
+  })
+  const reroutedEdges = [...selectedEdges.entries()].filter(([key, edge]) => {
+    const next = selectedEdgeRemaps.get(key)
+    return next !== undefined && next.executionNodeKey !== edge.executionNodeKey
+  }).length
+  const matchedEdges = new Set([...selectedEdges.keys(), ...staleSelectedEdges.keys()]).size
+  const changedEdges = reroutedEdges + staleSelectedEdges.size
+  if (changedEdges === 0) {
+    return {
+      authoring: routableAuthoring,
+      warnings: [],
+      markets: marketStats,
+      matchedEdges,
+      changedEdges: 0,
+    }
+  }
+
+  const reportingScopes = (routableAuthoring.reportingScopes ?? []).map(scope => {
+    if (!selectedMarkets.has(scope.stableKey)) return scope
+    const seen = new Set<string>()
+    const usageEdges: UsageEdge[] = []
+    for (const edge of scope.usageEdges) {
+      const next = selectsEdge(edge)
+        ? selectedEdgeRemaps.get(measurementV2UsageEdgeKey(edge)) ?? edge
+        : edge
+      const key = measurementV2UsageEdgeKey(next)
+      if (seen.has(key)) continue
+      seen.add(key)
+      usageEdges.push(next)
+    }
+    return { ...scope, usageEdges }
+  })
+  return {
+    authoring: authoringWithAssignments(routableAuthoring, assignments, reportingScopes),
+    warnings: [],
+    markets: marketStats,
+    matchedEdges,
+    changedEdges,
+  }
+}
+
+function routeMarkets(
+  authoring: MeasurementDraftAuthoring,
+  body: unknown,
+  context: DraftActionContext,
+): DraftActionResult {
+  const request = parseBody(measurementDraftRouteMarketsRequestSchema, body, 'route-markets')
+  return routeMarketsInAuthoring(authoring, request, context)
 }
 
 function removeAssignment(authoring: MeasurementDraftAuthoring, body: unknown): DraftActionResult {
@@ -573,22 +1106,18 @@ function removeAssignment(authoring: MeasurementDraftAuthoring, body: unknown): 
   const targetKeys = new Set('targetKeys' in parsed ? parsed.targetKeys : [parsed.targetKey])
   // The project query itself is never touched: other Targets may still assign
   // it, and every published snapshot of it has to stay readable.
+  const assignments = authoring.assignments.filter(assignment => !(targetKeys.has(assignment.targetKey) && assignment.queryId === queryId))
   return {
-    authoring: {
-      ...authoring,
-      assignments: authoring.assignments.filter(assignment => !(targetKeys.has(assignment.targetKey) && assignment.queryId === queryId)),
-    },
+    authoring: authoringWithAssignments(authoring, assignments),
     warnings: [],
   }
 }
 
 function clearAssignments(authoring: MeasurementDraftAuthoring, body: unknown): DraftActionResult {
   const { targetKey } = parseBody(measurementDraftClearAssignmentsRequestSchema, body, 'clear-assignments')
+  const assignments = authoring.assignments.filter(assignment => assignment.targetKey !== targetKey)
   return {
-    authoring: {
-      ...authoring,
-      assignments: authoring.assignments.filter(assignment => assignment.targetKey !== targetKey),
-    },
+    authoring: authoringWithAssignments(authoring, assignments),
     warnings: [],
   }
 }
@@ -722,7 +1251,7 @@ export function applyDraftAction(
 ): DraftActionResult {
   const result = (() => {
     switch (action) {
-      case 'upsert-target': return upsertTarget(authoring, body)
+      case 'upsert-target': return upsertTarget(authoring, body, context)
       case 'rename-target': return renameTarget(authoring, body)
       case 'merge-targets': return mergeTargets(authoring, body)
       case 'exclude-target': return excludeTarget(authoring, body)
@@ -730,6 +1259,7 @@ export function applyDraftAction(
       case 'apply-assignments': return applyAssignments(authoring, body, context)
       case 'replace-assignments': return replaceAssignments(authoring, body, context)
       case 'apply-paired-assignments': return applyPairedAssignments(authoring, body, context)
+      case 'route-markets': return routeMarkets(authoring, body, context)
       case 'remove-assignment': return removeAssignment(authoring, body)
       case 'clear-assignments': return clearAssignments(authoring, body)
       case 'classify-assignments': return classifyAssignments(authoring, body)

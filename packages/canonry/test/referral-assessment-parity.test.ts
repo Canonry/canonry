@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import Fastify from 'fastify'
-import { Client } from '@modelcontextprotocol/sdk/client/index.js'
-import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
-import { apiKeys, projects, trafficSources, aiReferralEventsHourly, gaAiReferrals, createClient, migrate } from '@ainyc/canonry-db'
-import { apiRoutes, hashApiKey } from '@ainyc/canonry-api-routes'
-import { referralAssessmentSchema } from '@ainyc/canonry-contracts'
+import { Client } from '@modelcontextprotocol/client'
+import { InMemoryTransport } from '@modelcontextprotocol/client'
+import { apiKeys, projects, trafficSources, aiReferralEventsHourly, gaAiReferrals, createClient, migrate } from '@canonry/canonry-db'
+import { apiRoutes, hashApiKey } from '@canonry/canonry-api-routes'
+import { referralAssessmentSchema } from '@canonry/canonry-contracts'
 import { ApiClient } from '../src/client.js'
 import { createCanonryMcpServer } from '../src/mcp/server.js'
 import { TRAFFIC_CLI_COMMANDS } from '../src/cli-commands/traffic.js'
@@ -78,6 +78,16 @@ describe('referral assessment authenticated HTTP, CLI and MCP parity', () => {
     log.mockClear()
     expect(await dispatchRegisteredCommand([...args, '--format', 'json'], 'text', TRAFFIC_CLI_COMMANDS)).toBe(true)
     expect(JSON.parse(String(log.mock.calls[0]?.[0])).comparison).toMatchObject({ serverCountable: 100, gaSessions: 30, observedRatio: 3.33, observedRatioAboveThreshold: true })
+  })
+
+  it('canonical date flags and legacy aliases select identical stored evidence', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+    for (const flags of [['--start', '--end'], ['--start-date', '--end-date']]) {
+      await dispatchRegisteredCommand(['traffic', 'referral-assessment', 'example', flags[0]!, input.startDate, flags[1]!, input.endDate, '--format', 'json'], 'text', TRAFFIC_CLI_COMMANDS)
+    }
+    expect(log).toHaveBeenCalledTimes(2)
+    expect(JSON.parse(String(log.mock.calls[0]![0]))).toEqual(JSON.parse(String(log.mock.calls[1]![0])))
+    expect(JSON.parse(String(log.mock.calls[0]![0])).totals).toBeDefined()
   })
 
   it('enforces missing authentication, project boundaries and unsupported Advanced attribution', async () => {

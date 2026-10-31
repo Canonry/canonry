@@ -1,3 +1,4 @@
+import { GBP_POSTS_WRITE_SCOPE } from './gbp-local-posts.js'
 /**
  * API-key scope tokens and the read-only classifier.
  *
@@ -22,6 +23,11 @@ export const WILDCARD_SCOPE = '*'
 /** Run bounded research without granting tracking or settings writes. */
 export const RESEARCH_RUN_SCOPE = 'research.run'
 
+/** Dispatch a separately bounded SEO request; no profile or general mutations. */
+export const SEO_RUN_SCOPE = 'seo.run'
+/** Manage SEO profiles within the host's fixed financial and capability policy. */
+export const SEO_WRITE_SCOPE = 'seo.write'
+
 /** Grants creation of a project at the install boundary. */
 export const PROJECTS_WRITE_SCOPE = 'projects.write'
 
@@ -33,6 +39,14 @@ export const ADS_APPROVE_SCOPE = 'ads.approve'
 
 /** Grants execution of a separately approved OpenAI Ads activation manifest. */
 export const ADS_ACTIVATE_SCOPE = 'ads.activate'
+
+/**
+ * Lets an embedded dashboard's clients add and remove their project's
+ * tracked queries, and nothing else. It is restricted: a key holding it
+ * reaches only the query-tracking review and save routes, which then apply the
+ * dashboard's query limit and the one-change rule.
+ */
+export const EMBED_QUERIES_WRITE_SCOPE = 'embed.queries.write'
 
 /** Grants live, quota-consuming reads from Google Ads and Tag Manager. */
 export const GOOGLE_MARKETING_LIVE_READ_SCOPE = 'google-marketing.read-live'
@@ -52,12 +66,13 @@ function grantsWrite(scope: string): boolean {
     || scope === ADS_APPROVE_SCOPE
     || scope === ADS_ACTIVATE_SCOPE
     || scope === RESEARCH_RUN_SCOPE
+    || scope === SEO_RUN_SCOPE
 }
 
 /** Named mutation grants constrained to explicit routes; null means legacy broad access. */
 export function restrictedWriteScopes(scopes: readonly string[]): readonly string[] | null {
   const writes = scopes.filter(grantsWrite)
-  const restricted = new Set([ADS_WRITE_SCOPE, ADS_APPROVE_SCOPE, ADS_ACTIVATE_SCOPE, RESEARCH_RUN_SCOPE])
+  const restricted = new Set([ADS_WRITE_SCOPE, ADS_APPROVE_SCOPE, ADS_ACTIVATE_SCOPE, RESEARCH_RUN_SCOPE, SEO_RUN_SCOPE, SEO_WRITE_SCOPE, GBP_POSTS_WRITE_SCOPE, EMBED_QUERIES_WRITE_SCOPE])
   return writes.length > 0 && writes.every(scope => restricted.has(scope)) ? writes : null
 }
 

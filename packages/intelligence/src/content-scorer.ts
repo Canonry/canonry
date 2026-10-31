@@ -16,7 +16,7 @@
  * auditable. No LLM-generated prose; every driver is a derived label.
  */
 
-import { formatPercent, type ContentAction, type DemandSource } from '@ainyc/canonry-contracts'
+import { formatPercent, type ContentAction, type DemandSource } from '@canonry/canonry-contracts'
 
 export interface ScorerInput {
   // Demand signals

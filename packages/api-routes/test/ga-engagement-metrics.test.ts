@@ -5,11 +5,12 @@ import path from 'node:path'
 import Fastify from 'fastify'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { eq } from 'drizzle-orm'
-import { createClient, gaDailyTotals, migrate } from '@ainyc/canonry-db'
-import { gaMeasurementAnalysisDtoSchema } from '@ainyc/canonry-contracts'
-import * as gaModule from '@ainyc/canonry-integration-google-analytics'
+import { createClient, gaDailyTotals, migrate } from '@canonry/canonry-db'
+import { gaMeasurementAnalysisDtoSchema } from '@canonry/canonry-contracts'
+import * as gaModule from '@canonry/canonry-integration-google-analytics'
 import { apiRoutes } from '../src/index.js'
 import type { Ga4CredentialRecord, Ga4CredentialStore } from '../src/ga.js'
+import { dailyTotals, unknownWindowMetrics } from './ga-sync-fixtures.js'
 
 /**
  * GA4 engagement rate + returning users, from the sync write through to the
@@ -141,16 +142,18 @@ describe('GA4 engagement metrics', () => {
     vi.spyOn(gaModule, 'fetchTrafficByLandingPage').mockResolvedValue([])
     vi.spyOn(gaModule, 'fetchAiReferrals').mockResolvedValue([])
     vi.spyOn(gaModule, 'fetchSocialReferrals').mockResolvedValue([])
+    vi.spyOn(gaModule, 'fetchSearchLandingPages').mockResolvedValue({ status: 'ready', windows: [] })
     vi.spyOn(gaModule, 'fetchAcquisitionByChannel').mockResolvedValue({
       startDate: '2026-06-22', endDate: ANCHOR, rows: [],
     })
     vi.spyOn(gaModule, 'fetchLeadEvents').mockResolvedValue({
       startDate: '2026-06-22', endDate: ANCHOR, attributionScope: 'landing-page', rows: [],
     })
-    vi.spyOn(gaModule, 'fetchDailyTotals').mockResolvedValue([
+    vi.spyOn(gaModule, 'fetchDailyTotals').mockResolvedValue(dailyTotals([
       { date: '2026-07-21', sessions: 100, users: 80, engagementRate: 0.6, newUsers: 50},
       { date: ANCHOR, sessions: 300, users: 200, engagementRate: null, newUsers: null},
-    ])
+    ]))
+    vi.spyOn(gaModule, 'fetchWindowMetrics').mockImplementation(async (_token, _property, windowKey) => unknownWindowMetrics(windowKey))
 
     const response = await ctx.app.inject({
       method: 'POST',

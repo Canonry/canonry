@@ -69,9 +69,32 @@ guide plus links to host-native references. It does not replace runtime help.
 **Status:** read the stored overview and freshness first. Say when evidence is
 missing instead of silently creating it.
 
+**Setup:** Page Health needs no answer-engine provider; AI Visibility does.
+After a Page Health result on an install with no provider (a `NO_PROVIDER`
+notice, or doctor's `providers.none-configured`), propose AI Visibility setup
+as the next step. The operator adds the provider key in the dashboard or in
+their own terminal; never ask for it in chat.
+Rerunning `canonry bootstrap` after a provider change reloads saved provider
+settings on a matching running local server and reports whether they became
+active. If the server is offline, start it to apply the saved settings. For an
+explicit reload of the connected server's own config, use
+`canonry settings reload-providers` or `canonry_providers_reload` with install
+administrator authority. Remote servers are never reloaded automatically by
+bootstrap, and a local server that belongs to another install is left alone.
+Ports and database settings still need a restart.
+
 **Diagnose:** inspect stored history and comparable evidence. Explain what
 changed separately from why it might have changed. A hypothesis is not a
 measured cause. Propose bounded verification if stored evidence is insufficient.
+
+**Site Health:** read `canonry_site_health_issues` for stored technical findings,
+affected-page counts and example URLs, then `canonry_site_health_issue_pages`
+for a selected issue's remaining pages. Pin subsequent reads to the returned
+run. Inspect coverage and omissions: a passing score can still have findings,
+an older scan may lack cross-page evidence, and a partial scan cannot establish
+site-wide absence. Advisory findings require judgment before proposing a repair.
+Audit evidence informs technical repairs and existing-page recommendations;
+it does not itself establish a new-blog opportunity or authorize any edit.
 
 **Prospecting:** generate a one-shot company snapshot without creating a project.
 Inspect stored provider settings first. Agree on the company, domain, selected
@@ -107,7 +130,10 @@ or stale inputs. For Advanced Property mention rankings, use
 returned class and report branded results separately. An unavailable portfolio
 aggregate does not invalidate available Property mention rates. Flag excluded
 Properties individually; do not silently replace mention ranking with citation
-ranking. Keep sample sizes and ties visible. Preparing a report does not
+ranking. Compact `nextCursor` completes only `pageList`; use `list` to enumerate
+one ranking, markets, observed names or cited domains, preserving filters.
+First-page sibling lists are bounded summaries. Keep sample sizes and ties
+visible. Preparing a report does not
 authorize new measurement.
 
 ## Authority and approval

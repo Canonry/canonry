@@ -3,10 +3,12 @@ import path from 'node:path'
 import os from 'node:os'
 import crypto from 'node:crypto'
 import { parse, stringify } from 'yaml'
-import { agentAllowViewersSchema, agentModelSchema, agentProviderSchema, dashboardManagedRunKindsSchema, dashboardManagedSweepsSchema, researchAllowViewersSchema, researchViewerDailyRunLimitSchema } from '@ainyc/canonry-config'
-import type { SentimentInstallConfigInput } from '@ainyc/canonry-config'
-import { AGENT_PROVIDER_IDS } from '@ainyc/canonry-contracts'
-import type { AgentProviderId, EmbedConfigEntry, ProviderBatchConfig, ProviderPricing, ProviderQuotaPolicy, SchedulableRunKind } from '@ainyc/canonry-contracts'
+import { AGENT_REASONING_LEVELS, agentAllowViewersSchema, agentModelSchema, agentProviderSchema, agentReasoningSchema, classificationConfigSchema, dashboardManagedRunKindsSchema, dashboardManagedSweepsSchema, mcpGatewayConfigSchema, researchAllowViewersSchema, researchViewerDailyRunLimitSchema } from '@canonry/canonry-config'
+import type { AgentReasoningLevel, SentimentInstallConfigInput } from '@canonry/canonry-config'
+import { AGENT_PROVIDER_IDS, isRetiredAgentProviderId } from '@canonry/canonry-contracts'
+import { seoInstallConfigSchema, type SeoInstallConfig } from '@canonry/canonry-config'
+import type { AgentProviderId, EmbedConfigEntry, ProviderBatchConfig, ProviderPricing, ProviderQuotaPolicy, SchedulableRunKind } from '@canonry/canonry-contracts'
+import { isAgentModelAccepted } from './agent/providers.js'
 import { CliError } from './cli-error.js'
 import { normalizeProviderBatchSettings } from './provider-batch-config.js'
 
@@ -376,6 +378,15 @@ export interface AgentConfigEntry {
    * overrides it; resolved by `resolveAgentAllowViewers`.
    */
   allowViewers?: boolean | null
+  /**
+   * How hard Aero asks the model to reason on every turn, one of
+   * `AGENT_REASONING_LEVELS`. Absent uses the provider's default
+   * (`PROVIDER_DEFAULT_REASONING`: `low` for OpenAI, `off` elsewhere; an
+   * OpenRouter model takes its direct provider's level). The model
+   * clamps a level it does not support. `CANONRY_AGENT_REASONING` overrides it;
+   * resolved by `resolveAgentReasoning`.
+   */
+  reasoning?: AgentReasoningLevel | null
 }
 
 export interface DashboardConfigEntry {
@@ -404,11 +415,25 @@ export interface DashboardConfigEntry {
   showResourceLinks?: boolean
 
   /**
+   * Whether agent onboarding includes local plugins, CLI, and canonry-mcp
+   * instructions. Defaults to true. Presentation only; does not change access
+   * or hosted connector readiness.
+   */
+  showLocalAgentSetup?: boolean
+
+  /**
    * Whether the dashboard sidebar shows the available-version notification.
    * Defaults to true. Disable without turning off the underlying update check
    * or CLI update notice.
    */
   showUpdateNotification?: boolean
+
+  /**
+   * The Canonry mark in the browser tab, sidebar, and dashboard sign-in:
+   * `mascot` (default) or `icon`, the plugin icon's canary on a white tile,
+   * for client deployments. Presentation only.
+   */
+  brandMark?: 'mascot' | 'icon'
 
   /** Legacy alias for managedRunKinds: ['answer-visibility']. */
   managedSweeps?: boolean | null
@@ -440,6 +465,10 @@ export interface PlacesConfigEntry {
 }
 
 export interface CanonryConfig {
+  /** DataForSEO credentials and operator-set funding policy; config.yaml only. */
+  seo?: SeoInstallConfig
+  /** Model for domain classification, separate from the measured sweep engines and Aero. */
+  classification?: import('@canonry/canonry-config').ClassificationConfig
   /**
    * Private opt-in TypeSafe classifier credentials and limits. Reloaded from
    * config.yaml before dispatch; the in-memory copy is a startup snapshot that
@@ -448,6 +477,12 @@ export interface CanonryConfig {
   sentiment?: SentimentInstallConfigInput
   apiUrl: string
   publicUrl?: string
+  /**
+   * Shared MCP gateway this instance is registered with (the Canonry plugin).
+   * Operator-set when onboarding the instance; Agent setup then shows plugin
+   * instructions with this workspace. Blank `workspace` uses the public host.
+   */
+  mcpGateway?: import('@canonry/canonry-config').McpGatewayConfig | null
   /** Sub-path prefix when canonry is served behind a reverse proxy (e.g. "/canonry/"). */
   basePath?: string
   database: string
@@ -468,6 +503,14 @@ export interface CanonryConfig {
   wordpress?: WordpressConfigEntry
   wordpressTraffic?: WordpressTrafficConfigEntry
   vercelTraffic?: VercelTrafficConfigEntry
+  /**
+   * AI visitor journeys. `visitorKeySecret` keys the per-visitor hash (HMAC).
+   * It is generated on the first server start when absent and kept here, apart
+   * from the database whose hashes it protects. `CANONRY_JOURNEY_KEY_SECRET`
+   * overrides it. Changing it starts new visitor keys: stored journeys remain
+   * but later visits no longer join them.
+   */
+  journeys?: { visitorKeySecret?: string | null } | null
   cloudflareTraffic?: CloudflareTrafficConfigEntry
   openaiAds?: OpenAiAdsConfigEntry
   googleAds?: GoogleAdsConfigEntry
@@ -482,6 +525,8 @@ export interface CanonryConfig {
   // Telemetry (opt-out: undefined/true = enabled, false = disabled)
   telemetry?: boolean
   anonymousId?: string
+  /** First-touch campaign tag (`--ref` / `CANONRY_REF`), kept once and sent with install telemetry. */
+  installRef?: string
   // Last canonry CLI version observed by this install — used to fire a
   // single `cli.upgraded` event when the running binary version changes.
   lastSeenVersion?: string
@@ -587,8 +632,17 @@ export function getConfigPath(): string {
   return path.join(getConfigDir(), 'config.yaml')
 }
 
-export function loadConfig(): CanonryConfig {
-  const configPath = getConfigPath()
+// The file each config `loadConfig` returns was read from. A server started
+// with that config writes its changes back there (`createServer`'s
+// `configPath`); a config built in memory has no entry.
+const loadedConfigPaths = new WeakMap<CanonryConfig, string>()
+
+/** The file `loadConfig` read this config from; undefined for a config built in memory. */
+export function loadedConfigPath(config: CanonryConfig): string | undefined {
+  return loadedConfigPaths.get(config)
+}
+
+export function loadConfig(configPath = getConfigPath()): CanonryConfig {
   if (!fs.existsSync(configPath)) {
     throw new Error(
       `Config not found at ${configPath}.\n` +
@@ -615,6 +669,15 @@ export function loadConfig(): CanonryConfig {
 
   // Validate only the managed fields, without cloning/reordering the dashboard or
   // tightening validation of legacy fields (including blank YAML values).
+  if (parsed.seo !== undefined && !seoInstallConfigSchema.safeParse(parsed.seo).success) {
+    throw new CliError({ code: 'CONFIG_INVALID', message: `Invalid config at ${configPath}: seo requires an explicit funding mode, positive integer budget caps, and connection credentials.` })
+  }
+  if (!mcpGatewayConfigSchema.safeParse(parsed.mcpGateway).success) {
+    throw new CliError({
+      code: 'CONFIG_INVALID',
+      message: `Invalid config at ${configPath}: mcpGateway needs an HTTPS url without credentials, query or fragment, and an optional non-empty workspace.`,
+    })
+  }
   if (!dashboardManagedSweepsSchema.safeParse(parsed.dashboard?.managedSweeps).success) {
     throw new CliError({
       code: 'CONFIG_INVALID',
@@ -640,9 +703,14 @@ export function loadConfig(): CanonryConfig {
     })
   }
   if (!agentProviderSchema.safeParse(parsed.agent?.provider).success) {
+    const pinned: unknown = parsed.agent?.provider
+    const retired = typeof pinned === 'string' && isRetiredAgentProviderId(pinned)
     throw new CliError({
       code: 'CONFIG_INVALID',
-      message: `Invalid config at ${configPath}: agent.provider must be one of ${AGENT_PROVIDER_IDS.join(', ')}, or left blank.`,
+      message: retired
+        ? `Invalid config at ${configPath}: agent.provider ${pinned} was removed. `
+          + `Pin one of ${AGENT_PROVIDER_IDS.join(', ')} (with a key under providers.<name>.apiKey), or leave it blank.`
+        : `Invalid config at ${configPath}: agent.provider must be one of ${AGENT_PROVIDER_IDS.join(', ')}, or left blank.`,
     })
   }
   if (!agentModelSchema.safeParse(parsed.agent?.model).success) {
@@ -651,11 +719,35 @@ export function loadConfig(): CanonryConfig {
       message: `Invalid config at ${configPath}: agent.model must be a non-empty string or left blank.`,
     })
   }
+  const journeySecret = parsed.journeys?.visitorKeySecret
+  // Blank (absent, null, or an empty string) means generate one.
+  if (journeySecret !== undefined && journeySecret !== null && (typeof journeySecret !== 'string' || (journeySecret.trim().length > 0 && journeySecret.trim().length < 32))) {
+    throw new CliError({
+      code: 'CONFIG_INVALID',
+      message: `Invalid config at ${configPath}: journeys.visitorKeySecret must be a string of at least 32 characters, or left blank to generate one.`,
+    })
+  }
   if (!agentAllowViewersSchema.safeParse(parsed.agent?.allowViewers).success) {
     throw new CliError({
       code: 'CONFIG_INVALID',
       message: `Invalid config at ${configPath}: agent.allowViewers must be true, false, or left blank.`,
     })
+  }
+  if (!agentReasoningSchema.safeParse(parsed.agent?.reasoning).success) {
+    throw new CliError({
+      code: 'CONFIG_INVALID',
+      message: `Invalid config at ${configPath}: agent.reasoning must be one of ${AGENT_REASONING_LEVELS.join(', ')}, or left blank.`,
+    })
+  }
+  if (parsed.classification !== undefined) {
+    const classification = classificationConfigSchema.safeParse(parsed.classification)
+    if (!classification.success || (classification.data.model && !isAgentModelAccepted(classification.data.provider, classification.data.model))) {
+      throw new CliError({
+        code: 'CONFIG_INVALID',
+        message: `Invalid config at ${configPath}: classification requires a supported provider and an available non-empty model.`,
+      })
+    }
+    parsed.classification = classification.data
   }
   // A model without a provider is silently ignored at resolution time, which
   // is exactly the invisible-configuration failure this pin exists to remove.
@@ -734,6 +826,7 @@ export function loadConfig(): CanonryConfig {
     parsed.externalMcpServers = parsedExternalMcp
   }
 
+  loadedConfigPaths.set(parsed, path.resolve(configPath))
   return parsed
 }
 
@@ -772,8 +865,7 @@ export function parseExternalMcpEnv(raw: string | undefined): ExternalMcpServerC
  * (env-var overrides, legacy migrations, etc.).  Returns null when the
  * file does not exist or cannot be parsed.
  */
-export function loadConfigRaw(): CanonryConfig | null {
-  const configPath = getConfigPath()
+export function loadConfigRaw(configPath = getConfigPath()): CanonryConfig | null {
   if (!fs.existsSync(configPath)) return null
   try {
     return (parse(fs.readFileSync(configPath, 'utf-8')) as CanonryConfig) ?? null
@@ -841,14 +933,13 @@ function writeConfigAtomically(configPath: string, contents: string): void {
  *    `saveConfig` for a targeted change, it should not overwrite unrelated
  *    fields that were loaded from a different session.
  */
-export function saveConfig(config: CanonryConfig): void {
-  const configDir = getConfigDir()
+export function saveConfig(config: CanonryConfig, configPath = getConfigPath()): void {
+  const configDir = path.dirname(configPath)
   if (!fs.existsSync(configDir)) {
     fs.mkdirSync(configDir, { recursive: true })
   }
 
-  const configPath = getConfigPath()
-  const onDisk = loadConfigRaw()
+  const onDisk = loadConfigRaw(configPath)
 
   // Start with on-disk state as the base so that fields untouched by the
   // caller are preserved exactly as they were on disk.
@@ -888,20 +979,31 @@ export function saveConfig(config: CanonryConfig): void {
  * (provider settings, connection tokens, etc.) to prevent a server started
  * with a temporary CANONRY_CONFIG_DIR from clobbering production values like
  * `database`, `apiKey`, and `anonymousId`. The `sentiment` block is never
- * written: it always keeps its on-disk value.
+ * written: it always keeps its on-disk value. So does `dashboardPasswordHash`,
+ * which only `options.setDashboardPasswordHash` can add. `options.configPath`
+ * names the file to patch; it defaults to `getConfigPath()`.
  */
-export function saveConfigPatch(patch: Partial<CanonryConfig>): void {
-  const configDir = getConfigDir()
+export function saveConfigPatch(
+  patch: Partial<CanonryConfig>,
+  options: { setDashboardPasswordHash?: string, configPath?: string } = {},
+): void {
+  const configPath = options.configPath ?? getConfigPath()
+  const configDir = path.dirname(configPath)
   if (!fs.existsSync(configDir)) {
     fs.mkdirSync(configDir, { recursive: true })
   }
-  const configPath = getConfigPath()
 
   let base: Partial<CanonryConfig> = {}
+  // Whether config.yaml was read as settings. Only then does a password
+  // missing from it mean "no password": an absent, empty, or unreadable file
+  // says nothing, and the patch stands.
+  let baseRead = false
   if (fs.existsSync(configPath)) {
     try {
       const raw = fs.readFileSync(configPath, 'utf-8')
-      base = (parse(raw) as Partial<CanonryConfig>) ?? {}
+      const parsed: unknown = parse(raw)
+      base = (parsed as Partial<CanonryConfig> | null) ?? {}
+      baseRead = typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
     } catch {
       base = {}
     }
@@ -915,7 +1017,15 @@ export function saveConfigPatch(patch: Partial<CanonryConfig>): void {
   if (base.database) merged.database = base.database
   if (base.apiKey) merged.apiKey = base.apiKey
   if (base.anonymousId) merged.anonymousId = base.anonymousId
+
+  // config.yaml is the only source of the dashboard password. Callers pass a
+  // startup snapshot, and writing its hash back would undo a `canonry dashboard
+  // reset-password` run while the server is up. Keep what a readable file
+  // holds, including its absence: only first-run setup names a new hash, and
+  // never over a saved one.
   if (base.dashboardPasswordHash) merged.dashboardPasswordHash = base.dashboardPasswordHash
+  else if (options.setDashboardPasswordHash) merged.dashboardPasswordHash = options.setDashboardPasswordHash
+  else if (baseRead) delete merged.dashboardPasswordHash
 
   // config.yaml is the only source of the sentiment block: the worker rereads
   // it before every dispatch, and callers pass a startup snapshot. Writing that
@@ -937,6 +1047,50 @@ export function saveConfigPatch(patch: Partial<CanonryConfig>): void {
 
   const yaml = stringify(merged)
   writeConfigAtomically(configPath, yaml)
+}
+
+/**
+ * Take the dashboard password off config.yaml. `saveConfigPatch` never removes
+ * it, so the reset rewrites the file itself. A running server keeps the
+ * password it started with until it restarts, and its later config writes
+ * cannot put the hash back (see `saveConfigPatch`). Returns whether a
+ * password was set.
+ */
+export function clearDashboardPassword(): { cleared: boolean, configPath: string } {
+  const configPath = getConfigPath()
+  // A missing file usually means the server runs from another config
+  // directory. Reporting "nothing to reset" there would look like success.
+  if (!fs.existsSync(configPath)) {
+    throw new CliError({
+      code: 'CONFIG_REQUIRED',
+      message: `No config found at ${configPath}. If the server uses another config directory, set CANONRY_CONFIG_DIR to it and retry.`,
+    })
+  }
+
+  const raw = fs.readFileSync(configPath, 'utf-8')
+  let parsed: unknown
+  try {
+    parsed = parse(raw) ?? {}
+  } catch {
+    // YAML parser errors can include the secret-bearing source line.
+    parsed = undefined
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new CliError({
+      code: 'CONFIG_INVALID',
+      message: `Invalid config at ${configPath}: it could not be read as YAML settings. Repair the file and retry.`,
+    })
+  }
+
+  // The server reads any falsy value as "no password", so this does too.
+  const config = parsed as Record<string, unknown>
+  if (!config.dashboardPasswordHash) {
+    return { cleared: false, configPath }
+  }
+
+  delete config.dashboardPasswordHash
+  writeConfigAtomically(configPath, stringify(config))
+  return { cleared: true, configPath }
 }
 
 export function configExists(): boolean {

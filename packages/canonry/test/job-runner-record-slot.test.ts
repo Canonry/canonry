@@ -17,8 +17,8 @@ import {
   type ProviderHealthcheckResult,
   type RawQueryResult,
   type TrackedQueryInput,
-} from '@ainyc/canonry-contracts'
-import { queueRunFill, queueRunIfProjectIdle } from '@ainyc/canonry-api-routes'
+} from '@canonry/canonry-contracts'
+import { queueRunFill, queueRunIfProjectIdle } from '@canonry/canonry-api-routes'
 import {
   competitors,
   createClient,
@@ -31,7 +31,7 @@ import {
   runFills,
   runs,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { JobRunner } from '../src/job-runner.js'
 import { ProviderRegistry } from '../src/provider-registry.js'
 import { resetSharedProviderExecutionGates } from '../src/provider-execution-gate.js'
@@ -217,6 +217,9 @@ function expectedPlanRow(runId: string, provider: string, model: string, queryNu
     servedModel: `${model}-2026-07-01`,
     citationState: 'cited',
     answerMentioned: true,
+    // Sentiment's identity verdicts arrive after the sweep, never with it.
+    mentionIdentity: null,
+    wrongSubjectTargetKeys: null,
     answerText: ANSWER,
     citedDomains: ['example.com', 'rivalrywidgets.com'],
     citedUrls: provider === 'openai' || provider === 'gemini' ? SOURCES.map(source => source.uri) : null,
@@ -244,6 +247,8 @@ function expectedPlanRow(runId: string, provider: string, model: string, queryNu
       estimatedCostMicros: provider === 'openai' ? OPENAI_STANDARD_COST : null,
       priceSource: provider === 'openai' ? 'override' : null,
     },
+    // Only hosted answer services record vendor-neutral evidence.
+    answerEvidence: null,
     rawResponse: JSON.stringify({
       model,
       servedModel: `${model}-2026-07-01`,

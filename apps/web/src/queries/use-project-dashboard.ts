@@ -10,7 +10,7 @@ import {
 import {
   getApiV1ProjectsByNameOptions,
   getApiV1ProjectsByNameRunsOptions,
-} from '@ainyc/canonry-api-client/react-query'
+} from '@canonry/canonry-api-client/react-query'
 import { buildProjectCommandCenter } from '../build-dashboard.js'
 import type { ProjectData } from '../build-dashboard.js'
 import type { ProjectCommandCenterVm } from '../view-models.js'
@@ -166,7 +166,9 @@ export function useProjectDashboard(
       return {
         ...initialCommandCenter,
         project: built.project,
-        recentRuns: runsQuery.data ? built.recentRuns : initialCommandCenter.recentRuns,
+        // The runs list has loaded (checked above), so both come from it.
+        recentRuns: built.recentRuns,
+        visibilitySweeps: built.visibilitySweeps,
         visibilityEvidence: evidence ? built.visibilityEvidence : initialCommandCenter.visibilityEvidence,
       }
     }

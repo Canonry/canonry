@@ -1,3 +1,4 @@
+import { CANONRY_DISCORD_URL } from './support-links.js'
 /**
  * Output contract an agent can pick per call:
  *   text  — human-readable, decorated (default). Not a stable parse target.
@@ -111,13 +112,15 @@ export function printCliError(err: unknown, format: CliFormat): void {
 
   if (err instanceof CliError && err.displayMessage) {
     console.error(err.displayMessage)
-    return
-  }
-
-  if (err instanceof Error) {
+  } else if (err instanceof Error) {
     console.error(`Error: ${err.message}`)
-    return
+  } else {
+    console.error('An unexpected error occurred')
   }
-
-  console.error('An unexpected error occurred')
+  // A person at a terminal hitting something unexpected gets pointed at help.
+  // Usage errors and machine formats never carry the hint.
+  const unexpected = !(err instanceof CliError) || err.exitCode === EXIT_SYSTEM_ERROR
+  if (unexpected && process.stderr.isTTY) {
+    console.error(`\nNeed help? Run 'canonry support' or ask in the Canonry Discord: ${CANONRY_DISCORD_URL}`)
+  }
 }

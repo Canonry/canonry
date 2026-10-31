@@ -1,13 +1,36 @@
-import { cancelRun, fillRun, listRuns, showRun, showRunCompleteness, triggerRun, triggerRunAll } from '../commands/run.js'
 import type { CliCommandInput, CliCommandSpec } from '../cli-dispatch.js'
 import { getBoolean, getString, getStringArray, multiStringOption, parseIntegerOption, requirePositional, requireProject, stringOption } from '../cli-command-helpers.js'
 import { usageError } from '../cli-error.js'
-import { providerDispatchModeSchema, type ProviderDispatchMode } from '@ainyc/canonry-contracts'
+import { providerDispatchModeSchema, type ProviderDispatchMode } from '@canonry/canonry-contracts'
 
-const RUN_TRIGGER_USAGE = 'canonry run trigger <project> [--group <key>]... [--target <key>]... [--provider <name>] [--query <q>...] [--location <label>] [--all-locations] [--no-location] [--probe] [--dispatch-mode sync|batch] [--wait] [--format json]'
-const RUN_USAGE = 'canonry run <project|--all> [--group <key>]... [--target <key>]... [--provider <name>] [--query <q>...] [--location <label>] [--all-locations] [--no-location] [--probe] [--dispatch-mode sync|batch] [--wait] [--format json]'
+const RUN_TRIGGER_USAGE = 'canonry run trigger <project> [--group <key>]... [--target <key>]... [--provider <name>] [--query <q>...] [--location <label>] [--all-locations] [--no-location] [--probe] [--dispatch-mode sync|batch] [--force] [--wait] [--format json]'
+const RUN_USAGE = 'canonry run <project|--all> [--group <key>]... [--target <key>]... [--provider <name>] [--query <q>...] [--location <label>] [--all-locations] [--no-location] [--probe] [--dispatch-mode sync|batch] [--force] [--wait] [--format json]'
 const RUN_FILL_USAGE = 'canonry run fill <run-id> [--provider <name>[,<name>]] [--dry-run] [--wait] [--format json]'
-const RUNS_USAGE = 'canonry runs <project> [--limit <n>] [--kind <kind>] [--status <status>] [--format json]'
+const RUNS_USAGE = 'canonry runs <project> [--limit <n>] [--kind <kind>] [--exclude-kind <kind>] [--exclude-kinds <kind>[,<kind>]]... [--status <status>] [--since <ISO>] [--format json|jsonl]'
+
+const RUN_LIST_USAGE = RUNS_USAGE.replace('canonry runs', 'canonry run list')
+const RUN_LIST_OPTIONS = {
+  limit: stringOption(),
+  kind: stringOption(),
+  'exclude-kind': stringOption(),
+  'exclude-kinds': multiStringOption(),
+  status: stringOption(),
+  since: stringOption(),
+}
+
+async function listRunsCommand(input: CliCommandInput): Promise<void> {
+  const { listRuns } = await import('../commands/run.js')
+  const project = requireProject(input, 'runs', RUNS_USAGE)
+  await listRuns(project, {
+    format: input.format,
+    limit: parseIntegerOption(input, 'limit', { command: 'runs', usage: RUNS_USAGE, message: '--limit must be an integer' }),
+    kind: getString(input.values, 'kind'),
+    excludeKind: getString(input.values, 'exclude-kind'),
+    excludeKinds: getStringArray(input.values, 'exclude-kinds'),
+    status: getString(input.values, 'status'),
+    since: getString(input.values, 'since'),
+  })
+}
 
 const RUN_TRIGGER_OPTIONS = {
   provider: stringOption(),
@@ -29,6 +52,9 @@ const RUN_TRIGGER_OPTIONS = {
   // `batch` sends every provider that can to its asynchronous batch API (a
   // full plan sweep, enabled in config.yaml); refused when none can.
   'dispatch-mode': stringOption(),
+  // Run even though every provider failed its recent runs on a rejected key
+  // or an exhausted account (the API refuses with PROVIDERS_FAILING).
+  force: { type: 'boolean', default: false },
 } as const
 
 function parseDispatchMode(value: string | undefined, command: string, usage: string): ProviderDispatchMode | undefined {
@@ -42,6 +68,7 @@ function parseDispatchMode(value: string | undefined, command: string, usage: st
 }
 
 async function triggerRunCommand(input: CliCommandInput, command: string): Promise<void> {
+  const { triggerRun, triggerRunAll } = await import('../commands/run.js')
   const groups = getStringArray(input.values, 'group') ?? []
   const targets = getStringArray(input.values, 'target') ?? []
   const queries = getStringArray(input.values, 'query') ?? []
@@ -79,6 +106,7 @@ async function triggerRunCommand(input: CliCommandInput, command: string): Promi
       allLocations: getBoolean(input.values, 'all-locations'),
       noLocation: getBoolean(input.values, 'no-location'),
       dispatchMode,
+      force: getBoolean(input.values, 'force'),
       format: input.format,
     })
     return
@@ -112,6 +140,7 @@ async function triggerRunCommand(input: CliCommandInput, command: string): Promi
     noLocation: getBoolean(input.values, 'no-location'),
     probe: getBoolean(input.values, 'probe'),
     dispatchMode,
+    force: getBoolean(input.values, 'force'),
     format: input.format,
   })
 }
@@ -121,6 +150,7 @@ export const RUN_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['run', 'show'],
     usage: 'canonry run show <id> [--format json]',
     run: async (input) => {
+      const { showRun } = await import('../commands/run.js')
       const id = requirePositional(input, 0, {
         command: 'run.show',
         usage: 'canonry run show <id> [--format json]',
@@ -138,6 +168,7 @@ export const RUN_CLI_COMMANDS: readonly CliCommandSpec[] = [
     },
     supportsDryRun: true,
     run: async (input) => {
+      const { fillRun } = await import('../commands/run.js')
       // Same rule as `run trigger`: a project named after a keyword must stay
       // runnable, so `canonry run fill` with nothing after it sweeps "fill".
       // Never with --dry-run: a preview must not fall through to a real sweep.
@@ -160,6 +191,7 @@ export const RUN_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['run', 'completeness'],
     usage: 'canonry run completeness <run-id> [--format json]',
     run: async (input) => {
+      const { showRunCompleteness } = await import('../commands/run.js')
       if (input.positionals.length === 0) return triggerRunCommand({ ...input, positionals: ['completeness'] }, 'run')
       const runId = requirePositional(input, 0, {
         command: 'run.completeness',
@@ -173,6 +205,7 @@ export const RUN_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['run', 'cancel'],
     usage: 'canonry run cancel <project> [run-id] [--format json]',
     run: async (input) => {
+      const { cancelRun } = await import('../commands/run.js')
       const project = requireProject(input, 'run.cancel', 'canonry run cancel <project> [run-id] [--format json]')
       await cancelRun(project, input.positionals[1], input.format)
     },
@@ -180,6 +213,7 @@ export const RUN_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['run', 'trigger'],
     usage: RUN_TRIGGER_USAGE,
+    help: 'Select direct providers by name. OpenRouter models use openrouter:vendor/model; comma-separated routes can run together. Configure the shared OpenRouter key in settings first. The OpenRouter connection alone does not select a sweep model.',
     options: RUN_TRIGGER_OPTIONS,
     run: (input) => triggerRunCommand(
       // `canonry run trigger` with nothing after it is ambiguous: the
@@ -196,31 +230,22 @@ export const RUN_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['run'],
     usage: RUN_USAGE,
+    help: 'Select direct providers by name. OpenRouter models use openrouter:vendor/model; comma-separated routes can run together. Configure the shared OpenRouter key in settings first. The OpenRouter connection alone does not select a sweep model.',
     options: RUN_TRIGGER_OPTIONS,
     run: (input) => triggerRunCommand(input, 'run'),
   },
   {
+    path: ['run', 'list'],
+    usage: RUN_LIST_USAGE,
+    options: RUN_LIST_OPTIONS,
+    run: (input) => input.positionals.length === 0
+      ? triggerRunCommand({ ...input, positionals: ['list'] }, 'run')
+      : listRunsCommand(input),
+  },
+  {
     path: ['runs'],
     usage: RUNS_USAGE,
-    options: {
-      limit: stringOption(),
-      kind: stringOption(),
-      status: stringOption(),
-    },
-    run: async (input) => {
-      const project = requireProject(input, 'runs', RUNS_USAGE)
-      // kind/status pass through as typed; the server validates them against
-      // the run enums and its 400 names the allowed values.
-      await listRuns(project, {
-        format: input.format,
-        limit: parseIntegerOption(input, 'limit', {
-          command: 'runs',
-          usage: RUNS_USAGE,
-          message: '--limit must be an integer',
-        }),
-        kind: getString(input.values, 'kind'),
-        status: getString(input.values, 'status'),
-      })
-    },
+    options: RUN_LIST_OPTIONS,
+    run: listRunsCommand,
   },
 ]

@@ -1,3 +1,11 @@
+/** Prices a provider catalog publishes for one model, in US dollars per million tokens. */
+export interface ModelPricing {
+  input: number
+  output: number
+  cacheRead?: number
+  cacheWrite?: number
+}
+
 export interface ModelDefinition {
   /** API model ID (e.g. "gemini-2.5-flash") */
   id: string
@@ -5,6 +13,20 @@ export interface ModelDefinition {
   displayName: string
   /** Capability tier for sorting/display */
   tier: 'flagship' | 'standard' | 'fast' | 'economy'
+  // Optional metadata read from the same live catalog response as the entry.
+  // Aero builds a model it has no bundled definition for from these. Picker
+  // DTOs (`GET /settings`, research) carry only id, name and tier.
+  /** Context window in tokens. */
+  contextWindow?: number
+  /** Largest completion the provider allows, in tokens. */
+  maxOutputTokens?: number
+  pricing?: ModelPricing
+  /** Input kinds the model accepts, as the catalog names them (`text`, `image`, `file`, ...). */
+  inputModalities?: string[]
+  /** Whether the model accepts tool definitions; absent when the catalog does not say. */
+  supportsTools?: boolean
+  /** Whether the model takes reasoning controls; absent when the catalog does not say. */
+  supportsReasoning?: boolean
 }
 
 export interface ProviderModelRegistry {

@@ -8,8 +8,10 @@
  */
 import { test, expect, onTestFinished, describe, afterEach } from 'vitest'
 
+import fs from 'node:fs'
+import path from 'node:path'
 import React from 'react'
-import { render, screen, cleanup, fireEvent, act } from '@testing-library/react'
+import { render, screen, cleanup, fireEvent, act, within } from '@testing-library/react'
 
 import { AuthGate } from '../src/components/auth/AuthGate.js'
 import { handleAuthExpired } from '../src/api.js'
@@ -86,6 +88,7 @@ function readQueryCacheKeys(_container: HTMLElement): string[] {
 
 afterEach(() => {
   cleanup()
+  delete window.__CANONRY_CONFIG__
 })
 
 describe('an install with no accounts', () => {
@@ -98,7 +101,7 @@ describe('an install with no accounts', () => {
     })
 
     render(<AuthGate />)
-    expect(await screen.findByRole('heading', { name: 'Portfolio' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'All projects' })).toBeTruthy()
     expect(screen.queryByLabelText('Name')).toBeNull()
   })
 })
@@ -126,11 +129,30 @@ describe('signing in with an account', () => {
 
     const brand = screen.getByTestId('auth-brand')
     expect(brand.textContent).toContain('Canonry')
-    expect(brand.querySelector('img')).toBeTruthy()
+    expect(brand.querySelector('img')?.getAttribute('src')).toBe('./favicon.svg')
 
     // Two labelled fields already say what to type; a sentence repeating it is
     // noise on the one screen that should be shortest.
     expect(screen.queryByText('Enter the name and password for your account.')).toBeNull()
+  })
+
+  // A client deployment (dashboard.brandMark: icon) shows the plugin icon, the
+  // same mark as its OAuth sign-in pages, instead of the mascot.
+  test('shows the plugin icon on a client deployment', async () => {
+    window.__CANONRY_CONFIG__ = { dashboard: { brandMark: 'icon' } }
+    serveAccounts({ authRequired: true, user: null })
+
+    render(<AuthGate />)
+    await screen.findByText('Sign in to Canonry')
+
+    const mark = screen.getByTestId('auth-brand').querySelector('img')
+    expect(mark?.getAttribute('src')).toBe('./canonry-icon.svg')
+    expect(mark?.classList.contains('brand-icon-tile')).toBe(true)
+    // The dashboard build ships the file the mark points at. Walk up from the
+    // vitest cwd: `import.meta.url` is not a file URL in this environment.
+    let root = path.resolve(process.cwd())
+    while (!fs.existsSync(path.join(root, 'pnpm-workspace.yaml')) && path.dirname(root) !== root) root = path.dirname(root)
+    expect(fs.existsSync(path.join(root, 'apps/web/public/canonry-icon.svg'))).toBe(true)
   })
 
   test('opens the dashboard once the name and password are accepted', async () => {
@@ -158,7 +180,7 @@ describe('signing in with an account', () => {
       fireEvent.submit(screen.getByRole('button', { name: 'Sign in' }))
     })
 
-    expect(await screen.findByRole('heading', { name: 'Portfolio' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'All projects' })).toBeTruthy()
   })
 
   test('says the same thing whatever was wrong, and stays put', async () => {
@@ -190,24 +212,36 @@ describe('what a signed-in person sees', () => {
     serveAccounts({ authRequired: true, user: { name: 'owner', role: 'admin' } })
 
     render(<AuthGate />)
-    await screen.findByRole('heading', { name: 'Portfolio' })
+    await screen.findByRole('heading', { name: 'All projects' })
 
-    expect(screen.getAllByText('owner').length).toBeGreaterThan(0)
-    expect(screen.getAllByRole('button', { name: 'Sign out' }).length).toBe(2)
-    expect(screen.getAllByText('Settings').length).toBeGreaterThan(0)
+    const sidebar = within(screen.getByRole('complementary', { name: 'Primary navigation' }))
+    expect(sidebar.getByText('owner')).toBeTruthy()
+    expect(sidebar.getByRole('button', { name: 'Sign out' })).toBeTruthy()
+    expect(sidebar.getByRole('link', { name: 'Settings' })).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }))
+    const navigation = within(await screen.findByRole('dialog', { name: 'Navigation' }))
+    expect(navigation.getByText('owner')).toBeTruthy()
+    expect(navigation.getByRole('button', { name: 'Sign out' })).toBeTruthy()
+    expect(navigation.getByRole('link', { name: 'Settings' })).toBeTruthy()
   })
 
   test('a viewer is told they are read-only and is not shown administrator screens', async () => {
     serveAccounts({ authRequired: true, user: { name: 'watcher', role: 'viewer' } })
 
     render(<AuthGate />)
-    await screen.findByRole('heading', { name: 'Portfolio' })
+    await screen.findByRole('heading', { name: 'All projects' })
 
     expect(screen.getAllByText('watcher').length).toBeGreaterThan(0)
     expect(screen.getAllByText('View only').length).toBeGreaterThan(0)
     // Settings holds provider credentials and API keys — not a viewer's screen.
     expect(screen.queryByText('Settings')).toBeNull()
     expect(screen.queryByText('Setup')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }))
+    const navigation = within(await screen.findByRole('dialog', { name: 'Navigation' }))
+    expect(navigation.queryByRole('link', { name: 'Settings' })).toBeNull()
+    expect(navigation.queryByRole('link', { name: 'Setup' })).toBeNull()
   })
 })
 
@@ -224,7 +258,7 @@ test('a viewer dashboard never asks for the settings it is not allowed to read',
   })
 
   render(<AuthGate />)
-  await screen.findByRole('heading', { name: 'Portfolio' })
+  await screen.findByRole('heading', { name: 'All projects' })
 
   expect(requested.some(url => url.includes('/api/v1/settings'))).toBe(false)
 })
@@ -249,7 +283,7 @@ test('P2.7: one account does not inherit the cached data of the one before it', 
   })
 
   const { container } = render(<AuthGate />)
-  await screen.findByRole('heading', { name: 'Portfolio' })
+  await screen.findByRole('heading', { name: 'All projects' })
   const adminCache = readQueryCacheKeys(container)
   expect(adminCache.some(key => /settings/i.test(key))).toBe(true)
 
@@ -265,7 +299,7 @@ test('P2.7: one account does not inherit the cached data of the one before it', 
   await act(async () => {
     fireEvent.submit(screen.getByRole('button', { name: 'Sign in' }))
   })
-  await screen.findByRole('heading', { name: 'Portfolio' })
+  await screen.findByRole('heading', { name: 'All projects' })
 
   expect(readQueryCacheKeys(container).some(key => /settings/i.test(key))).toBe(false)
 })
@@ -277,10 +311,10 @@ test('P2.9: identity and a way out exist on the mobile surface too', async () =>
   serveAccounts({ authRequired: true, user: { name: 'watcher', role: 'viewer' } })
 
   render(<AuthGate />)
-  await screen.findByRole('heading', { name: 'Portfolio' })
+  await screen.findByRole('heading', { name: 'All projects' })
 
-  const mobileNav = document.querySelector('.mobile-nav')
-  expect(mobileNav).toBeTruthy()
-  expect(mobileNav!.textContent).toContain('watcher')
-  expect(mobileNav!.querySelector('[data-testid="mobile-sign-out"]')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }))
+  const mobileNav = await screen.findByRole('dialog', { name: 'Navigation' })
+  expect(mobileNav.textContent).toContain('watcher')
+  expect(mobileNav.querySelector('[data-testid="mobile-sign-out"]')).toBeTruthy()
 })

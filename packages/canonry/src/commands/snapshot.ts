@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import type { SnapshotProviderResultDto, SnapshotReportDto, SnapshotRequestInput } from '@ainyc/canonry-contracts'
-import { factorStatusFromScore } from '@ainyc/canonry-contracts'
+import type { SnapshotProviderResultDto, SnapshotReportDto, SnapshotRequestInput } from '@canonry/canonry-contracts'
+import { factorStatusFromScore } from '@canonry/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { isMachineFormat } from '../cli-error.js'
 import { writeSnapshotPdf } from '../snapshot-pdf.js'
@@ -134,7 +134,8 @@ export function formatSnapshotMarkdown(report: SnapshotReportDto): string {
         continue
       }
       const mentioned = result.mentioned ? 'Yes' : 'No'
-      const cited = result.cited ? 'Yes' : 'No'
+      // Sources not tied to the answer: citation was not measured, which is not "No".
+      const cited = result.citationMeasured === false ? 'Not measured' : result.cited ? 'Yes' : 'No'
       const accuracy = result.describedAccurately === 'not-mentioned' ? '-' : result.describedAccurately
       const competitors = result.recommendedCompetitors.length > 0
         ? result.recommendedCompetitors.join(', ')
@@ -216,7 +217,8 @@ function formatProviderLine(result: SnapshotProviderResultDto): string {
 
   const bits: string[] = []
   bits.push(result.mentioned ? 'YES mentioned' : 'NO mention')
-  if (result.cited) bits.push('cited')
+  if (result.citationMeasured === false) bits.push('citation not measured')
+  else if (result.cited) bits.push('cited')
   if (result.describedAccurately !== 'not-mentioned') {
     bits.push(`accuracy=${result.describedAccurately}`)
   }

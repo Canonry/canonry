@@ -1,6 +1,6 @@
 import { and, asc, eq, gt, inArray } from 'drizzle-orm'
-import type { DatabaseClient } from '@ainyc/canonry-db'
-import { siteCrawlEdges } from '@ainyc/canonry-db'
+import type { DatabaseClient } from '@canonry/canonry-db'
+import { siteCrawlEdges } from '@canonry/canonry-db'
 import {
   classifyTemplateLinkEdge,
   createTemplateLinkDetectionTally,
@@ -14,7 +14,7 @@ import {
   type SiteCrawlPlacementOccurrencesDto,
   type SiteHealthTemplateDetectionOutcome,
   type TemplateLinkEdgeInput,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 
 /**
  * Links are read and written in bounded batches. The crawl budget reaches one
@@ -122,7 +122,7 @@ function writeGroupKey(isTemplate: boolean, templateRatio: number | null): strin
  *
  * Runs after the crawl and BEFORE graph layout, because the layout excludes
  * template links from its physics. Classification itself lives in
- * `@ainyc/canonry-contracts` so the migration backfill, the publish path, and
+ * `@canonry/canonry-contracts` so the migration backfill, the publish path, and
  * the tests all share one derivation.
  *
  * DOM placement decides every link the crawler recorded a landmark answer for.

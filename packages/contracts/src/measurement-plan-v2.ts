@@ -3,6 +3,7 @@ import { fraction } from './ratio-unit.js'
 import { locationContextSchema, providerNameSchema } from './provider.js'
 import { queryClassFilterSchema, queryClassSchema } from './query-class.js'
 import { hostOf } from './url-normalize.js'
+import { compareText } from './text-order.js'
 
 /**
  * Schema v2 adds Branded/Non-brand assignments, frozen group competitors and a
@@ -350,10 +351,6 @@ export const measurementPlanV2Schema = z.object({
 })
 export type MeasurementPlanV2 = z.output<typeof measurementPlanV2Schema>
 
-function compareText(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0
-}
-
 /** Private copy of the v1 canonicalizer: this module must not import back into `measurement-plan.ts`. */
 function canonicalJsonValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonicalJsonValue)
@@ -494,7 +491,18 @@ export const measurementMetricValueSchema = z.discriminatedUnion('state', [
      * because they could not be tied to one Property. Absent means none.
      */
     unattributed: z.number().int().positive().optional(),
-  }).strict(),
+    /**
+     * Citation coverage only: saved answers left out of numerator and
+     * denominator because their source-link capture was incomplete. A link
+     * such an answer did capture is not counted either. Absent means none.
+     */
+    unchecked: z.number().int().positive().optional(),
+  }).strict().superRefine((value, ctx) => {
+    // On the object, not the union, so `options[0]` (a ranked row) keeps the rule.
+    if (value.unattributed !== undefined && value.unchecked !== undefined) {
+      ctx.addIssue({ code: 'custom', path: ['unchecked'], message: 'A metric reads one signal: unattributed (mention) and unchecked (citation) cannot share it' })
+    }
+  }),
   z.object({
     state: z.literal('unavailable'),
     reason: measurementMetricUnavailableReasonSchema,
@@ -522,11 +530,24 @@ export const measurementCountMetricValueSchema = z.discriminatedUnion('state', [
 ])
 export type CountMetricValue = z.output<typeof measurementCountMetricValueSchema>
 
-export const measurementOverviewScopeKindSchema = z.enum(['all', 'group', 'property'])
+/**
+ * A group is every query its Properties are assigned. A market is a frozen
+ * reporting scope: only its own queries, the population the dashboard's market
+ * view reads. A group and a market can share a label and still hold different
+ * queries, so the two are separate kinds and a response names the one it read.
+ */
+export const measurementOverviewScopeKindSchema = z.enum(['all', 'group', 'market', 'property'])
 export type MeasurementOverviewScopeKind = z.output<typeof measurementOverviewScopeKindSchema>
 
 export const measurementQueryClassFilterSchema = queryClassFilterSchema
 export type MeasurementQueryClassFilter = z.output<typeof measurementQueryClassFilterSchema>
+
+/**
+ * The class an Advanced Measurement read serves when the caller names none.
+ * Branded and non-brand never share a denominator by default; `all` pools them
+ * and is served only when asked for.
+ */
+export const MEASUREMENT_DEFAULT_QUERY_CLASS = 'non-brand' satisfies MeasurementQueryClassFilter
 
 /** A single HTTP-friendly sort token keeps cursors bound to the exact ordering. */
 export const measurementOverviewSortSchema = z.enum([
@@ -560,7 +581,10 @@ export type MeasurementNextActionKind = z.output<typeof measurementNextActionKin
 export const measurementOverviewQuerySchema = z.object({
   scope: measurementOverviewScopeKindSchema,
   groupKey: measurementV2StableKeySchema.optional(),
+  /** Required for market scope: a frozen reporting scope's stable key. */
+  marketKey: measurementV2StableKeySchema.optional(),
   targetKey: measurementV2StableKeySchema.optional(),
+  /** Omit for non-brand. `all` pools branded and non-brand into one rate. */
   queryClass: measurementQueryClassFilterSchema.optional(),
   provider: providerNameSchema.optional(),
   location: z.string().trim().min(1).optional(),
@@ -573,6 +597,8 @@ export const measurementOverviewQuerySchema = z.object({
   sort: measurementOverviewSortSchema.optional(),
   cursor: z.string().trim().min(1).optional(),
   limit: z.number().int().positive().max(MEASUREMENT_PAGE_MAX_LIMIT).optional(),
+  /** Bounded agent projection; whole rows are cursor-paged under the tool character budget. */
+  compact: z.boolean().optional(),
 }).strict()
 export type MeasurementOverviewQuery = z.output<typeof measurementOverviewQuerySchema>
 
@@ -709,6 +735,8 @@ export const measurementOverviewResponseSchema = z.object({
   outcomes: measurementOutcomeCountsSchema,
   flags: z.object({ total: z.number().int().nonnegative() }).strict(),
   namedShareOfVoice: measurementNamedShareOfVoiceSchema.optional(),
+  /** Fields omitted from the compact projection; omission never means an empty result. */
+  detailsOmitted: z.array(z.string()).optional(),
 }).strict()
 export type MeasurementOverviewResponse = z.output<typeof measurementOverviewResponseSchema>
 
@@ -724,8 +752,13 @@ export type MeasurementOverviewResponse = z.output<typeof measurementOverviewRes
  * `answers` is one row per answer the Property was measured on, with the cited
  * URLs nested inside it, so the answers that explain a gap are present rather
  * than missing.
+ *
+ * `other-queries` is one row per answer to a query NOT assigned to the Property
+ * that still cited one of its own pages. The Property was never measured on
+ * those queries, so these rows sit outside every rate; they are listed so a
+ * citation the engine gave is not invisible just because no assignment asked.
  */
-export const measurementEvidenceShapeSchema = z.enum(['sources', 'answers'])
+export const measurementEvidenceShapeSchema = z.enum(['sources', 'answers', 'other-queries'])
 export type MeasurementEvidenceShape = z.output<typeof measurementEvidenceShapeSchema>
 export const MeasurementEvidenceShapes = measurementEvidenceShapeSchema.enum
 export const MEASUREMENT_EVIDENCE_DEFAULT_SHAPE: MeasurementEvidenceShape = MeasurementEvidenceShapes.sources

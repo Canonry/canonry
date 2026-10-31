@@ -2,12 +2,17 @@ import { createRequire } from "node:module";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { isIP } from "node:net";
 import { fileURLToPath } from "node:url";
-import { and, eq } from "drizzle-orm";
-import { dashboardManagedRunKindsSchema, resolveOperatorApiKeyIds, sentimentInstallReadiness } from "@ainyc/canonry-config";
+import { setImmediate as yieldToEventLoop } from "node:timers/promises";
+import { and, eq, isNotNull, isNull, lte, max, ne, or, sql } from "drizzle-orm";
+import { dashboardManagedRunKindsSchema, resolveOperatorApiKeyIds, sentimentInstallReadiness } from "@canonry/canonry-config";
 import { CliError } from "./cli-error.js";
-import { createTypeSafeClassifier, buildJevSentimentRequest } from "@ainyc/canonry-integration-typesafe";
-import { SentimentWorker } from "./sentiment-worker.js";
+import { SeoRuntime } from "./seo-runtime.js";
+import { isLoopbackBindHost } from "./serve-endpoint.js";
+import { buildJevSentimentRequest } from "@canonry/canonry-integration-typesafe";
+import { createConfiguredSentimentClassifier } from "./sentiment-openrouter.js";
+import { SentimentWorker, createSentimentPoller } from "./sentiment-worker.js";
 import { loadSentimentInstallConfig } from "./sentiment-config.js";
 
 const _require = createRequire(import.meta.url);
@@ -16,11 +21,11 @@ const { version: PKG_VERSION } = _require("../package.json") as {
 };
 import Fastify from "fastify";
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
-import type { SetHeadersResponse } from "@fastify/static";
-import { anyUsersExist, apiRoutes, resolveTrustProxy, resolveVercelSyncDeadlineMs, runChecks, scheduledHealthCheckIds, SITE_REACHABILITY_CHECK_ID, SITE_REACHABILITY_CHECKS } from "@ainyc/canonry-api-routes";
+import { anyUsersExist, apiRoutes, auditFromRequest, createProjectPassQueue, hashApiKey, hasProxyHeaders, previewCompetitorAutoAliases, resolveTrustProxy, resolveCloudflareQueueSyncDeadlineMs, resolveVercelSyncDeadlineMs, runChecks, scheduledHealthCheckIds, SITE_REACHABILITY_CHECK_ID, SITE_REACHABILITY_CHECKS, startScheduledSeoRefreshes, syncRunClaimKey, writeAuditLog, type ApiRoutesOptions } from "@canonry/canonry-api-routes";
 import {
   apiKeys,
   auditLog,
+  dashboardSessions,
   googleAdsConnections,
   gtmConnections,
   projects,
@@ -31,34 +36,40 @@ import {
   type DatabaseClient,
   type LegacyCredentialRows,
   OperationalLogStore,
-} from "@ainyc/canonry-db";
+} from "@canonry/canonry-db";
 import os from "node:os";
 import {
   embedQueries as embedGeminiQueries,
   extractSearchQueriesFromRaw,
   geminiAdapter,
-} from "@ainyc/canonry-provider-gemini";
-import { openaiAdapter } from "@ainyc/canonry-provider-openai";
-import { claudeAdapter } from "@ainyc/canonry-provider-claude";
-import { localAdapter } from "@ainyc/canonry-provider-local";
-import { cdpChatgptAdapter } from "@ainyc/canonry-provider-cdp";
-import { perplexityAdapter } from "@ainyc/canonry-provider-perplexity";
-import { museAdapter } from "@ainyc/canonry-provider-muse";
+} from "@canonry/canonry-provider-gemini";
+import { openaiAdapter } from "@canonry/canonry-provider-openai";
+import { openrouterAdapter } from "@canonry/canonry-provider-openrouter";
+import { answerServiceAdapters, answerServiceDescriptors } from "@canonry/canonry-provider-answer-services";
+import { claudeAdapter } from "@canonry/canonry-provider-claude";
+import { localAdapter } from "@canonry/canonry-provider-local";
+import { cdpChatgptAdapter } from "@canonry/canonry-provider-cdp";
+import { perplexityAdapter } from "@canonry/canonry-provider-perplexity";
+import { museAdapter } from "@canonry/canonry-provider-muse";
 import {
+  AppError,
   authInvalid,
   authRequired,
   forbidden,
   notFound,
   validationError,
+  embedProjectTabsError,
   embedClientConfigForRequest,
+  EMBED_QUERY_LIMIT_HEADER,
   serializeForInlineScript,
   frameAncestorsHeaderValue,
-  CcReleaseSyncStatuses,
   RunKinds,
   SchedulableRunKinds,
   type SchedulableRunKind,
   RunStatuses,
   RunTriggers,
+  ProviderNames,
+  ProviderReloadErrorReasons,
   ResearchRunStatuses,
   DEFAULT_VIEWER_RESEARCH_DAILY_RUN_LIMIT,
   adsAccountDtoSchema,
@@ -66,20 +77,33 @@ import {
   adsConversionPixelListResponseSchema,
   adsConversionEventSettingListResponseSchema,
   GoogleMarketingProviders,
+  FeatureNames,
+  OutcomeReasonCodes,
+  OutcomeSurfaces,
+  OPERATION_ACCESS_HEADER,
+  OperationAccesses,
   type AdsCampaignBiddingType,
   type AdsAdGroupBillingEventType,
   type ProviderAdapter,
+  type ProviderSummaryEntryDto,
   type AgentPluginState,
   describeError,
-} from "@ainyc/canonry-contracts";
+  OutcomeTriggers,
+  STORED_ONLY_HEADER,
+  storedOnlyRefused,
+  type OutcomeTrigger,
+  type RunKind,
+  canGenerateText,
+  answerServiceCatalogFields,
+  routeFamiliesOf,
+} from "@canonry/canonry-contracts";
 import type {
   CanonryConfig,
   CloudflareTrafficConnectionConfigEntry,
-  ProviderConfigEntry,
 } from "./config.js";
 import { resolveEmbedConfig, SERVER_ENFORCED_EMBED_PROJECT_TABS, unsupportedEmbedProjectTabs } from "./embed.js";
 import { resolveAgentAllowViewers, resolveAgentEnabled, resolveAgentProactiveEnabled } from "./agent-config.js";
-import { saveConfigPatch, getConfigPath } from "./config.js";
+import { saveConfig, saveConfigPatch, loadConfig, loadConfigRaw, loadedConfigPath, getConfigPath } from "./config.js";
 import { getPlacesConfig } from "./places-config.js";
 import {
   getGoogleAuthConfig,
@@ -143,10 +167,13 @@ import {
 } from "./wordpress-config.js";
 import {
   getTelemetryStatus,
+  holdAnonymousIdWrites,
   setTelemetryPreference,
-  trackEvent,
+  recordDashboardEvent,
 } from "./telemetry.js";
 import { createApiUsageTelemetry } from "./usage-telemetry.js";
+import { sendFeedback } from "./feedback.js";
+import { createUiTelemetryGate } from "./ui-telemetry-gate.js";
 import { checkLatestVersionForServer, getServerUpdateStatus } from "./update-check.js";
 import { resolveBuildCommit, resolveInstanceIdentity } from "./instance-identity.js";
 import { JobRunner } from "./job-runner.js";
@@ -204,21 +231,23 @@ import {
   type OpenAiAdsBiddingConfigRequest,
   type OpenAiAdsInsightRow,
   type OpenAiAdsInsightsOptions,
-} from "@ainyc/canonry-integration-openai-ads";
+} from "@canonry/canonry-integration-openai-ads";
 import {
   exchangeCode as exchangeGoogleOAuthCode,
   getAuthUrl as getGoogleOAuthUrl,
-} from "@ainyc/canonry-integration-google";
-import { GOOGLE_ADS_OAUTH_SCOPE } from "@ainyc/canonry-integration-google-ads";
-import { GTM_READONLY_SCOPE } from "@ainyc/canonry-integration-google-tag-manager";
+} from "@canonry/canonry-integration-google";
+import { GOOGLE_ADS_OAUTH_SCOPE } from "@canonry/canonry-integration-google-ads";
+import { GTM_READONLY_SCOPE } from "@canonry/canonry-integration-google-tag-manager";
 import { executeInspectSitemap } from "./gsc-inspect-sitemap.js";
 import { executeBingInspectSitemap } from "./bing-inspect-sitemap.js";
-import { maybeRefreshGscCoverage, runWasUserInitiated } from "./coverage-refresh.js";
-import { executeReleaseSync } from "./commoncrawl-sync.js";
+import { maybeRefreshGscCoverage, runWasUserInitiated, type CoverageRefreshDeps } from "./coverage-refresh.js";
+import { executeReleaseSync, syncLatestReleaseOnSchedule } from "./commoncrawl-sync.js";
 import { executeBacklinkExtract } from "./backlink-extract.js";
 import { executeDiscoveryRun } from "./discovery-run.js";
-import { executeSiteAudit } from "./execute-site-audit.js";
-import { backfillProjectAnswerMentions } from "./commands/backfill.js";
+import { executeSiteAudit, type SiteAuditOptions } from "./execute-site-audit.js";
+import { createAnswerFieldRecomputeQueue, type AnswerFieldRecomputeRequest } from "./answer-field-recompute.js";
+import { createCompetitorAutoAliasRunner } from "./competitor-auto-alias-runner.js";
+import { extractStoredAnswerAnchors } from "./stored-answer-anchors.js";
 import { getBundledSkillSnapshots } from "./commands/skills.js";
 import {
   DUCKDB_SPEC,
@@ -229,15 +258,24 @@ import {
   probeLatestRelease,
   pruneCachedRelease,
   readInstalledVersion,
-} from "@ainyc/canonry-integration-commoncrawl";
+} from "@canonry/canonry-integration-commoncrawl";
 import {
   ccReleaseSyncs as ccReleaseSyncsTable,
-} from "@ainyc/canonry-db";
-import { ProviderRegistry } from "./provider-registry.js";
+} from "@canonry/canonry-db";
+import { ProviderRegistry, type RegisteredProvider } from "./provider-registry.js";
 import { batchEligibleProviderNames, providerConfigFromEntry, providersWithUnsupportedBatch } from "./provider-batch-config.js";
+import { handleRouteOutcome, outcomeAttribution } from "./outcome-telemetry.js";
+import { startInstallStateTelemetry } from "./install-state-telemetry.js";
+import { trackTrafficIngested, trackTrafficSynced } from "./traffic-telemetry.js";
+import { reportUnstartedRun } from "./sync-outcome.js";
+import { registeredProviderNames } from "./provider-registration.js";
+import { configuredProviderEntries, DEFAULT_CDP_QUOTA, DEFAULT_PROVIDER_QUOTA, resolveProviderQuotaPolicy } from "./provider-runtime-config.js";
+import { assertProviderReloadKeepsPendingBatches } from "./provider-reload-batch-guard.js";
 import { createProviderModelCatalog } from "./provider-model-catalog.js";
-import { Scheduler, ensureDefaultHealthSchedule } from "./scheduler.js";
+import { openRouterModels } from "./agent/pi-models.js";
+import { SCHEDULE_SPREAD_MS, Scheduler, ensureDefaultHealthSchedule } from "./scheduler.js";
 import { startSiteLivenessLoop } from "./site-liveness-loop.js";
+import { startReviewDeliveryLoop } from "./review-webhook-delivery.js";
 import { startProviderBatchPoller } from "./provider-batch-poller.js";
 import { refreshAllIntegrations } from "./data-refresh.js";
 import { Notifier } from "./notifier.js";
@@ -245,10 +283,10 @@ import { IntelligenceService } from "./intelligence-service.js";
 import { RunCoordinator } from "./run-coordinator.js";
 import { SessionRegistry } from "./agent/session-registry.js";
 import { ViewerAeroSessions } from "./agent/viewer-sessions.js";
-import { buildAgentProvidersResponse } from "./agent/providers.js";
+import { buildAgentProvidersResponse, resolveApiKeyFor } from "./agent/providers.js";
 import { describeAgentPin } from "./agent/session.js";
 import { registerMcpHttpRoutes, mcpTransportPaths, mcpHttpHealth } from "./mcp-http.js";
-import { registerOAuthRoutes, registerOAuthAdminRoutes, createCredentialChecker, parseCookieHeader, resolveUserSession, createUserSession, serializeUserSessionCookie, USER_SESSION_COOKIE_NAME } from "@ainyc/canonry-api-routes";
+import { registerOAuthRoutes, registerOAuthAdminRoutes, cookieIsSecure, createCredentialChecker, hashSessionToken, parseCookieHeader, resolveUserSession, createUserSession, serializeUserSessionCookie, USER_SESSION_COOKIE_NAME } from "@canonry/canonry-api-routes";
 import { registerAgentRoutes } from "./agent/agent-routes.js";
 import {
   createRecommendationExplainer,
@@ -265,7 +303,7 @@ import {
   executeGoogleAdsMarketingSync,
   executeGtmMarketingSync,
 } from "./google-marketing-sync.js";
-import { assessConversionTrackingIntegrity } from "@ainyc/canonry-intelligence";
+import { assessConversionTrackingIntegrity } from "@canonry/canonry-intelligence";
 
 const log = createLogger("Server");
 
@@ -282,19 +320,21 @@ export function waitForServerRuntimeStartup(app: FastifyInstance): Promise<void>
   return startup ?? Promise.reject(new Error("Server runtime startup was not registered"));
 }
 
-const DEFAULT_QUOTA = {
-  maxConcurrency: 2,
-  maxRequestsPerMinute: 10,
-  maxRequestsPerDay: 1000,
-};
+const keylessFirstRunSetupByServer = new WeakMap<FastifyInstance, boolean>();
+
+/**
+ * Whether a direct local request may set the first dashboard password on this
+ * server without the root API key (see `/session/setup`). `canonry serve`
+ * reads it to tell the operator when setup will ask for the key.
+ */
+export function allowsKeylessFirstRunSetup(app: FastifyInstance): boolean {
+  return keylessFirstRunSetupByServer.get(app) ?? false;
+}
+
+const DEFAULT_QUOTA = DEFAULT_PROVIDER_QUOTA;
 
 const SESSION_COOKIE_NAME = "canonry_session";
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
-
-interface SessionRecord {
-  apiKeyId: string;
-  expiresAt: number;
-}
 
 /**
  * The model each registered provider will actually answer with: whatever this
@@ -335,6 +375,12 @@ function resolveDashboardRequirePassword(env: NodeJS.ProcessEnv, config: Canonry
 function resolveDashboardShowResourceLinks(env: NodeJS.ProcessEnv, config: CanonryConfig): boolean {
   return parseBooleanEnv(env.CANONRY_DASHBOARD_SHOW_RESOURCE_LINKS)
     ?? config.dashboard?.showResourceLinks
+    ?? true;
+}
+
+function resolveDashboardShowLocalAgentSetup(env: NodeJS.ProcessEnv, config: CanonryConfig): boolean {
+  return parseBooleanEnv(env.CANONRY_DASHBOARD_SHOW_LOCAL_AGENT_SETUP)
+    ?? config.dashboard?.showLocalAgentSetup
     ?? true;
 }
 
@@ -393,7 +439,35 @@ function resolveDashboardOnboardingMode(
     ?? config.dashboard?.onboardingMode;
 }
 
-/** All known API adapters — add new providers here */
+type DashboardBrandMark = NonNullable<NonNullable<CanonryConfig['dashboard']>['brandMark']>;
+
+function parseDashboardBrandMark(value: string | undefined): DashboardBrandMark | undefined {
+  const normalized = value?.trim().toLowerCase();
+  return normalized === 'mascot' || normalized === 'icon' ? normalized : undefined;
+}
+
+function resolveDashboardBrandMark(env: NodeJS.ProcessEnv, config: CanonryConfig): DashboardBrandMark {
+  return parseDashboardBrandMark(env.CANONRY_DASHBOARD_BRAND_MARK)
+    ?? parseDashboardBrandMark(config.dashboard?.brandMark)
+    ?? "mascot";
+}
+
+/**
+ * Point the document's tab icons at the plugin icon for `brandMark: icon`.
+ * Matches both the source (`/favicon.svg`) and Vite-built (`./favicon.svg`) hrefs.
+ */
+function withIconMarkLinks(html: string): string {
+  return html
+    .replace(/href="(\.?\/)favicon\.svg"/, 'href="$1canonry-icon-favicon.svg"')
+    .replace(/href="(\.?\/)favicon-32\.png"/, 'href="$1canonry-icon-32.png"')
+    .replace(/href="(\.?\/)apple-touch-icon\.png"/, 'href="$1canonry-icon-touch.png"');
+}
+
+/**
+ * All known API adapters. Add new answer engines here. Hosted web-search
+ * answer services register once, in
+ * packages/provider-answer-services/src/services/index.ts.
+ */
 const API_ADAPTERS: ProviderAdapter[] = [
   geminiAdapter,
   openaiAdapter,
@@ -401,7 +475,34 @@ const API_ADAPTERS: ProviderAdapter[] = [
   localAdapter,
   perplexityAdapter,
   museAdapter,
+  openrouterAdapter,
+  ...answerServiceAdapters,
 ];
+
+/** Route families of every known adapter (OpenRouter models, answer-service profiles). */
+const PROVIDER_ROUTE_FAMILIES = routeFamiliesOf(API_ADAPTERS);
+
+/** Settings fields, profiles and key-check behaviour, read from each answer service's descriptor. */
+const ANSWER_SERVICE_CATALOG = new Map(answerServiceDescriptors.map((descriptor) => [descriptor.id, answerServiceCatalogFields(descriptor)]));
+
+/** The adapter description api-routes validates against: model registry plus kind, routes and descriptor fields. */
+function providerAdapterInfo(adapter: ProviderAdapter) {
+  return {
+    name: adapter.name,
+    displayName: adapter.displayName,
+    mode: adapter.mode,
+    // An answer service takes a key only; its routes pin their profiles.
+    modelConfigurable: adapter.mode === "api" && adapter.kind !== "answer-service",
+    defaultModel: adapter.modelRegistry.defaultModel,
+    knownModels: adapter.modelRegistry.knownModels,
+    modelValidationPattern: adapter.modelRegistry.validationPattern,
+    modelValidationHint: adapter.modelRegistry.validationHint,
+    ...(adapter.kind ? { kind: adapter.kind } : {}),
+    ...(adapter.capabilities ? { capabilities: adapter.capabilities } : {}),
+    ...(adapter.routes ? { routes: adapter.routes } : {}),
+    ...ANSWER_SERVICE_CATALOG.get(adapter.name),
+  };
+}
 
 /** All known browser (CDP) adapters */
 const BROWSER_ADAPTERS: ProviderAdapter[] = [cdpChatgptAdapter];
@@ -410,30 +511,60 @@ const adapterMap = Object.fromEntries(
   API_ADAPTERS.map((a) => [a.name, a]),
 ) as Record<string, ProviderAdapter>;
 
-function summarizeProviderConfig(config: ProviderConfigEntry | undefined) {
+function summarizeProviderConfig(provider: RegisteredProvider | undefined) {
+  const config = provider?.config;
   return {
-    configured: Boolean(config?.apiKey || config?.baseUrl),
+    configured: Boolean(config?.apiKey || config?.baseUrl || config?.vertexProject || config?.cdpEndpoint),
     model: config?.model ?? null,
     // baseUrl is surfaced for ALL providers, not just local — gemini/openai now
     // honor a custom endpoint, so repointing one must show in the settings
     // summary AND produce an audit diff. Omitting it for API providers would let
     // an endpoint redirect (a credential-exfiltration vector on a box where the
     // provider key is the carrier) happen with no audit trail.
-    baseUrl: config?.baseUrl ?? null,
-    quota: { ...(config?.quota ?? DEFAULT_QUOTA) },
+    baseUrl: config?.baseUrl ?? config?.cdpEndpoint ?? null,
+    quota: { ...(config?.quotaPolicy ?? DEFAULT_QUOTA) },
+    vertexProject: config?.vertexProject ?? null,
+    vertexRegion: config?.vertexRegion ?? null,
+    batch: config?.batch ?? null,
+    pricing: config?.pricing ?? null,
   };
 }
 
-function hashApiKey(key: string): string {
-  return crypto.createHash("sha256").update(key).digest("hex");
+function providerSummaries(registry: ProviderRegistry, config: CanonryConfig, includeBrowser = false): ProviderSummaryEntryDto[] {
+  return [...API_ADAPTERS, ...(includeBrowser ? BROWSER_ADAPTERS : [])].map((adapter) => ({
+    name: adapter.name,
+    displayName: adapter.displayName,
+    keyUrl: adapter.keyUrl,
+    modelHint: `e.g. ${adapter.modelRegistry.defaultModel}`,
+    model: registry.get(adapter.name)?.config.model ?? undefined,
+    defaultModel: adapter.modelRegistry.defaultModel,
+    configured: Boolean(registry.get(adapter.name)),
+    quota: registry.get(adapter.name)?.config.quotaPolicy,
+    vertexConfigured: adapter.name === ProviderNames.gemini ? Boolean(config.providers?.gemini?.vertexProject) : undefined,
+    ...(adapter.kind ? { kind: adapter.kind } : {}),
+  }));
+}
+
+/**
+ * An install file's identity for the provider reload check: its resolved
+ * directory plus its file name. The file itself is not resolved, because the
+ * atomic config write replaces a symlinked config.yaml with a regular file and
+ * the same install must still match afterwards.
+ */
+function runtimePathIdentity(runtimePath: string): string {
+  if (runtimePath === ':memory:') return runtimePath;
+  const resolved = path.resolve(runtimePath);
+  let directory = path.dirname(resolved);
+  try { directory = fs.realpathSync(directory); } catch { /* a missing directory keeps its lexical path */ }
+  return path.join(directory, path.basename(resolved));
 }
 
 // Dashboard password storage uses scrypt (salted, slow KDF) — not plain
-// SHA-256. The bearer-token path above still hashes with SHA-256 because
-// those are 128-bit random `cnry_…` tokens (no brute-force exposure on a
-// 64-hex hash). Dashboard passwords are user-chosen and may be reused from
-// elsewhere, so a leaked `config.yaml` must not be trivially cracked
-// against a wordlist.
+// SHA-256. Bearer tokens still hash with SHA-256 (`hashApiKey` from
+// `@canonry/canonry-api-routes`) because those are 128-bit random `cnry_…`
+// tokens (no brute-force exposure on a 64-hex hash). Dashboard passwords are
+// user-chosen and may be reused from elsewhere, so a leaked `config.yaml`
+// must not be trivially cracked against a wordlist.
 //
 // Stored format: `scrypt$1$<base64-salt>$<base64-hash>`. The version field
 // (`1`) lets future code rotate to a stronger KDF without breaking existing
@@ -506,28 +637,6 @@ function verifyDashboardPassword(
   return { ok: false, needsRehash: false };
 }
 
-function parseCookies(header: string | undefined): Record<string, string> {
-  if (!header) return {};
-
-  return header
-    .split(";")
-    .map((part) => part.trim())
-    .filter(Boolean)
-    .reduce<Record<string, string>>((cookies, part) => {
-      const eqIdx = part.indexOf("=");
-      if (eqIdx <= 0) return cookies;
-      const name = part.slice(0, eqIdx).trim();
-      const value = part.slice(eqIdx + 1).trim();
-      if (!name) return cookies;
-      try {
-        cookies[name] = decodeURIComponent(value);
-      } catch {
-        cookies[name] = value;
-      }
-      return cookies;
-    }, {});
-}
-
 function serializeSessionCookie(opts: {
   name: string;
   value: string | null;
@@ -561,12 +670,13 @@ function serializeSessionCookie(opts: {
  * that already exists in config to avoid overwriting refreshed tokens.
  *
  * Pair with `extractLegacyCredentials(db)` + `dropLegacyCredentialColumns(db)`
- * from `@ainyc/canonry-db`: extract first, call this, and only drop the columns
+ * from `@canonry/canonry-db`: extract first, call this, and only drop the columns
  * once this returns — a failed config write must be retryable on next boot.
  */
 export function applyLegacyCredentials(
   rows: LegacyCredentialRows,
   config: CanonryConfig,
+  persistConfigPatch: (patch: Partial<CanonryConfig>) => void = saveConfigPatch,
 ): void {
   let migratedGoogle = 0;
   for (const row of rows.google) {
@@ -591,7 +701,7 @@ export function applyLegacyCredentials(
     migratedGoogle++;
   }
   if (migratedGoogle > 0) {
-    saveConfigPatch({ google: config.google });
+    persistConfigPatch({ google: config.google });
     log.info("credentials.migrated", { type: "google", count: migratedGoogle });
   }
 
@@ -610,27 +720,115 @@ export function applyLegacyCredentials(
     migratedGa4++;
   }
   if (migratedGa4 > 0) {
-    saveConfigPatch({ ga4: config.ga4 });
+    persistConfigPatch({ ga4: config.ga4 });
     log.info("credentials.migrated", { type: "ga4", count: migratedGa4 });
   }
 }
 
 /**
- * Whether `host` is a loopback bind — only the local machine can reach a
- * server bound here. `undefined` (programmatic/test callers that never bind a
- * socket) is treated as loopback. `0.0.0.0` / `::` (bind-all) and any specific
- * LAN/public address are NOT loopback.
+ * Whether a connection's peer address is loopback. Unlike a bind host, a
+ * missing address or a name is never loopback here: this reads what the
+ * kernel reported for an accepted socket.
  */
-export function isLoopbackBindHost(host: string | undefined): boolean {
-  if (host == null || host === "") return true;
-  const normalized = host
-    .trim()
+function isLoopbackPeerAddress(address: string | undefined): boolean {
+  if (!address) return false;
+  const normalized = address
     .toLowerCase()
-    .replace(/^\[|\]$/g, "");
-  if (normalized === "localhost" || normalized === "::1") return true;
-  // IPv4 loopback is the whole 127.0.0.0/8 block.
-  if (/^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(normalized)) return true;
-  return false;
+    .replace(/^::ffff:(?=\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$)/, "");
+  return isIP(normalized) !== 0 && isLoopbackBindHost(normalized);
+}
+
+/**
+ * Whether a request looks like it came straight from a process on this
+ * machine: it speaks HTTP/1.1, the socket peer is loopback, no proxy header is
+ * present, and Host names this machine (`localhost` or a loopback literal).
+ * Reads the raw socket and raw headers, never `request.ip` or
+ * `request.hostname`, which a configured `trustProxy` rewrites from headers.
+ *
+ * nginx talks HTTP/1.0 to its upstream unless `proxy_http_version` says
+ * otherwise, and a bare `proxy_pass http://127.0.0.1:4100;` also sets Host to
+ * that upstream and adds no forwarding header. Browsers, curl, and Node's
+ * fetch speak HTTP/1.1 to a plain-HTTP server, so only HTTP/1.1 counts.
+ *
+ * The client chooses Host, so this proves nothing about a proxy or TCP
+ * forwarder on the same host that speaks HTTP/1.1 and adds no forwarding
+ * header: it hands a remote visitor's `Host: localhost` over loopback. Callers
+ * also require a loopback bind whose config names no other way in
+ * (`configuresExternalAccess`).
+ */
+function isDirectLocalRequest(request: FastifyRequest): boolean {
+  if (request.raw.httpVersion !== "1.1") return false;
+  if (!isLoopbackPeerAddress(request.raw.socket.remoteAddress)) return false;
+  if (hasProxyHeaders(request)) return false;
+  const host = request.headers.host;
+  if (!host) return false;
+  let hostname: string;
+  try {
+    hostname = new URL(`http://${host}`).hostname;
+  } catch {
+    return false;
+  }
+  return hostname !== "" && isLoopbackBindHost(hostname);
+}
+
+/**
+ * Whether config declares a way to reach this server other than a direct local
+ * connection: a trusted proxy (`CANONRY_TRUST_PROXY`), a base path (a prefix
+ * that a reverse proxy forwards), or an `apiUrl` or `publicUrl` whose hostname
+ * is not loopback. A URL that does not parse counts as external, so a typo
+ * cannot turn keyless setup back on.
+ */
+function configuresExternalAccess(
+  trustProxy: boolean | number | string[],
+  basePath: string | undefined,
+  ...configuredUrls: (string | undefined)[]
+): boolean {
+  if (trustProxy !== false || basePath !== undefined) return true;
+  return configuredUrls.some((configuredUrl) => {
+    const value = configuredUrl?.trim();
+    if (!value) return false;
+    try {
+      const { hostname } = new URL(value);
+      return hostname === "" || !isLoopbackBindHost(hostname);
+    } catch {
+      return true;
+    }
+  });
+}
+
+/**
+ * Whether a request Host header value is expected for this server.
+ * IP literals cannot be DNS-rebound. DNS names must be explicitly configured.
+ */
+function isAllowedHost(host: string, allowedHosts: Set<string>): boolean {
+  const normalized = host.trim().toLowerCase().replace(/^\[|\]$/g, "");
+  return allowedHosts.has(normalized) || isIP(normalized) !== 0;
+}
+
+/**
+ * Build the Host allowlist for DNS rebinding defense (#1177).
+ */
+function buildAllowedHosts(
+  bindHost: string | undefined,
+  ...configuredUrls: (string | undefined)[]
+): Set<string> {
+  const allowed = new Set<string>(["localhost", "127.0.0.1", "::1"]);
+  if (bindHost) {
+    const normalized = bindHost.trim().toLowerCase().replace(/^\[|\]$/g, "");
+    if (normalized && !isLoopbackBindHost(normalized)) {
+      allowed.add(normalized);
+    }
+  }
+  for (const configuredUrl of configuredUrls) {
+    if (!configuredUrl) continue;
+    try {
+      const url = new URL(configuredUrl.trim());
+      if (url.hostname) allowed.add(url.hostname.toLowerCase().replace(/^\[|\]$/g, ""));
+    } catch {
+      // Malformed URLs cannot add an allowed hostname.
+    }
+  }
+  return allowed;
 }
 
 export function resolveGooglePublicUrl(
@@ -819,16 +1017,34 @@ export function createGoogleMarketingConfigCredentialStore(input: {
 
 export async function createServer(opts: {
   config: CanonryConfig;
+  /**
+   * The config.yaml `config` was loaded from. Defaults to the file
+   * `loadConfig()` read it from, so `createServer({ config: loadConfig() })`
+   * keeps saving there; `canonry serve` also passes it explicitly. Config
+   * changes the server makes (credentials, settings, the first-run dashboard
+   * password, refreshed tokens) are written there, and provider reloads read
+   * it. A config built in memory has no file: the server keeps those changes
+   * in memory and never writes a config file, so a test or development server
+   * cannot overwrite the operator's config.yaml.
+   */
+  configPath?: string;
   db: DatabaseClient;
+  /**
+   * Install secret for AI visitor journey keys, resolved by `canonry serve`
+   * (see resolveJourneyKeySecret). Absent: journeys are not recorded.
+   */
+  journeyKeySecret?: string;
   open?: boolean;
   logger?: boolean;
   /**
    * The network interface the server will bind to (from `canonry serve`).
-   * Used to gate the unauthenticated first-run dashboard password setup: on a
-   * loopback bind only local processes can reach `/session/setup`, so claiming
-   * the initial password without the API key is safe. On a non-loopback bind
-   * (`0.0.0.0`, a LAN IP) the setup endpoint additionally requires a valid
-   * bearer key so a remote first-visitor cannot mint a full-access session.
+   * Used to gate the first-run dashboard password setup: only on a loopback
+   * bind, and only while config names no other way in
+   * (`configuresExternalAccess`), can a direct local request (see
+   * `isDirectLocalRequest`) claim the initial password without the root API
+   * key. On a non-loopback bind (`0.0.0.0`, a LAN IP) every setup request must
+   * present the root key, so a remote first visitor cannot mint a standing
+   * full-access credential.
    * Defaults to loopback when unset (programmatic/test callers).
    */
   host?: string;
@@ -841,7 +1057,41 @@ export async function createServer(opts: {
   assetsDir?: string;
   /** Live user-global native Canonry plugin state for agent-skills doctor checks. */
   getAgentPluginState?: () => AgentPluginState;
+  /**
+   * How far scheduled background work may start after its cron minute (see
+   * `SCHEDULE_SPREAD_MS`, the default). 0 starts it on the minute, for a host
+   * that fires schedules by hand and needs the run to follow at once.
+   */
+  scheduleSpreadMs?: number;
 }): Promise<FastifyInstance> {
+  // The file this server's config came from, if any.
+  const configSourcePath = opts.configPath ?? loadedConfigPath(opts.config);
+  // The config.yaml this server reads back (provider reloads, SEO settings).
+  const runtimeConfigPath = path.resolve(configSourcePath ?? getConfigPath());
+  const runtimeConfigIdentity = runtimePathIdentity(runtimeConfigPath);
+  // Config changes are written only to the file the config came from.
+  // `saveConfigPatch` on its own writes `getConfigPath()`, the operator's
+  // config.yaml, so every write below goes through `persistConfigPatch`; a
+  // config built in memory keeps its changes in memory.
+  const persistedConfigPath = configSourcePath === undefined ? undefined : runtimeConfigPath;
+  const persistConfigPatch = (
+    patch: Partial<CanonryConfig>,
+    options: { setDashboardPasswordHash?: string } = {},
+  ): void => {
+    if (persistedConfigPath !== undefined) saveConfigPatch(patch, { ...options, configPath: persistedConfigPath });
+  };
+  // Install-wide preferences (telemetry, the activation notice) live in the
+  // default config.yaml, so only a server running from that file changes them.
+  const ownsDefaultConfig = persistedConfigPath !== undefined
+    && runtimeConfigIdentity === runtimePathIdentity(getConfigPath());
+  // The index-coverage refresh that follows a sync can refresh the GSC token too.
+  const coverageRefreshDeps: CoverageRefreshDeps = {
+    executeInspectSitemap: (db, runId, projectId, inspectOpts) =>
+      executeInspectSitemap(db, runId, projectId, { ...inspectOpts, saveConfigPatch: persistConfigPatch }),
+  };
+  const runtimeDatabasePath = opts.config.database;
+  const runtimeDatabaseIdentity = runtimePathIdentity(runtimeDatabasePath);
+  const embed = resolveEmbedConfig(process.env, opts.config);
   const operatorApiKeyIds = resolveOperatorApiKeyIds(process.env);
   const dashboardManagedRunKinds = resolveDashboardManagedRunKinds(process.env, opts.config);
   const operationalLogs = new OperationalLogStore(opts.db, {
@@ -854,13 +1104,63 @@ export async function createServer(opts: {
   // `request.ip`, and behind an unconfigured proxy that is the PROXY for
   // everybody, collapsing every caller into one shared bucket. Unset means
   // trust nothing, which is right for the default localhost bind; an operator
-  // behind an edge proxy sets CANONRY_TRUST_PROXY to the hop count or the
+  // behind an edge proxy sets CANONRY_TRUST_PROXY to the
   // proxy's address.
   const trustProxy = resolveTrustProxy(process.env.CANONRY_TRUST_PROXY);
   const app = Fastify({
     loggerInstance: logger,
     genReqId: () => crypto.randomUUID(),
     trustProxy,
+  });
+  // Telemetry saves the install ID in the default config.yaml when it first
+  // sends an event; a server built from any other config must not.
+  if (!ownsDefaultConfig) {
+    const releaseAnonymousIdWrites = holdAnonymousIdWrites();
+    app.addHook("onClose", async () => { releaseAnonymousIdWrites(); });
+  }
+  // DNS rebinding defense (#1177). A page the operator visits can make the
+  // browser resolve an attacker domain to 127.0.0.1 after TTL expiry, at which
+  // point the request is same-origin and CORS is never consulted. The browser
+  // always sets Host from the URL, so rejecting unexpected Host values stops
+  // the attack. This mirrors webpack-dev-server's allowedHosts.
+  const allowedHosts = buildAllowedHosts(opts.host, opts.config.apiUrl, opts.config.publicUrl);
+  const embedAllowedOrigins = new Set(
+    (embed.allowedOrigins ?? []).map((o) => {
+      try {
+        return new URL(o).origin;
+      } catch {
+        return null;
+      }
+    }).filter((h): h is string => h !== null)
+  );
+  app.addHook("onRequest", async (req, reply) => {
+    const reject = (message: string) => {
+      const error = forbidden(message);
+      return reply.status(error.statusCode).send(error.toJSON());
+    };
+    const rawHostHeader = req.headers.host?.toLowerCase() ?? "";
+    let requestUrl: URL;
+    try {
+      requestUrl = new URL(`http://${rawHostHeader}`);
+    } catch {
+      return reject("Unexpected Host header");
+    }
+    if (!isAllowedHost(requestUrl.hostname, allowedHosts)) {
+      return reject("Unexpected Host header");
+    }
+    const origin = req.headers.origin;
+    if (origin) {
+      let originUrl: URL;
+      try {
+        originUrl = new URL(origin);
+      } catch {
+        return reject("Invalid Origin header");
+      }
+      const requestHost = req.headers.host?.toLowerCase() ?? "";
+      if (originUrl.host !== requestHost && !embedAllowedOrigins.has(originUrl.origin)) {
+        return reject("Cross-origin request refused");
+      }
+    }
   });
 
   // Build provider registry from config (with legacy field migration)
@@ -875,44 +1175,31 @@ export async function createServer(opts: {
       quota: opts.config.geminiQuota,
     };
   }
+  opts.config.providers = providers;
 
   // One-time upgrade for pre-1.45.1 installs. Order is load-bearing: extract
   // into memory, persist to config.yaml, and only then drop the legacy columns.
   // Dropping before a successful config write would lose credentials if the
   // disk write fails. Best-effort — any failure is logged and retried next
-  // boot rather than blocking server startup.
-  try {
-    const legacyRows = extractLegacyCredentials(opts.db);
-    applyLegacyCredentials(legacyRows, opts.config);
-    dropLegacyCredentialColumns(opts.db);
-  } catch (err) {
-    log.warn("credentials.migration.failed", {
-      error: describeError(err),
-    });
+  // boot rather than blocking server startup. A server without a config file
+  // has nowhere durable to put them, so it leaves the columns alone.
+  if (persistedConfigPath !== undefined) {
+    try {
+      const legacyRows = extractLegacyCredentials(opts.db);
+      applyLegacyCredentials(legacyRows, opts.config, persistConfigPatch);
+      dropLegacyCredentialColumns(opts.db);
+    } catch (err) {
+      log.warn("credentials.migration.failed", {
+        error: describeError(err),
+      });
+    }
   }
 
   log.info("providers.configured", {
-    providers: Object.keys(providers).filter((k) => {
-      const p = providers[k];
-      return p?.apiKey || p?.baseUrl || p?.vertexProject;
-    }),
+    providers: registeredProviderNames({ providers, cdp: opts.config.cdp }),
   });
 
-  // Register API providers from config
-  for (const adapter of API_ADAPTERS) {
-    const entry = providers[adapter.name];
-    if (!entry) continue;
-    // Local provider requires baseUrl; Gemini can use apiKey OR vertexProject; others require apiKey
-    const isConfigured =
-      adapter.name === "local"
-        ? !!entry.baseUrl
-        : adapter.name === "gemini"
-          ? !!(entry.apiKey || entry.vertexProject)
-          : !!entry.apiKey;
-    if (isConfigured) {
-      registry.register(adapter, providerConfigFromEntry(adapter.name, entry, entry.quota ?? DEFAULT_QUOTA));
-    }
-  }
+  registry.replace(configuredProviderEntries(opts.config, API_ADAPTERS, cdpChatgptAdapter));
 
   // Batch is opt-in per provider and only real where the adapter has a batch
   // API. Say so once at boot rather than silently running sync forever.
@@ -923,33 +1210,31 @@ export async function createServer(opts: {
     });
   }
 
-  // CDP browser provider — connects to user's Chrome via CDP
-  const cdpConfig = opts.config.cdp;
-  if (cdpConfig?.host || cdpConfig?.port) {
-    const CDP_DEFAULT_QUOTA = {
-      maxConcurrency: 1,
-      maxRequestsPerMinute: 4,
-      maxRequestsPerDay: 200,
-    };
-    const cdpEndpoint = `ws://${cdpConfig.host ?? "localhost"}:${cdpConfig.port ?? 9222}`;
-    registry.register(cdpChatgptAdapter, {
-      provider: "cdp:chatgpt",
-      cdpEndpoint,
-      quotaPolicy: cdpConfig.quota ?? CDP_DEFAULT_QUOTA,
-    });
-  }
-
   const port = opts.config.port ?? 4100;
   const serverUrl = `http://localhost:${port}`;
 
   const jobRunner = new JobRunner(opts.db, registry, {
     // The one-time first-sweep thank-you. Lives on the serve console because
     // runs execute here, including the foreground serve that init hands off
-    // to. TTY-gated inside, so supervised deployments never see it.
-    onFirstActivation: () => maybeShowActivationNotice(),
+    // to. TTY-gated inside, so supervised deployments never see it. It marks
+    // the default config.yaml, so only the server running from it asks.
+    ...(ownsDefaultConfig ? { onFirstActivation: () => maybeShowActivationNotice() } : {}),
   });
   jobRunner.recoverStaleRuns();
-  const notifier = new Notifier(opts.db, serverUrl);
+  const seoRuntime = new SeoRuntime(opts.db, () => loadConfig(runtimeConfigPath).seo, () => {
+    const stat = fs.statSync(runtimeConfigPath, { bigint: true });
+    return `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}`;
+  });
+  // Local canonry serve runs on the operator's machine, where pointing a
+  // webhook at localhost (Discord test container, Pipedream-mock dev server,
+  // etc.) is a legitimate workflow. Default to allowing it for the local
+  // installer; cloud deployments (apps/api) never set `allowLoopbackWebhooks`
+  // and keep the secure default of `false`. Override with
+  // CANONRY_ALLOW_LOOPBACK_WEBHOOKS=0. Scheduled delivery (the Notifier) reads
+  // the same value as webhook create/test (api-routes), so a hook that was
+  // accepted is not refused later when an event fires.
+  const allowLoopbackWebhooks = process.env.CANONRY_ALLOW_LOOPBACK_WEBHOOKS !== "0";
+  const notifier = new Notifier(opts.db, serverUrl, { allowLoopbackWebhooks });
   const intelligenceService = new IntelligenceService(opts.db);
   // Build the Aero ApiClient from the in-memory server config rather than
   // loadConfig() so tests that set CANONRY_CONFIG_DIR after spawning the
@@ -962,11 +1247,19 @@ export async function createServer(opts: {
   // are server automation, not Aero, so they get their own client without the
   // `aero` usage label. Otherwise every scheduled sync would be reported as
   // `api.request` agent traffic and spend the per-process telemetry budget
-  // that real agent requests need. Unlabelled, usage telemetry skips them like
-  // the CLI; the jobs report through their own events (`traffic.synced`, ...).
+  // that real agent requests need. Usage telemetry skips them like the CLI;
+  // the jobs report through their own events (`traffic.synced`, ...). The
+  // `system` label lets outcome telemetry report this work as scheduled.
   const schedulerClient = new ApiClient(opts.config.apiUrl, opts.config.apiKey, {
     skipProbe: true,
+    surface: OutcomeSurfaces.system,
   });
+  // Releases the backlinks schedule asked POST /backlinks/syncs for, so the
+  // release sync that request starts reports a scheduled trigger.
+  const scheduledBacklinkReleases = new Set<string>();
+  const scheduledSyncClaims = new Set<string>();
+  const claimScheduledSync = (projectName: string, kind: RunKind, sourceId?: string): boolean =>
+    scheduledSyncClaims.delete(syncRunClaimKey(projectName, kind, sourceId));
   // Built-in Aero agent kill-switch. When disabled (config `agent.mode:
   // 'disabled'` or env CANONRY_AGENT_DISABLED=1) we skip the SessionRegistry,
   // the proactive wake on run completion, and the interactive agent routes —
@@ -1068,17 +1361,18 @@ export async function createServer(opts: {
     + removeOrphanedGoogleAdsConnections(opts.config, liveProjectIds)
     + removeOrphanedGtmConnections(opts.config, liveProjectIds);
   if (removedGoogleMarketingCredentials > 0) {
-    saveConfigPatch({
+    persistConfigPatch({
       googleAds: opts.config.googleAds,
       gtm: opts.config.gtm,
     });
   }
   const googleMarketingRuntime = createGoogleMarketingRuntime({
     config: opts.config,
-    saveConfigPatch,
+    saveConfigPatch: persistConfigPatch,
   });
   const googleMarketingCredentialStore = createGoogleMarketingConfigCredentialStore({
     config: opts.config,
+    saveConfigPatch: persistConfigPatch,
   });
 
   const prepareGoogleMarketingCredentialDelete = (projectId: string): (() => void) | undefined => {
@@ -1098,7 +1392,7 @@ export async function createServer(opts: {
     if (!removedGoogleAds && !removedGtm) return undefined;
 
     try {
-      saveConfigPatch({
+      persistConfigPatch({
         googleAds: opts.config.googleAds,
         gtm: opts.config.gtm,
       });
@@ -1113,7 +1407,7 @@ export async function createServer(opts: {
     return () => {
       restore();
       try {
-        saveConfigPatch({
+        persistConfigPatch({
           googleAds: opts.config.googleAds,
           gtm: opts.config.gtm,
         });
@@ -1231,11 +1525,13 @@ export async function createServer(opts: {
       app.log.error(
         "GBP sync requested but Google OAuth credentials are not configured in the local config",
       );
+      reportUnstartedRun(opts.db, runId, FeatureNames.gbp, "sync", OutcomeReasonCodes.NOT_CONNECTED);
       return;
     }
     executeGbpSync(opts.db, runId, projectId, {
       ...syncOpts,
       config: opts.config,
+      saveConfigPatch: persistConfigPatch,
     })
       .then(() => runCoordinator.onRunCompleted(runId, projectId))
       .catch((err: unknown) => {
@@ -1266,14 +1562,7 @@ export async function createServer(opts: {
   const runSiteAudit = (
     runId: string,
     projectId: string,
-    auditOpts?: {
-      sitemapUrl?: string;
-      limit?: number;
-      maxPages?: number;
-      maxEdges?: number;
-      maxDepth?: number;
-      checkDeadLinks?: boolean;
-    },
+    auditOpts?: SiteAuditOptions,
   ): void => {
     const controller = new AbortController();
     siteAuditAbortControllers.set(runId, controller);
@@ -1302,12 +1591,12 @@ export async function createServer(opts: {
       updatedAt: string;
     }) => {
       const updated = upsertOpenAiAdsConnection(opts.config, connection);
-      saveConfigPatch(opts.config);
+      persistConfigPatch(opts.config);
       return updated;
     },
     removeConnection: (projectName: string) => {
       const removed = removeOpenAiAdsConnection(opts.config, projectName);
-      if (removed) saveConfigPatch(opts.config);
+      if (removed) persistConfigPatch(opts.config);
       return removed;
     },
   };
@@ -1718,7 +2007,9 @@ export async function createServer(opts: {
   };
 
   let stopSiteLiveness: (() => void) | null = null;
+  let stopReviewDeliveries: (() => void) | null = null;
   let stopProviderBatchPoller: (() => void) | null = null;
+  let stopInstallState: (() => void) | null = null;
 
   const scheduler = new Scheduler(opts.db, {
     onRunCreated: (runId, projectId, providers, location) => {
@@ -1732,13 +2023,23 @@ export async function createServer(opts: {
     // "all configured providers" exactly as a hand-triggered one does.
     getRunnableProviderNames: () =>
       registry.getAll().map((provider) => provider.adapter.name),
+    getProviderRouteFamilies: () => PROVIDER_ROUTE_FAMILIES,
     getEffectiveProviderModels: () => effectiveProviderModels(registry),
     getBatchEligibleProviderNames: () => batchEligibleProviderNames(registry),
     onTrafficSyncRequested: (projectName, sourceId) => {
       // Reuse the in-process scheduler API client. The traffic-sync
       // endpoint owns run-row creation, dedupe, rollup writes, and emits
       // the `traffic.synced` telemetry — the scheduler only triggers it.
-      schedulerClient.trafficSync(projectName, sourceId).catch((err: unknown) => {
+      scheduledSyncClaims.add(syncRunClaimKey(projectName, RunKinds['traffic-sync'], sourceId));
+      schedulerClient.trafficSync(projectName, sourceId).finally(() => {
+        scheduledSyncClaims.delete(syncRunClaimKey(projectName, RunKinds['traffic-sync'], sourceId));
+      }).catch((err: unknown) => {
+        // Another sync or a backfill holds the source: this tick is skipped,
+        // and the next one picks up from the same watermark.
+        if (err instanceof CliError && err.code === 'OPERATION_IN_PROGRESS') {
+          app.log.info({ projectName, sourceId }, "Scheduled traffic sync skipped: the source is busy");
+          return;
+        }
         app.log.error(
           {
             projectName,
@@ -1793,82 +2094,48 @@ export async function createServer(opts: {
       // Fan out to every connected data integration (GSC, Bing, GA, GBP) via
       // the same in-process client. refreshAllIntegrations isolates each
       // integration's failure with Promise.allSettled and never rejects.
-      void refreshAllIntegrations(schedulerClient, projectName);
+      void refreshAllIntegrations(schedulerClient, projectName, new Date(), scheduledSyncClaims);
     },
     onBacklinksSyncRequested: (projectName) => {
-      // Re-probe Common Crawl for the newest rolling window. The release sync is
-      // workspace-GLOBAL, so we gate on freshness: skip when the latest published
-      // release is already synced READY (avoids re-downloading a ~4 GB/~13 GB
-      // near-identical window every tick). We match on (release, status) directly
-      // rather than the most-recently-updated ready row, so re-syncing an older
-      // release out of band doesn't make us re-trigger an already-synced latest.
-      // Otherwise reuse POST /backlinks/syncs, which owns insert/dedupe (UNIQUE
-      // release + non-terminal check) and the per-project auto-extract fan-out.
-      // Probe directly (not the 5-min cache) so each tick sees fresh results.
-      void (async () => {
-        const probed = await probeLatestRelease().catch((err: unknown) => {
-          app.log.warn(
-            { projectName, err },
-            "Scheduled backlinks sync: latest-release probe failed",
-          );
-          return null;
-        });
-        if (!probed) return;
-        const alreadySynced = opts.db
-          .select()
-          .from(ccReleaseSyncsTable)
-          .where(
-            and(
-              eq(ccReleaseSyncsTable.release, probed.release),
-              eq(ccReleaseSyncsTable.status, CcReleaseSyncStatuses.ready),
-            ),
-          )
-          .limit(1)
-          .get();
-        if (alreadySynced) {
-          app.log.info(
-            { projectName, release: probed.release },
-            "Scheduled backlinks sync: already up to date, skipping",
-          );
-          return;
-        }
-        schedulerClient
-          .backlinksTriggerSync(probed.release)
-          .catch((err: unknown) => {
-            app.log.error(
-              {
-                projectName,
-                release: probed.release,
-                err: describeError(err),
-              },
-              "Scheduled backlinks sync failed",
-            );
-          });
-      })();
-
+      void syncLatestReleaseOnSchedule(projectName, {
+        db: opts.db,
+        // Probe directly (not the 5-min cache) so each tick sees fresh results.
+        probe: () => probeLatestRelease(),
+        requestSync: (release) => schedulerClient.backlinksTriggerSync(release),
+        scheduledReleases: scheduledBacklinkReleases,
+        log: app.log,
+      });
     },
-    onSiteAuditRequested: (runId, projectId) => {
+    onSiteAuditRequested: (runId, projectId, auditOpts) => {
       // The scheduler already created the site-audit run row; run the same
-      // worker the manual POST /technical-aeo/runs route uses (default limit).
-      runSiteAudit(runId, projectId);
+      // worker the manual POST /technical-aeo/runs route uses, with the
+      // scheduler's full-site page budget.
+      runSiteAudit(runId, projectId, auditOpts);
     },
-  });
+    onSeoSyncRequested: ({ scheduleId, projectId, occurrence }) => {
+      // Same admission and spending policy as a manual refresh. Each profile
+      // that could not start is already recorded as a failed seo-sync run.
+      try {
+        const outcomes = startScheduledSeoRefreshes(
+          opts.db,
+          { getSeoRuntime: seoRuntime.getRuntime, onSeoRunRequested: () => seoRuntime.wake() },
+          { scheduleId, projectId, occurrence },
+        );
+        for (const outcome of outcomes) {
+          if (outcome.status === "skipped") {
+            app.log.warn({ projectId, profileId: outcome.profileId, runId: outcome.runId, reason: outcome.reason, detail: outcome.detail }, "Scheduled SEO refresh did not start");
+          } else {
+            app.log.info({ projectId, profileId: outcome.profileId, runId: outcome.runId, status: outcome.status }, "Scheduled SEO refresh admitted");
+          }
+        }
+      } catch (err: unknown) {
+        app.log.error({ projectId, err: describeError(err) }, "Scheduled SEO refresh failed");
+      }
+    },
+  }, { spreadMs: opts.scheduleSpreadMs ?? SCHEDULE_SPREAD_MS });
 
   // Build provider summary for API routes (dynamic from adapter list)
-  const providerSummary = API_ADAPTERS.map((adapter) => ({
-    name: adapter.name,
-    displayName: adapter.displayName,
-    keyUrl: adapter.keyUrl,
-    modelHint: `e.g. ${adapter.modelRegistry.defaultModel}`,
-    model: registry.get(adapter.name)?.config.model,
-    defaultModel: adapter.modelRegistry.defaultModel,
-    configured: !!registry.get(adapter.name),
-    quota: registry.get(adapter.name)?.config.quotaPolicy,
-    vertexConfigured:
-      adapter.name === "gemini"
-        ? !!opts.config.providers?.gemini?.vertexProject
-        : undefined,
-  }));
+  const providerSummary = providerSummaries(registry, opts.config);
   const googleSettingsSummary = {
     configured: Boolean(
       opts.config.google?.clientId && opts.config.google?.clientSecret,
@@ -1911,7 +2178,7 @@ export async function createServer(opts: {
       } else {
         opts.config.bing.connections.push(normalized);
       }
-      saveConfigPatch(opts.config);
+      persistConfigPatch(opts.config);
       return normalized;
     },
     updateConnection: (
@@ -1927,7 +2194,7 @@ export async function createServer(opts: {
       );
       if (!conn) return undefined;
       Object.assign(conn, patch);
-      saveConfigPatch(opts.config);
+      persistConfigPatch(opts.config);
       return conn;
     },
     deleteConnection: (domain: string) => {
@@ -1937,7 +2204,7 @@ export async function createServer(opts: {
       );
       if (idx < 0) return false;
       opts.config.bing.connections.splice(idx, 1);
-      saveConfigPatch(opts.config);
+      persistConfigPatch(opts.config);
       return true;
     },
   } as const;
@@ -1956,12 +2223,12 @@ export async function createServer(opts: {
       updatedAt: string;
     }) => {
       const updated = upsertGa4Connection(opts.config, connection);
-      saveConfigPatch(opts.config);
+      persistConfigPatch(opts.config);
       return updated;
     },
     deleteConnection: (projectName: string) => {
       const removed = removeGa4Connection(opts.config, projectName);
-      if (removed) saveConfigPatch(opts.config);
+      if (removed) persistConfigPatch(opts.config);
       return removed;
     },
   } as const;
@@ -1986,12 +2253,12 @@ export async function createServer(opts: {
       updatedAt: string;
     }) => {
       const updated = upsertCloudRunConnection(opts.config, record);
-      saveConfigPatch(opts.config);
+      persistConfigPatch(opts.config);
       return updated;
     },
     deleteConnection: (projectName: string) => {
       const removed = removeCloudRunConnection(opts.config, projectName);
-      if (removed) saveConfigPatch(opts.config);
+      if (removed) persistConfigPatch(opts.config);
       return removed;
     },
   } as const;
@@ -2011,7 +2278,7 @@ export async function createServer(opts: {
       updatedAt: string;
     }) => {
       const updated = upsertWordpressTrafficConnection(opts.config, record);
-      saveConfigPatch(opts.config);
+      persistConfigPatch(opts.config);
       return updated;
     },
     deleteConnection: (projectName: string) => {
@@ -2019,7 +2286,7 @@ export async function createServer(opts: {
         opts.config,
         projectName,
       );
-      if (removed) saveConfigPatch(opts.config);
+      if (removed) persistConfigPatch(opts.config);
       return removed;
     },
   } as const;
@@ -2040,12 +2307,12 @@ export async function createServer(opts: {
       updatedAt: string;
     }) => {
       const updated = upsertVercelTrafficConnection(opts.config, record);
-      saveConfigPatch(opts.config);
+      persistConfigPatch(opts.config);
       return updated;
     },
     deleteConnection: (projectName: string) => {
       const removed = removeVercelTrafficConnection(opts.config, projectName);
-      if (removed) saveConfigPatch(opts.config);
+      if (removed) persistConfigPatch(opts.config);
       return removed;
     },
   } as const;
@@ -2063,12 +2330,12 @@ export async function createServer(opts: {
     },
     upsertConnection: (record: CloudflareTrafficConnectionConfigEntry) => {
       const updated = upsertCloudflareTrafficConnection(opts.config, record);
-      saveConfigPatch(opts.config);
+      persistConfigPatch(opts.config);
       return updated;
     },
     deleteConnection: (projectName: string) => {
       const removed = removeCloudflareTrafficConnection(opts.config, projectName);
-      if (removed) saveConfigPatch(opts.config);
+      if (removed) persistConfigPatch(opts.config);
       return removed;
     },
     deleteConnectionBySourceId: (sourceId: string) => {
@@ -2076,7 +2343,7 @@ export async function createServer(opts: {
         opts.config,
         sourceId,
       );
-      if (removed) saveConfigPatch(opts.config);
+      if (removed) persistConfigPatch(opts.config);
       return removed;
     },
   } as const;
@@ -2103,7 +2370,7 @@ export async function createServer(opts: {
       updatedAt: string;
     }) => {
       const updated = upsertGoogleConnection(opts.config, connection);
-      saveConfigPatch(opts.config);
+      persistConfigPatch(opts.config);
       return updated;
     },
     updateConnection: (
@@ -2125,7 +2392,7 @@ export async function createServer(opts: {
         connectionType,
         patch,
       );
-      if (updated) saveConfigPatch(opts.config);
+      if (updated) persistConfigPatch(opts.config);
       return updated;
     },
     deleteConnection: (
@@ -2137,7 +2404,7 @@ export async function createServer(opts: {
         domain,
         connectionType,
       );
-      if (removed) saveConfigPatch(opts.config);
+      if (removed) persistConfigPatch(opts.config);
       return removed;
     },
   } as const;
@@ -2157,7 +2424,7 @@ export async function createServer(opts: {
       updatedAt: string;
     }) => {
       const updated = upsertWordpressConnection(opts.config, connection);
-      saveConfigPatch(opts.config);
+      persistConfigPatch(opts.config);
       return updated;
     },
     updateConnection: (
@@ -2172,12 +2439,12 @@ export async function createServer(opts: {
       }>,
     ) => {
       const updated = patchWordpressConnection(opts.config, projectName, patch);
-      if (updated) saveConfigPatch(opts.config);
+      if (updated) persistConfigPatch(opts.config);
       return updated;
     },
     deleteConnection: (projectName: string) => {
       const removed = removeWordpressConnection(opts.config, projectName);
-      if (removed) saveConfigPatch(opts.config);
+      if (removed) persistConfigPatch(opts.config);
       return removed;
     },
   } as const;
@@ -2187,7 +2454,7 @@ export async function createServer(opts: {
   // A value that normalises to bare '/' is treated as no base path to avoid
   // a duplicate-route error with fastify-static (which also registers '/').
   const rawBasePath = process.env.CANONRY_BASE_PATH ?? opts.config.basePath;
-  const normalizedBasePath = rawBasePath
+  const normalizedBasePath = rawBasePath && rawBasePath !== "/"
     ? "/" + rawBasePath.replace(/^\//, "").replace(/\/?$/, "/")
     : undefined;
   const basePath: string | undefined =
@@ -2197,7 +2464,6 @@ export async function createServer(opts: {
   // When disabled, the injected SPA config stays byte-for-byte unchanged and no
   // framing header is emitted. When enabled, every SPA document gets a
   // fail-closed `Content-Security-Policy: frame-ancestors` header.
-  const embed = resolveEmbedConfig(process.env, opts.config);
   const embedCsp = embed.enabled
     ? frameAncestorsHeaderValue(embed.allowedOrigins)
     : undefined;
@@ -2213,8 +2479,10 @@ export async function createServer(opts: {
   }
   const dashboardRequirePassword = resolveDashboardRequirePassword(process.env, opts.config);
   const dashboardShowResourceLinks = resolveDashboardShowResourceLinks(process.env, opts.config);
+  const dashboardShowLocalAgentSetup = resolveDashboardShowLocalAgentSetup(process.env, opts.config);
   const dashboardShowUpdateNotification = resolveDashboardShowUpdateNotification(process.env, opts.config);
   const dashboardOnboardingMode = resolveDashboardOnboardingMode(process.env, opts.config);
+  const dashboardBrandMark = resolveDashboardBrandMark(process.env, opts.config);
   const researchAllowViewers = resolveResearchAllowViewers(process.env, opts.config);
   const researchViewerDailyRunLimit = resolveResearchViewerDailyRunLimit(process.env, opts.config);
   app.log.info(
@@ -2229,6 +2497,13 @@ export async function createServer(opts: {
   // If the proxy does strip the prefix, set CANONRY_BASE_PATH to empty/unset and
   // let the proxy handle path rewriting instead.
   const apiPrefix = basePath ? `${basePath}api/v1` : "/api/v1";
+  const authorizationPath = `${basePath ?? "/"}oauth/authorize`;
+  const getMcpHealth = () => mcpHttpHealth(app, apiPrefix, {
+    publicUrl: opts.config.publicUrl,
+    hasAccounts: anyUsersExist(opts.db),
+    authorizationPath,
+    plugin: opts.config.mcpGateway,
+  });
   // One checker, shared by /auth/login and the OAuth consent page, so the two
   // sign-in doors carry the same brute-force and threadpool budgets.
   const credentialChecker = createCredentialChecker({
@@ -2279,33 +2554,74 @@ export async function createServer(opts: {
     opts.config.publicUrl?.startsWith("https://") ||
     opts.config.apiUrl?.startsWith("https://"),
   );
-  const sessions = new Map<string, SessionRecord>();
+  const currentPasswordFingerprint = () => hashSessionToken(opts.config.dashboardPasswordHash ?? "");
+  opts.db.delete(dashboardSessions).where(or(
+    eq(dashboardSessions.apiKeyHash, ""),
+    and(
+      isNotNull(dashboardSessions.passwordFingerprint),
+      ne(dashboardSessions.passwordFingerprint, currentPasswordFingerprint()),
+    ),
+  )).run();
 
-  const pruneExpiredSessions = () => {
-    const now = Date.now();
-    for (const [sessionId, session] of sessions.entries()) {
-      if (session.expiresAt <= now) {
-        sessions.delete(sessionId);
-      }
+  // A password taken off config.yaml (`canonry dashboard reset-password`, or a
+  // hand edit) never passed through a route, so the first start that finds it
+  // gone records it. Without this row the audit trail shows two creations with
+  // nothing between them.
+  if (!opts.config.dashboardPasswordHash) {
+    const lastPasswordEventAt = (action: string) => opts.db
+      .select({ at: max(auditLog.createdAt) })
+      .from(auditLog)
+      .where(and(eq(auditLog.entityType, "dashboard-password"), eq(auditLog.action, action)))
+      .get()?.at ?? null;
+    const createdAt = lastPasswordEventAt("dashboard-password.created");
+    const clearedAt = lastPasswordEventAt("dashboard-password.cleared");
+    if (createdAt !== null && (clearedAt === null || clearedAt < createdAt)) {
+      writeAuditLog(opts.db, {
+        actor: "system",
+        action: "dashboard-password.cleared",
+        entityType: "dashboard-password",
+        diff: { detectedAt: "startup" },
+      });
     }
-  };
+  }
 
-  const createSession = (apiKeyId: string) => {
-    pruneExpiredSessions();
+  const createSession = (
+    key: Pick<typeof apiKeys.$inferSelect, "id" | "keyHash">,
+    passwordBased = false,
+    db: Pick<DatabaseClient, "delete" | "insert"> = opts.db,
+  ) => {
+    const now = new Date();
+    db.delete(dashboardSessions).where(lte(dashboardSessions.expiresAt, now.toISOString())).run();
     const sessionId = crypto.randomBytes(32).toString("hex");
-    sessions.set(sessionId, {
-      apiKeyId,
-      expiresAt: Date.now() + SESSION_TTL_MS,
-    });
+    db.insert(dashboardSessions).values({
+      tokenHash: hashSessionToken(sessionId),
+      apiKeyId: key.id,
+      apiKeyHash: key.keyHash,
+      passwordFingerprint: passwordBased ? currentPasswordFingerprint() : null,
+      createdAt: now.toISOString(),
+      expiresAt: new Date(now.getTime() + SESSION_TTL_MS).toISOString(),
+    }).run();
     return sessionId;
   };
 
   const resolveSessionApiKeyId = (sessionId: string) => {
-    pruneExpiredSessions();
-    const session = sessions.get(sessionId);
+    const tokenHash = hashSessionToken(sessionId);
+    const session = opts.db.select({
+      apiKeyId: dashboardSessions.apiKeyId,
+      apiKeyHash: dashboardSessions.apiKeyHash,
+      currentApiKeyHash: apiKeys.keyHash,
+      passwordFingerprint: dashboardSessions.passwordFingerprint,
+      expiresAt: dashboardSessions.expiresAt,
+    })
+      .from(dashboardSessions)
+      .innerJoin(apiKeys, eq(apiKeys.id, dashboardSessions.apiKeyId))
+      .where(and(eq(dashboardSessions.tokenHash, tokenHash), isNull(apiKeys.revokedAt))).get();
     if (!session) return null;
-    if (session.expiresAt <= Date.now()) {
-      sessions.delete(sessionId);
+    const expiresAt = Date.parse(session.expiresAt);
+    if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()
+      || session.apiKeyHash !== session.currentApiKeyHash
+      || (session.passwordFingerprint !== null && session.passwordFingerprint !== currentPasswordFingerprint())) {
+      opts.db.delete(dashboardSessions).where(eq(dashboardSessions.tokenHash, tokenHash)).run();
       return null;
     }
     return session.apiKeyId;
@@ -2313,7 +2629,7 @@ export async function createServer(opts: {
 
   const clearSession = (sessionId: string | undefined) => {
     if (sessionId) {
-      sessions.delete(sessionId);
+      opts.db.delete(dashboardSessions).where(eq(dashboardSessions.tokenHash, hashSessionToken(sessionId))).run();
     }
   };
 
@@ -2328,11 +2644,7 @@ export async function createServer(opts: {
       .get();
   };
 
-  const createPasswordSession = (reply: FastifyReply) => {
-    const key = getDefaultApiKey();
-    if (!key || key.revokedAt) return false;
-
-    const sessionId = createSession(key.id);
+  const setSessionCookie = (reply: FastifyReply, sessionId: string) => {
     reply.header(
       "set-cookie",
       serializeSessionCookie({
@@ -2343,30 +2655,46 @@ export async function createServer(opts: {
         ttlMs: SESSION_TTL_MS,
       }),
     );
+  };
+
+  const createPasswordSession = (reply: FastifyReply) => {
+    const key = getDefaultApiKey();
+    if (!key || key.revokedAt) return false;
+
+    setSessionCookie(reply, createSession(key, true));
     return true;
   };
 
-  // Whether the server is bound to a loopback interface. On loopback only
-  // local processes can connect, so the first-run password bootstrap is safe
-  // to leave unauthenticated. On a non-loopback bind the server is reachable
-  // off-box and the bootstrap must be gated (see `/session/setup`).
-  const boundToLoopback = isLoopbackBindHost(opts.host);
+  // Whether a direct local request (see `isDirectLocalRequest`) may set the
+  // first dashboard password without the root key. Only on a loopback bind,
+  // and only while config names no other way in: once an operator sets a
+  // non-loopback `apiUrl` / `publicUrl`, a base path, or trusts a proxy,
+  // remote visitors reach this server over loopback, and a client-chosen
+  // `Host: localhost` through a proxy that adds no forwarding header looks
+  // local.
+  const keylessLocalSetup = isLoopbackBindHost(opts.host)
+    && !configuresExternalAccess(trustProxy, basePath, opts.config.apiUrl, opts.config.publicUrl);
+  keylessFirstRunSetupByServer.set(app, keylessLocalSetup);
 
-  // Resolve a non-revoked API key from a `Bearer cnry_…` header, if present.
-  // Used to gate the first-run password setup on an exposed server — the
-  // `/session/setup` route is in the auth skip-list, so it must do its own
-  // bearer check rather than rely on `request.apiKey`.
-  const requestHasValidApiKey = (request: FastifyRequest): boolean => {
+  // The dashboard password is a standing credential for the install's DEFAULT
+  // key: every password sign-in binds to it (`createPasswordSession`), and it
+  // holds `*` on every project. Setting the password hands out that authority,
+  // so a caller must prove it already holds it by presenting that exact key.
+  // Any other key, however valid, is narrower or a different credential, and
+  // a password planted with it would outlive that key's revocation.
+  // `/session/setup` is in the auth skip-list, so this parses the bearer by
+  // authPlugin's rule and compares SHA-256 digests in constant time.
+  const requestPresentsKey = (
+    request: FastifyRequest,
+    key: Pick<typeof apiKeys.$inferSelect, "keyHash">,
+  ): boolean => {
     const header = request.headers.authorization;
     if (!header) return false;
     const parts = header.split(" ");
-    if (parts.length !== 2 || parts[0] !== "Bearer") return false;
-    const key = opts.db
-      .select()
-      .from(apiKeys)
-      .where(eq(apiKeys.keyHash, hashApiKey(parts[1]!)))
-      .get();
-    return Boolean(key && !key.revokedAt);
+    if (parts.length !== 2 || parts[0] !== "Bearer" || !parts[1]) return false;
+    const presented = Buffer.from(hashApiKey(parts[1]), "hex");
+    const expected = Buffer.from(key.keyHash, "hex");
+    return presented.length === expected.length && crypto.timingSafeEqual(presented, expected);
   };
 
   // Once this install has named accounts, the single shared dashboard password
@@ -2377,15 +2705,37 @@ export async function createServer(opts: {
   const namedAccountsInUse = () => anyUsersExist(opts.db);
   const NAMED_ACCOUNTS_MESSAGE =
     "This install uses named accounts. Sign in with your name and password.";
+  // Both password routes answer this when the key a password session binds to
+  // (`apiKey` in config.yaml) has no live row.
+  const serverApiKeyMissing = () =>
+    new AppError("AUTH_INVALID", "Server API key not found — run canonry bootstrap", 401);
 
-  app.get(apiPrefix + "/session", async (request, reply) => {
+  const rejectLegacySessionStoredOnly = async (request: FastifyRequest, reply: FastifyReply) => {
+    const header = request.headers[STORED_ONLY_HEADER];
+    if (header !== '1' && header !== 'true') return;
+    const route = request.routeOptions.url ?? request.url;
+    const operation = route.endsWith('/session/setup')
+      ? 'POST /api/v1/session/setup'
+      : `${request.method.toUpperCase()} /api/v1/session`;
+    const error = storedOnlyRefused('Stored-only mode refuses this operation', { operation, access: OperationAccesses.write });
+    return reply.status(error.statusCode).send(error.toJSON());
+  };
+  const legacySessionRouteOptions = {
+    onSend: async (_request: FastifyRequest, reply: FastifyReply, payload: unknown) => {
+      reply.header(OPERATION_ACCESS_HEADER, OperationAccesses.write);
+      return payload;
+    },
+    preHandler: rejectLegacySessionStoredOnly,
+  } as const;
+
+  app.get(apiPrefix + "/session", legacySessionRouteOptions, async (request, reply) => {
     if (namedAccountsInUse()) {
       return reply.send({ authenticated: false, setupRequired: false });
     }
     if (!dashboardRequirePassword) {
       return reply.send({ authenticated: true, setupRequired: false });
     }
-    const sessionId = parseCookies(request.headers.cookie)[SESSION_COOKIE_NAME];
+    const sessionId = parseCookieHeader(request.headers.cookie)[SESSION_COOKIE_NAME];
     return reply.send({
       authenticated: Boolean(sessionId && resolveSessionApiKeyId(sessionId)),
       setupRequired: !opts.config.dashboardPasswordHash,
@@ -2395,7 +2745,7 @@ export async function createServer(opts: {
   // One-time password setup — only works when no password is configured yet.
   app.post<{
     Body: { password?: string };
-  }>(apiPrefix + "/session/setup", async (request, reply) => {
+  }>(apiPrefix + "/session/setup", legacySessionRouteOptions, async (request, reply) => {
     if (namedAccountsInUse()) {
       const err = forbidden(NAMED_ACCOUNTS_MESSAGE);
       return reply.status(err.statusCode).send(err.toJSON());
@@ -2403,15 +2753,27 @@ export async function createServer(opts: {
     if (!dashboardRequirePassword) {
       return reply.send({ authenticated: true, setupRequired: false });
     }
-    // First-run dashboard password setup mints a session bound to the install's
-    // default `*` API key — full read/write on every project. That is safe on a
-    // loopback bind (only local processes can reach it) but a pre-auth privilege
-    // escalation on a network-reachable server, where any unauthenticated
-    // first-visitor could claim it. When bound off-box, require the bearer key.
-    if (!boundToLoopback && !requestHasValidApiKey(request)) {
-      const err = authRequired(
-        "This server is network-reachable; setting the dashboard password requires a valid API key.",
-      );
+    // The first dashboard password is a standing credential for the default
+    // `*` key (see `requestPresentsKey`). Only a request made directly on this
+    // machine may set it without that key; anything that reached the server
+    // over the network or through a proxy must present the root key itself.
+    const found = getDefaultApiKey();
+    const defaultKey = found && !found.revokedAt ? found : undefined;
+    // Whether the caller holds `apiKey` from config.yaml, live row or not.
+    const presentsConfiguredKey = opts.config.apiKey
+      ? requestPresentsKey(request, { keyHash: hashApiKey(opts.config.apiKey) })
+      : false;
+    const presentedRootKey = defaultKey !== undefined && presentsConfiguredKey;
+    if (!presentedRootKey && !(keylessLocalSetup && isDirectLocalRequest(request))) {
+      // With no live root key, no key can pass. Only the caller who holds the
+      // configured key (often revoked but still in config.yaml) is told to
+      // rerun bootstrap; telling anyone else would reveal the key's state
+      // before authentication.
+      const err = presentsConfiguredKey
+        ? serverApiKeyMissing()
+        : authRequired(
+          "Setting the dashboard password requires the root API key (apiKey in config.yaml), unless the request comes directly from this machine to a loopback-bound server that has no external URL, base path, or trusted proxy configured.",
+        );
       return reply.status(err.statusCode).send(err.toJSON());
     }
 
@@ -2426,20 +2788,51 @@ export async function createServer(opts: {
       return reply.status(err.statusCode).send(err.toJSON());
     }
 
-    opts.config.dashboardPasswordHash = hashDashboardPassword(password);
-    saveConfigPatch(opts.config);
-
-    if (!createPasswordSession(reply)) {
-      const err = authInvalid();
+    // Refuse before writing anything: a password saved ahead of this check
+    // would stay on disk behind the failed response.
+    if (!defaultKey) {
+      const err = serverApiKeyMissing();
       return reply.status(err.statusCode).send(err.toJSON());
     }
+
+    // The session binds a digest of the configured password hash, so set it
+    // first, and take it back if any write below fails.
+    const passwordHash = hashDashboardPassword(password);
+    opts.config.dashboardPasswordHash = passwordHash;
+    let sessionId: string;
+    try {
+      sessionId = opts.db.transaction((tx) => {
+        // Audit which key the password now signs in to and how the caller was
+        // allowed to set it. Never the password, in any form.
+        writeAuditLog(tx, auditFromRequest(request, {
+          actor: `api-key:${defaultKey.id}`,
+          credentialId: presentedRootKey ? defaultKey.id : null,
+          requestId: request.id,
+          action: "dashboard-password.created",
+          entityType: "dashboard-password",
+          diff: { authorizedBy: presentedRootKey ? "root-api-key" : "local-request" },
+        }));
+        const created = createSession(defaultKey, true, tx);
+        // config.yaml goes last, inside the transaction: a failed write rolls
+        // back the audit row and the session, while `saveConfigPatch` can never
+        // take a saved password back off disk if a later step failed. It also
+        // never writes the hash from `opts.config`, so name it here.
+        persistConfigPatch(opts.config, { setDashboardPasswordHash: passwordHash });
+        return created;
+      });
+    } catch (err) {
+      opts.config.dashboardPasswordHash = undefined;
+      throw err;
+    }
+
+    setSessionCookie(reply, sessionId);
     return reply.send({ authenticated: true });
   });
 
   // Login with dashboard password or API key.
   app.post<{
     Body: { password?: string; apiKey?: string };
-  }>(apiPrefix + "/session", async (request, reply) => {
+  }>(apiPrefix + "/session", legacySessionRouteOptions, async (request, reply) => {
     if (namedAccountsInUse()) {
       const err = forbidden(NAMED_ACCOUNTS_MESSAGE);
       return reply.status(err.statusCode).send(err.toJSON());
@@ -2461,25 +2854,34 @@ export async function createServer(opts: {
         password,
         opts.config.dashboardPasswordHash,
       );
-      if (!verification.ok) {
+      const onDisk = verification.ok && verification.needsRehash && persistedConfigPath !== undefined
+        ? loadConfigRaw(persistedConfigPath)
+        : null;
+      if (!verification.ok || (onDisk && onDisk.dashboardPasswordHash !== opts.config.dashboardPasswordHash)) {
         return reply.status(401).send({
           error: { code: "AUTH_INVALID", message: "Incorrect password" },
         });
       }
       // Transparent migration: a successful login against the legacy
       // unsalted SHA-256 hash rewrites the config with a fresh scrypt hash
-      // so the next login no longer needs the legacy fallback path.
+      // so the next login no longer needs the legacy fallback path. A config
+      // built in memory migrates in memory.
       if (verification.needsRehash) {
-        opts.config.dashboardPasswordHash = hashDashboardPassword(password);
-        saveConfigPatch(opts.config);
+        if (persistedConfigPath !== undefined && fs.existsSync(persistedConfigPath) && (
+          !onDisk || typeof onDisk !== "object" || Array.isArray(onDisk)
+          || !onDisk.apiUrl || !onDisk.database || !onDisk.apiKey
+        )) {
+          throw new Error("Cannot migrate dashboard password: config.yaml is unreadable or invalid");
+        }
+        const migratedHash = hashDashboardPassword(password);
+        if (persistedConfigPath !== undefined) {
+          saveConfig({ ...(onDisk ?? opts.config), dashboardPasswordHash: migratedHash }, persistedConfigPath);
+        }
+        opts.config.dashboardPasswordHash = migratedHash;
       }
       if (!createPasswordSession(reply)) {
-        return reply.status(401).send({
-          error: {
-            code: "AUTH_INVALID",
-            message: "Server API key not found — run canonry bootstrap",
-          },
-        });
+        const err = serverApiKeyMissing();
+        return reply.status(err.statusCode).send(err.toJSON());
       }
       return reply.send({ authenticated: true });
     }
@@ -2502,17 +2904,7 @@ export async function createServer(opts: {
         .where(eq(apiKeys.id, key.id))
         .run();
 
-      const sessionId = createSession(key.id);
-      reply.header(
-        "set-cookie",
-        serializeSessionCookie({
-          name: SESSION_COOKIE_NAME,
-          value: sessionId,
-          path: sessionCookiePath,
-          secure: sessionCookieSecure,
-          ttlMs: SESSION_TTL_MS,
-        }),
-      );
+      setSessionCookie(reply, createSession(key));
       return reply.send({ authenticated: true });
     }
 
@@ -2520,8 +2912,8 @@ export async function createServer(opts: {
     return reply.status(err.statusCode).send(err.toJSON());
   });
 
-  app.delete(apiPrefix + "/session", async (request, reply) => {
-    const sessionId = parseCookies(request.headers.cookie)[SESSION_COOKIE_NAME];
+  app.delete(apiPrefix + "/session", legacySessionRouteOptions, async (request, reply) => {
+    const sessionId = parseCookieHeader(request.headers.cookie)[SESSION_COOKIE_NAME];
     clearSession(sessionId);
     reply.header(
       "set-cookie",
@@ -2538,11 +2930,11 @@ export async function createServer(opts: {
 
   const LATEST_RELEASE_TTL_MS = 5 * 60 * 1000;
   let latestReleaseCache: {
-    value: import("@ainyc/canonry-contracts").CcAvailableRelease | null;
+    value: import("@canonry/canonry-contracts").CcAvailableRelease | null;
     expiresAt: number;
   } | null = null;
   const discoverLatestRelease = async (): Promise<
-    import("@ainyc/canonry-contracts").CcAvailableRelease | null
+    import("@canonry/canonry-contracts").CcAvailableRelease | null
   > => {
     const now = Date.now();
     if (latestReleaseCache && latestReleaseCache.expiresAt > now) {
@@ -2579,35 +2971,235 @@ export async function createServer(opts: {
     config: opts.config,
   });
 
-  const dispatchResearchRun = (runId: string, projectId: string) => {
-    executeResearchRun(opts.db, registry, runId, projectId).catch((err: unknown) => {
+  const dispatchResearchRun = (runId: string, projectId: string, trigger?: OutcomeTrigger) => {
+    executeResearchRun(opts.db, registry, runId, projectId, { trigger }).catch((err: unknown) => {
       app.log.error({ runId, err }, 'Research run failed');
     });
   };
 
   const sentimentWorker = new SentimentWorker(opts.db, {
     configuration: loadSentimentInstallConfig,
-    classifier: configuration => createTypeSafeClassifier({ apiKey: configuration.apiKey! }),
+    classifier: configuration => createConfiguredSentimentClassifier(configuration, registry, loadSentimentInstallConfig),
     prepare: input => {
       const built = buildJevSentimentRequest(input);
       return built.ok ? { ok: true, estimatedInputTokens: built.estimate.inputTokens } : built;
     },
   });
-  let sentimentTick: Promise<number> | null = null;
-  const pollSentiment = () => {
-    if (sentimentTick) return;
-    sentimentTick = sentimentWorker.tick().catch(() => { log.error("sentiment.worker-failed", { reason: "Stored sentiment worker could not finish its tick." }); return 0; }).finally(() => { sentimentTick = null; });
-  };
+  const sentimentPoller = createSentimentPoller(
+    () => sentimentWorker.tick(),
+    () => { log.error("sentiment.worker-failed", { reason: "Stored sentiment worker could not finish its tick." }); },
+  );
+  const pollSentiment = sentimentPoller.poll;
   let sentimentTimer: ReturnType<typeof setInterval> | undefined;
   runCoordinator.onSentimentCompleted = async () => { pollSentiment(); };
+
+  // Every recompute of the stored per-snapshot answer fields after an
+  // identity change goes through one per-project queue
+  // (`createAnswerFieldRecomputeQueue`): a project alias change
+  // (`answer_mentioned` and the competitor fields) and a competitor names
+  // change, curated or auto-detected (`competitor_overlap`,
+  // `recommended_competitors` only; a competitor's names say nothing about
+  // the project's own mention). Passes run in chunks that yield to the event
+  // loop, never interleave for one project, and re-read the identity between
+  // chunks, so an older pass never overwrites a newer one. A sweep, fill or
+  // batch ingest still recording with an older identity rescores its own run
+  // when it finishes (`reconcileRunAnswerFields`).
+  const answerFieldRecomputes = createAnswerFieldRecomputeQueue({ db: opts.db });
+  // The queue lives in memory, so every request also marks the project
+  // (`projects.answer_fields_recompute`: `full` or `competitors`, the wider
+  // scope winning). Only the pass that served the project's LATEST request
+  // clears the mark, and only once no full recompute is still owed (a failed
+  // full pass is not paid by a later competitors-only one). A restart that
+  // kills a pass, or the queue before it, leaves the mark, and boot requeues
+  // the project (`resumeAnswerFieldRecomputes`), so the stored competitor
+  // columns are never left split between two identities.
+  const recomputeDebts = new Map<string, { latest: number; latestFull: number }>();
+  let recomputeSequence = 0;
+  const markAnswerFieldRecompute = (projectId: string, full: boolean): void => {
+    opts.db.update(projects)
+      .set({ answerFieldsRecompute: full ? "full" : sql`CASE WHEN ${projects.answerFieldsRecompute} = 'full' THEN 'full' ELSE 'competitors' END` })
+      .where(eq(projects.id, projectId))
+      .run();
+  };
+  const requestAnswerFieldRecompute = (
+    projectId: string,
+    projectName: string,
+    scope: AnswerFieldRecomputeRequest,
+    reason: string,
+  ): void => {
+    const sequence = ++recomputeSequence;
+    const debt = recomputeDebts.get(projectId) ?? { latest: 0, latestFull: 0 };
+    debt.latest = sequence;
+    if (scope.full) debt.latestFull = sequence;
+    recomputeDebts.set(projectId, debt);
+    try { markAnswerFieldRecompute(projectId, scope.full === true); }
+    catch (err) { app.log.error({ err, projectId }, "could not mark the owed answer field recompute"); }
+    answerFieldRecomputes.request(projectId, scope).then(
+      (pass) => {
+        // A full pass recomputes everything, so it pays every full request
+        // made before this one (a later one may still be queued).
+        if (pass.full && debt.latestFull <= sequence) debt.latestFull = 0;
+        try {
+          if (debt.latest === sequence && debt.latestFull === 0) {
+            opts.db.update(projects).set({ answerFieldsRecompute: null }).where(eq(projects.id, projectId)).run();
+            if (recomputeDebts.get(projectId) === debt) recomputeDebts.delete(projectId);
+          } else if (debt.latestFull === 0) {
+            opts.db.update(projects).set({ answerFieldsRecompute: "competitors" })
+              .where(and(eq(projects.id, projectId), eq(projects.answerFieldsRecompute, "full")))
+              .run();
+          }
+        } catch (err) {
+          app.log.error({ err, projectId }, "could not clear the owed answer field recompute");
+        }
+        app.log.info(
+          { projectId, projectName, reason, full: pass.full, ...pass.result },
+          "identity changed: recomputed stored answer fields on historical snapshots",
+        );
+      },
+      (err: unknown) => {
+        app.log.error(
+          { err, projectId, projectName, reason },
+          "identity-triggered answer field recompute failed",
+        );
+      },
+    );
+  };
+  const resumeAnswerFieldRecomputes = (): void => {
+    const owed = opts.db.select({ id: projects.id, name: projects.name, scope: projects.answerFieldsRecompute })
+      .from(projects)
+      .where(isNotNull(projects.answerFieldsRecompute))
+      .all();
+    for (const project of owed) {
+      requestAnswerFieldRecompute(project.id, project.name, { full: project.scope === "full" }, "resume-after-restart");
+    }
+  };
+  const recomputeCompetitorFields = (projectId: string, projectName: string): void => {
+    requestAnswerFieldRecompute(projectId, projectName, {}, "competitor-names");
+  };
+  // Answer-derived competitor aliases: detected from stored answers only
+  // (never a competitor's website). The unattended passes (after every
+  // completed or partial non-probe sweep, a competitor add, an unblock, a
+  // market pin write that changes the pins) follow the project's
+  // `competitorAutoAliases` mode, read when the pass starts: `off` runs none,
+  // `preview` (every project's default) scores the stored answers and logs
+  // what it would add or remove without storing anything, `apply` stores the
+  // names. An explicit apply-now
+  // (`POST /competitor-auto-aliases`, `canonry competitor aliases detect
+  // --apply`) goes straight to the runner and stores in every mode.
+  const competitorAutoAliases = createCompetitorAutoAliasRunner({
+    db: opts.db,
+    readAnchors: extractStoredAnswerAnchors,
+    onNamesChanged: recomputeCompetitorFields,
+  });
+  const competitorAutoAliasReasons = new Map<string, string[]>();
+  const competitorAutoAliasPasses = createProjectPassQueue(async (projectId: string): Promise<void> => {
+    // Never on the caller's tick: the completion path and the route return first.
+    await yieldToEventLoop();
+    const reason = (competitorAutoAliasReasons.get(projectId) ?? []).join(",");
+    competitorAutoAliasReasons.delete(projectId);
+    const project = opts.db.select().from(projects).where(eq(projects.id, projectId)).get();
+    if (!project || project.competitorAutoAliases === "off") return;
+    if (project.competitorAutoAliases === "apply") {
+      // The runner logs its own failures.
+      await competitorAutoAliases.request(projectId, reason).catch(() => undefined);
+      return;
+    }
+    const detection = await previewCompetitorAutoAliases(opts.db, project, { readAnchors: extractStoredAnswerAnchors });
+    const wouldAdd = detection.competitors.flatMap((competitor) => competitor.added.map((name) => `${competitor.domain}: ${name}`));
+    const wouldRemove = detection.competitors.flatMap((competitor) => competitor.removed.map((entry) => `${competitor.domain}: ${entry.name}`));
+    app.log.info(
+      {
+        projectId,
+        projectName: project.name,
+        reason,
+        mode: "preview",
+        runs: detection.scan.runs,
+        snapshots: detection.scan.snapshots,
+        wouldAdd: wouldAdd.slice(0, 20),
+        wouldAddCount: wouldAdd.length,
+        wouldRemove: wouldRemove.slice(0, 20),
+        wouldRemoveCount: wouldRemove.length,
+      },
+      "competitor auto aliases (preview): stored nothing; set the project to apply, or run detect --apply, to store them",
+    );
+  });
+  const scheduleCompetitorAutoAliases = (projectId: string, reason: string): void => {
+    competitorAutoAliasReasons.set(projectId, [...(competitorAutoAliasReasons.get(projectId) ?? []), reason]);
+    competitorAutoAliasPasses.request(projectId).catch((err: unknown) => {
+      app.log.error({ err, projectId, reason }, "competitor auto alias pass failed");
+    });
+  };
+  runCoordinator.onAnswersRecorded = (runId: string, projectId: string) => {
+    scheduleCompetitorAutoAliases(projectId, `run:${runId}`);
+  };
+  app.addHook("onClose", async () => {
+    await competitorAutoAliasPasses.settled();
+    await competitorAutoAliases.settled();
+    await answerFieldRecomputes.settled();
+  });
+  app.addHook("onReady", async () => { resumeAnswerFieldRecomputes(); });
   app.addHook("onReady", async () => { sentimentTimer = setInterval(pollSentiment, 5_000); sentimentTimer.unref(); pollSentiment(); });
-  app.addHook("onClose", async () => { clearInterval(sentimentTimer); await sentimentTick; });
+  app.addHook("onClose", async () => { await seoRuntime.stop(); });
+  app.addHook("onClose", async () => { clearInterval(sentimentTimer); sentimentPoller.stop(); await sentimentPoller.settled(); });
 
   const providerModelCatalog = createProviderModelCatalog(registry);
+  // Aero, analysis and classification on OpenRouter take their models from
+  // this same catalog (one fetch, one cache lifetime) instead of pi-ai's fixed list.
+  // Their key may come from OPENROUTER_API_KEY alone, which registers no sweep
+  // provider; the catalog is then read with that key, in the same cache entry.
+  const aeroOpenRouterCatalog = providerModelCatalog.orUnregistered(() => {
+    const apiKey = resolveApiKeyFor(ProviderNames.openrouter, opts.config);
+    return apiKey
+      ? { adapter: openrouterAdapter, config: { provider: ProviderNames.openrouter, apiKey, quotaPolicy: DEFAULT_PROVIDER_QUOTA } }
+      : undefined;
+  });
+  const disconnectOpenRouterModels = openRouterModels.connect({
+    read: () => aeroOpenRouterCatalog.read(ProviderNames.openrouter),
+    cached: () => aeroOpenRouterCatalog.cached(ProviderNames.openrouter),
+  });
+  app.addHook("onClose", async () => { disconnectOpenRouterModels(); });
+  const recordProviderChange = (
+    name: string,
+    before: RegisteredProvider | undefined,
+    after: RegisteredProvider | undefined,
+    auditContext: Parameters<NonNullable<ApiRoutesOptions['onProviderUpdate']>>[5],
+  ): void => {
+    const beforeConfig = summarizeProviderConfig(before);
+    const afterConfig = summarizeProviderConfig(after);
+    const apiKeyRotated = Boolean(before) && Boolean(after?.config.apiKey)
+      && before?.config.apiKey !== after?.config.apiKey;
+    const credentialsChanged = before?.config.vertexCredentials !== after?.config.vertexCredentials;
+    if (!apiKeyRotated && !credentialsChanged && JSON.stringify(beforeConfig) === JSON.stringify(afterConfig)) return;
+    const affectedProjects = opts.db.select({ id: projects.id, providers: projects.providers }).from(projects).all()
+      .filter(project => project.providers.length === 0 || project.providers.includes(name));
+    const projectIds = affectedProjects.length ? affectedProjects.map(project => project.id) : [null];
+    for (const projectId of projectIds) {
+      writeAuditLog(opts.db, {
+        projectId,
+        actor: auditContext?.actor ?? 'api',
+        userAgent: auditContext?.userAgent,
+        actorSession: auditContext?.actorSession,
+        credentialId: auditContext?.credentialId,
+        requestId: auditContext?.requestId,
+        action: after ? (before ? 'provider.updated' : 'provider.created') : 'provider.removed',
+        entityType: 'provider',
+        entityId: name,
+        diff: {
+          before: before ? beforeConfig : null,
+          after: afterConfig,
+          ...(apiKeyRotated ? { apiKeyRotated: true } : {}),
+          ...(credentialsChanged ? { credentialsChanged: true } : {}),
+        },
+      });
+    }
+  };
   await app.register(apiRoutes, {
+    // Outcome telemetry reported from route code (`app.emitOutcome`).
+    onOutcome: handleRouteOutcome,
     db: opts.db,
+    claimScheduledSync,
     sentiment: {
-      install: () => { const configuration = loadSentimentInstallConfig(); return { ...sentimentInstallReadiness(configuration), model: configuration.model }; },
+      install: () => { const configuration = loadSentimentInstallConfig(); return { ...sentimentInstallReadiness(configuration), model: configuration.model, provider: configuration.provider }; },
       previewSecret: opts.config.apiKey,
       estimate: input => { const built = buildJevSentimentRequest(input); return built.estimate?.inputTokens ?? 0; },
     },
@@ -2648,13 +3240,10 @@ export async function createServer(opts: {
     // and would have thrown if the file were missing; tests that construct
     // `createServer` directly (bypassing `loadConfig`) won't have written
     // a config and shouldn't get 503s from a stub-missing file.
-    runtimeStatePaths: (() => {
-      const configPath = getConfigPath();
-      return {
-        databasePath: opts.config.database,
-        configPath: fs.existsSync(configPath) ? configPath : null,
-      };
-    })(),
+    runtimeStatePaths: {
+      databasePath: runtimeDatabasePath,
+      configPath: fs.existsSync(runtimeConfigPath) ? runtimeConfigPath : null,
+    },
     // Snapshot the bundled skill trees (version + file hashes) so the
     // `agent.skills.current` doctor check can flag a `~/.claude/skills/` install
     // that has drifted behind this build. Best-effort: if the bundled assets
@@ -2669,22 +3258,19 @@ export async function createServer(opts: {
     getAgentPluginState: opts.getAgentPluginState,
     // Powers the `canonry.version.current` doctor check. Non-blocking.
     getUpdateStatus: () => getServerUpdateStatus(),
-    // Local canonry serve runs on the operator's machine, where pointing a
-    // webhook at localhost (Discord test container, Pipedream-mock dev server,
-    // etc.) is a legitimate workflow. Default to allowing it for the local
-    // installer; cloud deployments inherit the secure default of `false` by
-    // not passing this option. Override with CANONRY_ALLOW_LOOPBACK_WEBHOOKS=0.
-    allowLoopbackWebhooks: process.env.CANONRY_ALLOW_LOOPBACK_WEBHOOKS !== "0",
+    allowLoopbackWebhooks,
     // Wall-clock budget for one incremental Vercel drain. This is the only lever
     // that decides whether a source catches up or falls further behind, and it
     // was previously reachable only from tests, so a source losing ground could
     // not be rescued without shipping code. Unset keeps the built-in default.
     vercelSyncDeadlineMs: resolveVercelSyncDeadlineMs(process.env),
+    cloudflareQueueSyncDeadlineMs: resolveCloudflareQueueSyncDeadlineMs(process.env),
     researchAllowViewers,
     researchViewerDailyRunLimit,
     // Local-only Aero agent routes. Registered here so they inherit api-routes'
     // auth plugin — bare `registerAgentRoutes(app, ...)` would skip auth.
     credentials: credentialChecker,
+    getMcpHealth,
     oauthResourceUrl: publicOrigin
       ? `${publicOrigin}${`${basePath ?? "/"}api/v1/mcp`.replace("//", "/")}`
       : undefined,
@@ -2795,11 +3381,13 @@ export async function createServer(opts: {
         app.log.error(
           "GSC sync requested but Google OAuth credentials are not configured in the local config",
         );
+        reportUnstartedRun(opts.db, runId, FeatureNames.search_console, "sync", OutcomeReasonCodes.NOT_CONNECTED);
         return;
       }
       executeGscSync(opts.db, runId, projectId, {
         ...syncOpts,
         config: opts.config,
+        saveConfigPatch: persistConfigPatch,
       })
         // executeGscSync resolves only when the sync completed, so a full
         // sitemap-coverage refresh chains directly off success. `gsc-sync`
@@ -2807,7 +3395,7 @@ export async function createServer(opts: {
         // move index coverage — which is why a user-initiated sync is not
         // subject to the hour-long scheduled spacing.
         .then(() =>
-          maybeRefreshGscCoverage(opts.db, opts.config, projectId, undefined, Date.now(), {
+          maybeRefreshGscCoverage(opts.db, opts.config, projectId, coverageRefreshDeps, Date.now(), {
             userInitiated: runWasUserInitiated(opts.db, runId),
           }),
         )
@@ -2826,11 +3414,13 @@ export async function createServer(opts: {
         app.log.error(
           "Inspect sitemap requested but Google OAuth credentials are not configured",
         );
+        reportUnstartedRun(opts.db, runId, FeatureNames.search_console, "inspect", OutcomeReasonCodes.NOT_CONNECTED);
         return;
       }
       executeInspectSitemap(opts.db, runId, projectId, {
         ...inspectOpts,
         config: opts.config,
+        saveConfigPatch: persistConfigPatch,
       }).catch((err: unknown) => {
         app.log.error({ runId, err }, "Inspect sitemap failed");
       });
@@ -2878,6 +3468,7 @@ export async function createServer(opts: {
     onReleaseSyncRequested: (syncId: string, release: string) => {
       executeReleaseSync(opts.db, syncId, {
         release,
+        trigger: scheduledBacklinkReleases.delete(release) ? OutcomeTriggers.scheduled : OutcomeTriggers.manual,
         deps: {
           enqueueAutoExtract: ({ projectId, release: r }) => {
             const now = new Date().toISOString();
@@ -2925,6 +3516,7 @@ export async function createServer(opts: {
       executeDiscoveryRun({
         db: opts.db,
         registry,
+        getClassifierConfig: () => loadConfig(runtimeConfigPath),
         runId: input.runId,
         sessionId: input.sessionId,
         projectId: input.projectId,
@@ -2941,6 +3533,8 @@ export async function createServer(opts: {
           app.log.error({ runId: input.runId, err }, "Discovery run failed");
         });
     },
+    getSeoRuntime: seoRuntime.getRuntime,
+    onSeoRunRequested: () => seoRuntime.wake(),
     onResearchRunRequested: dispatchResearchRun,
     // Read issued search queries (fan-out) back out of a stored probe payload.
     // Discovery is Gemini-only today, so the Gemini extractor handles every
@@ -2968,14 +3562,7 @@ export async function createServer(opts: {
     onSiteAuditRequested: (
       runId: string,
       projectId: string,
-      auditOpts?: {
-        sitemapUrl?: string;
-        limit?: number;
-        maxPages?: number;
-        maxEdges?: number;
-        maxDepth?: number;
-        checkDeadLinks?: boolean;
-      },
+      auditOpts?: SiteAuditOptions,
     ) => {
       // The route already created the site-audit run row; run the shared worker.
       runSiteAudit(runId, projectId, auditOpts);
@@ -3004,7 +3591,7 @@ export async function createServer(opts: {
         return {
           release: entry.release,
           syncStatus: (sync?.status ??
-            null) as import("@ainyc/canonry-contracts").CcCachedRelease["syncStatus"],
+            null) as import("@canonry/canonry-contracts").CcCachedRelease["syncStatus"],
           bytes: entry.bytes,
           lastUsedAt: entry.lastUsedAt,
         };
@@ -3019,16 +3606,7 @@ export async function createServer(opts: {
     providerSummary,
     getProviderModels: providerModelCatalog,
     getCachedProviderModels: providerModelCatalog.cached,
-    providerAdapters: [...API_ADAPTERS, ...BROWSER_ADAPTERS].map((a) => ({
-      name: a.name,
-      displayName: a.displayName,
-      mode: a.mode,
-      modelConfigurable: a.mode === "api",
-      defaultModel: a.modelRegistry.defaultModel,
-      knownModels: a.modelRegistry.knownModels,
-      modelValidationPattern: a.modelRegistry.validationPattern,
-      modelValidationHint: a.modelRegistry.validationHint,
-    })),
+    providerAdapters: [...API_ADAPTERS, ...BROWSER_ADAPTERS].map(providerAdapterInfo),
     googleSettingsSummary,
     bingSettingsSummary,
     bingConnectionStore,
@@ -3059,7 +3637,7 @@ export async function createServer(opts: {
               opts.db,
               opts.config,
               projectId,
-              undefined,
+              coverageRefreshDeps,
               Date.now(),
               { userInitiated: runWasUserInitiated(opts.db, runId) },
             );
@@ -3076,32 +3654,15 @@ export async function createServer(opts: {
     wordpressTrafficCredentialStore,
     vercelTrafficCredentialStore,
     cloudflareTrafficCredentialStore,
+    journeyKeySecret: opts.journeyKeySecret,
     cloudflareTrafficIngestUrl: buildCloudflareIngestUrlTemplate(opts.config),
-    onTrafficSynced: (event) => {
-      // Emit anonymous canonry telemetry for every sync (success + fail).
-      // Same envelope shape as run.completed (top-level `errorCode` on
-      // failure, payload in `properties`). Counts are aggregate, sourceId
-      // is an opaque UUID — no PII surface.
-      trackEvent(
-        "traffic.synced",
-        {
-          status: event.status,
-          sourceType: event.sourceType,
-          sourceId: event.sourceId,
-          pulledEvents: event.pulledEvents,
-          selfTrafficExcluded: event.selfTrafficExcluded,
-          crawlerHits: event.crawlerHits,
-          aiReferralHits: event.aiReferralHits,
-          durationMs: event.durationMs,
-        },
-        event.errorCode ? { errorCode: event.errorCode } : undefined,
-      );
-    },
+    onTrafficSynced: trackTrafficSynced,
+    onTrafficIngested: trackTrafficIngested,
     onRunCreated: (
       runId: string,
       projectId: string,
       providers?: string[],
-      location?: import("@ainyc/canonry-contracts").LocationContext | null,
+      location?: import("@canonry/canonry-contracts").LocationContext | null,
     ) => {
       // Fire and forget — run executes in background
       jobRunner
@@ -3134,30 +3695,72 @@ export async function createServer(opts: {
       registry.getAll().map((provider) => provider.adapter.name),
     getEffectiveProviderModels: () => effectiveProviderModels(registry),
     getBatchEligibleProviderNames: () => batchEligibleProviderNames(registry),
+    onProviderReload: (input, auditContext) => {
+      if (input.configPath !== undefined && (
+        runtimePathIdentity(input.configPath) !== runtimeConfigIdentity
+        || runtimePathIdentity(input.databasePath!) !== runtimeDatabaseIdentity
+      )) {
+        throw validationError('Provider reload identity does not match this running server.', {
+          reason: ProviderReloadErrorReasons["install-identity-mismatch"],
+        });
+      }
+      // The same loader and registration path as startup: a config this
+      // server boots with also reloads, and one startup refuses is refused.
+      let loaded: CanonryConfig;
+      try {
+        loaded = loadConfig(runtimeConfigPath);
+      } catch {
+        // YAML parser errors can include the secret-bearing source line.
+        throw validationError('Provider configuration could not be loaded; repair config.yaml and retry.');
+      }
+      const next = configuredProviderEntries(loaded, API_ADAPTERS, cdpChatgptAdapter);
+      assertProviderReloadKeepsPendingBatches(opts.db, registry.getAll(), next, jobRunner.getExecutingBatchRegistrations());
+      const nextByName = new Map(next.map(provider => [provider.adapter.name, provider]));
+      const names = new Set([...registry.getAll().map(provider => provider.adapter.name), ...nextByName.keys()]);
+      opts.db.transaction(() => {
+        for (const name of names) recordProviderChange(name, registry.get(name), nextByName.get(name), auditContext);
+      });
+      registry.replace(next);
+      // Provider settings alone are reloadable. Listener/auth/database/session
+      // configuration remains the startup snapshot until an explicit restart.
+      opts.config.providers = loaded.providers ?? {};
+      opts.config.cdp = loaded.cdp;
+      opts.config.geminiApiKey = loaded.geminiApiKey;
+      opts.config.geminiModel = loaded.geminiModel;
+      opts.config.geminiQuota = loaded.geminiQuota;
+      providerSummary.splice(0, providerSummary.length, ...providerSummaries(registry, opts.config));
+      return providerSummaries(registry, opts.config, true);
+    },
     onProviderUpdate: (
       providerName: string,
       apiKey: string,
       model?: string,
       baseUrl?: string,
       incomingQuota?: Partial<
-        import("@ainyc/canonry-contracts").ProviderQuotaPolicy
+        import("@canonry/canonry-contracts").ProviderQuotaPolicy
       >,
       auditContext?,
     ) => {
       const name = providerName;
       if (!adapterMap[name]) return null;
+      const adapterDefaultQuota = adapterMap[name]!.defaultQuota ?? DEFAULT_QUOTA;
+      const answerService = adapterMap[name]!.kind === "answer-service";
 
       // Update config and persist
       if (!opts.config.providers) opts.config.providers = {};
       const existing = opts.config.providers[name];
-      const beforeConfig = summarizeProviderConfig(existing);
+      const previousProvider = registry.get(name) ?? (existing ? {
+        adapter: adapterMap[name]!,
+        config: providerConfigFromEntry(name, existing, resolveProviderQuotaPolicy(existing.quota, adapterDefaultQuota)),
+      } : undefined);
       const mergedQuota = incomingQuota
-        ? { ...(existing?.quota ?? DEFAULT_QUOTA), ...incomingQuota }
+        ? { ...(existing?.quota ?? adapterDefaultQuota), ...incomingQuota }
         : existing?.quota;
       opts.config.providers[name] = {
         apiKey: apiKey || existing?.apiKey,
-        baseUrl: baseUrl || existing?.baseUrl,
-        model: model || existing?.model,
+        // An answer service's endpoint is fixed and its routes pin profiles.
+        baseUrl: answerService ? undefined : baseUrl || existing?.baseUrl,
+        model: answerService ? undefined : model || existing?.model,
         quota: mergedQuota,
         // Preserve Vertex AI config (Gemini provider) — these are set via
         // config file or env vars, not through the dashboard update payload
@@ -3171,70 +3774,21 @@ export async function createServer(opts: {
       };
 
       try {
-        saveConfigPatch(opts.config);
+        persistConfigPatch(fs.existsSync(runtimeConfigPath)
+          ? { providers: { [name]: opts.config.providers[name]! } }
+          : opts.config);
       } catch (err) {
         app.log.error({ err }, "Failed to save config");
         return null;
       }
 
       // Re-register in the live registry (use preserved model if none was passed)
-      const quota = opts.config.providers[name]!.quota ?? DEFAULT_QUOTA;
+      const quota = resolveProviderQuotaPolicy(opts.config.providers[name]!.quota, adapterDefaultQuota);
       registry.register(adapterMap[name]!, providerConfigFromEntry(name, opts.config.providers[name]!, quota));
 
-      // Update the providerSummary array in-place
-      const entry = providerSummary.find((p) => p.name === name);
-      if (entry) {
-        entry.configured = true;
-        entry.model = registry.get(name)?.config.model;
-        entry.quota = quota;
-        if (name === "gemini") {
-          entry.vertexConfigured =
-            !!opts.config.providers?.[name]?.vertexProject;
-        }
-      }
-
-      const afterConfig = summarizeProviderConfig(opts.config.providers[name]);
-      if (JSON.stringify(beforeConfig) !== JSON.stringify(afterConfig)) {
-        const diff = JSON.stringify({
-          before: existing ? beforeConfig : null,
-          after: afterConfig,
-        });
-        const affectedProjectIds = opts.db
-          .select({ id: projects.id, providers: projects.providers })
-          .from(projects)
-          .all()
-          .filter((project) => {
-            const configuredProviders = project.providers;
-            return (
-              configuredProviders.length === 0 ||
-              configuredProviders.includes(name)
-            );
-          })
-          .map((project) => project.id);
-        const targetProjectIds =
-          affectedProjectIds.length > 0 ? affectedProjectIds : [null];
-        const createdAt = new Date().toISOString();
-
-        opts.db
-          .insert(auditLog)
-          .values(
-            targetProjectIds.map((projectId) => ({
-              id: crypto.randomUUID(),
-              projectId,
-              actor: auditContext?.actor ?? "api",
-              userAgent: auditContext?.userAgent ?? null,
-              actorSession: auditContext?.actorSession ?? null,
-              credentialId: auditContext?.credentialId ?? null,
-              requestId: auditContext?.requestId ?? null,
-              action: existing ? "provider.updated" : "provider.created",
-              entityType: "provider",
-              entityId: name,
-              diff,
-              createdAt,
-            })),
-          )
-          .run();
-      }
+      providerSummary.splice(0, providerSummary.length, ...providerSummaries(registry, opts.config));
+      const entry = providerSummary.find((provider) => provider.name === name);
+      opts.db.transaction(() => recordProviderChange(name, previousProvider, registry.get(name), auditContext));
 
       return {
         name,
@@ -3246,7 +3800,7 @@ export async function createServer(opts: {
     onGoogleSettingsUpdate: (clientId: string, clientSecret: string) => {
       try {
         setGoogleAuthConfig(opts.config, { clientId, clientSecret });
-        saveConfigPatch(opts.config);
+        persistConfigPatch(opts.config);
         googleSettingsSummary.configured = true;
         return { ...googleSettingsSummary };
       } catch (err) {
@@ -3258,7 +3812,7 @@ export async function createServer(opts: {
       try {
         if (!opts.config.bing) opts.config.bing = {};
         opts.config.bing.apiKey = apiKey;
-        saveConfigPatch(opts.config);
+        persistConfigPatch(opts.config);
         bingSettingsSummary.configured = true;
         return { ...bingSettingsSummary };
       } catch (err) {
@@ -3269,7 +3823,7 @@ export async function createServer(opts: {
     onScheduleUpdated: (
       action: "upsert" | "delete",
       projectId: string,
-      kind: import("@ainyc/canonry-contracts").SchedulableRunKind,
+      kind: import("@canonry/canonry-contracts").SchedulableRunKind,
     ) => {
       if (action === "upsert") scheduler.upsert(projectId, kind);
       if (action === "delete") scheduler.remove(projectId, kind);
@@ -3290,7 +3844,7 @@ export async function createServer(opts: {
       const removedGoogleAds = removeGoogleAdsConnection(opts.config, projectId);
       const removedGtm = removeGtmConnection(opts.config, projectId);
       if (removedGoogleAds || removedGtm) {
-        saveConfigPatch({
+        persistConfigPatch({
           googleAds: opts.config.googleAds,
           gtm: opts.config.gtm,
         });
@@ -3300,58 +3854,48 @@ export async function createServer(opts: {
       // Aliases feed `extractAnswerMentions` at run-time, but the resulting
       // boolean is frozen on `query_snapshots.answer_mentioned`. Rewrite
       // historical rows so the report + landscape dashboards line up with
-      // the new alias set on next refresh. Deferred to setImmediate so the
-      // PUT response goes out first; better-sqlite3 is sync so the actual
-      // backfill blocks the event loop for the duration of the rebuild.
-      setImmediate(() => {
-        try {
-          const result = backfillProjectAnswerMentions(opts.db, projectId);
-          app.log.info(
-            { projectId, projectName, ...result },
-            "aliases changed — recomputed mention fields on historical snapshots",
-          );
-        } catch (err) {
-          app.log.error(
-            { err, projectId, projectName },
-            "alias-triggered backfill failed",
-          );
-        }
-      });
+      // the new alias set on next refresh, through the same queue as every
+      // other recompute so it never interleaves with a competitor names pass.
+      requestAnswerFieldRecompute(projectId, projectName, { full: true }, "project-aliases");
     },
+    onCompetitorAliasesChanged: recomputeCompetitorFields,
+    onCompetitorAutoAliasRescan: (projectId: string) => {
+      scheduleCompetitorAutoAliases(projectId, "rescan");
+    },
+    competitorAnswerAnchors: extractStoredAnswerAnchors,
+    runCompetitorAutoAliasPass: (projectId: string) => competitorAutoAliases.request(projectId, "api"),
     operatorApiKeyIds,
     listOperationalLogs: (query) => operationalLogs.list(query),
     getTelemetryStatus,
-    setTelemetryEnabled: (enabled: boolean) => {
+    // The preference lives in the default config.yaml; a server running from
+    // any other config leaves it alone, and the route answers 501.
+    setTelemetryEnabled: ownsDefaultConfig ? (enabled, attribution) => {
       // Persists synchronously; an opt-out's `telemetry.disabled` event is
       // delivered in the background, since this process keeps running.
-      void setTelemetryPreference(enabled, "api");
+      void setTelemetryPreference(enabled, "api", outcomeAttribution(attribution));
       // Keep in-memory config in sync
       opts.config.telemetry = enabled;
-    },
-    recordOnboardingEvent: (event) => {
-      const { event: eventName, eventId, ...properties } = event;
-      trackEvent(eventName, properties, { source: "dashboard", eventId });
-    },
+    } : undefined,
+    recordOnboardingEvent: (event) => recordDashboardEvent(event),
+    // Answers false while telemetry is off or the per-process cap is spent, so
+    // the dashboard stops sending for the session.
+    recordUiEvent: createUiTelemetryGate(),
+    submitFeedback: (submission, context) => sendFeedback(submission, context),
     onCdpConfigure: async (host: string, port: number) => {
       if (!opts.config.cdp) opts.config.cdp = {};
       opts.config.cdp.host = host;
       opts.config.cdp.port = port;
       try {
-        saveConfigPatch(opts.config);
+        persistConfigPatch(opts.config);
       } catch (err) {
         app.log.error({ err }, "Failed to save CDP config");
         throw err;
       }
       // Re-register CDP adapter with the new endpoint
-      const CDP_DEFAULT_QUOTA = {
-        maxConcurrency: 1,
-        maxRequestsPerMinute: 4,
-        maxRequestsPerDay: 200,
-      };
       registry.register(cdpChatgptAdapter, {
         provider: "cdp:chatgpt",
         cdpEndpoint: `ws://${host}:${port}`,
-        quotaPolicy: opts.config.cdp.quota ?? CDP_DEFAULT_QUOTA,
+        quotaPolicy: resolveProviderQuotaPolicy(opts.config.cdp.quota, DEFAULT_CDP_QUOTA),
       });
     },
     getCdpStatus: async () => {
@@ -3397,6 +3941,9 @@ export async function createServer(opts: {
       const provider = registry.get(providerName);
       if (!provider)
         throw new Error(`Provider "${providerName}" is not configured`);
+      // Query generation is plain text generation, which answer services do not offer.
+      if (!canGenerateText(provider.adapter))
+        throw validationError(`${provider.adapter.displayName} cannot generate queries. Choose a provider that generates text.`);
 
       const siteText = await fetchSiteText(project.domain);
 
@@ -3430,6 +3977,7 @@ export async function createServer(opts: {
       projectTabsOverride?: string | string[],
       themeOverride?: string | string[],
       renderTokenOverride?: string | string[],
+      queryLimitOverride?: string | string[],
     ): string => {
       const clientConfig: Record<string, unknown> = {};
       if (basePath) clientConfig.basePath = basePath;
@@ -3442,8 +3990,14 @@ export async function createServer(opts: {
       if (!dashboardShowResourceLinks) {
         dashboardConfig.showResourceLinks = false;
       }
+      if (!dashboardShowLocalAgentSetup) {
+        dashboardConfig.showLocalAgentSetup = false;
+      }
       if (!dashboardShowUpdateNotification) {
         dashboardConfig.showUpdateNotification = false;
+      }
+      if (dashboardBrandMark === "icon") {
+        dashboardConfig.brandMark = "icon";
       }
       if (dashboardManagedRunKinds.length > 0) {
         dashboardConfig.managedRunKinds = dashboardManagedRunKinds;
@@ -3478,10 +4032,20 @@ export async function createServer(opts: {
       // X-Canonry-Embed-Tabs / X-Canonry-Embed-Theme headers the Embed v2 /e
       // proxy sets per dashboard. The proxy also sets X-Canonry-Embed-Render-Token
       // for the initial HTML so the SPA can call back through /e/api/v1 without
-      // seeing the engine key. The end client cannot reach this loopback engine
-      // to set any of these headers; absent headers keep the boot config.
+      // seeing the engine key, and X-Canonry-Embed-Query-Limit when the agency
+      // lets the dashboard's clients manage their own queries. The end client
+      // cannot reach this loopback engine to set any of these headers; absent
+      // headers keep the boot config.
       if (embed.enabled) {
-        const embedClient = embedClientConfigForRequest(embed, projectTabsOverride, themeOverride, renderTokenOverride);
+        const embedClient = embedClientConfigForRequest(
+          embed,
+          projectTabsOverride,
+          themeOverride,
+          renderTokenOverride,
+          queryLimitOverride,
+        );
+        const projectTabsError = embedProjectTabsError(embedClient?.projectTabs);
+        if (projectTabsError) throw validationError(projectTabsError);
         if (embedClient) clientConfig.embed = embedClient;
       }
 
@@ -3495,7 +4059,7 @@ export async function createServer(opts: {
       // deep-links like `/projects/ainyc` request `/projects/assets/…js`, hit the
       // SPA fallback, and receive HTML where the browser expects JS.
       const baseTag = `<base href="${basePath ?? "/"}">`;
-      return html
+      return (dashboardBrandMark === "icon" ? withIconMarkLinks(html) : html)
         .replace("<head>", `<head>${baseTag}`)
         .replace("</head>", `${configScript}</head>`);
     };
@@ -3517,6 +4081,7 @@ export async function createServer(opts: {
             reply.request.headers["x-canonry-embed-tabs"],
             reply.request.headers["x-canonry-embed-theme"],
             reply.request.headers["x-canonry-embed-render-token"],
+            reply.request.headers[EMBED_QUERY_LIMIT_HEADER],
           ),
         );
     };
@@ -3536,14 +4101,14 @@ export async function createServer(opts: {
       // Without this, the browser hits the server for every JS chunk on
       // every page load, defeating most of the dashboard's first-paint
       // budget.
-      setHeaders: (res: SetHeadersResponse, path: string) => {
+      setHeaders: (reply: FastifyReply, path: string) => {
         // index.html serving is handled separately below; this static
         // middleware doesn't actually serve it (index:false), but guard
         // anyway in case fastify-static falls back through here.
         if (path.endsWith(".html")) {
-          res.setHeader("Cache-Control", "no-cache, must-revalidate");
+          reply.header("Cache-Control", "no-cache, must-revalidate");
         } else {
-          res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+          reply.header("Cache-Control", "public, max-age=31536000, immutable");
         }
       },
     });
@@ -3668,13 +4233,14 @@ export async function createServer(opts: {
   // so resolve them once here; each is omitted, not nulled, when unknown.
   const buildCommit = resolveBuildCommit();
   const instance = resolveInstanceIdentity();
-  const healthHandler = () => {
-    const update = checkLatestVersionForServer();
+  const healthHandler = (request: FastifyRequest) => {
+    const storedOnly = request.headers[STORED_ONLY_HEADER] === '1' || request.headers[STORED_ONLY_HEADER] === 'true';
+    const update = checkLatestVersionForServer({ storedOnly });
     return {
       status: "ok",
       service: "canonry",
       version: PKG_VERSION,
-      mcp: mcpHttpHealth(app, apiPrefix),
+      mcp: getMcpHealth(),
       ...(buildCommit ? { commit: buildCommit } : {}),
       ...(instance ? { instance } : {}),
       ...(basePath ? { basePath: basePath.replace(/\/$/, "") } : {}),
@@ -3686,17 +4252,33 @@ export async function createServer(opts: {
   // only when the instance knows its own public origin, since every URL in the
   // metadata documents has to be absolute and externally reachable.
   if (publicOrigin) {
+    // The sign-in and consent pages borrow the dashboard's own Geist file, a
+    // content-hashed Vite asset the static handler serves; without a dashboard
+    // build they fall back to the system sans.
+    const dashboardAssets = path.join(assetsDir, "assets");
+    const gateFont = fs.existsSync(dashboardAssets)
+      ? fs.readdirSync(dashboardAssets).find((name) => /^geist-latin-wght-normal-[\w-]+\.woff2$/.test(name))
+      : undefined;
     registerOAuthRoutes(app, {
       db: opts.db,
       issuer: publicOrigin,
+      authorizationPath,
+      ...(gateFont ? { fontUrl: `${basePath ?? "/"}assets/${gateFont}` } : {}),
       resourcePaths: mcpTransportPaths().map((suffix) =>
         `${basePath ?? "/"}api/v1${suffix}`.replace("//", "/"),
       ),
-      resolveUser: (request) => {
+      resolveUser: (request, reply) => {
         const cookies = parseCookieHeader(request.headers.cookie);
         const token = cookies[USER_SESSION_COOKIE_NAME];
         if (!token) return null;
         const resolved = resolveUserSession(opts.db, token);
+        if (resolved?.renewedExpiresAt) {
+          reply.header("set-cookie", serializeUserSessionCookie({
+            value: token,
+            path: sessionCookiePath,
+            secure: cookieIsSecure(request, sessionCookieSecure ? true : undefined),
+          }));
+        }
         return resolved ? { id: resolved.user.id, name: resolved.user.name } : null;
       },
       credentials: credentialChecker,
@@ -3705,7 +4287,7 @@ export async function createServer(opts: {
         return serializeUserSessionCookie({
           value: token,
           path: basePath ?? "/",
-          secure: opts.config.publicUrl?.startsWith("https://") ?? false,
+          secure: sessionCookieSecure,
         });
       },
     });
@@ -3741,6 +4323,7 @@ export async function createServer(opts: {
   app.addHook("onListen", () => {
     if (runtimeStartupSettled) return;
     try {
+      seoRuntime.start();
       scheduler.start();
       stopSiteLiveness = startSiteLivenessLoop({
         db: opts.db,
@@ -3754,9 +4337,21 @@ export async function createServer(opts: {
         },
         notify: (projectId, result) => notifier.onSiteLivenessChecked(projectId, result),
       });
+      // Review alerts whose send failed retry on their own schedule, not only
+      // when the next GBP sync dispatches alerts.
+      stopReviewDeliveries = startReviewDeliveryLoop(() => notifier.drainDueReviewDeliveries());
       // Resumes every batch a previous process left outstanding, and finalizes
       // the runs boot recovery handed to it.
       stopProviderBatchPoller = startProviderBatchPoller({ db: opts.db, registry, runner: jobRunner });
+      // Daily `install.state`; an embedded read-only render reports nothing.
+      if (!embed.enabled) {
+        stopInstallState = startInstallStateTelemetry({
+          db: opts.db,
+          config: opts.config,
+          agentEnabled,
+          isBacklinksInstalled: () => isDuckdbInstalled(),
+        });
+      }
 
       // A request can commit its queued row just before a process exits,
       // leaving no in-memory callback to claim it. Re-dispatch every queued
@@ -3764,7 +4359,7 @@ export async function createServer(opts: {
       // running compare-and-set keeps this safe when a concurrent retry also
       // asks for execution.
       for (const run of opts.db.select({ id: researchRuns.id, projectId: researchRuns.projectId }).from(researchRuns).where(eq(researchRuns.status, ResearchRunStatuses.queued)).all()) {
-        dispatchResearchRun(run.id, run.projectId);
+        dispatchResearchRun(run.id, run.projectId, OutcomeTriggers.startup);
       }
       runtimeStartupSettled = true;
       resolveRuntimeStartup();
@@ -3783,8 +4378,12 @@ export async function createServer(opts: {
     stopLogCapture();
     stopSiteLiveness?.();
     stopSiteLiveness = null;
+    stopReviewDeliveries?.();
+    stopReviewDeliveries = null;
     stopProviderBatchPoller?.();
     stopProviderBatchPoller = null;
+    stopInstallState?.();
+    stopInstallState = null;
     scheduler.stop();
   });
 

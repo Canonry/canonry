@@ -3,10 +3,11 @@ import os from 'node:os'
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { createClient, migrate, apiKeys } from '@ainyc/canonry-db'
+import { createClient, migrate, apiKeys } from '@canonry/canonry-db'
 import { createServer } from '../src/server.js'
 import { ApiClient } from '../src/client.js'
-import type { BrandMetricsDto, SourceBreakdownDto } from '@ainyc/canonry-contracts'
+import type { BrandMetricsDto, SourceBreakdownDto } from '@canonry/canonry-contracts'
+import { formatCalendarDay as day } from '@canonry/canonry-contracts'
 
 function captureOutput(fn: () => Promise<void>): Promise<{ stdout: string; stderr: string }> {
   const logs: string[] = []
@@ -144,6 +145,23 @@ describe('analytics command', () => {
       process.env.CANONRY_CONFIG_DIR = origConfigDir
     }
     if (tmpDir) fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('sends --query-class through to the server and names the class in the header', async () => {
+    const { showAnalytics } = await import('../src/commands/analytics.js')
+    const json = await captureOutput(() => showAnalytics('test-proj', { feature: 'metrics', queryClass: 'non-brand', format: 'json' }))
+    expect(JSON.parse(json.stdout).metrics.queryClass).toBe('non-brand')
+    const text = await captureOutput(() => showAnalytics('test-proj', { feature: 'metrics', queryClass: 'branded' }))
+    expect(text.stdout).toContain('Citation Rate Trends (all, branded queries)')
+    const pooled = await captureOutput(() => showAnalytics('test-proj', { feature: 'metrics' }))
+    expect(pooled.stdout).toContain('Citation Rate Trends (all, branded + non-brand queries)')
+  })
+
+  it('rejects an unknown --query-class before calling the server', async () => {
+    const { parseAnalyticsQueryClass } = await import('../src/commands/analytics.js')
+    expect(parseAnalyticsQueryClass(undefined)).toBeUndefined()
+    expect(parseAnalyticsQueryClass('non-brand')).toBe('non-brand')
+    expect(() => parseAnalyticsQueryClass('brand')).toThrow(/--query-class must be one of all, branded, non-brand/)
   })
 
   it('prints metrics section for empty project', async () => {
@@ -295,7 +313,7 @@ describe('analytics command', () => {
       expect(stdout).toContain('We did not look far enough back to be sure this is every change.')
       // The served lane, in plain language.
       expect(stdout).toContain('What the Engines Answered With:')
-      expect(stdout).toContain('openai: gpt-5.6-sol at 2026-07-15T12:00:00.000Z — not the known gpt-5.6 you selected')
+      expect(stdout).toContain('openai: gpt-5.6-sol at 2026-07-15T12:00:00.000Z (not the known gpt-5.6 you selected)')
     } finally {
       metricsSpy.mockRestore()
     }
@@ -309,7 +327,7 @@ describe('analytics command', () => {
       const { stdout } = await captureOutput(() => showAnalytics('test-proj', { feature: 'metrics' }))
       const note = stdout.split('\n').find(line => line.includes('The model behind'))!
       expect(note.trim()).toBe(
-        'The model behind ChatGPT was updated on 2026-06-24, inside this period. '
+        `The model behind ChatGPT was updated on ${day('2026-06-24')}, inside this period. `
         + `Some of the movement in these numbers may come from this update ${CLOSING_LINE}`,
       )
       // "chat-latest" is an internal model id. An agency owner reads engines.
@@ -331,8 +349,8 @@ describe('analytics command', () => {
       const { stdout } = await captureOutput(() => showAnalytics('test-proj', { feature: 'metrics' }))
       const note = stdout.split('\n').find(line => line.includes('The model behind'))!
       expect(note.trim()).toBe(
-        'The model behind ChatGPT was updated on 2026-06-24, inside this period. '
-        + 'The model behind Perplexity was updated on 2026-06-10, inside this period. '
+        `The model behind ChatGPT was updated on ${day('2026-06-24')}, inside this period. `
+        + `The model behind Perplexity was updated on ${day('2026-06-10')}, inside this period. `
         + `Some of the movement in these numbers may come from these updates ${CLOSING_LINE}`,
       )
       // Two engines are two facts and ONE warning; repeating the consequence
@@ -352,7 +370,7 @@ describe('analytics command', () => {
       const { stdout } = await captureOutput(() => showAnalytics('test-proj', { feature: 'metrics' }))
       const note = stdout.split('\n').find(line => line.includes('The model behind'))!
       expect(note.trim()).toBe(
-        'The model behind ChatGPT may have been updated on 2026-05-28, inside this period, though that is not confirmed. '
+        `The model behind ChatGPT may have been updated on ${day('2026-05-28')}, inside this period, though that is not confirmed. `
         + `If so, some of the movement in these numbers may come from this update ${CLOSING_LINE}`,
       )
       expect(note).not.toContain('was updated')
@@ -394,7 +412,7 @@ describe('analytics command', () => {
     try {
       const { showAnalytics } = await import('../src/commands/analytics.js')
       const { stdout } = await captureOutput(() => showAnalytics('test-proj', { feature: 'metrics' }))
-      expect(stdout).toContain('We last checked for model updates on 2026-07-20.')
+      expect(stdout).toContain(`We last checked for model updates on ${day('2026-07-20')}.`)
     } finally {
       metricsSpy.mockRestore()
     }
@@ -410,7 +428,7 @@ describe('analytics command', () => {
       const { stdout } = await captureOutput(() => showAnalytics('test-proj', { feature: 'metrics' }))
       // Finding one update must never imply we found all of them.
       expect(stdout).toContain(
-        'We last checked for model updates on 2026-07-20, and this period runs past that date,'
+        `We last checked for model updates on ${day('2026-07-20')}, and this period runs past that date,`
         + ' so there may be later updates we do not know about.',
       )
     } finally {

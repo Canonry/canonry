@@ -1,4 +1,4 @@
-import { missingDependency } from '@ainyc/canonry-contracts'
+import { missingDependency } from '@canonry/canonry-contracts'
 import fs from 'node:fs'
 import { createRequire } from 'node:module'
 import path from 'node:path'
@@ -34,10 +34,13 @@ export function loadDuckdb(opts: PluginResolverOptions = {}): unknown {
     // walk-up happens to find (e.g. a devDependency in a parent node_modules).
     const pluginRequire = createRequire(duckdbPkg)
     return pluginRequire('@duckdb/node-api')
-  } catch {
+  } catch (err) {
+    // Keep the loader's reason: a missing native binding, a build for another
+    // platform and a Node ABI mismatch each need a different fix.
+    const cause = (err instanceof Error ? err.message : String(err)).split('\n')[0]!.slice(0, 300)
     throw missingDependency(
-      '@duckdb/node-api is installed but failed to load. Re-run `canonry backlinks install`.',
-      { pluginDir },
+      `@duckdb/node-api is installed but failed to load (${cause}). Re-run \`canonry backlinks install\`.`,
+      { pluginDir, cause },
     )
   }
 }

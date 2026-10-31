@@ -1,5 +1,7 @@
 # Aero (built-in agent)
 
+The SEO view context resolves its selected profile through the public stored overview. Keep provider estimates separate from observed Search Console and AI citation/mention evidence. Profile writes, paid refresh/cancel and private operator receipt tools are excluded from Aero.
+
 Canonry ships a built-in AI agent called **Aero**, built on
 [`@earendil-works/pi-agent-core`](https://github.com/earendil-works/pi). Users
 who already have their own agent (Claude Code, Codex, custom) can still
@@ -9,13 +11,14 @@ consume Canonry through the external-agent webhook.
 
 - **CLI**: `canonry agent ask <project> "<prompt>"` — one-shot turn. Streams
   `AgentEvent` lines to stdout (or JSON with `--format json`). Supports
-  `--provider claude|openai|gemini|zai|deepinfra` and `--model <id>`. `zai` and
-  `deepinfra` are agent-only; `deepinfra` is an OpenAI-compatible host outside
-  pi-ai's catalog (`agent/providers.ts` builds a custom `openai-completions`
-  model against `https://api.deepinfra.com/v1/openai`; key from `DEEPINFRA_TOKEN` or `providers.deepinfra.apiKey`,
-  base URL overridable via `DEEPINFRA_BASE_URL` for proxy/LiteLLM-gateway routing).
-  The agent tier is `deepseek-ai/DeepSeek-V4-Flash`; analyze and classify stay on
-  `zai-org/GLM-5.2` (see "Model tiers and upgrades").
+  `--provider claude|openai|gemini|zai|openrouter` and `--model <id>`. `zai` is
+  agent-only. Every provider resolves its models from pi-ai's catalog (for
+  OpenRouter, a live one: see "Model tiers and upgrades") and
+  authenticates with that vendor's own key (a proxied deployment can route
+  Gemini through `GEMINI_BASE_URL` or Z.ai through `ZAI_BASE_URL`). The `deepinfra` provider was removed:
+  config load and `--provider` reject it as removed (not unknown), and stored
+  sessions it answered resume on the current provider (see "Model tiers and
+  upgrades").
 - **Dashboard**: bottom command bar (`AeroBar`) on every project-scoped
   route. SSE-streamed via `POST /api/v1/projects/:name/agent/prompt`.
 - **Proactive**: `RunCoordinator` enqueues a synthesized `[system]` follow-up
@@ -55,6 +58,14 @@ consume Canonry through the external-agent webhook.
   its `<memory>` block. Splits are snapped to user-message boundaries to
   avoid orphaning tool calls from their results. Concurrent compaction
   runs for the same project dedupe via an in-flight promise map.
+  Summary trimming preserves complete UTF-8 characters within the 2 KB storage
+  cap. Test compaction through a registered provider and the real session/SQLite
+  flow, with exact prefix, tail and summary expectations, complete and partial
+  multi-byte boundaries, and a provider-failure control that retains the transcript.
+  Pin trigger edges independently at 399/400 non-system messages and
+  59,999/60,000 estimated tokens. Test safe splits and provider errors through
+  `compactMessages` with a registered provider; keep splitting and summarization
+  helpers private.
 
 ## Current view and bounded execution
 
@@ -73,8 +84,27 @@ calculating metrics, preserves class denominators and missing states, and links
 the selected evidence. Do not persist context into the system-prompt snapshot.
 
 Default execution limits are 30 tool calls / 180 seconds; hard maxima are 100 /
-600 seconds. Count attempted calls, including invalid ones. Abort stops future
-calls; dispatched work may settle. SSE emits `aero_turn_status`; CLI and UI treat
+600 seconds. Count attempted calls, including invalid ones. Tool and research-time limits get
+one final model request with all tools removed. Reserve up to 15 seconds (10%
+of the deadline, at least 250 ms) for that answer; the total deadline still
+stops the turn with an explicit partial-answer fallback. Provider failure during
+wrap-up reports error even with that fallback; a user abort reports stopped.
+Abort stops future calls; dispatched work may settle. Identical
+local stored-read calls reuse the earlier result within one turn; live provider
+reads, run/progress polling (including project overview and measurement data quality),
+failures and external tools do not, and any other tool invalidates
+the memo. Intact native stored-read pages expose short, turn-specific cursor
+references in model-facing JSON only. Resolve them to the exact API token for
+the same tool and original filters. Omitted filters inherit the issuing call;
+explicit filters must match after schema defaults. Only limit/queryLimit/attemptLimit
+may change. Inherit required scope before model-call argument validation.
+Bound the references by the turn call budget and clear them on reset/end. Raw
+API details, CLI/MCP cursors, external tools and cap-cut next cursors stay intact.
+Supply UTC turn-start time after the static system prefix for each model request;
+use its date/year for relative or omitted-year periods unless the user names a year.
+Keep stored run/scan dates authoritative. The clock stays fixed within one turn,
+refreshes on the next and never enters the persisted transcript.
+SSE emits `aero_turn_status`; CLI and UI treat
 missing `stream_close` as failure. Observe socket closure during acquisition too.
 Transcript reads expose `isStreaming` so polling cannot erase live partial text.
 Tool results persist small labels/durations, not full `details` payloads.
@@ -83,7 +113,7 @@ Tool surface:
 
 - **Canonry state** (`src/agent/tools.ts` → `mcp-to-agent-tool.ts`) — every
   tool from `src/mcp/tool-registry.ts` minus the `AERO_EXCLUDED_MCP_TOOLS`
-  set, adapted into pi-agent-core `AgentTool`s. When the install manages
+  set and connection-only tools, adapted into pi-agent-core `AgentTool`s. When the install manages
   answer-visibility sweeps (`SessionRegistry` `managedSweeps`, set by
   `server.ts`), every scope and profile also withholds
   `AERO_MANAGED_SWEEP_MCP_TOOLS` (run trigger and fill, schedule set and
@@ -99,7 +129,9 @@ Tool surface:
   Ride in every scope. `SKILL.md` stays lightweight; detailed playbooks
   (workflows, regression diagnosis, reporting templates, integrations) load
   on-demand via slug. `portfolio-analysis` and `site-health` cover Simple and
-  Advanced interpretation. `agent-operations` is generated from
+  Advanced interpretation. `seo-analysis` owns provider-neutral keyword and
+  ranking prioritization from stored evidence; its source is
+  `skills/aero/references/seo-analysis.md`. `agent-operations` is generated from
   `docs/agent-operations/v1.md` by `pnpm guide:sync` and ships through the same
   skill-doc reader; built-in Aero does not expose external MCP help/load tools.
   The Aero-only framing is a preface added by the generator, not guide text, so
@@ -131,8 +163,12 @@ config/env. This is a generic capability, no host names, no domain logic.
 
 - **Frozen transport (the contract a remote MCP server must speak):**
   **token-gated MCP Streamable HTTP**, `StreamableHTTPClientTransport` from
-  `@modelcontextprotocol/sdk/client/streamableHttp.js`, with the bearer token
+  `@modelcontextprotocol/client`, with the bearer token
   carried in the transport's request headers (`Authorization: Bearer <token>`).
+  The client probes the modern protocol and falls back to legacy initialization
+  only for SDK-classified legacy responses. Authentication refusals, HTTP 5xx,
+  network failures, HTTP timeouts and unreadable replies fail closed; they must
+  never trigger a blind legacy retry.
   SSE is legacy and is NOT used. The remote server is platform/external code,
   never co-located in the OSS container; the injected env carries only
   `{ url, token, label? }` and Aero connects out. Per-tenant isolation is the
@@ -177,8 +213,14 @@ guard blind-sliced the serialized JSON, which could split an array element
 halfway (invalid JSON) and silently drop a cited evidence row mid-object. Now:
 an object whose largest field is an array drops WHOLE trailing rows and stamps
 `__truncated` + `__omittedRows`; a top-level array is wrapped as `{ items,
-__truncated, __omittedRows }`; only a giant scalar with nothing structured to
-drop falls back to a marked string slice. Every retained row stays byte-intact;
+__truncated, __omittedRows }`; fields without room are omitted explicitly
+in a bounded JSON projection. Oversized standalone
+strings and object string fields retain marked partial prefixes under
+`__truncation.slicedKeys` with exact kept/total character counts; never treat these
+as complete quotations. Array rows stay whole, except a remote result's
+row that no whole-row cut can show (below). Bounded display paths and a separate
+metadata budget prevent long map keys from erasing retained totals and rollups.
+Every retained whole row stays byte-intact;
 the programmatic `details` envelope is never trimmed, only the model-facing
 text.
 
@@ -199,8 +241,32 @@ a list whose owner carries a page cursor (`nextCursor`, `nextOffset`,
 `__truncation.cursors` says it skips the cut rows and what `limit` to re-request
 with. Lists the TOOL itself returned partially (its own total above the rows,
 or `truncated: true`) are named under `__partialLists`, always the FIRST key,
-whether or not the cap cut anything; a result with nothing partial serializes
-byte-identical to plain compact JSON.
+whether or not the cap cut anything. A bare `total` at the result root counts
+its one uncounted list, the page of an offset-paged read (`{snapshots, total}`,
+`{project, runId, total, pages}`). Below the root, a bare parent `total` is a
+list total only with collection evidence: a cursor, explicit truncation flag, or conventional
+`items`/`rows`/`results` key. Named list totals remain authoritative; a page
+population total never implies that complete aggregate reason buckets are partial.
+Intact pages carry a `__pagination` note
+with the shown count, population and next cursor. Portfolio `pageList` owns the
+root cursor for exactly its selected list, including nested mention rankings or
+answer evidence; sibling summaries can disclose partial counts but never claim
+that continuation. Cap-cut pages are marked
+incomplete and must be re-requested from the original cursor with a smaller
+limit. A result with no partial list or next cursor serializes byte-identical
+to plain compact JSON. Remote tool results use the same structured truncation
+while preserving the complete programmatic envelope. Multi-block protocol content
+is keyed only in model-facing output so long text blocks can retain marked
+prefixes without splitting native structured evidence rows. When a whole-row
+cut would drop a remote row it can never show (a fetched document alone over the
+cap, or a first row with no room left for it whole),
+`truncateToolResult(shown, { partialRows: true })` shows that row in part and
+names its cut fields under `slicedKeys` and `droppedKeys` (`results[0].markdown`).
+The choice is made per list, so `images`, `warnings` or whole rows before the
+document do not keep it out; smaller siblings are shown first and the document
+gets the remaining room. `__partialLists` and `__pagination` stay the first keys,
+and an owner whose list lost rows carries `__truncated`, so its cursor reads as
+incomplete. Native results never get partial rows.
 
 A misspelled tool name is corrected before pi prepares the call: the
 `agent.streamFunction` wrapper (`runtime.ts`) renames a tool call to the one VISIBLE
@@ -309,17 +375,70 @@ self-starting), and `disabled` (off entirely).
 
 `PROVIDER_MODELS` maps each provider to an agent, analyze and classify model, and
 `AGENT_PROVIDERS[x].defaultModel` derives from the agent tier
-(`validateAgentProviderRegistry` throws if they desync). DeepInfra splits by tier:
-`deepseek-ai/DeepSeek-V4-Flash` drives the agent loop, while analyze and classify
-stay on `zai-org/GLM-5.2`, because those tiers suppress the reasoning trace
-through GLM's chat-template switch and that branch applies only to a model
-declared `reasoning: true`.
+(`validateAgentProviderRegistry` throws if they desync). Every provider resolves
+models from pi-ai's catalog. Each provider uses its newest low-cost model for all
+three tiers (`claude-haiku-5-5`, `gpt-6-luna`, `gemini-3.5-flash-lite`,
+`glm-5.3-flash`, `openai/gpt-6-luna`).
 
-A session persists its model id as provenance. Migration 158 moves existing
-DeepInfra GLM-5.2 sessions to DeepSeek-V4-Flash once, without changing their
-transcript, queue, or activity timestamp. Future default-model upgrades use a
-new versioned migration rather than repeatedly replacing stored models during
-hydration.
+`AGENT_MODEL_CHOICES` is the short list the Aero picker offers per provider: the
+default first, then one to three stronger current models. `/agent/providers`
+serves it as `models` on every provider (a pinned `agent.model` outside the list
+is listed first); the picker adds an "Other model ID" box for anything else.
+Validation requires every listed ID to be in pi-ai's bundled catalog. Keeping
+defaults current is a code change: when bumping pi-ai, revisit `PROVIDER_MODELS`
+and `AGENT_MODEL_CHOICES` together. Nothing switches a conversation's model on
+its own: a conversation keeps the model it started with, and a new default
+reaches new conversations only.
+
+OpenRouter's entry in that catalog is live. `openrouter-models.ts` replaces pi's
+fixed OpenRouter provider (`MutableModels.setProvider`) with one that keeps pi's
+auth, stream, image and classifier transports and its bundled models, and adds
+each model from Canonry's shared OpenRouter catalog (`provider-model-catalog.ts`,
+the one sweeps use: one fetch, one hour) that the bundled list lacks, as an
+`openai-completions` model at pi's OpenRouter base URL with the catalog's limits,
+prices, modalities and reasoning flag (captured by `provider-openrouter`'s
+`listModels`). A live-only reasoning model maps thinking `off` to null, as pi's
+bundled reasoning models do, so a turn with thinking off sends no `reasoning`
+field and OpenRouter applies the model default (without the map, pi sends
+`effort: "none"`). Bundled models keep pi's own map. The list changes only
+through pi's `refreshModels`/`publish`. `server.ts` connects the catalog, read
+with the key Aero uses: the registered sweep connection, or an
+`OPENROUTER_API_KEY`-only key through `providerModelCatalog.orUnregistered` (same
+cache entry; sweeps and `GET /settings` still see no OpenRouter provider). With
+no catalog connected, or while it cannot be read, the bundled list stands.
+`refreshAgentModels(provider)` runs before a model is resolved (operator and
+viewer turns, the analyze tier, discovery classification, doctor's
+`describeAgentPin`) and reads the cache unless it expired, so a turn
+never adds a fetch. Validation never rejects a well-formed OpenRouter ID for
+missing from the bundled list (`validateAgentProviderRegistry`,
+`isAgentModelAccepted` for `classification.model`). `isAgentModelUnchecked`
+names the case where no live list is loaded: doctor does not report such a pin
+as invalid, and `resolveTurnModel` keeps such a stored model without rewriting
+the row, so the turn fails naming the model instead of moving the conversation
+to the default. That carry needs an OpenRouter key: with none, the list can
+never load, so the turn takes the default and fails with the missing-key error.
+The OpenRouter default
+(`openai/gpt-6-luna` for every tier) must stay in pi-ai's bundled list so it
+resolves offline.
+
+OpenRouter uses `providers.openrouter.apiKey` or `OPENROUTER_API_KEY` for Aero,
+domain categorization and routed Jev. Aero defaults to the provider's agent tier;
+`agent.model` never inherits the model selected for visibility sweeps.
+`aeroStreamFn` retains the shared OpenRouter connection slot until the stream's
+terminal result. `completeOnce` shares that gate across model routes; canceled
+queued calls are removed before dispatch. Other providers retain their transport.
+Discovery's independent `classification.provider` / `classification.model` selects
+the generative classify tier. Sentiment has its own pinned decision evaluator and
+does not use the generative classify tier. See `docs/sentiment.md`.
+
+A session persists its provider and model id as provenance. Future
+default-model upgrades use a new versioned migration rather than repeatedly
+replacing stored models during hydration. A stored provider Canonry no longer
+ships (rows written by the removed `deepinfra` provider) keeps its transcript
+and resumes on the pinned or auto-detected provider. With no key to detect, the
+turn fails with the fresh-install message, proactive wakes are refused rather
+than queued, and the row keeps its provider and model, so the first key added
+later is the one it resumes on.
 
 `agent.provider` / `agent.model` in config.yaml pin the model Aero reasons with.
 `SessionRegistry.resolveTurnModel` picks the model for every turn and every
@@ -335,6 +454,18 @@ refused before it starts, with an error naming `agent.provider`, and doctor's
 `agent.model`. The dashboard never saves a conversation's stored provider as its
 own choice, because an explicit provider outranks the pin.
 
+`agent.reasoning` sets how hard Aero asks the model to reason on every turn
+(`off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`).
+`createAeroSession` passes `resolveAgentReasoning` (`src/agent-config.ts`) to
+pi-agent-core as `thinkingLevel`: `CANONRY_AGENT_REASONING`, then the config,
+then `defaultAgentReasoning` in `providers.ts`: `PROVIDER_DEFAULT_REASONING`
+(`low` for OpenAI, `off` elsewhere), and for an OpenRouter model its direct
+provider's level by vendor prefix (`openai/` runs at `low`). pi-ai clamps a
+level the model does not support. Change a provider's default only after
+measuring it on the analyst eval: pi-agent-core
+defaults to `off`, and at `off` GPT-6 Luna answered far fewer eval turns
+correctly and used about twice the tool calls.
+
 ## External agents (webhook lifecycle)
 
 `canonry agent attach <project> --url <webhook-url>` registers an agent
@@ -349,13 +480,13 @@ Aero's rules live in `src/agent/AGENTS.md` (see "Agent layer (Aero)" below). The
 - `src/agent-config.ts` — `resolveAgentEnabled(env, config)`, the Aero kill-switch, plus `resolveAgentProactiveEnabled(env, config)`, the prompt-only switch (`agent.mode: 'prompt-only'` / `CANONRY_AGENT_PROMPT_ONLY`) which keeps every interactive surface and removes only the self-wake. Resolves whether the built-in agent runs from `CANONRY_AGENT_DISABLED` env layered over `agent.mode: 'disabled'` in `config.yaml` (env over config; `=1`/`true` off, `=0`/`false` force on). `server.ts` reads it once at boot and guards the three Aero wiring points: the `SessionRegistry`, the proactive run-completion wake, and the interactive agent routes. Does not touch data syncs / intelligence / notifications.
 - `src/agent/session-registry.ts` — hybrid session registry — in-memory `Map<project, Agent>` + durable `agent_sessions` row per project. Handles hydration, persistence, follow-up queueing, post-`agent_end` auto-drain, and the `<memory>` hydrate block appended to every new session's system prompt. `acquireForTurn` is async and awaits transcript compaction before returning.
 - `src/agent/memory-store.ts` — CRUD helpers for `agent_memory`: `listMemoryEntries`, `upsertMemoryEntry`, `deleteMemoryEntry`, `loadRecentForHydrate`, `writeCompactionNote`. Enforces the 2 KB value cap and the `compaction:` reserved-prefix rule.
-- `src/agent/compaction.ts` — transcript compaction — `shouldCompact`, `findSafeSplit` (snaps to user-message boundaries), `runSummaryLlm` (one-shot pi-ai `complete()` call), and `compactMessages` which persists the summary as a `compaction:` memory row and returns the kept suffix. `src/agent/compaction-config.ts` holds the tuning constants for compaction — token threshold, target ratio, preserved-tail size, max-messages hard cap.
+- `src/agent/compaction.ts` — transcript compaction — `shouldCompact` and `compactMessages`, which persists the summary as a `compaction:` memory row and returns the kept suffix. Private helpers snap to user-message boundaries and summarize through pi-ai. `src/agent/compaction-config.ts` holds the tuning constants for compaction — token threshold, target ratio, preserved-tail size, max-messages hard cap.
 - `src/agent/token-counter.ts` — `estimateMessageTokens` / `estimateTranscriptTokens`: chars/4 heuristic handling user/assistant/toolResult content shapes. Used only to decide when to compact, not to enforce provider limits.
 - `src/agent/tools.ts` — thin wrapper around `mcp-to-agent-tool.ts`: `buildReadTools(ctx)` and `buildAllTools(ctx)` delegate to `buildMcpAgentTools(canonryMcpTools, ctx)`. Adding a new tool to `mcp/tool-registry.ts` automatically exposes it to Aero — no separate registration in this file.
 - `src/agent/mcp-to-agent-tool.ts` — adapter that converts every `CanonryMcpTool` into a pi-agent-core `AgentTool`. Strips `project` from the LLM-visible schema and injects `ctx.projectName` at call time. `AERO_EXCLUDED_MCP_TOOLS` lists tools that ride the registry but should not reach Aero (e.g. `canonry_agent_clear` — Aero must not erase the operator's transcript). `AERO_MANAGED_SWEEP_MCP_TOOLS` is withheld as well when `managedSweeps` is set, and on those installs `canonry_run_cancel` looks the run up and refuses answer-visibility sweeps.
 - `src/agent/tool-result-units.ts` — before truncation, renders every number a tool's OpenAPI response schema declares a ratio (`x-unit`) as `formatPercent` text, so Aero never reads a bare 0..1 value as a percent (a 0.0207 share once came out as "0.02%"). Only `content` changes; `details` keeps the raw value.
 - `src/agent/viewer-sessions.ts` — `ViewerAeroSessions`, the viewer lane behind `agent.allowViewers`. One in-memory conversation per (project, viewer), never the operator's `agent_sessions` row, memory or compaction. Each turn mints a read-only key delegated to the viewer (`mintViewerAeroKey`, revoked on release, orphans revoked at boot), so tool calls carry the viewer's authority rather than the root key. `buildViewerAeroTools` drops write tools, live paid reads (`AERO_VIEWER_EXCLUDED_MCP_TOOLS`), the `agent` tier and `requiresOperator` tools, and the managed-sweep set. Viewer turns load toolkits on demand like operator turns, with the tools the project shape names (`project-shape.ts`) pinned visible, and the operator's default turn limits. Loading a toolkit unloads the oldest others rather than exceed `MAX_VISIBLE_TOOLS` (128, a common provider function limit). The routes in `agent-routes.ts` serve a signed-in viewer from this lane only when it is constructed; every other caller still meets `requireInstanceAdministrator`.
-- `src/agent/remote-mcp.ts` — `loadExternalMcpTools(servers, opts)`, the injected remote-MCP load path. For each configured `{ url, token, label? }` it connects to a REMOTE MCP server over the FROZEN transport (bearer-gated MCP Streamable HTTP, `connectStreamableHttp`), `listTools()`, and adapts each tool into an `AgentTool` (mirroring `mcp-to-agent-tool.ts`). Read-only filter: a remote tool is adopted ONLY when `annotations.readOnlyHint === true` AND its name is not in the local `AERO_EXCLUDED_MCP_TOOLS` set. Fail-soft: a server that fails to connect/list is logged and skipped, never throwing the whole load; no servers configured returns `[]`. The transport is the contract a remote MCP server must speak (see "Injected remote-MCP load path" in `src/agent/AGENTS.md`).
+- `src/agent/remote-mcp.ts` — `loadExternalMcpTools(servers, opts)`, the injected remote-MCP load path. For each configured `{ url, token, label? }` it connects to a REMOTE MCP server over the FROZEN transport (bearer-gated MCP Streamable HTTP, `connectStreamableHttp`), `listTools()`, and adapts each tool into an `AgentTool` (mirroring `mcp-to-agent-tool.ts`). Read-only filter: a remote tool is adopted ONLY when `annotations.readOnlyHint === true` AND its name is not in the local `AERO_EXCLUDED_MCP_TOOLS` set. Fail-soft: a server that fails to connect/list is logged and skipped, never throwing the whole load; no servers configured returns `[]`. A remote call that comes back as a `CallToolResult` with `isError: true` (the MCP SDK returns a failed call rather than throwing) is returned as a failed `AgentToolResult`, so the model, `agent_tool_events` and the dashboard see an error; the content the model reads is unchanged. The transport is the contract a remote MCP server must speak (see "Injected remote-MCP load path" in `src/agent/AGENTS.md`).
 - `src/agent/skill-tools.ts` — 2 skill-doc tools (`list_skill_docs`, `read_skill_doc`): progressive disclosure of bundled reference playbooks. Ride in every scope.
 
 ## Key files
@@ -363,7 +494,8 @@ Aero's rules live in `src/agent/AGENTS.md` (see "Agent layer (Aero)" below). The
 - `packages/canonry/src/agent/runtime.ts` — progressive schemas and execution budgets
 - `packages/canonry/src/agent/view-context.ts` — authoritative view evidence
 - `packages/canonry/src/agent/session.ts` — `createAeroSession` (pi integration)
-- `packages/canonry/src/agent/pi-models.ts` — the one pi-ai model collection (`aeroModels`: built-in catalog plus the DeepInfra provider), the Agent's `aeroStreamFn`, and `completeOnce` for one-shot calls. Every request gets 2 retries (pi 0.76 made it 0), an output cap of min(model max, 32K) (streaming used that cap before pi 0.74; one-shot calls now get it too, where each API used to apply its own default), and a `canonry` User-Agent instead of pi's, which names the host OS and architecture.
+- `packages/canonry/src/agent/openrouter-models.ts`: the live OpenRouter provider installed into `aeroModels` (see "Model tiers and upgrades")
+- `packages/canonry/src/agent/pi-models.ts` — the one pi-ai model collection (`aeroModels`: the built-in catalog, with OpenRouter's provider replaced by `openRouterModels`), the Agent's `aeroStreamFn`, and `completeOnce` for one-shot calls. Every request gets 2 retries (pi 0.76 made it 0), an output cap of min(model max, 32K) (streaming used that cap before pi 0.74; one-shot calls now get it too, where each API used to apply its own default), and a `canonry` User-Agent instead of pi's, which names the host OS and architecture. The other SDK headers that name the host are removed per API (`HOST_HEADERS`): X-Stainless-OS, -Arch and -Runtime-Version are nulled on the Anthropic and OpenAI APIs (zai included), where a null drops the SDK default, and Gemini's `x-goog-api-client`, which carries the Node version, is overwritten with `canonry`, since pi drops a null header before @google/genai sees it. A caller's explicit header still wins. `test/agent-request-headers.test.ts` checks every provider's real catalog model against a local server.
 - `packages/canonry/src/agent/session-registry.ts` — hybrid in-memory + DB registry
 - `packages/canonry/src/agent/tools.ts` — thin wrapper that exposes the entire MCP tool registry to Aero via `mcp-to-agent-tool.ts`
 - `packages/canonry/src/agent/mcp-to-agent-tool.ts` — adapter; new MCP tools flow into Aero with no second registration
@@ -382,6 +514,7 @@ canonry agent memory set <project> --key <k> --value <v>    # upsert a note (2 K
 canonry agent memory forget <project> --key <k>      # delete a note
 ```
 
-All nine experimental `canonry_sentiment*` capabilities are excluded from native
-Aero through `AERO_EXCLUDED_MCP_TOOLS`. API, CLI and external MCP remain available;
-Aero interpretation and actions require their separate sentiment release gate.
+Aero exposes the seven stored sentiment read tools in administrator and viewer
+turns. `canonry_sentiment_configure` and `canonry_sentiment_backfill` stay excluded
+from native Aero because they can start paid classifier work; API, CLI and
+external MCP retain those operator actions.

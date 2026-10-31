@@ -1,5 +1,6 @@
 import crypto from 'node:crypto'
 import type {
+  WordpressAuditDto,
   WordpressAuditIssueDto,
   WordpressAuditPageDto,
   WordpressBulkMetaEntryResultDto,
@@ -7,6 +8,7 @@ import type {
   WordpressDiffDto,
   WordpressDiffPageDto,
   WordpressEnv,
+  WordpressLlmsTxtDto,
   WordpressManualAssistDto,
   WordpressPageDetailDto,
   WordpressPageSummaryDto,
@@ -17,9 +19,9 @@ import type {
   WordpressSchemaStatusResultDto,
   WordpressSeoStateDto,
   WordpressSiteStatusDto,
-} from '@ainyc/canonry-contracts'
-import { wordpressEnvSchema, describeError } from '@ainyc/canonry-contracts'
-import type { WordpressConnectionRecord, WordpressRestPage, WordpressSiteContext } from './types.js'
+} from '@canonry/canonry-contracts'
+import { wordpressEnvSchema, describeError, escapeRegExp } from '@canonry/canonry-contracts'
+import type { WordpressClientConnection, WordpressConnectionRecord, WordpressRestPage, WordpressSiteContext } from './types.js'
 import { WordpressApiError } from './types.js'
 import type { SchemaPageEntry, SchemaProfileFile } from './schema-templates.js'
 import { generateSchema, isSupportedSchemaType, parseSchemaPageEntry } from './schema-templates.js'
@@ -123,7 +125,7 @@ function buildAuthErrorMessage(res: Response, responseText: string): string {
 }
 
 async function fetchJson<T>(
-  connection: WordpressConnectionRecord,
+  connection: WordpressClientConnection,
   siteUrl: string,
   path: string,
   init?: RequestInit,
@@ -134,7 +136,7 @@ async function fetchJson<T>(
     // The credentials (Basic Auth) are being sent over plaintext.
   }
 
-  const res = await fetch(`${normalizeSiteUrl(siteUrl)}${path}`, {
+  const res = await (connection.fetchImpl ?? fetch)(`${normalizeSiteUrl(siteUrl)}${path}`, {
     ...init,
     headers: {
       'Authorization': `Basic ${encodeBasicAuth(connection.username, connection.appPassword)}`,
@@ -178,7 +180,7 @@ async function fetchJson<T>(
 }
 
 async function verifyAuthenticatedRestAccess(
-  connection: WordpressConnectionRecord,
+  connection: WordpressClientConnection,
   siteUrl: string,
 ): Promise<{ id: number; slug: string }> {
   const { body } = await fetchJson<{ id: number; slug: string }>(
@@ -190,7 +192,7 @@ async function verifyAuthenticatedRestAccess(
 }
 
 async function fetchPageCollectionSummary(
-  connection: WordpressConnectionRecord,
+  connection: WordpressClientConnection,
   siteUrl: string,
   options?: { context?: 'view' | 'edit' },
 ): Promise<Response> {
@@ -210,9 +212,9 @@ async function fetchPageCollectionSummary(
   return response
 }
 
-async function fetchText(url: string): Promise<string | null> {
+async function fetchText(connection: WordpressClientConnection, url: string): Promise<string | null> {
   try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(WP_FETCH_TEXT_TIMEOUT_MS) })
+    const res = await (connection.fetchImpl ?? fetch)(url, { signal: AbortSignal.timeout(WP_FETCH_TEXT_TIMEOUT_MS) })
     if (!res.ok) return null
     return await res.text()
   } catch {
@@ -402,13 +404,13 @@ export function getWpStagingAdminUrl(url: string): string {
 }
 
 export async function verifyWordpressConnection(
-  connection: WordpressConnectionRecord,
+  connection: WordpressClientConnection,
 ): Promise<WordpressSiteStatusDto> {
   const site = resolveEnvironment({ ...connection, defaultEnv: 'live' }, 'live')
   validateConnection(connection, site.siteUrl)
   const userInfo = await verifyAuthenticatedRestAccess(connection, site.siteUrl)
   const response = await fetchPageCollectionSummary(connection, site.siteUrl, { context: 'view' })
-  const homeHtml = await fetchText(site.siteUrl)
+  const homeHtml = await fetchText(connection, site.siteUrl)
   return {
     url: site.siteUrl,
     reachable: true,
@@ -420,7 +422,7 @@ export async function verifyWordpressConnection(
 }
 
 export async function getSiteStatus(
-  connection: WordpressConnectionRecord,
+  connection: WordpressClientConnection,
   env: WordpressEnv,
 ): Promise<WordpressSiteStatusDto> {
   const site = resolveEnvironment(connection, env)
@@ -428,7 +430,7 @@ export async function getSiteStatus(
   try {
     const userInfo = await verifyAuthenticatedRestAccess(connection, site.siteUrl)
     const response = await fetchPageCollectionSummary(connection, site.siteUrl, { context: 'view' })
-    const homeHtml = await fetchText(site.siteUrl)
+    const homeHtml = await fetchText(connection, site.siteUrl)
     const plugins = await listActivePlugins(connection, env)
     return {
       url: site.siteUrl,
@@ -452,7 +454,7 @@ export async function getSiteStatus(
 }
 
 export async function listActivePlugins(
-  connection: WordpressConnectionRecord,
+  connection: WordpressClientConnection,
   env: WordpressEnv,
 ): Promise<string[] | null> {
   const site = resolveEnvironment(connection, env)
@@ -485,7 +487,7 @@ export async function listActivePlugins(
 }
 
 export async function listPages(
-  connection: WordpressConnectionRecord,
+  connection: WordpressClientConnection,
   env?: WordpressEnv,
 ): Promise<WordpressPageSummaryDto[]> {
   const site = resolveEnvironment(connection, env)
@@ -516,7 +518,7 @@ export async function listPages(
 }
 
 export async function getPageBySlug(
-  connection: WordpressConnectionRecord,
+  connection: WordpressClientConnection,
   slug: string,
   env?: WordpressEnv,
 ): Promise<WordpressRestPage> {
@@ -544,13 +546,13 @@ export async function getPageBySlug(
   return body[0]!
 }
 
-async function fetchRenderedPage(link: string | undefined | null): Promise<string | null> {
+async function fetchRenderedPage(connection: WordpressClientConnection, link: string | undefined | null): Promise<string | null> {
   if (!link) return null
-  return fetchText(link)
+  return fetchText(connection, link)
 }
 
 export async function getPageDetail(
-  connection: WordpressConnectionRecord,
+  connection: WordpressClientConnection,
   slug: string,
   env?: WordpressEnv,
   plugins?: string[] | null,
@@ -560,7 +562,7 @@ export async function getPageDetail(
     ? await listActivePlugins(connection, site.env)
     : plugins
   const page = await getPageBySlug(connection, slug, site.env)
-  const html = await fetchRenderedPage(page.link)
+  const html = await fetchRenderedPage(connection, page.link)
   const schemaBlocks = html ? extractSchemaBlocks(html) : []
   const seo = buildSeoState(page, html, resolvedPlugins)
 
@@ -579,7 +581,7 @@ export async function getPageDetail(
 }
 
 export async function createPage(
-  connection: WordpressConnectionRecord,
+  connection: WordpressClientConnection,
   body: { title: string; slug: string; content: string; status?: string },
   env?: WordpressEnv,
 ): Promise<WordpressPageDetailDto> {
@@ -603,7 +605,7 @@ export async function createPage(
 }
 
 export async function updatePageBySlug(
-  connection: WordpressConnectionRecord,
+  connection: WordpressClientConnection,
   slug: string,
   body: { title?: string; slug?: string; content?: string; status?: string },
   env?: WordpressEnv,
@@ -631,7 +633,7 @@ function encodeNoindexValue(key: string, value: boolean): unknown {
 }
 
 export async function setSeoMeta(
-  connection: WordpressConnectionRecord,
+  connection: WordpressClientConnection,
   slug: string,
   body: { title?: string; description?: string; noindex?: boolean },
   env?: WordpressEnv,
@@ -678,7 +680,7 @@ export async function setSeoMeta(
 export type SeoWriteStrategy = { strategy: 'plugin' | 'manual'; plugins: string[] | null }
 
 export async function detectSeoWriteStrategy(
-  connection: WordpressConnectionRecord,
+  connection: WordpressClientConnection,
   env?: WordpressEnv,
 ): Promise<SeoWriteStrategy> {
   const site = resolveEnvironment(connection, env)
@@ -728,7 +730,7 @@ export interface BulkMetaEntry {
 }
 
 export async function bulkSetSeoMeta(
-  connection: WordpressConnectionRecord,
+  connection: WordpressClientConnection,
   entries: BulkMetaEntry[],
   env?: WordpressEnv,
 ): Promise<WordpressBulkMetaResultDto> {
@@ -831,10 +833,6 @@ export function stripCanonrySchema(content: string): string {
   return content.replace(regex, '').replace(/\n{3,}/g, '\n\n').trim()
 }
 
-function escapeRegExp(str: string): string {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
-
 export function injectCanonrySchema(content: string, schemas: Record<string, unknown>[]): string {
   if (schemas.length === 0) return content
   const blocks = schemas
@@ -846,7 +844,7 @@ export function injectCanonrySchema(content: string, schemas: Record<string, unk
 }
 
 async function verifySchemaInjection(
-  connection: WordpressConnectionRecord,
+  connection: WordpressClientConnection,
   slug: string,
   env: WordpressEnv,
 ): Promise<boolean> {
@@ -856,7 +854,7 @@ async function verifySchemaInjection(
 }
 
 export async function deploySchema(
-  connection: WordpressConnectionRecord,
+  connection: WordpressClientConnection,
   slug: string,
   schemas: Record<string, unknown>[],
   env?: WordpressEnv,
@@ -915,7 +913,7 @@ export async function deploySchema(
 }
 
 export async function deploySchemaFromProfile(
-  connection: WordpressConnectionRecord,
+  connection: WordpressClientConnection,
   profile: SchemaProfileFile,
   env?: WordpressEnv,
 ): Promise<WordpressSchemaDeployResultDto> {
@@ -948,7 +946,7 @@ export async function deploySchemaFromProfile(
 }
 
 export async function getSchemaStatus(
-  connection: WordpressConnectionRecord,
+  connection: WordpressClientConnection,
   env?: WordpressEnv,
 ): Promise<WordpressSchemaStatusResultDto> {
   const site = resolveEnvironment(connection, env)
@@ -1014,20 +1012,20 @@ export async function getSchemaStatus(
 }
 
 export async function getLlmsTxt(
-  connection: WordpressConnectionRecord,
+  connection: WordpressClientConnection,
   env?: WordpressEnv,
-): Promise<{ env: WordpressEnv; url: string; content: string | null }> {
+): Promise<WordpressLlmsTxtDto> {
   const site = resolveEnvironment(connection, env)
   const url = `${site.siteUrl}/llms.txt`
   return {
     env: site.env,
     url,
-    content: await fetchText(url),
+    content: await fetchText(connection, url),
   }
 }
 
 export async function buildManualLlmsTxtUpdate(
-  connection: WordpressConnectionRecord,
+  connection: WordpressClientConnection,
   content: string,
   env?: WordpressEnv,
 ): Promise<WordpressManualAssistDto> {
@@ -1047,7 +1045,7 @@ export async function buildManualLlmsTxtUpdate(
 }
 
 export async function getPageSchema(
-  connection: WordpressConnectionRecord,
+  connection: WordpressClientConnection,
   slug: string,
   env?: WordpressEnv,
 ): Promise<{ env: WordpressEnv; slug: string; blocks: WordpressSchemaBlockDto[] }> {
@@ -1060,7 +1058,7 @@ export async function getPageSchema(
 }
 
 export async function buildManualSchemaUpdate(
-  connection: WordpressConnectionRecord,
+  connection: WordpressClientConnection,
   slug: string,
   body: { type?: string; json: string },
   env?: WordpressEnv,
@@ -1081,9 +1079,9 @@ export async function buildManualSchemaUpdate(
 }
 
 export async function runAudit(
-  connection: WordpressConnectionRecord,
+  connection: WordpressClientConnection,
   env?: WordpressEnv,
-): Promise<{ env: WordpressEnv; pages: WordpressAuditPageDto[]; issues: WordpressAuditIssueDto[] }> {
+): Promise<WordpressAuditDto> {
   const site = resolveEnvironment(connection, env)
   const pages = await listPages(connection, site.env)
   const plugins = await listActivePlugins(connection, site.env)
@@ -1167,7 +1165,7 @@ export async function runAudit(
 }
 
 export async function diffPageAcrossEnvironments(
-  connection: WordpressConnectionRecord,
+  connection: WordpressClientConnection,
   slug: string,
 ): Promise<WordpressDiffDto> {
   if (!connection.stagingUrl) {
@@ -1212,7 +1210,7 @@ export async function diffPageAcrossEnvironments(
 }
 
 export async function buildManualStagingPush(
-  connection: WordpressConnectionRecord,
+  connection: WordpressClientConnection,
 ): Promise<WordpressManualAssistDto> {
   const liveStatus = await getSiteStatus(connection, 'live')
   const plugins = liveStatus.plugins ?? []

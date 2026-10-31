@@ -7,7 +7,7 @@
  * prevents a read from mutating or re-fetching evidence.
  */
 
-import { answerProseForMentions, normalizeMeasurementHost } from '@ainyc/canonry-contracts'
+import { answerProseForMentions, escapeRegExp, measurementNameKey, measurementNameWords, MentionIdentities, normalizeIdentityText, normalizeMeasurementHost, rateOverChecked, compareText, sortedUnique, type MentionIdentity } from '@canonry/canonry-contracts'
 
 export type MeasurementAttributionClass =
   | 'assigned'
@@ -100,6 +100,12 @@ export interface MeasurementObservationInput {
   /** Offline-only recovery supplied by the caller from stored raw evidence. */
   historicalCitedUrls?: readonly string[]
   historicalCitedUrlsComplete?: boolean
+  /**
+   * Properties whose stored sentiment verdict on this answer is
+   * `wrong-subject` (the snapshot's `wrong_subject_target_keys`): a name match
+   * for one of them is not a mention of it.
+   */
+  wrongSubjectTargetIds?: readonly string[]
 }
 
 export interface MeasurementReportInput {
@@ -165,6 +171,7 @@ export interface MeasurementAnswerEvidence {
   location: string | null
   queryClass: MeasurementQueryClass | null
   mentioned: boolean | null
+  mentionIdentity: MentionIdentity | null
   cited: boolean | null
   sources: MeasurementAnswerSource[]
   /** The FULL count. A reader may cap `sources`; this never shrinks with it. */
@@ -177,12 +184,14 @@ export interface MeasurementAnswerEvidence {
 
 /**
  * `unattributed` appears only on a mention rate that left answers out because
- * their identity could not be tied to one Property. Those answers are in
- * neither the numerator nor the denominator; absent means none were left out.
+ * their identity could not be tied to one Property. `unchecked` appears only on
+ * a citation rate that left saved answers out because their source capture was
+ * incomplete. Those answers are in neither the numerator nor the denominator;
+ * absent means none were left out. The two never share one rate.
  */
 export type MeasurementRate =
-  | { numerator: number; denominator: number; rate: number; reason?: never; unattributed?: number }
-  | { numerator: null; denominator: null; rate: null; reason: MeasurementMetricReason; unattributed?: never }
+  | { numerator: number; denominator: number; rate: number; reason?: never; unattributed?: number; unchecked?: number }
+  | { numerator: null; denominator: null; rate: null; reason: MeasurementMetricReason; unattributed?: never; unchecked?: never }
 
 export interface MeasurementCompleteness {
   executed: number
@@ -383,6 +392,8 @@ interface PreparedObservation {
   sourceUrls: string[]
   mentionedTargetIds: ReadonlySet<string>
   unknownMentionTargetIds: ReadonlySet<string>
+  /** Named by the answer, but sentiment found the answer is about another subject. */
+  wrongSubjectTargetIds: ReadonlySet<string>
   citedTargetIds: ReadonlySet<string>
 }
 
@@ -391,12 +402,6 @@ interface PreparedReport {
   answers: MeasurementAnswerEvidence[]
   evidence: MeasurementAttributionEvidence[]
   diagnostics: MeasurementReport['diagnostics']
-}
-
-const compareText = (left: string, right: string): number => left < right ? -1 : left > right ? 1 : 0
-
-function sortedUnique(values: readonly string[]): string[] {
-  return [...new Set(values)].sort(compareText)
 }
 
 function normalizedHost(value: string): string {
@@ -573,19 +578,15 @@ export function classifyCitedUrl(
 
 export function normalizeMeasurementLocation(value: string | null): string | null {
   if (value === null) return null
-  const normalized = value.normalize('NFKC').trim().replace(/\s+/g, ' ').toLocaleLowerCase('en')
-  return normalized || null
+  return normalizeIdentityText(value) || null
 }
 
-function words(value: string): string[] {
-  // Unicode's default lowercasing is locale-independent and matches the en
-  // mapping used here; avoid invoking locale resolution for every answer.
-  return value.normalize('NFKC').toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []
-}
+/** Shared with the Property name editor, so its warnings read the words this matcher reads. */
+const words = measurementNameWords
 
 /** The exact token identity used when deciding whether two Target aliases are ambiguous. */
 export function measurementMentionAliasKey(value: string): string {
-  return words(value).join('\u0000')
+  return measurementNameKey(value)
 }
 
 function aliasMatchesAt(textWords: readonly string[], aliasWords: readonly string[], start: number): boolean {
@@ -656,7 +657,7 @@ function mentionedTargetsForAliases(
 /** Only explicit identity uncertainty is inferred for old revisions: no guessed geography. */
 function identityAmbiguityPatterns(aliases: readonly string[]) {
   const patterns = aliases.flatMap(alias => {
-    const name = words(alias).join(' ').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const name = escapeRegExp(words(alias).join(' '))
     if (!name) return []
     // The input is normalized tokens joined by spaces. Space/end boundaries
     // also support names whose final token is not an ASCII word character.
@@ -673,27 +674,67 @@ function identityAmbiguityPatterns(aliases: readonly string[]) {
   }
 }
 
-/** `text` is the answer's prose (`answerProseForMentions`), never the raw answer. */
+const NO_TARGETS: ReadonlySet<string> = new Set()
+
+/**
+ * The Properties a branded query names among those it is assigned to as
+ * branded. A branded query such as "is Harbor Point a good place to live" asks
+ * about one Property by name, so an answer that only asks which Harbor Point
+ * was meant is still about it. A non-brand query that contains the same name
+ * ("apartments near Harbor Point") uses it as a place, so it settles nothing,
+ * and neither does a schema v1 assignment, which records no class. The query
+ * is read with the answer's own longest-name matcher, so a query naming
+ * "Harbor Point East" names that Property and not "Harbor Point".
+ */
+function queryNamedTargetIds(
+  queryText: string | null | undefined,
+  brandedTargetIds: Iterable<string> | undefined,
+  aliases: ReadonlyMap<string, readonly MentionAlias[]>,
+): ReadonlySet<string> {
+  if (!queryText || brandedTargetIds === undefined) return NO_TARGETS
+  const branded = new Set(brandedTargetIds)
+  if (branded.size === 0) return NO_TARGETS
+  const named = [...mentionedTargetsForAliases(queryText, aliases).mentioned].filter(id => branded.has(id))
+  return named.length === 0 ? NO_TARGETS : new Set(named)
+}
+
+/**
+ * `text` is the answer's prose (`answerProseForMentions`), never the raw answer.
+ * A Property in `wrongSubjectTargetIds` (sentiment found the answer is about
+ * another subject) is neither mentioned nor unknown, however its name matched:
+ * it moves to `wrongSubject`, so a reader can say why the name did not count.
+ */
 function resolveMentionIdentity(
   text: string | null,
   targets: readonly MeasurementTargetInput[],
   aliases: ReadonlyMap<string, readonly MentionAlias[]>,
   citedTargetIds: ReadonlySet<string>,
   ambiguityPatterns = new Map(targets.map(target => [target.id, identityAmbiguityPatterns(target.aliases)])),
-) {
+  queryNamed: ReadonlySet<string> = NO_TARGETS,
+  wrongSubjectTargetIds: ReadonlySet<string> = NO_TARGETS,
+): { mentioned: Set<string>; unknown: Set<string>; wrongSubject: Set<string> } {
   const textWords = text === null ? [] : words(text)
-  const state = mentionedTargetsForAliases(text, aliases, textWords)
+  const state = { ...mentionedTargetsForAliases(text, aliases, textWords), wrongSubject: new Set<string>() }
   if (text === null) return state
+  for (const targetId of wrongSubjectTargetIds) {
+    if (!state.mentioned.delete(targetId) && !state.unknown.delete(targetId)) continue
+    state.wrongSubject.add(targetId)
+  }
   const normalized = textWords.join(' ')
   for (const target of targets) {
     if (!state.mentioned.has(target.id)) continue
-    // Repeating a name in a clarification question does not resolve identity.
-    // A multi-entity discussion can still identify this Property through its
-    // own source URL or an explicitly configured qualified identity phrase.
+    // A clarification question ("which Harbor Point do you mean?") repeats a
+    // name it could not resolve. It names this Property only when the answer
+    // cites the Property's own page, or when this Property's branded query
+    // named it: the engine was asked about this Property by name.
+    // A multi-entity discussion can identify this Property through its own
+    // source URL or an explicitly configured qualified identity phrase.
     const patterns = ambiguityPatterns.get(target.id)
-    const qualified = citedTargetIds.has(target.id)
+    const cited = citedTargetIds.has(target.id)
+    const qualified = cited
       || ((target.identityAliases?.length ?? 0) > 0 && containsAnyAlias(text, target.identityAliases!))
-    const unresolved = patterns?.clarification.some(pattern => pattern.test(normalized))
+    const clarified = cited || queryNamed.has(target.id)
+    const unresolved = (!clarified && patterns?.clarification.some(pattern => pattern.test(normalized)))
       || (!qualified && (patterns?.multipleEntities.some(pattern => pattern.test(normalized))
         || (target.identityAliases?.length ?? 0) > 0))
     if (unresolved) { state.mentioned.delete(target.id); state.unknown.add(target.id) }
@@ -721,6 +762,42 @@ export function targetMentionedInAnswer(
     new Set(),
   )
   return state.unknown.has(targetId) ? null : state.mentioned.has(targetId)
+}
+
+/** The frozen query one stored answer was asked, for `createTargetMentionReader`. */
+export interface MentionReaderQuery {
+  text: string
+  /**
+   * The answer's Properties whose frozen assignment on this query is branded.
+   * Only these can be named by the query; a non-brand assignment never is.
+   */
+  brandedTargetIds: readonly string[]
+}
+
+/** Prepared frozen identities for repeated answer reads, preserving ambiguous matches. */
+export function createTargetMentionReader(targets: readonly MeasurementTargetInput[], ownedHosts: readonly string[] = []): (answerText: string | null, targetIds: readonly string[], citedUrls?: readonly string[], query?: MentionReaderQuery | null, wrongSubjectTargetIds?: readonly string[] | null) => boolean | null {
+  const compiledAliases = compiledMentionAliases(targets)
+  const mentionableIds = new Set(compiledAliases.map(alias => alias.targetId))
+  const aliases = indexMentionAliases(compiledAliases)
+  const ambiguityPatterns = new Map(targets.map(target => [target.id, identityAmbiguityPatterns(target.aliases)]))
+  const routes = compiledTargetRoutes(targets)
+  const normalizedOwnedHosts = ownedHosts.map(normalizedHost)
+  return (answerText, targetIds, citedUrls = [], query = null, wrongSubjectTargetIds = null) => {
+    if (answerText === null || targetIds.length === 0) return null
+    const citedTargetIds = new Set(citedUrls.flatMap(url => {
+      const source = classifySourceAttribution(url, routes, normalizedOwnedHosts)
+      return source.classification === 'matched' ? source.matchedTargetIds : []
+    }))
+    // Only the answer's own Properties with a branded assignment on this
+    // query can be identified by it.
+    const queryNamed = query === null
+      ? NO_TARGETS
+      : queryNamedTargetIds(query.text, query.brandedTargetIds.filter(id => targetIds.includes(id)), aliases)
+    const wrongSubject = wrongSubjectTargetIds && wrongSubjectTargetIds.length > 0 ? new Set(wrongSubjectTargetIds) : NO_TARGETS
+    const state = resolveMentionIdentity(answerProseForMentions(answerText), targets, aliases, citedTargetIds, ambiguityPatterns, queryNamed, wrongSubject)
+    if (targetIds.some(id => state.mentioned.has(id))) return true
+    return targetIds.some(id => !mentionableIds.has(id) || state.unknown.has(id)) ? null : false
+  }
 }
 
 function observationSource(observation: MeasurementObservationInput): {
@@ -813,6 +890,7 @@ function prepareReport(
       sourceUrls: source.urls,
       mentionedTargetIds: new Set(),
       unknownMentionTargetIds: new Set(),
+      wrongSubjectTargetIds: new Set(),
       citedTargetIds: new Set(),
     })
   }
@@ -848,14 +926,36 @@ function prepareReport(
   const mentionableIds = new Set(
     mentionAliases.map(alias => alias.targetId),
   )
+  // The Properties each query names among the ones it is assigned to as
+  // branded. One query serves every engine of an execution, so it is read
+  // once per execution.
+  const queryNamedByExecution = new Map<string, ReadonlySet<string>>()
+  const queryNamedFor = (slot: MeasurementExpectedSlotInput): ReadonlySet<string> => {
+    const cached = queryNamedByExecution.get(slot.executionId)
+    if (cached !== undefined) return cached
+    const branded = (edgesByExecution.get(slot.executionId) ?? [])
+      .flatMap(edge => edge.type === 'target' && edge.queryClass === 'branded' ? [edge.targetId] : [])
+    const named = queryNamedTargetIds(slot.queryText, branded, aliasesByFirstWord)
+    queryNamedByExecution.set(slot.executionId, named)
+    return named
+  }
   for (const observation of observationsBySlot.values()) {
     const citedTargetIds = new Set(observation.sourceUrls.flatMap(url => {
       const source = sourceAttribution(url)
       return source.classification === 'matched' ? source.matchedTargetIds : []
     }))
-    const mentions = resolveMentionIdentity(observation.mentionText, input.targets, aliasesByFirstWord, citedTargetIds, ambiguityPatterns)
+    const mentions = resolveMentionIdentity(
+      observation.mentionText,
+      input.targets,
+      aliasesByFirstWord,
+      citedTargetIds,
+      ambiguityPatterns,
+      queryNamedFor(observation.slot),
+      new Set(observation.input.wrongSubjectTargetIds ?? []),
+    )
     observation.mentionedTargetIds = mentions.mentioned
     observation.unknownMentionTargetIds = mentions.unknown
+    observation.wrongSubjectTargetIds = mentions.wrongSubject
     observation.citedTargetIds = citedTargetIds
     if (!detailedEvidence) continue
     const edges = [...(edgesByExecution.get(observation.slot.executionId) ?? [])]
@@ -881,6 +981,9 @@ function prepareReport(
         // edge names no Property, and an observation without answer text was
         // never searched — neither is "not mentioned".
         mentioned: mentionedForEdge(observation, edge, mentionableIds),
+        mentionIdentity: edge.type === 'target' && observation.wrongSubjectTargetIds.has(edge.targetId)
+          ? MentionIdentities['wrong-subject']
+          : null,
         // A positive survives incomplete capture: a source we DID see and
         // matched is still a citation. A negative does not — with capture
         // incomplete we cannot tell "not cited" from "we never saw the
@@ -996,7 +1099,8 @@ function completeness(
  * some observations land with partial citation capture. Those rows are not zeros
  * and they are not grounds to refuse the whole population: they simply leave the
  * denominator. Every source-dependent rate is computed over exactly this basis,
- * and `MeasurementCompleteness.sourceCompleteObservations` reports its size.
+ * and `MeasurementCompleteness.sourceCompleteObservations` reports its size. An
+ * answer-level rate also counts the rows it left out as `unchecked`.
  */
 function sourceCompleteSlots(
   slots: readonly MeasurementExpectedSlotInput[],
@@ -1015,14 +1119,15 @@ function coverageRate(
   if (!status.complete) return { numerator: null, denominator: null, rate: null, reason: 'incomplete' }
 
   const basis = sourceCompleteSlots(slots, prepared)
-  if (basis.length === 0) return { numerator: null, denominator: null, rate: null, reason: 'evidence-incomplete' }
-
   const edgeIds = new Set(edges.map(edge => edge.id))
   const assignedSlots = new Set(prepared.evidence
     .filter(row => edgeIds.has(row.usageEdgeId) && row.classification === 'assigned')
     .map(row => row.expectedSlotId))
   const numerator = basis.filter(slot => assignedSlots.has(slot.id)).length
-  return { numerator, denominator: basis.length, rate: numerator / basis.length }
+  // Every slot executed (checked above), so the slots outside the basis are
+  // exactly the saved answers whose capture was incomplete.
+  return rateOverChecked(numerator, slots.length, slots.length - basis.length, 'unchecked')
+    ?? unavailable('evidence-incomplete')
 }
 
 function targetCoverageRate(
@@ -1077,11 +1182,7 @@ function mentionRate(
  * The rate is still unavailable when no answer is left to measure.
  */
 function attributableMentionRate(numerator: number, answered: number, unattributed: number): MeasurementRate {
-  const denominator = answered - unattributed
-  if (denominator <= 0) return unavailable('identity-ambiguous')
-  return unattributed > 0
-    ? { numerator, denominator, rate: numerator / denominator, unattributed }
-    : { numerator, denominator, rate: numerator / denominator }
+  return rateOverChecked(numerator, answered, unattributed, 'unattributed') ?? unavailable('identity-ambiguous')
 }
 
 function providersFor(slots: readonly MeasurementExpectedSlotInput[]): string[] {
@@ -1208,6 +1309,8 @@ interface MeasurementOverviewIndexes {
   targetsById: ReadonlyMap<string, readonly MeasurementTargetInput[]>
   targetEdgesByTargetId: ReadonlyMap<string, readonly MeasurementTargetUsageEdge[]>
   slotsByExecutionId: ReadonlyMap<string, readonly MeasurementExpectedSlotInput[]>
+  /** Slots with a saved observation, answer text or not. */
+  observedSlotIds: ReadonlySet<string>
   answeredSlotIds: ReadonlySet<string>
   sourceCompleteSlotIds: ReadonlySet<string>
   mentionedSlotIdsByTargetId: ReadonlyMap<string, ReadonlySet<string>>
@@ -1250,11 +1353,13 @@ function buildMeasurementOverviewIndexes(
     slotsByExecutionId.set(slot.executionId, slots)
   }
 
+  const observedSlotIds = new Set<string>()
   const answeredSlotIds = new Set<string>()
   const sourceCompleteSlotIds = new Set<string>()
   const mentionedSlotIdsByTargetId = new Map<string, Set<string>>()
   const unknownMentionSlotIdsByTargetId = new Map<string, Set<string>>()
   for (const [slotId, observation] of prepared.observationsBySlot) {
+    observedSlotIds.add(slotId)
     if (observation.sourceComplete) sourceCompleteSlotIds.add(slotId)
     if (observation.input.answerText === null) continue
     answeredSlotIds.add(slotId)
@@ -1290,6 +1395,7 @@ function buildMeasurementOverviewIndexes(
     targetsById,
     targetEdgesByTargetId,
     slotsByExecutionId,
+    observedSlotIds,
     answeredSlotIds,
     sourceCompleteSlotIds,
     mentionedSlotIdsByTargetId,
@@ -1389,21 +1495,31 @@ function scopeMentionRate(
   return attributableMentionRate(numerator, answered.length, unattributed)
 }
 
+/**
+ * Citation coverage over the slots whose source capture is complete.
+ *
+ * A slot with no saved observation withholds the rate: a missing answer is not
+ * measured. A saved answer whose capture is incomplete leaves BOTH sides and is
+ * counted in `unchecked`, even when the links it did capture name the Property,
+ * so a few such answers in thousands cannot blank the number. With no checked
+ * answer left the rate is unavailable as `evidence-incomplete`.
+ */
 function indexedScopeCitationRate(
   slots: readonly MeasurementExpectedSlotInput[],
   edges: readonly MeasurementUsageEdgeInput[],
   indexes: MeasurementOverviewIndexes,
 ): MeasurementRate {
   if (slots.length === 0) return unavailable('no-population')
+  if (slots.some(slot => !indexes.observedSlotIds.has(slot.id))) return unavailable('evidence-incomplete')
   const basis = slots.filter(slot => indexes.sourceCompleteSlotIds.has(slot.id))
-  if (basis.length !== slots.length) return unavailable('evidence-incomplete')
 
   const assignedSlots = new Set<string>()
   for (const edge of edges) {
     for (const slotId of indexes.assignedSlotIdsByEdgeId.get(edge.id) ?? []) assignedSlots.add(slotId)
   }
   const numerator = basis.filter(slot => assignedSlots.has(slot.id)).length
-  return { numerator, denominator: basis.length, rate: numerator / basis.length }
+  return rateOverChecked(numerator, slots.length, slots.length - basis.length, 'unchecked')
+    ?? unavailable('evidence-incomplete')
 }
 
 function targetMentionRate(

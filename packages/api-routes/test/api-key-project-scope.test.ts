@@ -3,9 +3,10 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
+import { eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { createClient, migrate, apiKeys, auditLog, projects, queries, querySnapshots, runs, type DatabaseClient } from '@ainyc/canonry-db'
-import { CitationStates } from '@ainyc/canonry-contracts'
+import { createClient, migrate, apiKeys, auditLog, doctorHealthState, projects, queries, querySnapshots, runs, type DatabaseClient } from '@canonry/canonry-db'
+import { CitationStates } from '@canonry/canonry-contracts'
 import { apiRoutes } from '../src/index.js'
 import { hashApiKey } from '../src/auth.js'
 
@@ -162,6 +163,17 @@ describe('project-scoped API keys', () => {
     expect((res.json() as Array<{ name: string }>).map(p => p.name).sort()).toEqual(['project-a', 'project-b'])
   })
 
+  it('status uses the real auth plugin, respects scoped keys, and does not mutate stored health', async () => {
+    const checkedAt = new Date(Date.now() - 60_000).toISOString()
+    db.insert(doctorHealthState).values({ projectId: projectAId, status: 'warn', code: 'stored.warn', summary: 'stored health', checkedAt, notifiedAt: null, failingSignature: null }).run()
+    const before = db.select().from(doctorHealthState).where(eq(doctorHealthState.projectId, projectAId)).get()
+    expect((await authed('GET', '/api/v1/status?project=project-a', SCOPED_KEY)).statusCode).toBe(200)
+    expect((await authed('GET', '/api/v1/status?project=project-b', SCOPED_KEY)).statusCode).toBe(403)
+    expect((await authed('GET', '/api/v1/status', ROOT_KEY)).statusCode).toBe(200)
+    const after = db.select().from(doctorHealthState).where(eq(doctorHealthState.projectId, projectAId)).get()
+    expect(after).toEqual(before)
+  })
+
   it('a scoped key is FORBIDDEN on a sibling run via /runs/:id (entity gate)', async () => {
     expect((await authed('GET', `/api/v1/runs/${runBId}`, SCOPED_KEY)).statusCode).toBe(403)
   })
@@ -213,8 +225,14 @@ describe('project-scoped API keys', () => {
 
   // --- global aggregation endpoints (NOT under the /projects/:name URL gate) ---
 
-  it('GET /runs returns ONLY the scoped project\'s runs', async () => {
-    const res = await authed('GET', '/api/v1/runs', SCOPED_KEY)
+  it.each([
+    '/api/v1/runs',
+    '/api/v1/runs?excludeKind=bing-inspect',
+    '/api/v1/projects/project-a/runs?excludeKind=bing-inspect',
+    '/api/v1/runs?excludeKinds=bing-inspect&excludeKinds=traffic-sync',
+    '/api/v1/projects/project-a/runs?excludeKinds=bing-inspect,traffic-sync',
+  ])('%s returns ONLY the scoped project\'s runs', async (route) => {
+    const res = await authed('GET', route, SCOPED_KEY)
     expect(res.statusCode).toBe(200)
     const pids = new Set((res.json() as Array<{ projectId: string }>).map(r => r.projectId))
     expect(pids).toEqual(new Set([projectAId]))

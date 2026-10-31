@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from 'react'
 import { ChevronLeft, ChevronRight, Search, X } from 'lucide-react'
+import { trackUiSearchInput } from '../../lib/ui-telemetry.js'
 
 export const DEFAULT_TABLE_PAGE_SIZE = 25
 
@@ -136,12 +137,18 @@ export function DataTableSearch({
       <input
         type="search"
         value={value}
-        onChange={(event) => onChange(event.target.value)}
+        onChange={(event) => {
+          trackUiSearchInput(event.target.value)
+          onChange(event.target.value)
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') trackUiSearchInput(event.currentTarget.value, true)
+        }}
         aria-label={label}
         placeholder={placeholder}
         autoComplete="off"
         spellCheck={false}
-        className="h-9 w-full rounded-md border border-default bg-surface/50 pl-9 pr-9 text-sm text-strong placeholder:text-muted outline-none transition focus:border-mono-500 focus:ring-1 focus:ring-mono-500 [&::-webkit-search-cancel-button]:appearance-none"
+        className="h-9 w-full rounded-md border border-default bg-surface/50 pl-9 pr-9 text-label-14 text-strong placeholder:text-muted outline-none transition focus:border-mono-500 focus:ring-1 focus:ring-mono-500 [&::-webkit-search-cancel-button]:appearance-none"
       />
       {value.trim().length > 0 ? (
         <button
@@ -187,9 +194,9 @@ export function DataTablePagination({
   const showPageControls = page > 1 || canGoNext
 
   return (
-    <div className={`mt-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 text-xs text-secondary ${className ?? ''}`}>
+    <div className={`mt-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 text-label-12 text-secondary ${className ?? ''}`}>
       <p className="tabular-nums">
-        {rangeStart.toLocaleString('en-US')}–{rangeEnd.toLocaleString('en-US')}
+        {rangeStart.toLocaleString('en-US')} to {rangeEnd.toLocaleString('en-US')}
         {totalRows === undefined
           ? `${canGoNext ? '+' : ''} ${itemLabel}`
           : ` of ${totalRows.toLocaleString('en-US')} ${itemLabel}`}

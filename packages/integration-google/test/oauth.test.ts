@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { getAuthUrl, exchangeCode, refreshAccessToken } from '../src/oauth.js'
 import { GOOGLE_AUTH_URL, GOOGLE_TOKEN_URL, GSC_SCOPE } from '../src/constants.js'
 
@@ -123,6 +123,44 @@ describe('refreshAccessToken', () => {
     expect(capturedBody.includes('grant_type=refresh_token')).toBeTruthy()
     expect(capturedBody.includes('refresh_token=my-refresh-token')).toBeTruthy()
     expect(result.access_token).toBe('new-access-token')
+  })
+
+  it('retries once when the request could not reach Google, then succeeds', async () => {
+    vi.useFakeTimers()
+    let calls = 0
+    globalThis.fetch = async () => {
+      calls += 1
+      if (calls === 1) throw new TypeError('fetch failed', { cause: Object.assign(new Error('getaddrinfo EAI_AGAIN oauth2.googleapis.com'), { code: 'EAI_AGAIN' }) })
+      return new Response(JSON.stringify({ access_token: 'after-retry', expires_in: 3600, token_type: 'Bearer' }), { status: 200 })
+    }
+
+    const pending = refreshAccessToken('cid', 'csecret', 'my-refresh-token')
+    await vi.advanceTimersByTimeAsync(1_500)
+    expect((await pending).access_token).toBe('after-retry')
+    expect(calls).toBe(2)
+    vi.useRealTimers()
+  })
+
+  it('gives up after one retry, and never retries an HTTP error', async () => {
+    vi.useFakeTimers()
+    let calls = 0
+    globalThis.fetch = async () => {
+      calls += 1
+      throw new TypeError('fetch failed', { cause: Object.assign(new Error('getaddrinfo EAI_AGAIN oauth2.googleapis.com'), { code: 'EAI_AGAIN' }) })
+    }
+    const unreachable = refreshAccessToken('cid', 'csecret', 'my-refresh-token').catch((err: unknown) => err)
+    await vi.advanceTimersByTimeAsync(1_500)
+    expect(await unreachable).toBeInstanceOf(TypeError)
+    expect(calls).toBe(2)
+    vi.useRealTimers()
+
+    calls = 0
+    globalThis.fetch = async () => {
+      calls += 1
+      return new Response('{"error": "invalid_grant"}', { status: 400 })
+    }
+    await expect(refreshAccessToken('cid', 'csecret', 'expired-token')).rejects.toThrow(/Token refresh failed/)
+    expect(calls).toBe(1)
   })
 
   it('throws on error response', async () => {

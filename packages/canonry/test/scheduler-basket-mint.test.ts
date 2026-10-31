@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { eq } from 'drizzle-orm'
-import { createClient, migrate, projects, queries, queryBasketVersions } from '@ainyc/canonry-db'
+import { createClient, migrate, projects, queries, queryBasketVersions } from '@canonry/canonry-db'
 import { Scheduler } from '../src/scheduler.js'
 
 // Basket revisions are normally minted when a sweep is queued. That left a gap:

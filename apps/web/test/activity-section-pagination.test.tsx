@@ -132,11 +132,20 @@ function renderPanel(landingPages: ApiGaTrafficAiLandingPage[]) {
   )
 }
 
+/** The AI landing pages are a collapsed row: open it the way a reader would. */
+async function openAiLandingPages() {
+  const label = await screen.findByText('Pages AI visitors landed on', { selector: 'summary > span' })
+  const row = label.closest('details') as HTMLDetailsElement
+  fireEvent.click(row.querySelector('summary') as HTMLElement)
+  await waitFor(() => expect(row.open).toBe(true))
+}
+
 test('shows 25 landing-page rows per page and paginates the rest', async () => {
   renderPanel(makeLandingPages(60))
+  await openAiLandingPages()
 
   // Page 1: first 25 rows render, the 26th does not.
-  await waitFor(() => expect(screen.getByText('1–25 of 60 rows')).toBeTruthy())
+  await waitFor(() => expect(screen.getByText('1 to 25 of 60 rows')).toBeTruthy())
   expect(screen.getByText('/page-000')).toBeTruthy()
   expect(screen.getByText('/page-024')).toBeTruthy()
   expect(screen.queryByText('/page-025')).toBeNull()
@@ -150,7 +159,7 @@ test('shows 25 landing-page rows per page and paginates the rest', async () => {
 
   // Advance: page 2 shows the next 25 rows.
   fireEvent.click(next)
-  await waitFor(() => expect(screen.getByText('26–50 of 60 rows')).toBeTruthy())
+  await waitFor(() => expect(screen.getByText('26 to 50 of 60 rows')).toBeTruthy())
   expect(screen.getByText('Page 2 of 3')).toBeTruthy()
   expect(screen.getByText('/page-025')).toBeTruthy()
   expect(screen.getByText('/page-049')).toBeTruthy()
@@ -160,7 +169,7 @@ test('shows 25 landing-page rows per page and paginates the rest', async () => {
 
   // Page 3 shows the remaining 10 rows, and Next is now disabled.
   fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-  await waitFor(() => expect(screen.getByText('51–60 of 60 rows')).toBeTruthy())
+  await waitFor(() => expect(screen.getByText('51 to 60 of 60 rows')).toBeTruthy())
   expect(screen.getByText('Page 3 of 3')).toBeTruthy()
   expect(screen.getByText('/page-050')).toBeTruthy()
   expect(screen.getByText('/page-059')).toBeTruthy()
@@ -170,11 +179,12 @@ test('shows 25 landing-page rows per page and paginates the rest', async () => {
 
 test('renders no pagination controls when there are 25 or fewer rows', async () => {
   renderPanel(makeLandingPages(25))
+  await openAiLandingPages()
 
   await waitFor(() => expect(screen.getByText('25 rows')).toBeTruthy())
   // The shared footer always reports the visible range, but omits page controls
   // when there is only one page.
-  expect(screen.getByText('1–25 of 25 rows')).toBeTruthy()
+  expect(screen.getByText('1 to 25 of 25 rows')).toBeTruthy()
   expect(screen.queryByRole('button', { name: 'Next' })).toBeNull()
   expect(screen.queryByRole('button', { name: 'Previous' })).toBeNull()
   expect(screen.queryByText(/Page \d+ of/)).toBeNull()
@@ -182,16 +192,17 @@ test('renders no pagination controls when there are 25 or fewer rows', async () 
 
 test('changing the sort resets to page 1', async () => {
   renderPanel(makeLandingPages(60))
+  await openAiLandingPages()
 
   // Jump to page 2.
   await waitFor(() => expect(screen.getByText('Page 1 of 3')).toBeTruthy())
   fireEvent.click(screen.getByRole('button', { name: 'Next' }))
   await waitFor(() => expect(screen.getByText('Page 2 of 3')).toBeTruthy())
 
-  // Re-sorting (click the "Landing Page" header) snaps back to page 1.
-  fireEvent.click(screen.getByRole('button', { name: /Landing Page/ }))
+  // Re-sorting (click the "Landing page" header) snaps back to page 1.
+  fireEvent.click(screen.getByRole('button', { name: 'Landing page' }))
   await waitFor(() => expect(screen.getByText('Page 1 of 3')).toBeTruthy())
-  expect(screen.getByText('1–25 of 60 rows')).toBeTruthy()
+  expect(screen.getByText('1 to 25 of 60 rows')).toBeTruthy()
 })
 
 test('middle-truncates long URLs while preserving the full value for filtering and accessibility', async () => {
@@ -207,8 +218,9 @@ test('middle-truncates long URLs while preserving the full value for filtering a
     },
     ...makeLandingPages(30),
   ])
+  await openAiLandingPages()
 
-  await waitFor(() => expect(screen.getByText('1–25 of 31 rows')).toBeTruthy())
+  await waitFor(() => expect(screen.getByText('1 to 25 of 31 rows')).toBeTruthy())
   const expectedDisplay = `${[...landingPage].slice(0, 36).join('')}…${[...landingPage].slice(-18).join('')}`
   const displayedUrl = screen.getByText(expectedDisplay)
   expect(displayedUrl.getAttribute('aria-hidden')).toBe('true')
@@ -227,5 +239,5 @@ test('middle-truncates long URLs while preserving the full value for filtering a
   expect(screen.getByText('No landing pages match this filter')).toBeTruthy()
 
   fireEvent.click(screen.getByRole('button', { name: 'Clear filter' }))
-  await waitFor(() => expect(screen.getByText('1–25 of 31 rows')).toBeTruthy())
+  await waitFor(() => expect(screen.getByText('1 to 25 of 31 rows')).toBeTruthy())
 })

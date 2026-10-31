@@ -16,15 +16,17 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import Fastify, { type FastifyInstance } from 'fastify'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import {
   MEASUREMENT_PORTFOLIO_DEFAULT_LIMIT,
+  MEASUREMENT_PORTFOLIO_DEFAULT_ROW_EVIDENCE_LIMIT,
+  MEASUREMENT_PORTFOLIO_TIE_NOTE,
   buildMeasurementExecutionIdentity,
   canonicalMeasurementPlanV2Json,
   measurementPlanV2Schema,
   type MeasurementPlanV2,
   type MeasurementPortfolioSummaryResponse,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   createClient,
   measurementPlans,
@@ -34,10 +36,27 @@ import {
   querySnapshots,
   runs,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import { buildMeasurementPlanV2Manifest } from '../src/measurement-report-adapter.js'
 import { HARBOR_CONTEXT } from './measurement-plan-v2-fixture.js'
+
+/**
+ * Counts cited-source parses. Resolving every source again for each answer
+ * that cited it cost about half a second per portfolio page at this scale,
+ * and a paged walk reads the whole portfolio once per page.
+ */
+const hostParses = vi.hoisted(() => ({ count: 0 }))
+vi.mock('@canonry/canonry-contracts', async importOriginal => {
+  const actual = await importOriginal<typeof import('@canonry/canonry-contracts')>()
+  return {
+    ...actual,
+    hostOf: (value: string | null | undefined) => {
+      hostParses.count++
+      return actual.hostOf(value)
+    },
+  }
+})
 
 /** What the agent runtime keeps of one tool result. */
 const TOOL_RESULT_CAP = 20_000
@@ -257,6 +276,109 @@ afterAll(async () => {
 })
 
 describe('portfolio summary size at portfolio scale', () => {
+  it('enumerates default compact Properties within one default Aero turn without repeating other rankings', async () => {
+    const seen = new Set<string>()
+    let cursor: string | null | undefined
+    let pages = 0
+    do {
+      const { status, body } = await summary(`compact=true${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`)
+      expect(status).toBe(200)
+      expect(JSON.stringify(body, null, 2).length).toBeLessThanOrEqual(18_000)
+      expect(body.pageList).toBe('weakest-properties')
+      // The whole tie is summarized on every page; where it sits and what it names are left to the full read.
+      expect(body.tiedAtWeakest).toEqual({ count: TIED_AT_ZERO, mentionRate: 0, citationRate: 0, note: MEASUREMENT_PORTFOLIO_TIE_NOTE })
+      for (const row of body.weakestProperties) {
+        expect(seen.has(row.targetKey)).toBe(false)
+        seen.add(row.targetKey)
+      }
+      if (pages === 0) {
+        expect(body.mentionRanking.strongest).toHaveLength(4)
+        expect(body.mentionRanking.weakest).toHaveLength(4)
+        expect(body.markets).toHaveLength(4)
+      } else {
+        expect(body.mentionRanking.strongest).toEqual([])
+        expect(body.mentionRanking.weakest).toEqual([])
+        expect(body.markets).toEqual([])
+      }
+      cursor = body.nextCursor
+      expect(++pages).toBeLessThanOrEqual(30)
+    } while (cursor)
+    expect([...seen].sort()).toEqual(fixture.plan.targets.map(target => target.stableKey).sort())
+  }, 120_000)
+
+  it('pages every selected compact Property, ranking, market and filtered evidence list under the formatted tool budget', async () => {
+    const lists = ['weakest-properties', 'strongest-mentions', 'weakest-mentions', 'excluded-mentions', 'markets', 'observed-names', 'cited-domains'] as const
+    const seen = lists.map(() => new Set<string>())
+    let namesTotal = 0
+    let domainsTotal = 0
+    for (const [selected, list] of lists.entries()) {
+      const cursors = new Set<string>()
+      let cursor: string | null | undefined
+      let pages = 0
+      do {
+        const { status, body } = await summary(`compact=true&includeNestedMarkets=true&answers=not-mentioned&list=${list}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`)
+        expect(status).toBe(200)
+        expect(body.pageList).toBe(list)
+        expect(JSON.stringify(body, null, 2).length).toBeLessThanOrEqual(18_000)
+        expect(body.totalProperties).toBe(PROPERTY_COUNT)
+        expect(body.totalMarkets).toBe(150)
+        expect(body.weakestAnswerSources).toMatchObject({
+          basis: 'initial-weakest-selection-and-zero-signal-tie', properties: TIED_AT_ZERO,
+          domainTotal: SOURCE_DOMAINS.length, ownDomainAnswers: 0,
+        })
+        expect(body.weakestAnswerSources?.domains).toHaveLength(10)
+        expect(body.detailsOmitted).not.toContain('weakestAnswerSources')
+        const values = [
+          body.weakestProperties.map(row => row.targetKey), body.mentionRanking.strongest.map(row => row.targetKey),
+          body.mentionRanking.weakest.map(row => row.targetKey), body.mentionRanking.excluded.map(row => row.targetKey),
+          body.markets.map(row => row.groupKey), body.answerEvidence!.observedNames.map(row => row.name),
+          body.answerEvidence!.citedDomains.map(row => row.domain),
+        ]
+        for (const [index, rows] of values.entries()) {
+          if (index !== selected) expect(rows).toEqual([])
+          for (const key of rows) {
+            expect(seen[index]!.has(key)).toBe(false)
+            seen[index]!.add(key)
+          }
+        }
+        namesTotal = body.answerEvidence!.observedNamesTotal
+        domainsTotal = body.answerEvidence!.citedDomainsTotal
+        cursor = body.nextCursor
+        if (cursor) {
+          expect(cursors.has(cursor)).toBe(false)
+          cursors.add(cursor)
+        }
+        expect(++pages).toBeLessThanOrEqual(30)
+      } while (cursor)
+    }
+    const targetKeys = fixture.plan.targets.map(target => target.stableKey).sort()
+    expect([...seen[0]!].sort()).toEqual(targetKeys)
+    expect([...seen[1]!].sort()).toEqual(targetKeys)
+    expect([...seen[2]!].sort()).toEqual(targetKeys)
+    expect(seen[3]!.size).toBe(0)
+    expect([...seen[4]!].sort()).toEqual(fixture.plan.groups.map(group => group.stableKey).sort())
+    expect(seen[5]!.size).toBe(namesTotal)
+    expect(seen[6]!.size).toBe(domainsTotal)
+  }, 120_000)
+
+  it('pages compact overview rows without losing the remainder to the formatted result cap', async () => {
+    const seen = new Set<string>()
+    let cursor: string | null | undefined
+    do {
+      const response = await app.inject({ method: 'GET', url: `/api/v1/projects/northstar/measurement-overview?scope=all&queryClass=non-brand&compact=true&limit=100${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}` })
+      expect(response.statusCode).toBe(200)
+      const body = response.json()
+      expect(JSON.stringify(body, null, 2).length).toBeLessThanOrEqual(18_000)
+      expect(body.properties.totalEstimate).toBe(PROPERTY_COUNT)
+      for (const row of body.properties.items) {
+        expect(seen.has(row.targetKey)).toBe(false)
+        seen.add(row.targetKey)
+      }
+      cursor = body.properties.nextCursor
+      expect(seen.size).toBeLessThanOrEqual(PROPERTY_COUNT)
+    } while (cursor)
+    expect([...seen].sort()).toEqual(fixture.plan.targets.map(target => target.stableKey).sort())
+  }, 120_000)
   it('builds a fixture at the scale that overflowed', () => {
     expect(fixture.plan.targets).toHaveLength(PROPERTY_COUNT)
     expect(fixture.plan.groups).toHaveLength(150)
@@ -276,10 +398,13 @@ describe('portfolio summary size at portfolio scale', () => {
       expect(row.queries).toBe(fixture.queryCount.get(row.targetKey))
       // 3 engines per query, so every denominator is queries x 3 answers.
       expect(row.mentionCoverage).toMatchObject({ state: 'available', numerator: 0, denominator: row.queries * 3 })
-      expect(row.namedInsteadInAnswerText).toHaveLength(5)
-      expect(row.citedDomains).toHaveLength(5)
+      expect(row.namedInsteadInAnswerText).toHaveLength(MEASUREMENT_PORTFOLIO_DEFAULT_ROW_EVIDENCE_LIMIT)
+      expect(row.citedDomains).toHaveLength(MEASUREMENT_PORTFOLIO_DEFAULT_ROW_EVIDENCE_LIMIT)
       // The deprecated names ride along for existing consumers and count against the cap.
-      expect(row.recommendedInstead).toHaveLength(5)
+      expect(row.recommendedInstead).toHaveLength(MEASUREMENT_PORTFOLIO_DEFAULT_ROW_EVIDENCE_LIMIT)
+      expect(row.namedInsteadInAnswerTextTotal).toBeGreaterThan(row.namedInsteadInAnswerText!.length)
+      expect(row.citedDomainsTotal).toBeGreaterThan(row.citedDomains!.length)
+      expect(row.recommendedInsteadTruncated).toBe(true)
     }
     expect(body.engines).toEqual(['claude', 'gemini', 'openai'])
     expect(body.tiedAtWeakest).toMatchObject({ count: TIED_AT_ZERO, mentionRate: 0, citationRate: 0 })
@@ -312,5 +437,18 @@ describe('portfolio summary size at portfolio scale', () => {
     expect(status).toBe(200)
     expect(body.markets).toHaveLength(150)
     expect(body).toMatchObject({ totalMarkets: 150, marketsTruncated: false })
+  })
+
+  it('parses each cited source once per source list, not once per answer citing it', async () => {
+    const stored = db.select({ citedDomains: querySnapshots.citedDomains, citedUrls: querySnapshots.citedUrls }).from(querySnapshots).all()
+    const sources = new Set(stored.flatMap(row => [...row.citedDomains, ...(row.citedUrls ?? [])]))
+    hostParses.count = 0
+    const { status, body } = await summary('compact=true&answers=not-mentioned')
+    expect(status).toBe(200)
+    expect(body.weakestAnswerSources).toMatchObject({ properties: TIED_AT_ZERO, domainTotal: SOURCE_DOMAINS.length })
+    expect(body.answerEvidence?.citedDomainsTotal).toBe(SOURCE_DOMAINS.length)
+    // Two source lists: the weakest Properties' answers and the not-mentioned
+    // answers. Parsing per answer citing a source took over 70,000 parses here.
+    expect(hostParses.count).toBeLessThanOrEqual(2 * sources.size)
   })
 })

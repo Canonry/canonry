@@ -248,7 +248,7 @@ describe('extractAnswerMentions reads the prose, not the citations', () => {
   })
 
   it('a competitor chip is not a competitor mention', () => {
-    // mention-landscape asks exactly this per competitor: its domain label as
+    // Competitor mention analysis asks this: its domain label as
     // the alias, its domain as the identity.
     const answer = 'Bayside Flats has the lowest pet fees in the area. ([marinapointhomes.com](https://marinapointhomes.com/pets?utm_source=chatgpt.com))'
     expect(determineAnswerMentioned(answer, ['marinapointhomes'], ['marinapointhomes.com'])).toBe(false)

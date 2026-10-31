@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 import {
   filterBrandedSeedCandidates,
   seedCollapseWarning,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { dedupeStrings, pickCanonicalsWithStats } from '../src/discovery/orchestrate.js'
 
 /**

@@ -1,4 +1,4 @@
-import { withRetry, isRetryableHttpError, retryAfterDelayMs, type ModelDefinition } from '@ainyc/canonry-contracts'
+import { withRetry, isRetryableHttpError, retryAfterDelayMs, type ModelDefinition } from '@canonry/canonry-contracts'
 import { createClient } from './normalize.js'
 import type { GeminiConfig } from './types.js'
 

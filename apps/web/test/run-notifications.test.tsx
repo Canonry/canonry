@@ -23,7 +23,7 @@ import {
   getApiV1ProjectsQueryKey,
   getApiV1RunsByIdQueryKey,
   getApiV1RunsQueryKey,
-} from '@ainyc/canonry-api-client/react-query'
+} from '@canonry/canonry-api-client/react-query'
 import { useTriggerAllRuns, useTriggerGscSync, useTriggerRun, useTriggerSiteAudit } from '../src/queries/mutations.js'
 import { createQueryClient } from '../src/queries/query-client.js'
 
@@ -132,7 +132,7 @@ test('emits one terminal toast for a tracked run and does not duplicate it', asy
   )
 
   await waitFor(() => {
-    expect(getToasts().some((toast) => toast.title === 'Visibility sweep completed')).toBe(true)
+    expect(getToasts().some((toast) => toast.title === 'AI Visibility check completed')).toBe(true)
   })
 
   expect(getRunTrackerState().runs).toEqual({})
@@ -140,7 +140,7 @@ test('emits one terminal toast for a tracked run and does not duplicate it', asy
   queryClient.setQueryData(runsCacheKey, [makeRun('completed')])
 
   await waitFor(() => {
-    expect(getToasts().filter((toast) => toast.title === 'Visibility sweep completed')).toHaveLength(1)
+    expect(getToasts().filter((toast) => toast.title === 'AI Visibility check completed')).toHaveLength(1)
   })
 })
 
@@ -212,7 +212,7 @@ test('keeps run notifications active when the app is bootstrapped from dashboard
   })
 
   await waitFor(() => {
-    expect(getToasts().some((toast) => toast.title === 'Visibility sweep completed')).toBe(true)
+    expect(getToasts().some((toast) => toast.title === 'AI Visibility check completed')).toBe(true)
   })
 })
 
@@ -301,7 +301,7 @@ test('toast CTA opens the existing run drawer via router state', async () => {
 
   const runId = fixture.dashboard.runs[0]!.id
   addToast({
-    title: 'Visibility sweep completed',
+    title: 'AI Visibility check completed',
     tone: 'positive',
     cta: {
       label: 'View run',
@@ -348,7 +348,7 @@ test('renders tracked work in the global task center across the app shell', asyn
   )
 
   expect(screen.getByText('Active tasks')).not.toBeNull()
-  expect(screen.getAllByText('Technical audit').length).toBeGreaterThanOrEqual(1)
+  expect(screen.getAllByText('Technical AEO audit').length).toBeGreaterThanOrEqual(1)
   expect(screen.getAllByText('Running').length).toBeGreaterThanOrEqual(1)
   expect(screen.getAllByText('Citypoint Dental NYC').length).toBeGreaterThanOrEqual(1)
 })
@@ -469,7 +469,7 @@ test('does not invalidate GSC project queries for non-GSC runs', async () => {
 
   // Wait for the terminal toast to fire so the observer effect has run.
   await waitFor(() => {
-    expect(getToasts().some((toast) => toast.title === 'Visibility sweep completed')).toBe(true)
+    expect(getToasts().some((toast) => toast.title === 'AI Visibility check completed')).toBe(true)
   })
 
   const state = queryClient.getQueryState(gscCoverageKey)
@@ -538,7 +538,7 @@ test('tracks a queued Technical AEO audit for the global task center', async () 
   expect(queryClient.getQueryState(projectSiteAuditRunsKey)?.isInvalidated).toBe(true)
 })
 
-test('useTriggerGscSync invalidates GSC project queries when the mutation succeeds', async () => {
+test('useTriggerGscSync tracks queued work without making stored GSC evidence stale', async () => {
   const fetchMock = vi.fn(async () => jsonResponse({
     ...makeRun('queued'),
     kind: 'gsc-sync',
@@ -546,7 +546,7 @@ test('useTriggerGscSync invalidates GSC project queries when the mutation succee
   vi.stubGlobal('fetch', fetchMock)
 
   const queryClient = createQueryClient()
-  // Pre-populate the cache so we can observe invalidation.
+  // Queue admission changes run state; stored evidence changes at completion.
   queryClient.setQueryData(gscCoverageKey, { stale: true })
 
   render(
@@ -558,9 +558,14 @@ test('useTriggerGscSync invalidates GSC project queries when the mutation succee
   fireEvent.click(screen.getByRole('button', { name: 'Trigger GSC sync' }))
 
   await waitFor(() => {
-    const state = queryClient.getQueryState(gscCoverageKey)
-    expect(state?.isInvalidated).toBe(true)
+    expect(getRunTrackerState().runs.run_1).toMatchObject({
+      projectId: 'proj_1',
+      kind: 'gsc-sync',
+      sourceAction: 'gsc-sync',
+    })
   })
+  expect(queryClient.getQueryState(gscCoverageKey)?.isInvalidated).toBe(false)
+  expect(queryClient.getQueryData(gscCoverageKey)).toEqual({ stale: true })
 })
 
 test('maps RUN_IN_PROGRESS errors to one caution toast with an extended timer', async () => {

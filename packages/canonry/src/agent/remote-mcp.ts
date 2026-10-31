@@ -1,10 +1,10 @@
 import { Type, type TSchema } from '@earendil-works/pi-ai'
-import { Client } from '@modelcontextprotocol/sdk/client/index.js'
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
 import type { AgentTool, AgentToolResult } from '@earendil-works/pi-agent-core'
 import { createLogger } from '../logger.js'
 import type { ExternalMcpServerConfig } from '../config.js'
-import { describeError } from '@ainyc/canonry-contracts'
+import { describeError } from '@canonry/canonry-contracts'
+import { truncateToolResult } from './mcp-to-agent-tool.js'
 
 const log = createLogger('RemoteMcp')
 
@@ -35,14 +35,6 @@ const log = createLogger('RemoteMcp')
  * from an external server we do not own.
  */
 export const AERO_EXCLUDED_MCP_TOOLS: ReadonlySet<string> = new Set<string>([])
-
-/** Max characters of a remote tool result we hand back to the model. */
-const MAX_TOOL_RESULT_CHARS = 20_000
-
-function truncate(text: string): string {
-  if (text.length <= MAX_TOOL_RESULT_CHARS) return text
-  return text.slice(0, MAX_TOOL_RESULT_CHARS) + '\n... (truncated, result too large)'
-}
 
 /** Shape of a single tool entry returned by the MCP SDK `client.listTools()`. */
 interface RemoteToolDescriptor {
@@ -90,7 +82,7 @@ export async function connectStreamableHttp(
   })
   const client = new Client(
     { name: 'canonry-aero', version: '1.0.0' },
-    { capabilities: {} },
+    { capabilities: {}, versionNegotiation: { mode: 'auto' } },
   )
   await client.connect(transport)
   return client as unknown as RemoteMcpClient
@@ -102,12 +94,22 @@ function isReadOnly(tool: RemoteToolDescriptor): boolean {
 }
 
 /**
+ * True when a remote `callTool` result reports a tool-level failure. The MCP SDK
+ * returns a failed call as a `CallToolResult` with `isError: true` rather than
+ * throwing, so this flag is the only signal that the call failed.
+ */
+function isRemoteToolError(result: unknown): boolean {
+  return typeof result === 'object' && result !== null && 'isError' in result && result.isError === true
+}
+
+/**
  * Adapt one remote read-only MCP tool into a pi-agent-core `AgentTool`. Mirrors
  * the AgentTool shape produced by `mcp-to-agent-tool.ts` (name/label/description/
  * parameters/execute). The remote tool's JSON Schema is wrapped in `Type.Unsafe`
  * so pi-agent-core's TSchema-typed `parameters` accepts it without conversion;
  * `execute` forwards the validated args to `client.callTool` and returns the
- * remote result under the 20 KB truncation guard.
+ * remote result under the 20 KB truncation guard, carrying the remote
+ * `isError` flag so pi-agent-core records a failed call as an error.
  *
  * No `project` stripping/injection here (unlike the local adapter): a remote
  * server defines its own argument surface and we never inject a canonry project
@@ -123,9 +125,25 @@ function adaptRemoteTool(client: RemoteMcpClient, tool: RemoteToolDescriptor): A
     params: Record<string, unknown>,
   ): Promise<AgentToolResult<unknown>> => {
     const result = await client.callTool({ name: tool.name, arguments: params })
+    let shown = result
+    if (result && typeof result === 'object') {
+      const envelope = result as { structuredContent?: unknown; content?: Array<{ type?: string; text?: string }> }
+      if (envelope.structuredContent !== undefined) shown = envelope.structuredContent
+      else if (envelope.content?.length === 1 && envelope.content[0]?.type === 'text') {
+        const text = envelope.content[0].text ?? ''
+        try { shown = JSON.parse(text) as unknown } catch { shown = text }
+      } else if (envelope.content?.some(block => block.type === 'text')) {
+        // Protocol content blocks are not native evidence rows. Key their model-only
+        // envelope so an oversized text block can retain a marked string prefix;
+        // structuredContent collections and the original details remain unchanged.
+        shown = { ...result, content: Object.fromEntries(envelope.content.map((block, index) => [`block_${index + 1}`, block])) }
+      }
+    }
     return {
-      content: [{ type: 'text', text: truncate(JSON.stringify(result, null, 2)) }],
+      // A fetched document can be one row larger than the cap; show it in part rather than not at all.
+      content: [{ type: 'text', text: truncateToolResult(shown, { partialRows: true }) }],
       details: result,
+      isError: isRemoteToolError(result),
     }
   }
 

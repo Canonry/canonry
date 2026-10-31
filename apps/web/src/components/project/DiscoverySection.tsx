@@ -14,7 +14,7 @@ import type {
   MeasurementQueryTemplate,
   VisibilityReportScopeOption,
   ResearchRunScope,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 
 import {
   getViewerResearchConfig,
@@ -32,7 +32,7 @@ import {
   getApiV1RunsQueryKey,
   postApiV1ProjectsByNameQueryTrackingCommitMutation,
   postApiV1ProjectsByNameQueryTrackingPreviewMutation,
-} from '@ainyc/canonry-api-client/react-query'
+} from '@canonry/canonry-api-client/react-query'
 import { addToast } from '../../lib/toast-store.js'
 import { invalidateProjectQueryDomain, invalidateQueryTrackingPublication } from '../../queries/query-invalidation.js'
 import { Button } from '../ui/button.js'
@@ -74,6 +74,13 @@ export interface QueriesSectionProps {
   onSelectionChange?: (patch: Record<string, unknown>) => void
   trackingQueryId?: string
   onTrackingQueryIdChange?: (queryId: string | undefined) => void
+  /** Read-only state that pauses Confirm; the server does not refuse these commits yet. */
+  publishGuard?: TrackingPublishGuard
+}
+
+export type TrackingPublishGuard = {
+  /** A queued run is pinned to the current tracking, so a publish now would not be measured by it. */
+  sweepActive: boolean
 }
 
 export function QueriesSection({
@@ -86,6 +93,7 @@ export function QueriesSection({
   onSelectionChange,
   trackingQueryId,
   onTrackingQueryIdChange,
+  publishGuard,
 }: QueriesSectionProps) {
   const { account } = useAccount()
   const [uncontrolledWorkspace, setUncontrolledWorkspace] = useState<QueryWorkspace>('tracked')
@@ -106,7 +114,9 @@ export function QueriesSection({
     onResearchModeChange?.(mode)
   }
   const reviewSavedSource = (source: SavedTrackingSource, scope?: ResearchRunScope | null) => {
-    const trackingSelection = scope === undefined ? { ...selection } : {
+    // Only a research run's own market or property preselects a destination.
+    // A Find result starts at project scope and leaves the Tracked filter alone.
+    const trackingSelection = {
       ...selection,
       measurementScope: scope?.kind ?? 'project' as const,
       measurementScopeKey: scope?.key,
@@ -135,6 +145,7 @@ export function QueriesSection({
             onTrackingQueryIdChange={onTrackingQueryIdChange}
             pendingTrackingSource={pendingTrackingSource}
             onPendingTrackingSourceHandled={() => setPendingTrackingSource(null)}
+            publishGuard={publishGuard}
           />
         ) : (
           <QueryResearchWorkspace
@@ -158,7 +169,7 @@ function WorkspaceTab({ active, label, onClick }: { active: boolean; label: stri
       type="button"
       role="tab"
       aria-selected={active}
-      className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-500 focus-visible:ring-inset ${active ? 'border-mono-400 text-heading' : 'border-transparent text-muted hover:border-strong hover:text-strong'}`}
+      className={`-mb-px border-b-2 px-3 py-2 text-button-14 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-500 focus-visible:ring-inset ${active ? 'border-mono-400 text-heading' : 'border-transparent text-muted hover:border-strong hover:text-strong'}`}
       onClick={onClick}
     >
       {label}
@@ -289,6 +300,7 @@ function TrackedQueriesWorkspace({
   isCommitting,
   onPreview,
   onCommit,
+  publishGuard,
 }: {
   workspace: QueryTrackingWorkspaceResponse
   selection: NonNullable<QueriesSectionProps['selection']>
@@ -303,6 +315,7 @@ function TrackedQueriesWorkspace({
   isCommitting: boolean
   onPreview: (mutation: QueryTrackingMutation) => void
   onCommit: (request: QueryTrackingCommitRequest) => void
+  publishGuard?: TrackingPublishGuard
 }) {
   const [action, setAction] = useState<TrackingAction | null>(null)
   const [draft, setDraft] = useState<TrackingDraft>(() => defaultTrackingDraft(selection))
@@ -387,7 +400,7 @@ function TrackedQueriesWorkspace({
     onTrackingQueryIdChange?.(undefined)
   }
 
-  const mutation = action ? mutationForAction(action, draft, workspace.mode) : null
+  const mutation = action ? mutationForAction(action, draft, workspace) : null
   const needsExplicitContext = action !== null
     && action.kind === 'add'
     && workspace.mode === 'advanced'
@@ -395,7 +408,7 @@ function TrackedQueriesWorkspace({
   const canReview = mutation !== null && (!needsExplicitContext || draft.contexts.length > 0) && !isPreviewing
 
   if (unavailableScope) {
-    return <div className="query-tracking-workspace space-y-4"><section aria-label="Tracked queries" className="py-4 text-sm text-secondary">
+    return <div className="query-tracking-workspace space-y-4"><section aria-label="Tracked queries" className="py-4 text-label-14 text-secondary">
       <p>This saved {selection.measurementScope} filter is unavailable in the current measurement.</p>
       <Button type="button" variant="outline" className="mt-3" onClick={() => onSelectionChange?.({ measurementScope: 'project', measurementScopeKey: undefined })}>Show whole site</Button>
     </section></div>
@@ -420,15 +433,15 @@ function TrackedQueriesWorkspace({
             </WriteButton>
           )}
         </div>
-        <p className="mt-2 text-xs leading-5 text-secondary">
+        <p className="mt-2 text-copy-13 text-secondary">
           {table.totalRows.toLocaleString('en-US')} saved query {table.totalRows === 1 ? 'record' : 'records'} in this view. Each record can have more than one property, group, or market assignment.
         </p>
-        {selection.measurementScope === 'group' ? <p className="mt-1 text-xs leading-5 text-secondary">Queries belong to properties, so a shared query can also cover other groups.</p> : null}
+        {selection.measurementScope === 'group' ? <p className="mt-1 text-copy-13 text-secondary">Queries belong to properties, so a shared query can also cover other groups.</p> : null}
 
-        {!workspace.active ? <p className="mt-3 text-sm text-caution">No published measurement yet.</p> : null}
+        {!workspace.active ? <p className="mt-3 text-copy-14 text-caution">No published measurement yet.</p> : null}
 
         {table.rows.length === 0 ? (
-          <p className="mt-5 text-sm text-muted">
+          <p className="mt-5 text-copy-14 text-muted">
             {table.hasQuery ? 'No tracked queries match that search.' : 'No tracked queries in this scope yet.'}
           </p>
         ) : (
@@ -440,7 +453,7 @@ function TrackedQueriesWorkspace({
               <tbody>
                 {table.rows.map(row => (
                   <tr key={row.queryId}>
-                    <td className="tracking-query-cell break-words font-medium text-heading">{row.queryText}</td>
+                    <td className="tracking-query-cell break-words text-label-14-strong text-heading">{row.queryText}</td>
                     <td className="tracking-scope-cell text-secondary"><AssignmentScopeDisclosure row={row} workspace={workspace} selection={selection} /></td>
                     {workspace.mode === 'advanced' ? <td className="whitespace-nowrap"><AssignmentClassBadge row={row} /></td> : null}
                     <td className="whitespace-nowrap text-secondary">{provenanceLabel(row)}</td>
@@ -495,6 +508,7 @@ function TrackedQueriesWorkspace({
           preview={preview}
           workspace={workspace}
           isCommitting={isCommitting}
+          sweepActive={publishGuard?.sweepActive ?? false}
           onConfirm={() => {
             onCommit({
               ...reviewedMutation,
@@ -533,7 +547,7 @@ type TrackingDraft = {
 function defaultTrackingDraft(selection: NonNullable<QueriesSectionProps['selection']>): TrackingDraft {
   return {
     source: 'manual', text: '', templateId: '', templateVersion: '', template: '', researchRunQueryId: '', discoveryProbeId: '',
-    wholeSite: selection.measurementScope === 'project' || !selection.measurementScopeKey,
+    wholeSite: false,
     targetKeys: selection.measurementScope === 'property' && selection.measurementScopeKey ? [selection.measurementScopeKey] : [],
     groupKeys: selection.measurementScope === 'group' && selection.measurementScopeKey ? [selection.measurementScopeKey] : [],
     marketKeys: selection.measurementScope === 'market' && selection.measurementScopeKey ? [selection.measurementScopeKey] : [],
@@ -556,8 +570,9 @@ function draftForRow(
 function mutationForAction(
   action: TrackingAction,
   draft: TrackingDraft,
-  mode: QueryTrackingWorkspaceResponse['mode'],
+  workspace: QueryTrackingWorkspaceResponse,
 ): QueryTrackingMutation | null {
+  const advanced = workspace.mode === 'advanced'
   if (action.kind === 'remove') return { additions: [], removals: [{ queryId: action.row.queryId, ...(action.audience ? { audience: action.audience } : {}) }] }
   if (action.kind === 'edit') {
     if (!draft.text.trim()) return null
@@ -568,19 +583,21 @@ function mutationForAction(
         queryId: action.row.queryId,
         text: draft.text.trim(),
         ...(action.audience ? { audience: action.audience } : {}),
-        ...(mode === 'advanced' && draft.queryClass !== 'keep' ? { queryClass: draft.queryClass === 'auto' ? null : draft.queryClass } : {}),
+        ...(advanced && draft.queryClass !== 'keep' ? { queryClass: draft.queryClass === 'auto' ? null : draft.queryClass } : {}),
       }],
     }
   }
   const input = sourceInputForDraft(draft)
-  if (!input || needsTemplateMarket(draft) || (!draft.wholeSite && draft.targetKeys.length + draft.groupKeys.length + draft.marketKeys.length === 0)) return null
-  const audience = audienceForDraft(draft)
+  if (!input || needsTemplateMarket(draft) || (advanced && !draft.wholeSite && draft.targetKeys.length + draft.groupKeys.length + draft.marketKeys.length === 0)) return null
+  // Simple projects take no audience. Advanced ones always name it, because
+  // the server reads an omitted addition audience as every location.
+  const audience = advanced ? audienceForDraft(draft, workspace) : undefined
   return {
     additions: [{
       input,
       ...(audience ? { audience } : {}),
-      ...(mode === 'advanced' && !hasMarketOnlyAudience(draft) && draft.contexts.length > 0 ? { contexts: draft.contexts } : {}),
-      ...(mode === 'advanced' && draft.queryClass !== 'auto' && draft.queryClass !== 'keep' ? { queryClass: draft.queryClass } : {}),
+      ...(advanced && !hasMarketOnlyAudience(draft) && draft.contexts.length > 0 ? { contexts: draft.contexts } : {}),
+      ...(advanced && draft.queryClass !== 'auto' && draft.queryClass !== 'keep' ? { queryClass: draft.queryClass } : {}),
     }],
     removals: [],
   }
@@ -595,8 +612,8 @@ function sourceInputForDraft(draft: TrackingDraft): QueryTrackingMutation['addit
   return draft.discoveryProbeId ? { source: 'discovery', discoveryProbeId: draft.discoveryProbeId } : null
 }
 
-function audienceForDraft(draft: TrackingDraft): QueryTrackingMutation['additions'][number]['audience'] | undefined {
-  if (draft.wholeSite) return undefined
+function audienceForDraft(draft: TrackingDraft, workspace: QueryTrackingWorkspaceResponse): QueryTrackingMutation['additions'][number]['audience'] | undefined {
+  if (draft.wholeSite) return { targetKeys: workspace.targets.map(target => target.stableKey) }
   const audience = {
     ...(draft.targetKeys.length > 0 ? { targetKeys: draft.targetKeys } : {}),
     ...(draft.groupKeys.length > 0 ? { groupKeys: draft.groupKeys } : {}),
@@ -666,10 +683,10 @@ function TrackingQueryTypeFilter({
 }) {
   return (
     <label className="min-w-40 flex-1">
-      <span className="mb-1 block text-xs font-medium text-secondary">Query type</span>
+      <span className="mb-1 block text-label-12-strong text-secondary">Query type</span>
       <select
         aria-label="Query type"
-        className="h-11 w-full rounded-md border border-default bg-surface px-3 text-sm text-strong focus:border-mono-500 focus:outline-none focus:ring-1 focus:ring-mono-500"
+        className="h-11 w-full rounded-md border border-default bg-surface px-3 text-label-14 text-strong focus:border-mono-500 focus:outline-none focus:ring-1 focus:ring-mono-500"
         value={selection.queryClass}
         onChange={event => onSelectionChange?.({ queryClass: event.target.value })}
       >
@@ -759,8 +776,8 @@ function AssignmentScopeDisclosure({
       <summary className="cursor-pointer rounded px-1 py-1 text-secondary hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-500">
         {assignmentScopeLabel(row, workspace, selection)}
       </summary>
-      <div className="mt-2 rounded border border-default bg-surface p-2 text-xs leading-5 text-secondary">
-        <p className="font-medium text-strong">Assigned relationships</p>
+      <div className="mt-2 material-base p-2 text-label-12 text-secondary">
+        <p className="text-copy-13-strong text-strong">Assigned relationships</p>
         <ul className="mt-1 list-disc space-y-1 pl-4">
           {relationships.map(relationship => <li key={relationship}>{relationship}</li>)}
         </ul>
@@ -805,7 +822,7 @@ function MeasurementStateBadge({ row, outsidePlan = false }: { row: QueryTrackin
   if (outsidePlan) return <ToneBadge tone="neutral">Not in current plan</ToneBadge>
   return row.state === 'tracked'
     ? <ToneBadge tone="positive">Measured</ToneBadge>
-    : <ToneBadge tone="caution">Awaiting sweep</ToneBadge>
+    : <ToneBadge tone="caution">Awaiting check</ToneBadge>
 }
 
 function TrackingComposer({
@@ -838,8 +855,8 @@ function TrackingComposer({
         <div className="section-head">
           <div>
             <h3>Remove query</h3>
-            <p className="mt-1 text-sm leading-6 text-secondary">Remove “{action.row.queryText}” from future tracking?</p>
-            <p className="mt-1 text-sm leading-5 text-secondary">{action.audience ? `Only assignments in ${action.scopeLabel} will be removed.` : 'All assignments will be removed.'} Earlier results stay unchanged.</p>
+            <p className="mt-1 text-copy-14 text-secondary">Remove “{action.row.queryText}” from future tracking?</p>
+            <p className="mt-1 text-copy-14 text-secondary">{action.audience ? `Only assignments in ${action.scopeLabel} will be removed.` : 'All assignments will be removed.'} Earlier results stay unchanged.</p>
           </div>
         </div>
         <ComposerActions canReview={canReview} isPreviewing={isPreviewing} onCancel={onClose} onReview={onReview} />
@@ -854,25 +871,25 @@ function TrackingComposer({
           <h3 ref={editorHeadingRef} tabIndex={-1}>Edit query</h3>
           <Button type="button" variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
         </div>
-        <p className="mt-3 text-sm leading-6 text-secondary">
+        <p className="mt-3 text-copy-14 text-secondary">
           {action.audience ? `Changes apply only to assignments in ${action.scopeLabel}.` : 'Changes apply to every assignment of this query.'} Earlier results stay unchanged.
         </p>
         <div className="mt-4 max-w-2xl space-y-4">
           <label className="block" htmlFor="tracking-query-text">
-            <span className="text-xs font-medium text-secondary">Query text</span>
+            <span className="text-label-12-strong text-secondary">Query text</span>
             <textarea
               id="tracking-query-text"
-              className="mt-1 min-h-28 w-full rounded-md border border-default bg-surface px-3 py-2 text-sm text-strong focus:border-mono-500 focus:outline-none focus:ring-1 focus:ring-mono-500"
+              className="mt-1 min-h-28 w-full rounded-md border border-default bg-surface px-3 py-2 text-copy-14 text-strong focus:border-mono-500 focus:outline-none focus:ring-1 focus:ring-mono-500"
               value={draft.text}
               onChange={event => onDraftChange({ ...draft, text: event.target.value })}
             />
           </label>
           {workspace.mode === 'advanced' && (
             <label className="block" htmlFor="tracking-query-class">
-              <span className="text-xs font-medium text-secondary">Classification</span>
+              <span className="text-label-12-strong text-secondary">Classification</span>
               <select
                 id="tracking-query-class"
-                className="mt-1 h-9 w-full rounded-md border border-default bg-surface px-3 py-2 text-sm text-strong focus:border-mono-500 focus:outline-none focus:ring-1 focus:ring-mono-500"
+                className="mt-1 h-9 w-full rounded-md border border-default bg-surface px-3 py-2 text-label-14 text-strong focus:border-mono-500 focus:outline-none focus:ring-1 focus:ring-mono-500"
                 value={draft.queryClass}
                 onChange={event => onDraftChange({ ...draft, queryClass: event.target.value as TrackingDraft['queryClass'] })}
               >
@@ -883,7 +900,7 @@ function TrackingComposer({
               </select>
             </label>
           )}
-          <p className="text-sm leading-6 text-secondary">Existing locations and engines are preserved. Use Add query to create assignments in another scope.</p>
+          <p className="text-copy-14 text-secondary">Existing locations and engines are preserved. Use Add query to create assignments in another scope.</p>
         </div>
         <ComposerActions canReview={canReview} isPreviewing={isPreviewing} onCancel={onClose} onReview={onReview} />
       </Card>
@@ -897,14 +914,14 @@ function TrackingComposer({
         <Button type="button" variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
       </div>
 
-      <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(250px,0.8fr)_minmax(0,1.2fr)]">
+      <div className={`mt-4 grid gap-4 ${workspace.mode === 'advanced' ? 'lg:grid-cols-[minmax(250px,0.8fr)_minmax(0,1.2fr)]' : 'max-w-2xl'}`}>
         <div className="space-y-4">
           {draft.source === 'manual' ? (
             <label className="block" htmlFor="tracking-query-text">
-              <span className="text-sm font-medium text-secondary">Question</span>
+              <span className="text-label-14-strong text-secondary">Question</span>
               <textarea
                 id="tracking-query-text"
-                className="mt-1 min-h-28 w-full rounded-md border border-default bg-surface px-3 py-2 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none focus:ring-1 focus:ring-mono-500"
+                className="mt-1 min-h-28 w-full rounded-md border border-default bg-surface px-3 py-2 text-copy-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none focus:ring-1 focus:ring-mono-500"
                 placeholder="e.g. How do teams compare AEO platforms?"
                 value={draft.text}
                 onChange={(event) => onDraftChange({ ...draft, text: event.target.value })}
@@ -913,7 +930,7 @@ function TrackingComposer({
           ) : null}
 
           {draft.source === 'template' ? (
-            <TemplateSourceField templates={templates} draft={draft} onDraftChange={onDraftChange} />
+            <TemplateSourceField templates={templates} advanced={workspace.mode === 'advanced'} draft={draft} onDraftChange={onDraftChange} />
           ) : null}
 
           {draft.source === 'research' ? (
@@ -937,11 +954,11 @@ function TrackingComposer({
           ) : null}
 
           <label className="block" htmlFor="tracking-query-source">
-            <span className="text-sm font-medium text-secondary">Query source</span>
+            <span className="text-label-14-strong text-secondary">Query source</span>
             <select
               id="tracking-query-source"
               aria-describedby={hasSavedTemplates ? undefined : 'tracking-query-source-no-templates'}
-              className="mt-1 h-9 w-full rounded-md border border-default bg-surface px-3 text-sm text-strong focus:border-mono-500 focus:outline-none focus:ring-1 focus:ring-mono-500"
+              className="mt-1 h-9 w-full rounded-md border border-default bg-surface px-3 text-label-14 text-strong focus:border-mono-500 focus:outline-none focus:ring-1 focus:ring-mono-500"
               value={draft.source}
               onChange={(event) => onDraftChange({ ...draft, source: event.target.value as TrackingDraft['source'] })}
             >
@@ -951,10 +968,10 @@ function TrackingComposer({
               <option value="discovery" disabled={workspace.savedSources.discovery.length === 0}>Discovery result{workspace.savedSources.discovery.length === 0 ? ' (none available)' : ''}</option>
             </select>
           </label>
-          {!hasSavedTemplates ? <p id="tracking-query-source-no-templates" className="text-sm leading-6 text-secondary">No saved templates are set up for this portfolio. Write a question, or use saved research or a discovery result.</p> : null}
+          {!hasSavedTemplates ? <p id="tracking-query-source-no-templates" className="text-copy-14 text-secondary">No saved templates are set up for this portfolio. Write a question, or use saved research or a discovery result.</p> : null}
         </div>
 
-        <AssignmentSelector workspace={workspace} draft={draft} onDraftChange={onDraftChange} />
+        {workspace.mode === 'advanced' ? <AssignmentSelector workspace={workspace} draft={draft} onDraftChange={onDraftChange} /> : null}
       </div>
 
       {workspace.mode === 'advanced' && !hasMarketOnlyAudience(draft) ? (
@@ -962,15 +979,15 @@ function TrackingComposer({
           <TrackingContextSelector workspace={workspace} draft={draft} onDraftChange={onDraftChange} />
         </div>
       ) : null}
-      <details className="mt-4 border-t border-default text-sm text-secondary">
+      <details className="mt-4 border-t border-default text-label-14 text-secondary">
         <summary className="min-h-11 cursor-pointer py-3">Measurement options</summary>
         <div className="grid gap-4 pb-3 sm:grid-cols-2">
           {workspace.mode === 'advanced' ? (
             <div className="block">
-              <label className="text-xs font-medium text-secondary" htmlFor="tracking-query-class">Classification</label>
+              <label className="text-label-12-strong text-secondary" htmlFor="tracking-query-class">Classification</label>
               <select
                 id="tracking-query-class"
-                className="mt-1 h-9 w-full rounded-md border border-default bg-surface px-3 text-sm text-strong focus:border-mono-500 focus:outline-none focus:ring-1 focus:ring-mono-500"
+                className="mt-1 h-9 w-full rounded-md border border-default bg-surface px-3 text-label-14 text-strong focus:border-mono-500 focus:outline-none focus:ring-1 focus:ring-mono-500"
                 value={draft.queryClass}
                 onChange={(event) => onDraftChange({ ...draft, queryClass: event.target.value as TrackingDraft['queryClass'] })}
               >
@@ -980,16 +997,16 @@ function TrackingComposer({
               </select>
             </div>
           ) : (
-            <div className="rounded-md border border-default bg-surface-subtle px-3 py-2">
-              <p className="text-xs font-medium text-secondary">Classification</p>
-              <p className="mt-1 text-sm text-strong">Automatic</p>
+            <div className="material-base px-3 py-2">
+              <p className="text-copy-13-strong text-secondary">Classification</p>
+              <p className="mt-1 text-copy-14 text-strong">Automatic</p>
             </div>
           )}
         </div>
       </details>
 
       {draft.source === 'research' && (
-        <p className="mt-4 rounded-md border border-default bg-surface-subtle px-3 py-2 text-sm text-secondary">
+        <p className="mt-4 material-base px-3 py-2 text-copy-14 text-secondary">
           Only the saved query is added.
         </p>
       )}
@@ -1000,21 +1017,23 @@ function TrackingComposer({
 
 function TemplateSourceField({
   templates,
+  advanced,
   draft,
   onDraftChange,
 }: {
   templates: readonly MeasurementQueryTemplate[]
+  advanced: boolean
   draft: TrackingDraft
   onDraftChange: (draft: TrackingDraft) => void
 }) {
   return (
     <div>
       <label className="block" htmlFor="tracking-template-source">
-        <span className="text-xs font-medium text-secondary">Saved template</span>
+        <span className="text-label-12-strong text-secondary">Saved template</span>
         <select
           id="tracking-template-source"
           aria-describedby={needsTemplateMarket(draft) ? 'tracking-template-market-required' : undefined}
-          className="mt-1 h-9 w-full rounded-md border border-default bg-surface px-3 text-sm text-strong focus:border-mono-500 focus:outline-none focus:ring-1 focus:ring-mono-500"
+          className="mt-1 h-9 w-full rounded-md border border-default bg-surface px-3 text-label-14 text-strong focus:border-mono-500 focus:outline-none focus:ring-1 focus:ring-mono-500"
           value={draft.templateId}
           onChange={(event) => {
             const template = templates.find(candidate => candidate.id === event.target.value)
@@ -1029,9 +1048,15 @@ function TemplateSourceField({
           <option value="">Choose a template</option>
           {templates.map(template => <option key={template.id} value={template.id}>{template.name}</option>)}
         </select>
-        {draft.template ? <span className="mt-1 block text-xs leading-5 text-muted">{draft.template}</span> : null}
+        {draft.template ? <span className="mt-1 block text-label-12 text-muted">{draft.template}</span> : null}
       </label>
-      {needsTemplateMarket(draft) ? <p id="tracking-template-market-required" role="status" className="mt-2 text-sm leading-5 text-caution">Choose a Market under Apply to for this template. A location alone does not select a market.</p> : null}
+      {needsTemplateMarket(draft) ? (
+        <p id="tracking-template-market-required" role="status" className="mt-2 text-copy-14 text-caution">
+          {advanced
+            ? 'Choose a Market under Apply to for this template. A location alone does not select a market.'
+            : 'This template needs a market, and this project has no markets. Write a question instead.'}
+        </p>
+      ) : null}
     </div>
   )
 }
@@ -1051,10 +1076,10 @@ function SavedSourceField({
 }) {
   return (
     <label className="block" htmlFor={id}>
-      <span className="text-xs font-medium text-secondary">{label}</span>
+      <span className="text-label-12-strong text-secondary">{label}</span>
       <select
         id={id}
-        className="mt-1 h-9 w-full rounded-md border border-default bg-surface px-3 text-sm text-strong focus:border-mono-500 focus:outline-none focus:ring-1 focus:ring-mono-500"
+        className="mt-1 h-9 w-full rounded-md border border-default bg-surface px-3 text-label-14 text-strong focus:border-mono-500 focus:outline-none focus:ring-1 focus:ring-mono-500"
         value={value}
         onChange={(event) => onChange(event.target.value)}
       >
@@ -1110,11 +1135,11 @@ function TrackingContextSelector({
 
   return (
     <label className="block" htmlFor="tracking-query-context">
-      <span className="text-xs font-medium text-secondary">Location and engines</span>
+      <span className="text-label-12-strong text-secondary">Location and engines</span>
       <select
         id="tracking-query-context"
         aria-label="Location and engines"
-        className="mt-1 h-9 w-full rounded-md border border-default bg-surface px-3 text-sm text-strong focus:border-mono-500 focus:outline-none focus:ring-1 focus:ring-mono-500"
+        className="mt-1 h-9 w-full rounded-md border border-default bg-surface px-3 text-label-14 text-strong focus:border-mono-500 focus:outline-none focus:ring-1 focus:ring-mono-500"
         value={selected}
         onChange={event => {
           const selectedContext = options.find(context => contextKey(context) === event.target.value)
@@ -1128,7 +1153,7 @@ function TrackingContextSelector({
         {draft.contexts.length > 1 ? <option value="__existing__">Keep {draft.contexts.length} existing contexts</option> : null}
         {options.map(context => <option key={contextKey(context)} value={contextKey(context)}>{contextLabel(context)}</option>)}
       </select>
-      <span className="mt-1 block text-xs leading-5 text-secondary">
+      <span className="mt-1 block text-label-12 text-secondary">
         {options.length === 0 ? 'No configured measurement context is available.' : 'Choose where this query will be measured.'}
       </span>
     </label>
@@ -1144,6 +1169,7 @@ function AssignmentSelector({
   draft: TrackingDraft
   onDraftChange: (draft: TrackingDraft) => void
 }) {
+  const { canWrite } = useAccount()
   const [filter, setFilter] = useState('')
   const [changingDestination, setChangingDestination] = useState(() => draft.wholeSite || draft.targetKeys.length !== 1 || draft.groupKeys.length > 0 || draft.marketKeys.length > 0)
   const options = useMemo(() => [
@@ -1168,10 +1194,10 @@ function AssignmentSelector({
   if (!changingDestination) {
     const target = workspace.targets.find(candidate => candidate.stableKey === draft.targetKeys[0])
     return (
-      <fieldset className="self-start rounded-md border border-default bg-surface-subtle p-3">
-        <legend className="px-1 text-xs font-medium text-secondary">Apply to</legend>
+      <fieldset className="self-start material-base p-3">
+        <legend className="px-1 text-label-12-strong text-secondary">Apply to</legend>
         <div className="flex items-center justify-between gap-3">
-          <p className="text-sm text-strong">Property: {target?.label ?? draft.targetKeys[0]}</p>
+          <p className="text-copy-14 text-strong">Property: {target?.label ?? draft.targetKeys[0]}</p>
           <Button type="button" variant="ghost" size="sm" aria-label="Change tracking destination" onClick={() => setChangingDestination(true)}>Change</Button>
         </div>
       </fieldset>
@@ -1179,25 +1205,27 @@ function AssignmentSelector({
   }
 
   return (
-    <fieldset className="rounded-md border border-default bg-surface-subtle p-3">
-      <legend className="px-1 text-xs font-medium text-secondary">Apply to</legend>
-      <p className="text-sm leading-6 text-secondary">Choose where this question should be tracked.</p>
-      <label className="mt-3 flex min-h-9 items-center gap-2 rounded px-1 text-sm text-strong">
-        <input
-          type="checkbox"
-          checked={draft.wholeSite}
-          onChange={(event) => {
-            onDraftChange({ ...draft, wholeSite: event.target.checked, targetKeys: [], groupKeys: [], marketKeys: [] })
-          }}
-        />
-        Whole site
-      </label>
-      {!draft.wholeSite && !hasAudience ? <p role="status" className="mt-2 text-sm text-caution">Choose Whole site or at least one property, group, or market.</p> : null}
-      <p className="mt-2 text-sm leading-5 text-secondary">Group: properties grouped together. Market: search context.</p>
+    <fieldset className="material-base p-3">
+      <legend className="px-1 text-label-12-strong text-secondary">Apply to</legend>
+      <p className="text-copy-14 text-secondary">Choose where this question should be tracked.</p>
+      {canWrite ? (
+        <label className="mt-3 flex min-h-9 items-center gap-2 rounded px-1 text-label-14 text-strong">
+          <input
+            type="checkbox"
+            checked={draft.wholeSite}
+            onChange={(event) => {
+              onDraftChange({ ...draft, wholeSite: event.target.checked, targetKeys: [], groupKeys: [], marketKeys: [] })
+            }}
+          />
+          Every location ({workspace.targets.length})
+        </label>
+      ) : null}
+      {!draft.wholeSite && !hasAudience ? <p role="status" className="mt-2 text-copy-14 text-caution">Choose at least one location, group, or market.</p> : null}
+      <p className="mt-2 text-copy-14 text-secondary">Group: properties grouped together. Market: search context.</p>
       <DataTableSearch value={filter} onChange={setFilter} label="Filter assignments" placeholder="Search Properties, Groups, Markets" className="mt-3" />
       <div className="mt-3 max-h-64 space-y-1 overflow-y-auto pr-1">
-        {visible.length === 0 ? <p className="px-1 py-2 text-sm text-muted">No assignment matches that search.</p> : visible.map(option => (
-          <label key={`${option.kind}:${option.key}`} className="flex min-h-9 items-center gap-2 rounded px-1 py-1 text-sm text-strong hover:bg-surface-hover">
+        {visible.length === 0 ? <p className="px-1 py-2 text-copy-14 text-muted">No assignment matches that search.</p> : visible.map(option => (
+          <label key={`${option.kind}:${option.key}`} className="flex min-h-9 items-center gap-2 rounded px-1 py-1 text-label-14 text-strong hover:bg-surface-hover">
             <input
               type="checkbox"
               aria-label={`${option.label}, ${option.detail}`}
@@ -1205,7 +1233,7 @@ function AssignmentSelector({
               onChange={(event) => toggle(option.kind, option.key, event.target.checked)}
             />
             <span className="min-w-0 flex-1 truncate">{option.label}</span>
-            <span className="text-xs text-muted">{option.detail}</span>
+            <span className="text-label-12 text-muted">{option.detail}</span>
           </label>
         ))}
       </div>
@@ -1230,7 +1258,7 @@ function ComposerActions({
         {isPreviewing ? 'Reviewing…' : 'Review changes'}
       </WriteButton>
       <Button type="button" variant="ghost" size="sm" onClick={onCancel}>Cancel</Button>
-      <p className="text-sm leading-5 text-secondary">Publishing does not run a sweep.</p>
+      <p className="text-copy-14 text-secondary">Publishing does not run a check.</p>
     </div>
   )
 }
@@ -1239,11 +1267,13 @@ function TrackingPreview({
   preview,
   workspace,
   isCommitting,
+  sweepActive,
   onConfirm,
 }: {
   preview: QueryTrackingPreviewResponse
   workspace: QueryTrackingWorkspaceResponse
   isCommitting: boolean
+  sweepActive: boolean
   onConfirm: () => void
 }) {
   const headingRef = useRef<HTMLHeadingElement>(null)
@@ -1254,6 +1284,13 @@ function TrackingPreview({
     heading.focus({ preventScroll: true })
   }, [preview])
   const hasChanges = !preview.diff.noOp
+  // An advanced commit writes a new revision with no continuity link, so
+  // location and competitor reads blank while AI Visibility falls back.
+  const subcopy = !hasChanges
+    ? 'This request leaves tracking unchanged.'
+    : preview.mode === 'advanced'
+      ? 'After you publish, AI Visibility keeps showing the last check until the next check. Location pages and competitor results show no numbers until then. Past answers are kept.'
+      : 'Changes apply to future checks. Earlier results stay unchanged.'
   const changed = [
     { label: 'Added', rows: preview.diff.added },
     { label: 'Removed', rows: preview.diff.removed },
@@ -1264,30 +1301,43 @@ function TrackingPreview({
       <div className="section-head section-head-inline gap-4">
         <div>
           <h3 ref={headingRef} tabIndex={-1}>{hasChanges ? 'Confirm tracked query changes' : 'No tracking changes'}</h3>
-          <p className="mt-1 text-sm leading-6 text-secondary">{hasChanges ? 'Changes apply to future sweeps. Earlier results stay unchanged.' : 'This request leaves tracking unchanged.'}</p>
+          <p className="mt-1 text-copy-14-strong text-strong">{previewWorkloadLine(preview)}</p>
+          <p className="mt-1 text-copy-14 text-secondary">{subcopy}</p>
         </div>
         <ToneBadge tone={hasChanges ? 'caution' : 'neutral'}>{hasChanges ? 'Ready to confirm' : 'No-op'}</ToneBadge>
       </div>
       {changed.length > 0 ? <div className="mt-4 space-y-4">
         {changed.map(group => <PreviewChangeList key={group.label} label={group.label} rows={group.rows} workspace={workspace} tracked={preview.tracked} />)}
       </div> : null}
-      {preview.diff.unchanged.length > 0 ? <details className="mt-4 border-t border-default pt-2 text-sm text-secondary">
+      {preview.diff.unchanged.length > 0 ? <details className="mt-4 border-t border-default pt-2 text-label-14 text-secondary">
         <summary className="min-h-11 cursor-pointer py-3">{preview.diff.unchanged.length} unchanged {preview.diff.unchanged.length === 1 ? 'query' : 'queries'}</summary>
         <PreviewChangeList label="Unchanged" rows={preview.diff.unchanged} workspace={workspace} tracked={preview.tracked} />
       </details> : null}
-      <details className="mt-4 border-t border-default text-sm text-secondary">
-        <summary className="min-h-11 cursor-pointer py-3">Next sweep workload</summary>
-        <p className="leading-6">
-          Next sweep: {preview.workload.nextSweepProviderCalls} provider requests (+{preview.workload.addedProviderCalls}, −{preview.workload.removedProviderCalls}).
-        </p>
-      </details>
       <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-default pt-4">
-        <WriteButton type="button" size="sm" disabled={!hasChanges || isCommitting} onClick={onConfirm}>
+        <WriteButton type="button" size="sm" disabled={!hasChanges || isCommitting || sweepActive} onClick={onConfirm}>
           {isCommitting ? 'Confirming…' : 'Confirm changes'}
         </WriteButton>
+        {hasChanges && sweepActive ? <p role="status" className="text-copy-14 text-caution">A check is queued or running. Publish after it finishes.</p> : null}
       </div>
     </Card>
   )
+}
+
+/** One provider call is one answer; added and removed answers stay separate. */
+function previewWorkloadLine(preview: QueryTrackingPreviewResponse): string {
+  const { added } = preview.diff
+  // A scoped removal lists a query that stays tracked elsewhere; only rows gone
+  // from the post-change `tracked` leave tracking. Answers still count the rest.
+  const stillTracked = new Set(preview.tracked.map(row => row.queryId))
+  const removed = preview.diff.removed.filter(row => !stillTracked.has(row.queryId))
+  const { addedProviderCalls, removedProviderCalls, nextSweepProviderCalls } = preview.workload
+  const count = (value: number) => value.toLocaleString('en-US')
+  return [
+    added.length > 0 ? `+${count(added.length)} ${added.length === 1 ? 'query' : 'queries'}` : null,
+    removed.length > 0 ? `−${count(removed.length)} ${removed.length === 1 ? 'query' : 'queries'}` : null,
+    `+${count(addedProviderCalls)} / −${count(removedProviderCalls)} answers per check`,
+    `next check asks ${count(nextSweepProviderCalls)}`,
+  ].filter((part): part is string => part !== null).join(' · ')
 }
 
 function PreviewChangeList({
@@ -1303,10 +1353,10 @@ function PreviewChangeList({
 }) {
   return (
     <section aria-label={`${label} queries`}>
-      <p className="text-xs font-medium text-secondary">{rows.length} {label.toLocaleLowerCase()}{rows.length === 1 ? '' : 's'}</p>
+      <p className="text-copy-13-strong text-secondary">{rows.length} {label.toLocaleLowerCase()}{rows.length === 1 ? '' : 's'}</p>
       <ul className="mt-2 divide-y divide-default">
-        {rows.map(row => <li key={`${label}:${row.queryId}`} className="py-2 text-sm">
-          <p className="font-medium text-strong">{row.queryText}</p>
+        {rows.map(row => <li key={`${label}:${row.queryId}`} className="py-2 text-label-14">
+          <p className="text-copy-14-strong text-strong">{row.queryText}</p>
           <p className="mt-1 text-secondary">{label === 'Removed'
             // `tracked` is the post-change state, so its scopes describe what survives.
             ? `${row.assignmentCount} ${row.assignmentCount === 1 ? 'assignment' : 'assignments'} removed`
@@ -1323,7 +1373,7 @@ function PreviewClassifications({ row, workspace }: { row?: QueryTrackingTracked
   const propertyCount = new Set(row.assignments.map(assignment => assignment.targetKey)).size
   return (
     <details className="mt-2 text-secondary">
-      <summary className="min-h-11 cursor-pointer py-3 font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-500">Classifications · {propertyCount} {propertyCount === 1 ? 'property' : 'properties'}</summary>
+      <summary className="min-h-11 cursor-pointer py-3 text-label-14-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-500">Classifications · {propertyCount} {propertyCount === 1 ? 'property' : 'properties'}</summary>
       <ul className="mt-1 max-h-40 space-y-1 overflow-y-auto">
         {row.assignments.map((assignment, index) => {
           const target = workspace.targets.find(candidate => candidate.stableKey === assignment.targetKey)?.label ?? assignment.targetKey
@@ -1358,7 +1408,8 @@ function TrackedQueriesSection({
   onTrackingQueryIdChange,
   pendingTrackingSource,
   onPendingTrackingSourceHandled,
-}: Pick<QueriesSectionProps, 'projectName' | 'selection' | 'onSelectionChange' | 'trackingQueryId' | 'onTrackingQueryIdChange'> & {
+  publishGuard,
+}: Pick<QueriesSectionProps, 'projectName' | 'selection' | 'onSelectionChange' | 'trackingQueryId' | 'onTrackingQueryIdChange' | 'publishGuard'> & {
   pendingTrackingSource: PendingTrackingSource | null
   onPendingTrackingSourceHandled: () => void
 }) {
@@ -1395,7 +1446,7 @@ function TrackedQueriesSection({
       await invalidateQueryTrackingPublication(queryClient, projectName)
       addToast({
         title: result.committed ? 'Tracked queries updated' : 'No tracked-query change',
-        detail: result.active ? `Measurement revision ${result.active.revision}.` : 'No measurement revision is published yet.',
+        detail: result.committed && result.mode === 'advanced' ? 'New numbers after the next check.' : undefined,
         tone: result.committed ? 'positive' : 'neutral',
         dedupeKey: `query-tracking:commit:${projectName}`,
         dedupeMode: 'replace',
@@ -1414,12 +1465,12 @@ function TrackedQueriesSection({
   })
 
   if (workspaceQuery.isLoading) {
-    return <Card className="surface-card"><p className="text-sm text-muted">Loading tracked queries…</p></Card>
+    return <Card className="surface-card"><p className="text-copy-14 text-muted">Loading tracked queries…</p></Card>
   }
   if (workspaceQuery.isError || !workspaceQuery.data) {
     return (
       <Card className="surface-card">
-        <p className="text-sm text-negative">Could not load tracked queries.</p>
+        <p className="text-copy-14 text-negative">Could not load tracked queries.</p>
         <Button type="button" variant="outline" size="sm" className="mt-3" onClick={() => void workspaceQuery.refetch()}>
           Try again
         </Button>
@@ -1436,6 +1487,7 @@ function TrackedQueriesSection({
       onTrackingQueryIdChange={onTrackingQueryIdChange}
       pendingTrackingSource={pendingTrackingSource}
       onPendingTrackingSourceHandled={onPendingTrackingSourceHandled}
+      publishGuard={publishGuard}
       templates={templatesQuery.data?.templates ?? []}
       preview={preview}
       isPreviewing={previewMutation.isPending}
@@ -1468,12 +1520,12 @@ export function DiscoverySection({ projectName }: { projectName: string }) {
           <h2>Discover or research queries</h2>
         </div>
       </div>
-      <div className="inline-flex rounded-md border border-default bg-surface p-1" role="tablist" aria-label="Query discovery workflow">
+      <div className="inline-flex material-base p-1" role="tablist" aria-label="Query discovery workflow">
         <button
           type="button"
           role="tab"
           aria-selected={workflow === 'find'}
-          className={`rounded px-3 py-1.5 text-sm font-medium transition-colors ${workflow === 'find' ? 'bg-bg-elevated text-heading shadow-sm' : 'text-muted hover:text-strong'}`}
+          className={`rounded px-3 py-1.5 text-button-14 transition-colors ${workflow === 'find' ? 'bg-bg-elevated text-heading shadow-sm' : 'text-muted hover:text-strong'}`}
           onClick={() => setWorkflow('find')}
         >
           Find queries
@@ -1482,7 +1534,7 @@ export function DiscoverySection({ projectName }: { projectName: string }) {
           type="button"
           role="tab"
           aria-selected={workflow === 'research'}
-          className={`rounded px-3 py-1.5 text-sm font-medium transition-colors ${workflow === 'research' ? 'bg-bg-elevated text-heading shadow-sm' : 'text-muted hover:text-strong'}`}
+          className={`rounded px-3 py-1.5 text-button-14 transition-colors ${workflow === 'research' ? 'bg-bg-elevated text-heading shadow-sm' : 'text-muted hover:text-strong'}`}
           onClick={() => setWorkflow('research')}
         >
           Research queries
@@ -1602,7 +1654,7 @@ function FindQueriesSection({
         <div>
           <p className="eyebrow eyebrow-soft">Step 1</p>
           <h2>Generate and check questions</h2>
-          <p className="mt-1 max-w-3xl text-sm leading-6 text-secondary">
+          <p className="mt-1 max-w-3xl text-copy-14 text-secondary">
             {isEmbed()
               ? 'Generate customer questions and check whether your site is already visible.'
               : 'Generate customer questions, check current visibility, then choose what to track.'}
@@ -1632,23 +1684,23 @@ function FindQueriesSection({
             </div>
             <div className="space-y-3">
               <label className="block">
-                <span className="text-sm text-secondary">Who is your ideal customer?</span>
+                <span className="text-label-14 text-secondary">Who is your ideal customer?</span>
                 <textarea
-                  className="mt-1 min-h-24 w-full rounded border border-strong bg-transparent px-3 py-2 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
+                  className="mt-1 min-h-24 w-full rounded border border-strong bg-transparent px-3 py-2 text-copy-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none"
                   placeholder="e.g. Small e-commerce stores that want AI-powered customer support. Leave blank to use the customer profile saved on this project."
                   value={icpDescription}
                   onChange={(event) => setIcpDescription(event.target.value)}
                 />
               </label>
               <label className="block">
-                <span className="text-sm text-secondary">How many questions to test</span>
+                <span className="text-label-14 text-secondary">How many questions to test</span>
                 <input
-                  className="mt-1 w-full rounded border border-strong bg-transparent px-3 py-2 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
+                  className="mt-1 w-full rounded border border-strong bg-transparent px-3 py-2 text-label-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none"
                   inputMode="numeric"
                   value={maxProbes}
                   onChange={(event) => setMaxProbes(event.target.value)}
                 />
-                <span className="mt-1 block text-sm text-secondary">
+                <span className="mt-1 block text-label-14 text-secondary">
                   More questions means broader coverage but a longer run. 100 is a good default.
                 </span>
               </label>
@@ -1675,7 +1727,7 @@ function FindQueriesSection({
               {sessionsQuery.isFetching && <ToneBadge tone="neutral">Loading</ToneBadge>}
             </div>
             {sessions.length === 0 ? (
-              <p className="text-sm text-secondary">No discovery runs yet. Describe your customer above to start your first one.</p>
+              <p className="text-copy-14 text-secondary">No discovery runs yet. Describe your customer above to start your first one.</p>
             ) : (
               <div className="space-y-2">
                 {sessions.map(session => (
@@ -1690,10 +1742,10 @@ function FindQueriesSection({
                     onClick={() => setSelectedSessionId(session.id)}
                   >
                     <div className="flex items-center justify-between gap-3">
-                      <span className="text-sm font-medium text-heading">{shortId(session.id)}</span>
+                      <span className="text-label-14-strong text-heading">{shortId(session.id)}</span>
                       <ToneBadge tone={toneForSession(session.status)}>{session.status}</ToneBadge>
                     </div>
-                    <div className="mt-2 grid grid-cols-3 gap-2 text-sm text-secondary">
+                    <div className="mt-2 grid grid-cols-3 gap-2 text-label-14 text-secondary">
                       <span>Cited queries {session.citedCount ?? 0}</span>
                       <span>Worth tracking {session.aspirationalCount ?? 0}</span>
                       <span>Skip {session.wastedCount ?? 0}</span>
@@ -1716,7 +1768,7 @@ function FindQueriesSection({
             </div>
 
             {!activeSession ? (
-              <p className="text-sm text-secondary">Start a run above, or pick one from Recent runs to see its progress.</p>
+              <p className="text-copy-14 text-secondary">Start a run above, or pick one from Recent runs to see its progress.</p>
             ) : (
               <div className="space-y-4">
                 <div className="grid gap-3 sm:grid-cols-4">
@@ -1727,30 +1779,30 @@ function FindQueriesSection({
                 </div>
 
                 {activeSession.error && (
-                  <div className="rounded-md border border-negative-800/40 bg-negative-950/20 px-3 py-2 text-sm text-negative">
+                  <div className="rounded-md border border-negative-800/40 bg-negative-950/20 px-3 py-2 text-label-14 text-negative">
                     {activeSession.error}
                   </div>
                 )}
 
                 {activeSession.warning && (
-                  <div className="rounded-md border border-caution-800/40 bg-caution-950/20 px-3 py-2 text-sm text-caution">
+                  <div className="rounded-md border border-caution-800/40 bg-caution-950/20 px-3 py-2 text-label-14 text-caution">
                     {activeSession.warning}
                   </div>
                 )}
 
                 {activeSession.icpDescription && (
-                  <div className="rounded-md border border-default bg-surface px-3 py-2">
-                    <p className="text-[10px] uppercase tracking-wide text-muted">Customer profile</p>
-                    <p className="mt-1 text-sm text-neutral">{activeSession.icpDescription}</p>
+                  <div className="material-base px-3 py-2">
+                    <p className="text-label-12 normal-case text-muted">Customer profile</p>
+                    <p className="mt-1 text-copy-14 text-neutral">{activeSession.icpDescription}</p>
                   </div>
                 )}
 
                 {activeSession.competitorMap.length > 0 && (
                   <div>
-                    <p className="mb-2 text-sm font-medium text-secondary">Sites that keep getting cited</p>
+                    <p className="mb-2 text-copy-14-strong text-secondary">Sites that keep getting cited</p>
                     <div className="flex flex-wrap gap-2">
                       {activeSession.competitorMap.slice(0, 8).map(entry => (
-                        <span key={entry.domain} className="rounded-md border border-default bg-bg px-2 py-1 text-xs text-neutral">
+                        <span key={entry.domain} className="rounded-md border border-default bg-bg px-2 py-1 text-label-12 text-neutral">
                           {entry.domain} <span className="text-muted">{entry.hits}</span>
                         </span>
                       ))}
@@ -1767,12 +1819,12 @@ function FindQueriesSection({
                 <div>
                   <p className="eyebrow eyebrow-soft">Step 2</p>
                   <h3>Review a discovery question for tracking</h3>
-                  <p className="mt-1 max-w-3xl text-sm leading-6 text-secondary">
-                    Choose a Cited query or Worth tracking result below. Tracking opens with the saved discovery source, where you choose its scope and review the exact next-sweep change.
+                  <p className="mt-1 max-w-3xl text-copy-14 text-secondary">
+                    Choose a Cited query or Worth tracking result below. Tracking opens with the saved discovery source, where you choose its scope and review the exact next-check change.
                   </p>
                 </div>
               </div>
-              <p className="mt-3 text-xs leading-5 text-muted">Discovery remains research. This review does not add competitors or start a sweep.</p>
+              <p className="mt-3 text-copy-13 text-muted">Discovery remains research. This review does not add competitors or start a check.</p>
             </Card>
           )}
 
@@ -1785,7 +1837,7 @@ function FindQueriesSection({
               {detailQuery.isFetching && <ToneBadge tone="neutral">Loading</ToneBadge>}
             </div>
             {probeRows.length === 0 ? (
-              <p className="text-sm text-muted">Results show up here once the run starts testing questions.</p>
+              <p className="text-copy-14 text-muted">Results show up here once the run starts testing questions.</p>
             ) : (
               <div className="evidence-table-wrap">
                 <table className="evidence-table">
@@ -1800,7 +1852,7 @@ function FindQueriesSection({
                   <tbody>
                     {probeRows.map(probe => (
                       <tr key={probe.id}>
-                        <td className="font-medium text-heading">{probe.query}</td>
+                        <td className="text-label-14-strong text-heading">{probe.query}</td>
                         <td>
                           <ToneBadge tone={toneForBucket(probe.bucket)}>{bucketLabel(probe.bucket)}</ToneBadge>
                         </td>
@@ -1839,9 +1891,9 @@ function DiscoveryMetric({
   const valueClass =
     tone === 'positive' ? 'text-positive' : tone === 'caution' ? 'text-caution' : tone === 'negative' ? 'text-negative' : 'text-heading'
   return (
-    <div className="rounded-md border border-default bg-surface px-4 py-3">
-      <p className="text-[10px] uppercase tracking-wide text-muted">{label}</p>
-      <p className={`mt-1 text-2xl font-semibold tabular-nums ${valueClass}`}>{value}</p>
+    <div className="material-base px-4 py-3">
+      <p className="text-label-12 normal-case text-muted">{label}</p>
+      <p className={`mt-1 text-copy-24-strong tabular-nums ${valueClass}`}>{value}</p>
     </div>
   )
 }

@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { normalizeContext, type Model } from '@earendil-works/pi-ai'
-import { clampMaxTokensToContext } from '@earendil-works/pi-ai/api/simple-options'
-import { LLM_CAPABILITIES, LlmCapabilities } from '@ainyc/canonry-contracts'
+import { LLM_CAPABILITIES, LlmCapabilities, RETIRED_AGENT_PROVIDER_IDS, type AgentProviderId } from '@canonry/canonry-contracts'
+import { builtinModels } from '@earendil-works/pi-ai/providers/all'
 import {
+  AGENT_MODEL_CHOICES,
   AGENT_PROVIDERS,
   AgentProviders,
   PROVIDER_MODELS,
@@ -23,9 +23,36 @@ import {
 import { aeroModels } from '../src/agent/pi-models.js'
 
 describe('agent provider registry', () => {
-  it('exposes at least the expected baseline providers', () => {
-    for (const p of ['claude', 'openai', 'gemini', 'zai'] as const) {
-      expect(AGENT_PROVIDERS).toHaveProperty(p)
+  it('registers direct providers and OpenRouter', () => {
+    expect([...listAgentProviders()].sort()).toEqual(['claude', 'gemini', 'openai', 'openrouter', 'zai'])
+    expect(Object.keys(AGENT_PROVIDERS).sort()).toEqual(['claude', 'gemini', 'openai', 'openrouter', 'zai'])
+  })
+
+  it('auto-detects in the order claude, openai, gemini, zai, openrouter', () => {
+    expect(agentProvidersByPriority()).toEqual(['claude', 'openai', 'gemini', 'zai', 'openrouter'])
+  })
+
+  it('every provider resolves from the pi-ai catalog under its own vendor id', () => {
+    // There is no custom-host model builder: each resolved model is the
+    // catalog entry, and its `provider` (what the agent loop hands back to
+    // getApiKey) maps back to the registry entry's key resolver.
+    for (const provider of listAgentProviders()) {
+      const entry = getAgentProvider(provider)
+      const model = resolveModelForCapability(provider, LlmCapabilities.agent) as { id?: string; provider?: string }
+      expect(model.provider).toBe(entry.piAiProvider)
+      expect(model.id).toBe(aeroModels.getModel(entry.piAiProvider, entry.defaultModel)?.id)
+      expect(
+        resolveApiKeyFor(model.provider!, { providers: { [provider]: { apiKey: `cfg-${provider}` } } }),
+      ).toBe(`cfg-${provider}`)
+    }
+  })
+
+  it('does not register or coerce a retired provider id', () => {
+    for (const retired of RETIRED_AGENT_PROVIDER_IDS) {
+      expect(listAgentProviders()).not.toContain(retired)
+      expect(AGENT_PROVIDERS).not.toHaveProperty(retired)
+      expect(coerceAgentProvider(retired)).toBeUndefined()
+      expect(findByPiAiProvider(retired)).toBeUndefined()
     }
   })
 
@@ -41,22 +68,43 @@ describe('agent provider registry', () => {
     expect(() => validateAgentProviderRegistry()).not.toThrow()
     for (const provider of listAgentProviders()) {
       const entry = getAgentProvider(provider)
-      if (entry.openaiCompatible) {
-        // Custom OpenAI-compatible host (e.g. DeepInfra) — not in pi-ai's
-        // catalog. Resolve via the builder and assert it points at the host.
-        const model = resolveModelForCapability(provider, LlmCapabilities.agent)
-        expect((model as { id?: string }).id).toBe(entry.defaultModel)
-        expect((model as { baseUrl?: string }).baseUrl).toBe(entry.openaiCompatible.baseUrl)
-        continue
-      }
       const model = aeroModels.getModel(entry.piAiProvider, entry.defaultModel)
       expect(model, `pi-ai missing ${entry.piAiProvider}/${entry.defaultModel}`).toBeDefined()
     }
   })
 
 
-  it('uses a Gemini default model that does not require separate thinking-mode config', () => {
-    expect(getAgentProvider('gemini').defaultModel).toBe('gemini-2.5-flash')
+  it('uses each provider\'s newest low-cost model for every tier', () => {
+    expect(PROVIDER_MODELS).toEqual({
+      claude: { agent: 'claude-haiku-5-5', analyze: 'claude-haiku-5-5', classify: 'claude-haiku-5-5' },
+      openai: { agent: 'gpt-6-luna', analyze: 'gpt-6-luna', classify: 'gpt-6-luna' },
+      gemini: { agent: 'gemini-3.5-flash-lite', analyze: 'gemini-3.5-flash-lite', classify: 'gemini-3.5-flash-lite' },
+      zai: { agent: 'glm-5.3-flash', analyze: 'glm-5.3-flash', classify: 'glm-5.3-flash' },
+      openrouter: { agent: 'openai/gpt-6-luna', analyze: 'openai/gpt-6-luna', classify: 'openai/gpt-6-luna' },
+    })
+  })
+
+  it('offers a short model list per provider: the default first, every entry in pi-ai\'s bundled catalog', () => {
+    for (const [provider, choices] of Object.entries(AGENT_MODEL_CHOICES) as Array<[AgentProviderId, readonly string[]]>) {
+      expect(choices[0], provider).toBe(getAgentProvider(provider).defaultModel)
+      expect(choices.length, provider).toBeLessThanOrEqual(4)
+      expect(new Set(choices).size, provider).toBe(choices.length)
+      for (const id of choices) {
+        expect(builtinModels().getModel(AGENT_PROVIDERS[provider].piAiProvider, id), `${provider} ${id}`).toBeDefined()
+      }
+    }
+  })
+
+  it('pins every agent tier to an exact model ID, never a moving -latest alias', () => {
+    // pi-ai picks request options such as the thinking level from the catalog
+    // entry for the ID it is given. An alias entry can lag the model behind
+    // it: gemini-flash-latest allowed MINIMAL while the 3.8 Flash it served
+    // rejected it, failing every Aero turn.
+    for (const [provider, tiers] of Object.entries(PROVIDER_MODELS)) {
+      for (const [tier, modelId] of Object.entries(tiers)) {
+        expect(modelId, `${provider} ${tier}`).not.toMatch(/-latest$/)
+      }
+    }
   })
 
   it('registry rows each carry every required field', () => {
@@ -154,6 +202,44 @@ describe('resolveApiKeySource', () => {
       if (priorOauth !== undefined) process.env.ANTHROPIC_OAUTH_TOKEN = priorOauth
     }
   })
+
+  it('agentProviderApiKeyEnvVar maps each provider to its plain API key var', () => {
+    const byProvider = Object.fromEntries(
+      listAgentProviders().map((p) => [p, agentProviderApiKeyEnvVar(p)]),
+    )
+    expect(byProvider).toEqual({
+      claude: 'ANTHROPIC_API_KEY',
+      openai: 'OPENAI_API_KEY',
+      gemini: 'GEMINI_API_KEY',
+      zai: 'ZAI_API_KEY',
+      openrouter: 'OPENROUTER_API_KEY',
+    })
+  })
+
+  it('config beats env for every provider', () => {
+    const envNames = listAgentProviders().map(agentProviderApiKeyEnvVar)
+    const priors = envNames.map((name) => [name, process.env[name]] as const)
+    for (const name of envNames) process.env[name] = 'from-env'
+    try {
+      for (const provider of listAgentProviders()) {
+        expect(
+          resolveApiKeySource(provider, { providers: { [provider]: { apiKey: 'cfg' } } }),
+          `config should win for ${provider}`,
+        ).toEqual({ key: 'cfg', source: 'config' })
+      }
+    } finally {
+      for (const [name, prior] of priors) {
+        if (prior === undefined) delete process.env[name]
+        else process.env[name] = prior
+      }
+    }
+  })
+
+  it('ignores a key stored under a retired provider id', () => {
+    for (const retired of RETIRED_AGENT_PROVIDER_IDS) {
+      expect(resolveApiKeySource(retired, { providers: { [retired]: { apiKey: 'cfg' } } })).toBeUndefined()
+    }
+  })
 })
 
 describe('buildAgentProvidersResponse', () => {
@@ -218,6 +304,32 @@ describe('buildAgentProvidersResponse', () => {
       }
     }
   })
+
+  it('ignores a retired provider pin and falls back to the highest-priority configured entry', () => {
+    // Clear every env key so only the config key below configures a provider.
+    const envNames = [...listAgentProviders().map(agentProviderApiKeyEnvVar), 'ANTHROPIC_OAUTH_TOKEN']
+    const priors = envNames.map((name) => [name, process.env[name]] as const)
+    for (const name of envNames) delete process.env[name]
+    try {
+      for (const retired of RETIRED_AGENT_PROVIDER_IDS) {
+        const res = buildAgentProvidersResponse({
+          providers: { [retired]: { apiKey: 'stale' }, zai: { apiKey: 'cfg' } },
+          agent: { provider: retired, model: 'stale-model' },
+        })
+        expect(res.providers.map((p) => p.id)).not.toContain(retired)
+        expect(res.defaultProvider).toBe('zai')
+        const zai = res.providers.find((p) => p.id === 'zai')
+        // The stale pin's model never leaks onto the fallback provider.
+        expect(zai?.defaultModel).toBe(getAgentProvider('zai').defaultModel)
+        expect(zai?.keySource).toBe('config')
+      }
+    } finally {
+      for (const [name, prior] of priors) {
+        if (prior === undefined) delete process.env[name]
+        else process.env[name] = prior
+      }
+    }
+  })
 })
 
 describe('PROVIDER_MODELS capability tiers', () => {
@@ -250,13 +362,6 @@ describe('PROVIDER_MODELS capability tiers', () => {
       for (const capability of LLM_CAPABILITIES) {
         const entry = getAgentProvider(provider)
         const modelId = PROVIDER_MODELS[provider][capability]
-        if (entry.openaiCompatible) {
-          // Custom host: the builder constructs the model from the slug
-          // (no pi-ai catalog entry to look up).
-          const model = resolveModelForCapability(provider, capability)
-          expect((model as { id?: string }).id).toBe(modelId)
-          continue
-        }
         const model = aeroModels.getModel(entry.piAiProvider, modelId)
         expect(
           model,
@@ -377,194 +482,54 @@ describe('resolveModelForCapability: gemini proxy base URL override', () => {
   })
 })
 
-describe('deepinfra (custom OpenAI-compatible host)', () => {
-  // DeepInfra is agent-only, has no pi-ai catalog entry, and resolves models
-  // by constructing a custom openai-completions object pointed at its base URL.
-  type CompletionsModel = {
-    id: string
-    api: string
-    provider: string
-    baseUrl: string
-    reasoning: boolean
-    cost: { input: number; output: number; cacheRead: number; cacheWrite: number }
-    compat?: {
-      supportsDeveloperRole?: boolean
-      maxTokensField?: string
-      thinkingFormat?: string
-      chatTemplateKwargs?: Record<string, unknown>
+describe('resolveModelForCapability: zai proxy base URL override', () => {
+  const PRIOR = process.env.ZAI_BASE_URL
+  function withZaiBaseUrl<T>(value: string | undefined, fn: () => T): T {
+    if (value === undefined) delete process.env.ZAI_BASE_URL
+    else process.env.ZAI_BASE_URL = value
+    try {
+      return fn()
+    } finally {
+      if (PRIOR === undefined) delete process.env.ZAI_BASE_URL
+      else process.env.ZAI_BASE_URL = PRIOR
     }
   }
+  const baseUrlOf = (m: unknown) => (m as { baseUrl?: string }).baseUrl
+  const zaiAgentId = PROVIDER_MODELS.zai[LlmCapabilities.agent]
 
-  it('is registered, agent-only, and carries an openaiCompatible host config', () => {
-    expect(listAgentProviders()).toContain('deepinfra')
-    const entry = getAgentProvider('deepinfra')
-    expect(entry.piAiProvider).toBe('deepinfra')
-    expect(entry.openaiCompatible?.baseUrl).toBe('https://api.deepinfra.com/v1/openai')
-    expect(entry.openaiCompatible?.apiKeyEnvVar).toBe('DEEPINFRA_TOKEN')
-  })
-
-  it('runs DeepSeek-V4-Flash on the agent tier and GLM-5.2 on the cheap tiers', () => {
-    expect(PROVIDER_MODELS.deepinfra[LlmCapabilities.agent]).toBe('deepseek-ai/DeepSeek-V4-Flash')
-    // analyze + classify stay on GLM: their thinking suppression rides GLM's
-    // chat-template switch, which needs a reasoning model to apply.
-    expect(PROVIDER_MODELS.deepinfra[LlmCapabilities.analyze]).toBe('zai-org/GLM-5.2')
-    expect(PROVIDER_MODELS.deepinfra[LlmCapabilities.classify]).toBe('zai-org/GLM-5.2')
-  })
-
-  it('never lets the picker or the default silently land on GLM', () => {
-    // The dashboard picker sends a provider and NO model, so whatever this
-    // says is what a session gets pinned to.
-    expect(getAgentProvider('deepinfra').defaultModel).toBe('deepseek-ai/DeepSeek-V4-Flash')
-    // defaultModel and the agent tier must not drift apart.
-    expect(() => validateAgentProviderRegistry()).not.toThrow()
-  })
-
-  it('builds an openai-completions model pointed at DeepInfra for every capability', () => {
-    for (const capability of LLM_CAPABILITIES) {
-      const model = resolveModelForCapability('deepinfra', capability) as unknown as CompletionsModel
-      expect(model.api).toBe('openai-completions')
-      // model.provider is what the agent loop hands back to getApiKey — must
-      // be the canonical id so the deepinfra key resolver fires.
-      expect(model.provider).toBe('deepinfra')
-      expect(model.baseUrl).toBe('https://api.deepinfra.com/v1/openai')
-      expect(model.id).toBe(PROVIDER_MODELS.deepinfra[capability])
-    }
-  })
-
-  it('applies the open-model compat profile (no developer role, max_tokens field)', () => {
-    const model = resolveModelForCapability('deepinfra', LlmCapabilities.agent) as unknown as CompletionsModel
-    expect(model.compat?.supportsDeveloperRole).toBe(false)
-    expect(model.compat?.maxTokensField).toBe('max_tokens')
-  })
-
-  it('suppresses thinking on the cheap tiers, not the agent tier', () => {
-    // agent → host default thinking (no thinkingFormat pin).
-    const agent = resolveModelForCapability('deepinfra', LlmCapabilities.agent) as unknown as CompletionsModel
-    expect(agent.compat?.thinkingFormat).toBeUndefined()
-    // analyze + classify → enable_thinking:false via GLM's chat-template switch,
-    // merged onto (not replacing) the base open-model compat profile. The kwarg
-    // binds to pi's thinking state, which these callers leave off, so pi-ai
-    // sends `chat_template_kwargs: { enable_thinking: false }` and nothing else
-    // (`qwen-chat-template` would also send `preserve_thinking`).
-    for (const cap of [LlmCapabilities.analyze, LlmCapabilities.classify]) {
-      const model = resolveModelForCapability('deepinfra', cap) as unknown as CompletionsModel
-      expect(model.compat?.thinkingFormat).toBe('chat-template')
-      expect(model.compat?.chatTemplateKwargs).toEqual({ enable_thinking: { $var: 'thinking.enabled' } })
-      expect(model.compat?.maxTokensField).toBe('max_tokens')
-    }
-  })
-
-  it('applies per-slug known-model metadata and falls back for unknown slugs', () => {
-    // The agent tier is DeepSeek-V4-Flash → DeepInfra's published rates.
-    const deepseek = resolveModelForCapability('deepinfra', LlmCapabilities.agent) as unknown as CompletionsModel
-    expect(deepseek.id).toBe('deepseek-ai/DeepSeek-V4-Flash')
-    // Cached input bills at 0.2x of $0.09; a 0 here logs cached tokens as free.
-    expect(deepseek.cost).toEqual({ input: 0.09, output: 0.18, cacheRead: 0.018, cacheWrite: 0 })
-    // The dated 0731 snapshot is a known slug with its own (cheaper) rates,
-    // not the zero-cost fallback. Cached input bills at 0.25x of $0.06.
-    const dated = resolveModelForCapability(
-      'deepinfra',
-      LlmCapabilities.agent,
-      'deepseek-ai/DeepSeek-V4-Flash-0731',
-    ) as unknown as CompletionsModel
-    expect(dated.id).toBe('deepseek-ai/DeepSeek-V4-Flash-0731')
-    expect(dated.reasoning).toBe(false)
-    expect(dated.cost).toEqual({ input: 0.06, output: 0.18, cacheRead: 0.015, cacheWrite: 0 })
-    expect(getAgentProvider('deepinfra').openaiCompatible?.knownModels['deepseek-ai/DeepSeek-V4-Flash-0731']).toMatchObject({
-      contextWindow: 1_048_576,
-      maxTokens: 32768,
+  it('repoints the zai agent model at ZAI_BASE_URL (no /v1beta juggling)', () => {
+    withZaiBaseUrl('http://172.17.0.1:4610/zai', () => {
+      const model = resolveModelForCapability('zai', LlmCapabilities.agent)
+      expect(baseUrlOf(model)).toBe('http://172.17.0.1:4610/zai')
     })
-    // GLM-5.2 still backs the cheap tiers, with its own metadata.
-    const glm = resolveModelForCapability('deepinfra', LlmCapabilities.analyze) as unknown as CompletionsModel
-    expect(glm.reasoning).toBe(true)
-    expect(glm.cost.input).toBe(0.95)
-    expect(glm.cost.output).toBe(3.0)
-    // An arbitrary user --model override falls back to defaultModelMeta (cost 0).
-    const custom = resolveModelForCapability(
-      'deepinfra',
-      LlmCapabilities.agent,
-      'meta-llama/Llama-4-Maverick',
-    ) as unknown as CompletionsModel
-    expect(custom.id).toBe('meta-llama/Llama-4-Maverick')
-    expect(custom.cost.input).toBe(0)
   })
 
-  it('resolves the key from DEEPINFRA_TOKEN env (not DEEPINFRA_API_KEY), config wins', () => {
-    expect(agentProviderApiKeyEnvVar('deepinfra')).toBe('DEEPINFRA_TOKEN')
-    // Catalog providers still derive their var from the pi-ai vendor id.
-    expect(agentProviderApiKeyEnvVar('claude')).toBe('ANTHROPIC_API_KEY')
-
-    const priorToken = process.env.DEEPINFRA_TOKEN
-    const priorApiKey = process.env.DEEPINFRA_API_KEY
-    process.env.DEEPINFRA_TOKEN = 'from-token'
-    process.env.DEEPINFRA_API_KEY = 'wrong-var'
-    try {
-      // The wrong-named var is ignored; DEEPINFRA_TOKEN is read.
-      expect(resolveApiKeySource('deepinfra', {})).toEqual({ key: 'from-token', source: 'env' })
-      // Config still beats env.
-      expect(
-        resolveApiKeySource('deepinfra', { providers: { deepinfra: { apiKey: 'cfg' } } }),
-      ).toEqual({ key: 'cfg', source: 'config' })
-    } finally {
-      if (priorToken === undefined) delete process.env.DEEPINFRA_TOKEN
-      else process.env.DEEPINFRA_TOKEN = priorToken
-      if (priorApiKey === undefined) delete process.env.DEEPINFRA_API_KEY
-      else process.env.DEEPINFRA_API_KEY = priorApiKey
-    }
+  it('trims a trailing slash', () => {
+    withZaiBaseUrl('http://host/zai/', () => {
+      expect(baseUrlOf(resolveModelForCapability('zai', LlmCapabilities.agent))).toBe('http://host/zai')
+    })
   })
 
-  it('surfaces deepinfra in the providers response, configured via DEEPINFRA_TOKEN', () => {
-    const prior = process.env.DEEPINFRA_TOKEN
-    process.env.DEEPINFRA_TOKEN = 'tok'
-    try {
-      const res = buildAgentProvidersResponse({})
-      const di = res.providers.find((p) => p.id === 'deepinfra')
-      expect(di).toBeDefined()
-      expect(di?.label).toBe('DeepInfra (GLM / DeepSeek)')
-      expect(di?.defaultModel).toBe('deepseek-ai/DeepSeek-V4-Flash')
-      expect(di?.configured).toBe(true)
-      expect(di?.keySource).toBe('env')
-    } finally {
-      if (prior === undefined) delete process.env.DEEPINFRA_TOKEN
-      else process.env.DEEPINFRA_TOKEN = prior
-    }
+  it('never mutates the shared pi-ai registry Model (clones, not in place)', () => {
+    const before = baseUrlOf(aeroModels.getModel('zai', zaiAgentId))
+    withZaiBaseUrl('http://172.17.0.1:4610/zai', () => {
+      resolveModelForCapability('zai', LlmCapabilities.agent)
+    })
+    const after = baseUrlOf(aeroModels.getModel('zai', zaiAgentId))
+    expect(after).toBe(before)
+    expect(after ?? '').not.toContain('172.17.0.1')
   })
 
-  it("reports DeepInfra's real 1M (fp4) context window for the shipped tiers", () => {
-    // Both shipped slugs serve at 1,048,576 (fp4) on DeepInfra.
-    for (const capability of LLM_CAPABILITIES) {
-      const model = resolveModelForCapability('deepinfra', capability) as unknown as { contextWindow: number }
-      expect(model.contextWindow).toBe(1_048_576)
-    }
-    // An unknown user --model slug declares no window (0). pi-ai 0.74+ clamps
-    // each request's output cap to the window minus the estimated prompt, so a
-    // guessed window would shrink a long turn's cap toward 1 token; 0 skips
-    // the clamp and the host enforces its real window.
-    const custom = resolveModelForCapability(
-      'deepinfra',
-      LlmCapabilities.agent,
-      'meta-llama/Llama-4-Maverick',
-    ) as unknown as Model<'openai-completions'>
-    expect(custom.contextWindow).toBe(0)
-    const longPrompt = normalizeContext({ messages: [{ role: 'user', content: 'x'.repeat(600_000), timestamp: 0 }] })
-    expect(clampMaxTokensToContext(custom, longPrompt, 32_000)).toBe(32_000)
+  it('leaves the default z.ai host untouched when ZAI_BASE_URL is unset', () => {
+    withZaiBaseUrl(undefined, () => {
+      const fromRegistry = baseUrlOf(aeroModels.getModel('zai', zaiAgentId))
+      expect(baseUrlOf(resolveModelForCapability('zai', LlmCapabilities.agent))).toBe(fromRegistry)
+    })
   })
 
-  it('repoints baseUrl via DEEPINFRA_BASE_URL when set, else uses the constant', () => {
-    const DEFAULT = 'https://api.deepinfra.com/v1/openai'
-    const baseUrlOf = () =>
-      (resolveModelForCapability('deepinfra', LlmCapabilities.agent) as unknown as CompletionsModel).baseUrl
-    const prior = process.env.DEEPINFRA_BASE_URL
-    delete process.env.DEEPINFRA_BASE_URL
-    try {
-      expect(baseUrlOf()).toBe(DEFAULT) // unset → constant
-      process.env.DEEPINFRA_BASE_URL = 'https://proxy.internal/v1/openai'
-      expect(baseUrlOf()).toBe('https://proxy.internal/v1/openai') // set → proxy override
-      process.env.DEEPINFRA_BASE_URL = ''
-      expect(baseUrlOf()).toBe(DEFAULT) // empty string falls back to the constant
-    } finally {
-      if (prior === undefined) delete process.env.DEEPINFRA_BASE_URL
-      else process.env.DEEPINFRA_BASE_URL = prior
-    }
+  it('does not redirect other native providers (gemini) when only ZAI_BASE_URL is set', () => {
+    withZaiBaseUrl('http://172.17.0.1:4610/zai', () => {
+      expect(baseUrlOf(resolveModelForCapability('gemini', LlmCapabilities.agent)) ?? '').not.toContain('172.17.0.1')
+    })
   })
 })

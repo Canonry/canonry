@@ -1,6 +1,6 @@
 import crypto from 'node:crypto'
 import { and, desc, eq, gt, inArray, isNull, ne, or, sql } from 'drizzle-orm'
-import { parseJsonColumn, querySnapshots, runFills, runs, usageCounters, type DatabaseClient } from '@ainyc/canonry-db'
+import { parseJsonColumn, querySnapshots, runFills, runs, usageCounters, type DatabaseClient } from '@canonry/canonry-db'
 import {
   RUN_FILL_MAX_AGE_MS,
   runFillAgeAnchor,
@@ -8,12 +8,15 @@ import {
   RunKinds,
   RunTriggers,
   resolveProviderModel,
+  isProviderAvailable,
+  providerConnectionName,
+  type ProviderRouteFamily,
   type RunCompletenessDto,
   type RunFillDto,
   type RunFillRefusalCode,
   type RunFillStatus,
   type RunStatus,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { writeAuditLog } from './helpers.js'
 import { activePlanVersionRow } from './measurement-draft-repo.js'
 import { runVersionServesActiveVersion } from './measurement-report-adapter.js'
@@ -40,9 +43,10 @@ export interface RunFillInput {
   providers?: readonly string[]
   /** Providers this instance can serve. Omitted when the host has no registry to ask. */
   runnableProviders?: readonly string[] | null
+  /** Route families, so a route is available through its connection and shares its quota. */
+  routeFamilies?: readonly ProviderRouteFamily[] | null
   /** Provider → requests allowed per UTC day. Omitted skips the quota check. */
   dailyLimits?: Readonly<Record<string, number>> | null
-  now?: Date
 }
 
 export type RunFillEvaluation =
@@ -126,7 +130,7 @@ export function evaluateRunFill(db: DatabaseClient, run: RunRow, input: RunFillI
   }
   if (run.trigger === RunTriggers.probe || run.measurementScope !== null || run.queries !== null) {
     return refuse(RunFillRefusalCodes.scoped_or_probe,
-      'This run is a spot check that measured a slice on purpose. Only a full sweep can be filled.')
+      'This run is a spot check that measured a slice on purpose. Only a full AI Visibility check can be filled.')
   }
   if (!slots.readable || slots.hasUnboundSnapshot) {
     return refuse(RunFillRefusalCodes.manifest_unreadable,
@@ -135,7 +139,7 @@ export function evaluateRunFill(db: DatabaseClient, run: RunRow, input: RunFillI
   if (run.status === 'completed') return { kind: 'already-complete', slots }
   if (run.status !== 'partial') {
     return refuse(RunFillRefusalCodes.status_not_partial,
-      `Run ${run.id} is ${run.status}. Only a partial run can be filled; run a new sweep instead.`)
+      `Run ${run.id} is ${run.status}. Only a partial run can be filled; run a new AI Visibility check instead.`)
   }
 
   const active = activePlanVersionRow(db, run.projectId)
@@ -144,20 +148,20 @@ export function evaluateRunFill(db: DatabaseClient, run: RunRow, input: RunFillI
       'The measurement plan was republished since this run, so answers added now would mix two revisions in one run.')
   }
 
-  const now = (input.now ?? new Date()).getTime()
+  const now = Date.now()
   // A run that dispatched a provider batch counts from when it finalized: its
   // batch may take most of the window to end, and the run is fillable only then.
   const age = runFillAgeAnchor(run, { hadProviderBatch: runHadProviderBatch(db, run.id) })
   const anchoredAt = Date.parse(age.anchor)
   if (Number.isFinite(anchoredAt) && now - anchoredAt > RUN_FILL_MAX_AGE_MS) {
     return refuse(RunFillRefusalCodes.too_old,
-      `Run ${run.id} ${age.basis} more than 24 hours ago. Answers captured now would not describe the same moment; run a new sweep instead.`)
+      `Run ${run.id} ${age.basis} more than 24 hours ago. Answers captured now would not describe the same moment; run a new AI Visibility check instead.`)
   }
 
   const newer = newerFullSweep(db, run)
   if (newer) {
     return refuse(RunFillRefusalCodes.superseded,
-      `A newer sweep (${newer.id}) exists and is what every report reads; fill that one instead if it is partial.`)
+      `A newer AI Visibility check (${newer.id}) exists and is what every report reads; fill that one instead if it is partial.`)
   }
 
   const missingByProvider = new Map<string, MeasurementRunSlot[]>()
@@ -194,12 +198,12 @@ export function evaluateRunFill(db: DatabaseClient, run: RunRow, input: RunFillI
   if (retired.length) {
     return refuse(RunFillRefusalCodes.model_retired,
       `This run measured ${retired.join(', ')} on a model the provider has since retired, and the replacement is a different engine. `
-      + 'Filling it now would mix two engines in one run; run a new sweep instead.')
+      + 'Filling it now would mix two engines in one run; run a new AI Visibility check instead.')
   }
 
   if (input.runnableProviders) {
-    const runnable = new Set(input.runnableProviders.map(normalizeProvider))
-    const absent = providers.filter(provider => !runnable.has(provider))
+    const runnable = input.runnableProviders.map(normalizeProvider)
+    const absent = providers.filter(provider => !isProviderAvailable(provider, runnable, input.routeFamilies ?? undefined))
     if (absent.length) {
       return refuse(RunFillRefusalCodes.provider_not_configured,
         `${absent.join(', ')} is not configured on this instance, so its missing answers cannot run.`)
@@ -210,10 +214,14 @@ export function evaluateRunFill(db: DatabaseClient, run: RunRow, input: RunFillI
     // The executor would reserve these at dispatch and fail the fill; saying
     // so here keeps a 202 from promising work that cannot start.
     const period = new Date(now).toISOString().slice(0, 10)
+    const neededByConnection = new Map<string, number>()
     for (const provider of providers) {
+      const connection = providerConnectionName(provider, input.routeFamilies ?? undefined)
+      neededByConnection.set(connection, (neededByConnection.get(connection) ?? 0) + (missingByProvider.get(provider)?.length ?? 0))
+    }
+    for (const [provider, needed] of neededByConnection) {
       const limit = input.dailyLimits[provider]
       if (limit === undefined) continue
-      const needed = missingByProvider.get(provider)?.length ?? 0
       const used = db.select({ count: usageCounters.count }).from(usageCounters).where(and(
         eq(usageCounters.scope, `${run.projectId}:${provider}`),
         eq(usageCounters.period, period),
@@ -299,7 +307,7 @@ export function queueRunFill(db: DatabaseClient, runId: string, input: RunFillIn
     const activeSweep = activeSweepFor(txDb, run.projectId)
     if (activeSweep) return { kind: 'run-in-progress', activeRunId: activeSweep.id } as const
 
-    const now = (input.now ?? new Date()).toISOString()
+    const now = new Date().toISOString()
     const id = crypto.randomUUID()
     txDb.insert(runFills).values({
       id,

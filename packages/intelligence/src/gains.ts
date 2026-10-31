@@ -1,14 +1,6 @@
-import type { RunData, Gain, Snapshot } from './types.js'
+import type { RunData, Gain } from './types.js'
 import { observedKeys } from './observation-coverage.js'
-
-/**
- * See `regressions.ts` — same key composition keeps multi-location fan-out
- * siblings on separate timelines.
- */
-function snapshotKey(snap: Pick<Snapshot, 'query' | 'provider' | 'location'>): string {
-  const loc = snap.location ?? '__none__'
-  return JSON.stringify([snap.query, snap.provider, loc])
-}
+import { snapshotKey } from './snapshot-key.js'
 
 export function detectGains(currentRun: RunData, previousRun: RunData): Gain[] {
   // See `regressions.ts` — bail if the caller fed a cross-location pair.

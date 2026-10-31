@@ -1,14 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import { calendarRecurrenceSchema, nextScheduleUpdatedAt, schedulableRunKindSchema, scheduleUpsertRequestSchema, SchedulableRunKinds } from '../src/schedule.js'
+import { calendarRecurrenceSchema, nextScheduleUpdatedAt, schedulableRunKindSchema, scheduleEnabledAt, scheduleUpsertRequestSchema, SchedulableRunKinds } from '../src/schedule.js'
 
 describe('schedulableRunKindSchema', () => {
-  it('accepts answer-visibility, traffic-sync, gbp-sync, data-refresh, backlinks-sync, and ads-sync', () => {
-    expect(schedulableRunKindSchema.safeParse('answer-visibility').success).toBe(true)
-    expect(schedulableRunKindSchema.safeParse('traffic-sync').success).toBe(true)
-    expect(schedulableRunKindSchema.safeParse('gbp-sync').success).toBe(true)
-    expect(schedulableRunKindSchema.safeParse('data-refresh').success).toBe(true)
-    expect(schedulableRunKindSchema.safeParse('backlinks-sync').success).toBe(true)
-    expect(schedulableRunKindSchema.safeParse('ads-sync').success).toBe(true)
+  it('accepts all nine public schedulable run kinds', () => {
+    const kinds = ['answer-visibility', 'traffic-sync', 'gbp-sync', 'data-refresh', 'backlinks-sync', 'site-audit', 'ads-sync', 'doctor', 'seo-sync']
+    expect(schedulableRunKindSchema.options).toEqual(kinds)
+    for (const kind of kinds) expect(schedulableRunKindSchema.safeParse(kind).success).toBe(true)
   })
 
   it('rejects non-schedulable run kinds', () => {
@@ -70,5 +67,22 @@ describe('calendar recurrence', () => {
 
   it('accepts a leap day in a leap year', () => {
     expect(calendarRecurrenceSchema.safeParse({ ...recurrence, startDate: '2028-02-29' }).success).toBe(true)
+  })
+})
+
+describe('scheduleEnabledAt', () => {
+  const at = '2026-11-25T12:00:00.000Z'
+  it('records when a schedule turns on and keeps it while the schedule stays on', () => {
+    expect(scheduleEnabledAt(undefined, true, at)).toBe(at)
+    expect(scheduleEnabledAt({ enabled: false, enabledAt: null }, true, at)).toBe(at)
+    // Editing an enabled schedule (a new cron, say) does not restart its enabled period.
+    expect(scheduleEnabledAt({ enabled: true, enabledAt: '2026-10-25T12:00:00.000Z' }, true, at)).toBe('2026-10-25T12:00:00.000Z')
+    // A row from before the column stays unknown, which reads as its creation time.
+    expect(scheduleEnabledAt({ enabled: true, enabledAt: null }, true, at)).toBeNull()
+  })
+
+  it('holds nothing while the schedule is disabled', () => {
+    expect(scheduleEnabledAt(undefined, false, at)).toBeNull()
+    expect(scheduleEnabledAt({ enabled: true, enabledAt: '2026-10-25T12:00:00.000Z' }, false, at)).toBeNull()
   })
 })

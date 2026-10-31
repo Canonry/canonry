@@ -2,8 +2,8 @@ import { createHash } from 'node:crypto'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { AeroPreviewResponse } from '@ainyc/canonry-contracts'
-import { createClient, migrate, projects } from '@ainyc/canonry-db'
+import type { AeroPreviewResponse } from '@canonry/canonry-contracts'
+import { createClient, migrate, projects } from '@canonry/canonry-db'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createDemoHttpServer } from '../src/demo/http.js'
 import { PACKAGE_VERSION } from '../src/package-version.js'
@@ -21,6 +21,7 @@ async function fixture(apiRateLimitMax?: number, extra: { trustProxy?: readonly 
   writeFileSync(join(dir, 'assets', 'app.js'), 'window.demoLoaded=true')
   writeFileSync(join(dir, 'private.txt'), 'must-not-be-served')
   writeFileSync(join(dir, 'favicon.svg'), '<svg></svg>')
+  writeFileSync(join(dir, 'demo-og.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47]))
   const db = createClient(':memory:')
   migrate(db)
   const now = new Date('2026-09-09T12:00:00.000Z')
@@ -165,7 +166,7 @@ describe('dedicated public demo server', () => {
 
   it('labels synthetic data, supports deep links and serves only built public assets', async () => {
     const { app } = await fixture()
-    for (const url of ['/', '/projects/summit-roofing', '/projects/summit-roofing/technical-aeo']) {
+    for (const url of ['/', '/projects/summit-roofing', '/projects/summit-roofing/technical-aeo', '/projects/summit-roofing/seo-data', '/projects/harbor-resorts/seo-data?queryClass=non-brand']) {
       const response = await app.inject(url)
       expect(response.statusCode).toBe(200)
       expect(response.body).toContain('"demo":{"enabled":true,"readOnly":true,"sampleData":true}')
@@ -179,6 +180,45 @@ describe('dedicated public demo server', () => {
       expect(response.statusCode).toBeGreaterThanOrEqual(400)
       expect(response.body).not.toContain('must-not-be-served')
     }
+  })
+
+  it('gives link previews a demo title, description and an absolute card image', async () => {
+    const document = '<!doctype html><html><head><meta\n      name="description"\n      content="Generic product line."\n    /><title>Canonry</title></head><body><div id="root"></div></body></html>'
+    const { app } = await fixture(undefined, { document })
+    // Caddy forwards the visitor's host and scheme over loopback, which is trusted by default.
+    const response = await app.inject({ url: '/projects/summit-roofing?tab=x', remoteAddress: '127.0.0.1', headers: { host: 'custom-demo.canonry.ai', 'x-forwarded-proto': 'https' } })
+    expect(response.statusCode).toBe(200)
+    expect(response.body).toContain('<title>Canonry live demo</title>')
+    expect(response.body).toContain('<meta name="description" content="The open-source AEO operating platform. Sample data, no sign-in." />')
+    expect(response.body).not.toContain('Generic product line.')
+    expect(response.body).toContain('<meta property="og:title" content="Canonry live demo">')
+    expect(response.body).toContain('<meta property="og:url" content="https://custom-demo.canonry.ai/projects/summit-roofing">')
+    expect(response.body).toContain('<meta property="og:image" content="https://custom-demo.canonry.ai/demo-og.png">')
+    expect(response.body).toContain('<meta name="twitter:card" content="summary_large_image">')
+    expect(response.body).toContain('<meta name="twitter:image" content="https://custom-demo.canonry.ai/demo-og.png">')
+    // The tags add no script: the policy still allows exactly the served inline script.
+    const scripts = inlineScripts(response.body)
+    expect(scripts).toHaveLength(1)
+    expect(directives(response.headers['content-security-policy']).get('script-src')).toEqual(["'self'", sha256Source(scripts[0]!)])
+    const image = await app.inject('/demo-og.png')
+    expect(image.statusCode).toBe(200)
+    expect(image.headers['content-type']).toBe('image/png')
+  })
+
+  it('keeps preview URLs relative when the Host header is not a plain name', async () => {
+    const { app } = await fixture()
+    const response = await app.inject({ url: '/projects/summit-roofing', headers: { host: 'evil.example"><script>alert(1)</script>' } })
+    expect(response.statusCode).toBe(200)
+    expect(response.body).toContain('<meta property="og:image" content="/demo-og.png">')
+    expect(response.body).not.toContain('evil.example')
+    expect(inlineScripts(response.body)).toHaveLength(1)
+  })
+
+  it('lets link-preview fetchers read the demo while search crawlers stay out', async () => {
+    const { app } = await fixture()
+    const robots = (await app.inject('/robots.txt')).body
+    for (const agent of ['Twitterbot', 'facebookexternalhit', 'LinkedInBot', 'Slackbot-LinkExpanding']) expect(robots).toContain(`User-agent: ${agent}\n`)
+    expect(robots).toMatch(/User-agent: WhatsApp\nAllow: \/\n\nUser-agent: \*\nDisallow: \/\n$/)
   })
 
   it('allows only the served inline configuration script, by hash', async () => {

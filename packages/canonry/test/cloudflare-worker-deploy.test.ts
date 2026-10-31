@@ -7,7 +7,7 @@ import {
   DEFAULT_BOT_LIST,
   generateWorkerScript,
   generateWranglerToml,
-} from '@ainyc/canonry-integration-cloudflare-worker'
+} from '@canonry/canonry-integration-cloudflare-worker'
 import {
   assertCloudflareArtifactsDoNotContainSecrets,
   deployCloudflareWorker,

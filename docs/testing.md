@@ -1,5 +1,34 @@
 # Testing Guide
 
+## Test Audit Skill
+
+Before writing, changing, reviewing, running, or auditing tests, read
+[the repository test-audit skill](../.agents/skills/test-audit/SKILL.md).
+It applies to every package and app through the root `AGENTS.md`.
+The development skill stays in `.agents/skills/`; it is separate from the
+operator skills bundled in the published Canonry plugin.
+
+For a routine run at final validation, identify the affected tests' observable
+contract, primary owner, and credible regression. Then run the focused commands below.
+A routine run does not require a full audit. Before adding or changing a test, apply the
+skill's authoring gate: name the behavior and failure, explain the distinct risk
+not already covered, and avoid production hooks used only by tests.
+
+For audits, keep discovery read-only and record the skill's candidate evidence
+before editing. Keep independent API, security, migration, release, and other
+contract guards. A source grep or slow test is not automatically low value.
+At final validation, run finalized regression tests against pre-fix and repaired code.
+Require the intended failure on pre-fix code and a passing result on repaired code.
+A green baseline alone does not prove a test catches the claimed regression. Verify
+type assertions run through a compiler gate that includes their test files.
+
+Never edit source or tests while Vitest is running in the checkout. After
+coverage cleanup, request an independent preservation review of the remaining
+owner-boundary tests. Report baseline results, fault probes, and CI separately.
+Read [the campaign guide](../.agents/skills/test-audit/CAMPAIGN.md) only for a
+whole-subsystem pruning campaign. Upstream attribution and local adaptations
+are recorded in [UPSTREAM.md](../.agents/skills/test-audit/UPSTREAM.md).
+
 ## Test Runner
 
 Canonry uses **Vitest**. `vitest.config.ts` defines the workspace projects. `vitest.package.config.ts` supports package tests.
@@ -10,6 +39,17 @@ import { test, expect, describe, it, beforeEach, afterEach } from 'vitest'
 
 Tests live in `test/` directories colocated with each package (e.g. `packages/canonry/test/`).
 
+### Migrated test databases
+
+`test-setup/global-setup.ts` migrates one empty database per run. When a test calls `migrate(db)` on an empty database, the shared setup file replays that database's schema and rows (`test-setup/migrated-database.ts`) instead of running every migration again: about 15 ms instead of 200 ms. Each test still gets its own database.
+A custom version list, or a database that already holds a table, runs the real migrations. To exercise the real runner from an empty database with every version, pass a copy of the list: `migrate(db, [...MIGRATION_VERSIONS])`.
+
+### Shared workers
+
+Projects in `SHARED_WORKER_PROJECTS` (`vitest.config.ts`) run their test files in shared workers, so each worker imports the package graph once instead of once per file. Before each file, the shared setup file restores the environment, stubbed globals, the working directory, real timers, and the network guards. Module state persists between files, so a test that changes a module-level cache resets it.
+Vitest keeps module mocks across a shared worker's files, so a file that calls `vi.mock` or `vi.doMock` runs in its own process: `api-routes` runs as `api-routes:shared` and `api-routes:isolated`. Select both with `--project 'api-routes:*'`.
+`canonry` and `web` keep one process per file. Canonry holds process-wide state, such as the provider rate-limit gates, and web tests would share one jsdom document.
+
 ## Fast Local Checks
 
 Run changed-file lint from the repository root:
@@ -19,46 +59,46 @@ pnpm check
 ```
 
 `pnpm check` and `pnpm lint:changed` lint staged, unstaged, and untracked JS/TS files using their working content.
-They skip deleted files, symlinks, and ESLint-ignored files.
-They run syntax rules and repository guards without loading TypeScript projects. They do not run tests, builds, or code generation.
-They cover local changes, not every committed change on the branch. CI checks the full workspace.
+They skip deleted files, symlinks, and files `.oxlintrc.json` ignores.
+They run oxlint's syntax rules and repository guards without type information. They do not run tests, builds, or code generation.
+They cover local changes, not every committed change on the branch. Contributor CI checks the full workspace; owner changes require local validation.
+oxlint is fast enough that neither these checks nor the full type-aware `pnpm lint` keep a result cache.
 
-### Shared lint cache
-
-Changed-file and staged checks share clean results across this repository's Git worktrees.
-Cache keys include source content, relative file paths, effective ESLint configuration, local rules, the lockfile, and installed tool versions.
-Timestamps and branch names do not affect reuse. Warnings and errors are checked again and remain visible.
-
-Entries live under `${TMPDIR}/canonry-lint-cache-<uid>/`, grouped by the repository's common Git directory.
-Each result has a separate file, written atomically. Concurrent worktrees do not rewrite a shared ESLint cache file.
-Set `CANONRY_LINT_CACHE_DIR` to change the cache root. Cache storage failures do not prevent linting or commits.
-Use `pnpm check --no-cache` or `pnpm lint:staged --no-cache` to bypass the cache.
-
-Full type-aware lint remains uncached: edits to imported types can change diagnostics in an otherwise unchanged file.
-
-For behavior changes, run the relevant tests and package typechecks:
+During local iteration, do not run tests, test watchers, or `pnpm verify`.
+Write or update tests with the implementation.
+Defer execution until the changes are finalized and ready for push or review.
+At final validation for behavior changes, run the relevant tests and package typechecks:
 
 ```bash
 pnpm exec vitest run --project contracts
 pnpm exec vitest run packages/contracts/test/citations.test.ts
-pnpm --filter @ainyc/canonry-contracts typecheck
+pnpm --filter @canonry/canonry-contracts typecheck
 ```
 
 Replace the project, test path, and package with the affected scope.
-After another edit or rebase, rerun only the affected checks.
+Reuse passing results while their inputs remain unchanged.
+After another edit or rebase, defer affected checks until the changes are ready again.
+
+Generated SDK type contracts live in `packages/api-client-generated/test/*.test-d.ts`.
+Run `pnpm --filter @canonry/canonry-api-client typecheck` to compile the SDK,
+its runtime test code, and these contracts through `tsconfig.test.json`.
+CI runs the same package script through the root typecheck.
+Vitest owns the SDK's runtime request-wiring tests; it does not execute the
+compiler-only contracts or validate their `expectTypeOf` assertions.
 
 ## Git Hooks
 
 Pre-commit runs `node scripts/lint-changed.mjs --staged` directly, without a pnpm startup or dependency scan.
 `pnpm lint:staged` runs the same check manually. It reads the exact staged blobs, including partially staged files.
+oxlint reads files from disk, so the staged blobs are written to a temporary tree at their repository paths and linted there.
 It never fixes files, stages changes, or stashes work. Errors block the commit. Warnings remain visible.
-Documentation-only commits skip ESLint and do not need installed npm dependencies.
+Documentation-only commits skip the linter and do not need installed npm dependencies.
 
-Changes to `eslint.config.*` or `eslint-rules/` trigger `pnpm run lint` across the repository, with all type-aware rules enabled.
-This fallback does not use the fast cache. It can find new violations in unchanged files.
+Changes to `.oxlintrc.json` or `eslint-rules/` trigger `pnpm run lint` across the repository, with all type-aware rules enabled.
+It can find new violations in unchanged files.
 For staged checks, code and configuration must match the index before the fallback runs.
-The hook refuses partially staged inputs for full typed lint, because TypeScript reads the project from disk.
-Ordinary code commits retain the fast path. Type-aware findings in those commits remain CI's responsibility.
+The hook refuses partially staged inputs for full typed lint, because type-aware lint reads the project from disk.
+Ordinary code commits retain the fast path. Agents must run affected package typechecks and type-aware lint locally before pushing code.
 
 The commit-message hook checks Conventional Commits.
 Pre-push runs `pnpm gen:check --committed`, `pnpm plugin:check`, and `pnpm val:skills:check`, in that order.
@@ -94,7 +134,7 @@ Vite resolves environment values before the cache check. Variable expansion and 
 The web package supports standard Vite build flags:
 
 ```bash
-pnpm --filter @ainyc/canonry-web build --mode staging --base /preview/ --sourcemap
+pnpm --filter @canonry/canonry-web build --mode staging --base /preview/ --sourcemap
 ```
 
 These options participate in cache identity. Other Vite flags pass through to the native CLI without caching.
@@ -103,21 +143,62 @@ Recursive builds order the dashboard before Canonry, which reuses its output.
 
 ## Full Workspace Checks
 
-CI owns full workspace validation. For a requested full local check or a CI failure reproduction, run `pnpm verify`.
-This command includes generated-file drift and documentation assertions. It is not required before each commit or push.
+Outside code contributors must run `pnpm check` and `pnpm verify` before opening a PR, including a draft.
+Use the [contribution checklist](../CONTRIBUTING.md#before-submitting-a-pr) and [PR template](../.github/pull_request_template.md).
+Include the tested SHA, exact commands, test totals, and results before submission. Focused tests and future CI are insufficient.
+Failed or unrun required checks block submission without an explicit maintainer exception.
+Docs/comment-only and configuration changes use the applicable checks under [Before Merging](#before-merging).
+
+`pnpm verify` includes generated-file drift, documentation assertions, and all workspace tests, typechecks, and lint.
+It stops at the first failure. Report only checks that actually ran.
+For owner (`arberx`) changes, `pnpm verify` remains optional locally, not a per-commit or per-push requirement.
+Owner changes use affected package checks at final validation, including dependent packages for changes that span the workspace.
+Full workspace checks also run in contributor CI after submission.
+
+## Before Merging
+
+Agents must run tests only after changes are finalized and ready for push or review.
+Do not run tests during local iteration. At final validation:
+
+1. Run `pnpm check`, affected package tests, typechecks, and type-aware lint. Cover meaningful invalid, boundary, and permission cases; broaden validation for shared runtime, contracts, dependencies, migrations, and authorization changes.
+2. Build the affected surface and smoke its actual behavior through the relevant API, CLI, MCP, or browser. Packaging changes require a packed install smoke check; database changes require applicable fresh-install and upgrade migration checks.
+3. Run applicable SDK, plugin, and Val drift checks. Regenerate at the source and review generated changes; never weaken checks to make them pass. Hooks check staged lint and drift; they do not replace tests, typechecks, builds, or smoke checks.
+4. Fetch the latest PR target, integrate upstream changes, inspect the complete target-to-head diff, and resolve conflicts. At final validation, rerun only checks whose inputs changed.
+5. Recheck an attempted version bump against the current target tip and published npm versions immediately before pushing. Publish compares against the previous main commit; reusing the target's version skips npm and Homebrew even if merge-base checks pass.
+6. After pushing, before handoff or merge, verify the validated commit matches the remote branch and PR `headRefOid`; require GitHub `mergeable: MERGEABLE`. Report remaining working-tree changes without discarding another agent's work. Record exact commands, results, validated SHA, and blockers; failed or unrun required checks mean the change is not ready.
+
+For stacked PRs after a squash merge, rebase away the old parent commits with `git rebase --onto origin/main <old-base-tip> <branch>`; retargeting alone does not rewrite history.
+For contributor CI, an empty `gh pr checks` result means no evidence, not success. Owner validation jobs intentionally skip; cite local results instead.
+Auto-merge is disabled; passing validation and approval still require a manual merge.
+Docs/comment-only changes use diff and documentation checks. Workflow configuration uses Actionlint and live GitHub verification; do not add tests solely to mirror workflow YAML.
 
 ## CI Mapping
+
+`arberx` changes skip automatic validation; outside or unknown authorship runs full CI.
+The shared metadata policy checks PR and commit authors, so merging an outside PR as the owner does not exempt it.
+All release workflows stay enabled: npm, Homebrew, Docker, ClawHub, and WordPress. GitHub handles merge conflicts.
+Owner releases build and pack directly in Publish; outside releases use the exact validated CI artifact.
+For owner changes, report local checks instead of treating skipped CI as a pass.
 
 Separate jobs in `ci.yml` cover the checks in `pnpm verify`:
 
 - `pnpm gen:check`
 - `pnpm plugin:check` (CI also supplies `--base-ref`)
 - `pnpm val:skills:check`
-- `pnpm run typecheck`
+- `pnpm run typecheck` and `pnpm run typecheck:tsc` (the two legs of the `typecheck` matrix job)
 - `pnpm run lint`
 - `pnpm run test`
 
 CI also runs build, Deno, and release guards. `pnpm verify` does not replace those additional checks.
+
+### Typecheck compilers
+
+Every `typecheck` script runs `scripts/typecheck.mjs`, which takes tsc's arguments and picks the compiler:
+
+- By default, tsrs, the Rust port of TypeScript 7. Platforms without a native tsrs binary, such as Intel macOS, run its WebAssembly build, which reports the same diagnostics more slowly.
+- With `CANONRY_TYPECHECKER=tsc` (`pnpm typecheck:tsc` for the whole workspace), the `typescript` package's own `tsc`. This uses the upstream native TypeScript 7 compiler.
+
+`pnpm verify` and CI run both, so code stays valid for each. A package's `typecheck` script calls `node ../../scripts/typecheck.mjs`, never bare `tsc`. After switching compilers, the next run rebuilds the incremental state once.
 
 ### CI caches
 
@@ -125,11 +206,11 @@ Lint and typechecks use four concurrent package processes without dependency ord
 They read workspace source directly and produce no artifacts needed by another package's check.
 Builds retain dependency ordering.
 
-Typechecks reuse TypeScript incremental state, including the root `scripts/` and `test/` projects.
+Typechecks reuse TypeScript incremental state, including the root `scripts/`, `test/` and `test-setup/` projects (`test-setup/tsconfig.json` also covers the root Vitest configs).
 CI collects the `.tsbuildinfo` files with shallow shell globs and caches a single archive.
 This avoids scanning `node_modules` during cache uploads. TypeScript still validates the current inputs on every run.
 
-Tests run in six shards on each of Node 22 and Node 26. Both majors run the complete suite.
+Tests run in six shards on each patched Node 22, 24, and 26 release. All supported majors run the complete suite.
 CI persists Vitest's experimental module-transform cache and Node's compile cache.
 These caches reuse compilation work; they never skip test assertions or reuse a passing test result.
 Cache keys separate the OS, architecture, Node major, shard, lockfiles, manifests, and configuration.
@@ -140,15 +221,27 @@ Successful `main` runs warm caches that PRs can restore. Each PR can also reuse 
 A cache miss runs the checks normally. Local test commands keep their existing behavior.
 To bypass the test compilation caches in CI, omit the two `--experimental` flags and set `NODE_DISABLE_COMPILE_CACHE=1`.
 
-Npm publishing waits for the successful `ci.yml` push run on the exact release commit and branch.
+For outside contributions, npm publishing waits for the `validate` job of the `ci.yml` push run on the exact release commit and branch.
+`validate` requires typecheck, tests, lint, the drift checks, the WordPress plugin suite, the package build, and the install smoke test.
+The Docker image build is outside it, so a Docker failure cannot skip npm; Docker publishes from its own Publish job.
 It does not repeat typechecks or an unsharded test suite. Failed, cancelled, missing, or timed-out validation blocks publication.
 The wait has a 25-minute deadline. After fixing CI, rerun the failed Publish jobs to retry the gate.
 
+Before each image build, CI and Publish run `scripts/pull-docker-base-images.sh Dockerfile`.
+It retries failed pulls with backoff. For ECR Public's Docker Official Images, it also tries the same image on Docker Hub, which has a separate quota.
+When the Docker Hub copy is used, the script points that image's `FROM` lines in the Dockerfile at it, because Docker cannot retag a digest-pinned image. The build must read the same file.
+BuildKit then uses the local copy instead of the registry, so leave `pull` off in `docker/build-push-action`.
+
 The build job includes the root README, packs Canonry once, and uploads the tarball for the install smoke test and npm publication.
-The smoke job installs that artifact in a scratch directory without a repository checkout or workspace dependencies.
-Publish downloads the artifact from the successful push CI run for the exact release commit.
-It publishes the tested primary tarball unchanged and repacks its contents with the compatibility package name.
-Neither publication runs build or lifecycle scripts. Missing artifacts or a mismatched package name or version stop publication.
+The smoke job installs that artifact in a scratch directory outside the checkout and checks `canonry --version`.
+It then runs `scripts/smoke-sentiment.mjs` against the installed package. Checkout dependencies only seed synthetic data and run the harness;
+the server, CLI, HTTP MCP, and stdio MCP behavior comes from the installed binaries.
+The scenario covers Simple and Advanced portfolios, credential scopes, idempotent replay, and exact stored results.
+Provider requests go to a bounded loopback stub; CI uses no live provider credentials.
+Reports, provider receipts, and redacted failure logs are uploaded as `packaged-sentiment-smoke` artifacts.
+For outside contributions, Publish downloads the artifact from the push CI run whose `validate` job passed for the exact release commit.
+It publishes only the tested Canonry tarball, unchanged.
+Publication runs no build or lifecycle scripts. Missing artifacts or a mismatched package name or version stop publication.
 Artifacts remain available for seven days; after expiry, rerun CI before retrying publication.
 
 For a local artifact dry run, set `CANONRY_NPM_PUBLISH_TARBALL` to the absolute tarball path and run
@@ -162,7 +255,7 @@ To verify the publishable package:
 
 ```bash
 cd packages/canonry && npm pack
-npm install -g ./ainyc-canonry-*.tgz
+npm install -g ./canonry-canonry-*.tgz
 canonry init
 canonry serve
 ```
@@ -170,8 +263,8 @@ canonry serve
 ## Dependency Verification Checklist
 
 1. Run tests and typechecks for the affected packages.
-2. Confirm `apps/worker/src/audit-client.ts` still imports from `@ainyc/aeo-audit`.
-3. Confirm worker adapter tests still pass against the published package.
+2. Run `packages/canonry/test/aeo-audit-dependency-contract.test.ts` to verify the published audit-engine pins and integration boundaries.
+3. Confirm the worker starts without an audit-engine dependency; audit execution belongs to the production full-crawl engine.
 4. Confirm `packages/api-routes/` has no direct dependency on `apps/*`.
 5. Confirm `packages/canonry/` bundles SPA assets correctly (`build-web.ts`).
 
@@ -225,3 +318,8 @@ canonry status test                             # view citation results
 - When testing CLI commands, capture stdout/stderr and assert on output rather than only checking side effects.
 - Use temp directories (`os.tmpdir()`) for file-system tests; clean up in `afterEach`.
 - **Test default-value propagation end-to-end.** When a feature stores a default that another feature consumes, write a test that exercises the full path with no explicit override.
+
+The workspace uses TypeScript 7. SDK generation, tsup declaration builds, and
+the web's JSX guard tests still require the JavaScript compiler API, which
+TypeScript 7 removed. Their four owning packages pin TypeScript 6.0.3 as a private development dependency;
+all workspace typechecks continue through the root compiler launcher.

@@ -1,6 +1,6 @@
 import fs from 'node:fs'
-import { createClient, projects, queries as queriesTable } from '@ainyc/canonry-db'
 import { loadConfigRaw, configExists } from './config.js'
+import { registeredProviderNames } from './provider-registration.js'
 
 /**
  * Lightweight snapshot of the user's setup at CLI command time. Lets the
@@ -29,8 +29,11 @@ export interface SetupState {
  * Returns `undefined` only when there is no config at all (pre-init), so
  * callers can omit the `setup_state` field rather than emit zeros that
  * misrepresent a brand-new install.
+ *
+ * The database package loads only when there is a database file to read, so
+ * a CLI run without one never imports it.
  */
-export function buildSetupState(): SetupState | undefined {
+export async function buildSetupState(): Promise<SetupState | undefined> {
   if (!configExists()) return undefined
 
   let provider_count = 0
@@ -43,11 +46,9 @@ export function buildSetupState(): SetupState | undefined {
     const raw = loadConfigRaw()
     if (raw) {
       is_first_run = !raw.anonymousId
-      if (raw.providers) {
-        provider_count = Object.values(raw.providers).filter(
-          p => Boolean(p?.apiKey) || Boolean(p?.baseUrl),
-        ).length
-      }
+      // The server's own registration rule: a Vertex-only Gemini or a CDP
+      // browser provider is a provider, and a key-less entry is not.
+      provider_count = registeredProviderNames(raw).length
       if (typeof raw.database === 'string' && raw.database.length > 0) {
         dbPath = raw.database
       }
@@ -58,6 +59,7 @@ export function buildSetupState(): SetupState | undefined {
 
   if (dbPath && fs.existsSync(dbPath)) {
     try {
+      const { createClient, projects, queries: queriesTable } = await import('@canonry/canonry-db')
       const db = createClient(dbPath)
       project_count = db.select({ id: projects.id }).from(projects).all().length
       const firstQuery = db

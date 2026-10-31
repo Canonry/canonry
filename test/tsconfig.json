@@ -3,7 +3,7 @@
   "compilerOptions": {
     "noEmit": true,
     // The lint guards live in plain-JS rule modules (eslint-rules/*.js) so
-    // eslint.config.js can import them directly; allowJs types them here.
+    // oxlint can load them as JS plugins; allowJs types them here.
     "allowJs": true,
     "allowImportingTsExtensions": false
   },

@@ -7,6 +7,7 @@ import {
   runTriggerSchema,
 } from './run.js'
 import { citedUrlCaptureStatusSchema } from './cited-urls.js'
+import { answerEvidenceSchema } from './answer-evidence.js'
 
 /** Download format for the historical answer-engine results export. */
 export const resultsExportFormatSchema = z.enum(['json', 'csv'])
@@ -51,6 +52,14 @@ export const resultsExportRecordSchema = z.object({
   answerText: z.string().nullable(),
   groundingSources: z.array(groundingSourceSchema),
   searchQueries: z.array(z.string()),
+  /**
+   * Vendor-neutral evidence recorded with the answer (search answer
+   * services): what `cited` was measured from (`citationBasis`), every source
+   * with its relationship, completion, frozen identity and settings, location
+   * treatment and the cost basis. Null for engines that record none; absent
+   * in exports written before the field existed.
+   */
+  answerEvidence: answerEvidenceSchema.nullable().optional(),
 })
 export type ResultsExportRecord = z.infer<typeof resultsExportRecordSchema>
 

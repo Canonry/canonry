@@ -1,15 +1,15 @@
 import { useMemo } from 'react'
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
 
-import type { TrafficEventKind, TrafficSeriesGranularity, TrafficSourceStatus } from '@ainyc/canonry-contracts'
-import { TrafficSourceStatuses } from '@ainyc/canonry-contracts'
+import type { TrafficEventKind, TrafficSeriesGranularity, TrafficSourceStatus } from '@canonry/canonry-contracts'
+import { TrafficSourceStatuses } from '@canonry/canonry-contracts'
 import {
   getApiV1ProjectsByNameTrafficEventsOptions,
   getApiV1ProjectsByNameTrafficSourcesByIdOptions,
   getApiV1ProjectsByNameTrafficSourcesOptions,
   getApiV1ProjectsByNameTrafficStatusOptions,
   getApiV1RunsQueryKey,
-} from '@ainyc/canonry-api-client/react-query'
+} from '@canonry/canonry-api-client/react-query'
 
 import {
   connectServerTrafficCloudRun,

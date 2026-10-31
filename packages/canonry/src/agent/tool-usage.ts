@@ -1,5 +1,5 @@
 import crypto from 'node:crypto'
-import { agentToolEvents, type DatabaseClient } from '@ainyc/canonry-db'
+import { agentToolEvents, type DatabaseClient } from '@canonry/canonry-db'
 import type { AgentOptions } from '@earendil-works/pi-agent-core'
 import type { ImageContent, TextContent } from '@earendil-works/pi-ai'
 

@@ -74,7 +74,7 @@ describe('DataTablePagination', () => {
       />,
     )
 
-    expect(screen.getByText('1–25+ rows')).not.toBeNull()
+    expect(screen.getByText('1 to 25+ rows')).not.toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Next' }))
     expect(onPageChange).toHaveBeenCalledWith(2)
 
@@ -86,7 +86,7 @@ describe('DataTablePagination', () => {
         onPageChange={onPageChange}
       />,
     )
-    expect(screen.getByText('1–1 of 1 rows')).not.toBeNull()
+    expect(screen.getByText('1 to 1 of 1 rows')).not.toBeNull()
     expect(screen.queryByRole('button', { name: 'Next' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Previous' })).toBeNull()
   })

@@ -1,7 +1,7 @@
 import { eq, desc, and, inArray, like } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { groupRunsByCreatedAt, insights, healthSnapshots, runs } from '@ainyc/canonry-db'
-import { notFound, validationError, RunKinds, RunStatuses, type InsightDto, type HealthSnapshotDto } from '@ainyc/canonry-contracts'
+import { groupRunsByCreatedAt, insights, healthSnapshots, runs } from '@canonry/canonry-db'
+import { notFound, validationError, RunKinds, RunStatuses, InsightActionGroups, insightActionGroupByType, type InsightDto, type HealthSnapshotDto } from '@canonry/canonry-contracts'
 import { notProbeRun, resolveProject } from './helpers.js'
 
 // Severity ordering for the insights `severity` filter (a MINIMUM-level gate:
@@ -15,6 +15,22 @@ function severitiesAtOrAbove(min: string): InsightDto['severity'][] {
     throw validationError(`Invalid severity "${min}". Use one of: low, medium, high, critical.`)
   }
   return (Object.keys(SEVERITY_RANK) as InsightDto['severity'][]).filter((s) => SEVERITY_RANK[s] >= floor)
+}
+
+/**
+ * Order for every insight list: the newest analysis first. One analysis stamps
+ * all of its insights with the same `createdAt`, so within it, insights that
+ * need action come before wins to monitor, then the most severe first. Sort is
+ * stable, so equal keys keep their stored order.
+ */
+export function compareInsightsForTriage(a: InsightDto, b: InsightDto): number {
+  return b.createdAt.localeCompare(a.createdAt)
+    || monitorRank(a) - monitorRank(b)
+    || SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity]
+}
+
+function monitorRank(insight: InsightDto): number {
+  return insightActionGroupByType[insight.type] === InsightActionGroups.monitor ? 1 : 0
 }
 
 function emptyHealthSnapshot(projectId: string): HealthSnapshotDto {
@@ -209,6 +225,7 @@ export async function intelligenceRoutes(app: FastifyInstance) {
     let result: InsightDto[] = rows
       .filter(r => showDismissed || !r.dismissed)
       .map(mapInsightRow)
+      .sort(compareInsightsForTriage)
     if (limit !== undefined) result = result.slice(0, limit)
 
     return reply.send(result)

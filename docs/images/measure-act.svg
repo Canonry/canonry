@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1140" height="1100" viewBox="0 0 1140 1100" role="img" aria-labelledby="title desc">
   <title id="title">Canonry: historical evidence, agent actions, and repeated measurement</title>
-  <desc id="desc">Connected AI, search, local, analytics, and site/traffic sources feed Canonry on a schedule or on demand. Canonry stores baseline, earlier, and latest project evidence across multiple domains and portfolios in SQLite. Your agent reads that evidence and sends commands to Canonry action tools. The agent also uses its own tools for code and content. Canonry publishes to WordPress and submits sitemaps and URLs to Google and Bing. Dashboard, reports, and webhook outputs share project evidence. After site changes, rerun checks and compare against earlier results.</desc>
+  <desc id="desc">Connected AI, search, local, analytics, and site/traffic sources feed Canonry on a schedule or on demand. Canonry stores baseline, earlier, and latest project evidence across multiple domains and portfolios in SQLite. Your agent reads that evidence and sends commands to Canonry action tools. The agent also uses its own tools for code and content. Canonry publishes to WordPress and submits sitemaps and URLs to Google and Bing. Dashboard, evidence exports, and webhook outputs share project evidence. After site changes, rerun checks and compare against earlier results.</desc>
   <metadata>
 Embedded, unmodified Geist and Geist Mono fonts.
 Copyright 2024 The Geist Project Authors (https://github.com/vercel/geist-font) Geist-Italic[wght].ttf: Copyright 2024 The Geist Project Authors (https://github.com/vercel/geist-font)
@@ -186,7 +186,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
   <path d="M264 772H396" fill="none" stroke="#69aafa" stroke-width="2" stroke-linejoin="round" marker-end="url(#act)" />
   <text x="330" y="754" font-size="20" fill="#69aafa" font-weight="400" text-anchor="middle">Commands</text>
   <path d="M760 480H800V412H834" fill="none" stroke="#a8b0bc" stroke-width="2" stroke-linejoin="round" marker-end="url(#read)" />
-  <text x="848" y="420" font-size="25" fill="#edf0f4" font-weight="520" text-anchor="start">Client reports</text>
+  <text x="848" y="420" font-size="25" fill="#edf0f4" font-weight="520" text-anchor="start">Evidence exports</text>
   <text x="848" y="462" font-size="20" fill="#a8b0bc" font-weight="400" text-anchor="start">HTML · JSON</text>
   <path d="M760 630H802V586H834" fill="none" stroke="#a8b0bc" stroke-width="2" stroke-linejoin="round" marker-end="url(#read)" />
   <text x="848" y="586" font-size="24" fill="#edf0f4" font-weight="520" text-anchor="start">Alerts + webhooks</text>

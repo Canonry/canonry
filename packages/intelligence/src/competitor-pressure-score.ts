@@ -1,5 +1,5 @@
-import type { ProjectOverviewCompetitorDto, ScoreSummaryDto } from '@ainyc/canonry-contracts'
-import { hostMatchesAnyDomain, hostMatchesDomain } from '@ainyc/canonry-contracts'
+import type { ProjectOverviewCompetitorDto, ScoreSummaryDto } from '@canonry/canonry-contracts'
+import { hostMatchesAnyDomain, hostMatchesDomain } from '@canonry/canonry-contracts'
 import { pressureTone } from './score-tones.js'
 
 export interface CompetitorPressureSnapshot {
@@ -20,6 +20,10 @@ export interface CompetitorPressureSnapshot {
 export interface CompetitorRow {
   id?: string
   domain: string
+  /** Operator-curated answer-text names, echoed for display. Citation pressure never reads them. */
+  aliases?: readonly string[]
+  /** Answer-derived auto names (already minus blocked), echoed for display. */
+  autoAliasNames?: readonly string[]
 }
 
 export type CompetitorPressureLabel = 'None' | 'Low' | 'Moderate' | 'High'
@@ -127,6 +131,8 @@ export function buildOverviewCompetitors(
     return {
       id: competitor.id || `comp_${index}`,
       domain: competitor.domain,
+      ...(competitor.aliases ? { aliases: [...competitor.aliases] } : {}),
+      ...(competitor.autoAliasNames?.length ? { autoAliasNames: [...competitor.autoAliasNames] } : {}),
       citationCount: citedQuerySet.size,
       totalQueries: uniqueQueries.size,
       pressureLabel,

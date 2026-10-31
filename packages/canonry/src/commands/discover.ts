@@ -1,14 +1,16 @@
 import { createApiClient } from '../client.js'
 import type { ApiClient, DiscoveryRunStartResponse } from '../client.js'
-import { CitationStates, describeError } from '@ainyc/canonry-contracts'
+import { CitationStates, describeError, DiscoveryPromoteCompetitorSkipReasons } from '@canonry/canonry-contracts'
 import type {
   DiscoveryBucket,
   DiscoveryCompetitorType,
+  DiscoveryPromoteCompetitor,
   DiscoveryPromotePreview,
   DiscoveryPromoteRequest,
+  DiscoveryPromoteResult,
   DiscoverySessionDetailDto,
   DiscoverySessionDto,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { CliError, isMachineFormat } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
 
@@ -57,7 +59,7 @@ export interface ResolvedIcpAngles {
   multiAngle: boolean
 }
 
-export function resolveIcpAngles(opts: DiscoverRunOptions): ResolvedIcpAngles {
+function resolveIcpAngles(opts: DiscoverRunOptions): ResolvedIcpAngles {
   const angles = (opts.icpAngles ?? []).map(a => a.trim()).filter(a => a.length > 0)
   if (angles.length > 0) return { angles, multiAngle: true }
   const icp = opts.icp?.trim()
@@ -78,7 +80,7 @@ type DiscoverySessionCounts = Pick<
   'probeCount' | 'citedCount' | 'wastedCount' | 'aspirationalCount'
 >
 
-export function summarizeAngles(sessions: readonly DiscoverySessionCounts[]): AngleSummary {
+function summarizeAngles(sessions: readonly DiscoverySessionCounts[]): AngleSummary {
   return {
     angleCount: sessions.length,
     totalProbes: sessions.reduce((sum, s) => sum + (s.probeCount ?? 0), 0),
@@ -353,9 +355,17 @@ export async function discoverPromotePreview(project: string, sessionId: string,
   if (preview.suggestedCompetitors.length > 0) {
     console.log(`  Suggested new competitors:`)
     for (const c of preview.suggestedCompetitors) {
-      console.log(`    - ${c.domain} (${c.hits} hits, ${c.competitorType})`)
+      console.log(`    - ${c.domain} (${c.hits} hits, ${c.competitorType})${mergedHostsNote(c)}`)
     }
     console.log('    Only direct-competitor is promoted by default — pass --competitor-types to include other types.')
+  }
+  // A server that predates competitor aliases sends no `skippedCompetitors`.
+  const skippedCompetitors =
+    (preview as { skippedCompetitors?: DiscoveryPromotePreview['skippedCompetitors'] }).skippedCompetitors ?? []
+  const held = skippedCompetitors.filter(c => c.reason !== DiscoveryPromoteCompetitorSkipReasons['already-tracked'])
+  if (held.length > 0) {
+    console.log(`  Competitors a promote leaves out:`)
+    for (const c of held) console.log(`    ! ${c.domain} (${c.reason}): ${c.message}`)
   }
   console.log(`\n  Run \`canonry discover promote ${project} ${sessionId}\` to merge cited + aspirational queries.`)
   console.log('  Add `--bucket wasted-surface` only when off-ICP competitor gaps should be tracked.')
@@ -386,14 +396,37 @@ export async function discoverPromote(
   }
 
   const { promoted, skipped } = result
+  // A server that predates competitor aliases sends no `competitorDetails`:
+  // list its plain promoted domains, and count every competitor it skipped as
+  // already tracked, the only reason such a server skips one.
+  const competitorDetails =
+    (result as { competitorDetails?: DiscoveryPromoteResult['competitorDetails'] }).competitorDetails
+  const promotedCompetitors: PromotedCompetitorHosts[] =
+    competitorDetails?.promoted ?? promoted.competitors.map(domain => ({ domain }))
+  const held = (competitorDetails?.skipped ?? [])
+    .filter(c => c.reason !== DiscoveryPromoteCompetitorSkipReasons['already-tracked'])
   console.log(`Promoted discovery session ${sessionId} into "${project}":`)
   console.log(`  Queries:     ${promoted.queries.length} added, ${skipped.queries.length} already tracked`)
   for (const q of promoted.queries) console.log(`    + ${q}`)
-  console.log(`  Competitors: ${promoted.competitors.length} added, ${skipped.competitors.length} already tracked`)
-  for (const c of promoted.competitors) console.log(`    + ${c}`)
+  console.log(`  Competitors: ${promoted.competitors.length} added, ${skipped.competitors.length - held.length} already tracked, ${held.length} left out`)
+  for (const c of promotedCompetitors) console.log(`    + ${c.domain}${mergedHostsNote(c)}`)
+  for (const c of held) console.log(`    ! ${c.domain} (${c.reason}): ${c.message}`)
   if (promoted.queries.length === 0 && promoted.competitors.length === 0) {
     console.log(`  Nothing new — the project's basket already covers this session.`)
   }
+}
+
+/** A promoted competitor's stored domain and, from a server that has them, the cited hosts merged into it. */
+type PromotedCompetitorHosts = Pick<DiscoveryPromoteCompetitor, 'domain'> & Partial<Pick<DiscoveryPromoteCompetitor, 'sources'>>
+
+/**
+ * ` (from offers.rival.example)` when the cited hosts differ from the stored
+ * domain, else ''. A server that predates competitor aliases sends no `sources`.
+ */
+function mergedHostsNote(competitor: PromotedCompetitorHosts): string {
+  const sources = competitor.sources ?? []
+  const hosts = sources.map(source => source.domain).filter(host => host !== competitor.domain)
+  return hosts.length > 0 ? ` (from ${sources.map(source => source.domain).join(', ')})` : ''
 }
 
 function printSessionDetail(session: DiscoverySessionDetailDto): void {

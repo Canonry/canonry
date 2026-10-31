@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm'
 import { check, foreignKey, index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
-import type { ProviderBatchRequestOutcome, ProviderBatchStatus, ProviderDispatchMode, ProviderDispatchModesMap, SnapshotUsage } from '@ainyc/canonry-contracts'
-import type { CalendarRecurrence, AdsActivationEntityType, AdsActivationGrantState, AdsActivationManifest, AdsOperationStepState, AdsReconcileFields, BacklinkSource, ContentBriefDto, ConversionTrackingContract, DiscoveryCompetitorMapEntry, DiscoveryCompetitorType, AiReferralTrafficClass, LocationContext, ProviderModels, ProviderName, SiteAuditCrossCuttingIssueDto, SiteAuditEffectiveRequest, SiteAuditFactorSummaryDto, SiteAuditPageFactorDto, MeasurementConfig, GaLeadAttributionScope, GaMeasurementComponentStatus, GoogleAdsCustomerStatus, GoogleAdsSnapshotKind, GoogleAdsSnapshotPayload, GtmSnapshotKind, GtmSnapshotPayload, GbpReviewAlertState, GbpReviewOrigin, GbpReviewsAccess, SimpleMeasurementDefinition, TrafficVerificationManifest } from '@ainyc/canonry-contracts'
+import type { CompetitorAutoAlias as StoredCompetitorAutoAlias, CompetitorAutoAliasMode, ConfigSource, ProviderAccountStreak, ProviderBatchRequestOutcome, ProviderBatchStatus, ProviderDispatchMode, ProviderDispatchModesMap, RunSyncSummary, SiteCrawlIssueEvidence, SnapshotUsage } from '@canonry/canonry-contracts'
+import type { CalendarRecurrence, AdsActivationEntityType, AdsActivationGrantState, AdsActivationManifest, AdsOperationStepState, AdsReconcileFields, BacklinkSource, ContentBriefDto, ConversionTrackingContract, DiscoveryCompetitorMapEntry, DiscoveryCompetitorType, AiReferralTrafficClass, LocationContext, ProviderModels, ProviderName, SiteAuditCrossCuttingIssueDto, SiteAuditEffectiveRequest, SiteAuditFactorSummaryDto, SiteAuditPageFactorDto, MeasurementConfig, GaLeadAttributionScope, GaMeasurementComponentStatus, GaSearchLandingStatus, GaSearchLandingWindow, GoogleAdsCustomerStatus, GoogleAdsSnapshotKind, GoogleAdsSnapshotPayload, GtmSnapshotKind, GtmSnapshotPayload, GbpReviewAlertState, GbpReviewOrigin, GbpReviewsAccess, SimpleMeasurementDefinition, TrafficVerificationManifest } from '@canonry/canonry-contracts'
 
 export const projects = sqliteTable('projects', {
   id: text('id').primaryKey(),
@@ -10,6 +10,31 @@ export const projects = sqliteTable('projects', {
   canonicalDomain: text('canonical_domain').notNull(),
   ownedDomains: text('owned_domains', { mode: 'json' }).$type<string[]>().notNull().default([]),
   aliases: text('aliases', { mode: 'json' }).$type<string[]>().notNull().default([]),
+  /**
+   * Operator-chosen subset of `aliases` that Simple sentiment tells the
+   * evaluator are this brand's own names. Frozen into each Simple run's
+   * sidecar at dispatch; never read by mention detection or query classes.
+   */
+  qualifiedAliases: text('qualified_aliases', { mode: 'json' }).$type<string[]>().notNull().default([]),
+  /** Site Health page budget for scans that set none; null means the full site (up to 50,000 pages). */
+  siteAuditMaxPages: integer('site_audit_max_pages'),
+  /**
+   * What the unattended answer-derived competitor alias pass does
+   * (`CompetitorAutoAliasMode`), queued after a completed or partial sweep, a
+   * competitor add, an unblock or a market pin write that changes pins: `off`
+   * (no pass), `preview` (the default: the pass logs what it would change and
+   * stores nothing) or `apply` (it stores the names). An explicit apply-now
+   * stores in every mode.
+   */
+  competitorAutoAliases: text('competitor_auto_aliases').$type<CompetitorAutoAliasMode>().notNull().default('preview'),
+  /**
+   * A recompute of the stored per-snapshot answer fields that the local server
+   * queued after an identity change and has not finished: `full` (a project
+   * alias change, `answer_mentioned` too) or `competitors` (a competitor names
+   * change). Null when none is owed. The recompute queue lives in memory, so
+   * the server requeues every project carrying one when it boots.
+   */
+  answerFieldsRecompute: text('answer_fields_recompute').$type<'full' | 'competitors'>(),
   country: text('country').notNull(),
   language: text('language').notNull(),
   tags: text('tags', { mode: 'json' }).$type<string[]>().notNull().default([]),
@@ -31,7 +56,7 @@ export const projects = sqliteTable('projects', {
   locations: text('locations', { mode: 'json' }).$type<LocationContext[]>().notNull().default([]),
   defaultLocation: text('default_location'),
   autoExtractBacklinks: integer('auto_extract_backlinks', { mode: 'boolean' }).notNull().default(false),
-  configSource: text('config_source').notNull().default('cli'),
+  configSource: text('config_source').$type<ConfigSource>().notNull().default('cli'),
   configRevision: integer('config_revision').notNull().default(1),
   icpDescription: text('icp_description'),
   createdAt: text('created_at').notNull(),
@@ -54,10 +79,65 @@ export const competitors = sqliteTable('competitors', {
   projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
   domain: text('domain').notNull(),
   provenance: text('provenance'),
+  /**
+   * Operator-curated names this competitor goes by in answer prose (a firm at
+   * `spoketuneworks.example` written as "TuneSpoke"). Layered onto the
+   * domain-derived label by every competitor mention matcher. Normalized by
+   * `normalizeCompetitorAliases`; never auto-populated from the domain label.
+   */
+  aliases: text('aliases', { mode: 'json' }).$type<string[]>().notNull().default([]),
+  /**
+   * Names detected automatically from the project's own stored answers, each
+   * with its evidence (`CompetitorAutoAlias` in contracts). Matched exactly
+   * like curated aliases; curated wins a conflict. Stored only by a pass that
+   * applies (`api-routes/src/competitor-auto-aliases.ts`: the project's
+   * `competitor_auto_aliases` mode is `apply`, or an explicit apply-now), and
+   * pruned by the shared competitor writer and the block route.
+   */
+  autoAliases: text('auto_aliases', { mode: 'json' }).$type<StoredCompetitorAutoAlias[]>().notNull().default([]),
+  /**
+   * Names the operator blocked from auto-detection, never auto-applied again
+   * until unblocked. They outlive the row: removing the competitor keeps them
+   * on `market_competitor_names` for its registrable domain, and a new row for
+   * that domain starts with them.
+   */
+  blockedAliases: text('blocked_aliases', { mode: 'json' }).$type<string[]>().notNull().default([]),
   createdAt: text('created_at').notNull(),
 }, (table) => [
   index('idx_competitors_project').on(table.projectId),
   uniqueIndex('idx_competitors_project_domain').on(table.projectId, table.domain),
+])
+
+/**
+ * Answer-derived names of a competitor an Advanced market pins without
+ * tracking it project-wide (no `competitors` row), keyed by its registrable
+ * domain. Published plan revisions are immutable, so the names live here and
+ * every reader that scores a market answer against its live identity layers
+ * them onto the pin (`readMarketCompetitorNames` in api-routes).
+ *
+ * A row also keeps the blocked names of a removed project competitor, with no
+ * learned names when the domain had none (`keepBlockedAliasesOfRemovedCompetitors`
+ * in `api-routes/src/competitor-writes.ts`), so re-adding the competitor or
+ * promoting a market-only pin starts its `competitors` row with them, and the
+ * block/unblock routes reach the domain by this row. A row with blocked names
+ * and no learned names is not empty: never clean it up.
+ *
+ * Written by `api-routes/src/competitor-auto-aliases.ts` (learned names), the
+ * block/unblock routes, and the shared competitor writer on a removal.
+ */
+export const marketCompetitorNames = sqliteTable('market_competitor_names', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  /** `normalizeCompetitorDomain` (registrable) form. */
+  domain: text('domain').notNull(),
+  /** Detected names with their evidence (`CompetitorAutoAlias` in contracts), as on `competitors.auto_aliases`. */
+  autoAliases: text('auto_aliases', { mode: 'json' }).$type<StoredCompetitorAutoAlias[]>().notNull().default([]),
+  /** Names the operator blocked from auto-detection for this competitor. */
+  blockedAliases: text('blocked_aliases', { mode: 'json' }).$type<string[]>().notNull().default([]),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_market_competitor_names_project_domain').on(table.projectId, table.domain),
 ])
 
 // Canonical plan payloads are immutable revisions. The surrogate id gives
@@ -299,6 +379,18 @@ export const runs = sqliteTable('runs', {
    * lose them; folded into `error` and cleared when the run finalizes.
    */
   pendingProviderErrors: text('pending_provider_errors', { mode: 'json' }).$type<Record<string, string>>(),
+  /**
+   * Providers this run does not call because each keeps failing on its
+   * account, with the failure streak that decided it, frozen at queue time
+   * (`providerAccountAdmission`). Null when it skips none.
+   */
+  skippedProviders: text('skipped_providers', { mode: 'json' }).$type<Record<string, ProviderAccountStreak>>(),
+  /**
+   * What a sync run did and why it stopped (counts and stop reason), written
+   * when the run finishes. Only syncs that report one set it (a Cloudflare
+   * Queue traffic sync); null on every other run.
+   */
+  syncSummary: text('sync_summary', { mode: 'json' }).$type<RunSyncSummary>(),
   createdAt: text('created_at').notNull(),
 }, (table) => [
   index('idx_runs_project').on(table.projectId),
@@ -308,6 +400,9 @@ export const runs = sqliteTable('runs', {
   index('idx_runs_status').on(table.status),
   index('idx_runs_source').on(table.sourceId),
   index('idx_runs_measurement_plan').on(table.projectId, table.measurementPlanVersionId, table.createdAt),
+  // A project's newest runs of one kind: run admission reads ten of them on
+  // every queue (`providerAccountRefusal`), as does the failure-streak count.
+  index('idx_runs_project_kind_created').on(table.projectId, table.kind, table.createdAt),
   foreignKey({
     name: 'runs_measurement_plan_version_fk',
     columns: [table.projectId, table.measurementPlanVersionId],
@@ -374,12 +469,21 @@ export const querySnapshots = sqliteTable('query_snapshots', {
   servedModel: text('served_model'),
   citationState: text('citation_state').notNull(),
   answerMentioned: integer('answer_mentioned', { mode: 'boolean' }),
+  // Sentiment's identity verdict on a Simple answer, kept by
+  // `refreshSnapshotMentionIdentity` (api-routes) when a verdict is stored:
+  // `wrong-subject` means the evaluator found the answer is about another
+  // subject, so a name match is not a mention (`countsAsMention`). Null when
+  // no completed verdict says so, which includes every answer never assessed.
+  mentionIdentity: text('mention_identity').$type<import('@canonry/canonry-contracts').MentionIdentity>(),
+  // The Advanced counterpart: stable keys of the Properties whose latest
+  // sentiment verdict on this answer is `wrong-subject`. Null when none.
+  wrongSubjectTargetKeys: text('wrong_subject_target_keys', { mode: 'json' }).$type<string[]>(),
   answerText: text('answer_text'),
   citedDomains: text('cited_domains', { mode: 'json' }).$type<string[]>().notNull().default([]),
   // Flat capture fields are deliberately nullable: historical rows are not
   // backfilled, so all-null means this observation predates URL capture.
   citedUrls: text('cited_urls', { mode: 'json' }).$type<string[]>(),
-  captureStatus: text('capture_status').$type<import('@ainyc/canonry-contracts').CitedUrlCaptureStatus>(),
+  captureStatus: text('capture_status').$type<import('@canonry/canonry-contracts').CitedUrlCaptureStatus>(),
   sourceCount: integer('source_count'),
   resolvedCount: integer('resolved_count'),
   captureVersion: integer('capture_version'),
@@ -387,8 +491,8 @@ export const querySnapshots = sqliteTable('query_snapshots', {
   // that completed having found zero sources says nothing about whether a search
   // ran. Nullable because historical rows are not backfilled, so null means the
   // observation predates the field, NOT that retrieval did not happen.
-  retrievalStatus: text('retrieval_status').$type<import('@ainyc/canonry-contracts').RetrievalStatus>(),
-  retrievalContract: text('retrieval_contract').$type<import('@ainyc/canonry-contracts').RetrievalContract>(),
+  retrievalStatus: text('retrieval_status').$type<import('@canonry/canonry-contracts').RetrievalStatus>(),
+  retrievalContract: text('retrieval_contract').$type<import('@canonry/canonry-contracts').RetrievalContract>(),
   /**
    * LEGACY MIXED SIGNAL — never read this for a mention or a citation metric.
    *
@@ -426,6 +530,10 @@ export const querySnapshots = sqliteTable('query_snapshots', {
   stopReason: text('stop_reason'),
   // Billable usage and the price estimated when the answer was recorded.
   usage: text('usage', { mode: 'json' }).$type<SnapshotUsage>(),
+  // Vendor-neutral answer evidence (source relationships, completion,
+  // identity, usage and cost basis). Written by hosted answer services only;
+  // null for every other engine and every row before migration 186.
+  answerEvidence: text('answer_evidence', { mode: 'json' }).$type<import('@canonry/canonry-contracts').AnswerEvidence | null>(),
   createdAt: text('created_at').notNull(),
 }, (table) => [
   index('idx_snapshots_run').on(table.runId),
@@ -611,6 +719,13 @@ export const runtimeLogMetadata = sqliteTable('runtime_log_metadata', {
   captureErrors: integer('capture_errors').notNull().default(0),
 })
 
+/** Highest fully completed version of each install-wide data repair. */
+export const dataRepairCompletions = sqliteTable('data_repair_completions', {
+  name: text('name').primaryKey().notNull(),
+  version: integer('version').notNull(),
+  completedAt: text('completed_at').notNull(),
+})
+
 export const apiKeys = sqliteTable('api_keys', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
@@ -627,12 +742,15 @@ export const apiKeys = sqliteTable('api_keys', {
   projectId: text('project_id').references(() => projects.id, { onDelete: 'cascade' }),
   /** Internal delegated session identity, never accepted by the key-create API. */
   delegatedUserId: text('delegated_user_id').references(() => users.id, { onDelete: 'cascade' }),
+  /** Authorization that minted this internal MCP credential. */
+  delegatedOAuthGrantId: text('delegated_oauth_grant_id').references(() => oauthGrants.id, { onDelete: 'cascade' }),
   createdAt: text('created_at').notNull(),
   lastUsedAt: text('last_used_at'),
   revokedAt: text('revoked_at'),
 }, (table) => [
   index('idx_api_keys_prefix').on(table.keyPrefix),
   index('idx_api_keys_project').on(table.projectId),
+  index('idx_api_keys_oauth_grant').on(table.delegatedOAuthGrantId),
 ])
 
 /**
@@ -681,21 +799,31 @@ export const userSessions = sqliteTable('user_sessions', {
   index('idx_user_sessions_expires').on(table.expiresAt),
 ])
 
+/** Shared-password/API-key dashboard sessions survive restarts; only token digests are stored. */
+export const dashboardSessions = sqliteTable('dashboard_sessions', {
+  tokenHash: text('token_hash').primaryKey(),
+  apiKeyId: text('api_key_id').notNull().references(() => apiKeys.id, { onDelete: 'cascade' }),
+  apiKeyHash: text('api_key_hash').notNull().default(''),
+  /** Null for API-key sign-ins; password sign-ins bind the configured password hash's digest. */
+  passwordFingerprint: text('password_fingerprint'),
+  createdAt: text('created_at').notNull(),
+  expiresAt: text('expires_at').notNull(),
+}, (table) => [
+  index('idx_dashboard_sessions_key').on(table.apiKeyId),
+  index('idx_dashboard_sessions_expires').on(table.expiresAt),
+])
+
 /**
  * OAuth 2.1 clients registered against this instance.
  *
- * Pre-registered only. Dynamic Client Registration (RFC 7591) is deprecated in
- * the current MCP revision and retained there only for backwards compatibility,
- * and the hosts that matter do not need it: Gemini Enterprise has no DCR path
- * at all and wants a client id and secret typed into a form, and ChatGPT keeps
- * predefined clients working. So an operator registers a client explicitly and
- * nothing on the network can mint one.
+ * Operator registrations and public Dynamic Client Registration both require
+ * explicit user consent and S256 PKCE before they can receive tokens.
  */
 export const oauthClients = sqliteTable('oauth_clients', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
   /**
-   * scrypt digest, or NULL for a public client that authenticates by PKCE
+   * SHA-256 digest, or NULL for a public client that authenticates by PKCE
    * alone. Never the secret: a client secret is a bearer credential, and a
    * copied database file must not be a working client.
    */
@@ -714,6 +842,20 @@ export const oauthClients = sqliteTable('oauth_clients', {
   createdAt: text('created_at').notNull(),
   revokedAt: text('revoked_at'),
 })
+
+/** One authorization and every token rotation descended from it. */
+export const oauthGrants = sqliteTable('oauth_grants', {
+  id: text('id').primaryKey(),
+  clientId: text('client_id').notNull().references(() => oauthClients.id, { onDelete: 'cascade' }),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  resource: text('resource'),
+  scope: text('scope'),
+  createdAt: text('created_at').notNull(),
+  revokedAt: text('revoked_at'),
+}, (table) => [
+  index('idx_oauth_grants_client').on(table.clientId),
+  index('idx_oauth_grants_user').on(table.userId),
+])
 
 /**
  * In-flight authorization codes. Single use, short lived, and bound to the
@@ -748,6 +890,8 @@ export const oauthAuthorizationCodes = sqliteTable('oauth_authorization_codes', 
 export const oauthTokens = sqliteTable('oauth_tokens', {
   tokenHash: text('token_hash').primaryKey(),
   kind: text('kind').$type<'access' | 'refresh'>().notNull(),
+  /** Nullable only for an older binary writing after this migration. */
+  grantId: text('grant_id').references(() => oauthGrants.id, { onDelete: 'cascade' }),
   clientId: text('client_id').notNull().references(() => oauthClients.id, { onDelete: 'cascade' }),
   userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   /** Audience. Enforced on every resource request. */
@@ -757,6 +901,7 @@ export const oauthTokens = sqliteTable('oauth_tokens', {
   revokedAt: text('revoked_at'),
   createdAt: text('created_at').notNull(),
 }, (table) => [
+  index('idx_oauth_tokens_grant').on(table.grantId),
   index('idx_oauth_tokens_user').on(table.userId),
   index('idx_oauth_tokens_expires').on(table.expiresAt),
 ])
@@ -779,6 +924,12 @@ export const schedules = sqliteTable('schedules', {
   sourceId: text('source_id'),
   lastRunAt: text('last_run_at'),
   nextRunAt: text('next_run_at'),
+  /**
+   * When the schedule last turned on (created enabled, or changed from disabled to enabled);
+   * null while it is disabled. Rows written before migration 196 hold null while enabled:
+   * read those as enabled since `createdAt`.
+   */
+  enabledAt: text('enabled_at'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 }, (table) => [
@@ -850,6 +1001,43 @@ export const doctorHealthState = sqliteTable('doctor_health_state', {
    * than paging every already-degraded project the moment this ships.
    */
   failingSignature: text('failing_signature'),
+  /**
+   * The same set with each entry's check id: `status:code:id`, worst first,
+   * with `warn:health.no-signal:health.no-signal` standing in for a pass where
+   * no check could be graded. A check changes its code when its severity
+   * changes, so only the id can tell a check that eased (fail to warn) from
+   * one that cleared while another started. Kept beside `failingSignature`
+   * rather than in it: a rolled-back release compares that column as a string
+   * and would page every degraded project if its format changed. That release
+   * leaves this column behind, so the notifier trusts it only while its
+   * entries still spell `failingSignature`, and otherwise compares by code for
+   * one pass. NULL on rows written before this column existed.
+   */
+  failingChecks: text('failing_checks'),
+  /**
+   * What the operator has been told is failing, in the `failingChecks` form:
+   * the set reported by the last health alert a webhook accepted. A pass that
+   * only clears checks sends nothing and still advances `failingChecks`, so
+   * the next alert compares against this to list what cleared since the alert
+   * the operator last saw. Delivery retry state lives in `pendingSignature`:
+   * an earlier delivered set cannot acknowledge a later recurrence. NULL
+   * while no alert has been delivered since this column exists, and reset to
+   * NULL when an older release has written the row since; the notifier then
+   * compares against the previous pass alone.
+   */
+  notifiedSignature: text('notified_signature'),
+  /** Triggering breaches owed by an unaccepted degraded alert, as `status:code:id`. */
+  pendingSignature: text('pending_signature'),
+  /**
+   * The urgent problems a `health.urgent` subscriber has been told about and
+   * that have not cleared since, as `status:code:id`. A problem in this set is
+   * not news again; when the set empties, `health.urgent-resolved` is sent.
+   * Kept apart from `notifiedSignature` because the two alerts go to different
+   * webhooks and are accepted independently. NULL while nothing is outstanding.
+   */
+  urgentNotified: text('urgent_notified'),
+  /** Urgent delivery histories by notification id and destination, never inherited by replacements. */
+  urgentReceipts: text('urgent_receipts', { mode: 'json' }).$type<Record<string, { url: string; notified: string | null }>>(),
 })
 
 /**
@@ -869,19 +1057,52 @@ export const siteLivenessState = sqliteTable('site_liveness_state', {
   checkedAt: text('checked_at').notNull(),
   /** Set when an outage was actually paged; cleared on recovery. */
   notifiedAt: text('notified_at'),
+  /**
+   * Set when a webhook scoped to urgent events accepted the outage, cleared
+   * when one accepts the recovery or none is left to tell. Kept apart from
+   * `notifiedAt` because those webhooks accept or refuse independently of the
+   * others, and unlike it this survives the ok pass, so a refused "back up" is
+   * still owed.
+   */
+  urgentNotifiedAt: text('urgent_notified_at'),
+  /** Per-recipient outage receipts; the timestamp above summarizes outstanding receipts. */
+  urgentReceipts: text('urgent_receipts', { mode: 'json' }).$type<Record<string, { url: string; notified: string | null }>>(),
 })
 
 export const notifications = sqliteTable('notifications', {
   id: text('id').primaryKey(),
   projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
   channel: text('channel').notNull(),
-  config: text('config', { mode: 'json' }).$type<{ url: string; events: string[] }>().notNull(),
+  config: text('config', { mode: 'json' }).$type<{ url: string; events: string[]; source?: string }>().notNull(),
   webhookSecret: text('webhook_secret'),
   enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 }, (table) => [
   index('idx_notifications_project').on(table.projectId),
+])
+
+/**
+ * One durable delivery per review event and configured destination (migration
+ * 189), empty on upgrade. `state` follows `ReviewDeliveryStates`; `retry_at` is
+ * when a pending delivery is next due.
+ */
+export const reviewWebhookDeliveries = sqliteTable('review_webhook_deliveries', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  notificationId: text('notification_id').notNull().references(() => notifications.id, { onDelete: 'cascade' }),
+  eventId: text('event_id').notNull(),
+  targetDigest: text('target_digest').notNull(),
+  payload: text('payload', { mode: 'json' }).$type<import('@canonry/canonry-contracts').ReviewWebhookPayload>().notNull(),
+  state: text('state').$type<import('@canonry/canonry-contracts').ReviewDeliveryState>().notNull().default('pending'),
+  attempts: integer('attempts').notNull().default(0),
+  attemptedAt: text('attempted_at'),
+  retryAt: text('retry_at'),
+  deliveredAt: text('delivered_at'),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  uniqueIndex('uniq_review_webhook_delivery').on(table.projectId, table.notificationId, table.eventId),
+  index('idx_review_webhook_deliveries_due').on(table.state, table.retryAt),
 ])
 
 export const googleConnections = sqliteTable('google_connections', {
@@ -1144,6 +1365,8 @@ export const siteCrawlAttempts = sqliteTable('site_crawl_attempts', {
   pagesFetched: integer('pages_fetched').notNull().default(0),
   pagesEligible: integer('pages_eligible').notNull().default(0),
   pagesErrored: integer('pages_errored').notNull().default(0),
+  /** URL versions the crawl recognised by parameter pattern and did not fetch; they have no page rows. */
+  urlVersionsSkipped: integer('url_versions_skipped').notNull().default(0),
   edgesDiscovered: integer('edges_discovered').notNull().default(0),
   startedAt: text('started_at'),
   finishedAt: text('finished_at'),
@@ -1193,6 +1416,8 @@ export const siteCrawlSnapshots = sqliteTable('site_crawl_snapshots', {
   pagesErrored: integer('pages_errored').notNull().default(0),
   edgesDiscovered: integer('edges_discovered').notNull().default(0),
   findingsCount: integer('findings_count').notNull().default(0),
+  /** Null when cross-page issue evidence was not recorded; a measured empty list is distinct. */
+  issueEvidence: text('issue_evidence', { mode: 'json' }).$type<SiteCrawlIssueEvidence>(),
   deadLinkState: text('dead_link_state').notNull().default('disabled'),
   deadLinksChecked: integer('dead_links_checked').notNull().default(0),
   deadLinksFound: integer('dead_links_found').notNull().default(0),
@@ -1267,6 +1492,13 @@ export const siteCrawlPages = sqliteTable('site_crawl_pages', {
    * column existed, which reads must report rather than treat as a state.
    */
   healthState: text('health_state'),
+  /**
+   * The canonical page this address is a URL version of (contract
+   * `siteCrawlUrlVersionOf`), written at publish time; such a row is not
+   * scored. NULL for a page, and for every row of a scan published before the
+   * audit set URL versions aside.
+   */
+  urlVersionOf: text('url_version_of'),
   auditState: text('audit_state').notNull().default('pending'),
   auditScore: real('audit_score'),
   auditFields: text('audit_fields', { mode: 'json' }).$type<Record<string, unknown>>().notNull().default({}),
@@ -1646,7 +1878,7 @@ export const gaTrafficSnapshots = sqliteTable('ga_traffic_snapshots', {
   landingPage: text('landing_page').notNull(),
   /**
    * Canonicalized form of `landingPage` produced by `normalizeUrlPath()` in
-   * `@ainyc/canonry-contracts`. Nullable so existing rows survive migration;
+   * `@canonry/canonry-contracts`. Nullable so existing rows survive migration;
    * new GA4 sync writes populate it. Per-page aggregations should
    * `GROUP BY COALESCE(landing_page_normalized, landing_page)` so
    * partially-backfilled state still aggregates correctly.
@@ -1710,6 +1942,20 @@ export const gaDailyTotals = sqliteTable('ga_daily_totals', {
    * `newVsReturning` dimension.
    */
   newUsers: integer('new_users'),
+  /**
+   * The rest of GA4's daily figures, added for the overview (migration 188):
+   * `activeUsers`, sessions in the Organic Search channel, `screenPageViews`,
+   * `eventCount`, `keyEvents`, `userEngagementDuration` (seconds) and
+   * `bounceRate` (0-1). Nullable with no default, like the two above: rows
+   * synced before they were requested have no reading.
+   */
+  activeUsers: integer('active_users'),
+  organicSessions: integer('organic_sessions'),
+  views: integer('views'),
+  eventCount: integer('event_count'),
+  keyEvents: real('key_events'),
+  engagementSeconds: real('engagement_seconds'),
+  bounceRate: real('bounce_rate'),
   syncedAt: text('synced_at').notNull(),
   syncRunId: text('sync_run_id').references(() => runs.id, { onDelete: 'cascade' }),
   createdAt: text('created_at').notNull(),
@@ -1799,6 +2045,24 @@ export const gaMeasurementSyncStates = sqliteTable('ga_measurement_sync_state', 
   leadError: text('lead_error'),
   leadSyncedAt: text('lead_synced_at'),
   leadAttributionScope: text('lead_attribution_scope').$type<GaLeadAttributionScope>(),
+  /**
+   * The GA4 event names the last lead sync counted (configured lead events
+   * plus key events), sorted. A sync whose set differs refreshes the full GA4
+   * window so every stored day counts the same events (v194).
+   */
+  leadEventNames: text('lead_event_names', { mode: 'json' }).$type<string[]>(),
+  /** The property's key events from the last successful Admin API read; null before one (v194). */
+  keyEventNames: text('key_event_names', { mode: 'json' }).$type<string[]>(),
+  /** The latest failed key-event read; cleared by a successful one (v194). */
+  keyEventsError: text('key_events_error'),
+  /** GA4 Search Console landing-page snapshot state (v176). */
+  searchLandingStatus: text('search_landing_status').$type<GaSearchLandingStatus>()
+    .notNull().default('never-synced'),
+  searchLandingError: text('search_landing_error'),
+  /** When the stored snapshot was written; unchanged by a failed attempt. */
+  searchLandingSyncedAt: text('search_landing_synced_at'),
+  /** When a sync last tried to refresh the snapshot, successful or not. */
+  searchLandingAttemptedAt: text('search_landing_attempted_at'),
   updatedAt: text('updated_at').notNull(),
 }, (table) => [
   check(
@@ -1812,6 +2076,10 @@ export const gaMeasurementSyncStates = sqliteTable('ga_measurement_sync_state', 
   check(
     'chk_ga_measurement_sync_lead_scope',
     sql`${table.leadAttributionScope} IS NULL OR ${table.leadAttributionScope} IN ('landing-page', 'channel')`,
+  ),
+  check(
+    'chk_ga_measurement_sync_search_landing_status',
+    sql`${table.searchLandingStatus} IN ('never-synced', 'ready', 'unavailable', 'error')`,
   ),
 ])
 
@@ -1899,6 +2167,108 @@ export const gaTrafficWindowSummaries = sqliteTable('ga_traffic_window_summaries
 }, (table) => [
   uniqueIndex('idx_ga_window_summary_unique').on(table.projectId, table.windowKey),
   index('idx_ga_window_summary_run').on(table.syncRunId),
+])
+
+/**
+ * GA4's own totals for each overview window (`7d` / `30d` / `90d`) and for the
+ * period of the same length before it (migration 188): one row per
+ * (project, window, period), replaced on every sync. Users are distinct over
+ * the whole period and the rates are GA4's, which no sum of daily rows can
+ * reproduce. Every figure is nullable: GA4 sends no row for a period with no
+ * data, and that is not a measured zero.
+ */
+export const gaWindowMetrics = sqliteTable('ga_window_metrics', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  /** '7d' | '30d' | '90d' */
+  windowKey: text('window_key').notNull(),
+  /** `GaOverviewPeriods`: 'current' | 'previous' */
+  period: text('period').notNull(),
+  startDate: text('start_date').notNull(),
+  endDate: text('end_date').notNull(),
+  activeUsers: integer('active_users'),
+  newUsers: integer('new_users'),
+  totalUsers: integer('total_users'),
+  sessions: integer('sessions'),
+  organicSessions: integer('organic_sessions'),
+  views: integer('views'),
+  eventCount: integer('event_count'),
+  keyEvents: real('key_events'),
+  engagementRate: real('engagement_rate'),
+  bounceRate: real('bounce_rate'),
+  /** GA4's `userEngagementDuration` over the period, in seconds. */
+  engagementSeconds: real('engagement_seconds'),
+  syncedAt: text('synced_at').notNull(),
+  syncRunId: text('sync_run_id').references(() => runs.id, { onDelete: 'cascade' }),
+}, (table) => [
+  uniqueIndex('idx_ga_window_metrics_unique').on(table.projectId, table.windowKey, table.period),
+  index('idx_ga_window_metrics_run').on(table.syncRunId),
+])
+
+// GA4's "Google organic search traffic: Landing page + query string" report
+// (Search Console link), one snapshot per window (v176). Every figure is
+// GA4-computed for the window: the Total lives here and is never a sum of
+// ga_search_landing_pages rows (users are distinct per grain; CTR and position
+// are ratios). A sync replaces all windows together or none.
+export const gaSearchLandingWindows = sqliteTable('ga_search_landing_windows', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  /**
+   * GA4 property the snapshot was read from. A failed sync against a
+   * different property drops the snapshot instead of keeping it as that
+   * property's last good one.
+   */
+  propertyId: text('property_id').notNull(),
+  windowKey: text('window_key').$type<GaSearchLandingWindow>().notNull(),
+  periodStart: text('period_start').notNull(),
+  periodEnd: text('period_end').notNull(),
+  /** GA4 property reporting time zone the period dates are in. */
+  timeZone: text('time_zone'),
+  totalClicks: integer('total_clicks').notNull().default(0),
+  totalImpressions: integer('total_impressions').notNull().default(0),
+  /** GA4's CTR for the window (0..1); null when there were no impressions. */
+  totalCtr: real('total_ctr'),
+  totalAveragePosition: real('total_average_position'),
+  totalActiveUsers: integer('total_active_users').notNull().default(0),
+  /** Rows GA4 reported for the window; more than were stored when `rowsCapped`. */
+  reportRowCount: integer('report_row_count').notNull().default(0),
+  rowsCapped: integer('rows_capped', { mode: 'boolean' }).notNull().default(false),
+  subjectToThresholding: integer('subject_to_thresholding', { mode: 'boolean' }).notNull().default(false),
+  dataLossFromOtherRow: integer('data_loss_from_other_row', { mode: 'boolean' }).notNull().default(false),
+  syncedAt: text('synced_at').notNull(),
+  syncRunId: text('sync_run_id').references(() => runs.id, { onDelete: 'cascade' }),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_ga_search_landing_windows_project_window').on(table.projectId, table.windowKey),
+  index('idx_ga_search_landing_windows_run').on(table.syncRunId),
+  check('chk_ga_search_landing_windows_window', sql`${table.windowKey} IN ('7d', '28d', '90d')`),
+  check('chk_ga_search_landing_windows_counts', sql`${table.totalClicks} >= 0 AND ${table.totalImpressions} >= 0 AND ${table.totalActiveUsers} >= 0 AND ${table.reportRowCount} >= 0`),
+  check('chk_ga_search_landing_windows_ctr', sql`${table.totalCtr} IS NULL OR (${table.totalCtr} >= 0 AND ${table.totalCtr} <= 1)`),
+])
+
+// One landing page (GA4's raw `landingPagePlusQueryString`, never normalized:
+// merging rows would change GA4's numbers) of one window of the report above.
+export const gaSearchLandingPages = sqliteTable('ga_search_landing_pages', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  windowKey: text('window_key').$type<GaSearchLandingWindow>().notNull(),
+  landingPage: text('landing_page').notNull(),
+  clicks: integer('clicks').notNull().default(0),
+  impressions: integer('impressions').notNull().default(0),
+  /** GA4's CTR for the page (0..1); null when there were no impressions. */
+  ctr: real('ctr'),
+  averagePosition: real('average_position'),
+  activeUsers: integer('active_users').notNull().default(0),
+  syncedAt: text('synced_at').notNull(),
+  syncRunId: text('sync_run_id').references(() => runs.id, { onDelete: 'cascade' }),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_ga_search_landing_pages_grain').on(table.projectId, table.windowKey, table.landingPage),
+  index('idx_ga_search_landing_pages_order').on(table.projectId, table.windowKey, table.clicks),
+  index('idx_ga_search_landing_pages_run').on(table.syncRunId),
+  check('chk_ga_search_landing_pages_window', sql`${table.windowKey} IN ('7d', '28d', '90d')`),
+  check('chk_ga_search_landing_pages_counts', sql`${table.clicks} >= 0 AND ${table.impressions} >= 0 AND ${table.activeUsers} >= 0`),
+  check('chk_ga_search_landing_pages_ctr', sql`${table.ctr} IS NULL OR (${table.ctr} >= 0 AND ${table.ctr} <= 1)`),
 ])
 
 export const usageCounters = sqliteTable('usage_counters', {
@@ -2458,6 +2828,72 @@ export const rawEventSamples = sqliteTable('raw_event_samples', {
   index('idx_raw_event_samples_event_type').on(table.eventType),
 ])
 
+// AI visitor journeys: what a visitor who arrived from an AI engine did
+// afterwards, across later visits through any channel (contracts journeys.ts).
+// A visitor is a keyed hash, unique per project, of the IP and user agent (or
+// the user agent alone where the provider reports no IP). No IP is stored.
+// A global sweep deletes rows older than JOURNEY_RETENTION_DAYS.
+export const journeyVisitors = sqliteTable('journey_visitors', {
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  visitorKey: text('visitor_key').notNull(),
+  keyBasis: text('key_basis').notNull(),
+  userAgent: text('user_agent'),
+  firstAiAt: text('first_ai_at').notNull(),
+  firstAiEngine: text('first_ai_engine').notNull(),
+  lastAiAt: text('last_ai_at').notNull(),
+  lastSeenAt: text('last_seen_at').notNull(),
+  /** UTC days (YYYY-MM-DD) on which this key reached the per-day request cap. */
+  cappedDays: text('capped_days', { mode: 'json' }).$type<string[]>().notNull().default([]),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.projectId, table.visitorKey] }),
+  index('idx_journey_visitors_project_first_ai').on(table.projectId, table.firstAiAt),
+  index('idx_journey_visitors_last_seen').on(table.lastSeenAt),
+])
+
+export const journeyVisits = sqliteTable('journey_visits', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  visitorKey: text('visitor_key').notNull(),
+  sourceId: text('source_id').notNull().references(() => trafficSources.id, { onDelete: 'cascade' }),
+  startedAt: text('started_at').notNull(),
+  endedAt: text('ended_at').notNull(),
+  entryClass: text('entry_class').notNull(),
+  entryName: text('entry_name'),
+  entryHost: text('entry_host'),
+  paid: integer('paid', { mode: 'boolean' }).notNull().default(false),
+  landingPath: text('landing_path').notNull(),
+  requestCount: integer('request_count').notNull(),
+  pageCount: integer('page_count').notNull(),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  index('idx_journey_visits_visitor').on(table.projectId, table.visitorKey, table.startedAt),
+  index('idx_journey_visits_project_started').on(table.projectId, table.startedAt),
+  index('idx_journey_visits_ended').on(table.endedAt),
+])
+
+export const journeyEvents = sqliteTable('journey_events', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  visitId: text('visit_id').notNull().references(() => journeyVisits.id, { onDelete: 'cascade' }),
+  sourceId: text('source_id').notNull().references(() => trafficSources.id, { onDelete: 'cascade' }),
+  sourceEventId: text('source_event_id').notNull(),
+  ts: text('ts').notNull(),
+  method: text('method'),
+  path: text('path').notNull(),
+  status: integer('status'),
+  kind: text('kind').notNull(),
+  /** The request was an AI touch: it starts or renews the visitor's 30-day lookback. */
+  aiTouch: integer('ai_touch', { mode: 'boolean' }).notNull().default(false),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_journey_events_source_event').on(table.projectId, table.sourceId, table.sourceEventId),
+  index('idx_journey_events_visit_ts').on(table.visitId, table.ts),
+  index('idx_journey_events_ts').on(table.ts),
+])
+
 export const discoverySessions = sqliteTable('discovery_sessions', {
   id: text('id').primaryKey(),
   projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
@@ -2519,24 +2955,33 @@ export const researchRuns = sqliteTable('research_runs', {
   status: text('status').notNull().default('queued'), provider: text('provider').notNull(),
   requestedModel: text('requested_model'), resolvedModel: text('resolved_model').notNull(),
   location: text('location', { mode: 'json' }).$type<LocationContext | null>(),
-  scope: text('scope', { mode: 'json' }).$type<import('@ainyc/canonry-contracts').ResearchRunScope | null>(),
-  template: text('template', { mode: 'json' }).$type<import('@ainyc/canonry-contracts').QueryTrackingTemplateProvenance | null>(),
+  scope: text('scope', { mode: 'json' }).$type<import('@canonry/canonry-contracts').ResearchRunScope | null>(),
+  template: text('template', { mode: 'json' }).$type<import('@canonry/canonry-contracts').QueryTrackingTemplateProvenance | null>(),
   totalQueries: integer('total_queries').notNull(), completedQueries: integer('completed_queries').notNull().default(0), failedQueries: integer('failed_queries').notNull().default(0),
   idempotencyKey: text('idempotency_key'), requestHash: text('request_hash'), error: text('error'),
-  initiatedBy: text('initiated_by', { mode: 'json' }).$type<import('@ainyc/canonry-contracts').ResearchRunPrincipal | null>(),
+  initiatedBy: text('initiated_by', { mode: 'json' }).$type<import('@canonry/canonry-contracts').ResearchRunPrincipal | null>(),
   startedAt: text('started_at'), finishedAt: text('finished_at'), createdAt: text('created_at').notNull(),
 }, (table) => [index('idx_research_runs_project_created').on(table.projectId, table.createdAt), index('idx_research_runs_status').on(table.status), uniqueIndex('idx_research_runs_project_idempotency').on(table.projectId, table.idempotencyKey)])
 
 export const researchRunQueries = sqliteTable('research_run_queries', {
   id: text('id').primaryKey(), researchRunId: text('research_run_id').notNull().references(() => researchRuns.id, { onDelete: 'cascade' }),
-  position: integer('position').notNull(), queryText: text('query_text').notNull(), queryClass: text('query_class').$type<import('@ainyc/canonry-contracts').QueryClass | null>(), status: text('status').notNull().default('queued'),
+  position: integer('position').notNull(), queryText: text('query_text').notNull(), queryClass: text('query_class').$type<import('@canonry/canonry-contracts').QueryClass | null>(), status: text('status').notNull().default('queued'),
   requestedModel: text('requested_model'), resolvedModel: text('resolved_model').notNull(), servedModel: text('served_model'), answerText: text('answer_text'),
-  groundingSources: text('grounding_sources', { mode: 'json' }).$type<import('@ainyc/canonry-contracts').GroundingSource[]>().notNull().default([]),
+  groundingSources: text('grounding_sources', { mode: 'json' }).$type<import('@canonry/canonry-contracts').GroundingSource[]>().notNull().default([]),
   citedDomains: text('cited_domains', { mode: 'json' }).$type<string[]>().notNull().default([]), searchQueries: text('search_queries', { mode: 'json' }).$type<string[]>().notNull().default([]),
+  retrievedSources: text('retrieved_sources', { mode: 'json' }).$type<import('@canonry/canonry-contracts').RetrievedSource[]>(),
   namedCompetitors: text('named_competitors', { mode: 'json' }).$type<string[]>().notNull().default([]), citedCompetitorDomains: text('cited_competitor_domains', { mode: 'json' }).$type<string[]>().notNull().default([]),
   answerMentioned: integer('answer_mentioned', { mode: 'boolean' }), citationState: text('citation_state'), rawResponse: text('raw_response', { mode: 'json' }).$type<Record<string, unknown> | null>(), error: text('error'),
+  // See query_snapshots.answer_evidence (migration 186).
+  answerEvidence: text('answer_evidence', { mode: 'json' }).$type<import('@canonry/canonry-contracts').AnswerEvidence | null>(),
+  // The upstream job a `waiting-upstream` query waits on (migration 187); null otherwise.
+  upstreamJobId: text('upstream_job_id'),
   startedAt: text('started_at'), finishedAt: text('finished_at'), createdAt: text('created_at').notNull(),
-}, (table) => [index('idx_research_run_queries_run').on(table.researchRunId), uniqueIndex('idx_research_run_queries_run_position').on(table.researchRunId, table.position)])
+}, (table) => [
+  index('idx_research_run_queries_run').on(table.researchRunId),
+  uniqueIndex('idx_research_run_queries_run_position').on(table.researchRunId, table.position),
+  index('idx_research_run_queries_upstream_job').on(table.upstreamJobId).where(sql`upstream_job_id IS NOT NULL`),
+])
 
 export const discoveryProbes = sqliteTable('discovery_probes', {
   id: text('id').primaryKey(),
@@ -3475,3 +3920,5 @@ export const sentimentAttempts = sqliteTable('sentiment_attempts', {
   index('idx_sentiment_attempt_dispatch').on(table.dispatchedAt),
   foreignKey({ columns: [table.projectId, table.workItemId], foreignColumns: [sentimentWorkItems.projectId, sentimentWorkItems.id] }).onDelete('cascade'),
 ])
+
+export { seoProfiles, seoJobs, seoTasks, seoBudgets } from './seo-schema.js'

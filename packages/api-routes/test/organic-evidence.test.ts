@@ -12,8 +12,8 @@ import {
   migrate,
   projects,
   runs,
-} from '@ainyc/canonry-db'
-import { organicEvidenceDtoSchema, type OrganicEvidenceDto } from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-db'
+import { organicEvidenceDtoSchema, type OrganicEvidenceDto } from '@canonry/canonry-contracts'
 import { apiRoutes } from '../src/index.js'
 
 function buildApp() {

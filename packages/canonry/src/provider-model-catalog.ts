@@ -1,16 +1,24 @@
 import { createHash } from 'node:crypto'
-import { retryAfterDelayMs, type ModelDefinition } from '@ainyc/canonry-contracts'
-import type { ProviderRegistry } from './provider-registry.js'
+import { retryAfterDelayMs, type ModelDefinition } from '@canonry/canonry-contracts'
+import type { ProviderRegistry, RegisteredProvider } from './provider-registry.js'
 
 const TTL_MS = 60 * 60 * 1000
 const RETRY_MS = 60 * 1000
 const TIMEOUT_MS = 3000
 
+/**
+ * The connection to read when the registry has none under the name. Aero
+ * passes one for an OpenRouter key that only the environment supplies: sweeps
+ * register providers from config.yaml alone, so that key has no registration.
+ * It shares the name's cache entry, keyed by credential like any other.
+ */
+export type UnregisteredConnection = () => RegisteredProvider | undefined
+
 /** Per-install, per-credential cache. Discovery never changes an execution default. */
 export function createProviderModelCatalog(registry: ProviderRegistry) {
   const cache = new Map<string, { identity: string; models?: ModelDefinition[]; expiresAt: number; pending?: Promise<ModelDefinition[]> }>()
-  const read = async (name: string): Promise<ModelDefinition[]> => {
-    const provider = registry.get(name)
+  const read = async (name: string, unregistered?: UnregisteredConnection): Promise<ModelDefinition[]> => {
+    const provider = registry.get(name) ?? unregistered?.()
     if (!provider) { cache.delete(name); return [] }
     const fallback = provider.adapter.modelRegistry.knownModels
     if (!provider.adapter.listModels) return fallback
@@ -49,12 +57,19 @@ export function createProviderModelCatalog(registry: ProviderRegistry) {
   }
   // Stored-evidence surfaces must never start or await a live discovery. A
   // stale catalog is still useful for choices; a different credential's is not.
-  const cached = (name: string): ModelDefinition[] => {
-    const provider = registry.get(name)
+  const cached = (name: string, unregistered?: UnregisteredConnection): ModelDefinition[] => {
+    const provider = registry.get(name) ?? unregistered?.()
     if (!provider) return []
     const entry = cache.get(name)
     const identity = createHash('sha256').update(JSON.stringify(provider.config)).digest('hex')
     return (entry?.identity === identity ? entry.models : undefined) ?? provider.adapter.modelRegistry.knownModels
   }
-  return Object.assign(read, { cached })
+  return Object.assign((name: string) => read(name), {
+    cached: (name: string) => cached(name),
+    /** The same reads, falling back to `unregistered` when the registry has no connection under the name. */
+    orUnregistered: (unregistered: UnregisteredConnection) => ({
+      read: (name: string) => read(name, unregistered),
+      cached: (name: string) => cached(name, unregistered),
+    }),
+  })
 }

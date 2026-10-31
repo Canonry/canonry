@@ -14,9 +14,9 @@ import crypto from 'node:crypto'
 import Fastify, { type FastifyInstance } from 'fastify'
 import { eq, like } from 'drizzle-orm'
 import type { AgentTool } from '@earendil-works/pi-agent-core'
-import { agentSessions, apiKeys, createClient, migrate, projects, users, type DatabaseClient } from '@ainyc/canonry-db'
-import { AppError, MemorySources } from '@ainyc/canonry-contracts'
-import { hashUserPassword, type AuthPrincipal } from '@ainyc/canonry-api-routes'
+import { agentSessions, apiKeys, createClient, migrate, projects, users, type DatabaseClient } from '@canonry/canonry-db'
+import { AppError, MemorySources } from '@canonry/canonry-contracts'
+import { hashUserPassword, type AuthPrincipal } from '@canonry/canonry-api-routes'
 import { resolveAgentAllowViewers } from '../src/agent-config.js'
 import { createServer } from '../src/server.js'
 import { registerAgentRoutes } from '../src/agent/agent-routes.js'
@@ -171,6 +171,9 @@ describe('ViewerAeroSessions', () => {
     for (const name of AERO_VIEWER_EXCLUDED_MCP_TOOLS) expect(names).not.toContain(name)
     for (const name of AERO_MANAGED_SWEEP_MCP_TOOLS) expect(names).not.toContain(name)
     expect(names).toContain('canonry_project_overview')
+    expect(names).toContain('canonry_sentiment')
+    expect(names).toContain('canonry_sentiment_evidence')
+    expect(names).toContain('canonry_sentiment_compare')
   })
 
   it('keeps the viewer catalog under the function limit, with the project-shape tools visible from the start', async () => {
@@ -362,6 +365,8 @@ describe('agent routes with viewers allowed', () => {
         model: 'secret-model-id', responseId: 'resp_1', usage: { cost: { total: 0.01 } }, errorMessage: 'org org-123 rate limited', stopReason: 'stop', timestamp: 3,
         // Fields pi-ai 0.83+ adds: the model that actually served, provider diagnostics, thinking level, raw stop reason.
         responseModel: 'secret-served-model', diagnostics: [{ note: 'secret-diagnostic' }], providerThinkingLevel: 'secret-level', rawStopReason: 'secret-raw-stop',
+        // pi-agent-core 1.0 stamps the thinking level the loop requested on every answer.
+        thinkingLevel: 'secret-requested-reasoning',
       },
     ] as never
     turn.release()
@@ -370,7 +375,7 @@ describe('agent routes with viewers allowed', () => {
 
     expect(res.statusCode).toBe(200)
     expect(res.body).toContain('Mentioned in 3 of 4 answers.')
-    for (const hidden of ['secret-model-id', 'deepinfra', 'openai-completions', 'resp_1', 'cost', 'org-123', 'payload', 'secret-served-model', 'secret-diagnostic', 'secret-level', 'secret-raw-stop']) {
+    for (const hidden of ['secret-model-id', 'deepinfra', 'openai-completions', 'resp_1', 'cost', 'org-123', 'payload', 'secret-served-model', 'secret-diagnostic', 'secret-level', 'secret-raw-stop', 'secret-requested-reasoning']) {
       expect(res.body).not.toContain(hidden)
     }
   })

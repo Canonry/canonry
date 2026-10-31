@@ -7,7 +7,7 @@ export function CitationTimeline({ history, maxDots = 12, signal = 'citations' }
   signal?: 'mentions' | 'citations'
 }) {
   const dots = history.slice(-maxDots)
-  if (dots.length === 0) return <span className="text-[13px] text-secondary">No data</span>
+  if (dots.length === 0) return <span className="text-label-13 text-secondary">No data</span>
 
   const signalLabel = signal === 'mentions' ? 'Mention' : 'Citation'
   const stateLabels: Record<string, string> = signal === 'mentions'
@@ -38,9 +38,9 @@ export function CitationTimeline({ history, maxDots = 12, signal = 'citations' }
   }).join('; ')
 
   return (
-    <div className="flex items-center gap-2" role="img" aria-label={`${signalLabel} history across ${runCountLabel}. ${timelineLabel}`}>
-      {dots.length > 1 ? <span className="text-[11px] text-secondary shrink-0" aria-hidden="true">{firstDate}</span> : null}
-      <div className="flex items-center gap-[3px]" title={runCountLabel} aria-hidden="true">
+    <div className="inline-flex w-max items-center gap-2 whitespace-nowrap" role="img" aria-label={`${signalLabel} history across ${runCountLabel}. ${timelineLabel}`}>
+      {dots.length > 1 ? <span className="text-label-12 text-secondary shrink-0" aria-hidden="true">{firstDate}</span> : null}
+      <div className="flex shrink-0 items-center gap-[3px]" title={runCountLabel} aria-hidden="true">
         {dots.map((d, i) => {
           // The ring means "the model changed on this run", NOT "this is the
           // newest run". Without a separate marker for the latest run, a strip
@@ -52,7 +52,7 @@ export function CitationTimeline({ history, maxDots = 12, signal = 'citations' }
           return (
             <span
               key={`${d.runId}:${d.createdAt}`}
-              className={`h-2.5 w-2.5 ${shapeMap[d.citationState] ?? 'rounded-sm'} ${colorMap[d.citationState] ?? 'bg-mono-700'} ${
+              className={`h-2.5 w-2.5 shrink-0 ${shapeMap[d.citationState] ?? 'rounded-sm'} ${colorMap[d.citationState] ?? 'bg-mono-700'} ${
                 modelChanged ? 'ring-1 ring-caution-300/80 ring-offset-1 ring-offset-bg' : ''
               } ${isLatest ? 'outline outline-1 outline-offset-2 outline-mono-400' : ''}`}
               title={[
@@ -66,7 +66,7 @@ export function CitationTimeline({ history, maxDots = 12, signal = 'citations' }
           )
         })}
       </div>
-      <span className="text-[11px] shrink-0 text-secondary" aria-hidden="true">
+      <span className="text-label-12 shrink-0 text-secondary" aria-hidden="true">
         {lastDate} <span>latest</span>
       </span>
     </div>

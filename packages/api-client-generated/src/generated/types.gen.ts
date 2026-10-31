@@ -4,6 +4,702 @@ export type ClientOptions = {
     baseUrl: `${string}://${string}` | (string & {});
 };
 
+export type SeoOperatorTask = {
+    id: string;
+    runId: string;
+    status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | 'reconciliation-required';
+    reservedCostMicros: number;
+    actualCostMicros: number | null;
+    receipts: Array<{
+        remoteTaskId: string | null;
+        statusCode: number | null;
+        costMicros: number | null;
+    }>;
+};
+
+export type SeoReconcileInput = {
+    actualCostMicros: number;
+    remoteTaskId: string;
+    outcome: 'completed' | 'failed';
+    note: string;
+};
+
+export type SeoReconcileResult = {
+    id: string;
+    status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | 'reconciliation-required';
+};
+
+export type SeoContext = {
+    available: boolean;
+    reason: string | null;
+    connections: Array<{
+        id: string;
+        label: string;
+        provider: 'dataforseo';
+        capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings'>;
+    }>;
+    scopes: Array<{
+        kind: 'project' | 'group' | 'market' | 'property';
+        key: string | null;
+        label: string;
+        planRevision?: number;
+        supported: boolean;
+        reason: string | null;
+        capabilities?: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings'>;
+    }>;
+    access: {
+        canRun: boolean;
+        canWrite: boolean;
+    };
+};
+
+export type SeoStatus = {
+    available: boolean;
+    reason: string | null;
+    capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings'>;
+    profileCount: number;
+    latestRunId: string | null;
+    latestRunStatus: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | 'reconciliation-required' | null;
+    lastCompletedAt: string | null;
+};
+
+export type SeoProfile = {
+    name: string;
+    connectionId: string;
+    capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings'>;
+    targets: Array<{
+        kind: 'domain' | 'host';
+        value: string;
+        includeSubdomains: boolean;
+    }>;
+    keywords: Array<string>;
+    locationCode: number;
+    languageCode: string;
+    limit: number;
+    scope: {
+        kind: 'project' | 'group' | 'market' | 'property';
+        key?: string;
+        expectedPlanRevision?: number;
+    };
+    rankings?: {
+        locations: Array<{
+            key: string;
+            locationCode: number;
+            label: string;
+        }>;
+        depth: number;
+        device: 'desktop' | 'mobile';
+        searchText: 'query' | 'query-without-market-region';
+    };
+    id: string;
+    revision: number;
+    createdAt: string;
+    updatedAt: string;
+};
+
+export type SeoProfileList = {
+    profiles: Array<{
+        name: string;
+        connectionId: string;
+        capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings'>;
+        targets: Array<{
+            kind: 'domain' | 'host';
+            value: string;
+            includeSubdomains: boolean;
+        }>;
+        keywords: Array<string>;
+        locationCode: number;
+        languageCode: string;
+        limit: number;
+        scope: {
+            kind: 'project' | 'group' | 'market' | 'property';
+            key?: string;
+            expectedPlanRevision?: number;
+        };
+        rankings?: {
+            locations: Array<{
+                key: string;
+                locationCode: number;
+                label: string;
+            }>;
+            depth: number;
+            device: 'desktop' | 'mobile';
+            searchText: 'query' | 'query-without-market-region';
+        };
+        id: string;
+        revision: number;
+        createdAt: string;
+        updatedAt: string;
+    }>;
+};
+
+export type SeoProfileInput = {
+    name: string;
+    connectionId: string;
+    capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings'>;
+    targets: Array<{
+        kind: 'domain' | 'host';
+        value: string;
+        includeSubdomains: boolean;
+    }>;
+    keywords: Array<string>;
+    locationCode: number;
+    languageCode: string;
+    limit: number;
+    scope: {
+        kind: 'project' | 'group' | 'market' | 'property';
+        key?: string;
+        expectedPlanRevision?: number;
+    };
+    rankings?: {
+        locations: Array<{
+            key: string;
+            locationCode: number;
+            label: string;
+        }>;
+        depth: number;
+        device: 'desktop' | 'mobile';
+        searchText: 'query' | 'query-without-market-region';
+    };
+};
+
+export type SeoQuote = {
+    token: string;
+    expiresAt: string;
+    profileId: string;
+    profileRevision: number;
+    taskCount: number;
+    targets: Array<{
+        kind: 'domain' | 'host';
+        value: string;
+        includeSubdomains: boolean;
+    }>;
+    capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings'>;
+    availability: 'ready' | 'unavailable';
+    reason: string | null;
+};
+
+export type SeoRefreshIntentInput = {
+    profileId: string;
+};
+
+export type SeoSyncInput = {
+    quoteToken: string;
+    idempotencyKey: string;
+};
+
+export type SeoRun = {
+    id: string;
+    projectId: string;
+    profileId: string;
+    profileRevision: number;
+    locationCode: number;
+    languageCode: string;
+    cancelRequested: boolean;
+    status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | 'reconciliation-required';
+    capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings'>;
+    scope: {
+        kind: 'project' | 'group' | 'market' | 'property';
+        key?: string;
+        expectedPlanRevision?: number;
+    };
+    taskCount: number;
+    completedTasks: number;
+    failedTasks: number;
+    createdAt: string;
+    startedAt: string | null;
+    finishedAt: string | null;
+    error: string | null;
+};
+
+export type SeoRunDetail = {
+    id: string;
+    projectId: string;
+    profileId: string;
+    profileRevision: number;
+    locationCode: number;
+    languageCode: string;
+    cancelRequested: boolean;
+    status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | 'reconciliation-required';
+    capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings'>;
+    scope: {
+        kind: 'project' | 'group' | 'market' | 'property';
+        key?: string;
+        expectedPlanRevision?: number;
+    };
+    taskCount: number;
+    completedTasks: number;
+    failedTasks: number;
+    createdAt: string;
+    startedAt: string | null;
+    finishedAt: string | null;
+    error: string | null;
+    tasks: Array<{
+        id: string;
+        capability: 'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings';
+        target: {
+            kind: 'domain' | 'host';
+            value: string;
+            includeSubdomains: boolean;
+        } | null;
+        status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | 'reconciliation-required';
+        error: string | null;
+        remoteTaskId: string | null;
+        searchText: string | null;
+        locationLabel: string | null;
+        retried: boolean;
+    }>;
+    results: {
+        keywordMetrics: Array<{
+            keyword: string;
+            searchVolume: number | null;
+            cpcUsd: number | null;
+            adCompetition: number | null;
+            /**
+             * Provider difficulty score on a 0–100 scale; not a percentage.
+             */
+            keywordDifficulty: number | null;
+            searchIntent: string | null;
+            monthlySearches: Array<{
+                year: number;
+                month: number;
+                searchVolume: number | null;
+            }>;
+            coreKeyword: string | null;
+            provenance: {
+                provider: 'dataforseo';
+                dataset: string;
+                engine: 'google';
+                locationCode: number;
+                languageCode: string;
+                device: 'unspecified' | 'desktop' | 'mobile';
+                collectedAt: string;
+                sourceUpdatedAt: string | null;
+            };
+        }>;
+        domainIntelligence: Array<{
+            target: {
+                kind: 'domain' | 'host';
+                value: string;
+                includeSubdomains: boolean;
+            };
+            organicKeywords: number | null;
+            estimatedOrganicTraffic: number | null;
+            estimatedOrganicTrafficValueUsd: number | null;
+            top1: number | null;
+            top2To3: number | null;
+            top4To10: number | null;
+            top11To20: number | null;
+            provenance: {
+                provider: 'dataforseo';
+                dataset: string;
+                engine: 'google';
+                locationCode: number;
+                languageCode: string;
+                device: 'unspecified' | 'desktop' | 'mobile';
+                collectedAt: string;
+                sourceUpdatedAt: string | null;
+            };
+        }>;
+        rankedKeywords: Array<{
+            target: {
+                kind: 'domain' | 'host';
+                value: string;
+                includeSubdomains: boolean;
+            };
+            keyword: string;
+            url: string | null;
+            rankOrganic: number | null;
+            rankAbsolute: number | null;
+            searchVolume: number | null;
+            estimatedTraffic: number | null;
+            cpcUsd: number | null;
+            /**
+             * Provider difficulty score on a 0–100 scale; not a percentage.
+             */
+            keywordDifficulty: number | null;
+            serpFeatures: Array<string>;
+            provenance: {
+                provider: 'dataforseo';
+                dataset: string;
+                engine: 'google';
+                locationCode: number;
+                languageCode: string;
+                device: 'unspecified' | 'desktop' | 'mobile';
+                collectedAt: string;
+                sourceUpdatedAt: string | null;
+            };
+        }>;
+        marketRankings: Array<{
+            marketKey: string;
+            marketLabel: string;
+            regionKey: string | null;
+            regionLabel: string | null;
+            queryId: string | null;
+            queryText: string;
+            queryClass: 'branded' | 'non-brand';
+            searchText: string;
+            locationLabel: string;
+            target: {
+                kind: 'domain' | 'host';
+                value: string;
+                includeSubdomains: boolean;
+            };
+            searchStatus: 'completed' | 'partial' | 'failed' | 'cancelled';
+            rankOrganic: number | null;
+            rankAbsolute: number | null;
+            url: string | null;
+            depth: number;
+            competitors: Array<{
+                domain: string;
+                rankOrganic: number;
+            }>;
+            provenance: {
+                provider: 'dataforseo';
+                dataset: string;
+                engine: 'google';
+                locationCode: number;
+                languageCode: string;
+                device: 'unspecified' | 'desktop' | 'mobile';
+                collectedAt: string;
+                sourceUpdatedAt: string | null;
+            } | null;
+        }>;
+    };
+    resultCounts: {
+        keywordMetrics: number;
+        domainIntelligence: number;
+        rankedKeywords: number;
+        marketRankings: number;
+    };
+    resultsTruncated: boolean;
+};
+
+export type SeoRunList = {
+    runs: Array<{
+        id: string;
+        projectId: string;
+        profileId: string;
+        profileRevision: number;
+        locationCode: number;
+        languageCode: string;
+        cancelRequested: boolean;
+        status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | 'reconciliation-required';
+        capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings'>;
+        scope: {
+            kind: 'project' | 'group' | 'market' | 'property';
+            key?: string;
+            expectedPlanRevision?: number;
+        };
+        taskCount: number;
+        completedTasks: number;
+        failedTasks: number;
+        createdAt: string;
+        startedAt: string | null;
+        finishedAt: string | null;
+        error: string | null;
+    }>;
+};
+
+export type SeoOverview = {
+    status: {
+        available: boolean;
+        reason: string | null;
+        capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings'>;
+        profileCount: number;
+        latestRunId: string | null;
+        latestRunStatus: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | 'reconciliation-required' | null;
+        lastCompletedAt: string | null;
+    };
+    profiles: Array<{
+        name: string;
+        connectionId: string;
+        capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings'>;
+        targets: Array<{
+            kind: 'domain' | 'host';
+            value: string;
+            includeSubdomains: boolean;
+        }>;
+        keywords: Array<string>;
+        locationCode: number;
+        languageCode: string;
+        limit: number;
+        scope: {
+            kind: 'project' | 'group' | 'market' | 'property';
+            key?: string;
+            expectedPlanRevision?: number;
+        };
+        rankings?: {
+            locations: Array<{
+                key: string;
+                locationCode: number;
+                label: string;
+            }>;
+            depth: number;
+            device: 'desktop' | 'mobile';
+            searchText: 'query' | 'query-without-market-region';
+        };
+        id: string;
+        revision: number;
+        createdAt: string;
+        updatedAt: string;
+    }>;
+    latestRun: {
+        id: string;
+        projectId: string;
+        profileId: string;
+        profileRevision: number;
+        locationCode: number;
+        languageCode: string;
+        cancelRequested: boolean;
+        status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | 'reconciliation-required';
+        capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings'>;
+        scope: {
+            kind: 'project' | 'group' | 'market' | 'property';
+            key?: string;
+            expectedPlanRevision?: number;
+        };
+        taskCount: number;
+        completedTasks: number;
+        failedTasks: number;
+        createdAt: string;
+        startedAt: string | null;
+        finishedAt: string | null;
+        error: string | null;
+    } | null;
+    evidenceRunId: string | null;
+    evidenceRun: {
+        id: string;
+        projectId: string;
+        profileId: string;
+        profileRevision: number;
+        locationCode: number;
+        languageCode: string;
+        cancelRequested: boolean;
+        status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | 'reconciliation-required';
+        capabilities: Array<'keyword-metrics' | 'domain-intelligence' | 'ranked-keywords' | 'market-rankings'>;
+        scope: {
+            kind: 'project' | 'group' | 'market' | 'property';
+            key?: string;
+            expectedPlanRevision?: number;
+        };
+        taskCount: number;
+        completedTasks: number;
+        failedTasks: number;
+        createdAt: string;
+        startedAt: string | null;
+        finishedAt: string | null;
+        error: string | null;
+    } | null;
+    summary: {
+        target: {
+            kind: 'domain' | 'host';
+            value: string;
+            includeSubdomains: boolean;
+        };
+        organicKeywords: number | null;
+        inTop10: number | null;
+        estimatedOrganicTraffic: number | null;
+        provenance: {
+            provider: 'dataforseo';
+            dataset: string;
+            engine: 'google';
+            locationCode: number;
+            languageCode: string;
+            device: 'unspecified' | 'desktop' | 'mobile';
+            collectedAt: string;
+            sourceUpdatedAt: string | null;
+        };
+    } | null;
+    keywordMetricsCount: number;
+    domainIntelligenceCount: number;
+    rankedKeywordCount: number;
+    marketRankingCount: number;
+};
+
+export type SeoKeywordMetricsList = {
+    runId: string | null;
+    total: number;
+    limit: number;
+    offset: number;
+    items: Array<{
+        keyword: string;
+        searchVolume: number | null;
+        cpcUsd: number | null;
+        adCompetition: number | null;
+        /**
+         * Provider difficulty score on a 0–100 scale; not a percentage.
+         */
+        keywordDifficulty: number | null;
+        searchIntent: string | null;
+        monthlySearches: Array<{
+            year: number;
+            month: number;
+            searchVolume: number | null;
+        }>;
+        coreKeyword: string | null;
+        provenance: {
+            provider: 'dataforseo';
+            dataset: string;
+            engine: 'google';
+            locationCode: number;
+            languageCode: string;
+            device: 'unspecified' | 'desktop' | 'mobile';
+            collectedAt: string;
+            sourceUpdatedAt: string | null;
+        };
+    }>;
+};
+
+export type SeoDomainIntelligenceList = {
+    runId: string | null;
+    total: number;
+    limit: number;
+    offset: number;
+    items: Array<{
+        target: {
+            kind: 'domain' | 'host';
+            value: string;
+            includeSubdomains: boolean;
+        };
+        organicKeywords: number | null;
+        estimatedOrganicTraffic: number | null;
+        estimatedOrganicTrafficValueUsd: number | null;
+        top1: number | null;
+        top2To3: number | null;
+        top4To10: number | null;
+        top11To20: number | null;
+        provenance: {
+            provider: 'dataforseo';
+            dataset: string;
+            engine: 'google';
+            locationCode: number;
+            languageCode: string;
+            device: 'unspecified' | 'desktop' | 'mobile';
+            collectedAt: string;
+            sourceUpdatedAt: string | null;
+        };
+    }>;
+};
+
+export type SeoRankedKeywordList = {
+    runId: string | null;
+    total: number;
+    limit: number;
+    offset: number;
+    items: Array<{
+        target: {
+            kind: 'domain' | 'host';
+            value: string;
+            includeSubdomains: boolean;
+        };
+        keyword: string;
+        url: string | null;
+        rankOrganic: number | null;
+        rankAbsolute: number | null;
+        searchVolume: number | null;
+        estimatedTraffic: number | null;
+        cpcUsd: number | null;
+        /**
+         * Provider difficulty score on a 0–100 scale; not a percentage.
+         */
+        keywordDifficulty: number | null;
+        serpFeatures: Array<string>;
+        provenance: {
+            provider: 'dataforseo';
+            dataset: string;
+            engine: 'google';
+            locationCode: number;
+            languageCode: string;
+            device: 'unspecified' | 'desktop' | 'mobile';
+            collectedAt: string;
+            sourceUpdatedAt: string | null;
+        };
+    }>;
+};
+
+export type SeoMarketRankingList = {
+    runId: string | null;
+    total: number;
+    limit: number;
+    offset: number;
+    items: Array<{
+        marketKey: string;
+        marketLabel: string;
+        regionKey: string | null;
+        regionLabel: string | null;
+        queryId: string | null;
+        queryText: string;
+        queryClass: 'branded' | 'non-brand';
+        searchText: string;
+        locationLabel: string;
+        target: {
+            kind: 'domain' | 'host';
+            value: string;
+            includeSubdomains: boolean;
+        };
+        searchStatus: 'completed' | 'partial' | 'failed' | 'cancelled';
+        rankOrganic: number | null;
+        rankAbsolute: number | null;
+        url: string | null;
+        depth: number;
+        competitors: Array<{
+            domain: string;
+            rankOrganic: number;
+        }>;
+        provenance: {
+            provider: 'dataforseo';
+            dataset: string;
+            engine: 'google';
+            locationCode: number;
+            languageCode: string;
+            device: 'unspecified' | 'desktop' | 'mobile';
+            collectedAt: string;
+            sourceUpdatedAt: string | null;
+        } | null;
+        outcome: 'page-1' | 'ranks-11-20' | 'ranks-21-plus' | 'not-ranked' | 'partly-checked' | 'failed' | 'cancelled';
+        rivalAhead: boolean;
+    }>;
+};
+
+export type SeoMarketRankingSummary = {
+    runId: string | null;
+    depth: number | null;
+    regionKey: string | null;
+    marketKey: string | null;
+    regionLabel: string | null;
+    marketLabel: string | null;
+    totals: {
+        queries: number;
+        page1: number;
+        ranks11To20: number;
+        ranks21Plus: number;
+        notRanked: number;
+        partlyChecked: number;
+        failed: number;
+        cancelled: number;
+        needsWork: number;
+        rivalAhead: number;
+    };
+    groups: Array<{
+        key: string;
+        label: string;
+        kind: 'region' | 'market';
+        counts: {
+            queries: number;
+            page1: number;
+            ranks11To20: number;
+            ranks21Plus: number;
+            notRanked: number;
+            partlyChecked: number;
+            failed: number;
+            cancelled: number;
+            needsWork: number;
+            rivalAhead: number;
+        };
+    }>;
+};
+
 export type SentimentSummary = {
     state: 'disabled' | 'not-measured' | 'processing' | 'partial' | 'complete' | 'failed' | 'canceled' | 'unsupported';
     reason: string | null;
@@ -14,6 +710,13 @@ export type SentimentSummary = {
         unadmittedAssessments: number;
         judged: number;
         distinctSourceAnswers: number;
+        eligibleAnswers?: number;
+        ratedAnswers?: number;
+        ratedAnswerRate?: number | null;
+        /**
+         * Distinct admitted answers where every assessed subject in the selected scope is absent. Expected for non-brand queries; not missing classification. Null while disabled.
+         */
+        subjectNotMentioned?: number | null;
         counts: {
             favorable: number;
             mixed: number;
@@ -70,7 +773,9 @@ export type SentimentSummary = {
     };
     evaluationDefinition: {
         schemaVersion: 1 | 2;
-        requestedModel: 'jev-1.13.0';
+        requestedModel: 'jev-1.13.0' | 'typesafe/jev-1.13';
+        provider?: 'typesafe' | 'openrouter';
+        expectedReturnedModel?: 'typesafe/jev-1.13-20260917';
         verdictVersion: string;
         identityVersion: string;
         evidenceVersion: string;
@@ -97,6 +802,13 @@ export type SentimentSummary = {
             unadmittedAssessments: number;
             judged: number;
             distinctSourceAnswers: number;
+            eligibleAnswers?: number;
+            ratedAnswers?: number;
+            ratedAnswerRate?: number | null;
+            /**
+             * Distinct admitted answers where every assessed subject in the selected scope is absent. Expected for non-brand queries; not missing classification. Null while disabled.
+             */
+            subjectNotMentioned?: number | null;
             counts: {
                 favorable: number;
                 mixed: number;
@@ -149,6 +861,13 @@ export type SentimentSummary = {
             unadmittedAssessments: number;
             judged: number;
             distinctSourceAnswers: number;
+            eligibleAnswers?: number;
+            ratedAnswers?: number;
+            ratedAnswerRate?: number | null;
+            /**
+             * Distinct admitted answers where every assessed subject in the selected scope is absent. Expected for non-brand queries; not missing classification. Null while disabled.
+             */
+            subjectNotMentioned?: number | null;
             counts: {
                 favorable: number;
                 mixed: number;
@@ -217,6 +936,13 @@ export type SentimentSummary = {
                 unadmittedAssessments: number;
                 judged: number;
                 distinctSourceAnswers: number;
+                eligibleAnswers?: number;
+                ratedAnswers?: number;
+                ratedAnswerRate?: number | null;
+                /**
+                 * Distinct admitted answers where every assessed subject in the selected scope is absent. Expected for non-brand queries; not missing classification. Null while disabled.
+                 */
+                subjectNotMentioned?: number | null;
                 counts: {
                     favorable: number;
                     mixed: number;
@@ -258,6 +984,10 @@ export type SentimentSummary = {
             sourceSnapshotIds: Array<string>;
         }>;
     }>;
+    criticizedProperties?: {
+        total: number;
+        keys: Array<string>;
+    };
     queryPage?: {
         total: number;
         limit: number;
@@ -266,6 +996,7 @@ export type SentimentSummary = {
 };
 
 export type SentimentSettings = {
+    provider?: 'typesafe' | 'openrouter';
     installEnabled: boolean;
     enabled: boolean;
     ready: boolean;
@@ -304,6 +1035,7 @@ export type SentimentEvidencePage = {
         evaluationDefinitionId: string | null;
         executionNodeKey?: string;
         assessmentId?: string;
+        outcome?: Array<'favorable' | 'mixed' | 'unfavorable' | 'factual' | 'subject-not-mentioned' | 'wrong-subject' | 'ambiguous-subject' | 'ambiguous-judgment' | 'subject-not-applicable' | 'unsupported-language' | 'missing-source-text' | 'input-too-large' | 'invalid-conclusion-evidence' | 'pending' | 'running' | 'waiting-to-retry' | 'failed' | 'canceled'>;
     };
     items: Array<{
         assessmentId: string;
@@ -379,6 +1111,13 @@ export type SentimentComparison = {
             unadmittedAssessments: number;
             judged: number;
             distinctSourceAnswers: number;
+            eligibleAnswers?: number;
+            ratedAnswers?: number;
+            ratedAnswerRate?: number | null;
+            /**
+             * Distinct admitted answers where every assessed subject in the selected scope is absent. Expected for non-brand queries; not missing classification. Null while disabled.
+             */
+            subjectNotMentioned?: number | null;
             counts: {
                 favorable: number;
                 mixed: number;
@@ -435,7 +1174,9 @@ export type SentimentComparison = {
         };
         evaluationDefinition: {
             schemaVersion: 1 | 2;
-            requestedModel: 'jev-1.13.0';
+            requestedModel: 'jev-1.13.0' | 'typesafe/jev-1.13';
+            provider?: 'typesafe' | 'openrouter';
+            expectedReturnedModel?: 'typesafe/jev-1.13-20260917';
             verdictVersion: string;
             identityVersion: string;
             evidenceVersion: string;
@@ -462,6 +1203,13 @@ export type SentimentComparison = {
                 unadmittedAssessments: number;
                 judged: number;
                 distinctSourceAnswers: number;
+                eligibleAnswers?: number;
+                ratedAnswers?: number;
+                ratedAnswerRate?: number | null;
+                /**
+                 * Distinct admitted answers where every assessed subject in the selected scope is absent. Expected for non-brand queries; not missing classification. Null while disabled.
+                 */
+                subjectNotMentioned?: number | null;
                 counts: {
                     favorable: number;
                     mixed: number;
@@ -514,6 +1262,13 @@ export type SentimentComparison = {
                 unadmittedAssessments: number;
                 judged: number;
                 distinctSourceAnswers: number;
+                eligibleAnswers?: number;
+                ratedAnswers?: number;
+                ratedAnswerRate?: number | null;
+                /**
+                 * Distinct admitted answers where every assessed subject in the selected scope is absent. Expected for non-brand queries; not missing classification. Null while disabled.
+                 */
+                subjectNotMentioned?: number | null;
                 counts: {
                     favorable: number;
                     mixed: number;
@@ -582,6 +1337,13 @@ export type SentimentComparison = {
                     unadmittedAssessments: number;
                     judged: number;
                     distinctSourceAnswers: number;
+                    eligibleAnswers?: number;
+                    ratedAnswers?: number;
+                    ratedAnswerRate?: number | null;
+                    /**
+                     * Distinct admitted answers where every assessed subject in the selected scope is absent. Expected for non-brand queries; not missing classification. Null while disabled.
+                     */
+                    subjectNotMentioned?: number | null;
                     counts: {
                         favorable: number;
                         mixed: number;
@@ -623,6 +1385,10 @@ export type SentimentComparison = {
                 sourceSnapshotIds: Array<string>;
             }>;
         }>;
+        criticizedProperties?: {
+            total: number;
+            keys: Array<string>;
+        };
         queryPage?: {
             total: number;
             limit: number;
@@ -639,6 +1405,13 @@ export type SentimentComparison = {
             unadmittedAssessments: number;
             judged: number;
             distinctSourceAnswers: number;
+            eligibleAnswers?: number;
+            ratedAnswers?: number;
+            ratedAnswerRate?: number | null;
+            /**
+             * Distinct admitted answers where every assessed subject in the selected scope is absent. Expected for non-brand queries; not missing classification. Null while disabled.
+             */
+            subjectNotMentioned?: number | null;
             counts: {
                 favorable: number;
                 mixed: number;
@@ -695,7 +1468,9 @@ export type SentimentComparison = {
         };
         evaluationDefinition: {
             schemaVersion: 1 | 2;
-            requestedModel: 'jev-1.13.0';
+            requestedModel: 'jev-1.13.0' | 'typesafe/jev-1.13';
+            provider?: 'typesafe' | 'openrouter';
+            expectedReturnedModel?: 'typesafe/jev-1.13-20260917';
             verdictVersion: string;
             identityVersion: string;
             evidenceVersion: string;
@@ -722,6 +1497,13 @@ export type SentimentComparison = {
                 unadmittedAssessments: number;
                 judged: number;
                 distinctSourceAnswers: number;
+                eligibleAnswers?: number;
+                ratedAnswers?: number;
+                ratedAnswerRate?: number | null;
+                /**
+                 * Distinct admitted answers where every assessed subject in the selected scope is absent. Expected for non-brand queries; not missing classification. Null while disabled.
+                 */
+                subjectNotMentioned?: number | null;
                 counts: {
                     favorable: number;
                     mixed: number;
@@ -774,6 +1556,13 @@ export type SentimentComparison = {
                 unadmittedAssessments: number;
                 judged: number;
                 distinctSourceAnswers: number;
+                eligibleAnswers?: number;
+                ratedAnswers?: number;
+                ratedAnswerRate?: number | null;
+                /**
+                 * Distinct admitted answers where every assessed subject in the selected scope is absent. Expected for non-brand queries; not missing classification. Null while disabled.
+                 */
+                subjectNotMentioned?: number | null;
                 counts: {
                     favorable: number;
                     mixed: number;
@@ -842,6 +1631,13 @@ export type SentimentComparison = {
                     unadmittedAssessments: number;
                     judged: number;
                     distinctSourceAnswers: number;
+                    eligibleAnswers?: number;
+                    ratedAnswers?: number;
+                    ratedAnswerRate?: number | null;
+                    /**
+                     * Distinct admitted answers where every assessed subject in the selected scope is absent. Expected for non-brand queries; not missing classification. Null while disabled.
+                     */
+                    subjectNotMentioned?: number | null;
                     counts: {
                         favorable: number;
                         mixed: number;
@@ -883,13 +1679,17 @@ export type SentimentComparison = {
                 sourceSnapshotIds: Array<string>;
             }>;
         }>;
+        criticizedProperties?: {
+            total: number;
+            keys: Array<string>;
+        };
         queryPage?: {
             total: number;
             limit: number;
             nextCursor: string | null;
         };
     };
-    verdict: 'improved' | 'declined' | 'no-clear-change';
+    verdict: 'improved' | 'declined' | 'no-clear-change' | null;
     favorableRateDelta: number | null;
     refusalReasons: Array<string>;
     commonUnits: number;
@@ -1160,6 +1960,7 @@ export type VisibilityReportResponse = {
                 rate: number | null;
                 reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
                 unattributed?: number;
+                unchecked?: number;
             };
             citationCoverage: {
                 numerator: number | null;
@@ -1167,6 +1968,7 @@ export type VisibilityReportResponse = {
                 rate: number | null;
                 reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
                 unattributed?: number;
+                unchecked?: number;
             };
             propertyReach: {
                 numerator: number | null;
@@ -1174,6 +1976,7 @@ export type VisibilityReportResponse = {
                 rate: number | null;
                 reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
                 unattributed?: number;
+                unchecked?: number;
             };
             outcomes: {
                 bothSignals: number;
@@ -1183,6 +1986,7 @@ export type VisibilityReportResponse = {
                 notMeasured: number;
                 total: number;
             };
+            notMeasuredUnchecked?: number;
         };
         trend: Array<{
             runId: string;
@@ -1209,6 +2013,7 @@ export type VisibilityReportResponse = {
                 rate: number | null;
                 reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
                 unattributed?: number;
+                unchecked?: number;
             };
             citationCoverage: {
                 numerator: number | null;
@@ -1216,6 +2021,7 @@ export type VisibilityReportResponse = {
                 rate: number | null;
                 reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
                 unattributed?: number;
+                unchecked?: number;
             };
             continuity: {
                 state: 'first' | 'comparable' | 'definition-changed' | 'model-changed' | 'legacy-unknown';
@@ -1237,6 +2043,7 @@ export type VisibilityReportResponse = {
                     rate: number | null;
                     reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
                     unattributed?: number;
+                    unchecked?: number;
                 };
                 delta: number;
             } | {
@@ -1251,6 +2058,7 @@ export type VisibilityReportResponse = {
                     rate: number | null;
                     reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
                     unattributed?: number;
+                    unchecked?: number;
                 };
                 delta: number;
             } | {
@@ -1265,6 +2073,7 @@ export type VisibilityReportResponse = {
                     rate: number | null;
                     reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
                     unattributed?: number;
+                    unchecked?: number;
                 };
                 delta: number;
             } | {
@@ -1298,6 +2107,7 @@ export type VisibilityReportResponse = {
                     rate: number | null;
                     reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
                     unattributed?: number;
+                    unchecked?: number;
                 };
                 citationCoverage: {
                     numerator: number | null;
@@ -1305,6 +2115,12 @@ export type VisibilityReportResponse = {
                     rate: number | null;
                     reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
                     unattributed?: number;
+                    unchecked?: number;
+                };
+                uncheckedSources?: {
+                    answers: number;
+                    citedAnswers: number;
+                    citedTargetKeys: Array<string>;
                 };
             }>;
             nextCursor: string | null;
@@ -1346,6 +2162,7 @@ export type VisibilityReportResponse = {
                 rate: number | null;
                 reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
                 unattributed?: number;
+                unchecked?: number;
             };
             citationCoverage: {
                 numerator: number | null;
@@ -1353,6 +2170,7 @@ export type VisibilityReportResponse = {
                 rate: number | null;
                 reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
                 unattributed?: number;
+                unchecked?: number;
             };
         }>;
         observedCompetitors: Array<{
@@ -1370,6 +2188,7 @@ export type VisibilityReportResponse = {
                     rate: number | null;
                     reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
                     unattributed?: number;
+                    unchecked?: number;
                 };
                 citationCoverage: {
                     numerator: number | null;
@@ -1377,6 +2196,7 @@ export type VisibilityReportResponse = {
                     rate: number | null;
                     reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
                     unattributed?: number;
+                    unchecked?: number;
                 };
             }>;
             groups: Array<{
@@ -1389,6 +2209,7 @@ export type VisibilityReportResponse = {
                     rate: number | null;
                     reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
                     unattributed?: number;
+                    unchecked?: number;
                 };
                 citationCoverage: {
                     numerator: number | null;
@@ -1396,6 +2217,7 @@ export type VisibilityReportResponse = {
                     rate: number | null;
                     reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
                     unattributed?: number;
+                    unchecked?: number;
                 };
             }>;
         };
@@ -1474,7 +2296,7 @@ export type QueryTrackingWorkspaceResponse = {
             targetKey: string;
             groupKeys: Array<string>;
             marketKeys: Array<string>;
-            queryClass: 'branded' | 'non-brand';
+            queryClass: 'branded' | 'non-brand' | null;
             classificationSource: 'frozen' | 'server' | 'operator';
             contexts: Array<{
                 providers: Array<string>;
@@ -1593,7 +2415,7 @@ export type QueryTrackingPreviewResponse = {
             targetKey: string;
             groupKeys: Array<string>;
             marketKeys: Array<string>;
-            queryClass: 'branded' | 'non-brand';
+            queryClass: 'branded' | 'non-brand' | null;
             classificationSource: 'frozen' | 'server' | 'operator';
             contexts: Array<{
                 providers: Array<string>;
@@ -1747,12 +2569,16 @@ export type QueryTrackingCommitResponse = {
 export type AgentPromptRequest = {
     prompt: string;
     conversationId?: string | null;
-    provider?: 'claude' | 'openai' | 'gemini' | 'zai' | 'deepinfra';
+    provider?: 'claude' | 'openai' | 'gemini' | 'zai' | 'openrouter';
     modelId?: string;
     scope?: 'all' | 'read-only';
     profile?: 'default' | 'ads-operator';
     context?: {
-        view: 'project' | 'visibility' | 'property' | 'queries' | 'site-health';
+        view: 'project' | 'visibility' | 'property' | 'queries' | 'site-health' | 'seo';
+        seoProfileId?: string;
+        seoRunId?: string;
+        seoRegionKey?: string;
+        seoMarketKey?: string;
         unavailableReason?: string;
         selection?: {
             mode: 'auto' | 'simple' | 'advanced';
@@ -1795,7 +2621,7 @@ export type AgentConversation = {
     messages: Array<{
         role: string;
         content?: unknown;
-        [key: string]: unknown | string | undefined;
+        [key: string]: unknown;
     }>;
     isStreaming: boolean;
 };
@@ -1825,13 +2651,218 @@ export type AgentConversationDelete = {
 
 export type AgentProvidersResponseDto = {
     providers: Array<{
-        id: 'claude' | 'openai' | 'gemini' | 'zai' | 'deepinfra';
+        id: 'claude' | 'openai' | 'gemini' | 'zai' | 'openrouter';
         label: string;
         defaultModel: string;
         configured: boolean;
-        keySource: 'config' | 'env';
+        keySource: 'config' | 'env' | null;
+        models?: Array<{
+            id: string;
+            displayName: string;
+        }>;
     }>;
-    defaultProvider: 'claude' | 'openai' | 'gemini' | 'zai' | 'deepinfra';
+    defaultProvider: 'claude' | 'openai' | 'gemini' | 'zai' | 'openrouter' | null;
+};
+
+export type ApplyPreviewDto = {
+    project: {
+        id: string | null;
+        name: string;
+    };
+    action: 'create' | 'update' | 'none';
+    changed: boolean;
+    configRevision: {
+        before: number | null;
+        after: number;
+    };
+    fields: {
+        displayName?: {
+            before: string | null;
+            after: string | null;
+        };
+        canonicalDomain?: {
+            before: string | null;
+            after: string | null;
+        };
+        ownedDomains?: {
+            before: Array<string> | null;
+            after: Array<string> | null;
+        };
+        aliases?: {
+            before: Array<string> | null;
+            after: Array<string> | null;
+        };
+        qualifiedAliases?: {
+            before: Array<string> | null;
+            after: Array<string> | null;
+        };
+        country?: {
+            before: string | null;
+            after: string | null;
+        };
+        language?: {
+            before: string | null;
+            after: string | null;
+        };
+        labels?: {
+            before: {
+                [key: string]: string;
+            } | null;
+            after: {
+                [key: string]: string;
+            } | null;
+        };
+        providers?: {
+            before: Array<string> | null;
+            after: Array<string> | null;
+        };
+        providerModels?: {
+            before: {
+                [key: string]: string;
+            } | null;
+            after: {
+                [key: string]: string;
+            } | null;
+        };
+        providerDispatchModes?: {
+            before: {
+                [key: string]: 'sync' | 'batch';
+            } | null;
+            after: {
+                [key: string]: 'sync' | 'batch';
+            } | null;
+        };
+        'measurement.marketingHosts'?: {
+            before: Array<string> | null;
+            after: Array<string> | null;
+        };
+        'measurement.brandTerms'?: {
+            before: Array<string> | null;
+            after: Array<string> | null;
+        };
+        'measurement.leadEventNames'?: {
+            before: Array<string> | null;
+            after: Array<string> | null;
+        };
+        'measurement.countKeyEvents'?: {
+            before: boolean | null;
+            after: boolean | null;
+        };
+        locations?: {
+            before: Array<{
+                label: string;
+                city: string;
+                region: string;
+                country: string;
+                timezone?: string;
+            }> | null;
+            after: Array<{
+                label: string;
+                city: string;
+                region: string;
+                country: string;
+                timezone?: string;
+            }> | null;
+        };
+        defaultLocation?: {
+            before: string | null;
+            after: string | null;
+        };
+        autoExtractBacklinks?: {
+            before: boolean | null;
+            after: boolean | null;
+        };
+        negativeReviewMaxStars?: {
+            before: number | null;
+            after: number | null;
+        };
+        siteAuditMaxPages?: {
+            before: number | null;
+            after: number | null;
+        };
+        competitorAutoAliases?: {
+            before: 'off' | 'preview' | 'apply' | null;
+            after: 'off' | 'preview' | 'apply' | null;
+        };
+        configSource?: {
+            before: 'cli' | 'api' | 'config-file' | null;
+            after: 'cli' | 'api' | 'config-file' | null;
+        };
+    };
+    queries: {
+        managed: boolean;
+        added: Array<string>;
+        removed: Array<string>;
+        unchangedCount: number;
+        snapshotsDetached: number;
+    };
+    competitors: {
+        managed: boolean;
+        added: Array<string>;
+        removed: Array<string>;
+        aliasChanges: Array<{
+            domain: string;
+            before: Array<string>;
+            after: Array<string>;
+        }>;
+        droppedAliases: Array<{
+            domain: string;
+            alias: string;
+            reason: 'too-long' | 'too-short' | 'project-brand' | 'other-competitor' | 'market-competitor' | 'claimed-by-alias';
+            conflictsWith?: string;
+            conflictingName?: string;
+            markets?: Array<string>;
+        }>;
+    };
+    schedule: {
+        managed: boolean;
+        action: 'create' | 'update' | 'delete' | 'none';
+        before: {
+            cron?: string;
+            preset?: string;
+            recurrence?: {
+                everyDays: number;
+                startDate: string;
+                time: string;
+            };
+            timezone: string;
+            providers: Array<string>;
+            enabled: boolean;
+        } | null;
+        after: {
+            cron?: string;
+            preset?: string;
+            recurrence?: {
+                everyDays: number;
+                startDate: string;
+                time: string;
+            };
+            timezone: string;
+            providers: Array<string>;
+            enabled: boolean;
+        } | null;
+    };
+    notifications: {
+        managed: boolean;
+        added: Array<{
+            urlHost: string;
+            events: Array<string>;
+        }>;
+        removed: Array<{
+            urlHost: string;
+            events: Array<string>;
+            id: string;
+        }>;
+        kept: Array<{
+            id: string;
+            urlHost: string;
+            urlChanged: boolean;
+            eventsBefore: Array<string>;
+            eventsAfter: Array<string>;
+        }>;
+        secretsRotated: number;
+    };
+    effects: Array<'mention-backfill' | 'competitor-rescore' | 'competitor-auto-alias-rescan' | 'schedule-reload' | 'gsc-property-update'>;
 };
 
 export type AdsAccountDto = {
@@ -2868,6 +3899,7 @@ export type ApiKeyListDto = {
 
 export type AuditLogEntry = {
     id: string;
+    project?: string | null;
     projectId?: string | null;
     actor: string;
     action: string;
@@ -3083,6 +4115,7 @@ export type BingUrlInspectionDto = {
 export type BrandMetricsDto = {
     window: '7d' | '30d' | '90d' | 'all';
     mentionShareScope: 'non-brand' | 'pooled';
+    queryClass: 'all' | 'branded' | 'non-brand';
     buckets: Array<{
         startDate: string;
         endDate: string;
@@ -3317,6 +4350,14 @@ export type BrandMetricsDto = {
             checkedThroughPeriodEnd: boolean;
         };
     };
+    /**
+     * When the names the project's competitors are matched by last changed: a tracked competitor's curated or stored auto-detected names (a block counts only when it removes a stored name), a detection pass that stored or removed a market-only competitor's learned names, a write that claimed, released or dropped a market-only competitor's learned names, or a published revision that renamed a market pin; null if never. The competitor landscape reads every period with the current names, so a figure for any period quoted before this time was restated at this time. Analytics mention share and project-frame visibility-compare share of voice read only tracked competitors' names, so a market pin or learned-name change moves this time without changing them. Adding or removing a competitor or a pin is a names change only when it moves a stored or learned name.
+     */
+    competitorIdentityChangedAt?: string | null;
+    /**
+     * When the tracked competitor set last changed: a non-empty competitor add, removal, replacement, or discovery promotion. Older replacement audit rows without added/removed fields count conservatively; an identical replacement with both arrays empty does not. Null when the set never changed.
+     */
+    competitorSetChangedAt?: string | null;
 };
 
 export type CcAvailableRelease = {
@@ -3330,7 +4371,7 @@ export type CcAvailableRelease = {
 
 export type CcCachedRelease = {
     release: string;
-    syncStatus: 'queued' | 'downloading' | 'querying' | 'ready' | 'failed';
+    syncStatus: 'queued' | 'downloading' | 'querying' | 'ready' | 'failed' | null;
     bytes: number;
     lastUsedAt: string | null;
 };
@@ -3409,16 +4450,171 @@ export type CitationVisibilityResponse = {
     reason?: 'no-runs-yet' | 'no-queries';
 };
 
+export type CompetitorAliasBlockRequest = {
+    /**
+     * Names to block from (or release back to) answer-derived auto-detection for this competitor. Compared by brand key, so case, spacing and punctuation variants are one name.
+     */
+    aliases: Array<string>;
+};
+
+export type CompetitorAliasesRequest = {
+    /**
+     * Operator-curated names this competitor goes by in answer text (at most 10, each 80 characters or fewer, at least 3 letters or digits).
+     */
+    aliases: Array<string>;
+};
+
+export type CompetitorAppendRequest = {
+    competitors: Array<string | {
+        domain: string;
+        /**
+         * Operator-curated names this competitor goes by in answer text (at most 10, each 80 characters or fewer, at least 3 letters or digits).
+         */
+        aliases?: Array<string>;
+    }>;
+    acknowledgeBulkAdd?: boolean;
+};
+
+export type CompetitorAutoAliasDetectionDto = {
+    project: string;
+    applied: boolean;
+    changed: boolean;
+    scan: {
+        runs: number;
+        snapshots: number;
+        answers: number;
+        maxRuns: number;
+        maxSnapshots: number;
+        providerCitations: boolean;
+    };
+    thresholds: {
+        minDirectPairs: number;
+        minRuns: number;
+        minNamingAnswers: number;
+        minPrecision: number;
+        minLift: number;
+        minNameCasedShare: number;
+        minKeyLength: number;
+        dominanceMultiple: number;
+        removeBelowPrecision: number;
+        removeBelowLift: number;
+        removeBelowNameCasedShare: number;
+    };
+    competitors: Array<{
+        domain: string;
+        marketKeys?: Array<string>;
+        aliases: Array<string>;
+        autoAliases: Array<{
+            name: string;
+            directPairs: number;
+            cooccurrences: number;
+            namingAnswers: number;
+            precision: number;
+            lift?: number | null;
+            nameCasedAnswers?: number;
+            runs: number;
+            firstSeen: string;
+            lastSeen: string;
+            addedAt: string;
+        }>;
+        blockedAliases: Array<string>;
+        added: Array<string>;
+        removed: Array<{
+            name: string;
+            reason: 'name-shape' | 'too-few-pairs' | 'too-few-runs' | 'too-few-naming-answers' | 'low-precision' | 'low-lift' | 'lowercase-usage' | 'other-competitor-dominates' | 'no-label-affinity' | 'needs-approval' | 'subsumed' | 'too-long' | 'too-short' | 'blocked' | 'already-matched' | 'project-brand' | 'other-competitor' | 'over-limit';
+            conflictsWith?: string;
+        }>;
+        candidates: Array<{
+            name: string;
+            status: 'added' | 'kept' | 'removed' | 'review' | 'rejected';
+            reason?: 'name-shape' | 'too-few-pairs' | 'too-few-runs' | 'too-few-naming-answers' | 'low-precision' | 'low-lift' | 'lowercase-usage' | 'other-competitor-dominates' | 'no-label-affinity' | 'needs-approval' | 'subsumed' | 'too-long' | 'too-short' | 'blocked' | 'already-matched' | 'project-brand' | 'other-competitor' | 'over-limit';
+            conflictsWith?: string;
+            directPairs: number;
+            runs: number;
+            cooccurrences: number;
+            namingAnswers: number;
+            citingAnswers: number;
+            nameCasedAnswers: number;
+            precision: number | null;
+            lift: number | null;
+            otherCompetitorPairs: number;
+            labelAffinity: boolean;
+            via: Array<'openai-annotation' | 'claude-citation' | 'gemini-support' | 'perplexity-marker' | 'answer-link' | 'answer-host'>;
+            firstSeen: string;
+            lastSeen: string;
+        }>;
+    }>;
+    impact?: {
+        instrument: 'competitor-landscape';
+        queryClass: 'non-brand' | 'pooled';
+        scope: 'project' | 'all-markets';
+        runIds: Array<string>;
+        runCount: number;
+        sweepAt: string | null;
+        before: {
+            basis?: 'tracked' | 'observed' | null;
+            availability?: 'measured' | 'not-measured' | 'unavailable';
+            reason?: 'select-query-class' | 'answer-selection' | 'no-competitors' | 'insufficient-observed' | 'no-answers' | 'no-mentions' | 'unavailable' | null;
+            measurementScope?: 'project' | 'all-markets';
+            queryClass: 'branded' | 'non-brand' | 'pooled';
+            percent: number | null;
+            competitorCount: number;
+            projectMentions: number;
+            competitorMentions: number;
+            snapshotsWithAnswerText: number;
+            perCompetitor: Array<{
+                domain: string;
+                mentions: number;
+            }>;
+        };
+        after: {
+            basis?: 'tracked' | 'observed' | null;
+            availability?: 'measured' | 'not-measured' | 'unavailable';
+            reason?: 'select-query-class' | 'answer-selection' | 'no-competitors' | 'insufficient-observed' | 'no-answers' | 'no-mentions' | 'unavailable' | null;
+            measurementScope?: 'project' | 'all-markets';
+            queryClass: 'branded' | 'non-brand' | 'pooled';
+            percent: number | null;
+            competitorCount: number;
+            projectMentions: number;
+            competitorMentions: number;
+            snapshotsWithAnswerText: number;
+            perCompetitor: Array<{
+                domain: string;
+                mentions: number;
+            }>;
+        };
+        deltaPercent: number | null;
+        restatesHistory: true;
+        caveats: Array<'basis-changed' | 'auto-alias-rescan-pending' | 'no-latest-sweep' | 'pooled'>;
+    };
+};
+
 export type CompetitorDto = {
     id: string;
     domain: string;
+    aliases: Array<string>;
+    autoAliases?: Array<{
+        name: string;
+        directPairs: number;
+        cooccurrences: number;
+        namingAnswers: number;
+        precision: number;
+        lift?: number | null;
+        nameCasedAnswers?: number;
+        runs: number;
+        firstSeen: string;
+        lastSeen: string;
+        addedAt: string;
+    }>;
+    blockedAliases?: Array<string>;
+    marketKeys?: Array<string>;
     createdAt: string;
 };
 
 export type CompetitorLandscapeResponse = {
-    basis?: 'tracked' | 'observed';
+    basis?: 'tracked' | 'observed' | null;
     availability?: 'measured' | 'not-measured' | 'unavailable';
-    reason?: 'select-query-class' | 'no-competitors' | 'insufficient-observed' | 'no-answers' | 'no-mentions' | 'unavailable';
+    reason?: 'select-query-class' | 'answer-selection' | 'no-competitors' | 'insufficient-observed' | 'no-answers' | 'no-mentions' | 'unavailable' | null;
     comparison?: Array<{
         domain: string;
         mentions: number;
@@ -3428,6 +4624,12 @@ export type CompetitorLandscapeResponse = {
         answerCount: number;
     }>;
     observedNamesTotal?: number;
+    answerSelection?: {
+        answers: 'not-mentioned';
+        populationSize: number;
+        answerCount: number;
+        unknownMentionAnswers: number;
+    };
     window: '7d' | '30d' | '90d' | 'all';
     scope: {
         kind: 'project';
@@ -3501,9 +4703,9 @@ export type CompetitorLandscapeResponse = {
     modelComparison?: {
         basis: 'requested-model';
         groups: Array<{
-            basis?: 'tracked' | 'observed';
+            basis?: 'tracked' | 'observed' | null;
             availability?: 'measured' | 'not-measured' | 'unavailable';
-            reason?: 'select-query-class' | 'no-competitors' | 'insufficient-observed' | 'no-answers' | 'no-mentions' | 'unavailable';
+            reason?: 'select-query-class' | 'answer-selection' | 'no-competitors' | 'insufficient-observed' | 'no-answers' | 'no-mentions' | 'unavailable' | null;
             comparison?: Array<{
                 domain: string;
                 mentions: number;
@@ -3608,6 +4810,7 @@ export type CompetitorLandscapeResponse = {
         queryClass: 'all' | 'branded' | 'non-brand';
         location: string | null;
         runId: string | null;
+        answers?: 'all' | 'not-mentioned';
     };
     truncated: boolean;
     runCount?: number;
@@ -3616,6 +4819,189 @@ export type CompetitorLandscapeResponse = {
         answers: Array<string>;
         distinctNames: Array<string>;
         runs: Array<string>;
+    };
+    /**
+     * When the names the project's competitors are matched by last changed: a tracked competitor's curated or stored auto-detected names (a block counts only when it removes a stored name), a detection pass that stored or removed a market-only competitor's learned names, a write that claimed, released or dropped a market-only competitor's learned names, or a published revision that renamed a market pin; null if never. The competitor landscape reads every period with the current names, so a figure for any period quoted before this time was restated at this time. Analytics mention share and project-frame visibility-compare share of voice read only tracked competitors' names, so a market pin or learned-name change moves this time without changing them. Adding or removing a competitor or a pin is a names change only when it moves a stored or learned name.
+     */
+    competitorIdentityChangedAt?: string | null;
+    /**
+     * When the tracked competitor set last changed: a non-empty competitor add, removal, replacement, or discovery promotion. Older replacement audit rows without added/removed fields count conservatively; an identical replacement with both arrays empty does not. Null when the set never changed.
+     */
+    competitorSetChangedAt?: string | null;
+    competitorListRestated?: boolean;
+};
+
+export type CompetitorSuggestionsResponse = {
+    project: string;
+    window: '7d' | '30d' | '90d' | 'all';
+    scope: {
+        kind: 'project';
+    } | {
+        kind: 'group';
+        groupKey: string;
+    } | {
+        kind: 'all-markets';
+    };
+    filters: {
+        queryClass: 'non-brand' | 'branded' | 'all';
+        groupKey: string | null;
+        limit: number;
+        minAnswers: number;
+    };
+    thresholds: {
+        minAnswers: number;
+    };
+    candidates: Array<{
+        domain: string;
+        label: string;
+        names: Array<{
+            name: string;
+            answerCount: number;
+            pairedAnswers: number;
+        }>;
+        namingAnswers: number;
+        citingAnswers: number;
+        bothAnswers: number;
+        pairedAnswers: number;
+        namedByOtherNameAnswers: number;
+        sweeps: number;
+        firstSeenAt: string | null;
+        lastSeenAt: string | null;
+        surfaceClass: 'own' | 'direct-competitor' | 'ota-aggregator' | 'editorial-media' | 'other' | 'unknown';
+        tracked: boolean;
+        marketKeys?: Array<string>;
+        status: 'suggested' | 'tracked' | 'excluded';
+        reason: 'below-min-answers' | 'not-named' | 'unpaired-name' | 'own-site' | 'listing-marketplace' | 'non-competitor-surface' | 'claimed-by-alias' | 'shared-host' | null;
+        sampleUrls: Array<string>;
+    }>;
+    candidatesTotal: number;
+    excludedCounts: {
+        [key: string]: number;
+    };
+    unresolvedNames: Array<{
+        name: string;
+        answerCount: number;
+    }>;
+    evidence: {
+        answeredResults: number;
+        sourceResults: number;
+        excludedProbeResults: number;
+        excludedNonCompletedResults: number;
+    };
+    runCount: number;
+    runIds: Array<string>;
+    countUnits: {
+        answers: Array<string>;
+        distinctNames: Array<string>;
+        runs: Array<string>;
+    };
+    truncated: boolean;
+};
+
+export type CompetitorChangePreviewRequest = {
+    change: 'add';
+    competitors: Array<string | {
+        domain: string;
+        /**
+         * Operator-curated names this competitor goes by in answer text (at most 10, each 80 characters or fewer, at least 3 letters or digits).
+         */
+        aliases?: Array<string>;
+    }>;
+} | {
+    change: 'remove';
+    competitors: Array<string>;
+} | {
+    change: 'replace';
+    competitors: Array<string>;
+} | {
+    change: 'aliases';
+    domain: string;
+    aliases: Array<string>;
+    mode: 'set' | 'add';
+};
+
+export type CompetitorChangePreviewResponse = {
+    project: string;
+    change: 'add' | 'remove' | 'replace' | 'aliases';
+    plan: {
+        added: Array<string>;
+        alreadyTracked: Array<string>;
+        removed: Array<string>;
+        aliasChanges: Array<{
+            domain: string;
+            before: Array<string>;
+            after: Array<string>;
+        }>;
+        droppedAliases: Array<{
+            domain: string;
+            alias: string;
+            reason: 'too-long' | 'too-short' | 'project-brand' | 'other-competitor' | 'market-competitor' | 'claimed-by-alias';
+            conflictsWith?: string;
+            conflictingName?: string;
+            markets?: Array<string>;
+            supersededRevision?: number;
+        }>;
+        autoAliasChanges: Array<{
+            domain: string;
+            before: Array<string>;
+            after: Array<string>;
+        }>;
+        droppedAutoAliases: Array<{
+            domain: string;
+            alias: string;
+            reason: 'too-long' | 'too-short' | 'blocked' | 'already-matched' | 'subsumed' | 'project-brand' | 'other-competitor' | 'over-limit';
+            stored: boolean;
+            conflictsWith?: string;
+            conflictingName?: string;
+        }>;
+    };
+    bulkAdd: {
+        limit: number;
+        count: number;
+        acknowledgementRequired: boolean;
+    };
+    impact: {
+        instrument: 'competitor-landscape';
+        queryClass: 'non-brand' | 'pooled';
+        scope: 'project' | 'all-markets';
+        runIds: Array<string>;
+        runCount: number;
+        sweepAt: string | null;
+        before: {
+            basis?: 'tracked' | 'observed' | null;
+            availability?: 'measured' | 'not-measured' | 'unavailable';
+            reason?: 'select-query-class' | 'answer-selection' | 'no-competitors' | 'insufficient-observed' | 'no-answers' | 'no-mentions' | 'unavailable' | null;
+            measurementScope?: 'project' | 'all-markets';
+            queryClass: 'branded' | 'non-brand' | 'pooled';
+            percent: number | null;
+            competitorCount: number;
+            projectMentions: number;
+            competitorMentions: number;
+            snapshotsWithAnswerText: number;
+            perCompetitor: Array<{
+                domain: string;
+                mentions: number;
+            }>;
+        };
+        after: {
+            basis?: 'tracked' | 'observed' | null;
+            availability?: 'measured' | 'not-measured' | 'unavailable';
+            reason?: 'select-query-class' | 'answer-selection' | 'no-competitors' | 'insufficient-observed' | 'no-answers' | 'no-mentions' | 'unavailable' | null;
+            measurementScope?: 'project' | 'all-markets';
+            queryClass: 'branded' | 'non-brand' | 'pooled';
+            percent: number | null;
+            competitorCount: number;
+            projectMentions: number;
+            competitorMentions: number;
+            snapshotsWithAnswerText: number;
+            perCompetitor: Array<{
+                domain: string;
+                mentions: number;
+            }>;
+        };
+        deltaPercent: number | null;
+        restatesHistory: true;
+        caveats: Array<'basis-changed' | 'auto-alias-rescan-pending' | 'no-latest-sweep' | 'pooled'>;
     };
 };
 
@@ -3936,6 +5322,35 @@ export type DiscoveryPromotePreview = {
         domain: string;
         hits: number;
         competitorType: 'direct-competitor' | 'ota-aggregator' | 'editorial-media' | 'other' | 'unknown';
+        sources: Array<{
+            domain: string;
+            hits: number;
+            competitorType: 'direct-competitor' | 'ota-aggregator' | 'editorial-media' | 'other' | 'unknown';
+            evaluator?: {
+                provider: string;
+                requestedModel: string;
+                servedModel: string | null;
+                promptVersion: string;
+            };
+        }>;
+    }>;
+    skippedCompetitors: Array<{
+        domain: string;
+        hits: number;
+        competitorType: 'direct-competitor' | 'ota-aggregator' | 'editorial-media' | 'other' | 'unknown';
+        sources: Array<{
+            domain: string;
+            hits: number;
+            competitorType: 'direct-competitor' | 'ota-aggregator' | 'editorial-media' | 'other' | 'unknown';
+            evaluator?: {
+                provider: string;
+                requestedModel: string;
+                servedModel: string | null;
+                promptVersion: string;
+            };
+        }>;
+        reason: 'already-tracked' | 'project-domain' | 'shared-host' | 'claimed-by-alias';
+        message: string;
     }>;
 };
 
@@ -3949,6 +5364,42 @@ export type DiscoveryPromoteResult = {
     skipped: {
         queries: Array<string>;
         competitors: Array<string>;
+    };
+    competitorDetails: {
+        promoted: Array<{
+            domain: string;
+            hits: number;
+            competitorType: 'direct-competitor' | 'ota-aggregator' | 'editorial-media' | 'other' | 'unknown';
+            sources: Array<{
+                domain: string;
+                hits: number;
+                competitorType: 'direct-competitor' | 'ota-aggregator' | 'editorial-media' | 'other' | 'unknown';
+                evaluator?: {
+                    provider: string;
+                    requestedModel: string;
+                    servedModel: string | null;
+                    promptVersion: string;
+                };
+            }>;
+        }>;
+        skipped: Array<{
+            domain: string;
+            hits: number;
+            competitorType: 'direct-competitor' | 'ota-aggregator' | 'editorial-media' | 'other' | 'unknown';
+            sources: Array<{
+                domain: string;
+                hits: number;
+                competitorType: 'direct-competitor' | 'ota-aggregator' | 'editorial-media' | 'other' | 'unknown';
+                evaluator?: {
+                    provider: string;
+                    requestedModel: string;
+                    servedModel: string | null;
+                    promptVersion: string;
+                };
+            }>;
+            reason: 'already-tracked' | 'project-domain' | 'shared-host' | 'claimed-by-alias';
+            message: string;
+        }>;
     };
 };
 
@@ -3989,6 +5440,12 @@ export type DiscoverySessionDetailDto = {
         domain: string;
         hits: number;
         competitorType: 'direct-competitor' | 'ota-aggregator' | 'editorial-media' | 'other' | 'unknown';
+        evaluator?: {
+            provider: string;
+            requestedModel: string;
+            servedModel: string | null;
+            promptVersion: string;
+        };
     }>;
     warning?: string | null;
     error?: string | null;
@@ -4000,7 +5457,7 @@ export type DiscoverySessionDetailDto = {
         sessionId: string;
         projectId: string;
         query: string;
-        bucket: 'cited' | 'aspirational' | 'wasted-surface';
+        bucket: 'cited' | 'aspirational' | 'wasted-surface' | null;
         citationState: 'cited' | 'not-cited';
         citedDomains: Array<string>;
         answerMentioned: boolean | null;
@@ -4045,6 +5502,12 @@ export type DiscoverySessionDto = {
         domain: string;
         hits: number;
         competitorType: 'direct-competitor' | 'ota-aggregator' | 'editorial-media' | 'other' | 'unknown';
+        evaluator?: {
+            provider: string;
+            requestedModel: string;
+            servedModel: string | null;
+            promptVersion: string;
+        };
     }>;
     warning?: string | null;
     error?: string | null;
@@ -4089,7 +5552,7 @@ export type ResearchBatchDto = {
     runs: Array<{
         id: string;
         projectId: string;
-        status: 'queued' | 'running' | 'completed' | 'partial' | 'failed';
+        status: 'queued' | 'running' | 'waiting-upstream' | 'completed' | 'partial' | 'failed';
         provider: string;
         requestedModel: string | null;
         resolvedModel: string;
@@ -4123,7 +5586,7 @@ export type ResearchBatchDto = {
             kind: 'api-key' | 'user';
             id: string;
             name: string;
-            role: 'admin' | 'viewer';
+            role: 'admin' | 'viewer' | null;
             limited?: boolean;
         } | null;
         startedAt: string | null;
@@ -4133,8 +5596,8 @@ export type ResearchBatchDto = {
             id: string;
             position: number;
             query: string;
-            queryClass?: 'branded' | 'non-brand';
-            status: 'queued' | 'running' | 'completed' | 'failed';
+            queryClass?: 'branded' | 'non-brand' | null;
+            status: 'queued' | 'running' | 'waiting-upstream' | 'completed' | 'failed';
             requestedModel: string | null;
             resolvedModel: string;
             servedModel: string | null;
@@ -4145,14 +5608,118 @@ export type ResearchBatchDto = {
             }>;
             citedDomains: Array<string>;
             searchQueries: Array<string>;
+            retrievedSources: Array<{
+                uri: string;
+                title: string;
+                kind: 'search-result' | 'page-read';
+                query: string | null;
+            }> | null;
             namedCompetitors: Array<string>;
             citedCompetitorDomains: Array<string>;
             answerMentioned: boolean | null;
-            citationState: 'cited' | 'not-cited';
+            citationState: 'cited' | 'not-cited' | null;
             error: string | null;
             startedAt: string | null;
             finishedAt: string | null;
             createdAt: string;
+            evidence?: {
+                version: 1;
+                identity: {
+                    connection: string;
+                    route: string;
+                    service: string;
+                    product: string;
+                    profile: string;
+                    settings: {
+                        [key: string]: string | number | boolean;
+                    };
+                    requestedServiceModel: string | null;
+                    disclosedModel: string | null;
+                    disclosedModelKind: 'foundation-model' | 'service-tier' | 'unknown' | null;
+                    requestPolicy: string;
+                    parserVersion: string;
+                };
+                completion: {
+                    status: 'complete' | 'partial' | 'failed' | 'pending';
+                    finishReason: string | null;
+                    upstreamStatus: string | null;
+                    upstreamRequestId: string | null;
+                    upstreamJobId: string | null;
+                    error: string | null;
+                };
+                usage: {
+                    tokens: {
+                        input: number | null;
+                        output: number | null;
+                        reasoning: number | null;
+                        basis: 'reported' | 'approximate' | 'unknown';
+                    };
+                    searches: {
+                        count: number | null;
+                        basis: 'reported' | 'derived-from-evidence' | 'unknown';
+                    };
+                    pageReads: {
+                        count: number | null;
+                        basis: 'reported' | 'derived-from-evidence' | 'unknown';
+                    };
+                    billedUnits: Array<{
+                        unit: 'request' | 'credit' | 'search' | 'token';
+                        quantity: number;
+                        basis: 'reported';
+                    }>;
+                    cost: {
+                        micros: number | null;
+                        currency: 'USD';
+                        basis: 'reported' | 'estimated' | 'unknown';
+                        estimatedBy: 'provider' | 'canonry' | null;
+                    };
+                };
+                sources: Array<{
+                    url: string;
+                    title: string | null;
+                    relationship: 'search-result' | 'page-read' | 'answer-support' | 'explicit-citation';
+                    rank: number | null;
+                    citationNumbers?: Array<number>;
+                    spans?: Array<{
+                        start: number;
+                        end: number;
+                        basis: 'upstream';
+                    }>;
+                    excerpts?: Array<string>;
+                    excerptsTruncated?: boolean;
+                    publishedAt: string | null;
+                    upstreamId: string | null;
+                    status?: string | null;
+                }>;
+                searchQueries: Array<string>;
+                retrievalStatus: 'used' | 'not-used' | 'unknown' | 'not-applicable';
+                citationBasis: 'explicit-citation' | 'answer-support' | 'mixed' | 'none';
+                citationMeasurable: boolean;
+                directSourceUrls: boolean;
+                location: {
+                    requested: {
+                        label: string;
+                        city: string;
+                        region: string;
+                        country: string;
+                        timezone?: string;
+                    } | null;
+                    sent: {
+                        country?: string;
+                        region?: string;
+                        city?: string;
+                        timezone?: string;
+                    } | null;
+                    strength: 'filter' | 'hint' | null;
+                    serviceDefault: {
+                        country?: string;
+                    } | null;
+                    status: 'applied' | 'partial' | 'ignored' | 'not-requested';
+                };
+                rawTruncated: boolean;
+            } | null;
+            citationMeasured?: boolean;
+            upstreamJobId?: string | null;
         }>;
     }>;
 };
@@ -4190,7 +5757,7 @@ export type ResearchRunCreate = {
 export type ResearchRunDetailDto = {
     id: string;
     projectId: string;
-    status: 'queued' | 'running' | 'completed' | 'partial' | 'failed';
+    status: 'queued' | 'running' | 'waiting-upstream' | 'completed' | 'partial' | 'failed';
     provider: string;
     requestedModel: string | null;
     resolvedModel: string;
@@ -4224,7 +5791,7 @@ export type ResearchRunDetailDto = {
         kind: 'api-key' | 'user';
         id: string;
         name: string;
-        role: 'admin' | 'viewer';
+        role: 'admin' | 'viewer' | null;
         limited?: boolean;
     } | null;
     startedAt: string | null;
@@ -4234,8 +5801,8 @@ export type ResearchRunDetailDto = {
         id: string;
         position: number;
         query: string;
-        queryClass?: 'branded' | 'non-brand';
-        status: 'queued' | 'running' | 'completed' | 'failed';
+        queryClass?: 'branded' | 'non-brand' | null;
+        status: 'queued' | 'running' | 'waiting-upstream' | 'completed' | 'failed';
         requestedModel: string | null;
         resolvedModel: string;
         servedModel: string | null;
@@ -4246,14 +5813,118 @@ export type ResearchRunDetailDto = {
         }>;
         citedDomains: Array<string>;
         searchQueries: Array<string>;
+        retrievedSources: Array<{
+            uri: string;
+            title: string;
+            kind: 'search-result' | 'page-read';
+            query: string | null;
+        }> | null;
         namedCompetitors: Array<string>;
         citedCompetitorDomains: Array<string>;
         answerMentioned: boolean | null;
-        citationState: 'cited' | 'not-cited';
+        citationState: 'cited' | 'not-cited' | null;
         error: string | null;
         startedAt: string | null;
         finishedAt: string | null;
         createdAt: string;
+        evidence?: {
+            version: 1;
+            identity: {
+                connection: string;
+                route: string;
+                service: string;
+                product: string;
+                profile: string;
+                settings: {
+                    [key: string]: string | number | boolean;
+                };
+                requestedServiceModel: string | null;
+                disclosedModel: string | null;
+                disclosedModelKind: 'foundation-model' | 'service-tier' | 'unknown' | null;
+                requestPolicy: string;
+                parserVersion: string;
+            };
+            completion: {
+                status: 'complete' | 'partial' | 'failed' | 'pending';
+                finishReason: string | null;
+                upstreamStatus: string | null;
+                upstreamRequestId: string | null;
+                upstreamJobId: string | null;
+                error: string | null;
+            };
+            usage: {
+                tokens: {
+                    input: number | null;
+                    output: number | null;
+                    reasoning: number | null;
+                    basis: 'reported' | 'approximate' | 'unknown';
+                };
+                searches: {
+                    count: number | null;
+                    basis: 'reported' | 'derived-from-evidence' | 'unknown';
+                };
+                pageReads: {
+                    count: number | null;
+                    basis: 'reported' | 'derived-from-evidence' | 'unknown';
+                };
+                billedUnits: Array<{
+                    unit: 'request' | 'credit' | 'search' | 'token';
+                    quantity: number;
+                    basis: 'reported';
+                }>;
+                cost: {
+                    micros: number | null;
+                    currency: 'USD';
+                    basis: 'reported' | 'estimated' | 'unknown';
+                    estimatedBy: 'provider' | 'canonry' | null;
+                };
+            };
+            sources: Array<{
+                url: string;
+                title: string | null;
+                relationship: 'search-result' | 'page-read' | 'answer-support' | 'explicit-citation';
+                rank: number | null;
+                citationNumbers?: Array<number>;
+                spans?: Array<{
+                    start: number;
+                    end: number;
+                    basis: 'upstream';
+                }>;
+                excerpts?: Array<string>;
+                excerptsTruncated?: boolean;
+                publishedAt: string | null;
+                upstreamId: string | null;
+                status?: string | null;
+            }>;
+            searchQueries: Array<string>;
+            retrievalStatus: 'used' | 'not-used' | 'unknown' | 'not-applicable';
+            citationBasis: 'explicit-citation' | 'answer-support' | 'mixed' | 'none';
+            citationMeasurable: boolean;
+            directSourceUrls: boolean;
+            location: {
+                requested: {
+                    label: string;
+                    city: string;
+                    region: string;
+                    country: string;
+                    timezone?: string;
+                } | null;
+                sent: {
+                    country?: string;
+                    region?: string;
+                    city?: string;
+                    timezone?: string;
+                } | null;
+                strength: 'filter' | 'hint' | null;
+                serviceDefault: {
+                    country?: string;
+                } | null;
+                status: 'applied' | 'partial' | 'ignored' | 'not-requested';
+            };
+            rawTruncated: boolean;
+        } | null;
+        citationMeasured?: boolean;
+        upstreamJobId?: string | null;
     }>;
 };
 
@@ -4261,7 +5932,7 @@ export type ResearchRunListDto = {
     runs: Array<{
         id: string;
         projectId: string;
-        status: 'queued' | 'running' | 'completed' | 'partial' | 'failed';
+        status: 'queued' | 'running' | 'waiting-upstream' | 'completed' | 'partial' | 'failed';
         provider: string;
         requestedModel: string | null;
         resolvedModel: string;
@@ -4295,7 +5966,7 @@ export type ResearchRunListDto = {
             kind: 'api-key' | 'user';
             id: string;
             name: string;
-            role: 'admin' | 'viewer';
+            role: 'admin' | 'viewer' | null;
             limited?: boolean;
         } | null;
         startedAt: string | null;
@@ -4311,6 +5982,29 @@ export type ResearchRunListDto = {
         knownModels: Array<{
             id: string;
             displayName: string;
+        }>;
+        kind?: 'answer-engine' | 'model-gateway' | 'answer-service';
+        connection?: string;
+        selectionKind?: 'model' | 'profile' | null;
+        profiles?: Array<{
+            id: string;
+            route: string;
+            displayName: string;
+            description: string;
+            product: string;
+            execution: 'sync' | 'job';
+            workflows: Array<'visibility-sweep' | 'research' | 'snapshot' | 'discovery-seed'>;
+            evidence: {
+                relationships: Array<'search-result' | 'page-read' | 'answer-support' | 'explicit-citation'>;
+                citationBasis: 'explicit-citation' | 'answer-support' | 'mixed' | 'none';
+                citationMeasurable: boolean;
+                spans: boolean;
+                retrievalObservability: 'events' | 'sources' | 'none';
+            };
+            costBasis: 'reported' | 'estimated' | 'unknown';
+            locationGranularity: 'none' | 'country' | 'full';
+            disclosedModelKind: 'foundation-model' | 'service-tier' | 'unknown';
+            maxQueryChars: number | null;
         }>;
     }>;
     access?: {
@@ -4364,13 +6058,17 @@ export type DoctorReportDto = {
         title: string;
         status: 'ok' | 'warn' | 'fail' | 'skipped';
         /**
-         * Health checks page by default. Silent report advisories remain visible but never affect health alert state.
+         * Health checks page by default. Silent checks (report advisories and standing advisories) remain visible but never affect health alert state.
          */
         notificationPolicy?: 'health' | 'silent';
         /**
          * Stable machine-readable code (e.g. "google.token.refresh-failed"). Use this for filtering and remediation logic.
          */
         code: string;
+        /**
+         * True when this result is a problem a person has to act on now (the website is down, daily data stopped arriving, a sync keeps failing). Urgent results are what the health.urgent notification event reports. A result set aside under its failing cause (status "skipped", code "<id>.superseded") keeps the flag: the problem is still open.
+         */
+        urgent?: boolean;
         summary: string;
         /**
          * Operator-facing next step. Null when status is "ok" or no specific remediation applies.
@@ -4383,10 +6081,94 @@ export type DoctorReportDto = {
             [key: string]: unknown;
         };
         /**
+         * Plain words a health alert shows for this result. Absent when the check has none; alerts then fall back to the summary.
+         */
+        alert?: {
+            /**
+             * The problem in a few words, e.g. "Can't reach Google".
+             */
+            label: string;
+            /**
+             * What happened, in one plain sentence.
+             */
+            line: string;
+            /**
+             * What to do, in one plain sentence; null when nothing needs doing yet.
+             */
+            next: string | null;
+        };
+        /**
          * How long the check took to execute.
          */
         durationMs: number;
     }>;
+};
+
+export type InstanceStatusDto = {
+    generatedAt: string;
+    mcp?: {
+        status: 'available' | 'unavailable' | 'not-supported';
+        hosted?: {
+            status: 'ready';
+            url: string;
+            plugin?: {
+                gatewayUrl: string;
+                workspace: string;
+            };
+        } | {
+            status: 'unavailable';
+            reason: 'public-url-required' | 'https-required' | 'public-host-required' | 'public-path-mismatch' | 'oauth-unavailable' | 'account-required' | 'transport-unavailable';
+        };
+    };
+    summary: {
+        projects: number;
+        ok: number;
+        failing: number;
+        warning?: number;
+        stale: number;
+        neverSynced: number;
+    };
+    projects: Array<{
+        project: string;
+        displayName: string;
+        state: 'ok' | 'failing' | 'stale' | 'never-synced' | 'warning';
+        health: {
+            status: 'ok' | 'warn' | 'fail';
+            code: string;
+            summary: string;
+            checkedAt: string;
+            notifiedAt: string | null;
+        } | null;
+        integrations: Array<{
+            integration: 'gsc' | 'ga' | 'gbp' | 'bing' | 'ads' | 'google-ads' | 'gtm' | 'traffic';
+            label: string;
+            runKind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync';
+            sourceId: string | null;
+            state: 'ok' | 'failing' | 'stale' | 'never-synced';
+            lastSuccessAt: string | null;
+            latestRunAt: string | null;
+            latestRunId: string | null;
+            latestStatus: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | null;
+            latestTrigger: 'manual' | 'scheduled' | 'config-apply' | 'backfill' | 'probe' | null;
+            consecutiveFailures: number;
+            latestError: string | null;
+            dataThrough: string | null;
+            dataAgeDays: number | null;
+            doctorChecks: Array<string>;
+        }>;
+    }>;
+};
+
+export type McpProfileDto = {
+    userId: string;
+    displayName: string;
+    instance: {
+        issuer: string;
+        resource: string;
+    };
+    scopes: [
+        'read'
+    ];
 };
 
 export type Ga4AiReferralDailyDto = {
@@ -4406,6 +6188,21 @@ export type Ga4AiReferralDailyDto = {
     totalSessions: number;
     totalPaidSessions: number;
     totalOrganicSessions: number;
+    byEngine: {
+        series: Array<{
+            key: string;
+            label: string;
+            sessions: number;
+        }>;
+        otherCount: number;
+        days: Array<{
+            date: string;
+            sessions: number;
+            values: {
+                [key: string]: number;
+            };
+        }>;
+    };
 };
 
 export type Ga4AiReferralHistoryEntry = {
@@ -4415,7 +6212,7 @@ export type Ga4AiReferralHistoryEntry = {
     trafficClass: 'organic' | 'paid';
     landingPage: string;
     sessions: number;
-    users: number;
+    users?: number;
     sourceDimension: 'session' | 'first_user' | 'manual_utm';
 };
 
@@ -4463,7 +6260,7 @@ export type Ga4MeasurementAnalysisDto = {
         status: 'never-synced' | 'ready' | 'error';
         error: string | null;
         syncedAt: string | null;
-        attributionScope: 'landing-page' | 'channel';
+        attributionScope: 'landing-page' | 'channel' | null;
         hostAndPathFiltersApplied: boolean;
         periods: Array<{
             label: 'earliest' | 'middle' | 'previous' | 'latest';
@@ -4473,6 +6270,96 @@ export type Ga4MeasurementAnalysisDto = {
         }>;
         channels: Array<{
             channelGroup: string;
+            periods: Array<{
+                label: 'earliest' | 'middle' | 'previous' | 'latest';
+                startDate: string;
+                endDate: string;
+                eventCount: number;
+            }>;
+        }>;
+        aiEngines: {
+            leadRateAvailable: boolean;
+            leadRateUnavailableReason: 'no-data' | 'sync-not-ready' | 'channel-leads-unfiltered' | 'paid-split-needs-landing-page' | 'sessions-behind-leads' | 'sessions-missing-on-lead-days' | null;
+            organic: {
+                periods: Array<{
+                    label: 'earliest' | 'middle' | 'previous' | 'latest';
+                    startDate: string;
+                    endDate: string;
+                    eventCount: number;
+                    sessions: number;
+                    leadRate: number | null;
+                }>;
+                engines: Array<{
+                    engine: 'chatgpt' | 'perplexity' | 'gemini' | 'claude' | 'copilot' | 'grok' | 'deepseek' | 'meta-ai' | 'phind' | 'you-com';
+                    label: string;
+                    sources: Array<string>;
+                    periods: Array<{
+                        label: 'earliest' | 'middle' | 'previous' | 'latest';
+                        startDate: string;
+                        endDate: string;
+                        eventCount: number;
+                        sessions: number;
+                        leadRate: number | null;
+                    }>;
+                }>;
+                unattributed: {
+                    sources: Array<string>;
+                    periods: Array<{
+                        label: 'earliest' | 'middle' | 'previous' | 'latest';
+                        startDate: string;
+                        endDate: string;
+                        eventCount: number;
+                        sessions: number;
+                        leadRate: number | null;
+                    }>;
+                };
+            };
+            paid: {
+                periods: Array<{
+                    label: 'earliest' | 'middle' | 'previous' | 'latest';
+                    startDate: string;
+                    endDate: string;
+                    eventCount: number;
+                    sessions: number;
+                    leadRate: number | null;
+                }>;
+                engines: Array<{
+                    engine: 'chatgpt' | 'perplexity' | 'gemini' | 'claude' | 'copilot' | 'grok' | 'deepseek' | 'meta-ai' | 'phind' | 'you-com';
+                    label: string;
+                    sources: Array<string>;
+                    periods: Array<{
+                        label: 'earliest' | 'middle' | 'previous' | 'latest';
+                        startDate: string;
+                        endDate: string;
+                        eventCount: number;
+                        sessions: number;
+                        leadRate: number | null;
+                    }>;
+                }>;
+                unattributed: {
+                    sources: Array<string>;
+                    periods: Array<{
+                        label: 'earliest' | 'middle' | 'previous' | 'latest';
+                        startDate: string;
+                        endDate: string;
+                        eventCount: number;
+                        sessions: number;
+                        leadRate: number | null;
+                    }>;
+                };
+            };
+        };
+        countedEvents: {
+            configured: Array<string>;
+            keyEventsEnabled: boolean;
+            keyEvents: Array<string> | null;
+            keyEventsError: string | null;
+            ignoredKeyEvents: Array<string>;
+        };
+        events: Array<{
+            eventName: string;
+            origin: 'configured' | 'key-event' | 'both';
+            measured: boolean;
             periods: Array<{
                 label: 'earliest' | 'middle' | 'previous' | 'latest';
                 startDate: string;
@@ -4550,6 +6437,88 @@ export type Ga4SessionHistoryEntry = {
     usersSource: 'deduplicated' | 'landing-page-sum';
 };
 
+export type GaOverviewResponse = {
+    window: '7d' | '30d' | '90d' | 'all';
+    current: {
+        startDate: string | null;
+        endDate: string | null;
+    };
+    previous: {
+        startDate: string | null;
+        endDate: string | null;
+    };
+    totals: {
+        activeUsers: number | null;
+        newUsers: number | null;
+        totalUsers: number | null;
+        sessions: number | null;
+        organicSessions: number | null;
+        views: number | null;
+        eventCount: number | null;
+        keyEvents: number | null;
+        engagementRate: number | null;
+        bounceRate: number | null;
+        averageEngagementTimeSeconds: number | null;
+    };
+    previousTotals: {
+        activeUsers: number | null;
+        newUsers: number | null;
+        totalUsers: number | null;
+        sessions: number | null;
+        organicSessions: number | null;
+        views: number | null;
+        eventCount: number | null;
+        keyEvents: number | null;
+        engagementRate: number | null;
+        bounceRate: number | null;
+        averageEngagementTimeSeconds: number | null;
+    };
+    changePct: {
+        activeUsers: number | null;
+        newUsers: number | null;
+        totalUsers: number | null;
+        sessions: number | null;
+        organicSessions: number | null;
+        views: number | null;
+        eventCount: number | null;
+        keyEvents: number | null;
+        engagementRate: number | null;
+        bounceRate: number | null;
+        averageEngagementTimeSeconds: number | null;
+    };
+    days: Array<{
+        date: string;
+        previousDate: string;
+        values: {
+            activeUsers: number | null;
+            newUsers: number | null;
+            totalUsers: number | null;
+            sessions: number | null;
+            organicSessions: number | null;
+            views: number | null;
+            eventCount: number | null;
+            keyEvents: number | null;
+            engagementRate: number | null;
+            bounceRate: number | null;
+            averageEngagementTimeSeconds: number | null;
+        };
+        previousValues: {
+            activeUsers: number | null;
+            newUsers: number | null;
+            totalUsers: number | null;
+            sessions: number | null;
+            organicSessions: number | null;
+            views: number | null;
+            eventCount: number | null;
+            keyEvents: number | null;
+            engagementRate: number | null;
+            bounceRate: number | null;
+            averageEngagementTimeSeconds: number | null;
+        };
+    }>;
+    syncedAt: string | null;
+};
+
 export type Ga4SocialReferralHistoryEntry = {
     date: string;
     source: string;
@@ -4571,7 +6540,7 @@ export type Ga4StatusDto = {
     connected: boolean;
     propertyId: string | null;
     clientEmail: string | null;
-    authMethod: 'service-account' | 'oauth';
+    authMethod: 'service-account' | 'oauth' | null;
     lastSyncedAt: string | null;
     createdAt?: string | null;
     updatedAt?: string | null;
@@ -4598,6 +6567,23 @@ export type Ga4SyncResponseDto = {
             status: 'ready' | 'error' | 'not-configured';
             rowCount: number;
             attributionScope?: 'landing-page' | 'channel';
+            error?: string;
+            eventNames?: Array<string>;
+            keyEvents?: {
+                status: 'read' | 'error' | 'disabled';
+                names: Array<string>;
+                error?: string;
+            };
+        };
+        searchLandingPages?: {
+            status: 'ready' | 'unavailable' | 'error';
+            windows: Array<{
+                window: '7d' | '28d' | '90d';
+                rowCount: number;
+                reportRowCount: number;
+                rowsCapped: boolean;
+            }>;
+            rowCount: number;
             error?: string;
         };
     };
@@ -4663,6 +6649,89 @@ export type GaAttributionTrendResponse = {
     } | null;
 };
 
+export type GaAcquisitionResponse = {
+    source: 'ga4-acquisition';
+    status: 'never-synced' | 'ready' | 'error';
+    error: string | null;
+    syncedAt: string | null;
+    scope: {
+        project: string;
+        attribution: 'project-only';
+        unavailableDimensions: Array<'property' | 'target' | 'market'>;
+    };
+    window: {
+        startDate: string | null;
+        endDate: string | null;
+        window: '7d' | '30d' | '90d' | 'all';
+    };
+    coverage: {
+        earliestDate: string | null;
+        latestDate: string | null;
+    };
+    filters: {
+        channel: string | null;
+        source: string | null;
+        medium: string | null;
+        hostName: string | null;
+        landingPage: string | null;
+        pathPrefix: string | null;
+    };
+    groupBy: Array<'date' | 'channelGroup' | 'source' | 'medium' | 'hostName' | 'landingPage'>;
+    channelGroups: Array<string>;
+    totalSessions: number;
+    totalRows: number;
+    limit: number;
+    offset: number;
+    rows: Array<{
+        date?: string;
+        channelGroup?: string;
+        source?: string;
+        medium?: string;
+        hostName?: string;
+        landingPage?: string;
+        sessions: number;
+    }>;
+};
+
+export type GaSearchLandingPagesResponse = {
+    source: 'ga4-search-console-link';
+    status: 'never-synced' | 'ready' | 'unavailable' | 'error';
+    error: string | null;
+    syncedAt: string | null;
+    attemptedAt: string | null;
+    window: '7d' | '28d' | '90d';
+    windowStart: string | null;
+    windowEnd: string | null;
+    windowDays: number | null;
+    timeZone: string | null;
+    subjectToThresholding: boolean;
+    dataLossFromOtherRow: boolean;
+    total: {
+        organicGoogleSearchClicks: number;
+        organicGoogleSearchImpressions: number;
+        organicGoogleSearchClickThroughRate: number | null;
+        organicGoogleSearchAveragePosition: number | null;
+        activeUsers: number;
+    } | null;
+    reportRowCount: number | null;
+    rowsCapped: boolean;
+    totalRows: number;
+    limit: number;
+    offset: number;
+    rows: Array<{
+        organicGoogleSearchClicks: number;
+        organicGoogleSearchImpressions: number;
+        organicGoogleSearchClickThroughRate: number | null;
+        organicGoogleSearchAveragePosition: number | null;
+        activeUsers: number;
+        landingPage: string;
+    }>;
+    searchConsoleLink: {
+        state: 'has-data' | 'not-linked' | 'no-search-data' | 'unknown';
+        searchConsoleImpressions: number | null;
+    } | null;
+};
+
 export type GaSocialReferralTrendResponse = {
     socialSessions7d: number;
     socialSessionsPrev7d: number;
@@ -4723,6 +6792,23 @@ export type GaTrafficResponse = {
     paidAiUsersBySession?: number;
     organicAiSessionsBySession: number;
     organicAiUsersBySession?: number;
+    aiEngines: Array<{
+        engine: 'chatgpt' | 'perplexity' | 'gemini' | 'claude' | 'copilot' | 'grok' | 'deepseek' | 'meta-ai' | 'phind' | 'you-com' | null;
+        label: string;
+        sessions: number;
+        organicSessions: number;
+        paidSessions: number;
+        share: number;
+        sources: Array<{
+            source: string;
+            medium: string;
+            trafficClass: 'organic' | 'paid';
+            sessions: number;
+            users?: number;
+            sourceDimension: 'session' | 'first_user' | 'manual_utm';
+            share: number;
+        }>;
+    }>;
     socialReferrals: Array<{
         source: string;
         medium: string;
@@ -4731,7 +6817,40 @@ export type GaTrafficResponse = {
         channelGroup: string;
         share: number;
     }>;
+    socialPlatforms: Array<{
+        platform: 'instagram' | 'facebook' | 'pinterest' | 'linkedin' | 'x' | 'youtube' | 'tiktok' | 'reddit' | 'threads' | 'snapchat' | 'nextdoor' | 'quora' | null;
+        label: string;
+        sessions: number;
+        organicSessions: number;
+        paidSessions: number;
+        share: number;
+        sources: Array<{
+            source: string;
+            medium: string;
+            sessions: number;
+            users?: number;
+            channelGroup: string;
+            share: number;
+        }>;
+    }>;
+    socialPlatformDaily: {
+        series: Array<{
+            key: string;
+            label: string;
+            sessions: number;
+        }>;
+        otherCount: number;
+        days: Array<{
+            date: string;
+            sessions: number;
+            values: {
+                [key: string]: number;
+            };
+        }>;
+    };
     socialSessions: number;
+    paidSocialSessions: number;
+    paidSocialShare: number;
     socialUsers?: number;
     channelBreakdown: {
         organic: {
@@ -4787,6 +6906,100 @@ export type GaTrafficResponse = {
     windowDays: number | null;
     periodStart: string | null;
     periodEnd: string | null;
+};
+
+export type GbpLocalPost = {
+    name: string;
+    languageCode: string;
+    summary: string;
+    topicType: string;
+    state: 'LIVE' | 'PROCESSING' | 'REJECTED' | 'SCHEDULED' | 'RECURRING' | 'LOCAL_POST_STATE_UNSPECIFIED';
+    actionType: string | null;
+    articleUrl: string | null;
+    imageUrls: Array<string>;
+    providerImageUrls?: Array<string>;
+    mediaSourceUrlsComplete?: boolean;
+    createTime: string;
+    updateTime: string;
+    searchUrl: string | null;
+};
+
+export type GbpLocalPostList = {
+    posts: Array<{
+        name: string;
+        languageCode: string;
+        summary: string;
+        topicType: string;
+        state: 'LIVE' | 'PROCESSING' | 'REJECTED' | 'SCHEDULED' | 'RECURRING' | 'LOCAL_POST_STATE_UNSPECIFIED';
+        actionType: string | null;
+        articleUrl: string | null;
+        imageUrls: Array<string>;
+        providerImageUrls?: Array<string>;
+        mediaSourceUrlsComplete?: boolean;
+        createTime: string;
+        updateTime: string;
+        searchUrl: string | null;
+    }>;
+    nextPageToken: string | null;
+};
+
+export type GbpLocalPostAttempt = {
+    attemptId: string;
+    packageId: string;
+    status: 'accepted' | 'uncertain' | 'rejected';
+    post: {
+        name: string;
+        languageCode: string;
+        summary: string;
+        topicType: string;
+        state: 'LIVE' | 'PROCESSING' | 'REJECTED' | 'SCHEDULED' | 'RECURRING' | 'LOCAL_POST_STATE_UNSPECIFIED';
+        actionType: string | null;
+        articleUrl: string | null;
+        imageUrls: Array<string>;
+        providerImageUrls?: Array<string>;
+        mediaSourceUrlsComplete?: boolean;
+        createTime: string;
+        updateTime: string;
+        searchUrl: string | null;
+    } | null;
+};
+
+export type GbpLiveReviews = {
+    accountName: string;
+    locationName: string;
+    profileUrl: string | null;
+    checkedAt: string;
+    complete: true;
+    reviews: Array<{
+        reviewName: string;
+        starRating: number | null;
+        comment: string | null;
+        reviewerName: string | null;
+        createTime: string | null;
+        updateTime: string;
+    }>;
+};
+
+export type GbpLocalPostCreate = {
+    accountName: string;
+    locationName: string;
+    attemptId: string;
+    packageId: string;
+    content: {
+        languageCode: string;
+        summary: string;
+        topicType: 'STANDARD';
+        callToAction: {
+            actionType: 'LEARN_MORE';
+            url: string;
+        };
+        media: [
+            {
+                mediaFormat: 'PHOTO';
+                sourceUrl: string;
+            }
+        ];
+    };
 };
 
 export type GbpAccountListResponse = {
@@ -4941,12 +7154,12 @@ export type GbpReviewListResponse = {
     locations: Array<{
         locationName: string;
         displayName: string;
-        reviewsAccess: 'ok' | 'unavailable' | 'error';
+        reviewsAccess: 'ok' | 'unavailable' | 'error' | null;
         reviewsAccessReason: string | null;
         reviewsCheckedAt: string | null;
         rating: number | null;
         reviewCount: number | null;
-        ratingOrigin: 'gbp' | 'places';
+        ratingOrigin: 'gbp' | 'places' | null;
         ratingObservedAt: string | null;
     }>;
     reviews: Array<{
@@ -5244,7 +7457,7 @@ export type GoogleAdsPerformanceDto = {
             conversionRate: number | null;
         };
     } | null;
-    comparisonUnavailableReason: 'insufficient-history' | 'no-snapshot';
+    comparisonUnavailableReason: 'insufficient-history' | 'no-snapshot' | null;
     source: {
         snapshotId: string;
         capturedAt: string;
@@ -5416,6 +7629,11 @@ export type GoogleMarketingOAuthConnectResponse = {
     authorizationUrl: string;
     redirectUri: string;
     expiresAt: string | null;
+};
+
+export type GoogleOAuthStartResponse = {
+    authUrl: string;
+    redirectUri: string;
 };
 
 export type GscCoverageSnapshotDto = {
@@ -5656,6 +7874,7 @@ export type GscQueryTotalsDto = {
         endDate: string | null;
         latestDataDate: string | null;
         daysSinceLatestData: number | null;
+        earliestDataDate?: string | null;
     };
 };
 
@@ -6638,12 +8857,18 @@ export type KeywordDto = {
     createdAt: string;
 };
 
+export type KeywordGenerateResponse = {
+    keywords: Array<string>;
+    provider: string;
+};
+
 export type LatestProjectRunDto = {
     totalRuns: number;
     run: {
+        sourceId?: string | null;
         id: string;
         projectId: string;
-        kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync';
+        kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync';
         status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
         trigger: 'manual' | 'scheduled' | 'config-apply' | 'backfill' | 'probe';
         measurementPlanVersionId?: string | null;
@@ -6675,12 +8900,38 @@ export type LatestProjectRunDto = {
                 [key: string]: {
                     message: string;
                     raw?: unknown;
+                    code?: 'PROVIDER_AUTH' | 'PROVIDER_BILLING' | 'RATE_LIMITED' | 'PROVIDER_UNAVAILABLE' | 'NETWORK' | 'TIMEOUT' | 'PARSE_ERROR' | 'UNKNOWN';
+                    skipped?: boolean;
                 };
             };
         } | null;
         queryBasketRevision?: number | null;
         dispatchModes?: {
             [key: string]: 'batch';
+        };
+        skippedProviders?: {
+            [key: string]: {
+                code: 'PROVIDER_AUTH' | 'PROVIDER_BILLING' | 'RATE_LIMITED' | 'PROVIDER_UNAVAILABLE' | 'NETWORK' | 'TIMEOUT' | 'PARSE_ERROR' | 'UNKNOWN';
+                consecutiveRuns: number;
+                since: string;
+                latestRunId: string;
+                retryAfter: string;
+            };
+        };
+        syncSummary?: {
+            type: 'cloudflare-queue';
+            stopReason: 'backlog-empty' | 'empty-pulls' | 'unleased-only' | 'deadline' | 'batch-cap' | 'error';
+            pulls: number;
+            emptyPulls: number;
+            messagesPulled: number;
+            messagesAcknowledged: number;
+            poisonMessages: number;
+            skippedUnleasedMessages: number;
+            acceptedEvents: number;
+            duplicateEvents: number;
+            backlogAtFirstPull: number | null;
+            backlogAtLastPull: number | null;
+            elapsedMs: number;
         };
         createdAt: string;
         snapshots?: Array<{
@@ -6702,17 +8953,25 @@ export type LatestProjectRunDto = {
             resolvedCount: number | null;
             captureVersion: number | null;
             retrievalStatus: 'used' | 'not-used' | 'unknown' | 'not-applicable' | null;
-            retrievalContract: 'native-auto-v1' | 'search-required-v1' | null;
+            retrievalContract: 'native-auto-v1' | 'search-required-v1' | 'service-native-v1' | null;
             competitorOverlap: Array<string>;
             citedCompetitorDomains: Array<string>;
             mentionedCompetitorDomains: Array<string>;
+            mentionedCompetitorTerms: Array<string>;
             recommendedCompetitors: Array<string>;
             matchedTerms: Array<string>;
+            mentionIdentity: 'wrong-subject' | null;
             groundingSources: Array<{
                 uri: string;
                 title: string;
             }>;
             searchQueries: Array<string>;
+            retrievedSources: Array<{
+                uri: string;
+                title: string;
+                kind: 'search-result' | 'page-read';
+                query: string | null;
+            }> | null;
             model?: string | null;
             servedModel?: string | null;
             location?: string | null;
@@ -6745,8 +9004,109 @@ export type LatestProjectRunDto = {
                 estimatedCostMicros: number | null;
                 priceSource: 'default' | 'override' | null;
             } | null;
+            evidence?: {
+                version: 1;
+                identity: {
+                    connection: string;
+                    route: string;
+                    service: string;
+                    product: string;
+                    profile: string;
+                    settings: {
+                        [key: string]: string | number | boolean;
+                    };
+                    requestedServiceModel: string | null;
+                    disclosedModel: string | null;
+                    disclosedModelKind: 'foundation-model' | 'service-tier' | 'unknown' | null;
+                    requestPolicy: string;
+                    parserVersion: string;
+                };
+                completion: {
+                    status: 'complete' | 'partial' | 'failed' | 'pending';
+                    finishReason: string | null;
+                    upstreamStatus: string | null;
+                    upstreamRequestId: string | null;
+                    upstreamJobId: string | null;
+                    error: string | null;
+                };
+                usage: {
+                    tokens: {
+                        input: number | null;
+                        output: number | null;
+                        reasoning: number | null;
+                        basis: 'reported' | 'approximate' | 'unknown';
+                    };
+                    searches: {
+                        count: number | null;
+                        basis: 'reported' | 'derived-from-evidence' | 'unknown';
+                    };
+                    pageReads: {
+                        count: number | null;
+                        basis: 'reported' | 'derived-from-evidence' | 'unknown';
+                    };
+                    billedUnits: Array<{
+                        unit: 'request' | 'credit' | 'search' | 'token';
+                        quantity: number;
+                        basis: 'reported';
+                    }>;
+                    cost: {
+                        micros: number | null;
+                        currency: 'USD';
+                        basis: 'reported' | 'estimated' | 'unknown';
+                        estimatedBy: 'provider' | 'canonry' | null;
+                    };
+                };
+                sources: Array<{
+                    url: string;
+                    title: string | null;
+                    relationship: 'search-result' | 'page-read' | 'answer-support' | 'explicit-citation';
+                    rank: number | null;
+                    citationNumbers?: Array<number>;
+                    spans?: Array<{
+                        start: number;
+                        end: number;
+                        basis: 'upstream';
+                    }>;
+                    excerpts?: Array<string>;
+                    excerptsTruncated?: boolean;
+                    publishedAt: string | null;
+                    upstreamId: string | null;
+                    status?: string | null;
+                }>;
+                searchQueries: Array<string>;
+                retrievalStatus: 'used' | 'not-used' | 'unknown' | 'not-applicable';
+                citationBasis: 'explicit-citation' | 'answer-support' | 'mixed' | 'none';
+                citationMeasurable: boolean;
+                directSourceUrls: boolean;
+                location: {
+                    requested: {
+                        label: string;
+                        city: string;
+                        region: string;
+                        country: string;
+                        timezone?: string;
+                    } | null;
+                    sent: {
+                        country?: string;
+                        region?: string;
+                        city?: string;
+                        timezone?: string;
+                    } | null;
+                    strength: 'filter' | 'hint' | null;
+                    serviceDefault: {
+                        country?: string;
+                    } | null;
+                    status: 'applied' | 'partial' | 'ignored' | 'not-requested';
+                };
+                rawTruncated: boolean;
+            } | null;
             createdAt: string;
         }>;
+        queryCounts?: {
+            totalQueries: number;
+            citedQueries: number;
+            mentionedQueries: number;
+        } | null;
         providerBatches?: Array<{
             id: string;
             provider: string;
@@ -6773,6 +9133,46 @@ export type LatestProjectRunDto = {
             unpricedAnswers: number;
         }>;
     } | null;
+    admission?: {
+        refused: boolean;
+        retryAfter: string | null;
+        providers: {
+            [key: string]: {
+                code: 'PROVIDER_AUTH' | 'PROVIDER_BILLING' | 'RATE_LIMITED' | 'PROVIDER_UNAVAILABLE' | 'NETWORK' | 'TIMEOUT' | 'PARSE_ERROR' | 'UNKNOWN';
+                consecutiveRuns: number;
+                since: string;
+                latestRunId: string;
+                retryAfter: string;
+            };
+        };
+    };
+    manualAdmission?: {
+        refused: boolean;
+        retryAfter: string | null;
+        providers: {
+            [key: string]: {
+                code: 'PROVIDER_AUTH' | 'PROVIDER_BILLING' | 'RATE_LIMITED' | 'PROVIDER_UNAVAILABLE' | 'NETWORK' | 'TIMEOUT' | 'PARSE_ERROR' | 'UNKNOWN';
+                consecutiveRuns: number;
+                since: string;
+                latestRunId: string;
+                retryAfter: string;
+            };
+        };
+    };
+};
+
+export type RunAdmissionDto = {
+    refused: boolean;
+    retryAfter: string | null;
+    providers: {
+        [key: string]: {
+            code: 'PROVIDER_AUTH' | 'PROVIDER_BILLING' | 'RATE_LIMITED' | 'PROVIDER_UNAVAILABLE' | 'NETWORK' | 'TIMEOUT' | 'PARSE_ERROR' | 'UNKNOWN';
+            consecutiveRuns: number;
+            since: string;
+            latestRunId: string;
+            retryAfter: string;
+        };
+    };
 };
 
 export type LocationContext = {
@@ -7537,6 +9937,24 @@ export type MeasurementDraftPreviewGroupMembershipResponse = {
     };
 };
 
+export type MeasurementDraftPreviewMarketRoutingResponse = {
+    draftEtag: string;
+    markets: Array<{
+        marketKey: string;
+        label: string;
+        matchedEdges: number;
+        changedEdges: number;
+    }>;
+    matchedEdges: number;
+    changedEdges: number;
+    execution: {
+        addedNodes: number;
+        addedProviderCalls: number;
+        fullRunNodes: number;
+        fullRunProviderCalls: number;
+    };
+};
+
 export type MeasurementDraftRebindTargetRequest = {
     targetKey: string;
     discoveryIdentity: string;
@@ -7570,6 +9988,18 @@ export type MeasurementDraftReplaceAssignmentsRequest = {
             [key: string]: string;
         };
         locations?: Array<string>;
+    };
+};
+
+export type MeasurementDraftRouteMarketsRequest = {
+    marketKeys: Array<string>;
+    targetKeys?: Array<string>;
+    queryIds?: Array<string>;
+    contextOverride: {
+        providers: Array<string>;
+        models?: {
+            [key: string]: string;
+        };
     };
 };
 
@@ -7631,6 +10061,7 @@ export type MeasurementChangesResponse = {
                     numerator?: number;
                     denominator?: number;
                     unattributed?: number;
+                    unchecked?: number;
                 } | {
                     state: 'unavailable';
                     reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
@@ -7641,6 +10072,7 @@ export type MeasurementChangesResponse = {
                     numerator?: number;
                     denominator?: number;
                     unattributed?: number;
+                    unchecked?: number;
                 } | {
                     state: 'unavailable';
                     reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
@@ -7658,6 +10090,7 @@ export type MeasurementChangesResponse = {
                     numerator?: number;
                     denominator?: number;
                     unattributed?: number;
+                    unchecked?: number;
                 } | {
                     state: 'unavailable';
                     reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
@@ -7668,6 +10101,7 @@ export type MeasurementChangesResponse = {
                     numerator?: number;
                     denominator?: number;
                     unattributed?: number;
+                    unchecked?: number;
                 } | {
                     state: 'unavailable';
                     reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
@@ -7713,6 +10147,7 @@ export type MeasurementChangesResponse = {
                         numerator?: number;
                         denominator?: number;
                         unattributed?: number;
+                        unchecked?: number;
                     } | {
                         state: 'unavailable';
                         reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
@@ -7723,6 +10158,7 @@ export type MeasurementChangesResponse = {
                         numerator?: number;
                         denominator?: number;
                         unattributed?: number;
+                        unchecked?: number;
                     } | {
                         state: 'unavailable';
                         reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
@@ -7740,6 +10176,7 @@ export type MeasurementChangesResponse = {
                         numerator?: number;
                         denominator?: number;
                         unattributed?: number;
+                        unchecked?: number;
                     } | {
                         state: 'unavailable';
                         reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
@@ -7750,6 +10187,7 @@ export type MeasurementChangesResponse = {
                         numerator?: number;
                         denominator?: number;
                         unattributed?: number;
+                        unchecked?: number;
                     } | {
                         state: 'unavailable';
                         reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
@@ -7794,6 +10232,7 @@ export type MeasurementChangesResponse = {
                         numerator?: number;
                         denominator?: number;
                         unattributed?: number;
+                        unchecked?: number;
                     } | {
                         state: 'unavailable';
                         reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
@@ -7804,6 +10243,7 @@ export type MeasurementChangesResponse = {
                         numerator?: number;
                         denominator?: number;
                         unattributed?: number;
+                        unchecked?: number;
                     } | {
                         state: 'unavailable';
                         reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
@@ -7821,6 +10261,7 @@ export type MeasurementChangesResponse = {
                         numerator?: number;
                         denominator?: number;
                         unattributed?: number;
+                        unchecked?: number;
                     } | {
                         state: 'unavailable';
                         reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
@@ -7831,6 +10272,7 @@ export type MeasurementChangesResponse = {
                         numerator?: number;
                         denominator?: number;
                         unattributed?: number;
+                        unchecked?: number;
                     } | {
                         state: 'unavailable';
                         reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
@@ -7864,6 +10306,7 @@ export type MeasurementChangesResponse = {
                     numerator?: number;
                     denominator?: number;
                     unattributed?: number;
+                    unchecked?: number;
                 } | {
                     state: 'unavailable';
                     reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
@@ -7874,6 +10317,7 @@ export type MeasurementChangesResponse = {
                     numerator?: number;
                     denominator?: number;
                     unattributed?: number;
+                    unchecked?: number;
                 } | {
                     state: 'unavailable';
                     reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
@@ -7891,6 +10335,7 @@ export type MeasurementChangesResponse = {
                     numerator?: number;
                     denominator?: number;
                     unattributed?: number;
+                    unchecked?: number;
                 } | {
                     state: 'unavailable';
                     reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
@@ -7901,6 +10346,7 @@ export type MeasurementChangesResponse = {
                     numerator?: number;
                     denominator?: number;
                     unattributed?: number;
+                    unchecked?: number;
                 } | {
                     state: 'unavailable';
                     reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
@@ -7915,6 +10361,8 @@ export type MeasurementChangesResponse = {
             citationAnswersDelta?: number | null;
             denominatorChanged?: boolean;
             withinNoise?: boolean;
+            mentionWithinNoise?: boolean | null;
+            citationWithinNoise?: boolean | null;
         }>;
         totalProperties: number;
         truncated: boolean;
@@ -8209,7 +10657,7 @@ export type MeasurementDraftUpsertTargetRequest = {
 export type MeasurementOverviewResponse = {
     mode: 'active-v1' | 'active-v2';
     scope: {
-        kind: 'all' | 'group' | 'property';
+        kind: 'all' | 'group' | 'market' | 'property';
         key?: string;
         label: string;
     };
@@ -8243,6 +10691,7 @@ export type MeasurementOverviewResponse = {
             numerator?: number;
             denominator?: number;
             unattributed?: number;
+            unchecked?: number;
         } | {
             state: 'unavailable';
             reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
@@ -8253,6 +10702,7 @@ export type MeasurementOverviewResponse = {
             numerator?: number;
             denominator?: number;
             unattributed?: number;
+            unchecked?: number;
         } | {
             state: 'unavailable';
             reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
@@ -8263,6 +10713,7 @@ export type MeasurementOverviewResponse = {
             numerator?: number;
             denominator?: number;
             unattributed?: number;
+            unchecked?: number;
         } | {
             state: 'unavailable';
             reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
@@ -8276,6 +10727,7 @@ export type MeasurementOverviewResponse = {
             numerator?: number;
             denominator?: number;
             unattributed?: number;
+            unchecked?: number;
         } | {
             state: 'unavailable';
             reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
@@ -8299,6 +10751,7 @@ export type MeasurementOverviewResponse = {
                 numerator?: number;
                 denominator?: number;
                 unattributed?: number;
+                unchecked?: number;
             } | {
                 state: 'unavailable';
                 reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
@@ -8309,6 +10762,7 @@ export type MeasurementOverviewResponse = {
                 numerator?: number;
                 denominator?: number;
                 unattributed?: number;
+                unchecked?: number;
             } | {
                 state: 'unavailable';
                 reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
@@ -8321,6 +10775,7 @@ export type MeasurementOverviewResponse = {
                     numerator?: number;
                     denominator?: number;
                     unattributed?: number;
+                    unchecked?: number;
                 } | {
                     state: 'unavailable';
                     reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
@@ -8331,6 +10786,7 @@ export type MeasurementOverviewResponse = {
                     numerator?: number;
                     denominator?: number;
                     unattributed?: number;
+                    unchecked?: number;
                 } | {
                     state: 'unavailable';
                     reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
@@ -8365,6 +10821,7 @@ export type MeasurementOverviewResponse = {
             share: number;
         }>;
     };
+    detailsOmitted?: Array<string>;
 };
 
 export type MeasurementPortfolioSummaryResponse = {
@@ -8391,12 +10848,22 @@ export type MeasurementPortfolioSummaryResponse = {
             state: 'unavailable';
             reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
         };
+        propertiesNeverMentioned?: {
+            state: 'available';
+            value: number;
+            numerator?: number;
+            denominator?: number;
+        } | {
+            state: 'unavailable';
+            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+        };
         mentionCoverage: {
             state: 'available';
             value: number;
             numerator?: number;
             denominator?: number;
             unattributed?: number;
+            unchecked?: number;
         } | {
             state: 'unavailable';
             reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
@@ -8407,10 +10874,42 @@ export type MeasurementPortfolioSummaryResponse = {
             numerator?: number;
             denominator?: number;
             unattributed?: number;
+            unchecked?: number;
         } | {
             state: 'unavailable';
             reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
         };
+    };
+    /**
+     * Compact unscoped ranking from actual full top-level metro aggregates before pagination. Each rate uses the complete selected run/filter/class market population; tiedAtWeakest.byMetro counts only zero-signal Properties and never supplies these rates.
+     */
+    weakestMarkets?: {
+        population: 'top-level-markets';
+        queryClass: 'all' | 'branded' | 'non-brand';
+        totalMarkets: number;
+        eligibleMarketCount: number;
+        excludedMarketCount: number;
+        items: Array<{
+            groupKey: string;
+            label: string;
+            propertyCount: number;
+            mentionCoverage: {
+                state: 'available';
+                value: number;
+                numerator?: number;
+                denominator?: number;
+                unattributed?: number;
+                unchecked?: number;
+            };
+            citationCoverage: {
+                state: 'available';
+                value: number;
+                numerator?: number;
+                denominator?: number;
+                unattributed?: number;
+                unchecked?: number;
+            };
+        }>;
     };
     weakestProperties: Array<{
         targetKey: string;
@@ -8431,6 +10930,7 @@ export type MeasurementPortfolioSummaryResponse = {
             numerator?: number;
             denominator?: number;
             unattributed?: number;
+            unchecked?: number;
         } | {
             state: 'unavailable';
             reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
@@ -8441,27 +10941,28 @@ export type MeasurementPortfolioSummaryResponse = {
             numerator?: number;
             denominator?: number;
             unattributed?: number;
+            unchecked?: number;
         } | {
             state: 'unavailable';
             reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
         };
         flags: number;
-        namedInsteadInAnswerText: Array<{
+        namedInsteadInAnswerText?: Array<{
             name: string;
             answers: number;
         }>;
-        namedInsteadInAnswerTextTotal: number;
-        citedDomains: Array<{
+        namedInsteadInAnswerTextTotal?: number;
+        citedDomains?: Array<{
             domain: string;
             answers: number;
         }>;
-        citedDomainsTotal: number;
+        citedDomainsTotal?: number;
         /**
          * Deprecated: read namedInsteadInAnswerText, which carries the same names in the same order. occurrences counts answers, exactly as answers does there.
          *
          * @deprecated
          */
-        recommendedInstead: Array<{
+        recommendedInstead?: Array<{
             name: string;
             occurrences: number;
         }>;
@@ -8470,19 +10971,19 @@ export type MeasurementPortfolioSummaryResponse = {
          *
          * @deprecated
          */
-        recommendedInsteadTotal: number;
+        recommendedInsteadTotal?: number;
         /**
          * Deprecated: true when namedInsteadInAnswerTextTotal exceeds the names returned in namedInsteadInAnswerText.
          *
          * @deprecated
          */
-        recommendedInsteadTruncated: boolean;
+        recommendedInsteadTruncated?: boolean;
     }>;
     tiedAtWeakest: {
         count: number;
         mentionRate: number;
         citationRate: number;
-        note: 'tied Properties are ordered by name, not ranked';
+        note: 'tied Properties have both zero mentions and zero citations; ordered by name, not ranked' | 'tied Properties are ordered by name, not ranked';
         byMetro?: Array<{
             metro: string | null;
             count: number;
@@ -8493,7 +10994,8 @@ export type MeasurementPortfolioSummaryResponse = {
         }>;
         namedInsteadTotal?: number;
     } | null;
-    weakestAnswerSources: {
+    weakestAnswerSources?: {
+        basis?: 'initial-weakest-selection-and-zero-signal-tie';
         properties: number;
         answers: number;
         domains: Array<{
@@ -8501,6 +11003,7 @@ export type MeasurementPortfolioSummaryResponse = {
             answers: number;
         }>;
         domainTotal: number;
+        ownDomainAnswers?: number;
     } | null;
     mentionRanking: {
         eligiblePropertyCount: number;
@@ -8523,6 +11026,7 @@ export type MeasurementPortfolioSummaryResponse = {
                 numerator?: number;
                 denominator?: number;
                 unattributed?: number;
+                unchecked?: number;
             };
             citationCoverage: {
                 state: 'available';
@@ -8530,6 +11034,7 @@ export type MeasurementPortfolioSummaryResponse = {
                 numerator?: number;
                 denominator?: number;
                 unattributed?: number;
+                unchecked?: number;
             } | {
                 state: 'unavailable';
                 reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
@@ -8554,6 +11059,7 @@ export type MeasurementPortfolioSummaryResponse = {
                 numerator?: number;
                 denominator?: number;
                 unattributed?: number;
+                unchecked?: number;
             };
             citationCoverage: {
                 state: 'available';
@@ -8561,6 +11067,7 @@ export type MeasurementPortfolioSummaryResponse = {
                 numerator?: number;
                 denominator?: number;
                 unattributed?: number;
+                unchecked?: number;
             } | {
                 state: 'unavailable';
                 reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
@@ -8572,6 +11079,7 @@ export type MeasurementPortfolioSummaryResponse = {
             reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
         }>;
         truncated: boolean;
+        excludedTotal?: number;
     };
     markets: Array<{
         groupKey: string;
@@ -8588,12 +11096,22 @@ export type MeasurementPortfolioSummaryResponse = {
             state: 'unavailable';
             reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
         };
+        propertiesNeverMentioned?: {
+            state: 'available';
+            value: number;
+            numerator?: number;
+            denominator?: number;
+        } | {
+            state: 'unavailable';
+            reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
+        };
         mentionCoverage: {
             state: 'available';
             value: number;
             numerator?: number;
             denominator?: number;
             unattributed?: number;
+            unchecked?: number;
         } | {
             state: 'unavailable';
             reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
@@ -8604,6 +11122,7 @@ export type MeasurementPortfolioSummaryResponse = {
             numerator?: number;
             denominator?: number;
             unattributed?: number;
+            unchecked?: number;
         } | {
             state: 'unavailable';
             reason: 'no_completed_run' | 'plan_v1' | 'no_population' | 'evidence_incomplete' | 'identity_ambiguous' | 'not_applicable';
@@ -8613,6 +11132,25 @@ export type MeasurementPortfolioSummaryResponse = {
     marketsTruncated: boolean;
     totalProperties: number;
     truncated: boolean;
+    pageList?: 'weakest-properties' | 'strongest-mentions' | 'weakest-mentions' | 'excluded-mentions' | 'markets' | 'observed-names' | 'cited-domains';
+    nextCursor?: string | null;
+    detailsOmitted?: Array<string>;
+    answerEvidence?: {
+        answers: 'not-mentioned';
+        populationSize: number;
+        answerCount: number;
+        unknownMentionAnswers: number;
+        observedNames: Array<{
+            name: string;
+            answerCount: number;
+        }>;
+        observedNamesTotal: number;
+        citedDomains: Array<{
+            domain: string;
+            answers: number;
+        }>;
+        citedDomainsTotal: number;
+    };
 };
 
 export type MeasurementPlanCompilePreviewResponse = {
@@ -9862,6 +12400,7 @@ export type MeasurementPropertyEvidenceResponse = {
             location: string | null;
             queryClass: 'branded' | 'non-brand' | null;
             mentioned: boolean | null;
+            mentionIdentity: 'wrong-subject' | null;
             cited: boolean | null;
             sources: Array<{
                 sourceUrl: string;
@@ -9874,6 +12413,28 @@ export type MeasurementPropertyEvidenceResponse = {
             sourcesTruncated: boolean;
             bridged: boolean;
             historical: boolean;
+            evidenceComplete: boolean;
+        }>;
+        nextCursor: string | null;
+        totalEstimate?: number;
+    };
+    otherQueries?: {
+        items: Array<{
+            observationId: string;
+            expectedSlotId: string;
+            executionId: string;
+            provider: string;
+            queryText: string;
+            location: string | null;
+            queryClass: 'branded' | 'non-brand';
+            assignedTargetKeys: Array<string>;
+            sources: Array<{
+                sourceUrl: string;
+                normalizedUrl: string | null;
+                matchedUrlIds: Array<string>;
+            }>;
+            sourceCount: number;
+            sourcesTruncated: boolean;
             evidenceComplete: boolean;
         }>;
         nextCursor: string | null;
@@ -9962,7 +12523,7 @@ export type MeasurementQuestionResultResponse = {
     }>;
     captureStatus: 'complete' | 'partial' | 'failed' | 'unsupported' | null;
     retrievalStatus: 'used' | 'not-used' | 'unknown' | 'not-applicable' | null;
-    retrievalContract: 'native-auto-v1' | 'search-required-v1' | null;
+    retrievalContract: 'native-auto-v1' | 'search-required-v1' | 'service-native-v1' | null;
 };
 
 export type MeasurementQuerySetDetail = {
@@ -10049,6 +12610,7 @@ export type MeasurementQueryTemplateUpsertRequest = {
 
 export type MeasurementReportResponse = {
     revision: number;
+    queryClass?: 'all' | 'branded' | 'non-brand' | null;
     run: {
         id: string;
         status: 'completed' | 'partial';
@@ -10073,6 +12635,7 @@ export type MeasurementReportResponse = {
             denominator: number;
             rate: number;
             unattributed?: number;
+            unchecked?: number;
         } | {
             numerator: null;
             denominator: null;
@@ -10084,6 +12647,7 @@ export type MeasurementReportResponse = {
             denominator: number;
             rate: number;
             unattributed?: number;
+            unchecked?: number;
         } | {
             numerator: null;
             denominator: null;
@@ -10134,6 +12698,7 @@ export type MeasurementReportResponse = {
                 denominator: number;
                 rate: number;
                 unattributed?: number;
+                unchecked?: number;
             } | {
                 numerator: null;
                 denominator: null;
@@ -10158,6 +12723,7 @@ export type MeasurementReportResponse = {
             denominator: number;
             rate: number;
             unattributed?: number;
+            unchecked?: number;
         } | {
             numerator: null;
             denominator: null;
@@ -10169,6 +12735,7 @@ export type MeasurementReportResponse = {
             denominator: number;
             rate: number;
             unattributed?: number;
+            unchecked?: number;
         } | {
             numerator: null;
             denominator: null;
@@ -10190,6 +12757,7 @@ export type MeasurementReportResponse = {
                 denominator: number;
                 rate: number;
                 unattributed?: number;
+                unchecked?: number;
             } | {
                 numerator: null;
                 denominator: null;
@@ -10201,6 +12769,7 @@ export type MeasurementReportResponse = {
                 denominator: number;
                 rate: number;
                 unattributed?: number;
+                unchecked?: number;
             } | {
                 numerator: null;
                 denominator: null;
@@ -10261,7 +12830,7 @@ export type NotificationDto = {
     url: string;
     urlDisplay: string;
     urlHost: string;
-    events: Array<'citation.lost' | 'citation.gained' | 'run.completed' | 'run.failed' | 'insight.critical' | 'insight.high' | 'health.degraded' | 'health.recovered' | 'review.negative' | 'review.rating-dropped'>;
+    events: Array<'citation.lost' | 'citation.gained' | 'run.completed' | 'run.failed' | 'insight.critical' | 'insight.high' | 'health.degraded' | 'health.recovered' | 'health.urgent' | 'health.urgent-resolved' | 'review.negative' | 'review.rating-dropped'>;
     enabled: boolean;
     source?: string;
     webhookSecret?: string;
@@ -10308,6 +12877,45 @@ export type OnboardingTelemetryEvent = {
     providerCountBucket: '0' | '1' | '2-3' | '4-5' | '6-10' | '11+';
     queryCountBucket: '0' | '1' | '2-3' | '4-5' | '6-10' | '11+';
     reasonCode?: 'api_unavailable' | 'database_unavailable' | 'worker_unavailable' | 'no_provider' | 'no_queries' | 'provider_save_failed' | 'project_create_failed' | 'query_save_failed' | 'run_rejected' | 'run_failed' | 'run_cancelled' | 'rate_limited' | 'provider_auth' | 'network' | 'unknown';
+};
+
+export type UiTelemetryEvent = {
+    eventId: string;
+    uiSessionId: string;
+    page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/seo-data' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/agent-setup' | '/backlinks' | '/traffic' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
+    event: 'ui.page_viewed';
+    tab?: 'overview' | 'portfolio' | 'search-console' | 'seo-data' | 'conversions' | 'local' | 'discovery' | 'queries' | 'properties' | 'report' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings' | 'other';
+} | {
+    eventId: string;
+    uiSessionId: string;
+    page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/seo-data' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/agent-setup' | '/backlinks' | '/traffic' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
+    event: 'ui.action';
+    action: 'sweep.launch' | 'sweep.cancel' | 'site_audit.launch' | 'project.create' | 'project.update' | 'project.delete' | 'query.add' | 'query.delete' | 'query.generate' | 'competitor.save' | 'competitor.delete' | 'schedule.save' | 'schedule.delete' | 'provider.save' | 'settings.save' | 'integration.connect_started' | 'integration.connect' | 'integration.disconnect' | 'traffic.sync' | 'seo.refresh' | 'seo.profile.save' | 'seo.cancel' | 'notification.save' | 'notification.test' | 'measurement_plan.publish' | 'property_names.save' | 'discovery.run' | 'api_key.create' | 'api_key.revoke' | 'export.download' | 'report.download' | 'aero.open' | 'aero.send' | 'agent_setup.copy' | 'agent_setup.verify_copy' | 'filter.change' | 'search.submit';
+    tab?: 'overview' | 'portfolio' | 'search-console' | 'seo-data' | 'conversions' | 'local' | 'discovery' | 'queries' | 'properties' | 'report' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings' | 'other';
+    integration?: 'google' | 'gsc' | 'ga' | 'bing' | 'gbp' | 'wordpress' | 'openai_ads' | 'google_ads' | 'gtm' | 'traffic_cloudflare' | 'traffic_vercel' | 'traffic_cloud_run' | 'traffic_wordpress';
+    format?: 'csv' | 'json' | 'html';
+    filter?: 'provider' | 'model' | 'location' | 'window' | 'query_class' | 'seoProfile' | 'other';
+} | {
+    eventId: string;
+    uiSessionId: string;
+    page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/seo-data' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/agent-setup' | '/backlinks' | '/traffic' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
+    event: 'ui.error';
+    kind: 'render' | 'unhandled' | 'api';
+    tab?: 'overview' | 'portfolio' | 'search-console' | 'seo-data' | 'conversions' | 'local' | 'discovery' | 'queries' | 'properties' | 'report' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings' | 'other';
+    component?: string;
+    errorName?: string;
+    route?: string;
+    method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+    statusClass?: '4xx' | '5xx' | 'network';
+    status?: number;
+} | {
+    eventId: string;
+    uiSessionId: string;
+    page: '/' | '/projects' | '/projects/:projectName' | '/projects/:projectName/portfolio' | '/projects/:projectName/search-console' | '/projects/:projectName/seo-data' | '/projects/:projectName/conversions' | '/projects/:projectName/local' | '/projects/:projectName/discovery' | '/projects/:projectName/queries' | '/projects/:projectName/properties/:targetKey' | '/projects/:projectName/report' | '/projects/:projectName/activity' | '/projects/:projectName/backlinks' | '/projects/:projectName/technical-aeo' | '/projects/:projectName/history' | '/projects/:projectName/settings' | '/runs' | '/history' | '/settings' | '/setup' | '/agent-setup' | '/backlinks' | '/traffic' | '/traffic/:projectName/:sourceId' | 'not-found' | 'other';
+    event: 'ui.vitals';
+    metric: 'LCP' | 'INP' | 'CLS' | 'FCP' | 'TTFB';
+    rating: 'good' | 'needs-improvement' | 'poor';
+    tab?: 'overview' | 'portfolio' | 'search-console' | 'seo-data' | 'conversions' | 'local' | 'discovery' | 'queries' | 'properties' | 'report' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings' | 'other';
 };
 
 export type OrganicEvidenceDto = {
@@ -10451,7 +13059,7 @@ export type OrganicEvidenceDto = {
             status: 'never-synced' | 'ready' | 'error';
             error: string | null;
             syncedAt: string | null;
-            attributionScope: 'landing-page' | 'channel';
+            attributionScope: 'landing-page' | 'channel' | null;
             hostAndPathFiltersApplied: boolean;
             periods: Array<{
                 label: 'earliest' | 'middle' | 'previous' | 'latest';
@@ -10461,6 +13069,96 @@ export type OrganicEvidenceDto = {
             }>;
             channels: Array<{
                 channelGroup: string;
+                periods: Array<{
+                    label: 'earliest' | 'middle' | 'previous' | 'latest';
+                    startDate: string;
+                    endDate: string;
+                    eventCount: number;
+                }>;
+            }>;
+            aiEngines: {
+                leadRateAvailable: boolean;
+                leadRateUnavailableReason: 'no-data' | 'sync-not-ready' | 'channel-leads-unfiltered' | 'paid-split-needs-landing-page' | 'sessions-behind-leads' | 'sessions-missing-on-lead-days' | null;
+                organic: {
+                    periods: Array<{
+                        label: 'earliest' | 'middle' | 'previous' | 'latest';
+                        startDate: string;
+                        endDate: string;
+                        eventCount: number;
+                        sessions: number;
+                        leadRate: number | null;
+                    }>;
+                    engines: Array<{
+                        engine: 'chatgpt' | 'perplexity' | 'gemini' | 'claude' | 'copilot' | 'grok' | 'deepseek' | 'meta-ai' | 'phind' | 'you-com';
+                        label: string;
+                        sources: Array<string>;
+                        periods: Array<{
+                            label: 'earliest' | 'middle' | 'previous' | 'latest';
+                            startDate: string;
+                            endDate: string;
+                            eventCount: number;
+                            sessions: number;
+                            leadRate: number | null;
+                        }>;
+                    }>;
+                    unattributed: {
+                        sources: Array<string>;
+                        periods: Array<{
+                            label: 'earliest' | 'middle' | 'previous' | 'latest';
+                            startDate: string;
+                            endDate: string;
+                            eventCount: number;
+                            sessions: number;
+                            leadRate: number | null;
+                        }>;
+                    };
+                };
+                paid: {
+                    periods: Array<{
+                        label: 'earliest' | 'middle' | 'previous' | 'latest';
+                        startDate: string;
+                        endDate: string;
+                        eventCount: number;
+                        sessions: number;
+                        leadRate: number | null;
+                    }>;
+                    engines: Array<{
+                        engine: 'chatgpt' | 'perplexity' | 'gemini' | 'claude' | 'copilot' | 'grok' | 'deepseek' | 'meta-ai' | 'phind' | 'you-com';
+                        label: string;
+                        sources: Array<string>;
+                        periods: Array<{
+                            label: 'earliest' | 'middle' | 'previous' | 'latest';
+                            startDate: string;
+                            endDate: string;
+                            eventCount: number;
+                            sessions: number;
+                            leadRate: number | null;
+                        }>;
+                    }>;
+                    unattributed: {
+                        sources: Array<string>;
+                        periods: Array<{
+                            label: 'earliest' | 'middle' | 'previous' | 'latest';
+                            startDate: string;
+                            endDate: string;
+                            eventCount: number;
+                            sessions: number;
+                            leadRate: number | null;
+                        }>;
+                    };
+                };
+            };
+            countedEvents: {
+                configured: Array<string>;
+                keyEventsEnabled: boolean;
+                keyEvents: Array<string> | null;
+                keyEventsError: string | null;
+                ignoredKeyEvents: Array<string>;
+            };
+            events: Array<{
+                eventName: string;
+                origin: 'configured' | 'key-event' | 'both';
+                measured: boolean;
                 periods: Array<{
                     label: 'earliest' | 'middle' | 'previous' | 'latest';
                     startDate: string;
@@ -10596,9 +13294,16 @@ export type ProjectCreateRequest = {
         marketingHosts: Array<string>;
         brandTerms: Array<string>;
         leadEventNames: Array<string>;
+        countKeyEvents?: boolean;
     };
     autoExtractBacklinks?: boolean;
+    qualifiedAliases?: Array<string>;
     negativeReviewMaxStars?: number | null;
+    siteAuditMaxPages?: number | null;
+    /**
+     * Answer-derived competitor alias detection mode for the unattended passes queued after a completed or partial sweep, a competitor add, an unblock or a market pin write that changes pins: `off` (no pass), `preview` (the pass logs what it would add or remove and stores nothing; a new project starts here) or `apply` (the pass stores detected names and removes stored ones it no longer keeps, which restates every period's competitor counts). Omit to keep the stored mode. An explicit apply (POST /projects/{name}/competitor-auto-aliases) stores in every mode.
+     */
+    competitorAutoAliases?: 'off' | 'preview' | 'apply';
     configSource?: 'cli' | 'api' | 'config-file';
     name: string;
 };
@@ -10610,6 +13315,7 @@ export type ProjectDto = {
     canonicalDomain: string;
     ownedDomains: Array<string>;
     aliases: Array<string>;
+    qualifiedAliases: Array<string>;
     country: string;
     language: string;
     tags: Array<string>;
@@ -10635,13 +13341,67 @@ export type ProjectDto = {
         marketingHosts: Array<string>;
         brandTerms: Array<string>;
         leadEventNames: Array<string>;
+        countKeyEvents?: boolean;
     };
     autoExtractBacklinks: boolean;
     negativeReviewMaxStars?: number | null;
+    siteAuditMaxPages?: number | null;
+    /**
+     * Answer-derived competitor alias detection mode for the unattended passes queued after a completed or partial sweep, a competitor add, an unblock or a market pin write that changes pins. `preview` (every project's default): the pass scores the stored answers and logs what it would add or remove, storing nothing. `apply`: the pass stores the detected names and removes stored ones it no longer keeps; the read-time competitor matchers then use them, restating every period's competitor counts (see competitorIdentityChangedAt). `off`: no pass runs. An explicit apply (POST /projects/{name}/competitor-auto-aliases) stores in every mode; switching to preview or off keeps names already stored. Absent only from a server that predates the setting.
+     */
+    competitorAutoAliases?: 'off' | 'preview' | 'apply';
+    answerFieldsRecompute?: 'full' | 'competitors' | null;
     configSource: 'cli' | 'api' | 'config-file';
     configRevision: number;
     createdAt?: string;
     updatedAt?: string;
+};
+
+export type ProjectDefaultLocationResponse = {
+    defaultLocation: string;
+};
+
+export type ProjectPatchRequest = {
+    displayName?: string;
+    canonicalDomain?: string;
+    ownedDomains?: Array<string>;
+    aliases?: Array<string>;
+    country?: string;
+    language?: string;
+    tags?: Array<string>;
+    labels?: {
+        [key: string]: string;
+    };
+    providers?: Array<string>;
+    providerModels?: {
+        [key: string]: string;
+    };
+    providerDispatchModes?: {
+        [key: string]: 'sync' | 'batch';
+    };
+    locations?: Array<{
+        label: string;
+        city: string;
+        region: string;
+        country: string;
+        timezone?: string;
+    }>;
+    defaultLocation?: string | null;
+    measurement?: {
+        marketingHosts?: Array<string>;
+        brandTerms?: Array<string>;
+        leadEventNames?: Array<string>;
+        countKeyEvents?: boolean;
+    };
+    autoExtractBacklinks?: boolean;
+    qualifiedAliases?: Array<string>;
+    negativeReviewMaxStars?: number | null;
+    siteAuditMaxPages?: number | null;
+    /**
+     * Answer-derived competitor alias detection mode for the unattended passes queued after a completed or partial sweep, a competitor add, an unblock or a market pin write that changes pins: `off` (no pass), `preview` (the pass logs what it would add or remove and stores nothing; a new project starts here) or `apply` (the pass stores detected names and removes stored ones it no longer keeps, which restates every period's competitor counts). Omit to keep the stored mode. An explicit apply (POST /projects/{name}/competitor-auto-aliases) stores in every mode.
+     */
+    competitorAutoAliases?: 'off' | 'preview' | 'apply';
+    expectedConfigRevision?: number;
 };
 
 export type ProjectUpsertRequest = {
@@ -10674,13 +13434,104 @@ export type ProjectUpsertRequest = {
         marketingHosts: Array<string>;
         brandTerms: Array<string>;
         leadEventNames: Array<string>;
+        countKeyEvents?: boolean;
     };
     autoExtractBacklinks?: boolean;
+    qualifiedAliases?: Array<string>;
     negativeReviewMaxStars?: number | null;
+    siteAuditMaxPages?: number | null;
+    /**
+     * Answer-derived competitor alias detection mode for the unattended passes queued after a completed or partial sweep, a competitor add, an unblock or a market pin write that changes pins: `off` (no pass), `preview` (the pass logs what it would add or remove and stores nothing; a new project starts here) or `apply` (the pass stores detected names and removes stored ones it no longer keeps, which restates every period's competitor counts). Omit to keep the stored mode. An explicit apply (POST /projects/{name}/competitor-auto-aliases) stores in every mode.
+     */
+    competitorAutoAliases?: 'off' | 'preview' | 'apply';
     configSource?: 'cli' | 'api' | 'config-file';
 };
 
 export type ProjectConfig = {
+    apiVersion: 'canonry/v1';
+    kind: 'Project';
+    metadata: {
+        name: string;
+        labels?: {
+            [key: string]: string;
+        };
+    };
+    spec: {
+        displayName: string;
+        canonicalDomain: string;
+        ownedDomains?: Array<string>;
+        aliases?: Array<string>;
+        qualifiedAliases?: Array<string>;
+        country: string;
+        language: string;
+        queries?: Array<string>;
+        keywords?: Array<string>;
+        competitors?: Array<string | {
+            domain: string;
+            /**
+             * Operator-curated names this competitor goes by in answer text (at most 10, each 80 characters or fewer, at least 3 letters or digits).
+             */
+            aliases?: Array<string>;
+        }>;
+        providers?: Array<string>;
+        providerModels?: {
+            [key: string]: string;
+        };
+        providerDispatchModes?: {
+            [key: string]: 'sync' | 'batch';
+        };
+        locations?: Array<{
+            label: string;
+            city: string;
+            region: string;
+            country: string;
+            timezone?: string;
+        }>;
+        defaultLocation?: string;
+        measurement?: {
+            marketingHosts: Array<string>;
+            brandTerms: Array<string>;
+            leadEventNames: Array<string>;
+            countKeyEvents?: boolean;
+        };
+        schedule?: {
+            preset?: string;
+            cron?: string;
+            recurrence?: {
+                everyDays: number;
+                startDate: string;
+                time: string;
+            };
+            timezone?: string;
+            providers?: Array<string>;
+            enabled?: boolean;
+        };
+        notifications?: Array<{
+            id?: string;
+            channel: 'webhook';
+            url: string;
+            events: Array<'citation.lost' | 'citation.gained' | 'run.completed' | 'run.failed' | 'insight.critical' | 'insight.high' | 'health.degraded' | 'health.recovered' | 'health.urgent' | 'health.urgent-resolved' | 'review.negative' | 'review.rating-dropped'>;
+        }>;
+        google?: {
+            gsc?: {
+                propertyUrl: string;
+            };
+            syncSchedule?: {
+                preset?: string;
+                cron?: string;
+            };
+        };
+        autoExtractBacklinks?: boolean;
+        negativeReviewMaxStars?: number;
+        siteAuditMaxPages?: number | null;
+        /**
+         * Answer-derived competitor alias detection mode for the unattended passes queued after a completed or partial sweep, a competitor add, an unblock or a market pin write that changes pins: `off` (no pass), `preview` (the pass logs what it would add or remove and stores nothing; a new project starts here) or `apply` (the pass stores detected names and removes stored ones it no longer keeps, which restates every period's competitor counts). Omit to keep the stored mode. An explicit apply (POST /projects/{name}/competitor-auto-aliases) stores in every mode.
+         */
+        competitorAutoAliases?: 'off' | 'preview' | 'apply';
+    };
+};
+
+export type ProjectConfigExport = {
     apiVersion: 'canonry/v1';
     kind: 'Project';
     metadata: {
@@ -10694,13 +13545,20 @@ export type ProjectConfig = {
         canonicalDomain: string;
         ownedDomains: Array<string>;
         aliases: Array<string>;
+        qualifiedAliases?: Array<string>;
         country: string;
         language: string;
-        queries?: Array<string>;
+        queries: Array<string>;
         keywords?: Array<string>;
-        competitors: Array<string>;
+        competitors: Array<string | {
+            domain: string;
+            /**
+             * Operator-curated names this competitor goes by in answer text (at most 10, each 80 characters or fewer, at least 3 letters or digits).
+             */
+            aliases?: Array<string>;
+        }>;
         providers: Array<string>;
-        providerModels: {
+        providerModels?: {
             [key: string]: string;
         };
         providerDispatchModes?: {
@@ -10718,6 +13576,7 @@ export type ProjectConfig = {
             marketingHosts: Array<string>;
             brandTerms: Array<string>;
             leadEventNames: Array<string>;
+            countKeyEvents?: boolean;
         };
         schedule?: {
             preset?: string;
@@ -10729,12 +13588,13 @@ export type ProjectConfig = {
             };
             timezone: string;
             providers: Array<string>;
-            enabled?: boolean;
+            enabled: boolean;
         };
         notifications: Array<{
+            id?: string;
             channel: 'webhook';
             url: string;
-            events: Array<'citation.lost' | 'citation.gained' | 'run.completed' | 'run.failed' | 'insight.critical' | 'insight.high' | 'health.degraded' | 'health.recovered' | 'review.negative' | 'review.rating-dropped'>;
+            events: Array<'citation.lost' | 'citation.gained' | 'run.completed' | 'run.failed' | 'insight.critical' | 'insight.high' | 'health.degraded' | 'health.recovered' | 'health.urgent' | 'health.urgent-resolved' | 'review.negative' | 'review.rating-dropped'>;
         }>;
         google?: {
             gsc?: {
@@ -10745,8 +13605,13 @@ export type ProjectConfig = {
                 cron?: string;
             };
         };
-        autoExtractBacklinks: boolean;
+        autoExtractBacklinks?: boolean;
         negativeReviewMaxStars?: number;
+        siteAuditMaxPages?: number | null;
+        /**
+         * Answer-derived competitor alias detection mode for the unattended passes queued after a completed or partial sweep, a competitor add, an unblock or a market pin write that changes pins: `off` (no pass), `preview` (the pass logs what it would add or remove and stores nothing; a new project starts here) or `apply` (the pass stores detected names and removes stored ones it no longer keeps, which restates every period's competitor counts). Omit to keep the stored mode. An explicit apply (POST /projects/{name}/competitor-auto-aliases) stores in every mode.
+         */
+        competitorAutoAliases?: 'off' | 'preview' | 'apply';
     };
 };
 
@@ -10763,6 +13628,13 @@ export type ProjectOverviewDto = {
                 unadmittedAssessments: number;
                 judged: number;
                 distinctSourceAnswers: number;
+                eligibleAnswers?: number;
+                ratedAnswers?: number;
+                ratedAnswerRate?: number | null;
+                /**
+                 * Distinct admitted answers where every assessed subject in the selected scope is absent. Expected for non-brand queries; not missing classification. Null while disabled.
+                 */
+                subjectNotMentioned?: number | null;
                 counts: {
                     favorable: number;
                     mixed: number;
@@ -10828,6 +13700,13 @@ export type ProjectOverviewDto = {
                 unadmittedAssessments: number;
                 judged: number;
                 distinctSourceAnswers: number;
+                eligibleAnswers?: number;
+                ratedAnswers?: number;
+                ratedAnswerRate?: number | null;
+                /**
+                 * Distinct admitted answers where every assessed subject in the selected scope is absent. Expected for non-brand queries; not missing classification. Null while disabled.
+                 */
+                subjectNotMentioned?: number | null;
                 counts: {
                     favorable: number;
                     mixed: number;
@@ -10883,6 +13762,126 @@ export type ProjectOverviewDto = {
             };
             runIds: Array<string>;
         };
+        headlineQueryClass?: 'branded';
+        pooledOverall?: {
+            state: 'disabled' | 'not-measured' | 'processing' | 'partial' | 'complete' | 'failed' | 'canceled' | 'unsupported';
+            reason: string | null;
+            provisional: boolean;
+            coverage: {
+                selected: number;
+                eligibleAssessments: number;
+                unadmittedAssessments: number;
+                judged: number;
+                distinctSourceAnswers: number;
+                eligibleAnswers?: number;
+                ratedAnswers?: number;
+                ratedAnswerRate?: number | null;
+                /**
+                 * Distinct admitted answers where every assessed subject in the selected scope is absent. Expected for non-brand queries; not missing classification. Null while disabled.
+                 */
+                subjectNotMentioned?: number | null;
+                counts: {
+                    favorable: number;
+                    mixed: number;
+                    unfavorable: number;
+                    factual: number;
+                    'subject-not-mentioned': number;
+                    'wrong-subject': number;
+                    'ambiguous-subject': number;
+                    'ambiguous-judgment': number;
+                    'subject-not-applicable': number;
+                    'unsupported-language': number;
+                    'missing-source-text': number;
+                    'input-too-large': number;
+                    'invalid-conclusion-evidence': number;
+                    pending: number;
+                    running: number;
+                    'waiting-to-retry': number;
+                    failed: number;
+                    canceled: number;
+                };
+                expectedProviderSlots: number;
+                completedProviderSlots: number;
+            };
+            score: {
+                favorableRate: number | null;
+                mixedRate: number | null;
+                unfavorableRate: number | null;
+                favorableDisplay: string;
+                mixedDisplay: string;
+                unfavorableDisplay: string;
+                interval: {
+                    low: number;
+                    high: number;
+                } | null;
+                method: 'wilson-independent-v1';
+                limitation: string;
+            };
+            queryClass: 'all';
+            pooled?: true;
+            runIds: Array<string>;
+        };
+        /**
+         * Deprecated compatibility field. Pooled branded and non-brand assessments; never use as the sentiment headline.
+         */
+        overall?: {
+            state: 'disabled' | 'not-measured' | 'processing' | 'partial' | 'complete' | 'failed' | 'canceled' | 'unsupported';
+            reason: string | null;
+            provisional: boolean;
+            coverage: {
+                selected: number;
+                eligibleAssessments: number;
+                unadmittedAssessments: number;
+                judged: number;
+                distinctSourceAnswers: number;
+                eligibleAnswers?: number;
+                ratedAnswers?: number;
+                ratedAnswerRate?: number | null;
+                /**
+                 * Distinct admitted answers where every assessed subject in the selected scope is absent. Expected for non-brand queries; not missing classification. Null while disabled.
+                 */
+                subjectNotMentioned?: number | null;
+                counts: {
+                    favorable: number;
+                    mixed: number;
+                    unfavorable: number;
+                    factual: number;
+                    'subject-not-mentioned': number;
+                    'wrong-subject': number;
+                    'ambiguous-subject': number;
+                    'ambiguous-judgment': number;
+                    'subject-not-applicable': number;
+                    'unsupported-language': number;
+                    'missing-source-text': number;
+                    'input-too-large': number;
+                    'invalid-conclusion-evidence': number;
+                    pending: number;
+                    running: number;
+                    'waiting-to-retry': number;
+                    failed: number;
+                    canceled: number;
+                };
+                expectedProviderSlots: number;
+                completedProviderSlots: number;
+            };
+            score: {
+                favorableRate: number | null;
+                mixedRate: number | null;
+                unfavorableRate: number | null;
+                favorableDisplay: string;
+                mixedDisplay: string;
+                unfavorableDisplay: string;
+                interval: {
+                    low: number;
+                    high: number;
+                } | null;
+                method: 'wilson-independent-v1';
+                limitation: string;
+            };
+            queryClass: 'all';
+            pooled?: true;
+            runIds: Array<string>;
+        };
     };
     project: {
         id: string;
@@ -10891,6 +13890,7 @@ export type ProjectOverviewDto = {
         canonicalDomain: string;
         ownedDomains: Array<string>;
         aliases: Array<string>;
+        qualifiedAliases: Array<string>;
         country: string;
         language: string;
         tags: Array<string>;
@@ -10916,9 +13916,16 @@ export type ProjectOverviewDto = {
             marketingHosts: Array<string>;
             brandTerms: Array<string>;
             leadEventNames: Array<string>;
+            countKeyEvents?: boolean;
         };
         autoExtractBacklinks: boolean;
         negativeReviewMaxStars?: number | null;
+        siteAuditMaxPages?: number | null;
+        /**
+         * Answer-derived competitor alias detection mode for the unattended passes queued after a completed or partial sweep, a competitor add, an unblock or a market pin write that changes pins. `preview` (every project's default): the pass scores the stored answers and logs what it would add or remove, storing nothing. `apply`: the pass stores the detected names and removes stored ones it no longer keeps; the read-time competitor matchers then use them, restating every period's competitor counts (see competitorIdentityChangedAt). `off`: no pass runs. An explicit apply (POST /projects/{name}/competitor-auto-aliases) stores in every mode; switching to preview or off keeps names already stored. Absent only from a server that predates the setting.
+         */
+        competitorAutoAliases?: 'off' | 'preview' | 'apply';
+        answerFieldsRecompute?: 'full' | 'competitors' | null;
         configSource: 'cli' | 'api' | 'config-file';
         configRevision: number;
         createdAt?: string;
@@ -10927,9 +13934,10 @@ export type ProjectOverviewDto = {
     latestRun: {
         totalRuns: number;
         run: {
+            sourceId?: string | null;
             id: string;
             projectId: string;
-            kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync';
+            kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync';
             status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
             trigger: 'manual' | 'scheduled' | 'config-apply' | 'backfill' | 'probe';
             measurementPlanVersionId?: string | null;
@@ -10961,12 +13969,38 @@ export type ProjectOverviewDto = {
                     [key: string]: {
                         message: string;
                         raw?: unknown;
+                        code?: 'PROVIDER_AUTH' | 'PROVIDER_BILLING' | 'RATE_LIMITED' | 'PROVIDER_UNAVAILABLE' | 'NETWORK' | 'TIMEOUT' | 'PARSE_ERROR' | 'UNKNOWN';
+                        skipped?: boolean;
                     };
                 };
             } | null;
             queryBasketRevision?: number | null;
             dispatchModes?: {
                 [key: string]: 'batch';
+            };
+            skippedProviders?: {
+                [key: string]: {
+                    code: 'PROVIDER_AUTH' | 'PROVIDER_BILLING' | 'RATE_LIMITED' | 'PROVIDER_UNAVAILABLE' | 'NETWORK' | 'TIMEOUT' | 'PARSE_ERROR' | 'UNKNOWN';
+                    consecutiveRuns: number;
+                    since: string;
+                    latestRunId: string;
+                    retryAfter: string;
+                };
+            };
+            syncSummary?: {
+                type: 'cloudflare-queue';
+                stopReason: 'backlog-empty' | 'empty-pulls' | 'unleased-only' | 'deadline' | 'batch-cap' | 'error';
+                pulls: number;
+                emptyPulls: number;
+                messagesPulled: number;
+                messagesAcknowledged: number;
+                poisonMessages: number;
+                skippedUnleasedMessages: number;
+                acceptedEvents: number;
+                duplicateEvents: number;
+                backlogAtFirstPull: number | null;
+                backlogAtLastPull: number | null;
+                elapsedMs: number;
             };
             createdAt: string;
             snapshots?: Array<{
@@ -10988,17 +14022,25 @@ export type ProjectOverviewDto = {
                 resolvedCount: number | null;
                 captureVersion: number | null;
                 retrievalStatus: 'used' | 'not-used' | 'unknown' | 'not-applicable' | null;
-                retrievalContract: 'native-auto-v1' | 'search-required-v1' | null;
+                retrievalContract: 'native-auto-v1' | 'search-required-v1' | 'service-native-v1' | null;
                 competitorOverlap: Array<string>;
                 citedCompetitorDomains: Array<string>;
                 mentionedCompetitorDomains: Array<string>;
+                mentionedCompetitorTerms: Array<string>;
                 recommendedCompetitors: Array<string>;
                 matchedTerms: Array<string>;
+                mentionIdentity: 'wrong-subject' | null;
                 groundingSources: Array<{
                     uri: string;
                     title: string;
                 }>;
                 searchQueries: Array<string>;
+                retrievedSources: Array<{
+                    uri: string;
+                    title: string;
+                    kind: 'search-result' | 'page-read';
+                    query: string | null;
+                }> | null;
                 model?: string | null;
                 servedModel?: string | null;
                 location?: string | null;
@@ -11031,8 +14073,109 @@ export type ProjectOverviewDto = {
                     estimatedCostMicros: number | null;
                     priceSource: 'default' | 'override' | null;
                 } | null;
+                evidence?: {
+                    version: 1;
+                    identity: {
+                        connection: string;
+                        route: string;
+                        service: string;
+                        product: string;
+                        profile: string;
+                        settings: {
+                            [key: string]: string | number | boolean;
+                        };
+                        requestedServiceModel: string | null;
+                        disclosedModel: string | null;
+                        disclosedModelKind: 'foundation-model' | 'service-tier' | 'unknown' | null;
+                        requestPolicy: string;
+                        parserVersion: string;
+                    };
+                    completion: {
+                        status: 'complete' | 'partial' | 'failed' | 'pending';
+                        finishReason: string | null;
+                        upstreamStatus: string | null;
+                        upstreamRequestId: string | null;
+                        upstreamJobId: string | null;
+                        error: string | null;
+                    };
+                    usage: {
+                        tokens: {
+                            input: number | null;
+                            output: number | null;
+                            reasoning: number | null;
+                            basis: 'reported' | 'approximate' | 'unknown';
+                        };
+                        searches: {
+                            count: number | null;
+                            basis: 'reported' | 'derived-from-evidence' | 'unknown';
+                        };
+                        pageReads: {
+                            count: number | null;
+                            basis: 'reported' | 'derived-from-evidence' | 'unknown';
+                        };
+                        billedUnits: Array<{
+                            unit: 'request' | 'credit' | 'search' | 'token';
+                            quantity: number;
+                            basis: 'reported';
+                        }>;
+                        cost: {
+                            micros: number | null;
+                            currency: 'USD';
+                            basis: 'reported' | 'estimated' | 'unknown';
+                            estimatedBy: 'provider' | 'canonry' | null;
+                        };
+                    };
+                    sources: Array<{
+                        url: string;
+                        title: string | null;
+                        relationship: 'search-result' | 'page-read' | 'answer-support' | 'explicit-citation';
+                        rank: number | null;
+                        citationNumbers?: Array<number>;
+                        spans?: Array<{
+                            start: number;
+                            end: number;
+                            basis: 'upstream';
+                        }>;
+                        excerpts?: Array<string>;
+                        excerptsTruncated?: boolean;
+                        publishedAt: string | null;
+                        upstreamId: string | null;
+                        status?: string | null;
+                    }>;
+                    searchQueries: Array<string>;
+                    retrievalStatus: 'used' | 'not-used' | 'unknown' | 'not-applicable';
+                    citationBasis: 'explicit-citation' | 'answer-support' | 'mixed' | 'none';
+                    citationMeasurable: boolean;
+                    directSourceUrls: boolean;
+                    location: {
+                        requested: {
+                            label: string;
+                            city: string;
+                            region: string;
+                            country: string;
+                            timezone?: string;
+                        } | null;
+                        sent: {
+                            country?: string;
+                            region?: string;
+                            city?: string;
+                            timezone?: string;
+                        } | null;
+                        strength: 'filter' | 'hint' | null;
+                        serviceDefault: {
+                            country?: string;
+                        } | null;
+                        status: 'applied' | 'partial' | 'ignored' | 'not-requested';
+                    };
+                    rawTruncated: boolean;
+                } | null;
                 createdAt: string;
             }>;
+            queryCounts?: {
+                totalQueries: number;
+                citedQueries: number;
+                mentionedQueries: number;
+            } | null;
             providerBatches?: Array<{
                 id: string;
                 provider: string;
@@ -11059,6 +14202,32 @@ export type ProjectOverviewDto = {
                 unpricedAnswers: number;
             }>;
         } | null;
+        admission?: {
+            refused: boolean;
+            retryAfter: string | null;
+            providers: {
+                [key: string]: {
+                    code: 'PROVIDER_AUTH' | 'PROVIDER_BILLING' | 'RATE_LIMITED' | 'PROVIDER_UNAVAILABLE' | 'NETWORK' | 'TIMEOUT' | 'PARSE_ERROR' | 'UNKNOWN';
+                    consecutiveRuns: number;
+                    since: string;
+                    latestRunId: string;
+                    retryAfter: string;
+                };
+            };
+        };
+        manualAdmission?: {
+            refused: boolean;
+            retryAfter: string | null;
+            providers: {
+                [key: string]: {
+                    code: 'PROVIDER_AUTH' | 'PROVIDER_BILLING' | 'RATE_LIMITED' | 'PROVIDER_UNAVAILABLE' | 'NETWORK' | 'TIMEOUT' | 'PARSE_ERROR' | 'UNKNOWN';
+                    consecutiveRuns: number;
+                    since: string;
+                    latestRunId: string;
+                    retryAfter: string;
+                };
+            };
+        };
     };
     health: {
         id: string;
@@ -11299,6 +14468,8 @@ export type ProjectOverviewDto = {
     competitors: Array<{
         id: string;
         domain: string;
+        aliases?: Array<string>;
+        autoAliasNames?: Array<string>;
         citationCount: number;
         totalQueries: number;
         pressureLabel: 'None' | 'Low' | 'Moderate' | 'High';
@@ -11345,430 +14516,15 @@ export type ProjectOverviewDto = {
     contextLabel: string;
 };
 
-export type ProjectReportDto = {
-    visibility?: {
-        selection: {
-            mode: 'simple' | 'advanced';
-            queryClass: 'branded' | 'non-brand' | 'unknown' | 'all';
-            scope: {
-                id: string;
-                label: string;
-                kind: 'project' | 'group' | 'market' | 'property';
-                targetCount: number;
-                parentGroupIds?: Array<string>;
-                marketKeys?: Array<string>;
-            };
-            market?: {
-                id: string;
-                label: string;
-                kind: 'project' | 'group' | 'market' | 'property';
-                targetCount: number;
-                parentGroupIds?: Array<string>;
-                marketKeys?: Array<string>;
-            };
-            provider: string | null;
-            model: string | null;
-            location: {
-                kind: 'all';
-            } | {
-                kind: 'none';
-            } | {
-                kind: 'exact';
-                value: string;
-            };
-            time: {
-                from: string | null;
-                to: string | null;
-            };
-            revision: number | null;
-            run: {
-                id: string | null;
-                explicit: boolean;
-            };
-            provenance: {
-                kind: 'frozen-simple';
-                definitionRevision: null;
-            } | {
-                kind: 'legacy-simple';
-                definitionRevision: null;
-            } | {
-                kind: 'frozen-advanced';
-                definitionRevision: number;
-            } | {
-                kind: 'unsupported-advanced-v1';
-                definitionRevision: number;
-            };
-            measurement: {
-                state: 'measured' | 'not-measured' | 'partial';
-                activeRevision: number | null;
-                measuredRevision: number | null;
-                awaitingSweep: boolean;
-                pendingAssignmentCount: number;
-                completedAt: string | null;
-            };
-            availability: {
-                state: 'available';
-            } | {
-                state: 'unsupported';
-                reason: 'advanced-v1';
-            };
-        };
-        historyWindow?: {
-            from: string;
-            to: string;
-        };
-        populations: Array<{
-            queryClass: 'branded' | 'non-brand' | 'unknown';
-            summary: {
-                queryCount: number;
-                answerCount: number;
-                mentionCoverage: {
-                    numerator: number | null;
-                    denominator: number | null;
-                    rate: number | null;
-                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
-                    unattributed?: number;
-                };
-                citationCoverage: {
-                    numerator: number | null;
-                    denominator: number | null;
-                    rate: number | null;
-                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
-                    unattributed?: number;
-                };
-                propertyReach: {
-                    numerator: number | null;
-                    denominator: number | null;
-                    rate: number | null;
-                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
-                    unattributed?: number;
-                };
-                outcomes: {
-                    bothSignals: number;
-                    mentionedOnly: number;
-                    citedOnly: number;
-                    neither: number;
-                    notMeasured: number;
-                    total: number;
-                };
-            };
-            trend: Array<{
-                runId: string;
-                createdAt: string;
-                revision: number | null;
-                provenance: {
-                    kind: 'frozen-simple';
-                    definitionRevision: null;
-                } | {
-                    kind: 'legacy-simple';
-                    definitionRevision: null;
-                } | {
-                    kind: 'frozen-advanced';
-                    definitionRevision: number;
-                } | {
-                    kind: 'unsupported-advanced-v1';
-                    definitionRevision: number;
-                };
-                queryCount: number;
-                answerCount: number;
-                mentionCoverage: {
-                    numerator: number | null;
-                    denominator: number | null;
-                    rate: number | null;
-                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
-                    unattributed?: number;
-                };
-                citationCoverage: {
-                    numerator: number | null;
-                    denominator: number | null;
-                    rate: number | null;
-                    reason?: 'no-population' | 'incomplete' | 'evidence-incomplete' | 'identity-ambiguous' | 'not-applicable';
-                    unattributed?: number;
-                };
-                continuity: {
-                    state: 'first' | 'comparable' | 'definition-changed' | 'model-changed' | 'legacy-unknown';
-                    comparedRunId: string | null;
-                };
-            }>;
-        }>;
-    };
-    meta: {
-        generatedAt: string;
-        project: {
-            id: string;
-            name: string;
-            displayName: string;
-            canonicalDomain: string;
-            country: string;
-            language: string;
-        };
-        location: {
-            label: string;
-            city: string;
-            region: string;
-            country: string;
-            otherConfiguredLabels: Array<string>;
-        } | null;
-        providerLocationHandling: Array<{
-            provider: string;
-            treatment: 'prompt' | 'request-param' | 'browser-geo' | 'ignored';
-            description: string;
-        }>;
-        periodStart: string | null;
-        periodEnd: string | null;
-        periodDays: number;
-    };
-    executiveSummary: {
-        visibilityBasis?: 'legacy-project-queries' | 'frozen-populations';
-        citationRate: number | null;
-        citedQueryCount: number | null;
-        totalQueryCount: number | null;
-        mentionRate: number | null;
-        mentionedQueryCount: number | null;
-        trend: 'up' | 'down' | 'flat' | 'unknown';
-        queryCount: number;
-        competitorCount: number;
-        providerCount: number;
-        gsc: {
-            clicks: number;
-            impressions: number;
-            ctr: number;
-            avgPosition: number;
-            periodStart: string;
-            periodEnd: string;
-        } | null;
-        ga: {
-            sessions: number;
-            users: number;
-            periodStart: string;
-            periodEnd: string;
-        } | null;
-        findings: Array<{
-            title: string;
-            detail: string;
-            tone: 'positive' | 'caution' | 'negative' | 'neutral';
-        }>;
-    };
-    citationScorecard: {
-        queries: Array<string>;
-        providers: Array<string>;
-        matrix: Array<Array<{
-            citationState: 'cited' | 'not-cited' | 'pending';
-            answerMentioned: boolean | null;
-            model: string | null;
-        } | null>>;
-        providerRates: Array<{
-            provider: string;
-            citedCount: number;
-            mentionedCount: number;
-            totalCount: number;
-            citationRate: number;
-            mentionRate: number;
-        }>;
-    };
-    competitorLandscape: {
-        projectCitationCount: number;
-        competitors: Array<{
-            domain: string;
-            citationCount: number;
-            totalCount: number;
-            pressureLabel: 'High' | 'Moderate' | 'Low' | 'None';
-            citedQueries: Array<string>;
-            sharePct: number;
-            theirCitedPages: Array<{
-                url: string;
-                citedFor: Array<string>;
-            }>;
-        }>;
-    };
-    mentionLandscape: {
-        shareOfVoice?: {
-            basis?: 'tracked' | 'observed';
-            availability?: 'measured' | 'not-measured' | 'unavailable';
-            reason?: 'select-query-class' | 'no-competitors' | 'insufficient-observed' | 'no-answers' | 'no-mentions' | 'unavailable';
-            measurementScope?: 'project' | 'all-markets';
-            queryClass: 'branded' | 'non-brand' | 'pooled';
-            percent: number | null;
-            competitorCount: number;
-            projectMentions: number;
-            competitorMentions: number;
-            snapshotsWithAnswerText: number;
-            perCompetitor: Array<{
-                domain: string;
-                mentions: number;
-            }>;
-        };
-        projectMentionCount: number;
-        totalAnswerSnapshots: number;
-        competitors: Array<{
-            domain: string;
-            mentionCount: number;
-            totalCount: number;
-            pressureLabel: 'High' | 'Moderate' | 'Low' | 'None';
-            mentionedQueries: Array<string>;
-            sharePct: number | null;
-        }>;
-        scope: 'non-brand' | 'pooled';
-        nonBrand: {
-            shareOfVoice?: {
-                basis?: 'tracked' | 'observed';
-                availability?: 'measured' | 'not-measured' | 'unavailable';
-                reason?: 'select-query-class' | 'no-competitors' | 'insufficient-observed' | 'no-answers' | 'no-mentions' | 'unavailable';
-                measurementScope?: 'project' | 'all-markets';
-                queryClass: 'branded' | 'non-brand' | 'pooled';
-                percent: number | null;
-                competitorCount: number;
-                projectMentions: number;
-                competitorMentions: number;
-                snapshotsWithAnswerText: number;
-                perCompetitor: Array<{
-                    domain: string;
-                    mentions: number;
-                }>;
-            };
-            projectMentionCount: number;
-            totalAnswerSnapshots: number;
-            competitors: Array<{
-                domain: string;
-                mentionCount: number;
-                totalCount: number;
-                pressureLabel: 'High' | 'Moderate' | 'Low' | 'None';
-                mentionedQueries: Array<string>;
-                sharePct: number | null;
-            }>;
-        };
-        branded: {
-            shareOfVoice?: {
-                basis?: 'tracked' | 'observed';
-                availability?: 'measured' | 'not-measured' | 'unavailable';
-                reason?: 'select-query-class' | 'no-competitors' | 'insufficient-observed' | 'no-answers' | 'no-mentions' | 'unavailable';
-                measurementScope?: 'project' | 'all-markets';
-                queryClass: 'branded' | 'non-brand' | 'pooled';
-                percent: number | null;
-                competitorCount: number;
-                projectMentions: number;
-                competitorMentions: number;
-                snapshotsWithAnswerText: number;
-                perCompetitor: Array<{
-                    domain: string;
-                    mentions: number;
-                }>;
-            };
-            projectMentionCount: number;
-            totalAnswerSnapshots: number;
-            competitors: Array<{
-                domain: string;
-                mentionCount: number;
-                totalCount: number;
-                pressureLabel: 'High' | 'Moderate' | 'Low' | 'None';
-                mentionedQueries: Array<string>;
-                sharePct: number | null;
-            }>;
-        };
-    };
-    aiSourceOrigin: {
-        categories: Array<{
-            category: string;
-            label: string;
-            count: number;
-            sharePct: number;
-        }>;
-        topDomains: Array<{
-            domain: string;
-            count: number;
-            isCompetitor: boolean;
-        }>;
-    };
-    gsc: {
-        periodStart: string;
-        periodEnd: string;
-        totalClicks: number;
-        totalImpressions: number;
-        ctr: number;
-        avgPosition: number;
-        topQueries: Array<{
-            query: string;
-            clicks: number;
-            impressions: number;
-            ctr: number;
-            avgPosition: number;
-            category: 'brand' | 'lead-gen' | 'industry' | 'other';
-        }>;
-        categoryBreakdown: Array<{
-            category: 'brand' | 'lead-gen' | 'industry' | 'other';
-            clicks: number;
-            impressions: number;
-            sharePct: number;
-        }>;
-        trend: Array<{
-            date: string;
-            clicks: number;
-            impressions: number;
-        }>;
-        trackedButNoGsc: Array<string>;
-        gscButNotTracked: Array<string>;
-    } | null;
-    ga: {
-        totalSessions: number;
-        totalUsers: number;
-        totalOrganicSessions: number;
-        periodStart: string;
-        periodEnd: string;
-        topLandingPages: Array<{
-            page: string;
-            sessions: number;
-            users?: number;
-            organicSessions: number;
-        }>;
-        channelBreakdown: Array<{
-            channel: string;
-            sessions: number;
-            sharePct: number;
-        }>;
-    } | null;
-    socialReferrals: {
-        totalSessions: number;
-        organicSessions: number;
-        paidSessions: number;
-        channels: Array<{
-            channelGroup: string;
-            sessions: number;
-            sharePct: number;
-        }>;
-        topCampaigns: Array<{
-            source: string;
-            medium: string;
-            sessions: number;
-        }>;
-    } | null;
-    aiReferrals: {
-        totalSessions: number;
-        paidSessions: number;
-        organicSessions: number;
-        totalUsers?: number;
-        paidUsers?: number;
-        organicUsers?: number;
-        bySource: Array<{
-            source: string;
-            sessions: number;
-            users?: number;
-            paidSessions: number;
-            organicSessions: number;
-            sharePct: number;
-        }>;
-        trend: Array<{
-            date: string;
-            sessions: number;
-        }>;
-        topLandingPages: Array<{
-            page: string;
-            sessions: number;
-            users?: number;
-        }>;
-    } | null;
-    serverActivity: {
+export type TrafficAnalyticsResponse = {
+    activity: {
         windowStart: string;
         windowEnd: string;
+        coverageStart: string | null;
+        priorWindowComplete: boolean;
+        /**
+         * True when the selected or prior window has stored crawler, user-fetch, countable referral or operator evidence, or the selected window has referral redirects. False means no qualifying stored evidence; it can occur with no, paused, errored or never-synced ingestion and out-of-window observations. It does not establish measured zero traffic or source health.
+         */
         hasData: boolean;
         verifiedCrawlerHits: {
             current: number;
@@ -11841,233 +14597,6 @@ export type ProjectReportDto = {
             distinctProducts: number;
         }>;
     } | null;
-    indexingHealth: {
-        provider: 'google' | 'bing';
-        total: number;
-        indexed: number;
-        notIndexed: number;
-        deindexed: number;
-        unknown: number;
-        indexedPct: number;
-    } | null;
-    citationsTrend: Array<{
-        runId: string;
-        date: string;
-        citationRate: number;
-        citedQueryCount: number;
-        totalQueryCount: number;
-        mentionRate: number;
-        mentionedQueryCount: number;
-        providerRates: Array<{
-            provider: string;
-            citationRate: number;
-            mentionRate: number;
-        }>;
-    }>;
-    whatsChanged: {
-        enoughHistory: boolean;
-        headline: string;
-        citationRate: {
-            current: number;
-            prior: number;
-            deltaAbs: number;
-            deltaPct: number | null;
-            direction: 'up' | 'down' | 'flat';
-            window?: number;
-        } | null;
-        mentionRate: {
-            current: number;
-            prior: number;
-            deltaAbs: number;
-            deltaPct: number | null;
-            direction: 'up' | 'down' | 'flat';
-            window?: number;
-        } | null;
-        citedQueryCount: {
-            current: number;
-            prior: number;
-            deltaAbs: number;
-            deltaPct: number | null;
-            direction: 'up' | 'down' | 'flat';
-            window?: number;
-        } | null;
-        mentionedQueryCount: {
-            current: number;
-            prior: number;
-            deltaAbs: number;
-            deltaPct: number | null;
-            direction: 'up' | 'down' | 'flat';
-            window?: number;
-        } | null;
-        gscClicksDelta: {
-            current: number;
-            prior: number;
-            deltaAbs: number;
-            deltaPct: number | null;
-            direction: 'up' | 'down' | 'flat';
-            window?: number;
-        } | null;
-        aiReferralsDelta: {
-            current: number;
-            prior: number;
-            deltaAbs: number;
-            deltaPct: number | null;
-            direction: 'up' | 'down' | 'flat';
-            window?: number;
-        } | null;
-        comparisonWindowDays: number;
-        providerMovements: Array<{
-            provider: string;
-            current: number;
-            prior: number;
-            deltaAbs: number;
-            direction: 'up' | 'down' | 'flat';
-        }>;
-        wins: Array<{
-            id: string;
-            type: 'regression' | 'gain' | 'opportunity';
-            severity: 'critical' | 'high' | 'medium' | 'low';
-            title: string;
-            query: string;
-            provider: string;
-            recommendation: string | null;
-            createdAt: string;
-            instanceCount: number;
-        }>;
-        regressions: Array<{
-            id: string;
-            type: 'regression' | 'gain' | 'opportunity';
-            severity: 'critical' | 'high' | 'medium' | 'low';
-            title: string;
-            query: string;
-            provider: string;
-            recommendation: string | null;
-            createdAt: string;
-            instanceCount: number;
-        }>;
-    };
-    insights: Array<{
-        id: string;
-        type: 'regression' | 'gain' | 'opportunity';
-        severity: 'critical' | 'high' | 'medium' | 'low';
-        title: string;
-        query: string;
-        provider: string;
-        recommendation: string | null;
-        createdAt: string;
-        instanceCount: number;
-    }>;
-    recommendedNextSteps: Array<{
-        horizon: 'immediate' | 'short-term' | 'medium-term';
-        title: string;
-        rationale: string;
-    }>;
-    actionPlan: Array<{
-        audience: 'agency' | 'client' | 'both';
-        priority: number;
-        horizon: 'immediate' | 'short-term' | 'medium-term';
-        category: 'content' | 'competitors' | 'provider' | 'search-demand' | 'indexing' | 'location' | 'monitoring';
-        title: string;
-        action: string;
-        why: Array<string>;
-        evidence: Array<string>;
-        successMetric: string;
-        confidence: 'high' | 'medium' | 'low';
-        targetRef?: string;
-    }>;
-    clientSummary: {
-        headline: string;
-        overview: string;
-        actionItems: Array<{
-            audience: 'agency' | 'client' | 'both';
-            priority: number;
-            horizon: 'immediate' | 'short-term' | 'medium-term';
-            category: 'content' | 'competitors' | 'provider' | 'search-demand' | 'indexing' | 'location' | 'monitoring';
-            title: string;
-            action: string;
-            why: Array<string>;
-            evidence: Array<string>;
-            successMetric: string;
-            confidence: 'high' | 'medium' | 'low';
-            targetRef?: string;
-        }>;
-        confidenceNotes: Array<string>;
-    };
-    agencyDiagnostics: {
-        priorities: Array<{
-            audience: 'agency' | 'client' | 'both';
-            priority: number;
-            horizon: 'immediate' | 'short-term' | 'medium-term';
-            category: 'content' | 'competitors' | 'provider' | 'search-demand' | 'indexing' | 'location' | 'monitoring';
-            title: string;
-            action: string;
-            why: Array<string>;
-            evidence: Array<string>;
-            successMetric: string;
-            confidence: 'high' | 'medium' | 'low';
-            targetRef?: string;
-        }>;
-        diagnostics: Array<{
-            title: string;
-            detail: string;
-            severity: 'positive' | 'caution' | 'negative' | 'neutral';
-            evidence: Array<string>;
-        }>;
-    };
-    contentOpportunities: Array<{
-        targetRef: string;
-        query: string;
-        action: 'create' | 'expand' | 'refresh' | 'add-schema';
-        ourBestPage: {
-            url: string;
-            gscImpressions: number;
-            gscClicks: number;
-            gscAvgPosition: number | null;
-            organicSessions: number;
-        } | null;
-        winningCompetitor: {
-            domain: string;
-            url: string;
-            title: string;
-            citationCount: number;
-        } | null;
-        score: number;
-        scoreBreakdown: {
-            demand: number;
-            competitor: number;
-            absence: number;
-            gapSeverity: number;
-        };
-        drivers: Array<string>;
-        demandSource: 'gsc' | 'competitor-evidence' | 'both';
-        actionConfidence: 'high' | 'medium' | 'low';
-        existingAction: {
-            actionId: string;
-            state: 'proposed' | 'briefed' | 'payload-generated' | 'draft-created' | 'published' | 'validated' | 'dismissed';
-            lastUpdated: string;
-        } | null;
-        winnabilityClass: 'ownable' | 'ceded';
-        winnability: number | null;
-    }>;
-    contentGaps: Array<{
-        query: string;
-        competitorDomains: Array<string>;
-        competitorCount: number;
-        missRate: number;
-        lastSeenInRunId: string;
-    }>;
-    groundingSources: Array<{
-        query: string;
-        groundingSources: Array<{
-            uri: string;
-            title: string;
-            domain: string;
-            isOurDomain: boolean;
-            isCompetitor: boolean;
-            citationCount: number;
-            providers: Array<string>;
-        }>;
-    }>;
 };
 
 export type ProjectSearchResponseDto = {
@@ -12101,6 +14630,31 @@ export type ProjectSearchResponseDto = {
     }>;
 };
 
+export type ProviderReloadRequest = {
+    configPath?: string;
+    databasePath?: string;
+};
+
+export type ProviderReloadResponseDto = {
+    reloaded: true;
+    providers: Array<{
+        name: string;
+        displayName?: string;
+        keyUrl?: string;
+        modelHint?: string;
+        model?: string;
+        defaultModel?: string;
+        configured: boolean;
+        quota?: {
+            maxConcurrency: number;
+            maxRequestsPerMinute: number;
+            maxRequestsPerDay: number;
+        };
+        vertexConfigured?: boolean;
+        kind?: 'answer-engine' | 'model-gateway' | 'answer-service';
+    }>;
+};
+
 export type ProviderSummaryEntryDto = {
     name: string;
     displayName?: string;
@@ -12115,12 +14669,19 @@ export type ProviderSummaryEntryDto = {
         maxRequestsPerDay: number;
     };
     vertexConfigured?: boolean;
+    kind?: 'answer-engine' | 'model-gateway' | 'answer-service';
 };
 
 export type QueryDto = {
     id: string;
     query: string;
     createdAt: string;
+    queryClass?: 'branded' | 'non-brand' | null;
+};
+
+export type QueryGenerateResponse = {
+    queries: Array<string>;
+    provider: string;
 };
 
 export type ReferralAssessment = {
@@ -12263,6 +14824,102 @@ export type ResultsExportDto = {
             title: string;
         }>;
         searchQueries: Array<string>;
+        answerEvidence?: {
+            version: 1;
+            identity: {
+                connection: string;
+                route: string;
+                service: string;
+                product: string;
+                profile: string;
+                settings: {
+                    [key: string]: string | number | boolean;
+                };
+                requestedServiceModel: string | null;
+                disclosedModel: string | null;
+                disclosedModelKind: 'foundation-model' | 'service-tier' | 'unknown' | null;
+                requestPolicy: string;
+                parserVersion: string;
+            };
+            completion: {
+                status: 'complete' | 'partial' | 'failed' | 'pending';
+                finishReason: string | null;
+                upstreamStatus: string | null;
+                upstreamRequestId: string | null;
+                upstreamJobId: string | null;
+                error: string | null;
+            };
+            usage: {
+                tokens: {
+                    input: number | null;
+                    output: number | null;
+                    reasoning: number | null;
+                    basis: 'reported' | 'approximate' | 'unknown';
+                };
+                searches: {
+                    count: number | null;
+                    basis: 'reported' | 'derived-from-evidence' | 'unknown';
+                };
+                pageReads: {
+                    count: number | null;
+                    basis: 'reported' | 'derived-from-evidence' | 'unknown';
+                };
+                billedUnits: Array<{
+                    unit: 'request' | 'credit' | 'search' | 'token';
+                    quantity: number;
+                    basis: 'reported';
+                }>;
+                cost: {
+                    micros: number | null;
+                    currency: 'USD';
+                    basis: 'reported' | 'estimated' | 'unknown';
+                    estimatedBy: 'provider' | 'canonry' | null;
+                };
+            };
+            sources: Array<{
+                url: string;
+                title: string | null;
+                relationship: 'search-result' | 'page-read' | 'answer-support' | 'explicit-citation';
+                rank: number | null;
+                citationNumbers?: Array<number>;
+                spans?: Array<{
+                    start: number;
+                    end: number;
+                    basis: 'upstream';
+                }>;
+                excerpts?: Array<string>;
+                excerptsTruncated?: boolean;
+                publishedAt: string | null;
+                upstreamId: string | null;
+                status?: string | null;
+            }>;
+            searchQueries: Array<string>;
+            retrievalStatus: 'used' | 'not-used' | 'unknown' | 'not-applicable';
+            citationBasis: 'explicit-citation' | 'answer-support' | 'mixed' | 'none';
+            citationMeasurable: boolean;
+            directSourceUrls: boolean;
+            location: {
+                requested: {
+                    label: string;
+                    city: string;
+                    region: string;
+                    country: string;
+                    timezone?: string;
+                } | null;
+                sent: {
+                    country?: string;
+                    region?: string;
+                    city?: string;
+                    timezone?: string;
+                } | null;
+                strength: 'filter' | 'hint' | null;
+                serviceDefault: {
+                    country?: string;
+                } | null;
+                status: 'applied' | 'partial' | 'ignored' | 'not-requested';
+            };
+            rawTruncated: boolean;
+        } | null;
     }>;
 };
 
@@ -12298,9 +14955,10 @@ export type RunCompletenessDto = {
 };
 
 export type RunDetailDto = {
+    sourceId?: string | null;
     id: string;
     projectId: string;
-    kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync';
+    kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync';
     status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
     trigger: 'manual' | 'scheduled' | 'config-apply' | 'backfill' | 'probe';
     measurementPlanVersionId?: string | null;
@@ -12332,12 +14990,38 @@ export type RunDetailDto = {
             [key: string]: {
                 message: string;
                 raw?: unknown;
+                code?: 'PROVIDER_AUTH' | 'PROVIDER_BILLING' | 'RATE_LIMITED' | 'PROVIDER_UNAVAILABLE' | 'NETWORK' | 'TIMEOUT' | 'PARSE_ERROR' | 'UNKNOWN';
+                skipped?: boolean;
             };
         };
     } | null;
     queryBasketRevision?: number | null;
     dispatchModes?: {
         [key: string]: 'batch';
+    };
+    skippedProviders?: {
+        [key: string]: {
+            code: 'PROVIDER_AUTH' | 'PROVIDER_BILLING' | 'RATE_LIMITED' | 'PROVIDER_UNAVAILABLE' | 'NETWORK' | 'TIMEOUT' | 'PARSE_ERROR' | 'UNKNOWN';
+            consecutiveRuns: number;
+            since: string;
+            latestRunId: string;
+            retryAfter: string;
+        };
+    };
+    syncSummary?: {
+        type: 'cloudflare-queue';
+        stopReason: 'backlog-empty' | 'empty-pulls' | 'unleased-only' | 'deadline' | 'batch-cap' | 'error';
+        pulls: number;
+        emptyPulls: number;
+        messagesPulled: number;
+        messagesAcknowledged: number;
+        poisonMessages: number;
+        skippedUnleasedMessages: number;
+        acceptedEvents: number;
+        duplicateEvents: number;
+        backlogAtFirstPull: number | null;
+        backlogAtLastPull: number | null;
+        elapsedMs: number;
     };
     createdAt: string;
     snapshots?: Array<{
@@ -12359,17 +15043,25 @@ export type RunDetailDto = {
         resolvedCount: number | null;
         captureVersion: number | null;
         retrievalStatus: 'used' | 'not-used' | 'unknown' | 'not-applicable' | null;
-        retrievalContract: 'native-auto-v1' | 'search-required-v1' | null;
+        retrievalContract: 'native-auto-v1' | 'search-required-v1' | 'service-native-v1' | null;
         competitorOverlap: Array<string>;
         citedCompetitorDomains: Array<string>;
         mentionedCompetitorDomains: Array<string>;
+        mentionedCompetitorTerms: Array<string>;
         recommendedCompetitors: Array<string>;
         matchedTerms: Array<string>;
+        mentionIdentity: 'wrong-subject' | null;
         groundingSources: Array<{
             uri: string;
             title: string;
         }>;
         searchQueries: Array<string>;
+        retrievedSources: Array<{
+            uri: string;
+            title: string;
+            kind: 'search-result' | 'page-read';
+            query: string | null;
+        }> | null;
         model?: string | null;
         servedModel?: string | null;
         location?: string | null;
@@ -12402,8 +15094,109 @@ export type RunDetailDto = {
             estimatedCostMicros: number | null;
             priceSource: 'default' | 'override' | null;
         } | null;
+        evidence?: {
+            version: 1;
+            identity: {
+                connection: string;
+                route: string;
+                service: string;
+                product: string;
+                profile: string;
+                settings: {
+                    [key: string]: string | number | boolean;
+                };
+                requestedServiceModel: string | null;
+                disclosedModel: string | null;
+                disclosedModelKind: 'foundation-model' | 'service-tier' | 'unknown' | null;
+                requestPolicy: string;
+                parserVersion: string;
+            };
+            completion: {
+                status: 'complete' | 'partial' | 'failed' | 'pending';
+                finishReason: string | null;
+                upstreamStatus: string | null;
+                upstreamRequestId: string | null;
+                upstreamJobId: string | null;
+                error: string | null;
+            };
+            usage: {
+                tokens: {
+                    input: number | null;
+                    output: number | null;
+                    reasoning: number | null;
+                    basis: 'reported' | 'approximate' | 'unknown';
+                };
+                searches: {
+                    count: number | null;
+                    basis: 'reported' | 'derived-from-evidence' | 'unknown';
+                };
+                pageReads: {
+                    count: number | null;
+                    basis: 'reported' | 'derived-from-evidence' | 'unknown';
+                };
+                billedUnits: Array<{
+                    unit: 'request' | 'credit' | 'search' | 'token';
+                    quantity: number;
+                    basis: 'reported';
+                }>;
+                cost: {
+                    micros: number | null;
+                    currency: 'USD';
+                    basis: 'reported' | 'estimated' | 'unknown';
+                    estimatedBy: 'provider' | 'canonry' | null;
+                };
+            };
+            sources: Array<{
+                url: string;
+                title: string | null;
+                relationship: 'search-result' | 'page-read' | 'answer-support' | 'explicit-citation';
+                rank: number | null;
+                citationNumbers?: Array<number>;
+                spans?: Array<{
+                    start: number;
+                    end: number;
+                    basis: 'upstream';
+                }>;
+                excerpts?: Array<string>;
+                excerptsTruncated?: boolean;
+                publishedAt: string | null;
+                upstreamId: string | null;
+                status?: string | null;
+            }>;
+            searchQueries: Array<string>;
+            retrievalStatus: 'used' | 'not-used' | 'unknown' | 'not-applicable';
+            citationBasis: 'explicit-citation' | 'answer-support' | 'mixed' | 'none';
+            citationMeasurable: boolean;
+            directSourceUrls: boolean;
+            location: {
+                requested: {
+                    label: string;
+                    city: string;
+                    region: string;
+                    country: string;
+                    timezone?: string;
+                } | null;
+                sent: {
+                    country?: string;
+                    region?: string;
+                    city?: string;
+                    timezone?: string;
+                } | null;
+                strength: 'filter' | 'hint' | null;
+                serviceDefault: {
+                    country?: string;
+                } | null;
+                status: 'applied' | 'partial' | 'ignored' | 'not-requested';
+            };
+            rawTruncated: boolean;
+        } | null;
         createdAt: string;
     }>;
+    queryCounts?: {
+        totalQueries: number;
+        citedQueries: number;
+        mentionedQueries: number;
+    } | null;
     providerBatches?: Array<{
         id: string;
         provider: string;
@@ -12479,9 +15272,10 @@ export type RunFillResponseDto = {
 };
 
 export type RunDto = {
+    sourceId?: string | null;
     id: string;
     projectId: string;
-    kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync';
+    kind: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync';
     status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
     trigger: 'manual' | 'scheduled' | 'config-apply' | 'backfill' | 'probe';
     measurementPlanVersionId?: string | null;
@@ -12513,6 +15307,8 @@ export type RunDto = {
             [key: string]: {
                 message: string;
                 raw?: unknown;
+                code?: 'PROVIDER_AUTH' | 'PROVIDER_BILLING' | 'RATE_LIMITED' | 'PROVIDER_UNAVAILABLE' | 'NETWORK' | 'TIMEOUT' | 'PARSE_ERROR' | 'UNKNOWN';
+                skipped?: boolean;
             };
         };
     } | null;
@@ -12520,10 +15316,34 @@ export type RunDto = {
     dispatchModes?: {
         [key: string]: 'batch';
     };
+    skippedProviders?: {
+        [key: string]: {
+            code: 'PROVIDER_AUTH' | 'PROVIDER_BILLING' | 'RATE_LIMITED' | 'PROVIDER_UNAVAILABLE' | 'NETWORK' | 'TIMEOUT' | 'PARSE_ERROR' | 'UNKNOWN';
+            consecutiveRuns: number;
+            since: string;
+            latestRunId: string;
+            retryAfter: string;
+        };
+    };
+    syncSummary?: {
+        type: 'cloudflare-queue';
+        stopReason: 'backlog-empty' | 'empty-pulls' | 'unleased-only' | 'deadline' | 'batch-cap' | 'error';
+        pulls: number;
+        emptyPulls: number;
+        messagesPulled: number;
+        messagesAcknowledged: number;
+        poisonMessages: number;
+        skippedUnleasedMessages: number;
+        acceptedEvents: number;
+        duplicateEvents: number;
+        backlogAtFirstPull: number | null;
+        backlogAtLastPull: number | null;
+        elapsedMs: number;
+    };
     createdAt: string;
 };
 
-export type SchedulableRunKind = 'answer-visibility' | 'traffic-sync' | 'gbp-sync' | 'data-refresh' | 'backlinks-sync' | 'site-audit' | 'ads-sync' | 'doctor';
+export type SchedulableRunKind = 'answer-visibility' | 'traffic-sync' | 'gbp-sync' | 'data-refresh' | 'backlinks-sync' | 'site-audit' | 'ads-sync' | 'doctor' | 'seo-sync';
 
 export type CalendarRecurrence = {
     everyDays: number;
@@ -12567,6 +15387,7 @@ export type SettingsDto = {
             maxRequestsPerDay: number;
         };
         vertexConfigured?: boolean;
+        kind?: 'answer-engine' | 'model-gateway' | 'answer-service';
     }>;
     providerCatalog: Array<{
         name: string;
@@ -12584,6 +15405,41 @@ export type SettingsDto = {
             flags: string;
         };
         modelValidationHint: string;
+        kind?: 'answer-engine' | 'model-gateway' | 'answer-service';
+        connection?: string;
+        selectionKind?: 'model' | 'profile' | null;
+        profiles?: Array<{
+            id: string;
+            route: string;
+            displayName: string;
+            description: string;
+            product: string;
+            execution: 'sync' | 'job';
+            workflows: Array<'visibility-sweep' | 'research' | 'snapshot' | 'discovery-seed'>;
+            evidence: {
+                relationships: Array<'search-result' | 'page-read' | 'answer-support' | 'explicit-citation'>;
+                citationBasis: 'explicit-citation' | 'answer-support' | 'mixed' | 'none';
+                citationMeasurable: boolean;
+                spans: boolean;
+                retrievalObservability: 'events' | 'sources' | 'none';
+            };
+            costBasis: 'reported' | 'estimated' | 'unknown';
+            locationGranularity: 'none' | 'country' | 'full';
+            disclosedModelKind: 'foundation-model' | 'service-tier' | 'unknown';
+            maxQueryChars: number | null;
+        }>;
+        workflows?: Array<'visibility-sweep' | 'research' | 'snapshot' | 'discovery-seed'>;
+        textGeneration?: boolean;
+        settingsFields?: Array<{
+            key: 'apiKey';
+            kind: 'secret';
+            required: boolean;
+            env: string | null;
+            label: string;
+        }>;
+        keyCheck?: 'verified-without-spending' | 'saved-not-verified';
+        keyUrl?: string;
+        vendorDocsUrl?: string;
     }>;
     google: {
         configured: boolean;
@@ -12591,6 +15447,107 @@ export type SettingsDto = {
     bing: {
         configured: boolean;
     };
+};
+
+export type SiteAuditIssuePagesResponseDto = {
+    project: string;
+    runId: string | null;
+    attemptId: string | null;
+    auditedAt: string | null;
+    runStatus: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | null;
+    complete: boolean;
+    termination: string | null;
+    runSelection?: {
+        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'latest-scored-scan' | 'requested-date-complete' | 'requested-date-most-pages';
+        date: string;
+        sameDateRunCount: number;
+        ambiguousDate: boolean;
+        candidates: Array<{
+            runId: string;
+            createdAt: string;
+            complete: boolean;
+            pages: number;
+        }>;
+        candidatesTruncated: boolean;
+    };
+    state: 'no-crawl' | 'unavailable' | 'partial' | 'available';
+    coverage: {
+        pageFindings: 'available' | 'partial' | 'unavailable';
+        crossPage: 'available' | 'unavailable';
+        auditedPages: number;
+        pagesWithFindingEvidence: number;
+        pagesWithoutFindingEvidence: number;
+        omittedFindings: number;
+    };
+    total: number | null;
+    nextCursor: string | null;
+    issueId: string;
+    pages: Array<{
+        nodeKey: string | null;
+        url: string;
+        message: string;
+        messageTruncated: boolean;
+        recommendations: Array<string>;
+        recommendationsScope: 'factor' | 'issue' | 'none';
+        recommendationsTruncated: boolean;
+    }>;
+};
+
+export type SiteAuditIssuesResponseDto = {
+    project: string;
+    runId: string | null;
+    attemptId: string | null;
+    auditedAt: string | null;
+    runStatus: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | null;
+    complete: boolean;
+    termination: string | null;
+    runSelection?: {
+        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'latest-scored-scan' | 'requested-date-complete' | 'requested-date-most-pages';
+        date: string;
+        sameDateRunCount: number;
+        ambiguousDate: boolean;
+        candidates: Array<{
+            runId: string;
+            createdAt: string;
+            complete: boolean;
+            pages: number;
+        }>;
+        candidatesTruncated: boolean;
+    };
+    state: 'no-crawl' | 'unavailable' | 'partial' | 'available';
+    coverage: {
+        pageFindings: 'available' | 'partial' | 'unavailable';
+        crossPage: 'available' | 'unavailable';
+        auditedPages: number;
+        pagesWithFindingEvidence: number;
+        pagesWithoutFindingEvidence: number;
+        omittedFindings: number;
+    };
+    total: number | null;
+    nextCursor: string | null;
+    issues: Array<{
+        id: string;
+        stableIdentity: boolean;
+        code: string;
+        source: 'page-finding' | 'cross-page' | 'critical-defect';
+        severity: 'critical' | 'warning' | null;
+        factorId: string | null;
+        findingType: 'found' | 'missing' | 'info' | 'timeout' | 'unreachable';
+        disposition: 'actionable' | 'advisory' | 'unverified' | 'informational';
+        message: string;
+        messageTruncated: boolean;
+        affectedPages: number;
+        examples: Array<{
+            nodeKey: string | null;
+            url: string;
+            message: string;
+            messageTruncated: boolean;
+            recommendations: Array<string>;
+            recommendationsScope: 'factor' | 'issue' | 'none';
+            recommendationsTruncated: boolean;
+        }>;
+        examplesTruncated: boolean;
+    }>;
 };
 
 export type SiteAuditLivePageHealthDto = {
@@ -12613,6 +15570,19 @@ export type SiteAuditPagesResponseDto = {
     project: string;
     runId: string | null;
     auditedAt: string | null;
+    runSelection?: {
+        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'latest-scored-scan' | 'requested-date-complete' | 'requested-date-most-pages';
+        date: string;
+        sameDateRunCount: number;
+        ambiguousDate: boolean;
+        candidates: Array<{
+            runId: string;
+            createdAt: string;
+            complete: boolean;
+            pages: number;
+        }>;
+        candidatesTruncated: boolean;
+    };
     total: number;
     pages: Array<{
         url: string;
@@ -12677,6 +15647,19 @@ export type SiteAuditScoreDto = {
     trend: 'up' | 'down' | 'flat' | null;
     previousScore: number | null;
     previousAuditedAt: string | null;
+    runSelection?: {
+        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'latest-scored-scan' | 'requested-date-complete' | 'requested-date-most-pages';
+        date: string;
+        sameDateRunCount: number;
+        ambiguousDate: boolean;
+        candidates: Array<{
+            runId: string;
+            createdAt: string;
+            complete: boolean;
+            pages: number;
+        }>;
+        candidatesTruncated: boolean;
+    };
     factors: Array<{
         id: string;
         name: string;
@@ -12688,6 +15671,18 @@ export type SiteAuditScoreDto = {
         pagesPartial: number;
         pagesFailing: number;
     }>;
+    affectedPageRanking?: {
+        basis: 'pages-below-pass';
+        scope: 'audited-pages';
+        pagesAudited: number;
+        items: Array<{
+            factorId: string;
+            pagesBelowPass: number;
+            pagesFailing: number;
+            pagesPartial: number;
+        }>;
+        unavailableFactorIds: Array<string>;
+    };
     crossCuttingIssues: Array<{
         factorId: string;
         factorName: string;
@@ -12715,16 +15710,55 @@ export type SiteCrawlDeadLinksResponseDto = {
     runId: string | null;
     state: 'unavailable';
     legacyAuditAvailable: boolean;
+    runSelection?: {
+        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'latest-scored-scan' | 'requested-date-complete' | 'requested-date-most-pages';
+        date: string;
+        sameDateRunCount: number;
+        ambiguousDate: boolean;
+        candidates: Array<{
+            runId: string;
+            createdAt: string;
+            complete: boolean;
+            pages: number;
+        }>;
+        candidatesTruncated: boolean;
+    };
 } | {
     project: string;
     runId: string;
     state: 'disabled';
     checkDeadLinks: false;
+    runSelection?: {
+        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'latest-scored-scan' | 'requested-date-complete' | 'requested-date-most-pages';
+        date: string;
+        sameDateRunCount: number;
+        ambiguousDate: boolean;
+        candidates: Array<{
+            runId: string;
+            createdAt: string;
+            complete: boolean;
+            pages: number;
+        }>;
+        candidatesTruncated: boolean;
+    };
 } | {
     project: string;
     runId: string;
     state: 'complete';
     checkDeadLinks: true;
+    runSelection?: {
+        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'latest-scored-scan' | 'requested-date-complete' | 'requested-date-most-pages';
+        date: string;
+        sameDateRunCount: number;
+        ambiguousDate: boolean;
+        candidates: Array<{
+            runId: string;
+            createdAt: string;
+            complete: boolean;
+            pages: number;
+        }>;
+        candidatesTruncated: boolean;
+    };
     checked: number;
     found: number;
     unverified: number;
@@ -12746,6 +15780,19 @@ export type SiteCrawlDeadLinksResponseDto = {
     runId: string;
     state: 'partial';
     checkDeadLinks: true;
+    runSelection?: {
+        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'latest-scored-scan' | 'requested-date-complete' | 'requested-date-most-pages';
+        date: string;
+        sameDateRunCount: number;
+        ambiguousDate: boolean;
+        candidates: Array<{
+            runId: string;
+            createdAt: string;
+            complete: boolean;
+            pages: number;
+        }>;
+        candidatesTruncated: boolean;
+    };
     checked: number;
     found: number;
     unverified: number;
@@ -12769,6 +15816,21 @@ export type SiteCrawlGraphResponseDto = {
     hasCrawlData: boolean;
     runId: string | null;
     rootNodeKey: string | null;
+    complete: boolean;
+    termination: string | null;
+    runSelection?: {
+        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'latest-scored-scan' | 'requested-date-complete' | 'requested-date-most-pages';
+        date: string;
+        sameDateRunCount: number;
+        ambiguousDate: boolean;
+        candidates: Array<{
+            runId: string;
+            createdAt: string;
+            complete: boolean;
+            pages: number;
+        }>;
+        candidatesTruncated: boolean;
+    };
     layout: {
         state: 'ready';
         version: string;
@@ -12799,6 +15861,7 @@ export type SiteCrawlGraphResponseDto = {
         outboundUniqueEdges: number;
         linkScoreNormalized: number | null;
         healthState: 'eligible' | 'hidden' | 'resource' | 'redirect' | 'failed' | 'unchecked';
+        healthReason?: 'indexable' | 'redirect-terminal' | 'canonical-to-other' | 'robots-disallow' | 'noindex' | 'non-html' | 'fetch-error' | 'not-fetched' | 'unknown';
         x: number;
         y: number;
     }>;
@@ -12819,6 +15882,21 @@ export type SiteCrawlInternalLinksResponseDto = {
     project: string;
     hasCrawlData: boolean;
     runId: string | null;
+    complete: boolean;
+    termination: string | null;
+    runSelection?: {
+        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'latest-scored-scan' | 'requested-date-complete' | 'requested-date-most-pages';
+        date: string;
+        sameDateRunCount: number;
+        ambiguousDate: boolean;
+        candidates: Array<{
+            runId: string;
+            createdAt: string;
+            complete: boolean;
+            pages: number;
+        }>;
+        candidatesTruncated: boolean;
+    };
     total: number;
     nextCursor: string | null;
     templateDetection: 'applied' | 'applied-placement' | 'applied-placement-with-ubiquity' | 'applied-placement-partial' | 'unavailable-too-few-pages' | 'unavailable-legacy-scan';
@@ -12851,6 +15929,21 @@ export type SiteCrawlNeighborsResponseDto = {
     project: string;
     hasCrawlData: boolean;
     runId: string | null;
+    complete: boolean;
+    termination: string | null;
+    runSelection?: {
+        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'latest-scored-scan' | 'requested-date-complete' | 'requested-date-most-pages';
+        date: string;
+        sameDateRunCount: number;
+        ambiguousDate: boolean;
+        candidates: Array<{
+            runId: string;
+            createdAt: string;
+            complete: boolean;
+            pages: number;
+        }>;
+        candidatesTruncated: boolean;
+    };
     nodeKey: string | null;
     url: string | null;
     templateDetection: 'applied' | 'applied-placement' | 'applied-placement-with-ubiquity' | 'applied-placement-partial' | 'unavailable-too-few-pages' | 'unavailable-legacy-scan';
@@ -12912,18 +16005,57 @@ export type SiteCrawlPageAuditDto = {
     runId: string;
     complete: boolean;
     termination: string | null;
+    runSelection?: {
+        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'latest-scored-scan' | 'requested-date-complete' | 'requested-date-most-pages';
+        date: string;
+        sameDateRunCount: number;
+        ambiguousDate: boolean;
+        candidates: Array<{
+            runId: string;
+            createdAt: string;
+            complete: boolean;
+            pages: number;
+        }>;
+        candidatesTruncated: boolean;
+    };
     state: 'details-unavailable';
 } | {
     project: string;
     runId: string;
     complete: boolean;
     termination: string | null;
+    runSelection?: {
+        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'latest-scored-scan' | 'requested-date-complete' | 'requested-date-most-pages';
+        date: string;
+        sameDateRunCount: number;
+        ambiguousDate: boolean;
+        candidates: Array<{
+            runId: string;
+            createdAt: string;
+            complete: boolean;
+            pages: number;
+        }>;
+        candidatesTruncated: boolean;
+    };
     state: 'not-found';
 } | {
     project: string;
     runId: string;
     complete: boolean;
     termination: string | null;
+    runSelection?: {
+        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'latest-scored-scan' | 'requested-date-complete' | 'requested-date-most-pages';
+        date: string;
+        sameDateRunCount: number;
+        ambiguousDate: boolean;
+        candidates: Array<{
+            runId: string;
+            createdAt: string;
+            complete: boolean;
+            pages: number;
+        }>;
+        candidatesTruncated: boolean;
+    };
     nodeKey: string;
     url: string;
     auditState: string;
@@ -12943,6 +16075,7 @@ export type SiteCrawlPageAuditDto = {
             message: string;
         }>;
         recommendations: Array<string>;
+        advisoryRecommendations?: Array<string>;
     }>;
     criticalDefects: Array<{
         id: string;
@@ -12955,6 +16088,19 @@ export type SiteCrawlPageAuditDto = {
     runId: string;
     complete: boolean;
     termination: string | null;
+    runSelection?: {
+        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'latest-scored-scan' | 'requested-date-complete' | 'requested-date-most-pages';
+        date: string;
+        sameDateRunCount: number;
+        ambiguousDate: boolean;
+        candidates: Array<{
+            runId: string;
+            createdAt: string;
+            complete: boolean;
+            pages: number;
+        }>;
+        candidatesTruncated: boolean;
+    };
     nodeKey: string;
     url: string;
     auditState: string;
@@ -12975,6 +16121,7 @@ export type SiteCrawlPageAuditDto = {
             message: string;
         }>;
         recommendations: Array<string>;
+        advisoryRecommendations?: Array<string>;
     }>;
     criticalDefects: Array<{
         id: string;
@@ -12988,6 +16135,46 @@ export type SiteCrawlPagesResponseDto = {
     project: string;
     hasCrawlData: boolean;
     runId: string | null;
+    complete: boolean;
+    termination: string | null;
+    runSelection?: {
+        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'latest-scored-scan' | 'requested-date-complete' | 'requested-date-most-pages';
+        date: string;
+        sameDateRunCount: number;
+        ambiguousDate: boolean;
+        candidates: Array<{
+            runId: string;
+            createdAt: string;
+            complete: boolean;
+            pages: number;
+        }>;
+        candidatesTruncated: boolean;
+    };
+    requestedDate?: string;
+    availableScanDates?: {
+        recentDates: Array<string>;
+        totalDates: number;
+        matchingMonthDayDates: Array<string>;
+        matchingMonthDayTotal: number;
+    };
+    inventorySummary?: {
+        scope: 'selected-snapshot';
+        total: number;
+        eligible: number;
+        excluded: number;
+        excludedReasons: Array<{
+            healthReason: 'indexable' | 'redirect-terminal' | 'canonical-to-other' | 'robots-disallow' | 'noindex' | 'non-html' | 'fetch-error' | 'not-fetched' | 'unknown';
+            pages: number;
+            exampleUrl: string;
+        }>;
+        urlVersions: number;
+        urlVersionsNotFetched: number;
+    } | null;
+    healthReasonCounts?: Array<{
+        healthReason: 'indexable' | 'redirect-terminal' | 'canonical-to-other' | 'robots-disallow' | 'noindex' | 'non-html' | 'fetch-error' | 'not-fetched' | 'unknown';
+        pages: number;
+        exampleUrl: string;
+    }> | null;
     total: number;
     nextCursor: string | null;
     healthStateFilter: 'applied' | 'unavailable-legacy-scan' | null;
@@ -13014,6 +16201,8 @@ export type SiteCrawlPagesResponseDto = {
         linkScoreRaw: number | null;
         linkScoreNormalized: number | null;
         healthState: 'eligible' | 'hidden' | 'resource' | 'redirect' | 'failed' | 'unchecked';
+        healthReason?: 'indexable' | 'redirect-terminal' | 'canonical-to-other' | 'robots-disallow' | 'noindex' | 'non-html' | 'fetch-error' | 'not-fetched' | 'unknown';
+        urlVersionOf: string | null;
     }>;
 };
 
@@ -13021,6 +16210,21 @@ export type SiteCrawlStructureResponseDto = {
     project: string;
     hasCrawlData: boolean;
     runId: string | null;
+    complete: boolean;
+    termination: string | null;
+    runSelection?: {
+        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'latest-scored-scan' | 'requested-date-complete' | 'requested-date-most-pages';
+        date: string;
+        sameDateRunCount: number;
+        ambiguousDate: boolean;
+        candidates: Array<{
+            runId: string;
+            createdAt: string;
+            complete: boolean;
+            pages: number;
+        }>;
+        candidatesTruncated: boolean;
+    };
     parentPath: string;
     nextCursor: string | null;
     children: Array<{
@@ -13038,6 +16242,39 @@ export type SiteCrawlSummaryDto = {
     hasCrawlData: boolean;
     legacyAuditAvailable: boolean;
     runId: string | null;
+    runSelection?: {
+        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'latest-scored-scan' | 'requested-date-complete' | 'requested-date-most-pages';
+        date: string;
+        sameDateRunCount: number;
+        ambiguousDate: boolean;
+        candidates: Array<{
+            runId: string;
+            createdAt: string;
+            complete: boolean;
+            pages: number;
+        }>;
+        candidatesTruncated: boolean;
+    };
+    requestedDate?: string;
+    availableScanDates?: {
+        recentDates: Array<string>;
+        totalDates: number;
+        matchingMonthDayDates: Array<string>;
+        matchingMonthDayTotal: number;
+    };
+    inventorySummary?: {
+        scope: 'selected-snapshot';
+        total: number;
+        eligible: number;
+        excluded: number;
+        excludedReasons: Array<{
+            healthReason: 'indexable' | 'redirect-terminal' | 'canonical-to-other' | 'robots-disallow' | 'noindex' | 'non-html' | 'fetch-error' | 'not-fetched' | 'unknown';
+            pages: number;
+            exampleUrl: string;
+        }>;
+        urlVersions: number;
+        urlVersionsNotFetched: number;
+    } | null;
     runStatus: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | null;
     requestedRootUrl: string | null;
     rootUrl: string | null;
@@ -13147,6 +16384,8 @@ export type SiteHealthChangesResponseDto = {
             linkScoreRaw: number | null;
             linkScoreNormalized: number | null;
             healthState: 'eligible' | 'hidden' | 'resource' | 'redirect' | 'failed' | 'unchecked';
+            healthReason?: 'indexable' | 'redirect-terminal' | 'canonical-to-other' | 'robots-disallow' | 'noindex' | 'non-html' | 'fetch-error' | 'not-fetched' | 'unknown';
+            urlVersionOf: string | null;
         } | null;
         after: {
             nodeKey: string;
@@ -13171,6 +16410,8 @@ export type SiteHealthChangesResponseDto = {
             linkScoreRaw: number | null;
             linkScoreNormalized: number | null;
             healthState: 'eligible' | 'hidden' | 'resource' | 'redirect' | 'failed' | 'unchecked';
+            healthReason?: 'indexable' | 'redirect-terminal' | 'canonical-to-other' | 'robots-disallow' | 'noindex' | 'non-html' | 'fetch-error' | 'not-fetched' | 'unknown';
+            urlVersionOf: string | null;
         } | null;
     } | {
         entity: 'link';
@@ -13229,6 +16470,19 @@ export type SiteHealthPathResponseDto = {
     runId: string | null;
     complete: boolean;
     termination: string | null;
+    runSelection?: {
+        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'latest-scored-scan' | 'requested-date-complete' | 'requested-date-most-pages';
+        date: string;
+        sameDateRunCount: number;
+        ambiguousDate: boolean;
+        candidates: Array<{
+            runId: string;
+            createdAt: string;
+            complete: boolean;
+            pages: number;
+        }>;
+        candidatesTruncated: boolean;
+    };
     state: 'no-crawl' | 'details-unavailable' | 'found' | 'unreachable' | 'truncated';
     from: {
         nodeKey: string;
@@ -13265,6 +16519,8 @@ export type SiteHealthPathResponseDto = {
         linkScoreRaw: number | null;
         linkScoreNormalized: number | null;
         healthState: 'eligible' | 'hidden' | 'resource' | 'redirect' | 'failed' | 'unchecked';
+        healthReason?: 'indexable' | 'redirect-terminal' | 'canonical-to-other' | 'robots-disallow' | 'noindex' | 'non-html' | 'fetch-error' | 'not-fetched' | 'unknown';
+        urlVersionOf: string | null;
     }>;
     edges: Array<{
         edgeKey: string;
@@ -13292,6 +16548,7 @@ export type SiteHealthPathResponseDto = {
 
 export type SiteHealthScansResponseDto = {
     project: string;
+    preferredRunId?: string | null;
     scans: Array<{
         runId: string;
         status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
@@ -13308,6 +16565,19 @@ export type SiteHealthSubgraphResponseDto = {
     runId: string | null;
     complete: boolean;
     termination: string | null;
+    runSelection?: {
+        reason: 'explicit-run' | 'latest-date-complete' | 'latest-date-most-pages' | 'latest-scored-scan' | 'requested-date-complete' | 'requested-date-most-pages';
+        date: string;
+        sameDateRunCount: number;
+        ambiguousDate: boolean;
+        candidates: Array<{
+            runId: string;
+            createdAt: string;
+            complete: boolean;
+            pages: number;
+        }>;
+        candidatesTruncated: boolean;
+    };
     state: 'no-crawl' | 'details-unavailable' | 'ready';
     focusNodeKey: string | null;
     focusUrl: string | null;
@@ -13337,6 +16607,8 @@ export type SiteHealthSubgraphResponseDto = {
         linkScoreRaw: number | null;
         linkScoreNormalized: number | null;
         healthState: 'eligible' | 'hidden' | 'resource' | 'redirect' | 'failed' | 'unchecked';
+        healthReason?: 'indexable' | 'redirect-terminal' | 'canonical-to-other' | 'robots-disallow' | 'noindex' | 'non-html' | 'fetch-error' | 'not-fetched' | 'unknown';
+        urlVersionOf: string | null;
         distance: number;
         relationToFocus: 'focus' | 'inbound' | 'outbound' | 'both' | 'transitive';
     }>;
@@ -13374,14 +16646,14 @@ export type SnapshotDiffResponse = {
     diff: Array<{
         queryId: string | null;
         query: string | null;
-        run1State: 'cited' | 'not-cited';
-        run2State: 'cited' | 'not-cited';
+        run1State: 'cited' | 'not-cited' | null;
+        run2State: 'cited' | 'not-cited' | null;
         run1AnswerMentioned: boolean | null;
         run2AnswerMentioned: boolean | null;
-        run1VisibilityState: 'visible' | 'not-visible';
-        run2VisibilityState: 'visible' | 'not-visible';
-        run1MentionState?: 'mentioned' | 'not-mentioned';
-        run2MentionState?: 'mentioned' | 'not-mentioned';
+        run1VisibilityState: 'visible' | 'not-visible' | null;
+        run2VisibilityState: 'visible' | 'not-visible' | null;
+        run1MentionState?: 'mentioned' | 'not-mentioned' | null;
+        run2MentionState?: 'mentioned' | 'not-mentioned' | null;
         changed: boolean;
         visibilityChanged: boolean;
     }>;
@@ -13407,17 +16679,25 @@ export type SnapshotListResponse = {
         resolvedCount: number | null;
         captureVersion: number | null;
         retrievalStatus: 'used' | 'not-used' | 'unknown' | 'not-applicable' | null;
-        retrievalContract: 'native-auto-v1' | 'search-required-v1' | null;
+        retrievalContract: 'native-auto-v1' | 'search-required-v1' | 'service-native-v1' | null;
         competitorOverlap: Array<string>;
         citedCompetitorDomains: Array<string>;
         mentionedCompetitorDomains: Array<string>;
+        mentionedCompetitorTerms: Array<string>;
         recommendedCompetitors: Array<string>;
         matchedTerms: Array<string>;
+        mentionIdentity: 'wrong-subject' | null;
         groundingSources: Array<{
             uri: string;
             title: string;
         }>;
         searchQueries: Array<string>;
+        retrievedSources: Array<{
+            uri: string;
+            title: string;
+            kind: 'search-result' | 'page-read';
+            query: string | null;
+        }> | null;
         model?: string | null;
         servedModel?: string | null;
         location?: string | null;
@@ -13449,6 +16729,102 @@ export type SnapshotListResponse = {
             pricingTier: 'standard' | 'batch';
             estimatedCostMicros: number | null;
             priceSource: 'default' | 'override' | null;
+        } | null;
+        evidence?: {
+            version: 1;
+            identity: {
+                connection: string;
+                route: string;
+                service: string;
+                product: string;
+                profile: string;
+                settings: {
+                    [key: string]: string | number | boolean;
+                };
+                requestedServiceModel: string | null;
+                disclosedModel: string | null;
+                disclosedModelKind: 'foundation-model' | 'service-tier' | 'unknown' | null;
+                requestPolicy: string;
+                parserVersion: string;
+            };
+            completion: {
+                status: 'complete' | 'partial' | 'failed' | 'pending';
+                finishReason: string | null;
+                upstreamStatus: string | null;
+                upstreamRequestId: string | null;
+                upstreamJobId: string | null;
+                error: string | null;
+            };
+            usage: {
+                tokens: {
+                    input: number | null;
+                    output: number | null;
+                    reasoning: number | null;
+                    basis: 'reported' | 'approximate' | 'unknown';
+                };
+                searches: {
+                    count: number | null;
+                    basis: 'reported' | 'derived-from-evidence' | 'unknown';
+                };
+                pageReads: {
+                    count: number | null;
+                    basis: 'reported' | 'derived-from-evidence' | 'unknown';
+                };
+                billedUnits: Array<{
+                    unit: 'request' | 'credit' | 'search' | 'token';
+                    quantity: number;
+                    basis: 'reported';
+                }>;
+                cost: {
+                    micros: number | null;
+                    currency: 'USD';
+                    basis: 'reported' | 'estimated' | 'unknown';
+                    estimatedBy: 'provider' | 'canonry' | null;
+                };
+            };
+            sources: Array<{
+                url: string;
+                title: string | null;
+                relationship: 'search-result' | 'page-read' | 'answer-support' | 'explicit-citation';
+                rank: number | null;
+                citationNumbers?: Array<number>;
+                spans?: Array<{
+                    start: number;
+                    end: number;
+                    basis: 'upstream';
+                }>;
+                excerpts?: Array<string>;
+                excerptsTruncated?: boolean;
+                publishedAt: string | null;
+                upstreamId: string | null;
+                status?: string | null;
+            }>;
+            searchQueries: Array<string>;
+            retrievalStatus: 'used' | 'not-used' | 'unknown' | 'not-applicable';
+            citationBasis: 'explicit-citation' | 'answer-support' | 'mixed' | 'none';
+            citationMeasurable: boolean;
+            directSourceUrls: boolean;
+            location: {
+                requested: {
+                    label: string;
+                    city: string;
+                    region: string;
+                    country: string;
+                    timezone?: string;
+                } | null;
+                sent: {
+                    country?: string;
+                    region?: string;
+                    city?: string;
+                    timezone?: string;
+                } | null;
+                strength: 'filter' | 'hint' | null;
+                serviceDefault: {
+                    country?: string;
+                } | null;
+                status: 'applied' | 'partial' | 'ignored' | 'not-requested';
+            };
+            rawTruncated: boolean;
         } | null;
         createdAt: string;
     }>;
@@ -13506,6 +16882,103 @@ export type SnapshotReportDto = {
             searchQueries: Array<string>;
             answerText: string;
             error?: string | null;
+            evidence?: {
+                version: 1;
+                identity: {
+                    connection: string;
+                    route: string;
+                    service: string;
+                    product: string;
+                    profile: string;
+                    settings: {
+                        [key: string]: string | number | boolean;
+                    };
+                    requestedServiceModel: string | null;
+                    disclosedModel: string | null;
+                    disclosedModelKind: 'foundation-model' | 'service-tier' | 'unknown' | null;
+                    requestPolicy: string;
+                    parserVersion: string;
+                };
+                completion: {
+                    status: 'complete' | 'partial' | 'failed' | 'pending';
+                    finishReason: string | null;
+                    upstreamStatus: string | null;
+                    upstreamRequestId: string | null;
+                    upstreamJobId: string | null;
+                    error: string | null;
+                };
+                usage: {
+                    tokens: {
+                        input: number | null;
+                        output: number | null;
+                        reasoning: number | null;
+                        basis: 'reported' | 'approximate' | 'unknown';
+                    };
+                    searches: {
+                        count: number | null;
+                        basis: 'reported' | 'derived-from-evidence' | 'unknown';
+                    };
+                    pageReads: {
+                        count: number | null;
+                        basis: 'reported' | 'derived-from-evidence' | 'unknown';
+                    };
+                    billedUnits: Array<{
+                        unit: 'request' | 'credit' | 'search' | 'token';
+                        quantity: number;
+                        basis: 'reported';
+                    }>;
+                    cost: {
+                        micros: number | null;
+                        currency: 'USD';
+                        basis: 'reported' | 'estimated' | 'unknown';
+                        estimatedBy: 'provider' | 'canonry' | null;
+                    };
+                };
+                sources: Array<{
+                    url: string;
+                    title: string | null;
+                    relationship: 'search-result' | 'page-read' | 'answer-support' | 'explicit-citation';
+                    rank: number | null;
+                    citationNumbers?: Array<number>;
+                    spans?: Array<{
+                        start: number;
+                        end: number;
+                        basis: 'upstream';
+                    }>;
+                    excerpts?: Array<string>;
+                    excerptsTruncated?: boolean;
+                    publishedAt: string | null;
+                    upstreamId: string | null;
+                    status?: string | null;
+                }>;
+                searchQueries: Array<string>;
+                retrievalStatus: 'used' | 'not-used' | 'unknown' | 'not-applicable';
+                citationBasis: 'explicit-citation' | 'answer-support' | 'mixed' | 'none';
+                citationMeasurable: boolean;
+                directSourceUrls: boolean;
+                location: {
+                    requested: {
+                        label: string;
+                        city: string;
+                        region: string;
+                        country: string;
+                        timezone?: string;
+                    } | null;
+                    sent: {
+                        country?: string;
+                        region?: string;
+                        city?: string;
+                        timezone?: string;
+                    } | null;
+                    strength: 'filter' | 'hint' | null;
+                    serviceDefault: {
+                        country?: string;
+                    } | null;
+                    status: 'applied' | 'partial' | 'ignored' | 'not-requested';
+                };
+                rawTruncated: boolean;
+            } | null;
+            citationMeasured?: boolean;
         }>;
     }>;
     summary: {
@@ -13514,6 +16987,7 @@ export type SnapshotReportDto = {
         totalComparisons: number;
         mentionCount: number;
         citationCount: number;
+        citationComparisons?: number;
         topCompetitors: Array<{
             name: string;
             count: number;
@@ -13547,6 +17021,7 @@ export type SourceBreakdownDto = {
         domainTotal: number;
         entries: Array<{
             domain: string;
+            rank?: number;
             count: number;
             percentage: number;
             answerShare?: number;
@@ -13572,6 +17047,7 @@ export type SourceBreakdownDto = {
             domainTotal: number;
             entries: Array<{
                 domain: string;
+                rank?: number;
                 count: number;
                 percentage: number;
                 answerShare?: number;
@@ -13637,6 +17113,20 @@ export type SourceBreakdownDto = {
 
 export type TelemetryEventAcceptedDto = {
     accepted: boolean;
+};
+
+export type FeedbackSubmission = {
+    kind: 'struggle' | 'bug' | 'improvement' | 'other';
+    summary: string;
+    details?: string;
+    area?: string;
+    command?: string;
+    errorCode?: string;
+};
+
+export type FeedbackAcceptedDto = {
+    accepted: boolean;
+    id: string;
 };
 
 export type TelemetryStatusDto = {
@@ -13747,11 +17237,13 @@ export type TrafficBackfillResponse = {
 export type TrafficConnectCloudflareRequest = {
     displayName?: string;
     zoneId?: string;
+    forwardPageViews?: boolean;
     deliveryMode: 'direct-push';
     accountId?: string;
 } | {
     displayName?: string;
     zoneId?: string;
+    forwardPageViews?: boolean;
     deliveryMode: 'queue-pull';
     accountId: string;
     queueId: string;
@@ -13765,6 +17257,7 @@ export type TrafficConnectCloudflareResponse = {
     workerScript: string;
     wranglerToml: string;
     workerVersion: string;
+    forwardPageViews: boolean;
     instructions: string;
     deliveryMode: 'direct-push';
     activationRequired: boolean;
@@ -13773,6 +17266,7 @@ export type TrafficConnectCloudflareResponse = {
     workerScript: string;
     wranglerToml: string;
     workerVersion: string;
+    forwardPageViews: boolean;
     instructions: string;
     deliveryMode: 'queue-pull';
     activationRequired: boolean;
@@ -13912,6 +17406,187 @@ export type TrafficEventsResponse = {
     }>;
 };
 
+export type TrafficSamplesResponse = {
+    scope: {
+        project: string;
+        sourceId: string | null;
+        attribution: 'project-source-only';
+        unavailableDimensions: Array<'property' | 'target' | 'market'>;
+    };
+    windowStart: string;
+    windowEnd: string;
+    retentionDays: 30;
+    sampling: {
+        complete: false;
+        perSync: 100;
+        perBackfill: 500;
+        perPushHour: 100;
+    };
+    totalRows: number;
+    limit: number;
+    offset: number;
+    samples: Array<{
+        id: string;
+        sourceId: string;
+        ts: string;
+        kind: 'crawler' | 'ai-user-fetch' | 'ai-referral' | 'unknown';
+        pathNormalized: string;
+        status: number | null;
+        refererHost: string | null;
+        userAgent: string | null;
+        classifier: {
+            crawler: {
+                botId?: string | null;
+                operator?: string | null;
+                product?: string | null;
+                verificationStatus?: 'verified' | 'claimed_unverified' | 'unknown_ai_like' | null;
+                verificationManifest?: {
+                    id?: string | null;
+                    source?: string | null;
+                    version?: string | null;
+                } | null;
+                matchedUserAgent?: string | null;
+                purpose?: string | null;
+            } | null;
+            aiUserFetch: {
+                botId?: string | null;
+                operator?: string | null;
+                product?: string | null;
+                verificationStatus?: 'verified' | 'claimed_unverified' | 'unknown_ai_like' | null;
+                verificationManifest?: {
+                    id?: string | null;
+                    source?: string | null;
+                    version?: string | null;
+                } | null;
+                matchedUserAgent?: string | null;
+            } | null;
+            aiReferral: {
+                operator?: string | null;
+                product?: string | null;
+                sourceDomain?: string | null;
+                evidenceType?: 'referer' | 'utm' | 'referer-utm' | null;
+                trafficClass?: 'organic' | 'paid' | null;
+            } | null;
+        };
+    }>;
+};
+
+export type JourneysResponse = {
+    project: string;
+    windowStart: string;
+    windowEnd: string;
+    lookbackDays: 30;
+    retentionDays: 180;
+    totalVisitors: number;
+    limit: number;
+    offset: number;
+    partialSources: Array<{
+        sourceId: string;
+        sourceType: string;
+        reason: string;
+    }>;
+    visitors: Array<{
+        visitorKey: string;
+        keyBasis: 'ip-ua' | 'ua';
+        device: string;
+        userAgent: string | null;
+        firstAiAt: string;
+        firstAiEngine: string;
+        lastAiAt: string;
+        lastSeenAt: string;
+        visitCount: number;
+        aiVisitCount: number;
+        returned: boolean;
+        returnChannels: Array<'ai' | 'search' | 'social' | 'paid' | 'referral' | 'direct'>;
+        cappedDays: number;
+        visits: Array<{
+            id: string;
+            sourceId: string;
+            startedAt: string;
+            endedAt: string;
+            entryClass: 'ai' | 'search' | 'social' | 'paid' | 'referral' | 'direct';
+            entryName: string | null;
+            entryHost: string | null;
+            paid: boolean;
+            landingPath: string;
+            requestCount: number;
+            pageCount: number;
+        }>;
+    }>;
+};
+
+export type JourneyDetailResponse = {
+    project: string;
+    visitor: {
+        visitorKey: string;
+        keyBasis: 'ip-ua' | 'ua';
+        device: string;
+        userAgent: string | null;
+        firstAiAt: string;
+        firstAiEngine: string;
+        lastAiAt: string;
+        lastSeenAt: string;
+        visitCount: number;
+        aiVisitCount: number;
+        returned: boolean;
+        returnChannels: Array<'ai' | 'search' | 'social' | 'paid' | 'referral' | 'direct'>;
+        cappedDays: number;
+    };
+    totalVisits: number;
+    limit: number;
+    offset: number;
+    visits: Array<{
+        id: string;
+        sourceId: string;
+        startedAt: string;
+        endedAt: string;
+        entryClass: 'ai' | 'search' | 'social' | 'paid' | 'referral' | 'direct';
+        entryName: string | null;
+        entryHost: string | null;
+        paid: boolean;
+        landingPath: string;
+        requestCount: number;
+        pageCount: number;
+        events: Array<{
+            ts: string;
+            method: string | null;
+            path: string;
+            status: number | null;
+            kind: 'page' | 'data';
+            aiTouch: boolean;
+        }>;
+    }>;
+};
+
+export type JourneySummaryResponse = {
+    project: string;
+    windowStart: string;
+    windowEnd: string;
+    lookbackDays: 30;
+    aiVisitors: number;
+    aiVisits: number;
+    returningVisitors: number;
+    returnRate: number | null;
+    returnedVia: {
+        [key: string]: number;
+    };
+    medianDaysToReturn: number | null;
+    byEngine: Array<{
+        engine: string;
+        visitors: number;
+        returningVisitors: number;
+    }>;
+    keyBasis: {
+        ipUa: number;
+        ua: number;
+    };
+    partialSources: Array<{
+        sourceId: string;
+        sourceType: string;
+        reason: string;
+    }>;
+};
+
 export type TrafficSourceDetailDto = {
     id: string;
     projectId: string;
@@ -13953,6 +17628,21 @@ export type TrafficSourceDetailDto = {
         startedAt: string | null;
         finishedAt: string | null;
         error: string | null;
+        syncSummary?: {
+            type: 'cloudflare-queue';
+            stopReason: 'backlog-empty' | 'empty-pulls' | 'unleased-only' | 'deadline' | 'batch-cap' | 'error';
+            pulls: number;
+            emptyPulls: number;
+            messagesPulled: number;
+            messagesAcknowledged: number;
+            poisonMessages: number;
+            skippedUnleasedMessages: number;
+            acceptedEvents: number;
+            duplicateEvents: number;
+            backlogAtFirstPull: number | null;
+            backlogAtLastPull: number | null;
+            elapsedMs: number;
+        };
     } | null;
 };
 
@@ -14040,6 +17730,21 @@ export type TrafficStatusResponse = {
             startedAt: string | null;
             finishedAt: string | null;
             error: string | null;
+            syncSummary?: {
+                type: 'cloudflare-queue';
+                stopReason: 'backlog-empty' | 'empty-pulls' | 'unleased-only' | 'deadline' | 'batch-cap' | 'error';
+                pulls: number;
+                emptyPulls: number;
+                messagesPulled: number;
+                messagesAcknowledged: number;
+                poisonMessages: number;
+                skippedUnleasedMessages: number;
+                acceptedEvents: number;
+                duplicateEvents: number;
+                backlogAtFirstPull: number | null;
+                backlogAtLastPull: number | null;
+                elapsedMs: number;
+            };
         } | null;
     }>;
 };
@@ -14059,6 +17764,21 @@ export type TrafficSyncResponse = {
     aiReferralBucketRows: number;
     sampleRows: number;
     remainingBacklogCount?: number;
+    queueDrain?: {
+        type: 'cloudflare-queue';
+        stopReason: 'backlog-empty' | 'empty-pulls' | 'unleased-only' | 'deadline' | 'batch-cap' | 'error';
+        pulls: number;
+        emptyPulls: number;
+        messagesPulled: number;
+        messagesAcknowledged: number;
+        poisonMessages: number;
+        skippedUnleasedMessages: number;
+        acceptedEvents: number;
+        duplicateEvents: number;
+        backlogAtFirstPull: number | null;
+        backlogAtLastPull: number | null;
+        elapsedMs: number;
+    };
     windowStart: string;
     windowEnd: string;
 };
@@ -14173,6 +17893,7 @@ export type VisibilityCompareDto = {
             numerator: number;
             denominator: number;
             excludedUnknown?: number;
+            excludedNoRetrieval?: number;
         };
         to: {
             availability: 'available' | 'no-observations' | 'no-competitive-frame' | 'classification-unavailable';
@@ -14182,6 +17903,7 @@ export type VisibilityCompareDto = {
             numerator: number;
             denominator: number;
             excludedUnknown?: number;
+            excludedNoRetrieval?: number;
         };
         rateRatio: number | null;
         direction: 'up' | 'down' | 'flat' | null;
@@ -14235,6 +17957,14 @@ export type VisibilityCompareDto = {
             mentions: number;
         }>;
     };
+    /**
+     * When the names the project's competitors are matched by last changed: a tracked competitor's curated or stored auto-detected names (a block counts only when it removes a stored name), a detection pass that stored or removed a market-only competitor's learned names, a write that claimed, released or dropped a market-only competitor's learned names, or a published revision that renamed a market pin; null if never. The competitor landscape reads every period with the current names, so a figure for any period quoted before this time was restated at this time. Analytics mention share and project-frame visibility-compare share of voice read only tracked competitors' names, so a market pin or learned-name change moves this time without changing them. Adding or removing a competitor or a pin is a names change only when it moves a stored or learned name.
+     */
+    competitorIdentityChangedAt?: string | null;
+    /**
+     * When the tracked competitor set last changed: a non-empty competitor add, removal, replacement, or discovery promotion. Older replacement audit rows without added/removed fields count conservatively; an identical replacement with both arrays empty does not. Null when the set never changed.
+     */
+    competitorSetChangedAt?: string | null;
 };
 
 export type VisibilityStatsDto = {
@@ -14289,9 +18019,9 @@ export type VisibilityStatsDto = {
         }>;
     }>;
     shareOfVoice?: {
-        basis?: 'tracked' | 'observed';
+        basis?: 'tracked' | 'observed' | null;
         availability?: 'measured' | 'not-measured' | 'unavailable';
-        reason?: 'select-query-class' | 'no-competitors' | 'insufficient-observed' | 'no-answers' | 'no-mentions' | 'unavailable';
+        reason?: 'select-query-class' | 'answer-selection' | 'no-competitors' | 'insufficient-observed' | 'no-answers' | 'no-mentions' | 'unavailable' | null;
         measurementScope?: 'project' | 'all-markets';
         queryClass: 'branded' | 'non-brand' | 'pooled';
         percent: number | null;
@@ -14306,19 +18036,28 @@ export type VisibilityStatsDto = {
     };
 };
 
-export type WordpressAuditPageDto = {
-    slug: string;
-    title: string;
-    status: string;
-    wordCount: number;
-    seo: {
-        title: string | null;
-        description: string | null;
-        noindex: boolean | null;
-        writable: boolean;
-        writeTargets: Array<string>;
-    };
-    schemaPresent: boolean;
+export type WordpressAuditDto = {
+    env: 'live' | 'staging';
+    pages: Array<{
+        slug: string;
+        title: string;
+        status: string;
+        wordCount: number;
+        seo: {
+            title: string | null;
+            description: string | null;
+            noindex: boolean | null;
+            writable: boolean;
+            writeTargets: Array<string>;
+        };
+        schemaPresent: boolean;
+        issues: Array<{
+            slug: string;
+            severity: 'high' | 'medium' | 'low';
+            code: 'noindex' | 'missing-seo-title' | 'missing-meta-description' | 'missing-schema' | 'thin-content';
+            message: string;
+        }>;
+    }>;
     issues: Array<{
         slug: string;
         severity: 'high' | 'medium' | 'low';
@@ -14408,6 +18147,12 @@ export type WordpressDiffDto = {
     };
 };
 
+export type WordpressLlmsTxtDto = {
+    env: 'live' | 'staging';
+    url: string;
+    content: string | null;
+};
+
 export type WordpressManualAssistDto = {
     manualRequired: true;
     targetUrl: string;
@@ -14450,13 +18195,16 @@ export type WordpressPageDetailDto = {
     }>;
 };
 
-export type WordpressPageSummaryDto = {
-    id: number;
-    slug: string;
-    title: string;
-    status: string;
-    modifiedAt?: string | null;
-    link?: string | null;
+export type WordpressPageListDto = {
+    env: 'live' | 'staging';
+    pages: Array<{
+        id: number;
+        slug: string;
+        title: string;
+        status: string;
+        modifiedAt?: string | null;
+        link?: string | null;
+    }>;
 };
 
 export type WordpressSchemaBlockDto = {
@@ -14532,6 +18280,901 @@ export type ErrorEnvelope = {
         details?: unknown;
     };
 };
+
+export type GetApiV1SeoOperatorTasksByIdData = {
+    body?: never;
+    path: {
+        /**
+         * Exact SEO task ID.
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/seo/operator/tasks/{id}';
+};
+
+export type GetApiV1SeoOperatorTasksByIdErrors = {
+    /**
+     * Host operator authority required.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Task not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1SeoOperatorTasksByIdError = GetApiV1SeoOperatorTasksByIdErrors[keyof GetApiV1SeoOperatorTasksByIdErrors];
+
+export type GetApiV1SeoOperatorTasksByIdResponses = {
+    /**
+     * Private receipt.
+     */
+    200: SeoOperatorTask;
+};
+
+export type GetApiV1SeoOperatorTasksByIdResponse = GetApiV1SeoOperatorTasksByIdResponses[keyof GetApiV1SeoOperatorTasksByIdResponses];
+
+export type PostApiV1SeoOperatorTasksByIdReconcileData = {
+    body: SeoReconcileInput;
+    path: {
+        /**
+         * Exact SEO task ID.
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/seo/operator/tasks/{id}/reconcile';
+};
+
+export type PostApiV1SeoOperatorTasksByIdReconcileErrors = {
+    /**
+     * Invalid receipt.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Host operator authority and seo.run required.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Task not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Receipt already reconciled differently.
+     */
+    409: ErrorEnvelope;
+};
+
+export type PostApiV1SeoOperatorTasksByIdReconcileError = PostApiV1SeoOperatorTasksByIdReconcileErrors[keyof PostApiV1SeoOperatorTasksByIdReconcileErrors];
+
+export type PostApiV1SeoOperatorTasksByIdReconcileResponses = {
+    /**
+     * Receipt reconciled.
+     */
+    200: SeoReconcileResult;
+};
+
+export type PostApiV1SeoOperatorTasksByIdReconcileResponse = PostApiV1SeoOperatorTasksByIdReconcileResponses[keyof PostApiV1SeoOperatorTasksByIdReconcileResponses];
+
+export type GetApiV1ProjectsByNameSeoContextData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/seo/context';
+};
+
+export type GetApiV1ProjectsByNameSeoContextErrors = {
+    /**
+     * Invalid scope or input.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Insufficient authority.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project or selected evidence not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Selection, intent or execution identity changed.
+     */
+    409: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameSeoContextError = GetApiV1ProjectsByNameSeoContextErrors[keyof GetApiV1ProjectsByNameSeoContextErrors];
+
+export type GetApiV1ProjectsByNameSeoContextResponses = {
+    /**
+     * SEO response.
+     */
+    200: SeoContext;
+};
+
+export type GetApiV1ProjectsByNameSeoContextResponse = GetApiV1ProjectsByNameSeoContextResponses[keyof GetApiV1ProjectsByNameSeoContextResponses];
+
+export type GetApiV1ProjectsByNameSeoStatusData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/seo/status';
+};
+
+export type GetApiV1ProjectsByNameSeoStatusErrors = {
+    /**
+     * Invalid scope or input.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Insufficient authority.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project or selected evidence not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Selection, intent or execution identity changed.
+     */
+    409: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameSeoStatusError = GetApiV1ProjectsByNameSeoStatusErrors[keyof GetApiV1ProjectsByNameSeoStatusErrors];
+
+export type GetApiV1ProjectsByNameSeoStatusResponses = {
+    /**
+     * SEO response.
+     */
+    200: SeoStatus;
+};
+
+export type GetApiV1ProjectsByNameSeoStatusResponse = GetApiV1ProjectsByNameSeoStatusResponses[keyof GetApiV1ProjectsByNameSeoStatusResponses];
+
+export type GetApiV1ProjectsByNameSeoProfilesData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/seo/profiles';
+};
+
+export type GetApiV1ProjectsByNameSeoProfilesErrors = {
+    /**
+     * Invalid scope or input.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Insufficient authority.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project or selected evidence not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Selection, intent or execution identity changed.
+     */
+    409: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameSeoProfilesError = GetApiV1ProjectsByNameSeoProfilesErrors[keyof GetApiV1ProjectsByNameSeoProfilesErrors];
+
+export type GetApiV1ProjectsByNameSeoProfilesResponses = {
+    /**
+     * SEO response.
+     */
+    200: SeoProfileList;
+};
+
+export type GetApiV1ProjectsByNameSeoProfilesResponse = GetApiV1ProjectsByNameSeoProfilesResponses[keyof GetApiV1ProjectsByNameSeoProfilesResponses];
+
+export type GetApiV1ProjectsByNameSeoProfilesByIdData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Exact project-scoped identifier.
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/seo/profiles/{id}';
+};
+
+export type GetApiV1ProjectsByNameSeoProfilesByIdErrors = {
+    /**
+     * Invalid scope or input.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Insufficient authority.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project or selected evidence not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Selection, intent or execution identity changed.
+     */
+    409: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameSeoProfilesByIdError = GetApiV1ProjectsByNameSeoProfilesByIdErrors[keyof GetApiV1ProjectsByNameSeoProfilesByIdErrors];
+
+export type GetApiV1ProjectsByNameSeoProfilesByIdResponses = {
+    /**
+     * SEO response.
+     */
+    200: SeoProfile;
+};
+
+export type GetApiV1ProjectsByNameSeoProfilesByIdResponse = GetApiV1ProjectsByNameSeoProfilesByIdResponses[keyof GetApiV1ProjectsByNameSeoProfilesByIdResponses];
+
+export type PutApiV1ProjectsByNameSeoProfilesByIdData = {
+    body: SeoProfileInput;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Exact project-scoped identifier.
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/seo/profiles/{id}';
+};
+
+export type PutApiV1ProjectsByNameSeoProfilesByIdErrors = {
+    /**
+     * Invalid scope or input.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Insufficient authority.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project or selected evidence not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Selection, intent or execution identity changed.
+     */
+    409: ErrorEnvelope;
+};
+
+export type PutApiV1ProjectsByNameSeoProfilesByIdError = PutApiV1ProjectsByNameSeoProfilesByIdErrors[keyof PutApiV1ProjectsByNameSeoProfilesByIdErrors];
+
+export type PutApiV1ProjectsByNameSeoProfilesByIdResponses = {
+    /**
+     * SEO response.
+     */
+    200: SeoProfile;
+};
+
+export type PutApiV1ProjectsByNameSeoProfilesByIdResponse = PutApiV1ProjectsByNameSeoProfilesByIdResponses[keyof PutApiV1ProjectsByNameSeoProfilesByIdResponses];
+
+export type GetApiV1ProjectsByNameSeoRunsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Restrict history to this profile.
+         */
+        profileId?: string;
+    };
+    url: '/api/v1/projects/{name}/seo/runs';
+};
+
+export type GetApiV1ProjectsByNameSeoRunsErrors = {
+    /**
+     * Invalid scope or input.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Insufficient authority.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project or selected evidence not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Selection, intent or execution identity changed.
+     */
+    409: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameSeoRunsError = GetApiV1ProjectsByNameSeoRunsErrors[keyof GetApiV1ProjectsByNameSeoRunsErrors];
+
+export type GetApiV1ProjectsByNameSeoRunsResponses = {
+    /**
+     * SEO response.
+     */
+    200: SeoRunList;
+};
+
+export type GetApiV1ProjectsByNameSeoRunsResponse = GetApiV1ProjectsByNameSeoRunsResponses[keyof GetApiV1ProjectsByNameSeoRunsResponses];
+
+export type GetApiV1ProjectsByNameSeoRunsByIdData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Exact project-scoped identifier.
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/seo/runs/{id}';
+};
+
+export type GetApiV1ProjectsByNameSeoRunsByIdErrors = {
+    /**
+     * Invalid scope or input.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Insufficient authority.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project or selected evidence not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Selection, intent or execution identity changed.
+     */
+    409: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameSeoRunsByIdError = GetApiV1ProjectsByNameSeoRunsByIdErrors[keyof GetApiV1ProjectsByNameSeoRunsByIdErrors];
+
+export type GetApiV1ProjectsByNameSeoRunsByIdResponses = {
+    /**
+     * SEO response.
+     */
+    200: SeoRunDetail;
+};
+
+export type GetApiV1ProjectsByNameSeoRunsByIdResponse = GetApiV1ProjectsByNameSeoRunsByIdResponses[keyof GetApiV1ProjectsByNameSeoRunsByIdResponses];
+
+export type GetApiV1ProjectsByNameSeoOverviewData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Exact saved profile. Required when multiple profiles exist.
+         */
+        profileId?: string;
+        /**
+         * Exact historical refresh. Omit for latest saved evidence for the selected profile.
+         */
+        runId?: string;
+        /**
+         * Page size only. Never changes the evidence scope or denominator.
+         */
+        limit?: number;
+        /**
+         * Evidence page offset.
+         */
+        offset?: number;
+    };
+    url: '/api/v1/projects/{name}/seo/overview';
+};
+
+export type GetApiV1ProjectsByNameSeoOverviewErrors = {
+    /**
+     * Invalid scope or input.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Insufficient authority.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project or selected evidence not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Selection, intent or execution identity changed.
+     */
+    409: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameSeoOverviewError = GetApiV1ProjectsByNameSeoOverviewErrors[keyof GetApiV1ProjectsByNameSeoOverviewErrors];
+
+export type GetApiV1ProjectsByNameSeoOverviewResponses = {
+    /**
+     * SEO response.
+     */
+    200: SeoOverview;
+};
+
+export type GetApiV1ProjectsByNameSeoOverviewResponse = GetApiV1ProjectsByNameSeoOverviewResponses[keyof GetApiV1ProjectsByNameSeoOverviewResponses];
+
+export type GetApiV1ProjectsByNameSeoKeywordMetricsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Exact saved profile. Required when multiple profiles exist.
+         */
+        profileId?: string;
+        /**
+         * Exact historical refresh. Omit for latest saved evidence for the selected profile.
+         */
+        runId?: string;
+        /**
+         * Page size only. Never changes the evidence scope or denominator.
+         */
+        limit?: number;
+        /**
+         * Evidence page offset.
+         */
+        offset?: number;
+    };
+    url: '/api/v1/projects/{name}/seo/keyword-metrics';
+};
+
+export type GetApiV1ProjectsByNameSeoKeywordMetricsErrors = {
+    /**
+     * Invalid scope or input.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Insufficient authority.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project or selected evidence not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Selection, intent or execution identity changed.
+     */
+    409: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameSeoKeywordMetricsError = GetApiV1ProjectsByNameSeoKeywordMetricsErrors[keyof GetApiV1ProjectsByNameSeoKeywordMetricsErrors];
+
+export type GetApiV1ProjectsByNameSeoKeywordMetricsResponses = {
+    /**
+     * SEO response.
+     */
+    200: SeoKeywordMetricsList;
+};
+
+export type GetApiV1ProjectsByNameSeoKeywordMetricsResponse = GetApiV1ProjectsByNameSeoKeywordMetricsResponses[keyof GetApiV1ProjectsByNameSeoKeywordMetricsResponses];
+
+export type GetApiV1ProjectsByNameSeoDomainIntelligenceData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Exact saved profile. Required when multiple profiles exist.
+         */
+        profileId?: string;
+        /**
+         * Exact historical refresh. Omit for latest saved evidence for the selected profile.
+         */
+        runId?: string;
+        /**
+         * Page size only. Never changes the evidence scope or denominator.
+         */
+        limit?: number;
+        /**
+         * Evidence page offset.
+         */
+        offset?: number;
+    };
+    url: '/api/v1/projects/{name}/seo/domain-intelligence';
+};
+
+export type GetApiV1ProjectsByNameSeoDomainIntelligenceErrors = {
+    /**
+     * Invalid scope or input.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Insufficient authority.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project or selected evidence not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Selection, intent or execution identity changed.
+     */
+    409: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameSeoDomainIntelligenceError = GetApiV1ProjectsByNameSeoDomainIntelligenceErrors[keyof GetApiV1ProjectsByNameSeoDomainIntelligenceErrors];
+
+export type GetApiV1ProjectsByNameSeoDomainIntelligenceResponses = {
+    /**
+     * SEO response.
+     */
+    200: SeoDomainIntelligenceList;
+};
+
+export type GetApiV1ProjectsByNameSeoDomainIntelligenceResponse = GetApiV1ProjectsByNameSeoDomainIntelligenceResponses[keyof GetApiV1ProjectsByNameSeoDomainIntelligenceResponses];
+
+export type GetApiV1ProjectsByNameSeoRankedKeywordsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Exact saved profile. Required when multiple profiles exist.
+         */
+        profileId?: string;
+        /**
+         * Exact historical refresh. Omit for latest saved evidence for the selected profile.
+         */
+        runId?: string;
+        /**
+         * Page size only. Never changes the evidence scope or denominator.
+         */
+        limit?: number;
+        /**
+         * Evidence page offset.
+         */
+        offset?: number;
+    };
+    url: '/api/v1/projects/{name}/seo/ranked-keywords';
+};
+
+export type GetApiV1ProjectsByNameSeoRankedKeywordsErrors = {
+    /**
+     * Invalid scope or input.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Insufficient authority.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project or selected evidence not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Selection, intent or execution identity changed.
+     */
+    409: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameSeoRankedKeywordsError = GetApiV1ProjectsByNameSeoRankedKeywordsErrors[keyof GetApiV1ProjectsByNameSeoRankedKeywordsErrors];
+
+export type GetApiV1ProjectsByNameSeoRankedKeywordsResponses = {
+    /**
+     * SEO response.
+     */
+    200: SeoRankedKeywordList;
+};
+
+export type GetApiV1ProjectsByNameSeoRankedKeywordsResponse = GetApiV1ProjectsByNameSeoRankedKeywordsResponses[keyof GetApiV1ProjectsByNameSeoRankedKeywordsResponses];
+
+export type GetApiV1ProjectsByNameSeoMarketRankingsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Exact saved profile. Required when multiple profiles exist.
+         */
+        profileId?: string;
+        /**
+         * Exact historical refresh. Omit for latest saved evidence for the selected profile.
+         */
+        runId?: string;
+        /**
+         * Page size only. Never changes the evidence scope or denominator.
+         */
+        limit?: number;
+        /**
+         * Evidence page offset.
+         */
+        offset?: number;
+        /**
+         * Only rows for this market (an Advanced market key or a Simple location label).
+         */
+        marketKey?: string;
+        /**
+         * Only rows whose market sits under this top-level group.
+         */
+        regionKey?: string;
+        /**
+         * Only rows with this outcome. `partly-checked` is a partial search that did not reach the site, so ranks past its depth are unknown; `needs-work` is ranks 11 and deeper, not ranked or partly checked; `rival-ahead` is rows where a tracked competitor ranks above the site.
+         */
+        outcome?: 'needs-work' | 'page-1' | 'ranks-11-20' | 'ranks-21-plus' | 'not-ranked' | 'partly-checked' | 'rival-ahead' | 'failed' | 'cancelled';
+        /**
+         * Only rows whose query, searched text or market label contains this text, ignoring case.
+         */
+        q?: string;
+        /**
+         * `market` (default): region, market, search text. `rank`: best rank first, then partly checked rows, then rows not in the results with the strongest rival first, then searches with no result. `-rank`: rows not in the results first, then partly checked rows, then the worst rank. `query` / `-query`: by query text.
+         */
+        sort?: 'market' | 'rank' | '-rank' | 'query' | '-query';
+    };
+    url: '/api/v1/projects/{name}/seo/market-rankings';
+};
+
+export type GetApiV1ProjectsByNameSeoMarketRankingsErrors = {
+    /**
+     * Invalid scope or input.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Insufficient authority.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project or selected evidence not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Selection, intent or execution identity changed.
+     */
+    409: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameSeoMarketRankingsError = GetApiV1ProjectsByNameSeoMarketRankingsErrors[keyof GetApiV1ProjectsByNameSeoMarketRankingsErrors];
+
+export type GetApiV1ProjectsByNameSeoMarketRankingsResponses = {
+    /**
+     * SEO response.
+     */
+    200: SeoMarketRankingList;
+};
+
+export type GetApiV1ProjectsByNameSeoMarketRankingsResponse = GetApiV1ProjectsByNameSeoMarketRankingsResponses[keyof GetApiV1ProjectsByNameSeoMarketRankingsResponses];
+
+export type GetApiV1ProjectsByNameSeoMarketRankingsSummaryData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Exact saved profile. Required when multiple profiles exist.
+         */
+        profileId?: string;
+        /**
+         * Exact historical refresh. Omit for latest saved evidence for the selected profile.
+         */
+        runId?: string;
+        /**
+         * Summarize one market (an Advanced market key or a Simple location label).
+         */
+        marketKey?: string;
+        /**
+         * Summarize one top-level group and the markets under it.
+         */
+        regionKey?: string;
+    };
+    url: '/api/v1/projects/{name}/seo/market-rankings/summary';
+};
+
+export type GetApiV1ProjectsByNameSeoMarketRankingsSummaryErrors = {
+    /**
+     * Invalid scope or input.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Insufficient authority.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project or selected evidence not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Selection, intent or execution identity changed.
+     */
+    409: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameSeoMarketRankingsSummaryError = GetApiV1ProjectsByNameSeoMarketRankingsSummaryErrors[keyof GetApiV1ProjectsByNameSeoMarketRankingsSummaryErrors];
+
+export type GetApiV1ProjectsByNameSeoMarketRankingsSummaryResponses = {
+    /**
+     * SEO response.
+     */
+    200: SeoMarketRankingSummary;
+};
+
+export type GetApiV1ProjectsByNameSeoMarketRankingsSummaryResponse = GetApiV1ProjectsByNameSeoMarketRankingsSummaryResponses[keyof GetApiV1ProjectsByNameSeoMarketRankingsSummaryResponses];
+
+export type PostApiV1ProjectsByNameSeoRefreshIntentsData = {
+    body: SeoRefreshIntentInput;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/seo/refresh-intents';
+};
+
+export type PostApiV1ProjectsByNameSeoRefreshIntentsErrors = {
+    /**
+     * Invalid scope or input.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Insufficient authority.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project or selected evidence not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Selection, intent or execution identity changed.
+     */
+    409: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameSeoRefreshIntentsError = PostApiV1ProjectsByNameSeoRefreshIntentsErrors[keyof PostApiV1ProjectsByNameSeoRefreshIntentsErrors];
+
+export type PostApiV1ProjectsByNameSeoRefreshIntentsResponses = {
+    /**
+     * SEO response.
+     */
+    200: SeoQuote;
+};
+
+export type PostApiV1ProjectsByNameSeoRefreshIntentsResponse = PostApiV1ProjectsByNameSeoRefreshIntentsResponses[keyof PostApiV1ProjectsByNameSeoRefreshIntentsResponses];
+
+export type PostApiV1ProjectsByNameSeoSyncData = {
+    body: SeoSyncInput;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/seo/sync';
+};
+
+export type PostApiV1ProjectsByNameSeoSyncErrors = {
+    /**
+     * Invalid scope or input.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Insufficient authority.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project or selected evidence not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Selection, intent or execution identity changed.
+     */
+    409: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameSeoSyncError = PostApiV1ProjectsByNameSeoSyncErrors[keyof PostApiV1ProjectsByNameSeoSyncErrors];
+
+export type PostApiV1ProjectsByNameSeoSyncResponses = {
+    /**
+     * SEO response.
+     */
+    200: SeoRun;
+    /**
+     * SEO refresh accepted.
+     */
+    202: SeoRun;
+};
+
+export type PostApiV1ProjectsByNameSeoSyncResponse = PostApiV1ProjectsByNameSeoSyncResponses[keyof PostApiV1ProjectsByNameSeoSyncResponses];
+
+export type PostApiV1ProjectsByNameSeoRunsByIdCancelData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Exact project-scoped identifier.
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/seo/runs/{id}/cancel';
+};
+
+export type PostApiV1ProjectsByNameSeoRunsByIdCancelErrors = {
+    /**
+     * Invalid scope or input.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Insufficient authority.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project or selected evidence not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * Selection, intent or execution identity changed.
+     */
+    409: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameSeoRunsByIdCancelError = PostApiV1ProjectsByNameSeoRunsByIdCancelErrors[keyof PostApiV1ProjectsByNameSeoRunsByIdCancelErrors];
+
+export type PostApiV1ProjectsByNameSeoRunsByIdCancelResponses = {
+    /**
+     * SEO response.
+     */
+    200: SeoRun;
+};
+
+export type PostApiV1ProjectsByNameSeoRunsByIdCancelResponse = PostApiV1ProjectsByNameSeoRunsByIdCancelResponses[keyof PostApiV1ProjectsByNameSeoRunsByIdCancelResponses];
 
 export type GetApiV1OpenapiJsonData = {
     body?: never;
@@ -14695,6 +19338,44 @@ export type GetApiV1ProjectsByNameResponses = {
 };
 
 export type GetApiV1ProjectsByNameResponse = GetApiV1ProjectsByNameResponses[keyof GetApiV1ProjectsByNameResponses];
+
+export type PatchApiV1ProjectsByNameData = {
+    body: ProjectPatchRequest;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}';
+};
+
+export type PatchApiV1ProjectsByNameErrors = {
+    /**
+     * Invalid project patch.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * The project revision is stale.
+     */
+    409: ErrorEnvelope;
+};
+
+export type PatchApiV1ProjectsByNameError = PatchApiV1ProjectsByNameErrors[keyof PatchApiV1ProjectsByNameErrors];
+
+export type PatchApiV1ProjectsByNameResponses = {
+    /**
+     * Project updated.
+     */
+    200: ProjectDto;
+};
+
+export type PatchApiV1ProjectsByNameResponse = PatchApiV1ProjectsByNameResponses[keyof PatchApiV1ProjectsByNameResponses];
 
 export type PutApiV1ProjectsByNameData = {
     body: ProjectUpsertRequest;
@@ -15030,13 +19711,17 @@ export type GetApiV1ProjectsByNameMeasurementReportData = {
          * Eligible full measurement run to reconstruct. Omit to use the latest run for the revision.
          */
         runId?: string;
+        /**
+         * Query class every group, Target and evidence row is taken over. Defaults to non-brand; branded is a separate read. all pools branded and non-brand into one rate and is served only when asked for. A schema v1 revision records no class: omit this (or pass all) to read every answer, and the response echoes queryClass null.
+         */
+        queryClass?: 'non-brand' | 'branded' | 'all';
     };
     url: '/api/v1/projects/{name}/measurement-report';
 };
 
 export type GetApiV1ProjectsByNameMeasurementReportErrors = {
     /**
-     * The revision query parameter is invalid.
+     * The revision or queryClass parameter is invalid, or a class was requested for a schema v1 revision.
      */
     400: ErrorEnvelope;
     /**
@@ -15935,6 +20620,108 @@ export type PostApiV1ProjectsByNameMeasurementPlanDraftActionsApplyPairedAssignm
 
 export type PostApiV1ProjectsByNameMeasurementPlanDraftActionsApplyPairedAssignmentsResponse = PostApiV1ProjectsByNameMeasurementPlanDraftActionsApplyPairedAssignmentsResponses[keyof PostApiV1ProjectsByNameMeasurementPlanDraftActionsApplyPairedAssignmentsResponses];
 
+export type PostApiV1ProjectsByNameMeasurementPlanDraftActionsPreviewRouteMarketsData = {
+    body: MeasurementDraftRouteMarketsRequest;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/measurement-plan/draft/actions/preview-route-markets';
+};
+
+export type PostApiV1ProjectsByNameMeasurementPlanDraftActionsPreviewRouteMarketsErrors = {
+    /**
+     * The action payload is invalid.
+     */
+    400: ErrorEnvelope;
+    /**
+     * The caller may read the draft but not mutate it.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project or draft not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * The preview request budget has been exceeded.
+     */
+    429: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameMeasurementPlanDraftActionsPreviewRouteMarketsError = PostApiV1ProjectsByNameMeasurementPlanDraftActionsPreviewRouteMarketsErrors[keyof PostApiV1ProjectsByNameMeasurementPlanDraftActionsPreviewRouteMarketsErrors];
+
+export type PostApiV1ProjectsByNameMeasurementPlanDraftActionsPreviewRouteMarketsResponses = {
+    /**
+     * Matched market edges and execution impact returned.
+     */
+    200: MeasurementDraftPreviewMarketRoutingResponse;
+};
+
+export type PostApiV1ProjectsByNameMeasurementPlanDraftActionsPreviewRouteMarketsResponse = PostApiV1ProjectsByNameMeasurementPlanDraftActionsPreviewRouteMarketsResponses[keyof PostApiV1ProjectsByNameMeasurementPlanDraftActionsPreviewRouteMarketsResponses];
+
+export type PostApiV1ProjectsByNameMeasurementPlanDraftActionsRouteMarketsData = {
+    body: MeasurementDraftRouteMarketsRequest;
+    headers: {
+        /**
+         * Current draft ETag. Missing returns 428; stale returns 412.
+         */
+        'If-Match': string;
+        /**
+         * Replay key. The same key with a different request body returns 409.
+         */
+        'Idempotency-Key': string;
+    };
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/measurement-plan/draft/actions/route-markets';
+};
+
+export type PostApiV1ProjectsByNameMeasurementPlanDraftActionsRouteMarketsErrors = {
+    /**
+     * The action payload is invalid.
+     */
+    400: ErrorEnvelope;
+    /**
+     * The caller may read the draft but not mutate it.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project or draft not found.
+     */
+    404: ErrorEnvelope;
+    /**
+     * The idempotency key was already used with a different request body.
+     */
+    409: ErrorEnvelope;
+    /**
+     * The draft changed since it was loaded.
+     */
+    412: ErrorEnvelope;
+    /**
+     * The draft ETag was not supplied in `If-Match`.
+     */
+    428: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameMeasurementPlanDraftActionsRouteMarketsError = PostApiV1ProjectsByNameMeasurementPlanDraftActionsRouteMarketsErrors[keyof PostApiV1ProjectsByNameMeasurementPlanDraftActionsRouteMarketsErrors];
+
+export type PostApiV1ProjectsByNameMeasurementPlanDraftActionsRouteMarketsResponses = {
+    /**
+     * Draft mutated; the new ETag and counts are returned.
+     */
+    200: MeasurementDraftMutationResponse;
+};
+
+export type PostApiV1ProjectsByNameMeasurementPlanDraftActionsRouteMarketsResponse = PostApiV1ProjectsByNameMeasurementPlanDraftActionsRouteMarketsResponses[keyof PostApiV1ProjectsByNameMeasurementPlanDraftActionsRouteMarketsResponses];
+
 export type PostApiV1ProjectsByNameMeasurementPlanDraftActionsRemoveAssignmentData = {
     body: MeasurementDraftRemoveAssignmentRequest;
     headers: {
@@ -16823,21 +21610,29 @@ export type GetApiV1ProjectsByNameMeasurementOverviewData = {
     };
     query: {
         /**
-         * Reporting scope.
+         * Byte-bounded whole-row page; omits optional heavy detail with explicit metadata. Default false for compatibility.
          */
-        scope: 'all' | 'group' | 'property';
+        compact?: boolean;
+        /**
+         * Reporting scope. group is every query of the group's Properties; market is only the market's own queries.
+         */
+        scope: 'all' | 'group' | 'market' | 'property';
         /**
          * Group stable key, required when scope is "group".
          */
         groupKey?: string;
         /**
+         * Market stable key (a frozen reporting scope), required when scope is "market" and refused (400) with any other scope.
+         */
+        marketKey?: string;
+        /**
          * Target stable key, required when scope is "property".
          */
         targetKey?: string;
         /**
-         * Restrict to one question class. Never pooled across classes.
+         * Query class the rates are taken over. Defaults to non-brand; read branded as a separate request. all pools branded and non-brand into one rate.
          */
-        queryClass?: 'all' | 'branded' | 'non-brand';
+        queryClass?: 'non-brand' | 'branded' | 'all';
         /**
          * Restrict to one answer provider.
          */
@@ -17145,6 +21940,10 @@ export type GetApiV1ProjectsByNameSentimentEvidenceData = {
          */
         assessmentId?: string;
         /**
+         * Outcomes to keep, repeated or comma-separated (for example mixed,unfavorable). Narrows the page to assessments with these outcomes; never changes how they were scored.
+         */
+        outcome?: Array<'favorable' | 'mixed' | 'unfavorable' | 'factual' | 'subject-not-mentioned' | 'wrong-subject' | 'ambiguous-subject' | 'ambiguous-judgment' | 'subject-not-applicable' | 'unsupported-language' | 'missing-source-text' | 'input-too-large' | 'invalid-conclusion-evidence' | 'pending' | 'running' | 'waiting-to-retry' | 'failed' | 'canceled'>;
+        /**
          * Opaque cursor bound to every selection field and resolved evaluator ID.
          */
         cursor?: string;
@@ -17244,11 +22043,11 @@ export type GetApiV1ProjectsByNameSentimentCompareData = {
          */
         revision?: number;
         /**
-         * Exact source run for this period.
+         * Exact source run or previous-rated to resolve the preceding rated run in this scope. Identical run IDs are refused.
          */
         fromRunId: string;
         /**
-         * Exact source run for this period.
+         * Exact target run for this period.
          */
         toRunId: string;
     };
@@ -17624,9 +22423,9 @@ export type GetApiV1ProjectsByNameMeasurementPropertyEvidenceData = {
          */
         runId?: string;
         /**
-         * What one row is. sources (the default) returns one row per cited URL under evidence, which is what a caller written before this parameter existed reads. answers returns one row per measured answer under answers, with the cited URLs nested inside it, so the answers that cited nothing at all are present rather than missing. Exactly one of the two keys is returned; the other is absent, not empty.
+         * What one row is. sources (the default) returns one row per cited URL under evidence, which is what a caller written before this parameter existed reads. answers returns one row per measured answer under answers, with the cited URLs nested inside it, so the answers that cited nothing at all are present rather than missing. other-queries returns, under otherQueries, one row per answer to a query NOT assigned to this Property that cited one of its own pages, per assignment class; those answers are outside its rates. Exactly one of the keys is returned; the others are absent, not empty.
          */
-        shape?: 'sources' | 'answers';
+        shape?: 'sources' | 'answers' | 'other-queries';
         /**
          * Opaque cursor from the previous page. It pins pagination to the active revision, displayed run, evidence snapshot, same filters, and the shape it was issued for; a mismatch or newly appended evidence is rejected rather than silently paged across. An answer page is keyed on the slot, so a boundary never falls between one answer and its own cited URLs.
          */
@@ -17675,6 +22474,22 @@ export type GetApiV1ProjectsByNameMeasurementPortfolioSummaryData = {
     };
     query?: {
         /**
+         * Byte-bounded whole-row page of pageList, default weakest-properties. Other initial lists are bounded summaries. Default false for compatibility.
+         */
+        compact?: boolean;
+        /**
+         * nextCursor from the preceding compact page; keep every selection unchanged.
+         */
+        cursor?: string;
+        /**
+         * Compact page selection identity; enumerate this list only and omit sibling row lists. observed-names and cited-domains require answers=not-mentioned. Keep unchanged across cursors.
+         */
+        list?: 'weakest-properties' | 'strongest-mentions' | 'weakest-mentions' | 'excluded-mentions' | 'markets' | 'observed-names' | 'cited-domains';
+        /**
+         * Competitor evidence population. not-mentioned excludes every answer naming any targeted Property.
+         */
+        answers?: 'all' | 'not-mentioned';
+        /**
          * Optional reporting group stable key.
          */
         groupKey?: string;
@@ -17695,7 +22510,7 @@ export type GetApiV1ProjectsByNameMeasurementPortfolioSummaryData = {
          */
         runId?: string;
         /**
-         * Caps the Property lists only: weakest Properties and both mention rankings. Markets are never capped. Defaults to 4, maximum 50.
+         * Compact selected-list page size: auto-sized up to 50 by default; the byte budget may return fewer whole rows. Raw reads default to 4 Property rows and never cap markets.
          */
         limit?: number;
         /**
@@ -17931,9 +22746,9 @@ export type GetApiV1ProjectsByNameMeasurementChangesData = {
          */
         targetKey?: string;
         /**
-         * Question class. Defaults to all.
+         * Query class. Defaults to non-brand; read branded as a separate request. all pools both classes.
          */
-        queryClass?: 'all' | 'branded' | 'non-brand';
+        queryClass?: 'non-brand' | 'branded' | 'all';
         /**
          * Restrict both runs to one answer provider.
          */
@@ -18851,7 +23666,7 @@ export type PutApiV1ProjectsByNameLocationsDefaultResponses = {
     /**
      * Default location updated.
      */
-    200: ProjectDto;
+    200: ProjectDefaultLocationResponse;
 };
 
 export type PutApiV1ProjectsByNameLocationsDefaultResponse = PutApiV1ProjectsByNameLocationsDefaultResponses[keyof PutApiV1ProjectsByNameLocationsDefaultResponses];
@@ -18864,11 +23679,20 @@ export type GetApiV1ProjectsByNameExportData = {
          */
         name: string;
     };
-    query?: never;
+    query?: {
+        /**
+         * Include webhook URLs. Requires administrator authority or a wildcard API key.
+         */
+        includeSecrets?: boolean;
+    };
     url: '/api/v1/projects/{name}/export';
 };
 
 export type GetApiV1ProjectsByNameExportErrors = {
+    /**
+     * Webhook URLs require administrator authority.
+     */
+    403: ErrorEnvelope;
     /**
      * Project not found.
      */
@@ -18881,7 +23705,7 @@ export type GetApiV1ProjectsByNameExportResponses = {
     /**
      * Project configuration returned.
      */
-    200: ProjectConfig;
+    200: ProjectConfigExport;
 };
 
 export type GetApiV1ProjectsByNameExportResponse = GetApiV1ProjectsByNameExportResponses[keyof GetApiV1ProjectsByNameExportResponses];
@@ -19106,7 +23930,10 @@ export type PostApiV1ProjectsByNameQueriesReplacePreviewResponse = PostApiV1Proj
 
 export type PostApiV1ProjectsByNameQueriesGenerateData = {
     body: {
-        provider: 'gemini' | 'openai' | 'claude' | 'perplexity' | 'muse' | 'local';
+        /**
+         * Configured sweep provider. OpenRouter models use `openrouter:publisher/model`; the bare `openrouter` connection is not executable.
+         */
+        provider: string;
         count?: number;
     };
     path: {
@@ -19132,9 +23959,7 @@ export type PostApiV1ProjectsByNameQueriesGenerateResponses = {
     /**
      * Query suggestions returned.
      */
-    200: {
-        suggestions?: Array<string>;
-    };
+    200: QueryGenerateResponse;
 };
 
 export type PostApiV1ProjectsByNameQueriesGenerateResponse = PostApiV1ProjectsByNameQueriesGenerateResponses[keyof PostApiV1ProjectsByNameQueriesGenerateResponses];
@@ -19240,7 +24065,10 @@ export type PutApiV1ProjectsByNameKeywordsResponse = PutApiV1ProjectsByNameKeywo
 
 export type PostApiV1ProjectsByNameKeywordsGenerateData = {
     body: {
-        provider: 'gemini' | 'openai' | 'claude' | 'perplexity' | 'muse' | 'local';
+        /**
+         * Configured sweep provider. OpenRouter models use `openrouter:publisher/model`; the bare `openrouter` connection is not executable.
+         */
+        provider: string;
         count?: number;
     };
     path: {
@@ -19266,9 +24094,7 @@ export type PostApiV1ProjectsByNameKeywordsGenerateResponses = {
     /**
      * Legacy keyword suggestions returned.
      */
-    200: {
-        [key: string]: unknown;
-    };
+    200: KeywordGenerateResponse;
 };
 
 export type PostApiV1ProjectsByNameKeywordsGenerateResponse = PostApiV1ProjectsByNameKeywordsGenerateResponses[keyof PostApiV1ProjectsByNameKeywordsGenerateResponses];
@@ -19327,9 +24153,7 @@ export type GetApiV1ProjectsByNameCompetitorsResponses = {
 export type GetApiV1ProjectsByNameCompetitorsResponse = GetApiV1ProjectsByNameCompetitorsResponses[keyof GetApiV1ProjectsByNameCompetitorsResponses];
 
 export type PostApiV1ProjectsByNameCompetitorsData = {
-    body: {
-        competitors: Array<string>;
-    };
+    body: CompetitorAppendRequest;
     path: {
         /**
          * Project name.
@@ -19342,7 +24166,7 @@ export type PostApiV1ProjectsByNameCompetitorsData = {
 
 export type PostApiV1ProjectsByNameCompetitorsErrors = {
     /**
-     * Invalid competitor append request.
+     * Invalid competitor append request or competitor aliases.
      */
     400: ErrorEnvelope;
 };
@@ -19361,6 +24185,10 @@ export type PostApiV1ProjectsByNameCompetitorsResponse = PostApiV1ProjectsByName
 export type PutApiV1ProjectsByNameCompetitorsData = {
     body: {
         competitors: Array<string>;
+        /**
+         * Acknowledge a measured project bulk-add guard when the trailing 24-hour growth exceeds the contract threshold.
+         */
+        acknowledgeBulkAdd?: boolean;
     };
     path: {
         /**
@@ -19380,6 +24208,180 @@ export type PutApiV1ProjectsByNameCompetitorsResponses = {
 };
 
 export type PutApiV1ProjectsByNameCompetitorsResponse = PutApiV1ProjectsByNameCompetitorsResponses[keyof PutApiV1ProjectsByNameCompetitorsResponses];
+
+export type PutApiV1ProjectsByNameCompetitorsByDomainAliasesData = {
+    body: CompetitorAliasesRequest;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Tracked competitor domain (any spelling of it; it is reduced to the stored registrable domain, and a row stored as a subdomain is found too). A competitor stored as two rows is refused (400) rather than one picked.
+         */
+        domain: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/competitors/{domain}/aliases';
+};
+
+export type PutApiV1ProjectsByNameCompetitorsByDomainAliasesErrors = {
+    /**
+     * Invalid competitor aliases.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project or competitor not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type PutApiV1ProjectsByNameCompetitorsByDomainAliasesError = PutApiV1ProjectsByNameCompetitorsByDomainAliasesErrors[keyof PutApiV1ProjectsByNameCompetitorsByDomainAliasesErrors];
+
+export type PutApiV1ProjectsByNameCompetitorsByDomainAliasesResponses = {
+    /**
+     * Competitor with its updated aliases returned.
+     */
+    200: CompetitorDto;
+};
+
+export type PutApiV1ProjectsByNameCompetitorsByDomainAliasesResponse = PutApiV1ProjectsByNameCompetitorsByDomainAliasesResponses[keyof PutApiV1ProjectsByNameCompetitorsByDomainAliasesResponses];
+
+export type GetApiV1ProjectsByNameCompetitorAutoAliasesData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/competitor-auto-aliases';
+};
+
+export type GetApiV1ProjectsByNameCompetitorAutoAliasesErrors = {
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameCompetitorAutoAliasesError = GetApiV1ProjectsByNameCompetitorAutoAliasesErrors[keyof GetApiV1ProjectsByNameCompetitorAutoAliasesErrors];
+
+export type GetApiV1ProjectsByNameCompetitorAutoAliasesResponses = {
+    /**
+     * What detection would store, per competitor, with evidence.
+     */
+    200: CompetitorAutoAliasDetectionDto;
+};
+
+export type GetApiV1ProjectsByNameCompetitorAutoAliasesResponse = GetApiV1ProjectsByNameCompetitorAutoAliasesResponses[keyof GetApiV1ProjectsByNameCompetitorAutoAliasesResponses];
+
+export type PostApiV1ProjectsByNameCompetitorAutoAliasesData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/competitor-auto-aliases';
+};
+
+export type PostApiV1ProjectsByNameCompetitorAutoAliasesErrors = {
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameCompetitorAutoAliasesError = PostApiV1ProjectsByNameCompetitorAutoAliasesErrors[keyof PostApiV1ProjectsByNameCompetitorAutoAliasesErrors];
+
+export type PostApiV1ProjectsByNameCompetitorAutoAliasesResponses = {
+    /**
+     * What detection stored, per competitor, with evidence.
+     */
+    200: CompetitorAutoAliasDetectionDto;
+};
+
+export type PostApiV1ProjectsByNameCompetitorAutoAliasesResponse = PostApiV1ProjectsByNameCompetitorAutoAliasesResponses[keyof PostApiV1ProjectsByNameCompetitorAutoAliasesResponses];
+
+export type PostApiV1ProjectsByNameCompetitorsByDomainAliasesBlockData = {
+    body: CompetitorAliasBlockRequest;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Tracked competitor domain (any spelling of it; it is reduced to the stored registrable domain, and a row stored as a subdomain is found too). A competitor stored as two rows is refused (400) rather than one picked.
+         */
+        domain: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/competitors/{domain}/aliases/block';
+};
+
+export type PostApiV1ProjectsByNameCompetitorsByDomainAliasesBlockErrors = {
+    /**
+     * Invalid names, more than 50 blocked names, or a name is a curated alias or a name of the plan's own pin of this competitor.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found, or the domain is not a tracked competitor, an active market pin, or a domain with stored market competitor names.
+     */
+    404: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameCompetitorsByDomainAliasesBlockError = PostApiV1ProjectsByNameCompetitorsByDomainAliasesBlockErrors[keyof PostApiV1ProjectsByNameCompetitorsByDomainAliasesBlockErrors];
+
+export type PostApiV1ProjectsByNameCompetitorsByDomainAliasesBlockResponses = {
+    /**
+     * Competitor with its updated blocked and auto-detected names returned.
+     */
+    200: CompetitorDto;
+};
+
+export type PostApiV1ProjectsByNameCompetitorsByDomainAliasesBlockResponse = PostApiV1ProjectsByNameCompetitorsByDomainAliasesBlockResponses[keyof PostApiV1ProjectsByNameCompetitorsByDomainAliasesBlockResponses];
+
+export type PostApiV1ProjectsByNameCompetitorsByDomainAliasesUnblockData = {
+    body: CompetitorAliasBlockRequest;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Tracked competitor domain (any spelling of it; it is reduced to the stored registrable domain, and a row stored as a subdomain is found too). A competitor stored as two rows is refused (400) rather than one picked.
+         */
+        domain: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/competitors/{domain}/aliases/unblock';
+};
+
+export type PostApiV1ProjectsByNameCompetitorsByDomainAliasesUnblockErrors = {
+    /**
+     * Invalid names.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found, or the domain is not a tracked competitor, an active market pin, or a domain with stored market competitor names.
+     */
+    404: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameCompetitorsByDomainAliasesUnblockError = PostApiV1ProjectsByNameCompetitorsByDomainAliasesUnblockErrors[keyof PostApiV1ProjectsByNameCompetitorsByDomainAliasesUnblockErrors];
+
+export type PostApiV1ProjectsByNameCompetitorsByDomainAliasesUnblockResponses = {
+    /**
+     * Competitor with its updated blocked names returned.
+     */
+    200: CompetitorDto;
+};
+
+export type PostApiV1ProjectsByNameCompetitorsByDomainAliasesUnblockResponse = PostApiV1ProjectsByNameCompetitorsByDomainAliasesUnblockResponses[keyof PostApiV1ProjectsByNameCompetitorsByDomainAliasesUnblockResponses];
 
 export type DeleteApiV1ProjectsByNameCompetitorsByIdData = {
     body?: never;
@@ -19424,6 +24426,10 @@ export type GetApiV1ProjectsByNameAnalyticsCompetitorsData = {
         name: string;
     };
     query?: {
+        /**
+         * not-mentioned selects only answers where none of their targeted subjects was named. all or omitted keeps the full population; answerSelection reports population and selected counts.
+         */
+        answers?: 'all' | 'not-mentioned';
         /**
          * Time window for analytics queries. An unrecognised value is rejected with 400; it is never widened to the full history.
          */
@@ -19486,6 +24492,95 @@ export type GetApiV1ProjectsByNameAnalyticsCompetitorsResponses = {
 
 export type GetApiV1ProjectsByNameAnalyticsCompetitorsResponse = GetApiV1ProjectsByNameAnalyticsCompetitorsResponses[keyof GetApiV1ProjectsByNameAnalyticsCompetitorsResponses];
 
+export type GetApiV1ProjectsByNameCompetitorSuggestionsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Time window for analytics queries. An unrecognised value is rejected with 400; it is never widened to the full history.
+         */
+        window?: '7d' | '30d' | '90d' | 'all';
+        /**
+         * Minimum answer count for a suggested candidate. Defaults to 3.
+         */
+        minAnswers?: number;
+        /**
+         * One query population. Defaults to non-brand when the project can classify queries, otherwise all pooled.
+         */
+        queryClass?: 'non-brand' | 'branded' | 'all';
+        /**
+         * Select one Advanced market by group key. Omit for all markets; Simple projects use project scope.
+         */
+        groupKey?: string;
+        /**
+         * Maximum candidate rows returned. Defaults to 25 and is capped at 100.
+         */
+        limit?: number;
+    };
+    url: '/api/v1/projects/{name}/competitor-suggestions';
+};
+
+export type GetApiV1ProjectsByNameCompetitorSuggestionsErrors = {
+    /**
+     * Invalid suggestion filters or query class.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameCompetitorSuggestionsError = GetApiV1ProjectsByNameCompetitorSuggestionsErrors[keyof GetApiV1ProjectsByNameCompetitorSuggestionsErrors];
+
+export type GetApiV1ProjectsByNameCompetitorSuggestionsResponses = {
+    /**
+     * Stored-evidence competitor suggestions returned.
+     */
+    200: CompetitorSuggestionsResponse;
+};
+
+export type GetApiV1ProjectsByNameCompetitorSuggestionsResponse = GetApiV1ProjectsByNameCompetitorSuggestionsResponses[keyof GetApiV1ProjectsByNameCompetitorSuggestionsResponses];
+
+export type PostApiV1ProjectsByNameCompetitorChangesPreviewData = {
+    body: CompetitorChangePreviewRequest;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/competitor-changes/preview';
+};
+
+export type PostApiV1ProjectsByNameCompetitorChangesPreviewErrors = {
+    /**
+     * Invalid competitor change or stored identity plan.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project or competitor not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameCompetitorChangesPreviewError = PostApiV1ProjectsByNameCompetitorChangesPreviewErrors[keyof PostApiV1ProjectsByNameCompetitorChangesPreviewErrors];
+
+export type PostApiV1ProjectsByNameCompetitorChangesPreviewResponses = {
+    /**
+     * Competitor change preview returned.
+     */
+    200: CompetitorChangePreviewResponse;
+};
+
+export type PostApiV1ProjectsByNameCompetitorChangesPreviewResponse = PostApiV1ProjectsByNameCompetitorChangesPreviewResponses[keyof PostApiV1ProjectsByNameCompetitorChangesPreviewResponses];
+
 export type GetApiV1ProjectsByNameRunsData = {
     body?: never;
     path: {
@@ -19502,11 +24597,23 @@ export type GetApiV1ProjectsByNameRunsData = {
         /**
          * Restrict results to a single run kind. Without this filter, integration syncs (bing-inspect, gsc-sync, ga-sync) can fill the default 500-row cap within minutes on busy projects and push answer-visibility runs out of the response. Unknown values are rejected with 400.
          */
-        kind?: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync';
+        kind?: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync';
+        /**
+         * Exclude one run kind before applying the row limit. Combines with kind and status filters. Unknown values are rejected with 400.
+         */
+        excludeKind?: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync';
+        /**
+         * Exclude multiple run kinds before applying the row limit. Accepts repeated or comma-separated values. Combines with excludeKind, kind, and status; unknown values are rejected with 400.
+         */
+        excludeKinds?: Array<'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync'>;
         /**
          * Restrict results to a single run status, e.g. "running" to find in-flight work or "failed" to triage. Unknown values are rejected with 400 rather than returning an empty list.
          */
         status?: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
+        /**
+         * Only return runs created at or after this ISO 8601 timestamp. Omitted means no lower bound.
+         */
+        since?: string;
     };
     url: '/api/v1/projects/{name}/runs';
 };
@@ -19540,6 +24647,10 @@ export type PostApiV1ProjectsByNameRunsData = {
          * How to dispatch the providers. Omitted or `sync` calls each provider per answer. `batch` sends every provider that can (a full sweep of a published plan, a batch-capable provider enabled in config.yaml, every answer's model frozen) to its asynchronous batch API; the rest run sync. Tuning, not identity: it changes cost and latency, never what is measured, and is frozen on the run as `dispatchModes`.
          */
         dispatchMode?: 'sync' | 'batch';
+        /**
+         * Call every provider: queue the run even when it would be refused with PROVIDERS_FAILING, and skip no provider that keeps failing on its account. Admission only; never stored.
+         */
+        force?: boolean;
     };
     path: {
         /**
@@ -19561,7 +24672,7 @@ export type PostApiV1ProjectsByNameRunsErrors = {
      */
     409: ErrorEnvelope;
     /**
-     * Project has no tracked queries.
+     * NO_QUERIES: the project has no tracked queries. PROVIDERS_FAILING: every provider the run would call failed on its account (rejected key, denied access, no credit) in each of its last 10 runs. `details.providers` names each provider's code and `details.retryAfter` when one run is let through again (24h after a provider's newest failure; the run then calls only the providers due a retry). Saving a new key, model or endpoint in a provider's settings lets the next run through at once, a probe is never refused, and `force: true` overrides. When only some providers keep failing, the run is queued without them instead.
      */
     422: ErrorEnvelope;
     /**
@@ -19574,7 +24685,7 @@ export type PostApiV1ProjectsByNameRunsError = PostApiV1ProjectsByNameRunsErrors
 
 export type PostApiV1ProjectsByNameRunsResponses = {
     /**
-     * Run queued.
+     * Run queued. `skippedProviders` names each provider it will not call because that provider failed on its account in each of its last 10 runs (until its `retryAfter`); the run calls the rest and ends partial.
      */
     201: RunDto;
 };
@@ -19602,6 +24713,41 @@ export type GetApiV1ProjectsByNameRunsLatestResponses = {
 
 export type GetApiV1ProjectsByNameRunsLatestResponse = GetApiV1ProjectsByNameRunsLatestResponses[keyof GetApiV1ProjectsByNameRunsLatestResponses];
 
+export type GetApiV1ProjectsByNameRunAdmissionData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Read-selection identity: scheduled (default) uses the enabled schedule's providers; manual uses the unfiltered manual launch's project or instance providers. Both use an Advanced revision's frozen engines.
+         */
+        selection?: 'manual' | 'scheduled';
+    };
+    url: '/api/v1/projects/{name}/run-admission';
+};
+
+export type GetApiV1ProjectsByNameRunAdmissionErrors = {
+    /**
+     * Invalid admission selection.
+     */
+    400: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameRunAdmissionError = GetApiV1ProjectsByNameRunAdmissionErrors[keyof GetApiV1ProjectsByNameRunAdmissionErrors];
+
+export type GetApiV1ProjectsByNameRunAdmissionResponses = {
+    /**
+     * Run admission returned.
+     */
+    200: RunAdmissionDto;
+};
+
+export type GetApiV1ProjectsByNameRunAdmissionResponse = GetApiV1ProjectsByNameRunAdmissionResponses[keyof GetApiV1ProjectsByNameRunAdmissionResponses];
+
 export type GetApiV1RunsData = {
     body?: never;
     path?: never;
@@ -19621,7 +24767,15 @@ export type GetApiV1RunsData = {
         /**
          * Restrict results to a single run kind. Without this filter, integration syncs (bing-inspect, gsc-sync, ga-sync) can fill the default 500-row cap within minutes on busy projects and push answer-visibility runs out of the response. Unknown values are rejected with 400.
          */
-        kind?: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync';
+        kind?: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync';
+        /**
+         * Exclude one run kind before applying the row limit. Combines with kind and status filters. Unknown values are rejected with 400.
+         */
+        excludeKind?: 'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync';
+        /**
+         * Exclude multiple run kinds before applying the row limit. Accepts repeated or comma-separated values. Combines with excludeKind, kind, and status; unknown values are rejected with 400.
+         */
+        excludeKinds?: Array<'answer-visibility' | 'site-audit' | 'gsc-sync' | 'inspect-sitemap' | 'ga-sync' | 'bing-inspect' | 'bing-inspect-sitemap' | 'backlink-extract' | 'traffic-sync' | 'aeo-discover-seed' | 'aeo-discover-probe' | 'gbp-sync' | 'ads-sync' | 'google-ads-sync' | 'gtm-sync' | 'seo-sync'>;
         /**
          * Restrict results to a single run status, e.g. "running" to find in-flight work or "failed" to triage. Unknown values are rejected with 400 rather than returning an empty list.
          */
@@ -19647,6 +24801,10 @@ export type PostApiV1RunsData = {
          * How to dispatch the providers. Omitted or `sync` calls each provider per answer. `batch` sends every provider that can (a full sweep of a published plan, a batch-capable provider enabled in config.yaml, every answer's model frozen) to its asynchronous batch API; the rest run sync. Tuning, not identity: it changes cost and latency, never what is measured, and is frozen on the run as `dispatchModes`.
          */
         dispatchMode?: 'sync' | 'batch';
+        /**
+         * Call every provider: queue projects that would be refused with PROVIDERS_FAILING, and skip no provider that keeps failing on its account. Admission only; never stored.
+         */
+        force?: boolean;
     };
     path?: never;
     query?: never;
@@ -19664,7 +24822,7 @@ export type PostApiV1RunsError = PostApiV1RunsErrors[keyof PostApiV1RunsErrors];
 
 export type PostApiV1RunsResponses = {
     /**
-     * One row per project: either a queued run or an error for that project alone. A project that cannot be measured (for example one whose published measurement plan expects a different number of answers per question) never prevents or hides the others.
+     * One row per project: either a queued run or an error for that project alone. A project that cannot be measured (for example one whose published measurement plan expects a different number of answers per question, or one whose providers all keep failing on their accounts: `errorCode: PROVIDERS_FAILING`) never prevents or hides the others.
      */
     207: Array<{
         [key: string]: unknown;
@@ -19846,6 +25004,34 @@ export type PostApiV1ApplyResponses = {
 
 export type PostApiV1ApplyResponse = PostApiV1ApplyResponses[keyof PostApiV1ApplyResponses];
 
+export type PostApiV1ApplyPreviewData = {
+    /**
+     * Canonry project configuration as JSON.
+     */
+    body: ProjectConfig;
+    path?: never;
+    query?: never;
+    url: '/api/v1/apply/preview';
+};
+
+export type PostApiV1ApplyPreviewErrors = {
+    /**
+     * Invalid config.
+     */
+    400: ErrorEnvelope;
+};
+
+export type PostApiV1ApplyPreviewError = PostApiV1ApplyPreviewErrors[keyof PostApiV1ApplyPreviewErrors];
+
+export type PostApiV1ApplyPreviewResponses = {
+    /**
+     * Apply preview.
+     */
+    200: ApplyPreviewDto;
+};
+
+export type PostApiV1ApplyPreviewResponse = PostApiV1ApplyPreviewResponses[keyof PostApiV1ApplyPreviewResponses];
+
 export type GetApiV1ProjectsByNameHistoryData = {
     body?: never;
     path: {
@@ -19864,15 +25050,31 @@ export type GetApiV1ProjectsByNameHistoryData = {
          */
         offset?: number;
         /**
-         * ISO 8601 lower bound.
+         * Inclusive ISO 8601 lower bound, normalized to UTC.
          */
         since?: string;
+        /**
+         * Inclusive ISO 8601 upper bound, normalized to UTC.
+         */
+        until?: string;
+        /**
+         * Literal audit action prefix.
+         */
+        actionPrefix?: string;
+        /**
+         * Exact entity identity filter.
+         */
+        entityId?: string;
+        /**
+         * Exclude entity types before paging; repeated or comma-separated.
+         */
+        excludeEntityTypes?: Array<string>;
         /**
          * Exact audit action filter.
          */
         action?: string;
         /**
-         * Exact actor filter.
+         * Exact actor, or api for legacy API, API-key, and user actors.
          */
         actor?: string;
         /**
@@ -19905,15 +25107,31 @@ export type GetApiV1HistoryData = {
          */
         offset?: number;
         /**
-         * ISO 8601 lower bound.
+         * Inclusive ISO 8601 lower bound, normalized to UTC.
          */
         since?: string;
+        /**
+         * Inclusive ISO 8601 upper bound, normalized to UTC.
+         */
+        until?: string;
+        /**
+         * Literal audit action prefix.
+         */
+        actionPrefix?: string;
+        /**
+         * Exact entity identity filter.
+         */
+        entityId?: string;
+        /**
+         * Exclude entity types before paging; repeated or comma-separated.
+         */
+        excludeEntityTypes?: Array<string>;
         /**
          * Exact audit action filter.
          */
         action?: string;
         /**
-         * Exact actor filter.
+         * Exact actor, or api for legacy API, API-key, and user actors.
          */
         actor?: string;
         /**
@@ -20012,11 +25230,19 @@ export type GetApiV1ProjectsByNameAnalyticsMetricsData = {
          * Time window for analytics queries. An unrecognised value is rejected with 400; it is never widened to the full history.
          */
         window?: '7d' | '30d' | '90d' | 'all';
+        /**
+         * Restrict every rate, bucket, change and query-set event to branded or non-brand answers, classified from the query text by the project's brand names (the same split mention share uses). Mention share stays non-brand, so it is empty under branded. Bucket boundaries do not move with the class, so the two classes plot on the same dates. 400 when the project has no brand name or alias to classify with, or has a published v2 measurement plan (its classes live on the plan assignments; read the split from the visibility report). Defaults to all, which pools both classes.
+         */
+        queryClass?: 'all' | 'branded' | 'non-brand';
     };
     url: '/api/v1/projects/{name}/analytics/metrics';
 };
 
 export type GetApiV1ProjectsByNameAnalyticsMetricsErrors = {
+    /**
+     * Invalid query parameters.
+     */
+    400: ErrorEnvelope;
     /**
      * Project not found.
      */
@@ -20318,9 +25544,9 @@ export type PutApiV1SettingsProvidersByNameData = {
     };
     path: {
         /**
-         * Provider name.
+         * Registered API provider connection name. OpenRouter settings use the bare `openrouter` connection id, never a model route.
          */
-        name: 'gemini' | 'openai' | 'claude' | 'perplexity' | 'muse' | 'local';
+        name: string;
     };
     query?: never;
     url: '/api/v1/settings/providers/{name}';
@@ -20351,6 +25577,43 @@ export type PutApiV1SettingsProvidersByNameResponses = {
 };
 
 export type PutApiV1SettingsProvidersByNameResponse = PutApiV1SettingsProvidersByNameResponses[keyof PutApiV1SettingsProvidersByNameResponses];
+
+export type PostApiV1SettingsProvidersReloadData = {
+    body?: ProviderReloadRequest;
+    path?: never;
+    query?: never;
+    url: '/api/v1/settings/providers/reload';
+};
+
+export type PostApiV1SettingsProvidersReloadErrors = {
+    /**
+     * Invalid reload request, unloadable config, or install identity mismatch (error.details.reason install-identity-mismatch).
+     */
+    400: ErrorEnvelope;
+    /**
+     * Install administrator authority is required.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Outstanding provider batch work requires the current registration. Quota-only changes remain available.
+     */
+    409: ErrorEnvelope;
+    /**
+     * Provider reload is not supported.
+     */
+    501: ErrorEnvelope;
+};
+
+export type PostApiV1SettingsProvidersReloadError = PostApiV1SettingsProvidersReloadErrors[keyof PostApiV1SettingsProvidersReloadErrors];
+
+export type PostApiV1SettingsProvidersReloadResponses = {
+    /**
+     * Saved provider configuration is active.
+     */
+    200: ProviderReloadResponseDto;
+};
+
+export type PostApiV1SettingsProvidersReloadResponse = PostApiV1SettingsProvidersReloadResponses[keyof PostApiV1SettingsProvidersReloadResponses];
 
 export type PutApiV1SettingsGoogleData = {
     body: {
@@ -21274,6 +26537,68 @@ export type PostApiV1TelemetryOnboardingResponses = {
 };
 
 export type PostApiV1TelemetryOnboardingResponse = PostApiV1TelemetryOnboardingResponses[keyof PostApiV1TelemetryOnboardingResponses];
+
+export type PostApiV1TelemetryUiData = {
+    body: UiTelemetryEvent;
+    path?: never;
+    query?: never;
+    url: '/api/v1/telemetry/ui';
+};
+
+export type PostApiV1TelemetryUiErrors = {
+    /**
+     * Invalid UI telemetry event.
+     */
+    400: ErrorEnvelope;
+};
+
+export type PostApiV1TelemetryUiError = PostApiV1TelemetryUiErrors[keyof PostApiV1TelemetryUiErrors];
+
+export type PostApiV1TelemetryUiResponses = {
+    /**
+     * UI event accepted.
+     */
+    202: TelemetryEventAcceptedDto;
+};
+
+export type PostApiV1TelemetryUiResponse = PostApiV1TelemetryUiResponses[keyof PostApiV1TelemetryUiResponses];
+
+export type PostApiV1FeedbackData = {
+    body: FeedbackSubmission;
+    path?: never;
+    query?: never;
+    url: '/api/v1/feedback';
+};
+
+export type PostApiV1FeedbackErrors = {
+    /**
+     * Invalid feedback.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Feedback rate limit reached; try again later.
+     */
+    429: ErrorEnvelope;
+    /**
+     * Feedback is not available in this deployment.
+     */
+    501: ErrorEnvelope;
+    /**
+     * The feedback collector could not be reached or rejected the submission.
+     */
+    502: ErrorEnvelope;
+};
+
+export type PostApiV1FeedbackError = PostApiV1FeedbackErrors[keyof PostApiV1FeedbackErrors];
+
+export type PostApiV1FeedbackResponses = {
+    /**
+     * Feedback accepted by the collector.
+     */
+    202: FeedbackAcceptedDto;
+};
+
+export type PostApiV1FeedbackResponse = PostApiV1FeedbackResponses[keyof PostApiV1FeedbackResponses];
 
 export type GetApiV1ScreenshotsBySnapshotIdData = {
     body?: never;
@@ -22655,9 +27980,7 @@ export type PostApiV1ProjectsByNameGoogleConnectResponses = {
     /**
      * Google auth URL returned.
      */
-    200: {
-        url?: string;
-    };
+    200: GoogleOAuthStartResponse;
 };
 
 export type PostApiV1ProjectsByNameGoogleConnectResponse = PostApiV1ProjectsByNameGoogleConnectResponses[keyof PostApiV1ProjectsByNameGoogleConnectResponses];
@@ -23401,6 +28724,10 @@ export type PostApiV1ProjectsByNameGbpLocationsDiscoverErrors = {
      */
     400: ErrorEnvelope;
     /**
+     * The Google connection was rejected; reconnect Google Business Profile.
+     */
+    403: ErrorEnvelope;
+    /**
      * Project not found.
      */
     404: ErrorEnvelope;
@@ -23421,6 +28748,224 @@ export type PostApiV1ProjectsByNameGbpLocationsDiscoverResponses = {
 
 export type PostApiV1ProjectsByNameGbpLocationsDiscoverResponse = PostApiV1ProjectsByNameGbpLocationsDiscoverResponses[keyof PostApiV1ProjectsByNameGbpLocationsDiscoverResponses];
 
+export type GetApiV1ProjectsByNameGbpLocalPostsData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query: {
+        /**
+         * Exact selected Google account resource.
+         */
+        accountName: string;
+        /**
+         * Exact selected Google location resource.
+         */
+        locationName: string;
+        /**
+         * Opaque next-page token; omission starts the scan.
+         */
+        pageToken?: string;
+    };
+    url: '/api/v1/projects/{name}/gbp/local-posts';
+};
+
+export type GetApiV1ProjectsByNameGbpLocalPostsErrors = {
+    /**
+     * Invalid scope.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Live GBP read not authorized.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Provider result unavailable or incomplete.
+     */
+    502: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameGbpLocalPostsError = GetApiV1ProjectsByNameGbpLocalPostsErrors[keyof GetApiV1ProjectsByNameGbpLocalPostsErrors];
+
+export type GetApiV1ProjectsByNameGbpLocalPostsResponses = {
+    /**
+     * Live Google read returned.
+     */
+    200: GbpLocalPostList;
+};
+
+export type GetApiV1ProjectsByNameGbpLocalPostsResponse = GetApiV1ProjectsByNameGbpLocalPostsResponses[keyof GetApiV1ProjectsByNameGbpLocalPostsResponses];
+
+export type PostApiV1ProjectsByNameGbpLocalPostsData = {
+    body: GbpLocalPostCreate;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/gbp/local-posts';
+};
+
+export type PostApiV1ProjectsByNameGbpLocalPostsErrors = {
+    /**
+     * Invalid or conflicting attempt.
+     */
+    400: ErrorEnvelope;
+    /**
+     * GBP write not authorized or target unavailable.
+     */
+    403: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameGbpLocalPostsError = PostApiV1ProjectsByNameGbpLocalPostsErrors[keyof PostApiV1ProjectsByNameGbpLocalPostsErrors];
+
+export type PostApiV1ProjectsByNameGbpLocalPostsResponses = {
+    /**
+     * Durable attempt state; accepted is not independent verification.
+     */
+    200: GbpLocalPostAttempt;
+};
+
+export type PostApiV1ProjectsByNameGbpLocalPostsResponse = PostApiV1ProjectsByNameGbpLocalPostsResponses[keyof PostApiV1ProjectsByNameGbpLocalPostsResponses];
+
+export type GetApiV1ProjectsByNameGbpLocalPostData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query: {
+        /**
+         * Exact existing Google post resource.
+         */
+        postName: string;
+    };
+    url: '/api/v1/projects/{name}/gbp/local-post';
+};
+
+export type GetApiV1ProjectsByNameGbpLocalPostErrors = {
+    /**
+     * Invalid scope.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Live GBP read not authorized.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Provider result unavailable or incomplete.
+     */
+    502: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameGbpLocalPostError = GetApiV1ProjectsByNameGbpLocalPostErrors[keyof GetApiV1ProjectsByNameGbpLocalPostErrors];
+
+export type GetApiV1ProjectsByNameGbpLocalPostResponses = {
+    /**
+     * Live Google read returned.
+     */
+    200: GbpLocalPost;
+};
+
+export type GetApiV1ProjectsByNameGbpLocalPostResponse = GetApiV1ProjectsByNameGbpLocalPostResponses[keyof GetApiV1ProjectsByNameGbpLocalPostResponses];
+
+export type GetApiV1ProjectsByNameGbpReviewsLiveData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query: {
+        /**
+         * Exact selected Google account resource.
+         */
+        accountName: string;
+        /**
+         * Exact selected Google location resource.
+         */
+        locationName: string;
+    };
+    url: '/api/v1/projects/{name}/gbp/reviews/live';
+};
+
+export type GetApiV1ProjectsByNameGbpReviewsLiveErrors = {
+    /**
+     * Invalid scope.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Live GBP read not authorized.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Provider result unavailable or incomplete.
+     */
+    502: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameGbpReviewsLiveError = GetApiV1ProjectsByNameGbpReviewsLiveErrors[keyof GetApiV1ProjectsByNameGbpReviewsLiveErrors];
+
+export type GetApiV1ProjectsByNameGbpReviewsLiveResponses = {
+    /**
+     * Live Google read returned.
+     */
+    200: GbpLiveReviews;
+};
+
+export type GetApiV1ProjectsByNameGbpReviewsLiveResponse = GetApiV1ProjectsByNameGbpReviewsLiveResponses[keyof GetApiV1ProjectsByNameGbpReviewsLiveResponses];
+
+export type GetApiV1ProjectsByNameGbpLocalPostAttemptData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query: {
+        /**
+         * Exact saved UUID.
+         */
+        attemptId: string;
+        /**
+         * Exact approved package digest.
+         */
+        packageId: string;
+    };
+    url: '/api/v1/projects/{name}/gbp/local-post-attempt';
+};
+
+export type GetApiV1ProjectsByNameGbpLocalPostAttemptErrors = {
+    /**
+     * No matching saved attempt.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Not authorized.
+     */
+    403: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameGbpLocalPostAttemptError = GetApiV1ProjectsByNameGbpLocalPostAttemptErrors[keyof GetApiV1ProjectsByNameGbpLocalPostAttemptErrors];
+
+export type GetApiV1ProjectsByNameGbpLocalPostAttemptResponses = {
+    /**
+     * Saved accepted, rejected or uncertain result.
+     */
+    200: GbpLocalPostAttempt;
+};
+
+export type GetApiV1ProjectsByNameGbpLocalPostAttemptResponse = GetApiV1ProjectsByNameGbpLocalPostAttemptResponses[keyof GetApiV1ProjectsByNameGbpLocalPostAttemptResponses];
+
 export type GetApiV1ProjectsByNameGbpAccountsData = {
     body?: never;
     path: {
@@ -23438,6 +28983,10 @@ export type GetApiV1ProjectsByNameGbpAccountsErrors = {
      * No GBP connection or scope/API problem.
      */
     400: ErrorEnvelope;
+    /**
+     * The Google connection was rejected; reconnect Google Business Profile.
+     */
+    403: ErrorEnvelope;
     /**
      * Project not found.
      */
@@ -26066,7 +31615,7 @@ export type GetApiV1ProjectsByNameWordpressPagesResponses = {
     /**
      * WordPress pages returned.
      */
-    200: Array<WordpressPageSummaryDto>;
+    200: WordpressPageListDto;
 };
 
 export type GetApiV1ProjectsByNameWordpressPagesResponse = GetApiV1ProjectsByNameWordpressPagesResponses[keyof GetApiV1ProjectsByNameWordpressPagesResponses];
@@ -26476,7 +32025,7 @@ export type GetApiV1ProjectsByNameWordpressLlmsTxtResponses = {
     /**
      * llms.txt returned.
      */
-    200: string;
+    200: WordpressLlmsTxtDto;
 };
 
 export type GetApiV1ProjectsByNameWordpressLlmsTxtResponse = GetApiV1ProjectsByNameWordpressLlmsTxtResponses[keyof GetApiV1ProjectsByNameWordpressLlmsTxtResponses];
@@ -26552,7 +32101,7 @@ export type GetApiV1ProjectsByNameWordpressAuditResponses = {
     /**
      * WordPress audit returned.
      */
-    200: Array<WordpressAuditPageDto>;
+    200: WordpressAuditDto;
 };
 
 export type GetApiV1ProjectsByNameWordpressAuditResponse = GetApiV1ProjectsByNameWordpressAuditResponses[keyof GetApiV1ProjectsByNameWordpressAuditResponses];
@@ -26732,6 +32281,10 @@ export type PostApiV1ProjectsByNameGaConnectErrors = {
      */
     400: ErrorEnvelope;
     /**
+     * Google refused the property (`details.reason` is `ga4-permission-missing`). Retrying will not help until access is granted; repeated refusals are answered without asking Google again until `details.nextCheckAt`.
+     */
+    403: ErrorEnvelope;
+    /**
      * Project not found.
      */
     404: ErrorEnvelope;
@@ -26844,6 +32397,89 @@ export type GetApiV1ProjectsByNameGaPropertiesResponses = {
 
 export type GetApiV1ProjectsByNameGaPropertiesResponse = GetApiV1ProjectsByNameGaPropertiesResponses[keyof GetApiV1ProjectsByNameGaPropertiesResponses];
 
+export type GetApiV1ProjectsByNameGaAcquisitionData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Rolling window, default all; explicit dates take precedence.
+         */
+        window?: '7d' | '30d' | '90d' | 'all';
+        /**
+         * Inclusive calendar date.
+         */
+        startDate?: string;
+        /**
+         * Inclusive calendar date.
+         */
+        endDate?: string;
+        /**
+         * Case-insensitive exact channel group.
+         */
+        channel?: string;
+        /**
+         * Exact source.
+         */
+        source?: string;
+        /**
+         * Exact medium.
+         */
+        medium?: string;
+        /**
+         * Case-insensitive exact hostname.
+         */
+        hostName?: string;
+        /**
+         * Exact stored normalized page, including meaningful query parameters.
+         */
+        landingPage?: string;
+        /**
+         * Literal boundary-safe normalized path prefix; page query parameters do not affect this filter.
+         */
+        pathPrefix?: string;
+        /**
+         * Comma list: date,channelGroup,source,medium,hostName,landingPage. Default all six.
+         */
+        groupBy?: string;
+        /**
+         * Page size, default 100.
+         */
+        limit?: number;
+        /**
+         * Rows to skip, default 0.
+         */
+        offset?: number;
+    };
+    url: '/api/v1/projects/{name}/ga/acquisition';
+};
+
+export type GetApiV1ProjectsByNameGaAcquisitionErrors = {
+    /**
+     * Invalid selection.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameGaAcquisitionError = GetApiV1ProjectsByNameGaAcquisitionErrors[keyof GetApiV1ProjectsByNameGaAcquisitionErrors];
+
+export type GetApiV1ProjectsByNameGaAcquisitionResponses = {
+    /**
+     * Stored grouped acquisition rows and filtered totals.
+     */
+    200: GaAcquisitionResponse;
+};
+
+export type GetApiV1ProjectsByNameGaAcquisitionResponse = GetApiV1ProjectsByNameGaAcquisitionResponses[keyof GetApiV1ProjectsByNameGaAcquisitionResponses];
+
 export type GetApiV1ProjectsByNameGaMeasurementAnalysisData = {
     body?: never;
     path: {
@@ -26895,12 +32531,63 @@ export type GetApiV1ProjectsByNameGaMeasurementAnalysisResponses = {
 
 export type GetApiV1ProjectsByNameGaMeasurementAnalysisResponse = GetApiV1ProjectsByNameGaMeasurementAnalysisResponses[keyof GetApiV1ProjectsByNameGaMeasurementAnalysisResponses];
 
+export type GetApiV1ProjectsByNameGaSearchLandingPagesData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Stored window, ending yesterday in the GA4 property time zone. 28d matches GA4's default "Last 28 days".
+         */
+        window?: '7d' | '28d' | '90d';
+        /**
+         * Landing-page rows per page, ordered by clicks then impressions (descending), then landing page.
+         */
+        limit?: number;
+        /**
+         * Rows to skip before the page starts.
+         */
+        offset?: number;
+    };
+    url: '/api/v1/projects/{name}/ga/search-landing-pages';
+};
+
+export type GetApiV1ProjectsByNameGaSearchLandingPagesErrors = {
+    /**
+     * Invalid window, limit or offset.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameGaSearchLandingPagesError = GetApiV1ProjectsByNameGaSearchLandingPagesErrors[keyof GetApiV1ProjectsByNameGaSearchLandingPagesErrors];
+
+export type GetApiV1ProjectsByNameGaSearchLandingPagesResponses = {
+    /**
+     * GA4 Search Console landing pages returned.
+     */
+    200: GaSearchLandingPagesResponse;
+};
+
+export type GetApiV1ProjectsByNameGaSearchLandingPagesResponse = GetApiV1ProjectsByNameGaSearchLandingPagesResponses[keyof GetApiV1ProjectsByNameGaSearchLandingPagesResponses];
+
 export type PostApiV1ProjectsByNameGaSyncData = {
     body?: {
         /**
          * Days of history to sync. Clamped to 1-90; check `clamped` in the response to detect truncation. Defaults to 30.
          */
         days?: number;
+        /**
+         * Refresh the foundation (traffic snapshots and summaries) plus at most one slice: traffic (foundation only), ai, social or search-landing (the GA4 Search Console landing-page snapshot). Omit for every slice.
+         */
+        only?: 'traffic' | 'ai' | 'social' | 'search-landing';
     };
     path: {
         /**
@@ -27194,6 +32881,45 @@ export type GetApiV1ProjectsByNameGaAttributionTrendResponses = {
 
 export type GetApiV1ProjectsByNameGaAttributionTrendResponse = GetApiV1ProjectsByNameGaAttributionTrendResponses[keyof GetApiV1ProjectsByNameGaAttributionTrendResponses];
 
+export type GetApiV1ProjectsByNameGaOverviewData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Overview window: the complete days ending yesterday, as GA4 counts "Last 30 days". Defaults to 30d. Any other value is rejected with 400.
+         */
+        window?: '7d' | '30d' | '90d';
+    };
+    url: '/api/v1/projects/{name}/ga/overview';
+};
+
+export type GetApiV1ProjectsByNameGaOverviewErrors = {
+    /**
+     * GA4 is not connected, or the window is not 7d, 30d or 90d.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameGaOverviewError = GetApiV1ProjectsByNameGaOverviewErrors[keyof GetApiV1ProjectsByNameGaOverviewErrors];
+
+export type GetApiV1ProjectsByNameGaOverviewResponses = {
+    /**
+     * GA4 overview returned.
+     */
+    200: GaOverviewResponse;
+};
+
+export type GetApiV1ProjectsByNameGaOverviewResponse = GetApiV1ProjectsByNameGaOverviewResponses[keyof GetApiV1ProjectsByNameGaOverviewResponses];
+
 export type GetApiV1ProjectsByNameGaSessionHistoryData = {
     body?: never;
     path: {
@@ -27303,7 +33029,7 @@ export type GetApiV1ProjectsByNameInsightsData = {
          */
         severity?: string;
         /**
-         * Cap the number of (newest-first) insights returned.
+         * Keep the first N insights. Order: newest analysis first; within one analysis, insights that need action before wins, then most severe first.
          */
         limit?: string;
     };
@@ -27441,7 +33167,7 @@ export type GetApiV1ProjectsByNameOrganicEvidenceResponses = {
 
 export type GetApiV1ProjectsByNameOrganicEvidenceResponse = GetApiV1ProjectsByNameOrganicEvidenceResponses[keyof GetApiV1ProjectsByNameOrganicEvidenceResponses];
 
-export type GetApiV1ProjectsByNameReportData = {
+export type GetApiV1ProjectsByNameTrafficAnalyticsData = {
     body?: never;
     path: {
         /**
@@ -27451,69 +33177,34 @@ export type GetApiV1ProjectsByNameReportData = {
     };
     query?: {
         /**
-         * Report window in days — one of 7, 14, 30, 90 (default 30). Scopes the GSC, GA4, and server-side AI activity sections and the period-over-period comparisons to this window.
+         * Window in days: 7, 14, 30 or 90. Defaults to 30. Selects stored evidence only.
          */
         period?: 7 | 14 | 30 | 90;
     };
-    url: '/api/v1/projects/{name}/report';
+    url: '/api/v1/projects/{name}/traffic/analytics';
 };
 
-export type GetApiV1ProjectsByNameReportErrors = {
+export type GetApiV1ProjectsByNameTrafficAnalyticsErrors = {
+    /**
+     * Invalid analytics period.
+     */
+    400: ErrorEnvelope;
     /**
      * Project not found.
      */
     404: ErrorEnvelope;
 };
 
-export type GetApiV1ProjectsByNameReportError = GetApiV1ProjectsByNameReportErrors[keyof GetApiV1ProjectsByNameReportErrors];
+export type GetApiV1ProjectsByNameTrafficAnalyticsError = GetApiV1ProjectsByNameTrafficAnalyticsErrors[keyof GetApiV1ProjectsByNameTrafficAnalyticsErrors];
 
-export type GetApiV1ProjectsByNameReportResponses = {
+export type GetApiV1ProjectsByNameTrafficAnalyticsResponses = {
     /**
-     * Report returned.
+     * Traffic analytics returned.
      */
-    200: ProjectReportDto;
+    200: TrafficAnalyticsResponse;
 };
 
-export type GetApiV1ProjectsByNameReportResponse = GetApiV1ProjectsByNameReportResponses[keyof GetApiV1ProjectsByNameReportResponses];
-
-export type GetApiV1ProjectsByNameReportHtmlData = {
-    body?: never;
-    path: {
-        /**
-         * Project name.
-         */
-        name: string;
-    };
-    query?: {
-        /**
-         * HTML report audience mode. Defaults to agency.
-         */
-        audience?: 'agency' | 'client';
-        /**
-         * Report window in days — one of 7, 14, 30, 90 (default 30). Scopes the GSC, GA4, and server-side AI activity sections and the period-over-period comparisons to this window.
-         */
-        period?: 7 | 14 | 30 | 90;
-    };
-    url: '/api/v1/projects/{name}/report.html';
-};
-
-export type GetApiV1ProjectsByNameReportHtmlErrors = {
-    /**
-     * Project not found.
-     */
-    404: ErrorEnvelope;
-};
-
-export type GetApiV1ProjectsByNameReportHtmlError = GetApiV1ProjectsByNameReportHtmlErrors[keyof GetApiV1ProjectsByNameReportHtmlErrors];
-
-export type GetApiV1ProjectsByNameReportHtmlResponses = {
-    /**
-     * HTML report returned.
-     */
-    200: string;
-};
-
-export type GetApiV1ProjectsByNameReportHtmlResponse = GetApiV1ProjectsByNameReportHtmlResponses[keyof GetApiV1ProjectsByNameReportHtmlResponses];
+export type GetApiV1ProjectsByNameTrafficAnalyticsResponse = GetApiV1ProjectsByNameTrafficAnalyticsResponses[keyof GetApiV1ProjectsByNameTrafficAnalyticsResponses];
 
 export type GetApiV1ProjectsByNameHealthLatestData = {
     body?: never;
@@ -28119,6 +33810,77 @@ export type GetApiV1DoctorResponses = {
 };
 
 export type GetApiV1DoctorResponse = GetApiV1DoctorResponses[keyof GetApiV1DoctorResponses];
+
+export type GetApiV1McpProfileData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/mcp/profile';
+};
+
+export type GetApiV1McpProfileErrors = {
+    /**
+     * Authentication required or invalid.
+     */
+    401: ErrorEnvelope;
+    /**
+     * An instance-wide named account with read scope is required.
+     */
+    403: ErrorEnvelope;
+    /**
+     * MCP OAuth resource is not configured.
+     */
+    501: ErrorEnvelope;
+};
+
+export type GetApiV1McpProfileError = GetApiV1McpProfileErrors[keyof GetApiV1McpProfileErrors];
+
+export type GetApiV1McpProfileResponses = {
+    /**
+     * Authenticated MCP connection profile.
+     */
+    200: McpProfileDto;
+};
+
+export type GetApiV1McpProfileResponse = GetApiV1McpProfileResponses[keyof GetApiV1McpProfileResponses];
+
+export type GetApiV1StatusData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Optional project name.
+         */
+        project?: string;
+        /**
+         * When true, return only projects and integrations with a problem.
+         */
+        problems?: boolean;
+    };
+    url: '/api/v1/status';
+};
+
+export type GetApiV1StatusErrors = {
+    /**
+     * Project is outside the API key scope.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1StatusError = GetApiV1StatusErrors[keyof GetApiV1StatusErrors];
+
+export type GetApiV1StatusResponses = {
+    /**
+     * Stored status returned.
+     */
+    200: InstanceStatusDto;
+};
+
+export type GetApiV1StatusResponse = GetApiV1StatusResponses[keyof GetApiV1StatusResponses];
 
 export type GetApiV1ProjectsByNameDoctorData = {
     body?: never;
@@ -28955,6 +34717,49 @@ export type PostApiV1ProjectsByNameTrafficSourcesByIdResetResponses = {
 
 export type PostApiV1ProjectsByNameTrafficSourcesByIdResetResponse = PostApiV1ProjectsByNameTrafficSourcesByIdResetResponses[keyof PostApiV1ProjectsByNameTrafficSourcesByIdResetResponses];
 
+export type PostApiV1ProjectsByNameTrafficSourcesByIdDeclareGapData = {
+    body: {
+        /**
+         * The source's current `skippedThroughAt`, exactly as read.
+         */
+        skippedThroughAt: string;
+    };
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Traffic source ID.
+         */
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/projects/{name}/traffic/sources/{id}/declare-gap';
+};
+
+export type PostApiV1ProjectsByNameTrafficSourcesByIdDeclareGapErrors = {
+    /**
+     * No gap is recorded, or `skippedThroughAt` does not match the current one.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project or traffic source not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type PostApiV1ProjectsByNameTrafficSourcesByIdDeclareGapError = PostApiV1ProjectsByNameTrafficSourcesByIdDeclareGapErrors[keyof PostApiV1ProjectsByNameTrafficSourcesByIdDeclareGapErrors];
+
+export type PostApiV1ProjectsByNameTrafficSourcesByIdDeclareGapResponses = {
+    /**
+     * Gap recorded; the source no longer reports an unrecovered skip.
+     */
+    200: TrafficSourceDetailDto;
+};
+
+export type PostApiV1ProjectsByNameTrafficSourcesByIdDeclareGapResponse = PostApiV1ProjectsByNameTrafficSourcesByIdDeclareGapResponses[keyof PostApiV1ProjectsByNameTrafficSourcesByIdDeclareGapResponses];
+
 export type GetApiV1ProjectsByNameTrafficSourcesData = {
     body?: never;
     path: {
@@ -29107,6 +34912,234 @@ export type GetApiV1ProjectsByNameTrafficReferralAssessmentResponses = {
 };
 
 export type GetApiV1ProjectsByNameTrafficReferralAssessmentResponse = GetApiV1ProjectsByNameTrafficReferralAssessmentResponses[keyof GetApiV1ProjectsByNameTrafficReferralAssessmentResponses];
+
+export type GetApiV1ProjectsByNameTrafficSamplesData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Default all includes classified samples only.
+         */
+        kind?: 'crawler' | 'ai-user-fetch' | 'ai-referral' | 'unknown' | 'all';
+        /**
+         * Restrict to a traffic source in this project.
+         */
+        sourceId?: string;
+        /**
+         * Inclusive ISO timestamp, default 24 hours before until.
+         */
+        since?: string;
+        /**
+         * Inclusive ISO timestamp, default now.
+         */
+        until?: string;
+        /**
+         * Literal normalized path prefix.
+         */
+        path?: string;
+        /**
+         * Page size, default 100.
+         */
+        limit?: number;
+        /**
+         * Rows to skip, default 0.
+         */
+        offset?: number;
+    };
+    url: '/api/v1/projects/{name}/traffic/samples';
+};
+
+export type GetApiV1ProjectsByNameTrafficSamplesErrors = {
+    /**
+     * Invalid selection.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Samples are unavailable to this principal.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameTrafficSamplesError = GetApiV1ProjectsByNameTrafficSamplesErrors[keyof GetApiV1ProjectsByNameTrafficSamplesErrors];
+
+export type GetApiV1ProjectsByNameTrafficSamplesResponses = {
+    /**
+     * Stored sample page and sampling limits.
+     */
+    200: TrafficSamplesResponse;
+};
+
+export type GetApiV1ProjectsByNameTrafficSamplesResponse = GetApiV1ProjectsByNameTrafficSamplesResponses[keyof GetApiV1ProjectsByNameTrafficSamplesResponses];
+
+export type GetApiV1ProjectsByNameJourneysSummaryData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Inclusive ISO timestamp or date, default 30 days before until.
+         */
+        since?: string;
+        /**
+         * Inclusive ISO timestamp or date, default now.
+         */
+        until?: string;
+    };
+    url: '/api/v1/projects/{name}/journeys/summary';
+};
+
+export type GetApiV1ProjectsByNameJourneysSummaryErrors = {
+    /**
+     * Invalid selection.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Journeys are unavailable to this principal.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameJourneysSummaryError = GetApiV1ProjectsByNameJourneysSummaryErrors[keyof GetApiV1ProjectsByNameJourneysSummaryErrors];
+
+export type GetApiV1ProjectsByNameJourneysSummaryResponses = {
+    /**
+     * Journey summary for the window.
+     */
+    200: JourneySummaryResponse;
+};
+
+export type GetApiV1ProjectsByNameJourneysSummaryResponse = GetApiV1ProjectsByNameJourneysSummaryResponses[keyof GetApiV1ProjectsByNameJourneysSummaryResponses];
+
+export type GetApiV1ProjectsByNameJourneysData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Inclusive ISO timestamp or date, default 30 days before until.
+         */
+        since?: string;
+        /**
+         * Inclusive ISO timestamp or date, default now.
+         */
+        until?: string;
+        /**
+         * First AI engine, e.g. ChatGPT (case-insensitive).
+         */
+        engine?: string;
+        /**
+         * true: only visitors who came back later; false: only those who did not.
+         */
+        returned?: 'true' | 'false';
+        /**
+         * Page size, default 50.
+         */
+        limit?: number;
+        /**
+         * Visitors to skip, default 0.
+         */
+        offset?: number;
+    };
+    url: '/api/v1/projects/{name}/journeys';
+};
+
+export type GetApiV1ProjectsByNameJourneysErrors = {
+    /**
+     * Invalid selection.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Journeys are unavailable to this principal.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameJourneysError = GetApiV1ProjectsByNameJourneysErrors[keyof GetApiV1ProjectsByNameJourneysErrors];
+
+export type GetApiV1ProjectsByNameJourneysResponses = {
+    /**
+     * Journey page.
+     */
+    200: JourneysResponse;
+};
+
+export type GetApiV1ProjectsByNameJourneysResponse = GetApiV1ProjectsByNameJourneysResponses[keyof GetApiV1ProjectsByNameJourneysResponses];
+
+export type GetApiV1ProjectsByNameJourneysByVisitorKeyData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Visitor key from the journey list.
+         */
+        visitorKey: string;
+    };
+    query?: {
+        /**
+         * Visits per page, default 100.
+         */
+        limit?: number;
+        /**
+         * Visits to skip, default 0.
+         */
+        offset?: number;
+    };
+    url: '/api/v1/projects/{name}/journeys/{visitorKey}';
+};
+
+export type GetApiV1ProjectsByNameJourneysByVisitorKeyErrors = {
+    /**
+     * Invalid selection.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Journeys are unavailable to this principal.
+     */
+    403: ErrorEnvelope;
+    /**
+     * Project or journey not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameJourneysByVisitorKeyError = GetApiV1ProjectsByNameJourneysByVisitorKeyErrors[keyof GetApiV1ProjectsByNameJourneysByVisitorKeyErrors];
+
+export type GetApiV1ProjectsByNameJourneysByVisitorKeyResponses = {
+    /**
+     * Journey detail.
+     */
+    200: JourneyDetailResponse;
+};
+
+export type GetApiV1ProjectsByNameJourneysByVisitorKeyResponse = GetApiV1ProjectsByNameJourneysByVisitorKeyResponses[keyof GetApiV1ProjectsByNameJourneysByVisitorKeyResponses];
 
 export type GetApiV1ProjectsByNameTrafficEventsData = {
     body?: never;
@@ -29569,11 +35602,19 @@ export type GetApiV1ProjectsByNameTechnicalAeoCrawlData = {
          * Historical site-audit run ID. Omit for the latest crawl.
          */
         runId?: string;
+        /**
+         * UTC scan date YYYY-MM-DD, mutually exclusive with runId. Prefer complete, then largest, then latest scans on that exact date; missing data never falls back to another date.
+         */
+        date?: string;
     };
     url: '/api/v1/projects/{name}/technical-aeo/crawl';
 };
 
 export type GetApiV1ProjectsByNameTechnicalAeoCrawlErrors = {
+    /**
+     * Invalid date, conflicting runId/date, or invalid cursor identity.
+     */
+    400: ErrorEnvelope;
     /**
      * Project or site-audit run not found. A known run that published no crawl returns 200 with the no-crawl state instead.
      */
@@ -29601,7 +35642,7 @@ export type GetApiV1ProjectsByNameTechnicalAeoGraphData = {
     };
     query?: {
         /**
-         * Historical site-audit run ID. Omit for the latest complete crawl.
+         * Historical site-audit run ID. Omit for the latest crawl.
          */
         runId?: string;
         /**
@@ -29648,7 +35689,7 @@ export type GetApiV1ProjectsByNameTechnicalAeoSubgraphData = {
     };
     query?: {
         /**
-         * Historical site-audit run ID. Omit for the latest complete crawl.
+         * Historical site-audit run ID. Omit for the latest crawl.
          */
         runId?: string;
         /**
@@ -29703,7 +35744,7 @@ export type GetApiV1ProjectsByNameTechnicalAeoPathData = {
     };
     query?: {
         /**
-         * Historical site-audit run ID. Omit for the latest complete crawl.
+         * Historical site-audit run ID. Omit for the latest crawl.
          */
         runId?: string;
         /**
@@ -29811,6 +35852,104 @@ export type GetApiV1ProjectsByNameTechnicalAeoChangesResponses = {
 
 export type GetApiV1ProjectsByNameTechnicalAeoChangesResponse = GetApiV1ProjectsByNameTechnicalAeoChangesResponses[keyof GetApiV1ProjectsByNameTechnicalAeoChangesResponses];
 
+export type GetApiV1ProjectsByNameTechnicalAeoIssuesData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+    };
+    query?: {
+        /**
+         * Stored non-probe audit run. Omit for the standard latest crawl selection.
+         */
+        runId?: string;
+        /**
+         * Opaque continuation bound to project, run, published attempt, issue, and exact retained evidence.
+         */
+        cursor?: string;
+        /**
+         * Maximum rows; the 16 KiB serialized response budget may return fewer. Follow nextCursor until null.
+         */
+        limit?: number;
+    };
+    url: '/api/v1/projects/{name}/technical-aeo/issues';
+};
+
+export type GetApiV1ProjectsByNameTechnicalAeoIssuesErrors = {
+    /**
+     * Invalid query/cursor or evidence/response read budget exceeded.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project or explicitly selected non-probe audit run not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameTechnicalAeoIssuesError = GetApiV1ProjectsByNameTechnicalAeoIssuesErrors[keyof GetApiV1ProjectsByNameTechnicalAeoIssuesErrors];
+
+export type GetApiV1ProjectsByNameTechnicalAeoIssuesResponses = {
+    /**
+     * Stored issue groups and coverage returned.
+     */
+    200: SiteAuditIssuesResponseDto;
+};
+
+export type GetApiV1ProjectsByNameTechnicalAeoIssuesResponse = GetApiV1ProjectsByNameTechnicalAeoIssuesResponses[keyof GetApiV1ProjectsByNameTechnicalAeoIssuesResponses];
+
+export type GetApiV1ProjectsByNameTechnicalAeoIssuesByIssueIdPagesData = {
+    body?: never;
+    path: {
+        /**
+         * Project name.
+         */
+        name: string;
+        /**
+         * Exact issue ID from the stored issue list.
+         */
+        issueId: string;
+    };
+    query?: {
+        /**
+         * Stored non-probe audit run. Omit for the standard latest crawl selection.
+         */
+        runId?: string;
+        /**
+         * Opaque continuation bound to project, run, published attempt, issue, and exact retained evidence.
+         */
+        cursor?: string;
+        /**
+         * Maximum rows; the 16 KiB serialized response budget may return fewer. Follow nextCursor until null.
+         */
+        limit?: number;
+    };
+    url: '/api/v1/projects/{name}/technical-aeo/issues/{issueId}/pages';
+};
+
+export type GetApiV1ProjectsByNameTechnicalAeoIssuesByIssueIdPagesErrors = {
+    /**
+     * Invalid query/cursor or evidence/response read budget exceeded.
+     */
+    400: ErrorEnvelope;
+    /**
+     * Project, selected non-probe audit run, or issue not found.
+     */
+    404: ErrorEnvelope;
+};
+
+export type GetApiV1ProjectsByNameTechnicalAeoIssuesByIssueIdPagesError = GetApiV1ProjectsByNameTechnicalAeoIssuesByIssueIdPagesErrors[keyof GetApiV1ProjectsByNameTechnicalAeoIssuesByIssueIdPagesErrors];
+
+export type GetApiV1ProjectsByNameTechnicalAeoIssuesByIssueIdPagesResponses = {
+    /**
+     * Stored affected page evidence and coverage returned.
+     */
+    200: SiteAuditIssuePagesResponseDto;
+};
+
+export type GetApiV1ProjectsByNameTechnicalAeoIssuesByIssueIdPagesResponse = GetApiV1ProjectsByNameTechnicalAeoIssuesByIssueIdPagesResponses[keyof GetApiV1ProjectsByNameTechnicalAeoIssuesByIssueIdPagesResponses];
+
 export type GetApiV1ProjectsByNameTechnicalAeoCrawlPagesAuditData = {
     body?: never;
     path: {
@@ -29821,7 +35960,7 @@ export type GetApiV1ProjectsByNameTechnicalAeoCrawlPagesAuditData = {
     };
     query?: {
         /**
-         * Historical site-audit run ID. Omit for the latest complete crawl.
+         * Historical site-audit run ID. Omit for the latest crawl.
          */
         runId?: string;
         /**
@@ -29872,6 +36011,10 @@ export type GetApiV1ProjectsByNameTechnicalAeoCrawlPagesData = {
          */
         runId?: string;
         /**
+         * UTC scan date YYYY-MM-DD, mutually exclusive with runId. Prefer complete, then largest, then latest scans on that exact date; missing data never falls back to another date.
+         */
+        date?: string;
+        /**
          * Filter Canonry technical inventory eligibility (`true` or `false`).
          */
         inventoryEligible?: boolean;
@@ -29892,9 +36035,13 @@ export type GetApiV1ProjectsByNameTechnicalAeoCrawlPagesData = {
          */
         healthState?: 'eligible' | 'hidden' | 'resource' | 'redirect' | 'failed' | 'unchecked';
         /**
-         * Filter by audit state.
+         * Filter by audit state. A URL version has `url-version`: it was fetched and classified but not scored.
          */
         auditState?: string;
+        /**
+         * URL versions are parameter addresses (filters, views, cache settings) whose canonical names the same path, so the site marks them as copies of that page. The audit does not score them or count them in fixes, and `inventorySummary.urlVersions` counts them. `include` (default) keeps every crawled address, `exclude` lists pages only, as the dashboard does, and `only` lists the URL versions, each with `urlVersionOf`. Once a few addresses with the same parameter pattern prove to be copies, the crawl stops fetching that pattern: those have no rows and `inventorySummary.urlVersionsNotFetched` counts them. Scans made before URL versions were set aside have none.
+         */
+        urlVersions?: 'include' | 'exclude' | 'only';
         /**
          * Sort order. Defaults to `url`.
          */
@@ -29912,6 +36059,10 @@ export type GetApiV1ProjectsByNameTechnicalAeoCrawlPagesData = {
 };
 
 export type GetApiV1ProjectsByNameTechnicalAeoCrawlPagesErrors = {
+    /**
+     * Invalid date, conflicting runId/date, invalid urlVersions, or invalid cursor identity.
+     */
+    400: ErrorEnvelope;
     /**
      * Project or site-audit run not found. A known run that published no crawl returns 200 with the no-crawl state instead.
      */
@@ -30179,7 +36330,7 @@ export type PostApiV1ProjectsByNameTechnicalAeoRunsData = {
          */
         limit?: number;
         /**
-         * Crawl page budget. Defaults to 1000; max 50000.
+         * Crawl page budget. When omitted, the project's saved budget (siteAuditMaxPages) applies, else the full site; max 50000.
          */
         maxPages?: number;
         /**
@@ -30194,6 +36345,14 @@ export type PostApiV1ProjectsByNameTechnicalAeoRunsData = {
          * Enable dead-link checking. Defaults to false.
          */
         checkDeadLinks?: boolean;
+        /**
+         * Opt in to geographic signals for location and service-area businesses. Part of scan identity.
+         */
+        includeGeo?: boolean;
+        /**
+         * Check discoverable actions, forms, and agent integrations by default. Set false to disable. Part of scan identity.
+         */
+        includeAgentSkills?: boolean;
     };
     path: {
         /**

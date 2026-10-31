@@ -1,8 +1,10 @@
 export const CANONRY_MCP_TIERS = [
+  'seo',
   'core',
   'monitoring',
   'setup',
   'gsc',
+  'bing',
   'ga',
   'gbp',
   // `ads` is deliberately OpenAI / ChatGPT Ads. Google Ads has its own
@@ -18,9 +20,11 @@ export const CANONRY_MCP_TIERS = [
 export type CanonryMcpTier = typeof CANONRY_MCP_TIERS[number]
 
 export const CANONRY_MCP_TOOLKIT_NAMES = [
+  'seo',
   'monitoring',
   'setup',
   'gsc',
+  'bing',
   'ga',
   'gbp',
   'ads',
@@ -42,10 +46,16 @@ export interface CanonryMcpToolkit {
 
 export const CANONRY_MCP_TOOLKITS: readonly CanonryMcpToolkit[] = [
   {
+    name: 'seo',
+    title: 'SEO data',
+    description: 'Keyword metrics, ranked keywords, domain intelligence, saved profiles and explicit refreshes from the host\'s SEO source, named by its connection label.',
+    whenToLoad: 'Load to inspect saved organic-search estimates, manage exact SEO profiles or explicitly refresh evidence. Search Console observations and AI citation and mention coverage remain separate.',
+  },
+  {
     name: 'monitoring',
     title: 'Measurement, runs, insights, health',
-    description: 'Inspect portfolio and Property measurement, question results, experimental branded and non-brand sentiment and evidence, run history, intelligence insights, health timelines, and bounded Site Health reads (overview, page audit evidence, focused subgraphs, paths, and scan changes).',
-    whenToLoad: 'Load when finding weak Properties, reviewing answers, sentiment and competitors, checking data quality, tying a Site Health page score to concrete findings, investigating site architecture, comparing scans, or diagnosing regressions.',
+    description: 'Inspect portfolio and Property measurement, question results, experimental branded and non-brand sentiment and evidence, content opportunities and addressed-target records, run history, intelligence insights, health timelines, and bounded Site Health reads (overview, page audit evidence, focused subgraphs, paths, and scan changes).',
+    whenToLoad: 'Load when finding weak Properties, reviewing answers, sentiment and competitors, marking or restoring addressed content targets, checking data quality, tying a Site Health page score to concrete findings, investigating site architecture, comparing scans, or diagnosing regressions.',
   },
   {
     name: 'setup',
@@ -60,9 +70,15 @@ export const CANONRY_MCP_TOOLKITS: readonly CanonryMcpToolkit[] = [
     whenToLoad: 'Load when you need indexing, coverage, or sitemap data from Google Search Console.',
   },
   {
+    name: 'bing',
+    title: 'Bing Webmaster Tools',
+    description: 'Read stored project index coverage and URL inspection evidence without calling Bing.',
+    whenToLoad: 'Load when reviewing indexed, not indexed or unknown URLs from a connected Bing site.',
+  },
+  {
     name: 'ga',
     title: 'Google Analytics 4',
-    description: 'Read GA traffic, AI/social referral history, attribution trend, and session history.',
+    description: 'Read GA traffic, AI/social referral history, attribution trend, session history, and GA4\'s Search Console landing-page report (Google organic clicks, impressions, CTR, position and active users per landing page).',
     whenToLoad: 'Load when you need traffic, referral, or attribution data from Google Analytics 4.',
   },
   {
@@ -98,7 +114,7 @@ export const CANONRY_MCP_TOOLKITS: readonly CanonryMcpToolkit[] = [
   {
     name: 'traffic',
     title: 'Server-side traffic ingestion',
-    description: 'Read crawler / AI-referral hourly rollups straight from server logs (no GA dependency), assess AI-referral bursts from stored evidence (raw counts, candidate bursts, a separate adjusted estimate, coverage limits), connect Cloud Run / WordPress / Vercel sources, trigger syncs, and backfill Cloud Run / Vercel windows.',
+    description: 'Read complete 7/14/30/90-day traffic analytics and crawler / AI-referral hourly rollups straight from server logs (no GA dependency), assess AI-referral bursts from stored evidence (raw counts, candidate bursts, a separate adjusted estimate, coverage limits), connect Cloud Run / WordPress / Vercel sources, trigger syncs, and backfill Cloud Run / Vercel windows.',
     whenToLoad: 'Load when you need server-log evidence of crawler hits or AI-referral sessions (e.g. confirming GPTBot or ChatGPT-User on a page), when reviewing candidate AI-referral bursts before quoting server-side AI referral totals, or when wiring up / syncing a traffic source.',
   },
   {

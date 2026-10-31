@@ -1,4 +1,5 @@
-import { formatRunErrorOneLine, type RunErrorDto } from '@ainyc/canonry-contracts'
+import { formatRunErrorOneLine, normalizeProjectDomain, unattributedAnswersLabel, uncheckedSourcesLabel, type RunErrorDto } from '@canonry/canonry-contracts'
+import type { CitationState } from '../view-models.js'
 
 /** Common search-analytics metrics shared across GSC, Bing, etc. */
 export enum SearchMetric {
@@ -35,6 +36,55 @@ export function splitPercentSign(text: string): { figure: string; sign: string }
   return text.endsWith('%') ? { figure: text.slice(0, -1), sign: '%' } : { figure: text, sign: '' }
 }
 
+/** The signal a coverage rate reads: the answer text (`mentioned`) or its source links (`cited`). */
+export type CoverageSignal = 'mentioned' | 'cited'
+
+/**
+ * The server's count of saved answers a rate left out of both its sides, as the
+ * shared label for that rate's own signal: a mention rate names the answers it
+ * could not tie to one property (`unattributed`), a citation rate the answers
+ * whose sources could not be checked (`unchecked`). Each count belongs to one
+ * signal, so its line never shows under the other.
+ */
+export function excludedAnswersLabel(
+  value: { denominator?: number | null; unattributed?: number; unchecked?: number },
+  signal: CoverageSignal,
+): string | null {
+  return signal === 'cited' ? uncheckedSourcesLabel(value) : unattributedAnswersLabel(value)
+}
+
+/**
+ * The same caveat as a flag beside the rate: a count and one word to show,
+ * and the full sentence for its bubble. Null when the rate left nothing out.
+ */
+export function excludedAnswersFlag(
+  value: { denominator?: number | null; unattributed?: number; unchecked?: number },
+  signal: CoverageSignal,
+): { label: string; text: string } | null {
+  const sentence = excludedAnswersLabel(value, signal)
+  const count = signal === 'cited' ? value.unchecked : value.unattributed
+  if (sentence === null || count === undefined) return null
+  const label = `${count} ${signal === 'cited' ? 'unchecked' : 'unattributed'}`
+  return { label, text: `${label}. ${sentence}, so this rate leaves ${count === 1 ? 'it' : 'them'} out.` }
+}
+
+/**
+ * The older site-wide cited flag (`citationState`: any page on the project's
+ * domain in the sources), named for what it reads. Advanced views put it beside
+ * per-property numbers, which credit only a property's own pages, so a bare
+ * "Cited" there reads as a property result it never was.
+ */
+export function siteCitationLabel(domain: string, state: CitationState): string {
+  const site = normalizeProjectDomain(domain)
+  switch (state) {
+    case 'cited': return `${site} cited (any page)`
+    case 'emerging': return `${site} newly cited (any page)`
+    case 'lost': return `${site} citation lost (any page)`
+    case 'not-cited': return `${site} not cited (any page)`
+    case 'pending': return 'Pending'
+  }
+}
+
 export function formatErrorLog(error: RunErrorDto): string {
   const sections: string[] = []
   if (error.message) sections.push(error.message)
@@ -56,6 +106,40 @@ export function toTitleCase(value: string): string {
     .split('-')
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ')
+}
+
+/**
+ * A sweep's time in the viewer's zone: "Sep 29, 5:41 AM", the time alone when
+ * it falls on the same day as `sameDayAs` (the sentence already names that
+ * day), and the year only outside the current one ("Sep 29, 2025, 5:41 AM").
+ */
+export function formatSweepInstant(iso: string, sameDayAs?: string | null, now: Date = new Date()): string {
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return iso
+  const time = date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+  if (sameDayAs && new Date(sameDayAs).toDateString() === date.toDateString()) return time
+  return `${formatSweepDay(iso, now)}, ${time}`
+}
+
+/**
+ * A sweep's day in the viewer's zone, in the same style as
+ * {@link formatSweepInstant}: "Sep 29", with the year only outside the current
+ * one ("Sep 29, 2025"). Always en-US, so a card's dates read one way whatever
+ * the browser's locale.
+ */
+export function formatSweepDay(iso: string, now: Date = new Date()): string {
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return iso
+  return date.getFullYear() === now.getFullYear()
+    ? formatMonthDay(iso)
+    : date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+/** A sweep's day without its year ("Sep 29"), for chart ticks. en-US, like the rest. */
+export function formatMonthDay(iso: string): string {
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return iso
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
 export function formatTimestamp(value: string | null | undefined): string {

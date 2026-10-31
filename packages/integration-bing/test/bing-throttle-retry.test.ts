@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { getUrlInfo, getSites, submitUrlBatch, __resetBingThrottleCooldownForTest } from '../src/bing-client.js'
 import { BingApiError, BING_THROTTLE_ERROR_CODES } from '../src/types.js'
-import { isRetryableHttpError } from '@ainyc/canonry-contracts'
+import { isRetryableHttpError } from '@canonry/canonry-contracts'
 
 /**
  * Bing does not use HTTP 429 to report throttling. It answers `400` and puts

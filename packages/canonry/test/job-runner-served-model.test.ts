@@ -11,8 +11,8 @@ import type {
   TrackedQueryInput,
   RawQueryResult,
   NormalizedQueryResult,
-} from '@ainyc/canonry-contracts'
-import { createClient, migrate, queries, projects, querySnapshots, runs } from '@ainyc/canonry-db'
+} from '@canonry/canonry-contracts'
+import { createClient, migrate, queries, projects, querySnapshots, runs } from '@canonry/canonry-db'
 import { JobRunner } from '../src/job-runner.js'
 import { ProviderRegistry } from '../src/provider-registry.js'
 import { captureCitedUrls } from '../src/cited-url-capture.js'
@@ -33,6 +33,10 @@ vi.mock('../src/cited-url-capture.js', async (importOriginal) => {
 // an echo of the configured model.
 
 const CONFIGURED_MODEL = 'gpt-5.6'
+const RETRIEVED = [
+  { uri: 'https://listing.example/best', title: 'Best picks', kind: 'search-result' as const, query: 'best example' },
+  { uri: 'https://listing.example/best', title: '', kind: 'page-read' as const, query: null },
+]
 const SERVED_MODEL = 'gpt-5.6-2026-03-05'
 
 interface StubOptions {
@@ -41,6 +45,8 @@ interface StubOptions {
   malformedGroundingSources?: boolean
   /** When set, the adapter reports this path so the screenshot insert branch runs. */
   screenshotPath?: string
+  /** What the engine reports it retrieved; omitted when it reports nothing. */
+  retrievedSources?: NormalizedQueryResult['retrievedSources']
 }
 
 function stubAdapter(opts: StubOptions): ProviderAdapter {
@@ -74,6 +80,7 @@ function stubAdapter(opts: StubOptions): ProviderAdapter {
           ? null as unknown as NormalizedQueryResult['groundingSources']
           : [{ uri: opts.groundingUri ?? 'https://publisher.example/guides/answer#citation', title: 'Publisher' }],
         searchQueries: [],
+        ...(opts.retrievedSources === undefined ? {} : { retrievedSources: opts.retrievedSources }),
         retrievalStatus: 'unknown',
       }
     },
@@ -168,6 +175,7 @@ test('JobRunner persists servedModel on the screenshot insert branch too', async
   const { snapshot } = await runWithStub('canonry-served-model-shot-', {
     servedModel: SERVED_MODEL,
     screenshotPath,
+    retrievedSources: RETRIEVED,
   })
 
   // Proves the screenshot branch actually ran — the two inserts are separate code
@@ -186,6 +194,9 @@ test('JobRunner persists servedModel on the screenshot insert branch too', async
   const envelope = JSON.parse(snapshot.rawResponse ?? '{}') as Record<string, unknown>
   expect(envelope.servedModel).toBe(SERVED_MODEL)
   expect(envelope.model).toBe(CONFIGURED_MODEL)
+  // Retrieved pages ride in the envelope beside, never inside, the cited sources.
+  expect(envelope.retrievedSources).toEqual(RETRIEVED)
+  expect(envelope.groundingSources).toEqual([{ uri: 'https://publisher.example/guides/answer#citation', title: 'Publisher' }])
 })
 
 test('JobRunner persists an undisclosed servedModel as NULL, never as the configured model', async () => {
@@ -200,6 +211,8 @@ test('JobRunner persists an undisclosed servedModel as NULL, never as the config
   const envelope = JSON.parse(snapshot.rawResponse ?? '{}') as Record<string, unknown>
   expect(envelope.servedModel).toBeNull()
   expect(envelope.model).toBe(CONFIGURED_MODEL)
+  // An engine that does not report retrievals leaves the key out, read back as null.
+  expect(envelope).not.toHaveProperty('retrievedSources')
 })
 
 test('JobRunner persists a route-capable query when Vertex resolution fails', async () => {

@@ -8,14 +8,19 @@
  * surface domains like `chatgpt.com` + `openai.com`) add an entry to
  * `AI_ENGINE_SELF_DOMAINS` so the citation extractors filter it out.
  *
- * ESLint blocks raw use of these hostnames outside this file and test
- * directories via `canonry-guards/no-inline-ai-hostname` in the workspace config.
+ * Lint blocks raw use of these hostnames outside this file and test
+ * directories via `canonry-guards/no-inline-ai-hostname` in `.oxlintrc.json`.
  */
 export const AI_ENGINE_DOMAINS = {
   /** OpenAI marketing/blog/API surface. */
   openai: 'openai.com',
   /** ChatGPT consumer surface (separate from openai.com per OpenAI's domain split). */
   chatgpt: 'chatgpt.com',
+  /**
+   * Legacy ChatGPT consumer hostname (redirects to `chatgpt.com` today).
+   * Referrer headers and analytics sources from older clients still carry it.
+   */
+  chatgptLegacy: 'chat.openai.com',
   /** Anthropic's Claude consumer surface. */
   claude: 'claude.ai',
   /** Perplexity consumer + docs surface. */
@@ -26,6 +31,10 @@ export const AI_ENGINE_DOMAINS = {
   bard: 'bard.google.com',
   /** Microsoft Copilot consumer surface. */
   copilotMicrosoft: 'copilot.microsoft.com',
+  /** Microsoft Copilot standalone consumer domain. */
+  copilot: 'copilot.com',
+  /** DeepSeek consumer + API surface (`chat.deepseek.com` is a subdomain). */
+  deepseek: 'deepseek.com',
   /** Meta AI consumer surface. */
   metaAi: 'meta.ai',
   /** xAI Grok. */

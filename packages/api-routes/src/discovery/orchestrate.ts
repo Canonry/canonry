@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import { eq } from 'drizzle-orm'
-import type { DatabaseClient } from '@ainyc/canonry-db'
-import { discoveryProbes, discoverySessions, domainClassifications } from '@ainyc/canonry-db'
+import type { DatabaseClient } from '@canonry/canonry-db'
+import { discoveryProbes, discoverySessions, domainClassifications } from '@canonry/canonry-db'
 import {
   CitationStates,
   computeDedupSimilarityStats,
@@ -15,6 +15,7 @@ import {
   clusterByCosine,
   cosineSimilarity,
   filterBrandedSeedCandidates,
+  hostMatchesAnyDomain,
   hostOf,
   mapWithConcurrency,
   pickClusterRepresentative,
@@ -24,7 +25,7 @@ import {
   type DiscoveryCompetitorMapEntry,
   type DiscoveryCompetitorType,
   type LocationContext,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 
 const DEFAULT_MAX_PROBES = 100
 
@@ -92,6 +93,10 @@ export interface DiscoveryProbeResult {
  * implementation may return a partial map.
  */
 export type DiscoveryDomainClassification = Record<string, DiscoveryCompetitorType>
+export interface DiscoveryDomainClassificationResult {
+  classifications: DiscoveryDomainClassification
+  evaluator: NonNullable<DiscoveryCompetitorMapEntry['evaluator']>
+}
 
 /**
  * Injection seam — canonry's side wires the real Gemini calls behind these.
@@ -146,7 +151,7 @@ export interface DiscoveryDeps {
     project: DiscoveryProjectContext
     icpDescription: string
     domains: string[]
-  }) => Promise<DiscoveryDomainClassification>
+  }) => Promise<DiscoveryDomainClassification | DiscoveryDomainClassificationResult>
 }
 
 export interface ExecuteDiscoveryOptions {
@@ -202,6 +207,11 @@ export interface ExecuteDiscoveryResult {
  *  - `wasted-surface`  — a configured competitor is cited but the project is not
  *  - `aspirational`    — neither the project nor a tracked competitor was cited
  *
+ * A cited host counts for a domain when it is that domain or a subdomain of it
+ * (`hostMatchesAnyDomain`), so a citation of `blog.<project domain>` is the
+ * project, and one of `offers.<competitor>` is that competitor, whose row
+ * stores the registrable domain.
+ *
  * Probes whose Gemini call returned no grounding at all (`citationState !=
  * 'cited'` AND no cited domains) still classify as `aspirational` — they
  * represent latent demand the project could go after even when nobody in
@@ -212,11 +222,10 @@ export function classifyProbeBucket(input: {
   citedDomains: string[]
   project: DiscoveryProjectContext
 }): DiscoveryBucket {
-  const cited = new Set(input.citedDomains.map(d => d.toLowerCase()))
-  const canonicalHit = input.project.canonicalDomains.some(d => cited.has(d.toLowerCase()))
+  const canonicalHit = input.citedDomains.some(host => hostMatchesAnyDomain(host, input.project.canonicalDomains))
   if (canonicalHit) return DiscoveryBuckets.cited
 
-  const competitorHit = input.project.competitorDomains.some(d => cited.has(d.toLowerCase()))
+  const competitorHit = input.citedDomains.some(host => hostMatchesAnyDomain(host, input.project.competitorDomains))
   if (competitorHit) return DiscoveryBuckets['wasted-surface']
 
   return DiscoveryBuckets.aspirational
@@ -226,7 +235,8 @@ export function classifyProbeBucket(input: {
  * Aggregate competitor domain hit counts across a set of probes. Each domain
  * counts at most once per probe (a single answer that lists the same domain
  * twice still counts as one hit for that probe). The project's canonical
- * domains are excluded.
+ * domains and their subdomains are excluded (`hostMatchesAnyDomain`), so the
+ * project's own blog never becomes a competitor candidate.
  *
  * `classification` attaches a `competitorType` to each entry — a domain absent
  * from the map (or the whole argument omitted) falls back to `unknown`. The
@@ -238,13 +248,12 @@ export function buildCompetitorMap(
   project: DiscoveryProjectContext,
   classification: DiscoveryDomainClassification = {},
 ): DiscoveryCompetitorMapEntry[] {
-  const canonical = new Set(project.canonicalDomains.map(d => d.toLowerCase()))
   const counts = new Map<string, number>()
   for (const probe of probes) {
     const seenInProbe = new Set<string>()
     for (const raw of probe.citedDomains) {
       const domain = raw.toLowerCase()
-      if (canonical.has(domain)) continue
+      if (hostMatchesAnyDomain(domain, project.canonicalDomains)) continue
       if (seenInProbe.has(domain)) continue
       seenInProbe.add(domain)
       counts.set(domain, (counts.get(domain) ?? 0) + 1)
@@ -270,12 +279,13 @@ async function classifyCompetitorDomains(
   project: DiscoveryProjectContext,
   icpDescription: string,
   domains: string[],
-): Promise<DiscoveryDomainClassification> {
-  if (domains.length === 0) return {}
+): Promise<{ classifications: DiscoveryDomainClassification; evaluator?: DiscoveryCompetitorMapEntry['evaluator'] }> {
+  if (domains.length === 0) return { classifications: {} }
   try {
-    return await deps.classifyDomains({ project, icpDescription, domains })
+    const result = await deps.classifyDomains({ project, icpDescription, domains })
+    return typeof result.classifications === 'object' ? result as DiscoveryDomainClassificationResult : { classifications: result as DiscoveryDomainClassification }
   } catch {
-    return {}
+    return { classifications: {} }
   }
 }
 
@@ -557,7 +567,8 @@ export async function executeDiscovery(opts: ExecuteDiscoveryOptions): Promise<E
     opts.icpDescription,
     domains,
   )
-  const competitorMap = buildCompetitorMap(probeRows, opts.project, classification)
+  const competitorMap = buildCompetitorMap(probeRows, opts.project, classification.classifications)
+    .map(entry => ({ ...entry, ...(classification.evaluator ? { evaluator: classification.evaluator } : {}) }))
 
   opts.db
     .update(discoverySessions)

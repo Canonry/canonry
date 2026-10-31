@@ -2,13 +2,15 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { Search, X } from 'lucide-react'
-import { brandKeyFromText, brandLabelFromDomain, CitationStates, effectiveDomains, normalizeProjectDomain } from '@ainyc/canonry-contracts'
+import { brandKeyFromText, CitationStates, effectiveDomains, normalizeProjectDomain, type MentionIdentity } from '@canonry/canonry-contracts'
 
 import { InfoTooltip } from '../shared/InfoTooltip.js'
+import { DIFFERENT_SUBJECT_COPY } from '../../lib/mention-identity-copy.js'
 import { SourceLink } from '../shared/SourceLink.js'
-import { highlightTermsInText, type HighlightTermGroup } from '../../lib/highlight.js'
+import { competitorHighlightTerms, highlightTermsInText, type HighlightTermGroup } from '../../lib/highlight.js'
 import { fetchRunDetail, type GroundingSource } from '../../api.js'
 import type { CitationInsightVm, ProjectCommandCenterVm } from '../../view-models.js'
+import { providerDisplayName } from '../../lib/visibility-trend-helpers.js'
 
 /** Shape of snapshot data used for display — works for both current evidence and fetched historical snapshots. */
 export interface EvidenceDisplayData {
@@ -22,8 +24,12 @@ export interface EvidenceDisplayData {
   citedDomains: string[]
   citedCompetitorDomains: string[]
   mentionedCompetitorDomains: string[]
+  /** Server-matched names and hosts behind `mentionedCompetitorDomains`; absent on older payloads. */
+  mentionedCompetitorTerms?: string[]
   recommendedCompetitors: string[]
   matchedTerms: string[]
+  /** `wrong-subject`: the matched name is in the answer, but sentiment found it is about something else. */
+  mentionIdentity?: MentionIdentity | null
   groundingSources: GroundingSource[]
   searchQueries: string[]
   evidenceUrls: string[]
@@ -31,19 +37,28 @@ export interface EvidenceDisplayData {
   summary: string
 }
 
+
 interface CompetitorSignalFields {
   citedCompetitorDomains?: readonly string[]
   mentionedCompetitorDomains?: readonly string[]
+  mentionedCompetitorTerms?: readonly string[]
 }
 
-/** Preserve the two evidence signals independently for current, auto-fetched, and historical rows. */
+/**
+ * Preserve the two evidence signals independently for current, auto-fetched,
+ * and historical rows. Matched terms travel with the mention signal they
+ * explain, so a historical row never borrows the current row's terms.
+ */
 export function evidenceCompetitorSignals(
   value: CompetitorSignalFields,
   fallback?: CompetitorSignalFields,
-): Pick<EvidenceDisplayData, 'citedCompetitorDomains' | 'mentionedCompetitorDomains'> {
+): Pick<EvidenceDisplayData, 'citedCompetitorDomains' | 'mentionedCompetitorDomains' | 'mentionedCompetitorTerms'> {
+  const mentionSource = value.mentionedCompetitorDomains !== undefined ? value : fallback
+  const terms = mentionSource?.mentionedCompetitorTerms
   return {
     citedCompetitorDomains: [...(value.citedCompetitorDomains ?? fallback?.citedCompetitorDomains ?? [])],
-    mentionedCompetitorDomains: [...(value.mentionedCompetitorDomains ?? fallback?.mentionedCompetitorDomains ?? [])],
+    mentionedCompetitorDomains: [...(mentionSource?.mentionedCompetitorDomains ?? [])],
+    ...(terms !== undefined ? { mentionedCompetitorTerms: [...terms] } : {}),
   }
 }
 
@@ -112,6 +127,7 @@ export function EvidenceDetailModal({
           ...evidenceCompetitorSignals(snap, evidence),
           recommendedCompetitors: snap.recommendedCompetitors ?? evidence.recommendedCompetitors ?? [],
           matchedTerms: snap.matchedTerms ?? evidence.matchedTerms ?? [],
+          mentionIdentity: snap.mentionIdentity ?? null,
           groundingSources: snap.groundingSources ?? evidence.groundingSources,
           searchQueries: snap.searchQueries,
           evidenceUrls: snap.citedUrls ?? [],
@@ -138,6 +154,7 @@ export function EvidenceDetailModal({
       ...evidenceCompetitorSignals(evidence),
       recommendedCompetitors: evidence.recommendedCompetitors ?? [],
       matchedTerms: evidence.matchedTerms ?? [],
+      mentionIdentity: evidence.mentionIdentity ?? null,
       groundingSources: evidence.groundingSources,
       searchQueries: evidence.searchQueries ?? [],
       evidenceUrls: evidence.evidenceUrls,
@@ -172,22 +189,14 @@ export function EvidenceDetailModal({
     ...display.matchedTerms,
   ].filter(t => t.trim().length > 2)
 
-  // Build competitor highlight terms from overlap domains + recommended competitor names.
-  // Source the brand from the registrable domain — taking the leftmost label of
-  // a stored subdomain (e.g. `offers.quotebird.test` → `offers`) would highlight
-  // arbitrary words like "offers" in the prose. Use `quotebird` instead.
-  const competitorHighlightTerms = [
-    ...display.mentionedCompetitorDomains.flatMap(d => {
-      const brand = brandLabelFromDomain(d)
-      return brand.length >= 4 ? [brand] : []
-    }),
-    ...display.recommendedCompetitors,
-  ].filter(t => t.trim().length > 2)
+  // Competitor highlight terms: the server-matched names and hosts (curated
+  // aliases included) plus recommended competitor names.
+  const competitorTerms = competitorHighlightTerms(display)
 
   const highlightTermGroups: HighlightTermGroup[] = [
     { terms: brandTerms, className: 'answer-highlight-brand' },
-    ...(competitorHighlightTerms.length > 0
-      ? [{ terms: competitorHighlightTerms, className: 'answer-highlight-competitor' }]
+    ...(competitorTerms.length > 0
+      ? [{ terms: competitorTerms, className: 'answer-highlight-competitor' }]
       : []),
   ]
 
@@ -248,6 +257,7 @@ export function EvidenceDetailModal({
         ...evidenceCompetitorSignals(snap),
         recommendedCompetitors: snap.recommendedCompetitors ?? [],
         matchedTerms: snap.matchedTerms ?? [],
+        mentionIdentity: snap.mentionIdentity ?? null,
         groundingSources: snap.groundingSources,
         searchQueries: snap.searchQueries,
         evidenceUrls: snap.citedUrls ?? [],
@@ -306,8 +316,8 @@ export function EvidenceDetailModal({
   // Hero copy
   const showModelInHeadline = isViewingHistory || evidence.historyScope !== 'provider'
   const providerMeta = showModelInHeadline && display.model
-    ? `${display.provider} (${display.model}) \u00b7 ${display.changeLabel.toLowerCase()}`
-    : `${display.provider} \u00b7 ${display.changeLabel.toLowerCase()}`
+    ? `${providerDisplayName(display.provider)} (${display.model}) \u00b7 ${display.changeLabel.toLowerCase()}`
+    : `${providerDisplayName(display.provider)} \u00b7 ${display.changeLabel.toLowerCase()}`
   const providerMetaNote = !isViewingHistory && evidence.historyScope === 'provider'
     ? [
         evidence.model ? `Current model: ${evidence.model}` : null,
@@ -319,6 +329,13 @@ export function EvidenceDetailModal({
       return {
         label: 'Mentioned in answer',
         title: 'Your brand or domain is mentioned in this answer',
+        meta: providerMeta,
+      }
+    }
+    if (!isPending && display.mentionIdentity === 'wrong-subject') {
+      return {
+        label: DIFFERENT_SUBJECT_COPY.label,
+        title: DIFFERENT_SUBJECT_COPY.project,
         meta: providerMeta,
       }
     }
@@ -378,10 +395,10 @@ export function EvidenceDetailModal({
         const level = headingMatch[1].length
         const text = headingMatch[2].replace(/^[\p{Emoji}\p{Emoji_Component}\s]+/u, '').trim() || headingMatch[2]
         const cls = level === 1
-          ? 'text-[13px] font-semibold text-heading mt-4 mb-1'
+          ? 'text-label-13-strong text-heading mt-4 mb-1'
           : level === 2
-            ? 'text-xs font-semibold text-strong mt-3 mb-0.5'
-            : 'text-xs font-medium text-neutral mt-2'
+            ? 'text-label-12-strong text-strong mt-3 mb-0.5'
+            : 'text-label-12-strong text-neutral mt-2'
         elements.push(
           <p key={key++} className={cls}>
             {highlightTermsInText(text, highlightTermGroups)}
@@ -411,7 +428,7 @@ export function EvidenceDetailModal({
           <div className="evidence-modal-header">
             <div className="min-w-0 flex-1">
               <p className="eyebrow eyebrow-soft">{project.project.name} {'\u00b7'} {display.provider || 'All providers'}</p>
-              <Dialog.Title className="text-lg font-semibold text-primary truncate">{evidence.query}</Dialog.Title>
+              <Dialog.Title className="text-heading-20 text-primary truncate">{evidence.query}</Dialog.Title>
             </div>
             <Dialog.Close className="inline-flex size-8 items-center justify-center rounded-md text-muted transition hover:bg-mono-800 hover:text-heading focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400 shrink-0">
               <X className="size-4" />
@@ -452,13 +469,13 @@ export function EvidenceDetailModal({
                         className={`size-2 rounded-full ${dotColor} ${modelChanged ? 'ring-1 ring-caution-300/80 ring-offset-2 ring-offset-bg' : ''}`}
                         aria-hidden="true"
                       />
-                      <span className="text-[10px] text-muted">{label}</span>
+                      <span className="text-label-12 text-muted">{label}</span>
                     </button>
                   )
                 })}
               </div>
               {selectedRunIdx >= 0 && selectedRunIdx < history.length && (
-                <p className="text-[11px] text-muted mt-1">
+                <p className="text-copy-13 text-muted mt-1">
                   Viewing run from {new Date(history[selectedRunIdx].createdAt).toLocaleString()} {'\u2014'} <span className="capitalize">{history[selectedRunIdx].visibilityState ?? (history[selectedRunIdx].answerMentioned ? 'visible' : 'not-visible')}</span>
                   <button type="button" className="text-secondary hover:text-strong ml-2" onClick={() => { void selectHistoricalRun(-1) }}>{'\u2190'} Back to latest</button>
                 </p>
@@ -468,7 +485,7 @@ export function EvidenceDetailModal({
                   {evidence.modelTransitions!.map((transition) => (
                     <span
                       key={`${transition.runId}:${transition.toModel ?? 'unknown'}`}
-                      className="inline-flex items-center rounded-full border border-caution-400/30 bg-caution-400/10 px-2 py-1 text-[10px] text-caution-100"
+                      className="inline-flex items-center rounded-full border border-caution-400/30 bg-caution-400/10 px-2 py-1 text-label-12 text-caution-100"
                     >
                       {`${transition.fromModel ?? 'unknown'} -> ${transition.toModel ?? 'unknown'} on ${new Date(transition.createdAt).toLocaleDateString()}`}
                     </span>
@@ -481,7 +498,7 @@ export function EvidenceDetailModal({
           {/* ── Two-column body ── */}
           <div className="evidence-modal-body">
             {loadingHistory && (
-              <div className="md:col-span-2 flex items-center justify-center py-12 text-muted text-sm">
+              <div className="md:col-span-2 flex items-center justify-center py-12 text-muted text-label-14">
                 Loading historical run data{'\u2026'}
               </div>
             )}
@@ -500,7 +517,7 @@ export function EvidenceDetailModal({
                     </p>
                     <p className="evidence-position-meta">{heroCopy.meta}</p>
                     {providerMetaNote && (
-                      <p className="mt-1 text-[11px] text-muted">{providerMetaNote}</p>
+                      <p className="mt-1 text-copy-13 text-muted">{providerMetaNote}</p>
                     )}
                   </div>
 
@@ -514,7 +531,7 @@ export function EvidenceDetailModal({
                       {display.answerSnippet.length > 280 && (
                         <button
                           type="button"
-                          className="mt-1.5 text-xs text-muted hover:text-neutral transition-colors"
+                          className="mt-1.5 text-button-14 text-muted hover:text-neutral transition-colors"
                           onClick={() => setShowFullAnswer(!showFullAnswer)}
                         >
                           {showFullAnswer ? '\u2191 Collapse' : '\u2193 Show full answer'}
@@ -524,7 +541,7 @@ export function EvidenceDetailModal({
                   )}
 
                   {!display.answerSnippet && !loadingHistory && (
-                    <div className="rounded-lg border border-subtle bg-surface-subtle px-4 py-8 text-center text-faint text-sm">
+                    <div className="material-base px-4 py-8 text-center text-faint text-label-14">
                       No answer text recorded for this run
                     </div>
                   )}
@@ -538,7 +555,7 @@ export function EvidenceDetailModal({
                       </div>
                       <ul className="grid gap-1">
                         {display.searchQueries.map((q, i) => (
-                          <li key={`${i}-${q}`} className="flex items-start gap-2 text-sm text-neutral">
+                          <li key={`${i}-${q}`} className="flex items-start gap-2 text-label-14 text-neutral">
                             <Search className="size-3.5 mt-0.5 shrink-0 text-faint" aria-hidden="true" />
                             <span className="break-words">{q}</span>
                           </li>
@@ -579,7 +596,7 @@ export function EvidenceDetailModal({
 
                   {/* Summary */}
                   {display.summary && (
-                    <p className="text-xs text-faint border-t border-subtle pt-3 mt-1">{display.summary}</p>
+                    <p className="text-copy-13 text-faint border-t border-subtle pt-3 mt-1">{display.summary}</p>
                   )}
                 </div>
 
@@ -620,11 +637,17 @@ export function EvidenceDetailModal({
                             {isPending ? 'Pending' : isVisible ? 'Mentioned' : 'Not mentioned'}
                           </span>
                         </div>
+                        {!isPending && !isVisible && display.mentionIdentity === 'wrong-subject' && (
+                          <div className="mt-1.5 flex items-center gap-1 text-label-12 text-muted">
+                            <span>{DIFFERENT_SUBJECT_COPY.label}</span>
+                            <InfoTooltip text={DIFFERENT_SUBJECT_COPY.project} />
+                          </div>
+                        )}
 
                         {/* Matched terms chips */}
                         {display.matchedTerms.length > 0 && (
                           <div className="mt-2">
-                            <p className="text-[10px] uppercase tracking-wide text-muted mb-1.5">Matched in answer</p>
+                            <p className="text-label-12 normal-case text-muted mb-1.5">Matched in answer</p>
                             <div className="flex flex-wrap gap-1.5">
                               {display.matchedTerms.map(term => (
                                 <span key={term} className="mention-chip mention-chip--brand">{term}</span>
@@ -636,13 +659,13 @@ export function EvidenceDetailModal({
                         {/* When not visible, show what was searched for */}
                         {!isPending && !isVisible && display.matchedTerms.length === 0 && (
                           <div className="mt-2">
-                            <p className="text-[10px] uppercase tracking-wide text-muted mb-1.5">Searched for</p>
+                            <p className="text-label-12 normal-case text-muted mb-1.5">Searched for</p>
                             <div className="flex flex-wrap gap-1.5">
                               {brandTerms.map(term => (
                                 <span key={term} className="mention-chip mention-chip--muted">{term}</span>
                               ))}
                             </div>
-                            <p className="text-[11px] text-faint mt-1.5">None of these appear in the answer text.</p>
+                            <p className="text-copy-13 text-faint mt-1.5">None of these appear in the answer text.</p>
                           </div>
                         )}
                       </div>
@@ -728,7 +751,7 @@ export function EvidenceDetailModal({
                       )}
 
                       {display.citedDomains.length === 0 && display.groundingSources.length === 0 && display.evidenceUrls.length === 0 && (
-                        <div className="flex items-center justify-center h-24 text-faint text-sm">
+                        <div className="flex items-center justify-center h-24 text-faint text-label-14">
                           No source data {isViewingHistory ? 'for this run' : 'yet'}
                         </div>
                       )}
@@ -737,7 +760,7 @@ export function EvidenceDetailModal({
 
                   {/* No data state */}
                   {!hasMentionData && !hasSourceData && (
-                    <div className="flex items-center justify-center h-24 text-faint text-sm">
+                    <div className="flex items-center justify-center h-24 text-faint text-label-14">
                       No answer visibility data {isViewingHistory ? 'for this run' : 'yet'}
                     </div>
                   )}

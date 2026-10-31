@@ -1,0 +1,444 @@
+{
+  "_note": "Response shape captured from a live GA4 Data API runReport (v1beta) against a property linked to Search Console, 28-day window. All metric values, totals, rowCount and landing page paths are synthetic; value types and formats (metric values as strings), the RESERVED_TOTAL row, metadata and kind match the live response. checkCompatibility on the captured property: all five metrics COMPATIBLE with landingPagePlusQueryString; date, sessionSource, sessionMedium and sessionDefaultChannelGroup INCOMPATIBLE.",
+  "request": {
+    "dateRanges": [
+      {
+        "startDate": "2026-09-10",
+        "endDate": "2026-10-07"
+      }
+    ],
+    "dimensions": [
+      {
+        "name": "landingPagePlusQueryString"
+      }
+    ],
+    "metrics": [
+      {
+        "name": "organicGoogleSearchClicks"
+      },
+      {
+        "name": "organicGoogleSearchImpressions"
+      },
+      {
+        "name": "organicGoogleSearchClickThroughRate"
+      },
+      {
+        "name": "organicGoogleSearchAveragePosition"
+      },
+      {
+        "name": "activeUsers"
+      }
+    ],
+    "orderBys": [
+      {
+        "metric": {
+          "metricName": "organicGoogleSearchClicks"
+        },
+        "desc": true
+      }
+    ],
+    "metricAggregations": [
+      "TOTAL"
+    ],
+    "limit": 25
+  },
+  "response": {
+    "dimensionHeaders": [
+      {
+        "name": "landingPagePlusQueryString"
+      }
+    ],
+    "metricHeaders": [
+      {
+        "name": "organicGoogleSearchClicks",
+        "type": "TYPE_INTEGER"
+      },
+      {
+        "name": "organicGoogleSearchImpressions",
+        "type": "TYPE_INTEGER"
+      },
+      {
+        "name": "organicGoogleSearchClickThroughRate",
+        "type": "TYPE_FLOAT"
+      },
+      {
+        "name": "organicGoogleSearchAveragePosition",
+        "type": "TYPE_FLOAT"
+      },
+      {
+        "name": "activeUsers",
+        "type": "TYPE_INTEGER"
+      }
+    ],
+    "rows": [
+      {
+        "dimensionValues": [
+          {
+            "value": "/"
+          }
+        ],
+        "metricValues": [
+          {
+            "value": "612"
+          },
+          {
+            "value": "13940"
+          },
+          {
+            "value": "0.043902439024390241"
+          },
+          {
+            "value": "7.2103299856527974"
+          },
+          {
+            "value": "734"
+          }
+        ]
+      },
+      {
+        "dimensionValues": [
+          {
+            "value": "/pricing"
+          }
+        ],
+        "metricValues": [
+          {
+            "value": "57"
+          },
+          {
+            "value": "3120"
+          },
+          {
+            "value": "0.01826923076923077"
+          },
+          {
+            "value": "5.1301282051282051"
+          },
+          {
+            "value": "71"
+          }
+        ]
+      },
+      {
+        "dimensionValues": [
+          {
+            "value": "/about"
+          }
+        ],
+        "metricValues": [
+          {
+            "value": "36"
+          },
+          {
+            "value": "2480"
+          },
+          {
+            "value": "0.014516129032258065"
+          },
+          {
+            "value": "4.92016129032258"
+          },
+          {
+            "value": "28"
+          }
+        ]
+      },
+      {
+        "dimensionValues": [
+          {
+            "value": "/guides/page-1"
+          }
+        ],
+        "metricValues": [
+          {
+            "value": "31"
+          },
+          {
+            "value": "4875"
+          },
+          {
+            "value": "0.0063589743589743588"
+          },
+          {
+            "value": "8.3099487179487177"
+          },
+          {
+            "value": "40"
+          }
+        ]
+      },
+      {
+        "dimensionValues": [
+          {
+            "value": "/contact"
+          }
+        ],
+        "metricValues": [
+          {
+            "value": "21"
+          },
+          {
+            "value": "1190"
+          },
+          {
+            "value": "0.017647058823529412"
+          },
+          {
+            "value": "6.469747899159664"
+          },
+          {
+            "value": "18"
+          }
+        ]
+      },
+      {
+        "dimensionValues": [
+          {
+            "value": "/services"
+          }
+        ],
+        "metricValues": [
+          {
+            "value": "15"
+          },
+          {
+            "value": "960"
+          },
+          {
+            "value": "0.015625"
+          },
+          {
+            "value": "9.2395833333333339"
+          },
+          {
+            "value": "19"
+          }
+        ]
+      },
+      {
+        "dimensionValues": [
+          {
+            "value": "/guides/page-2"
+          }
+        ],
+        "metricValues": [
+          {
+            "value": "12"
+          },
+          {
+            "value": "2650"
+          },
+          {
+            "value": "0.004528301886792453"
+          },
+          {
+            "value": "3.62"
+          },
+          {
+            "value": "14"
+          }
+        ]
+      },
+      {
+        "dimensionValues": [
+          {
+            "value": "/guides/page-3"
+          }
+        ],
+        "metricValues": [
+          {
+            "value": "9"
+          },
+          {
+            "value": "2930"
+          },
+          {
+            "value": "0.0030716723549488053"
+          },
+          {
+            "value": "4.7300341296928323"
+          },
+          {
+            "value": "10"
+          }
+        ]
+      },
+      {
+        "dimensionValues": [
+          {
+            "value": "/blog/post-4"
+          }
+        ],
+        "metricValues": [
+          {
+            "value": "6"
+          },
+          {
+            "value": "59"
+          },
+          {
+            "value": "0.10169491525423729"
+          },
+          {
+            "value": "7.3389830508474576"
+          },
+          {
+            "value": "5"
+          }
+        ]
+      },
+      {
+        "dimensionValues": [
+          {
+            "value": "/products/item-5"
+          }
+        ],
+        "metricValues": [
+          {
+            "value": "4"
+          },
+          {
+            "value": "50"
+          },
+          {
+            "value": "0.08"
+          },
+          {
+            "value": "11"
+          },
+          {
+            "value": "6"
+          }
+        ]
+      },
+      {
+        "dimensionValues": [
+          {
+            "value": "/products/item-6"
+          }
+        ],
+        "metricValues": [
+          {
+            "value": "3"
+          },
+          {
+            "value": "27"
+          },
+          {
+            "value": "0.1111111111111111"
+          },
+          {
+            "value": "5.9259259259259256"
+          },
+          {
+            "value": "3"
+          }
+        ]
+      },
+      {
+        "dimensionValues": [
+          {
+            "value": "/blog/post-7"
+          }
+        ],
+        "metricValues": [
+          {
+            "value": "3"
+          },
+          {
+            "value": "410"
+          },
+          {
+            "value": "0.0073170731707317077"
+          },
+          {
+            "value": "7.4073170731707316"
+          },
+          {
+            "value": "0"
+          }
+        ]
+      },
+      {
+        "dimensionValues": [
+          {
+            "value": "/blog/post-8"
+          }
+        ],
+        "metricValues": [
+          {
+            "value": "2"
+          },
+          {
+            "value": "26"
+          },
+          {
+            "value": "0.076923076923076927"
+          },
+          {
+            "value": "6.1923076923076925"
+          },
+          {
+            "value": "2"
+          }
+        ]
+      },
+      {
+        "dimensionValues": [
+          {
+            "value": "/products/item-9"
+          }
+        ],
+        "metricValues": [
+          {
+            "value": "1"
+          },
+          {
+            "value": "17"
+          },
+          {
+            "value": "0.058823529411764705"
+          },
+          {
+            "value": "9.5882352941176467"
+          },
+          {
+            "value": "1"
+          }
+        ]
+      }
+    ],
+    "totals": [
+      {
+        "dimensionValues": [
+          {
+            "value": "RESERVED_TOTAL"
+          }
+        ],
+        "metricValues": [
+          {
+            "value": "837"
+          },
+          {
+            "value": "41422"
+          },
+          {
+            "value": "0.020206653469170971"
+          },
+          {
+            "value": "7.31567765921491"
+          },
+          {
+            "value": "1093"
+          }
+        ]
+      }
+    ],
+    "rowCount": 87,
+    "metadata": {
+      "currencyCode": "USD",
+      "timeZone": "America/Los_Angeles"
+    },
+    "kind": "analyticsData#runReport"
+  }
+}

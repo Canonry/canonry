@@ -1,19 +1,18 @@
-import { aggregateSentiment, createSentimentEvaluationDefinition, REPORT_VISIBILITY_COPY, reportQueryClassLabel, reportVisibilityEvidence, reportVisibilityRate, reportVisibilityMeasurementLabel, reportVisibilityHistoryLabel } from '@ainyc/canonry-contracts'
-import { ReportVisibilitySummary } from '../src/components/project/ReportVisibilitySummary.js'
+import { aggregateSentiment, createSentimentEvaluationDefinition, VISIBILITY_DISPLAY_COPY } from '@canonry/canonry-contracts'
 import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { useState } from 'react'
-import type { SentimentSummary, VisibilityReportResponse } from '@ainyc/canonry-contracts'
+import type { SentimentSummary, VisibilityReportResponse } from '@canonry/canonry-contracts'
 import type { VisibilitySelectionState } from '../src/lib/measurement-view-url.js'
 import { parseVisibilitySelection, patchVisibilitySelection } from '../src/lib/measurement-view-url.js'
-import { VisibilityOverview, VisibilityReportView, VisibilityResultsToolbar, VisibilityWorkspace, VISIBILITY_ANSWERS_LABEL, VISIBILITY_CLOSE_ANSWERS_LABEL, VISIBILITY_SCOPE_RECOVERY_COPY } from '../src/components/project/VisibilityTrendSection.js'
+import { REPORT_TREND_UNCHECKED_NOTE, UNCHECKED_SOURCES_COPY, VisibilityOverview, VisibilityReportView, VisibilityResultsToolbar, VisibilityWorkspace, VISIBILITY_ANSWERS_LABEL, VISIBILITY_CLOSE_ANSWERS_LABEL, VISIBILITY_SCOPE_RECOVERY_COPY } from '../src/components/project/VisibilityTrendSection.js'
 import { formatObservedInstantLabel, observedInstant } from '../src/components/shared/ChartPrimitives.js'
 import { ANSWER_SOURCES_LABEL } from '../src/components/shared/AnswerMarkdown.js'
 import { jsonResponse, mockFetch } from './mock-fetch.js'
 import { createQueryClient } from '../src/queries/query-client.js'
-import { SentimentScopeProvider } from '../src/components/project/SentimentSection.js'
+import { SENTIMENT_COPY, SentimentScopeProvider } from '../src/components/project/SentimentSection.js'
 
 afterEach(cleanup)
 
@@ -70,7 +69,7 @@ function reportWithAnswer(queryKey: string, answerText: string): VisibilityRepor
 }
 
 function legacyReportFixture(): VisibilityReportResponse {
-  const report = reportWithAnswer('query-context', 'A saved answer from an older sweep.')
+  const report = reportWithAnswer('query-context', 'A saved answer from an older check.')
   report.selection.mode = 'simple'
   report.selection.queryClass = 'all'
   report.selection.provenance = { kind: 'legacy-simple', definitionRevision: null }
@@ -242,7 +241,7 @@ describe('shared production visibility view', () => {
     expect(screen.queryByRole('region', { name: 'Non-brand queries', exact: true })).toBeNull()
     fireEvent.click(within(population).getByText('Query results', { selector: 'span' }).closest('summary')!)
     fireEvent.click(within(population).getByRole('button', { name: /View answers for/ }))
-    expect(await screen.findByText('A saved answer from an older sweep.')).toBeTruthy()
+    expect(await screen.findByText('A saved answer from an older check.')).toBeTruthy()
     expect(requests.at(-1)!.searchParams.get('queryClass')).toBe('unknown')
     expect(requests.at(-1)!.searchParams.get('runId')).toBe('run-2')
   })
@@ -413,7 +412,7 @@ describe('shared production visibility view', () => {
     expect(html).toContain('Not measured')
     expect(html).toContain('Query results')
     expect(html).toContain('View answers')
-    expect(html).not.toContain('Run AI sweep')
+    expect(html).not.toContain('Run AI Visibility check')
   })
 
   it.each([
@@ -460,21 +459,24 @@ describe('shared production visibility view', () => {
     expect(container.textContent).toContain('1 query · 2 engine results shown of 2 results')
   })
 
-  it('keeps same-query location scores and sentiment evidence scoped to each Advanced group', async () => {
+  it('keeps same-query location criticism and sentiment evidence scoped to each Advanced group', async () => {
     const report = reportFixture()
     const first = report.populations[0]!.queries.items[0]!
     report.populations[0]!.queries.items = [
       { ...first, queryKey: 'harbor-query', provider: 'openai', location: 'Harbor', sourceSnapshotIds: ['harbor-answer'] },
       { ...first, queryKey: 'marina-query', provider: 'gemini', location: 'Marina', sourceSnapshotIds: ['marina-answer'] },
     ]
-    const favorable = aggregateSentiment([{ assessmentId: 'harbor', sourceSnapshotId: 'harbor-answer', outcome: 'favorable' }])
+    // Non-brand rows show only their unfavorable and mixed answers: Harbor one
+    // mixed, Marina one unfavorable. The query's pooled row has both, so a row
+    // reading the pool instead of its own location would show both.
+    const mixed = aggregateSentiment([{ assessmentId: 'harbor', sourceSnapshotId: 'harbor-answer', outcome: 'mixed' }])
     const unfavorable = aggregateSentiment([{ assessmentId: 'marina', sourceSnapshotId: 'marina-answer', outcome: 'unfavorable' }])
-    const aggregate = aggregateSentiment([{ assessmentId: 'harbor', sourceSnapshotId: 'harbor-answer', outcome: 'favorable' }, { assessmentId: 'marina', sourceSnapshotId: 'marina-answer', outcome: 'unfavorable' }])
+    const aggregate = aggregateSentiment([{ assessmentId: 'harbor', sourceSnapshotId: 'harbor-answer', outcome: 'mixed' }, { assessmentId: 'marina', sourceSnapshotId: 'marina-answer', outcome: 'unfavorable' }])
     const dto: SentimentSummary = {
       ...aggregate, reason: null, configured: true, evaluationDefinition: createSentimentEvaluationDefinition(), breakdowns: [],
       selection: { mode: 'advanced', scope: 'project', queryClass: 'non-brand', runId: 'run-2', revision: 2, evaluationDefinitionId: 'definition' },
       queries: [{ ...aggregate, reason: null, queryId: first.queryId!, queryText: first.query, queryClass: 'non-brand', sourceSnapshotIds: ['harbor-answer', 'marina-answer'], assessments: [], locations: [
-        { ...favorable, reason: null, location: 'Harbor', sourceSnapshotIds: ['harbor-answer'] },
+        { ...mixed, reason: null, location: 'Harbor', sourceSnapshotIds: ['harbor-answer'] },
         { ...unfavorable, reason: null, location: 'Marina', sourceSnapshotIds: ['marina-answer'] },
       ] }],
     }
@@ -492,19 +494,122 @@ describe('shared production visibility view', () => {
       const table = screen.getByRole('table', { name: 'Non-brand queries engine results' })
       const harbor = table.querySelector('[data-query-key="harbor-query"]')! as HTMLElement
       const marina = table.querySelector('[data-query-key="marina-query"]')! as HTMLElement
-      const name = 'View Non-brand sentiment evidence for apartments near transit'
-      await waitFor(() => expect(within(harbor).getByRole('button', { name }).textContent).toContain('100%'))
-      expect(within(marina).getByRole('button', { name }).textContent).toContain('0%')
-      expect(within(harbor).getByRole('button', { name }).textContent).not.toContain('50%')
+      const name = 'View unfavorable and mixed answers for apartments near transit'
+      const counts = (group: HTMLElement) => [...within(group).getByRole('button', { name }).querySelectorAll('span')].map(count => count.textContent)
+      await waitFor(() => expect(counts(harbor)).toEqual([SENTIMENT_COPY.nonBrand.rowLabel, '1 mixed']))
+      expect(counts(marina)).toEqual([SENTIMENT_COPY.nonBrand.rowLabel, '1 unfavorable'])
+      // A non-brand row never shows a favorable share.
+      for (const group of [harbor, marina]) expect(within(group).getByRole('button', { name }).textContent).not.toContain('%')
       for (const [group, location] of [[harbor, 'Harbor'], [marina, 'Marina']] as const) {
         fireEvent.click(within(group).getByRole('button', { name }))
         await screen.findByText('No stored sentiment evidence for this query and scope.')
         expect(evidenceReads.at(-1)!.searchParams.get('location')).toBe(location)
         expect(evidenceReads.at(-1)!.searchParams.get('runId')).toBe('run-2')
         expect(evidenceReads.at(-1)!.searchParams.get('queryId')).toBe(first.queryId)
+        expect(evidenceReads.at(-1)!.searchParams.getAll('outcome')).toEqual(['mixed', 'unfavorable'])
         fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Close' }))
       }
     } finally { cleanup(); client.clear(); restore() }
+  })
+
+  it('keeps unfinished non-brand rows in their own state rather than announcing no criticism', async () => {
+    const report = reportFixture()
+    const first = report.populations[0]!.queries.items[0]!
+    report.populations[0]!.queries.items = [
+      { ...first, queryKey: 'harbor-query', provider: 'openai', location: 'Harbor', sourceSnapshotIds: ['harbor-answer'] },
+      { ...first, queryKey: 'marina-query', provider: 'gemini', location: 'Marina', sourceSnapshotIds: ['marina-answer'] },
+    ]
+    // Harbor's one assessment is still pending; Marina's was never admitted (eligible, not stored).
+    // Neither has an unfavorable or mixed answer, and neither establishes that it has none.
+    const pending = aggregateSentiment([{ assessmentId: 'harbor', sourceSnapshotId: 'harbor-answer', outcome: 'pending' }])
+    const unadmitted = aggregateSentiment([], { eligibleAssessments: 1, eligibleAnswers: 1 })
+    expect([pending.state, unadmitted.state, unadmitted.coverage.unadmittedAssessments]).toEqual(['processing', 'not-measured', 1])
+    const dto: SentimentSummary = {
+      ...pending, reason: null, configured: true, evaluationDefinition: createSentimentEvaluationDefinition(), breakdowns: [],
+      selection: { mode: 'advanced', scope: 'project', queryClass: 'non-brand', runId: 'run-2', revision: 2, evaluationDefinitionId: 'definition' },
+      queries: [{ ...pending, state: 'partial', provisional: true, reason: null, queryId: first.queryId!, queryText: first.query, queryClass: 'non-brand', sourceSnapshotIds: ['harbor-answer', 'marina-answer'], assessments: [], locations: [
+        { ...pending, reason: null, location: 'Harbor', sourceSnapshotIds: ['harbor-answer'] },
+        { ...unadmitted, reason: null, location: 'Marina', sourceSnapshotIds: ['marina-answer'] },
+      ] }],
+    }
+    const restore = mockFetch(url => {
+      const request = new URL(url)
+      if (request.pathname.endsWith('/settings')) return jsonResponse({ installEnabled: true, enabled: true, ready: true, readinessReasons: [], model: 'jev-1.13.0', enablementEpoch: 1, completionBoundary: 1, evaluationDefinitionId: 'definition', actions: { configure: false, backfill: false }, experimental: true, disclosure: 'Experimental sentiment' })
+      return jsonResponse({ ...dto, selection: { ...dto.selection, queryClass: request.searchParams.get('queryClass') } })
+    })
+    const client = createQueryClient()
+    try {
+      render(<QueryClientProvider client={client}><SentimentScopeProvider projectName="project" selection={{ mode: 'advanced', scope: 'project', queryClass: 'non-brand', runId: 'run-2', revision: 2 }}><VisibilityReportView report={report} onSelectionChange={vi.fn()} /></SentimentScopeProvider></QueryClientProvider>)
+      fireEvent.click(screen.getByText('Query results', { selector: 'span' }).closest('summary')!)
+      const table = screen.getByRole('table', { name: 'Non-brand queries engine results' })
+      const harbor = table.querySelector<HTMLElement>('[data-query-key="harbor-query"]')!
+      const marina = table.querySelector<HTMLElement>('[data-query-key="marina-query"]')!
+      await waitFor(() => expect(harbor.textContent).toContain(SENTIMENT_COPY.states.processing))
+      expect(marina.textContent).toContain(SENTIMENT_COPY.states['not-measured'])
+      for (const group of [harbor, marina]) {
+        expect(group.textContent).not.toContain(SENTIMENT_COPY.nonBrand.rowNone)
+        expect(within(group).queryByRole('button', { name: /View unfavorable and mixed answers/ })).toBeNull()
+      }
+    } finally { cleanup(); client.clear(); restore() }
+  })
+
+  describe('Advanced overview sentiment', () => {
+    const sentimentSettings = { installEnabled: true, enabled: true, ready: true, readinessReasons: [], model: 'jev-1.13.0', enablementEpoch: 1, completionBoundary: 1, evaluationDefinitionId: 'definition', actions: { configure: true, backfill: true }, experimental: true, disclosure: 'Experimental sentiment' }
+    function sentimentDto(queryClass: string | null): SentimentSummary {
+      const aggregate = aggregateSentiment(Array.from({ length: 10 }, (_, index) => ({ assessmentId: `a${index}`, sourceSnapshotId: `s${index}`, outcome: 'favorable' as const })))
+      return { ...aggregate, reason: null, configured: true, evaluationDefinition: createSentimentEvaluationDefinition(), breakdowns: [], queries: [], selection: { mode: 'advanced', scope: 'project', queryClass: queryClass === 'non-brand' ? 'non-brand' : 'branded', runId: 'run-older', revision: null, evaluationDefinitionId: 'definition' } }
+    }
+
+    it('reads the displayed sweep\'s sentiment at its own revision, never the report\'s restated one, and offers Manage sentiment once, in the Sentiment title row', async () => {
+      const sentimentReads: URL[] = []
+      onTestFinished(mockFetch(url => {
+        const request = new URL(url)
+        if (request.pathname.endsWith('/sentiment/settings')) return jsonResponse(sentimentSettings)
+        if (request.pathname.endsWith('/sentiment/jobs')) return jsonResponse({ jobs: [] })
+        if (request.pathname.endsWith('/sentiment')) { sentimentReads.push(request); return jsonResponse(sentimentDto(request.searchParams.get('queryClass'))) }
+        // An older sweep the report restates onto the current plan, revision 3.
+        const report = reportFixture()
+        report.selection.run = { id: 'run-older', explicit: true }
+        report.selection.revision = 3
+        return jsonResponse(report)
+      }))
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+      onTestFinished(() => client.clear())
+      // The page's sentiment selection carries the URL's revision too; the resolved sweep replaces both.
+      render(<QueryClientProvider client={client}><SentimentScopeProvider waitForResolvedRun projectName="demo" selection={{ mode: 'advanced', scope: 'project', queryClass: 'non-brand', runId: 'run-older', revision: 3 }}>
+        <VisibilityOverview projectName="demo" selection={{ measurementScope: 'project', queryClass: 'non-brand', measurementRunId: 'run-older' }} onSelectionChange={() => {}} />
+      </SentimentScopeProvider></QueryClientProvider>)
+      await screen.findByLabelText('Branded favorable share')
+      await waitFor(() => expect(sentimentReads).toHaveLength(2))
+      // Both class reads name the sweep and no revision, so the server reads the revision that sweep ran under.
+      expect(sentimentReads.map(request => [request.searchParams.get('queryClass'), request.searchParams.get('runId'), request.searchParams.has('revision')]).sort()).toEqual([['branded', 'run-older', false], ['non-brand', 'run-older', false]])
+      // One Manage sentiment, in the report's Sentiment block title row; none above the workspace.
+      const manage = await screen.findAllByRole('button', { name: 'Manage sentiment' })
+      expect(manage).toHaveLength(1)
+      const title = manage[0]!.closest('.sentiment-headlines-title')!
+      expect(within(title as HTMLElement).getByRole('heading', { level: 3 }).textContent).toBe(SENTIMENT_COPY.title)
+      expect(screen.getByRole('region', { name: 'AI visibility results' }).contains(manage[0]!)).toBe(true)
+    })
+
+    it('keeps Manage sentiment reachable above the workspace when the report fails', async () => {
+      onTestFinished(mockFetch(url => {
+        const request = new URL(url)
+        if (request.pathname.endsWith('/sentiment/settings')) return jsonResponse(sentimentSettings)
+        if (request.pathname.endsWith('/sentiment/jobs')) return jsonResponse({ jobs: [] })
+        if (request.pathname.endsWith('/sentiment')) return jsonResponse(sentimentDto(request.searchParams.get('queryClass')))
+        return jsonResponse({ error: { code: 'INTERNAL_ERROR', message: 'Report failed' } }, 500)
+      }))
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+      onTestFinished(() => client.clear())
+      render(<QueryClientProvider client={client}><SentimentScopeProvider waitForResolvedRun projectName="demo" selection={{ mode: 'advanced', scope: 'project', queryClass: 'non-brand' }}>
+        <VisibilityOverview projectName="demo" selection={{ measurementScope: 'project', queryClass: 'non-brand' }} onSelectionChange={() => {}} />
+      </SentimentScopeProvider></QueryClientProvider>)
+      await screen.findByRole('heading', { name: 'AI visibility unavailable' })
+      const manage = await screen.findAllByRole('button', { name: 'Manage sentiment' })
+      expect(manage).toHaveLength(1)
+      expect(manage[0]!.closest('.sentiment-headlines-title')).toBeNull()
+      expect(screen.queryByRole('group', { name: 'Favorable answer scores' })).toBeNull()
+    })
   })
 
   it.each(['simple', 'advanced'] as const)('shares identical query context once and distinguishes a negative answer from missing evidence in %s reports', mode => {
@@ -660,6 +765,96 @@ describe('shared production visibility view', () => {
     ])
   })
 
+  it('states the answers whose sources could not be checked under each Cited query and competitor result, never under Mentioned', () => {
+    const report = reportFixture()
+    const population = report.populations[0]!
+    // Three saved answers, one with incomplete source capture: Cited reads 1 of the 2 checked.
+    population.queries.items[0] = { ...population.queries.items[0]!, answerCount: 3, mentionCoverage: { numerator: 1, denominator: 3, rate: 1 / 3 }, citationCoverage: { numerator: 1, denominator: 2, rate: 0.5, unchecked: 1 } }
+    population.competitors = [{ domain: 'rival.example', answerCount: 3, mentionCoverage: { numerator: 2, denominator: 3, rate: 2 / 3 }, citationCoverage: { numerator: 0, denominator: 2, rate: 0, unchecked: 1 } }]
+    render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
+    const flag = '1 unchecked. 1 of 3 answers had sources that could not be checked, so this rate leaves it out.'
+
+    fireEvent.click(screen.getByText('Query results', { selector: 'span' }).closest('summary')!)
+    const engine = within(screen.getByRole('table', { name: 'Non-brand queries engine results' })).getByRole('button', { name: 'View answers for apartments near transit · gemini' }).closest('tr')!
+    const [, mentioned, cited] = [...engine.querySelectorAll('td')]
+    expect(mentioned!.textContent).toBe('Mentioned33.3%1 of 3')
+    expect(cited!.textContent).toBe('Cited50.0%1 of 21 unchecked')
+    expect(within(cited!).getByRole('button', { name: flag })).toBeTruthy()
+
+    const competitors = screen.getByRole('group', { name: 'Non-brand queries competitors' })
+    fireEvent.click(within(competitors).getByText('Competitors', { selector: 'span' }).closest('summary')!)
+    const [, competitorMentioned, competitorCited] = [...within(competitors).getByText('rival.example').closest('tr')!.querySelectorAll('td')]
+    expect(competitorMentioned!.textContent).toBe('66.7%2 of 3')
+    expect(competitorCited!.textContent).toBe('0%0 of 21 unchecked')
+    expect(within(competitorCited!).getByRole('button', { name: flag })).toBeTruthy()
+  })
+
+  it('shows what a partly saved answer cited on its engine row and explains why it is out of Cited', () => {
+    const report = reportFixture()
+    const population = report.populations[0]!
+    report.scopeOptions.push({ id: 'p1', label: 'Park House', kind: 'property', targetCount: 1 }, { id: 'p2', label: 'Lake House', kind: 'property', targetCount: 1 })
+    const unavailable = { numerator: null, denominator: null, rate: null, reason: 'evidence-incomplete' as const }
+    const base = { ...population.queries.items[0]!, answerCount: 1, mentionCoverage: { numerator: 1, denominator: 1, rate: 1 } }
+    population.queries.items = [
+      // One answer, sources partly saved, and the saved link cites Park House.
+      { ...base, provider: 'gemini', targetKeys: ['p1', 'p2'], citationCoverage: unavailable, uncheckedSources: { answers: 1, citedAnswers: 1, citedTargetKeys: ['p1'] } },
+      // One answer, sources partly saved, nothing for Lake House among the saved links.
+      { ...base, provider: 'openai', targetKeys: ['p2'], citationCoverage: unavailable, uncheckedSources: { answers: 1, citedAnswers: 0, citedTargetKeys: [] } },
+      // Three answers, one partly saved: the rate's own line counts it, so it is not repeated.
+      { ...base, provider: 'claude', answerCount: 3, targetKeys: ['p1'], citationCoverage: { numerator: 1, denominator: 2, rate: 0.5, unchecked: 1 }, uncheckedSources: { answers: 1, citedAnswers: 1, citedTargetKeys: ['p1'] } },
+    ]
+    population.summary = { ...population.summary, notMeasuredUnchecked: 2 }
+    render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
+
+    fireEvent.click(screen.getByText('Query results', { selector: 'span' }).closest('summary')!)
+    const table = screen.getByRole('table', { name: 'Non-brand queries engine results' })
+    const cited = (provider: string) => [...within(table).getByRole('button', { name: `View answers for apartments near transit · ${provider}` }).closest('tr')!.querySelectorAll('td')][2]!
+    expect(cited('gemini').textContent).toBe(`CitedNot measured${UNCHECKED_SOURCES_COPY.partlySaved(1)}Saved links cite Park House`)
+    expect(cited('openai').textContent).toBe(`CitedNot measured${UNCHECKED_SOURCES_COPY.partlySaved(1)}No saved link cites Lake House`)
+    expect(cited('claude').textContent).toBe('Cited50.0%1 of 21 uncheckedSaved links cite Park House')
+    // "Unchecked" is explained in plain words instead of the missing-evidence note.
+    for (const provider of ['gemini', 'openai', 'claude']) {
+      expect(within(cited(provider)).getByRole('button', { name: UNCHECKED_SOURCES_COPY.help })).toBeTruthy()
+      expect(within(cited(provider)).queryByRole('button', { name: /The saved evidence is incomplete/ })).toBeNull()
+    }
+
+    // Property outcomes says why two of its properties read not measured.
+    const outcomes = screen.getByRole('group', { name: 'Non-brand queries property outcomes' })
+    expect(within(outcomes).getByText(UNCHECKED_SOURCES_COPY.outcomes(2))).toBeTruthy()
+    expect(UNCHECKED_SOURCES_COPY.outcomes(2)).toBe("2 not measured only because an answer's sources were partly saved. Query results shows which answer.")
+  })
+
+  it('keeps the missing-evidence note on a row with no partly saved answer, and adds no outcome line', () => {
+    const report = reportFixture()
+    const population = report.populations[0]!
+    population.queries.items[0] = { ...population.queries.items[0]!, answerCount: 1, citationCoverage: { numerator: null, denominator: null, rate: null, reason: 'evidence-incomplete' } }
+    render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
+    fireEvent.click(screen.getByText('Query results', { selector: 'span' }).closest('summary')!)
+    const table = screen.getByRole('table', { name: 'Non-brand queries engine results' })
+    expect(within(table).getByRole('button', { name: /The saved evidence is incomplete/ })).toBeTruthy()
+    expect(within(table).queryByText(UNCHECKED_SOURCES_COPY.partlySaved(1))).toBeNull()
+    expect(screen.queryByText(/only because an answer's sources were partly saved/)).toBeNull()
+  })
+
+  it('notes under the trend that Cited counts only checked answers when a plotted point left some out, and only then', () => {
+    const report = reportFixture()
+    const population = report.populations[0]!
+    const point = (index: number, citationCoverage: typeof population.summary.citationCoverage) => ({
+      runId: `run-${index}`, createdAt: `2026-09-0${index + 1}T10:00:00Z`, revision: 1,
+      provenance: report.selection.provenance, queryCount: 1, answerCount: 3,
+      mentionCoverage: population.summary.mentionCoverage, citationCoverage,
+      continuity: { state: index === 0 ? 'first' as const : 'comparable' as const, comparedRunId: index === 0 ? null : 'run-0' },
+    })
+    population.trend = [point(0, { numerator: 1, denominator: 3, rate: 1 / 3 }), point(1, { numerator: 1, denominator: 2, rate: 0.5, unchecked: 1 })]
+    const view = render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
+    expect(REPORT_TREND_UNCHECKED_NOTE).toBe('Cited counts only answers whose sources could be checked.')
+    expect(screen.getByText(REPORT_TREND_UNCHECKED_NOTE, { exact: false })).toBeTruthy()
+    view.unmount()
+    population.trend = [point(0, { numerator: 1, denominator: 3, rate: 1 / 3 }), point(1, { numerator: 2, denominator: 3, rate: 2 / 3 })]
+    render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
+    expect(screen.queryByText(REPORT_TREND_UNCHECKED_NOTE, { exact: false })).toBeNull()
+  })
+
   it.each(['definition-changed', 'model-changed', 'legacy-unknown'] as const)('explains %s trend gaps beside the chart', state => {
     const report = reportFixture()
     const population = report.populations[0]!
@@ -695,7 +890,7 @@ describe('shared production visibility view', () => {
     expect(disclosure.getAttribute('aria-expanded')).toBe('true')
     expect(screen.queryByText('Measured run')).toBeNull()
     expect(screen.queryByText('All observed models')).toBeNull()
-    expect(screen.getByRole('button', { name: 'Choose a saved AI sweep to view its results. No new sweep starts.' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Choose a saved AI Visibility check to view its results. No new check starts.' })).toBeTruthy()
 
     fireEvent.change(screen.getByLabelText('Start date (UTC)'), { target: { value: '2026-09-01' } })
     expect(select).toHaveBeenLastCalledWith({ measurementFrom: '2026-09-01T00:00:00.000Z' })
@@ -703,7 +898,7 @@ describe('shared production visibility view', () => {
     expect(select).toHaveBeenLastCalledWith({ measurementTo: '2026-09-02T23:59:59.999Z' })
 
     const results = screen.getByRole('combobox', { name: 'Results from' }) as HTMLSelectElement
-    expect(results.options[0]!.text).toBe('Latest saved sweep')
+    expect(results.options[0]!.text).toBe('Latest saved check')
     expect([...results.options].map(option => option.value)).toEqual(['', 'run-2', 'run-1'])
     fireEvent.change(results, { target: { value: 'run-1' } })
     expect(select).toHaveBeenLastCalledWith({ measurementRunId: 'run-1', measurementQueryKey: undefined })
@@ -1114,65 +1309,13 @@ describe('shared production visibility view', () => {
 })
 
 
-it('client report renders server-provided independent populations without pooling or recalculating', () => {
-  const fixture = reportFixture()
-  const first = fixture.populations[0]!
-  const branded = { ...first, queryClass: 'branded' as const, summary: { ...first.summary, mentionCoverage: { numerator: 2, denominator: 2, rate: 1 }, queryCount: 2, answerCount: 2 } }
-  render(<ReportVisibilitySummary visibility={{ selection: fixture.selection, populations: [first, branded] }} />)
-  const region = screen.getByRole('region', { name: REPORT_VISIBILITY_COPY.title })
-  const firstRow = within(region).getByText(reportQueryClassLabel(first.queryClass)).closest('tr')!
-  expect(within(firstRow).getByText(reportVisibilityRate(first.summary.mentionCoverage))).toBeTruthy()
-  expect(within(firstRow).getByText(reportVisibilityEvidence(first.summary.mentionCoverage))).toBeTruthy()
-  const secondRow = within(region).getByText(reportQueryClassLabel(branded.queryClass)).closest('tr')!
-  expect(within(secondRow).getByText(reportVisibilityRate(branded.summary.mentionCoverage))).toBeTruthy()
-  expect(within(secondRow).getByText(reportVisibilityEvidence(branded.summary.mentionCoverage))).toBeTruthy()
-})
-
-it('client report states the answers a mention rate left out under its count', () => {
-  const fixture = reportFixture()
-  const first = fixture.populations[0]!
-  const branded = { ...first, queryClass: 'branded' as const, summary: { ...first.summary, mentionCoverage: { numerator: 10, denominator: 11, rate: 10 / 11, unattributed: 1 }, queryCount: 3, answerCount: 12 } }
-  render(<ReportVisibilitySummary visibility={{ selection: fixture.selection, populations: [branded] }} />)
-  const row = within(screen.getByRole('region', { name: REPORT_VISIBILITY_COPY.title })).getByText(reportQueryClassLabel('branded')).closest('tr')!
-  const [, , , mentioned, cited] = [...row.querySelectorAll('td')]
-  expect([...mentioned!.children].map(child => child.textContent)).toEqual([
-    reportVisibilityRate(branded.summary.mentionCoverage),
-    '10 of 11 answers',
-    '1 of 12 answers could not be tied to one property',
-  ])
-  expect(cited!.textContent).not.toContain('could not be tied')
-})
-
 it('ambiguous property identity remains unverified in rates and saved answer evidence', () => {
   const report = reportWithAnswer('query-context', 'Which same-named property do you mean?')
   const population = report.populations[0]!
   population.summary.mentionCoverage = { numerator: null, denominator: null, rate: null, reason: 'identity-ambiguous' }
   population.evidence.items[0] = { ...population.evidence.items[0]!, mentioned: null, mentionUnavailableReason: 'identity-ambiguous' }
   render(<VisibilityReportView report={report} onSelectionChange={() => {}} evidenceReport={report} queryKey="query-context" />)
-  expect(within(screen.getByRole('region', { name: VISIBILITY_ANSWERS_LABEL })).getByText(REPORT_VISIBILITY_COPY.ambiguous)).toBeTruthy()
-})
-
-
-it('client report preserves earlier unclassified history after a classified baseline', () => {
-  const fixture = reportFixture()
-  const populated = fixture.populations[0]!
-  const historicalDate = '2026-08-15T10:00:00Z'
-  const historicalOnly = { ...populated, queryClass: 'unknown' as const,
-    summary: { ...populated.summary, queryCount: 0, answerCount: 0 },
-    trend: [{ runId: 'earlier-unclassified', createdAt: historicalDate, revision: null,
-      provenance: { kind: 'legacy-simple' as const, definitionRevision: null }, queryCount: 1, answerCount: 3,
-      mentionCoverage: populated.summary.mentionCoverage, citationCoverage: populated.summary.citationCoverage,
-      continuity: { state: 'legacy-unknown' as const, comparedRunId: 'outside-period' } }],
-  }
-  const visibility = { selection: fixture.selection, populations: [populated, historicalOnly], historyWindow: { from: '2026-08-01T00:00:00.000Z', to: '2026-09-02T00:00:00.000Z' } }
-  render(<ReportVisibilitySummary visibility={visibility} />)
-  expect(screen.getByText(reportVisibilityMeasurementLabel(visibility))).toBeTruthy()
-  expect(screen.getByText(reportVisibilityHistoryLabel(visibility))).toBeTruthy()
-  expect(screen.getByText(REPORT_VISIBILITY_COPY.previousOutsideWindow, { exact: false })).toBeTruthy()
-  const tables = screen.getAllByRole('table')
-  expect(within(tables[0]!).queryByText(reportQueryClassLabel(historicalOnly.queryClass))).toBeNull()
-  expect(within(tables[1]!).getByText(reportQueryClassLabel(historicalOnly.queryClass))).toBeTruthy()
-  expect(within(tables[1]!).getByText(historicalDate.slice(0, 10))).toBeTruthy()
+  expect(within(screen.getByRole('region', { name: VISIBILITY_ANSWERS_LABEL })).getByText(VISIBILITY_DISPLAY_COPY.ambiguous)).toBeTruthy()
 })
 
 

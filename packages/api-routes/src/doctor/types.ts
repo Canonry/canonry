@@ -1,11 +1,12 @@
-import type { DatabaseClient } from '@ainyc/canonry-db'
-import type { AgentPluginState, AgentProviderOption, InstallMethod, BundledSkillSnapshot, CheckCategory, CheckResultDto, CheckScope, CheckStatus } from '@ainyc/canonry-contracts'
+import type { DatabaseClient } from '@canonry/canonry-db'
+import type { AgentPluginState, AgentProviderOption, InstallMethod, BundledSkillSnapshot, CheckCategory, CheckResultDto, CheckScope, CheckStatus } from '@canonry/canonry-contracts'
 import type { GoogleConnectionStore } from '../google.js'
 import type { BingConnectionStore } from '../bing.js'
 import type { WordpressConnectionStore } from '../wordpress.js'
 import type { AdsCredentialStore } from '../ads.js'
 import type { Ga4CredentialStore } from '../ga.js'
 import type { ProviderSummaryEntry } from '../settings.js'
+import type { ApiHostProbeResult } from '../api-host-probe.js'
 
 /**
  * Generic traffic-source row shape passed to a `TrafficSourceValidator`.
@@ -67,9 +68,16 @@ export interface DoctorContext {
   googleConnectionStore?: GoogleConnectionStore
   bingConnectionStore?: BingConnectionStore
   wordpressConnectionStore?: WordpressConnectionStore
+  /**
+   * The host's `allowLoopbackWebhooks`, so a check that dials an
+   * operator-configured site admits loopback exactly where the routes do.
+   * Undefined refuses loopback.
+   */
+  allowLoopbackWebhooks?: boolean
   ga4CredentialStore?: Ga4CredentialStore
   /** Website probe seam for `site.reachability`. Defaults to the SSRF-guarded live probe. */
   probeSiteReachability?: (url: string) => Promise<import('../site-reachability.js').SiteReachabilityResult>
+  probeApiHost?: (host: string) => Promise<ApiHostProbeResult>
   adsCredentialStore?: AdsCredentialStore
   getGoogleAuthConfig?: () => { clientId?: string; clientSecret?: string }
   /**
@@ -82,8 +90,8 @@ export interface DoctorContext {
   redirectUri?: string
   providerSummary?: ProviderSummaryEntry[]
   /**
-   * Resolves which agent LLM providers (claude / openai / gemini / zai /
-   * deepinfra) currently have a usable key, for the `config.agent-providers`
+   * Resolves which agent LLM providers (claude / openai / gemini / zai)
+   * currently have a usable key, for the `config.agent-providers`
    * check. A closure (not a snapshot) so it reflects keys added at runtime
    * via the settings API. Wired by `canonry serve`; cloud deployments that
    * don't run the built-in agent leave it undefined and the check `skipped`.
@@ -93,9 +101,10 @@ export interface DoctorContext {
    * The `agent.provider` pin, when one is set, for the same check. A pin
    * bypasses auto-detection's key check, so a pinned provider with no key, or
    * a pinned model that does not resolve, fails every Aero turn even while
-   * other providers are configured. Null when nothing is pinned.
+   * other providers are configured. Null when nothing is pinned. May resolve
+   * asynchronously: the host can load a live model list before checking.
    */
-  getAgentPin?: () => AgentPinStatus | null
+  getAgentPin?: () => AgentPinStatus | null | Promise<AgentPinStatus | null>
   /**
    * Whether the caller is an administrator of this install, as opposed to a
    * signed-in viewer or an API key narrower than the install. Wired from the
@@ -173,10 +182,28 @@ export interface ProjectInfo {
 export type CheckOutput = Pick<CheckResultDto, 'status' | 'code' | 'summary'> & {
   remediation?: string | null
   details?: Record<string, unknown>
+  /**
+   * Plain words for a health alert: the problem in a few words, what happened
+   * in one line, and the next step (null when nothing needs doing yet). Write
+   * it from the same facts as `summary`, in words an operator reads at a
+   * glance. Without it an alert falls back to the summary's first sentence.
+   */
+  alert?: CheckResultDto['alert']
+  /**
+   * Set on a failing output that a person has to act on now, and on nothing
+   * else. It is a property of the output, not of the check: daily data three
+   * days old is a warning, the same check at five days is urgent. Urgent
+   * outputs are the whole content of the `health.urgent` notification event,
+   * which exists to reach a channel people watch, so marking a routine warning
+   * urgent spends the one signal that channel has. The runner keeps the flag
+   * on a result it sets aside under a failing cause: that problem is still
+   * open, and the alert reports it with the cause's explanation.
+   */
+  urgent?: boolean
 }
 
 export interface CheckDefinition {
-  notificationPolicy?: import('@ainyc/canonry-contracts').CheckNotificationPolicy
+  notificationPolicy?: import('@canonry/canonry-contracts').CheckNotificationPolicy
   id: string
   category: CheckCategory
   scope: CheckScope
@@ -187,9 +214,29 @@ export interface CheckDefinition {
    * response, with none of the debounce the scheduled loop applies.
    */
   optIn?: boolean
+  /**
+   * Ids of the checks whose failure names this check's cause, such as an
+   * integration's auth checks for its sync-failure check. When this check
+   * warns or fails in a pass where one of them fails, the runner reports it
+   * `skipped` with the code `<id>.superseded`, so the cause leads the report
+   * and the health alert, and a symptom that starts failing under it opens no
+   * second alert. A pass whose filter leaves the cause out grades it as usual.
+   * A cause that threw (`<cause>.runtime-error`) or could not reach its
+   * provider (a code ending in `UNREACHABLE_CODE_SUFFIX`) tested nothing, so
+   * it supersedes nothing: the symptom keeps its own evidence in the alert.
+   */
+  supersededBy?: readonly string[]
   /** When true and the project is missing for a project-scoped run, the runner emits a `skipped` result. */
   run: (ctx: DoctorContext) => Promise<CheckOutput> | CheckOutput
 }
+
+/**
+ * Ends the code of a check whose provider call got no answer (DNS, connect,
+ * TLS, timeout), such as `google.auth.refresh-unreachable`. Such a result says
+ * nothing about the credential or access the check grades, so the runner never
+ * lets it supersede a symptom (`CheckDefinition.supersededBy`).
+ */
+export const UNREACHABLE_CODE_SUFFIX = '-unreachable'
 
 export interface RunChecksOptions {
   /** Filter check IDs. Each filter may be exact (`google.auth.connection`) or a prefix-with-wildcard (`google.auth.*`, `google.*`). */

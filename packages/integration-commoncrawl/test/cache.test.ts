@@ -24,12 +24,29 @@ describe('listCachedReleases', () => {
   })
 
   it('returns only directories that match the release-id regex', async () => {
-    await fs.mkdir(path.join(cacheDir, 'cc-main-2026-jan-feb-mar'))
-    await fs.mkdir(path.join(cacheDir, 'not-a-release'))
-    await fs.writeFile(path.join(cacheDir, 'stray.txt'), 'x')
+    const releases = [
+      'cc-main-2025-oct-nov-dec',
+      'cc-main-2026-mar-apr-may',
+      'cc-main-2025-may-jun-jul',
+      'cc-main-2025-nov-dec-jan',
+    ]
+    for (const release of [...releases,
+      'not-a-release',
+      'cc-main-2024-jul-aug-sep\n',
+      'cc-main-2025-jan-feb',
+      'cc-main-2025-jan-feb-mar-apr',
+      'cc-main-2025-foo-bar-baz',
+      'cc-main-25-jan-feb-mar',
+    ]) await fs.mkdir(path.join(cacheDir, release))
+    await fs.writeFile(path.join(cacheDir, 'cc-main-2026-jan-feb-mar'), 'not a directory')
 
     const rows = listCachedReleases({ cacheDir })
-    expect(rows.map((r) => r.release)).toEqual(['cc-main-2026-jan-feb-mar'])
+    expect(rows.map((r) => r.release).sort()).toEqual([
+      'cc-main-2025-may-jun-jul',
+      'cc-main-2025-nov-dec-jan',
+      'cc-main-2025-oct-nov-dec',
+      'cc-main-2026-mar-apr-may',
+    ])
   })
 
   it('aggregates bytes and reports a last-used timestamp per release', async () => {
@@ -38,12 +55,20 @@ describe('listCachedReleases', () => {
     await fs.mkdir(dir)
     await fs.writeFile(path.join(dir, `${release}-domain-vertices.txt.gz`), Buffer.alloc(1024))
     await fs.writeFile(path.join(dir, `${release}-domain-edges.txt.gz`), Buffer.alloc(2048))
+    const nested = path.join(dir, 'metadata')
+    await fs.mkdir(nested)
+    await fs.writeFile(path.join(nested, 'receipt'), '12345')
+    for (const file of [
+      path.join(dir, `${release}-domain-vertices.txt.gz`),
+      path.join(dir, `${release}-domain-edges.txt.gz`),
+    ]) await fs.utimes(file, new Date('2026-01-01T00:00:00Z'), new Date('2026-01-02T00:00:00Z'))
+    await fs.utimes(path.join(nested, 'receipt'), new Date('2026-01-03T00:00:00Z'), new Date('2026-01-01T00:00:00Z'))
 
     const rows = listCachedReleases({ cacheDir })
     expect(rows).toHaveLength(1)
     expect(rows[0]!.release).toBe(release)
-    expect(rows[0]!.bytes).toBe(3072)
-    expect(rows[0]!.lastUsedAt).toMatch(/\d{4}-\d{2}-\d{2}T/)
+    expect(rows[0]!.bytes).toBe(3077)
+    expect(rows[0]!.lastUsedAt).toBe('2026-01-03T00:00:00.000Z')
   })
 
   it('sorts releases by lastUsedAt descending (newest first)', async () => {
@@ -52,9 +77,9 @@ describe('listCachedReleases', () => {
     await fs.mkdir(path.join(cacheDir, older))
     await fs.mkdir(path.join(cacheDir, newer))
     await fs.writeFile(path.join(cacheDir, older, 'a'), 'x')
-    // Force different mtimes
-    await new Promise((r) => setTimeout(r, 20))
     await fs.writeFile(path.join(cacheDir, newer, 'a'), 'x')
+    await fs.utimes(path.join(cacheDir, older, 'a'), new Date('2026-01-01T00:00:00Z'), new Date('2026-01-02T00:00:00Z'))
+    await fs.utimes(path.join(cacheDir, newer, 'a'), new Date('2026-01-03T00:00:00Z'), new Date('2026-01-01T00:00:00Z'))
 
     const rows = listCachedReleases({ cacheDir })
     expect(rows.map((r) => r.release)).toEqual([newer, older])

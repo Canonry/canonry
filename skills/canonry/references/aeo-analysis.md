@@ -11,7 +11,7 @@ A "mentioned" query means the client's brand was NAMED in the AI provider's answ
 
 A "not-mentioned" query means the answer text never named the client. `answerMentioned = null` is distinct: the mention was not checked for that snapshot — treat it as missing, not negative.
 
-**Mention share** is the competitive read: of all brand names appearing across the answer set (the project plus tracked competitors), the fraction that were the project = AI share-of-voice. A competitor taking mention share on a query you used to own is the highest-signal regression.
+**Mention share** is the competitive read: of all brand names appearing across the answer set (the project plus tracked competitors), the fraction that were the project = AI share-of-voice. A competitor taking mention share on a query you used to own is the highest-signal regression. A competitor is named by its domain label (4+ letters or digits) plus its curated aliases and the names Canonry detected from the stored answers themselves (`autoAliases`); when answers call a competitor something its domain does not say ("TuneSpoke" for `spoketuneworks.example`, a 3-letter brand), check `cnry competitor aliases detect <project>`, or the share overstates the project. Names it lists only for review mix the competitor's real names with partners, rivals, places and services: confirm in the answers that a name refers to that competitor, then add it with `cnry competitor aliases <project> <domain> --add <name>`. Never `--set` from the review list: it replaces the curated list.
 
 ### First diagnostic read (mention-first)
 
@@ -89,7 +89,7 @@ Shows which source categories AI models cite for your queries. Helps identify:
 - Content format opportunities (FAQ, how-to, comparison pages)
 
 ### Winnability gate + briefs (`canonry content targets|map|brief`)
-Every content target carries a deterministic `winnabilityClass`: **ownable** (worth writing for) or **ceded** (the cited surface is dominated by aggregators/OTAs or editorial media, a head term first-party content cannot realistically win). It is derived (no LLM) by classifying each cited domain through the shared surface classifier (own > tracked competitor > stored discovery class > static allow-list), so well-known aggregators/editorial cede immediately, no discovery run required. **`canonry discover run`** improves recall for niche domains the allow-list misses; a target only fails open to `ownable` when none of its cited surface is recognized. `canonry doctor --project <project> --check content.winnability.coverage` reports recognized-coverage of the cited surface and, when the project has no ICP, nudges you to set one (discovery needs it).
+Every content target carries a deterministic `winnabilityClass`: **ownable** (worth writing for) or **ceded** (the cited surface is dominated by aggregators/OTAs or editorial media, a head term first-party content cannot realistically win). It is derived (no LLM) by classifying each cited domain through the shared surface classifier (own > tracked competitor > stored discovery class > static allow-list), so well-known aggregators/editorial cede immediately, no discovery run required. **`canonry discover run`** improves recall for niche domains the allow-list misses; a target only fails open to `ownable` when none of its cited surface is recognized. `canonry doctor --project <project> --check content.winnability.coverage` reports recognized-coverage of the cited surface and, when the project has no ICP, nudges you to set one (discovery needs it). It is advice, not an instrument fault: it shows in `canonry doctor` and never sends a health alert.
 - `canonry content targets <project> --ownable` — the winnable shortlist (ownable rows sort first by default).
 - `canonry content map <project>` — the winnability map: which cited surfaces are ceded vs the ranked ownable targets.
 - `canonry content brief <project> <targetRef>` — synthesize a structured brief (angle, why-winnable, schema hookup) for an **ownable** target. Ceded targets are rejected — don't chase them.
@@ -101,6 +101,23 @@ Recommend briefs only for ownable targets; for ceded head terms, advise earning 
 Before anything else, separate the two signals. `cnry analytics <project> --feature gaps` tells you whether the query is in `notMentioned[]` (the engine never names you), `mentionGap[]` (a competitor is named instead), or only in the cited `gap[]`/`uncited[]` (a citation gap while the mention may hold). The fix priority follows the mention: earn the name first, the source citation second. `answerMentioned = null` means the snapshot wasn't checked — re-run, don't read it as not-mentioned.
 
 > **Known gap:** `cnry health` is citation-only today (no mention dimension). For the mention-first read, use `cnry overview` / `cnry get <project> scores.mentionCoverage.value` / `cnry get <project> scores.mentionShare.value` until health is extended.
+
+### Stored competitor suggestions
+
+`competitor suggest` and the competitor suggestions API read stored answer and
+citation evidence only. They do not run a provider sweep. Treat `namingAnswers`
+and `citingAnswers` as separate answer counts, and use `pairedAnswers`
+only when the name and source occur in the same answer. Probe and non-terminal
+runs are reported as excluded evidence and do not enter candidate counts. An
+exact suggestion read refuses with `VALIDATION_ERROR` above 10,000 eligible
+answer rows instead of sampling; narrow the window or select one Advanced
+market with `groupKey`.
+
+Suggestions preserve the selected query class and Advanced market scope. Keep
+branded and non-brand results separate; never pool their shares into one
+percentage. Review `unresolvedNames` and answer samples before adding an alias
+because a recommended name can be a partner, place, service, or unrelated
+entity.
 
 ### Step 1: Check indexing
 Not mentioned / not cited ≠ bad content. Often the page isn't indexed yet, which starves both signals.
@@ -189,7 +206,7 @@ Red flag — the engine won't even say your name. Check (the lost citation for y
 - Is the homepage indexed?
 - Does `llms.txt` exist and list the business clearly?
 - Does schema include the exact brand name in `name` field?
-- Is a brand alias missing? (`spec.brandAliases` widens the `answerMentioned` detector for variants like "Acme Cloud" vs "AcmeCloud".)
+- Is a brand alias missing? (`spec.aliases` widens the `answerMentioned` detector for another name the brand goes by, such as a product or former name. Case, spacing and punctuation variants like "Acme Cloud" vs "AcmeCloud" already match.)
 
 ### Informational terms not mentioned
 Content strategy play:
@@ -212,12 +229,21 @@ Expected — each provider has independent knowledge. Focus on the ones that mat
 
 ## Experimental sentiment
 
-Use `canonry sentiment <project> --query-class non-brand --format json` and a separate
-`--query-class branded` read. Favorable is favorable / (favorable + mixed +
-unfavorable); never pool the classes. Missing mentions, factual statements, and
+Sentiment is a branded figure: read `canonry sentiment <project> --query-class branded
+--format json` for the favorable share. Non-brand answers name the brand almost only to
+recommend it, so read them as exceptions with `canonry sentiment evidence <project>
+--query-class non-brand --outcome mixed,unfavorable`. Favorable is favorable /
+(favorable + mixed + unfavorable); never pool the classes. Missing mentions, factual statements, and
 unknown judgments stay outside this denominator, so sentiment cannot replace
 mention coverage. Zero judged answers are unavailable. Inspect the returned
 coverage, frozen scope, and per-query source evidence before interpreting a score.
 The feature is default-off, has no theme setup, and has not passed independent
-human evaluation for either query class. Native Aero routing and client reports
-do not consume these experimental scores.
+human evaluation for either query class. Native Aero reads these scores but
+cannot enable sentiment or submit a backfill; client reports do not consume them.
+
+Competitor impact previews use the latest stored landscape and its exact run
+IDs, query population and tracked basis. Compare project and competitor mention
+counts before comparing percentages. A competitor change restates every stored
+period; an apply-mode add may move again after alias detection. Use an explicit
+preview before a separate curated write, and do not substitute its result for
+the overview card's separate instrument.

@@ -56,15 +56,16 @@
   "scripts": {
     "build": "tsup",
     "prepublishOnly": "pnpm run build",
-    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck": "node ../../scripts/typecheck.mjs --noEmit -p tsconfig.json",
     "test": "vitest run --config ../../vitest.package.config.ts",
-    "lint": "eslint src/ test/"
+    "lint": "oxlint -c ../../.oxlintrc.json --type-aware src/ test/"
   },
   "dependencies": {
-    "@google/genai": "1.46.0"
+    "@google/genai": "2.30.0"
   },
   "devDependencies": {
-    "tsup": "^8.5.1"
+    "tsup": "^9.0.0",
+    "typescript": "6.0.3"
   },
   "engines": {
     "node": ">=22"

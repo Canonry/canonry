@@ -1,5 +1,7 @@
-import { referralAssessmentQuerySchema, type ReferralAssessmentQuery } from '@ainyc/canonry-contracts'
+import { formatValidationIssues, trafficSamplesQuerySchema, type TrafficSamplesQuery, referralAssessmentQuerySchema, type ReferralAssessmentQuery } from '@canonry/canonry-contracts'
 import type {
+  CloudflareQueueDrainStopReason,
+  CloudflareQueueDrainSummary,
   RunDetailDto,
   TrafficBackfillResponse,
   TrafficConnectCloudflareResponse,
@@ -10,8 +12,8 @@ import type {
   TrafficSourceListResponse,
   TrafficStatusResponse,
   TrafficSyncResponse,
-} from '@ainyc/canonry-contracts'
-import { RunStatuses, TrafficEventKinds, TrafficSeriesGranularities, describeError } from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
+import { RunStatuses, TrafficEventKinds, TrafficSeriesGranularities, describeError, formatPercent, parseTrafficAnalyticsPeriod } from '@canonry/canonry-contracts'
 import fs from 'node:fs'
 import { getCloudflareTrafficConnectionBySourceId } from '../cloudflare-traffic-config.js'
 import {
@@ -24,7 +26,7 @@ import {
   writeCloudflareWorkerArtifacts,
 } from '../cloudflare-worker-deploy.js'
 import { createApiClient } from '../client.js'
-import { CliError, isMachineFormat } from '../cli-error.js'
+import { CliError, isMachineFormat, usageError } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
 import { loadConfigRaw } from '../config.js'
 
@@ -96,6 +98,8 @@ export async function trafficConnectCloudflare(project: string, opts: {
   apiTokenFile?: string
   retentionSeconds?: number
   outputDirectory?: string
+  /** Forward page views too; undefined keeps the source's current setting. */
+  forwardPageViews?: boolean
   deploy?: boolean
   confirmRoute?: boolean
   confirmFailOpen?: boolean
@@ -168,7 +172,7 @@ export async function trafficConnectCloudflare(project: string, opts: {
   }
   if (opts.deploy) {
     try {
-      await (deps.preflightWrangler ?? preflightCloudflareWrangler)({ deliveryMode })
+      await (deps.preflightWrangler ?? preflightCloudflareWrangler)({ deliveryMode, forwardPageViews: opts.forwardPageViews === true })
     } catch (error) {
       const message = errorMessage(error)
       throw new CliError({
@@ -201,6 +205,7 @@ export async function trafficConnectCloudflare(project: string, opts: {
         deliveryMode,
         displayName: opts.displayName,
         zoneId: opts.zoneId,
+        ...(opts.forwardPageViews === undefined ? {} : { forwardPageViews: opts.forwardPageViews }),
         ...queuePull!,
       }
       : {
@@ -208,6 +213,7 @@ export async function trafficConnectCloudflare(project: string, opts: {
         displayName: opts.displayName,
         zoneId: opts.zoneId,
         accountId: opts.accountId,
+        ...(opts.forwardPageViews === undefined ? {} : { forwardPageViews: opts.forwardPageViews }),
       },
   )
 
@@ -305,6 +311,7 @@ export async function trafficConnectCloudflare(project: string, opts: {
     deliveryMode: result.deliveryMode,
     activationRequired: result.activationRequired === true,
     workerVersion: result.workerVersion,
+    forwardPageViews: result.forwardPageViews === true,
     outputDirectory: artifacts.outputDirectory,
     files: {
       workerScript: artifacts.workerScriptPath,
@@ -339,6 +346,7 @@ export async function trafficConnectCloudflare(project: string, opts: {
   console.log(`Cloudflare ${result.deliveryMode} traffic source connected for project "${project}".`)
   console.log(`  Source ID:       ${result.sourceId}`)
   console.log(`  Worker version:  ${result.workerVersion}`)
+  console.log(`  Page views:      ${result.forwardPageViews ? 'forwarded (AI visitor journeys record later visits)' : 'not forwarded (AI and bot traffic only)'}`)
   console.log(`  Worker script:   ${artifacts.workerScriptPath}`)
   console.log(`  Wrangler config: ${artifacts.wranglerTomlPath}`)
   console.log(`  Deployment:      ${opts.deploy ? 'Worker deployed; route not attached' : 'not requested'}`)
@@ -759,7 +767,28 @@ export async function trafficSync(project: string, opts: {
   console.log(`  AI referral hits: ${result.aiReferralHits}  (${result.aiReferralBucketRows} hourly bucket${result.aiReferralBucketRows === 1 ? '' : 's'})`)
   console.log(`  Unknown hits:     ${result.unknownHits}`)
   console.log(`  Sample rows:      ${result.sampleRows}`)
+  if (result.queueDrain) {
+    console.log(`  Queue drain:      ${describeQueueDrain(result.queueDrain)}`)
+    if (result.remainingBacklogCount !== undefined) {
+      console.log(`  Queue backlog:    ${result.remainingBacklogCount} message(s) reported after the sync`)
+    }
+  }
   console.log(`  Synced at:        ${result.syncedAt}`)
+}
+
+const QUEUE_STOP_LABELS: Record<CloudflareQueueDrainStopReason, string> = {
+  'backlog-empty': 'Queue empty',
+  'empty-pulls': 'no more messages to pull (the rest is leased or not yet visible)',
+  'unleased-only': 'only unleased entries left',
+  deadline: 'time limit reached',
+  'batch-cap': 'pull cap reached',
+  error: 'failed',
+}
+
+/** One line: why a Queue sync stopped and what it pulled. */
+export function describeQueueDrain(drain: CloudflareQueueDrainSummary): string {
+  const redelivered = drain.duplicateEvents > 0 ? `, ${drain.duplicateEvents} redelivered` : ''
+  return `${QUEUE_STOP_LABELS[drain.stopReason]}; ${drain.pulls} pull(s), ${drain.messagesPulled} message(s)${redelivered}, ${Math.round(drain.elapsedMs / 1000)}s`
 }
 
 /**
@@ -773,12 +802,51 @@ export async function trafficSync(project: string, opts: {
  * `canonry traffic connect ...` instead.
  *
  * For Cloud Run and Vercel, skipped history may be recoverable with a bounded
- * backfill. WordPress generic replace-mode backfill is unavailable: use a
- * retention-aware repair that declares any
- * unrecoverable history instead.
+ * backfill. WordPress generic replace-mode backfill is unavailable: record a
+ * span that cannot be recovered with `canonry traffic declare-gap` instead.
  *
  * `--advance-to-now` must be passed — no implicit reset.
  */
+/**
+ * Record a source's unrecovered skip as lost for good and clear it. Reads the
+ * marker first and sends it back, so the server refuses if a newer skip was
+ * recorded in between. For WordPress, this is the only way to clear one.
+ */
+export async function trafficDeclareGap(project: string, opts: {
+  source: string
+  format?: string
+}): Promise<void> {
+  const client = getClient()
+  const { sources } = await client.trafficListSources(project)
+  const source = sources.find(entry => entry.id === opts.source)
+  if (!source) {
+    throw new CliError({
+      code: 'TRAFFIC_SOURCE_NOT_FOUND',
+      message: `traffic source ${opts.source} not found`,
+      displayMessage: `Error: no traffic source "${opts.source}" on "${project}" (run \`canonry traffic sources ${project}\` to list them)`,
+      details: { project, source: opts.source },
+    })
+  }
+  if (!source.skippedThroughAt) {
+    throw new CliError({
+      code: 'TRAFFIC_NO_GAP',
+      message: `traffic source ${opts.source} has no unrecovered gap`,
+      displayMessage: `Error: "${source.displayName}" has no unrecovered gap to declare.`,
+      details: { project, source: opts.source },
+    })
+  }
+
+  const updated = await client.trafficDeclareGap(project, opts.source, source.skippedThroughAt)
+
+  if (isMachineFormat(opts.format)) {
+    console.log(JSON.stringify(updated, null, 2))
+    return
+  }
+
+  console.log(`Recorded the gap through ${source.skippedThroughAt} on "${source.displayName}" as lost for good.`)
+  console.log('The traffic gap warning clears at the next health check. Existing traffic data is unchanged.')
+}
+
 export async function trafficReset(project: string, opts: {
   source: string
   advanceToNow?: boolean
@@ -797,7 +865,7 @@ export async function trafficReset(project: string, opts: {
       code: 'TRAFFIC_RESET_REQUIRES_FLAG',
       message: '--advance-to-now is required',
       displayMessage:
-        'Error: --advance-to-now is required. This skips history between the source\'s current lastSyncedAt and now. For WordPress, generic replace-mode backfill is unavailable; use a retention-aware repair that declares any unrecoverable span.',
+        'Error: --advance-to-now is required. This skips history between the source\'s current lastSyncedAt and now. For WordPress, generic replace-mode backfill is unavailable; record a span that cannot be recovered with `canonry traffic declare-gap <project> --source <id>`.',
       details: { project, source: opts.source },
     })
   }
@@ -815,7 +883,7 @@ export async function trafficReset(project: string, opts: {
   console.log(`  Last synced:   ${updated.lastSyncedAt ?? 'never'}  (advanced to NOW)`)
   console.log(`  Last error:    ${updated.lastError ?? 'none'}`)
   if (updated.skippedThroughAt) {
-    console.log('  Historical repair: generic WordPress replace-mode backfill is unavailable until a retention-aware repair proves coverage.')
+    console.log(`  Skipped span:  WordPress can't replay it. Once you accept it is lost, run \`canonry traffic declare-gap ${project} --source ${opts.source}\`.`)
   }
   console.log('')
   console.log('Next scheduled sync will resume from this timestamp.')
@@ -859,6 +927,50 @@ export async function trafficSources(project: string, opts: { format?: string })
   }
 }
 
+export async function trafficAnalytics(project: string, opts: { period?: string | number; format?: string }): Promise<void> {
+  let period
+  try {
+    period = parseTrafficAnalyticsPeriod(opts.period)
+  } catch (error) {
+    throw usageError(`Error: ${describeError(error)}\n\nUsage: canonry traffic analytics <project> [--period 7|14|30|90] [--format json]`)
+  }
+  const result = await createApiClient().getTrafficAnalytics(project, period)
+  if (isMachineFormat(opts.format)) {
+    console.log(JSON.stringify(result, null, 2))
+    return
+  }
+  const activity = result.activity
+  if (!activity) {
+    console.log(`No traffic sources connected for project "${project}".`)
+    return
+  }
+  console.log(`Traffic analytics for "${project}": ${activity.windowStart} to ${activity.windowEnd}`)
+  console.log(`  First stored observation: ${activity.coverageStart ?? 'none'}`)
+  if (!activity.priorWindowComplete) console.log('  Prior recording window is incomplete; percentage changes are unavailable.')
+  for (const [label, counts] of [
+    ['Verified crawler hits', activity.verifiedCrawlerHits],
+    ['Unverified crawler hits', activity.unverifiedCrawlerHits],
+    ['AI user-fetch hits', activity.aiUserFetchHits],
+    ['AI-referral arrivals', activity.referralArrivals],
+    ['Paid AI-referral arrivals', activity.referralArrivalsByClass.paid],
+    ['Organic AI-referral arrivals', activity.referralArrivalsByClass.organic],
+    ['Unclassified AI-referral arrivals', activity.referralArrivalsByClass.unclassified],
+  ] as const) {
+    console.log(`  ${label}: ${counts.current} (prior ${counts.prior}; change ${counts.deltaPct === null ? 'unavailable' : formatPercent(counts.deltaPct, 'percent')})`)
+  }
+  console.log(`  AI-referral redirect hops: ${activity.referralRedirects}`)
+  console.log('Operators: OPERATOR  VERIFIED  UNVERIFIED  USER_FETCH  REFERRALS  CHANGE')
+  for (const row of activity.byOperator) console.log(`  ${row.operator}  ${row.verifiedHits}  ${row.unverifiedHits}  ${row.userFetchHits}  ${row.referralArrivals}  ${row.deltaPct === null ? 'unavailable' : formatPercent(row.deltaPct, 'percent')}`)
+  console.log('Crawled paths: PATH  VERIFIED  UNVERIFIED  OPERATORS')
+  for (const row of activity.topCrawledPaths) console.log(`  ${row.path}  ${row.verifiedHits}  ${row.unverifiedHits}  ${row.distinctOperators}`)
+  console.log('AI-referral products: PRODUCT  ARRIVALS  LANDING_PATHS')
+  for (const row of activity.referralProducts) console.log(`  ${row.product}  ${row.arrivals}  ${row.distinctLandingPaths}`)
+  console.log('Daily history: DATE  VERIFIED  UNVERIFIED  USER_FETCH  REFERRALS')
+  for (const row of activity.dailyTrend) console.log(`  ${row.date}  ${row.verifiedCrawlerHits}  ${row.unverifiedCrawlerHits}  ${row.userFetchHits}  ${row.referralArrivals}`)
+  console.log('AI-referral landing paths: PATH  ARRIVALS  PRODUCTS')
+  for (const row of activity.topReferralLandingPaths) console.log(`  ${row.path}  ${row.arrivals}  ${row.distinctProducts}`)
+}
+
 export async function trafficStatus(project: string, opts: { format?: string }): Promise<void> {
   const client = createApiClient()
   const result: TrafficStatusResponse = await client.trafficStatus(project)
@@ -897,6 +1009,9 @@ export async function trafficStatus(project: string, opts: { format?: string }):
       console.log(`    Started:       ${d.latestRun.startedAt}`)
       if (d.latestRun.finishedAt) console.log(`    Finished:      ${d.latestRun.finishedAt}`)
       if (d.latestRun.error) console.log(`    Error:         ${d.latestRun.error}`)
+      if (d.latestRun.syncSummary?.type === 'cloudflare-queue') {
+        console.log(`    Queue drain:   ${describeQueueDrain(d.latestRun.syncSummary)}`)
+      }
     } else {
       console.log(`  Latest run:      (none)`)
     }
@@ -952,6 +1067,32 @@ function formatEventLine(event: TrafficEventEntry): string {
         `${event.hits} hits`,
         `(paid ${event.paidHits} · organic ${event.organicHits} · unclassified ${event.unknownHits})`,
       ].join('  ')
+  }
+}
+
+export async function trafficSamples(project: string, opts: Omit<TrafficSamplesQuery, 'kind'> & { kind?: string; sinceMinutes?: number; format?: string }): Promise<void> {
+  const { format, sinceMinutes, ...input } = opts
+  if (sinceMinutes !== undefined) {
+    if (!Number.isSafeInteger(sinceMinutes) || sinceMinutes <= 0 || !Number.isFinite(Date.now() - sinceMinutes * 60_000)) throw usageError('--since-minutes must be a positive integer')
+    if (input.since) throw usageError('--since and --since-minutes cannot be combined')
+    const end = input.until === undefined ? Date.now() : Date.parse(input.until)
+    if (!Number.isFinite(end) || !Number.isFinite(new Date(end - sinceMinutes * 60_000).getTime())) throw usageError('Invalid traffic sample time window')
+    input.since = new Date(end - sinceMinutes * 60_000).toISOString()
+  }
+  const parsed = trafficSamplesQuerySchema.safeParse(input)
+  if (!parsed.success) throw usageError(formatValidationIssues(parsed.error.issues), { details: { issues: parsed.error.issues.map(({ path, message }) => ({ path, message })) } })
+  const result = await createApiClient().trafficListSamples(project, parsed.data)
+  if (isMachineFormat(format)) {
+    if (format === 'jsonl') emitJsonl(result.samples.map(sample => ({ project, windowStart: result.windowStart, windowEnd: result.windowEnd, ...sample })))
+    else console.log(JSON.stringify(result, null, 2))
+    return
+  }
+  console.log(`Stored traffic samples for "${project}": ${result.samples.length} of ${result.totalRows} matching sample rows. Sampled tail, not visits; use traffic events for totals.`)
+  console.log('Retention: 30 days. Caps: 100 per sync, 500 per backfill, 100 per source per push hour.')
+  console.log('traffic status shows the last-24h sample count per source, including unknown samples. This selection excludes unknown unless requested.')
+  for (const sample of result.samples) {
+    const classifier = sample.classifier.aiReferral ?? sample.classifier.aiUserFetch ?? sample.classifier.crawler
+    console.log([sample.ts, sample.kind, sample.status ?? '-', sample.pathNormalized, sample.refererHost ?? '-', classifier?.product ?? '-', sample.userAgent ?? '-'].join('  '))
   }
 }
 
@@ -1051,8 +1192,9 @@ export async function trafficEvents(project: string, opts: {
 /** Separate diagnostic: existing traffic/report headlines retain their meaning. */
 export async function trafficReferralAssessment(project: string, options: Partial<ReferralAssessmentQuery> & { format?: string }): Promise<void> {
   const { format, ...query } = options
+  if (!query.startDate || !query.endDate) throw usageError('--start and --end are required for traffic referral-assessment.')
   const parsed = referralAssessmentQuerySchema.safeParse(query)
-  if (!parsed.success) throw new CliError({ code: 'TRAFFIC_INVALID_ASSESSMENT', message: parsed.error.message })
+  if (!parsed.success) throw new CliError({ code: 'TRAFFIC_INVALID_ASSESSMENT', message: formatValidationIssues(parsed.error.issues) })
   const result = await createApiClient().trafficReferralAssessment(project, parsed.data)
   if (isMachineFormat(format)) { console.log(JSON.stringify(result, null, 2)); return }
   console.log(`AI referral assessment for "${project}" · ${result.window.startDate} to ${result.window.endDate} UTC`)

@@ -1,2 +1,2 @@
-# Check generated artifacts before publication. Full validation runs in CI.
+# Check generated artifacts before publication. Local validation remains required.
 node scripts/pre-push.mjs

@@ -1,5 +1,6 @@
 export * from './classifier.js'
 export * from './ip-verify.js'
+export * from './journey.js'
 export * from './rollup.js'
 export * from './rules.js'
 export type * from './types.js'

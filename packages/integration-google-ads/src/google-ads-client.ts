@@ -1,10 +1,12 @@
 import {
   describeError,
+  describeFetchError,
   isRetryableHttpError,
   mapWithConcurrency,
   retryAfterDelayMs,
   withRetry,
-} from '@ainyc/canonry-contracts'
+  escapeRegExp,
+} from '@canonry/canonry-contracts'
 import {
   GOOGLE_ADS_API_BASE,
   GOOGLE_ADS_API_VERSION,
@@ -17,7 +19,6 @@ import {
   GOOGLE_ADS_RETRY_BASE_DELAY_MS,
   GOOGLE_ADS_RETRY_MAX_DELAY_MS,
 } from './constants.js'
-import { resolveEffectiveCampaignGoalInputs } from './goal-semantics.js'
 import {
   buildCampaignConversionGoalsQuery,
   buildCampaignSpendRankingQuery,
@@ -82,10 +83,6 @@ interface CustomerDetailAttempt {
   customer?: GoogleAdsCustomer
   failure?: GoogleAdsCustomerDetailFailure
   metadata?: GoogleAdsRequestMetadata
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 function sanitizeText(value: string, secrets: readonly string[]): string {
@@ -407,7 +404,6 @@ export class GoogleAdsClient {
         // A result exactly at the cap may have more rows upstream. Treat it
         // as incomplete rather than silently deriving absent campaign goals.
         campaignGoalsComplete: campaignGoals.data.length < GOOGLE_ADS_MAX_RESULT_ROWS,
-        effectiveCampaignGoalInputs: resolveEffectiveCampaignGoalInputs(raw),
       },
       metadata: {
         apiVersion: GOOGLE_ADS_API_VERSION,
@@ -541,15 +537,18 @@ export class GoogleAdsClient {
       headers['login-customer-id'] = this.#loginCustomerId
     }
 
+    const url = `${GOOGLE_ADS_API_BASE}${path}`
     let response: Response
     try {
-      response = await this.#fetch(`${GOOGLE_ADS_API_BASE}${path}`, {
+      response = await this.#fetch(url, {
         ...init,
         headers,
         signal: AbortSignal.timeout(this.#requestTimeoutMs),
       })
     } catch (error) {
-      const detail = describeError(error)
+      // A bare "fetch failed" hides whether DNS, the connection, or TLS broke;
+      // the cause code and host tell an operator which.
+      const detail = describeFetchError(error, url)
       throw new GoogleAdsApiError(
         `Google Ads API request failed: ${sanitizeText(detail, this.#secrets())}`,
       )

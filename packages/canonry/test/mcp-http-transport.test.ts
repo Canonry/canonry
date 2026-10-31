@@ -3,13 +3,15 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-import { createClient, migrate, apiKeys, oauthClients, users, type DatabaseClient } from '@ainyc/canonry-db'
-import { createUserSession, USER_SESSION_COOKIE_NAME } from '@ainyc/canonry-api-routes'
+import { createClient, migrate, apiKeys, oauthClients, users, type DatabaseClient } from '@canonry/canonry-db'
+import { createUserSession, USER_SESSION_COOKIE_NAME } from '@canonry/canonry-api-routes'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import type { ApiClient } from '../src/client.js'
 import type { CanonryConfig } from '../src/config.js'
 import { createServer } from '../src/server.js'
-import { canonryMcpTools } from '../src/mcp/tool-registry.js'
+import { canonryMcpTools, toolOperationAccess, type CanonryMcpTool } from '../src/mcp/tool-registry.js'
+import { OperationAccesses } from '@canonry/canonry-contracts'
 
 /**
  * MCP over Streamable HTTP. The properties worth pinning are the ones the
@@ -320,6 +322,10 @@ describe('MCP over OAuth', () => {
     expect(tools).toContain('canonry_research_run_start')
     expect(tools).toContain('canonry_research_batch_start')
     expect(tools).not.toContain('canonry_measurement_query_template_upsert')
+    const storedTools = await toolsFor(built, '/api/v1/mcp/readonly', token)
+    expect(storedTools).not.toContain('canonry_research_run_start')
+    expect(storedTools).not.toContain('canonry_research_batch_start')
+    expect(built.sessionKeys().at(-1)).toEqual({ scopes: ['read'], revokedAt: null })
   })
 
   it.each([
@@ -379,10 +385,17 @@ describe('MCP over OAuth', () => {
     expect(challenge).toContain('/.well-known/oauth-protected-resource/api/v1/mcp')
   })
 
-  it('serves the protected-resource document the challenge points at', async () => {
-    const res = await request(built, { method: 'GET', url: '/.well-known/oauth-protected-resource/api/v1/mcp' })
+  it.each(['/mcp', '/mcp/readonly', '/mcp/x/gsc/readonly'])('discovers the canonical OAuth audience for %s', async (segment) => {
+    const unauthenticated = await request(built, { method: 'POST', url: `/api/v1${segment}`, headers: { accept: MCP_ACCEPT }, payload: INIT })
+    expect(unauthenticated.statusCode).toBe(401)
+    expect(unauthenticated.headers['www-authenticate']).toContain(`/.well-known/oauth-protected-resource/api/v1${segment}`)
+    const res = await request(built, { method: 'GET', url: `/.well-known/oauth-protected-resource/api/v1${segment}` })
     expect(res.statusCode).toBe(200)
-    expect(res.json().authorization_servers).toEqual(['https://instance.example.com'])
+    expect(res.json()).toEqual({
+      resource: 'https://instance.example.com/api/v1/mcp',
+      authorization_servers: ['https://instance.example.com'],
+      bearer_methods_supported: ['header'],
+    })
   })
 
   it('accepts an OAuth access token as a bearer on the MCP endpoint', async () => {
@@ -414,7 +427,7 @@ describe('MCP over OAuth', () => {
     expect(res.statusCode).toBeGreaterThanOrEqual(400)
   })
 
-  it('an OAuth token is refused on every route except the MCP transport', async () => {
+  it('an OAuth token cannot authenticate general REST routes', async () => {
     // Confinement, checked independently of scope: the token is minted for the
     // MCP resource and must not authenticate the wider REST surface at all.
     const token = await mintAccessToken(built, { role: 'admin', scope: 'read' })
@@ -496,6 +509,22 @@ describe('MCP over OAuth', () => {
       headers: { authorization: `Bearer ${adminKey}` },
     })
     expect(revoked.statusCode).toBe(200)
+    const originalTime = revoked.json<{ revokedAt: string }>().revokedAt
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(Date.parse(originalTime) + 1_000))
+    try {
+      const repeated = await request(built, {
+        method: 'DELETE', url: '/api/v1/oauth/clients/test-client', headers: { authorization: `Bearer ${adminKey}` },
+      })
+      expect(repeated.statusCode).toBe(200)
+      expect(repeated.json()).toMatchObject({ revokedAt: originalTime })
+      const afterList = await request(built, {
+        method: 'GET', url: '/api/v1/oauth/clients', headers: { authorization: `Bearer ${adminKey}` },
+      })
+      expect(afterList.json<{ clients: { id: string; revokedAt: string | null }[] }>().clients.find(client => client.id === 'test-client')?.revokedAt).toBe(originalTime)
+    } finally {
+      vi.useRealTimers()
+    }
 
     // Revoking the client must kill its outstanding tokens too — marking only
     // the client would leave live access tokens working until they expired.
@@ -545,6 +574,7 @@ describe('MCP over Streamable HTTP', () => {
   })
 
   afterEach(async () => {
+    vi.restoreAllMocks()
     await built.cleanup()
   })
 
@@ -577,7 +607,7 @@ describe('MCP over Streamable HTTP', () => {
     expect(created.statusCode).toBe(200)
     const key = created.json().key as string
     const tools = await toolsFor(built, '/api/v1/mcp', key)
-    expect(tools).toEqual([...canonryMcpTools.filter(tool => tool.access === 'read' && !tool.requiresOperator).map(tool => tool.name), 'canonry_help'])
+    expect(tools).toEqual([...canonryMcpTools.filter(tool => tool.access === 'read' && !tool.requiresOperator && !tool.requiresConnectionProfile).map(tool => tool.name), 'canonry_help'])
     expect(tools).not.toContain('canonry_logs_list')
   })
 
@@ -640,7 +670,9 @@ describe('MCP over Streamable HTTP', () => {
   ] as const)('exposes the entire permitted catalog at %s (read-only key: %s)', async (url, readOnlyKey) => {
     const tools = await toolsFor(built, url, readOnlyKey ? built.readOnlyKey : built.wildcardKey)
     const readOnly = readOnlyKey || url.endsWith('/readonly')
-    const expected = canonryMcpTools.filter(tool => !tool.requiresOperator && (!readOnly || tool.access === 'read')).map(tool => tool.name)
+    const expected = canonryMcpTools.filter(tool => !tool.requiresOperator && !tool.requiresConnectionProfile && (url.endsWith('/readonly')
+      ? toolOperationAccess(tool) === OperationAccesses.stored
+      : !readOnly || tool.access === 'read')).map(tool => tool.name)
     expect(tools).toEqual([...expected, 'canonry_help'])
     expect(tools).toEqual(expect.arrayContaining([
       'canonry_project_overview', 'canonry_visibility_report',
@@ -648,7 +680,7 @@ describe('MCP over Streamable HTTP', () => {
       'canonry_measurement_portfolio_summary', 'canonry_measurement_property_questions',
       'canonry_measurement_question_result', 'canonry_measurement_property_competitors',
       'canonry_measurement_changes', 'canonry_measurement_data_quality',
-      'canonry_gsc_performance', 'canonry_ga_status', 'canonry_gbp_accounts',
+      'canonry_gsc_performance', 'canonry_ga_status', 'canonry_gbp_locations',
       'canonry_ads_status', 'canonry_traffic_sources_list', 'canonry_memory_list',
       'canonry_research_runs_list', 'canonry_measurement_setup',
       'canonry_google_ads_status', 'canonry_gtm_status', 'canonry_conversion_tracking_contracts',
@@ -674,8 +706,75 @@ describe('MCP over Streamable HTTP', () => {
     for (const name of readOnly) expect(full).toContain(name)
   })
 
+  it('publishes an explicit stored-only inventory with one guide resource and no prompts', async () => {
+    const url = '/api/v1/mcp/readonly'
+    const initialized = await request(built, { method: 'POST', url,
+      headers: { authorization: `Bearer ${built.wildcardKey}`, accept: MCP_ACCEPT }, payload: INIT })
+    const headers = { authorization: `Bearer ${built.wildcardKey}`, accept: MCP_ACCEPT,
+      'mcp-session-id': initialized.headers['mcp-session-id']! }
+    const rpc = async (method: string, params?: Record<string, unknown>) => {
+      const response = await request(built, { method: 'POST', url, headers,
+        payload: { jsonrpc: '2.0', id: 2, method, ...(params ? { params } : {}) } })
+      expect(response.statusCode).toBe(200)
+      const frame = response.body.split('\n').find(line => line.startsWith('data:'))
+      return JSON.parse((frame ?? response.body).replace(/^data:\s*/, '')) as {
+        result?: { isError?: boolean; content?: { type: string; text: string }[]; tools?: { name: string; annotations: Record<string, boolean> }[]; resources?: { uri: string }[]; resourceTemplates?: unknown[]; contents?: { uri: string; mimeType: string; text: string }[] }
+        error?: { code: number }
+      }
+    }
+    const tools = (await rpc('tools/list')).result!.tools!
+    for (const tool of tools) {
+      expect(tool.annotations, tool.name).toMatchObject({ readOnlyHint: true, idempotentHint: true, destructiveHint: false })
+      expect(typeof tool.annotations.openWorldHint, tool.name).toBe('boolean')
+    }
+    const names = tools.map(tool => tool.name)
+    for (const name of ['canonry_doctor', 'canonry_gbp_accounts', 'canonry_gsc_sitemaps', 'canonry_research_run_start', 'canonry_providers_reload', 'canonry_provider_settings_update', 'canonry_load_toolkit']) {
+      expect(names).not.toContain(name)
+      expect((await rpc('tools/call', { name, arguments: {} })).error).toMatchObject({ code: -32602 })
+    }
+    expect((await rpc('resources/list')).result!.resources).toEqual([
+      expect.objectContaining({ uri: 'canonry://agent-operations/v1' }),
+    ])
+    expect((await rpc('resources/templates/list')).result!.resourceTemplates).toEqual([])
+    const guide = (await rpc('resources/read', { uri: 'canonry://agent-operations/v1' })).result!.contents!
+    expect(guide).toEqual([expect.objectContaining({ uri: 'canonry://agent-operations/v1', mimeType: 'text/markdown' })])
+    expect(guide[0]!.text).toContain('canonry_help')
+    expect((await rpc('prompts/list')).error?.code).toBe(-32601)
+  })
+
+  it.each([
+    ['live read', (client: ApiClient) => client.runDoctor()],
+    ['write', (client: ApiClient) => client.putProject('accidental-write', { canonicalDomain: 'synthetic.example', displayName: 'Synthetic', country: 'US', language: 'en' })],
+  ] as const)('refuses a %s from a misclassified stored tool before opening the inner HTTP request', async (_kind, dispatch) => {
+    // Fault-inject a handler mistake while preserving its advertised read contract.
+    // The actual ApiClient and hosted transport must independently refuse it.
+    const tool = canonryMcpTools.find(candidate => candidate.name === 'canonry_projects_list')! as CanonryMcpTool
+    vi.spyOn(tool, 'handler').mockImplementation(client => dispatch(client))
+    const realFetch = globalThis.fetch
+    const attemptedInnerRequests: string[] = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
+      const target = input instanceof Request ? input.url : String(input)
+      if (target.startsWith('http://127.0.0.1:4100/')) {
+        attemptedInnerRequests.push(target)
+        return Promise.resolve(new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } }))
+      }
+      return realFetch(input, init)
+    })
+    const url = '/api/v1/mcp/readonly'
+    const initialized = await request(built, { method: 'POST', url,
+      headers: { authorization: `Bearer ${built.wildcardKey}`, accept: MCP_ACCEPT }, payload: INIT })
+    const response = await request(built, { method: 'POST', url,
+      headers: { authorization: `Bearer ${built.wildcardKey}`, accept: MCP_ACCEPT, 'mcp-session-id': initialized.headers['mcp-session-id']! },
+      payload: { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: tool.name, arguments: {} } } })
+    expect(response.statusCode).toBe(200)
+    const frame = response.body.split('\n').find(line => line.startsWith('data:'))
+    const result = JSON.parse((frame ?? response.body).replace(/^data:\s*/, '')) as { result: { isError: boolean; structuredContent: { error: { code: string } } } }
+    expect(result.result).toMatchObject({ isError: true, structuredContent: { error: { code: 'STORED_ONLY_REFUSED' } } })
+    expect(attemptedInnerRequests).toEqual([])
+  })
+
   it('a toolkit endpoint adds that toolkit on top of core', async () => {
-    const core = canonryMcpTools.filter(tool => tool.tier === 'core').map(tool => tool.name)
+    const core = canonryMcpTools.filter(tool => tool.tier === 'core' && !tool.requiresConnectionProfile).map(tool => tool.name)
     const withToolkit = await toolsFor(built, '/api/v1/mcp/x/gsc', built.wildcardKey)
     expect(withToolkit.length).toBeGreaterThan(core.length)
     // core rides along, or the toolkit's tools have no project to aim at

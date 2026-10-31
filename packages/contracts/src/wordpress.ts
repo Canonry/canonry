@@ -48,6 +48,12 @@ export const wordpressPageSummaryDtoSchema = z.object({
 })
 export type WordpressPageSummaryDto = z.infer<typeof wordpressPageSummaryDtoSchema>
 
+export const wordpressPageListDtoSchema = z.object({
+  env: wordpressEnvSchema,
+  pages: z.array(wordpressPageSummaryDtoSchema),
+})
+export type WordpressPageListDto = z.infer<typeof wordpressPageListDtoSchema>
+
 export const wordpressSeoStateDtoSchema = z.object({
   title: z.string().nullable(),
   description: z.string().nullable(),
@@ -86,6 +92,14 @@ export const wordpressManualAssistDtoSchema = z.object({
 })
 export type WordpressManualAssistDto = z.infer<typeof wordpressManualAssistDtoSchema>
 
+export const wordpressLlmsTxtDtoSchema = z.object({
+  env: wordpressEnvSchema,
+  url: z.string(),
+  /** The file's text; null when the site does not serve /llms.txt or the fetch fails. */
+  content: z.string().nullable(),
+})
+export type WordpressLlmsTxtDto = z.infer<typeof wordpressLlmsTxtDtoSchema>
+
 export const wordpressAuditIssueDtoSchema = z.object({
   slug: z.string(),
   severity: z.enum(['high', 'medium', 'low']),
@@ -110,6 +124,13 @@ export const wordpressAuditPageDtoSchema = z.object({
   issues: z.array(wordpressAuditIssueDtoSchema).default([]),
 })
 export type WordpressAuditPageDto = z.infer<typeof wordpressAuditPageDtoSchema>
+
+export const wordpressAuditDtoSchema = z.object({
+  env: wordpressEnvSchema,
+  pages: z.array(wordpressAuditPageDtoSchema),
+  issues: z.array(wordpressAuditIssueDtoSchema),
+})
+export type WordpressAuditDto = z.infer<typeof wordpressAuditDtoSchema>
 
 export const wordpressBulkMetaEntryResultDtoSchema = z.object({
   slug: z.string(),

@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { parse, stringify } from 'yaml'
-import { apiKeys, createClient, migrate, projects } from '@ainyc/canonry-db'
+import { apiKeys, createClient, migrate, projects } from '@canonry/canonry-db'
 import { bootstrapCommand } from '../src/commands/bootstrap.js'
 import { getConfigPath, loadConfig, type CanonryConfig } from '../src/config.js'
 
@@ -24,6 +24,29 @@ afterEach(() => {
 })
 
 describe('invalid config recovery guidance', () => {
+  it.each([
+    { provider: 'missing-provider' },
+    { provider: 'openrouter', model: '   ' },
+    { provider: 'openrouter', model: 'Not an OpenRouter model' },
+    { provider: 'claude', model: 'missing-claude-model' },
+  ])('rejects an invalid independent classification role without rewriting the file: %j', classification => {
+    const document = stringify({ apiUrl: 'http://127.0.0.1:4100', database: ':memory:', apiKey: 'cnry_fixture', providers: { openrouter: { apiKey: 'synthetic-shared-key' } }, classification })
+    fs.writeFileSync(getConfigPath(), document, { mode: 0o600 })
+    expect(loadConfig).toThrow(/classification/)
+    expect(fs.readFileSync(getConfigPath(), 'utf8')).toBe(document)
+  })
+
+  it('accepts an OpenRouter classification model newer than pi-ai, to be checked against the live catalog when it runs', () => {
+    const classification = { provider: 'openrouter', model: 'vendor/released-after-pi' }
+    fs.writeFileSync(getConfigPath(), stringify({ apiUrl: 'http://127.0.0.1:4100', database: ':memory:', apiKey: 'cnry_fixture', providers: { openrouter: { apiKey: 'synthetic-shared-key' } }, classification }), { mode: 0o600 })
+    expect(loadConfig().classification).toEqual(classification)
+  })
+
+  it('keeps independent OpenRouter classification and Aero models separate from the measured model', () => {
+    fs.writeFileSync(getConfigPath(), stringify({ apiUrl: 'http://127.0.0.1:4100', database: ':memory:', apiKey: 'cnry_fixture', providers: { openrouter: { apiKey: 'synthetic-shared-key', model: 'google/gemini-3.8-flash' } }, agent: { provider: 'openrouter', model: 'anthropic/claude-opus-4.7' }, classification: { provider: 'openrouter', model: 'anthropic/claude-haiku-4.5' } }), { mode: 0o600 })
+    expect(loadConfig()).toMatchObject({ providers: { openrouter: { model: 'google/gemini-3.8-flash' } }, agent: { provider: 'openrouter', model: 'anthropic/claude-opus-4.7' }, classification: { provider: 'openrouter', model: 'anthropic/claude-haiku-4.5' } })
+  })
+
   it.each(['apiUrl', 'database', 'apiKey'] as const)(
     'restores a missing %s from a private backup without replacing existing state',
     async missingField => {

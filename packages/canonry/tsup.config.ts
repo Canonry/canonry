@@ -23,8 +23,14 @@ export default defineConfig({
     // tsup's DTS step invokes tsc internally; `incremental` inherited from
     // tsconfig.base.json triggers TS5074 here because there's no emit target
     // and no tsBuildInfoFile in this path. Force it off — typecheck still
-    // benefits from incremental via the standalone `tsc --noEmit` script.
-    compilerOptions: { incremental: false },
+    // benefits from incremental via the standalone `typecheck` script.
+    compilerOptions: {
+      incremental: false,
+      // Resolve private workspace types as source so declarations are bundled,
+      // rather than requiring unpublished packages in consumer installations.
+      rootDir: '../..',
+      paths: { '@canonry/canonry-*': ['../*/src/index.ts'] },
+    },
   },
   // Real npm deps — keep as external (installed by end user)
   external: [
@@ -62,26 +68,29 @@ export default defineConfig({
   ],
   // Workspace packages — bundle into dist/
   noExternal: [
-    '@ainyc/canonry-api-client',
-    '@ainyc/canonry-contracts',
-    '@ainyc/canonry-config',
-    '@ainyc/canonry-db',
-    '@ainyc/canonry-intelligence',
-    '@ainyc/canonry-api-routes',
-    '@ainyc/canonry-provider-gemini',
-    '@ainyc/canonry-provider-openai',
-    '@ainyc/canonry-provider-claude',
-    '@ainyc/canonry-provider-local',
-    '@ainyc/canonry-provider-cdp',
-    '@ainyc/canonry-provider-perplexity',
-    '@ainyc/canonry-provider-muse',
-    '@ainyc/canonry-integration-google',
-    '@ainyc/canonry-integration-google-ads',
-    '@ainyc/canonry-integration-google-tag-manager',
-    '@ainyc/canonry-integration-bing',
-    '@ainyc/canonry-integration-typesafe',
-    '@ainyc/canonry-integration-cloudflare-queue',
-    '@ainyc/canonry-integration-cloudflare-worker',
-    '@ainyc/canonry-integration-commoncrawl',
+    '@canonry/canonry-api-client',
+    '@canonry/canonry-contracts',
+    '@canonry/canonry-config',
+    '@canonry/canonry-db',
+    '@canonry/canonry-intelligence',
+    '@canonry/canonry-api-routes',
+    '@canonry/canonry-provider-gemini',
+    '@canonry/canonry-provider-openai',
+    '@canonry/canonry-provider-openrouter',
+    '@canonry/canonry-provider-answer-services',
+    '@canonry/canonry-provider-claude',
+    '@canonry/canonry-provider-local',
+    '@canonry/canonry-provider-cdp',
+    '@canonry/canonry-provider-perplexity',
+    '@canonry/canonry-provider-muse',
+    '@canonry/canonry-integration-google',
+    '@canonry/canonry-integration-google-ads',
+    '@canonry/canonry-integration-google-tag-manager',
+    '@canonry/canonry-integration-bing',
+    '@canonry/canonry-integration-typesafe',
+    '@canonry/canonry-integration-cloudflare-queue',
+    '@canonry/canonry-integration-cloudflare-worker',
+    '@canonry/canonry-integration-commoncrawl',
+    '@canonry/canonry-integration-dataforseo',
   ],
 })

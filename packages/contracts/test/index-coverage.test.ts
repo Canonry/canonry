@@ -76,13 +76,15 @@ describe('deriveIndexCoverage', () => {
     const out = deriveIndexCoverage({
       pages: [
         { page: '/a', impressions: 0 },
-        { page: '/a', impressions: 0 },
         { page: '/a', impressions: 3 },
+        { page: '/a', impressions: 0 },
       ],
     })
 
     expect(out.states.get('/a')).toBe('indexed')
     expect(out.indexed).toBe(1)
+    expect(out.states.size).toBe(1)
+    expect([out.notIndexed, out.unknown, out.derivedFromImpressions, out.verifiedByInspection]).toEqual([0, 0, 1, 0])
   })
 
   it('conserves every page across the three buckets', () => {

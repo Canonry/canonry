@@ -21,7 +21,7 @@ Sends the query to Gemini with the `googleSearch` tool enabled. The query is sen
 - `rawResponse` — the full Gemini API response (candidates, usage metadata)
 - `groundingSources` — extracted `{ uri, title }` pairs from the grounding chunks referenced by `groundingSupports`
 - `searchQueries` — the web search queries Gemini used internally
-- `model` — the model used (default: `gemini-2.5-flash`)
+- `model` — the model used (default: `gemini-flash-latest`)
 
 ### `normalizeResult(raw: GeminiRawResult): GeminiNormalizedResult`
 
@@ -34,11 +34,11 @@ Extracts analyst-relevant fields from the raw response:
 
 ## Model
 
-Default: `gemini-2.5-flash`. Configurable via `GeminiConfig.model`.
+Default: `gemini-flash-latest`, Google's alias for the newest Flash model (2 weeks' email notice before a breaking change behind it). The served model is recorded per snapshot as `servedModel`, so trends show when it moved. Pin an exact ID such as `gemini-3.8-flash` for a fixed model. Google limits the 2.5 models to projects that already used them. Configurable via `GeminiConfig.model`.
 
 ## Custom Endpoint
 
-Optional. Set `GeminiConfig.baseUrl` — via the `GEMINI_BASE_URL` env var or `providers.gemini.baseUrl` in `~/.canonry/config.yaml` — to route requests through a proxy or gateway in front of the Gemini API. It maps to the SDK's `httpOptions.baseUrl` and applies to both AI Studio (API key) and Vertex AI auth. When unset, the SDK uses its default endpoint. The same `baseUrl` is threaded into discovery's embeddings client (`embedQueries` → `createEmbedGenAI`), so a proxy captures both tracked-query sweeps and discovery embeddings. A path-prefix base URL (e.g. `https://proxy/gemini`) is preserved — the SDK appends the API path to it rather than swapping only the host.
+Optional. Set `GeminiConfig.baseUrl` — via the `GEMINI_BASE_URL` env var or `providers.gemini.baseUrl` in `~/.canonry/config.yaml` — to route requests through a proxy or gateway in front of the Gemini API. It maps to the SDK's `httpOptions.baseUrl` and applies to both AI Studio (API key) and Vertex AI auth. When unset, the SDK uses its default endpoint. The same `baseUrl` is threaded into discovery's embeddings client (`embedQueries` → the native SDK), so a proxy captures both tracked-query sweeps and discovery embeddings. A path-prefix base URL (e.g. `https://proxy/gemini`) is preserved — the SDK appends the API path to it rather than swapping only the host.
 
 **Vertex caveat:** in Vertex AI mode the SDK builds Vertex-shaped request paths (`/v1/projects/.../locations/...`), so the proxy must expose a Vertex-compatible route — an AI Studio (`generativelanguage`-style) passthrough will not match.
 
@@ -51,6 +51,12 @@ The provider uses Gemini's built-in **Google Search grounding** (`googleSearch` 
 3. Includes the search queries it used
 
 Citation detection prefers the chunk indices referenced by `groundingSupports`, rather than treating every retrieved chunk as a final citation. The job runner then matches those domains against the project's canonical domain and competitor domains to determine citation state.
+
+The adapter records retrieval separately from citations. Positive `usageMetadata.toolUsePromptTokenCount`, nonempty `webSearchQueries`, or web source URIs establish `used`, including a search that yields no final citation. Google Search is the only offered tool, so tool-result tokens prove retrieval even when grounding metadata or the final answer is missing. Without that evidence, a nonempty answer ending with `STOP` is `not-used` only when `usageMetadata.promptTokenCount` is at most 60, the size of a query on its own; empty and unfinished answers remain `unknown`. Stored responses use the same detection when normalized. The `native-auto-v1` contract means search is offered; Gemini chooses whether to use it.
+
+**Searches without grounding metadata.** Gemini 3.5 and 3.6 never report `toolUsePromptTokenCount`; they count search input as prompt tokens instead. A few of their answers run a search yet return no `groundingMetadata`, and the prompt count is the only trace. In stored answers, a query alone took at most 20 prompt tokens, and every Gemini 3.5 or 3.6 answer that listed its searches took 95 or more. So a completed answer with no grounding metadata and a prompt count above 60, or no count at all, is `unknown`: the evidence suggests a search but does not record one. Recording it as `not-used` would read as an answer written from memory and drop it from cited-rate denominators. Its `searchQueries` stay empty and `usage.searchCount` stays 0, since only listed queries are counted.
+
+Two limits follow from reading the prompt size. A query long enough to pass 60 tokens on its own (around 200 characters with a location clause) reads `unknown` even when Gemini did not search. And a model that counts search input nowhere hides such a search completely: Gemini 3 Flash Preview reported some of its listed searches with a 5-token prompt and no tool-result tokens.
 
 ### Upstream references
 

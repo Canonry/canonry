@@ -1,6 +1,6 @@
 import { and, eq, inArray } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { competitors, queries, querySnapshots, runs } from '@ainyc/canonry-db'
+import { competitors, queries, querySnapshots, runs } from '@canonry/canonry-db'
 import {
   emptyCitationVisibility,
   citationStateToCited,
@@ -12,7 +12,7 @@ import {
   type CitationVisibilitySummary,
   type CompetitorGapRow,
   type CitationState,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { notProbeRun, resolveProject } from './helpers.js'
 
 interface SnapshotRow {
@@ -95,6 +95,7 @@ export async function citationRoutes(app: FastifyInstance) {
       .select({ domain: competitors.domain })
       .from(competitors)
       .where(eq(competitors.projectId, project.id))
+      .orderBy(competitors.domain)
       .all()
       .map(c => hostOf(c.domain) ?? '')
       .filter(d => d.length > 0)

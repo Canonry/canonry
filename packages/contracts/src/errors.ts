@@ -10,6 +10,7 @@ export type ErrorCode =
   | 'PROVIDER_AUTH'
   | 'NO_PROVIDER'
   | 'NO_QUERIES'
+  | 'PROVIDERS_FAILING'
   | 'RUN_IN_PROGRESS'
   | 'OPERATION_IN_PROGRESS'
   | 'UNSUPPORTED_KIND'
@@ -21,6 +22,7 @@ export type ErrorCode =
   | 'MISSING_DEPENDENCY'
   | 'RUNTIME_STATE_MISSING'
   | 'SCHEDULE_VERSION_CONFLICT'
+  | 'PROJECT_REVISION_CONFLICT'
   | 'MEASUREMENT_PLAN_REVISION_CONFLICT'
   | 'MEASUREMENT_COMPILED_CHECKSUM_CONFLICT'
   | 'MEASUREMENT_RUN_REVISION_MISMATCH'
@@ -29,9 +31,11 @@ export type ErrorCode =
   | 'MEASUREMENT_IDEMPOTENCY_KEY_REQUIRED'
   | 'MEASUREMENT_IDEMPOTENCY_KEY_CONFLICT'
   | 'QUERY_TRACKING_PREVIEW_STALE'
+  | 'EMBED_QUERY_LIMIT'
   | 'RESEARCH_DAILY_LIMIT_EXCEEDED'
   | 'RUN_FILL_REFUSED'
   | 'RUN_FILL_IN_PROGRESS'
+  | 'STORED_ONLY_REFUSED'
 
 export class AppError extends Error {
   readonly code: ErrorCode
@@ -86,6 +90,10 @@ export function forbidden(message = 'Forbidden', details?: Record<string, unknow
   return new AppError('FORBIDDEN', message, 403, details)
 }
 
+export function storedOnlyRefused(message = 'Stored-only mode refuses live or write operations', details?: Record<string, unknown>): AppError {
+  return new AppError('STORED_ONLY_REFUSED', message, 403, details)
+}
+
 export function quotaExceeded(metric: string, details?: Record<string, unknown>): AppError {
   return new AppError('QUOTA_EXCEEDED', `Quota exceeded for ${metric}`, 429, details)
 }
@@ -130,6 +138,17 @@ export function noProvider(projectName: string, details?: Record<string, unknown
   )
 }
 
+/**
+ * Every provider a run would use has failed run after run on its account (a
+ * rejected key or no credit left), so queueing another would only spend
+ * quota failing the same way. 422 like `NO_QUERIES`: the project cannot run as
+ * configured, the operator fixes it, and the CLI exits 1. Never 401, which the
+ * dashboard reads as an expired session.
+ */
+export function providersFailing(message: string, details?: Record<string, unknown>): AppError {
+  return new AppError('PROVIDERS_FAILING', message, 422, details)
+}
+
 export function noQueries(projectName: string): AppError {
   return new AppError(
     'NO_QUERIES',
@@ -164,6 +183,15 @@ export function scheduleVersionConflict(
     'The schedule changed since it was loaded. Reload it before saving.',
     409,
     { expectedUpdatedAt, actualUpdatedAt },
+  )
+}
+
+export function projectRevisionConflict(expected: number, actual: number): AppError {
+  return new AppError(
+    'PROJECT_REVISION_CONFLICT',
+    'The project changed since it was loaded. Reload it before saving.',
+    409,
+    { expected, actual },
   )
 }
 
@@ -267,6 +295,16 @@ export function queryTrackingPreviewStale(
   )
 }
 
+/** An embedded dashboard's change would track more queries than its plan allows. */
+export function embedQueryLimitReached(limit: number, attempted: number): AppError {
+  return new AppError(
+    'EMBED_QUERY_LIMIT',
+    `This dashboard can track up to ${limit} queries. Remove one to add another.`,
+    409,
+    { limit, attempted },
+  )
+}
+
 export function runNotCancellable(runId: string, status: string): AppError {
   return new AppError('RUN_NOT_CANCELLABLE', `Run '${runId}' is already in terminal state '${status}' and cannot be cancelled`, 409)
 }
@@ -350,4 +388,126 @@ export function describeError(err: unknown): string {
     // A null-prototype or throwing-`toString` object cannot be stringified.
     return 'unknown error'
   }
+}
+
+/** Upper-case Node and undici error codes: `ECONNREFUSED`, `UND_ERR_CONNECT_TIMEOUT`, `ERR_SSL_…`, `CERT_HAS_EXPIRED`. */
+const NETWORK_ERROR_CODE = /^[A-Z][A-Z0-9_]{1,63}$/
+const MAX_CAUSE_DEPTH = 5
+const RESOLVE_CODES = new Set(['ENOTFOUND', 'EAI_AGAIN', 'ENODATA'])
+const CONNECT_CODES = new Set(['ECONNREFUSED', 'UND_ERR_CONNECT_TIMEOUT', 'ETIMEDOUT', 'EHOSTUNREACH', 'ENETUNREACH'])
+
+interface NetworkCause {
+  code: string
+  syscall: string | null
+  hostname: string | null
+  address: string | null
+  port: number | null
+}
+
+function stringField(value: unknown): string | null {
+  return typeof value === 'string' && value !== '' ? value : null
+}
+
+/** The first coded error on the error itself, its `cause` chain, or an AggregateError's first member. */
+function findNetworkCause(err: unknown): NetworkCause | null {
+  let node: unknown = err
+  for (let depth = 0; depth < MAX_CAUSE_DEPTH && node !== null && typeof node === 'object'; depth++) {
+    const record = node as { code?: unknown; syscall?: unknown; hostname?: unknown; address?: unknown; port?: unknown; cause?: unknown; errors?: unknown }
+    if (typeof record.code === 'string' && NETWORK_ERROR_CODE.test(record.code)) {
+      return {
+        code: record.code,
+        syscall: stringField(record.syscall),
+        hostname: stringField(record.hostname),
+        address: stringField(record.address),
+        port: typeof record.port === 'number' && Number.isInteger(record.port) ? record.port : null,
+      }
+    }
+    node = record.cause ?? (Array.isArray(record.errors) ? (record.errors as unknown[])[0] : undefined)
+  }
+  return null
+}
+
+/**
+ * Network failures that usually clear within seconds: a DNS lookup the
+ * resolver could not answer right now, or a connection that was refused,
+ * reset or timed out before a response. Many jobs starting in the same second
+ * is enough to cause one. Worth one quick retry for a request that is safe to
+ * repeat; never a reason to retry an HTTP error response.
+ */
+const TRANSIENT_NETWORK_CODES = new Set([
+  'EAI_AGAIN', 'ENOTFOUND', 'ESERVFAIL', 'ETIMEOUT',
+  'ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_SOCKET', 'EHOSTUNREACH', 'ENETUNREACH',
+])
+
+export function isTransientNetworkError(err: unknown): boolean {
+  const cause = findNetworkCause(err)
+  return cause !== null && TRANSIENT_NETWORK_CODES.has(cause.code)
+}
+
+function requestHostname(requestUrl: string | URL | undefined): string | null {
+  if (requestUrl === undefined) return null
+  try {
+    return stringField(new URL(requestUrl).hostname)
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Render a rejected `fetch` with the network cause it hides.
+ *
+ * Node's fetch (undici) rejects every transport failure with the same
+ * `TypeError: fetch failed` and puts the reason on `error.cause`: a DNS miss
+ * (`ENOTFOUND`), a refused or reset connection, a connect timeout
+ * (`UND_ERR_CONNECT_TIMEOUT`), a TLS failure (`ERR_SSL_…`). The bare message
+ * cannot tell a host DNS filter that null-routes an API host from a provider
+ * outage, so a sync that failed for weeks recorded only "fetch failed".
+ *
+ * Appends the first error code on the error or its cause chain, the host, and
+ * the dialed address: `fetch failed (ECONNREFUSED connecting to
+ * api.example.com at 0.0.0.0:443)`. Only the hostname of `requestUrl` is read,
+ * never its path or query, and no cause message, header, or body is copied,
+ * so the result carries no more secret material than `describeError(err)`.
+ * Without a code anywhere it returns `describeError(err)` unchanged. Never
+ * throws.
+ */
+export function describeFetchError(err: unknown, requestUrl?: string | URL): string {
+  const message = describeError(err)
+  let cause: NetworkCause | null
+  try {
+    cause = findNetworkCause(err)
+  } catch {
+    // A throwing getter on a foreign error object; the plain message stands.
+    return message
+  }
+  if (!cause) return message
+
+  const host = cause.hostname ?? requestHostname(requestUrl)
+  const resolving = cause.syscall === 'getaddrinfo' || RESOLVE_CODES.has(cause.code)
+  const connecting = cause.syscall === 'connect' || CONNECT_CODES.has(cause.code)
+  const verb = resolving ? 'resolving' : connecting ? 'connecting to' : 'calling'
+  const address = cause.address && cause.address !== host
+    ? `${cause.address.includes(':') ? `[${cause.address}]` : cause.address}${cause.port !== null ? `:${cause.port}` : ''}`
+    : null
+  const parts = [cause.code, host ? `${verb} ${host}` : null, address ? `at ${address}` : null]
+  return `${message} (${parts.filter((part): part is string => part !== null).join(' ')})`
+}
+
+/**
+ * Whether a request got no answer at all, so the caller learned nothing about
+ * what it asked. Node's fetch (undici) rejects every transport failure (DNS,
+ * connect, reset, TLS) as `TypeError: fetch failed`, and a request cut off by
+ * its timeout rejects as a `TimeoutError` (`AbortSignal.timeout`) or an
+ * `AbortError` (an `AbortController` aborted on a timer). An error built from
+ * a response the server sent, or thrown before any request, returns false.
+ */
+export function isFetchTransportError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false
+  if (err.name === 'TimeoutError' || err.name === 'AbortError') return true
+  return err instanceof TypeError && err.message === 'fetch failed'
+}
+
+/** Concise field-aware validation text for API and CLI error envelopes. */
+export function formatValidationIssues(issues: readonly { path: readonly PropertyKey[]; message: string }[]): string {
+  return issues.map(issue => `${issue.path.length ? `${issue.path.map(String).join('.')}: ` : ''}${issue.message.replace(/\s+/g, ' ')}`).join('; ')
 }

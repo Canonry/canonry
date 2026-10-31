@@ -1,13 +1,15 @@
-import { visibilityCompareSelectionSchema, reportMonthSchema, referralAssessmentQuerySchema } from '@ainyc/canonry-contracts'
+import { mcpProfileDtoSchema, journeyDetailQuerySchema, journeySummaryQuerySchema, journeysQuerySchema, trafficSamplesQuerySchema, gaAcquisitionQuerySchema, auditHistoryQuerySchema, visibilityCompareSelectionSchema, reportMonthSchema, referralAssessmentQuerySchema, instanceStatusDtoSchema, maxOperationAccess, operationAccess, OperationAccesses, type OperationAccess } from '@canonry/canonry-contracts'
 
 import {
   sentimentSelectionSchema, sentimentEvidenceRequestSchema, sentimentCompareRequestSchema, sentimentSettingsUpdateSchema,
   sentimentBackfillSelectionSchema, sentimentBackfillRequestSchema, sentimentSummaryReadSchema, sentimentSettingsReadSchema,
   sentimentEvidencePageReadSchema, sentimentComparisonReadSchema, sentimentBackfillPreviewReadSchema, sentimentJobsReadSchema,
-  sentimentJobReadSchema, sentimentSummaryIncludeSchema, queryClassSchema, SENTIMENT_ATTEMPT_PAGE_DEFAULT, SENTIMENT_QUERY_PAGE_DEFAULT, SENTIMENT_QUERY_PAGE_MAX,
-} from '@ainyc/canonry-contracts'
-import { agentConversationCreateSchema } from '@ainyc/canonry-contracts'
-import type { ToolAnnotations } from '@modelcontextprotocol/sdk/types.js'
+  sentimentJobReadSchema, sentimentSummaryIncludeSchema, sentimentEvidenceOutcomeFilterSchema, queryClassSchema, SENTIMENT_ATTEMPT_PAGE_DEFAULT, SENTIMENT_QUERY_PAGE_DEFAULT, SENTIMENT_QUERY_PAGE_MAX,
+} from '@canonry/canonry-contracts'
+import { agentConversationCreateSchema, reportedQueryClasses } from '@canonry/canonry-contracts'
+import { PROVIDER_ACCOUNT_FAILURE_STREAK, PROVIDER_ACCOUNT_RETRY_HOURS, WINDOW_SETS } from '@canonry/canonry-contracts'
+import { insightSeveritySchema } from '@canonry/canonry-contracts'
+import type { ToolAnnotations } from '@modelcontextprotocol/server'
 import {
   AGENT_MEMORY_KEY_MAX_LENGTH,
   AGENT_MEMORY_VALUE_MAX_BYTES,
@@ -25,8 +27,14 @@ import {
   adsOperationReconcileRequestSchema,
   adsPauseRequestSchema,
   adsUnresolvedOperationListQuerySchema,
+  competitorAliasBlockRequestSchema,
+  competitorAliasesRequestSchema,
+  competitorChangePreviewRequestSchema,
+  competitorAppendRequestSchema,
   competitorBatchRequestSchema,
   competitorLandscapeQuerySchema,
+  competitorSuggestionsQuerySchema,
+  contentTargetDismissRequestSchema,
   DISCOVERY_MAX_PROBES_CAP,
   DISCOVERY_PROBE_CONCURRENCY_CAP,
   discoveryBucketSchema,
@@ -40,24 +48,36 @@ import {
   keywordGenerateRequestSchema,
   gaMeasurementAnalysisWindowSchema,
   gaMeasurementHostScopeSchema,
+  gaSearchLandingWindowSchema,
+  GA_SEARCH_LANDING_MAX_LIMIT,
   queryGenerateRequestSchema,
   queryBatchRequestSchema,
   notificationCreateRequestSchema,
   notificationEventSchema,
   projectConfigSchema,
+  projectPatchRequestSchema,
   projectUpsertRequestSchema,
   runTriggerRequestSchema,
   backlinkSourceSchema,
   organicEvidencePeriodSchema,
-  reportPeriodSchema,
+  trafficAnalyticsPeriodSchema,
   schedulableRunKindSchema,
   scheduleUpsertRequestSchema,
   scheduleDtoSchema,
+  siteAuditPageBudgetSchema,
+  siteAuditRunRequestSchema,
+  siteAuditIssueListQuerySchema,
+  siteAuditIssuesResponseSchema,
+  siteAuditIssuePagesResponseSchema,
   settingsDtoSchema,
   telemetryStatusDtoSchema,
+  feedbackSubmissionSchema,
+  feedbackAcceptedDtoSchema,
   logQuerySchema,
   operationalLogListReadSchema,
   providerSummaryEntryDtoSchema,
+  providerReloadRequestSchema,
+  providerReloadResponseDtoSchema,
   providerQuotaPolicySchema,
   snapshotRequestInputSchema,
   trafficConnectCloudRunRequestSchema,
@@ -74,10 +94,11 @@ import {
   measurementPropertyQuestionsQuerySchema,
   measurementQuestionResultQuerySchema,
   measurementPropertyCompetitorsQuerySchema,
+  calendarDateSchema,
   measurementChangesQuerySchema,
   measurementDataQualityQuerySchema,
   measurementQueryClassFilterSchema,
-  type MeasurementPortfolioSummaryResponse,
+  MEASUREMENT_DEFAULT_QUERY_CLASS,
   type MeasurementQueryClassFilter,
   LATEST_RUN_ID,
   measurementPropertyEvidenceQuerySchema,
@@ -93,17 +114,21 @@ import {
   canonicalizeGtmAccountId,
   canonicalizeGtmResourceSelection,
   type NotificationEvent,
-  describeError,
   runListFilterQuerySchema,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { z } from 'zod'
 import type { ApiClient } from '../client.js'
-import { CliError, EXIT_SYSTEM_ERROR } from '../cli-error.js'
+import { CliError } from '../cli-error.js'
+import {
+  dedupeGscSitemapUrls,
+  resolveDiscoveredGscSitemapUrls,
+  submitGscSitemapBatches,
+} from '../gsc-sitemap-submission.js'
 import {
   measurementDraftOperationSchema as sharedMeasurementDraftOperationSchema,
   runMeasurementDraftAction as runSharedMeasurementDraftAction,
 } from '../measurement-draft-actions.js'
-import { gscPerformanceOrderBySchema } from '@ainyc/canonry-contracts'
+import { gscPerformanceOrderBySchema } from '@canonry/canonry-contracts'
 import {
   analyticsWindowSchema,
   compactStringParams,
@@ -116,6 +141,8 @@ import {
   uniqueStrings,
 } from './schema.js'
 import type { CanonryMcpTier } from './toolkits.js'
+import { seoOperatorTaskSchema, seoReconcileInputSchema, seoReconcileResultSchema } from '@canonry/canonry-contracts'
+import { seoContextSchema, seoStatusSchema, seoProfileListSchema, seoProfileSchema, seoQuoteSchema, seoRunSchema, seoRunListSchema, seoRunDetailSchema, seoOverviewSchema, seoKeywordMetricsListSchema, seoDomainIntelligenceListSchema, seoRankedKeywordListSchema, seoMarketRankingListSchema, seoMarketRankingQuerySchema, seoMarketRankingSummaryQuerySchema, seoMarketRankingSummarySchema, seoEvidenceQuerySchema, seoProfileInputSchema, seoRefreshIntentInputSchema, seoSyncInputSchema, SEO_RUN_SCOPE, SEO_WRITE_SCOPE } from '@canonry/canonry-contracts'
 
 export type McpToolAccess = 'read' | 'write'
 
@@ -131,6 +158,8 @@ export interface CanonryMcpTool<
   requiredScope?: string
   /** Internal surface: customer roles/scopes alone never authorize it. */
   requiresOperator?: boolean
+  /** Requires an instance-wide named identity and configured OAuth resource. */
+  requiresConnectionProfile?: boolean
   tier: CanonryMcpTier
   inputSchema: TSchema
   inputJsonSchema: unknown
@@ -143,15 +172,25 @@ export interface CanonryMcpTool<
 
 const readAnnotations = (openWorldHint?: boolean): ToolAnnotations => ({
   readOnlyHint: true,
-  ...(openWorldHint ? { openWorldHint } : {}),
+  idempotentHint: true,
+  destructiveHint: false,
+  openWorldHint: Boolean(openWorldHint),
 })
 
 const writeAnnotations = (opts: { idempotentHint: boolean; destructiveHint?: boolean; openWorldHint?: boolean }): ToolAnnotations => ({
   readOnlyHint: false,
   idempotentHint: opts.idempotentHint,
   destructiveHint: Boolean(opts.destructiveHint),
-  ...(opts.openWorldHint ? { openWorldHint: opts.openWorldHint } : {}),
+  openWorldHint: opts.openWorldHint ?? true,
 })
+
+export function toolOperationAccess(tool: Pick<CanonryMcpTool, 'openApiOperations' | 'access'>): OperationAccess {
+  const derived = maxOperationAccess(tool.openApiOperations.map(operation => {
+    const separator = operation.indexOf(' ')
+    return separator < 0 ? OperationAccesses.stored : operationAccess(operation.slice(0, separator), operation.slice(separator + 1))
+  }))
+  return tool.access === 'write' ? OperationAccesses.write : derived
+}
 
 function defineTool<TSchema extends z.ZodTypeAny, TName extends string>(
   tool: Omit<CanonryMcpTool<TSchema, TName>, 'inputJsonSchema'>,
@@ -169,6 +208,8 @@ const runTriggerInputSchema = z.object({
 const measurementPlanVersionInputSchema = z.object({ project: projectNameSchema, revision: z.number().int().positive() })
 const measurementReportInputSchema = measurementPlanVersionInputSchema.extend({
   runId: runIdSchema.optional().describe('Exact eligible full measurement run to reconstruct. Omit for the latest run in the revision.'),
+  queryClass: measurementQueryClassFilterSchema.optional()
+    .describe('Omit for non-brand on a schema v2 revision; read branded as a separate call. all pools both classes. A schema v1 revision records no class: omit it there.'),
 })
 const measurementPlanPreviewInputSchema = z.object({ project: projectNameSchema, plan: measurementPlanAuthoringSchema })
 const measurementPlanPublishInputSchema = measurementPlanPublishRequestSchema.extend({ project: projectNameSchema })
@@ -177,10 +218,11 @@ const measurementDiscoveryInputSchema = measurementDiscoveryRequestSchema.extend
 const idempotencyKeyInputSchema = z.string().trim().min(1).describe('A fresh request key. Reuse it only when retrying the identical request.')
 const measurementOverviewInputSchema = z.object({
   project: projectNameSchema,
-  scope: measurementOverviewQuerySchema.shape.scope.describe('Read all Properties, one reporting group, or one Property.'),
+  scope: measurementOverviewQuerySchema.shape.scope.describe('Read all Properties, one group (every query of its Properties), one market (only the market\'s own queries, as the dashboard\'s market view), or one Property. A group and a market can share a name and still differ; for a market, use market scope.'),
   groupKey: measurementOverviewQuerySchema.shape.groupKey.describe('Group stable key. Required only for group scope.'),
+  marketKey: measurementOverviewQuerySchema.shape.marketKey.describe('Market stable key. Required only for market scope.'),
   targetKey: measurementOverviewQuerySchema.shape.targetKey.describe('Property stable key. Required only for property scope.'),
-  queryClass: measurementOverviewQuerySchema.shape.queryClass.describe('Select non-brand for acquisition performance or branded for brand awareness. Omitted means all classes combined; always name the class in the report.'),
+  queryClass: measurementOverviewQuerySchema.shape.queryClass.describe('Omit for non-brand, the acquisition signal. Read branded (brand recall) as a separate call. all pools both classes into one rate, so never report it as one class.'),
   provider: measurementOverviewQuerySchema.shape.provider,
   location: measurementOverviewQuerySchema.shape.location,
   from: measurementOverviewQuerySchema.shape.from,
@@ -190,6 +232,7 @@ const measurementOverviewInputSchema = z.object({
   sort: measurementOverviewQuerySchema.shape.sort,
   cursor: measurementOverviewQuerySchema.shape.cursor,
   limit: measurementOverviewQuerySchema.shape.limit,
+  compact: z.boolean().default(true).describe('Defaults to true: bounded whole rows omit repeated per-Property engine detail with explicit detailsOmitted. Use compact=false for that detail; preserve all filters when following nextCursor.'),
 }).strict().superRefine((input, context) => {
   if (input.scope === 'group' && !input.groupKey) {
     context.addIssue({ code: 'custom', path: ['groupKey'], message: 'Group scope requires groupKey.' })
@@ -197,19 +240,27 @@ const measurementOverviewInputSchema = z.object({
   if (input.scope === 'property' && !input.targetKey) {
     context.addIssue({ code: 'custom', path: ['targetKey'], message: 'Property scope requires targetKey.' })
   }
+  if (input.scope === 'market' && !input.marketKey) {
+    context.addIssue({ code: 'custom', path: ['marketKey'], message: 'Market scope requires marketKey.' })
+  }
   if (input.scope !== 'group' && input.groupKey) {
     context.addIssue({ code: 'custom', path: ['groupKey'], message: `${input.scope} scope does not accept groupKey.` })
+  }
+  if (input.scope !== 'market' && input.marketKey) {
+    context.addIssue({ code: 'custom', path: ['marketKey'], message: `${input.scope} scope does not accept marketKey.` })
   }
   if (input.scope !== 'property' && input.targetKey) {
     context.addIssue({ code: 'custom', path: ['targetKey'], message: `${input.scope} scope does not accept targetKey.` })
   }
 })
 /**
- * One Property's reads serve one question class. The HTTP default pools both
- * classes; for an agent, an omitted class reads non-brand, the acquisition
- * signal, and the response echoes the class it served.
+ * Measurement reads serve one question class. For an agent, an omitted class
+ * reads non-brand, the acquisition signal, and the response echoes the class
+ * it served. The overview, changes and report HTTP defaults agree; the Property
+ * evidence and competitors HTTP defaults still pool both classes, so the class
+ * is always sent.
  */
-const AGENT_DEFAULT_QUERY_CLASS = 'non-brand' satisfies MeasurementQueryClassFilter
+const AGENT_DEFAULT_QUERY_CLASS = MEASUREMENT_DEFAULT_QUERY_CLASS
 const propertyQueryClassInputSchema = measurementQueryClassFilterSchema.optional()
   .describe('Omit for non-brand. branded reads brand recall; all pools both classes, so name the class you report.')
 /**
@@ -224,47 +275,17 @@ const measurementPropertyEvidenceInputSchema = measurementPropertyEvidenceQueryS
   targetKey: measurementPropertyEvidenceQuerySchema.shape.targetKey.describe('Property stable key. Required — this read is scoped to exactly one Property.'),
   queryClass: propertyQueryClassInputSchema,
   shape: measurementPropertyEvidenceQuerySchema.shape.shape.describe(
-    'What one row is. Omit for sources (one row per cited URL). answers gives one row per measured answer with its cited URLs nested, including the answers that cited nothing.',
+    'What one row is. Omit for sources (one row per cited URL). answers gives one row per measured answer with its cited URLs nested, including the answers that cited nothing. other-queries gives one row per answer to a query NOT assigned to this Property that cited one of its own pages; those answers are outside its rates.',
   ),
 }).strict()
-/**
- * Most Property rows one portfolio summary returns to an agent, with or
- * without groupKey. Measured as compact JSON on a 200-Property, 20-metro
- * portfolio with every metro listed and the deprecated recommendedInstead copy
- * stripped: 4 rows are about 18,300 characters and 5 pass the 20,000-character
- * tool-result cap. A groupKey read lists every submarket of its metro, uncapped,
- * so a metro with a couple dozen submarkets passes the cap at 5 rows as well.
- */
-const PORTFOLIO_SUMMARY_AGENT_ROWS = 4
-/**
- * The largest limit the agent schema accepts: the route's earlier agent
- * maximum. A request above PORTFOLIO_SUMMARY_AGENT_ROWS is lowered with a
- * leading limitNote rather than refused.
- */
-const PORTFOLIO_SUMMARY_AGENT_LIMIT_MAX = 10
-/**
- * The summary as an agent reads it: without the deprecated recommendedInstead
- * copy of every row's namedInsteadInAnswerText (about 350 characters a row),
- * and with a leading note when the requested limit was lowered.
- */
-function portfolioSummaryForAgents(summary: MeasurementPortfolioSummaryResponse, limitNote: string | undefined): unknown {
-  const rows: unknown = summary.weakestProperties
-  return {
-    ...(limitNote === undefined ? {} : { limitNote }),
-    ...summary,
-    ...(Array.isArray(rows)
-      ? { weakestProperties: summary.weakestProperties.map(({ recommendedInstead: _names, recommendedInsteadTotal: _total, recommendedInsteadTruncated: _cut, ...row }) => row) }
-      : {}),
-  }
-}
 const measurementPortfolioSummaryInputSchema = measurementPortfolioSummaryQuerySchema.extend({
   project: projectNameSchema,
   groupKey: measurementPortfolioSummaryQuerySchema.shape.groupKey
     .describe('A market stable key (a row\'s metro.groupKey or a markets row\'s groupKey). Scopes rows to that market and lists its direct submarkets.'),
-  limit: z.number().int().positive().max(PORTFOLIO_SUMMARY_AGENT_LIMIT_MAX).optional()
-    .describe(`Rows per Property list. Default ${PORTFOLIO_SUMMARY_AGENT_ROWS}, which is also the most returned (a larger value is lowered and limitNote says so). For other rows pass groupKey (one metro's weakest), or page canonry_measurement_overview.`),
-  includeNestedMarkets: measurementPortfolioSummaryQuerySchema.shape.includeNestedMarkets
-    .describe('Every market at every level, uncapped. Off by default and rarely needed: markets already lists every metro, and groupKey lists one metro\'s submarkets. Large portfolios exceed the tool-result cap with it on.'),
+  list: measurementPortfolioSummaryQuerySchema.shape.list.describe('Select one complete compact list. Default cursor walks weakest-properties; other first-page lists are bounded summaries. observed-names and cited-domains require answers=not-mentioned. Keep list unchanged across cursors.'),
+  limit: measurementPortfolioSummaryQuerySchema.shape.limit.describe('Maximum selected-list rows; omitted auto-sizes up to 50 under the byte budget. nextCursor advances only pageList; use list to enumerate another ranking, market or evidence list.'),
+  compact: z.boolean().default(true).describe('Defaults to true. Omits detailed evidence with explicit detailsOmitted and returns bounded cursor pages.'),
+  includeNestedMarkets: measurementPortfolioSummaryQuerySchema.shape.includeNestedMarkets.describe('Include every market level; compact pages preserve market totals and page the rows.'),
 }).strict()
 const measurementPropertyQuestionsInputSchema = measurementPropertyQuestionsQuerySchema.extend({
   project: projectNameSchema,
@@ -287,7 +308,7 @@ const measurementChangesInputSchema = measurementChangesQuerySchema.safeExtend({
   queryClass: measurementQueryClassFilterSchema.default(AGENT_DEFAULT_QUERY_CLASS)
     .describe('Defaults to non-brand. Call once per class; all pools both classes in rows and distribution.'),
   limit: z.number().int().positive().max(MEASUREMENT_CHANGES_AGENT_ROWS).optional()
-    .describe(`Changed rows, largest move first. Default 10, at most ${MEASUREMENT_CHANGES_AGENT_ROWS}; distribution counts every Property whatever the limit.`),
+    .describe(`Changed rows, largest move first, every move beyond noise before any within it. Default and maximum ${MEASUREMENT_CHANGES_AGENT_ROWS}; distribution counts every Property whatever the limit.`),
 }).strict()
 const measurementDataQualityInputSchema = measurementDataQualityQuerySchema.extend({
   project: projectNameSchema,
@@ -337,6 +358,8 @@ const measurementDraftActionOpenApiOperations = [
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/preview-assignments',
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/replace-assignments',
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/apply-paired-assignments',
+  'POST /api/v1/projects/{name}/measurement-plan/draft/actions/preview-route-markets',
+  'POST /api/v1/projects/{name}/measurement-plan/draft/actions/route-markets',
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/remove-assignment',
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/clear-assignments',
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/classify-assignments',
@@ -354,9 +377,12 @@ const measurementDraftActionOpenApiOperations = [
 ]
 
 const runsListInputSchema = z.object({
+  since: z.string().optional().describe('Inclusive ISO 8601 lower bound on creation time. Omit to read all dates.'),
   project: projectNameSchema,
   limit: z.number().int().positive().max(500).optional(),
   kind: runListFilterQuerySchema.shape.kind.describe('Restrict to a single run kind (e.g. "answer-visibility"). Unknown values are rejected.'),
+  excludeKind: runListFilterQuerySchema.shape.excludeKind.describe('Exclude one run kind before applying the limit (e.g. "bing-inspect" omits single-URL inspections). Combines with kind and status.'),
+  excludeKinds: runListFilterQuerySchema.shape.excludeKinds.describe('Exclude multiple run kinds before applying the limit (e.g. ["bing-inspect", "traffic-sync"] keeps meaningful Activity jobs). Combines with excludeKind, kind, and status.'),
   status: runListFilterQuerySchema.shape.status.describe('Restrict to a single run status (e.g. "running" for in-flight work, "failed" to triage). Unknown values are rejected.'),
 })
 
@@ -379,12 +405,9 @@ const timelineInputSchema = z.object({
 })
 
 const historyFilterShape = {
+  ...auditHistoryQuerySchema.shape,
   limit: z.number().int().positive().max(500).optional(),
   offset: z.number().int().nonnegative().optional(),
-  since: z.string().optional().describe('ISO 8601 lower bound.'),
-  action: z.string().optional().describe('Exact audit action filter.'),
-  actor: z.string().optional().describe('Exact actor filter.'),
-  entityType: z.string().optional().describe('Exact entity type filter.'),
 }
 
 const projectHistoryInputSchema = z.object({ project: projectNameSchema, ...historyFilterShape })
@@ -407,6 +430,9 @@ const insightsListInputSchema = z.object({
   project: projectNameSchema,
   dismissed: z.boolean().optional(),
   runId: runIdSchema.optional(),
+  type: z.string().min(1).optional().describe('One insight type, or a family prefix such as gbp-*.'),
+  severity: insightSeveritySchema.optional().describe('Minimum severity: high returns high and critical.'),
+  limit: z.number().int().positive().max(500).optional().describe('Keep the first N in list order.'),
 })
 
 const insightInputSchema = z.object({
@@ -488,90 +514,13 @@ async function submitGscSitemapsFromMcp(
   client: ApiClient,
   input: GscSitemapsSubmitInput,
 ): Promise<Awaited<ReturnType<ApiClient['gscSubmitSitemaps']>>> {
-  let sitemapUrls: string[]
-  if ('sitemapUrls' in input) {
-    sitemapUrls = uniqueStrings(input.sitemapUrls)
-  } else {
-    const topLevel = await client.gscSitemaps(input.project)
-    if (input.mode === 'indexes') {
-      sitemapUrls = uniqueStrings(
-        topLevel.preferredSubmissionUrls.length > 0
-          ? topLevel.preferredSubmissionUrls
-          : topLevel.sitemaps.map((sitemap) => sitemap.path),
-      )
-    } else {
-      const indexes = topLevel.sitemaps
-        .filter((sitemap) => sitemap.isSitemapsIndex)
-        .map((sitemap) => sitemap.path)
-      const expandedIndexUrls: string[] = []
-      for (let offset = 0; offset < indexes.length; offset += 4) {
-        const children = await Promise.all(
-          indexes.slice(offset, offset + 4).map(
-            (sitemapIndex) => client.gscSitemaps(input.project, { sitemapIndex }),
-          ),
-        )
-        children.forEach((result, index) => {
-          const sitemapIndex = indexes[offset + index]!
-          expandedIndexUrls.push(...(
-            result.sitemaps.length > 0
-              ? result.sitemaps.map((sitemap) => sitemap.path)
-              : [sitemapIndex]
-          ))
-        })
-      }
-      sitemapUrls = uniqueStrings([
-        ...topLevel.sitemaps
-          .filter((sitemap) => !sitemap.isSitemapsIndex)
-          .map((sitemap) => sitemap.path),
-        ...expandedIndexUrls,
-      ])
-    }
-  }
-
+  const sitemapUrls = 'sitemapUrls' in input
+    ? dedupeGscSitemapUrls(input.sitemapUrls)
+    : await resolveDiscoveredGscSitemapUrls(client, input.project, input.mode)
   if (sitemapUrls.length === 0) {
     throw new Error('No GSC sitemaps found. Submit an explicit sitemap URL first.')
   }
-
-  const aggregate: Awaited<ReturnType<ApiClient['gscSubmitSitemaps']>> = {
-    summary: { total: 0, accepted: 0, failed: 0 },
-    results: [],
-  }
-  for (let offset = 0; offset < sitemapUrls.length; offset += 50) {
-    const batchSitemapUrls = sitemapUrls.slice(offset, offset + 50)
-    try {
-      const result = await client.gscSubmitSitemaps(input.project, {
-        sitemapUrls: batchSitemapUrls,
-      })
-      aggregate.summary.total += result.summary.total
-      aggregate.summary.accepted += result.summary.accepted
-      aggregate.summary.failed += result.summary.failed
-      aggregate.results.push(...result.results)
-    } catch (cause) {
-      if (offset === 0) throw cause
-      const attempted = aggregate.summary.total + batchSitemapUrls.length
-      const remaining = sitemapUrls.length - attempted
-      throw new CliError({
-        code: 'GOOGLE_SITEMAP_SUBMISSION_PARTIAL',
-        message: `Sitemap submission stopped after ${aggregate.summary.total} completed results; ${batchSitemapUrls.length} are unconfirmed and ${remaining} were not attempted.`,
-        exitCode: cause instanceof CliError && cause.exitCode === 1 ? 1 : EXIT_SYSTEM_ERROR,
-        details: {
-          project: input.project,
-          accepted: aggregate.summary.accepted,
-          failed: aggregate.summary.failed,
-          completed: aggregate.summary.total,
-          attempted,
-          unconfirmed: batchSitemapUrls.length,
-          remaining,
-          unconfirmedBatch: { index: Math.floor(offset / 50) + 1, sitemapUrls: batchSitemapUrls },
-          partialResult: aggregate,
-          cause: cause instanceof CliError
-            ? { code: cause.code, message: cause.message, details: cause.details }
-            : { message: describeError(cause) },
-        },
-      })
-    }
-  }
-  return aggregate
+  return submitGscSitemapBatches(client, input.project, sitemapUrls)
 }
 
 // `window` is rolling from now and cannot name a calendar month, so every
@@ -586,6 +535,13 @@ const gaWindowInputSchema = z.object({
 
 const GA_RANGE_PARAMS = ['window', 'startDate', 'endDate'] as const
 
+// The overview compares GA4's own totals for a fixed window with the period
+// before it, so it takes only the window; there is no calendar range form.
+const gaOverviewInputSchema = z.object({
+  project: projectNameSchema,
+  window: z.enum(WINDOW_SETS.gaOverview).optional(),
+})
+
 const gaTrafficInputSchema = gaWindowInputSchema.extend({
   limit: z.number().int().positive().max(500).optional(),
 })
@@ -596,6 +552,13 @@ const gaMeasurementAnalysisInputSchema = z.object({
   hostScope: gaMeasurementHostScopeSchema.optional(),
   pathPrefix: z.string().min(1).optional(),
   limit: z.number().int().positive().max(100).optional(),
+})
+
+const gaSearchLandingPagesInputSchema = z.object({
+  project: projectNameSchema,
+  window: gaSearchLandingWindowSchema.optional(),
+  limit: z.number().int().positive().max(GA_SEARCH_LANDING_MAX_LIMIT).optional(),
+  offset: z.number().int().nonnegative().optional(),
 })
 
 const queriesInputSchema = z.object({
@@ -832,10 +795,32 @@ const competitorsInputSchema = z.object({
   project: projectNameSchema,
   request: competitorBatchRequestSchema,
 })
+const competitorsAddInputSchema = z.object({
+  project: projectNameSchema,
+  request: competitorAppendRequestSchema,
+})
+const competitorChangePreviewInputSchema = z.discriminatedUnion('change', [
+  competitorChangePreviewRequestSchema.options[0].extend({ project: projectNameSchema }),
+  competitorChangePreviewRequestSchema.options[1].extend({ project: projectNameSchema }),
+  competitorChangePreviewRequestSchema.options[2].extend({ project: projectNameSchema }),
+  competitorChangePreviewRequestSchema.options[3].extend({ project: projectNameSchema }),
+])
+const competitorDomainInputSchema = z.string().trim().min(1).describe('Tracked competitor domain (any spelling; it resolves to the stored registrable domain).')
+const competitorAliasesInputSchema = competitorAliasesRequestSchema.safeExtend({
+  project: projectNameSchema,
+  domain: competitorDomainInputSchema,
+})
+const competitorAliasBlockInputSchema = competitorAliasBlockRequestSchema.safeExtend({
+  project: projectNameSchema,
+  domain: competitorDomainInputSchema,
+})
 const latestSweepRunIdDescription = 'A run id, or latest for the latest sweep (the run the measurement reads display). With queryClass branded or non-brand and neither runId nor window, this tool reads latest; pass window to pool every sweep in it.'
 const competitorLandscapeInputSchema = competitorLandscapeQuerySchema.safeExtend({
   project: projectNameSchema,
   runId: z.string().trim().min(1).optional().describe(latestSweepRunIdDescription),
+}).strict()
+const competitorSuggestionsInputSchema = competitorSuggestionsQuerySchema.safeExtend({
+  project: projectNameSchema,
 }).strict()
 
 /**
@@ -853,6 +838,11 @@ function latestSweepUnlessPooled<T extends { runId?: string; window?: string; qu
 const projectUpsertInputSchema = z.object({
   project: projectNameSchema,
   request: projectUpsertRequestSchema,
+})
+
+const projectPatchInputSchema = z.object({
+  project: projectNameSchema,
+  request: projectPatchRequestSchema,
 })
 
 const applyConfigInputSchema = z.object({
@@ -886,6 +876,11 @@ const doctorInputSchema = z.object({
   checks: z.array(z.string().min(1)).optional().describe('Optional check IDs or wildcard prefixes (e.g. "google.auth.*", "config.providers"). Empty/omitted runs all matching checks for the chosen scope.'),
 })
 
+const statusInputSchema = z.object({
+  project: projectNameSchema.optional().describe('Optional project name. Omit to read every visible project.'),
+  problems: z.boolean().optional().describe('Return only failing, stale, or never-synced projects and integrations.'),
+})
+
 const contentTargetsInputSchema = z.object({
   project: projectNameSchema,
   limit: z.number().int().positive().max(500).optional().describe('Max rows. Defaults to all. Use a small number (3-10) when summarizing for the user.'),
@@ -897,7 +892,7 @@ const contentTargetsInputSchema = z.object({
 const contentBriefInputSchema = z.object({
   project: projectNameSchema,
   targetRef: z.string().min(1).describe('Stable target ref from canonry_content_targets. The target must be ownable; ceded targets are rejected.'),
-  provider: z.string().optional().describe('Optional provider override (claude|openai|gemini|zai|deepinfra).'),
+  provider: z.string().optional().describe('Optional provider override (claude|openai|gemini|zai).'),
   model: z.string().optional().describe('Optional model override within the chosen provider.'),
   forceRefresh: z.boolean().optional().describe('Force a fresh synthesis even if a cached brief exists.'),
 })
@@ -967,12 +962,18 @@ const trafficBackfillInputSchema = z.object({
     .describe('Lookback window in days. Default 30, capped by the adapter at 90d. Generic WordPress replace backfill is unavailable because retained coverage is unproven.'),
 })
 
+const trafficDeclareGapInputSchema = z.object({
+  project: projectNameSchema,
+  sourceId: z.string().min(1).describe('Traffic source ID returned by canonry_traffic_sources_list.'),
+  skippedThroughAt: z.string().min(1).describe('The source\'s current skippedThroughAt, exactly as canonry_traffic_sources_list returned it. A newer skip is refused, never cleared.'),
+})
+
 const trafficResetInputSchema = z.object({
   project: projectNameSchema,
   sourceId: z.string().min(1).describe('Traffic source ID returned by canonry_traffic_sources_list.'),
   advanceToNow: z
     .literal(true)
-    .describe('Must be `true`. Explicit gate against accidental resets. Advances lastSyncedAt to NOW and clears the source\'s error state; WordPress also clears its continuation state and records an unrecovered span that needs retention-aware repair.'),
+    .describe('Must be `true`. Explicit gate against accidental resets. Advances lastSyncedAt to NOW and clears the source\'s error state; WordPress also clears its continuation state and records an unrecovered span; once it cannot be recovered, record it with canonry_traffic_declare_gap.'),
 })
 
 const trafficEventsInputSchema = z.object({
@@ -1100,14 +1101,29 @@ const technicalAeoTrendInputSchema = z.object({
   limit: z.number().int().positive().max(365).optional(),
 })
 
+const crawlRunIdSchema = runIdSchema.optional().describe(
+  'Historical crawl-bearing site-audit run ID. Omit for the newest scan with a crawl, complete or stopped at its budget.',
+)
+
 const technicalAeoCrawlInputSchema = z.object({
   project: projectNameSchema,
-  runId: runIdSchema.optional().describe('Historical crawl-bearing site-audit run ID. Omit for the latest persisted crawl.'),
+  runId: crawlRunIdSchema,
+  date: calendarDateSchema.optional().describe('Exact UTC scan date YYYY-MM-DD, mutually exclusive with runId. A dated no-data result may include availableScanDates. When the user omitted the year, resolve it from matchingMonthDayDates and request that exact returned date before concluding the scan is missing. Never silently select another date.'),
+})
+
+const siteHealthIssuesInputSchema = siteAuditIssueListQuerySchema.extend({
+  project: projectNameSchema,
+  runId: siteAuditIssueListQuerySchema.shape.runId.describe('Select an exact saved scan. Omit for the default scan; use its returned runId for subsequent pages and issue details.'),
+  cursor: siteAuditIssueListQuerySchema.shape.cursor.describe('Opaque nextCursor from this same scan and issue feed.'),
+})
+
+const siteHealthIssuePagesInputSchema = siteHealthIssuesInputSchema.extend({
+  issueId: z.string().min(1).describe('Exact issue ID from canonry_site_health_issues. Keep the returned runId when inspecting affected pages.'),
 })
 
 const siteHealthPageAuditInputSchema = z.object({
   project: projectNameSchema,
-  runId: runIdSchema.optional().describe('Historical crawl-bearing site-audit run ID. Omit for the latest persisted crawl.'),
+  runId: crawlRunIdSchema,
   nodeKey: z.string().min(1).optional().describe('Exact crawl node key, as returned by Site Health page or subgraph reads.'),
   url: z.string().url().optional().describe('Exact page URL. Use this only when a crawl node key is unavailable.'),
 }).refine((value) => Boolean(value.nodeKey || value.url), {
@@ -1123,7 +1139,7 @@ const SITE_HEALTH_MCP_MAX_EDGES = 50
 
 const siteHealthSubgraphInputSchema = z.object({
   project: projectNameSchema,
-  runId: runIdSchema.optional().describe('Historical crawl-bearing site-audit run ID. Omit for the latest complete crawl.'),
+  runId: crawlRunIdSchema,
   nodeKey: z.string().min(1).optional().describe('Focus crawl node key. Omit with url to focus the crawl root.'),
   url: z.string().url().optional().describe('Focus canonical URL. Omit with nodeKey to focus the crawl root.'),
   hops: z.number().int().min(0).max(3).optional().describe('Neighborhood depth from the focus node. Keep this small.'),
@@ -1136,7 +1152,7 @@ const siteHealthSubgraphInputSchema = z.object({
 
 const siteHealthPathInputSchema = z.object({
   project: projectNameSchema,
-  runId: runIdSchema.optional().describe('Historical crawl-bearing site-audit run ID. Omit for the latest complete crawl.'),
+  runId: crawlRunIdSchema,
   fromNodeKey: z.string().min(1).optional().describe('Origin node key. Omit with fromUrl to start at the crawl root.'),
   fromUrl: z.string().url().optional().describe('Origin URL. Omit with fromNodeKey to start at the crawl root.'),
   toNodeKey: z.string().min(1).optional().describe('Required destination node key.'),
@@ -1166,10 +1182,12 @@ const siteHealthChangesInputSchema = z.object({
 const technicalAeoCrawlPagesInputSchema = z.object({
   project: projectNameSchema,
   runId: runIdSchema.optional(),
+  date: calendarDateSchema.optional().describe('Exact UTC scan date YYYY-MM-DD, mutually exclusive with runId. A dated no-data result may include availableScanDates. When the user omitted the year, resolve it from matchingMonthDayDates and request that exact returned date before concluding the scan is missing. Missing data never falls back to another date.'),
   inventoryEligible: z.boolean().optional().describe('Filter Canonry technical-inventory eligibility. This is not actual Google index coverage.'),
   fetchState: z.string().min(1).optional().describe('Filter crawler fetch state, for example html, redirect, non-html, or fetch-error.'),
   indexabilityState: z.string().min(1).optional().describe('Filter crawler-derived indexability state. This is not Google index coverage.'),
-  auditState: z.string().min(1).optional().describe('Filter audit state.'),
+  auditState: z.string().min(1).optional().describe('Filter audit state. url-version marks a URL version: fetched and classified, not scored.'),
+  urlVersions: z.enum(['include', 'exclude', 'only']).optional().describe('URL versions are parameter addresses whose canonical names the same path, so the site marks them as copies of that page; the audit does not score them or count them in fixes. include (default) keeps every address, exclude lists pages only (the dashboard view), only lists the URL versions with urlVersionOf. Once a few addresses with one parameter pattern prove to be copies, the crawl stops fetching that pattern; those have no rows and inventorySummary.urlVersionsNotFetched counts them.'),
   sort: z.enum(['url', 'path', 'score-asc', 'score-desc']).optional(),
   cursor: z.string().min(1).optional().describe('Opaque cursor from the previous crawl-pages result.'),
   limit: z.number().int().positive().max(200).optional(),
@@ -1221,10 +1239,12 @@ const technicalAeoRunInputSchema = z.object({
   project: projectNameSchema,
   sitemapUrl: z.string().url().optional().describe('Override the sitemap URL. Defaults to https://<canonicalDomain>/sitemap.xml.'),
   limit: z.number().int().positive().max(2000).optional().describe('Deprecated compatibility alias for maxPages.'),
-  maxPages: z.number().int().positive().max(50_000).optional().describe('Maximum pages crawled and audited. Defaults to 1,000; hard maximum 50,000.'),
+  maxPages: siteAuditPageBudgetSchema.optional().describe('Maximum pages crawled and audited (1 to 50,000). Omitted uses the project\'s saved budget (siteAuditMaxPages, set with canonry_project_upsert or canonry_apply_config), else the full site, up to 50,000; pass a smaller number for a quick look.'),
   maxEdges: z.number().int().positive().max(1_000_000).optional().describe('Maximum link observations retained for this crawl. When omitted the crawl engine derives the budget from the page count; hard maximum 1,000,000.'),
   maxDepth: z.number().int().min(0).max(100).optional().describe('Maximum internal-link depth from the root page.'),
   checkDeadLinks: z.boolean().optional().describe('Opt in to internal dead-link checks. Omitted and false both disable checks.'),
+  includeGeo: siteAuditRunRequestSchema.shape.includeGeo.removeDefault().optional().describe('Opt in to geographic signals for a location or service-area business.'),
+  includeAgentSkills: siteAuditRunRequestSchema.shape.includeAgentSkills.removeDefault().optional().describe('Check discoverable actions, forms, and agent integrations by default. Set false to disable.'),
 })
 
 const AGENT_WEBHOOK_EVENTS = [
@@ -1246,7 +1266,10 @@ const sentimentJobInputSchema = projectInputSchema.extend({
   attemptLimit: z.number().int().min(1).max(200).optional().describe(`Attempt receipts per page, newest first (default ${SENTIMENT_ATTEMPT_PAGE_DEFAULT}).`),
   attemptCursor: z.string().min(1).max(4096).optional().describe('nextAttemptCursor from the previous page of this job.'),
 })
-const sentimentEvidenceInputSchema = sentimentEvidenceRequestSchema.safeExtend({ project: projectNameSchema })
+const sentimentEvidenceInputSchema = sentimentEvidenceRequestSchema.safeExtend({
+  project: projectNameSchema,
+  outcome: sentimentEvidenceOutcomeFilterSchema.optional().describe('Keep only assessments with these outcomes, for example ["mixed","unfavorable"] for the criticism behind a branded score or the non-brand exceptions. Narrows the page; never changes how answers were scored. Keep it unchanged when following nextCursor.'),
+})
 const sentimentCompareInputSchema = sentimentCompareRequestSchema.safeExtend({ project: projectNameSchema })
 const sentimentConfigureInputSchema = sentimentSettingsUpdateSchema.extend({ project: projectNameSchema }).refine(
   input => input.enabled !== undefined,
@@ -1268,7 +1291,172 @@ const sentimentPreviewInputSchema = sentimentBackfillSelectionSchema.safeExtend(
 })
 const sentimentBackfillInputSchema = sentimentBackfillRequestSchema.extend({ project: projectNameSchema })
 
-export const canonryMcpTools = [
+const seoIdInputSchema = projectInputSchema.extend({ id: z.string().min(1) })
+const seoEvidenceInputSchema = seoEvidenceQuerySchema.extend({ project: projectNameSchema })
+const seoMarketRankingInputSchema = seoMarketRankingQuerySchema.extend({ project: projectNameSchema })
+const seoMarketRankingSummaryInputSchema = seoMarketRankingSummaryQuerySchema.extend({ project: projectNameSchema })
+
+const rawCanonryMcpTools = [
+  defineTool({
+    name: 'canonry_seo_operator_task', title: 'Inspect private SEO receipt',
+    description: 'Host operator only. Inspect the reserved cost and upstream receipt of an exact task. Customer admin scope does not authorize this tool.',
+    access: 'read', tier: 'seo', requiresOperator: true,
+    inputSchema: z.object({ id: z.string().min(1) }), outputSchema: seoOperatorTaskSchema, annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/seo/operator/tasks/{id}'],
+    handler: (client, input) => client.getSeoOperatorTask(input.id),
+  }),
+  defineTool({
+    name: 'canonry_seo_operator_reconcile', title: 'Reconcile private SEO receipt',
+    description: 'Host operator and seo.run only. Submit an independently verified upstream receipt to resolve an unknown outcome. Never guess a cost or assume a timeout was free. Does not retry the provider request.',
+    access: 'write', tier: 'seo', requiresOperator: true, requiredScope: SEO_RUN_SCOPE,
+    inputSchema: z.object({ id: z.string().min(1), receipt: seoReconcileInputSchema }), outputSchema: seoReconcileResultSchema, annotations: writeAnnotations({ idempotentHint: true }),
+    openApiOperations: ['POST /api/v1/seo/operator/tasks/{id}/reconcile'],
+    handler: (client, input) => client.reconcileSeoTask(input.id, input.receipt),
+  }),
+  defineTool({
+    name: 'canonry_seo_context', title: 'SEO context',
+    description: "Read stored SEO data only. No provider calls. Preserve profile, target, locale, source date, missing values and partial states. Third-party traffic estimates are not analytics or AI citation and mention coverage. Keep runId fixed while paging evidence.",
+    access: 'read', tier: 'seo',
+    inputSchema: projectInputSchema, outputSchema: seoContextSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/seo/context'],
+    handler: (client, input) => client.getSeoContext(input.project),
+  }),
+  defineTool({
+    name: 'canonry_seo_status', title: 'SEO status',
+    description: "Read stored SEO data only. No provider calls. Preserve profile, target, locale, source date, missing values and partial states. Third-party traffic estimates are not analytics or AI citation and mention coverage. Keep runId fixed while paging evidence.",
+    access: 'read', tier: 'seo',
+    inputSchema: projectInputSchema, outputSchema: seoStatusSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/seo/status'],
+    handler: (client, input) => client.getSeoStatus(input.project),
+  }),
+  defineTool({
+    name: 'canonry_seo_profiles', title: 'SEO profiles',
+    description: "Read stored SEO data only. No provider calls. Preserve profile, target, locale, source date, missing values and partial states. Third-party traffic estimates are not analytics or AI citation and mention coverage. Keep runId fixed while paging evidence.",
+    access: 'read', tier: 'seo',
+    inputSchema: projectInputSchema, outputSchema: seoProfileListSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/seo/profiles'],
+    handler: (client, input) => client.listSeoProfiles(input.project),
+  }),
+  defineTool({
+    name: 'canonry_seo_profile', title: 'SEO profile',
+    description: "Read stored SEO data only. No provider calls. Preserve profile, target, locale, source date, missing values and partial states. Third-party traffic estimates are not analytics or AI citation and mention coverage. Keep runId fixed while paging evidence.",
+    access: 'read', tier: 'seo',
+    inputSchema: seoIdInputSchema, outputSchema: seoProfileSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/seo/profiles/{id}'],
+    handler: (client, input) => client.getSeoProfile(input.project, input.id),
+  }),
+  defineTool({
+    name: 'canonry_seo_profile_set', title: 'SEO profile set',
+    description: "Create or replace a complete project-scoped SEO profile. Requires seo.write. Pins exact scope and Advanced plan revision, source, targets, locale, capabilities, keyword basket and row limit. Never starts provider work. Credentials and financial controls remain host configuration.",
+    access: 'write', tier: 'seo', requiredScope: SEO_WRITE_SCOPE,
+    inputSchema: projectInputSchema.extend({ id: z.string().min(1), profile: seoProfileInputSchema }), outputSchema: seoProfileSchema,
+    annotations: writeAnnotations({ idempotentHint: true }),
+    openApiOperations: ['PUT /api/v1/projects/{name}/seo/profiles/{id}'],
+    handler: (client, input) => client.putSeoProfile(input.project, input.id, input.profile),
+  }),
+  defineTool({
+    name: 'canonry_seo_refresh_intent', title: 'SEO refresh intent',
+    description: "Prepare an opaque, expiring intent for a saved profile without a provider call or reservation. Submit the token explicitly with canonry_seo_sync. No internal cost or policy data is returned.",
+    access: 'read', tier: 'seo',
+    inputSchema: seoRefreshIntentInputSchema.extend({ project: projectNameSchema }), outputSchema: seoQuoteSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['POST /api/v1/projects/{name}/seo/refresh-intents'],
+    handler: (client, input) => client.createSeoRefreshIntent(input.project, { profileId: input.profileId }),
+  }),
+  defineTool({
+    name: 'canonry_seo_sync', title: 'SEO sync',
+    description: "Explicitly start a saved SEO refresh. Requires seo.run. May call a paid provider under private host controls. Reuse quoteToken and idempotencyKey for an exact retry; changed input conflicts. Poll canonry_seo_run. Never call merely to answer a stored-evidence question.",
+    access: 'write', tier: 'seo', requiredScope: SEO_RUN_SCOPE,
+    inputSchema: seoSyncInputSchema.extend({ project: projectNameSchema }), outputSchema: seoRunSchema,
+    annotations: writeAnnotations({ idempotentHint: true, openWorldHint: true }),
+    openApiOperations: ['POST /api/v1/projects/{name}/seo/sync'],
+    handler: (client, input) => client.syncSeo(input.project, { quoteToken: input.quoteToken, idempotencyKey: input.idempotencyKey }),
+  }),
+  defineTool({
+    name: 'canonry_seo_runs', title: 'SEO runs',
+    description: "Read stored SEO data only. No provider calls. Preserve profile, target, locale, source date, missing values and partial states. Third-party traffic estimates are not analytics or AI citation and mention coverage. Keep runId fixed while paging evidence.",
+    access: 'read', tier: 'seo',
+    inputSchema: projectInputSchema.extend({ profileId: z.string().min(1).optional() }), outputSchema: seoRunListSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/seo/runs'],
+    handler: (client, input) => client.listSeoRuns(input.project, { profileId: input.profileId }),
+  }),
+  defineTool({
+    name: 'canonry_seo_run', title: 'SEO run',
+    description: "Read stored SEO data only. No provider calls. Preserve profile, target, locale, source date, missing values and partial states. Third-party traffic estimates are not analytics or AI citation and mention coverage. Keep runId fixed while paging evidence.",
+    access: 'read', tier: 'seo',
+    inputSchema: seoIdInputSchema, outputSchema: seoRunDetailSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/seo/runs/{id}'],
+    handler: (client, input) => client.getSeoRun(input.project, input.id),
+  }),
+  defineTool({
+    name: 'canonry_seo_run_cancel', title: 'SEO run cancel',
+    description: "Stop undispatched work for an exact SEO run. Requires seo.run. Already accepted requests can still finish; inspect the terminal outcome.",
+    access: 'write', tier: 'seo', requiredScope: SEO_RUN_SCOPE,
+    inputSchema: seoIdInputSchema, outputSchema: seoRunSchema,
+    annotations: writeAnnotations({ idempotentHint: true }),
+    openApiOperations: ['POST /api/v1/projects/{name}/seo/runs/{id}/cancel'],
+    handler: (client, input) => client.cancelSeoRun(input.project, input.id),
+  }),
+  defineTool({
+    name: 'canonry_seo_overview', title: 'SEO overview',
+    description: "Read stored SEO data only. No provider calls. Preserve profile, target, locale, source date, missing values and partial states. Third-party traffic estimates are not analytics or AI citation and mention coverage. Keep runId fixed while paging evidence.",
+    access: 'read', tier: 'seo',
+    inputSchema: seoEvidenceInputSchema, outputSchema: seoOverviewSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/seo/overview'],
+    handler: (client, input) => { const { project, ...query } = input; return client.getSeoOverview(project, query) },
+  }),
+  defineTool({
+    name: 'canonry_seo_keyword_metrics', title: 'SEO keyword metrics',
+    description: "Read stored SEO data only. No provider calls. Preserve profile, target, locale, source date, missing values and partial states. Third-party traffic estimates are not analytics or AI citation and mention coverage. Keep runId fixed while paging evidence.",
+    access: 'read', tier: 'seo',
+    inputSchema: seoEvidenceInputSchema, outputSchema: seoKeywordMetricsListSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/seo/keyword-metrics'],
+    handler: (client, input) => { const { project, ...query } = input; return client.getSeoKeywordMetrics(project, query) },
+  }),
+  defineTool({
+    name: 'canonry_seo_domain_intelligence', title: 'SEO domain intelligence',
+    description: "Read stored SEO data only. No provider calls. Preserve profile, target, locale, source date, missing values and partial states. Third-party traffic estimates are not analytics or AI citation and mention coverage. Keep runId fixed while paging evidence.",
+    access: 'read', tier: 'seo',
+    inputSchema: seoEvidenceInputSchema, outputSchema: seoDomainIntelligenceListSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/seo/domain-intelligence'],
+    handler: (client, input) => { const { project, ...query } = input; return client.getSeoDomainIntelligence(project, query) },
+  }),
+  defineTool({
+    name: 'canonry_seo_ranked_keywords', title: 'SEO ranked keywords',
+    description: "Read stored SEO data only. No provider calls. Preserve profile, target, locale, source date, missing values and partial states. Third-party traffic estimates are not analytics or AI citation and mention coverage. Keep runId fixed while paging evidence.",
+    access: 'read', tier: 'seo',
+    inputSchema: seoEvidenceInputSchema, outputSchema: seoRankedKeywordListSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/seo/ranked-keywords'],
+    handler: (client, input) => { const { project, ...query } = input; return client.getSeoRankedKeywords(project, query) },
+  }),
+  defineTool({
+    name: 'canonry_seo_market_rankings', title: 'SEO market rankings',
+    description: "Read stored SEO data only. No provider calls. The site's Google position for each tracked non-brand query in each market, searched from that market's location; these are the same tracked queries AI visibility measures, and searchText is the exact text searched. searchStatus says how each search ended: a null rank in a completed or partial row means not in the checked results (depth, lower when only part of the results came back); a failed or cancelled row has no rank because the search returned nothing. outcome says where each row landed (page-1, ranks-11-20, ranks-21-plus, not-ranked, partly-checked for a partial search without the site, failed, cancelled) and rivalAhead whether a tracked competitor ranks above the site. Filter with marketKey, regionKey, outcome (needs-work = off page 1 with a result) and q; sort=rank puts the closest to page 1 first. Keep runId fixed while paging.",
+    access: 'read', tier: 'seo',
+    inputSchema: seoMarketRankingInputSchema, outputSchema: seoMarketRankingListSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/seo/market-rankings'],
+    handler: (client, input) => { const { project, ...query } = input; return client.getSeoMarketRankings(project, query) },
+  }),
+  defineTool({
+    name: 'canonry_seo_market_summary', title: 'SEO market rankings by outcome',
+    description: "Read stored SEO data only. No provider calls. Market-rankings rows counted by outcome (page 1, ranks 11-20, 21 and deeper, not ranked, partly checked, failed, cancelled, needs work, rival ahead) for the whole profile with one group per region, for one region (regionKey) with one group per market, or for one market (marketKey). Groups come in needs-work order. Start here to see what needs work, then read the rows with canonry_seo_market_rankings.",
+    access: 'read', tier: 'seo',
+    inputSchema: seoMarketRankingSummaryInputSchema, outputSchema: seoMarketRankingSummarySchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/seo/market-rankings/summary'],
+    handler: (client, input) => { const { project, ...query } = input; return client.getSeoMarketRankingSummary(project, query) },
+  }),
   defineTool({
     name: 'canonry_sentiment_settings', title: 'Read sentiment readiness and settings',
     description: 'Read experimental sentiment configuration, evaluator identity, readiness and action permissions. No provider calls or credentials. Install administrators alone can configure or submit backfills.',
@@ -1278,28 +1466,28 @@ export const canonryMcpTools = [
   }),
   defineTool({
     name: 'canonry_sentiment_configure', title: 'Configure project sentiment',
-    description: 'Install administrator only: explicitly enable or disable stance-and-evidence sentiment. Both install and project switches default off. Enabling processes future eligible complete runs; historical answers require explicit backfill. On dispatch TypeSafe receives the text of each answer with the frozen subject identity (name, aliases and URLs), the tracked query text and class, the answer engine with its requested and served models, the location, and internal query, subject, Property, group and market identifiers. API keys remain local install configuration and are never accepted here.',
+    description: 'Install administrator only: explicitly enable or disable stance-and-evidence sentiment. Both install and project switches default off. Enabling processes future eligible complete runs; historical answers require explicit backfill. On dispatch TypeSafe receives the text of each answer with the frozen subject identity (name, aliases, qualified aliases and URLs), the tracked query text and class, the answer engine with its requested and served models, the location, and internal query, subject, Property, group and market identifiers. API keys remain local install configuration and are never accepted here.',
     access: 'write', tier: 'monitoring', inputSchema: sentimentConfigureInputSchema, outputSchema: sentimentSettingsReadSchema, annotations: writeAnnotations({ idempotentHint: true }),
     openApiOperations: ['PUT /api/v1/projects/{name}/sentiment/settings'],
     handler: (client, input) => { const { project, ...request } = input; return client.configureSentiment(project, request) },
   }),
   defineTool({
     name: 'canonry_sentiment', title: 'Read sentiment and per-query scores',
-    description: 'Read stored model-classified language about frozen Simple identities or Advanced Properties. Returns headline and per-query favorable/mixed/unfavorable rates, judged and selected counts, distinct answers, exclusions, intervals and method limitations. Favorable % is favorable / (favorable + mixed + unfavorable); factual and unjudged answers do not enter that denominator. Select branded or non-brand explicitly and keep their metrics separate; the default is branded. Optional queryId selects one frozen query. Query rows are compact and paged: queryLimit (default 25) rows per page, then pass queryPage.nextCursor as queryCursor. Per-engine assessment verdicts and per-location scores are opt-in with include=["assessments","locations"], or come by default when queryId names one query. Advanced rows are per executionNodeKey; pass it to narrow evidence to that node. Optional runIds selects the exact grouped location runs instead of runId. A known subject absent from a non-brand answer is not unfavorable. Partial values are provisional. Never starts a classifier. Preserve the resolved evaluationDefinitionId and complete selection for later evidence reads.',
+    description: 'Read stored model-classified language about frozen Simple identities or Advanced Properties. Returns headline and per-query favorable/mixed/unfavorable rates, judged and selected assessment counts, rated and eligible answers with their share (ratedAnswerRate: answers with a favorable, mixed or unfavorable rating over every eligible answer, admitted or not; each answer counts once), exclusions, intervals and method limitations. Favorable % is favorable / (favorable + mixed + unfavorable); factual and unjudged answers do not enter that denominator. Select branded or non-brand explicitly and keep their metrics separate; the default is branded. Optional queryId selects one frozen query. Query rows are compact and paged: queryLimit (default 25) rows per page, then pass queryPage.nextCursor as queryCursor. Per-engine assessment verdicts and per-location scores are opt-in with include=["assessments","locations"], or come by default when queryId names one query. Advanced rows are per executionNodeKey; pass it to narrow evidence to that node. Optional runIds selects the exact grouped location runs instead of runId. coverage.subjectNotMentioned counts distinct answers where every assessed subject is absent; this is expected for non-brand queries and is not missing data. A known subject absent from a non-brand answer is not unfavorable. Branded reads carry criticizedProperties: total Properties with a mixed or unfavorable rating, and keys, the first five property breakdown keys, most criticized first ({total: 0, keys: []} with fewer than two Properties in view; absent for non-brand, disabled or unavailable reads); read their answers on canonry_sentiment_evidence with scope property, that scopeKey and outcome ["mixed","unfavorable"]. Partial values are provisional. Never starts a classifier. Preserve the resolved evaluationDefinitionId and complete selection for later evidence reads.',
     access: 'read', tier: 'monitoring', inputSchema: sentimentInputSchema, outputSchema: sentimentSummaryReadSchema, annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/sentiment'],
     handler: (client, input) => { const { project, ...query } = input; return client.getSentiment(project, query) },
   }),
   defineTool({
     name: 'canonry_sentiment_evidence', title: 'Read sentiment evidence',
-    description: 'Page stored answer-subject assessments and exact source quotations. Returns frozen identity/context, source hash, evaluator and engine provenance, exclusions, and optional complaint. Optional assessmentId selects the exact stored answer-subject verdict from query assessments without widening its scope. Keep assessmentId, queryClass, optional frozen queryId, exact runId or runIds, every other selection field and resolved evaluationDefinitionId unchanged when following nextCursor. Advanced market refinement uses exact frozen usage edges. No provider calls.',
+    description: 'Page stored answer-subject assessments and exact source quotations. Returns frozen identity/context, source hash, evaluator and engine provenance, exclusions, and optional complaint. Optional assessmentId selects the exact stored answer-subject verdict from query assessments without widening its scope. Optional outcome keeps only the listed outcomes; the page echoes it as selection.outcome. Keep assessmentId, outcome, queryClass, optional frozen queryId, exact runId or runIds, every other selection field and resolved evaluationDefinitionId unchanged when following nextCursor. Advanced market refinement uses exact frozen usage edges. No provider calls.',
     access: 'read', tier: 'monitoring', inputSchema: sentimentEvidenceInputSchema, outputSchema: sentimentEvidencePageReadSchema, annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/sentiment/evidence'],
     handler: (client, input) => { const { project, ...query } = input; return client.getSentimentEvidence(project, query) },
   }),
   defineTool({
     name: 'canonry_sentiment_compare', title: 'Compare matched sentiment periods',
-    description: 'Compare stored periods under compatible frozen scope, answer-engine identity and evaluator, with complete classification coverage. Returns matched/excluded units, each denominator, all refusal reasons, a nullable direction, and both period summaries with compact query rows (per-engine detail is on canonry_sentiment). Overlapping Wilson intervals mean no clear change detected; they do not establish equivalence. No provider calls.',
+    description: 'fromRunId accepts previous-rated to select the preceding rated run in the same scope within 50 rated candidates; identical run IDs are refused. Population changes, incomplete targets and search-limit refusals are distinct; search-limit asks for an explicit older run. Compare stored periods under compatible frozen scope, answer-engine identity and evaluator, with complete classification coverage. Returns matched/excluded units, each denominator, all refusal reasons, a nullable direction, and both period summaries with compact query rows (per-engine detail is on canonry_sentiment). Overlapping Wilson intervals mean no clear change detected; they do not establish equivalence. No provider calls.',
     access: 'read', tier: 'monitoring', inputSchema: sentimentCompareInputSchema, outputSchema: sentimentComparisonReadSchema, annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/sentiment/compare'],
     handler: (client, input) => { const { project, ...query } = input; return client.compareSentiment(project, query) },
@@ -1390,6 +1578,19 @@ export const canonryMcpTools = [
     handler: (client, input) => client.commitQueryTracking(input.project, input.request),
   }),
   defineTool({
+    name: 'canonry_mcp_profile',
+    requiresConnectionProfile: true,
+    title: 'Read the connected Canonry identity',
+    description: 'Read the signed-in user identity, effective read scope and instance audience. Requires a named user connection; an unbound API key has no user profile.',
+    access: 'read',
+    tier: 'core',
+    inputSchema: emptyInputSchema,
+    outputSchema: mcpProfileDtoSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/mcp/profile'],
+    handler: (client) => client.getMcpProfile(),
+  }),
+  defineTool({
     name: 'canonry_projects_list',
     title: 'List Canonry projects',
     description: 'List all Canonry projects available through the configured API.',
@@ -1425,7 +1626,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_project_overview',
     title: 'Get project overview (composite)',
-    description: 'One-call summary for "how is project X doing?". Returns independent mention and citation coverage, separate query-level movement for each signal, query-basket comparability with added/removed counts, latest run and health, insights, provider/model breakdowns, competitors, attention items, and recent history. Movement excludes queries not shared by both sweeps. Filterable by location and time window. Prefer this over fanning out to separate read tools for the same question. queryClassScope says which figures pool branded and non-brand: the coverage, scores (except scores.mentionShare) and movement count queries across both classes, so never report them as one class or as answers. The latest run\'s status and health are not a completeness check: for expected, executed and missing answers read canonry_measurement_data_quality or, for a plan run, canonry_run_completeness. canonry_doctor checks configuration and integrations, not sweeps. SCOPE LIMIT: this returns nothing about Advanced Measurement: no plan, Targets, Properties, groups, or segments. Its silence is not evidence that a project lacks them. When the system prompt has no Project shape line, call canonry_measurement_plan_get before stating that a project has no Properties, no Advanced plan, or cannot break out per-Property performance; use canonry_measurement_portfolio_summary to rank Properties.',
+    description: 'Sentiment headline is sentiment.branded; nonBrand is a separate exception population. pooledOverall and deprecated overall are explicitly pooled compatibility figures and must never be reported as a class-specific headline. One-call summary for "how is project X doing?". Returns independent mention and citation coverage, separate query-level movement for each signal, query-basket comparability with added/removed counts, latest run and health, insights, provider/model breakdowns, competitors, attention items, and recent history. Movement excludes queries not shared by both sweeps. Filterable by location and time window. Prefer this over fanning out to separate read tools for the same question. queryClassScope says which figures pool branded and non-brand: the coverage, scores (except scores.mentionShare) and movement count queries across both classes, so never report them as one class or as answers. latestRun.admission describes the scheduled sweep; latestRun.manualAdmission describes a default full manual sweep. Each says whether its provider scope would be refused or skip providers that keep failing on their accounts. They can differ when the schedule names fewer providers; use manualAdmission before a default manual sweep. The latest run\'s status and health are not a completeness check: for expected, executed and missing answers read canonry_measurement_data_quality or, for a plan run, canonry_run_completeness. canonry_doctor checks configuration and integrations, not sweeps. SCOPE LIMIT: this returns nothing about Advanced Measurement: no plan, Targets, Properties, groups, or segments. Its silence is not evidence that a project lacks them. When the system prompt has no Project shape line, call canonry_measurement_plan_get before stating that a project has no Properties, no Advanced plan, or cannot break out per-Property performance; use canonry_measurement_portfolio_summary to rank Properties.',
     access: 'read',
     tier: 'core',
     inputSchema: z.object({
@@ -1439,21 +1640,6 @@ export const canonryMcpTools = [
       location: input.location,
       since: input.since,
     }),
-  }),
-  defineTool({
-    name: 'canonry_report',
-    title: 'Get aggregated AEO report',
-    description:
-      'Returns the full canonical AEO report bundle for a project — executive summary, client summary, agency diagnostics, action plan, per-query × per-provider citation matrix, competitor landscape, AI citation sources, GSC/GA4 performance, social and AI referrals, indexing health, citations trend, prioritized insights, and recommended next steps. Same payload `canonry report <project>` consumes to render audience-specific HTML. Pass `period` (7/14/30/90 days, default 30) to scope the GSC/GA4/server-activity sections and the period-over-period comparisons.',
-    access: 'read',
-    tier: 'monitoring',
-    inputSchema: z.object({
-      project: projectNameSchema,
-      period: reportPeriodSchema.optional(),
-    }),
-    annotations: readAnnotations(),
-    openApiOperations: ['GET /api/v1/projects/{name}/report'],
-    handler: (client, input) => client.getReport(input.project, input.period !== undefined ? { period: input.period } : undefined),
   }),
   defineTool({
     name: 'canonry_organic_evidence',
@@ -1474,22 +1660,23 @@ export const canonryMcpTools = [
     name: 'canonry_analytics_metrics',
     title: 'Get citation & mention trend',
     description:
-      'Citation and mention rates over time for a project, bucketed adaptively (daily → monthly by span) and probe-excluded. Returns overall + per-provider window aggregates AND a per-bucket `byProvider` breakdown so you can read how each engine\'s cited/mentioned rate moved run-over-run — the same data the dashboard\'s "Citations & mentions over time" chart plots. Includes trend direction (improving/declining/stable) for both signals and query-set-change annotations. Filter the range with `window` (7d/30d/90d/all).',
+      'Citation and mention rates over time for a project, bucketed adaptively (daily → monthly by span) and probe-excluded. Returns overall + per-provider window aggregates AND a per-bucket `byProvider` breakdown so you can read how each engine\'s cited/mentioned rate moved run-over-run — the same data the dashboard\'s "Citations & mentions over time" chart plots. Includes trend direction (improving/declining/stable) for both signals and query-set-change annotations. Filter the range with `window` (7d/30d/90d/all). Without `queryClass` every rate pools branded and non-brand answers, where branded queries inflate your own mentions; set `queryClass` non-brand for the competitive read and branded for brand recall, as two calls.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: z.object({
       project: projectNameSchema,
       window: analyticsWindowSchema.optional().describe('Time range: 7d, 30d, 90d, or all (default all).'),
+      queryClass: z.enum(['all', 'branded', 'non-brand']).optional().describe('Branded or non-brand answers only, classified from the query text by the project\'s brand names; all (the default) pools both. Mention share is always non-brand.'),
     }),
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/analytics/metrics'],
-    handler: (client, input) => client.getAnalyticsMetrics(input.project, input.window),
+    handler: (client, input) => client.getAnalyticsMetrics(input.project, input.window, input.queryClass),
   }),
   defineTool({
     name: 'canonry_analytics_sources',
     title: 'Get cited-source rankings',
     description:
-      'Where AI engines cite from for a project: cited domains ranked by how many answers cite them, each tagged with a category and a surface class (own / direct-competitor / ota-aggregator / editorial-media / other), plus a surface-class roll-up and a per-provider breakdown. Project-wide: without `queryClass` it pools branded and non-brand answers, where branded queries inflate your own domain. With `queryClass` set and neither `runId` nor `window`, this tool reads the latest sweep (`runId` latest); pass `window` to pool every sweep in it. `pooledAcrossRuns` true (`runCount` above 1) means the counts sum several runs and `runIds` is their scope; the legacy `runId` field is then only the newest run in the window. On a v2 measurement plan the class comes from the plan, the same answers as canonry_competitor_landscape with scope=all-markets. `countUnits` says what each count counts: `domainTotal` is distinct domains, never answers or citations. Compare engines by answer count or `answerShare`, never by rank position. Counts come from each answer\'s stored source list, so every engine is included, Gemini too. A domain counts at most once per answer; `answerShare` is the share of all answers in scope that cite it. `providersWithoutSources` names engines that answered but cited nothing. `limit` caps each ranked list (default 10 for this tool, which keeps each engine list whole); a long-tail rollup keeps the totals. The per-query breakdown is omitted unless `includeByQuery` is true. No LLM calls; probe runs excluded.',
+      'Where AI engines cite from for a project: cited domains ranked by how many answers cite them, each tagged with a category and a surface class (own / direct-competitor / ota-aggregator / editorial-media / other), plus a surface-class roll-up and a per-provider breakdown. Every entry carries rank, its position by count in that list over the whole scope (equal counts share a rank); state where a domain places only from its rank, never by counting rows. Project-wide: without `queryClass` it pools branded and non-brand answers, where branded queries inflate your own domain. With `queryClass` set and neither `runId` nor `window`, this tool reads the latest sweep (`runId` latest); pass `window` to pool every sweep in it. `pooledAcrossRuns` true (`runCount` above 1) means the counts sum several runs and `runIds` is their scope; the legacy `runId` field is then only the newest run in the window. On a v2 measurement plan the class comes from the plan, the same answers as canonry_competitor_landscape with scope=all-markets. `countUnits` says what each count counts: `domainTotal` is distinct domains, never answers or citations. Compare engines by answer count or `answerShare`, never by rank position. Counts come from each answer\'s stored source list, so every engine is included, Gemini too. A domain counts at most once per answer; `answerShare` is the share of all answers in scope that cite it. `providersWithoutSources` names engines that answered but cited nothing. `limit` caps each ranked list (default 10 for this tool, which keeps each engine list whole); a long-tail rollup keeps the totals. The per-query breakdown is omitted unless `includeByQuery` is true. No LLM calls; probe runs excluded.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: z.object({
@@ -1515,7 +1702,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_competitor_landscape',
     title: 'Get historical competitor landscape',
-    description: 'Returns pinned competitors first, then observed direct competitors and other cited sources from stored answer/source evidence only. Mention share is percentage points (0..100) from answer text; citations are independent. The response carries basis (tracked or observed), availability, and reason. Pins exclusively define the comparison set when present. Otherwise at least 3 stored direct competitors must each be mentioned in 3 answers in the selected scope; raw names and platforms never enter that denominator. Without a comparison set the ratio is null, never 100%. The full comparison array is uncapped. Share of voice needs ONE query class: `queryClass=all`, and omitting it, pool branded and non-brand, so every `shareOfVoice` comes back null and only the counts are published. Pass `queryClass=non-brand` (or `branded`) for a ratio, exactly as visibility-stats does. A project with no brand name or alias cannot be split by class, so a class-scoped read on one is refused rather than answered empty. Optional groupBy: model adds provider/requested-model groups with separate served-model evidence and sample counts. Optional model filters one exact requested model ID and requires provider. Unknown historical models remain explicit. Groups are not a matched-query or equal-weight comparison. Advanced reads support one market group or explicit scope: all-markets. On a project with an active v2 measurement plan, queryClass=branded or non-brand with no scope or groupKey defaults to scope=all-markets, so classes come from the plan; pass scope=project to force the text classifier. No provider, discovery, or classifier work runs. Ranked lists are capped at 100 observed/other-source rows per group; pins remain complete. `observedNames` are names written in answer text, not cited sources, capped at the top 50 by answer count; `observedNamesTotal` counts distinct names, never answers (`countUnits` says what each count counts). Model groups are capped at 50 and disclose truncation. For which names answers give instead across a portfolio, read this with queryClass and runId latest: per-Property named-instead lists are samples of weak Properties. With queryClass branded or non-brand and neither runId nor window, this tool reads the latest sweep; pass window to pool sweeps. `runCount` and `runIds` name the runs counted; above 1 the counts pool several runs.',
+    description: 'answers=not-mentioned selects only answers where none of their targeted subjects was named, with answerSelection reporting population and selected counts. Returns pinned competitors first, then observed direct competitors and other cited sources from stored answer/source evidence only. Mention share is percentage points (0..100) from answer text; citations are independent. The response carries basis (tracked or observed), availability, and reason. Pins exclusively define the comparison set when present. Otherwise at least 3 stored direct competitors must each be mentioned in 3 answers in the selected scope; raw names and platforms never enter that denominator. Without a comparison set the ratio is null, never 100%. The full comparison array is uncapped. Share of voice needs ONE query class: `queryClass=all`, and omitting it, pool branded and non-brand, so every `shareOfVoice` comes back null and only the counts are published. Pass `queryClass=non-brand` (or `branded`) for a ratio, exactly as visibility-stats does. A project with no brand name or alias cannot be split by class, so a class-scoped read on one is refused rather than answered empty. Optional groupBy: model adds provider/requested-model groups with separate served-model evidence and sample counts. Optional model filters one exact requested model ID and requires provider. Unknown historical models remain explicit. Groups are not a matched-query or equal-weight comparison. Advanced reads support one market group or explicit scope: all-markets. On a project with an active v2 measurement plan, queryClass=branded or non-brand with no scope or groupKey defaults to scope=all-markets, so classes come from the plan; pass scope=project to force the text classifier. No provider, discovery, or classifier work runs. Ranked lists are capped at 100 observed/other-source rows per group; pins remain complete. `observedNames` are names written in answer text, not cited sources, capped at the top 50 by answer count; `observedNamesTotal` counts distinct names, never answers (`countUnits` says what each count counts). Model groups are capped at 50 and disclose truncation. For which names answers give instead across a portfolio, read this with queryClass and runId latest: per-Property named-instead lists are samples of weak Properties. With queryClass branded or non-brand and neither runId nor window, this tool reads the latest sweep; pass window to pool sweeps. answers=not-mentioned publishes names and mention/citation counts only; all competitive shares are null with reason answer-selection because the population is selected by the measured mention outcome. `runCount` and `runIds` name the runs counted; above 1 the counts pool several runs.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: competitorLandscapeInputSchema,
@@ -1524,6 +1711,34 @@ export const canonryMcpTools = [
     handler: (client, input) => {
       const { project, ...query } = input
       return client.getCompetitorLandscape(project, latestSweepUnlessPooled(query))
+    },
+  }),
+  defineTool({
+    name: 'canonry_competitors_suggest',
+    title: 'Suggest competitors from stored evidence',
+    description: 'Read stored completed and partial answer evidence and rank possible direct competitors. Candidate naming and citation counts are separate, cited-only domains are excluded, listing and marketplace surfaces are excluded, and the response discloses the answer and sweep denominator. No provider, discovery, classifier, or write operation runs. A Simple project without a usable brand alias pools all query classes and echoes queryClass=all. Use the returned evidence and sample URLs to review a candidate before tracking it.',
+    access: 'read',
+    tier: 'setup',
+    inputSchema: competitorSuggestionsInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/competitor-suggestions'],
+    handler: (client, input) => {
+      const { project, ...query } = input
+      return client.suggestCompetitors(project, query)
+    },
+  }),
+  defineTool({
+    name: 'canonry_competitors_change_preview',
+    title: 'Preview competitor change impact',
+    description: 'Preview the stored-evidence share impact of one explicit competitor add, remove, replace, or curated alias change. It reads the latest completed or partial sweep and never writes competitors, aliases, history, or provider state. Use this before a separate write when an operator wants the before and after denominator and percentage-point delta. Ordinary competitor writes do not call this implicitly.',
+    access: 'read',
+    tier: 'setup',
+    inputSchema: competitorChangePreviewInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['POST /api/v1/projects/{name}/competitor-changes/preview'],
+    handler: (client, input) => {
+      const { project, ...request } = input
+      return client.previewCompetitorChange(project, request)
     },
   }),
   defineTool({
@@ -1554,9 +1769,21 @@ export const canonryMcpTools = [
     handler: (client, input) => client.runDoctor({ project: input.project, checkIds: input.checks, ...(input.reportMonth ? { reportMonth: input.reportMonth } : {}) }),
   }),
   defineTool({
+    name: 'canonry_status',
+    title: 'Read integration status',
+    description: 'Read stored synchronization status for one project or the instance. This is a read-only local database read and never calls providers or runs doctor checks.',
+    access: 'read',
+    tier: 'core',
+    inputSchema: statusInputSchema,
+    outputSchema: instanceStatusDtoSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/status'],
+    handler: (client, input) => client.getStatus({ project: input.project, problems: input.problems }),
+  }),
+  defineTool({
     name: 'canonry_project_export',
     title: 'Export project config',
-    description: 'Export a Canonry project in config-as-code format.',
+    description: 'Export a Canonry project in config-as-code format. Notification webhook URLs are always redacted for MCP.',
     access: 'read',
     tier: 'setup',
     inputSchema: projectInputSchema,
@@ -1588,6 +1815,10 @@ export const canonryMcpTools = [
       limit: input.limit,
       offset: input.offset,
       since: input.since,
+      until: input.until,
+      actionPrefix: input.actionPrefix,
+      excludeEntityTypes: input.excludeEntityTypes,
+      entityId: input.entityId,
       action: input.action,
       actor: input.actor,
       entityType: input.entityType,
@@ -1607,18 +1838,18 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_runs_list',
     title: 'List project runs',
-    description: "List runs for a Canonry project. Includes both real runs (trigger='manual'/'scheduled'/'config-apply'/'backfill') AND probe runs (trigger='probe'). Probe runs are operator/agent test runs that don't influence dashboard, analytics, intelligence, or notifications — filter by `trigger !== 'probe'` if you only want runs that feed project metrics. Narrow with `kind` and/or `status` (e.g. status='running' lists only in-flight work).",
+    description: "List runs for a Canonry project. Includes both real runs (trigger='manual'/'scheduled'/'config-apply'/'backfill') AND probe runs (trigger='probe'). Probe runs are operator/agent test runs that don't influence dashboard, analytics, intelligence, or notifications; filter by `trigger !== 'probe'` if you only want runs that feed project metrics. Narrow with `kind` and/or `status` (e.g. status='running' lists only in-flight work). Use `excludeKind` or `excludeKinds` to remove kinds before applying the limit. `since` bounds creation time; omitting limit returns every matching run.",
     access: 'read',
     tier: 'monitoring',
     inputSchema: runsListInputSchema,
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/runs'],
-    handler: (client, input) => client.listRuns(input.project, input.limit, input.kind, input.status),
+    handler: (client, input) => client.listRuns(input.project, input.limit, input.kind, input.status, input.excludeKind, input.excludeKinds, input.since),
   }),
   defineTool({
     name: 'canonry_runs_latest',
     title: 'Get latest project run',
-    description: 'Get the latest run and total run count for a Canonry project.',
+    description: 'Get the latest run and total run count for a Canonry project, plus scheduled admission and default full-sweep manualAdmission: whether each would be refused (PROVIDERS_FAILING) and which providers it would skip because each keeps failing on its account, with each code and retryAfter. They can differ when the schedule names fewer providers. Read manualAdmission before a default manual sweep; admission describes the schedule. A refused scheduled sweep leaves no run, so read admission to tell whether scheduled sweeps are running.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: projectInputSchema,
@@ -1629,7 +1860,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_run_get',
     title: 'Get run',
-    description: 'Get a Canonry run with its snapshots.',
+    description: 'Get a Canonry run with its snapshots. skippedProviders records the providers this run did not call because they kept failing on their accounts; error.providers marks their entries skipped. This is a stored run, not the next sweep\'s admission: read canonry_runs_latest for scheduled admission and default full-sweep manualAdmission, which can differ when a schedule names fewer providers.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: runGetInputSchema,
@@ -1702,13 +1933,13 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_insights_list',
     title: 'List insights',
-    description: 'List intelligence insights for a Canonry project.',
+    description: 'List a Canonry project\'s insights, newest analysis first. Within one analysis, insights that need action come before wins to monitor, then the most severe first, so the first rows are the ones to act on.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: insightsListInputSchema,
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/insights'],
-    handler: (client, input) => client.getInsights(input.project, { dismissed: input.dismissed, runId: input.runId }),
+    handler: (client, input) => client.getInsights(input.project, { dismissed: input.dismissed, runId: input.runId, type: input.type, severity: input.severity, limit: input.limit }),
   }),
   defineTool({
     name: 'canonry_insight_get',
@@ -1818,6 +2049,44 @@ export const canonryMcpTools = [
     }),
   }),
   defineTool({
+    name: 'canonry_content_dismissals',
+    title: 'List addressed content targets',
+    description: 'Read persisted content-target dismissals, including targets hidden from content targets. Use the returned targetRef with canonry_content_restore to reverse a dismissal. Stored evidence only; no provider calls.',
+    access: 'read',
+    tier: 'monitoring',
+    inputSchema: projectInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/content/dismissals'],
+    handler: (client, input) => client.getContentDismissals(input.project),
+  }),
+  defineTool({
+    name: 'canonry_content_dismiss',
+    title: 'Mark content target addressed',
+    description: 'Persist an addressed content target by its targetRef. Optional addressedUrl and note record the resolution. Hides the target from future content-target reads until restored; repeat writes update the same dismissal. No provider calls.',
+    access: 'write',
+    tier: 'monitoring',
+    inputSchema: contentTargetDismissRequestSchema.extend({ project: projectNameSchema }),
+    annotations: writeAnnotations({ idempotentHint: true }),
+    openApiOperations: ['POST /api/v1/projects/{name}/content/dismissals'],
+    handler: (client, input) => client.dismissContentTarget(input.project, {
+      targetRef: input.targetRef, addressedUrl: input.addressedUrl, note: input.note,
+    }),
+  }),
+  defineTool({
+    name: 'canonry_content_restore',
+    title: 'Restore an addressed content target',
+    description: 'Remove a persisted dismissal by targetRef so the content target can appear again when still eligible. Read canonry_content_dismissals to find the ref. A missing dismissal returns NOT_FOUND. No provider calls.',
+    access: 'write',
+    tier: 'monitoring',
+    inputSchema: z.object({ project: projectNameSchema, targetRef: contentTargetDismissRequestSchema.shape.targetRef }),
+    annotations: writeAnnotations({ idempotentHint: false }),
+    openApiOperations: ['DELETE /api/v1/projects/{name}/content/dismissals/{targetRef}'],
+    handler: async (client, input) => {
+      await client.restoreContentTarget(input.project, input.targetRef)
+      return { targetRef: input.targetRef, restored: true }
+    },
+  }),
+  defineTool({
     name: 'canonry_content_brief',
     title: 'Synthesize content brief',
     description: 'Synthesize (or fetch cached) a STRUCTURED content brief for an ownable target: `{targetQuery, winnabilityClass, angle, whyWinnable, schemaHookup, controllableSurfaceRationale}`. Gated to ownable targets — a ceded head term is rejected. Costs one analyze-tier LLM call on a cache miss; repeat calls are free. Pass a targetRef from canonry_content_targets.',
@@ -1868,7 +2137,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_queries_list',
     title: 'List queries',
-    description: 'List tracked queries for a Canonry project.',
+    description: 'List tracked queries for a Canonry project. Each row carries queryClass as the server classes it: branded, non-brand, or null when no single class exists (no usable brand name, or the active measurement plan holds no single class for the query). A row with no queryClass comes from a server older than the field: the class is unknown, not null. Never infer a class from the query text.',
     access: 'read',
     tier: 'setup',
     inputSchema: projectInputSchema,
@@ -1890,7 +2159,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_competitors_list',
     title: 'List competitors',
-    description: 'List tracked competitors for a Canonry project.',
+    description: 'List tracked competitors for a Canonry project, each with its operator-curated `aliases` (the names it goes by in answer text; `[]` means the domain label alone identifies it), its `autoAliases` (names detected automatically from the project\'s stored answers, each with its evidence) and its `blockedAliases` (names the operator blocked from auto-detection).',
     access: 'read',
     tier: 'setup',
     inputSchema: projectInputSchema,
@@ -2038,6 +2307,19 @@ export const canonryMcpTools = [
     handler: async (client, { provider, ...request }) => client.updateProvider(provider, request),
   }),
   defineTool({
+    name: 'canonry_providers_reload',
+    title: 'Reload saved provider configuration',
+    description: 'With explicit operator approval, reload the connected server\'s saved provider credentials, models, quotas and batch settings without restarting it. Requires install administrator authority and settings.write. Accepts no credentials. Optional configPath and databasePath must be supplied together and match the server\'s own install; they never select another file. Returns credential-free provider status and makes no provider calls. Unsupported deployments return NOT_IMPLEMENTED.',
+    access: 'write',
+    requiredScope: 'settings.write',
+    tier: 'setup',
+    inputSchema: providerReloadRequestSchema,
+    outputSchema: providerReloadResponseDtoSchema,
+    annotations: writeAnnotations({ idempotentHint: true }),
+    openApiOperations: ['POST /api/v1/settings/providers/reload'],
+    handler: (client, input) => client.reloadProviders(input),
+  }),
+  defineTool({
     name: 'canonry_telemetry_get',
     requiresOperator: true,
     title: 'Get telemetry status',
@@ -2097,7 +2379,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_gsc_query_totals',
     title: 'Get GSC query totals',
-    description: 'Get stored Google Search Console totals per search query for a date window (no call to Google): clicks, impressions, CTR, impression-weighted average position and the number of days the query appeared. Rows are ordered clicks desc, impressions desc, query asc; page with limit/offset until truncated is false. The rows are the queries Google names: Google leaves rare queries out, so never sum them for a property total, use canonry_gsc_performance_daily. Each row has `source`: google (Google\'s per-query figures), page-summed (legacy page table, impressions over-count) or mixed (both across the window).',
+    description: 'Get stored Google Search Console totals per search query for a date window (no call to Google): clicks, impressions, CTR, impression-weighted average position and the number of days the query appeared. Rows are ordered clicks desc, impressions desc, query asc; page with limit/offset until truncated is false. The rows are the queries Google names: Google leaves rare queries out, so never sum them for a property total, use canonry_gsc_performance_daily. Each row has `source`: google (Google\'s per-query figures), page-summed (legacy page table, impressions over-count) or mixed (both across the window). `window.earliestDataDate` is the first stored per-query date (null with none): a window that starts before it is only partly covered, so its missing days were never synced rather than zero traffic.',
     access: 'read',
     tier: 'gsc',
     inputSchema: gscQueryTotalsInputSchema,
@@ -2150,6 +2432,17 @@ export const canonryMcpTools = [
     handler: (client, input) => client.gscCoverageHistory(input.project, { limit: input.limit }),
   }),
   defineTool({
+    name: 'canonry_bing_coverage',
+    title: 'Get Bing coverage',
+    description: 'Read Bing index coverage counts and URL inspections for a Canonry project. The route records an idempotent daily coverage snapshot while returning the result, but does not call Bing or start a sync. Preserves indexed, not indexed and unknown evidence, the server percentage and last inspection time. Project-wide for Simple and Advanced portfolios; Property, Target and market attribution are unavailable. Requires the existing Bing connection.',
+    access: 'write',
+    tier: 'bing',
+    inputSchema: projectInputSchema,
+    annotations: writeAnnotations({ idempotentHint: true, openWorldHint: false }),
+    openApiOperations: ['GET /api/v1/projects/{name}/bing/coverage'],
+    handler: (client, input) => client.bingCoverage(input.project),
+  }),
+  defineTool({
     name: 'canonry_gsc_sitemaps',
     title: 'Get GSC sitemaps',
     description: 'Get sitemap data from Google Search Console for a Canonry project.',
@@ -2195,9 +2488,17 @@ export const canonryMcpTools = [
     handler: (client, input) => client.gaProperties(input.project),
   }),
   defineTool({
+    name: 'canonry_ga_acquisition',
+    title: 'Read stored GA4 acquisition',
+    description: 'Read stored GA4 sessions by day, channel, source/medium, host and normalized landing page. Sessions only; totalSessions is the full filtered total, independent of grouping and pagination. No Google calls. Project-only attribution; stored rows cannot distinguish an older connected GA4 property. Meaningful page query parameters remain distinct.',
+    access: 'read', tier: 'ga', inputSchema: gaAcquisitionQuerySchema.extend({ project: projectNameSchema, limit: z.number().int().min(1).max(500).optional() }), annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/ga/acquisition'],
+    handler: (client, input) => { const { project, ...query } = input; return client.gaAcquisition(project, query) },
+  }),
+  defineTool({
     name: 'canonry_ga_measurement_analysis',
     title: 'Analyze GA acquisition and search demand',
-    description: 'Compare native GA4 channels and lead events with branded/non-brand Search Console demand over fixed 30-day cohorts.',
+    description: 'Compare native GA4 channels and lead events (also split by AI engine, with each engine\'s sessions and lead rate) with branded/non-brand Search Console demand over fixed 30-day cohorts.',
     access: 'read',
     tier: 'ga',
     inputSchema: gaMeasurementAnalysisInputSchema,
@@ -2206,6 +2507,20 @@ export const canonryMcpTools = [
     handler: (client, input) => client.gaMeasurementAnalysis(
       input.project,
       compactStringParams(input, ['window', 'hostScope', 'pathPrefix', 'limit']),
+    ),
+  }),
+  defineTool({
+    name: 'canonry_ga_search_landing_pages',
+    title: 'Get GA4 Google organic search landing pages',
+    description: 'Read GA4\'s "Google organic search traffic: Landing page + query string" report (Search Console link) as the last GA sync stored it: clicks, impressions, CTR, average position and active users per landing page for the 7, 28 (default) or 90 days ending yesterday in the property time zone. `total` is GA4\'s own Total row; never sum `rows`. Status `unavailable` means GA4 refused the Search Console metrics (link Search Console in GA4); the previous snapshot is still returned. Stored data only.',
+    access: 'read',
+    tier: 'ga',
+    inputSchema: gaSearchLandingPagesInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/ga/search-landing-pages'],
+    handler: (client, input) => client.gaSearchLandingPages(
+      input.project,
+      compactStringParams(input, ['window', 'limit', 'offset']),
     ),
   }),
   defineTool({
@@ -2286,6 +2601,17 @@ export const canonryMcpTools = [
     handler: (client, input) => client.gaAttributionTrend(input.project),
   }),
   defineTool({
+    name: 'canonry_ga_overview',
+    title: 'Get the GA4 overview',
+    description: 'Get GA4\'s overview for a window (7d, 30d or 90d of complete days ending yesterday, as GA4 counts them): users, new users, sessions, organic sessions, views, event count, key events, engagement rate, bounce rate and average engagement time, each against the previous period, plus both periods by day.',
+    access: 'read',
+    tier: 'ga',
+    inputSchema: gaOverviewInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/ga/overview'],
+    handler: (client, input) => client.gaOverview(input.project, input.window),
+  }),
+  defineTool({
     name: 'canonry_ga_session_history',
     title: 'Get GA session history',
     description: 'Get total sessions per day for a Canonry project.',
@@ -2297,6 +2623,51 @@ export const canonryMcpTools = [
     handler: (client, input) => client.gaSessionHistory(input.project, compactStringParams(input, GA_RANGE_PARAMS)),
   }),
   // ----- Google Business Profile (Phase 1: auth + discovery) -----
+  defineTool({
+    name: 'canonry_gbp_local_post_attempt',
+    title: 'Read a saved Google post attempt',
+    description: 'Reconcile the exact saved attempt without another provider POST. Uncertain is not permission to retry.',
+    access: 'read',
+    tier: 'gbp',
+    inputSchema: z.object({ project: projectNameSchema, attemptId: z.string(), packageId: z.string() }),
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/gbp/local-post-attempt'],
+    handler: (client, input) => client.getGbpLocalPostAttempt(input.project, input.attemptId, input.packageId),
+  }),
+  defineTool({
+    name: 'canonry_gbp_local_posts',
+    title: 'Read Google Business Profile posts',
+    description: 'Read one bounded page for an exact selected account/location. A nextPageToken means coverage is incomplete.',
+    access: 'read',
+    tier: 'gbp',
+    inputSchema: z.object({ project: projectNameSchema, accountName: z.string(), locationName: z.string(), pageToken: z.string().optional() }),
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/gbp/local-posts'],
+    handler: (client, input) => client.listGbpLocalPosts(input.project, { accountName: input.accountName, locationName: input.locationName, pageToken: input.pageToken }),
+  }),
+  defineTool({
+    name: 'canonry_gbp_local_post',
+    title: 'Read an exact Google Business Profile post',
+    description: 'Read current state, content, source image and public URL; PROCESSING is not published.',
+    access: 'read',
+    tier: 'gbp',
+    inputSchema: z.object({ project: projectNameSchema, postName: z.string() }),
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/gbp/local-post'],
+    handler: (client, input) => client.getGbpLocalPost(input.project, input.postName),
+  }),
+  defineTool({
+    name: 'canonry_gbp_reviews_live',
+    title: 'Read live Google reviews',
+    description: 'Read the complete bounded review baseline for an exact selected account/location; never replies or changes reviews.',
+    access: 'read',
+    tier: 'gbp',
+    inputSchema: z.object({ project: projectNameSchema, accountName: z.string(), locationName: z.string() }),
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/gbp/reviews/live'],
+    handler: (client, input) => client.readGbpReviewsLive(input.project, { accountName: input.accountName, locationName: input.locationName }),
+  }),
+
   defineTool({
     name: 'canonry_gbp_accounts',
     title: 'List Google Business Profile accounts',
@@ -2326,7 +2697,7 @@ export const canonryMcpTools = [
     access: 'write',
     tier: 'gbp',
     inputSchema: gbpDiscoverInputSchema,
-    annotations: writeAnnotations({ idempotentHint: true }),
+    annotations: writeAnnotations({ idempotentHint: true, openWorldHint: true }),
     openApiOperations: ['POST /api/v1/projects/{name}/gbp/locations/discover'],
     handler: (client, input) => client.discoverGbpLocations(input.project, {
       selectAllNew: input.selectAllNew,
@@ -2364,7 +2735,7 @@ export const canonryMcpTools = [
     access: 'write',
     tier: 'gbp',
     inputSchema: gbpSyncInputSchema,
-    annotations: writeAnnotations({ idempotentHint: true }),
+    annotations: writeAnnotations({ idempotentHint: true, openWorldHint: true }),
     openApiOperations: ['POST /api/v1/projects/{name}/gbp/sync'],
     handler: (client, input) => client.triggerGbpSync(input.project, {
       locationNames: input.locationNames,
@@ -2494,6 +2865,17 @@ export const canonryMcpTools = [
     handler: (client, input) => client.trafficStatus(input.project),
   }),
   defineTool({
+    name: 'canonry_traffic_analytics',
+    title: 'Get traffic analytics',
+    description: 'Read complete stored server-traffic totals, daily history, crawler and AI-referral breakdowns, and prior-period changes for 7, 14, 30, or 90 days (default 30). Returns activity null when no traffic source is configured. Project-wide for Simple and Advanced portfolios; Property, Target, and market attribution are unavailable. Never starts provider work or a sync.',
+    access: 'read',
+    tier: 'traffic',
+    inputSchema: z.object({ project: projectNameSchema, period: trafficAnalyticsPeriodSchema.optional() }),
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/traffic/analytics'],
+    handler: (client, input) => client.getTrafficAnalytics(input.project, input.period),
+  }),
+  defineTool({
     name: 'canonry_traffic_referral_assessment',
     title: 'Assess AI referral bursts',
     description: 'Read stored AI-referral burst evidence and a separate adjusted estimate without changing raw totals or report headlines. Candidate bursts are not confirmed automation. Project/source scope only, for Simple or Advanced portfolios; Property, Target and market attribution are unavailable. GA quotient is descriptive with unknown matching coverage. No provider calls.',
@@ -2506,6 +2888,38 @@ export const canonryMcpTools = [
       const { project, ...query } = input
       return client.trafficReferralAssessment(project, query)
     },
+  }),
+  defineTool({
+    name: 'canonry_traffic_samples',
+    title: 'Read stored traffic samples',
+    description: 'Read the stored sampled tail of server-side traffic with 30-day retention. Sample rows are not a count of visits. Default kind excludes unknown requests. Project/source only; Property, Target and market dimensions are unavailable. No provider call or write.',
+    access: 'read', tier: 'traffic', inputSchema: trafficSamplesQuerySchema.extend({ project: projectNameSchema }), annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/traffic/samples'],
+    handler: (client, input) => { const { project, ...query } = input; return client.trafficListSamples(project, query) },
+  }),
+  defineTool({
+    name: 'canonry_journeys_summary',
+    title: 'Summarize AI visitor journeys',
+    description: 'Stored AI visitor journeys: visitors whose first AI visit started in the window (default 30 days), how many came back in a later visit, by which entry (search, direct, social, paid, referral, ai), median days to return, and counts by engine. Visitors are keyed hashes, never IPs; user-agent-only keys (sources without an IP) can merge people on the same device and browser version. No provider call or write.',
+    access: 'read', tier: 'traffic', inputSchema: journeySummaryQuerySchema.extend({ project: projectNameSchema }), annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/journeys/summary'],
+    handler: (client, input) => { const { project, ...query } = input; return client.journeysSummary(project, query) },
+  }),
+  defineTool({
+    name: 'canonry_journeys_list',
+    title: 'List AI visitor journeys',
+    description: 'List stored AI visitors, newest first AI visit first, with their first 20 visits (entry class and name, landing path, page count; visitCount is the total). Filter by first AI engine or by whether they came back. Visits are 30-minute sessions; visits within 30 days after an AI visit are kept, 180-day retention. A high cappedDays means a user agent many people share; partialSources names sources whose logs miss later visits. No provider call or write.',
+    access: 'read', tier: 'traffic', inputSchema: journeysQuerySchema.extend({ project: projectNameSchema }), annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/journeys'],
+    handler: (client, input) => { const { project, ...query } = input; return client.journeysList(project, query) },
+  }),
+  defineTool({
+    name: 'canonry_journey_get',
+    title: 'Read one AI visitor journey',
+    description: 'Read one AI visitor key from canonry_journeys_list: a page of its stored visits in time order (limit 1 to 500, default 100; totalVisits is the total), each with its requests (time, method, path, status, page or data). No provider call or write.',
+    access: 'read', tier: 'traffic', inputSchema: journeyDetailQuerySchema.extend({ project: projectNameSchema, visitorKey: z.string().min(1) }), annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/journeys/{visitorKey}'],
+    handler: (client, input) => { const { project, visitorKey, ...query } = input; return client.journeyGet(project, visitorKey, query) },
   }),
   defineTool({
     name: 'canonry_traffic_events',
@@ -2574,7 +2988,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_traffic_backfill',
     title: 'Backfill traffic source',
-    description: 'Async one-shot reclassification for Cloud Run or Vercel traffic. It replaces the selected window’s rollups with a fresh bounded pull and current classifier output. WordPress generic replace backfill is unavailable because the endpoint cannot prove retained coverage; use a retention-aware repair that explicitly declares any unrecoverable span. Returns `{ runId, status: "running" }`; poll canonry_run_get for completion.',
+    description: 'Async one-shot reclassification for Cloud Run or Vercel traffic. It replaces the selected window’s rollups with a fresh bounded pull and current classifier output. WordPress generic replace backfill is unavailable because the endpoint cannot prove retained coverage; record a span that cannot be recovered with canonry_traffic_declare_gap. Returns `{ runId, status: "running" }`; poll canonry_run_get for completion.',
     access: 'write',
     tier: 'traffic',
     inputSchema: trafficBackfillInputSchema,
@@ -2585,13 +2999,24 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_traffic_reset',
     title: 'Advance traffic source lastSyncedAt to NOW',
-    description: 'Operator recovery for a stuck traffic source. Advances `lastSyncedAt` to NOW, sets `status` back to `connected`, and clears `last_error`. A WordPress reset also clears its continuation state and records an unrecovered span so its next bounded drain cannot combine an old cursor with a new window. That stops replay but is not historical repair. Generic WordPress replace-mode backfill is unavailable because retained coverage is unproven; use a retention-aware repair that explicitly declares any unrecoverable span. Archived sources are rejected; reconnect them with the appropriate canonry_traffic_connect_* tool.',
+    description: 'Operator recovery for a stuck traffic source. Advances `lastSyncedAt` to NOW, sets `status` back to `connected`, and clears `last_error`. A WordPress reset also clears its continuation state and records an unrecovered span so its next bounded drain cannot combine an old cursor with a new window. That stops replay but is not historical repair. Generic WordPress replace-mode backfill is unavailable because retained coverage is unproven; once a span cannot be recovered, record it with canonry_traffic_declare_gap. Archived sources are rejected; reconnect them with the appropriate canonry_traffic_connect_* tool.',
     access: 'write',
     tier: 'traffic',
     inputSchema: trafficResetInputSchema,
     annotations: writeAnnotations({ idempotentHint: true, destructiveHint: true }),
     openApiOperations: ['POST /api/v1/projects/{name}/traffic/sources/{id}/reset'],
     handler: (client, input) => client.trafficReset(input.project, input.sourceId),
+  }),
+  defineTool({
+    name: 'canonry_traffic_declare_gap',
+    title: 'Record a traffic gap as unrecoverable',
+    description: 'Record a traffic source\'s unrecovered skip (its skippedThroughAt) as data that cannot be recovered, and clear it so the traffic.sync-lag.unrecovered-skip doctor check passes. Rollups are untouched; an audit entry keeps the span. For WordPress, whose plugin feed cannot prove a historical repair, or any source whose provider no longer retains the span; backfill a recoverable gap instead. This hides a data-loss warning, so declare only after the person running the project agrees.',
+    access: 'write',
+    tier: 'traffic',
+    inputSchema: trafficDeclareGapInputSchema,
+    annotations: writeAnnotations({ idempotentHint: false, destructiveHint: true }),
+    openApiOperations: ['POST /api/v1/projects/{name}/traffic/sources/{id}/declare-gap'],
+    handler: (client, input) => client.trafficDeclareGap(input.project, input.sourceId, input.skippedThroughAt),
   }),
   defineTool({
     name: 'canonry_snapshot',
@@ -2607,7 +3032,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_project_upsert',
     title: 'Create or replace project',
-    description: 'Create or replace a Canonry project. PUT semantics — fields not in the request are reset to their defaults. Provide the full intended project shape. Exception: an omitted providerDispatchModes (provider → sync|batch for scheduled sweeps) keeps the stored preference; send {} to clear it.',
+    description: 'Create or replace a Canonry project. PUT semantics: fields not in the request are reset to their defaults. Provide the full intended project shape. Exceptions: an omitted providerDispatchModes (provider → sync|batch for scheduled sweeps) keeps the stored preference; send {} to clear it. An omitted qualifiedAliases (the aliases Simple sentiment treats as this brand\'s own names) keeps the stored list, minus names that no longer qualify (a removed alias, a spelling of the display name, or a competitor\'s name); send [] to clear it. Competitors are not part of this request, but a new identity (display name, aliases, domains) that claims a tracked competitor\'s curated alias drops that alias, and the drop is audited. An omitted siteAuditMaxPages (the Site Health page budget for scans that set none, 1 to 50,000) keeps the stored budget; send null for the full site. An omitted competitorAutoAliases keeps the stored answer-derived competitor alias mode: `off` (no unattended detection pass), `preview` (the default: detect and log, store nothing) or `apply` (store the detected names, which restates history).',
     access: 'write',
     tier: 'setup',
     inputSchema: projectUpsertInputSchema,
@@ -2616,9 +3041,20 @@ export const canonryMcpTools = [
     handler: (client, input) => client.putProject(input.project, input.request),
   }),
   defineTool({
+    name: 'canonry_project_update',
+    title: 'Update project fields',
+    description: 'Update named fields on an existing Canonry project with PATCH semantics. Omitted fields keep their stored values, measurement merges one level, and expectedConfigRevision prevents overwriting a newer edit. Prefer this for targeted changes over canonry_project_upsert.',
+    access: 'write',
+    tier: 'setup',
+    inputSchema: projectPatchInputSchema,
+    annotations: writeAnnotations({ idempotentHint: true }),
+    openApiOperations: ['PATCH /api/v1/projects/{name}'],
+    handler: (client, input) => client.patchProject(input.project, input.request),
+  }),
+  defineTool({
     name: 'canonry_apply_config',
     title: 'Apply project config',
-    description: 'Apply one Canonry config-as-code project document. Replaces the project to match the config — fields omitted from the spec are reset to defaults, with one exception: a spec with neither queries nor keywords leaves the tracked-query basket unchanged. To clear the basket, pass an explicit empty queries list. For multi-document YAML, call this tool once per project document.',
+    description: 'Apply one Canonry config-as-code project document. Replaces the project to match the config; fields omitted from the spec are reset to defaults, with these exceptions: a spec with neither queries nor keywords leaves the tracked-query basket unchanged (to clear the basket, pass an explicit empty queries list); an omitted providerDispatchModes keeps the stored preference; an omitted qualifiedAliases keeps the stored list, minus names that no longer qualify (a removed alias, a spelling of the display name, or a competitor\'s name); send [] to clear it; and a competitor given as a plain domain keeps its stored curated aliases, while `{ domain, aliases }` sets them exactly (`[]` clears). A spec identity that claims a competitor\'s alias drops that alias (audited); a new competitor whose name overlaps another competitor\'s alias (one brand key contains the other) or that is the project\'s own site fails the apply. An omitted siteAuditMaxPages keeps the stored Site Health page budget (null means the full site). An omitted competitorAutoAliases keeps the stored answer-derived competitor alias mode (off, preview or apply). For multi-document YAML, call this tool once per project document. Call canonry_apply_config_preview first.',
     access: 'write',
     tier: 'core',
     inputSchema: applyConfigInputSchema,
@@ -2626,6 +3062,17 @@ export const canonryMcpTools = [
     annotations: writeAnnotations({ idempotentHint: true, destructiveHint: true }),
     openApiOperations: ['POST /api/v1/apply'],
     handler: (client, input) => client.apply(input.config),
+  }),
+  defineTool({
+    name: 'canonry_apply_config_preview',
+    title: 'Preview project config apply',
+    description: 'Preview one Canonry config-as-code project document. Returns per-field and child-resource changes with notification hosts only; the server resolves notification DNS to preserve the real apply verdict, then rolls back the transaction before responding, so no database writes, audit rows, or callbacks persist.',
+    access: 'read',
+    tier: 'core',
+    inputSchema: applyConfigInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['POST /api/v1/apply/preview'],
+    handler: (client, input) => client.previewApply(input.config),
   }),
   defineTool({
     name: 'canonry_queries_generate',
@@ -2739,7 +3186,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_measurement_overview',
     title: 'Get Advanced Measurement overview',
-    description: 'For best/worst Property mention rankings, prefer canonry_measurement_portfolio_summary and its mentionRanking. An unavailable aggregate does not invalidate available Property metrics. Return stored, revision-pinned Advanced Measurement metrics and a bounded page of Property rows for all Properties, one reporting group, or one Property. Filter by query class, provider, location, date window, run, or Property search; search filters rows without changing metric denominators. On a schema-v2 plan each Property row carries its metro (and otherMetros when it is in several). It ranks one run snapshot only and never infers a trend or compares across revisions. Choose label-asc (default), label-desc, citationCoverage-asc/desc, or mentionCoverage-asc/desc. For a coverage sort, unavailable rows form the first bucket in either direction; available rows then follow the requested numeric direction. The cursor is sort-aware, pins pagination to the active revision, displayed run, evidence snapshot, and filters even if a newer run completes, and must be reused unchanged with the same sort and filters. Legacy label cursors work only when sort is omitted, while any explicit sort needs a new sort-bound cursor. It never starts provider work or incurs provider cost; page size is at most 100, and it refuses invalid scope keys, cursor combinations, appended evidence, or a run pinned to another revision.',
+    description: 'Compact pages are byte-bounded whole rows by default; use nextCursor with unchanged filters. For best/worst Property mention rankings, prefer canonry_measurement_portfolio_summary and its mentionRanking. An unavailable aggregate does not invalidate available Property metrics. Return stored, revision-pinned Advanced Measurement metrics and a bounded page of Property rows for all Properties, one group, one market, or one Property. Defaults to non-brand queries: read branded as a separate call, state the returned queryClass, and never report queryClass all (both classes pooled) as one class. A group is every query of its Properties; a market is only its own queries, the dashboard\'s market population. Use market scope for a market\'s figures, and quote the returned scope kind and label: a group figure is never a market\'s figure. Filter by query class, provider, location, date window, run, or Property search; search filters rows without changing metric denominators. On a schema-v2 plan each Property row carries its metro (and otherMetros when it is in several). It ranks one run snapshot only and never infers a trend or compares across revisions. Choose label-asc (default), label-desc, citationCoverage-asc/desc, or mentionCoverage-asc/desc. For a coverage sort, unavailable rows form the first bucket in either direction; available rows then follow the requested numeric direction. The cursor is sort-aware, pins pagination to the active revision, displayed run, evidence snapshot, and filters even if a newer run completes, and must be reused unchanged with the same sort and filters. Legacy label cursors work only when sort is omitted, while any explicit sort needs a new sort-bound cursor. It never starts provider work or incurs provider cost; page size is at most 100, and it refuses invalid scope keys, cursor combinations, appended evidence, or a run pinned to another revision.',
     access: 'read',
     tier: 'setup',
     inputSchema: measurementOverviewInputSchema,
@@ -2747,13 +3194,17 @@ export const canonryMcpTools = [
     openApiOperations: ['GET /api/v1/projects/{name}/measurement-overview'],
     handler: (client, input) => {
       const { project, ...query } = input
-      return client.getMeasurementOverview(project, query)
+      return client.getMeasurementOverview(project, {
+        ...query,
+        queryClass: agentQueryClass(query.queryClass),
+        compact: query.compact ?? true,
+      })
     },
   }),
   defineTool({
     name: 'canonry_measurement_property_evidence',
     title: 'Page one Property\'s measurement evidence',
-    description: 'Return the stored evidence rows for exactly one Property out of one revision-pinned run, optionally narrowed to a provider or location. Defaults to non-brand queries; pass queryClass branded or all to change it, and state the returned class. shape chooses what a row is: sources (the default) returns one row per cited URL under evidence; answers returns one row per measured answer under answers, with the cited URLs nested inside and both signals on the row (mentioned, cited). Use shape=answers to explain a GAP: an answer that mentioned the Property without linking it, or that named nobody at all, has no URL to hang a source row on and does not appear in the default shape, so counting source rows understates what was measured. mentioned is null, never false, when the answer text was never captured: that is a missing signal, not a measured no. Exactly one of evidence or answers is returned and the other is absent rather than empty. A cursor is bound to the shape that issued it and is refused on the other. Prefer this over canonry_measurement_report when you want one Property: the report reconstructs every group and every Target for a revision and does not paginate. Run selection matches canonry_measurement_overview: the most recent completed run pinned to the active revision unless runId names another, and a run pinned to a different revision is refused rather than joined. The cursor also pins the active revision, displayed run, evidence snapshot, and filters; reuse it unchanged. Not available for a schema v1 revision, which records no question class to scope by. It never starts provider work; page size is at most 100. An empty page under measurement.state = not_measured means the Property has not been measured at all, which is NOT a measured result of zero.',
+    description: 'Return the stored evidence rows for exactly one Property out of one revision-pinned run, optionally narrowed to a provider or location. Defaults to non-brand queries; pass queryClass branded or all to change it, and state the returned class. shape chooses what a row is: sources (the default) returns one row per cited URL under evidence; answers returns one row per measured answer under answers, with the cited URLs nested inside and both signals on the row (mentioned, cited). Use shape=answers to explain a GAP: an answer that mentioned the Property without linking it, or that named nobody at all, has no URL to hang a source row on and does not appear in the default shape, so counting source rows understates what was measured. shape=other-queries returns, under otherQueries, answers to queries assigned only to other Properties that still cited this Property\'s pages, one row per answer and assignment class with assignedTargetKeys; never add them to its rates. mentioned is null, never false, when the answer text was never captured: that is a missing signal, not a measured no. Exactly one of evidence, answers or otherQueries is returned and the others are absent rather than empty. A cursor is bound to the shape that issued it and is refused on the other. Prefer this over canonry_measurement_report when you want one Property: the report reconstructs every group and every Target for a revision and does not paginate. Run selection matches canonry_measurement_overview: the most recent completed run pinned to the active revision unless runId names another, and a run pinned to a different revision is refused rather than joined. The cursor also pins the active revision, displayed run, evidence snapshot, and filters; reuse it unchanged. Not available for a schema v1 revision, which records no question class to scope by. It never starts provider work; page size is at most 100. An empty page under measurement.state = not_measured means the Property has not been measured at all, which is NOT a measured result of zero.',
     access: 'read',
     tier: 'setup',
     inputSchema: measurementPropertyEvidenceInputSchema,
@@ -2767,7 +3218,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_measurement_portfolio_summary',
     title: 'Summarize measured Properties',
-    description: 'Start here for best and worst Properties. One call returns the weakest Properties, the names answers wrote instead of them, and the domains engines cited for them. Defaults to non-brand queries; state the returned queryClass and never pool branded with non-brand. Returns at most 4 Property rows per list, the most that fit one result; a larger limit is lowered and limitNote says so. For other rows pass groupKey (one metro\'s weakest), or page canonry_measurement_overview. Mention (answer text names the Property) and citation (a source URL on its page) are separate: report each as numerator/denominator, with any unattributed count beside mention. Denominators count answers, one per query per engine (queries x engines = answers). Group Properties only by each row\'s metro and submarkets, never by label. namedInsteadInAnswerText lists names written in the answer text of answers that neither named nor cited the Property, counted by answer: they are not citations, and namedInsteadInAnswerTextTotal counts distinct names, not answers. citedDomains and weakestAnswerSources count answers citing each domain, every engine included; weakestAnswerSources pools the weakest rows plus every tied Property, each answer once, and its domainTotal counts distinct domains, not citations. When tiedAtWeakest is set, tiedAtWeakest.count Properties share the weakest rates and the rows are the first of them by name, not a rank: report the count, tiedAtWeakest.byMetro (tied Properties per metro over the whole tie; a Property in two metros counts in both) and tiedAtWeakest.namedInstead (names written instead across the whole tie, counted by distinct answer; namedInsteadTotal is distinct names), and call the rows examples. mentionRanking.strongest/.weakest rank every Property with an available mention rate; .excluded lists the rest with reasons. markets lists every market at one level, worst-first (every metro, or a groupKey\'s submarkets), whatever the limit. Markets may share Properties and never sum to portfolio totals. Reads stored data only; never starts provider work.',
+    description: 'Read revision-pinned Property rankings and market rollups from stored answers. Start here for portfolio headlines: metrics.propertiesMentioned, propertiesNeverMentioned, mentionCoverage and citationCoverage. Defaults to non-brand; report branded separately. A never-mentioned Property may still be cited. Compact weakestMarkets ranks actual full top-level market rates; use it for weakest metros. tiedAtWeakest requires both zero mentions and zero citations; its byMetro rows describe only that Property cohort, not full metro rates, and its count is not the never-mentioned count. Compact pages are byte-bounded whole rows by default. nextCursor advances only pageList, default weakest-properties. Other lists are bounded first-page summaries, then omitted; totals remain complete. To enumerate another list, set list to strongest-mentions, weakest-mentions, excluded-mentions, markets, observed-names or cited-domains. Selected-list mode omits sibling row bodies; without limit, pages auto-size up to 50 rows. Follow nextCursor as cursor with unchanged list and filters; detailsOmitted names evidence available on drill-down tools. Mention and citation denominators are independent; preserve unattributed and unchecked counts. answers=not-mentioned returns answerEvidence names and registrable cited domains only from answers naming none of their targeted Properties, with populationSize, answerCount and unknownMentionAnswers. Counts for names and domains count distinct answers. Markets can overlap and must not be summed. Group rows by returned metro/submarkets rather than label. No provider calls.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: measurementPortfolioSummaryInputSchema,
@@ -2775,13 +3226,7 @@ export const canonryMcpTools = [
     openApiOperations: ['GET /api/v1/projects/{name}/measurement-portfolio-summary'],
     handler: async (client, input) => {
       const { project, ...query } = input
-      const most = PORTFOLIO_SUMMARY_AGENT_ROWS
-      const lowered = query.limit !== undefined && query.limit > most
-      const summary = await client.getMeasurementPortfolioSummary(project, lowered ? { ...query, limit: most } : query)
-      const more = query.groupKey === undefined
-        ? 'For other rows pass groupKey (one metro\'s weakest), or page canonry_measurement_overview.'
-        : 'For more rows page canonry_measurement_overview with scope group.'
-      return portfolioSummaryForAgents(summary, lowered ? `limit ${query.limit} was lowered to ${most}, the most rows that fit one result. ${more}` : undefined)
+      return client.getMeasurementPortfolioSummary(project, { ...query, compact: query.compact ?? true })
     },
   }),
   defineTool({
@@ -2829,7 +3274,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_measurement_changes',
     title: 'Compare stored measurement changes',
-    description: 'What changed since the previous sweep: compares the displayed run with the previous run of the same plan revision and execution identity; an incompatible pair returns unavailable with a reason, never a trend. Defaults to non-brand queries: call once per class (queryClass branded for the branded move) and never report one class as the whole. queryClass all pools both classes in rows and distribution and adds metricsByClass, the headline metrics per class; report those per class, never the pooled metrics alone. changedProperties come largest move first (answers that named the Property, then answers that cited it; sort label for alphabetical), default 10 and at most 20 rows; totalProperties above the rows returned means rows you did not see. distribution counts every Property in scope: improved, declined, mixed, withinNoise, unchanged, notComparable. mentionAnswersDelta and citationAnswersDelta are signed answer counts; denominatorChanged true means a rate was taken over a different number of answers, so those counts are not like for like and the coverage rates give the direction. A move is the rate change times the larger answer count (the count change when the denominator held). withinNoise true means every move was 2 answers or fewer: within noise, never a gain, loss, trend or regression. Reads stored data only; it never starts provider work.',
+    description: 'What changed since the previous sweep: compares the displayed run with the previous run of the same plan revision and execution identity; an incompatible pair returns unavailable with a reason, never a trend. Defaults to non-brand queries: call once per class (queryClass branded for the branded move) and never report one class as the whole. queryClass all pools both classes in rows and distribution and adds metricsByClass, the headline metrics per class; report those per class, never the pooled metrics alone. changedProperties come largest move first (answers that named the Property, then answers that cited it; sort label for alphabetical), every move beyond noise before any within it, 20 rows by default and at most; totalProperties above the rows returned means rows you did not see. distribution counts every Property in scope: improved, declined, mixed, withinNoise, unchanged, notComparable. mentionAnswersDelta and citationAnswersDelta are signed answer counts; denominatorChanged true means a rate was taken over a different number of answers, so those counts are not like for like and the coverage rates give the direction. A move is the rate change times the larger answer count (the count change when the denominator held). withinNoise true means every move was 2 answers or fewer: within noise, never a gain, loss, trend or regression. mentionWithinNoise and citationWithinNoise apply the same rule to each signal alone: a Property beyond noise can still have one signal within noise, and that signal is not a gain or loss. Report every headline metric, branded included, as previous numerator/denominator to current numerator/denominator. Reads stored data only; it never starts provider work.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: measurementChangesInputSchema,
@@ -2837,7 +3282,9 @@ export const canonryMcpTools = [
     openApiOperations: ['GET /api/v1/projects/{name}/measurement-changes'],
     handler: (client, input) => {
       const { project, ...query } = input
-      return client.getMeasurementChanges(project, { ...query, queryClass: agentQueryClass(query.queryClass) })
+      // The full agent page by default: moves beyond noise lead, so this shows
+      // every real gain and loss in all but the largest portfolios.
+      return client.getMeasurementChanges(project, { ...query, limit: query.limit ?? MEASUREMENT_CHANGES_AGENT_ROWS, queryClass: agentQueryClass(query.queryClass) })
     },
   }),
   defineTool({
@@ -3027,24 +3474,38 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_measurement_report',
     title: 'Get measurement report',
-    description: 'Get a revision-pinned Target and group measurement report from stored runs. Optionally pin the evidence to an exact eligible full run. Never starts live provider work.',
+    description: 'Get a revision-pinned Target and group measurement report from stored runs. Optionally pin the evidence to an exact eligible full run. On a schema v2 revision every rate is taken over non-brand queries unless queryClass names another class, and the response echoes queryClass; read branded as a separate call, and treat all as pooled. A schema v1 revision records no class and echoes queryClass null. Never starts live provider work.',
     access: 'read',
     tier: 'setup',
     inputSchema: measurementReportInputSchema,
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/measurement-report'],
-    handler: (client, input) => client.getMeasurementReport(input.project, input.revision, input.runId),
+    // The class is sent only when named: the server serves non-brand on a v2
+    // revision and every answer on a v1 revision, which refuses a named class.
+    handler: (client, input) => client.getMeasurementReport(input.project, input.revision, input.runId, input.queryClass),
   }),
   defineTool({
     name: 'canonry_run_trigger',
     title: 'Trigger run',
-    description: "Trigger an answer-visibility run for a Canonry project. Omit both scoping fields for a full sweep. Pass request.queries[] to measure only some of the project's tracked questions. On a project with a published measurement plan, pass request.measurementScope with at least one group or target to measure one slice of that plan — a group stands for its member Targets, and only the questions those Targets selected are measured. A scope naming nothing is rejected rather than treated as a full sweep, so omit the field entirely when you want everything. Either kind of slice is recorded as a spot check: it never replaces a full sweep in the dashboard, analytics or report. For verification scenarios (testing whether a provider migration worked, reproducing a regression, sanity-checking after a code change), set request.trigger='probe' — probe runs write a snapshot you can inspect via canonry_runs_get but are EXCLUDED from dashboard, analytics, intelligence, report, and notifications. Use 'probe' whenever you are testing on your own initiative rather than producing data the user/dashboard will consume. request.dispatchMode='batch' sends every provider that can (a full sweep of a published plan, a batch-capable provider enabled in config.yaml, every answer's model frozen) to its asynchronous batch API at the batch price; the rest run sync and the run stays running until the batch ends (up to its deadline, 24h by default). A batch request no provider can honour is refused with each provider's reason. Omit it for the ordinary sync sweep.",
+    description: `Trigger an answer-visibility run for a Canonry project. request.providers accepts direct provider names and pinned OpenRouter model routes such as openrouter:google/gemini-2.5-flash. Multiple routes share the OpenRouter connection credentials and account limits, while preserving independent observations. The bare openrouter connection is not a sweep model. Omit both scoping fields for a full sweep. Pass request.queries[] to measure only some of the project's tracked questions. On a project with a published measurement plan, pass request.measurementScope with at least one group or target to measure one slice of that plan — a group stands for its member Targets, and only the questions those Targets selected are measured. A scope naming nothing is rejected rather than treated as a full sweep, so omit the field entirely when you want everything. Either kind of slice is recorded as a spot check: it never replaces a full sweep in the dashboard, analytics or report. For verification scenarios (testing whether a provider migration worked, reproducing a regression, sanity-checking after a code change), set request.trigger='probe' — probe runs write a snapshot you can inspect via canonry_runs_get but are EXCLUDED from dashboard, analytics, intelligence, report, and notifications. Use 'probe' whenever you are testing on your own initiative rather than producing data the user/dashboard will consume. request.dispatchMode='batch' sends every provider that can (a full sweep of a published plan, a batch-capable provider enabled in config.yaml, every answer's model frozen) to its asynchronous batch API at the batch price; the rest run sync and the run stays running until the batch ends (up to its deadline, 24h by default). A batch request no provider can honour is refused with each provider's reason. Omit it for the ordinary sync sweep. A run is refused with PROVIDERS_FAILING when every provider it would call failed on its account (rejected key, denied access, no credit) in each of its last ${PROVIDER_ACCOUNT_FAILURE_STREAK} runs; details.providers names each provider's code and details.retryAfter when one run is let through again (${PROVIDER_ACCOUNT_RETRY_HOURS}h after the newest failure). Tell the user to fix the key, access or billing; saving a new key, model or endpoint in the provider's settings lets the next run through at once. A probe (request.trigger='probe') is never refused, and one that succeeds clears the refusal, so use a probe to check a fix. When only some providers keep failing that way, the run is queued without them: skippedProviders on the returned run names each with its code and retryAfter, and the run ends partial. Set request.force=true (call every provider) only when the user asks to run anyway.`,
     access: 'write',
     tier: 'core',
     inputSchema: runTriggerInputSchema,
     annotations: writeAnnotations({ idempotentHint: false, openWorldHint: true }),
     openApiOperations: ['POST /api/v1/projects/{name}/runs'],
     handler: (client, input) => client.triggerRun(input.project, input.request),
+  }),
+  defineTool({
+    name: 'canonry_feedback',
+    title: 'Send feedback about Canonry',
+    description: 'Send feedback about Canonry itself to the Canonry team (canonry.ai). Use it when you uncover a struggle (a failure, confusing output, or something you had to work around) or have a concrete improvement. Tell the user what you are sending first, and send one report per issue. Be specific: the command or tool, the error code, and what you did instead. Never include secrets, API keys, or customer data; credentials are redacted before sending anyway. Not for questions about the user\'s own project data.',
+    access: 'write',
+    tier: 'core',
+    inputSchema: feedbackSubmissionSchema,
+    outputSchema: feedbackAcceptedDtoSchema,
+    annotations: writeAnnotations({ idempotentHint: false, openWorldHint: true }),
+    openApiOperations: ['POST /api/v1/feedback'],
+    handler: (client, input) => client.sendFeedback(input),
   }),
   defineTool({
     name: 'canonry_run_cancel',
@@ -3060,14 +3521,15 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_queries_add',
     title: 'Add queries',
-    description: 'Append tracked queries to a Canonry project; existing queries are skipped by the API.',
+    description: 'Append tracked queries to a Canonry project; existing queries are skipped by the API. Returns queryClasses: each requested query with the class the server gave it (branded, non-brand, or null when no single class exists). An entry with no queryClass means the server did not report one.',
     access: 'write',
     tier: 'setup',
     inputSchema: queriesInputSchema,
     annotations: writeAnnotations({ idempotentHint: true }),
     openApiOperations: ['POST /api/v1/projects/{name}/queries'],
     handler: async (client, input) => {
-      await client.appendQueries(input.project, uniqueStrings(input.request.queries))
+      const queries = uniqueStrings(input.request.queries)
+      return { ok: true, queryClasses: reportedQueryClasses(queries, await client.appendQueries(input.project, queries)) }
     },
   }),
   defineTool({
@@ -3112,28 +3574,79 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_competitors_add',
     title: 'Add competitors',
-    description: 'Add tracked competitor domains to a Canonry project.',
+    description: 'Use canonry_competitors_change_preview to inspect the stored share impact before this separate write. Measured projects require `acknowledgeBulkAdd: true` when new domains plus recent additions exceed the shared five-domain, 24-hour guard. Review with canonry_competitors_suggest or canonry_competitors_change_preview first; the built-in agent cannot acknowledge bulk growth. Add tracked competitor domains to a Canonry project. Each entry is a domain, or `{ domain, aliases }` to also add curated answer-text names to that competitor (tracked already or not; existing aliases are kept, the same rules as canonry_competitors_aliases_set apply). A new domain whose name overlaps another competitor\'s curated alias, or the label or a curated alias of a competitor an Advanced market pins (one brand key contains the other, so the alias "Tune" claims tunespoke.example), is rejected until that name is removed, and so is the project\'s own site. Already tracked domains (any spelling) are skipped.',
     access: 'write',
     tier: 'setup',
-    inputSchema: competitorsInputSchema,
+    inputSchema: competitorsAddInputSchema,
     annotations: writeAnnotations({ idempotentHint: true }),
     openApiOperations: ['POST /api/v1/projects/{name}/competitors'],
-    handler: async (client, input) => {
-      await client.appendCompetitors(input.project, uniqueStrings(input.request.competitors))
-    },
+    handler: (client, input) => client.appendCompetitors(input.project, input.request.competitors, { acknowledgeBulkAdd: input.request.acknowledgeBulkAdd }),
+  }),
+  defineTool({
+    name: 'canonry_competitors_aliases_set',
+    title: 'Set competitor aliases',
+    description: 'Use canonry_competitors_change_preview to inspect the stored share impact before this separate write. Set one tracked competitor\'s operator-curated aliases exactly (`[]` clears): the brand names it goes by in answer text when they differ from its domain, e.g. "TuneSpoke" for spoketuneworks.example or a 3-letter brand the domain label floor drops. Every competitor mention matcher (mention share, competitor landscape, mention gaps, run and history signals) uses them on stored answers at read time. Rejected: aliases under 3 letters or digits, over 80 characters, more than 10, or whose brand key contains, or sits inside, one of the project\'s own names or hosts or a name another tracked competitor answers to (its aliases, domain label or written host), because answers may split or join the words: "Tune" cannot belong to one competitor while another answers to "Tune Spoke", "TuneSpoke" or tunespoke.example, and joined-word lookalikes ("Tune" and "Tuner") are refused too. A competitor an Advanced market pins (active revision, pending draft, or a superseded revision the project\'s runs were measured under) counts as another competitor. Names detected automatically from stored answers (`autoAliases`) are matched the same way; a curated alias always wins, so an auto name the new list overlaps is dropped. Idempotent; returns the competitor.',
+    access: 'write',
+    tier: 'setup',
+    inputSchema: competitorAliasesInputSchema,
+    annotations: writeAnnotations({ idempotentHint: true }),
+    openApiOperations: ['PUT /api/v1/projects/{name}/competitors/{domain}/aliases'],
+    handler: (client, input) => client.setCompetitorAliases(input.project, input.domain, input.aliases),
+  }),
+  defineTool({
+    name: 'canonry_competitors_auto_aliases_detect',
+    title: 'Preview competitor auto-aliases',
+    description: 'Dry run of automatic competitor alias detection from the project\'s stored answers only (never a provider, never a competitor\'s website). Per competitor: the names the answers pair with its site (provider citations anchoring the name to a page on the domain, named links, `Name (domain)`), with evidence (direct pairs, sweeps, co-occurrences, answers naming it, precision = share of those that cite the site, lift = how much more often the site is cited when the name appears, answers writing it as a name; an answer names a candidate only where it writes it outside the competitor\'s longer names: domain label, curated aliases, longer stored names, and for a market-only competitor its plan label and aliases), and each name\'s status: added, kept, removed, review or rejected with a reason. A name is applied only if it passes the evidence bars, reads as a business name, not a place ("Larkfield, CO", "Oakvale County", "Metro Larkfield"), and visibly belongs to the domain: consecutive words of it spell the domain label; or a name of two or more words opens the label whole (at its start or after a lead word such as "my" or "get") and covers at least half of it; or two or more of its words sit back to back in the label from that opening and cover at least half of it, one of them 4+ letters and inside fewer than two tracked identity labels; or a name of two or more words is an in-order abbreviation that opens like the label ("FoamSeal" for foamandsealworks.example). One shared word is never enough unless it is the whole label. New names fill the cap of 10 strongest evidence first, and a name the competitor\'s own label, curated aliases, kept names or own active or draft market pin already cover is not learned. Review names (no such tie, or a 3-letter name) are never auto-applied; they are checked against the project\'s names and hosts, other competitors\' domain labels, hosts and curated aliases, market pins of another domain, blocks and the competitor\'s own names, but not against other competitors\' auto-detected names. Verify one refers to that competitor before adding it as a curated alias. A stored name is removed only when blocked, claimed by identity (its own curated names, the project\'s names or hosts, another competitor\'s domain label, host, curated alias or earlier stored auto name, a market pin of another domain), replaced by an accepted shorter name, or contradicted: named in 3+ answers with precision under 5%, lift under 1.5 or name casing under half; another tracked competitor pairing it in at least 2 answers and at least twice as often; or no tie to the domain label left. Writes nothing. The local server queues the same pass after every completed or partial sweep, a competitor add, an unblock and a market pin write that changes the pins, run by the project\'s competitorAutoAliases mode: `apply` stores its result, `preview` (the default) only logs it, `off` skips it.',
+    access: 'read',
+    tier: 'setup',
+    inputSchema: projectInputSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/competitor-auto-aliases'],
+    handler: (client, input) => client.previewCompetitorAutoAliases(input.project),
+  }),
+  defineTool({
+    name: 'canonry_competitors_auto_aliases_apply',
+    title: 'Apply competitor auto-aliases',
+    description: 'Use canonry_competitors_auto_aliases_detect first to preview names and their stored share impact. Run automatic competitor alias detection now from the project\'s stored answers and store the result, whatever the project\'s competitorAutoAliases mode (a one-off apply; a project in `apply` mode also gets this pass after every completed or partial sweep, a competitor add, an unblock and a market pin write that changes the pins). Stored names restate history at read time: every period\'s competitor counts change, and so does share of voice for a tracked competitor; competitorIdentityChangedAt on the landscape, project-frame visibility-compare and analytics metrics marks when. Idempotent: unchanged answers write nothing. Curated aliases and blocked names always win. A change is audited as the system pass plus competitors.auto-aliases-apply-requested naming who asked. Not available to the built-in Aero agent. Returns what was stored, per competitor, with evidence.',
+    access: 'write',
+    tier: 'setup',
+    inputSchema: projectInputSchema,
+    annotations: writeAnnotations({ idempotentHint: true }),
+    openApiOperations: ['POST /api/v1/projects/{name}/competitor-auto-aliases'],
+    handler: (client, input) => client.applyCompetitorAutoAliases(input.project),
+  }),
+  defineTool({
+    name: 'canonry_competitors_aliases_block',
+    title: 'Block competitor auto-aliases',
+    description: 'Block names from automatic, answer-derived alias detection for one competitor, by domain: a tracked competitor, else a competitor the active Advanced plan pins without tracking it, else a domain with stored market competitor names and no active pin (names learned for a pin a later revision dropped, or the blocks a removed competitor left). A blocked name is never auto-applied again until unblocked, and a stored auto name among them is removed now. Blocks survive removing and re-adding the competitor. Names compare by brand key (case, spacing and punctuation variants are one name). A curated alias cannot be blocked; remove it with canonry_competitors_aliases_set. A name the measurement plan\'s own pin of that competitor carries (active revision or pending draft) cannot be blocked either, because the pin keeps counting it; change the pin\'s names in a measurement draft. Idempotent; returns the competitor.',
+    access: 'write',
+    tier: 'setup',
+    inputSchema: competitorAliasBlockInputSchema,
+    annotations: writeAnnotations({ idempotentHint: true }),
+    openApiOperations: ['POST /api/v1/projects/{name}/competitors/{domain}/aliases/block'],
+    handler: (client, input) => client.blockCompetitorAliases(input.project, input.domain, input.aliases),
+  }),
+  defineTool({
+    name: 'canonry_competitors_aliases_unblock',
+    title: 'Unblock competitor auto-aliases',
+    description: 'Release blocked names back to automatic, answer-derived alias detection for one competitor, by domain: a tracked competitor, else a competitor the active Advanced plan pins without tracking it, else a domain with stored market competitor names and no active pin (names learned for a pin a later revision dropped, or the blocks a removed competitor left, which this releases). The unblock stores nothing new; a detection pass is requested and, for a project in `apply` mode, stores a name only if the stored answers still support it (in `preview` it only logs, in `off` it does not run; canonry_competitors_auto_aliases_apply stores now). A learned name still stored for a market-only competitor counts again at once. Idempotent; returns the competitor.',
+    access: 'write',
+    tier: 'setup',
+    inputSchema: competitorAliasBlockInputSchema,
+    annotations: writeAnnotations({ idempotentHint: true }),
+    openApiOperations: ['POST /api/v1/projects/{name}/competitors/{domain}/aliases/unblock'],
+    handler: (client, input) => client.unblockCompetitorAliases(input.project, input.domain, input.aliases),
   }),
   defineTool({
     name: 'canonry_competitors_remove',
     title: 'Remove competitors',
-    description: 'Remove tracked competitor domains from a Canonry project.',
+    description: 'Use canonry_competitors_change_preview to inspect the stored share impact before this separate write. Remove tracked competitor domains from a Canonry project.',
     access: 'write',
     tier: 'setup',
     inputSchema: competitorsInputSchema,
     annotations: writeAnnotations({ idempotentHint: true, destructiveHint: true }),
     openApiOperations: ['DELETE /api/v1/projects/{name}/competitors'],
-    handler: async (client, input) => {
-      await client.deleteCompetitors(input.project, uniqueStrings(input.request.competitors))
-    },
+    handler: (client, input) => client.deleteCompetitors(input.project, uniqueStrings(input.request.competitors)),
   }),
   defineTool({
     name: 'canonry_schedule_set',
@@ -3403,7 +3916,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_discover_promote_preview',
     title: 'Preview discovery promotion',
-    description: 'Read-only preview of available promotion candidates for a session: bucketed query lists and recurring suggested competitor domains not already in the project\'s tracked competitor list. Use it to confirm a basket before calling canonry_discover_promote.',
+    description: 'Read-only preview of available promotion candidates for a session: bucketed query lists, the recurring competitors a promote could add (suggestedCompetitors, each stored as its registrable domain with the cited hosts merged into it as sources), and the eligible ones it would leave out with a reason (skippedCompetitors: already-tracked, project-domain, shared-host, claimed-by-alias). Use it to confirm a basket before calling canonry_discover_promote.',
     access: 'read',
     tier: 'discovery',
     inputSchema: discoverySessionIdInputSchema,
@@ -3414,7 +3927,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_discover_promote',
     title: 'Promote discovery session',
-    description: 'Adopt a completed discovery session\'s bucketed queries into the project\'s tracked basket, tagged with provenance "discovery:<sessionId>". By default, only cited + aspirational queries are promoted; include wasted-surface explicitly when off-ICP competitor gaps should also be tracked. Recurring discovered competitor domains classified as direct-competitor are also merged by default — pass request.competitorTypes to adopt editorial-media channels or recover legacy unknown entries. Add-only and idempotent: queries/domains already tracked are returned under `skipped`, never inserted twice. Only sessions with status "completed" can be promoted. Call canonry_discover_promote_preview first to inspect candidates.',
+    description: 'Adopt a completed discovery session\'s bucketed queries into the project\'s tracked basket, tagged with provenance "discovery:<sessionId>". By default, only cited + aspirational queries are promoted; include wasted-surface explicitly when off-ICP competitor gaps should also be tracked. Recurring discovered competitor domains classified as direct-competitor are also merged by default; pass request.competitorTypes to adopt editorial-media channels or recover legacy unknown entries. Cited subdomains are stored as their registrable domain; a competitor that is the project\'s own site, was cited as two or more different subdomains of one possibly shared host, or is claimed by another competitor\'s curated alias is left out with a reason in competitorDetails while the rest proceeds. Add-only and idempotent: queries/domains already tracked are returned under `skipped`, never inserted twice. Only sessions with status "completed" can be promoted. Call canonry_discover_promote_preview first to inspect candidates.',
     access: 'write',
     tier: 'discovery',
     inputSchema: discoveryPromoteInputSchema,
@@ -3425,13 +3938,41 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_site_health_overview',
     title: 'Get Site Health overview',
-    description: 'Start a Site Health investigation with the latest or selected scan summary: root URL, completeness, crawl and link counts, budgets, versions, termination, and dead-link check state. Follow with a focused Site Health subgraph, shortest path, or scan changes; never request the interactive graph projection through MCP.',
+    description: 'For a requested scan date pass date=YYYY-MM-DD. If the year was omitted and that date has no data, use availableScanDates.matchingMonthDayDates to resolve the year and request the exact returned date before concluding the historical scan is missing. recentDates and matchingMonthDayDates are bounded; totalDates and matchingMonthDayTotal report their full counts. No automatic date fallback. inventorySummary provides complete eligibility counts and disjoint excluded reasons, including terminal redirects. Start a Site Health investigation with the latest or selected scan summary: root URL, completeness, crawl and link counts, budgets, versions, termination, and dead-link check state. Follow with a focused Site Health subgraph, shortest path, or scan changes; never request the interactive graph projection through MCP.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: technicalAeoCrawlInputSchema,
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/technical-aeo/crawl'],
-    handler: (client, input) => client.getTechnicalAeoCrawl(input.project, { runId: input.runId }),
+    handler: (client, input) => client.getTechnicalAeoCrawl(input.project, { runId: input.runId, date: input.date }),
+  }),
+  defineTool({
+    name: 'canonry_site_health_issues',
+    title: 'List stored Site Health issues',
+    description: 'Read paginated finding groups from a saved audit, including duplicate metadata and critical defects regardless of aggregate score. Never starts a crawl. Preserve scan date, run/attempt identity, coverage and partial/unavailable states: an empty result does not prove the site is clean. Disposition separates actionable findings, advisory guidance, unverified checks and information; severity retains the recorded critical-defect level. recommendationsScope distinguishes issue-specific defect guidance from whole-factor advice. stableIdentity=false means the ID cannot establish continuity across scans. Follow nextCursor with the returned runId, or inspect one issue with canonry_site_health_issue_pages.',
+    access: 'read',
+    tier: 'monitoring',
+    inputSchema: siteHealthIssuesInputSchema,
+    outputSchema: siteAuditIssuesResponseSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/technical-aeo/issues'],
+    handler: (client, input) => client.getSiteAuditIssues(input.project, {
+      runId: input.runId, cursor: input.cursor, limit: input.limit,
+    }),
+  }),
+  defineTool({
+    name: 'canonry_site_health_issue_pages',
+    title: 'Read pages affected by a saved audit issue',
+    description: 'Read paginated affected URLs and saved messages for one issue in the selected audit. Use the issue ID and runId from canonry_site_health_issues; continue with nextCursor without changing the selection. Null node keys and unavailable/partial coverage remain explicit. recommendationsScope identifies issue-specific defect guidance or broader factor advice; do not present factor advice as an exact fix for this finding. This stored read never crawls, changes content or authorizes edits.',
+    access: 'read',
+    tier: 'monitoring',
+    inputSchema: siteHealthIssuePagesInputSchema,
+    outputSchema: siteAuditIssuePagesResponseSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/technical-aeo/issues/{issueId}/pages'],
+    handler: (client, input) => client.getSiteAuditIssuePages(input.project, input.issueId, {
+      runId: input.runId, cursor: input.cursor, limit: input.limit,
+    }),
   }),
   defineTool({
     name: 'canonry_site_health_page_audit',
@@ -3506,7 +4047,7 @@ export const canonryMcpTools = [
     name: 'canonry_technical_aeo_score',
     title: 'Get Technical AEO score',
     description:
-      'Get the Technical AEO scorecard for a project: the latest site-audit aggregate 0–100 score, per-factor site-level averages (with pass/partial/fail distribution), cross-cutting issues, prioritized fixes, and the delta vs the previous audit. A factor\'s share of the site score is `sharePct` (0–100, the shares add up to 100; null for a scan that did not record it); its `weight` is relative and never a percentage. When `hasData` is false the project has never been audited — call canonry_technical_aeo_run first.',
+      'pagesFailing and pagesPartial are independent counts; their sum is the number of audited pages below pass for that factor. Any failing page makes a factor fail, independently of its average score or affected-page count. These counts use the audited-page population; crawl eligibility is a separate inventory population. affectedPageRanking orders recorded per-factor below-pass counts from largest to smallest; this is affected-page breadth, not a prediction of mention or citation lift. Factor cohorts overlap, so do not add their counts together. runSelection flags same-date ambiguity and prefers a complete run on the latest scan date, otherwise the largest page sample. Get the Technical AEO scorecard for a project: the latest site-audit aggregate 0–100 score, per-factor site-level averages (with pass/partial/fail distribution), cross-cutting issues, prioritized fixes, and the delta vs the previous audit. A factor\'s share of the site score is `sharePct` (0–100, the shares add up to 100; null for a scan that did not record it); its `weight` is relative and never a percentage. When `hasData` is false, no scored audit is available for the selected scan; a stored crawl may still exist. Inspect the stored crawl before proposing a new audit.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: technicalAeoScoreInputSchema,
@@ -3546,18 +4087,18 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_technical_aeo_crawl',
     title: 'Get persisted Technical AEO crawl',
-    description: 'Read persisted full-crawl metadata for the latest or selected Technical AEO site-audit run: root URL, crawl/indexability/link-score versions, effective budgets, completeness, counts, and explicit dead-link check state. This does not fabricate a graph from older scorecard-only audits.',
+    description: 'For a historical question pass its exact UTC date (YYYY-MM-DD). If the year was omitted and that date has no data, use availableScanDates.matchingMonthDayDates to resolve the year and request the exact returned date before concluding the historical scan is missing. recentDates and matchingMonthDayDates are bounded; totalDates and matchingMonthDayTotal report their full counts. No automatic date fallback. inventorySummary gives whole-snapshot eligibility and disjoint excluded reasons; unknown is not canonical-away. Read persisted full-crawl metadata for the latest or selected Technical AEO site-audit run: root URL, crawl/indexability/link-score versions, effective budgets, completeness, counts, and explicit dead-link check state. This does not fabricate a graph from older scorecard-only audits.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: technicalAeoCrawlInputSchema,
     annotations: readAnnotations(),
     openApiOperations: ['GET /api/v1/projects/{name}/technical-aeo/crawl'],
-    handler: (client, input) => client.getTechnicalAeoCrawl(input.project, { runId: input.runId }),
+    handler: (client, input) => client.getTechnicalAeoCrawl(input.project, { runId: input.runId, date: input.date }),
   }),
   defineTool({
     name: 'canonry_technical_aeo_crawl_pages',
     title: 'List Technical AEO crawl pages',
-    description: 'Read one bounded, cursor-paged list of canonical crawl nodes. Filter crawler-derived indexability and audit state, then follow nextCursor; this is technical inventory eligibility, not a claim about Google index coverage.',
+    description: 'For a requested scan date pass date=YYYY-MM-DD. If the year was omitted and that date has no data, use availableScanDates.matchingMonthDayDates to resolve the year and request the exact returned date before concluding the historical scan is missing. recentDates and matchingMonthDayDates are bounded; totalDates and matchingMonthDayTotal report their full counts. No automatic date fallback. inventorySummary gives whole-snapshot eligible/excluded counts, disjoint excluded reasons, and urlVersions (parameter copies of a page the audit did not score; pass urlVersions=exclude to list pages only); healthReasonCounts covers the filtered list before paging. Use these exact counts, never infer canonical-away from unknown indexability. healthReason distinguishes terminal redirects from canonical-to-other pages. Default runSelection reports same-date ambiguity and selects complete or most-pages evidence on the latest scan date. Read one bounded, cursor-paged list of canonical crawl nodes. Filter crawler-derived indexability and audit state, then follow nextCursor; this is technical inventory eligibility, not a claim about Google index coverage. `complete: false` means the crawl stopped at the budget named by `termination`, so a missing page or link is not proof it does not exist.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: technicalAeoCrawlPagesInputSchema,
@@ -3565,10 +4106,12 @@ export const canonryMcpTools = [
     openApiOperations: ['GET /api/v1/projects/{name}/technical-aeo/crawl/pages'],
     handler: (client, input) => client.getTechnicalAeoCrawlPages(input.project, {
       runId: input.runId,
+      date: input.date,
       inventoryEligible: input.inventoryEligible,
       fetchState: input.fetchState,
       indexabilityState: input.indexabilityState,
       auditState: input.auditState,
+      urlVersions: input.urlVersions,
       sort: input.sort,
       cursor: input.cursor,
       limit: input.limit,
@@ -3577,7 +4120,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_technical_aeo_structure',
     title: 'List Technical AEO site structure',
-    description: 'Read one bounded level of the persisted site hierarchy below parentPath. Follow nextCursor for more siblings; request a child path separately rather than attempting to materialize the entire website tree.',
+    description: 'Read one bounded level of the persisted site hierarchy below parentPath. Follow nextCursor for more siblings; request a child path separately rather than attempting to materialize the entire website tree. `complete: false` means the crawl stopped at the budget named by `termination`, so a missing page or link is not proof it does not exist.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: technicalAeoStructureInputSchema,
@@ -3593,7 +4136,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_technical_aeo_internal_links',
     title: 'List Technical AEO internal links',
-    description: 'Read a bounded, cursor-paged list of persisted internal crawl edges. Filter by source URL, target URL, followability, or link kind. Nav, header, and footer links are marked isTemplate; templateSource says which rule decided each one (placement, ubiquity, or unmeasured when neither had evidence) and templateDetection reports the same for the scan, so an empty content-only list is not evidence of no content links and two scans classified by different rules are never compared as if they were the same measurement. Use the neighbors tool for one page rather than loading a graph.',
+    description: 'Read a bounded, cursor-paged list of persisted internal crawl edges. Filter by source URL, target URL, followability, or link kind. Nav, header, and footer links are marked isTemplate; templateSource says which rule decided each one (placement, ubiquity, or unmeasured when neither had evidence) and templateDetection reports the same for the scan, so an empty content-only list is not evidence of no content links and two scans classified by different rules are never compared as if they were the same measurement. Use the neighbors tool for one page rather than loading a graph. `complete: false` means the crawl stopped at the budget named by `termination`, so a missing page or link is not proof it does not exist.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: technicalAeoInternalLinksInputSchema,
@@ -3612,7 +4155,7 @@ export const canonryMcpTools = [
   defineTool({
     name: 'canonry_technical_aeo_link_neighbors',
     title: 'Get Technical AEO page link neighbors',
-    description: 'Read bounded inbound and outbound internal links for exactly one crawl node, selected by nodeKey or URL. Filter by link kind to separate editorial links from nav, header, and footer links. It returns independent truncation flags for inbound and outbound edges, not a transitive traversal.',
+    description: 'Read bounded inbound and outbound internal links for exactly one crawl node, selected by nodeKey or URL. Filter by link kind to separate editorial links from nav, header, and footer links. It returns independent truncation flags for inbound and outbound edges, not a transitive traversal. `complete: false` means the crawl stopped at the budget named by `termination`, so a missing page or link is not proof it does not exist.',
     access: 'read',
     tier: 'monitoring',
     inputSchema: technicalAeoLinkNeighborsInputSchema,
@@ -3645,7 +4188,7 @@ export const canonryMcpTools = [
     name: 'canonry_technical_aeo_run',
     title: 'Run Technical AEO site audit',
     description:
-      'Start a site-audit run. The run discovers root, sitemap, and linked pages. It defaults to 1,000 pages, and the engine derives the link-observation budget from that page count with a 100,000 floor, so raising maxPages raises it too. An explicit maxEdges is a ceiling that replaces the derivation and can sit below it. It returns {runId, status} and continues in the background. If an active run has identical effective options, this tool returns it; different options are refused. Poll canonry_run_get, then read the crawl and score tools.',
+      'Start a site-audit run. The run discovers root, sitemap, and linked pages. Without maxPages it uses the project\'s saved page budget (siteAuditMaxPages), else the full site (up to 50,000 pages), and the engine derives the link-observation budget from that page count with a 100,000 floor, so raising maxPages raises it too. An explicit maxEdges is a ceiling that replaces the derivation and can sit below it. It returns {runId, status} and continues in the background. If an active run has identical effective options, this tool returns it; different options are refused. Poll canonry_run_get, then read the crawl and score tools.',
     access: 'write',
     tier: 'monitoring',
     inputSchema: technicalAeoRunInputSchema,
@@ -3658,6 +4201,8 @@ export const canonryMcpTools = [
       maxEdges: input.maxEdges,
       maxDepth: input.maxDepth,
       checkDeadLinks: input.checkDeadLinks,
+      includeGeo: input.includeGeo,
+      includeAgentSkills: input.includeAgentSkills,
     }),
   }),
   // ----- Google Marketing: Google Ads + Google Tag Manager -----
@@ -4173,15 +4718,17 @@ export const canonryMcpTools = [
     access: 'write',
     tier: 'ads',
     inputSchema: projectInputSchema,
-    annotations: writeAnnotations({ idempotentHint: true }),
+    annotations: writeAnnotations({ idempotentHint: true, openWorldHint: true }),
     openApiOperations: ['POST /api/v1/projects/{name}/ads/sync'],
     handler: (client, input) => client.triggerAdsSync(input.project),
   }),
 ] as const
 
-export const CANONRY_MCP_TOOL_COUNT = canonryMcpTools.length
-export const CANONRY_MCP_READ_TOOL_COUNT = canonryMcpTools.filter(tool => tool.access === 'read').length
-export const CANONRY_MCP_CORE_TOOL_COUNT = canonryMcpTools.filter(tool => tool.tier === 'core').length
+export const canonryMcpTools = rawCanonryMcpTools.map(tool => {
+  if (tool.access !== 'read' || toolOperationAccess(tool) !== OperationAccesses.live) return tool
+  return { ...tool, annotations: { ...tool.annotations, openWorldHint: true } }
+})
+
 export type CanonryMcpRegistryTool = typeof canonryMcpTools[number]
 export type CanonryMcpToolName = CanonryMcpRegistryTool['name']
 export const CanonryMcpToolNames = Object.freeze(

@@ -7,8 +7,8 @@ import type {
   TrackedQueryRequest,
   RawQueryResult,
   NormalizedQueryResult,
-} from '@ainyc/canonry-contracts'
-import { RetrievalStatuses } from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
+import { RetrievalStatuses } from '@canonry/canonry-contracts'
 import {
   validateConfig as openaiValidateConfig,
   healthcheck as openaiHealthcheck,
@@ -21,7 +21,7 @@ import {
 } from './normalize.js'
 import type { OpenAIConfig, OpenAIRawResult, OpenAITrackedQueryInput } from './types.js'
 
-export function toOpenAIConfig(config: ProviderConfig): OpenAIConfig {
+function toOpenAIConfig(config: ProviderConfig): OpenAIConfig {
   return {
     apiKey: config.apiKey ?? '',
     model: config.model,

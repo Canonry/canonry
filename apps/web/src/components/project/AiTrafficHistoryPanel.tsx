@@ -31,15 +31,15 @@ import {
 } from '../shared/ChartPrimitives.js'
 import { InfoTooltip } from '../shared/InfoTooltip.js'
 import { MetricsWindowPicker } from '../shared/MetricsWindowPicker.js'
-import { Card } from '../ui/card.js'
+import { KpiRow } from './ActivityParts.js'
 import { useServerTrafficEvents, useServerTrafficSources } from '../../queries/server-traffic.js'
 import { TRAFFIC_STALE_MS } from '../../queries/query-client.js'
 // The canonical compact formatter, from contracts. A local copy with a different
 // threshold made the same magnitude read "5,000" in one tile and "5.0K" in the
 // next. ActivitySection and TrafficPage still carry their own `formatCompact`
 // with identical behaviour; folding those into this import is a separate change.
-import { formatNumber } from '@ainyc/canonry-contracts'
-import { getApiV1ProjectsByNameGaAiReferralDailyOptions, getApiV1ProjectsByNameGaStatusOptions } from '@ainyc/canonry-api-client/react-query'
+import { formatNumber } from '@canonry/canonry-contracts'
+import { getApiV1ProjectsByNameGaAiReferralDailyOptions, getApiV1ProjectsByNameGaStatusOptions } from '@canonry/canonry-api-client/react-query'
 import { useQuery } from '@tanstack/react-query'
 import { heyClient } from '../../api.js'
 import type { GA4AiReferralDailyDto } from '../../api.js'
@@ -70,10 +70,7 @@ interface Point {
   aiReferralLandedHits?: number
 }
 
-const LEGEND_STYLE = { fontSize: 11, paddingTop: 6 } as const
-/** Trend lines are the same colour as their series; naming them again in the
- *  legend doubles its length and says nothing new. */
-const HIDDEN_FROM_LEGEND = new Set(['Pages crawled trend', 'Page fetches trend', 'Visits trend'])
+const LEGEND_STYLE = { fontSize: 12, paddingTop: 6 } as const
 
 /** Trend series carry tooltipType="none": a fitted line's per-point value is
  *  an interpolation ("46.928533333333334"), not a reading, so it has no place
@@ -101,24 +98,6 @@ function trendSeries(trend: Trend | null | undefined, length: number): (number |
     i < trend.startIndex || i > trend.endIndex
       ? null
       : trend.start + (i - trend.startIndex) * perStep)
-}
-
-function Tile({ label, value, caption, tooltip }: {
-  label: string
-  value: string
-  caption: string
-  tooltip: string
-}) {
-  return (
-    <div className="rounded-lg border border-default bg-bg/40 px-4 py-3 flex flex-col">
-      <div className="flex items-center gap-1 mb-1">
-        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted">{label}</p>
-        <InfoTooltip text={tooltip} />
-      </div>
-      <p className="text-xl font-semibold text-primary tabular-nums">{value}</p>
-      <p className="text-xs text-muted mt-0.5">{caption}</p>
-    </div>
-  )
 }
 
 /**
@@ -254,16 +233,14 @@ export function AiTrafficHistoryPanel({
   const measuredAnything = totals.crawlers > 0 || totals.fetches > 0 || totals.visits > 0
 
   if (events.isLoading) {
-    return <Card className="surface-card p-5"><div className="text-sm text-muted">Loading AI traffic history…</div></Card>
+    return <p className="text-copy-14 text-secondary">Loading AI traffic history…</p>
   }
   if (events.isError) {
     return (
-      <Card className="surface-card p-5">
-        <p className="text-sm text-secondary">Could not load AI traffic history.</p>
-        <p className="text-xs text-muted mt-1">
-          The request failed, so this is not a reading of zero activity. Retry, or check the traffic source.
-        </p>
-      </Card>
+      <div className="flex items-center gap-1.5">
+        <p role="alert" className="text-copy-14 text-negative">Could not load AI traffic history.</p>
+        <InfoTooltip text="The request failed, so this is not a reading of zero activity. Retry, or check the traffic source." />
+      </div>
     )
   }
   if (!measuredAnything) {
@@ -278,45 +255,50 @@ export function AiTrafficHistoryPanel({
     const noSourceConnected = sourceList !== undefined && sourceList.length === 0
     const connectedButSilent = !noSourceConnected && coverageStart === null
     return (
-      <Card className="surface-card p-5">
-        <p className="text-sm text-secondary">
+      <div className="flex items-center gap-1.5">
+        <p className="text-copy-14 text-secondary">
           {noSourceConnected
             ? 'No server-side traffic source connected yet.'
             : connectedButSilent
               ? 'No AI activity recorded yet.'
               : 'No AI activity recorded in this period.'}
         </p>
-        <p className="text-xs text-muted mt-1">
-          {noSourceConnected
+        <InfoTooltip
+          text={noSourceConnected
             ? 'Connect a traffic source to see how AI engines read this site over time.'
             : connectedButSilent
               ? 'The source is connected but has not reported anything yet. A new source can take a few hours to appear.'
               : 'The window was measured and nothing was recorded. Try a longer range.'}
-        </p>
-      </Card>
+        />
+      </div>
     )
   }
 
   return (
-    <Card className="surface-card p-5">
-      <div className="grid gap-3 sm:grid-cols-3 mb-5">
-        <Tile
-          label="AI crawlers"
-          value={formatNumber(totals.crawlers)}
-          caption="pages crawled"
-          tooltip="Requests from AI crawlers for a real content page. Robots.txt and sitemap re-fetches are excluded, because they are not a page an engine read."
-        />
-        <Tile
-          label="AI page fetches"
-          value={formatNumber(totals.fetches)}
-          caption="reading a page to answer"
-          tooltip="An AI engine fetching a page live while answering someone, rather than crawling it for an index."
-        />
-        <Tile
-          label="AI visitors"
-          value={formatNumber(totals.visits)}
-          caption="arrived from an AI answer"
-          tooltip="Visits your server answered that came from an AI engine. Requests answered with a redirect are excluded: a redirect is a hop, not an arrival."
+    <div>
+      <div className="mb-5">
+        <KpiRow
+          label="AI traffic totals"
+          items={[
+            {
+              label: 'AI crawlers',
+              value: formatNumber(totals.crawlers),
+              detail: 'pages crawled',
+              tooltip: 'Requests from AI crawlers for a real content page. Robots.txt and sitemap re-fetches are excluded, because they are not a page an engine read.',
+            },
+            {
+              label: 'AI page fetches',
+              value: formatNumber(totals.fetches),
+              detail: 'reading a page to answer',
+              tooltip: 'An AI engine fetching a page live while answering someone, rather than crawling it for an index.',
+            },
+            {
+              label: 'AI visitors',
+              value: formatNumber(totals.visits),
+              detail: 'arrived from an AI answer',
+              tooltip: 'Visits your server answered that came from an AI engine. Requests answered with a redirect are excluded: a redirect is a hop, not an arrival.',
+            },
+          ]}
         />
       </div>
 
@@ -325,15 +307,15 @@ export function AiTrafficHistoryPanel({
           of UTC during their afternoon, contradicting the chart directly below.
           Labelled for what it actually is, and marked when still filling. */}
       {points.length > 0 && (
-        <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1 pb-3 mb-4 border-b border-default text-xs text-muted">
-          <span className="text-secondary font-semibold">Latest day (UTC)</span>
-          <span><span className="text-heading font-semibold tabular-nums mr-1">
+        <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1 pb-3 mb-4 border-b border-default text-label-12 text-muted">
+          <span className="text-secondary text-label-12-strong">Latest day (UTC)</span>
+          <span><span className="text-heading text-label-12-strong tabular-nums mr-1">
             {num(points[points.length - 1]!.crawlerContentHits).toLocaleString()}</span>pages crawled</span>
-          <span><span className="text-heading font-semibold tabular-nums mr-1">
+          <span><span className="text-heading text-label-12-strong tabular-nums mr-1">
             {num(points[points.length - 1]!.aiUserFetchHits).toLocaleString()}</span>page fetches</span>
-          <span><span className="text-heading font-semibold tabular-nums mr-1">
+          <span><span className="text-heading text-label-12-strong tabular-nums mr-1">
             {num(points[points.length - 1]!.aiReferralLandedHits).toLocaleString()}</span>visits, server</span>
-          <span><span className="text-heading font-semibold tabular-nums mr-1">
+          <span><span className="text-heading text-label-12-strong tabular-nums mr-1">
             {gaByDate.get(points[points.length - 1]!.bucket)?.toLocaleString() ?? '—'}</span>visits, GA4</span>
           <span className="text-faint">still filling</span>
         </div>
@@ -343,11 +325,11 @@ export function AiTrafficHistoryPanel({
         {/* Tooltip is a SIBLING of the heading: nesting an interactive button
             inside <h3> changes the heading's accessible name. */}
         <div className="flex items-center gap-1.5">
-          <h3 className="text-sm font-semibold text-heading">Machines reading your site</h3>
+          <h3 className="text-heading-14 text-heading">Machines reading your site</h3>
           <InfoTooltip text="Crawlers index pages for later. Page fetches happen while an engine is answering someone. Both are machines, not people." />
         </div>
         <div className="flex items-center gap-4">
-        <label className="flex items-center gap-1.5 text-xs text-secondary cursor-pointer">
+        <label className="flex items-center gap-1.5 text-label-12 text-secondary cursor-pointer">
           <input
             type="checkbox"
             checked={showFetches}
@@ -356,7 +338,7 @@ export function AiTrafficHistoryPanel({
           />
           Page fetches
         </label>
-        <label className="flex items-center gap-1.5 text-xs text-secondary cursor-pointer">
+        <label className="flex items-center gap-1.5 text-label-12 text-secondary cursor-pointer">
           <input
             type="checkbox"
             checked={showTrend}
@@ -381,10 +363,9 @@ export function AiTrafficHistoryPanel({
           {unmeasured && (
             <ReferenceArea x1={unmeasured.from} x2={unmeasured.to} fill="var(--color-overlay-hover)"
                            fillOpacity={0.5} stroke="none"
-                           label={{ value: 'not measured', position: 'insideTop', fontSize: 10, fill: 'var(--chart-neutral-text-dim, #71717a)' }} />
+                           label={{ value: 'not measured', position: 'insideTop', fontSize: 12, fill: 'var(--chart-neutral-text-dim, #a1a1a1)' }} />
           )}
-          <Legend wrapperStyle={LEGEND_STYLE} iconType="plainline" iconSize={14}
-                  formatter={(value: string) => (HIDDEN_FROM_LEGEND.has(value) ? '' : value)} />
+          <Legend wrapperStyle={LEGEND_STYLE} iconType="plainline" iconSize={14} />
           <Area type="monotone" dataKey="crawlerContentHits" name="Pages crawled"
                 stroke={CRAWLER_COLOR} fill={CRAWLER_COLOR} fillOpacity={0.22} strokeWidth={1.8} />
           {showFetches && (
@@ -392,11 +373,11 @@ export function AiTrafficHistoryPanel({
                   stroke={FETCH_COLOR} fill={FETCH_COLOR} fillOpacity={0.18} strokeWidth={1.6} />
           )}
           {showTrend && (
-            <Line type="linear" dataKey="crawlTrend" name="Pages crawled trend" dot={false} tooltipType="none"
+            <Line type="linear" dataKey="crawlTrend" legendType="none" name="Pages crawled trend" dot={false} tooltipType="none"
                   stroke={CRAWLER_COLOR} strokeWidth={1.4} strokeDasharray="5 4" connectNulls />
           )}
           {showTrend && showFetches && (
-            <Line type="linear" dataKey="fetchTrend" name="Page fetches trend" dot={false} tooltipType="none"
+            <Line type="linear" dataKey="fetchTrend" legendType="none" name="Page fetches trend" dot={false} tooltipType="none"
                   stroke={FETCH_COLOR} strokeWidth={1.3} strokeDasharray="5 4" connectNulls />
           )}
         </ComposedChart>
@@ -404,7 +385,7 @@ export function AiTrafficHistoryPanel({
 
       <div className="flex items-center justify-between gap-3 mt-5 mb-2">
         <div className="flex items-center gap-1.5">
-          <h3 className="text-sm font-semibold text-heading">People arriving from AI</h3>
+          <h3 className="text-heading-14 text-heading">People arriving from AI</h3>
           <InfoTooltip text="Two independent counts of the same thing. Server reads your own logs and misses nothing a browser blocks, but cannot see a page served from cache. GA4 needs the browser to run a tag. They rarely match, and neither is the correction of the other." />
         </div>
         <MetricsWindowPicker
@@ -429,10 +410,9 @@ export function AiTrafficHistoryPanel({
           {unmeasured && (
             <ReferenceArea x1={unmeasured.from} x2={unmeasured.to} fill="var(--color-overlay-hover)"
                            fillOpacity={0.5} stroke="none"
-                           label={{ value: 'not measured', position: 'insideTop', fontSize: 10, fill: 'var(--chart-neutral-text-dim, #71717a)' }} />
+                           label={{ value: 'not measured', position: 'insideTop', fontSize: 12, fill: 'var(--chart-neutral-text-dim, #a1a1a1)' }} />
           )}
-          <Legend wrapperStyle={LEGEND_STYLE} iconType="plainline" iconSize={14}
-                  formatter={(value: string) => (HIDDEN_FROM_LEGEND.has(value) ? '' : value)} />
+          <Legend wrapperStyle={LEGEND_STYLE} iconType="plainline" iconSize={14} />
           {visitSource !== 'ga4' && (
             <Line type="monotone" dataKey="aiReferralLandedHits" name="Visits, server"
                   stroke={VISIT_COLOR} strokeWidth={2} dot={false} />
@@ -443,11 +423,11 @@ export function AiTrafficHistoryPanel({
                   dot={isolatedPointDot(chartRows.map((r) => r.ga4Visits), GA4_COLOR)} />
           )}
           {showTrend && visitSource !== 'ga4' && (
-            <Line type="linear" dataKey="visitTrend" name="Visits trend" dot={false} tooltipType="none"
+            <Line type="linear" dataKey="visitTrend" legendType="none" name="Visits trend" dot={false} tooltipType="none"
                   stroke={VISIT_COLOR} strokeWidth={1.3} strokeDasharray="5 4" connectNulls />
           )}
         </ComposedChart>
       </ResponsiveContainer>
-    </Card>
+    </div>
   )
 }

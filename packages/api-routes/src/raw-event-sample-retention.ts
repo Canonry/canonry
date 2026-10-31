@@ -1,6 +1,6 @@
 import { and, eq, lt, sql } from 'drizzle-orm'
-import type { DatabaseClient } from '@ainyc/canonry-db'
-import { rawEventSamples } from '@ainyc/canonry-db'
+import type { DatabaseClient } from '@canonry/canonry-db'
+import { rawEventSamples } from '@canonry/canonry-db'
 
 export const RAW_EVENT_SAMPLE_RETENTION_MS = 30 * 24 * 60 * 60_000
 export const RAW_EVENT_SAMPLE_RETENTION_SWEEP_INTERVAL_MS = 24 * 60 * 60_000

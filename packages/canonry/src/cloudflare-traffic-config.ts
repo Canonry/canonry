@@ -1,5 +1,5 @@
 import type { CanonryConfig, CloudflareTrafficConnectionConfigEntry } from './config.js'
-import { cloudflareQueueNameSchema } from '@ainyc/canonry-contracts'
+import { cloudflareQueueNameSchema } from '@canonry/canonry-contracts'
 
 function unsupportedDeliveryMode(deliveryMode: unknown): Error {
   const label = typeof deliveryMode === 'string' ? ` "${deliveryMode}"` : ''
@@ -46,12 +46,6 @@ function normalizeCloudflareTrafficConnection(
     return { ...connection, deliveryMode: 'direct-push' } as CloudflareTrafficConnectionConfigEntry
   }
   throw unsupportedDeliveryMode(deliveryMode)
-}
-
-export function listCloudflareTrafficConnections(
-  config: CanonryConfig,
-): CloudflareTrafficConnectionConfigEntry[] {
-  return (config.cloudflareTraffic?.connections ?? []).map(normalizeCloudflareTrafficConnection)
 }
 
 export function getCloudflareTrafficConnection(

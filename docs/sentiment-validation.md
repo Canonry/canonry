@@ -53,7 +53,7 @@ pnpm exec tsx scripts/smoke-sentiment-engines.mjs --package-root /tmp/canonry-se
 | Contracts/storage | Canonical ten-assessment math and complete companion; Wilson interval and zero-judgment semantics; immutable definition, migration/FK/index, idempotency, lease/cancellation, audit, and attempt-budget tests. |
 | Jev adapter | 31 classifier/evaluation tests plus retry-coverage guard; real loopback serialization, pinned model, safe errors, evidence integrity, bounded complete input, opposite subjects, theme overlap, and abstention. |
 | Backend | Frozen Simple/Advanced selection, complete/fill/superseded receipts, probe/legacy exclusion, scope/model/evaluator comparison boundaries, named/delegated authorization and demotion, revoked authority before replay, cursor boundaries, historic identity/theme continuity, and explicit coverage gaps. |
-| CLI/MCP | 106 focused SDK/CLI/MCP/registry tests after rebasing onto current upstream; server-owned values, all nine capabilities, normal error envelopes, read/write filtering, and deferred Aero routing. |
+| CLI/MCP | 106 focused SDK/CLI/MCP/registry tests after rebasing onto current upstream; server-owned values, all nine capabilities, normal error envelopes, read/write filtering, and Aero routing (the seven reads; configure and backfill submit withheld). |
 | Dashboard | 15 semantic/SDK/action tests, shared write-control coverage, and 105 portfolio-route regressions; built assets and a real browser against the installed package. Account demotion disables open Save/Confirm controls before sentiment action permissions refresh. |
 | Installed transports | Synthetic Simple and shared-answer Advanced fixtures under `/smoke/`; matching summaries/evidence across HTTP, spawned CLI, hosted MCP, and spawned stdio MCP; settings/jobs parity through CLI for both projects and both MCP transports for Simple; read/scoped denials, cross-client idempotent replay, exact Advanced market deduplication, no extra provider calls from reads. |
 | Installed zero-judgment | Exactly three stub requests; factual Simple/Harbor and wrong-subject Bayside; unavailable rates, explicit exclusions, human CLI display, and summary/evidence/comparison parity through all four transports. |
@@ -83,7 +83,7 @@ pnpm exec tsx scripts/smoke-sentiment-recovery.mjs --package-root /tmp/sentiment
 pnpm exec tsx scripts/smoke-sentiment-boundaries.mjs --package-root /tmp/sentiment-install/node_modules/@canonry/canonry
 ```
 
-The source import seeds synthetic data only. Server, CLI, and stdio MCP run the installed binaries outside the checkout. The source-free preload redirects only TypeSafe's fixed production URL to a loopback stub and rejects external fetches/redirects. It validates response/model shape, never prints authorization, and records redacted attempt receipts. The main harness allows at most three unique assessments, six requests, and 150,000 conservative input tokens. Its budget is per process: do not restart or rerun live mode without reconciling the previous attempt receipts and original authorized total. Recovery testing uses only the deterministic stub.
+The source import seeds synthetic data only. Server, CLI, and stdio MCP run the installed binaries outside the checkout. The source-free preload redirects only TypeSafe's fixed production URL to a loopback stub and rejects external fetches/redirects. It validates response/model shape, never prints authorization, and records redacted attempt receipts. The main harness allows at most three unique assessments and 150,000 conservative input tokens. It allows six requests against the loopback stub and 12 in live mode, where the six assessments admitted across two periods leave room for provider retries. Its budget is per process: do not restart or rerun live mode without reconciling the previous attempt receipts and original authorized total. Recovery testing uses only the deterministic stub.
 
 Live mode is explicit: append `--live-key-file /absolute/private/key-file` to the main smoke command. Never combine it with `--zero-judgment`, `--non-brand`, or `--absent-subject`; those modes use deterministic fixtures only. The original three-request live budget has been consumed. Do not rerun live mode under that same budget. Authentication, returned-model, or response-contract failures stop further provider dispatch. A live run is not required for routine CI. Browser setup and configurable Playwright/Chromium paths are documented in [the evaluation README](../evals/sentiment/README.md).
 
@@ -92,7 +92,7 @@ Focused checks include:
 ```sh
 pnpm exec vitest run sentiment --maxWorkers 2
 pnpm exec vitest run --project integration-typesafe
-pnpm exec tsc --noEmit -p scripts/tsconfig.json
+node scripts/typecheck.mjs --noEmit -p scripts/tsconfig.json
 pnpm check
 pnpm gen:check
 pnpm plugin:check
@@ -102,3 +102,5 @@ pnpm val:skills:check
 ## Unmet release gate
 
 No independently reviewed held-out corpus was supplied. Each query class independently needs at least 150 representative answers across two industries, adjudicated stance challenge cases, and the blinded accuracy/evidence review in the current rubric. Both class gates remain **unmet**. The checked-in template stays empty and the offline release report truthfully fails both gates. Themes are outside the initial scope and rubric. The feature stays experimental and default-off; these smoke results do not authorize production enablement or establish accuracy on customer data.
+
+Operator-qualified aliases (`subject.qualifiedAliases` on a Simple subject) add a `qualified-former-name` challenge tag, defined in `evals/sentiment/README.md`. Its rows are pending: none are labelled, and whether a qualified spelling changes Jev's identity answer is unverified. The release gate above is unchanged; the tag is descriptive and not gated.

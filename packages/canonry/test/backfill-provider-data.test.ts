@@ -11,9 +11,11 @@ import {
   projects,
   querySnapshots,
   runs,
-} from '@ainyc/canonry-db'
+  SentimentRepository,
+} from '@canonry/canonry-db'
+import { refreshSnapshotMentionIdentity, sentimentHash } from '@canonry/canonry-api-routes'
 import { eq } from 'drizzle-orm'
-import { RunKinds } from '@ainyc/canonry-contracts'
+import { RunKinds } from '@canonry/canonry-contracts'
 import { backfillAnswerVisibilityCommand } from '../src/commands/backfill.js'
 
 describe('backfill answer-visibility provider reparsing', () => {
@@ -53,6 +55,27 @@ describe('backfill answer-visibility provider reparsing', () => {
       process.env.CANONRY_CONFIG_DIR = originalConfigDir
     }
     fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('rebuilds routed mentions and citations from stored OpenRouter annotations while preserving model identity', async () => {
+    const projectId = crypto.randomUUID(); const runId = crypto.randomUUID(); const now = new Date().toISOString()
+    const route = 'openrouter:google/gemini-3.1-flash-lite'
+    db.insert(projects).values({ id: projectId, name: 'router-backfill', displayName: 'Northstar', canonicalDomain: 'example.com', country: 'US', language: 'en', providers: ['gemini', route], createdAt: now, updatedAt: now }).run()
+    db.insert(runs).values({ id: runId, projectId, status: 'completed', kind: RunKinds['answer-visibility'], createdAt: now }).run()
+    const id = crypto.randomUUID()
+    db.insert(querySnapshots).values({ id, runId, provider: route, model: 'google/gemini-3.1-flash-lite', servedModel: 'google/gemini-3.1-flash-lite-served',
+      queryText: 'widget suppliers', answerText: 'Stale answer', answerMentioned: true, citationState: 'not-cited', citedDomains: [], competitorOverlap: [], recommendedCompetitors: [], createdAt: now,
+      rawResponse: JSON.stringify({ apiResponse: { model: 'google/gemini-3.1-flash-lite-served', choices: [{ message: {
+        content: 'Several widget suppliers exist. https://uncited.example', annotations: [{ type: 'url_citation', url_citation: { url: 'https://example.com/widgets' } }],
+      } }] } }),
+    }).run()
+    const output = vi.spyOn(console, 'log').mockImplementation(() => {})
+    await backfillAnswerVisibilityCommand({ project: 'router-backfill', format: 'json' })
+    expect(JSON.parse(String(output.mock.calls.at(-1)?.[0]))).toMatchObject({ examined: 1, reparsed: 1, updated: 1, mentioned: 0 })
+    expect(db.select().from(querySnapshots).where(eq(querySnapshots.id, id)).get()).toMatchObject({
+      provider: route, model: 'google/gemini-3.1-flash-lite', servedModel: 'google/gemini-3.1-flash-lite-served',
+      answerMentioned: false, citationState: 'cited', citedDomains: ['example.com'], answerText: 'Several widget suppliers exist. https://uncited.example',
+    })
   })
 
   it('reprocesses stored OpenAI, Claude, and Perplexity snapshot payloads', async () => {
@@ -519,6 +542,41 @@ describe('backfill answer-visibility provider reparsing', () => {
 
     expect(auditSnapshots[0]?.citationState).toBe('not-cited')
     expect(auditSnapshots[0]?.rawResponse).toContain('should-not-change')
+  })
+
+  it('drops a sentiment verdict on text the backfill rewrote, so the rewritten answer counts again', async () => {
+    const projectId = crypto.randomUUID()
+    const runId = crypto.randomUUID()
+    const snapshotId = crypto.randomUUID()
+    const now = new Date().toISOString()
+    const oldText = 'A canonry is the office of a canon in a cathedral chapter.'
+    db.insert(projects).values({ id: projectId, name: 'stale-verdict', displayName: 'Canonry', canonicalDomain: 'canonry.ai', ownedDomains: '[]', country: 'US', language: 'en', providers: '["openai"]', createdAt: now, updatedAt: now }).run()
+    db.insert(runs).values({ id: runId, projectId, kind: 'answer-visibility', status: 'completed', trigger: 'manual', createdAt: now }).run()
+    db.insert(querySnapshots).values({
+      id: snapshotId, runId, provider: 'openai', model: 'gpt-5.4', citationState: 'not-cited', answerMentioned: true, answerText: oldText,
+      citedDomains: [], competitorOverlap: [], recommendedCompetitors: [], createdAt: now,
+      // The stored payload now parses to a different answer than the stored text.
+      rawResponse: JSON.stringify({ model: 'gpt-5.4', groundingSources: [], searchQueries: [], apiResponse: { output: [
+        { type: 'message', content: [{ type: 'output_text', text: 'Canonry tracks how answer engines mention a brand.', annotations: [] }] },
+      ] } }),
+    }).run()
+    // The worker's completion of a wrong-subject verdict on the OLD text.
+    const repository = new SentimentRepository(db)
+    repository.putDefinition({ id: 'definition', contentHash: 'definition-hash', requestedModel: 'jev-1.13.0', definition: {}, createdAt: now })
+    repository.configure({ projectId, enabled: true, evaluationDefinitionId: 'definition', configuration: {}, now })
+    repository.admitJob({ projectId, action: 'backfill', origin: 'backfill', enablementEpoch: 1, evaluationDefinitionId: 'definition', idempotencyKey: 'verdict', payloadHash: 'verdict', actor: 'test', selection: { runIds: [runId] }, now,
+      work: [{ runId, snapshotId, sourceTextHash: sentimentHash(oldText), subjectHash: 'subject', input: {}, edges: [{ propertyKey: projectId }] }] })
+    const work = repository.claim({ owner: 'test', now, leaseMs: 30_000 })!
+    repository.completeWork({ workItemId: work.id, owner: 'test', outcome: 'wrong-subject', result: {}, returnedModel: 'jev-1.13.0', now },
+      (tx, completed) => { refreshSnapshotMentionIdentity(tx, [completed.snapshotId]) })
+    const stored = () => db.select({ answerText: querySnapshots.answerText, answerMentioned: querySnapshots.answerMentioned, mentionIdentity: querySnapshots.mentionIdentity })
+      .from(querySnapshots).where(eq(querySnapshots.id, snapshotId)).get()
+    expect(stored()).toEqual({ answerText: oldText, answerMentioned: false, mentionIdentity: 'wrong-subject' })
+
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    await backfillAnswerVisibilityCommand({ project: 'stale-verdict' })
+
+    expect(stored()).toEqual({ answerText: 'Canonry tracks how answer engines mention a brand.', answerMentioned: true, mentionIdentity: null })
   })
 
   it('--dry-run reports would-update counts without writing to the DB', async () => {

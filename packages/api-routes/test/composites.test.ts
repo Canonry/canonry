@@ -18,10 +18,10 @@ import {
   projects,
   querySnapshots,
   runs,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import type { ApiRoutesOptions } from '../src/index.js'
-import { PROJECT_OVERVIEW_QUERY_CLASS_SCOPE, projectOverviewDtoSchema, type ProjectOverviewDto, type ProjectSearchResponseDto } from '@ainyc/canonry-contracts'
+import { PROJECT_OVERVIEW_QUERY_CLASS_SCOPE, projectOverviewDtoSchema, type ProjectOverviewDto, type ProjectSearchResponseDto } from '@canonry/canonry-contracts'
 
 function buildApp() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-composites-'))
@@ -202,6 +202,35 @@ describe('GET /api/v1/projects/:name/overview', () => {
     expect(previousRunId).toBeTruthy()
 
     await app.close()
+  })
+
+  it('fills topInsights with the newest analysis\'s insights that need action before its wins', async () => {
+    const { app, db, projectId, latestRunId } = seedProjectWithRuns()
+    // One analysis stamps all six with one createdAt, wins stored first.
+    const analysis = '2026-04-18T14:22:00.000Z'
+    const insight = (type: string, severity: string) => ({
+      id: crypto.randomUUID(), projectId, runId: latestRunId, type, severity, title: `${type} ${severity}`,
+      query: 'aeo monitoring', provider: 'gemini', recommendation: null, cause: null, dismissed: false, createdAt: analysis,
+    })
+    db.insert(insights).values([
+      insight('first-citation', 'medium'),
+      insight('provider-pickup', 'low'),
+      insight('gain', 'low'),
+      insight('regression', 'low'),
+      insight('persistent-gap', 'medium'),
+      insight('competitor-gained', 'high'),
+    ]).run()
+    await app.ready()
+
+    const res = await app.inject({ method: 'GET', url: '/api/v1/projects/demo/overview' })
+    const body = JSON.parse(res.payload) as ProjectOverviewDto
+    expect(body.topInsights.map((i) => `${i.type}:${i.severity}`)).toEqual([
+      'competitor-gained:high',
+      'persistent-gap:medium',
+      'regression:low',
+      'first-citation:medium',
+      'provider-pickup:low',
+    ])
   })
 
   it('populates the Phase 2 score gauges, movement, and provider scores', async () => {
@@ -545,7 +574,12 @@ describe('GET /api/v1/projects/:name/overview', () => {
     // does not runtime-validate outgoing payloads, so this is the only guard
     // against schema drift on the null branches.
     expect(() => projectOverviewDtoSchema.parse(body)).not.toThrow()
-    expect(body.latestRun).toEqual({ totalRuns: 0, run: null })
+    // A project with no runs has no provider streak to hold anything back.
+    expect(body.latestRun).toEqual({
+      totalRuns: 0, run: null,
+      admission: { refused: false, retryAfter: null, providers: {} },
+      manualAdmission: { refused: false, retryAfter: null, providers: {} },
+    })
     expect(body.health).toBeNull()
     expect(body.topInsights).toEqual([])
     expect(body.queryCounts).toEqual({ totalQueries: 0, citedQueries: 0, notCitedQueries: 0, citedRate: 0, mentionedQueries: 0, notMentionedQueries: 0, mentionRate: 0 })

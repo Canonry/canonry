@@ -1,7 +1,6 @@
 import { type FormEvent, useEffect, useRef, useState } from 'react'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { RouterProvider } from '@tanstack/react-router'
-import type { ApiKeyDto } from '@ainyc/canonry-contracts'
 
 import {
   ApiError,
@@ -10,6 +9,7 @@ import {
   fetchCurrentApiKey,
   fetchSession,
   hasExplicitBrowserApiKey,
+  isEmbed,
   loginWithApiKey,
   loginWithPassword,
   setupDashboardPassword,
@@ -17,14 +17,32 @@ import {
   signInWithAccount,
   type ApiAccountSession,
 } from '../../api.js'
-import { AccountProvider, type SignedInAccount } from '../../contexts/account-context.js'
+import { AccountProvider, type ApiKeyAccess, type SignedInAccount } from '../../contexts/account-context.js'
 import { asyncHandler } from '../../lib/async-handler.js'
 import { createQueryClient } from '../../queries/query-client.js'
 import { createAppRouter } from '../../router/router.js'
+import { attachUiTelemetryRouter } from '../../lib/ui-telemetry-install.js'
+import { BrandMarkImage } from '../shared/BrandLockup.js'
 import { Button } from '../ui/button.js'
 import { Card, CardContent, CardDescription, CardHeader } from '../ui/card.js'
 
 const SESSION_RECHECK_MS = 60_000
+
+/**
+ * The setup card's description. The password signs in from any browser that
+ * reaches the server, also when setup ran from another machine with the root
+ * key, so the copy ties it to no machine.
+ */
+export const SETUP_DESCRIPTION = 'Anyone with this password can sign in to this dashboard.'
+
+/** Shown when the server refuses a keyless first-run setup from this address. */
+export const SETUP_ROOT_KEY_COPY = {
+  label: 'Root API key',
+  help: 'To create the password from here, enter the root API key (apiKey in config.yaml). It is used once and not saved.',
+  missing: 'Enter the root API key.',
+  rejected: 'That is not the root API key for this install.',
+  show: 'Show passwords and key',
+} as const
 
 /**
  * `account-login` is the named-account sign-in. `setup` and `login` are the
@@ -34,13 +52,16 @@ const SESSION_RECHECK_MS = 60_000
 type AuthState = 'checking' | 'ready' | 'setup' | 'login' | 'account-login' | 'api-key-error'
 type SharedLoginMethod = 'password' | 'api-key'
 
+/** The access an embedded dashboard has: the Embed proxy's read-only project key. */
+const EMBED_SESSION_KEY: ApiKeyAccess = { id: 'embed', scopes: ['read', 'embed'], projectId: 'embed', readOnly: true }
+
 export function AuthGate() {
   const explicitBrowserApiKey = useRef(hasExplicitBrowserApiKey()).current
   const [authState, setAuthState] = useState<AuthState>(
     explicitBrowserApiKey ? 'ready' : 'checking',
   )
   const [account, setAccount] = useState<SignedInAccount | null>(null)
-  const [apiKey, setApiKey] = useState<ApiKeyDto | null>(null)
+  const [apiKey, setApiKey] = useState<ApiKeyAccess | null>(null)
   const [apiKeyPending, setApiKeyPending] = useState(explicitBrowserApiKey)
   const [accountsInUse, setAccountsInUse] = useState(false)
   const [name, setName] = useState('')
@@ -48,6 +69,10 @@ export function AuthGate() {
   const [confirmPassword, setConfirmPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [sharedLoginMethod, setSharedLoginMethod] = useState<SharedLoginMethod>('password')
+  // A proxied or network-reachable server refuses a keyless first-run setup.
+  // The root key then rides that setup request only; it is never stored.
+  const [setupNeedsRootKey, setSetupNeedsRootKey] = useState(false)
+  const [setupRootKey, setSetupRootKey] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [sessionExpired, setSessionExpired] = useState(false)
@@ -80,6 +105,8 @@ export function AuthGate() {
       const qc = createQueryClient()
       queryClientRef.current = qc
       routerRef.current = createAppRouter(qc)
+      // Page views follow the live router (a no-op until main.tsx installs telemetry).
+      attachUiTelemetryRouter(routerRef.current)
       cachedForPrincipalRef.current = principalKey
     }
     return { queryClient: queryClientRef.current!, router: routerRef.current! }
@@ -167,6 +194,16 @@ export function AuthGate() {
         }
 
         const session = legacyResult.value
+        if (session.authenticated && isEmbed()) {
+          // An embedded dashboard reaches the engine only through the Embed proxy,
+          // which injects a project-scoped read-only key the browser never sees
+          // and does not forward `/keys`. Asking `/keys/self` would always fail
+          // here, so the session is that read-only key: never full access.
+          setApiKey(EMBED_SESSION_KEY)
+          setApiKeyPending(false)
+          setAuthState('ready')
+          return
+        }
         if (session.authenticated) {
           // A shared-password session may have been created with an API key,
           // including a read-only or project-scoped one. Keep the dashboard
@@ -252,11 +289,16 @@ export function AuthGate() {
       setError('Passwords do not match')
       return
     }
+    const rootKey = setupRootKey.trim()
+    if (setupNeedsRootKey && !rootKey) {
+      setError(SETUP_ROOT_KEY_COPY.missing)
+      return
+    }
 
     setSubmitting(true)
     setError(null)
     try {
-      const session = await setupDashboardPassword(password.trim())
+      const session = await setupDashboardPassword(password.trim(), setupNeedsRootKey ? rootKey : undefined)
       if (!session.authenticated) {
         setError('Setup failed')
         return
@@ -265,6 +307,8 @@ export function AuthGate() {
       // access read, and never offer the one-time setup mutation as its retry.
       setPassword('')
       setConfirmPassword('')
+      setSetupRootKey('')
+      setSetupNeedsRootKey(false)
       setShowPassword(false)
       setSessionExpired(false)
       setApiKey(null)
@@ -282,6 +326,13 @@ export function AuthGate() {
         setAuthState('api-key-error')
       }
     } catch (err) {
+      if (err instanceof ApiError && err.statusCode === 401 && err.code === 'AUTH_REQUIRED') {
+        // The server will not take a keyless setup from this address. Ask for
+        // the root key; a refusal with a key means it is not the root key.
+        setError(setupNeedsRootKey ? SETUP_ROOT_KEY_COPY.rejected : null)
+        setSetupNeedsRootKey(true)
+        return
+      }
       setError(err instanceof ApiError ? err.message : err instanceof Error ? err.message : 'Setup failed')
     } finally {
       setSubmitting(false)
@@ -290,6 +341,11 @@ export function AuthGate() {
 
   const updatePassword = (value: string) => {
     setPassword(value)
+    setError(null)
+  }
+
+  const updateSetupRootKey = (value: string) => {
+    setSetupRootKey(value)
     setError(null)
   }
 
@@ -375,6 +431,7 @@ export function AuthGate() {
   const setupPasswordIsShort = password.length > 0 && trimmedPassword.length < 8
   const setupConfirmationMismatch = confirmPassword.length > 0 && password !== confirmPassword
   const setupFormIsValid = trimmedPassword.length >= 8 && password === confirmPassword
+    && (!setupNeedsRootKey || setupRootKey.trim().length > 0)
 
   return (
     <div className="min-h-screen bg-bg px-4 py-8">
@@ -383,8 +440,8 @@ export function AuthGate() {
             the product is. Plain markup rather than <BrandLockup>, which is
             built on router <Link>s — this gate renders before the router. */}
         <div data-testid="auth-brand" className="flex items-center gap-2.5">
-          <img className="size-7" src="./favicon.svg" alt="" aria-hidden="true" />
-          <span className="text-lg font-semibold tracking-tight text-heading">Canonry</span>
+          <BrandMarkImage className="size-7" />
+          <span className="text-label-18-strong text-heading">Canonry</span>
         </div>
         <Card className="surface-card w-full">
           {authState === 'checking' ? (
@@ -395,7 +452,7 @@ export function AuthGate() {
             <>
               <CardHeader>
                 <p className="eyebrow eyebrow-soft">Dashboard access</p>
-                <h1 className="font-medium tracking-tight text-primary">Could not verify API key access</h1>
+                <h1 className="text-heading-24 text-primary">Could not verify API key access</h1>
               </CardHeader>
               <CardContent className="space-y-4">
                 <p className="supporting-copy">
@@ -414,21 +471,21 @@ export function AuthGate() {
             <>
               <CardHeader>
                 <p className="eyebrow eyebrow-soft">Dashboard access</p>
-                <h1 className="font-medium tracking-tight text-primary">Sign in to Canonry</h1>
+                <h1 className="text-heading-24 text-primary">Sign in to Canonry</h1>
               </CardHeader>
               <CardContent>
                 {sessionExpired ? (
-                  <p className="mb-4 rounded-md border border-caution bg-caution-soft px-3 py-2 text-sm text-caution">
+                  <p className="mb-4 rounded-md border border-caution bg-caution-soft px-3 py-2 text-copy-14 text-caution">
                     You were signed out — please sign in again.
                   </p>
                 ) : null}
                 <form className="space-y-4" onSubmit={asyncHandler(handleAccountSignIn)}>
                   <label className="block space-y-1.5" htmlFor="account-name">
-                    <span className="text-xs font-medium text-secondary">Name</span>
+                    <span className="text-label-12-strong text-secondary">Name</span>
                     <input
                       autoFocus
                       id="account-name"
-                      className="w-full rounded-md border border-base bg-bg px-3 py-2 text-sm text-heading outline-none transition focus:border-mono-600"
+                      className="w-full rounded-md border border-base bg-bg px-3 py-2 text-label-14 text-heading outline-none transition focus:border-mono-600"
                       type="text"
                       name="username"
                       autoComplete="username"
@@ -442,10 +499,10 @@ export function AuthGate() {
                     />
                   </label>
                   <label className="block space-y-1.5" htmlFor="account-password">
-                    <span className="text-xs font-medium text-secondary">Password</span>
+                    <span className="text-label-12-strong text-secondary">Password</span>
                     <input
                       id="account-password"
-                      className="w-full rounded-md border border-base bg-bg px-3 py-2 text-sm text-heading outline-none transition focus:border-mono-600"
+                      className="w-full rounded-md border border-base bg-bg px-3 py-2 text-label-14 text-heading outline-none transition focus:border-mono-600"
                       type="password"
                       name="password"
                       autoComplete="current-password"
@@ -455,7 +512,7 @@ export function AuthGate() {
                       aria-describedby={error ? 'account-login-error' : undefined}
                     />
                   </label>
-                  {error ? <p id="account-login-error" role="alert" className="text-sm text-negative-400">{error}</p> : null}
+                  {error ? <p id="account-login-error" role="alert" className="text-copy-14 text-negative-400">{error}</p> : null}
                   <Button type="submit" disabled={submitting || !name.trim() || !password}>
                     {submitting ? 'Signing in…' : 'Sign in'}
                   </Button>
@@ -466,21 +523,19 @@ export function AuthGate() {
             <>
               <CardHeader>
                 <p className="eyebrow eyebrow-soft">First-time setup</p>
-                <h1 className="font-medium tracking-tight text-primary">Create a dashboard password</h1>
-                <CardDescription>
-                  This password protects the dashboard on this computer.
-                </CardDescription>
+                <h1 className="text-heading-24 text-primary">Create a dashboard password</h1>
+                <CardDescription>{SETUP_DESCRIPTION}</CardDescription>
               </CardHeader>
               <CardContent>
                 <form className="space-y-4" onSubmit={asyncHandler(handleSetup)}>
                   <div className="space-y-1.5">
-                    <label className="block text-xs font-medium text-secondary" htmlFor="dashboard-password-new">
+                    <label className="block text-label-12-strong text-secondary" htmlFor="dashboard-password-new">
                       Password
                     </label>
                     <input
                       autoFocus
                       id="dashboard-password-new"
-                      className="w-full rounded-md border border-base bg-bg px-3 py-2 text-sm text-heading outline-none transition focus:border-mono-600"
+                      className="w-full rounded-md border border-base bg-bg px-3 py-2 text-label-14 text-heading outline-none transition focus:border-mono-600"
                       type={showPassword ? 'text' : 'password'}
                       name="new-password"
                       autoComplete="new-password"
@@ -494,18 +549,18 @@ export function AuthGate() {
                     <span
                       id="dashboard-password-new-help"
                       aria-live="polite"
-                      className={setupPasswordIsShort ? 'block text-sm text-negative-400' : 'block text-sm text-secondary'}
+                      className={setupPasswordIsShort ? 'block text-label-14 text-negative-400' : 'block text-label-14 text-secondary'}
                     >
                       {setupPasswordIsShort ? 'Enter at least 8 characters.' : 'Use at least 8 characters.'}
                     </span>
                   </div>
                   <div className="space-y-1.5">
-                    <label className="block text-xs font-medium text-secondary" htmlFor="dashboard-password-confirm">
+                    <label className="block text-label-12-strong text-secondary" htmlFor="dashboard-password-confirm">
                       Confirm password
                     </label>
                     <input
                       id="dashboard-password-confirm"
-                      className="w-full rounded-md border border-base bg-bg px-3 py-2 text-sm text-heading outline-none transition focus:border-mono-600"
+                      className="w-full rounded-md border border-base bg-bg px-3 py-2 text-label-14 text-heading outline-none transition focus:border-mono-600"
                       type={showPassword ? 'text' : 'password'}
                       name="confirm-password"
                       autoComplete="new-password"
@@ -519,21 +574,45 @@ export function AuthGate() {
                     <span
                       id="dashboard-password-confirm-help"
                       aria-live="polite"
-                      className={setupConfirmationMismatch ? 'block text-sm text-negative-400' : 'block text-sm text-secondary'}
+                      className={setupConfirmationMismatch ? 'block text-label-14 text-negative-400' : 'block text-label-14 text-secondary'}
                     >
                       {setupConfirmationMismatch ? 'Passwords do not match.' : 'Enter the same password again.'}
                     </span>
                   </div>
-                  <label className="flex min-h-10 cursor-pointer items-center gap-2 text-sm text-secondary" htmlFor="dashboard-password-show">
+                  {setupNeedsRootKey ? (
+                    <div className="space-y-1.5">
+                      <label className="block text-label-12-strong text-secondary" htmlFor="dashboard-setup-root-key">
+                        {SETUP_ROOT_KEY_COPY.label}
+                      </label>
+                      <input
+                        autoFocus
+                        id="dashboard-setup-root-key"
+                        className="w-full rounded-md border border-base bg-bg px-3 py-2 text-label-14 text-heading outline-none transition focus:border-mono-600"
+                        type={showPassword ? 'text' : 'password'}
+                        name="apiKey"
+                        autoComplete="off"
+                        spellCheck={false}
+                        required
+                        value={setupRootKey}
+                        onChange={(event) => updateSetupRootKey(event.target.value)}
+                        aria-invalid={error === SETUP_ROOT_KEY_COPY.rejected}
+                        aria-describedby="dashboard-setup-root-key-help"
+                      />
+                      <span id="dashboard-setup-root-key-help" aria-live="polite" className="block text-label-14 text-secondary">
+                        {SETUP_ROOT_KEY_COPY.help}
+                      </span>
+                    </div>
+                  ) : null}
+                  <label className="flex min-h-10 cursor-pointer items-center gap-2 text-label-14 text-secondary" htmlFor="dashboard-password-show">
                     <input
                       id="dashboard-password-show"
                       type="checkbox"
                       checked={showPassword}
                       onChange={(event) => setShowPassword(event.target.checked)}
                     />
-                    Show passwords
+                    {setupNeedsRootKey ? SETUP_ROOT_KEY_COPY.show : 'Show passwords'}
                   </label>
-                  {error ? <p id="dashboard-password-setup-error" role="alert" className="text-sm text-negative-400">{error}</p> : null}
+                  {error ? <p id="dashboard-password-setup-error" role="alert" className="text-copy-14 text-negative-400">{error}</p> : null}
                   <Button type="submit" disabled={submitting || !setupFormIsValid}>
                     {submitting ? 'Creating password…' : 'Create password and continue'}
                   </Button>
@@ -544,7 +623,7 @@ export function AuthGate() {
             <>
               <CardHeader>
                 <p className="eyebrow eyebrow-soft">Dashboard access</p>
-                <h1 className="font-medium tracking-tight text-primary">Sign in to Canonry</h1>
+                <h1 className="text-heading-24 text-primary">Sign in to Canonry</h1>
                 <CardDescription>
                   {sharedLoginMethod === 'api-key'
                     ? 'Enter an API key from this Canonry install. This opens the dashboard with that key’s access and does not change the password.'
@@ -553,19 +632,19 @@ export function AuthGate() {
               </CardHeader>
               <CardContent>
                 {sessionExpired ? (
-                  <p className="mb-4 rounded-md border border-caution bg-caution-soft px-3 py-2 text-sm text-caution">
+                  <p className="mb-4 rounded-md border border-caution bg-caution-soft px-3 py-2 text-copy-14 text-caution">
                     Your session expired — please sign in again.
                   </p>
                 ) : null}
                 <form className="space-y-4" onSubmit={asyncHandler(handleLogin)}>
                   <label className="block space-y-1.5" htmlFor="dashboard-password-current">
-                    <span className="text-xs font-medium text-secondary">
+                    <span className="text-label-12-strong text-secondary">
                       {sharedLoginMethod === 'api-key' ? 'Canonry API key' : 'Password'}
                     </span>
                     <input
                       autoFocus
                       id="dashboard-password-current"
-                      className="w-full rounded-md border border-base bg-bg px-3 py-2 text-sm text-heading outline-none transition focus:border-mono-600"
+                      className="w-full rounded-md border border-base bg-bg px-3 py-2 text-label-14 text-heading outline-none transition focus:border-mono-600"
                       type={showPassword ? 'text' : 'password'}
                       name={sharedLoginMethod === 'api-key' ? 'apiKey' : 'password'}
                       autoComplete={sharedLoginMethod === 'api-key' ? 'off' : 'current-password'}
@@ -577,7 +656,7 @@ export function AuthGate() {
                       aria-describedby={error ? 'dashboard-password-login-error' : undefined}
                     />
                   </label>
-                  <label className="flex min-h-10 cursor-pointer items-center gap-2 text-sm text-secondary" htmlFor="dashboard-login-password-show">
+                  <label className="flex min-h-10 cursor-pointer items-center gap-2 text-label-14 text-secondary" htmlFor="dashboard-login-password-show">
                     <input
                       id="dashboard-login-password-show"
                       type="checkbox"
@@ -586,7 +665,7 @@ export function AuthGate() {
                     />
                     {sharedLoginMethod === 'api-key' ? 'Show API key' : 'Show password'}
                   </label>
-                  {error ? <p id="dashboard-password-login-error" role="alert" className="text-sm text-negative-400">{error}</p> : null}
+                  {error ? <p id="dashboard-password-login-error" role="alert" className="text-copy-14 text-negative-400">{error}</p> : null}
                   <Button type="submit" disabled={submitting || !password.trim()}>
                     {submitting ? 'Signing in…' : 'Open dashboard'}
                   </Button>

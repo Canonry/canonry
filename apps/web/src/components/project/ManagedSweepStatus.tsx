@@ -1,14 +1,14 @@
 import { useQuery } from '@tanstack/react-query'
-import { getApiV1ProjectsByNameScheduleOptions } from '@ainyc/canonry-api-client/react-query'
-import { RunKinds, type SchedulableRunKind } from '@ainyc/canonry-contracts'
+import { getApiV1ProjectsByNameScheduleOptions } from '@canonry/canonry-api-client/react-query'
+import { RunKinds, type SchedulableRunKind } from '@canonry/canonry-contracts'
 import { ApiError, heyClient } from '../../api.js'
 
-export const MANAGED_SWEEPS_COPY = 'Sweeps are run by your Canonry team'
+export const MANAGED_SWEEPS_COPY = 'AI Visibility checks are run by your Canonry team'
 
 export const MANAGED_SCANS_COPY = 'Scans are run by your Canonry team'
-export const MANAGED_SWEEPS_UNAVAILABLE_COPY = 'Next sweep unavailable'
-export const MANAGED_SWEEPS_RUNNING_COPY = 'Sweep running…'
-export const MANAGED_SWEEPS_NEXT_LABEL = 'Next sweep:'
+export const MANAGED_SWEEPS_UNAVAILABLE_COPY = 'Next check unavailable'
+export const MANAGED_SWEEPS_RUNNING_COPY = 'Check running…'
+export const MANAGED_SWEEPS_NEXT_LABEL = 'Next check:'
 
 /** A scheduled sweep's calendar date in the schedule timezone, or null when it cannot be formatted. */
 export function managedSweepDate(iso: string, timezone: string | undefined): string | null {
@@ -57,7 +57,7 @@ export function ManagedSweepStatus({ projectName, kind = RunKinds['answer-visibi
   const unavailableSweep = !nextSync || missingSchedule || !schedule?.enabled
 
   return (
-    <p className="text-sm text-secondary" role="status">
+    <p className="text-copy-14 text-secondary" role="status">
       {scan ? <>
         {running && <span className="text-neutral">Scan running… · </span>}
         {nextSync && nextRun ? <>

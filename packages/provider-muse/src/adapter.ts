@@ -5,7 +5,7 @@ import type {
   ProviderHealthcheckResult,
   RawQueryResult,
   TrackedQueryInput,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { listModels } from './list-models.js'
 import {
   executeTrackedQuery,
@@ -16,7 +16,7 @@ import {
 } from './normalize.js'
 import type { MuseConfig } from './types.js'
 
-export function toMuseConfig(config: ProviderConfig): MuseConfig {
+function toMuseConfig(config: ProviderConfig): MuseConfig {
   return {
     apiKey: config.apiKey ?? '',
     model: config.model,
@@ -60,6 +60,7 @@ export const museAdapter: ProviderAdapter = {
       servedModel: raw.servedModel,
       groundingSources: raw.groundingSources,
       searchQueries: raw.searchQueries,
+      retrievedSources: raw.retrievedSources ?? null,
       retrievalStatus: raw.retrievalStatus,
     })
   },

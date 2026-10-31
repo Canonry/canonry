@@ -1,9 +1,12 @@
+import { isProviderAvailable, isSweepProvider } from '@canonry/canonry-contracts'
+import { assertOpenRouterRouteScope } from './provider-models.js'
 import crypto from 'node:crypto'
 import { and, eq, inArray, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { queries, querySnapshots } from '@ainyc/canonry-db'
-import { AppError, keywordGenerateRequestSchema, queryGenerateRequestSchema, validationError, notImplemented, internalError, notFound, providerAuthError, quotaExceeded, providerError, classifyProviderErrorMessage, describeError } from '@ainyc/canonry-contracts'
+import { queries, querySnapshots, type DatabaseClient } from '@canonry/canonry-db'
+import { AppError, keywordGenerateRequestSchema, queryGenerateRequestSchema, validationError, notImplemented, internalError, notFound, providerAuthError, quotaExceeded, providerError, classifyProviderErrorMessage, describeError, type QueryDto } from '@canonry/canonry-contracts'
 import { auditFromRequest, resolveProject, writeAuditLog } from './helpers.js'
+import { readQueryClasses } from './query-class-read.js'
 import { assertQueryCatalogMutationAllowed, assertQueryReplacementAllowed, changedQueryIdsForReplace, diffProjectQueries, preserveSnapshotQueryText, replaceProjectQueries } from './query-replace.js'
 
 /**
@@ -20,10 +23,15 @@ function generationFailure(err: unknown, fallbackMessage: string): AppError {
   if (err instanceof AppError) return err
   const message = err instanceof Error ? describeError(err) : fallbackMessage
   switch (classifyProviderErrorMessage(message)) {
+    // Billing has no error code of its own on the wire. It is an account
+    // problem the operator fixes in the provider's console, as with a bad key,
+    // and not a limit to wait out; the message names which one it is.
     case 'PROVIDER_AUTH':
+    case 'PROVIDER_BILLING':
       return providerAuthError(message)
     case 'RATE_LIMITED':
       return quotaExceeded('provider requests', { message })
+    case 'PROVIDER_UNAVAILABLE':
     case 'NETWORK':
     case 'TIMEOUT':
       return providerError(message)
@@ -33,6 +41,17 @@ function generationFailure(err: unknown, fallbackMessage: string): AppError {
     case 'UNKNOWN':
       return internalError(message)
   }
+}
+
+/**
+ * The project's tracked queries as every `/queries` route returns them, each
+ * with the class it is measured under (`readQueryClasses`). The class is read
+ * here, once, so the list and the response to a write never disagree.
+ */
+function projectQueryDtos(db: DatabaseClient, project: ReturnType<typeof resolveProject>): QueryDto[] {
+  const rows = db.select().from(queries).where(eq(queries.projectId, project.id)).all()
+  const classes = readQueryClasses(db, project, rows)
+  return rows.map(r => ({ id: r.id, query: r.query, createdAt: r.createdAt, queryClass: classes.get(r.id) ?? null }))
 }
 
 export interface QueryRoutesOptions {
@@ -47,8 +66,7 @@ export async function queryRoutes(app: FastifyInstance, opts: QueryRoutesOptions
   // GET /projects/:name/queries
   app.get<{ Params: { name: string } }>('/projects/:name/queries', async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
-    const rows = app.db.select().from(queries).where(eq(queries.projectId, project.id)).all()
-    return reply.send(rows.map(r => ({ id: r.id, query: r.query, createdAt: r.createdAt })))
+    return reply.send(projectQueryDtos(app.db, project))
   })
 
   // PUT /projects/:name/queries — replace all (declarative)
@@ -84,8 +102,7 @@ export async function queryRoutes(app: FastifyInstance, opts: QueryRoutesOptions
       }))
     }, { behavior: 'immediate' })
 
-    const rows = app.db.select().from(queries).where(eq(queries.projectId, project.id)).all()
-    return reply.send(rows.map(r => ({ id: r.id, query: r.query, createdAt: r.createdAt })))
+    return reply.send(projectQueryDtos(app.db, project))
   })
 
   app.post<{
@@ -191,8 +208,7 @@ export async function queryRoutes(app: FastifyInstance, opts: QueryRoutesOptions
       }
     }, { behavior: 'immediate' })
 
-    const rows = app.db.select().from(queries).where(eq(queries.projectId, project.id)).all()
-    return reply.send(rows.map(r => ({ id: r.id, query: r.query, createdAt: r.createdAt })))
+    return reply.send(projectQueryDtos(app.db, project))
   })
 
   // DELETE /projects/:name/queries/:id — remove one query by row id.
@@ -275,8 +291,7 @@ export async function queryRoutes(app: FastifyInstance, opts: QueryRoutesOptions
       }))
     }
 
-    const rows = app.db.select().from(queries).where(eq(queries.projectId, project.id)).all()
-    return reply.send(rows.map(r => ({ id: r.id, query: r.query, createdAt: r.createdAt })))
+    return reply.send(projectQueryDtos(app.db, project))
   })
   // POST /projects/:name/queries/generate — auto-generate query suggestions
   app.post<{
@@ -298,12 +313,13 @@ export async function queryRoutes(app: FastifyInstance, opts: QueryRoutesOptions
     const body = parsed.data
     const provider = body.provider.trim().toLowerCase()
     const validNames = opts.validProviderNames ?? []
-    if (validNames.length && !validNames.includes(provider)) {
+    if (validNames.length && (!isSweepProvider(provider) || !isProviderAvailable(provider, validNames))) {
       throw validationError(`Unknown provider "${body.provider}". Valid providers: ${validNames.join(', ')}`, {
         provider: body.provider,
         validProviders: validNames,
       })
     }
+    assertOpenRouterRouteScope(request, [provider], project.providers)
     const count = body.count ?? 5
 
     if (!opts.onGenerateQueries) {
@@ -477,12 +493,13 @@ export async function queryRoutes(app: FastifyInstance, opts: QueryRoutesOptions
     const body = parsed.data
     const provider = body.provider.trim().toLowerCase()
     const validNames = opts.validProviderNames ?? []
-    if (validNames.length && !validNames.includes(provider)) {
+    if (validNames.length && (!isSweepProvider(provider) || !isProviderAvailable(provider, validNames))) {
       throw validationError(`Unknown provider "${body.provider}". Valid providers: ${validNames.join(', ')}`, {
         provider: body.provider,
         validProviders: validNames,
       })
     }
+    assertOpenRouterRouteScope(request, [provider], project.providers)
     const count = body.count ?? 5
 
     if (!opts.onGenerateQueries) {

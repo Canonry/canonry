@@ -1,24 +1,41 @@
+import { ProviderWorkflows } from '@canonry/canonry-contracts'
 import crypto from 'node:crypto'
 import { and, eq } from 'drizzle-orm'
-import type { FastifyInstance } from 'fastify'
-import { projects, competitors, schedules, notifications, readNegativeReviewMaxStars, writeNegativeReviewMaxStars } from '@ainyc/canonry-db'
-import { forbidden, nextScheduleUpdatedAt, normalizeProjectAliases, normalizeProjectDomain, projectConfigSchema, registrableDomain, resolveConfigSpecQueries, SchedulableRunKinds, validationError, describeError } from '@ainyc/canonry-contracts'
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
+import { projects, schedules, notifications, readNegativeReviewMaxStars, writeNegativeReviewMaxStars } from '@canonry/canonry-db'
+import { competitorAliasProjectIdentity, DEFAULT_COMPETITOR_AUTO_ALIAS_MODE, diffProjectConfigState, forbidden, isRedactedNotificationUrl, nextScheduleUpdatedAt, normalizeProjectAliases, scheduleEnabledAt, projectConfigSchema, resolveConfigSpecQueries, resolveProjectQualifiedAliases, SchedulableRunKinds, validationError, describeError, type ApplyPreviewDto } from '@canonry/canonry-contracts'
+import { competitorSetChangeAuditFields, competitorAliasAuditFields, competitorIdentityChanged, competitorNames, competitorWritesFromEntries, planCompetitorSet, readStoredCompetitors, syncCompetitorSet } from './competitor-writes.js'
 import type { ProviderAdapterInfo } from './settings.js'
-import { pruneProviderDispatchModes, pruneProviderModelsForProviders, validateProviderDispatchModes, validateProviderModels } from './provider-models.js'
+import { assertProviderRouteScope, invalidProviderSelections, providerRouteFamilies, pruneProviderDispatchModes, pruneProviderModelsForProviders, validateProviderDispatchModes, validateProviderModels } from './provider-models.js'
 import { writeAuditLog } from './helpers.js'
-import { assertProviderModelScope } from './projects.js'
+import { readMarketCompetitorPins } from './plan-competitors.js'
+import { marketNameChanges, readMarketCompetitorNames } from './market-competitor-names.js'
+import { aliasArraysEqual, assertProviderModelScope, requireQualifiedAliases } from './projects.js'
 import { assertQueryReplacementAllowed, replaceProjectQueries } from './query-replace.js'
 import { activeRevisionProviders } from './run-queue.js'
 import { nextRunFromSchedule, resolvePreset, validateCron, isValidTimezone } from './schedule-utils.js'
 import { resolveWebhookTarget } from './webhooks.js'
+import { notificationAuditDiff, planNotificationSet, syncNotificationSet, type NotificationSetPlan } from './notification-writes.js'
+import { readProjectConfigState } from './project-config-state.js'
+
+class ApplyPreviewRollback extends Error {
+  constructor(readonly preview: ApplyPreviewDto) {
+    super('Apply preview rollback')
+    this.name = 'ApplyPreviewRollback'
+  }
+}
 
 export interface ApplyRoutesOptions {
-  onScheduleUpdated?: (action: 'upsert' | 'delete', projectId: string, kind: import('@ainyc/canonry-contracts').SchedulableRunKind) => void
+  onScheduleUpdated?: (action: 'upsert' | 'delete', projectId: string, kind: import('@canonry/canonry-contracts').SchedulableRunKind) => void
   onProjectUpserted?: (projectId: string, projectName: string) => void
   /** Post-commit lifecycle hook; failures must not turn a committed create into an HTTP 500. */
   onProjectCreated?: (projectId: string, projectName: string) => void
   /** See `ProjectRoutesOptions.onAliasesChanged`. */
   onAliasesChanged?: (projectId: string, projectName: string) => void
+  /** See `CompetitorRoutesOptions.onCompetitorAliasesChanged`. */
+  onCompetitorAliasesChanged?: (projectId: string, projectName: string) => void
+  /** See `CompetitorRoutesOptions.onCompetitorAutoAliasRescan`; fired when apply adds a competitor. */
+  onCompetitorAutoAliasRescan?: (projectId: string, projectName: string) => void
   onGoogleConnectionPropertyUpdated?: (domain: string, connectionType: 'gsc' | 'ga4', propertyId: string) => void
   /** Full descriptors from registered adapters — used to reject unknown providers and invalid model overrides. */
   providerAdapters?: ProviderAdapterInfo[]
@@ -27,6 +44,7 @@ export interface ApplyRoutesOptions {
 }
 
 export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOptions) {
+  const routeFamilies = providerRouteFamilies(opts?.providerAdapters)
   const allowLoopback = opts?.allowLoopbackWebhooks === true
   const notifyProjectCreated = (projectId: string, projectName: string): void => {
     try {
@@ -35,8 +53,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
       app.log.error({ error, projectId, projectName }, 'Project-created callback failed after commit')
     }
   }
-  // POST /apply — accept a canonry.yaml body (JSON-parsed version)
-  app.post('/apply', async (request, reply) => {
+  const executeApply = async (request: FastifyRequest, reply: FastifyReply, mode: 'commit' | 'preview') => {
     const parsed = projectConfigSchema.safeParse(request.body)
     if (!parsed.success) {
       throw validationError('Invalid project config', {
@@ -54,7 +71,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
         ...(config.spec.schedule?.providers ?? []),
       ]
       if (allProviders.length) {
-        const invalid = allProviders.filter(p => !validNames.includes(p))
+        const invalid = invalidProviderSelections(allProviders, validNames, opts?.providerAdapters, ProviderWorkflows['visibility-sweep'])
         if (invalid.length) {
           throw validationError(`Invalid provider(s): ${[...new Set(invalid)].join(', ')}. Must be one of: ${validNames.join(', ')}`, {
             invalidProviders: [...new Set(invalid)],
@@ -73,9 +90,21 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
     const specDispatchModes = config.spec.providerDispatchModes === undefined
       ? undefined
       : validateProviderDispatchModes(config.spec.providerDispatchModes, opts?.providerAdapters)
+    // The spec's competitor set: a bare domain keeps that competitor's curated
+    // aliases, `{ domain, aliases }` sets them exactly. It is planned against
+    // the stored rows after the scope check (a stated alias that breaks the
+    // shared rules fails the apply before any write) and redone inside the
+    // transaction. Aliases the spec's own identity claims cannot be competitors'.
+    const specAliasIdentity = competitorAliasProjectIdentity({
+      displayName: config.spec.displayName,
+      aliases: normalizeProjectAliases(config.spec.displayName, config.spec.aliases),
+      canonicalDomain: config.spec.canonicalDomain,
+      ownedDomains: config.spec.ownedDomains,
+    })
+    const competitorWrites = competitorWritesFromEntries(config.spec.competitors)
 
     // Validate schedule before entering transaction
-    let resolvedSchedule: { cronExpr: string; preset: string | null; recurrence: import('@ainyc/canonry-contracts').CalendarRecurrence | null; timezone: string } | null = null
+    let resolvedSchedule: { cronExpr: string; preset: string | null; recurrence: import('@canonry/canonry-contracts').CalendarRecurrence | null; timezone: string } | null = null
     let deleteSchedule = false
     if (config.spec.schedule) {
       const schedSpec = config.spec.schedule
@@ -108,6 +137,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
     const hasNotifications = 'notifications' in rawSpec
     if (hasNotifications) {
       for (const notif of config.spec.notifications) {
+        if (isRedactedNotificationUrl(notif.url)) continue
         const urlCheck = await resolveWebhookTarget(notif.url ?? '', { allowLoopback })
         if (!urlCheck.ok) throw validationError(`Notification URL invalid: ${urlCheck.message}`)
       }
@@ -125,7 +155,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
     const configQueries = resolveConfigSpecQueries(config.spec)
 
     const target = app.db
-      .select({ id: projects.id, providerModels: projects.providerModels })
+      .select({ id: projects.id, providerModels: projects.providerModels, providers: projects.providers })
       .from(projects)
       .where(eq(projects.name, name))
       .get()
@@ -141,19 +171,61 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
       }
     }
 
+    let notificationPlan: NotificationSetPlan | undefined
+    if (hasNotifications) {
+      const storedNotifications = target
+        ? app.db.select().from(notifications).where(eq(notifications.projectId, target.id)).all()
+        : []
+      notificationPlan = planNotificationSet(storedNotifications, config.spec.notifications)
+    }
+
     // Same instance-level gate as PUT /projects/:name — apply may not be a
     // back door into choosing the execution model.
     assertProviderModelScope(request, target?.providerModels ?? {}, providerModels, specProviders)
+    assertProviderRouteScope(request, [...specProviders, ...(config.spec.schedule?.providers ?? [])], target?.providers ?? [], routeFamilies)
+
+    // Planned only after the project-scope check, so a rejection naming another
+    // competitor can never describe a project this key may not read. Planned
+    // against the market pins too, so the preview's names match the
+    // transaction's (`syncCompetitorSet` reads them there).
+    const competitorPreview = planCompetitorSet(
+      target ? readStoredCompetitors(app.db, target.id) : [],
+      competitorWrites,
+      { replace: true, project: specAliasIdentity, marketPins: target ? readMarketCompetitorPins(app.db, target.id) : [] },
+    )
+    // Present = the exact list, validated against the spec's own competitors
+    // (domain labels plus curated aliases) because apply replaces that set.
+    // Absent keeps the stored list (below).
+    const specCompetitorNames = competitorNames(competitorPreview.final)
+    const specQualifiedAliases = config.spec.qualifiedAliases === undefined
+      ? undefined
+      : requireQualifiedAliases(
+          {
+            displayName: config.spec.displayName,
+            aliases: normalizeProjectAliases(config.spec.displayName, config.spec.aliases),
+          },
+          config.spec.qualifiedAliases,
+          specCompetitorNames,
+        )
 
     // All validation done — wrap all writes in a single transaction
     let projectId: string
-    const lifecycle = { projectCreated: false }
+    const lifecycle = { projectCreated: false, competitorAliasesChanged: false, competitorsAdded: false }
     let scheduleAction: 'upsert' | 'delete' | null = null
     let aliasesChanged = false
+    let droppedAliases: ApplyPreviewDto['competitors']['droppedAliases'] = []
 
-    app.db.transaction((tx) => {
+    try {
+      app.db.transaction((tx) => {
+      const beforeState = mode === 'preview' ? readProjectConfigState(tx, name, {
+        managed: { queries: managesQueries, competitors: true, schedule: true, notifications: hasNotifications },
+      }) : null
       // Upsert project
       const existing = tx.select().from(projects).where(eq(projects.name, name)).get()
+      // The spec's identity and competitor set can claim, or release, a name
+      // learned for a competitor only a market pins without changing a stored
+      // name: compare the names readers layer onto it before and after.
+      const marketNamesBefore = existing ? readMarketCompetitorNames(tx, existing.id) : new Map<string, string[]>()
 
       const nextAliases = normalizeProjectAliases(config.spec.displayName, config.spec.aliases ?? [])
       // Only fire on actual changes to an existing project — a brand-new project
@@ -165,6 +237,13 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
 
       if (existing) {
         projectId = existing.id
+        // Omitted keeps the stored list, minus names that no longer pass the
+        // write rules against this spec's aliases and competitors.
+        const qualifiedAliases = specQualifiedAliases ?? resolveProjectQualifiedAliases(
+          { displayName: config.spec.displayName, aliases: nextAliases },
+          existing.qualifiedAliases,
+          specCompetitorNames,
+        ).value
         const providerDispatchModes = pruneProviderDispatchModes(
           specDispatchModes ?? existing.providerDispatchModes,
           specProviders,
@@ -175,6 +254,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
           canonicalDomain: config.spec.canonicalDomain,
           ownedDomains: config.spec.ownedDomains ?? [],
           aliases: nextAliases,
+          qualifiedAliases,
           country: config.spec.country,
           language: config.spec.language,
           labels: config.metadata.labels,
@@ -185,6 +265,10 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
           locations: config.spec.locations ?? [],
           defaultLocation: config.spec.defaultLocation ?? null,
           autoExtractBacklinks: config.spec.autoExtractBacklinks ?? false,
+          // Present sets (null = full site); absent leaves the stored budget alone.
+          ...(config.spec.siteAuditMaxPages !== undefined ? { siteAuditMaxPages: config.spec.siteAuditMaxPages } : {}),
+          // Present sets; absent leaves the stored detection mode alone.
+          ...(config.spec.competitorAutoAliases !== undefined ? { competitorAutoAliases: config.spec.competitorAutoAliases } : {}),
           configSource: 'config-file',
           configRevision: existing.configRevision + 1,
           updatedAt: now,
@@ -196,6 +280,9 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
           action: 'project.applied',
           entityType: 'project',
           entityId: projectId,
+          ...(config.spec.competitorAutoAliases !== undefined && config.spec.competitorAutoAliases !== existing.competitorAutoAliases
+            ? { diff: { competitorAutoAliases: { before: existing.competitorAutoAliases, after: config.spec.competitorAutoAliases } } }
+            : {}),
         })
       } else {
         projectId = crypto.randomUUID()
@@ -207,6 +294,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
           canonicalDomain: config.spec.canonicalDomain,
           ownedDomains: config.spec.ownedDomains ?? [],
           aliases: nextAliases,
+          qualifiedAliases: specQualifiedAliases ?? [],
           country: config.spec.country,
           language: config.spec.language,
           tags: [],
@@ -218,6 +306,8 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
           locations: config.spec.locations ?? [],
           defaultLocation: config.spec.defaultLocation ?? null,
           autoExtractBacklinks: config.spec.autoExtractBacklinks ?? false,
+          siteAuditMaxPages: config.spec.siteAuditMaxPages ?? null,
+          competitorAutoAliases: config.spec.competitorAutoAliases ?? DEFAULT_COMPETITOR_AUTO_ALIAS_MODE,
           configSource: 'config-file',
           configRevision: 1,
           createdAt: now,
@@ -256,24 +346,30 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
         })
       }
 
-      tx.delete(competitors).where(eq(competitors.projectId, projectId)).run()
-      const normalizedCompetitors = normalizeCompetitorList(config.spec.competitors)
-      for (const domain of normalizedCompetitors) {
-        tx.insert(competitors).values({
-          id: crypto.randomUUID(),
-          projectId,
-          domain,
-          provenance: 'cli',
-          createdAt: now,
-        }).run()
-      }
+      // Domains that stay keep their row (id, provenance, curated aliases);
+      // removed domains are deleted and new ones inserted.
+      const competitorPlan = syncCompetitorSet(tx, projectId, competitorWrites, {
+        replace: true,
+        project: specAliasIdentity,
+        now,
+      })
+      droppedAliases = competitorPlan.droppedAliases
+      const marketNamesChanged = existing ? marketNameChanges(marketNamesBefore, readMarketCompetitorNames(tx, projectId)) : []
+      lifecycle.competitorAliasesChanged = !lifecycle.projectCreated
+        && (competitorIdentityChanged(competitorPlan) || marketNamesChanged.length > 0)
+      lifecycle.competitorsAdded = !lifecycle.projectCreated && competitorPlan.added.length > 0
 
       writeAuditLog(tx, {
         projectId,
         actor: 'api',
         action: 'competitors.replaced',
         entityType: 'competitor',
-        diff: { competitors: normalizedCompetitors },
+        diff: {
+          competitors: competitorWrites.map(write => write.domain),
+          ...competitorSetChangeAuditFields(competitorPlan),
+          ...competitorAliasAuditFields(competitorPlan),
+          ...(marketNamesChanged.length ? { marketNameChanges: marketNamesChanged } : {}),
+        },
       })
 
       // Handle schedule. `canonry apply` only manages the answer-visibility
@@ -310,7 +406,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
             timezone: resolvedSchedule.timezone,
             nextRunAt,
             providers: config.spec.schedule?.providers ?? [],
-            ...(specEnabled === undefined ? {} : { enabled: specEnabled }),
+            ...(specEnabled === undefined ? {} : { enabled: specEnabled, enabledAt: scheduleEnabledAt(existingSched, specEnabled, now) }),
             updatedAt: nextScheduleUpdatedAt(existingSched.updatedAt, Date.parse(now)),
           }).where(eq(schedules.id, existingSched.id)).run()
         } else {
@@ -324,6 +420,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
             timezone: resolvedSchedule.timezone,
             nextRunAt,
             enabled: specEnabled ?? true,
+            enabledAt: scheduleEnabledAt(undefined, specEnabled ?? true, now),
             providers: config.spec.schedule?.providers ?? [],
             createdAt: now,
             updatedAt: now,
@@ -346,29 +443,41 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
 
       // Handle notifications
       if (hasNotifications) {
-        tx.delete(notifications).where(eq(notifications.projectId, projectId)).run()
-        for (const notif of config.spec.notifications) {
-          tx.insert(notifications).values({
-            id: crypto.randomUUID(),
-            projectId,
-            channel: notif.channel,
-            config: { url: notif.url, events: notif.events },
-            webhookSecret: crypto.randomBytes(32).toString('hex'),
-            enabled: true,
-            createdAt: now,
-            updatedAt: now,
-          }).run()
-        }
+        const notificationSync = syncNotificationSet(tx, projectId, notificationPlan!, now)
 
         writeAuditLog(tx, {
           projectId,
           actor: 'api',
           action: 'notifications.replaced',
           entityType: 'notification',
-          diff: { notifications: config.spec.notifications },
+          diff: { notifications: notificationAuditDiff(notificationPlan!, notificationSync) },
         })
       }
-    }, { behavior: 'immediate' })
+
+      if (mode === 'preview') {
+        const afterState = readProjectConfigState(tx, name, {
+          managed: {
+            queries: managesQueries,
+            competitors: true,
+            schedule: true,
+            notifications: hasNotifications,
+          },
+        })
+        if (!afterState) throw new Error('Applied project state was not readable inside the transaction')
+        const effects: ApplyPreviewDto['effects'] = []
+        if (aliasesChanged) effects.push('mention-backfill')
+        else if (lifecycle.competitorAliasesChanged) effects.push('competitor-rescore')
+        if (lifecycle.competitorsAdded) effects.push('competitor-auto-alias-rescan')
+        if (scheduleAction) effects.push('schedule-reload')
+        if ('google' in rawSpec && config.spec.google?.gsc?.propertyUrl) effects.push('gsc-property-update')
+        const preview = diffProjectConfigState(beforeState, afterState, { droppedAliases, effects })
+        throw new ApplyPreviewRollback(preview)
+      }
+      }, { behavior: 'immediate' })
+    } catch (error) {
+      if (error instanceof ApplyPreviewRollback) return reply.status(200).send(error.preview)
+      throw error
+    }
 
     // Fire callbacks after transaction commits.
     if (lifecycle.projectCreated) {
@@ -382,6 +491,11 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
     }
     if (aliasesChanged) {
       opts?.onAliasesChanged?.(projectId!, config.metadata.name)
+    } else if (lifecycle.competitorAliasesChanged) {
+      opts?.onCompetitorAliasesChanged?.(projectId!, config.metadata.name)
+    }
+    if (lifecycle.competitorsAdded) {
+      opts?.onCompetitorAutoAliasRescan?.(projectId!, config.metadata.name)
     }
     if ('google' in rawSpec && config.spec.google?.gsc?.propertyUrl) {
       opts?.onGoogleConnectionPropertyUpdated?.(config.spec.canonicalDomain, 'gsc', config.spec.google.gsc.propertyUrl)
@@ -395,6 +509,7 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
       canonicalDomain: project.canonicalDomain,
       ownedDomains: project.ownedDomains,
       aliases: project.aliases,
+      qualifiedAliases: project.qualifiedAliases,
       country: project.country,
       language: project.language,
       tags: project.tags,
@@ -407,39 +522,15 @@ export async function applyRoutes(app: FastifyInstance, opts?: ApplyRoutesOption
       defaultLocation: project.defaultLocation,
       autoExtractBacklinks: project.autoExtractBacklinks,
       negativeReviewMaxStars: readNegativeReviewMaxStars(app.db, project.id),
+      siteAuditMaxPages: project.siteAuditMaxPages ?? null,
+      competitorAutoAliases: project.competitorAutoAliases,
       configSource: project.configSource,
       configRevision: project.configRevision,
       createdAt: project.createdAt,
       updatedAt: project.updatedAt,
     })
-  })
-}
-
-// Case-insensitive value compare. Aliases are persisted post-normalize
-// (trimmed, deduped, stable order); two sets that differ only in casing
-// produce identical mention-detection output, so a casing rename does not
-// need a backfill.
-function aliasArraysEqual(a: readonly string[], b: readonly string[]): boolean {
-  if (a.length !== b.length) return false
-  for (let i = 0; i < a.length; i++) {
-    if (a[i]!.toLowerCase() !== b[i]!.toLowerCase()) return false
   }
-  return true
-}
 
-// Reduce competitor domains to their registrable form (eTLD+1) and dedupe.
-// Mirrors the helper in `competitors.ts` so both the YAML apply path and the
-// REST endpoints store competitors uniformly without subdomain noise.
-function normalizeCompetitorList(domains: readonly string[]): string[] {
-  const seen = new Set<string>()
-  const result: string[] = []
-  for (const raw of domains) {
-    const trimmed = raw?.trim()
-    if (!trimmed) continue
-    const normalized = registrableDomain(trimmed) || normalizeProjectDomain(trimmed)
-    if (!normalized || seen.has(normalized)) continue
-    seen.add(normalized)
-    result.push(normalized)
-  }
-  return result
+  app.post('/apply', (request, reply) => executeApply(request, reply, 'commit'))
+  app.post('/apply/preview', (request, reply) => executeApply(request, reply, 'preview'))
 }

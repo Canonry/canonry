@@ -1,31 +1,33 @@
-import {
-  trafficBackfill,
-  trafficActivate,
-  trafficConnectCloudflare,
-  trafficConnectCloudRun,
-  trafficConnectVercel,
-  trafficConnectWordpress,
-  trafficEvents,
-  trafficReferralAssessment,
-  trafficReset,
-  trafficSources,
-  trafficStatus,
-  trafficSync,
-} from '../commands/traffic.js'
+import { WINDOW_SETS } from '@canonry/canonry-contracts'
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import { getBoolean, getString, parseIntegerOption, requireProject, stringOption, unknownSubcommand } from '../cli-command-helpers.js'
-import { DEFAULT_CLOUDFLARE_QUEUE_RETENTION_SECONDS } from '../commands/traffic.js'
+import { usageError } from '../cli-error.js'
 
 export const TRAFFIC_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
+    path: ['traffic', 'analytics'],
+    windows: WINDOW_SETS.trafficAnalytics,
+    windowAliases: { window: 'period' },
+    usage: 'canonry traffic analytics <project> [--period 7|14|30|90] [--format json]',
+    help: 'Complete stored traffic totals and breakdowns for the selected window. Project-wide for Simple and Advanced portfolios; no provider calls or sync.',
+    options: { period: stringOption() },
+    run: async input => {
+      const { trafficAnalytics } = await import('../commands/traffic.js')
+      const project = requireProject(input, 'traffic.analytics', 'canonry traffic analytics <project> [--period 7|14|30|90]')
+      await trafficAnalytics(project, { period: getString(input.values, 'window') ?? getString(input.values, 'period'), format: input.format })
+    },
+  },
+  {
     path: ['traffic', 'referral-assessment'],
+    windowAliases: { start: 'start-date', end: 'end-date' },
     usage: 'canonry traffic referral-assessment <project> --start-date YYYY-MM-DD --end-date YYYY-MM-DD [--source <id>] [--burst-threshold 100] [--ratio-threshold 3] [--limit 100] [--format json]',
     help: 'DB-only diagnostic. Raw headlines stay unchanged. Candidate bursts are not confirmed automation; adjusted counts are estimates. Property, Target and market attribution are unavailable. The observed GA quotient has unknown comparable coverage.',
     options: { 'start-date': stringOption(), 'end-date': stringOption(), source: stringOption(), 'burst-threshold': stringOption(), 'ratio-threshold': stringOption(), limit: stringOption() },
     run: async input => {
+      const { trafficReferralAssessment } = await import('../commands/traffic.js')
       const project = requireProject(input, 'traffic.referral-assessment', 'canonry traffic referral-assessment <project> --start-date YYYY-MM-DD --end-date YYYY-MM-DD')
       await trafficReferralAssessment(project, {
-        startDate: getString(input.values, 'start-date'), endDate: getString(input.values, 'end-date'), sourceId: getString(input.values, 'source'),
+        startDate: getString(input.values, 'start') ?? getString(input.values, 'start-date'), endDate: getString(input.values, 'end') ?? getString(input.values, 'end-date'), sourceId: getString(input.values, 'source'),
         burstThreshold: getString(input.values, 'burst-threshold') === undefined ? undefined : Number(getString(input.values, 'burst-threshold')),
         ratioThreshold: getString(input.values, 'ratio-threshold') === undefined ? undefined : Number(getString(input.values, 'ratio-threshold')),
         limit: getString(input.values, 'limit') === undefined ? undefined : Number(getString(input.values, 'limit')),
@@ -36,7 +38,7 @@ export const TRAFFIC_CLI_COMMANDS: readonly CliCommandSpec[] = [
 
   {
     path: ['traffic', 'connect', 'cloudflare'],
-    usage: 'canonry traffic connect cloudflare <project> [--delivery-mode direct-push|queue-pull] [--display-name <name>] [--zone-id <id>] [--account-id <id>] [--queue-id <id> --queue-name <name> --api-token-file <path> --retention-seconds 345600] [--output-dir <dir>] [--deploy --confirm-route --confirm-fail-open] [--format json]',
+    usage: 'canonry traffic connect cloudflare <project> [--delivery-mode direct-push|queue-pull] [--display-name <name>] [--zone-id <id>] [--account-id <id>] [--queue-id <id> --queue-name <name> --api-token-file <path> --retention-seconds 345600] [--forward-page-views | --no-forward-page-views] [--output-dir <dir>] [--deploy --confirm-route --confirm-fail-open] [--format json]',
     options: {
       'display-name': stringOption(),
       'zone-id': stringOption(),
@@ -47,11 +49,22 @@ export const TRAFFIC_CLI_COMMANDS: readonly CliCommandSpec[] = [
       'api-token-file': stringOption(),
       'retention-seconds': stringOption(),
       'output-dir': stringOption(),
+      'forward-page-views': { type: 'boolean' },
+      'no-forward-page-views': { type: 'boolean' },
       deploy: { type: 'boolean' },
       'confirm-route': { type: 'boolean' },
       'confirm-fail-open': { type: 'boolean' },
     },
     run: async (input) => {
+      const { trafficConnectCloudflare, DEFAULT_CLOUDFLARE_QUEUE_RETENTION_SECONDS } = await import('../commands/traffic.js')
+      const forwardPageViews = getBoolean(input.values, 'forward-page-views')
+      const noForwardPageViews = getBoolean(input.values, 'no-forward-page-views')
+      if (forwardPageViews && noForwardPageViews) {
+        throw usageError('Error: use either --forward-page-views or --no-forward-page-views, not both', {
+          message: 'use either --forward-page-views or --no-forward-page-views, not both',
+          details: { command: 'traffic.connect.cloudflare' },
+        })
+      }
       const project = requireProject(
         input,
         'traffic.connect.cloudflare',
@@ -76,6 +89,8 @@ export const TRAFFIC_CLI_COMMANDS: readonly CliCommandSpec[] = [
         apiTokenFile: getString(input.values, 'api-token-file'),
         retentionSeconds: retentionSeconds ?? DEFAULT_CLOUDFLARE_QUEUE_RETENTION_SECONDS,
         outputDirectory: getString(input.values, 'output-dir'),
+        // Neither flag keeps the source's current setting on a reconnect.
+        forwardPageViews: forwardPageViews ? true : noForwardPageViews ? false : undefined,
         deploy: getBoolean(input.values, 'deploy'),
         confirmRoute: getBoolean(input.values, 'confirm-route'),
         confirmFailOpen: getBoolean(input.values, 'confirm-fail-open'),
@@ -94,6 +109,7 @@ export const TRAFFIC_CLI_COMMANDS: readonly CliCommandSpec[] = [
       'display-name': stringOption(),
     },
     run: async (input) => {
+      const { trafficConnectCloudRun } = await import('../commands/traffic.js')
       const project = requireProject(
         input,
         'traffic.connect.cloud-run',
@@ -125,6 +141,7 @@ export const TRAFFIC_CLI_COMMANDS: readonly CliCommandSpec[] = [
       'display-name': stringOption(),
     },
     run: async (input) => {
+      const { trafficConnectWordpress } = await import('../commands/traffic.js')
       const project = requireProject(
         input,
         'traffic.connect.wordpress',
@@ -157,6 +174,7 @@ export const TRAFFIC_CLI_COMMANDS: readonly CliCommandSpec[] = [
       'display-name': stringOption(),
     },
     run: async (input) => {
+      const { trafficConnectVercel } = await import('../commands/traffic.js')
       const project = requireProject(
         input,
         'traffic.connect.vercel',
@@ -196,6 +214,7 @@ export const TRAFFIC_CLI_COMMANDS: readonly CliCommandSpec[] = [
       source: stringOption(),
     },
     run: async (input) => {
+      const { trafficActivate } = await import('../commands/traffic.js')
       const project = requireProject(
         input,
         'traffic.activate',
@@ -214,6 +233,7 @@ export const TRAFFIC_CLI_COMMANDS: readonly CliCommandSpec[] = [
       'since-minutes': stringOption(),
     },
     run: async (input) => {
+      const { trafficSync } = await import('../commands/traffic.js')
       const project = requireProject(
         input,
         'traffic.sync',
@@ -243,6 +263,7 @@ export const TRAFFIC_CLI_COMMANDS: readonly CliCommandSpec[] = [
       wait: { type: 'boolean' },
     },
     run: async (input) => {
+      const { trafficBackfill } = await import('../commands/traffic.js')
       const project = requireProject(
         input,
         'traffic.backfill',
@@ -272,6 +293,7 @@ export const TRAFFIC_CLI_COMMANDS: readonly CliCommandSpec[] = [
       'advance-to-now': { type: 'boolean' },
     },
     run: async (input) => {
+      const { trafficReset } = await import('../commands/traffic.js')
       const project = requireProject(
         input,
         'traffic.reset',
@@ -288,9 +310,29 @@ export const TRAFFIC_CLI_COMMANDS: readonly CliCommandSpec[] = [
     },
   },
   {
+    path: ['traffic', 'declare-gap'],
+    usage: 'canonry traffic declare-gap <project> --source <id> [--format json]',
+    options: {
+      source: stringOption(),
+    },
+    run: async (input) => {
+      const { trafficDeclareGap } = await import('../commands/traffic.js')
+      const project = requireProject(
+        input,
+        'traffic.declare-gap',
+        'canonry traffic declare-gap <project> --source <id>',
+      )
+      const source = getString(input.values, 'source')
+      if (!source) throw new Error('--source <id> is required')
+
+      await trafficDeclareGap(project, { source, format: input.format })
+    },
+  },
+  {
     path: ['traffic', 'sources'],
     usage: 'canonry traffic sources <project> [--format json]',
     run: async (input) => {
+      const { trafficSources } = await import('../commands/traffic.js')
       const project = requireProject(
         input,
         'traffic.sources',
@@ -303,12 +345,25 @@ export const TRAFFIC_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['traffic', 'status'],
     usage: 'canonry traffic status <project> [--format json]',
     run: async (input) => {
+      const { trafficStatus } = await import('../commands/traffic.js')
       const project = requireProject(
         input,
         'traffic.status',
         'canonry traffic status <project>',
       )
       await trafficStatus(project, { format: input.format })
+    },
+  },
+  {
+    path: ['traffic', 'samples'],
+    usage: 'canonry traffic samples <project> [--kind crawler|ai-user-fetch|ai-referral|unknown|all] [--source <id>] [--since <ISO>] [--until <ISO>] [--since-minutes <n>] [--path <prefix>] [--limit 100] [--offset 0] [--format json|jsonl]',
+    help: 'Stored sampled tail with 30-day retention, not visits. Unknown traffic is excluded by default. No provider calls.',
+    options: { kind: stringOption(), source: stringOption(), since: stringOption(), until: stringOption(), 'since-minutes': stringOption(), path: stringOption(), limit: stringOption(), offset: stringOption() },
+    run: async input => {
+      const { trafficSamples } = await import('../commands/traffic.js')
+      const project = requireProject(input, 'traffic.samples', 'canonry traffic samples <project>')
+      const integer = (name: string) => parseIntegerOption(input, name, { command: 'traffic.samples', usage: 'canonry traffic samples <project>', message: `--${name} must be an integer` })
+      await trafficSamples(project, { kind: getString(input.values, 'kind'), sourceId: getString(input.values, 'source'), since: getString(input.values, 'since'), until: getString(input.values, 'until'), sinceMinutes: integer('since-minutes'), path: getString(input.values, 'path'), limit: integer('limit'), offset: integer('offset'), format: input.format })
     },
   },
   {
@@ -324,6 +379,7 @@ export const TRAFFIC_CLI_COMMANDS: readonly CliCommandSpec[] = [
       granularity: stringOption(),
     },
     run: async (input) => {
+      const { trafficEvents } = await import('../commands/traffic.js')
       const project = requireProject(
         input,
         'traffic.events',
@@ -359,7 +415,7 @@ export const TRAFFIC_CLI_COMMANDS: readonly CliCommandSpec[] = [
       unknownSubcommand(input.positionals[0], {
         command: 'traffic',
         usage: 'canonry traffic <subcommand> <project> [args]',
-        available: ['connect', 'activate', 'sync', 'backfill', 'status', 'sources', 'events'],
+        available: ['connect', 'activate', 'sync', 'backfill', 'reset', 'status', 'sources', 'events', 'samples', 'analytics', 'referral-assessment'],
       })
     },
   },

@@ -23,8 +23,8 @@ import {
   users,
   userSessions,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
-import { USER_PASSWORD_MIN_LENGTH } from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-db'
+import { USER_PASSWORD_MIN_LENGTH, type UiTelemetryEvent } from '@canonry/canonry-contracts'
 import { apiRoutes } from '../src/index.js'
 import { hashApiKey } from '../src/auth.js'
 import { hashSessionToken, UNKNOWN_ACCOUNT_DIGEST, USER_SESSION_COOKIE_NAME, USER_SESSION_TTL_MS } from '../src/user-session.js'
@@ -61,6 +61,8 @@ let db: DatabaseClient
 let app: ReturnType<typeof Fastify>
 let projectId: string
 let trackedQueryIds: string[]
+/** What the host was handed by `POST /telemetry/ui`, reset per test. */
+let uiEvents: UiTelemetryEvent[]
 
 function seedKey(name: string, token: string, scopes: string[]) {
   db.insert(apiKeys).values({
@@ -170,9 +172,11 @@ beforeEach(async () => {
     return id
   })
 
+  uiEvents = []
   app = Fastify()
   app.register(apiRoutes, {
     db,
+    recordUiEvent: (event) => { uiEvents.push(event); return true },
     // The run-trigger path now refuses a roster that resolves empty
     // (post-review runner semantics), so the admin's 201 needs a
     // runnable provider to exist.
@@ -446,6 +450,70 @@ test('T4: the allowance is exactly those previews and nothing adjacent', async (
     payload: {},
   })
   expect(discover.statusCode).toBe(403)
+})
+
+/** A vitals reading as the dashboard sends it from a project page. */
+function uiVitalsEvent() {
+  return {
+    event: 'ui.vitals',
+    eventId: crypto.randomUUID(),
+    uiSessionId: crypto.randomUUID(),
+    page: '/projects/:projectName',
+    tab: 'overview',
+    metric: 'TTFB',
+    rating: 'good',
+  }
+}
+
+test('T4: a viewer\'s dashboard can report usage, because the report changes nothing here', async () => {
+  await createAccount('owner', ADMIN_PASSWORD, 'admin')
+  await createAccount('watcher', VIEWER_PASSWORD, 'viewer')
+  const viewer = await signIn('watcher', VIEWER_PASSWORD)
+  const admin = await signIn('owner', ADMIN_PASSWORD)
+
+  const fromViewer = uiVitalsEvent()
+  const asViewer = await app.inject({
+    method: 'POST', url: '/api/v1/telemetry/ui', headers: withCookie(viewer), payload: fromViewer,
+  })
+  expect(asViewer.statusCode).toBe(202)
+  expect(JSON.parse(asViewer.body)).toEqual({ accepted: true })
+
+  const fromAdmin = uiVitalsEvent()
+  const asAdmin = await app.inject({
+    method: 'POST', url: '/api/v1/telemetry/ui', headers: withCookie(admin), payload: fromAdmin,
+  })
+  expect(asAdmin.statusCode).toBe(202)
+  expect(uiEvents).toEqual([fromViewer, fromAdmin])
+
+  // The viewer's event meets the same contract as anyone's.
+  const invalid = await app.inject({
+    method: 'POST',
+    url: '/api/v1/telemetry/ui',
+    headers: withCookie(viewer),
+    payload: { ...uiVitalsEvent(), message: 'free text' },
+  })
+  expect(invalid.statusCode).toBe(400)
+  expect(uiEvents).toHaveLength(2)
+})
+
+test('T4: reporting usage does not let a viewer change the telemetry setting, or a read-only key report', async () => {
+  await createAccount('owner', ADMIN_PASSWORD, 'admin')
+  await createAccount('watcher', VIEWER_PASSWORD, 'viewer')
+  const viewer = await signIn('watcher', VIEWER_PASSWORD)
+
+  // Same router, but this one turns collection on or off for the install.
+  const setting = await app.inject({
+    method: 'PUT', url: '/api/v1/telemetry', headers: withCookie(viewer), payload: { enabled: false },
+  })
+  expect(setting.statusCode).toBe(403)
+  expect(JSON.parse(setting.body).error.message).toBe('Your account has view-only access, so it cannot make this change.')
+
+  // The allowance is for a signed-in viewer only, as with the previews.
+  const viaReadKey = await app.inject({
+    method: 'POST', url: '/api/v1/telemetry/ui', headers: withKey(READ_KEY), payload: uiVitalsEvent(),
+  })
+  expect(viaReadKey.statusCode).toBe(403)
+  expect(uiEvents).toEqual([])
 })
 
 // ─── T5 ────────────────────────────────────────────────────────────────────

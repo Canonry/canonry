@@ -3,7 +3,7 @@ import os from 'node:os'
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { createClient, migrate, projects, queries as queriesTable } from '@ainyc/canonry-db'
+import { createClient, migrate, projects, queries as queriesTable } from '@canonry/canonry-db'
 import { saveConfig } from '../src/config.js'
 import { buildSetupState } from '../src/setup-state.js'
 
@@ -27,18 +27,18 @@ describe('buildSetupState', () => {
     }
   })
 
-  it('returns undefined when no config exists (pre-init)', () => {
-    expect(buildSetupState()).toBe(undefined)
+  it('returns undefined when no config exists (pre-init)', async () => {
+    expect(await buildSetupState()).toBe(undefined)
   })
 
-  it('returns is_first_run=true and zeroed counts when only a config exists', () => {
+  it('returns is_first_run=true and zeroed counts when only a config exists', async () => {
     const dbPath = path.join(tmpDir, `${crypto.randomUUID()}.db`)
     saveConfig({
       apiUrl: 'http://localhost:4100',
       database: dbPath,
       apiKey: 'cnry_test',
     })
-    const state = buildSetupState()
+    const state = await buildSetupState()
     expect(state).toEqual({
       provider_count: 0,
       has_keywords: false,
@@ -47,7 +47,7 @@ describe('buildSetupState', () => {
     })
   })
 
-  it('counts only providers with apiKey or baseUrl set', () => {
+  it('counts only providers with apiKey or baseUrl set', async () => {
     const dbPath = path.join(tmpDir, `${crypto.randomUUID()}.db`)
     saveConfig({
       apiUrl: 'http://localhost:4100',
@@ -62,11 +62,26 @@ describe('buildSetupState', () => {
         anthropic: { model: 'claude-opus' },
       },
     })
-    const state = buildSetupState()
+    const state = await buildSetupState()
     expect(state?.provider_count).toBe(3)
   })
 
-  it('flips is_first_run to false once anonymousId is set', () => {
+  it('counts what the server registers: a Vertex Gemini and a CDP browser, not an endpoint-only API provider', async () => {
+    const dbPath = path.join(tmpDir, `${crypto.randomUUID()}.db`)
+    saveConfig({
+      apiUrl: 'http://localhost:4100',
+      database: dbPath,
+      apiKey: 'cnry_test',
+      providers: {
+        gemini: { vertexProject: 'my-gcp-project' },
+        openai: { baseUrl: 'https://proxy.example' },
+      },
+      cdp: { host: 'localhost', port: 9222 },
+    })
+    expect((await buildSetupState())?.provider_count).toBe(2)
+  })
+
+  it('flips is_first_run to false once anonymousId is set', async () => {
     const dbPath = path.join(tmpDir, `${crypto.randomUUID()}.db`)
     saveConfig({
       apiUrl: 'http://localhost:4100',
@@ -74,10 +89,23 @@ describe('buildSetupState', () => {
       apiKey: 'cnry_test',
       anonymousId: crypto.randomUUID(),
     })
-    expect(buildSetupState()?.is_first_run).toBe(false)
+    expect((await buildSetupState())?.is_first_run).toBe(false)
   })
 
-  it('reports project_count and has_keywords from the live DB', () => {
+  it.each([
+    { name: 'legacy Gemini', geminiApiKey: 'legacy-key', expected: 1 },
+    { name: 'modern and legacy Gemini together', providers: { gemini: { apiKey: 'modern-key' } }, geminiApiKey: 'legacy-key', expected: 1 },
+  ])('counts configured $name providers exactly once', async ({ name: _name, expected, ...configuration }) => {
+    saveConfig({
+      apiUrl: 'http://localhost:4100',
+      database: path.join(tmpDir, 'unused.db'),
+      apiKey: 'cnry_test',
+      ...configuration,
+    })
+    expect((await buildSetupState())?.provider_count).toBe(expected)
+  })
+
+  it('reports project_count and has_keywords from the live DB', async () => {
     const dbPath = path.join(tmpDir, `${crypto.randomUUID()}.db`)
     fs.mkdirSync(path.dirname(dbPath), { recursive: true })
 
@@ -123,18 +151,18 @@ describe('buildSetupState', () => {
       apiKey: 'cnry_test',
     })
 
-    const state = buildSetupState()
+    const state = await buildSetupState()
     expect(state?.project_count).toBe(2)
     expect(state?.has_keywords).toBe(true)
   })
 
-  it('degrades gracefully when DB path is set but file does not exist', () => {
+  it('degrades gracefully when DB path is set but file does not exist', async () => {
     saveConfig({
       apiUrl: 'http://localhost:4100',
       database: path.join(tmpDir, 'nonexistent', `${crypto.randomUUID()}.db`),
       apiKey: 'cnry_test',
     })
-    const state = buildSetupState()
+    const state = await buildSetupState()
     expect(state?.project_count).toBe(0)
     expect(state?.has_keywords).toBe(false)
   })

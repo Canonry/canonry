@@ -1,4 +1,4 @@
-import type { McpHealth, ProjectDto, QueryClass, RunDto, RunStatus, GroundingSource, MentionShareDto, MovementComparisonDto, SuggestedQueriesSummaryDto, SentimentOverview } from '@ainyc/canonry-contracts'
+import type { InsightActionGroup, McpHealth, MentionIdentity, ProjectDto, QueryClass, RunDto, RunStatus, GroundingSource, MentionShareDto, MovementComparisonDto, ProjectOverviewProviderScoreDto, SuggestedQueriesSummaryDto, SentimentOverview } from '@canonry/canonry-contracts'
 
 export type MetricTone = 'positive' | 'caution' | 'negative' | 'neutral'
 /** `disabled` is a service switched off on purpose, such as the public demo's worker. */
@@ -72,6 +72,8 @@ export interface RunListItemVm extends RunDto {
   statusDetail: string
   summary: string
   triggerLabel: string
+  /** True for an SEO refresh with results to open in SEO. A scheduled refresh that never started has only its reason. */
+  opensSeoWorkspace: boolean
 }
 
 export interface PortfolioProjectVm {
@@ -150,10 +152,14 @@ export interface CitationInsightVm {
   citedCompetitorDomains?: string[]
   /** Tracked competitors whose brand appears in the answer prose. Answer-side only. */
   mentionedCompetitorDomains?: string[]
+  /** The names and written hosts the server matched for `mentionedCompetitorDomains` (curated aliases included). */
+  mentionedCompetitorTerms?: string[]
   /** Neutral union for filtering/navigation only. Never label this as an answer mention or citation. */
   competitorDomains: string[]
   recommendedCompetitors?: string[]
   matchedTerms?: string[]
+  /** `wrong-subject`: the answer uses a matched name, but sentiment found it is about something else. */
+  mentionIdentity?: MentionIdentity | null
   relatedTechnicalSignals: string[]
   groundingSources: GroundingSource[]
   /** Web search queries this AI model issued while researching the prompt (Gemini grounding queries, the CDP-submitted query, etc.). */
@@ -170,13 +176,19 @@ export interface AffectedPhrase {
   evidenceId: string
   provider?: string
   citationState: CitationState
+  /**
+   * False when `citationState` stands for something other than the project's
+   * own site-wide citation (a competitor's or a Business Profile signal), so
+   * it must not be labelled as the project's domain being cited.
+   */
+  siteCitation?: boolean
 }
 
 /** What kind of operator action this insight calls for. Used to group the
  *  Opportunities panel as Write / Investigate / Monitor / Track cards. The
  *  `track` group is GSC-derived (suggested queries to add to the basket), not
  *  insight-derived — it doesn't actually appear on `ProjectInsightVm`. */
-export type InsightActionGroup = 'write' | 'investigate' | 'monitor'
+export type { InsightActionGroup }
 
 export interface ProjectInsightVm {
   id: string
@@ -192,21 +204,16 @@ export interface ProjectInsightVm {
 export interface CompetitorVm {
   id: string
   domain: string
+  /** Operator-curated names this competitor goes by in answer text. */
+  aliases?: string[]
+  /** Names detected automatically from the project's stored answers (labelled "auto"). */
+  autoAliases?: string[]
   citationCount: number
   totalQueries: number
   pressureLabel: string
   citedQueries: string[]
   movement: string
   notes: string
-}
-
-export interface MovementSummaryVm {
-  gained: number
-  lost: number
-  tone: MetricTone
-  hasPreviousRun: boolean
-  gainedQueries?: string[]
-  lostQueries?: string[]
 }
 
 export type MovementComparisonVm = MovementComparisonDto
@@ -218,7 +225,6 @@ export interface QueryCountsVm {
 
 export interface ProjectCommandCenterVm {
   project: ProjectDto
-  dateRangeLabel: string
   contextLabel: string
   /** Primary headline gauge — Mention Coverage. The dashboard renders this as the big radial gauge. */
   mentionSummary: ScoreSummaryVm
@@ -232,19 +238,27 @@ export interface ProjectCommandCenterVm {
    *  explicitly rather than inferred. */
   mentionShareSummary: MentionShareDto & { unavailable?: boolean }
   queryCounts: QueryCountsVm
+  /** The latest sweep's citation gaps over all queries together (`overview.scores.gapQueries`). */
   gapQueries: ScoreSummaryVm
+  /** The latest sweep's mention gaps over all queries together (`overview.scores.mentionGaps`). */
   mentionGaps: ScoreSummaryVm
   indexCoverage: ScoreSummaryVm
-  providerScores: { provider: string; model: string | null; score: number; cited: number; total: number; trend?: number[] }[]
+  /** The latest sweep's citation rate per engine and model, over all queries (`overview.providerScores`). */
+  providerScores: ProjectOverviewProviderScoreDto[]
   competitorPressure: ScoreSummaryVm
   runStatus: ScoreSummaryVm
-  citationMovement: MovementSummaryVm
-  mentionMovement: MovementSummaryVm
   movementComparison: MovementComparisonVm
   insights: ProjectInsightVm[]
   visibilityEvidence: CitationInsightVm[]
   competitors: CompetitorVm[]
+  /** The newest five runs of any status: a presentation slice for Past sweeps and the running state. */
   recentRuns: RunListItemVm[]
+  /**
+   * Completed and partial AI Visibility sweeps, newest first, probes left out,
+   * from the whole run list. Anything that names the latest or an earlier
+   * sweep reads these, never `recentRuns`, which newer failures can fill.
+   */
+  visibilitySweeps: RunListItemVm[]
   /** Suggested queries to add to tracking — high-impression GSC queries that
    *  aren't yet in the basket. Renders as the fourth Opportunities card. */
   suggestedQueries: SuggestedQueriesSummaryDto
@@ -286,6 +300,8 @@ export interface SetupWizardVm {
 export interface ProviderStatusVm {
   name: string
   displayName?: string
+  /** Absent means an answer engine. An answer service never counts toward sweep readiness. */
+  kind?: 'answer-engine' | 'model-gateway' | 'answer-service'
   keyUrl?: string
   modelHint?: string
   model?: string

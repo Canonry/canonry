@@ -1,11 +1,29 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ApiClient } from '../src/client.js'
+import { TRAFFIC_ANALYTICS_FIXTURE } from './traffic-analytics-fixture.js'
 
 afterEach(() => {
   vi.unstubAllGlobals()
 })
 
 describe('ApiClient traffic delivery lifecycle', () => {
+  it.each([undefined, 7, 14, 30, 90] as const)('reads complete traffic analytics through the SDK with period %s and the configured base path', async period => {
+    let received: Request | undefined
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      received = input instanceof Request ? input : new Request(input, init)
+      return new Response(JSON.stringify(TRAFFIC_ANALYTICS_FIXTURE), { headers: { 'content-type': 'application/json' } })
+    }))
+    const client = new ApiClient('https://canonry.test/canonry', 'cnry_test', { skipProbe: true })
+    const result = await client.getTrafficAnalytics('acme', period)
+    const url = new URL(received!.url)
+    expect(received?.method).toBe('GET')
+    expect(received?.headers.get('authorization')).toBe('Bearer cnry_test')
+    expect(url.pathname).toBe('/canonry/api/v1/projects/acme/traffic/analytics')
+    expect(url.searchParams.get('period')).toBe(period === undefined ? null : String(period))
+    expect(result).toEqual(TRAFFIC_ANALYTICS_FIXTURE)
+    expect(result.activity?.topCrawledPaths).toHaveLength(501)
+  })
+
   it('activates the exact source through the generated SDK operation', async () => {
     let received: Request | undefined
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {

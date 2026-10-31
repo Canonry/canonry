@@ -24,10 +24,16 @@ const ONBOARDING_STAGES = [
  * `incomplete`: started and failed. `unknown`: the evidence could not be read.
  * None of them may render as complete.
  */
-export type OnboardingStageOutcome = 'skipped' | 'pending' | 'incomplete' | 'unknown'
+export type OnboardingStageOutcome = 'skipped' | 'not-started' | 'queued' | 'running' | 'partial' | 'failed' | 'cancelled' | 'pending' | 'incomplete' | 'unknown'
 
 const OUTCOME_LABELS: Record<OnboardingStageOutcome, string | null> = {
   skipped: 'Skipped',
+  'not-started': 'Not started',
+  queued: 'Queued',
+  running: 'In progress',
+  partial: 'Partial results',
+  failed: 'Failed',
+  cancelled: 'Cancelled',
   pending: 'In progress',
   incomplete: 'Didn’t finish',
   unknown: null,
@@ -61,7 +67,7 @@ export function OnboardingProgress({
           >
             <span
               aria-hidden="true"
-              className={`flex size-6 shrink-0 items-center justify-center rounded-full border text-xs font-semibold tabular-nums ${
+              className={`flex size-6 shrink-0 items-center justify-center rounded-full border text-label-12-strong tabular-nums ${
                 active
                   ? 'border-accent bg-accent text-on-inverse'
                   : complete
@@ -72,12 +78,12 @@ export function OnboardingProgress({
               {complete ? '✓' : outcome === 'skipped' || outcome === 'incomplete' ? '–' : index + 1}
             </span>
             <span className="flex min-w-0 flex-wrap items-baseline gap-x-2">
-              <span className={`text-sm font-medium ${active || complete ? 'text-heading' : 'text-secondary'}`}>
+              <span className={`text-label-14-strong ${active || complete ? 'text-heading' : 'text-secondary'}`}>
                 {stage.label}
               </span>
               {outcomeLabel
-                ? <span className="text-[13px] text-secondary">{outcomeLabel}</span>
-                : stage.optional && !outcome ? <span className="text-[13px] text-secondary">Optional</span> : null}
+                ? <span className="text-label-13 text-secondary">{outcomeLabel}</span>
+                : stage.optional && !outcome ? <span className="text-label-13 text-secondary">Optional</span> : null}
               {complete ? <span className="sr-only">Complete</span> : null}
             </span>
           </li>

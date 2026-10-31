@@ -1,6 +1,6 @@
-import { Fragment, useId, useMemo, useState } from 'react'
+import { Fragment, useId, useMemo, useState, type ReactNode } from 'react'
 import { ChevronRight } from 'lucide-react'
-import { CitationStates, brandLabelFromDomain, type QueryClass } from '@ainyc/canonry-contracts'
+import { CitationStates, hostOf, normalizeQueryText, type QueryClass } from '@canonry/canonry-contracts'
 
 import { Button } from '../ui/button.js'
 import { CitationBadge } from '../shared/CitationBadge.js'
@@ -10,10 +10,13 @@ import {
   useClientTable,
 } from '../shared/DataTableControls.js'
 import { InfoTooltip } from '../shared/InfoTooltip.js'
-import { SentimentHeadlines, SentimentQueryScore, SentimentAnswerOutcome, useSentimentConfigured } from './SentimentSection.js'
+import { SourceLink } from '../shared/SourceLink.js'
+import { AnswerMarkdown } from '../shared/AnswerMarkdown.js'
+import { SentimentControls, SentimentHeadlines, SentimentQueryScore, SentimentAnswerOutcome, useSentimentConfigured } from './SentimentSection.js'
 import { CitationTimeline, mergeProviderHistories } from './CitationTimeline.js'
 import { useDrawer } from '../../hooks/use-drawer.js'
-import { highlightTermsInText, type HighlightTermGroup } from '../../lib/highlight.js'
+import { providerDisplayName } from '../../lib/visibility-trend-helpers.js'
+import { competitorHighlightTerms, type HighlightTermGroup } from '../../lib/highlight.js'
 import type { CitationInsightVm, CitationState, RunHistoryPoint } from '../../view-models.js'
 
 export type CoverageMode = 'citations' | 'mentions'
@@ -40,6 +43,22 @@ const ANSWER_PREVIEW_MAX = 320
 
 function queryClassLabel(queryClass: QueryClass | null): string {
   return queryClass === 'branded' ? 'Branded' : queryClass === 'non-brand' ? 'Non-brand' : 'Unclassified'
+}
+
+/** Rows read Non-brand first, then Branded, then anything the project could not classify. */
+function queryClassRank(queryClass: QueryClass | null): number {
+  return queryClass === 'non-brand' ? 0 : queryClass === 'branded' ? 1 : 2
+}
+
+/** Consecutive rows of one class, so each class gets its own labelled row group. */
+function classRuns<T extends { queryClass: QueryClass | null }>(rows: readonly T[]): Array<{ queryClass: QueryClass | null; rows: T[] }> {
+  const runs: Array<{ queryClass: QueryClass | null; rows: T[] }> = []
+  for (const row of rows) {
+    const last = runs.at(-1)
+    if (last && last.queryClass === row.queryClass) last.rows.push(row)
+    else runs.push({ queryClass: row.queryClass, rows: [row] })
+  }
+  return runs
 }
 
 function evidenceGroupSearchText(group: EvidenceGroup): string {
@@ -169,18 +188,48 @@ function SignalStrip({ items }: { items: CitationInsightVm[] }) {
   )
 }
 
+/**
+ * The top of Query evidence: the section's actions on the right, then the
+ * Sentiment block at the section's full width, its legend under its title and
+ * Manage sentiment in its title row when the section has actions. An embed has
+ * no actions row. Without a query class it is the actions alone, for while the
+ * evidence loads or after it fails.
+ */
+export function QueryEvidenceSummary({ queryClass, actions }: { queryClass?: QueryClassSelection; actions?: ReactNode }) {
+  return (
+    <>
+      {/* Without a query class (evidence loading or failed) there is no Sentiment block, so Manage sentiment joins the actions. */}
+      {actions ? <div className="query-evidence-toolbar"><div className="query-evidence-actions">{!queryClass && <SentimentControls />}{actions}</div></div> : null}
+      {queryClass ? <SentimentHeadlines queryClass={queryClass} manage={Boolean(actions)} /> : null}
+    </>
+  )
+}
+
 export function EvidenceTable({
   evidence,
   compareLocations = false,
   defaultDensity = 'detailed',
   providerSelection: controlledProvider,
   onProviderSelectionChange,
+  addedQueries = [],
+  actions,
+  actionPanel,
 }: {
   evidence: CitationInsightVm[]
   compareLocations?: boolean
   defaultDensity?: Density
   providerSelection?: string
   onProviderSelectionChange?: (provider: string) => void
+  /**
+   * Queries first tracked in the latest sweep (`movementComparison.addedQueries`).
+   * Only these read "new query": a query whose history is merely short (an
+   * engine new to an old query, a first sweep) keeps its signal labels.
+   */
+  addedQueries?: readonly string[]
+  /** The section's actions, at the right of the row above the sentiment bars. */
+  actions?: ReactNode
+  /** What an action opens (the query editor), directly under the bars. */
+  actionPanel?: ReactNode
 }) {
   const { openEvidence } = useDrawer()
   const panelId = useId()
@@ -210,7 +259,8 @@ export function EvidenceTable({
       existing.rawItems.push(rawItem)
       map.set(key, existing)
     }
-    return [...map.values()]
+    // A stable sort, so rows keep their order within a class.
+    return [...map.values()].sort((a, b) => queryClassRank(a.queryClass) - queryClassRank(b.queryClass))
   }, [evidence, mode, compareLocations, providerSelection])
   const classGroups = useMemo(() => groups.filter(group =>
     queryClassSelection === 'all'
@@ -220,6 +270,19 @@ export function EvidenceTable({
     rows: classGroups,
     getSearchText: evidenceGroupSearchText,
   })
+  // Each class heading counts that class's queries across every page, after the
+  // filters; a compared location adds rows, never queries.
+  const classQueryCounts = useMemo(() => {
+    const phrases = new Map<QueryClass | null, Set<string>>()
+    for (const group of groupsTable.filteredRows) {
+      const set = phrases.get(group.queryClass) ?? new Set<string>()
+      set.add(group.phrase)
+      phrases.set(group.queryClass, set)
+    }
+    return phrases
+  }, [groupsTable.filteredRows])
+  const added = useMemo(() => new Set(addedQueries.map(normalizeQueryText)), [addedQueries])
+  const columnCount = sentimentConfigured ? 6 : 5
   const visibleGroupKeys = groupsTable.rows.map((group) => group.key)
   const visibleGroupsExpanded = visibleGroupKeys.length > 0
     && visibleGroupKeys.every((key) => expandedRows.has(key))
@@ -239,7 +302,8 @@ export function EvidenceTable({
 
   return (
     <div className="query-evidence">
-      <SentimentHeadlines queryClass={queryClassSelection} />
+      <QueryEvidenceSummary queryClass={queryClassSelection} actions={actions} />
+      {actionPanel}
       <div className="query-evidence-view-row">
         <div className="flex items-center gap-3">
           <div className="query-evidence-tabs" role="tablist" aria-label="Citation tracking view">
@@ -275,7 +339,7 @@ export function EvidenceTable({
           <Button
             type="button"
             variant="ghost"
-            className="min-h-11"
+            className="pointer-coarse:min-h-11"
             disabled={visibleGroupKeys.length === 0}
             onClick={() => {
               setExpandedRows(previous => {
@@ -305,7 +369,7 @@ export function EvidenceTable({
             <span className="sr-only">Answer engine</span>
             <select value={providerSelection} onChange={event => { setProviderSelection(event.target.value); groupsTable.setPage(1) }}>
               <option value="">All engines</option>
-              {providers.map(provider => <option key={provider} value={provider}>{provider}</option>)}
+              {providers.map(provider => <option key={provider} value={provider}>{providerDisplayName(provider)}</option>)}
             </select>
           </label>
           <label className="query-evidence-filter">
@@ -326,120 +390,132 @@ export function EvidenceTable({
               <tr>
                 <th scope="col">Query</th>
                 <th scope="col">Status</th>
-                {sentimentConfigured && <th scope="col" aria-label="Favorable"><span className="inline-flex items-center">Favorable<InfoTooltip text="Query rows show the favorable share of judged answers. Expanded engine rows show each stored answer’s sentiment; factual and unmentioned answers are not judgments." /></span></th>}
+                {sentimentConfigured && <th scope="col" aria-label="Sentiment"><span className="inline-flex items-center">Sentiment<InfoTooltip text="Branded query rows show the favorable share of judged answers. Non-brand rows show only their unfavorable and mixed answers. Expanded engine rows show each stored answer’s sentiment; factual and unmentioned answers are not judgments." /></span></th>}
                 <th scope="col">{historyHeader}</th>
                 <th scope="col">Latest run</th>
                 <th><span className="sr-only">Answer</span></th>
               </tr>
             </thead>
-            <tbody>
-              {groupsTable.rows.map(({ key: groupKey, phrase, queryClass, location, items, rawItems }, groupIndex) => {
-                const isExpanded = expandedRows.has(groupKey)
-                const metadataId = `${panelId}-query-${groupIndex}`
-                const states = items.map(i => i.citationState)
-                const aggState: CitationState =
-                  states.includes('cited') ? 'cited' :
-                  states.includes('emerging') ? 'emerging' :
-                  states.includes('lost') ? 'lost' :
-                  states.every(s => s === 'pending') ? 'pending' : 'not-cited'
+            {classRuns(groupsTable.rows).map(run => (
+              <tbody key={run.queryClass ?? 'unclassified'}>
+                <tr className="query-evidence-group">
+                  <th scope="rowgroup" colSpan={columnCount}>
+                    {queryClassLabel(run.queryClass)} ({classQueryCounts.get(run.queryClass)?.size ?? 0})
+                  </th>
+                </tr>
+                {run.rows.map(({ key: groupKey, phrase, queryClass, location, items, rawItems }) => {
+                  const isExpanded = expandedRows.has(groupKey)
+                  const groupIndex = visibleGroupKeys.indexOf(groupKey)
+                  const metadataId = `${panelId}-query-${groupIndex}`
+                  const isNewQuery = added.has(normalizeQueryText(phrase))
+                  const states = items.map(i => i.citationState)
+                  const aggState: CitationState =
+                    states.includes('cited') ? 'cited' :
+                    states.includes('emerging') ? 'emerging' :
+                    states.includes('lost') ? 'lost' :
+                    states.every(s => s === 'pending') ? 'pending' : 'not-cited'
 
-                const queryIds = [...new Set(rawItems.map(item => item.queryId).filter((id): id is string => Boolean(id)))]
-                const sourceSnapshotIds = rawItems.map(item => item.sourceSnapshotId).filter((id): id is string => Boolean(id))
-                const mergedHistory = mergeProviderHistories(items)
-                const presentCount = items.filter(i => i.citationState === CitationStates.cited || i.citationState === 'emerging').length
+                  const queryIds = [...new Set(rawItems.map(item => item.queryId).filter((id): id is string => Boolean(id)))]
+                  const sourceSnapshotIds = rawItems.map(item => item.sourceSnapshotId).filter((id): id is string => Boolean(id))
+                  const mergedHistory = mergeProviderHistories(items)
+                  const presentCount = items.filter(i => i.citationState === CitationStates.cited || i.citationState === 'emerging').length
 
-                return (
-                  <Fragment key={groupKey}>
-                    <tr className="query-evidence-row" onClick={() => toggleRow(groupKey)}>
-                      <td className="evidence-query-cell">
-                        <button
-                          type="button"
-                          className="query-evidence-query"
-                          aria-label={phrase}
-                          aria-describedby={metadataId}
-                          aria-expanded={isExpanded}
-                          onClick={event => { event.stopPropagation(); toggleRow(groupKey) }}
-                        >
-                          <ChevronRight size={16} aria-hidden="true" className={isExpanded ? 'rotate-90' : ''} />
-                          <span className="min-w-0">
-                            <span>{phrase}</span>
-                            <span id={metadataId} className="query-evidence-meta">
-                              <span>{queryClassLabel(queryClass)}</span>
-                              {compareLocations && <span>{location ?? 'No location'}</span>}
-                              {items.filter(item => item.provider).map(item => <span key={item.id}>{item.provider}</span>)}
-                            </span>
-                          </span>
-                        </button>
-                      </td>
-                      <td>
-                        <div className="flex items-center gap-2">
-                          <CitationBadge state={aggState} label={statusLabelForMode(aggState, mode)} className="rounded-none border-0 bg-transparent p-0 text-sm tracking-normal" />
-                          <span
-                            className="text-sm text-secondary tabular-nums"
-                            aria-label={`${presentCount} of ${items.length} engines ${countNoun}`}
-                            title={`${presentCount} of ${items.length} engines ${countNoun}`}
+                  return (
+                    <Fragment key={groupKey}>
+                      <tr className="query-evidence-row" onClick={() => toggleRow(groupKey)}>
+                        <td className="evidence-query-cell">
+                          <button
+                            type="button"
+                            className="query-evidence-query"
+                            aria-label={phrase}
+                            aria-describedby={metadataId}
+                            aria-expanded={isExpanded}
+                            onClick={event => { event.stopPropagation(); toggleRow(groupKey) }}
                           >
-                            {presentCount}/{items.length}
-                          </span>
-                        </div>
-                      </td>
-                      {sentimentConfigured && <td><SentimentQueryScore queryId={queryIds.length === 1 ? queryIds[0] : null} sourceSnapshotIds={queryIds.length > 1 ? [] : sourceSnapshotIds} queryClass={queryClass} location={compareLocations ? location : undefined} /></td>}
-                      <td>
-                        <CitationTimeline history={mergedHistory} signal={mode} />
-                      </td>
-                      <td className="evidence-change-cell">
-                        <SignalStrip items={rawItems} />
-                      </td>
-                      <td />
-                    </tr>
-                    {isExpanded && items.map((item, index) => (
-                      <Fragment key={item.id}>
-                        <tr className="query-evidence-engine-row">
-                          <td className="evidence-query-cell">
-                            <span className="text-sm text-secondary">{item.provider || 'Awaiting engine'}</span>
-                          </td>
-                          <td>
-                            <CitationBadge
-                              state={item.citationState}
-                              className="rounded-none border-0 bg-transparent p-0 text-sm tracking-normal"
-                              label={statusLabelForMode(item.citationState, mode)}
-                            />
-                          </td>
-                          {sentimentConfigured && <td><SentimentAnswerOutcome queryId={item.queryId} sourceSnapshotIds={item.sourceSnapshotId ? [item.sourceSnapshotId] : []} queryClass={item.queryClass} provider={item.provider} location={item.location ?? null} /></td>}
-                          <td>
-                            <CitationTimeline history={item.runHistory} signal={mode} />
-                          </td>
-                          <td className="evidence-change-cell">
-                            <SignalStrip items={[rawItems[index] ?? item]} />
-                          </td>
-                          <td>
-                            <Button
-                              variant="ghost"
-                              className="min-h-11"
-                              type="button"
-                              title={`View ${item.provider || 'saved'} answer for ${item.query}`}
-                              onClick={(e) => { e.stopPropagation(); void openEvidence(item.id) }}
+                            <ChevronRight size={16} aria-hidden="true" className={isExpanded ? 'rotate-90' : ''} />
+                            <span className="min-w-0">
+                              <span>{phrase}</span>
+                              <span id={metadataId} className="query-evidence-meta">
+                                <span>{queryClassLabel(queryClass)}</span>
+                                {compareLocations && <span>{location ?? 'No location'}</span>}
+                                {items.filter(item => item.provider).map(item => <span key={item.id}>{providerDisplayName(item.provider)}</span>)}
+                              </span>
+                            </span>
+                          </button>
+                        </td>
+                        <td>
+                          <div className="flex items-center gap-2">
+                            <CitationBadge state={aggState} label={statusLabelForMode(aggState, mode)} className="rounded-none border-0 bg-transparent p-0 text-label-14" />
+                            <span
+                              className="text-label-14 text-secondary tabular-nums"
+                              aria-label={`${presentCount} of ${items.length} engines ${countNoun}`}
+                              title={`${presentCount} of ${items.length} engines ${countNoun}`}
                             >
-                              View
-                            </Button>
-                          </td>
-                        </tr>
-                        {density === 'detailed' && (
-                          <tr className="query-evidence-preview-row">
-                            <td colSpan={sentimentConfigured ? 6 : 5}>
-                              <AnswerInlinePanel
-                                item={item}
-                                onViewFull={() => openEvidence(item.id)}
+                              {presentCount}/{items.length}
+                            </span>
+                          </div>
+                        </td>
+                        {sentimentConfigured && <td><SentimentQueryScore queryId={queryIds.length === 1 ? queryIds[0] : null} sourceSnapshotIds={queryIds.length > 1 ? [] : sourceSnapshotIds} queryClass={queryClass} location={compareLocations ? location : undefined} /></td>}
+                        <td>
+                          <CitationTimeline history={mergedHistory} signal={mode} />
+                        </td>
+                        <td className="evidence-change-cell">
+                          {isNewQuery ? <span className="query-evidence-new">new query</span> : <SignalStrip items={rawItems} />}
+                        </td>
+                        <td />
+                      </tr>
+                      {isExpanded && items.map((item, index) => (
+                        <Fragment key={item.id}>
+                          <tr className="query-evidence-engine-row">
+                            <td className="evidence-query-cell">
+                              <span className="text-label-14 text-secondary">{item.provider ? providerDisplayName(item.provider) : 'Awaiting engine'}</span>
+                            </td>
+                            <td>
+                              <CitationBadge
+                                state={item.citationState}
+                                className="rounded-none border-0 bg-transparent p-0 text-label-14"
+                                label={statusLabelForMode(item.citationState, mode)}
                               />
                             </td>
+                            {sentimentConfigured && <td><SentimentAnswerOutcome queryId={item.queryId} sourceSnapshotIds={item.sourceSnapshotId ? [item.sourceSnapshotId] : []} queryClass={item.queryClass} provider={item.provider} location={item.location ?? null} /></td>}
+                            <td>
+                              <CitationTimeline history={item.runHistory} signal={mode} />
+                            </td>
+                            <td className="evidence-change-cell">
+                              {/* The query row already says "new query"; every engine is new with it. */}
+                              {isNewQuery ? null : <SignalStrip items={[rawItems[index] ?? item]} />}
+                            </td>
+                            <td>
+                              <Button
+                                variant="ghost"
+                                className="pointer-coarse:min-h-11"
+                                type="button"
+                                title={`View ${item.provider ? providerDisplayName(item.provider) : 'saved'} answer for ${item.query}`}
+                                onClick={(e) => { e.stopPropagation(); void openEvidence(item.id) }}
+                              >
+                                View
+                              </Button>
+                            </td>
                           </tr>
-                        )}
-                      </Fragment>
-                    ))}
-                  </Fragment>
-                )
-              })}
-            </tbody>
+                          {density === 'detailed' && (
+                            <tr className="query-evidence-preview-row">
+                              <td colSpan={columnCount}>
+                                <EvidenceInlinePanel
+                                  key={mode}
+                                  item={item}
+                                  mode={mode}
+                                  onViewFull={() => openEvidence(item.id)}
+                                />
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      ))}
+                    </Fragment>
+                  )
+                })}
+              </tbody>
+            ))}
           </table>
         </div>
         {groupsTable.totalRows === 0 && (groupsTable.hasQuery || queryClassSelection !== 'all' || providerSelection) ? (
@@ -461,15 +537,9 @@ export function EvidenceTable({
   )
 }
 
-export function buildHighlightGroups(item: CitationInsightVm): HighlightTermGroup[] {
+export function buildHighlightGroups(item: Pick<CitationInsightVm, 'matchedTerms' | 'mentionedCompetitorDomains' | 'mentionedCompetitorTerms' | 'recommendedCompetitors'>): HighlightTermGroup[] {
   const brandTerms = (item.matchedTerms ?? []).filter(t => t.trim().length > 2)
-  const competitorTerms = [
-    ...(item.mentionedCompetitorDomains ?? []).flatMap(d => {
-      const brand = brandLabelFromDomain(d)
-      return brand.length >= 4 ? [brand] : []
-    }),
-    ...(item.recommendedCompetitors ?? []),
-  ].filter(t => t.trim().length > 2)
+  const competitorTerms = competitorHighlightTerms(item)
   const groups: HighlightTermGroup[] = []
   if (brandTerms.length > 0) groups.push({ terms: brandTerms, className: 'answer-highlight-brand' })
   if (competitorTerms.length > 0) groups.push({ terms: competitorTerms, className: 'answer-highlight-competitor' })
@@ -483,79 +553,132 @@ export function isCitedCompetitorDomain(item: CitationInsightVm, domain: string)
   )
 }
 
-function truncate(text: string, max: number): { body: string; truncated: boolean } {
-  if (text.length <= max) return { body: text, truncated: false }
-  const cut = text.lastIndexOf(' ', max)
-  const body = text.slice(0, cut > max - 40 ? cut : max).trimEnd()
-  return { body: `${body}…`, truncated: true }
+function EvidenceInlinePanel({ item, mode, onViewFull }: {
+  item: CitationInsightVm
+  mode: CoverageMode
+  onViewFull: () => void
+}) {
+  const [answerExpanded, setAnswerExpanded] = useState(false)
+  const [sourcesExpanded, setSourcesExpanded] = useState(false)
+  if (mode === 'mentions') return <AnswerInlinePanel item={item} onViewFull={onViewFull} />
+
+  const sources = item.evidenceUrls.length > 0
+    ? item.evidenceUrls.map(url => ({ uri: url, title: item.groundingSources.find(source => source.uri === url)?.title }))
+    : item.groundingSources
+  return (
+    <div className="query-evidence-preview space-y-3">
+      <p className="text-copy-13-strong text-secondary">
+        {item.evidenceUrls.length > 0 ? 'Cited sources' : sources.length > 0 ? 'Grounding sources' : 'Cited domains'}
+      </p>
+      {sources.length > 0 ? (
+        <ul className="space-y-4">
+          {sources.slice(0, sourcesExpanded ? undefined : 6).map((source, index) => (
+            <li key={`${index}-${source.uri}`} className="min-w-0">
+              <SourceLink url={source.uri} title={source.title} />
+              {isCitedCompetitorDomain(item, hostOf(source.uri) ?? '') && <p className="mt-1 text-copy-13 text-secondary">Competitor source</p>}
+            </li>
+          ))}
+        </ul>
+      ) : item.citedDomains.length > 0 ? (
+        <ul className="space-y-1 text-label-14 text-secondary">
+          {item.citedDomains.slice(0, sourcesExpanded ? undefined : 6).map(domain => (
+            <li key={domain} className="[overflow-wrap:anywhere]">
+              {domain}{isCitedCompetitorDomain(item, domain) ? ' · competitor source' : ''}
+            </li>
+          ))}
+        </ul>
+      ) : <p className="text-copy-14 text-secondary">No cited sources captured for this run.</p>}
+      {(sources.length > 6 || (sources.length === 0 && item.citedDomains.length > 6)) && (
+        <Button type="button" variant="ghost" className="pointer-coarse:min-h-11" aria-expanded={sourcesExpanded} onClick={() => setSourcesExpanded(expanded => !expanded)}>
+          {sourcesExpanded ? 'Show fewer sources' : 'View all sources'}
+        </Button>
+      )}
+      {item.answerSnippet.trim() ? (
+        <details open={answerExpanded} className="border-t border-subtle pt-1">
+          <summary className="min-h-11 cursor-pointer py-3 text-label-14 text-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400" onClick={event => { event.preventDefault(); setAnswerExpanded(expanded => !expanded) }}>Answer text</summary>
+          {answerExpanded && <AnswerInlinePanel item={item} onViewFull={onViewFull} contextOnly />}
+        </details>
+      ) : <p className="text-copy-14 text-secondary">No answer text captured for this run.</p>}
+    </div>
+  )
 }
 
 function AnswerInlinePanel({
   item,
   onViewFull,
+  contextOnly = false,
 }: {
   item: CitationInsightVm
   onViewFull: () => void
+  contextOnly?: boolean
 }) {
+  const { matchedTerms, mentionedCompetitorDomains, mentionedCompetitorTerms, recommendedCompetitors } = item
+  const groups = useMemo(
+    () => buildHighlightGroups({ matchedTerms, mentionedCompetitorDomains, mentionedCompetitorTerms, recommendedCompetitors }),
+    [matchedTerms, mentionedCompetitorDomains, mentionedCompetitorTerms, recommendedCompetitors],
+  )
   const hasAnswer = item.answerSnippet.trim().length > 0
   if (!hasAnswer) {
     return (
-      <p className="text-sm text-secondary">
+      <p className="text-copy-14 text-secondary">
         No answer text captured for this run.
       </p>
     )
   }
 
-  const { body, truncated } = truncate(item.answerSnippet, ANSWER_PREVIEW_MAX)
-  const groups = buildHighlightGroups(item)
+  const truncated = item.answerSnippet.length > ANSWER_PREVIEW_MAX
 
   return (
-    <div className="max-w-prose space-y-3">
-      <p className="text-[13px] font-medium text-secondary">Answer text</p>
-      <p className="text-sm leading-relaxed text-neutral">
-        {highlightTermsInText(body, groups)}
-      </p>
-      {(item.citedDomains.length > 0 || (item.mentionedCompetitorDomains?.length ?? 0) > 0) && (
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-secondary">
-          {item.citedDomains.length > 0 && (
-            <>
-              <span className="font-medium">Cited:</span>
-              {item.citedDomains.slice(0, 6).map(d => (
-                <span
-                  key={`c-${d}`}
-                  className="[overflow-wrap:anywhere]"
-                >
-                  {d}{isCitedCompetitorDomain(item, d) ? ' · competitor source' : ''}
-                </span>
-              ))}
-              {item.citedDomains.length > 6 && (
-                <span>+{item.citedDomains.length - 6} more</span>
-              )}
-            </>
+    <div className="query-evidence-preview space-y-3">
+      {!contextOnly && <p className="text-copy-13-strong text-secondary">Answer text</p>}
+      <AnswerMarkdown headingLevel={4} highlightGroups={groups} previewLength={ANSWER_PREVIEW_MAX}>
+        {item.answerSnippet}
+      </AnswerMarkdown>
+      {((!contextOnly && item.citedDomains.length > 0) || (item.mentionedCompetitorDomains?.length ?? 0) > 0) && (
+        <dl className="space-y-2 text-label-13 text-secondary">
+          {!contextOnly && item.citedDomains.length > 0 && (
+            <div>
+              <dt className="text-label-13-strong">Cited domains</dt>
+              <dd className="flex flex-wrap gap-x-3 gap-y-1">
+                {item.citedDomains.slice(0, 6).map(d => (
+                  <span
+                    key={`c-${d}`}
+                    className="[overflow-wrap:anywhere]"
+                  >
+                    {d}{isCitedCompetitorDomain(item, d) ? ' · competitor source' : ''}
+                  </span>
+                ))}
+                {item.citedDomains.length > 6 && (
+                  <span>+{item.citedDomains.length - 6} more</span>
+                )}
+              </dd>
+            </div>
           )}
           {(item.mentionedCompetitorDomains?.length ?? 0) > 0 && (
-            <>
-              <span className="font-medium">Competitors in answer:</span>
-              {item.mentionedCompetitorDomains!.slice(0, 4).map(d => (
-                <span
-                  key={`co-${d}`}
-                  className="[overflow-wrap:anywhere]"
-                >
-                  {d}
-                </span>
-              ))}
-              {item.mentionedCompetitorDomains!.length > 4 && (
-                <span>+{item.mentionedCompetitorDomains!.length - 4} more</span>
-              )}
-            </>
+            <div>
+              <dt className="text-label-13-strong">Competitors in answer</dt>
+              <dd className="flex flex-wrap gap-x-3 gap-y-1">
+                {item.mentionedCompetitorDomains!.slice(0, 4).map(d => (
+                  <span
+                    key={`co-${d}`}
+                    className="[overflow-wrap:anywhere]"
+                  >
+                    {d}
+                  </span>
+                ))}
+                {item.mentionedCompetitorDomains!.length > 4 && (
+                  <span>+{item.mentionedCompetitorDomains!.length - 4} more</span>
+                )}
+              </dd>
+            </div>
           )}
-        </div>
+        </dl>
       )}
       {truncated && (
         <Button
           type="button"
           variant="ghost"
-          className="min-h-11"
+          className="pointer-coarse:min-h-11"
           onClick={(e) => { e.stopPropagation(); onViewFull() }}
         >
           View full answer

@@ -1,25 +1,33 @@
 import crypto from 'node:crypto'
 import { and, eq } from 'drizzle-orm'
-import type { DatabaseClient } from '@ainyc/canonry-db'
+import type { DatabaseClient } from '@canonry/canonry-db'
 import {
   competitors,
   insights,
   projects,
   runs,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import {
+  classifyProviderOutcomeError,
   determineAnswerMentioned,
   DiscoveryCompetitorTypes,
   effectiveBrandNames,
   effectiveDomains,
+  hostMatchesAnyDomain,
+  normalizeProjectDomain,
   isRetryableHttpError,
+  OutcomeReasonCodes,
+  OutcomeStatuses,
   RunStatuses,
   withRetry,
+  LlmCapabilities,
+  AgentProviderIds,
   type DiscoveryCompetitorType,
   type LocationContext,
   describeError,
-} from '@ainyc/canonry-contracts'
-import { embedQueries } from '@ainyc/canonry-provider-gemini'
+  canGenerateText,
+} from '@canonry/canonry-contracts'
+import { embedQueries } from '@canonry/canonry-provider-gemini'
 import {
   executeDiscovery,
   markSessionFailed,
@@ -29,9 +37,14 @@ import {
   type DiscoveryProbeResult,
   type DiscoverySeedResult,
   type ExecuteDiscoveryResult,
-} from '@ainyc/canonry-api-routes'
+} from '@canonry/canonry-api-routes'
 import type { ProviderRegistry } from './provider-registry.js'
 import { createLogger } from './logger.js'
+import { startRunOutcome } from './sync-outcome.js'
+import type { CanonryConfig } from './config.js'
+import { completeOnce } from './agent/pi-models.js'
+import { refreshAgentModels, resolveApiKeyFor, resolveModelForCapability } from './agent/providers.js'
+import { getSharedProviderExecutionGate } from './provider-execution-gate.js'
 
 const log = createLogger('DiscoveryRun')
 
@@ -46,9 +59,9 @@ const DEFAULT_SEED_COUNT = 30
  * session immediately. Each attempt is bounded by a wall-clock timeout so a
  * hung connection cannot wedge the session past the route's zombie window.
  */
-export const EMBED_RETRY_MAX_RETRIES = 3
-export const EMBED_RETRY_MAX_DELAY_MS = 10_000
-export const EMBED_ATTEMPT_TIMEOUT_MS = 60_000
+const EMBED_RETRY_MAX_RETRIES = 3
+const EMBED_RETRY_MAX_DELAY_MS = 10_000
+const EMBED_ATTEMPT_TIMEOUT_MS = 60_000
 
 /** Race `promise` against a wall-clock ceiling. The timeout Error carries no
  *  `.status`, so `isRetryableHttpError` treats it as transient (retryable). */
@@ -67,29 +80,22 @@ function withAttemptTimeout<T>(promise: Promise<T>, timeoutMs: number, label: st
 
 /**
  * Wrap a raw embedding call with the transient-failure retry policy above.
- * `fn` is invoked fresh per attempt. Exported (with injectable knobs) so the
- * policy is unit-testable without the Gemini client.
+ * `fn` is invoked fresh per attempt; the installed Gemini client uses this
+ * default policy throughout native discovery.
  */
-export async function embedWithRetry(
+async function embedWithRetry(
   fn: () => Promise<number[][]>,
-  opts: {
-    maxRetries?: number
-    attemptTimeoutMs?: number
-    sleep?: (ms: number) => Promise<void>
-    onRetry?: (info: { attempt: number; err: unknown; delayMs: number }) => void
-  } = {},
 ): Promise<number[][]> {
-  const attemptTimeoutMs = opts.attemptTimeoutMs ?? EMBED_ATTEMPT_TIMEOUT_MS
+  const attemptTimeoutMs = EMBED_ATTEMPT_TIMEOUT_MS
   return withRetry(
     () => withAttemptTimeout(fn(), attemptTimeoutMs, 'Discovery embedding call'),
     {
-      maxRetries: opts.maxRetries ?? EMBED_RETRY_MAX_RETRIES,
+      maxRetries: EMBED_RETRY_MAX_RETRIES,
       isRetryable: isRetryableHttpError,
       maxDelayMs: EMBED_RETRY_MAX_DELAY_MS,
-      sleep: opts.sleep,
-      onRetry: opts.onRetry ?? (({ attempt, delayMs }) => {
+      onRetry: ({ attempt, delayMs }) => {
         log.warn('discovery.embed.retry', { attempt, delayMs })
-      }),
+      },
     },
   )
 }
@@ -106,6 +112,8 @@ export async function embedWithRetry(
 const QUERIES_PER_INTENT_BUCKET = 6
 
 export interface ExecuteDiscoveryRunOptions {
+  classifierConfig?: Pick<CanonryConfig, 'providers' | 'classification'>
+  getClassifierConfig?: () => Pick<CanonryConfig, 'providers' | 'classification'>
   db: DatabaseClient
   registry: ProviderRegistry
   runId: string
@@ -134,8 +142,6 @@ export interface ExecuteDiscoveryRunOptions {
    * location-unaware — the behaviour for projects with no locations.
    */
   locations?: LocationContext[]
-  /** Override for tests / future multi-provider amplification. Defaults to Gemini-only. */
-  deps?: DiscoveryDeps
 }
 
 /**
@@ -151,6 +157,8 @@ export interface ExecuteDiscoveryRunOptions {
  */
 export async function executeDiscoveryRun(opts: ExecuteDiscoveryRunOptions): Promise<void> {
   const startedAt = new Date().toISOString()
+  const reportOutcome = startRunOutcome(opts.db, opts.runId, 'discovery', 'run')
+  let notConfigured = false
   opts.db
     .update(runs)
     .set({ status: RunStatuses.running, startedAt })
@@ -165,13 +173,14 @@ export async function executeDiscoveryRun(opts: ExecuteDiscoveryRunOptions): Pro
       .select({ domain: competitors.domain })
       .from(competitors)
       .where(eq(competitors.projectId, opts.projectId))
+      .orderBy(competitors.domain)
       .all()
       .map(r => r.domain.toLowerCase())
 
     const canonicalDomains = effectiveDomains({
       canonicalDomain: projectRow.canonicalDomain,
       ownedDomains: projectRow.ownedDomains,
-    })
+    }).map(normalizeProjectDomain)
     // Brand identity for answer-text mention matching, same shape the
     // answer-visibility snapshot writer (job-runner) uses.
     const brandNames = effectiveBrandNames({
@@ -187,7 +196,13 @@ export async function executeDiscoveryRun(opts: ExecuteDiscoveryRunOptions): Pro
       competitorDomains: projectCompetitors,
     }
 
-    const deps = opts.deps ?? buildDefaultDeps(opts.registry)
+    const classifierConfig = opts.getClassifierConfig?.() ?? opts.classifierConfig
+    // A classifier on OpenRouter resolves its model from the live list.
+    await refreshAgentModels(classifierConfig?.classification?.provider)
+    // buildDefaultDeps throws only when Gemini is not set up for discovery.
+    notConfigured = true
+    const deps = buildDefaultDeps(opts.registry, classifierConfig)
+    notConfigured = false
 
     const result = await executeDiscovery({
       db: opts.db,
@@ -224,6 +239,15 @@ export async function executeDiscoveryRun(opts: ExecuteDiscoveryRunOptions): Pro
       buckets: result.buckets,
       competitorCount: result.competitorMap.length,
     })
+    reportOutcome({
+      status: OutcomeStatuses.succeeded,
+      // Candidate queries seeded, probes answered, competitor domains found.
+      counts: {
+        queries: result.seedCountRaw,
+        snapshots: result.buckets.cited + result.buckets.aspirational + result.buckets['wasted-surface'],
+        domains: result.competitorMap.length,
+      },
+    })
   } catch (err) {
     const errorMsg = describeError(err)
     log.error('discovery.failed', { runId: opts.runId, sessionId: opts.sessionId, error: errorMsg })
@@ -238,6 +262,12 @@ export async function executeDiscoveryRun(opts: ExecuteDiscoveryRunOptions): Pro
       })
       .where(eq(runs.id, opts.runId))
       .run()
+    const failure = classifyProviderOutcomeError(err)
+    reportOutcome({
+      status: OutcomeStatuses.failed,
+      ...failure,
+      ...(notConfigured ? { reasonCode: OutcomeReasonCodes.NOT_CONNECTED } : {}),
+    })
   }
 }
 
@@ -246,7 +276,7 @@ export async function executeDiscoveryRun(opts: ExecuteDiscoveryRunOptions): Pro
  * multiple deps in a composite and surface a label like `"gemini+chatgpt"`
  * in the `DiscoverySeedResult.provider` field.
  */
-export function buildDefaultDeps(registry: ProviderRegistry): DiscoveryDeps {
+function buildDefaultDeps(registry: ProviderRegistry, classifierConfig?: Pick<CanonryConfig, 'providers' | 'classification'>): DiscoveryDeps {
   const gemini = registry.get('gemini')
   if (!gemini) {
     throw new Error('Gemini provider is not configured. Add a Gemini API key (or Vertex project) before running discovery.')
@@ -257,6 +287,10 @@ export function buildDefaultDeps(registry: ProviderRegistry): DiscoveryDeps {
   }
 
   const adapter = gemini.adapter
+  // Freeze role selection at session start, independently of measured engine models.
+  const classifierProvider = classifierConfig?.classification?.provider ?? AgentProviderIds.gemini
+  const classifierModel = classifierConfig?.classification ? resolveModelForCapability(classifierProvider, LlmCapabilities.classify, classifierConfig.classification.model) : undefined
+  const classifierKey = resolveApiKeyFor(classifierProvider, classifierConfig ?? { providers: { gemini: { apiKey: cfg.apiKey } } })
 
   /** Resolve a seed-capable provider or fail fast with a remediation. */
   function seedProviderFor(name: string): { adapter: typeof adapter; config: typeof cfg } {
@@ -276,8 +310,8 @@ export function buildDefaultDeps(registry: ProviderRegistry): DiscoveryDeps {
       const providerNames = input.seedProviders && input.seedProviders.length > 0
         ? [...input.seedProviders]
         : ['gemini']
-      const perProvider = await Promise.all(providerNames.map(async (name) => {
-        const seedProvider = seedProviderFor(name)
+      const admittedProviders = providerNames.map(name => ({ name, seedProvider: seedProviderFor(name) }))
+      const perProvider = await Promise.all(admittedProviders.map(async ({ name, seedProvider }) => {
         const raw = await seedProvider.adapter.executeTrackedQuery(
           {
             query: prompt,
@@ -344,8 +378,9 @@ export function buildDefaultDeps(registry: ProviderRegistry): DiscoveryDeps {
         cfg,
       )
       const normalized = adapter.normalizeResult(raw)
-      const canonical = new Set(input.project.canonicalDomains.map(d => d.toLowerCase()))
-      const isCited = normalized.citedDomains.some(d => canonical.has(d.toLowerCase()))
+      // A subdomain of a project domain is the project, as the bucket
+      // classifier (`classifyProbeBucket`) reads it.
+      const isCited = normalized.citedDomains.some(d => hostMatchesAnyDomain(d, input.project.canonicalDomains))
       // Mention is the answer-TEXT signal, independent of the citation/source
       // signal above. Same deterministic helper the answer-visibility snapshot
       // writer uses, so discovery and sweeps agree on what "mentioned" means.
@@ -361,13 +396,26 @@ export function buildDefaultDeps(registry: ProviderRegistry): DiscoveryDeps {
         rawResponse: raw.rawResponse as Record<string, unknown>,
       }
     },
-    async classifyDomains(input): Promise<DiscoveryDomainClassification> {
+    async classifyDomains(input) {
       // One plain-text generation per session — no grounding tool needed, the
       // model just types the domains it is handed. The orchestrator catches a
       // throw here and degrades every domain to `unknown`.
       const prompt = buildClassificationPrompt(input)
-      const text = await adapter.generateText(prompt, cfg)
-      return parseClassificationResponse(text, input.domains)
+      if (!classifierModel) {
+        if (!canGenerateText(adapter)) throw new Error(`${adapter.displayName} cannot generate text for domain classification.`)
+        const text = await adapter.generateText(prompt, cfg)
+        return { classifications: parseClassificationResponse(text, input.domains), evaluator: { provider: 'gemini', requestedModel: cfg.model ?? adapter.modelRegistry.defaultModel, servedModel: null, promptVersion: 'domain-category-v1' } }
+      }
+      if (!classifierKey) throw new Error('The configured domain classifier has no API key.')
+      const quota = registry.get(classifierProvider)?.config.quotaPolicy ?? cfg.quotaPolicy
+      const generate = () => completeOnce(classifierModel, {
+        messages: [{ role: 'user', content: prompt, timestamp: Date.now() }],
+      }, { apiKey: classifierKey })
+      const response = classifierProvider === AgentProviderIds.openrouter ? await generate()
+        : await getSharedProviderExecutionGate(classifierProvider, quota.maxConcurrency, quota.maxRequestsPerMinute).run(generate)
+      if (response.stopReason === 'error' || response.stopReason === 'aborted') throw new Error('The domain classifier did not complete.')
+      const text = response.content.filter(part => part.type === 'text').map(part => part.text).join('\n')
+      return { classifications: parseClassificationResponse(text, input.domains), evaluator: { provider: classifierProvider, requestedModel: classifierModel.id, servedModel: response.responseModel ?? null, promptVersion: 'domain-category-v1' } }
     },
   }
 }
@@ -399,9 +447,9 @@ const CLASSIFICATION_CATEGORY_MATCHERS: ReadonlyArray<{
 /**
  * Build the post-probe domain-classification prompt. Hands the model the
  * project context plus the deduped cited-domain list and asks for one
- * `domain => category` line per domain. Exported for unit testing.
+ * `domain => category` line per domain.
  */
-export function buildClassificationPrompt(input: {
+function buildClassificationPrompt(input: {
   project: DiscoveryProjectContext
   icpDescription: string
   domains: string[]
@@ -437,9 +485,9 @@ export function buildClassificationPrompt(input: {
  * design: it locates each input domain in the response and reads the category
  * to the right of `=>` (falling back to a whole-line scan). Any domain the
  * model omits or labels with an unrecognized category is left out of the map,
- * which the orchestrator treats as `unknown`. Exported for unit testing.
+ * which the orchestrator treats as `unknown`.
  */
-export function parseClassificationResponse(
+function parseClassificationResponse(
   text: string,
   domains: string[],
 ): DiscoveryDomainClassification {
@@ -521,9 +569,9 @@ function formatLocationLine(location: LocationContext): string {
  *   `floor(DEFAULT_SEED_COUNT / locationCount)` (min 1) so one service area
  *   cannot dominate the seed set.
  *
- * Exported for unit testing.
+ *
  */
-export function buildLocationConstraint(locations: readonly LocationContext[]): string[] {
+function buildLocationConstraint(locations: readonly LocationContext[]): string[] {
   if (locations.length === 0) return []
   const formatted = locations.map(formatLocationLine)
   if (locations.length === 1) {
@@ -543,9 +591,9 @@ export function buildLocationConstraint(locations: readonly LocationContext[]): 
  * Build the Gemini seed prompt. When `locations` is non-empty the prompt is
  * geo-constrained via `buildLocationConstraint` so discovered queries stay
  * inside the project's service area; otherwise the prompt is unchanged from
- * the pre-location behaviour. Exported for unit testing.
+ * the pre-location behaviour.
  */
-export function buildSeedPrompt(input: {
+function buildSeedPrompt(input: {
   project: DiscoveryProjectContext
   icpDescription: string
   buyerDescription?: string

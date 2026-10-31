@@ -3,15 +3,19 @@ import {
   CheckScopes,
   CheckStatuses,
   describeError,
-} from '@ainyc/canonry-contracts'
+  describeFetchError,
+  isFetchTransportError,
+} from '@canonry/canonry-contracts'
 import {
+  GOOGLE_TOKEN_URL,
+  GSC_API_BASE,
   GSC_SCOPE,
   GSC_READONLY_SCOPE,
   INDEXING_SCOPE,
   GoogleApiError,
   listSites,
   refreshAccessToken,
-} from '@ainyc/canonry-integration-google'
+} from '@canonry/canonry-integration-google'
 import type { CheckDefinition, CheckOutput, DoctorContext } from '../types.js'
 
 interface ResolvedToken {
@@ -75,6 +79,26 @@ async function resolveAccessToken(ctx: DoctorContext): Promise<{ ok: true; token
     const tokens = await refreshAccessToken(auth.clientId, auth.clientSecret, conn.refreshToken)
     return { ok: true, token: { accessToken: tokens.access_token } }
   } catch (err) {
+    // No answer from Google says nothing about the grant, so this must not
+    // read as a rejected token (or supersede the sync failure that names DNS).
+    if (isFetchTransportError(err)) {
+      const error = describeFetchError(err, GOOGLE_TOKEN_URL)
+      return {
+        ok: false,
+        output: {
+          status: CheckStatuses.fail,
+          code: 'google.auth.refresh-unreachable',
+          summary: `Could not reach Google to refresh the GSC token: ${error}`,
+          remediation: 'Check that this host can resolve and connect to Google (DNS filtering, firewall, or proxy), then re-run. The stored grant was not tested.',
+          details: { domain: conn.domain, error },
+          alert: {
+            label: "Can't reach Google",
+            line: "The server couldn't reach Google, so Search Console data didn't refresh.",
+            next: "Nothing yet. If it repeats, check the server's internet or DNS.",
+          },
+        },
+      }
+    }
     const message = describeError(err)
     return {
       ok: false,
@@ -168,6 +192,16 @@ const propertyAccessCheck: CheckDefinition = {
           summary: 'The authorized Google account is forbidden from listing GSC sites.',
           remediation: `Reconnect with a Google account that has access in Search Console: \`canonry google connect ${ctx.project.name} --type gsc\`.`,
           details: { error: err.message },
+        }
+      }
+      if (isFetchTransportError(err)) {
+        const error = describeFetchError(err, GSC_API_BASE)
+        return {
+          status: CheckStatuses.fail,
+          code: 'google.auth.list-sites-unreachable',
+          summary: `Could not reach Search Console to list the authorized account's sites: ${error}`,
+          remediation: 'Check that this host can resolve and connect to the Search Console API (DNS filtering, firewall, or proxy), then re-run. Property access was not tested.',
+          details: { error },
         }
       }
       const message = describeError(err)

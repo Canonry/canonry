@@ -1,21 +1,23 @@
 import { and, eq } from 'drizzle-orm'
-import { gbpLocations } from '@ainyc/canonry-db'
+import { gbpLocations } from '@canonry/canonry-db'
 import {
   CheckCategories,
   CheckScopes,
   CheckStatuses,
   describeError,
-} from '@ainyc/canonry-contracts'
-import { refreshAccessToken } from '@ainyc/canonry-integration-google'
-import { GBP_SCOPE, listAccounts, GbpApiError } from '@ainyc/canonry-integration-google-business-profile'
+  describeFetchError,
+  isFetchTransportError,
+} from '@canonry/canonry-contracts'
+import { GOOGLE_TOKEN_URL, refreshAccessToken } from '@canonry/canonry-integration-google'
+import { GBP_ACCOUNT_MANAGEMENT_BASE, GBP_SCOPE, listAccounts, GbpApiError } from '@canonry/canonry-integration-google-business-profile'
 import type { CheckDefinition, CheckOutput, DoctorContext } from '../types.js'
 import type { GoogleConnectionRecord } from '../../google.js'
 
 // 4 days rather than 7. GBP metrics land daily, so a week of silence is
 // already a long outage, and the shell alerting this check replaces paged at
 // 4. Consolidating an alarm into the product must not quietly loosen it.
-const RECENT_SYNC_WARN_DAYS = 4
-const RECENT_SYNC_FAIL_DAYS = 30
+export const RECENT_SYNC_WARN_DAYS = 4
+export const RECENT_SYNC_FAIL_DAYS = 30
 
 function skippedNoProject(): CheckOutput {
   return {
@@ -35,6 +37,16 @@ function storeUnavailable(): CheckOutput {
   }
 }
 
+/** Whether the project still selects a GBP location: the trace of having used GBP. */
+function hasSelectedLocation(ctx: DoctorContext, projectId: string): boolean {
+  return !!ctx.db
+    .select({ id: gbpLocations.id })
+    .from(gbpLocations)
+    .where(and(eq(gbpLocations.projectId, projectId), eq(gbpLocations.selected, true)))
+    .limit(1)
+    .get()
+}
+
 interface ResolvedGbpToken {
   accessToken: string
   conn: GoogleConnectionRecord
@@ -49,6 +61,23 @@ async function resolveGbpToken(
   const store = ctx.googleConnectionStore
   if (!store) return { ok: false, output: storeUnavailable() }
 
+  const conn = store.getConnection(ctx.project.canonicalDomain, 'gbp')
+  // GBP is optional. A project with no connection and no selected location
+  // never used it (or disconnected, which clears its locations), so there is
+  // nothing to fix. Asked before the OAuth client check: missing Google
+  // credentials are not this project's problem either.
+  if (!conn && !hasSelectedLocation(ctx, ctx.project.id)) {
+    return {
+      ok: false,
+      output: {
+        status: CheckStatuses.skipped,
+        code: 'gbp.auth.not-connected',
+        summary: `${ctx.project.name} has not connected Google Business Profile.`,
+        remediation: `Optional: run \`canonry gbp connect ${ctx.project.name}\` to track a Business Profile.`,
+      },
+    }
+  }
+
   const auth = ctx.getGoogleAuthConfig?.() ?? {}
   if (!auth.clientId || !auth.clientSecret) {
     return {
@@ -61,15 +90,21 @@ async function resolveGbpToken(
       },
     }
   }
-  const conn = store.getConnection(ctx.project.canonicalDomain, 'gbp')
   if (!conn) {
+    // Selected locations with no connection: the project used GBP and lost
+    // the connection, so its syncs have stopped.
     return {
       ok: false,
       output: {
         status: CheckStatuses.fail,
         code: 'gbp.auth.no-connection',
-        summary: `No Google Business Profile connection for ${ctx.project.canonicalDomain}.`,
+        summary: `No Google Business Profile connection for ${ctx.project.canonicalDomain}, but ${ctx.project.name} still has selected locations.`,
         remediation: `Run \`canonry gbp connect ${ctx.project.name}\` to authorize.`,
+        alert: {
+          label: 'Business Profile not connected',
+          line: `Business Profile isn't connected for ${ctx.project.canonicalDomain}, but locations are still selected.`,
+          next: `Connect it with \`cnry gbp connect ${ctx.project.name}\`, or deselect its locations.`,
+        },
       },
     }
   }
@@ -89,6 +124,25 @@ async function resolveGbpToken(
     const tokens = await refreshAccessToken(auth.clientId, auth.clientSecret, conn.refreshToken)
     return { ok: true, token: { accessToken: tokens.access_token, conn } }
   } catch (err) {
+    // No answer from Google says nothing about the grant (see google-auth).
+    if (isFetchTransportError(err)) {
+      const error = describeFetchError(err, GOOGLE_TOKEN_URL)
+      return {
+        ok: false,
+        output: {
+          status: CheckStatuses.fail,
+          code: 'gbp.auth.refresh-unreachable',
+          summary: `Could not reach Google to refresh the GBP token: ${error}`,
+          remediation: 'Check that this host can resolve and connect to Google (DNS filtering, firewall, or proxy), then re-run. The stored grant was not tested.',
+          details: { domain: conn.domain, error },
+          alert: {
+            label: "Can't reach Google",
+            line: "The server couldn't reach Google, so Business Profile data didn't refresh.",
+            next: "Nothing yet. If it repeats, check the server's internet or DNS.",
+          },
+        },
+      }
+    }
     const message = describeError(err)
     return {
       ok: false,
@@ -224,6 +278,16 @@ const accountAccessCheck: CheckDefinition = {
           summary: `Failed to list GBP accounts: ${err.message}`,
           remediation: 'Check Business Profile API availability and that the API is enabled on the GCP project, then re-run.',
           details: { reason: err.reason ?? undefined, status: err.status },
+        }
+      }
+      if (isFetchTransportError(err)) {
+        const error = describeFetchError(err, GBP_ACCOUNT_MANAGEMENT_BASE)
+        return {
+          status: CheckStatuses.fail,
+          code: 'gbp.account.list-unreachable',
+          summary: `Could not reach the Business Profile API to list GBP accounts: ${error}`,
+          remediation: 'Check that this host can resolve and connect to the Business Profile API (DNS filtering, firewall, or proxy), then re-run. Account access was not tested.',
+          details: { error },
         }
       }
       const message = describeError(err)

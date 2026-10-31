@@ -12,6 +12,23 @@ function baseConfig(embed?: CanonryConfig['embed']): CanonryConfig {
 }
 
 describe('resolveEmbedConfig', () => {
+  it.each([[['report']], [['report', 'overview']], [['technical-aeo', 'REPORT']]])(
+    'rejects retired Report tabs in an enabled config: %j',
+    (projectTabs) => {
+      expect(() => resolveEmbedConfig({}, baseConfig({ enabled: true, projectTabs })))
+        .toThrow('The report embed tab has been retired')
+    },
+  )
+
+  it('rejects a retired Report tab from the environment but permits an explicit replacement', () => {
+    const config = baseConfig({ enabled: true, projectTabs: ['report'] })
+    expect(() => resolveEmbedConfig({ CANONRY_EMBED_PROJECT_TABS: 'report,overview' }, config))
+      .toThrow('The report embed tab has been retired')
+    expect(resolveEmbedConfig({ CANONRY_EMBED_PROJECT_TABS: 'overview' }, config).projectTabs)
+      .toEqual(['overview'])
+    expect(resolveEmbedConfig({ CANONRY_EMBED: 'false' }, config).enabled).toBe(false)
+  })
+
   it('is disabled by default with no env and no config', () => {
     expect(resolveEmbedConfig({}, baseConfig())).toEqual({ enabled: false, allowedOrigins: [] })
   })
@@ -74,10 +91,10 @@ describe('resolveEmbedConfig', () => {
 
   it('parses CANONRY_EMBED_PROJECT_TABS on comma + whitespace and lowercases', () => {
     const out = resolveEmbedConfig(
-      { CANONRY_EMBED: '1', CANONRY_EMBED_PROJECT_TABS: 'Overview, technical-aeo  report' },
+      { CANONRY_EMBED: '1', CANONRY_EMBED_PROJECT_TABS: 'Overview, technical-aeo  Overview' },
       baseConfig(),
     )
-    expect(out.projectTabs).toEqual(['overview', 'technical-aeo', 'report'])
+    expect(out.projectTabs).toEqual(['overview', 'technical-aeo'])
   })
 
   it('CANONRY_EMBED_PROJECT_TABS overrides config.embed.projectTabs (env wins)', () => {
@@ -107,6 +124,7 @@ describe('resolveEmbedConfig', () => {
 describe('unsupportedEmbedProjectTabs', () => {
   it('returns tab names that have no server-side read classifier', () => {
     expect(unsupportedEmbedProjectTabs(['overview', 'technical-aeo', 'report', 'backlinks', 'local'])).toEqual([
+      'report',
       'backlinks',
       'local',
     ])

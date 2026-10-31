@@ -8,8 +8,8 @@ import type {
   RawQueryResult,
   TrackedQueryInput,
   SnapshotRequestInput,
-} from '@ainyc/canonry-contracts'
-import { snapshotRequestSchema } from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
+import { snapshotRequestSchema } from '@canonry/canonry-contracts'
 import { ProviderRegistry } from '../src/provider-registry.js'
 import { SnapshotService } from '../src/snapshot-service.js'
 import { formatAuditFactorScore } from '../src/snapshot-format.js'

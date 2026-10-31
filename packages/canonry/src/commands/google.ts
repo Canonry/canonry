@@ -4,11 +4,17 @@ import type {
   GscSubmitSitemapsResponseDto,
   GscUrlInspectionDto,
   IndexingRequestResultDto,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { type ApiClient, createApiClient } from '../client.js'
-import { CliError, EXIT_SYSTEM_ERROR, isMachineFormat } from '../cli-error.js'
+import { CliError, isMachineFormat } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
-import { describeError, formatPercent } from '@ainyc/canonry-contracts'
+import { formatPercent } from '@canonry/canonry-contracts'
+import {
+  dedupeGscSitemapUrls,
+  requireGscSitemapUrls,
+  resolveDiscoveredGscSitemapUrls,
+  submitGscSitemapBatches,
+} from '../gsc-sitemap-submission.js'
 
 const INDEXING_API_SCOPE_NOTICE =
   "Note: Google's Indexing API officially supports only pages with JobPosting or BroadcastEvent (livestream VideoObject) structured data. " +
@@ -525,6 +531,7 @@ export async function googleQueryTotals(project: string, opts: {
 }
 
 export async function googlePerformance(project: string, opts: {
+  window?: string
   days?: number
   startDate?: string
   endDate?: string
@@ -552,6 +559,7 @@ export async function googlePerformance(project: string, opts: {
     // the span against the same frontier every other window uses.
     params.days = String(opts.days)
   }
+  if (opts.window) params.window = opts.window
   if (opts.keyword) params.query = opts.keyword
   if (opts.page) params.page = opts.page
   if (opts.limit !== undefined) params.limit = String(opts.limit)
@@ -798,10 +806,6 @@ function sitemapSubmittedUrlTotal(contents: Array<{ submitted: string }> | undef
   return contents.reduce((total, content) => total + (Number.parseInt(content.submitted, 10) || 0), 0)
 }
 
-function dedupeSitemapUrls(urls: string[]): string[] {
-  return [...new Set(urls.map((url) => url.trim()).filter(Boolean))]
-}
-
 export type GscSitemapSubmissionOptions = {
   sitemapUrls?: string[]
   configured?: boolean
@@ -815,7 +819,7 @@ export async function submitGscSitemaps(
   project: string,
   opts: GscSitemapSubmissionOptions,
 ): Promise<GscSubmitSitemapsResponseDto> {
-  const explicitUrls = dedupeSitemapUrls(opts.sitemapUrls ?? [])
+  const explicitUrls = dedupeGscSitemapUrls(opts.sitemapUrls ?? [])
   const modes = Number(explicitUrls.length > 0) + Number(Boolean(opts.configured)) + Number(Boolean(opts.all)) + Number(Boolean(opts.allFiles))
   if (modes !== 1) {
     throw new CliError({
@@ -846,86 +850,17 @@ export async function submitGscSitemaps(
         details: { command: 'google.submit-sitemap', project },
       })
     }
-    sitemapUrls = dedupeSitemapUrls([sitemapUrl])
+    sitemapUrls = dedupeGscSitemapUrls([sitemapUrl])
   } else if (opts.all || opts.allFiles) {
-    const topLevel = await client.gscSitemaps(project)
-    if (opts.all) {
-      sitemapUrls = dedupeSitemapUrls(
-        topLevel.preferredSubmissionUrls.length > 0
-          ? topLevel.preferredSubmissionUrls
-          : topLevel.sitemaps.map((sitemap) => sitemap.path),
-      )
-    } else if (opts.allFiles) {
-      const indexes = topLevel.sitemaps.filter((sitemap) => sitemap.isSitemapsIndex).map((sitemap) => sitemap.path)
-      const children = []
-      for (let offset = 0; offset < indexes.length; offset += 4) {
-        children.push(...await Promise.all(
-          indexes.slice(offset, offset + 4).map((sitemapIndex) => client.gscSitemaps(project, { sitemapIndex })),
-        ))
-      }
-      const expandedIndexUrls = children.flatMap((result, index) =>
-        result.sitemaps.length > 0
-          ? result.sitemaps.map((sitemap) => sitemap.path)
-          : [indexes[index]!],
-      )
-      sitemapUrls = dedupeSitemapUrls([
-        ...topLevel.sitemaps.filter((sitemap) => !sitemap.isSitemapsIndex).map((sitemap) => sitemap.path),
-        ...expandedIndexUrls,
-      ])
-    }
-    if (sitemapUrls.length === 0) {
-      throw new CliError({
-        code: 'CLI_USAGE_ERROR',
-        message: 'no GSC sitemaps found; provide a URL or use --configured',
-        displayMessage: 'Error: no GSC sitemaps found; provide a URL or use --configured',
-        details: { command: 'google.submit-sitemap', project },
-      })
-    }
+    sitemapUrls = await resolveDiscoveredGscSitemapUrls(
+      client,
+      project,
+      opts.allFiles ? 'all-files' : 'indexes',
+    )
+    requireGscSitemapUrls(project, sitemapUrls)
   }
 
-  const batches = opts.all || opts.allFiles
-    ? Array.from({ length: Math.ceil(sitemapUrls.length / 50) }, (_, index) => sitemapUrls.slice(index * 50, index * 50 + 50))
-    : [sitemapUrls]
-  const aggregate: GscSubmitSitemapsResponseDto = {
-    summary: { total: 0, accepted: 0, failed: 0 },
-    results: [],
-  }
-  for (const [index, batchSitemapUrls] of batches.entries()) {
-    try {
-      const result = await client.gscSubmitSitemaps(project, { sitemapUrls: batchSitemapUrls })
-      aggregate.summary.total += result.summary.total
-      aggregate.summary.accepted += result.summary.accepted
-      aggregate.summary.failed += result.summary.failed
-      aggregate.results.push(...result.results)
-      opts.onProgress?.(index + 1, batches.length)
-    } catch (cause) {
-      if (index === 0) throw cause
-      const attempted = aggregate.summary.total + batchSitemapUrls.length
-      const remaining = sitemapUrls.length - attempted
-      const causeDetails = cause instanceof CliError
-        ? { code: cause.code, message: cause.message, details: cause.details }
-        : { message: describeError(cause) }
-      throw new CliError({
-        code: 'GOOGLE_SITEMAP_SUBMISSION_PARTIAL',
-        message: `Sitemap submission stopped at batch ${index + 1}/${batches.length}; ${aggregate.summary.accepted} accepted, ${aggregate.summary.failed} failed, ${batchSitemapUrls.length} unconfirmed, ${remaining} not attempted.`,
-        displayMessage: `Sitemap submission stopped at batch ${index + 1}/${batches.length}; ${aggregate.summary.accepted} accepted, ${aggregate.summary.failed} failed, ${batchSitemapUrls.length} unconfirmed, ${remaining} not attempted. Earlier accepted submissions were not rolled back.`,
-        exitCode: cause instanceof CliError && cause.exitCode === 1 ? 1 : EXIT_SYSTEM_ERROR,
-        details: {
-          project,
-          accepted: aggregate.summary.accepted,
-          failed: aggregate.summary.failed,
-          completed: aggregate.summary.total,
-          attempted,
-          unconfirmed: batchSitemapUrls.length,
-          remaining,
-          unconfirmedBatch: { index: index + 1, total: batches.length, sitemapUrls: batchSitemapUrls },
-          partialResult: aggregate,
-          cause: causeDetails,
-        },
-      })
-    }
-  }
-  return aggregate
+  return submitGscSitemapBatches(client, project, sitemapUrls, opts)
 }
 
 export async function googleSubmitSitemaps(project: string, opts: GscSitemapSubmissionOptions & {

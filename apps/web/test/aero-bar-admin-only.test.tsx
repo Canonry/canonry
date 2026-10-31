@@ -23,7 +23,7 @@ import {
 import {
   getApiV1ProjectsByNameAgentProvidersQueryKey,
   getApiV1ProjectsQueryKey,
-} from '@ainyc/canonry-api-client/react-query'
+} from '@canonry/canonry-api-client/react-query'
 
 import { heyClient } from '../src/api.js'
 import * as aero from '../src/api-aero.js'
@@ -147,7 +147,7 @@ test('offers the public demo read-only key the Aero bar as a scripted preview', 
   expect(String((fetchMock.mock.calls[0] as unknown[])[0])).toMatch(/\/agent\/preview$/)
   expect(transcript).not.toHaveBeenCalled()
   expect(screen.queryByRole('button', { name: /History/i })).toBeNull()
-  expect(screen.queryByRole('button', { name: 'Switch agent model' })).toBeNull()
+  expect(screen.queryByRole('button', { name: /^Aero model:/ })).toBeNull()
   expect(screen.getByRole('link', { name: /Aero answers from your own Canonry data/ }).getAttribute('href')).toBe('https://canonry.ai')
 })
 

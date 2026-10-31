@@ -3,8 +3,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import { eq } from 'drizzle-orm'
-import { createClient, migrate, projects, runs, type DatabaseClient } from '@ainyc/canonry-db'
-import { RunKinds, RunStatuses, RunTriggers } from '@ainyc/canonry-contracts'
+import { createClient, migrate, projects, runs, type DatabaseClient } from '@canonry/canonry-db'
+import { RunKinds, RunStatuses, RunTriggers } from '@canonry/canonry-contracts'
 import type { CanonryConfig } from '../src/config.js'
 import {
   maybeRefreshGscCoverage,
@@ -370,6 +370,52 @@ describe('maybeRefreshGscCoverage — user-initiated refresh', () => {
     const runId = await maybeRefreshGscCoverage(db, connectedConfig(), PROJECT_ID, deps, now)
 
     expect(runId).toBeNull()
+  })
+
+  it('uses the stored scheduled gsc-sync trigger for the one-hour coverage window', async () => {
+    const deps = spyExecutor()
+    const now = Date.now()
+    insertInspectRun({
+      status: RunStatuses.completed,
+      createdAt: new Date(now - 30 * 60_000).toISOString(),
+    })
+    const gscRun = insertInspectRun({
+      status: RunStatuses.completed,
+      kind: RunKinds['gsc-sync'],
+      trigger: RunTriggers.scheduled,
+      createdAt: new Date(now - 1_000).toISOString(),
+    })
+
+    expect(runWasUserInitiated(db, gscRun)).toBe(false)
+    const runId = await maybeRefreshGscCoverage(db, connectedConfig(), PROJECT_ID, deps, now, {
+      userInitiated: runWasUserInitiated(db, gscRun),
+    })
+
+    expect(runId).toBeNull()
+    expect(deps.calls).toHaveLength(0)
+  })
+
+  it('uses the stored manual gsc-sync trigger for the two-minute coverage window', async () => {
+    const deps = spyExecutor()
+    const now = Date.now()
+    insertInspectRun({
+      status: RunStatuses.completed,
+      createdAt: new Date(now - 30 * 60_000).toISOString(),
+    })
+    const gscRun = insertInspectRun({
+      status: RunStatuses.completed,
+      kind: RunKinds['gsc-sync'],
+      trigger: RunTriggers.manual,
+      createdAt: new Date(now - 1_000).toISOString(),
+    })
+
+    expect(runWasUserInitiated(db, gscRun)).toBe(true)
+    const runId = await maybeRefreshGscCoverage(db, connectedConfig(), PROJECT_ID, deps, now, {
+      userInitiated: runWasUserInitiated(db, gscRun),
+    })
+
+    expect(runId).toBeTruthy()
+    expect(deps.calls).toHaveLength(1)
   })
 })
 

@@ -1,10 +1,10 @@
 import type { QueryClient } from '@tanstack/react-query'
 
-import { RunKinds, type RunKind } from '@ainyc/canonry-contracts'
+import { RunKinds, type RunKind } from '@canonry/canonry-contracts'
 import {
   getApiV1ProjectsQueryKey,
   getApiV1RunsQueryKey,
-} from '@ainyc/canonry-api-client/react-query'
+} from '@canonry/canonry-api-client/react-query'
 
 import { heyClient } from '../api.js'
 import { invalidateProjectQueryDomain } from './query-invalidation.js'
@@ -75,6 +75,9 @@ export function invalidateQueriesForRunKind(
       // sweep completion, which is the hot path here.
       return
     case RunKinds['backlink-extract']:
+      return
+    case RunKinds['seo-sync']:
+      void invalidateProjectQueryDomain(queryClient, 'seo', { projectName })
       return
     case RunKinds['site-audit']:
       void invalidateProjectQueryDomain(queryClient, 'technicalAeo')

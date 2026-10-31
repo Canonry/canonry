@@ -1,9 +1,9 @@
 import { and, asc, eq, inArray } from 'drizzle-orm'
-import { providerBatches, type DatabaseClient } from '@ainyc/canonry-db'
+import { providerBatches, type DatabaseClient } from '@canonry/canonry-db'
 import {
   OUTSTANDING_PROVIDER_BATCH_STATUSES,
   type ProviderBatchSummaryDto,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 
 /**
  * Reads over `provider_batches` shared by the run routes, fill admission, and

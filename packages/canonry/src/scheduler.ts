@@ -1,14 +1,18 @@
 import crypto from 'node:crypto'
-import cron from 'node-cron'
+import cron, { type ScheduledTask } from 'node-cron'
 import { and, eq, inArray, notExists, sql } from 'drizzle-orm'
-import { queueRunIfProjectIdle, nextRunFromCron, nextRunFromSchedule, ensureCurrentQueryBasketRevision, hasOutstandingProviderBatch, latestQueryBasketRevision } from '@ainyc/canonry-api-routes'
-import type { DatabaseClient } from '@ainyc/canonry-db'
-import { schedules, projects, runs, siteCrawlRunRequests } from '@ainyc/canonry-db'
-import type { CalendarRecurrence, ProviderName, LocationContext, SchedulableRunKind } from '@ainyc/canonry-contracts'
+import { queueRunIfProjectIdle, nextRunFromCron, nextRunFromSchedule, ensureCurrentQueryBasketRevision, hasOutstandingProviderBatch, latestQueryBasketRevision } from '@canonry/canonry-api-routes'
+import type { DatabaseClient } from '@canonry/canonry-db'
+import { schedules, projects, runs, siteCrawlRunRequests } from '@canonry/canonry-db'
+import type { CalendarRecurrence, ProviderName, ProviderRouteFamily, LocationContext, SchedulableRunKind } from '@canonry/canonry-contracts'
 import {
   SchedulableRunKinds,
   calendarRecurrenceSchema,
   describeBatchIneligibility,
+  OutcomeReasonCodes,
+  OutcomeStatuses,
+  OutcomeSurfaces,
+  OutcomeTriggers,
   RunKinds,
   RunStatuses,
   RunTriggers,
@@ -16,13 +20,59 @@ import {
   nextScheduleUpdatedAt,
   siteAuditRequestIdentity,
   describeError,
-} from '@ainyc/canonry-contracts'
+  type FeatureCompletedProperties,
+  type OutcomeReasonCode,
+  type OutcomeTrigger,
+} from '@canonry/canonry-contracts'
 import { createLogger } from './logger.js'
+import { createOutcomeSampler, outcomeFailure, trackFeatureCompleted } from './outcome-telemetry.js'
+import { buildRunRefusedProps } from './run-telemetry.js'
+import { trackEvent } from './telemetry.js'
 
 const log = createLogger('Scheduler')
 
+/** Whether a schedule slot fired or why not. The work it hands off reports its own outcome. */
+type SlotOutcome = Pick<FeatureCompletedProperties, 'status' | 'reasonCode' | 'errorName'>
+const SLOT_FIRED: SlotOutcome = { status: OutcomeStatuses.succeeded }
+const slotSkipped = (reasonCode: OutcomeReasonCode): SlotOutcome => ({ status: OutcomeStatuses.skipped, reasonCode })
+const slotFailed = (reasonCode: OutcomeReasonCode): SlotOutcome => ({ status: OutcomeStatuses.failed, reasonCode })
+
 /** Default cadence for the health schedule seeded for each project. */
 export const DEFAULT_HEALTH_CRON = '0 */6 * * *'
+
+/**
+ * Background work starts up to this long after its cron minute, at a fixed
+ * offset per project and kind. Every project's hourly syncs and the 6-hourly
+ * health pass used to start in the same second; that burst of DNS lookups and
+ * token refreshes is what failed one of them now and then.
+ */
+export const SCHEDULE_SPREAD_MS = 120_000
+
+/** Sweeps keep their exact minute: someone picked it. Everything else spreads. */
+const UNSPREAD_KINDS: ReadonlySet<SchedulableRunKind> = new Set([SchedulableRunKinds['answer-visibility']])
+
+/** A stable offset in [0, spreadMs) for one project's scheduled kind: the same every hour. */
+export function scheduleSpreadMs(projectId: string, kind: string, spreadMs = SCHEDULE_SPREAD_MS): number {
+  if (spreadMs <= 0) return 0
+  return crypto.createHash('sha256').update(`${projectId}:${kind}`).digest().readUInt32BE(0) % spreadMs
+}
+
+/**
+ * The shortest gap between a cron schedule's next few occurrences, or null when
+ * it cannot be read. A spread window wider than this would push one start past
+ * the next tick.
+ */
+function shortestCronGapMs(cronExpr: string, timezone: string, from: Date = new Date()): number | null {
+  let previous = nextRunFromCron(cronExpr, timezone, from)
+  let shortest = Number.POSITIVE_INFINITY
+  for (let i = 0; previous && i < 8; i++) {
+    const next = nextRunFromCron(cronExpr, timezone, new Date(Date.parse(previous) + 1_000))
+    if (!next) break
+    shortest = Math.min(shortest, Date.parse(next) - Date.parse(previous))
+    previous = next
+  }
+  return Number.isFinite(shortest) ? shortest : null
+}
 
 
 /**
@@ -45,6 +95,7 @@ export function ensureDefaultHealthSchedule(
     cronExpr: DEFAULT_HEALTH_CRON,
     timezone: 'UTC',
     enabled: true,
+    enabledAt: now,
     providers: [],
     nextRunAt: nextRunFromCron(DEFAULT_HEALTH_CRON, 'UTC'),
     createdAt: now,
@@ -63,6 +114,8 @@ export interface SchedulerCallbacks {
    * measure against while a hand-triggered one worked fine.
    */
   getRunnableProviderNames?: () => readonly string[]
+  /** Route families of every known adapter, so a routed connection never joins "all configured". */
+  getProviderRouteFamilies?: () => readonly ProviderRouteFamily[]
   /** Provider → the model this host has it pointed at, frozen onto plan runs. */
   getEffectiveProviderModels?: () => Readonly<Record<string, string>>
   /**
@@ -124,12 +177,24 @@ export interface SchedulerCallbacks {
   /**
    * Fired when a site-audit (Technical AEO) schedule triggers. The scheduler
    * owns run-row creation (like gbp-sync) so it can hand the host a runId; the
-   * host runs the same worker the manual POST /technical-aeo/runs route uses.
+   * host runs the same worker the manual POST /technical-aeo/runs route uses,
+   * with `opts.maxPages` as its page budget: a scheduled audit covers the full
+   * site, up to the hard page limit, the same budget a manual run defaults to.
    * A site-audit needs no `sourceId` / providers. Skipped (without orphaning a
    * run row) when a site-audit run is already in flight for the project, since
    * a full-site crawl can run for minutes. Fire-and-forget.
    */
-  onSiteAuditRequested?: (runId: string, projectId: string) => void
+  onSiteAuditRequested?: (runId: string, projectId: string, opts: { maxPages: number }) => void
+  /**
+   * Fired when a seo-sync schedule triggers. The host starts one paid SEO
+   * refresh per saved profile under the host's SEO spending policy; each
+   * admitted refresh creates its own `seo-sync` run, and one that cannot be
+   * admitted leaves a failed run with the reason. `occurrence` identifies this
+   * firing (UTC minute), so a repeated fire of the same slot replays the
+   * earlier receipts instead of paying twice. Skipped while a seo-sync run is
+   * queued or running for the project. Fire-and-forget.
+   */
+  onSeoSyncRequested?: (input: { scheduleId: string; projectId: string; occurrence: string }) => void
 }
 
 /** Scheduler tasks are keyed by `(projectId, kind)` so a project can run an
@@ -138,7 +203,7 @@ function taskKey(projectId: string, kind: SchedulableRunKind): string {
   return `${projectId}::${kind}`
 }
 
-type SchedulerTask = Pick<cron.ScheduledTask, 'stop' | 'destroy'>
+type SchedulerTask = Pick<ScheduledTask, 'stop' | 'destroy'>
 
 function scheduleRecurrence(schedule: typeof schedules.$inferSelect): CalendarRecurrence | null {
   if (!schedule.recurrence) return null
@@ -149,10 +214,17 @@ export class Scheduler {
   private db: DatabaseClient
   private callbacks: SchedulerCallbacks
   private tasks = new Map<string, SchedulerTask>()
+  /** A cron can fire every minute, so slot outcomes are sampled per status and reason. */
+  private readonly sampleSlot = createOutcomeSampler({ burst: 5, refillMs: 30 * 60_000 })
+  /** How far background work may start after its cron minute; 0 starts it on the minute. */
+  private readonly spreadMs: number
+  /** Spread starts waiting to fire, by task key, so stopping a task cancels its start too. */
+  private readonly spreadTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
-  constructor(db: DatabaseClient, callbacks: SchedulerCallbacks) {
+  constructor(db: DatabaseClient, callbacks: SchedulerCallbacks, options: { spreadMs?: number } = {}) {
     this.db = db
     this.callbacks = callbacks
+    this.spreadMs = options.spreadMs ?? 0
   }
 
   /**
@@ -246,7 +318,7 @@ export class Scheduler {
         const answerRecurrence = recurrence && schedule.kind === SchedulableRunKinds['answer-visibility']
         if (!recurrence || answerRecurrence || this.claimCalendarOccurrence(schedule, missedRunAt, new Date())) {
           log.info('run.catch-up', { projectId: schedule.projectId, kind: schedule.kind, missedRunAt })
-          this.triggerRun(schedule.id, schedule.projectId, schedule.kind as SchedulableRunKind, answerRecurrence ? missedRunAt : undefined)
+          this.triggerRun(schedule.id, schedule.projectId, schedule.kind as SchedulableRunKind, answerRecurrence ? missedRunAt : undefined, OutcomeTriggers.startup)
         }
       }
     }
@@ -306,6 +378,11 @@ export class Scheduler {
   private stopTask(key: string, task: SchedulerTask, verb: 'Stopped' | 'Removed'): void {
     void task.stop()
     void task.destroy()
+    const pending = this.spreadTimers.get(key)
+    if (pending) {
+      clearTimeout(pending)
+      this.spreadTimers.delete(key)
+    }
     log.info(`task.${verb.toLowerCase()}`, { key })
   }
 
@@ -346,13 +423,32 @@ export class Scheduler {
       return false
     }
 
+    const key = taskKey(projectId, kind)
+    // The window never exceeds half the gap between ticks, so a frequent
+    // schedule's start lands well before its next tick and every occurrence runs.
+    const gapMs = this.spreadMs > 0 && !UNSPREAD_KINDS.has(kind) ? shortestCronGapMs(cronExpr, timezone) : null
+    const spreadMs = gapMs === null ? 0 : scheduleSpreadMs(projectId, kind, Math.min(this.spreadMs, Math.floor(gapMs / 2)))
     const task = cron.schedule(cronExpr, () => {
-      this.triggerRun(scheduleId, projectId, kind)
+      if (spreadMs === 0) {
+        this.triggerRun(scheduleId, projectId, kind)
+        return
+      }
+      // A start still waiting at the next tick (a stalled event loop) runs now
+      // rather than being dropped, so the schedule keeps every occurrence.
+      const overdue = this.spreadTimers.get(key)
+      if (overdue) {
+        clearTimeout(overdue)
+        this.triggerRun(scheduleId, projectId, kind)
+      }
+      this.spreadTimers.set(key, setTimeout(() => {
+        this.spreadTimers.delete(key)
+        this.triggerRun(scheduleId, projectId, kind)
+      }, spreadMs))
     }, {
       timezone,
     })
 
-    this.tasks.set(taskKey(projectId, kind), task)
+    this.tasks.set(key, task)
     if (!options.preserveNextRunAt || !schedule.nextRunAt) {
       this.updateScheduleTiming(scheduleId, {
         nextRunAt: nextRunFromCron(cronExpr, timezone),
@@ -449,20 +545,41 @@ export class Scheduler {
     })
   }
 
-  private triggerRun(scheduleId: string, projectId: string, kind: SchedulableRunKind, claimedOccurrence?: string): void {
+  /** Fire one slot and report a `schedules.slot` outcome; a catch-up slot at boot is triggered by `startup`. */
+  private triggerRun(
+    scheduleId: string,
+    projectId: string,
+    kind: SchedulableRunKind,
+    claimedOccurrence?: string,
+    trigger: OutcomeTrigger = OutcomeTriggers.scheduled,
+  ): void {
+    const slot = this.fireSlot(scheduleId, projectId, kind, claimedOccurrence)
+    const sampled = this.sampleSlot(`${slot.status}:${slot.reasonCode ?? ''}`)
+    if (!sampled.send) return
+    trackFeatureCompleted({
+      feature: 'schedules',
+      operation: 'slot',
+      trigger,
+      surface: OutcomeSurfaces.system,
+      ...slot,
+      ...(sampled.droppedBefore ? { droppedBefore: sampled.droppedBefore } : {}),
+    })
+  }
+
+  private fireSlot(scheduleId: string, projectId: string, kind: SchedulableRunKind, claimedOccurrence?: string): SlotOutcome {
     try {
       const now = new Date().toISOString()
       const currentSchedule = this.db.select().from(schedules).where(eq(schedules.id, scheduleId)).get()
       if (!currentSchedule || !currentSchedule.enabled) {
         log.warn('schedule.stale', { scheduleId, projectId, kind, msg: 'schedule no longer exists or is disabled' })
         this.remove(projectId, kind)
-        return
+        return slotSkipped(currentSchedule ? OutcomeReasonCodes.NOT_DUE : OutcomeReasonCodes.NOT_FOUND)
       }
 
       const recurrence = scheduleRecurrence(currentSchedule)
       if (claimedOccurrence && (!recurrence || currentSchedule.nextRunAt !== claimedOccurrence)) {
         log.info('calendar.stale-claim', { projectId, scheduleId, kind })
-        return
+        return slotSkipped(OutcomeReasonCodes.NOT_DUE)
       }
       const nextRunAt = nextRunFromSchedule({
         cronExpr: currentSchedule.cronExpr,
@@ -475,7 +592,7 @@ export class Scheduler {
       if (!project) {
         log.error('project.not-found', { projectId, kind, msg: 'skipping scheduled run' })
         this.remove(projectId, kind)
-        return
+        return slotSkipped(OutcomeReasonCodes.NOT_FOUND)
       }
 
       if (kind === SchedulableRunKinds['traffic-sync']) {
@@ -486,11 +603,11 @@ export class Scheduler {
         const sourceId = currentSchedule.sourceId
         if (!sourceId) {
           log.warn('traffic-sync.missing-source', { scheduleId, projectId })
-          return
+          return slotFailed(OutcomeReasonCodes.VALIDATION)
         }
         if (!this.callbacks.onTrafficSyncRequested) {
           log.warn('traffic-sync.no-callback', { scheduleId, projectId, msg: 'host did not register onTrafficSyncRequested' })
-          return
+          return slotFailed(OutcomeReasonCodes.UNSUPPORTED)
         }
         this.updateScheduleTiming(currentSchedule.id, {
           lastRunAt: now,
@@ -498,7 +615,7 @@ export class Scheduler {
         })
         log.info('traffic-sync.triggered', { projectName: project.name, sourceId })
         this.callbacks.onTrafficSyncRequested(project.name, sourceId)
-        return
+        return SLOT_FIRED
       }
 
       if (kind === SchedulableRunKinds['gbp-sync']) {
@@ -509,7 +626,7 @@ export class Scheduler {
         // host never registered the callback.
         if (!this.callbacks.onGbpSyncRequested) {
           log.warn('gbp-sync.no-callback', { scheduleId, projectId, msg: 'host did not register onGbpSyncRequested' })
-          return
+          return slotFailed(OutcomeReasonCodes.UNSUPPORTED)
         }
         const runId = crypto.randomUUID()
         this.db.insert(runs).values({
@@ -526,7 +643,7 @@ export class Scheduler {
         })
         log.info('gbp-sync.triggered', { runId, projectName: project.name })
         this.callbacks.onGbpSyncRequested(runId, projectId)
-        return
+        return SLOT_FIRED
       }
 
       if (kind === SchedulableRunKinds['ads-sync']) {
@@ -536,7 +653,7 @@ export class Scheduler {
         // host never registered the callback.
         if (!this.callbacks.onAdsSyncRequested) {
           log.warn('ads-sync.no-callback', { scheduleId, projectId, msg: 'host did not register onAdsSyncRequested' })
-          return
+          return slotFailed(OutcomeReasonCodes.UNSUPPORTED)
         }
         // An ads sync paginates every campaign / ad-group / insight against the
         // live ad account and can run for minutes; skip (without orphaning a
@@ -554,7 +671,7 @@ export class Scheduler {
         if (activeAdsRun) {
           log.info('ads-sync.skipped-active', { projectName: project.name, activeRunId: activeAdsRun.id })
           this.updateScheduleTiming(currentSchedule.id, { nextRunAt })
-          return
+          return slotSkipped(OutcomeReasonCodes.OPERATION_IN_PROGRESS)
         }
         const runId = crypto.randomUUID()
         this.db.insert(runs).values({
@@ -571,7 +688,39 @@ export class Scheduler {
         })
         log.info('ads-sync.triggered', { runId, projectName: project.name })
         this.callbacks.onAdsSyncRequested(runId, projectId)
-        return
+        return SLOT_FIRED
+      }
+
+      if (kind === SchedulableRunKinds['seo-sync']) {
+        // Paid SEO refresh. The host admits one refresh per saved profile and
+        // each admitted refresh owns its run row, so the scheduler creates none.
+        if (!this.callbacks.onSeoSyncRequested) {
+          log.warn('seo-sync.no-callback', { scheduleId, projectId, msg: 'host did not register onSeoSyncRequested' })
+          return slotFailed(OutcomeReasonCodes.UNSUPPORTED)
+        }
+        // A refresh still in flight (including one waiting on an operator to
+        // reconcile an ambiguous paid response) must not be stacked on.
+        const activeSeoRun = this.db
+          .select({ id: runs.id })
+          .from(runs)
+          .where(and(
+            eq(runs.projectId, projectId),
+            eq(runs.kind, RunKinds['seo-sync']),
+            inArray(runs.status, [RunStatuses.queued, RunStatuses.running]),
+          ))
+          .get()
+        if (activeSeoRun) {
+          log.info('seo-sync.skipped-active', { projectName: project.name, activeRunId: activeSeoRun.id })
+          this.updateScheduleTiming(currentSchedule.id, { nextRunAt })
+          return slotSkipped(OutcomeReasonCodes.OPERATION_IN_PROGRESS)
+        }
+        this.updateScheduleTiming(currentSchedule.id, {
+          lastRunAt: now,
+          nextRunAt,
+        })
+        log.info('seo-sync.triggered', { projectName: project.name })
+        this.callbacks.onSeoSyncRequested({ scheduleId, projectId, occurrence: now.slice(0, 16) })
+        return SLOT_FIRED
       }
 
       if (kind === SchedulableRunKinds['data-refresh']) {
@@ -580,7 +729,7 @@ export class Scheduler {
         // owns its own run row + dedupe; the scheduler only fires the trigger.
         if (!this.callbacks.onDataRefreshRequested) {
           log.warn('data-refresh.no-callback', { scheduleId, projectId, msg: 'host did not register onDataRefreshRequested' })
-          return
+          return slotFailed(OutcomeReasonCodes.UNSUPPORTED)
         }
         this.updateScheduleTiming(currentSchedule.id, {
           lastRunAt: now,
@@ -588,7 +737,7 @@ export class Scheduler {
         })
         log.info('data-refresh.triggered', { projectName: project.name })
         this.callbacks.onDataRefreshRequested(project.name)
-        return
+        return SLOT_FIRED
       }
 
       if (kind === SchedulableRunKinds.doctor) {
@@ -597,7 +746,7 @@ export class Scheduler {
         // that advances here.
         if (!this.callbacks.onDoctorRequested) {
           log.warn('doctor.no-callback', { scheduleId, projectId, msg: 'host did not register onDoctorRequested' })
-          return
+          return slotFailed(OutcomeReasonCodes.UNSUPPORTED)
         }
         this.updateScheduleTiming(currentSchedule.id, {
           lastRunAt: now,
@@ -605,7 +754,7 @@ export class Scheduler {
         })
         log.info('doctor.triggered', { projectName: project.name })
         this.callbacks.onDoctorRequested(project.name)
-        return
+        return SLOT_FIRED
       }
 
       if (kind === SchedulableRunKinds['backlinks-sync']) {
@@ -616,7 +765,7 @@ export class Scheduler {
         // host never registered the callback.
         if (!this.callbacks.onBacklinksSyncRequested) {
           log.warn('backlinks-sync.no-callback', { scheduleId, projectId, msg: 'host did not register onBacklinksSyncRequested' })
-          return
+          return slotFailed(OutcomeReasonCodes.UNSUPPORTED)
         }
         this.updateScheduleTiming(currentSchedule.id, {
           lastRunAt: now,
@@ -624,7 +773,7 @@ export class Scheduler {
         })
         log.info('backlinks-sync.triggered', { projectName: project.name })
         this.callbacks.onBacklinksSyncRequested(project.name)
-        return
+        return SLOT_FIRED
       }
 
       if (kind === SchedulableRunKinds['site-audit']) {
@@ -634,7 +783,7 @@ export class Scheduler {
         // orphaning a run row) when one is already queued/running.
         if (!this.callbacks.onSiteAuditRequested) {
           log.warn('site-audit.no-callback', { scheduleId, projectId, msg: 'host did not register onSiteAuditRequested' })
-          return
+          return slotFailed(OutcomeReasonCodes.UNSUPPORTED)
         }
         const active = this.db
           .select({ id: runs.id })
@@ -648,10 +797,12 @@ export class Scheduler {
         if (active) {
           log.info('site-audit.skipped-active', { projectName: project.name, activeRunId: active.id })
           this.updateScheduleTiming(currentSchedule.id, { nextRunAt })
-          return
+          return slotSkipped(OutcomeReasonCodes.OPERATION_IN_PROGRESS)
         }
         const runId = crypto.randomUUID()
-        const effectiveRequest = normalizeSiteAuditRunRequest({})
+        // The project's saved budget, else the full site; the crawl still ends
+        // when it runs out of pages to fetch.
+        const effectiveRequest = normalizeSiteAuditRunRequest({}, project.siteAuditMaxPages)
         this.db.transaction((tx) => {
           tx.insert(runs).values({
             id: runId,
@@ -674,8 +825,8 @@ export class Scheduler {
           nextRunAt,
         })
         log.info('site-audit.triggered', { runId, projectName: project.name })
-        this.callbacks.onSiteAuditRequested(runId, projectId)
-        return
+        this.callbacks.onSiteAuditRequested(runId, projectId, { maxPages: effectiveRequest.maxPages })
+        return SLOT_FIRED
       }
 
       // answer-visibility (default) — original flow.
@@ -685,7 +836,7 @@ export class Scheduler {
         const loc = projectLocations.find(l => l.label === project.defaultLocation)
         if (!loc) {
           log.warn('default-location.stale', { scheduleId, projectId, label: project.defaultLocation })
-          return
+          return slotFailed(OutcomeReasonCodes.VALIDATION)
         }
         resolvedLocation = loc
       }
@@ -701,7 +852,7 @@ export class Scheduler {
       // route validator; never consume its due slot by claiming a null next.
       if (claimedOccurrence && recurrence && !nextRunAt) {
         log.error('calendar.invalid', { projectId, kind, scheduleId })
-        return
+        return slotFailed(OutcomeReasonCodes.VALIDATION)
       }
 
       const queueResult = queueRunIfProjectIdle(this.db, {
@@ -712,8 +863,12 @@ export class Scheduler {
         location: locationLabel,
         providers,
         runnableProviders: this.callbacks.getRunnableProviderNames?.(),
+        routeFamilies: this.callbacks.getProviderRouteFamilies?.(),
         providerModels: this.callbacks.getEffectiveProviderModels?.(),
         batchEligibleProviders: this.callbacks.getBatchEligibleProviderNames?.() ?? null,
+        // A skipped slot is otherwise invisible: no run row, nothing in the
+        // dashboard. One audit row per refusal keeps it in the history.
+        auditRefusal: { actor: 'scheduler', entityType: 'schedule', entityId: currentSchedule.id },
         ...(claimedOccurrence && recurrence && currentSchedule.nextRunAt === claimedOccurrence ? {
           scheduleClaim: {
             scheduleId: currentSchedule.id,
@@ -727,7 +882,7 @@ export class Scheduler {
       if (queueResult.conflict) {
         if (queueResult.scheduleClaimed === false) {
           log.info('calendar.skipped-claimed', { projectName: project.name, scheduleId: currentSchedule.id })
-          return
+          return slotSkipped(OutcomeReasonCodes.NOT_DUE)
         }
         // A run waiting on a provider batch stays `running` until the batch
         // ends or its deadline passes. Sweeps never overlap, so this one is
@@ -739,7 +894,29 @@ export class Scheduler {
           ...(batchPending ? { reason: 'batch-pending' } : {}),
         })
         if (!claimedOccurrence) this.updateScheduleTiming(currentSchedule.id, { nextRunAt })
-        return
+        return slotSkipped(OutcomeReasonCodes.OPERATION_IN_PROGRESS)
+      }
+      if (queueResult.refused) {
+        // Every provider failed the project's recent runs on its account. Skip
+        // the slot (the queue already spent a calendar slot). A slot after
+        // `retryAfter`, or after a provider settings change, runs again. The
+        // first skipped slot of a refusal wrote its `run.refused` audit row
+        // and reports it; later slots until a run is let through repeat it.
+        log.warn('run.skipped-providers-failing', {
+          projectName: project.name,
+          scheduleId: currentSchedule.id,
+          ...queueResult.refused,
+        })
+        if (queueResult.refusalRecorded) {
+          trackEvent('run.aborted', buildRunRefusedProps({
+            providers: queueResult.refused.providers,
+            trigger: RunTriggers.scheduled,
+            canonicalDomain: project.canonicalDomain,
+            location: locationLabel,
+          }), { errorCode: 'PROVIDERS_FAILING' })
+        }
+        if (!claimedOccurrence) this.updateScheduleTiming(currentSchedule.id, { nextRunAt })
+        return slotSkipped(OutcomeReasonCodes.GATE_REFUSED)
       }
 
       const runId = queueResult.runId
@@ -760,10 +937,17 @@ export class Scheduler {
         nextRunAt,
       })
 
-      log.info('run.triggered', { runId, projectName: project.name, providers: providers ?? 'all' })
+      log.info('run.triggered', {
+        runId,
+        projectName: project.name,
+        providers: providers ?? 'all',
+        ...(Object.keys(queueResult.skippedProviders).length > 0 ? { skippedProviders: queueResult.skippedProviders } : {}),
+      })
       this.callbacks.onRunCreated(runId, projectId, providers, resolvedLocation)
+      return SLOT_FIRED
     } catch (err: unknown) {
       log.error('trigger.error', { scheduleId, projectId, kind, error: describeError(err) })
+      return { status: OutcomeStatuses.failed, ...outcomeFailure(err) }
     }
   }
 }

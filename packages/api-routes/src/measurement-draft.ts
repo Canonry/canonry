@@ -24,6 +24,7 @@ import {
   measurementDraftEtagStale,
   measurementDraftPublishRequestSchema,
   measurementDraftPreviewAssignmentsRequestSchema,
+  measurementDraftRouteMarketsRequestSchema,
   measurementDraftPreviewGroupMembershipRequestSchema,
   measurementPlanDeactivateRequestSchema,
   measurementPlanRevisionConflict,
@@ -31,6 +32,8 @@ import {
   measurementQueryTemplateApplyRequestSchema,
   measurementQueryTemplateUpsertRequestSchema,
   notFound,
+  OutcomeReasonCodes,
+  OutcomeStatuses,
   parseStoredMeasurementPlanAnyVersion,
   RunStatuses,
   validationError,
@@ -47,7 +50,10 @@ import {
   type MeasurementV2UrlMatcher,
   type StoredMeasurementPlan,
   hostOf,
-} from '@ainyc/canonry-contracts'
+  normalizeCompetitorAliases,
+  compareText,
+  type ProviderRouteFamily,
+} from '@canonry/canonry-contracts'
 import {
   measurementPlanDrafts,
   measurementPlans,
@@ -60,15 +66,20 @@ import {
   queries,
   runs,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { requireScope } from './auth.js'
+import { findStoredCompetitor, readStoredCompetitors, requireMarketPinsClearOfCompetitorAliases } from './competitor-writes.js'
+import { beginMarketPinWrite, marketPinWriteAuditFields, notifyMarketPinWrite, type MarketPinWriteEffect, type MarketPinWriteHooks } from './market-pin-writes.js'
 import { auditFromRequest, resolveProject, writeAuditLog } from './helpers.js'
+import { withFeatureOutcome } from './feature-outcome.js'
 import { MEASUREMENT_PLAN_WRITE_SCOPE } from './measurement-plan.js'
+import { storedPlanPinGroups } from './plan-competitors.js'
 import {
   applyDraftAction,
   applyAssignmentsToAuthoring,
   assertMeasurementDraftAuthoringLimits,
   MEASUREMENT_DRAFT_ACTIONS,
+  routeMarketsInAuthoring,
   type DraftActionContext,
 } from './measurement-draft-actions.js'
 import {
@@ -85,6 +96,8 @@ import {
   previewGroupMembershipCsv,
 } from './measurement-group-import.js'
 import { resolveRunnableProviderSelection, resolveRunProviderSelection } from './run-queue.js'
+import { assertProviderRouteScope } from './provider-models.js'
+import type { ProviderAdapterInfo } from './settings.js'
 import {
   actorFromRequest,
   activePlanVersionRow,
@@ -113,13 +126,13 @@ type TransactionClient = Parameters<Parameters<DatabaseClient['transaction']>[0]
 // CSV keeps its own strict 1 MiB UTF-8 ceiling after transport parsing.
 const MEASUREMENT_GROUP_MEMBERSHIP_BODY_LIMIT = MEASUREMENT_GROUP_MEMBERSHIP_CSV_MAX_BYTES * 7 + 4_096
 
-export interface MeasurementDraftRoutesOptions {
+export interface MeasurementDraftRoutesOptions extends MarketPinWriteHooks {
   /** Current provider registry membership, used when a project means "all configured". */
   getRunnableProviderNames?: () => readonly string[]
-}
-
-function compareText(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0
+  /** Route families of the host's adapters; routed connections never join "all configured". */
+  providerRouteFamilies?: readonly ProviderRouteFamily[]
+  /** The host's adapter descriptions, so the compiler applies the same workflow eligibility as a project selection. */
+  providerAdapters?: readonly ProviderAdapterInfo[]
 }
 
 /** Key-order-independent identity, so "did this action change anything" never turns on serialization order. */
@@ -127,18 +140,36 @@ function authoringIdentity(authoring: MeasurementDraftAuthoring): string {
   return canonicalJson(authoring)
 }
 
+function draftExecutionProviders(authoring: MeasurementDraftAuthoring): string[] {
+  return [
+    ...authoring.defaultContext.providers,
+    ...authoring.assignments.flatMap(assignment => [
+      ...(assignment.contextOverride?.providers ?? []),
+      ...(assignment.executionContexts?.flatMap(context => context.providers) ?? []),
+    ]),
+  ]
+}
+
+function storedPlanExecutionProviders(plan: StoredMeasurementPlan): string[] {
+  return plan.schemaVersion === 2
+    ? plan.executionNodes.flatMap(node => node.context.providers)
+    : []
+}
+
 function trackedQueriesFor(db: DatabaseClient, projectId: string): Array<{ id: string; query: string }> {
   return db.select({ id: queries.id, query: queries.query })
     .from(queries).where(eq(queries.projectId, projectId)).all()
 }
 
-function compileContextFor(db: DatabaseClient, project: ProjectRow): MeasurementDraftCompileContext {
+function compileContextFor(db: DatabaseClient, project: ProjectRow, opts: Pick<MeasurementDraftRoutesOptions, 'providerRouteFamilies' | 'providerAdapters'>): MeasurementDraftCompileContext {
   return {
     canonicalDomain: project.canonicalDomain,
     ownedDomains: project.ownedDomains,
     brandNames: effectiveBrandNames(project),
     locations: project.locations,
     trackedQueries: trackedQueriesFor(db, project.id),
+    ...(opts.providerRouteFamilies ? { routeFamilies: opts.providerRouteFamilies } : {}),
+    ...(opts.providerAdapters ? { providerAdapters: opts.providerAdapters } : {}),
   }
 }
 
@@ -146,6 +177,7 @@ function actionContextFor(db: DatabaseClient, project: ProjectRow): DraftActionC
   return {
     brandNames: effectiveBrandNames(project),
     queriesById: new Map(trackedQueriesFor(db, project.id).map(query => [query.id, query.query])),
+    locationsByLabel: new Map(project.locations.map(location => [location.label, location])),
   }
 }
 
@@ -187,6 +219,7 @@ function draftProviderNames(project: ProjectRow, opts: MeasurementDraftRoutesOpt
   return resolveRunProviderSelection({
     projectProviders: project.providers,
     runnableProviders: opts.getRunnableProviderNames?.(),
+    routeFamilies: opts.providerRouteFamilies,
   })
 }
 
@@ -354,9 +387,30 @@ function assertPinLocationsPreserved(project: ProjectRow, plan: MeasurementPlanV
   }
 }
 
+/**
+ * The curated aliases of the project's tracked competitor for `domain`, so an
+ * Advanced pin by domain alone carries the operator's names for it. Empty
+ * when the domain is not tracked. Any spelling finds the stored row
+ * (`findStoredCompetitor`), which fails rather than pick one of several rows
+ * for the same competitor.
+ *
+ * Never its auto-detected names, nor the names learned for an untracked
+ * domain (`market_competitor_names`): a pin's names become curated plan names,
+ * frozen into every revision that publishes them, so a later block of a name
+ * or its decay out of detection could no longer take it back. Every reader
+ * that scores answers against live identity layers those names onto the pin
+ * at read time instead (`createRunCompetitorResolver`, the landscape).
+ */
+function trackedCompetitorAliases(db: Pick<DatabaseClient, 'select'>, projectId: string, domain: string): string[] {
+  const host = hostOf(domain)
+  if (!host) return []
+  return normalizeCompetitorAliases(findStoredCompetitor(readStoredCompetitors(db, projectId), host)?.aliases)
+}
+
 function pinCompetitorInAuthoring(
   authoring: MeasurementDraftAuthoring,
   input: MeasurementDraftPinCompetitorRequest,
+  trackedAliases: () => readonly string[] = () => [],
 ): { authoring: MeasurementDraftAuthoring; competitor: MeasurementV2Competitor } {
   const domain = hostOf(input.domain)
   if (!domain) throw validationError('A competitor domain must be a valid hostname.')
@@ -372,7 +426,13 @@ function pinCompetitorInAuthoring(
   // word as its brand. Preserve previously curated identities and aliases.
   const generatedLabel = brandKeyFromText(domainLabel).length >= MIN_DOMAIN_BRAND_KEY_LENGTH ? domainLabel : domain
   const label = input.label ?? existing?.label ?? generatedLabel
-  const aliases = input.aliases ?? existing?.aliases ?? (input.label ? [input.label] : [])
+  // A new pin with no stated aliases takes the tracked competitor's curated
+  // names (plus an explicit label). Its auto-detected names are layered onto
+  // the pin at read time, never frozen into it (`trackedCompetitorAliases`).
+  const aliases = input.aliases ?? existing?.aliases ?? normalizeCompetitorAliases([
+    ...(input.label ? [input.label] : []),
+    ...trackedAliases(),
+  ])
   const stableKey = existing?.stableKey ?? nextCompetitorStableKey(sourceGroup, domain)
   const competitor: MeasurementV2Competitor = measurementDraftCompetitorSchema.parse({ stableKey, label, domain, aliases })
   const competitors = existingIndex === -1
@@ -611,6 +671,7 @@ export async function measurementDraftRoutes(app: FastifyInstance, opts: Measure
       answerVisibilityProviderReady: resolveRunnableProviderSelection({
         projectProviders: project.providers,
         runnableProviders: opts.getRunnableProviderNames?.(),
+        routeFamilies: opts.providerRouteFamilies,
       }).runnableProviders.length > 0,
       activeRevision: active?.revision ?? null,
       activeSchemaVersion,
@@ -731,7 +792,9 @@ export async function measurementDraftRoutes(app: FastifyInstance, opts: Measure
     if (!parsed.success) throw validationError('Invalid "pin-competitor" payload', { issues: parsed.error.issues })
     const input = parsed.data
     const now = new Date()
+    let pinEffect: MarketPinWriteEffect | null = null
     const settled = app.db.transaction(tx => {
+      const pinWrite = beginMarketPinWrite(tx, gate.project)
       const active = activePlanVersionRow(tx, gate.project.id)
       if (!active || active.schemaVersion !== 2) {
         throw validationError('Pinning a market competitor requires an active v2 measurement plan.')
@@ -748,8 +811,11 @@ export async function measurementDraftRoutes(app: FastifyInstance, opts: Measure
       const before = row
         ? parseStoredAuthoring(row.authoringJson)
         : seedAuthoring(gate.project, activePlan, actionContextFor(app.db, gate.project), opts)
-      const result = pinCompetitorInAuthoring(before, input)
+      const result = pinCompetitorInAuthoring(before, input, () => trackedCompetitorAliases(tx, gate.project.id, input.domain))
       assertMeasurementDraftAuthoringLimits(before, result.authoring)
+      // A pin that answers to another tracked competitor's curated alias
+      // would credit one answer to both.
+      requireMarketPinsClearOfCompetitorAliases(tx, gate.project.id, before.groups, result.authoring.groups)
       const changed = authoringIdentity(result.authoring) !== authoringIdentity(before)
       const etagVersion = row ? (changed ? row.etagVersion + 1 : row.etagVersion) : 1
       const response: MeasurementDraftPinCompetitorResponse = measurementDraftPinCompetitorResponseSchema.parse({
@@ -774,6 +840,7 @@ export async function measurementDraftRoutes(app: FastifyInstance, opts: Measure
           createdAt: now.toISOString(),
           updatedAt: now.toISOString(),
         }).run()
+        pinEffect = pinWrite.finish()
         writeAuditLog(tx, auditFromRequest(request, {
           projectId: gate.project.id,
           actor: 'api',
@@ -788,7 +855,7 @@ export async function measurementDraftRoutes(app: FastifyInstance, opts: Measure
           action: 'measurement-draft.pin-competitor',
           entityType: 'measurement-draft',
           entityId: draftId,
-          diff: { groupKey: input.groupKey, domain: result.competitor.domain, etag: response.etag },
+          diff: { groupKey: input.groupKey, domain: result.competitor.domain, etag: response.etag, ...marketPinWriteAuditFields(pinEffect) },
         }))
       } else if (changed) {
         const updated = tx.update(measurementPlanDrafts).set({
@@ -803,19 +870,21 @@ export async function measurementDraftRoutes(app: FastifyInstance, opts: Measure
         if (updated.changes !== 1) {
           throw measurementDraftEtagStale(measurementDraftEtag(row.etagVersion), measurementDraftEtag(draftRow(tx, gate.project.id)?.etagVersion ?? 0))
         }
+        pinEffect = pinWrite.finish()
         writeAuditLog(tx, auditFromRequest(request, {
           projectId: gate.project.id,
           actor: 'api',
           action: 'measurement-draft.pin-competitor',
           entityType: 'measurement-draft',
           entityId: row.id,
-          diff: { groupKey: input.groupKey, domain: result.competitor.domain, etag: response.etag },
+          diff: { groupKey: input.groupKey, domain: result.competitor.domain, etag: response.etag, ...marketPinWriteAuditFields(pinEffect) },
         }))
       }
       sweepExpiredMeasurementReceipts(tx, now)
       writeReceipt(tx, gate.project.id, gate.lookup, response, 200, now)
       return response
     })
+    notifyMarketPinWrite(opts, gate.project, pinEffect)
     reply.header('etag', settled.etag)
     return settled
   })
@@ -830,11 +899,13 @@ export async function measurementDraftRoutes(app: FastifyInstance, opts: Measure
 
       const before = parseStoredAuthoring(row.authoringJson)
       const result = applyDraftAction(action, before, request.body, actionContextFor(app.db, gate.project))
+      assertProviderRouteScope(request, draftExecutionProviders(result.authoring), [...gate.project.providers, ...draftExecutionProviders(before)], opts.providerRouteFamilies)
       // A no-op leaves the counter alone: the ETag must change after every
       // successful MUTATION, and nothing was mutated.
       const changed = authoringIdentity(result.authoring) !== authoringIdentity(before)
       const etagVersion = changed ? row.etagVersion + 1 : row.etagVersion
       const response = mutationResponse(etagVersion, changed, result.warnings, result.authoring)
+      let pinEffect: MarketPinWriteEffect | null = null
       const settled = finishMutation(gate, response, (tx, now) => {
         // The observed ETag was useful for early feedback, but the predicate
         // below is the real compare-and-swap. Two requests that both read mpd_2
@@ -845,6 +916,10 @@ export async function measurementDraftRoutes(app: FastifyInstance, opts: Measure
           throw measurementDraftEtagStale(ifMatch, measurementDraftEtag(current.etagVersion))
         }
         if (!changed) return
+        // Competitor and group upserts may pin a competitor, or give a pin a
+        // name, that another tracked competitor's curated alias answers to.
+        requireMarketPinsClearOfCompetitorAliases(tx, gate.project.id, before.groups, result.authoring.groups)
+        const pinWrite = beginMarketPinWrite(tx, gate.project)
         const updated = tx.update(measurementPlanDrafts).set({
           authoringJson: JSON.stringify(result.authoring),
           etagVersion,
@@ -859,15 +934,17 @@ export async function measurementDraftRoutes(app: FastifyInstance, opts: Measure
           if (!actual) throw notFound('Measurement plan draft', gate.project.name)
           throw measurementDraftEtagStale(ifMatch, measurementDraftEtag(actual.etagVersion))
         }
+        pinEffect = pinWrite.finish()
         writeAuditLog(tx, auditFromRequest(request, {
           projectId: gate.project.id,
           actor: 'api',
           action: `measurement-draft.${action}`,
           entityType: 'measurement-draft',
           entityId: row.id,
-          diff: { previousEtag: measurementDraftEtag(row.etagVersion), etag: response.etag },
+          diff: { previousEtag: measurementDraftEtag(row.etagVersion), etag: response.etag, ...marketPinWriteAuditFields(pinEffect) },
         }))
       })
+      notifyMarketPinWrite(opts, gate.project, pinEffect)
       reply.header('etag', response.etag)
       return settled
     })
@@ -893,7 +970,7 @@ export async function measurementDraftRoutes(app: FastifyInstance, opts: Measure
     const result = applyAssignmentsToAuthoring(before, parsed.data, actionContextFor(app.db, project))
     assertMeasurementDraftAuthoringLimits(before, result.authoring)
 
-    const context = compileContextFor(app.db, project)
+    const context = compileContextFor(app.db, project, opts)
     const current = compileMeasurementDraftAssignmentExecution(authoringForCompile(before, project, opts), context)
     const candidate = compileMeasurementDraftAssignmentExecution(authoringForCompile(result.authoring, project, opts), context)
     if (!current.ok || !candidate.ok) {
@@ -912,6 +989,43 @@ export async function measurementDraftRoutes(app: FastifyInstance, opts: Measure
       resolvedTargetKeys: result.audience.targetKeys,
       overlapCount: result.audience.overlapCount,
       assignments: result.assignments,
+      execution: assignmentExecutionImpact(current.plan, candidate.plan),
+    }
+  })
+
+  app.post<{ Params: { name: string } }>('/projects/:name/measurement-plan/draft/actions/preview-route-markets', {
+    config: {
+      readSemantic: true,
+      rateLimit: { max: 30, timeWindow: '1 minute' },
+    },
+  }, async (request, reply) => {
+    requireScope(request, MEASUREMENT_PLAN_WRITE_SCOPE)
+    const project = resolveProject(app.db, request.params.name)
+    const parsed = measurementDraftRouteMarketsRequestSchema.safeParse(request.body)
+    if (!parsed.success) throw validationError('Invalid "preview-route-markets" payload', { issues: parsed.error.issues })
+    const row = requireDraft(project)
+    const before = parseStoredAuthoring(row.authoringJson)
+    const result = routeMarketsInAuthoring(before, parsed.data, actionContextFor(app.db, project))
+    assertMeasurementDraftAuthoringLimits(before, result.authoring)
+
+    const context = compileContextFor(app.db, project, opts)
+    const current = compileMeasurementDraftAssignmentExecution(authoringForCompile(before, project, opts), context)
+    const candidate = compileMeasurementDraftAssignmentExecution(authoringForCompile(result.authoring, project, opts), context)
+    if (!current.ok || !candidate.ok) {
+      throw validationError('The selected market routing has invalid question or provider settings. Review it and try again.', {
+        displayToOperator: true,
+        currentChecks: current.checks,
+        candidateChecks: candidate.checks,
+      })
+    }
+
+    const draftEtag = measurementDraftEtag(row.etagVersion)
+    reply.header('etag', draftEtag)
+    return {
+      draftEtag,
+      markets: result.markets,
+      matchedEdges: result.matchedEdges,
+      changedEdges: result.changedEdges,
       execution: assignmentExecutionImpact(current.plan, candidate.plan),
     }
   })
@@ -1027,7 +1141,7 @@ export async function measurementDraftRoutes(app: FastifyInstance, opts: Measure
     requireScope(request, MEASUREMENT_PLAN_WRITE_SCOPE)
     const project = resolveProject(app.db, request.params.name)
     const authoring = authoringForCompile(parseStoredAuthoring(requireDraft(project).authoringJson), project, opts)
-    const compiled = compileMeasurementDraft(authoring, compileContextFor(app.db, project))
+    const compiled = compileMeasurementDraft(authoring, compileContextFor(app.db, project, opts))
     if (!compiled.ok) return { ok: false, compiledChecksum: null, checks: compiled.checks }
     return {
       ok: true,
@@ -1044,7 +1158,7 @@ export async function measurementDraftRoutes(app: FastifyInstance, opts: Measure
     requireScope(request, MEASUREMENT_PLAN_WRITE_SCOPE)
     const project = resolveProject(app.db, request.params.name)
     const authoring = authoringForCompile(parseStoredAuthoring(requireDraft(project).authoringJson), project, opts)
-    const compiled = compileMeasurementDraft(authoring, compileContextFor(app.db, project))
+    const compiled = compileMeasurementDraft(authoring, compileContextFor(app.db, project, opts))
     if (!compiled.ok) return { ok: false, compiledChecksum: null, checks: compiled.checks, diff: null }
     const active = activePlanVersionRow(app.db, project.id)
     // A v1 revision has no assignment model, so a diff against it would be
@@ -1069,20 +1183,26 @@ export async function measurementDraftRoutes(app: FastifyInstance, opts: Measure
     }
   })
 
-  app.post<{ Params: { name: string } }>('/projects/:name/measurement-plan/draft/actions/publish', async (request, reply) => {
+  app.post<{ Params: { name: string } }>('/projects/:name/measurement-plan/draft/actions/publish', async (request, reply) => withFeatureOutcome(app, { feature: 'measurement', operation: 'publish' }, async (recordOutcome) => {
     const gate = beginMutation(request, reply, 'publish')
-    if (gate.replay !== null) return gate.replay
+    if (gate.replay !== null) {
+      // The publish this key first made already reported its outcome.
+      recordOutcome(null)
+      return gate.replay
+    }
     const parsed = measurementDraftPublishRequestSchema.safeParse(request.body)
     if (!parsed.success) throw validationError('Invalid "publish" payload', { issues: parsed.error.issues })
     const ifMatch = requireIfMatch(request)
-    const context = compileContextFor(app.db, gate.project)
+    const context = compileContextFor(app.db, gate.project, opts)
     const now = new Date()
 
     // One transaction for the whole publish, receipt included. Every guard
     // throws, and a throw rolls the transaction back, so a refused publish
     // leaves the draft and the pointer exactly as they were — and never leaves
     // a replayable success behind for a publish that did not happen.
-    return app.db.transaction(tx => {
+    let pinEffect: MarketPinWriteEffect | null = null
+    const settled = app.db.transaction(tx => {
+      const pinWrite = beginMarketPinWrite(tx, gate.project)
       const settle = (published: boolean, version: PlanVersionRow, plan: MeasurementPlanV2) => {
         const response = {
           published,
@@ -1115,9 +1235,28 @@ export async function measurementDraftRoutes(app: FastifyInstance, opts: Measure
       if (!compiled.ok) {
         throw validationError('The measurement draft does not compile.', { checks: compiled.checks })
       }
+      const activeProviders = active
+        ? storedPlanExecutionProviders(parseStoredMeasurementPlanAnyVersion(active.canonicalJson))
+        : []
+      assertProviderRouteScope(
+        request,
+        compiled.plan.executionNodes.flatMap(node => node.context.providers),
+        [...gate.project.providers, ...activeProviders],
+        opts.providerRouteFamilies,
+      )
       if (compiled.plan.compiledChecksum !== parsed.data.expectedCompiledChecksum) {
         throw measurementCompiledChecksumConflict(parsed.data.expectedCompiledChecksum, compiled.plan.compiledChecksum)
       }
+      // The pins this publish adds or renames go live here, including a draft
+      // pin held from before the pin checks or next to a tracked alias an
+      // older build stored. A pin the active revision already has is not
+      // checked again.
+      requireMarketPinsClearOfCompetitorAliases(
+        tx,
+        gate.project.id,
+        active ? storedPlanPinGroups(active.canonicalJson) : [],
+        compiled.plan.groups,
+      )
 
       const clearDraft = () => {
         tx.delete(measurementPlanDrafts).where(eq(measurementPlanDrafts.id, row.id)).run()
@@ -1127,13 +1266,14 @@ export async function measurementDraftRoutes(app: FastifyInstance, opts: Measure
       // already live, so a second row would claim a change nobody made.
       if (active && active.compiledChecksum === compiled.plan.compiledChecksum) {
         clearDraft()
+        pinEffect = pinWrite.finish()
         writeAuditLog(tx, auditFromRequest(request, {
           projectId: gate.project.id,
           actor: 'api',
           action: 'measurement-draft.published-noop',
           entityType: 'measurement-plan',
           entityId: String(active.revision),
-          diff: { compiledChecksum: compiled.plan.compiledChecksum },
+          diff: { compiledChecksum: compiled.plan.compiledChecksum, ...marketPinWriteAuditFields(pinEffect) },
         }))
         return settle(false, active, parseV2Plan(active))
       }
@@ -1217,6 +1357,7 @@ export async function measurementDraftRoutes(app: FastifyInstance, opts: Measure
         }).run()
       }
       clearDraft()
+      pinEffect = pinWrite.finish()
       writeAuditLog(tx, auditFromRequest(request, {
         projectId: gate.project.id,
         actor: 'api',
@@ -1227,12 +1368,20 @@ export async function measurementDraftRoutes(app: FastifyInstance, opts: Measure
           previousRevision: active?.revision ?? null,
           compiledChecksum: compiled.plan.compiledChecksum,
           sourceDraftId: row.id,
+          ...marketPinWriteAuditFields(pinEffect),
         },
       }))
       const created = tx.select().from(measurementPlanVersions).where(eq(measurementPlanVersions.id, versionId)).get()!
       return settle(true, created, compiled.plan)
     })
-  })
+    const { plan } = settled.active
+    // A draft identical to the active revision publishes nothing.
+    recordOutcome(settled.published
+      ? { status: OutcomeStatuses.succeeded, counts: { items: plan.groups.length, targets: plan.targets.length, queries: plan.querySnapshots.length } }
+      : { status: OutcomeStatuses.skipped, reasonCode: OutcomeReasonCodes.NO_DATA })
+    notifyMarketPinWrite(opts, gate.project, pinEffect)
+    return settled
+  }))
 
   app.post<{ Params: { name: string } }>('/projects/:name/measurement-plan/draft/actions/discard', async (request, reply) => {
     const gate = beginMutation(request, reply, 'discard')
@@ -1240,16 +1389,23 @@ export async function measurementDraftRoutes(app: FastifyInstance, opts: Measure
     const ifMatch = requireIfMatch(request)
     const row = requireDraft(gate.project)
     assertDraftEtag(row, ifMatch)
-    return finishMutation(gate, { discarded: true }, tx => {
+    let pinEffect: MarketPinWriteEffect | null = null
+    const settled = finishMutation(gate, { discarded: true }, tx => {
+      const pinWrite = beginMarketPinWrite(tx, gate.project)
       tx.delete(measurementPlanDrafts).where(eq(measurementPlanDrafts.id, row.id)).run()
+      pinEffect = pinWrite.finish()
+      const auditFields = marketPinWriteAuditFields(pinEffect)
       writeAuditLog(tx, auditFromRequest(request, {
         projectId: gate.project.id,
         actor: 'api',
         action: 'measurement-draft.discarded',
         entityType: 'measurement-draft',
         entityId: row.id,
+        ...(Object.keys(auditFields).length > 0 ? { diff: auditFields } : {}),
       }))
     })
+    notifyMarketPinWrite(opts, gate.project, pinEffect)
+    return settled
   })
 
   app.post<{ Params: { name: string } }>('/projects/:name/measurement-plan/actions/deactivate', async (request, reply) => {
@@ -1262,18 +1418,25 @@ export async function measurementDraftRoutes(app: FastifyInstance, opts: Measure
     if (active.revision !== parsed.data.expectedActiveRevision) {
       throw measurementPlanRevisionConflict(parsed.data.expectedActiveRevision, active.revision)
     }
-    return finishMutation(gate, { deactivated: true, previousRevision: active.revision }, tx => {
+    let pinEffect: MarketPinWriteEffect | null = null
+    const settled = finishMutation(gate, { deactivated: true, previousRevision: active.revision }, tx => {
+      const pinWrite = beginMarketPinWrite(tx, gate.project)
       // The pointer row and nothing else. Schedules, runs, queries, versions
       // and evidence are untouched, and every revision stays readable.
       tx.delete(measurementPlans).where(eq(measurementPlans.projectId, gate.project.id)).run()
+      pinEffect = pinWrite.finish()
+      const auditFields = marketPinWriteAuditFields(pinEffect)
       writeAuditLog(tx, auditFromRequest(request, {
         projectId: gate.project.id,
         actor: 'api',
         action: 'measurement-plan.deactivated',
         entityType: 'measurement-plan',
         entityId: String(active.revision),
+        ...(Object.keys(auditFields).length > 0 ? { diff: auditFields } : {}),
       }))
     })
+    notifyMarketPinWrite(opts, gate.project, pinEffect)
+    return settled
   })
 
   function querySetDetail(projectId: string, setId: string) {

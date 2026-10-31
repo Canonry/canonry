@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { createDemoServer } from '../src/demo-server.js'
+import { seoContextSchema, seoProfileListSchema, seoOverviewSchema, seoRunDetailSchema, seoKeywordMetricsListSchema, seoMarketRankingListSchema, seoRankedKeywordListSchema } from '@canonry/canonry-contracts'
 
 const dir = mkdtempSync(join(tmpdir(), 'canonry-demo-integration-'))
 let app: Awaited<ReturnType<typeof createDemoServer>>
@@ -15,9 +16,63 @@ beforeAll(async () => {
 afterAll(async () => { await app?.close(); network.mockRestore(); rmSync(dir, { recursive: true, force: true }) })
 
 describe('populated demo integration', () => {
+  it.each(['summit-roofing', 'harbor-resorts'])('serves saved SEO evidence for %s while keeping refreshes closed', async name => {
+    const read = async (path: string) => {
+      const response = await app.inject(`/api/v1/projects/${name}/seo/${path}`)
+      expect(response.statusCode, response.body).toBe(200)
+      return response.json()
+    }
+    const context = seoContextSchema.parse(await read('context'))
+    expect(context.access).toEqual({ canRun: false, canWrite: false })
+    expect(context.available).toBe(false)
+    const { profiles } = seoProfileListSchema.parse(await read('profiles'))
+    const advanced = name === 'harbor-resorts'
+    expect(profiles).toHaveLength(advanced ? 20 : 1)
+    expect(profiles[0]!.scope.kind).toBe('project')
+    const overview = seoOverviewSchema.parse(await read('overview?profileId=all-site'))
+    expect(overview).toMatchObject({ keywordMetricsCount: advanced ? 12 : 8, rankedKeywordCount: advanced ? 12 : 8, domainIntelligenceCount: 1, summary: { organicKeywords: advanced ? 3240 : 486, inTop10: advanced ? 1222 : 176, estimatedOrganicTraffic: advanced ? 18400 : 2750 } })
+    const run = seoRunDetailSchema.parse(await read(`runs/${overview.evidenceRunId}`))
+    expect(run).toMatchObject({ status: 'completed', taskCount: 3, completedTasks: 3, failedTasks: 0, profileId: 'all-site' })
+    const ranked = seoRankedKeywordListSchema.parse(await read(`ranked-keywords?profileId=all-site&runId=${run.id}&limit=2&offset=1`))
+    expect(ranked).toMatchObject({ total: advanced ? 12 : 8, offset: 1, limit: 2 })
+    expect(ranked.items.map(item => item.rankOrganic)).toEqual([3, 4])
+    expect(ranked.items.every(item => new URL(item.url!).hostname === `${name}.example`)).toBe(true)
+    if (advanced) {
+      // 3 markets x 4 non-brand queries; each market's last query is outside the checked results.
+      expect(seoOverviewSchema.parse(await read('overview?profileId=market-rankings')).marketRankingCount).toBe(12)
+      const markets = seoMarketRankingListSchema.parse(await read('market-rankings?profileId=market-rankings&limit=100'))
+      expect(markets.total).toBe(12)
+      expect([...new Set(markets.items.map(item => item.marketLabel))]).toEqual(['Coastal Maine market', 'Key West market', 'Pacific Northwest market'])
+      expect(markets.items.filter(item => item.rankOrganic === null)).toHaveLength(3)
+      expect(markets.items.every(item => item.queryClass === 'non-brand' && item.provenance.device === 'mobile')).toBe(true)
+      const keyWest = seoMarketRankingListSchema.parse(await read('market-rankings?profileId=market-rankings&marketKey=market-key-west'))
+      // Rows read in search-text order within a market.
+      expect(keyWest.items.map(item => [item.searchText.split(' for ')[1], item.rankOrganic, item.locationLabel])).toEqual([['family suites', 7, 'Key West, FL'], ['oceanfront pools', 3, 'Key West, FL'], ['spa weekends', 14, 'Key West, FL'], ['sunset dining', null, 'Key West, FL']])
+    }
+    for (const profile of profiles.filter(item => item.scope.kind !== 'project')) {
+      expect(profile.scope.expectedPlanRevision).toBe(2)
+      expect(context.scopes.some(scope => scope.kind === profile.scope.kind && scope.key === profile.scope.key)).toBe(true)
+      const scoped = seoOverviewSchema.parse(await read(`overview?profileId=${profile.id}`))
+      expect(scoped.summary).toBeNull()
+      expect(scoped.rankedKeywordCount).toBe(0)
+      expect(scoped.keywordMetricsCount).toBe(profile.scope.kind === 'property' ? 1 : 4)
+      const demand = seoKeywordMetricsListSchema.parse(await read(`keyword-metrics?profileId=${profile.id}`))
+      expect(demand.items.map(item => item.keyword)).toEqual(profile.keywords)
+    }
+    for (const [method, path, payload] of [
+      ['PUT', 'profiles/all-site', {}], ['POST', 'refresh-intents', { profileId: 'all-site' }],
+      ['POST', 'sync', {}], ['POST', `runs/${run.id}/cancel`, {}],
+    ] as const) {
+      const response = await app.inject({ method, url: `/api/v1/projects/${name}/seo/${path}`, payload })
+      expect(response.statusCode).toBe(403)
+      expect(response.json().error.code).toBe('DEMO_READ_ONLY')
+    }
+    expect((await app.inject(`/api/v1/seo/operator/tasks/${run.tasks[0]!.id}`)).statusCode).toBe(403)
+    expect(network).not.toHaveBeenCalled()
+  })
   it.each(['summit-roofing', 'harbor-resorts'])('serves populated feature reads for %s without any provider call', async name => {
     const paths = [
-      'overview', 'visibility-report', 'queries', 'runs', 'google/connections',
+      'overview', 'visibility-report', 'traffic/analytics', 'queries', 'runs', 'google/connections',
       'google/gsc/performance/daily?window=7d', 'bing/status', 'bing/performance', 'bing/coverage',
       'ga/status', 'ga/traffic', 'ga/ai-referral-history',
       'technical-aeo/crawl', 'technical-aeo/graph', 'gbp/summary',
@@ -57,14 +112,27 @@ describe('populated demo integration', () => {
     expect(integrity.json().assessment.contract.id).toBe(contracts[0].id)
     expect(network).not.toHaveBeenCalled()
   })
-  it('keeps the fictional-data disclosure in downloaded report HTML', async () => {
-    const response = await app.inject('/api/v1/projects/harbor-resorts/report.html')
-    expect(response.statusCode, response.body.slice(0, 200)).toBe(200)
+  it('denies webhook secret exports to the public demo viewer', async () => {
+    const normal = await app.inject('/api/v1/projects/summit-roofing/export')
+    expect(normal.statusCode).toBe(200)
+    const secret = await app.inject('/api/v1/projects/summit-roofing/export?includeSecrets=true')
+    expect(secret.statusCode).toBe(403)
+    expect(secret.json().error.code).toBe('FORBIDDEN')
+    expect(network).not.toHaveBeenCalled()
+  })
+  it.each(['report', 'report.html'])('retires the dedicated %s endpoint', async endpoint => {
+    const response = await app.inject(`/api/v1/projects/harbor-resorts/${endpoint}`)
+    expect(response.statusCode).toBe(403)
+    expect(response.json().error.code).toBe('DEMO_READ_ONLY')
+    expect(response.headers['content-disposition']).toBeUndefined()
+    expect(network).not.toHaveBeenCalled()
+  })
+  it('serves a legacy Report document URL so the SPA can redirect to AI Visibility', async () => {
+    const response = await app.inject('/projects/harbor-resorts/report')
+    expect(response.statusCode).toBe(200)
     expect(response.headers['content-type']).toContain('text/html')
-    expect(response.headers['content-disposition']).toContain('attachment')
-    expect(response.body).toContain('Public Canonry demo')
-    expect(response.body).toContain('fictional sample data from stored demo records')
-    expect(response.body).toContain('No live provider query produced it')
+    expect(response.body).toContain('id="root"')
+    expect(response.headers['content-disposition']).toBeUndefined()
     expect(network).not.toHaveBeenCalled()
   })
 })

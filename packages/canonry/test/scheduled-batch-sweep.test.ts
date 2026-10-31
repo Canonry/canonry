@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm'
 import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
-import { projects, runs, schedules, type DatabaseClient } from '@ainyc/canonry-db'
+import { projects, runs, schedules, type DatabaseClient } from '@canonry/canonry-db'
 import { JobRunner } from '../src/job-runner.js'
 import { batchEligibleProviderNames } from '../src/provider-batch-config.js'
 import { ProviderBatchPoller } from '../src/provider-batch-poller.js'

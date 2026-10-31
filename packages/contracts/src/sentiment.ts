@@ -1,10 +1,14 @@
 import { z } from 'zod'
 import { wilsonInterval } from './statistics.js'
 import { formatPercent } from './formatting.js'
-import { fraction, RatioUnits } from './ratio-unit.js'
+import { fraction, RatioUnits, roundRatio } from './ratio-unit.js'
 import { locationContextSchema } from './provider.js'
 
 export const SENTIMENT_MODEL = 'jev-1.13.0' as const
+export const SENTIMENT_OPENROUTER_MODEL = 'typesafe/jev-1.13' as const
+export const SENTIMENT_OPENROUTER_SERVED_MODEL = 'typesafe/jev-1.13-20260917' as const
+export const sentimentEvaluatorProviderSchema = z.enum(['typesafe', 'openrouter'])
+export type SentimentEvaluatorProvider = z.infer<typeof sentimentEvaluatorProviderSchema>
 export const SENTIMENT_INTERVAL_LIMITATION = 'Wilson 95% intervals assume independent observations. They exclude classifier error and dependence among related queries, Properties, and sweeps.'
 const id = z.string().trim().min(1).max(256)
 const count = z.number().int().nonnegative()
@@ -21,16 +25,27 @@ export const sentimentStateSchema = z.enum(['disabled', 'not-measured', 'process
 export type SentimentState = z.infer<typeof sentimentStateSchema>
 /** Schema 1 is readable archived metadata; only schema 2 is eligible for new dispatch. */
 export const sentimentEvaluationDefinitionSchema = z.object({
-  schemaVersion: z.union([z.literal(1), z.literal(2)]), requestedModel: z.literal(SENTIMENT_MODEL),
+  schemaVersion: z.union([z.literal(1), z.literal(2)]), requestedModel: z.enum([SENTIMENT_MODEL, SENTIMENT_OPENROUTER_MODEL]),
+  /** Omitted on historical direct TypeSafe definitions to preserve their immutable identity. */
+  provider: sentimentEvaluatorProviderSchema.optional(),
+  expectedReturnedModel: z.literal(SENTIMENT_OPENROUTER_SERVED_MODEL).optional(),
   verdictVersion: id, identityVersion: id, evidenceVersion: id, segmentationVersion: id, preprocessingVersion: id,
   languagePolicy: z.literal('en-only'), comparisonMethodVersion: z.literal('wilson-independent-v1'),
   confidenceThreshold: z.number().min(0).max(1).nullable(),
   questions: z.object({ identity: z.string(), judgment: z.string(), stance: z.string(), conclusion: z.string(), complaint: z.string() }).strict(),
-}).strict()
+}).strict().superRefine((definition, ctx) => {
+  const routed = definition.provider === 'openrouter'
+  if (definition.requestedModel !== (routed ? SENTIMENT_OPENROUTER_MODEL : SENTIMENT_MODEL) ||
+      (routed ? definition.expectedReturnedModel !== SENTIMENT_OPENROUTER_SERVED_MODEL : definition.expectedReturnedModel !== undefined)) {
+    ctx.addIssue({ code: 'custom', path: ['requestedModel'], message: 'The frozen evaluator route must use its pinned requested and returned models.' })
+  }
+})
 export type SentimentEvaluationDefinition = z.infer<typeof sentimentEvaluationDefinitionSchema>
-export function createSentimentEvaluationDefinition(): SentimentEvaluationDefinition {
+export function createSentimentEvaluationDefinition(provider: SentimentEvaluatorProvider = 'typesafe'): SentimentEvaluationDefinition {
   return sentimentEvaluationDefinitionSchema.parse({
-    schemaVersion: 2, requestedModel: SENTIMENT_MODEL, verdictVersion: 'stance-v2', identityVersion: 'qualified-subject-v3',
+    schemaVersion: 2, requestedModel: provider === 'openrouter' ? SENTIMENT_OPENROUTER_MODEL : SENTIMENT_MODEL,
+    ...(provider === 'openrouter' ? { provider, expectedReturnedModel: SENTIMENT_OPENROUTER_SERVED_MODEL } : {}),
+    verdictVersion: 'stance-v2', identityVersion: 'qualified-subject-v3',
     evidenceVersion: 'sentence-evidence-v1', segmentationVersion: 'sentence-spans-v2', preprocessingVersion: 'verbatim-v1',
     languagePolicy: 'en-only', comparisonMethodVersion: 'wilson-independent-v1', confidenceThreshold: null,
     questions: {
@@ -41,6 +56,9 @@ export function createSentimentEvaluationDefinition(): SentimentEvaluationDefini
       complaint: 'Select the most serious complaint about the intended subject, or absent.',
     },
   })
+}
+export function sentimentEvaluatorProvider(definition: SentimentEvaluationDefinition): SentimentEvaluatorProvider {
+  return definition.provider ?? 'typesafe'
 }
 const SENTIMENT_TEMPLATE_FIELDS = ['schemaVersion', 'verdictVersion', 'identityVersion', 'evidenceVersion', 'segmentationVersion', 'preprocessingVersion'] as const
 /**
@@ -122,7 +140,7 @@ function exclusiveSentimentRuns(value: { runId?: string; runIds?: string[] }, ct
 }
 export const sentimentSelectionSchema = sentimentSelectionBaseSchema.superRefine(exclusiveSentimentRuns)
 export type SentimentSelection = z.infer<typeof sentimentSelectionSchema>
-export type SentimentEvidenceSelection = SentimentSelection & { assessmentId?: string }
+export type SentimentEvidenceSelection = SentimentSelection & { assessmentId?: string; outcome?: SentimentOutcome[] }
 export const sentimentSummaryIncludeSchema = z.enum(['assessments', 'locations'])
 export type SentimentSummaryInclude = z.infer<typeof sentimentSummaryIncludeSchema>
 export const SENTIMENT_QUERY_PAGE_DEFAULT = 25
@@ -136,18 +154,41 @@ export const sentimentSummaryRequestSchema = sentimentSelectionBaseSchema.extend
   queryLimit: z.coerce.number().int().min(1).max(SENTIMENT_QUERY_PAGE_MAX).default(SENTIMENT_QUERY_PAGE_DEFAULT),
   queryCursor: z.string().min(1).max(16384).optional(),
 }).superRefine(exclusiveSentimentRuns)
-export const sentimentEvidenceRequestSchema = sentimentSelectionBaseSchema.extend({ assessmentId: id.optional(), cursor: z.string().min(1).max(16384).optional(), limit: z.coerce.number().int().min(1).max(100).default(50) }).superRefine(exclusiveSentimentRuns)
-export const sentimentCompareRequestSchema = sentimentSelectionBaseSchema.extend({ fromRunId: id, toRunId: id }).superRefine((value, ctx) => { exclusiveSentimentRuns(value, ctx); if (value.runIds) ctx.addIssue({ code: 'custom', path: ['runIds'], message: 'Comparison requires one explicit run per period.' }) })
+/** Evidence `outcome` narrows the page to assessments with these outcomes (comma-separated on the wire); it never changes how they were scored. */
+export const sentimentEvidenceOutcomeFilterSchema = z.preprocess(value => {
+  // Repeated params arrive as an array, and any item may itself be comma-separated: normalize both forms the same way.
+  const items: readonly unknown[] | null = typeof value === 'string' ? [value] : Array.isArray(value) ? (value as unknown[]) : null
+  return items ? [...new Set(items.flatMap((item): unknown[] => typeof item === 'string' ? item.split(',').map(part => part.trim()).filter(Boolean) : [item]))] : value
+}, z.array(sentimentOutcomeSchema).min(1).max(sentimentOutcomeSchema.options.length))
+export const sentimentEvidenceRequestSchema = sentimentSelectionBaseSchema.extend({ assessmentId: id.optional(), outcome: sentimentEvidenceOutcomeFilterSchema.optional(), cursor: z.string().min(1).max(16384).optional(), limit: z.coerce.number().int().min(1).max(100).default(50) }).superRefine(exclusiveSentimentRuns)
+export const sentimentCompareRequestSchema = sentimentSelectionBaseSchema.extend({ fromRunId: id.describe('Run ID or previous-rated to select the preceding run with stored ratings in this scope.'), toRunId: id }).superRefine((value, ctx) => { exclusiveSentimentRuns(value, ctx); if (value.runIds) ctx.addIssue({ code: 'custom', path: ['runIds'], message: 'Comparison requires one explicit run per period.' }) })
 export const sentimentResolvedSelectionSchema = sentimentSelectionBaseSchema.extend({ runId: id.nullable(), revision: z.number().int().nullable(), evaluationDefinitionId: id.nullable(), mode: z.enum(['simple', 'advanced']) })
 export type SentimentResolvedSelection = z.infer<typeof sentimentResolvedSelectionSchema>
 export const sentimentCountsSchema = z.object(Object.fromEntries(sentimentOutcomeSchema.options.map(outcome => [outcome, count])) as Record<SentimentOutcome, typeof count>).strict()
 export type SentimentCounts = z.infer<typeof sentimentCountsSchema>
-export const sentimentCoverageSchema = z.object({ selected: count, eligibleAssessments: count, unadmittedAssessments: count, judged: count, distinctSourceAnswers: count, counts: sentimentCountsSchema, expectedProviderSlots: count, completedProviderSlots: count }).strict()
+/**
+ * `selected`, `eligibleAssessments`, `unadmittedAssessments` and `judged` count answer-subject
+ * assessments; `distinctSourceAnswers` counts the admitted source answers. The answer-level Rated
+ * figure has its own fields, optional because older servers do not send them:
+ * `eligibleAnswers` is every distinct source answer in the selection, admitted or not;
+ * `ratedAnswers` is those with at least one favorable, mixed or unfavorable assessment in it
+ * (an answer assessed for two subjects counts once); `ratedAnswerRate` is their share, null with
+ * no eligible answers or while sentiment is disabled.
+ */
+export const sentimentCoverageSchema = z.object({
+  selected: count, eligibleAssessments: count, unadmittedAssessments: count, judged: count, distinctSourceAnswers: count,
+  eligibleAnswers: count.optional(), ratedAnswers: count.optional(), ratedAnswerRate: rate.optional(),
+  subjectNotMentioned: count.nullable().optional().describe('Distinct admitted answers where every assessed subject in the selected scope is absent. Expected for non-brand queries; not missing classification. Null while disabled.'),
+  counts: sentimentCountsSchema, expectedProviderSlots: count, completedProviderSlots: count,
+}).strict()
 export const sentimentScoreSchema = z.object({ favorableRate: rate, mixedRate: rate, unfavorableRate: rate, favorableDisplay: z.string(), mixedDisplay: z.string(), unfavorableDisplay: z.string(), interval: z.object({ low: z.number(), high: z.number() }).strict().nullable(), method: z.literal('wilson-independent-v1'), limitation: z.string() }).strict()
 const headlineFields = { state: sentimentStateSchema, reason: z.string().nullable(), provisional: z.boolean(), coverage: sentimentCoverageSchema, score: sentimentScoreSchema }
 export const sentimentHeadlineSchema = z.object({ ...headlineFields, selection: sentimentResolvedSelectionSchema, runIds: z.array(id) }).strict()
 export type SentimentHeadline = z.infer<typeof sentimentHeadlineSchema>
-export const sentimentOverviewSchema = z.object({ configured: z.boolean(), branded: sentimentHeadlineSchema, nonBrand: sentimentHeadlineSchema }).strict()
+/** Overview-only combined assessment population; class-specific analysis stays separate. */
+export const sentimentOverallHeadlineSchema = z.object({ ...headlineFields, queryClass: z.literal('all'), pooled: z.literal(true).optional(), runIds: z.array(id) }).strict()
+export type SentimentOverallHeadline = z.infer<typeof sentimentOverallHeadlineSchema>
+export const sentimentOverviewSchema = z.object({ configured: z.boolean(), branded: sentimentHeadlineSchema, nonBrand: sentimentHeadlineSchema, headlineQueryClass: z.literal('branded').optional(), pooledOverall: sentimentOverallHeadlineSchema.optional(), overall: sentimentOverallHeadlineSchema.optional().describe('Deprecated compatibility field. Pooled branded and non-brand assessments; never use as the sentiment headline.') }).strict()
 export type SentimentOverview = z.infer<typeof sentimentOverviewSchema>
 /** Compact stored assessment metadata for exact engine rows; never carries answer text or quotes. */
 export const sentimentAssessmentSummarySchema = z.object({
@@ -164,12 +205,36 @@ export const sentimentSummarySchema = z.object({
   ...headlineFields, configured: z.boolean(), selection: sentimentResolvedSelectionSchema,
   evaluationDefinition: sentimentEvaluationDefinitionSchema.nullable(),
   breakdowns: z.array(sentimentBreakdownSchema), queries: z.array(sentimentQuerySummarySchema),
+  /**
+   * Branded reads: the Properties with a mixed or unfavorable rating, most criticized first
+   * ({@link rankCriticizedProperties}). `keys` are the first {@link SENTIMENT_CRITICIZED_PROPERTY_LIMIT}
+   * property breakdown keys; `total` counts them all; `{ total: 0, keys: [] }` with fewer than two
+   * Properties in view. Absent from older servers, comparison periods, and non-brand, disabled or unavailable reads.
+   */
+  criticizedProperties: z.object({ total: count, keys: z.array(z.string()) }).strict().optional(),
   /** Present on the paged summary read; follow `nextCursor` as `queryCursor` for the next query rows. */
   queryPage: z.object({ total: count, limit: count, nextCursor: z.string().nullable() }).strict().optional(),
 }).strict()
 export type SentimentSummary = z.infer<typeof sentimentSummarySchema>
+export type SentimentBreakdown = z.infer<typeof sentimentBreakdownSchema>
+export const SENTIMENT_CRITICIZED_PROPERTY_LIMIT = 5
+/**
+ * The Properties a branded view criticizes most, by counts, never shares: a Property has a
+ * handful of ratings, so a share would let one mixed answer outrank five. Keeps property rows
+ * with a mixed or unfavorable rating, ordered by mixed plus unfavorable count, then unfavorable
+ * count, then fewest favorable, then label. None unless the rows span more than one Property.
+ */
+export function rankCriticizedProperties(rows: readonly SentimentBreakdown[]): { total: number; keys: string[] } {
+  const properties = rows.filter(row => row.dimension === 'property')
+  if (properties.length < 2) return { total: 0, keys: [] }
+  const criticized = properties.filter(row => row.coverage.counts.mixed + row.coverage.counts.unfavorable > 0)
+  const criticism = (row: SentimentBreakdown) => row.coverage.counts.mixed + row.coverage.counts.unfavorable
+  criticized.sort((a, b) => criticism(b) - criticism(a) || b.coverage.counts.unfavorable - a.coverage.counts.unfavorable || a.coverage.counts.favorable - b.coverage.counts.favorable || a.label.localeCompare(b.label) || a.key.localeCompare(b.key))
+  return { total: criticized.length, keys: criticized.slice(0, SENTIMENT_CRITICIZED_PROPERTY_LIMIT).map(row => row.key) }
+}
 export const sentimentSettingsUpdateSchema = z.object({ enabled: z.boolean().optional() }).strict()
 export const sentimentSettingsSchema = z.object({
+  provider: sentimentEvaluatorProviderSchema.optional(),
   installEnabled: z.boolean(), enabled: z.boolean(), ready: z.boolean(), readinessReasons: z.array(z.string()), model: z.string(),
   enablementEpoch: count, completionBoundary: count,
   evaluationDefinitionId: id.nullable(), actions: z.object({ configure: z.boolean(), backfill: z.boolean() }).strict(),
@@ -212,7 +277,7 @@ export const sentimentEvidenceItemSchema = z.object({
   returnedModel: z.string().nullable(), reason: z.string().nullable(),
 }).strict()
 export type SentimentEvidenceItem = z.infer<typeof sentimentEvidenceItemSchema>
-export const sentimentEvidencePageSchema = z.object({ state: sentimentStateSchema, selection: sentimentResolvedSelectionSchema.extend({ assessmentId: id.optional() }), items: z.array(sentimentEvidenceItemSchema), nextCursor: z.string().nullable() }).strict()
+export const sentimentEvidencePageSchema = z.object({ state: sentimentStateSchema, selection: sentimentResolvedSelectionSchema.extend({ assessmentId: id.optional(), outcome: z.array(sentimentOutcomeSchema).optional() }), items: z.array(sentimentEvidenceItemSchema), nextCursor: z.string().nullable() }).strict()
 export type SentimentEvidencePage = z.infer<typeof sentimentEvidencePageSchema>
 export const sentimentComparisonSchema = z.object({
   from: sentimentSummarySchema, to: sentimentSummarySchema, verdict: z.enum(['improved', 'declined', 'no-clear-change']).nullable(),
@@ -228,12 +293,27 @@ export function emptySentimentCounts(): SentimentCounts {
 export function sentimentRateDisplay(value: number | null): string {
   return value === null ? 'Unavailable' : formatPercent(value, RatioUnits.fraction)
 }
-/** Every selected answer-subject assessment appears once within one query class. */
-export function aggregateSentiment(items: readonly SentimentAggregateItem[], options: { disabled?: boolean; eligibleAssessments?: number; expectedProviderSlots?: number; completedProviderSlots?: number } = {}) {
+const JUDGED_OUTCOMES: ReadonlySet<SentimentOutcome> = new Set(['favorable', 'mixed', 'unfavorable'])
+/**
+ * Every selected answer-subject assessment appears once within the selected population.
+ * `eligibleAnswers` is the number of distinct source answers in the selection, admitted or not;
+ * it is the Rated share's denominator and never falls below the admitted answers. `ratedAnswers`
+ * is the caller's count when the rated population is wider than `items` (a comparison scores its
+ * matched units but rates every answer in the period); it never falls below the answers `items` rate.
+ */
+export function aggregateSentiment(items: readonly SentimentAggregateItem[], options: { disabled?: boolean; eligibleAssessments?: number; eligibleAnswers?: number; ratedAnswers?: number; expectedProviderSlots?: number; completedProviderSlots?: number } = {}) {
   const unique = [...new Map(items.map(item => [item.assessmentId, item])).values()]
   const counts = emptySentimentCounts()
   for (const item of unique) counts[item.outcome]++
   const judged = counts.favorable + counts.mixed + counts.unfavorable
+  const distinctSourceAnswers = new Set(unique.map(item => item.sourceSnapshotId)).size
+  const absentSources = new Set(unique.filter(item => item.outcome === SentimentOutcomes['subject-not-mentioned']).map(item => item.sourceSnapshotId))
+  for (const item of unique) if (item.outcome !== SentimentOutcomes['subject-not-mentioned']) absentSources.delete(item.sourceSnapshotId)
+  const subjectNotMentioned = options.disabled ? null : absentSources.size
+  const ratedInItems = new Set(unique.filter(item => JUDGED_OUTCOMES.has(item.outcome)).map(item => item.sourceSnapshotId)).size
+  const ratedAnswers = Math.max(options.ratedAnswers ?? ratedInItems, ratedInItems)
+  const eligibleAnswers = Math.max(options.eligibleAnswers ?? distinctSourceAnswers, distinctSourceAnswers)
+  const ratedAnswerRate = options.disabled || eligibleAnswers === 0 ? null : roundRatio(ratedAnswers / eligibleAnswers, RatioUnits.fraction)
   const processing = counts.pending + counts.running + counts['waiting-to-retry']
   const provisional = processing + counts.failed + counts.canceled > 0
   const state: SentimentState = options.disabled ? 'disabled' : unique.length === 0 ? 'not-measured' : counts.canceled === unique.length ? 'canceled' : counts.failed === unique.length ? 'failed' : processing === unique.length ? 'processing' : provisional ? 'partial' : 'complete'
@@ -242,7 +322,7 @@ export function aggregateSentiment(items: readonly SentimentAggregateItem[], opt
   const unfavorableRate = judged && !options.disabled ? counts.unfavorable / judged : null
   return {
     state, provisional,
-    coverage: { selected: unique.length, eligibleAssessments: Math.max(options.eligibleAssessments ?? unique.length, unique.length), unadmittedAssessments: Math.max(0, (options.eligibleAssessments ?? unique.length) - unique.length), judged, distinctSourceAnswers: new Set(unique.map(item => item.sourceSnapshotId)).size, counts, expectedProviderSlots: options.expectedProviderSlots ?? 0, completedProviderSlots: options.completedProviderSlots ?? 0 },
+    coverage: { selected: unique.length, eligibleAssessments: Math.max(options.eligibleAssessments ?? unique.length, unique.length), unadmittedAssessments: Math.max(0, (options.eligibleAssessments ?? unique.length) - unique.length), judged, distinctSourceAnswers, eligibleAnswers, ratedAnswers, ratedAnswerRate, subjectNotMentioned, counts, expectedProviderSlots: options.expectedProviderSlots ?? 0, completedProviderSlots: options.completedProviderSlots ?? 0 },
     score: { favorableRate, mixedRate, unfavorableRate, favorableDisplay: sentimentRateDisplay(favorableRate), mixedDisplay: sentimentRateDisplay(mixedRate), unfavorableDisplay: sentimentRateDisplay(unfavorableRate), interval: options.disabled ? null : wilsonInterval(counts.favorable, judged), method: 'wilson-independent-v1' as const, limitation: SENTIMENT_INTERVAL_LIMITATION },
   }
 }

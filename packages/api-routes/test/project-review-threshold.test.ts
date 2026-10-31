@@ -4,7 +4,7 @@ import path from 'node:path'
 import os from 'node:os'
 import Fastify from 'fastify'
 import { eq } from 'drizzle-orm'
-import { createClient, migrate, projects, readNegativeReviewMaxStars } from '@ainyc/canonry-db'
+import { createClient, migrate, projects, readNegativeReviewMaxStars } from '@canonry/canonry-db'
 import { apiRoutes } from '../src/index.js'
 
 // A project's negative-review threshold (`negativeReviewMaxStars`) decides what

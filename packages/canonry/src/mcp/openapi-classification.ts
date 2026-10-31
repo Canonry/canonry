@@ -1,7 +1,31 @@
 export type OpenApiMcpClassification = 'included' | 'deferred' | 'excluded-protocol'
 
 export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
+  'GET /api/v1/mcp/profile': 'included',
+  'GET /api/v1/seo/operator/tasks/{id}': 'included',
+  'POST /api/v1/seo/operator/tasks/{id}/reconcile': 'included',
+  'GET /api/v1/projects/{name}/seo/context': 'included',
+  'GET /api/v1/projects/{name}/seo/status': 'included',
+  'GET /api/v1/projects/{name}/seo/profiles': 'included',
+  'GET /api/v1/projects/{name}/seo/profiles/{id}': 'included',
+  'PUT /api/v1/projects/{name}/seo/profiles/{id}': 'included',
+  'POST /api/v1/projects/{name}/seo/refresh-intents': 'included',
+  'POST /api/v1/projects/{name}/seo/sync': 'included',
+  'GET /api/v1/projects/{name}/seo/runs': 'included',
+  'GET /api/v1/projects/{name}/seo/runs/{id}': 'included',
+  'POST /api/v1/projects/{name}/seo/runs/{id}/cancel': 'included',
+  'GET /api/v1/projects/{name}/seo/overview': 'included',
+  'GET /api/v1/projects/{name}/seo/keyword-metrics': 'included',
+  'GET /api/v1/projects/{name}/seo/market-rankings': 'included',
+  'GET /api/v1/projects/{name}/seo/market-rankings/summary': 'included',
+  'GET /api/v1/projects/{name}/seo/domain-intelligence': 'included',
+  'GET /api/v1/projects/{name}/seo/ranked-keywords': 'included',
+  'GET /api/v1/projects/{name}/ga/acquisition': 'included',
   'GET /api/v1/projects/{name}/traffic/referral-assessment': 'included',
+  'GET /api/v1/projects/{name}/traffic/samples': 'included',
+  'GET /api/v1/projects/{name}/journeys/summary': 'included',
+  'GET /api/v1/projects/{name}/journeys': 'included',
+  'GET /api/v1/projects/{name}/journeys/{visitorKey}': 'included',
 
   'GET /api/v1/projects/{name}/sentiment/settings': 'included',
   'PUT /api/v1/projects/{name}/sentiment/settings': 'included',
@@ -19,6 +43,7 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   // have the included project upsert tool and do not need a second create path.
   'POST /api/v1/projects': 'deferred',
   'PUT /api/v1/projects/{name}': 'included',
+  'PATCH /api/v1/projects/{name}': 'included',
   'GET /api/v1/projects': 'included',
   'GET /api/v1/projects/{name}': 'included',
   'DELETE /api/v1/projects/{name}': 'deferred',
@@ -48,10 +73,18 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'POST /api/v1/projects/{name}/keywords': 'included',
   'POST /api/v1/projects/{name}/keywords/generate': 'included',
   'GET /api/v1/projects/{name}/competitors': 'included',
+  'GET /api/v1/projects/{name}/competitor-suggestions': 'included',
+  'POST /api/v1/projects/{name}/competitor-changes/preview': 'included',
+  'POST /api/v1/apply/preview': 'included',
   'GET /api/v1/projects/{name}/analytics/competitors': 'included',
   'PUT /api/v1/projects/{name}/competitors': 'deferred',
   'POST /api/v1/projects/{name}/competitors': 'included',
   'DELETE /api/v1/projects/{name}/competitors': 'included',
+  'PUT /api/v1/projects/{name}/competitors/{domain}/aliases': 'included',
+  'GET /api/v1/projects/{name}/competitor-auto-aliases': 'included',
+  'POST /api/v1/projects/{name}/competitor-auto-aliases': 'included',
+  'POST /api/v1/projects/{name}/competitors/{domain}/aliases/block': 'included',
+  'POST /api/v1/projects/{name}/competitors/{domain}/aliases/unblock': 'included',
   // By-id delete is useful for UI clients that render competitor row ids.
   // Agents work with competitor domains, so the domain-based remove tool above
   // covers the MCP workflow without forcing agents to look up ids first.
@@ -85,6 +118,8 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/preview-assignments': 'included',
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/replace-assignments': 'included',
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/apply-paired-assignments': 'included',
+  'POST /api/v1/projects/{name}/measurement-plan/draft/actions/preview-route-markets': 'included',
+  'POST /api/v1/projects/{name}/measurement-plan/draft/actions/route-markets': 'included',
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/remove-assignment': 'included',
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/clear-assignments': 'included',
   'POST /api/v1/projects/{name}/measurement-plan/draft/actions/classify-assignments': 'included',
@@ -128,11 +163,14 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'POST /api/v1/projects/{name}/research/batches': 'included',
   'GET /api/v1/projects/{name}/research/runs': 'included',
   'GET /api/v1/projects/{name}/research/runs/{runId}': 'included',
-  'GET /api/v1/projects/{name}/report': 'included',
   'GET /api/v1/projects/{name}/organic-evidence': 'included',
-  'GET /api/v1/projects/{name}/report.html': 'excluded-protocol',
   'GET /api/v1/projects/{name}/runs': 'included',
   'GET /api/v1/projects/{name}/runs/latest': 'included',
+  // The dashboard's run-admission notice, without the latest run's answers.
+  // Agents read scheduled `admission` and default full-sweep
+  // `manualAdmission` from canonry_runs_latest and canonry_project_overview,
+  // so a third tool would only repeat those decisions.
+  'GET /api/v1/projects/{name}/run-admission': 'deferred',
   'GET /api/v1/runs': 'deferred',
   'POST /api/v1/runs': 'deferred',
   'GET /api/v1/runs/{id}': 'included',
@@ -153,6 +191,7 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'GET /api/v1/settings': 'included',
   // MCP exposes only non-secret model/quota edits; credential fields remain operator-only.
   'PUT /api/v1/settings/providers/{name}': 'included',
+  'POST /api/v1/settings/providers/reload': 'included',
   'PUT /api/v1/settings/google': 'deferred',
   'POST /api/v1/snapshot': 'included',
   'PUT /api/v1/settings/bing': 'deferred',
@@ -196,6 +235,8 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   // Dashboard-to-local-server observability protocol. It records no product
   // capability and is intentionally not an agent tool.
   'POST /api/v1/telemetry/onboarding': 'excluded-protocol',
+  'POST /api/v1/telemetry/ui': 'excluded-protocol',
+  'POST /api/v1/feedback': 'included',
   'GET /api/v1/screenshots/{snapshotId}': 'excluded-protocol',
   'GET /api/v1/cdp/status': 'deferred',
   'POST /api/v1/cdp/screenshot': 'deferred',
@@ -226,6 +267,12 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'POST /api/v1/projects/{name}/google/indexing/request': 'deferred',
   'POST /api/v1/projects/{name}/gbp/locations/discover': 'included',
   'GET /api/v1/projects/{name}/gbp/accounts': 'included',
+  'GET /api/v1/projects/{name}/gbp/local-posts': 'included',
+  'GET /api/v1/projects/{name}/gbp/local-post': 'included',
+  'GET /api/v1/projects/{name}/gbp/local-post-attempt': 'included',
+  'GET /api/v1/projects/{name}/gbp/reviews/live': 'included',
+  // Publishing is reserved for the durable, separately Discord-approved agency outbox.
+  'POST /api/v1/projects/{name}/gbp/local-posts': 'deferred',
   'GET /api/v1/projects/{name}/gbp/locations': 'included',
   'PUT /api/v1/projects/{name}/gbp/locations/{locationName}/selection': 'included',
   'DELETE /api/v1/projects/{name}/gbp/connection': 'included',
@@ -319,7 +366,7 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'GET /api/v1/projects/{name}/bing/status': 'deferred',
   'GET /api/v1/projects/{name}/bing/sites': 'deferred',
   'POST /api/v1/projects/{name}/bing/set-site': 'deferred',
-  'GET /api/v1/projects/{name}/bing/coverage': 'deferred',
+  'GET /api/v1/projects/{name}/bing/coverage': 'included',
   'GET /api/v1/projects/{name}/bing/coverage/history': 'deferred',
   'GET /api/v1/projects/{name}/bing/inspections': 'deferred',
   'POST /api/v1/projects/{name}/bing/inspect-url': 'deferred',
@@ -348,8 +395,10 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'POST /api/v1/projects/{name}/traffic/sources/{id}/sync': 'included',
   'POST /api/v1/projects/{name}/traffic/sources/{id}/backfill': 'included',
   'POST /api/v1/projects/{name}/traffic/sources/{id}/reset': 'included',
+  'POST /api/v1/projects/{name}/traffic/sources/{id}/declare-gap': 'included',
   'GET /api/v1/projects/{name}/traffic/sources': 'included',
   'GET /api/v1/projects/{name}/traffic/status': 'included',
+  'GET /api/v1/projects/{name}/traffic/analytics': 'included',
   'GET /api/v1/projects/{name}/traffic/sources/{id}': 'included',
   'GET /api/v1/projects/{name}/traffic/events': 'included',
   'DELETE /api/v1/projects/{name}/wordpress/disconnect': 'deferred',
@@ -376,6 +425,7 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'GET /api/v1/projects/{name}/ga/properties': 'included',
   'GET /api/v1/projects/{name}/ga/status': 'included',
   'GET /api/v1/projects/{name}/ga/measurement-analysis': 'included',
+  'GET /api/v1/projects/{name}/ga/search-landing-pages': 'included',
   'POST /api/v1/projects/{name}/ga/sync': 'deferred',
   'GET /api/v1/projects/{name}/ga/traffic': 'included',
   'GET /api/v1/projects/{name}/ga/ai-referral-history': 'included',
@@ -383,6 +433,7 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'GET /api/v1/projects/{name}/ga/social-referral-history': 'included',
   'GET /api/v1/projects/{name}/ga/social-referral-trend': 'included',
   'GET /api/v1/projects/{name}/ga/attribution-trend': 'included',
+  'GET /api/v1/projects/{name}/ga/overview': 'included',
   'GET /api/v1/projects/{name}/ga/session-history': 'included',
   'GET /api/v1/projects/{name}/ga/coverage': 'included',
   'GET /api/v1/projects/{name}/content/targets': 'included',
@@ -397,17 +448,13 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'GET /api/v1/projects/{name}/content/domain-classifications': 'included',
   'POST /api/v1/projects/{name}/content/recommendations/{targetRef}/brief': 'included',
   'GET /api/v1/projects/{name}/content/recommendations/{targetRef}/brief': 'deferred',
-  // Content-target dismiss endpoints — Aero could use these to record
-  // that a recommendation was addressed (similar to insights dismiss),
-  // but that's a separate workflow design. Defer the MCP tools until the
-  // analyst-side UX is fleshed out; SPA + CLI both already work end-to-end.
-  'GET /api/v1/projects/{name}/content/dismissals': 'deferred',
-  'POST /api/v1/projects/{name}/content/dismissals': 'deferred',
-  'DELETE /api/v1/projects/{name}/content/dismissals/{targetRef}': 'deferred',
-  // Recommendation explanation endpoints — on-demand LLM rationale per
-  // content recommendation card. Aero could surface these directly but
-  // the analyst-side UX is being shaped first via the SPA; defer MCP
-  // wiring until the prompt + response shape are validated in real use.
+  // Persisted dismissals remain inspectable and reversible without Report.
+  'GET /api/v1/projects/{name}/content/dismissals': 'included',
+  'POST /api/v1/projects/{name}/content/dismissals': 'included',
+  'DELETE /api/v1/projects/{name}/content/dismissals/{targetRef}': 'included',
+  // Recommendation explanations remain deferred: adding a paid analysis
+  // command needs its own CLI/MCP workflow and authority review. The cached
+  // read stays API-only until that workflow is exposed.
   'GET /api/v1/projects/{name}/content/recommendations/{targetRef}/analysis': 'deferred',
   'POST /api/v1/projects/{name}/content/recommendations/{targetRef}/analyze': 'deferred',
   'GET /api/v1/projects/{name}/insights': 'included',
@@ -420,6 +467,7 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'GET /api/v1/projects/{name}/search': 'included',
   'GET /api/v1/doctor': 'included',
   'GET /api/v1/projects/{name}/doctor': 'included',
+  'GET /api/v1/status': 'included',
   'GET /api/v1/backlinks/status': 'deferred',
   'POST /api/v1/backlinks/install': 'deferred',
   'POST /api/v1/backlinks/syncs': 'deferred',
@@ -455,6 +503,8 @@ export const MCP_OPENAPI_OPERATION_CLASSIFICATIONS = {
   'GET /api/v1/projects/{name}/technical-aeo/pages': 'included',
   'GET /api/v1/projects/{name}/technical-aeo/trend': 'included',
   'GET /api/v1/projects/{name}/technical-aeo/crawl': 'included',
+  'GET /api/v1/projects/{name}/technical-aeo/issues': 'included',
+  'GET /api/v1/projects/{name}/technical-aeo/issues/{issueId}/pages': 'included',
   'GET /api/v1/projects/{name}/technical-aeo/subgraph': 'included',
   'GET /api/v1/projects/{name}/technical-aeo/path': 'included',
   'GET /api/v1/projects/{name}/technical-aeo/changes': 'included',

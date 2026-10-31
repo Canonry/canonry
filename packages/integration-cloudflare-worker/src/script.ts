@@ -1,7 +1,7 @@
 import {
   DEFAULT_AI_CRAWLER_USER_AGENT_SUBSTRINGS,
   DEFAULT_AI_REFERRER_RULES,
-} from '@ainyc/canonry-integration-traffic'
+} from '@canonry/canonry-integration-traffic'
 import { canonicalizeCloudflareJson } from './canonical-json.js'
 import {
   CLOUDFLARE_DIRECT_PUSH_SECRET_BINDINGS,
@@ -44,6 +44,43 @@ export const DEFAULT_BOT_LIST: CloudflareWorkerBotList = {
 const DEFAULT_BOT_SCORE_MAX_FORWARD = 30
 const WORKER_COMPATIBILITY_DATE = '2026-05-01'
 
+/**
+ * Appended to the Worker version when page views are forwarded, so the
+ * version the deployed Worker reports shows whether it forwards them.
+ */
+export const CLOUDFLARE_PAGE_VIEWS_VERSION_SUFFIX = '+page-views'
+
+// Static files never count as page views, even with a text/html Accept header.
+const PAGE_VIEW_ASSET_EXTENSIONS = ['avif', 'bmp', 'css', 'gif', 'ico', 'jpeg', 'jpg', 'js', 'map', 'mjs', 'mp3', 'mp4', 'otf', 'pdf', 'png', 'svg', 'ttf', 'txt', 'webm', 'webmanifest', 'webp', 'woff', 'woff2', 'xml', 'zip']
+
+/**
+ * The page-view filter, emitted only when page views are forwarded. A page
+ * view is a person's browser loading a document: Sec-Fetch-Dest "document"
+ * (a navigation or form post), or on browsers without it a GET that accepts
+ * HTML for a non-asset path. Prefetches and prerenders are not page views.
+ */
+const PAGE_VIEW_FILTER = `
+const PAGE_VIEW_ASSET_PATTERN = new RegExp(${JSON.stringify(`\\.(?:${PAGE_VIEW_ASSET_EXTENSIONS.join('|')})$`)}, 'i')
+
+function isPageView(request) {
+  const method = request.method || 'GET'
+  if (method !== 'GET' && method !== 'POST') return false
+  const purpose = lower(request.headers.get('sec-purpose') || request.headers.get('purpose') || '')
+  if (purpose.indexOf('prefetch') !== -1 || purpose.indexOf('prerender') !== -1) return false
+  const ua = request.headers.get('user-agent') || ''
+  if (ua.indexOf('Mozilla/') !== 0) return false
+  const dest = lower(request.headers.get('sec-fetch-dest') || '')
+  if (dest) return dest === 'document'
+  if (method !== 'GET') return false
+  if (lower(request.headers.get('accept') || '').indexOf('text/html') === -1) return false
+  try {
+    return !PAGE_VIEW_ASSET_PATTERN.test(new URL(request.url).pathname)
+  } catch (_) {
+    return false
+  }
+}
+`
+
 function jsString(value: string): string {
   return JSON.stringify(value)
 }
@@ -63,6 +100,11 @@ function jsArray(values: readonly string[]): string {
  */
 export function generateWorkerScript(opts: GenerateWorkerScriptOptions): string {
   const botScoreMax = opts.botScoreMaxForward ?? DEFAULT_BOT_SCORE_MAX_FORWARD
+  // Without page views the generated source is exactly what it was before
+  // the option existed, so existing deployments stay current.
+  const pageViewHeader = opts.forwardPageViews ? '\n// page views: forwarded' : ''
+  const pageViewFilter = opts.forwardPageViews ? PAGE_VIEW_FILTER : ''
+  const pageViewCheck = opts.forwardPageViews ? '\n  if (isPageView(request)) return true' : ''
   const canonicalJsonFunction = canonicalizeCloudflareJson.toString()
   const directPushDelivery = opts.deliveryMode === 'direct-push'
     ? `
@@ -145,6 +187,7 @@ async function deliverViaDirectPush(env, batch) {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
+      'user-agent': 'canonry-cloudflare-worker/' + batch.workerVersion,
       'Authorization': 'Bearer ' + bearerToken,
       'X-Canonry-Timestamp': timestamp,
       'X-Canonry-Signature': signature,
@@ -180,7 +223,7 @@ async function deliverViaQueue(env, batch) {
   return `${CLOUDFLARE_WORKER_GENERATED_MARKER}
 // worker version: ${opts.workerVersion}
 // bot-list version: ${opts.botList.version}
-// delivery mode: ${opts.deliveryMode}
+// delivery mode: ${opts.deliveryMode}${pageViewHeader}
 
 const UA_KEYWORDS = ${jsArray(opts.botList.uaKeywords)}
 const REFERER_DOMAINS = ${jsArray(opts.botList.refererDomains)}
@@ -255,14 +298,14 @@ function botSignals(cf) {
   if (typeof cf.botScore === 'number' && cf.botScore < BOT_SCORE_MAX_FORWARD) return true
   return false
 }
-
+${pageViewFilter}
 function shouldForward(request) {
   const ua = request.headers.get('user-agent') || ''
   if (uaMatches(ua)) return true
   if (urlUtmMatches(request.url)) return true
   const referer = request.headers.get('referer') || ''
   if (refererMatches(referer)) return true
-  if (urlUtmMatches(referer)) return true
+  if (urlUtmMatches(referer)) return true${pageViewCheck}
   return botSignals(request.cf)
 }
 

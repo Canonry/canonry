@@ -2,25 +2,23 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
-import { and, asc, count, eq, inArray, isNotNull, isNull, ne, sql } from 'drizzle-orm'
-import type { DatabaseClient } from '@ainyc/canonry-db'
-import { recordSentimentCompletion, parseJsonColumn, providerBatches, providerBatchRequests, runFills, runs, queries, competitors, projects, querySnapshots, siteCrawlAttempts, usageCounters } from '@ainyc/canonry-db'
-import type { PricingTier, ProviderBatchRequestOutcome, ProviderBatchResultLine, ProviderBatchStatus, ProviderBatchSubmitResult, ProviderDispatchMode, ProviderErrorCode, ProviderName, LocationContext, MeasurementRunManifestV1, RawQueryResult, RunCompletionOrigin, RunFillStatus, RunProviderErrorDto, RunStatus, TrackedQueryRequest } from '@ainyc/canonry-contracts'
-import { PricingTiers, ProviderBatchRequestOutcomes, ProviderBatchStatuses, ProviderBatchSubmitError, ProviderDispatchModes, RUN_FILL_PROVIDER_BREAKER, buildSnapshotUsage, formatRunErrorOneLine, parseRunError, resolveProviderModel } from '@ainyc/canonry-contracts'
-import { CITED_URL_CAPTURE_VERSION, ONBOARDING_FLOW_VERSION, RunKinds, RunStatuses, RunTriggers, brandLabelFromDomain, bucketOnboardingCount, buildSimpleMeasurementDefinition, classifyProviderErrorMessages, buildRunErrorFromMessages, determineAnswerMentioned, effectiveBrandNames, effectiveDomains, isSearchLocationIgnored, isBrowserProvider, normalizeMeasurementExecutionQueryText, parseMeasurementRunManifestV1, providerSupportsLocationContext, serializeRunError, describeError } from '@ainyc/canonry-contracts'
-import { captureSimpleMeasurementDefinition, createRunCompetitorResolver, measurementRunSlotState, measurementSlotKey, newerFullSweep, type RunCompetitors } from '@ainyc/canonry-api-routes'
+import { setImmediate as yieldToEventLoop } from 'node:timers/promises'
+import { and, asc, count, desc, eq, inArray, isNotNull, isNull, lt, ne, sql } from 'drizzle-orm'
+import type { DatabaseClient } from '@canonry/canonry-db'
+import { recordSentimentCompletion, parseJsonColumn, providerBatches, providerBatchRequests, runFills, runs, queries, competitors, projects, querySnapshots, siteCrawlAttempts, usageCounters } from '@canonry/canonry-db'
+import type { PricingTier, ProviderAccountStreak, ProviderBatchRequestOutcome, ProviderBatchResultLine, ProviderBatchStatus, ProviderBatchSubmitResult, ProviderDispatchMode, ProviderErrorCode, ProviderName, LocationContext, MeasurementRunManifestV1, RawQueryResult, RunCompletionOrigin, RunFillStatus, RunProviderErrorDto, RunStatus, TrackedQueryRequest } from '@canonry/canonry-contracts'
+import { PricingTiers, ProviderBatchRequestOutcomes, ProviderBatchStatuses, ProviderBatchSubmitError, ProviderDispatchModes, RUN_FILL_PROVIDER_BREAKER, buildSnapshotUsage, formatRunErrorOneLine, parseRunError, resolveProviderModel } from '@canonry/canonry-contracts'
+import { CITED_URL_CAPTURE_VERSION, ONBOARDING_FLOW_VERSION, RunKinds, RunStatuses, RunTriggers, competitorIdentityAliases, competitorLabelFromDomain, computeCompetitorOverlap, extractRecommendedCompetitors, type CompetitorIdentityInput, bucketOnboardingCount, buildSimpleMeasurementDefinition, classifyProviderErrorMessage, mostActionableProviderErrorCode, withSkippedProviders, buildProviderRunError, buildRunErrorFromMessages, determineAnswerMentioned, isSearchLocationIgnored, isBrowserProvider, normalizeMeasurementExecutionQueryText, parseMeasurementRunManifestV1, providerSupportsLocationContext, serializeRunError, describeError } from '@canonry/canonry-contracts'
+import { answerIdentityChanged, answerIdentityFrom, backfillProjectAnswerMentions, captureSimpleMeasurementDefinition, createRunCompetitorResolver, measurementRunSlotState, measurementSlotKey, newerFullSweep, readAnswerIdentity, readMarketCompetitorNames, type AnswerIdentityFingerprint, type RunCompetitors } from '@canonry/canonry-api-routes'
 import type { ProviderRegistry, RegisteredProvider } from './provider-registry.js'
 import { trackEvent } from './telemetry.js'
-import { buildRunCompletedProps, buildSiteAuditCompletedProps, hashDomain, type RunPhaseTimings } from './run-telemetry.js'
+import { buildProviderOutcomeProps, buildRunCompletedProps, buildSiteAuditCompletedProps, describeRunFailure, failureStreakSampling, hashDomain, runFailureSite, telemetryConnectionName, type RunAnswerUsage, type RunPhaseTimings } from './run-telemetry.js'
 import { createLogger } from './logger.js'
 import { ProviderExecutionGate, getSharedProviderExecutionGate } from './provider-execution-gate.js'
 import { getCurrentUsageDay, releaseDailyQueryQuota, reserveDailyQueryQuota } from './usage-quota.js'
+import { adapterConnectionName, hasDirectCitedUrls, isEligibleFor, isOpenRouterRoute, LocationTreatmentStatuses, ProviderWorkflows, type RetrievalStatus } from '@canonry/canonry-contracts'
 import { adapterSupportsBatch } from './provider-batch-config.js'
-import {
-  computeCompetitorOverlap,
-  determineCitationState,
-  extractRecommendedCompetitors,
-} from './citation-utils.js'
+import { determineCitationState } from './citation-utils.js'
 import { captureCitedUrls, type CitedUrlCapture } from './cited-url-capture.js'
 
 const log = createLogger('JobRunner')
@@ -51,6 +49,8 @@ export async function runWithConcurrency<T>(
 }
 
 const PROVIDER_FANOUT_DEFAULT = 8
+const BATCH_INGEST_CHUNK_SIZE = 32
+const BATCH_INGEST_PAYLOAD_BYTES = 1024 * 1024
 
 /**
  * One expected slot of a run's frozen manifest, ready to dispatch: one
@@ -77,12 +77,18 @@ interface PlanExecutionUnit {
  */
 interface RunRecordingContext {
   runId: string
+  /**
+   * What this context scores with (`answerIdentityFrom`), so its writer can
+   * tell whether the identity changed after it read it
+   * (`JobRunner.reconcileRunAnswerFields`).
+   */
+  identity: AnswerIdentityFingerprint
   allDomains: string[]
   /**
    * The competitors one answer is scored against: the project list plus the
    * plan pins of the groups whose properties use that question.
    */
-  competitorsFor: (executionId: string) => RunCompetitors
+  competitorsFor: (executionId: string | null) => RunCompetitors
   allBrandNames: string[]
 }
 
@@ -100,6 +106,8 @@ interface PlanSlotContext extends SlotRecordingContext {
   executionGates: ReadonlyMap<ProviderName, ProviderExecutionGate>
   providerDispatchCounts: Map<ProviderName, number>
   providerErrors: Map<ProviderName, string>
+  /** A sweep's sync call latencies for `run.completed`; a fill reports none. */
+  callLatencies?: Map<ProviderName, number[]>
   fill?: {
     shouldSkip: (provider: ProviderName, executionId: string) => boolean
     onOutcome: (provider: ProviderName, ok: boolean) => void
@@ -120,6 +128,19 @@ interface SlotDispatch {
   providerBatchId: string | null
   /** The price tier the answer was billed at, for its cost estimate. */
   pricingTier: PricingTier
+}
+
+interface PreparedSlot {
+  snapshot: typeof querySnapshots.$inferInsert
+  report: (inserted: boolean) => void
+}
+
+interface PreparedBatchLine {
+  requestId: string
+  slot: PreparedSlot | null
+  outcome: ProviderBatchRequestOutcome
+  error: string | null
+  report?: () => void
 }
 
 const SYNC_SLOT_DISPATCH: SlotDispatch = {
@@ -145,6 +166,16 @@ function planlessDispatchColumns(registeredProvider: RegisteredProvider, raw: Ra
       overrides: registeredProvider.config.pricing,
     }),
   }
+}
+
+/**
+ * Whether a requested location did not reach the answer. An answer service
+ * records what it sent; anything short of every field is not applied. Other
+ * routes keep their existing rules.
+ */
+function isRequestedLocationUnapplied(providerName: string, raw: RawQueryResult, retrievalStatus: RetrievalStatus): boolean {
+  if (raw.evidence) return raw.evidence.location.status !== LocationTreatmentStatuses.applied
+  return isOpenRouterRoute(providerName) || isSearchLocationIgnored(providerName, retrievalStatus)
 }
 
 const HOUR_MS = 60 * 60 * 1000
@@ -287,17 +318,36 @@ export type ProviderBatchIngestResult =
 
 type FinalRunStatus = Extract<RunStatus, 'completed' | 'partial' | 'failed'>
 
+/** Skipped providers a run's queue froze: none on most runs. */
+type SkippedProviders = Readonly<Record<string, ProviderAccountStreak>>
+
+/**
+ * The errors of the providers a run called. A provider it skipped was never
+ * called, so any reason recorded for its missing answers (a restart, a gap
+ * count) is not a failure of its own; its skip says why instead.
+ */
+function calledProviderErrors(providerErrors: ReadonlyMap<ProviderName, string>, skipped: SkippedProviders): Map<ProviderName, string> {
+  return new Map([...providerErrors].filter(([provider]) => !(provider in skipped)))
+}
+
 /**
  * A run's terminal status and stored error from what it recorded and what
  * went wrong. Shared by both finalizers, so a batch run and a sync run that
- * end the same way are stored the same way.
+ * end the same way are stored the same way. A skipped provider leaves the run
+ * partial, like one that failed, and its entry says it was not called.
  */
-function runOutcome(inserted: number, providerErrors: ReadonlyMap<ProviderName, string>, planShortfall: number): { status: FinalRunStatus; error: string | null } {
-  const someFailed = providerErrors.size > 0 || planShortfall > 0
+function runOutcome(
+  inserted: number,
+  providerErrors: ReadonlyMap<ProviderName, string>,
+  planShortfall: number,
+  skipped: SkippedProviders,
+): { status: FinalRunStatus; error: string | null } {
+  const errors = calledProviderErrors(providerErrors, skipped)
+  const someFailed = errors.size > 0 || planShortfall > 0 || Object.keys(skipped).length > 0
   const allFailed = inserted === 0 && someFailed
   return {
     status: allFailed ? RunStatuses.failed : someFailed ? RunStatuses.partial : RunStatuses.completed,
-    error: someFailed ? serializeRunError(buildRunErrorFromMessages(providerErrors)) : null,
+    error: someFailed ? serializeRunError(withSkippedProviders(buildProviderRunError(errors), skipped)) : null,
   }
 }
 
@@ -313,15 +363,20 @@ function runRecordingContext(
     runId: string
     measurementPlanVersionId: string | null
     project: Pick<typeof projects.$inferSelect, 'canonicalDomain' | 'ownedDomains' | 'displayName' | 'aliases'>
-    competitorDomains: readonly string[]
+    /** Stored project competitors with their curated aliases. */
+    competitors: readonly CompetitorIdentityInput[]
+    /** Names learned for competitors only a market pins (`readMarketCompetitorNames`). */
+    marketNames: ReadonlyMap<string, readonly string[]>
   },
 ): RunRecordingContext {
-  const resolveCompetitors = createRunCompetitorResolver(db, input.competitorDomains)
+  const identity = answerIdentityFrom(input.project, input.competitors, input.marketNames)
+  const resolveCompetitors = createRunCompetitorResolver(db, identity.competitors, identity.marketNames)
   return {
     runId: input.runId,
-    allDomains: effectiveDomains({ canonicalDomain: input.project.canonicalDomain, ownedDomains: input.project.ownedDomains }),
+    identity: identity.fingerprint,
+    allDomains: identity.projectDomains,
     competitorsFor: executionId => resolveCompetitors(input.measurementPlanVersionId, executionId),
-    allBrandNames: effectiveBrandNames({ displayName: input.project.displayName, aliases: input.project.aliases }),
+    allBrandNames: identity.projectBrandNames,
   }
 }
 
@@ -329,9 +384,8 @@ interface PlanExecution {
   manifest: MeasurementRunManifestV1
   /** Slots grouped by the provider the manifest expects to answer them. */
   unitsByProvider: Map<string, PlanExecutionUnit[]>
-  /** Distinct execution nodes, for telemetry and quota. */
+  /** Distinct execution nodes, for telemetry. */
   nodeCount: number
-  maxUnitsPerProvider: number
 }
 
 interface RunState {
@@ -347,6 +401,8 @@ interface RunState {
   providerDispatchModes: Record<string, 'batch'> | null
   /** Non-null once the sweep handed the run to the batch poller. */
   pendingProviderErrors: Record<string, string> | null
+  /** Frozen at queue time: providers this run does not call because each keeps failing on its account. */
+  skippedProviders: Record<string, ProviderAccountStreak> | null
 }
 
 /**
@@ -384,7 +440,6 @@ function resolvePlanExecution(
     manifest,
     unitsByProvider,
     nodeCount: nodes.size,
-    maxUnitsPerProvider: Math.max(0, ...[...unitsByProvider.values()].map(units => units.length)),
   }
 }
 
@@ -424,11 +479,23 @@ export interface RunFinalization {
   providerErrors: ReadonlyMap<ProviderName, string>
   /** Expected plan slots left without an answer; 0 for a planless run. */
   planShortfall: number
+  /** Providers the run did not call because each keeps failing on its account. Omitted: none. */
+  skippedProviders?: SkippedProviders
   executionContext: RunExecutionContext
   startTime: number
   phases: RunPhaseTimings | undefined
   /** The caller's own reservation, released whether or not this call wins. */
   quota?: RunQuotaReservations
+  /** Latency of each provider's sync calls in this execution, in ms. */
+  callLatencies?: ReadonlyMap<ProviderName, readonly number[]>
+}
+
+/** Add one sync provider call's latency to a sweep's telemetry. */
+function recordCallLatency(latencies: Map<ProviderName, number[]> | undefined, provider: ProviderName, startedAt: number): void {
+  if (!latencies) return
+  const values = latencies.get(provider) ?? []
+  values.push(Math.max(0, Date.now() - startedAt))
+  latencies.set(provider, values)
 }
 
 /**
@@ -456,18 +523,28 @@ function classifyRunAbortReason(message: string): RunAbortReason | undefined {
   return undefined
 }
 
+/** How far back `priorFailureStreak` looks; a longer streak reports as this. */
+const FAILURE_STREAK_LOOKBACK = 50
+
 /**
- * Coarse error category for runtime provider failures, used for telemetry
- * only. Best-effort regex match — not load-bearing for any control flow,
- * just a histogram bucket so dashboards can answer "why are real audit
- * failures happening?" without reading raw error strings.
+ * The most actionable provider error code of a run, for `run.completed`
+ * telemetry, or undefined when no provider failed or was skipped. The same
+ * classifier stamps each provider's `code` on the stored run error, which run
+ * admission reads (`providerAccountAdmission`), so a change to its patterns
+ * changes which providers are skipped and which runs are refused, not only a
+ * histogram. A skipped provider counts with the account code that skipped it.
  */
 function classifyProviderErrors(
   errors: ReadonlyMap<ProviderName, string>,
-): ProviderErrorCode {
+  skipped: SkippedProviders,
+): ProviderErrorCode | undefined {
   // Shared with the query-generation route so the two never drift on what a
   // rate limit or an auth failure looks like.
-  return classifyProviderErrorMessages(errors.values())
+  const codes = [
+    ...[...errors.values()].map(classifyProviderErrorMessage),
+    ...Object.values(skipped).map(streak => streak.code),
+  ]
+  return codes.length > 0 ? mostActionableProviderErrorCode(codes) : undefined
 }
 
 export class JobRunner {
@@ -490,6 +567,12 @@ export class JobRunner {
    * handoff across a restart.
    */
   private readonly executing = new Map<string, number>()
+  private readonly executingBatchRegistrations = new Map<symbol, {
+    runId: string
+    registrations: readonly RegisteredProvider[]
+  }>()
+  /** Sync call latencies of sweeps handed to the batch poller, until their run reports. */
+  private readonly handedOffCallLatencies = new Map<string, ReadonlyMap<ProviderName, readonly number[]>>()
 
   constructor(
     db: DatabaseClient,
@@ -519,6 +602,13 @@ export class JobRunner {
 
   private isExecuting(runId: string): boolean {
     return this.executing.has(runId)
+  }
+
+  /** Reload must preserve credentials captured by a batch sweep until it settles. */
+  getExecutingBatchRegistrations(): { runId: string; registration: RegisteredProvider }[] {
+    return [...this.executingBatchRegistrations.values()].flatMap(({ runId, registrations }) =>
+      registrations.map(registration => ({ runId, registration })),
+    )
   }
 
   private hasProviderBatches(runId: string): boolean {
@@ -568,6 +658,8 @@ export class JobRunner {
 
     const now = new Date().toISOString()
     for (const run of stale) {
+      // SEO receipts and uncertain billing are recovered by SeoRuntime.
+      if (run.kind === RunKinds['seo-sync']) continue
       // A run that reached a provider batch is not lost with the process: its
       // batches live at the provider, and the poller resumes them.
       if (run.status === RunStatuses.running && this.recoverBatchRun(run.id)) continue
@@ -689,14 +781,20 @@ export class JobRunner {
     let activeProviders: RegisteredProvider[] = []
     let projectQueries: typeof queries.$inferSelect[] = []
     let planExecution: PlanExecution | null = null
+    // Manifest providers registered here that cannot run visibility sweeps.
+    const planIneligibleProviders = new Set<ProviderName>()
     let runTrigger: string | undefined
     let canonicalDomain: string | undefined
+    // Set once the sweep has read the identity it scores answers with.
+    let recording: RunRecordingContext | undefined
     const providerDispatchCounts = new Map<ProviderName, number>()
     const providerReservations = new Map<ProviderName, { scope: string; period: string; reserved: number }>()
+    const callLatencies = new Map<ProviderName, number[]>()
     // The provider batches this sweep writes, so a failure or a cancellation
     // can stop them rather than leave them billing into a run that is over.
     const batchRowIds: string[] = []
     const releaseExecution = this.enterExecution(runId)
+    const batchExecution = Symbol(runId)
 
     try {
       const existingRun = this.getRunState(runId)
@@ -794,9 +892,15 @@ export class JobRunner {
       if (planExecution) {
         const plan = planExecution
         const manifestProviders = [...plan.unitsByProvider.keys()] as ProviderName[]
-        activeProviders = manifestProviders
+        const registered = manifestProviders
           .map(name => this.registry.get(name))
           .filter((entry): entry is RegisteredProvider => entry !== undefined)
+        activeProviders = registered.filter(entry => isEligibleFor(entry.adapter, ProviderWorkflows['visibility-sweep'], 'explicit'))
+        // A frozen slot the provider cannot sweep (a profile without the
+        // visibility-sweep workflow) is reported as such, never as a missing provider.
+        for (const entry of registered) {
+          if (!activeProviders.includes(entry)) planIneligibleProviders.add(entry.adapter.name as ProviderName)
+        }
       } else {
         const projectProviders = providerOverride ?? (project.providers as ProviderName[])
         activeProviders = this.registry.getForProject(projectProviders).map((entry) => {
@@ -816,13 +920,26 @@ export class JobRunner {
         throw new Error('No providers configured. Add at least one provider API key.')
       }
 
-      log.info('run.dispatch', { runId, providerCount: activeProviders.length, providers: activeProviders.map(p => p.adapter.name) })
+      // Providers that keep failing on their accounts, decided when the run
+      // was queued: they stay in the run's roster (its frozen definition and
+      // telemetry), but nothing is dispatched to them and each is recorded as
+      // skipped. A probe or a forced run skips none.
+      const skipped: SkippedProviders = existingRun.skippedProviders ?? {}
+      const calledProviders = activeProviders.filter(provider => !(provider.adapter.name in skipped))
+
+      log.info('run.dispatch', {
+        runId,
+        providerCount: calledProviders.length,
+        providers: calledProviders.map(p => p.adapter.name),
+        ...(Object.keys(skipped).length > 0 ? { skippedProviders: Object.keys(skipped) } : {}),
+      })
 
       // Fetch competitors for the project
       const projectCompetitors = this.db
         .select()
         .from(competitors)
         .where(eq(competitors.projectId, projectId))
+        .orderBy(competitors.domain)
         .all()
 
       const competitorDomains = projectCompetitors.map(c => c.domain)
@@ -830,13 +947,16 @@ export class JobRunner {
       // on the groups that use its question, so a project whose competitor
       // list was never filled in still measures them, market by market. The
       // planless path below keeps using exactly the project list.
-      const recording = runRecordingContext(this.db, {
+      recording = runRecordingContext(this.db, {
         runId,
         measurementPlanVersionId: existingRun.measurementPlanVersionId,
         project,
-        competitorDomains,
+        competitors: projectCompetitors,
+        marketNames: readMarketCompetitorNames(this.db, projectId),
       })
       const { allDomains, allBrandNames } = recording
+      // The project list's curated names, for the planless path below.
+      const { aliases: competitorAliases } = recording.competitorsFor(null)
       const executionContext: RunExecutionContext = {
         providerCount: activeProviders.length,
         providers: activeProviders.map(provider => provider.adapter.name),
@@ -846,14 +966,15 @@ export class JobRunner {
         ...(canonicalDomain ? { canonicalDomain } : {}),
       }
 
-      // Enforce daily quota per provider — each provider receives one request per query.
-      // Track and check usage per (projectId, providerName) so that a provider that has
-      // never been used isn't blocked by another provider's past usage.
-      const queriesPerProvider = planExecution?.maxUnitsPerProvider ?? projectQueries.length
+      // Reserve each provider's actual manifest slots, or the planless basket.
+      // Model routes keep separate reservations against their shared connection budget.
       const todayPeriod = getCurrentUsageDay()
 
-      for (const p of activeProviders) {
-        const providerScope = `${projectId}:${p.adapter.name}`
+      for (const p of calledProviders) {
+        const queriesPerProvider = planExecution
+          ? planExecution.unitsByProvider.get(p.adapter.name)?.length ?? 0
+          : projectQueries.length
+        const providerScope = `${projectId}:${adapterConnectionName(p.adapter)}`
         const limit = p.config.quotaPolicy.maxRequestsPerDay
         const quota = reserveDailyQueryQuota(this.db, { scope: providerScope, period: todayPeriod, count: queriesPerProvider, limit })
         if (!quota.reserved) {
@@ -873,11 +994,11 @@ export class JobRunner {
       // its own independent budget against that key, silently multiplying
       // the configured limit by the number of concurrent runs.
       const executionGates = new Map<ProviderName, ProviderExecutionGate>()
-      for (const provider of activeProviders) {
+      for (const provider of calledProviders) {
         executionGates.set(
           provider.adapter.name,
           getSharedProviderExecutionGate(
-            provider.adapter.name,
+            adapterConnectionName(provider.adapter),
             provider.config.quotaPolicy.maxConcurrency,
             provider.config.quotaPolicy.maxRequestsPerMinute,
           ),
@@ -889,8 +1010,25 @@ export class JobRunner {
       let totalSnapshotsInserted = 0
 
       // Split providers: API providers fan out in parallel, browser providers run sequentially
-      const apiProviders = activeProviders.filter(p => !isBrowserProvider(p.adapter.name))
-      const browserProviders = activeProviders.filter(p => isBrowserProvider(p.adapter.name))
+      const apiProviders = calledProviders.filter(p => !isBrowserProvider(p.adapter.name))
+      const browserProviders = calledProviders.filter(p => isBrowserProvider(p.adapter.name))
+      const providerKey = (provider: RegisteredProvider): string => provider.adapter.name.trim().toLocaleLowerCase('en')
+      // Capture the base registrations before yielding: a later provider may
+      // wait for a fanout slot before writing its first submitting batch row.
+      // Keep these until finally, including cancellation awaiting an upstream
+      // submit; its cancelled database row alone no longer protects the key.
+      const batchProviders = new Set<ProviderName>()
+      if (planExecution) {
+        // Queued dispatch modes stay frozen; an unsupported adapter falls back to sync.
+        const frozenModes = existingRun.providerDispatchModes ?? {}
+        for (const provider of apiProviders) {
+          if (frozenModes[providerKey(provider)] !== ProviderDispatchModes.batch) continue
+          if (adapterSupportsBatch(provider.adapter)) batchProviders.add(provider.adapter.name)
+          else log.warn('run.batch-unsupported', { runId, provider: provider.adapter.name })
+        }
+        const registrations = apiProviders.filter(provider => batchProviders.has(provider.adapter.name))
+        if (registrations.length > 0) this.executingBatchRegistrations.set(batchExecution, { runId, registrations })
+      }
 
       const processQueryForProvider = async (
         registeredProvider: RegisteredProvider,
@@ -908,6 +1046,7 @@ export class JobRunner {
             this.throwIfRunCancelled(runId)
             providerDispatchCounts.set(providerName, (providerDispatchCounts.get(providerName) ?? 0) + 1)
 
+            const callStartedAt = Date.now()
             const raw = await adapter.executeTrackedQuery(
               {
                 query: q.query,
@@ -917,6 +1056,7 @@ export class JobRunner {
               },
               config,
             )
+            recordCallLatency(callLatencies, providerName, callStartedAt)
 
             this.throwIfRunCancelled(runId)
 
@@ -928,7 +1068,7 @@ export class JobRunner {
             }
             let citedUrlCapture: CitedUrlCapture
             try {
-              citedUrlCapture = await captureCitedUrls(providerName, rawGroundingSources)
+              citedUrlCapture = await captureCitedUrls(providerName, rawGroundingSources, raw.evidence ? { directCitedSources: hasDirectCitedUrls(raw.evidence) } : {})
             } catch (err: unknown) {
               citedUrlCapture = {
                 citedUrls: [],
@@ -953,16 +1093,17 @@ export class JobRunner {
               allBrandNames,
               allDomains,
             )
-            const overlap = computeCompetitorOverlap(normalized, competitorDomains)
+            const overlap = computeCompetitorOverlap(normalized, competitorDomains, competitorAliases)
             const extractedCompetitors = extractRecommendedCompetitors(
               normalized.answerText,
               allDomains,
               normalized.citedDomains,
               competitorDomains,
               allBrandNames,
+              competitorAliases,
             )
 
-            const answerLocation = runLocation && isSearchLocationIgnored(providerName, normalized.retrievalStatus)
+            const answerLocation = runLocation && isRequestedLocationUnapplied(providerName, raw, normalized.retrievalStatus)
               ? { location: null, requestedContext: runLocation, supportedContext: { status: 'ignored' as const } }
               : { location: runLocation?.label ?? null }
 
@@ -1007,9 +1148,11 @@ export class JobRunner {
                   servedModel: raw.servedModel ?? null,
                   groundingSources: normalized.groundingSources,
                   searchQueries: normalized.searchQueries,
+                  ...(normalized.retrievedSources != null ? { retrievedSources: normalized.retrievedSources } : {}),
                   apiResponse: raw.rawResponse,
                 }),
                 ...planlessDispatchColumns(registeredProvider, raw),
+                answerEvidence: raw.evidence ?? null,
                 createdAt: new Date().toISOString(),
               }).run()
             } else {
@@ -1043,9 +1186,11 @@ export class JobRunner {
                   servedModel: raw.servedModel ?? null,
                   groundingSources: normalized.groundingSources,
                   searchQueries: normalized.searchQueries,
+                  ...(normalized.retrievedSources != null ? { retrievedSources: normalized.retrievedSources } : {}),
                   apiResponse: raw.rawResponse,
                 }),
                 ...planlessDispatchColumns(registeredProvider, raw),
+                answerEvidence: raw.evidence ?? null,
                 createdAt: new Date().toISOString(),
               }).run()
             }
@@ -1072,6 +1217,7 @@ export class JobRunner {
         executionGates,
         providerDispatchCounts,
         providerErrors,
+        callLatencies,
         onInserted: () => { totalSnapshotsInserted++ },
       }
       const processNodeForProvider = (registeredProvider: RegisteredProvider, unit: PlanExecutionUnit): Promise<void> =>
@@ -1094,6 +1240,8 @@ export class JobRunner {
             aliases: project.aliases,
             canonicalDomain: project.canonicalDomain,
             ownedDomains: project.ownedDomains,
+            // Sentiment-only. The builder drops a stale entry instead of failing dispatch.
+            qualifiedAliases: project.qualifiedAliases,
           },
           country: project.country,
           language: project.language,
@@ -1102,12 +1250,19 @@ export class JobRunner {
             provider: adapter.name,
             requestedModel: config.model ?? null,
           })),
-          // The legacy competitors table has domains only. Freeze the exact
-          // identity we actually dispatched with so later reporting never
-          // borrows renamed or newly added competitors from live project state.
+          // Freeze the exact identity we actually dispatched with (domain label
+          // plus curated and auto-detected aliases, minus blocked names) so
+          // later reporting never borrows renamed or newly added competitors,
+          // or later alias edits or detections, from live project state. A
+          // competitor with no alias of either kind freezes exactly as it did
+          // before aliases existed, so its definition checksum is unchanged;
+          // an auto-detected name moves the checksum only for runs dispatched
+          // after it was applied.
           competitors: projectCompetitors.map(competitor => {
-            const label = brandLabelFromDomain(competitor.domain) || competitor.domain
-            return { domain: competitor.domain, label, aliases: [label] }
+            const label = competitorLabelFromDomain(competitor.domain)
+            const named = competitorIdentityAliases(competitor)
+              .filter(alias => alias.toLowerCase() !== label.toLowerCase())
+            return { domain: competitor.domain, label, aliases: [label, ...named] }
           }),
           queries: projectQueries.map(query => ({
             queryId: query.id,
@@ -1125,19 +1280,8 @@ export class JobRunner {
         // registry cannot serve simply leaves its slots unexecuted — visible
         // as executed below expected rather than silently swapped for another.
         const plan = planExecution
-        const providerKey = (provider: RegisteredProvider): string => provider.adapter.name.trim().toLocaleLowerCase('en')
         const unitsFor = (provider: RegisteredProvider): PlanExecutionUnit[] =>
           plan.unitsByProvider.get(providerKey(provider)) ?? []
-        // The mode was frozen when the run was queued and is never re-read
-        // from config here. An adapter that lost its batch API since (a
-        // downgrade) can only answer sync.
-        const frozenModes = existingRun.providerDispatchModes ?? {}
-        const batchProviders = new Set<ProviderName>()
-        for (const provider of apiProviders) {
-          if (frozenModes[providerKey(provider)] !== ProviderDispatchModes.batch) continue
-          if (adapterSupportsBatch(provider.adapter)) batchProviders.add(provider.adapter.name)
-          else log.warn('run.batch-unsupported', { runId, provider: provider.adapter.name })
-        }
         log.info('run.plan-dispatch', {
           runId,
           expectedSlots: plan.manifest.expectedSlots.length,
@@ -1157,9 +1301,18 @@ export class JobRunner {
           // A batch provider hands its slots to the provider's batch API. Only
           // the slots a batch cannot carry come back to be answered here, and
           // they run concurrently with every sync provider, exactly as today.
-          const units = batchProviders.has(registeredProvider.adapter.name)
-            ? await this.submitPlanBatches(submission, registeredProvider, unitsFor(registeredProvider))
-            : unitsFor(registeredProvider)
+          let units: PlanExecutionUnit[]
+          if (batchProviders.has(registeredProvider.adapter.name)) {
+            // A sibling can abort the sweep while this submit is still awaiting
+            // its provider. Keep its registration until late cancellation ends.
+            const submitExecution = Symbol(runId)
+            this.executingBatchRegistrations.set(submitExecution, { runId, registrations: [registeredProvider] })
+            try {
+              units = await this.submitPlanBatches(submission, registeredProvider, unitsFor(registeredProvider))
+            } finally {
+              this.executingBatchRegistrations.delete(submitExecution)
+            }
+          } else units = unitsFor(registeredProvider)
           await Promise.all(units.map(async (unit) => {
             await processNodeForProvider(registeredProvider, unit)
           }))
@@ -1184,6 +1337,9 @@ export class JobRunner {
         }
       }
       providerCallEnd = Date.now()
+      // Every sync answer is stored. Before the run is finalized or handed to
+      // the batch poller, bring its answer fields to the identity saved last.
+      this.reconcileRunAnswerFields(recording, projectId)
 
       this.throwIfRunCancelled(runId)
 
@@ -1195,10 +1351,13 @@ export class JobRunner {
         for (const [provider, units] of planExecution.unitsByProvider) {
           const providerName = provider as ProviderName
           const dispatched = providerDispatchCounts.get(providerName) ?? 0
-          if (dispatched >= units.length || providerErrors.has(providerName)) continue
+          // A skipped provider's slots stay missing on purpose; its skip says why.
+          if (dispatched >= units.length || providerErrors.has(providerName) || providerName in skipped) continue
           providerErrors.set(
             providerName,
-            `${units.length - dispatched} expected measurement(s) did not run: no ${provider} provider was available to this worker.`,
+            planIneligibleProviders.has(providerName)
+              ? `${provider} does not run visibility sweeps, so ${units.length - dispatched} expected measurement(s) did not run.`
+              : `No ${provider} provider was available to this worker, so ${units.length - dispatched} expected measurement(s) did not run.`,
           )
         }
       }
@@ -1216,6 +1375,7 @@ export class JobRunner {
           providerErrors,
           quota: { dispatched: providerDispatchCounts, reservations: providerReservations },
           releaseExecution,
+          callLatencies,
         })
         return
       }
@@ -1227,16 +1387,20 @@ export class JobRunner {
         inserted: totalSnapshotsInserted,
         providerErrors,
         planShortfall,
+        skippedProviders: skipped,
         executionContext,
         startTime,
         phases: buildPhases({ startTime, providerCallStart, providerCallEnd }),
         quota: { dispatched: providerDispatchCounts, reservations: providerReservations },
+        callLatencies,
       })
       // A cancel that lands after the check above leaves the run cancelled
       // rather than overwritten, and this execution reports it as the
       // cancellation it is.
       if (!finalized && this.isRunCancelled(runId)) throw new RunCancelledError(runId)
     } catch (err: unknown) {
+      // A cancelled or failed sweep keeps the answers it stored.
+      if (recording) this.reconcileRunAnswerFields(recording, projectId)
       const executionContext: RunExecutionContext = {
         providerCount: activeProviders.length,
         providers: activeProviders.map(provider => provider.adapter.name),
@@ -1249,7 +1413,7 @@ export class JobRunner {
       if (err instanceof RunCancelledError || this.isRunCancelled(runId)) {
         this.flushProviderUsage(providerDispatchCounts, providerReservations)
         const cancelled = this.markBatchesCancelled(batchRowIds, 'Cancelled with its run.')
-        this.handleCancelledRun(runId, projectId, startTime, executionContext)
+        this.handleCancelledRun(runId, projectId, startTime, executionContext, callLatencies)
         await this.cancelAtProvider(cancelled)
         return
       }
@@ -1288,7 +1452,7 @@ export class JobRunner {
         trackEvent('run.aborted', {
           reason: abortReason,
           providerCount: executionContext.providerCount,
-          providers: executionContext.providers,
+          providers: [...new Set(executionContext.providers.map(telemetryConnectionName))],
           queryCount: executionContext.queryCount,
           durationMs: Date.now() - startTime,
           ...(executionContext.trigger ? { trigger: executionContext.trigger } : {}),
@@ -1297,21 +1461,34 @@ export class JobRunner {
           ...(executionContext.location ? { location: executionContext.location } : {}),
         })
       } else {
-        trackEvent(
-          'run.completed',
-          buildRunCompletedProps({
-            status: 'failed',
-            providerCount: executionContext.providerCount,
-            providers: executionContext.providers,
-            queryCount: executionContext.queryCount,
-            startTime,
-            trigger: executionContext.trigger,
-            canonicalDomain: executionContext.canonicalDomain,
-            phases,
-            location: executionContext.location,
-          }),
-          { errorCode: 'UNKNOWN' },
-        )
+        // Not a provider failure (those are caught per query and finalize the
+        // run normally): an exception escaped the runner itself. `INTERNAL`
+        // keeps it apart from provider text that matched no pattern, and the
+        // class name and site say where to look without sending the message.
+        const sampling = failureStreakSampling('failed', this.priorFailureStreak(projectId, runId), runId)
+        if (sampling.report) {
+          trackEvent(
+            'run.completed',
+            {
+              ...buildRunCompletedProps({
+                status: 'failed',
+                providerCount: executionContext.providerCount,
+                providers: executionContext.providers,
+                queryCount: executionContext.queryCount,
+                startTime,
+                trigger: executionContext.trigger,
+                canonicalDomain: executionContext.canonicalDomain,
+                phases,
+                location: executionContext.location,
+                answers: this.runAnswerUsage(runId),
+                callLatencies,
+              }),
+              ...describeRunFailure(err, runFailureSite(providerCallStart, providerCallEnd)),
+              ...sampling.props,
+            },
+            { errorCode: 'INTERNAL' },
+          )
+        }
       }
 
       // Notify on failure too
@@ -1322,6 +1499,7 @@ export class JobRunner {
       }
       await this.cancelAtProvider(abandoned)
     } finally {
+      this.executingBatchRegistrations.delete(batchExecution)
       releaseExecution()
     }
   }
@@ -1350,7 +1528,7 @@ export class JobRunner {
    */
   finalizeRun(input: RunFinalization): boolean {
     const { runId, providerErrors } = input
-    const outcome = runOutcome(input.inserted, providerErrors, input.planShortfall)
+    const outcome = runOutcome(input.inserted, providerErrors, input.planShortfall, input.skippedProviders ?? {})
     const finishedAt = new Date().toISOString()
     // The sentiment completion receipt commits with the winning status write,
     // so a completed sweep gets exactly one and a losing attempt none.
@@ -1387,29 +1565,38 @@ export class JobRunner {
    * post-run pipeline.
    */
   private reportFinalizedRun(input: Omit<RunFinalization, 'planShortfall' | 'quota'>, finalStatus: FinalRunStatus): void {
-    const { runId, projectId, providerErrors, executionContext } = input
+    const { runId, projectId, executionContext } = input
+    const skippedProviders = input.skippedProviders ?? {}
+    const providerErrors = calledProviderErrors(input.providerErrors, skippedProviders)
     // Track run completion telemetry. When providers actually ran but some
     // failed, emit an `errorCode` so dashboards can break down real failures
     // by category (auth, rate-limit, network, parse, …) instead of lumping
-    // them all into "failed."
-    const failureCode = providerErrors.size > 0
-      ? classifyProviderErrors(providerErrors)
-      : undefined
-    trackEvent(
-      'run.completed',
-      buildRunCompletedProps({
-        status: finalStatus,
-        providerCount: executionContext.providerCount,
-        providers: executionContext.providers,
-        queryCount: executionContext.queryCount,
-        startTime: input.startTime,
-        trigger: executionContext.trigger,
-        canonicalDomain: executionContext.canonicalDomain,
-        phases: input.phases,
-        location: executionContext.location,
-      }),
-      failureCode ? { errorCode: failureCode } : undefined,
-    )
+    // them all into "failed." A skipped provider counts with its account code.
+    const failureCode = classifyProviderErrors(providerErrors, skippedProviders)
+    const sampling = failureStreakSampling(finalStatus, this.priorFailureStreak(projectId, runId), runId)
+    if (sampling.report) {
+      trackEvent(
+        'run.completed',
+        {
+          ...buildRunCompletedProps({
+            status: finalStatus,
+            providerCount: executionContext.providerCount,
+            providers: executionContext.providers,
+            queryCount: executionContext.queryCount,
+            startTime: input.startTime,
+            trigger: executionContext.trigger,
+            canonicalDomain: executionContext.canonicalDomain,
+            phases: input.phases,
+            location: executionContext.location,
+            answers: this.runAnswerUsage(runId),
+            callLatencies: input.callLatencies,
+          }),
+          ...buildProviderOutcomeProps(executionContext.providers, providerErrors, Object.keys(skippedProviders)),
+          ...sampling.props,
+        },
+        failureCode ? { errorCode: failureCode } : undefined,
+      )
+    }
 
     // Activation is a non-empty first answer-visibility result, not merely a
     // run row reaching "completed". This excludes probes, zero-query runs,
@@ -1464,6 +1651,7 @@ export class JobRunner {
     providerErrors: ReadonlyMap<ProviderName, string>
     quota: RunQuotaReservations
     releaseExecution: () => void
+    callLatencies: ReadonlyMap<ProviderName, readonly number[]>
   }): void {
     const { runId, projectId } = input
     const handedOff = this.db.update(runs)
@@ -1478,6 +1666,8 @@ export class JobRunner {
       log.warn('run.handoff-skipped', { runId })
       return
     }
+    // The finalizer reports the sweep's sync latencies; a restart loses them.
+    if (input.callLatencies.size > 0) this.handedOffCallLatencies.set(runId, input.callLatencies)
     // From here the poller owns the outcome, so the sweep lets go of the run
     // before asking whether it can already finalize.
     input.releaseExecution()
@@ -1502,7 +1692,12 @@ export class JobRunner {
     const finishedAt = new Date().toISOString()
     const decided = this.db.transaction((tx) => {
       const txDb = tx as unknown as DatabaseClient
-      const run = txDb.select({ kind: runs.kind, status: runs.status, pendingProviderErrors: runs.pendingProviderErrors })
+      const run = txDb.select({
+        kind: runs.kind,
+        status: runs.status,
+        pendingProviderErrors: runs.pendingProviderErrors,
+        skippedProviders: runs.skippedProviders,
+      })
         .from(runs).where(and(eq(runs.id, runId), eq(runs.projectId, projectId))).get()
       if (!run || run.status !== RunStatuses.running || run.pendingProviderErrors === null) return null
       const holding = txDb.select({ id: providerBatches.id }).from(providerBatches)
@@ -1513,9 +1708,10 @@ export class JobRunner {
       const state = measurementRunSlotState(txDb, runId)
       const inserted = txDb.select({ value: count() }).from(querySnapshots).where(eq(querySnapshots.runId, runId)).get()?.value ?? 0
       const providerErrors = this.batchRunProviderErrors(txDb, runId, run.pendingProviderErrors, state.missing)
+      const skippedProviders: SkippedProviders = run.skippedProviders ?? {}
       // An unreadable manifest cannot vouch for a single slot.
       const shortfall = state.missing.length + (state.readable ? 0 : 1)
-      const outcome = runOutcome(inserted, providerErrors, shortfall)
+      const outcome = runOutcome(inserted, providerErrors, shortfall, skippedProviders)
       const won = txDb.update(runs)
         .set({
           status: outcome.status,
@@ -1528,11 +1724,12 @@ export class JobRunner {
         .changes === 1
       if (!won) return null
       recordSentimentCompletion(tx, { projectId, runId, completionKey: 'initial', completedAt: finishedAt })
-      return { kind: run.kind, inserted, providerErrors, status: outcome.status }
+      return { kind: run.kind, inserted, providerErrors, skippedProviders, status: outcome.status }
     })
     if (!decided) return false
 
     const telemetry = this.batchRunTelemetry(runId, projectId)
+    const callLatencies = this.takeHandedOffCallLatencies(runId)
     log.info('run.batch-finalized', { runId, status: decided.status, inserted: decided.inserted })
     this.reportFinalizedRun({
       runId,
@@ -1540,11 +1737,13 @@ export class JobRunner {
       kind: decided.kind,
       inserted: decided.inserted,
       providerErrors: decided.providerErrors,
+      skippedProviders: decided.skippedProviders,
       executionContext: telemetry.executionContext,
       startTime: telemetry.startTime,
       // The sweep's phase split does not survive the wait (or a restart);
       // `durationMs` spans from the run's start to this finalization.
       phases: undefined,
+      callLatencies,
     }, decided.status)
     return true
   }
@@ -1581,7 +1780,7 @@ export class JobRunner {
             .all()
           const first = unrecorded[0]
           if (first) {
-            add(batch.provider, `${unrecorded.length} of ${batch.requestCount} batch answer(s) were not recorded. First: ${first.error ?? first.outcome}`)
+            add(batch.provider, `Batch answers not recorded: ${unrecorded.length} of ${batch.requestCount}. First: ${first.error ?? first.outcome}`)
           }
           break
         }
@@ -1596,7 +1795,7 @@ export class JobRunner {
     }
     const gaps = new Map<string, number>()
     for (const slot of missing) gaps.set(slot.provider, (gaps.get(slot.provider) ?? 0) + 1)
-    for (const [provider, gap] of gaps) add(provider, `${gap} expected measurement(s) have not run.`)
+    for (const [provider, gap] of gaps) add(provider, `Expected measurements not run yet: ${gap}.`)
     return errors
   }
 
@@ -1890,11 +2089,13 @@ export class JobRunner {
   }
 
   private async cancelAtProvider(rows: ReadonlyArray<{ id: string; provider: string; providerBatchId: string | null }>): Promise<void> {
-    for (const row of rows) {
+    // The rows are already cancelled, so reload can replace the registry while
+    // an earlier cancellation awaits the provider. Capture every key up front.
+    const registrations = rows.map(row => ({ row, registered: this.registry.get(row.provider) }))
+    for (const { row, registered } of registrations) {
       // A batch still being submitted has no provider id yet; its submit
       // cancels it on return.
       if (!row.providerBatchId) continue
-      const registered = this.registry.get(row.provider)
       if (!registered?.adapter.batch) {
         log.warn('batch.cancel-unavailable', { batchId: row.id, provider: row.provider })
         continue
@@ -1935,7 +2136,7 @@ export class JobRunner {
         .changes === 1
       if (claimed) {
         const telemetry = this.batchRunTelemetry(runId, projectId)
-        this.handleCancelledRun(runId, projectId, telemetry.startTime, telemetry.executionContext)
+        this.handleCancelledRun(runId, projectId, telemetry.startTime, telemetry.executionContext, this.takeHandedOffCallLatencies(runId))
       }
     }
     await this.cancelAtProvider(marked)
@@ -1944,10 +2145,10 @@ export class JobRunner {
   /**
    * Read an ended batch's results into its run: every line mapped by
    * `custom_id` to its slot, parsed by the adapter's own parser and recorded
-   * through `recordSlot`, exactly like a sync answer but at the batch tier.
+   * through the shared slot preparation, like a sync answer at the batch tier.
    *
-   * Idempotent across crashes. Each line's outcome is written as soon as it is
-   * handled and a handled line is skipped on the next pass; the insert does
+   * Idempotent across crashes. Bounded chunks commit each snapshot together
+   * with its outcome; handled lines are skipped on the next pass. The insert does
    * nothing on a slot that is already answered; the reservation of unbilled
    * lines is released under `quota_released`, in the same transaction that
    * marks the batch `ingested`. Answers are scored against the project's
@@ -1971,86 +2172,179 @@ export class JobRunner {
       .where(eq(providerBatchRequests.batchId, batch.id)).all()
       .map(row => [row.id, row]))
     const ctx: SlotRecordingContext = { ...this.buildRunRecordingContext(batch.runId, batch.projectId), onInserted: () => {} }
+    const pending: PreparedBatchLine[] = []
+    let pendingBytes = 0
+    const queued = new Set<string>()
+    const flush = (): boolean => {
+      if (pending.length === 0) return true
+      // Remove the attempted chunk before writing: a failed transaction is
+      // replayed by the next ingest, never silently retried by the stream catch.
+      const chunk = pending.splice(0)
+      pendingBytes = 0
+      const settled = this.persistBatchLines(batch, chunk)
+      if (!settled) return false
+      for (const result of settled) {
+        const request = requests.get(result.line.requestId)!
+        requests.set(request.id, { ...request, outcome: result.outcome, error: result.line.error })
+        result.line.slot?.report(result.inserted)
+        result.line.report?.()
+      }
+      queued.clear()
+      return true
+    }
     try {
+      let linesSinceYield = 0
       for await (const line of capability.results(batch.providerBatchId, registered.config)) {
+        // Also yield when replaying handled or unknown lines from a large stream.
+        if (linesSinceYield === BATCH_INGEST_CHUNK_SIZE) {
+          await yieldToEventLoop()
+          linesSinceYield = 0
+        }
+        linesSinceYield++
         const request = requests.get(line.customId)
         if (!request) {
           log.warn('batch.unknown-line', { batchId: batch.id, provider: batch.provider, customId: line.customId })
           continue
         }
-        // Handled by an earlier pass that was interrupted.
-        if (request.outcome !== null) continue
-        // Cancelled with its run while the lines were streaming: record nothing more.
-        if (this.db.select({ status: providerBatches.status }).from(providerBatches).where(eq(providerBatches.id, batch.id)).get()?.status !== ProviderBatchStatuses.ended) {
-          return { kind: 'cancelled' }
+        if (request.outcome !== null || queued.has(request.id)) continue
+        // Cancelled while the lines were streaming: prepare nothing more. Lines
+        // already handled skip this read; each chunk's write rechecks status.
+        if (this.db.select({ status: providerBatches.status }).from(providerBatches)
+          .where(eq(providerBatches.id, batch.id)).get()?.status !== ProviderBatchStatuses.ended) return { kind: 'cancelled' }
+        // Preparation can await remote citation resolution; no write lock is held.
+        const prepared = await this.prepareBatchLine(ctx, registered, batch, request, line)
+        // These serialized fields dominate retained answer data. Avoid another
+        // whole-payload serialization just to budget a chunk; one oversized
+        // answer is allowed alone and flushed immediately.
+        const payloadBytes = Buffer.byteLength(prepared.slot?.snapshot.rawResponse ?? '')
+          + Buffer.byteLength(prepared.slot?.snapshot.answerText ?? '')
+          + Buffer.byteLength(prepared.error ?? '')
+        if (pending.length > 0 && pendingBytes + payloadBytes > BATCH_INGEST_PAYLOAD_BYTES) {
+          if (!flush()) return { kind: 'cancelled' }
+          await yieldToEventLoop()
+          linesSinceYield = 0
         }
-        const settled = await this.ingestBatchLine(ctx, registered, batch, request, line)
-        this.db.update(providerBatchRequests)
-          .set({ outcome: settled.outcome, error: settled.error })
-          .where(and(eq(providerBatchRequests.id, request.id), isNull(providerBatchRequests.outcome)))
-          .run()
-        requests.set(request.id, { ...request, outcome: settled.outcome })
+        pending.push(prepared)
+        pendingBytes += payloadBytes
+        queued.add(request.id)
+        if (pending.length === BATCH_INGEST_CHUNK_SIZE || pendingBytes >= BATCH_INGEST_PAYLOAD_BYTES) {
+          if (!flush()) return { kind: 'cancelled' }
+          await yieldToEventLoop()
+          linesSinceYield = 0
+        }
       }
+      if (!flush()) return { kind: 'cancelled' }
     } catch (err: unknown) {
-      if (!(err instanceof RunCancelledError)) throw err
+      let failure = err
+      if (!(failure instanceof RunCancelledError)) {
+        // Keep the successfully prepared tail when a remote stream drops. The
+        // next pass skips its committed ledger rows and resumes the missing ones.
+        try {
+          if (!flush()) return { kind: 'cancelled' }
+        } catch (flushError: unknown) {
+          failure = flushError
+        }
+      }
+      if (!(failure instanceof RunCancelledError)) throw failure
       this.markBatchesCancelled([batch.id], 'Cancelled because its run is no longer running.')
       return { kind: 'cancelled' }
+    } finally {
+      // After the last chunk this ingest commits, and before it can finalize the run.
+      this.reconcileRunAnswerFields(ctx, batch.projectId)
     }
     return this.completeBatchIngest(batch)
   }
 
-  private async ingestBatchLine(
+  private async prepareBatchLine(
     ctx: SlotRecordingContext,
     registered: RegisteredProvider,
     batch: typeof providerBatches.$inferSelect,
     request: typeof providerBatchRequests.$inferSelect,
     line: ProviderBatchResultLine,
-  ): Promise<{ outcome: ProviderBatchRequestOutcome; error: string | null }> {
-    if (line.type !== 'succeeded') return { outcome: unansweredOutcome(line.type), error: line.error }
+  ): Promise<PreparedBatchLine> {
+    const base = { requestId: request.id, slot: null }
+    if (line.type !== 'succeeded') return { ...base, outcome: unansweredOutcome(line.type), error: line.error }
     const { adapter } = registered
     if (!adapter.parseTrackedQueryResponse) throw new Error(`Provider ${adapter.name} cannot read a batch answer`)
     let raw: RawQueryResult
     try {
       raw = adapter.parseTrackedQueryResponse(line.body, resolveProviderModel(adapter.name, request.requestedModel))
     } catch (err: unknown) {
-      // Where the sync call would have thrown on the same body (Claude: a
-      // failed web search). The answer was billed but cannot be read.
       const error = describeError(err)
-      log.warn('batch.parse-failed', { runId: batch.runId, batchId: batch.id, provider: batch.provider, executionId: request.executionId, error })
-      return { outcome: ProviderBatchRequestOutcomes.parse_failed, error }
+      return {
+        ...base,
+        outcome: ProviderBatchRequestOutcomes.parse_failed,
+        error,
+        report: () => log.warn('batch.parse-failed', { runId: batch.runId, batchId: batch.id, provider: batch.provider, executionId: request.executionId, error }),
+      }
     }
-    const unit: PlanExecutionUnit = {
+    const slot = await this.prepareSlot(ctx, registered, {
       executionId: request.executionId,
       queryText: request.queryText,
       context: request.requestedContext,
       queryId: request.queryId,
       requestedModel: request.requestedModel,
-    }
-    const written = await this.recordSlot(ctx, registered, unit, raw, {
+    }, raw, {
       idempotent: true,
       mode: ProviderDispatchModes.batch,
       providerBatchId: batch.id,
       pricingTier: PricingTiers.batch,
     })
-    if (written) return { outcome: ProviderBatchRequestOutcomes.recorded, error: null }
-    // The slot already has an answer: this batch's own, from a pass that died
-    // before writing the outcome, or another writer's.
-    const existing = this.db.select({ providerBatchId: querySnapshots.providerBatchId }).from(querySnapshots)
-      .where(and(
-        eq(querySnapshots.runId, batch.runId),
-        eq(querySnapshots.measurementExecutionId, request.executionId),
-        eq(querySnapshots.provider, registered.adapter.name),
-      ))
-      .get()
-    return existing?.providerBatchId === batch.id
-      ? { outcome: ProviderBatchRequestOutcomes.recorded, error: null }
-      : { outcome: ProviderBatchRequestOutcomes.duplicate, error: null }
+    return { requestId: request.id, slot, outcome: ProviderBatchRequestOutcomes.recorded, error: null }
+  }
+
+  /** Snapshots and their replay ledger commit together, with no callbacks or awaits. */
+  private persistBatchLines(batch: typeof providerBatches.$inferSelect, lines: readonly PreparedBatchLine[]) {
+    return this.db.transaction((tx) => {
+      if (tx.select({ status: providerBatches.status }).from(providerBatches)
+        .where(eq(providerBatches.id, batch.id)).get()?.status !== ProviderBatchStatuses.ended) return null
+      if (tx.select({ status: runs.status }).from(runs)
+        .where(eq(runs.id, batch.runId)).get()?.status !== RunStatuses.running) throw new RunCancelledError(batch.runId)
+      // Another ingester may have settled a line, or its query may have been
+      // deleted while preparation awaited network evidence. One read per chunk.
+      const current = new Map(tx.select({
+        id: providerBatchRequests.id,
+        outcome: providerBatchRequests.outcome,
+        queryId: providerBatchRequests.queryId,
+        executionId: providerBatchRequests.executionId,
+      }).from(providerBatchRequests)
+        .where(inArray(providerBatchRequests.id, lines.map(line => line.requestId))).all()
+        .map(row => [row.id, row]))
+      const settled: Array<{ line: PreparedBatchLine; outcome: ProviderBatchRequestOutcome; inserted: boolean }> = []
+      for (const line of lines) {
+        const request = current.get(line.requestId)
+        if (!request || request.outcome !== null) continue
+        // Settle each ledger row once, even if a chunk repeats its line.
+        current.delete(line.requestId)
+        let outcome = line.outcome
+        let inserted = false
+        if (line.slot) {
+          const snapshot = { ...line.slot.snapshot, queryId: request.queryId }
+          inserted = tx.insert(querySnapshots).values(snapshot).onConflictDoNothing().run().changes > 0
+          if (!inserted) {
+            const existing = tx.select({ providerBatchId: querySnapshots.providerBatchId }).from(querySnapshots)
+              .where(and(
+                eq(querySnapshots.runId, batch.runId),
+                eq(querySnapshots.measurementExecutionId, request.executionId),
+                eq(querySnapshots.provider, batch.provider),
+              )).get()
+            outcome = existing?.providerBatchId === batch.id
+              ? ProviderBatchRequestOutcomes.recorded
+              : ProviderBatchRequestOutcomes.duplicate
+          }
+        }
+        tx.update(providerBatchRequests).set({ outcome, error: line.error })
+          .where(and(eq(providerBatchRequests.id, request.id), isNull(providerBatchRequests.outcome))).run()
+        settled.push({ line, outcome, inserted })
+      }
+      return settled
+    }, { behavior: 'immediate' })
   }
 
   /** Close an ingest: counts, the unbilled lines' quota, and `ingested`, in one transaction. */
   private completeBatchIngest(batch: typeof providerBatches.$inferSelect): ProviderBatchIngestResult {
     const at = new Date().toISOString()
-    return this.db.transaction((tx) => {
+    const result = this.db.transaction((tx) => {
       const txDb = tx as unknown as DatabaseClient
       const current = txDb.select().from(providerBatches).where(eq(providerBatches.id, batch.id)).get()
       // Cancelled while its lines were being read: it keeps what was recorded
@@ -2075,9 +2369,15 @@ export class JobRunner {
         .where(and(eq(providerBatches.id, batch.id), eq(providerBatches.status, ProviderBatchStatuses.ended)))
         .run()
       const { recordedCount: recorded, notRecorded } = tally
-      log.info('batch.ingested', { runId: batch.runId, batchId: batch.id, provider: batch.provider, recorded, notRecorded, released })
       return { kind: 'ingested', recorded, notRecorded, released } as const
     })
+    if (result.kind === 'ingested') {
+      log.info('batch.ingested', {
+        runId: batch.runId, batchId: batch.id, provider: batch.provider,
+        recorded: result.recorded, notRecorded: result.notRecorded, released: result.released,
+      })
+    }
+    return result
   }
 
   /**
@@ -2167,6 +2467,8 @@ export class JobRunner {
     let filled = 0
     let fatal: string | null = null
     let superseded = false
+    // Hoisted so a cancelled or failed fill still reconciles what it wrote.
+    let recording: RunRecordingContext | undefined
 
     try {
       const run = this.getRunState(runId)
@@ -2174,7 +2476,7 @@ export class JobRunner {
       if (run.status !== 'partial') throw new Error(`Run ${runId} is ${run.status}; only a partial run can be filled`)
       const runCreatedAt = this.db.select({ createdAt: runs.createdAt }).from(runs).where(eq(runs.id, runId)).get()!.createdAt
       // The same identity the sweep matched against, read the same way.
-      const recording = this.buildRunRecordingContext(runId, projectId)
+      recording = this.buildRunRecordingContext(runId, projectId)
       const projectQueries = this.db.select().from(queries).where(eq(queries.projectId, projectId)).all()
       const plan = resolvePlanExecution(run, projectQueries)
       if (!plan) throw new Error(`Run ${runId} did not measure a published plan`)
@@ -2196,8 +2498,9 @@ export class JobRunner {
       const activeProviders: RegisteredProvider[] = []
       for (const provider of unitsByProvider.keys()) {
         const registered = this.registry.get(provider)
-        if (registered) activeProviders.push(registered)
-        else providerErrors.set(provider, `No ${provider} provider is configured on this instance, so its missing answers did not run.`)
+        if (!registered) providerErrors.set(provider, `No ${provider} provider is configured on this instance, so its missing answers did not run.`)
+        else if (!isEligibleFor(registered.adapter, ProviderWorkflows['visibility-sweep'], 'explicit')) providerErrors.set(provider, `${provider} does not run visibility sweeps, so its missing answers did not run.`)
+        else activeProviders.push(registered)
       }
 
       // Reserve what this fill will dispatch, never the run's whole manifest.
@@ -2206,7 +2509,7 @@ export class JobRunner {
       for (const registered of activeProviders) {
         const name = registered.adapter.name
         const count = unitsByProvider.get(name)?.length ?? 0
-        const scope = `${projectId}:${name}`
+        const scope = `${projectId}:${adapterConnectionName(registered.adapter)}`
         const limit = registered.config.quotaPolicy.maxRequestsPerDay
         const quota = reserveDailyQueryQuota(this.db, { scope, period: todayPeriod, count, limit })
         if (!quota.reserved) {
@@ -2222,7 +2525,7 @@ export class JobRunner {
         executionGates.set(
           registered.adapter.name,
           getSharedProviderExecutionGate(
-            registered.adapter.name,
+            adapterConnectionName(registered.adapter),
             registered.config.quotaPolicy.maxConcurrency,
             registered.config.quotaPolicy.maxRequestsPerMinute,
           ),
@@ -2306,6 +2609,9 @@ export class JobRunner {
       fatal = describeError(err)
       log.error('fill.failed', { fillId, runId, error: fatal })
     } finally {
+      // After the last write, success, cancel or failure alike: answers stored
+      // after a mid-fill identity change are rescored against the current one.
+      if (recording) this.reconcileRunAnswerFields(recording, projectId)
       this.flushProviderUsage(providerDispatchCounts, providerReservations)
     }
 
@@ -2356,12 +2662,12 @@ export class JobRunner {
         // provider this fill tried carries its new reason; any other keeps
         // its original entry untouched, raw detail included.
         const previous = parseRunError(parent?.error)?.providers ?? {}
-        const fresh = buildRunErrorFromMessages(input.providerErrors).providers ?? {}
+        const fresh = buildProviderRunError(input.providerErrors).providers ?? {}
         const remaining = new Map<string, number>()
         for (const slot of state.missing) remaining.set(slot.provider, (remaining.get(slot.provider) ?? 0) + 1)
         const providers: Record<string, RunProviderErrorDto> = {}
         for (const [provider, count] of remaining) {
-          providers[provider] = fresh[provider] ?? previous[provider] ?? { message: `${count} expected measurement(s) have not run.` }
+          providers[provider] = fresh[provider] ?? previous[provider] ?? { message: `Expected measurements not run yet: ${count}.` }
         }
         txDb.update(runs)
           .set({ error: serializeRunError({ providers }) })
@@ -2427,6 +2733,7 @@ export class JobRunner {
         if (ctx.fill?.shouldSkip(providerName, unit.executionId)) return
         ctx.providerDispatchCounts.set(providerName, (ctx.providerDispatchCounts.get(providerName) ?? 0) + 1)
 
+        const callStartedAt = Date.now()
         const raw = await adapter.executeTrackedQuery(
           {
             query: unit.queryText,
@@ -2436,6 +2743,7 @@ export class JobRunner {
           },
           config,
         )
+        recordCallLatency(ctx.callLatencies, providerName, callStartedAt)
 
         // Recorded inside the gate: resolving cited URLs is part of the slot's
         // turn, so the provider's concurrency bounds it too.
@@ -2473,6 +2781,22 @@ export class JobRunner {
     raw: RawQueryResult,
     dispatch: SlotDispatch,
   ): Promise<boolean> {
+    const prepared = await this.prepareSlot(ctx, registeredProvider, unit, raw, dispatch)
+    this.throwIfRunCancelled(ctx.runId)
+    const insert = this.db.insert(querySnapshots).values(prepared.snapshot)
+    const written = ctx.fill || dispatch.idempotent ? insert.onConflictDoNothing().run() : insert.run()
+    prepared.report(written.changes > 0)
+    return written.changes > 0
+  }
+
+  /** Resolve network/file evidence and derived fields before opening a write transaction. */
+  private async prepareSlot(
+    ctx: SlotRecordingContext,
+    registeredProvider: RegisteredProvider,
+    unit: PlanExecutionUnit,
+    raw: RawQueryResult,
+    dispatch: SlotDispatch,
+  ): Promise<PreparedSlot> {
     const { adapter } = registeredProvider
     const providerName = adapter.name
     const { domains: competitorDomains, aliases: competitorAliases } = ctx.competitorsFor(unit.executionId)
@@ -2480,9 +2804,13 @@ export class JobRunner {
     // Only a provider that actually forwards the location may say the
     // answer was measured from there. Everything else stores null, which
     // reads as "no claim" rather than as the place we asked for.
-    const supportedContext = requestedContext && providerSupportsLocationContext(adapter)
-      ? { status: 'applied' as const, resolved: requestedContext }
-      : null
+    const supportedContext = requestedContext && raw.evidence
+      ? (raw.evidence.location.status === LocationTreatmentStatuses.applied
+        ? { status: 'applied' as const, resolved: requestedContext }
+        : { status: 'ignored' as const })
+      : requestedContext && providerSupportsLocationContext(adapter)
+        ? { status: 'applied' as const, resolved: requestedContext }
+        : requestedContext && isOpenRouterRoute(providerName) ? { status: 'ignored' as const } : null
 
     this.throwIfRunCancelled(ctx.runId)
 
@@ -2494,7 +2822,7 @@ export class JobRunner {
     }
     let citedUrlCapture: CitedUrlCapture
     try {
-      citedUrlCapture = await captureCitedUrls(providerName, rawGroundingSources)
+      citedUrlCapture = await captureCitedUrls(providerName, rawGroundingSources, raw.evidence ? { directCitedSources: hasDirectCitedUrls(raw.evidence) } : {})
     } catch (err: unknown) {
       citedUrlCapture = {
         citedUrls: [],
@@ -2542,7 +2870,7 @@ export class JobRunner {
       screenshotRelPath = `${ctx.runId}/${snapshotId}.png`
     }
 
-    const insert = this.db.insert(querySnapshots).values({
+    const snapshot: typeof querySnapshots.$inferInsert = {
       id: snapshotId,
       runId: ctx.runId,
       queryId: unit.queryId,
@@ -2580,6 +2908,7 @@ export class JobRunner {
         servedModel: raw.servedModel ?? null,
         groundingSources: normalized.groundingSources,
         searchQueries: normalized.searchQueries,
+        ...(normalized.retrievedSources != null ? { retrievedSources: normalized.retrievedSources } : {}),
         apiResponse: raw.rawResponse,
       }),
       dispatchMode: dispatch.mode,
@@ -2593,23 +2922,25 @@ export class JobRunner {
         tier: dispatch.pricingTier,
         overrides: registeredProvider.config.pricing,
       }),
+      answerEvidence: raw.evidence ?? null,
       createdAt: new Date().toISOString(),
-    })
-    // A fill never overwrites or duplicates a recorded slot: the slot index
-    // decides, and a lost race records nothing rather than failing.
-    const written = ctx.fill || dispatch.idempotent ? insert.onConflictDoNothing().run() : insert.run()
-    if (written.changes > 0) ctx.onInserted()
-    ctx.fill?.onOutcome(providerName, true)
-    log.info('query.citation', {
-      runId: ctx.runId,
-      provider: providerName,
-      query: unit.queryText,
-      executionId: unit.executionId,
-      location: requestedContext?.label ?? null,
-      citationState,
-      answerMentioned,
-    })
-    return written.changes > 0
+    }
+    return {
+      snapshot,
+      report: (inserted) => {
+        if (inserted) ctx.onInserted()
+        ctx.fill?.onOutcome(providerName, true)
+        log.info('query.citation', {
+          runId: ctx.runId,
+          provider: providerName,
+          query: unit.queryText,
+          executionId: unit.executionId,
+          location: requestedContext?.label ?? null,
+          citationState,
+          answerMentioned,
+        })
+      },
+    }
   }
 
   /**
@@ -2627,13 +2958,40 @@ export class JobRunner {
     if (!run) throw new Error(`Run ${runId} not found`)
     const project = this.db.select().from(projects).where(eq(projects.id, projectId)).get()
     if (!project) throw new Error(`Project ${projectId} not found`)
-    const projectCompetitors = this.db.select().from(competitors).where(eq(competitors.projectId, projectId)).all()
+    const projectCompetitors = this.db.select().from(competitors).where(eq(competitors.projectId, projectId)).orderBy(competitors.domain).all()
     return runRecordingContext(this.db, {
       runId,
       measurementPlanVersionId: run.measurementPlanVersionId,
       project,
-      competitorDomains: projectCompetitors.map(c => c.domain),
+      competitors: projectCompetitors,
+      marketNames: readMarketCompetitorNames(this.db, projectId),
     })
+  }
+
+  /**
+   * Rescore a run's stored answer fields when the identity they are scored
+   * against changed after `recording` read it (`answerIdentityChanged`).
+   *
+   * Saving a competitor alias, a detection pass that changes a competitor's
+   * auto-detected names, or a project alias edit rescores the stored answers
+   * once (`onCompetitorAliasesChanged`, `onAliasesChanged`). A writer that read
+   * the identity before the edit keeps scoring with it, so an answer it stores
+   * afterwards would disagree with an identical one the edit rescored. Each
+   * writer calls this after its last write: when its identity is no longer
+   * current, the whole run gets the pass the edit ran, the competitor fields
+   * only, or `answer_mentioned` too when the project's own identity moved. A
+   * failure is logged and never fails the writer.
+   */
+  private reconcileRunAnswerFields(recording: RunRecordingContext, projectId: string): void {
+    try {
+      const current = readAnswerIdentity(this.db, projectId)
+      if (!current || !answerIdentityChanged(recording.identity, current.fingerprint)) return
+      const full = recording.identity.project !== current.fingerprint.project
+      const result = backfillProjectAnswerMentions(this.db, projectId, { competitorFieldsOnly: !full, runId: recording.runId })
+      log.info('run.answer-fields-rescored', { runId: recording.runId, projectId, full, ...result })
+    } catch (err: unknown) {
+      log.error('run.answer-fields-rescore-failed', { runId: recording.runId, projectId, error: describeError(err) })
+    }
   }
 
   private incrementUsage(scope: string, metric: string, count: number): void {
@@ -2662,6 +3020,68 @@ export class JobRunner {
       releaseDailyQueryQuota(this.db, { scope: reservation.scope, period: reservation.period, count: Math.max(0, reservation.reserved - dispatched) })
     }
     providerReservations.clear()
+  }
+
+  /** The answers a run stored, for `run.completed`. Telemetry only: a failed read reports none. */
+  private runAnswerUsage(runId: string): RunAnswerUsage[] {
+    try {
+      return this.db
+        .select({ provider: querySnapshots.provider, usage: querySnapshots.usage, dispatchMode: querySnapshots.dispatchMode })
+        .from(querySnapshots)
+        .where(eq(querySnapshots.runId, runId))
+        .all()
+    } catch (err: unknown) {
+      log.warn('telemetry.run-usage-read-failed', { runId, error: describeError(err) })
+      return []
+    }
+  }
+
+  private takeHandedOffCallLatencies(runId: string): ReadonlyMap<ProviderName, readonly number[]> | undefined {
+    const latencies = this.handedOffCallLatencies.get(runId)
+    this.handedOffCallLatencies.delete(runId)
+    return latencies
+  }
+
+  /**
+   * How many runs of the same kind, created before this one, failed or came
+   * back partial in a row. Telemetry only: it feeds `failureStreak` and the
+   * sampling of runs stuck failing the same way. Probes do not count, other run
+   * kinds (syncs, audits) neither break nor extend a streak, and a run aborted
+   * before any provider was called (`run.aborted`, never a failed
+   * `run.completed`) is skipped, so every failure counted was also reported.
+   */
+  private priorFailureStreak(projectId: string, currentRunId: string): number {
+    try {
+      const current = this.db
+        .select({ kind: runs.kind, createdAt: runs.createdAt })
+        .from(runs)
+        .where(eq(runs.id, currentRunId))
+        .get()
+      if (!current) return 0
+      const recent = this.db
+        .select({ status: runs.status, error: runs.error })
+        .from(runs)
+        .where(and(
+          eq(runs.projectId, projectId),
+          eq(runs.kind, current.kind),
+          lt(runs.createdAt, current.createdAt),
+          ne(runs.trigger, RunTriggers.probe),
+          inArray(runs.status, ['completed', 'partial', 'failed']),
+        ))
+        .orderBy(desc(runs.createdAt))
+        .limit(FAILURE_STREAK_LOOKBACK)
+        .all()
+      let streak = 0
+      for (const row of recent) {
+        if (row.status === 'completed') break
+        if (row.status === 'failed' && row.error && classifyRunAbortReason(row.error)) continue
+        streak++
+      }
+      return streak
+    } catch {
+      // A lookup failure must never cost the run its telemetry.
+      return 0
+    }
   }
 
   private hasPriorActivation(projectId: string, currentRunId: string): boolean {
@@ -2693,6 +3113,7 @@ export class JobRunner {
         measurementManifest: runs.measurementManifest,
         providerDispatchModes: runs.providerDispatchModes,
         pendingProviderErrors: runs.pendingProviderErrors,
+        skippedProviders: runs.skippedProviders,
       })
       .from(runs)
       .where(eq(runs.id, runId))
@@ -2722,6 +3143,7 @@ export class JobRunner {
     projectId: string,
     startTime: number,
     context: RunExecutionContext,
+    callLatencies?: ReadonlyMap<ProviderName, readonly number[]>,
   ): void {
     const currentRun = this.getRunState(runId)
     if (currentRun && !currentRun.finishedAt) {
@@ -2746,6 +3168,8 @@ export class JobRunner {
         trigger: context.trigger,
         canonicalDomain: context.canonicalDomain,
         location: context.location,
+        answers: this.runAnswerUsage(runId),
+        callLatencies,
       }),
       { errorCode: 'RUN_CANCELLED' },
     )

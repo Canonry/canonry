@@ -6,6 +6,7 @@ import {
   type MeasurementSitemapHttpResponse,
   type MeasurementSitemapTransport,
 } from '../src/measurement-sitemap-fetch.js'
+import { BLOCKED_ADDRESSES, literalHost } from './egress-address-fixture.js'
 
 /**
  * The import endpoint dereferences an operator-supplied URL from a host that
@@ -24,47 +25,10 @@ function addressOf(value: string): MeasurementSitemapAddress {
   return { address: value, family }
 }
 
-/** Every address class §0.4 names, plus the obfuscated IPv4 spellings a URL parser folds back into one. */
-const BLOCKED_ADDRESSES = [
-  '0.0.0.0',
-  '127.0.0.1',
-  '127.255.255.254',
-  '10.0.0.1',
-  '172.16.0.1',
-  '172.31.255.254',
-  '192.168.1.1',
-  '169.254.169.254',
-  '100.64.0.1',
-  '100.127.255.254',
-  '192.0.0.1',
-  '198.18.0.1',
-  '224.0.0.1',
-  '239.255.255.250',
-  '240.0.0.1',
-  '255.255.255.255',
-  '::',
-  '::1',
-  'fe80::1',
-  'fc00::1',
-  'fd12:3456::1',
-  'fec0::1',
-  'feff:ffff::1',
-  'ff02::1',
-  'ff05::1:3',
-  '::ffff:127.0.0.1',
-  '::ffff:10.0.0.1',
-  '::ffff:169.254.169.254',
-  '::7f00:1',
-  '64:ff9b::a00:1',
-  '2002:7f00:1::',
-  '2001::1',
-] as const
-
 test.each(BLOCKED_ADDRESSES)('refuses %s as a literal sitemap host', async (address) => {
   const transport = vi.fn<MeasurementSitemapTransport>()
-  const literal = address.includes(':') ? `[${address}]` : address
 
-  await expect(fetchMeasurementSitemap(`http://${literal}/sitemap.xml`, { transport }))
+  await expect(fetchMeasurementSitemap(`http://${literalHost(address)}/sitemap.xml`, { transport }))
     .rejects.toThrow('Sitemap URL rejected')
   expect(transport).not.toHaveBeenCalled()
 })

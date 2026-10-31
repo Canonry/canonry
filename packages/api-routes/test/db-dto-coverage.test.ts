@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { getTableColumns, getTableName, is, Table } from 'drizzle-orm'
 import { z } from 'zod'
-import * as dbSchema from '@ainyc/canonry-db'
+import * as dbSchema from '@canonry/canonry-db'
 import {
   adsAdDtoSchema,
   adsAdGroupDtoSchema,
@@ -24,8 +24,12 @@ import {
   discoverySessionDtoSchema,
   researchRunQuerySchema,
   researchRunSummarySchema,
+  seoProfileSchema,
+  seoRunSchema,
+  seoTaskSchema,
   ga4AiReferralDtoSchema,
   ga4ConnectionDtoSchema,
+  gaAcquisitionRowSchema,
   ga4SocialReferralDtoSchema,
   ga4TrafficSnapshotDtoSchema,
   ga4TrafficSummaryDtoSchema,
@@ -63,18 +67,22 @@ import {
   siteCrawlPageSchema,
   siteCrawlSummarySchema,
   trafficSourceDtoSchema,
+  trafficSampleDtoSchema,
+  journeyEventDtoSchema,
+  journeyVisitDtoSchema,
+  journeyVisitorDtoSchema,
   conversionTrackingContractSchema,
   gtmConnectionMetadataDtoSchema,
   gtmRawSnapshotMetadataDtoSchema,
   userDtoSchema,
   measurementQuerySetSchema,
   measurementQueryTemplateSchema,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 
 /**
  * Dynamic DB ↔ DTO coverage check.
  *
- * Auto-discovers every `sqliteTable` exported from `@ainyc/canonry-db` and
+ * Auto-discovers every `sqliteTable` exported from `@canonry/canonry-db` and
  * requires each one to be classified in the `COVERAGE` map below:
  *
  *   - `kind: 'dto'`         → the table is exposed via a Zod DTO. The check
@@ -89,7 +97,7 @@ import {
  * Adding a new table → the "every table has a classification" assertion
  * fails until the author picks one of the two kinds. Adding a new column
  * to a `kind: 'dto'` table → the per-table column check fails until the
- * author either exposes it on the DTO (in `@ainyc/canonry-contracts`) or
+ * author either exposes it on the DTO (in `@canonry/canonry-contracts`) or
  * lists it in `internal` with a justification.
  *
  * Why dynamic: the previous static version (#572) listed `{table, dto,
@@ -104,16 +112,11 @@ import {
  *      → fails the per-table column check.
  *
  * What other tests cover:
- *   - `db-derived-dtos.test.ts` — the drizzle-zod derived schemas' field
- *     sets must equal the table's columns (catches the same drift but
- *     only for the migrated tables that have a derived schema).
  *   - TypeScript itself — formatX functions returning a DTO must list
  *     every field; an extra field not on the DTO is a type error.
  *
- * The three layers compose: TypeScript catches the formatX-vs-DTO drift,
- * `db-derived-dtos.test.ts` catches the schema-vs-derived drift for
- * migrated tables, this test catches the schema-vs-DTO drift for ALL
- * tables AND ensures every table is consciously classified.
+ * TypeScript checks formatter-vs-DTO types. This test checks schema-vs-DTO
+ * drift for all tables and ensures every table is consciously classified.
  */
 
 type CoverageEntry =
@@ -130,6 +133,55 @@ type CoverageEntry =
     }
 
 const COVERAGE: Record<string, CoverageEntry> = {
+  seoProfiles: {
+    kind: 'dto',
+    dto: seoProfileSchema,
+    internal: {
+      projectId: 'Implied by the project-scoped profile route.',
+      input: 'Validated profile fields are flattened into SeoProfile rather than returned as a storage envelope.',
+    },
+  },
+  seoJobs: {
+    kind: 'dto',
+    dto: seoRunSchema,
+    internal: {
+      projectKey: 'Retained project identity for durable receipts after project deletion; deleted sidecars are hidden from customer reads.',
+      runId: 'Nullable Activity link; the public SEO run id is the same id while that link exists.',
+      profile: 'Frozen inputs supply capabilities, scope and locale fields; the raw stored profile envelope is private.',
+      scopeSnapshot: 'Frozen Advanced plan assignments and targets used to validate lineage; not a raw customer DTO.',
+      requestHash: 'Internal idempotency binding to the accepted refresh intent.',
+      idempotencyKey: 'Internal write receipt key; never part of saved evidence output.',
+      principalId: 'Internal originating identity for receipt replay authorization.',
+      connectionId: 'Frozen dispatch binding; current connection choices are exposed through SeoContext.',
+      accountKey: 'Private provider funding fingerprint shared by connection aliases.',
+      buckets: 'Private reservation periods and monetary limits; never included in customer DTOs.',
+    },
+  },
+  seoTasks: {
+    kind: 'dto',
+    dto: seoTaskSchema,
+    internal: {
+      jobId: 'Implied by the run detail containing the task.',
+      request: 'Projects capability, target and, for market rankings, the search text and location label; the frozen provider request is not exposed as raw storage.',
+      leaseOwner: 'Private dispatch ownership token.',
+      leaseUntil: 'Internal crash recovery deadline.',
+      catalogRevision: 'Private pricing catalog identity for admission and dispatch validation.',
+      collectionOutcome: 'Distinguishes collected evidence from later financial reconciliation; public status is projected.',
+      reservedMicros: 'Private operating cost hold; available only in the explicitly host-operator task DTO.',
+      actualMicros: 'Private operating cost settlement; available only in the explicitly host-operator task DTO.',
+      receipts: 'Public task exposes only remoteTaskId; full financial receipts require host operator authority.',
+      results: 'Normalized evidence is projected through paginated capability DTOs and bounded run detail.',
+      reconciliation: 'Private operator verification note and settlement receipt.',
+      startedAt: 'Internal per-task dispatch time; parent run exposes lifecycle timestamps.',
+      finishedAt: 'Internal per-task completion time; parent run exposes lifecycle timestamps.',
+      retryOf: 'Links a retry to the first attempt it replaces; the public task shows only the attempt that counts, flagged `retried`.',
+    },
+  },
+  seoBudgets: {
+    kind: 'internal-only',
+    reason: 'Private atomic account/project reservation and settlement counters; no customer or operator budget DTO exposes raw rows.',
+  },
+  reviewWebhookDeliveries: {kind:'internal-only',reason:'Immutable per-destination review-event payload and delivery debt; internal acknowledgement/retry records, never a public review DTO.'},
   sentimentDefinitions: {
     kind: 'internal-only',
     reason: 'Immutable evaluator JSON is exposed only through validated, project-scoped sentiment DTOs; hashes and storage columns remain private.',
@@ -198,11 +250,18 @@ const COVERAGE: Record<string, CoverageEntry> = {
       provenance: 'Discovery provenance tag; internal bookkeeping.',
     },
   },
+  marketCompetitorNames: {
+    kind: 'dto',
+    dto: competitorDtoSchema,
+    internal: {
+      projectId: 'Implied by the route scope (/projects/:name/competitors/:domain/aliases/block).',
+      updatedAt: 'Write bookkeeping; the block routes return the names, not when they last changed.',
+    },
+  },
   runs: {
     kind: 'dto',
     dto: runDtoSchema,
     internal: {
-      sourceId: 'Set for traffic-sync runs; consumed by traffic routes, not the user-facing run DTO.',
       providerDispatchModes: 'Exposed as `dispatchModes` on the run DTO ({} when null).',
       pendingProviderErrors: 'Sync-provider errors held while finalization waits on a provider batch; folded into `error` at finalize.',
     },
@@ -244,12 +303,16 @@ const COVERAGE: Record<string, CoverageEntry> = {
       screenshotPath: 'Debug-only artifact path; not surfaced on the snapshot DTO.',
       rawResponse: 'Raw provider payload; exposed via a separate endpoint, not the snapshot DTO.',
       providerBatchId: 'Links the answer to its provider_batches row; the run detail lists the batches.',
+      answerEvidence: 'Serialized as the public `evidence` field, only for answers that recorded evidence.',
+      wrongSubjectTargetKeys: 'Advanced per-Property sentiment verdicts; read through the measurement report, where each Property\'s answer evidence carries `mentionIdentity`.',
     },
   },
   schedules: {
     kind: 'dto',
     dto: scheduleDtoSchema,
-    internal: {},
+    internal: {
+      enabledAt: 'When the schedule last turned on; the SEO refresh doctor check grades only that enabled period, so time spent disabled is never overdue.',
+    },
   },
   siteAuditSnapshots: {
     kind: 'dto',
@@ -288,6 +351,7 @@ const COVERAGE: Record<string, CoverageEntry> = {
       pagesErrored: 'Diagnostic count not surfaced in the graph summary.',
       edgesDiscovered: 'Nested in counts as edges.',
       findingsCount: 'Nested in counts as findings.',
+      issueEvidence: 'Retained cross-page groups are projected through the bounded /technical-aeo/issues and /issues/:issueId/pages DTOs; the raw envelope is not part of the crawl summary.',
       deadLinkState: 'Represented by the discriminated deadLinks state.',
       deadLinksChecked: 'Represented by the discriminated deadLinks state.',
       deadLinksFound: 'Represented by the discriminated deadLinks state.',
@@ -694,8 +758,8 @@ const COVERAGE: Record<string, CoverageEntry> = {
     internal: {},
   },
   gaAcquisitionDaily: {
-    kind: 'internal-only',
-    reason: 'Typed GA4 acquisition foundation; its public read model lands in the follow-up measurement API PR.',
+    kind: 'dto', dto: gaAcquisitionRowSchema,
+    internal: { id: 'Grouped rows have no single stored identity.', projectId: 'Route scope.', landingPageNormalized: 'Exposed as landingPage.', syncedAt: 'Reported on the envelope.', syncRunId: 'Internal sync provenance.', createdAt: 'Ingest bookkeeping.' },
   },
   gaLeadEventsDaily: {
     kind: 'internal-only',
@@ -704,6 +768,10 @@ const COVERAGE: Record<string, CoverageEntry> = {
   gaMeasurementSyncStates: {
     kind: 'internal-only',
     reason: 'Component-level sync completeness and error state backing the follow-up measurement API.',
+  },
+  gaWindowMetrics: {
+    kind: 'internal-only',
+    reason: 'GA4 totals per overview window and the period before it, written by the sync. Backing store only: its values reach callers through the /ga/overview response, not as a direct row DTO.',
   },
   gaDailyTotals: {
     kind: 'internal-only',
@@ -787,6 +855,7 @@ const COVERAGE: Record<string, CoverageEntry> = {
       researchRunId: 'Implied by the enclosing detail route.',
       queryText: 'Serialized as the public `query` field.',
       rawResponse: 'Raw provider payload retained for diagnostics.',
+      answerEvidence: 'Serialized as the public `evidence` field, only for answers that recorded evidence.',
     },
   },
   backlinkDomains: {
@@ -866,6 +935,10 @@ const COVERAGE: Record<string, CoverageEntry> = {
   // Add to this set when you create a table that has no consumer-facing
   // shape — write-only audit rows, auth secrets, internal aggregates,
   // hot-path rollups consumed via composite endpoints, etc.
+  dataRepairCompletions: {
+    kind: 'internal-only',
+    reason: 'Install-wide startup repair versions and completion timestamps; internal migration bookkeeping with no public DTO.',
+  },
   auditLog: {
     kind: 'internal-only',
     reason: 'Write-only audit trail; queried via composite endpoints, not directly mapped to a DTO.',
@@ -884,7 +957,11 @@ const COVERAGE: Record<string, CoverageEntry> = {
   },
   userSessions: {
     kind: 'internal-only',
-    reason: 'Live sign-in sessions; the row id IS the cookie value and is never returned in a response body.',
+    reason: 'Named-account session token digests and expiry; never returned as a row DTO.',
+  },
+  dashboardSessions: {
+    kind: 'internal-only',
+    reason: 'API-key-bound dashboard session token digests and expiry; no public row DTO.',
   },
   measurementPlans: {
     kind: 'internal-only',
@@ -952,6 +1029,10 @@ const COVERAGE: Record<string, CoverageEntry> = {
     kind: 'internal-only',
     reason: 'OAuth client registry for the remote MCP surface. Credentials, not content: the secret is stored as a digest and nothing about a client is a public DTO.',
   },
+  oauthGrants: {
+    kind: 'internal-only',
+    reason: 'Durable OAuth authorization lineage and revocation state; not a public account or identity DTO.',
+  },
   oauthAuthorizationCodes: {
     kind: 'internal-only',
     reason: 'In-flight OAuth codes, 60s TTL and single use. Exposing any of this would defeat the flow it implements.',
@@ -992,6 +1073,14 @@ const COVERAGE: Record<string, CoverageEntry> = {
     kind: 'internal-only',
     reason: 'Per-window aggregate totals consumed by the GA traffic composite endpoints, not a direct DTO.',
   },
+  gaSearchLandingWindows: {
+    kind: 'internal-only',
+    reason: 'GA4 Search Console landing-page window header (GA4 Total, dates, flags), composed into GaSearchLandingPagesResponse with the page rows and sync state, not a direct DTO.',
+  },
+  gaSearchLandingPages: {
+    kind: 'internal-only',
+    reason: 'GA4 Search Console landing-page rows, renamed to GA4 metric names and paged by GaSearchLandingPagesResponse, not a direct DTO.',
+  },
   crawlerEventsHourly: {
     kind: 'internal-only',
     reason: 'Hourly rollup consumed via /traffic/events composite, not directly mapped to a DTO.',
@@ -1017,8 +1106,20 @@ const COVERAGE: Record<string, CoverageEntry> = {
     reason: 'Transport-neutral transactional idempotency claims; never returned to an API caller.',
   },
   rawEventSamples: {
-    kind: 'internal-only',
-    reason: 'Short-retention raw evidence for classifier debugging; not part of the public API.',
+    kind: 'dto', dto: trafficSampleDtoSchema,
+    internal: { ipHash: 'Never exposed, including legacy non-null hashes.', projectId: 'Route scope.', createdAt: 'Ingest bookkeeping.', eventType: 'Exposed as kind with hyphenated wire values.', classifierDetailsJson: 'Exposed as classifier with only declared public fields.' },
+  },
+  journeyVisitors: {
+    kind: 'dto', dto: journeyVisitorDtoSchema,
+    internal: { projectId: 'Route scope.', createdAt: 'Write bookkeeping.', updatedAt: 'Write bookkeeping.' },
+  },
+  journeyVisits: {
+    kind: 'dto', dto: journeyVisitDtoSchema,
+    internal: { projectId: 'Route scope.', visitorKey: 'Visits are nested under the visitor that owns them.', createdAt: 'Write bookkeeping.', updatedAt: 'Write bookkeeping.' },
+  },
+  journeyEvents: {
+    kind: 'dto', dto: journeyEventDtoSchema,
+    internal: { id: 'Row identity only.', projectId: 'Route scope.', visitId: 'Events are nested under their visit.', sourceId: 'The visit carries its source.', sourceEventId: 'Provider event id kept only so writes stay idempotent.', createdAt: 'Write bookkeeping.' },
   },
   migrationsTable: {
     kind: 'internal-only',

@@ -1,11 +1,11 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { formatPercent } from '@ainyc/canonry-contracts'
+import { formatPercent } from '@canonry/canonry-contracts'
 import {
   getApiV1ProjectsByNameHealthHistoryOptions,
   getApiV1ProjectsByNameRunsOptions,
   getApiV1ProjectsByNameSnapshotsDiffOptions,
-} from '@ainyc/canonry-api-client/react-query'
+} from '@canonry/canonry-api-client/react-query'
 
 import { heyClient, isDashboardManagedSweeps } from '../../api.js'
 import { MANAGED_SWEEPS_COPY } from './ManagedSweepStatus.js'
@@ -77,13 +77,13 @@ export function ProjectHistorySection({ projectName }: { projectName: string }) 
           <div className="section-head">
             <p className="eyebrow eyebrow-soft">Query evidence</p>
             <h2 id="coverage-history-heading">Mention and citation coverage</h2>
-            <p className="supporting-copy mt-1">Independent answer-text mentions and source citations across completed sweeps.</p>
+            <p className="supporting-copy mt-1">Independent answer-text mentions and source citations across completed checks.</p>
           </div>
           {healthQuery.isLoading ? <p className="supporting-copy mt-4" role="status">Loading coverage history…</p> : null}
           {!healthQuery.isLoading && healthRows.length === 0 ? (
             <Card className="surface-card empty-card mt-4">
               <h3>No coverage history yet</h3>
-              <p>{isDashboardManagedSweeps() ? MANAGED_SWEEPS_COPY : 'Complete an answer visibility sweep to create the first snapshot.'}</p>
+              <p>{isDashboardManagedSweeps() ? MANAGED_SWEEPS_COPY : 'Complete an AI Visibility check to create the first snapshot.'}</p>
             </Card>
           ) : null}
           {healthRows.length > 0 ? (
@@ -120,25 +120,25 @@ export function ProjectHistorySection({ projectName }: { projectName: string }) 
           <div className="section-head">
             <p className="eyebrow eyebrow-soft">Evidence diff</p>
             <h2 id="compare-runs-heading">Compare answer visibility runs</h2>
-            <p className="supporting-copy mt-1">See which tracked queries changed mention or citation state between two sweeps.</p>
+            <p className="supporting-copy mt-1">See which tracked queries changed mention or citation state between two checks.</p>
           </div>
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            <label className="text-xs text-muted">
+            <label className="text-label-12 text-muted">
               Earlier run
               <select
                 value={resolvedFirstRunId}
                 onChange={(event) => setFirstRunId(event.target.value)}
-                className="mt-1 min-h-11 w-full rounded-md border border-base bg-bg px-3 text-sm text-strong focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-600"
+                className="mt-1 min-h-11 w-full rounded-md border border-base bg-bg px-3 text-label-14 text-strong focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-600"
               >
                 {comparableRuns.map((run) => <option key={run.id} value={run.id}>{new Date(run.createdAt).toLocaleString()}</option>)}
               </select>
             </label>
-            <label className="text-xs text-muted">
+            <label className="text-label-12 text-muted">
               Later run
               <select
                 value={resolvedSecondRunId}
                 onChange={(event) => setSecondRunId(event.target.value)}
-                className="mt-1 min-h-11 w-full rounded-md border border-base bg-bg px-3 text-sm text-strong focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-600"
+                className="mt-1 min-h-11 w-full rounded-md border border-base bg-bg px-3 text-label-14 text-strong focus:outline-none focus-visible:ring-1 focus-visible:ring-mono-600"
               >
                 {comparableRuns.map((run) => <option key={run.id} value={run.id}>{new Date(run.createdAt).toLocaleString()}</option>)}
               </select>
@@ -147,14 +147,14 @@ export function ProjectHistorySection({ projectName }: { projectName: string }) 
           {runsQuery.isLoading || diffQuery.isLoading ? <p className="supporting-copy mt-4" role="status">Comparing runs…</p> : null}
           {!runsQuery.isLoading && comparableRuns.length < 2 ? (
             <Card className="surface-card empty-card mt-4">
-              <h3>Two completed sweeps are required</h3>
-              <p>{isDashboardManagedSweeps() ? MANAGED_SWEEPS_COPY : 'Run another answer visibility sweep before comparing historical evidence.'}</p>
+              <h3>Two completed checks are required</h3>
+              <p>{isDashboardManagedSweeps() ? MANAGED_SWEEPS_COPY : 'Run another AI Visibility check before comparing historical evidence.'}</p>
             </Card>
           ) : null}
           {diffQuery.data && changedRows.length === 0 ? (
             <Card className="surface-card empty-card mt-4">
               <h3>No mention or citation changes</h3>
-              <p>The selected sweeps have the same states for every comparable tracked query.</p>
+              <p>The selected checks have the same states for every comparable tracked query.</p>
             </Card>
           ) : null}
           {changedRows.length > 0 ? (

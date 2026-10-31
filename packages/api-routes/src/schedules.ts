@@ -1,8 +1,10 @@
 import crypto from 'node:crypto'
 import { and, asc, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { schedules, trafficSources } from '@ainyc/canonry-db'
+import { schedules, seoProfiles, trafficSources } from '@canonry/canonry-db'
 import {
+  ProviderWorkflows,
+  SEO_RUN_SCOPE,
   type ScheduleDto,
   type CalendarRecurrence,
   type ProviderName,
@@ -10,14 +12,18 @@ import {
   SchedulableRunKinds,
   schedulableRunKindSchema,
   nextScheduleUpdatedAt,
+  scheduleEnabledAt,
   scheduleExpectedUpdatedAtSchema,
   scheduleUpsertRequestSchema,
   scheduleVersionConflict,
   validationError,
   notFound,
   describeError,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
+import { requireAdminSession, requireScope } from './auth.js'
 import { resolveProject, writeAuditLog } from './helpers.js'
+import { assertProviderRouteScope, invalidProviderSelections, providerRouteFamilies } from './provider-models.js'
+import type { ProviderAdapterInfo } from './settings.js'
 import { resolvePreset, validateCron, isValidTimezone, nextRunFromSchedule } from './schedule-utils.js'
 
 /**
@@ -51,9 +57,12 @@ export interface ScheduleRoutesOptions {
   onScheduleUpdated?: (action: 'upsert' | 'delete', projectId: string, kind: SchedulableRunKind) => void
   /** Valid provider names from registered adapters — used to reject unknown providers */
   validProviderNames?: string[]
+  /** Adapter descriptions: route families and which workflows each route may run. */
+  providerAdapters?: ProviderAdapterInfo[]
 }
 
 export async function scheduleRoutes(app: FastifyInstance, opts: ScheduleRoutesOptions) {
+  const routeFamilies = providerRouteFamilies(opts.providerAdapters)
   // PUT /projects/:name/schedule — create or update schedule.
   // Optional `kind` body field (or `?kind=` query) selects which run kind
   // this schedule dispatches. Defaults to 'answer-visibility' for backward
@@ -105,10 +114,26 @@ export async function scheduleRoutes(app: FastifyInstance, opts: ScheduleRoutesO
       throw validationError('"providers" is not valid for kind "site-audit"')
     }
 
+    if (kind === SchedulableRunKinds['seo-sync']) {
+      if (providers && providers.length > 0) {
+        throw validationError('"providers" is not valid for kind "seo-sync"')
+      }
+      // An enabled seo-sync schedule is a standing approval to spend on the
+      // paid SEO source, so it needs the same authority as a manual refresh.
+      // Disabling one only stops spending and needs ordinary write access.
+      if (enabled !== false) {
+        requireScope(request, SEO_RUN_SCOPE)
+        requireAdminSession(request)
+        if (!app.db.select({ id: seoProfiles.id }).from(seoProfiles).where(eq(seoProfiles.projectId, project.id)).get()) {
+          throw validationError('Save an SEO profile before scheduling SEO refreshes.')
+        }
+      }
+    }
+
     // Validate provider names against registered adapters
     const validNames = opts.validProviderNames ?? []
     if (validNames.length && providers?.length) {
-      const invalid = providers.filter(p => !validNames.includes(p))
+      const invalid = invalidProviderSelections(providers, validNames, opts.providerAdapters, ProviderWorkflows['visibility-sweep'])
       if (invalid.length) {
         throw validationError(`Invalid provider(s): ${invalid.join(', ')}. Must be one of: ${validNames.join(', ')}`, {
           invalidProviders: invalid,
@@ -117,6 +142,7 @@ export async function scheduleRoutes(app: FastifyInstance, opts: ScheduleRoutesO
       }
     }
 
+    assertProviderRouteScope(request, providers ?? [], project.providers, routeFamilies)
     if (!isValidTimezone(timezone)) {
       throw validationError(`Invalid timezone: ${timezone}`)
     }
@@ -165,6 +191,7 @@ export async function scheduleRoutes(app: FastifyInstance, opts: ScheduleRoutesO
         providers: (providers ?? []) as ProviderName[],
         sourceId: sourceId ?? null,
         enabled: enabledBool,
+        enabledAt: scheduleEnabledAt(existing, enabledBool, now),
         updatedAt: now,
       }
 

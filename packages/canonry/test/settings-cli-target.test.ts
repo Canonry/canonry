@@ -3,16 +3,22 @@ import { dispatchRegisteredCommand } from '../src/cli-dispatch.js'
 
 const setGoogleAuth = vi.fn()
 const setProvider = vi.fn()
+const reloadProviders = vi.fn()
 
 vi.mock('../src/commands/settings.js', () => ({
   setGoogleAuth,
   setProvider,
+  reloadProviders,
   showSettings: vi.fn(),
 }))
 
 const { SETTINGS_CLI_COMMANDS } = await import('../src/cli-commands/settings.js')
 
 describe('settings google CLI target', () => {
+  it('dispatches provider reload with machine output to the connected server', async () => {
+    await dispatchRegisteredCommand(['settings', 'reload-providers', '--format', 'json'], 'human', SETTINGS_CLI_COMMANDS)
+    expect(reloadProviders).toHaveBeenCalledWith('json')
+  })
   it('forwards an explicit server target and JSON format', async () => {
     await dispatchRegisteredCommand([
       'settings', 'google', '--client-id', 'client-id', '--client-secret', 'client-secret',

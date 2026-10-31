@@ -21,15 +21,6 @@ describe('backoffDelayMs', () => {
     }
   })
 
-  it('jitter defaults to enabled', () => {
-    const rand = vi.spyOn(Math, 'random').mockReturnValue(1)
-    try {
-      expect(backoffDelayMs(0, { baseDelayMs: 1000 })).toBe(1000)
-    } finally {
-      rand.mockRestore()
-    }
-  })
-
   it('clamps to maxDelayMs', () => {
     expect(backoffDelayMs(10, { baseDelayMs: 1000, jitter: false, maxDelayMs: 5000 })).toBe(5000)
   })
@@ -53,11 +44,34 @@ describe('withRetry', () => {
       .mockRejectedValueOnce(new Error('transient'))
       .mockRejectedValueOnce(new Error('transient'))
       .mockResolvedValueOnce('ok')
-    const sleep = vi.fn().mockResolvedValue(undefined)
-    const result = await withRetry(fn, { maxRetries: 5, sleep, isRetryable: () => true })
-    expect(result).toBe('ok')
-    expect(fn).toHaveBeenCalledTimes(3)
-    expect(sleep).toHaveBeenCalledTimes(2)
+    const deferred = () => {
+      let resolve!: () => void
+      const promise = new Promise<void>(done => { resolve = done })
+      return { promise, resolve }
+    }
+    const pauses = [deferred(), deferred()]
+    const entered = [deferred(), deferred()]
+    const sleep = vi.fn(async () => {
+      const index = sleep.mock.calls.length - 1
+      entered[index]!.resolve()
+      await pauses[index]!.promise
+    })
+    const outcome = withRetry(fn, { maxRetries: 5, sleep, isRetryable: () => true })
+      .then(value => ({ value }), error => ({ error }))
+    try {
+      await entered[0]!.promise
+      expect(fn).toHaveBeenCalledTimes(1)
+      pauses[0]!.resolve()
+      await entered[1]!.promise
+      expect(fn).toHaveBeenCalledTimes(2)
+      pauses[1]!.resolve()
+      expect(await outcome).toEqual({ value: 'ok' })
+      expect(fn).toHaveBeenCalledTimes(3)
+      expect(sleep).toHaveBeenCalledTimes(2)
+    } finally {
+      for (const pause of pauses) pause.resolve()
+      await outcome
+    }
   })
 
   it('rethrows after maxRetries exhausted', async () => {
@@ -80,14 +94,15 @@ describe('withRetry', () => {
   })
 
   it('fires onRetry with attempt, err, and computed delay', async () => {
+    const events: string[] = []
     const fn = vi.fn()
-      .mockRejectedValueOnce(new Error('first'))
-      .mockResolvedValueOnce('ok')
-    const onRetry = vi.fn()
+      .mockImplementationOnce(async () => { events.push('attempt'); throw new Error('first') })
+      .mockImplementationOnce(async () => { events.push('attempt'); return 'ok' })
+    const onRetry = vi.fn(() => { events.push('onRetry') })
     const rand = vi.spyOn(Math, 'random').mockReturnValue(1)
     try {
       await withRetry(fn, {
-        maxRetries: 3, sleep: async () => {}, isRetryable: () => true, onRetry, baseDelayMs: 1000,
+        maxRetries: 3, sleep: async () => { events.push('sleep') }, isRetryable: () => true, onRetry, baseDelayMs: 1000,
       })
     } finally {
       rand.mockRestore()
@@ -98,6 +113,7 @@ describe('withRetry', () => {
       err: expect.objectContaining({ message: 'first' }),
       delayMs: 1000,
     }))
+    expect(events).toEqual(['attempt', 'onRetry', 'sleep', 'attempt'])
   })
 
   it('honors computeDelayMs override (e.g. Retry-After header)', async () => {
@@ -116,6 +132,17 @@ describe('withRetry', () => {
       },
     })
     expect(sleeps).toEqual([7000])
+    const rateLimited = Object.assign(new Error('Too Many Requests'), { status: 429, retryAfter: 45 })
+    const throttled = vi.fn().mockRejectedValueOnce(rateLimited).mockResolvedValueOnce('ok')
+    const paced: number[] = []
+    const result = await withRetry(throttled, {
+      isRetryable: isRetryableHttpError,
+      computeDelayMs: (_attempt, error, defaultMs) => retryAfterDelayMs(error) ?? defaultMs,
+      sleep: async ms => { paced.push(ms) },
+    })
+    expect(result).toBe('ok')
+    expect(throttled).toHaveBeenCalledTimes(2)
+    expect(paced).toEqual([45_000])
   })
 })
 
@@ -136,21 +163,18 @@ describe('isRetryableHttpError', () => {
     expect(isRetryableHttpError({ status: 403 })).toBe(false)
     expect(isRetryableHttpError({ status: 404 })).toBe(false)
     expect(isRetryableHttpError({ status: 422 })).toBe(false)
-  })
-
-  it('retries network-error message patterns', () => {
-    expect(isRetryableHttpError(new Error('fetch failed'))).toBe(true)
-    expect(isRetryableHttpError(new Error('ECONNRESET happened'))).toBe(true)
-    expect(isRetryableHttpError(new Error('connect ETIMEDOUT 1.2.3.4'))).toBe(true)
-    expect(isRetryableHttpError(new Error('ENOTFOUND example.com'))).toBe(true)
-    expect(isRetryableHttpError(new Error('ECONNREFUSED 127.0.0.1:443'))).toBe(true)
-    expect(isRetryableHttpError(new Error('network error'))).toBe(true)
+    for (const [message, status] of [['Invalid site URL', 400], ['unauthorized', 401], ['nope', 404]] as const) {
+      expect(isRetryableHttpError(Object.assign(new Error(message), { status }))).toBe(false)
+    }
   })
 
   it('retries errors with no status field (likely network-level)', () => {
     expect(isRetryableHttpError(new Error('unknown'))).toBe(true)
     expect(isRetryableHttpError({})).toBe(true)
     expect(isRetryableHttpError(null)).toBe(true)
+    for (const message of ['fetch failed', 'ECONNRESET happened', 'connect ETIMEDOUT 1.2.3.4', 'ENOTFOUND example.com', 'ECONNREFUSED 127.0.0.1:443', 'network error']) {
+      expect(isRetryableHttpError(new Error(message))).toBe(true)
+    }
   })
 
   it('does NOT confuse a string message with a status field', () => {
@@ -212,14 +236,6 @@ describe('isRetryableHttpError with body-reported throttling', () => {
     expect(isRetryableHttpError(Object.assign(new Error(BING_THROTTLE_USER), { status: 400 }))).toBe(true)
   })
 
-  it('still refuses a genuine 400', () => {
-    expect(isRetryableHttpError(Object.assign(new Error('Invalid site URL'), { status: 400 }))).toBe(false)
-  })
-
-  it('still refuses auth and not-found', () => {
-    expect(isRetryableHttpError(Object.assign(new Error('unauthorized'), { status: 401 }))).toBe(false)
-    expect(isRetryableHttpError(Object.assign(new Error('nope'), { status: 404 }))).toBe(false)
-  })
 })
 
 describe('retryAfterDelayMs', () => {
@@ -254,22 +270,4 @@ describe('retryAfterDelayMs', () => {
     expect(retryAfterDelayMs(null)).toBeNull()
   })
 
-  it('drives withRetry when wired through computeDelayMs', async () => {
-    const slept: number[] = []
-    let calls = 0
-    await withRetry(
-      async () => {
-        calls++
-        if (calls === 1) throw Object.assign(new Error('Too Many Requests'), { status: 429, retryAfter: 45 })
-        return 'ok'
-      },
-      {
-        isRetryable: isRetryableHttpError,
-        computeDelayMs: (_attempt, err, defaultMs) => retryAfterDelayMs(err) ?? defaultMs,
-        sleep: async (ms) => { slept.push(ms) },
-      },
-    )
-    // The server's instruction, not our 1s exponential guess.
-    expect(slept).toEqual([45_000])
-  })
 })

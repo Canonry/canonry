@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { eq } from 'drizzle-orm'
-import { createClient, migrate, projects, schedules, runs, siteCrawlRunRequests } from '@ainyc/canonry-db'
+import { createClient, migrate, projects, schedules, runs, siteCrawlRunRequests } from '@canonry/canonry-db'
 import { Scheduler } from '../src/scheduler.js'
 
 /**
@@ -604,55 +604,115 @@ test('ads-sync trigger skips (no new run, no callback) when one is already in fl
   fs.rmSync(tmpDir, { recursive: true, force: true })
 })
 
-test('site-audit schedule persists default request identity before dispatch', () => {
+// A seo-sync schedule spends on a paid source: it hands the host the
+// occurrence (so a repeated fire replays instead of paying twice), creates no
+// run row itself, and never stacks on a refresh that is still in flight.
+test('seo-sync trigger fires onSeoSyncRequested with the occurrence and creates no run row', () => {
   const { db, tmpDir } = createTempDb()
   const now = new Date().toISOString()
-  db.insert(projects).values({
-    id: 'proj_site_audit',
-    name: 'site-audit-project',
-    displayName: 'Site Audit Project',
-    canonicalDomain: 'example.com',
-    country: 'US',
-    language: 'en',
-    createdAt: now,
-    updatedAt: now,
-  }).run()
-  db.insert(schedules).values({
-    id: 'sched_site_audit',
-    projectId: 'proj_site_audit',
-    kind: 'site-audit',
-    cronExpr: '0 5 * * *',
-    timezone: 'UTC',
-    enabled: true,
-    providers: [],
-    sourceId: null,
-    createdAt: now,
-    updatedAt: now,
-  }).run()
+  db.insert(projects).values({ id: 'proj_seo', name: 'seo-project', displayName: 'SEO Project', canonicalDomain: 'example.com', country: 'US', language: 'en', createdAt: now, updatedAt: now }).run()
+  db.insert(schedules).values({ id: 'sched_seo', projectId: 'proj_seo', kind: 'seo-sync', cronExpr: '0 7 2 * *', timezone: 'UTC', enabled: true, providers: [], sourceId: null, createdAt: now, updatedAt: now }).run()
 
-  const calls: Array<{ runId: string; projectId: string }> = []
-  const scheduler = new Scheduler(db, {
-    onRunCreated: () => {},
-    onSiteAuditRequested: (runId, projectId) => calls.push({ runId, projectId }),
-  })
-  ;(scheduler as unknown as {
-    triggerRun: (scheduleId: string, projectId: string, kind: 'site-audit') => void
-  }).triggerRun('sched_site_audit', 'proj_site_audit', 'site-audit')
+  const seoCalls: Array<{ scheduleId: string; projectId: string; occurrence: string }> = []
+  const scheduler = new Scheduler(db, { onRunCreated: () => {}, onSeoSyncRequested: input => seoCalls.push(input) })
+  const before = Date.now()
+  ;(scheduler as unknown as { triggerRun: (scheduleId: string, projectId: string, kind: 'seo-sync') => void }).triggerRun('sched_seo', 'proj_seo', 'seo-sync')
 
-  expect(calls).toHaveLength(1)
-  expect(db.select().from(siteCrawlRunRequests).where(eq(siteCrawlRunRequests.runId, calls[0]!.runId)).get()).toMatchObject({
-    projectId: 'proj_site_audit',
-    effectiveOptions: {
-      schemaVersion: 2,
-      sitemapUrl: null,
-      maxPages: 1_000,
-      // Unattended crawls set no edge budget; the engine derives it.
-      maxEdges: null,
-      maxDepth: null,
-      checkDeadLinks: false,
-    },
-  })
+  expect(seoCalls).toHaveLength(1)
+  expect(seoCalls[0]).toMatchObject({ scheduleId: 'sched_seo', projectId: 'proj_seo' })
+  expect(seoCalls[0]!.occurrence).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/)
+  expect(Date.parse(`${seoCalls[0]!.occurrence}:00Z`)).toBeLessThanOrEqual(before)
+  expect(db.select().from(runs).where(eq(runs.projectId, 'proj_seo')).all()).toEqual([])
+  expect(db.select().from(schedules).where(eq(schedules.id, 'sched_seo')).get()!.lastRunAt).not.toBeNull()
 
   scheduler.stop()
   fs.rmSync(tmpDir, { recursive: true, force: true })
 })
+
+test('seo-sync trigger skips while a refresh for the project is queued or running', () => {
+  const { db, tmpDir } = createTempDb()
+  const now = new Date().toISOString()
+  db.insert(projects).values({ id: 'proj_seo2', name: 'seo-project-2', displayName: 'SEO Project 2', canonicalDomain: 'example.com', country: 'US', language: 'en', createdAt: now, updatedAt: now }).run()
+  db.insert(schedules).values({ id: 'sched_seo2', projectId: 'proj_seo2', kind: 'seo-sync', cronExpr: '0 7 2 * *', timezone: 'UTC', enabled: true, providers: [], sourceId: null, createdAt: now, updatedAt: now }).run()
+  db.insert(runs).values({ id: 'run_seo_inflight', projectId: 'proj_seo2', kind: 'seo-sync', status: 'running', trigger: 'manual', createdAt: now }).run()
+
+  const seoCalls: unknown[] = []
+  const scheduler = new Scheduler(db, { onRunCreated: () => {}, onSeoSyncRequested: input => seoCalls.push(input) })
+  ;(scheduler as unknown as { triggerRun: (scheduleId: string, projectId: string, kind: 'seo-sync') => void }).triggerRun('sched_seo2', 'proj_seo2', 'seo-sync')
+
+  expect(seoCalls).toEqual([])
+  expect(db.select().from(schedules).where(eq(schedules.id, 'sched_seo2')).get()!.lastRunAt).toBeNull()
+
+  scheduler.stop()
+  fs.rmSync(tmpDir, { recursive: true, force: true })
+})
+
+// A scheduled audit uses the project's saved page budget, else the full site,
+// and records the budget it used on the run's request row.
+for (const { label, saved, expectedPages } of [
+  { label: 'a saved budget', saved: 2_500, expectedPages: 2_500 },
+  { label: 'no saved budget (the full site, the 50,000 hard limit)', saved: null, expectedPages: 50_000 },
+]) {
+  test(`site-audit schedule hands the host ${label} and records it`, () => {
+    const { db, tmpDir } = createTempDb()
+    const now = new Date().toISOString()
+    db.insert(projects).values({
+      id: 'proj_site_audit',
+      name: 'site-audit-project',
+      displayName: 'Site Audit Project',
+      canonicalDomain: 'example.com',
+      country: 'US',
+      language: 'en',
+      siteAuditMaxPages: saved,
+      createdAt: now,
+      updatedAt: now,
+    }).run()
+    db.insert(schedules).values({
+      id: 'sched_site_audit',
+      projectId: 'proj_site_audit',
+      kind: 'site-audit',
+      cronExpr: '0 5 * * *',
+      timezone: 'UTC',
+      enabled: true,
+      providers: [],
+      sourceId: null,
+      createdAt: now,
+      updatedAt: now,
+    }).run()
+
+    const calls: Array<{ runId: string; projectId: string; opts: { maxPages: number } }> = []
+    const scheduler = new Scheduler(db, {
+      onRunCreated: () => {},
+      onSiteAuditRequested: (runId, projectId, opts) => calls.push({ runId, projectId, opts }),
+    })
+    ;(scheduler as unknown as {
+      triggerRun: (scheduleId: string, projectId: string, kind: 'site-audit') => void
+    }).triggerRun('sched_site_audit', 'proj_site_audit', 'site-audit')
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0]!.projectId).toBe('proj_site_audit')
+    expect(calls[0]!.opts).toEqual({ maxPages: expectedPages })
+    expect(db.select().from(runs).where(eq(runs.id, calls[0]!.runId)).get()).toMatchObject({
+      kind: 'site-audit',
+      status: 'queued',
+      trigger: 'scheduled',
+    })
+    expect(db.select().from(siteCrawlRunRequests).where(eq(siteCrawlRunRequests.runId, calls[0]!.runId)).get()).toMatchObject({
+      projectId: 'proj_site_audit',
+      effectiveOptions: {
+        schemaVersion: 3,
+        sitemapUrl: null,
+        maxPages: expectedPages,
+        // Unattended crawls set no edge budget; the engine derives it.
+        maxEdges: null,
+        maxDepth: null,
+        checkDeadLinks: false,
+        includeGeo: false,
+        includeAgentSkills: true,
+      },
+    })
+
+    scheduler.stop()
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+}

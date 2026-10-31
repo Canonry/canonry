@@ -50,6 +50,43 @@ describe('GA measurement analysis contract', () => {
           channelGroup: 'Organic Search',
           periods: [{ ...period, eventCount: 3 }],
         }],
+        aiEngines: {
+          leadRateAvailable: true,
+          leadRateUnavailableReason: null,
+          organic: {
+            periods: [{ ...period, eventCount: 1, sessions: 8, leadRate: 0.125 }],
+            engines: [{
+              engine: 'chatgpt',
+              label: 'ChatGPT',
+              sources: ['chatgpt.com'],
+              periods: [{ ...period, eventCount: 1, sessions: 8, leadRate: 0.125 }],
+            }],
+            unattributed: {
+              sources: [],
+              periods: [{ ...period, eventCount: 0, sessions: 0, leadRate: null }],
+            },
+          },
+          paid: {
+            periods: [{ ...period, eventCount: 0, sessions: 0, leadRate: null }],
+            engines: [],
+            unattributed: {
+              sources: [],
+              periods: [{ ...period, eventCount: 0, sessions: 0, leadRate: null }],
+            },
+          },
+        },
+        countedEvents: {
+          configured: ['generate_lead'],
+          keyEventsEnabled: true,
+          keyEvents: ['add_to_cart', 'generate_lead', 'purchase', 'qualify_lead'],
+          keyEventsError: null,
+          ignoredKeyEvents: ['add_to_cart'],
+        },
+        events: [
+          { eventName: 'purchase', origin: 'key-event', measured: true, periods: [{ ...period, eventCount: 2 }] },
+          { eventName: 'generate_lead', origin: 'both', measured: true, periods: [{ ...period, eventCount: 1 }] },
+          { eventName: 'qualify_lead', origin: 'key-event', measured: false, periods: [] },
+        ],
       },
       engagement: {
         status: 'ready',
@@ -138,6 +175,14 @@ describe('GA measurement analysis contract', () => {
         hostAndPathFiltersApplied: false,
         periods: [],
         channels: [],
+        aiEngines: {
+          leadRateAvailable: false,
+          leadRateUnavailableReason: 'no-data',
+          organic: { periods: [], engines: [], unattributed: { sources: [], periods: [] } },
+          paid: { periods: [], engines: [], unattributed: { sources: [], periods: [] } },
+        },
+        countedEvents: { configured: ['generate_lead'], keyEventsEnabled: false, keyEvents: null, keyEventsError: null, ignoredKeyEvents: [] },
+        events: [],
       },
       engagement: {
         status: 'unavailable',

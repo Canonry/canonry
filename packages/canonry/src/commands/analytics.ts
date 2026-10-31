@@ -1,14 +1,30 @@
-import { buildModelChangeNotice, formatPercent, formatSignedPointDelta, type ModelPointerChangeDisclosure, type WindowRateChange } from '@ainyc/canonry-contracts'
+import { buildModelChangeNotice, formatPercent, formatSignedPointDelta, queryClassFilterSchema, type ModelPointerChangeDisclosure, type QueryClassFilter, type WindowRateChange } from '@canonry/canonry-contracts'
 import { createApiClient, type BrandMetricsDto, type GapAnalysisDto, type SourceBreakdownDto } from '../client.js'
-import { CliError, isMachineFormat } from '../cli-error.js'
+import { CliError, isMachineFormat, usageError } from '../cli-error.js'
 
 function getClient() {
   return createApiClient()
 }
 
+export const ANALYTICS_USAGE =
+  'canonry analytics <project> [--feature metrics|gaps|sources] [--window 7d|30d|90d|all] [--query-class all|branded|non-brand] [--format json]'
+
+/** `--query-class` → the metrics and sources class filter. Undefined when the flag is absent. */
+export function parseAnalyticsQueryClass(value: string | undefined): QueryClassFilter | undefined {
+  if (value === undefined) return undefined
+  const parsed = queryClassFilterSchema.safeParse(value)
+  if (parsed.success) return parsed.data
+  const message = `--query-class must be one of ${queryClassFilterSchema.options.join(', ')}`
+  throw usageError(`Error: ${message}\nUsage: ${ANALYTICS_USAGE}`, {
+    message,
+    details: { command: 'analytics', usage: ANALYTICS_USAGE, option: 'query-class', value },
+  })
+}
+
 export async function showAnalytics(
   project: string,
-  options: { feature?: string; window?: string; format?: string },
+  /** `queryClass` applies to metrics and sources; gaps has no class split. */
+  options: { feature?: string; window?: string; queryClass?: QueryClassFilter; format?: string },
 ): Promise<void> {
   const client = getClient()
   const features = options.feature ? [options.feature] : ['metrics', 'gaps', 'sources']
@@ -18,7 +34,7 @@ export async function showAnalytics(
   for (const feature of features) {
     switch (feature) {
       case 'metrics': {
-        const data = await client.getAnalyticsMetrics(project, options.window)
+        const data = await client.getAnalyticsMetrics(project, options.window, options.queryClass)
         results.metrics = data
         if (!isMachineFormat(options.format)) printMetrics(data)
         break
@@ -30,7 +46,7 @@ export async function showAnalytics(
         break
       }
       case 'sources': {
-        const data = await client.getAnalyticsSources(project, { window: options.window })
+        const data = await client.getAnalyticsSources(project, { window: options.window, queryClass: options.queryClass })
         results.sources = data
         if (!isMachineFormat(options.format)) printSources(data)
         break
@@ -78,8 +94,16 @@ function bucketDates(bucket: BrandMetricsDto['buckets'][number]): string {
   return `${start} → ${end}${pooled}`
 }
 
+/** The answers a metrics response reads, for its header. A server that predates the field pooled both. */
+const METRICS_QUERY_CLASS_LABEL: Record<QueryClassFilter, string> = {
+  all: 'branded + non-brand queries',
+  branded: 'branded queries',
+  'non-brand': 'non-brand queries',
+}
+
 function printMetrics(data: BrandMetricsDto): void {
-  console.log(`\nCitation Rate Trends (${data.window})`)
+  const queryClass = (data as { queryClass?: QueryClassFilter }).queryClass ?? 'all'
+  console.log(`\nCitation Rate Trends (${data.window}, ${METRICS_QUERY_CLASS_LABEL[queryClass]})`)
   console.log('─'.repeat(50))
 
   // BEFORE the first number, not after the last one. This is the note that
@@ -178,7 +202,7 @@ function printMetrics(data: BrandMetricsDto): void {
         ? served.latestServedModelIds.join(', ')
         : formatModelEvidence(served.latestObservation.state)
       const substituted = mismatch[provider]
-      const note = substituted ? ` — not the ${formatModelEvidence(substituted.configured)} you selected` : ''
+      const note = substituted ? ` (not the ${formatModelEvidence(substituted.configured)} you selected)` : ''
       console.log(`    ${provider}: ${rawIds} at ${served.latestObservation.observedAt}${note}`)
       for (const event of served.events) {
         const dating = event.fromPreWindowAnchor ? ' (on or before)' : ''

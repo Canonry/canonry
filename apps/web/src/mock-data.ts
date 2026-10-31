@@ -1,4 +1,4 @@
-import { DEFAULT_MEASUREMENT_CONFIG, type ProjectDto } from '@ainyc/canonry-contracts'
+import { DEFAULT_MEASUREMENT_CONFIG, type ProjectDto } from '@canonry/canonry-contracts'
 
 import type {
   CitationInsightVm,
@@ -39,6 +39,7 @@ const projects: ProjectDto[] = [
     canonicalDomain: 'citypointdental.com',
     ownedDomains: [],
     aliases: [],
+    qualifiedAliases: [],
     country: 'US',
     language: 'en',
     tags: ['local intent', 'priority'],
@@ -50,6 +51,7 @@ const projects: ProjectDto[] = [
     locations: [],
     defaultLocation: null,
     autoExtractBacklinks: false,
+    siteAuditMaxPages: null,
     configSource: 'cli',
     configRevision: 1,
   },
@@ -59,6 +61,7 @@ const projects: ProjectDto[] = [
     canonicalDomain: 'harborlegal.com',
     ownedDomains: [],
     aliases: [],
+    qualifiedAliases: [],
     country: 'US',
     language: 'en',
     tags: ['lead gen'],
@@ -70,6 +73,7 @@ const projects: ProjectDto[] = [
     locations: [],
     defaultLocation: null,
     autoExtractBacklinks: false,
+    siteAuditMaxPages: null,
     configSource: 'cli',
     configRevision: 1,
   },
@@ -79,6 +83,7 @@ const projects: ProjectDto[] = [
     canonicalDomain: 'northstarortho.com',
     ownedDomains: [],
     aliases: [],
+    qualifiedAliases: [],
     country: 'US',
     language: 'en',
     tags: ['multi-location'],
@@ -90,6 +95,7 @@ const projects: ProjectDto[] = [
     locations: [],
     defaultLocation: null,
     autoExtractBacklinks: false,
+    siteAuditMaxPages: null,
     configSource: 'cli',
     configRevision: 1,
   },
@@ -124,6 +130,7 @@ function createRun(input: {
     statusDetail: input.statusDetail,
     summary: input.summary,
     triggerLabel: input.triggerLabel,
+    opensSeoWorkspace: false,
   }
 }
 
@@ -132,11 +139,11 @@ const runCitypointVisibility = createRun({
   projectId: 'project_citypoint',
   projectName: 'Citypoint Dental NYC',
   kind: 'answer-visibility',
-  kindLabel: 'Answer visibility sweep',
+  kindLabel: 'AI Visibility check',
   status: 'completed',
   createdAt: '2026-03-08T12:15:00.000Z',
   startedAt: 'Mar 8, 12:15 PM',
-  duration: '6m 12s',
+  duration: '6 minutes 12 seconds',
   statusDetail: '18 tracked queries checked; 3 citation losses detected on emergency-intent prompts.',
   summary: 'Citation losses on emergency-intent prompts',
   triggerLabel: 'Scheduled',
@@ -147,11 +154,11 @@ const runCitypointQueued = createRun({
   projectId: 'project_citypoint',
   projectName: 'Citypoint Dental NYC',
   kind: 'answer-visibility',
-  kindLabel: 'Answer visibility sweep',
+  kindLabel: 'AI Visibility check',
   status: 'queued',
   createdAt: '2026-03-09T08:05:00.000Z',
   startedAt: 'Mar 9, 8:05 AM',
-  duration: 'Waiting for slot',
+  duration: 'Waiting',
   statusDetail: 'Ready to enqueue after the next provider rate window clears.',
   summary: 'Queued follow-up after local ranking movement',
   triggerLabel: 'Manual',
@@ -162,11 +169,11 @@ const runHarborVisibility = createRun({
   projectId: 'project_harbor',
   projectName: 'Harbor Legal Group',
   kind: 'answer-visibility',
-  kindLabel: 'Answer visibility sweep',
+  kindLabel: 'AI Visibility check',
   status: 'completed',
   createdAt: '2026-03-08T11:05:00.000Z',
   startedAt: 'Mar 8, 11:05 AM',
-  duration: '5m 07s',
+  duration: '5 minutes 7 seconds',
   statusDetail: '12 tracked queries checked; local-intent visibility held steady across branded prompts.',
   summary: 'Branded prompts remain stable',
   triggerLabel: 'Scheduled',
@@ -177,11 +184,11 @@ const runNorthstarVisibility = createRun({
   projectId: 'project_northstar',
   projectName: 'Northstar Orthopedics',
   kind: 'answer-visibility',
-  kindLabel: 'Answer visibility sweep',
+  kindLabel: 'AI Visibility check',
   status: 'running',
   createdAt: '2026-03-08T13:40:00.000Z',
   startedAt: 'Mar 8, 1:40 PM',
-  duration: '3m 10s',
+  duration: 'Running',
   statusDetail: 'Provider responses still in flight for 9 multi-location prompts.',
   summary: 'Mid-run on treatment-location prompts',
   triggerLabel: 'Manual',
@@ -386,7 +393,6 @@ const citypointEvidence: CitationInsightVm[] = [
 const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
   {
     project: projects[0],
-    dateRangeLabel: 'Last 7 days',
     contextLabel: 'US / English / Local-intent monitoring',
     mentionSummary: {
       label: 'Mention Coverage',
@@ -452,7 +458,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
     gapQueries: {
       label: 'Citation Gaps',
       value: '1',
-      delta: '1 of 9 queries at risk',
+      delta: '1 of 9 queries',
       tone: 'caution',
       description: 'One tracked query currently cites competitors without citing Citypoint.',
       trend: [],
@@ -461,7 +467,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
     mentionGaps: {
       label: 'Mention Gaps',
       value: '2',
-      delta: '2 of 9 queries at risk',
+      delta: '2 of 9 queries',
       tone: 'caution',
       description: 'Two tracked queries mention competitors but never Citypoint.',
       trend: [],
@@ -481,22 +487,6 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       { provider: 'claude', model: 'claude-sonnet-4-6', score: 44.44, cited: 4, total: 9 },
     ],
     queryCounts: { cited: 6, total: 9 },
-    citationMovement: {
-      gained: 1,
-      lost: 2,
-      tone: 'negative',
-      hasPreviousRun: true,
-      gainedQueries: ['invisalign dentist downtown brooklyn'],
-      lostQueries: ['emergency dentist brooklyn', 'pediatric dentist brooklyn heights'],
-    },
-    mentionMovement: {
-      gained: 0,
-      lost: 1,
-      tone: 'negative',
-      hasPreviousRun: true,
-      gainedQueries: [],
-      lostQueries: ['emergency dentist brooklyn'],
-    },
     movementComparison: {
       hasPreviousRun: true,
       comparable: false,
@@ -523,7 +513,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       value: 'Partial',
       delta: '1 queued follow-up',
       tone: 'caution',
-      description: 'Latest visibility sweep completed; next sweep is queued.',
+      description: 'Latest AI Visibility check completed; next check is queued.',
       trend: [76, 74, 72, 68, 67],
     },
     insights: [
@@ -604,6 +594,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       },
     ],
     recentRuns: [runCitypointQueued, runCitypointVisibility],
+    visibilitySweeps: [runCitypointVisibility],
     suggestedQueries: {
       rows: [
         { query: 'emergency dentist near me', impressions: 4200, clicks: 87, avgPosition: 8, reason: '4.2K impressions · ranks #8 on Google' },
@@ -616,7 +607,6 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
   },
   {
     project: projects[1],
-    dateRangeLabel: 'Last 14 days',
     contextLabel: 'US / English / Service-area legal prompts',
     mentionSummary: {
       label: 'Mention Coverage',
@@ -677,7 +667,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
     gapQueries: {
       label: 'Citation Gaps',
       value: '0',
-      delta: '0 of 6 queries at risk',
+      delta: '0 of 6 queries',
       tone: 'positive',
       description: 'No competitive citation gaps detected in the latest visibility run.',
       trend: [],
@@ -686,7 +676,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
     mentionGaps: {
       label: 'Mention Gaps',
       value: '0',
-      delta: '0 of 6 queries at risk',
+      delta: '0 of 6 queries',
       tone: 'positive',
       description: 'No competitive mention gaps detected in the latest visibility run.',
       trend: [],
@@ -705,8 +695,6 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       { provider: 'openai', model: 'gpt-5.4', score: 50, cited: 2, total: 4 },
     ],
     queryCounts: { cited: 3, total: 4 },
-    citationMovement: { gained: 1, lost: 0, tone: 'positive', hasPreviousRun: true },
-    mentionMovement: { gained: 1, lost: 0, tone: 'positive', hasPreviousRun: true },
     movementComparison: {
       hasPreviousRun: true,
       comparable: true,
@@ -794,6 +782,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       },
     ],
     recentRuns: [runHarborVisibility],
+    visibilitySweeps: [runHarborVisibility],
     suggestedQueries: {
       rows: [
         { query: 'car accident lawyer monmouth county', impressions: 2300, clicks: 41, avgPosition: 6, reason: '2.3K impressions · ranks #6 on Google' },
@@ -804,7 +793,6 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
   },
   {
     project: projects[2],
-    dateRangeLabel: 'Last 7 days',
     contextLabel: 'US / English / Multi-location treatment prompts',
     mentionSummary: {
       label: 'Mention Coverage',
@@ -865,7 +853,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
     gapQueries: {
       label: 'Citation Gaps',
       value: '2',
-      delta: '2 of 7 queries at risk',
+      delta: '2 of 7 queries',
       tone: 'caution',
       description: 'Two tracked queries currently cite competitors without citing Northstar.',
       trend: [],
@@ -874,7 +862,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
     mentionGaps: {
       label: 'Mention Gaps',
       value: '3',
-      delta: '3 of 7 queries at risk',
+      delta: '3 of 7 queries',
       tone: 'negative',
       description: 'Three tracked queries mention competitors but never Northstar.',
       trend: [],
@@ -892,8 +880,6 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       { provider: 'openai', model: 'gpt-5.4', score: 57.14, cited: 4, total: 7 },
     ],
     queryCounts: { cited: 4, total: 7 },
-    citationMovement: { gained: 0, lost: 0, tone: 'neutral', hasPreviousRun: false },
-    mentionMovement: { gained: 0, lost: 0, tone: 'neutral', hasPreviousRun: false },
     movementComparison: {
       hasPreviousRun: false,
       comparable: false,
@@ -920,7 +906,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       value: 'Running',
       delta: '9 prompts remaining',
       tone: 'neutral',
-      description: 'Current answer-visibility sweep is still collecting provider responses.',
+      description: 'Current AI Visibility check is still collecting provider responses.',
       trend: [63, 64, 65, 67, 68],
     },
     insights: [
@@ -974,6 +960,7 @@ const baseProjectCommandCenters: ProjectCommandCenterVm[] = [
       },
     ],
     recentRuns: [runNorthstarVisibility],
+    visibilitySweeps: [],
     suggestedQueries: {
       rows: [],
       totalCandidates: 0,
@@ -1029,7 +1016,7 @@ const baseDashboard: DashboardVm = {
         id: 'attention_worker',
         tone: 'neutral',
         title: 'One follow-up run is queued',
-        detail: 'Citypoint has a queued visibility sweep waiting on provider quota.',
+        detail: 'Citypoint has a queued AI Visibility check waiting on provider quota.',
         actionLabel: 'Open runs',
         href: '/runs',
       },
@@ -1037,7 +1024,7 @@ const baseDashboard: DashboardVm = {
         id: 'attention_northstar',
         tone: 'caution',
         title: 'Northstar run still in progress',
-        detail: 'Nine prompts remain before the current treatment-location sweep finishes.',
+        detail: 'Nine prompts remain before the current treatment-location check finishes.',
         actionLabel: 'View timeline',
         href: '/runs',
       },
@@ -1090,7 +1077,7 @@ const baseDashboard: DashboardVm = {
         label: 'Provider configured',
         detail: 'Gemini key and quota defaults are present.',
         state: 'ready',
-        guidance: 'Required for answer-visibility sweeps.',
+        guidance: 'Required for AI Visibility checks.',
       },
     ],
     projectDraft: {
@@ -1115,7 +1102,7 @@ const baseDashboard: DashboardVm = {
     launchState: {
       enabled: true,
       ctaLabel: 'Launch first run',
-      summary: 'Queue a visibility sweep first, then follow with a site audit to explain movement.',
+      summary: 'Queue an AI Visibility check first, then follow with a Technical AEO audit to explain movement.',
     },
   },
   settings: {
@@ -1207,7 +1194,7 @@ export function createDashboardFixture(options: DashboardFixtureOptions = {}): D
     dashboard.runs[0].status = 'partial'
     dashboard.runs[0].duration = '7m 24s'
     dashboard.runs[0].statusDetail = 'Quota window closed mid-run; 14 of 18 prompts completed before the worker paused.'
-    dashboard.runs[0].summary = 'Partial visibility sweep after quota cap'
+    dashboard.runs[0].summary = 'Partial AI Visibility check after quota cap'
     dashboard.portfolioOverview.recentRuns[0] = dashboard.runs[0]
   }
 
@@ -1242,7 +1229,7 @@ export function createDashboardFixture(options: DashboardFixtureOptions = {}): D
     dashboard.settings.providerStatuses = dashboard.settings.providerStatuses.map(p => ({
       ...p,
       state: 'needs-config' as const,
-      detail: 'API key is missing, so answer-visibility sweeps are blocked.',
+      detail: 'API key is missing, so AI Visibility checks are blocked.',
     }))
   }
 

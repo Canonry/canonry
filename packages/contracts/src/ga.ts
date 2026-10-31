@@ -1,6 +1,14 @@
+import { metricsWindowSchema } from './analytics.js'
+import { gaMeasurementComponentStatusSchema } from './measurement.js'
+
+import { WINDOW_SETS } from './time-window.js'
 import { z } from 'zod'
-import { fraction, percent } from './ratio-unit.js'
+import { fraction, percent, RatioUnits } from './ratio-unit.js'
+import { formatDurationSeconds, formatNumber, formatPercent, isoDateDaysBeforeInTimeZone } from './formatting.js'
 import { aiReferralTrafficClassSchema } from './traffic-class.js'
+import { aiReferralEngineSchema } from './ai-referral-engine.js'
+import { socialPlatformSchema } from './social-platform.js'
+import { stackedDailySeriesSchema } from './stacked-series.js'
 
 export const ga4ConnectionDtoSchema = z.object({
   id: z.string(),
@@ -103,6 +111,48 @@ export const ga4SocialReferralDtoSchema = z.object({
 })
 export type GA4SocialReferralDto = z.infer<typeof ga4SocialReferralDtoSchema>
 
+/**
+ * One social platform's sessions in the window, with the `socialReferrals`
+ * rows it groups. A source no platform matches is its own group, so the
+ * groups partition `socialSessions`.
+ */
+export const ga4SocialPlatformDtoSchema = z.object({
+  /** Platform id from `socialPlatformForReferralSource`; null for a source no platform matches. */
+  platform: socialPlatformSchema.nullable(),
+  /** The platform's name, or the raw source when `platform` is null. */
+  label: z.string(),
+  sessions: z.number(),
+  /** Sessions outside GA4's Paid Social channel group. */
+  organicSessions: z.number(),
+  /** Sessions in GA4's Paid Social channel group. */
+  paidSessions: z.number(),
+  /** 0..1 share of `socialSessions`; the groups' shares add up to 1. */
+  share: fraction(),
+  /** The grouped `socialReferrals` rows, sessions descending. */
+  sources: z.array(ga4SocialReferralDtoSchema),
+})
+export type GA4SocialPlatformDto = z.infer<typeof ga4SocialPlatformDtoSchema>
+
+/**
+ * One AI engine's referral sessions, with the `aiReferrals` rows it groups.
+ * Rows whose source names no engine form one group with `engine: null`: AI
+ * traffic that is counted but never assigned to an engine.
+ */
+export const ga4AiEngineReferralDtoSchema = z.object({
+  /** Engine id from `aiEngineForReferralSource`; null for the unattributed group. */
+  engine: aiReferralEngineSchema.nullable(),
+  /** The engine's name, or `Unattributed AI`. */
+  label: z.string(),
+  sessions: z.number(),
+  organicSessions: z.number(),
+  paidSessions: z.number(),
+  /** 0..1 share of the `aiReferrals` rows' sessions, the same base as each row's `share`. */
+  share: fraction(),
+  /** The grouped `aiReferrals` rows, sessions descending. */
+  sources: z.array(ga4AiReferralDtoSchema),
+})
+export type GA4AiEngineReferralDto = z.infer<typeof ga4AiEngineReferralDtoSchema>
+
 export const ga4ChannelBucketDtoSchema = z.object({
   sessions: z.number(),
   sharePct: percent(),
@@ -173,9 +223,25 @@ export const ga4TrafficSummaryDtoSchema = z.object({
   organicAiSessionsBySession: z.number(),
   /** @deprecated See `GA4AiReferralDto.users`. Never emitted since 4.135.0. */
   organicAiUsersBySession: z.number().optional(),
+  /**
+   * `aiReferrals` grouped by engine, sessions descending, with the unattributed
+   * group last. The groups' sessions add up to the rows' sessions.
+   */
+  aiEngines: z.array(ga4AiEngineReferralDtoSchema),
   socialReferrals: z.array(ga4SocialReferralDtoSchema),
+  /** `socialReferrals` grouped by platform, sessions descending; the groups' sessions add up to `socialSessions`. */
+  socialPlatforms: z.array(ga4SocialPlatformDtoSchema),
+  /**
+   * Daily social sessions by platform over the same window as every other
+   * figure here: the five largest platforms, then the rest as `other`.
+   */
+  socialPlatformDaily: stackedDailySeriesSchema,
   /** Total social sessions (session-scoped, no cross-dimension dedup needed). */
   socialSessions: z.number(),
+  /** Social sessions in GA4's Paid Social channel group. */
+  paidSocialSessions: z.number(),
+  /** `paidSocialSessions` as a 0..1 share of `socialSessions`; 0 with no social sessions. */
+  paidSocialShare: fraction(),
   /** Total social users (session-scoped, no cross-dimension dedup needed). */
   /**
    * @deprecated Never emitted. ga_social_referrals stores users as GA's
@@ -278,9 +344,178 @@ export const ga4PropertiesDtoSchema = z.object({
 export type GA4PropertiesDto = z.infer<typeof ga4PropertiesDtoSchema>
 
 /**
+ * The windows GA4's "Google organic search traffic: Landing page + query
+ * string" report (Search Console collection) is stored for. Each one is a
+ * GA4-computed snapshot ending YESTERDAY in the property's reporting time
+ * zone, exactly as GA4's own "Last N days" ranges are, so `28d` is the window
+ * GA4's report opens on. Not the rolling `7d | 30d | 90d` of `/ga/traffic`.
+ */
+export const gaSearchLandingWindowSchema = z.enum(WINDOW_SETS.gaSearchLanding)
+export type GaSearchLandingWindow = z.infer<typeof gaSearchLandingWindowSchema>
+export const GA_SEARCH_LANDING_WINDOWS: readonly GaSearchLandingWindow[] = gaSearchLandingWindowSchema.options
+export const GA_SEARCH_LANDING_WINDOW_DAYS: Readonly<Record<GaSearchLandingWindow, number>> = {
+  '7d': 7,
+  '28d': 28,
+  '90d': 90,
+}
+export const GA_SEARCH_LANDING_DEFAULT_WINDOW: GaSearchLandingWindow = '28d'
+export const GA_SEARCH_LANDING_DEFAULT_LIMIT = 50
+
+/** How surfaces show the empty landing page GA4 can report beside `(not set)`; stored rows keep GA4's raw ''. */
+export const GA_SEARCH_LANDING_EMPTY_PAGE_LABEL = '(empty)'
+
+/** The display text for a stored `landingPagePlusQueryString`: GA4's value, or the empty-page label for ''. */
+export function gaSearchLandingPageLabel(landingPage: string): string {
+  return landingPage === '' ? GA_SEARCH_LANDING_EMPTY_PAGE_LABEL : landingPage
+}
+export const GA_SEARCH_LANDING_MAX_LIMIT = 1000
+
+/**
+ * State of the stored Search Console landing-page snapshot.
+ *
+ * - `never-synced`: no GA sync has attempted it yet for the GA4 property the
+ *   project resolves to now. A stored snapshot of another property reads this
+ *   way too, with no Total and no rows, until the next sync replaces it.
+ * - `ready`: the last attempt stored a snapshot.
+ * - `unavailable`: GA4 refused the Search Console metrics, which is what a
+ *   property without a Search Console link is expected to do. The previous
+ *   snapshot, if any, is kept and still returned.
+ * - `error`: the last attempt failed for another reason (auth, quota, network).
+ *   The previous snapshot, if any, is kept and still returned.
+ */
+export const gaSearchLandingStatusSchema = z.enum(['never-synced', 'ready', 'unavailable', 'error'])
+export type GaSearchLandingStatus = z.infer<typeof gaSearchLandingStatusSchema>
+
+/**
+ * One row of the report, or its Total. Field names are GA4's own metric names,
+ * so they cannot be mistaken for Canonry's Search Console sync (`clicks`,
+ * `ctr`, `position`): these figures come from GA4's Search Console link.
+ */
+export const gaSearchLandingMetricsSchema = z.object({
+  organicGoogleSearchClicks: z.number().int().nonnegative(),
+  organicGoogleSearchImpressions: z.number().int().nonnegative(),
+  /** GA4's own click-through rate (0..1). Null when there were no impressions. */
+  organicGoogleSearchClickThroughRate: fraction(z.number().min(0).max(1)).nullable(),
+  /** GA4's own average position. Null when there were no impressions. */
+  organicGoogleSearchAveragePosition: z.number().nonnegative().nullable(),
+  /**
+   * GA4's plain `activeUsers` from the same request, which is what GA4's own
+   * report shows in this column (verified against the GA4 UI). Not limited to
+   * Google organic sessions.
+   */
+  activeUsers: z.number().int().nonnegative(),
+})
+export type GaSearchLandingMetrics = z.infer<typeof gaSearchLandingMetricsSchema>
+
+export const gaSearchLandingPageRowSchema = gaSearchLandingMetricsSchema.extend({
+  /** GA4's `landingPagePlusQueryString`, exactly as reported (never normalized). */
+  landingPage: z.string(),
+})
+export type GaSearchLandingPageRow = z.infer<typeof gaSearchLandingPageRowSchema>
+
+/**
+ * Whether the GA4 report carries Search Console data, judged against the
+ * Search Console data Canonry stores for the same project and days:
+ *
+ * - `has-data`: GA4 reports Google organic clicks or impressions.
+ * - `not-linked`: GA4 reports none, while Search Console recorded impressions
+ *   for these days, so the GA4 property is not linked to this site's Search
+ *   Console property (or is linked to another one).
+ * - `no-search-data`: neither GA4 nor Search Console has any for these days.
+ * - `unknown`: GA4 reports none and Canonry has no Search Console data for
+ *   these days to compare with.
+ */
+export const gaSearchConsoleLinkStateSchema = z.enum(['has-data', 'not-linked', 'no-search-data', 'unknown'])
+export type GaSearchConsoleLinkState = z.infer<typeof gaSearchConsoleLinkStateSchema>
+
+/**
+ * Response of `GET /projects/:name/ga/search-landing-pages`: one stored
+ * window of GA4's Search Console landing-page report.
+ */
+export const gaSearchLandingPagesResponseSchema = z.object({
+  source: z.literal('ga4-search-console-link'),
+  status: gaSearchLandingStatusSchema,
+  /** The last failed attempt's message (Google's own text for `unavailable`). */
+  error: z.string().nullable(),
+  /** When the stored snapshot was written. Null when none exists. */
+  syncedAt: z.string().datetime().nullable(),
+  /** When a sync last tried to refresh the snapshot, successful or not. */
+  attemptedAt: z.string().datetime().nullable(),
+  window: gaSearchLandingWindowSchema,
+  /** Inclusive first day of the stored window, in the property's time zone. */
+  windowStart: z.iso.date().nullable(),
+  /** Inclusive last day of the stored window (yesterday at sync time). */
+  windowEnd: z.iso.date().nullable(),
+  windowDays: z.number().int().positive().nullable(),
+  /** GA4 property reporting time zone the window dates are in. */
+  timeZone: z.string().nullable(),
+  subjectToThresholding: z.boolean(),
+  dataLossFromOtherRow: z.boolean(),
+  /** GA4's own TOTAL row for the window. Never a sum of `rows`. Null when no snapshot exists. */
+  total: gaSearchLandingMetricsSchema.nullable(),
+  /** Rows GA4 reported for the window. Can exceed `totalRows` when `rowsCapped`. */
+  reportRowCount: z.number().int().nonnegative().nullable(),
+  /** True when GA4 reported more rows than were stored (the per-window row cap). */
+  rowsCapped: z.boolean(),
+  /** Stored rows for the window, the population `limit` / `offset` page over. */
+  totalRows: z.number().int().nonnegative(),
+  limit: z.number().int().positive(),
+  offset: z.number().int().nonnegative(),
+  /** Ordered by clicks, then impressions (both descending), then landing page. */
+  rows: z.array(gaSearchLandingPageRowSchema),
+  /**
+   * Whether the window's GA4 report has Search Console data, compared with
+   * Canonry's own Search Console data for the same days. Null when no window
+   * is stored.
+   */
+  searchConsoleLink: z.object({
+    state: gaSearchConsoleLinkStateSchema,
+    /** Search Console impressions Canonry stores for the window's days; null when it has none for them. */
+    searchConsoleImpressions: z.number().int().nonnegative().nullable(),
+  }).nullable(),
+})
+export type GaSearchLandingPagesResponse = z.infer<typeof gaSearchLandingPagesResponseSchema>
+
+/**
+ * Whether a window's GA4 Total carries any Google organic search data (a click
+ * or an impression). A window can list pages and still have none: GA4 reports
+ * pages with active users and 0 clicks and 0 impressions. The dashboard and
+ * the CLI read this, never the row count, to say the window had no Google
+ * organic search traffic.
+ */
+export function gaSearchLandingHasSearchData(total: GaSearchLandingMetrics): boolean {
+  return total.organicGoogleSearchClicks > 0 || total.organicGoogleSearchImpressions > 0
+}
+
+/** Outcome of the Search Console landing-page component of one GA sync. */
+export const gaSearchLandingSyncResultSchema = z.object({
+  status: z.enum(['ready', 'unavailable', 'error']),
+  /** Windows written by this sync, empty unless `ready`. */
+  windows: z.array(z.object({
+    window: gaSearchLandingWindowSchema,
+    rowCount: z.number().int().nonnegative(),
+    reportRowCount: z.number().int().nonnegative(),
+    rowsCapped: z.boolean(),
+  })),
+  /** Landing-page rows written across every window. */
+  rowCount: z.number().int().nonnegative(),
+  error: z.string().optional(),
+})
+export type GaSearchLandingSyncResult = z.infer<typeof gaSearchLandingSyncResultSchema>
+
+/**
+ * The `only` values `POST /projects/:name/ga/sync` accepts. Each one keeps the
+ * foundation (traffic snapshots and summaries) and adds one slice:
+ * `traffic` adds none, `ai` the AI referrals, `social` the social referrals,
+ * `search-landing` the Search Console landing-page snapshot.
+ */
+export const gaSyncOnlySchema = z.enum(['traffic', 'ai', 'social', 'search-landing'])
+export type GaSyncOnly = z.infer<typeof gaSyncOnlySchema>
+
+/**
  * Response shape for `POST /projects/:name/ga/sync`. `syncedComponents`
  * is present only when the request specified an `only` filter (`'traffic' |
- * 'ai' | 'social'`).
+ * 'ai' | 'social' | 'search-landing'`).
  */
 export const ga4SyncResponseDtoSchema = z.object({
   synced: z.boolean(),
@@ -304,12 +539,39 @@ export const ga4SyncResponseDtoSchema = z.object({
   syncedAt: z.string(),
   measurement: z.object({
     acquisition: z.object({ days: z.number().int().nonnegative(), status: z.enum(['ready', 'error']), rowCount: z.number().int().nonnegative(), error: z.string().optional() }),
-    leads: z.object({ days: z.number().int().nonnegative(), status: z.enum(['ready', 'error', 'not-configured']), rowCount: z.number().int().nonnegative(), attributionScope: z.enum(['landing-page', 'channel']).optional(), error: z.string().optional() }),
+    leads: z.object({
+      days: z.number().int().nonnegative(),
+      status: z.enum(['ready', 'error', 'not-configured']),
+      rowCount: z.number().int().nonnegative(),
+      attributionScope: z.enum(['landing-page', 'channel']).optional(),
+      error: z.string().optional(),
+      /** The GA4 events this sync counted: the configured lead events plus the property's key events. */
+      eventNames: z.array(z.string()).optional(),
+      /**
+       * The property's key-event read. `read` lists them; `error` keeps the
+       * previous successful list and names the failure; `disabled` means the
+       * project counts only its configured lead events.
+       */
+      keyEvents: z.object({
+        status: z.enum(['read', 'error', 'disabled']),
+        names: z.array(z.string()),
+        error: z.string().optional(),
+      }).optional(),
+    }),
+    /**
+     * GA4's Search Console landing-page snapshot. Absent when `only` names
+     * another slice, since this sync did not attempt it. Its failure never
+     * fails the sync: the previous snapshot is kept.
+     */
+    searchLandingPages: gaSearchLandingSyncResultSchema.optional(),
   }),
   /**
    * Components that were written this run. Present when `only` is set.
    * Always includes `traffic` and `summary` (the share denominator) plus
-   * the requested channel breakdown — `ai` and/or `social`.
+   * the requested slice: `ai`, `social` or `search-landing`. `search-landing`
+   * fails soft, so it is listed only when its snapshot was stored; a failed
+   * or `unavailable` attempt is left out and reported in
+   * `measurement.searchLandingPages`.
    */
   syncedComponents: z.array(z.string()).optional(),
 })
@@ -393,6 +655,186 @@ export const gaAttributionTrendResponseSchema = z.object({
 export type GaAttributionTrendResponse = z.infer<typeof gaAttributionTrendResponseSchema>
 
 /**
+ * The figures of the GA4 overview (`GET /projects/:name/ga/overview`), for a
+ * whole window or for one day. Each is GA4's own metric of that name, except
+ * `organicSessions` (GA4 `sessions` in the Organic Search channel) and
+ * `averageEngagementTimeSeconds` (GA4's `userEngagementDuration / activeUsers`,
+ * which is how GA4 defines "Average engagement time").
+ *
+ * Window figures are GA4's totals for the window, so users are distinct over
+ * the whole window and the rates are GA4's own; they are never sums of days.
+ * Null means GA4 has not reported the figure for that span (never synced, or
+ * synced before the metric was added), never a measured zero.
+ */
+export const gaOverviewValuesSchema = z.object({
+  activeUsers: z.number().int().nonnegative().nullable(),
+  newUsers: z.number().int().nonnegative().nullable(),
+  totalUsers: z.number().int().nonnegative().nullable(),
+  sessions: z.number().int().nonnegative().nullable(),
+  organicSessions: z.number().int().nonnegative().nullable(),
+  views: z.number().int().nonnegative().nullable(),
+  eventCount: z.number().int().nonnegative().nullable(),
+  /** GA4 counts a key event once per session when the property says so, so this can be a decimal. */
+  keyEvents: z.number().nonnegative().nullable(),
+  engagementRate: fraction().nullable(),
+  bounceRate: fraction().nullable(),
+  averageEngagementTimeSeconds: z.number().nonnegative().nullable(),
+})
+export type GaOverviewValues = z.infer<typeof gaOverviewValuesSchema>
+
+export const gaOverviewMetricKeySchema = gaOverviewValuesSchema.keyof()
+export type GaOverviewMetricKey = z.infer<typeof gaOverviewMetricKeySchema>
+export const GaOverviewMetricKeys = gaOverviewMetricKeySchema.enum
+
+/** Signed percent change of each window figure against the previous period, as GA4 shows it. */
+export const gaOverviewChangeSchema = z.object({
+  activeUsers: percent().nullable(),
+  newUsers: percent().nullable(),
+  totalUsers: percent().nullable(),
+  sessions: percent().nullable(),
+  organicSessions: percent().nullable(),
+  views: percent().nullable(),
+  eventCount: percent().nullable(),
+  keyEvents: percent().nullable(),
+  engagementRate: percent().nullable(),
+  bounceRate: percent().nullable(),
+  averageEngagementTimeSeconds: percent().nullable(),
+})
+export type GaOverviewChange = z.infer<typeof gaOverviewChangeSchema>
+
+/** The overview windows, in days. */
+export const GA_OVERVIEW_WINDOW_DAYS = { '7d': 7, '30d': 30, '90d': 90 } as const
+export type GaOverviewWindow = keyof typeof GA_OVERVIEW_WINDOW_DAYS
+export const GA_OVERVIEW_WINDOWS: readonly GaOverviewWindow[] = WINDOW_SETS.gaOverview
+
+export function isGaOverviewWindow(value: unknown): value is GaOverviewWindow {
+  return GA_OVERVIEW_WINDOWS.some((window) => window === value)
+}
+
+/**
+ * Days of GA4 daily totals a sync keeps: the longest window and the period of
+ * the same length before it.
+ */
+export const GA_OVERVIEW_HISTORY_DAYS = 2 * GA_OVERVIEW_WINDOW_DAYS['90d']
+
+/**
+ * A window and the period of the same length just before it, as days before
+ * today, as GA4 draws them: "Last 30 days" is the 30 complete days ending
+ * yesterday (today is still filling), and the previous period is the 30 days
+ * before. Inclusive at both ends.
+ */
+export function gaOverviewComparisonDaysAgo(window: GaOverviewWindow): {
+  current: { start: number; end: number }
+  previous: { start: number; end: number }
+} {
+  const days = GA_OVERVIEW_WINDOW_DAYS[window]
+  return {
+    current: { start: days, end: 1 },
+    previous: { start: 2 * days, end: days + 1 },
+  }
+}
+
+/**
+ * The calendar dates of `gaOverviewComparisonDaysAgo` on the day `now` falls
+ * on in `timeZone`. GA4 counts days in the property's reporting time zone, so
+ * the sync passes the zone GA4 reports; at 02:00 UTC a New York property's
+ * yesterday is still two UTC dates back. Without a zone (an overview no sync
+ * has drawn yet) the UTC date stands in.
+ */
+export function gaOverviewComparisonRanges(
+  window: GaOverviewWindow,
+  now: Date = new Date(),
+  timeZone = 'UTC',
+): { current: { startDate: string; endDate: string }; previous: { startDate: string; endDate: string } } {
+  const daysAgo = gaOverviewComparisonDaysAgo(window)
+  const date = (days: number) => isoDateDaysBeforeInTimeZone(now.toISOString(), days, timeZone)
+  return {
+    current: { startDate: date(daysAgo.current.start), endDate: date(daysAgo.current.end) },
+    previous: { startDate: date(daysAgo.previous.start), endDate: date(daysAgo.previous.end) },
+  }
+}
+
+/** The two periods the overview compares, as stored in `ga_window_metrics.period`. */
+export const GaOverviewPeriods = { current: 'current', previous: 'previous' } as const
+export type GaOverviewPeriod = typeof GaOverviewPeriods[keyof typeof GaOverviewPeriods]
+
+const gaOverviewPeriodSchema = z.object({
+  /** Inclusive. Null when the window has never been synced with the overview metrics. */
+  startDate: z.string().nullable(),
+  endDate: z.string().nullable(),
+})
+
+export const gaOverviewDaySchema = z.object({
+  date: z.string(),
+  /** The day of the previous period in the same position: the window's first day lines up with its first. */
+  previousDate: z.string(),
+  values: gaOverviewValuesSchema,
+  previousValues: gaOverviewValuesSchema,
+})
+export type GaOverviewDay = z.infer<typeof gaOverviewDaySchema>
+
+export const gaOverviewResponseSchema = z.object({
+  window: metricsWindowSchema,
+  current: gaOverviewPeriodSchema,
+  /** The period just before `current`, of the same length. */
+  previous: gaOverviewPeriodSchema,
+  totals: gaOverviewValuesSchema,
+  previousTotals: gaOverviewValuesSchema,
+  /**
+   * `deltaPercent(totals[key], previousTotals[key])`: relative for rates too
+   * (55% to 60% engagement reads +9.1), as GA4 shows it. Null when either total
+   * is missing or the previous one is not positive.
+   */
+  changePct: gaOverviewChangeSchema,
+  /** One entry per day of `current`, oldest first. */
+  days: z.array(gaOverviewDaySchema),
+  /** When GA4 last reported this window's totals. Null when it never has. */
+  syncedAt: z.string().nullable(),
+})
+export type GaOverviewResponse = z.infer<typeof gaOverviewResponseSchema>
+
+export const GaOverviewUnits = { count: 'count', fraction: 'fraction', seconds: 'seconds' } as const
+export type GaOverviewUnit = typeof GaOverviewUnits[keyof typeof GaOverviewUnits]
+
+/** Which direction of change reads as an improvement. */
+export const GaOverviewBetter = { higher: 'higher', lower: 'lower' } as const
+export type GaOverviewBetter = typeof GaOverviewBetter[keyof typeof GaOverviewBetter]
+
+/**
+ * How each overview figure is named and read, shared by the dashboard and the
+ * CLI. `better` is the direction GA4 users read as an improvement: a falling
+ * bounce rate is good news, so its colour follows `better`, not the sign.
+ */
+export const GA_OVERVIEW_METRICS: Record<GaOverviewMetricKey, { label: string; unit: GaOverviewUnit; better: GaOverviewBetter }> = {
+  activeUsers: { label: 'Users', unit: GaOverviewUnits.count, better: GaOverviewBetter.higher },
+  newUsers: { label: 'New users', unit: GaOverviewUnits.count, better: GaOverviewBetter.higher },
+  sessions: { label: 'Sessions', unit: GaOverviewUnits.count, better: GaOverviewBetter.higher },
+  engagementRate: { label: 'Engagement rate', unit: GaOverviewUnits.fraction, better: GaOverviewBetter.higher },
+  averageEngagementTimeSeconds: { label: 'Average engagement time', unit: GaOverviewUnits.seconds, better: GaOverviewBetter.higher },
+  views: { label: 'Views', unit: GaOverviewUnits.count, better: GaOverviewBetter.higher },
+  bounceRate: { label: 'Bounce rate', unit: GaOverviewUnits.fraction, better: GaOverviewBetter.lower },
+  eventCount: { label: 'Event count', unit: GaOverviewUnits.count, better: GaOverviewBetter.higher },
+  keyEvents: { label: 'Key events', unit: GaOverviewUnits.count, better: GaOverviewBetter.higher },
+  organicSessions: { label: 'Organic sessions', unit: GaOverviewUnits.count, better: GaOverviewBetter.higher },
+  totalUsers: { label: 'Total users', unit: GaOverviewUnits.count, better: GaOverviewBetter.higher },
+}
+
+/** The order the figures are listed in, GA4's home card order first. */
+export const GA_OVERVIEW_METRIC_ORDER: readonly GaOverviewMetricKey[] = [
+  'activeUsers',
+  'newUsers',
+  'sessions',
+  'engagementRate',
+  'averageEngagementTimeSeconds',
+  'views',
+  'bounceRate',
+  'eventCount',
+  'keyEvents',
+  'organicSessions',
+  'totalUsers',
+]
+
+/**
  * Response of `GET /projects/:name/ga/traffic`: the traffic summary plus the
  * one window every figure in it was measured over.
  */
@@ -444,7 +886,8 @@ export const ga4AiReferralHistoryEntrySchema = z.object({
   trafficClass: aiReferralTrafficClassSchema,
   landingPage: z.string(),
   sessions: z.number(),
-  users: z.number(),
+  /** @deprecated See `GA4AiReferralDto.users`. Never emitted since 4.180.6. */
+  users: z.number().optional(),
   /** Which GA4 dimension this row came from: session (sessionSource), first_user (firstUserSource), or manual_utm (utm_source parameter) */
   sourceDimension: ga4SourceDimensionSchema,
 })
@@ -495,6 +938,12 @@ export const ga4AiReferralDailyDtoSchema = z.object({
   totalSessions: z.number(),
   totalPaidSessions: z.number(),
   totalOrganicSessions: z.number(),
+  /**
+   * The same days by AI engine: the five largest engines (the unattributed
+   * group counts as one), then the rest as `other`. Folded from the same
+   * winner set as `days`, so each day's values add up to that day's sessions.
+   */
+  byEngine: stackedDailySeriesSchema,
 })
 export type GA4AiReferralDailyDto = z.infer<typeof ga4AiReferralDailyDtoSchema>
 
@@ -527,3 +976,60 @@ export const ga4SessionHistoryEntrySchema = z.object({
   usersSource: z.enum(['deduplicated', 'landing-page-sum']),
 })
 export type GA4SessionHistoryEntry = z.infer<typeof ga4SessionHistoryEntrySchema>
+
+
+export const gaAcquisitionDimensionSchema = z.enum(['date', 'channelGroup', 'source', 'medium', 'hostName', 'landingPage'])
+export type GaAcquisitionDimension = z.infer<typeof gaAcquisitionDimensionSchema>
+export const GaAcquisitionDimensions = gaAcquisitionDimensionSchema.enum
+export const gaAcquisitionQuerySchema = z.object({
+  window: metricsWindowSchema.optional(), startDate: z.iso.date().optional(), endDate: z.iso.date().optional(),
+  channel: z.string().optional(), source: z.string().optional(), medium: z.string().optional(), hostName: z.string().optional(),
+  landingPage: z.string().optional(), pathPrefix: z.string().optional(),
+  groupBy: z.string().refine(value => value.split(',').every(key => gaAcquisitionDimensionSchema.safeParse(key.trim()).success), `groupBy must contain: ${gaAcquisitionDimensionSchema.options.join(', ')}`).optional(),
+  limit: z.number().int().min(1).max(1000).optional(), offset: z.number().int().nonnegative().optional(),
+}).strict()
+export type GaAcquisitionQuery = z.infer<typeof gaAcquisitionQuerySchema>
+export const gaAcquisitionRowSchema = z.object({
+  date: z.string().optional(), channelGroup: z.string().optional(), source: z.string().optional(), medium: z.string().optional(),
+  hostName: z.string().optional(), landingPage: z.string().optional(), sessions: z.number().int().nonnegative(),
+})
+export type GaAcquisitionRow = z.infer<typeof gaAcquisitionRowSchema>
+export const gaAcquisitionResponseSchema = z.object({
+  source: z.literal('ga4-acquisition'), status: gaMeasurementComponentStatusSchema, error: z.string().nullable(), syncedAt: z.string().nullable(),
+  scope: z.object({ project: z.string(), attribution: z.literal('project-only'), unavailableDimensions: z.array(z.enum(['property', 'target', 'market'])) }),
+  window: z.object({ startDate: z.string().nullable(), endDate: z.string().nullable(), window: metricsWindowSchema }),
+  coverage: z.object({ earliestDate: z.string().nullable(), latestDate: z.string().nullable() }),
+  filters: z.object({ channel: z.string().nullable(), source: z.string().nullable(), medium: z.string().nullable(), hostName: z.string().nullable(), landingPage: z.string().nullable(), pathPrefix: z.string().nullable() }),
+  groupBy: z.array(gaAcquisitionDimensionSchema), channelGroups: z.array(z.string()),
+  totalSessions: z.number().int().nonnegative(), totalRows: z.number().int().nonnegative(), limit: z.number().int(), offset: z.number().int(), rows: z.array(gaAcquisitionRowSchema),
+})
+export type GaAcquisitionResponse = z.infer<typeof gaAcquisitionResponseSchema>
+
+/**
+ * One overview figure as the dashboard and the CLI print it: rates as
+ * percents, engagement time as `1m 05s`, counts in full or, with `compact`,
+ * as `3.4K`. A null figure reads `—`.
+ */
+export function formatGaOverviewValue(key: GaOverviewMetricKey, value: number | null, options: { compact?: boolean } = {}): string {
+  if (value === null) return '—'
+  const unit = GA_OVERVIEW_METRICS[key].unit
+  if (unit === GaOverviewUnits.fraction) return formatPercent(value, RatioUnits.fraction)
+  if (unit === GaOverviewUnits.seconds) return formatDurationSeconds(value)
+  if (options.compact) return formatNumber(value)
+  return value.toLocaleString('en-US', { maximumFractionDigits: 1 })
+}
+
+export const GaOverviewChangeTones = { better: 'better', worse: 'worse', flat: 'flat' } as const
+export type GaOverviewChangeTone = typeof GaOverviewChangeTones[keyof typeof GaOverviewChangeTones]
+
+/**
+ * Whether a change is good news for its figure, from `better`: a rise in
+ * sessions and a fall in bounce rate both read `better`. Null with no change
+ * to judge.
+ */
+export function gaOverviewChangeTone(key: GaOverviewMetricKey, changePct: number | null): GaOverviewChangeTone | null {
+  if (changePct === null) return null
+  if (changePct === 0) return GaOverviewChangeTones.flat
+  const rose = changePct > 0
+  return (GA_OVERVIEW_METRICS[key].better === GaOverviewBetter.higher) === rose ? GaOverviewChangeTones.better : GaOverviewChangeTones.worse
+}

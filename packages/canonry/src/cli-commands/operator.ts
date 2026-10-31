@@ -1,11 +1,5 @@
-import { applyConfigs } from '../commands/apply.js'
-import { showAnalytics } from '../commands/analytics.js'
+import { WINDOW_SETS } from '@canonry/canonry-contracts'
 import { SOURCES_USAGE, parseSourcesIncludeByQuery, parseSourcesQueryClass, showSources } from '../commands/sources.js'
-import { showEvidence } from '../commands/evidence.js'
-import { exportProject } from '../commands/export-cmd.js'
-import { exportResults } from '../commands/results-export.js'
-import { clearResults, showHistory } from '../commands/history.js'
-import { showStatus } from '../commands/status.js'
 import type { CliCommandInput, CliCommandSpec } from '../cli-dispatch.js'
 import { getBoolean, getString, getStringArray, multiStringOption, parseIntegerOption, requireProject, stringOption } from '../cli-command-helpers.js'
 import { usageError } from '../cli-error.js'
@@ -44,6 +38,7 @@ export const OPERATOR_CLI_COMMANDS: readonly CliCommandSpec[] = [
     usage: RESULTS_CLEAR_USAGE,
     options: { run: multiStringOption(), 'research-run': multiStringOption(), confirm: { type: 'boolean', default: false } },
     run: async input => {
+      const { clearResults } = await import('../commands/history.js')
       await clearResults(requireProject(input, 'results.clear', RESULTS_CLEAR_USAGE), {
         runIds: getStringArray(input.values, 'run') ?? [],
         researchRunIds: getStringArray(input.values, 'research-run') ?? [],
@@ -62,6 +57,7 @@ export const OPERATOR_CLI_COMMANDS: readonly CliCommandSpec[] = [
       output: { type: 'string', short: 'o' },
     },
     run: async (input) => {
+      const { exportResults } = await import('../commands/results-export.js')
       const project = requireProject(input, 'results export', RESULTS_EXPORT_USAGE)
       await exportResults(project, {
         format: parseResultsExportFormat(getString(input.values, 'format')),
@@ -74,39 +70,54 @@ export const OPERATOR_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['status'],
-    usage: 'canonry status <project> [--format json]',
+    usage: 'canonry status <project>|--all [--problems] [--format json|jsonl]',
+    options: { all: { type: 'boolean', default: false }, problems: { type: 'boolean', default: false } },
     run: async (input) => {
-      const project = requireProject(input, 'status', 'canonry status <project> [--format json]')
-      await showStatus(project, input.format)
+      const { showStatus } = await import('../commands/status.js')
+      const all = getBoolean(input.values, 'all')
+      const usage = 'canonry status <project>|--all [--problems] [--format json|jsonl]'
+      const project = all ? undefined : requireProject(input, 'status', usage)
+      await showStatus(project, input.format, { all, problems: getBoolean(input.values, 'problems') })
     },
   },
   {
     path: ['evidence'],
     usage: 'canonry evidence <project> [--format json]',
     run: async (input) => {
+      const { showEvidence } = await import('../commands/evidence.js')
       const project = requireProject(input, 'evidence', 'canonry evidence <project> [--format json]')
       await showEvidence(project, input.format)
     },
   },
   {
     path: ['history'],
-    usage: 'canonry history <project> [--limit <1..500>] [--offset <n>] [--since <ISO>] [--action <action>] [--actor <actor>] [--entity-type <type>] [--format json|jsonl]\n       canonry history --all [same filters]',
+    usage: 'canonry history <project> [--limit <1..500>] [--offset <n>] [--since <ISO>] [--until <ISO>] [--action <action>] [--action-prefix <prefix>] [--actor <actor>] [--entity-type <type>] [--exclude-entity-type <type>]... [--entity-id <id>] [--format json|jsonl]\n       canonry history --all [same filters]',
     options: {
       all: { type: 'boolean', default: false },
       limit: stringOption(),
       offset: stringOption(),
       since: stringOption(),
+      until: stringOption(),
+      'action-prefix': stringOption(),
+      'exclude-entity-type': multiStringOption(),
+      'entity-id': stringOption(),
       action: stringOption(),
       actor: stringOption(),
       'entity-type': stringOption(),
     },
     run: async (input) => {
-      const usage = 'canonry history <project> [--limit <1..500>] [--offset <n>] [--since <ISO>] [--action <action>] [--actor <actor>] [--entity-type <type>] [--format json|jsonl]\n       canonry history --all [same filters]'
+      const { showHistory } = await import('../commands/history.js')
+      const usage = 'canonry history <project> [--limit <1..500>] [--offset <n>] [--since <ISO>] [--until <ISO>] [--action <action>] [--action-prefix <prefix>] [--actor <actor>] [--entity-type <type>] [--exclude-entity-type <type>]... [--entity-id <id>] [--format json|jsonl]\n       canonry history --all [same filters]'
+      if (getBoolean(input.values, 'all') && input.positionals.length > 0) throw usageError('Use a project or --all, not both.')
       const project = getBoolean(input.values, 'all') ? undefined : requireProject(input, 'history', usage)
       await showHistory(project, input.format, {
         limit: parseHistoryPageOption(input, 'limit', usage),
         offset: parseHistoryPageOption(input, 'offset', usage),
         since: getString(input.values, 'since'),
+        until: getString(input.values, 'until'),
+        actionPrefix: getString(input.values, 'action-prefix'),
+        excludeEntityTypes: getStringArray(input.values, 'exclude-entity-type'),
+        entityId: getString(input.values, 'entity-id'),
         action: getString(input.values, 'action'),
         actor: getString(input.values, 'actor'),
         entityType: getString(input.values, 'entity-type'),
@@ -115,36 +126,44 @@ export const OPERATOR_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['export'],
-    usage: 'canonry export <project> [--include-results] [--format json]',
+    usage: 'canonry export <project> [--include-results] [--include-secrets] [--format json]',
     options: {
       'include-results': { type: 'boolean', default: false },
+      'include-secrets': { type: 'boolean', default: false },
     },
     run: async (input) => {
-      const project = requireProject(input, 'export', 'canonry export <project> [--include-results] [--format json]')
+      const { exportProject } = await import('../commands/export-cmd.js')
+      const project = requireProject(input, 'export', 'canonry export <project> [--include-results] [--include-secrets] [--format json]')
       await exportProject(project, {
         includeResults: getBoolean(input.values, 'include-results'),
+        includeSecrets: getBoolean(input.values, 'include-secrets'),
         format: input.format,
       })
     },
   },
   {
     path: ['analytics'],
-    usage: 'canonry analytics <project> [--feature metrics|gaps|sources] [--window 7d|30d|90d|all] [--format json]',
+    windows: WINDOW_SETS.metrics,
+    usage: 'canonry analytics <project> [--feature metrics|gaps|sources] [--window 7d|30d|90d|all] [--query-class all|branded|non-brand] [--format json]',
     options: {
       feature: stringOption(),
       window: stringOption(),
+      'query-class': stringOption(),
     },
     run: async (input) => {
-      const project = requireProject(input, 'analytics', 'canonry analytics <project> [--feature metrics|gaps|sources] [--window 7d|30d|90d|all] [--format json]')
+      const { ANALYTICS_USAGE, parseAnalyticsQueryClass, showAnalytics } = await import('../commands/analytics.js')
+      const project = requireProject(input, 'analytics', ANALYTICS_USAGE)
       await showAnalytics(project, {
         feature: getString(input.values, 'feature'),
         window: getString(input.values, 'window'),
+        queryClass: parseAnalyticsQueryClass(getString(input.values, 'query-class')),
         format: input.format,
       })
     },
   },
   {
     path: ['sources'],
+    windows: WINDOW_SETS.metrics,
     usage: SOURCES_USAGE,
     options: {
       rank: { type: 'boolean', default: false },
@@ -175,18 +194,21 @@ export const OPERATOR_CLI_COMMANDS: readonly CliCommandSpec[] = [
   },
   {
     path: ['apply'],
-    usage: 'canonry apply <file...> [--format json]',
+    help: 'Each document is previewed independently against current stored state; earlier previews do not change later ones. Webhook URL validation can resolve DNS.',
+    usage: 'canonry apply <file...> [--dry-run] [--format json]',
+    supportsDryRun: true,
     run: async (input) => {
+      const { applyConfigs } = await import('../commands/apply.js')
       if (input.positionals.length === 0) {
         throw usageError('Error: at least one file path is required\nUsage: canonry apply <file...> [--format json]', {
           message: 'at least one file path is required',
           details: {
             command: 'apply',
-            usage: 'canonry apply <file...> [--format json]',
+            usage: 'canonry apply <file...> [--dry-run] [--format json]',
           },
         })
       }
-      await applyConfigs(input.positionals, input.format)
+      await applyConfigs(input.positionals, input.format, { dryRun: input.dryRun })
     },
   },
 ]

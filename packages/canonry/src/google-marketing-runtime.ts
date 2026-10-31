@@ -24,7 +24,7 @@ import {
   gtmRawSnapshotDtoSchema,
   gtmWorkspaceListResponseSchema,
   shiftIsoCalendarDate,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import type {
   GoogleAdsAccessibleCustomerDto,
   GoogleAdsAccessibleCustomersResponse,
@@ -46,13 +46,13 @@ import type {
   GtmSnapshotKind,
   GtmSnapshotPayload,
   GtmWorkspaceListResponse,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   GOOGLE_ADS_MAX_CUSTOMER_CLIENTS,
   GOOGLE_ADS_MAX_RESULT_ROWS,
   GoogleAdsClient,
   normalizeGoogleAdsCustomerId,
-} from '@ainyc/canonry-integration-google-ads'
+} from '@canonry/canonry-integration-google-ads'
 import type {
   GoogleAdsCampaign,
   GoogleAdsCampaignMetrics,
@@ -61,7 +61,7 @@ import type {
   GoogleAdsCustomer,
   GoogleAdsCustomerClient,
   GoogleAdsDailyCampaignMetricsRow,
-} from '@ainyc/canonry-integration-google-ads'
+} from '@canonry/canonry-integration-google-ads'
 import {
   checksumJson,
   createGoogleTagManagerClient,
@@ -70,14 +70,14 @@ import {
   toGtmDraftWorkspaceGraphDto,
   toGtmLiveContainerGraphDto,
   toGtmWorkspaceDto,
-} from '@ainyc/canonry-integration-google-tag-manager'
+} from '@canonry/canonry-integration-google-tag-manager'
 import type {
   GoogleTagManagerClient,
   GtmContainerSnapshot,
   GtmDtoAdapterOptions,
-} from '@ainyc/canonry-integration-google-tag-manager'
-import { refreshAccessToken } from '@ainyc/canonry-integration-google'
-import type { GoogleTokenResponse } from '@ainyc/canonry-integration-google'
+} from '@canonry/canonry-integration-google-tag-manager'
+import { refreshAccessToken } from '@canonry/canonry-integration-google'
+import type { GoogleTokenResponse } from '@canonry/canonry-integration-google'
 import type {
   CanonryConfig,
   GoogleAdsConnectionConfigEntry,
@@ -1076,19 +1076,21 @@ class DefaultGoogleMarketingRuntime implements GoogleMarketingRuntime {
         'INVALID_INPUT',
       )
     }
-    const selectedWorkspace = selectedWorkspaceId
-      ? workspaceDtos.find(candidate => candidate.id === selectedWorkspaceId)
-      : undefined
-    if (selectedWorkspaceId && !selectedWorkspace) {
-      throw new GoogleMarketingRuntimeError('Selected GTM workspace was not found', 'RESOURCE_NOT_FOUND')
-    }
+    // Publishing a GTM workspace deletes it and opens a new Default Workspace, so
+    // a selected workspace ID goes stale on every publish. Follow the replacement
+    // when it is the container's only workspace; otherwise read the live container.
+    const selectedWorkspaceExists = selectedWorkspaceId !== null
+      && workspaceDtos.some(candidate => candidate.id === selectedWorkspaceId)
+    const workspaceId = selectedWorkspaceId === null || selectedWorkspaceExists
+      ? selectedWorkspaceId
+      : workspaceDtos.length === 1 ? workspaceDtos[0]!.id : null
 
     const snapshotReads: Array<Promise<GtmContainerSnapshot>> = [
       client.getLiveSnapshot(selectedContainerPath),
     ]
-    if (selectedWorkspaceId) {
+    if (workspaceId) {
       snapshotReads.push(client.getWorkspaceSnapshot(
-        workspacePath(selectedAccountId, selectedContainerId, selectedWorkspaceId),
+        workspacePath(selectedAccountId, selectedContainerId, workspaceId),
       ))
     }
     const snapshots = await Promise.all(snapshotReads)
@@ -1119,7 +1121,7 @@ class DefaultGoogleMarketingRuntime implements GoogleMarketingRuntime {
       payload,
       selectedAccountId,
       selectedContainerId,
-      selectedWorkspaceId,
+      workspaceId,
       raw,
       capturedAt,
     )

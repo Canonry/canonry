@@ -21,13 +21,15 @@ import {
   notFound,
   validationError,
   type MeasurementPlanV2,
-} from '@ainyc/canonry-contracts'
+  compareText,
+  normalizeIdentityText as normalizeText,
+} from '@canonry/canonry-contracts'
 import {
   measurementPlanVersions,
   querySnapshots,
   runs,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { resolveProject } from './helpers.js'
 import {
   activeMeasurementPlan,
@@ -64,14 +66,6 @@ interface MeasurementQuestionRunScope {
   executionIds: readonly string[]
   provider?: string
   location?: string
-}
-
-function compareText(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0
-}
-
-function normalizeText(value: string): string {
-  return value.normalize('NFKC').trim().replace(/\s+/g, ' ').toLocaleLowerCase('en')
 }
 
 function excerptOf(answer: string): string {

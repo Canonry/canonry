@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useLayoutEffect } from 'react'
 import { createPortal } from 'react-dom'
+import { AlertTriangle } from 'lucide-react'
 
 interface TooltipPos {
   top: number
@@ -11,8 +12,18 @@ interface TooltipPos {
  * keyboard and exposes the explanatory copy to assistive tech via its
  * accessible name (`aria-label`) — the visual bubble is decorative
  * (`aria-hidden`). Hover, focus, click (touch), and Escape all toggle it.
+ *
+ * `tone="caution"` with a short `label` is a caveat: a warning icon and a few
+ * words beside a figure, with the sentence in the bubble. `text` must start
+ * with `label`, so the visible words are part of the accessible name.
  */
-export function InfoTooltip({ text, placement = 'top' }: { text: string; placement?: 'top' | 'bottom' }) {
+export function InfoTooltip({ text, placement = 'top', tone = 'info', label }: {
+  text: string
+  placement?: 'top' | 'bottom'
+  tone?: 'info' | 'caution'
+  /** Visible words beside the icon, three or four at most. */
+  label?: string
+}) {
   const [pos, setPos] = useState<TooltipPos | null>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const bubbleRef = useRef<HTMLSpanElement>(null)
@@ -49,7 +60,7 @@ export function InfoTooltip({ text, placement = 'top' }: { text: string; placeme
       <button
         ref={triggerRef}
         type="button"
-        className="info-tooltip-trigger"
+        className={`info-tooltip-trigger${label ? ' info-tooltip-trigger-labeled' : ''}${tone === 'caution' ? ' info-tooltip-trigger-caution' : ''}`}
         aria-label={text}
         aria-expanded={pos !== null}
         onFocus={show}
@@ -66,15 +77,21 @@ export function InfoTooltip({ text, placement = 'top' }: { text: string; placeme
           if (e.key === 'Escape') hide()
         }}
       >
-        <svg className="info-tooltip-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-          <circle cx="8" cy="8" r="7" stroke="currentColor" strokeWidth="1.5" />
-          <path d="M8 7v4M8 5.5v0" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-        </svg>
+        {tone === 'caution'
+          ? <AlertTriangle className="info-tooltip-icon" aria-hidden="true" />
+          : (
+            <svg className="info-tooltip-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <circle cx="8" cy="8" r="7" stroke="currentColor" strokeWidth="1.5" />
+              <path d="M8 7v4M8 5.5v0" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            </svg>
+          )}
+        {label ? <span aria-hidden="true">{label}</span> : null}
       </button>
       {pos !== null && createPortal(
         <span
           ref={bubbleRef}
           aria-hidden="true"
+          className="material-tooltip px-3 py-2 text-copy-13 text-secondary"
           style={{
             position: 'fixed',
             top: pos.top,
@@ -83,22 +100,11 @@ export function InfoTooltip({ text, placement = 'top' }: { text: string; placeme
             zIndex: 9999,
             pointerEvents: 'none',
             width: placement === 'bottom' ? 'min(14rem, calc(100vw - 1rem))' : '14rem',
-            padding: '0.5rem 0.75rem',
-            fontSize: placement === 'bottom' ? '13px' : '11px',
-            fontWeight: 400,
-            textTransform: 'none',
-            letterSpacing: 'normal',
-            lineHeight: placement === 'bottom' ? '18px' : '1rem',
-            color: 'var(--color-neutral-text)',
-            backgroundColor: 'var(--color-bg-elevated)',
-            border: '1px solid color-mix(in oklab, var(--color-border-strong) 60%, transparent)',
-            borderRadius: '0.5rem',
-            boxShadow: '0 10px 15px -3px var(--color-shadow-tooltip), 0 4px 6px -4px var(--color-shadow-tooltip)',
           }}
         >
           {text}
         </span>,
-        document.body,
+        triggerRef.current?.closest('.app-shell-embed') ?? document.body,
       )}
     </span>
   )

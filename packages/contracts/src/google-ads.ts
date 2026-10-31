@@ -1,3 +1,4 @@
+import { WINDOW_SETS } from './time-window.js'
 import { z } from 'zod'
 import { fraction } from './ratio-unit.js'
 
@@ -492,7 +493,7 @@ export type GoogleAdsRawSnapshotDto = z.infer<typeof googleAdsRawSnapshotDtoSche
  * 30d rather than 28d on purpose: 28 is an artifact of what happened to fit,
  * and operators think in months and weeks, not in multiples of a fortnight.
  */
-export const googleAdsMetricsWindowSchema = z.enum(['7d', '14d', '30d'])
+export const googleAdsMetricsWindowSchema = z.enum(WINDOW_SETS.googleAdsMetrics)
 export type GoogleAdsMetricsWindow = z.infer<typeof googleAdsMetricsWindowSchema>
 
 /**

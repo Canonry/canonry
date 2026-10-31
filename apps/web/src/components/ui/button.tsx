@@ -6,20 +6,21 @@ import { cva, type VariantProps } from 'class-variance-authority'
 import { cn } from '../../lib/utils.js'
 
 const buttonVariants = cva(
-  'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400 focus-visible:ring-offset-2 focus-visible:ring-offset-overlay-scrim disabled:pointer-events-none disabled:opacity-50',
+  'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-button-14 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400 focus-visible:ring-offset-2 focus-visible:ring-offset-bg disabled:pointer-events-none disabled:opacity-50 pointer-coarse:min-h-11',
   {
     variants: {
       variant: {
-        default: 'bg-accent text-on-inverse hover:bg-mono-200',
+        default: 'bg-accent text-on-inverse hover:bg-accent-hover',
         secondary: 'border border-base bg-bg text-heading hover:bg-bg-elevated',
         ghost: 'text-secondary hover:bg-bg-elevated hover:text-primary',
         outline: 'border border-base bg-transparent text-heading hover:bg-bg-elevated',
-        destructive: 'bg-negative-600 text-on-emphasis hover:bg-negative-700',
+        destructive: 'bg-negative-600 text-on-emphasis hover:bg-negative-hover',
       },
       size: {
-        default: 'h-10 px-4 md:h-9',
-        sm: 'h-9 px-3 text-xs md:h-8',
-        icon: 'size-10 md:size-9',
+        default: 'h-9 px-4',
+        sm: 'h-8 px-3',
+        lg: 'h-10 rounded-lg px-5 text-button-16',
+        icon: 'size-9 pointer-coarse:min-w-11',
       },
     },
     defaultVariants: {

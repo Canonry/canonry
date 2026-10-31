@@ -1,6 +1,6 @@
 import { createServer } from 'node:http'
 
-import type { PlatformEnv } from '@ainyc/canonry-config'
+import type { PlatformEnv } from '@canonry/canonry-config'
 
 interface WorkerHealthResponse {
   service: 'aeo-platform-worker'

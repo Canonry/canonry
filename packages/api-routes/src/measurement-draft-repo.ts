@@ -13,14 +13,15 @@ import {
   type MeasurementDraftAuthoring,
   type MeasurementDraftCounts,
   type MeasurementPlanDraft,
-} from '@ainyc/canonry-contracts'
+  compareText,
+} from '@canonry/canonry-contracts'
 import {
   measurementOperationReceipts,
   measurementPlanDrafts,
   measurementPlans,
   measurementPlanVersions,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 
 export type DraftRow = typeof measurementPlanDrafts.$inferSelect
 export type PlanVersionRow = typeof measurementPlanVersions.$inferSelect
@@ -34,10 +35,6 @@ type DbLike = Pick<DatabaseClient, 'select' | 'insert' | 'update' | 'delete'>
  * table stays small between sweeps.
  */
 export const MEASUREMENT_RECEIPT_TTL_MS = 24 * 60 * 60 * 1000
-
-function compareText(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0
-}
 
 /**
  * Key-order-independent JSON. The draft service compares and hashes structures
@@ -111,7 +108,7 @@ export function parseStoredAuthoring(json: string): MeasurementDraftAuthoring {
   return parsed.data
 }
 
-export function draftRow(db: DbLike, projectId: string): DraftRow | null {
+export function draftRow(db: Pick<DatabaseClient, 'select'>, projectId: string): DraftRow | null {
   return db.select().from(measurementPlanDrafts)
     .where(eq(measurementPlanDrafts.projectId, projectId)).get() ?? null
 }
@@ -151,7 +148,7 @@ export function draftCounts(authoring: MeasurementDraftAuthoring): MeasurementDr
 }
 
 /** The active-plan pointer and the revision it names, or null on a planless project. */
-export function activePlanVersionRow(db: DbLike, projectId: string): PlanVersionRow | null {
+export function activePlanVersionRow(db: Pick<DatabaseClient, 'select'>, projectId: string): PlanVersionRow | null {
   const pointer = db.select().from(measurementPlans)
     .where(eq(measurementPlans.projectId, projectId)).get()
   if (!pointer) return null

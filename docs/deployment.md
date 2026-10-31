@@ -22,6 +22,15 @@ per team, with separate databases and OAuth clients. Multi-tenancy as a
 schema feature is **not** on the current roadmap — see root `AGENTS.md`
 → "Deployment Posture" for what it would take to build it.
 
+### Trusted reverse proxies
+
+Set `CANONRY_TRUST_PROXY` to a comma-separated list of trusted proxy addresses
+or CIDRs (for example, `127.0.0.1,::1` for a local reverse proxy). Numeric hop
+counts are rejected because they cannot authenticate the immediate proxy peer.
+Use `true` only when network access guarantees that every connection comes
+through a trusted proxy. The standalone server defaults to `false`; Cloud Run
+requires an explicit setting.
+
 ## Local (default)
 
 ```bash
@@ -42,10 +51,73 @@ Provider credentials are optional for bootstrap and Page Health.
 > *connection refused* even though the server is up — browse to
 > `http://127.0.0.1:4100` instead, or set `CANONRY_HOST=::1` to bind IPv6.
 
-> **Dashboard sessions are in-memory.** The dashboard password you set persists
-> in `~/.canonry/config.yaml`, but the logged-in *sessions* live in the server
-> process. Restarting `canonry serve` (or `canonry stop` / a crash) clears them,
-> so you'll be asked to sign in again after a restart. This is expected.
+### First-run dashboard password
+
+The first time you open the dashboard, it asks you to create a dashboard
+password. Every password sign-in uses the install's root API key (`apiKey` in
+`config.yaml`), so setting the password gives full access to every project.
+
+- **On this machine:** with the default loopback bind, open
+  `http://127.0.0.1:4100` and create the password. No API key is needed,
+  unless the configuration names another way in (see the next item).
+- **From another machine or through a proxy:** the dashboard also asks for the
+  root API key. This applies to every request when Canonry binds a non-loopback
+  address (`--host 0.0.0.0`, Docker), and to any request that comes through a
+  reverse proxy or Tailscale Serve, also when Canonry binds loopback. When
+  `publicUrl` or `apiUrl` names a host other than `localhost` or a loopback
+  address, a base path is set (`basePath`, `--base-path`, or
+  `CANONRY_BASE_PATH`), or `CANONRY_TRUST_PROXY` is set, it applies to every
+  request, also on this machine. The dashboard sends the key with that one
+  setup request and does not store it. Other API keys, including full-access
+  keys from `canonry key create`, are refused.
+
+> **Create the password before you forward the port.** Without the root API
+> key, Canonry accepts the setup from any process that can connect to its
+> loopback port. A TCP forwarder on the same machine (`ssh -R`, `socat`,
+> `kubectl port-forward`, `tailscale serve --tcp`, `ngrok tcp`) adds no header,
+> so Canonry cannot tell its remote clients from local ones. Create the
+> password before you start the forwarder.
+
+To find the root API key, read `apiKey` in the config file:
+
+```bash
+grep '^apiKey:' "${CANONRY_CONFIG_DIR:-$HOME/.canonry}/config.yaml"
+```
+
+The same rule applies to `POST /api/v1/session/setup` with
+`Authorization: Bearer <root API key>`. Without the key, the request gets
+`401 AUTH_REQUIRED` and Canonry writes nothing. If the root API key in
+`config.yaml` was revoked or deleted, a request with that key gets
+`401 AUTH_INVALID`, which tells you to run `canonry bootstrap`.
+
+If you forget the dashboard password, sign in with the root API key (**Forgot
+password? Use API key** on the sign-in screen), or reset the password on the
+machine that holds `config.yaml`:
+
+```bash
+canonry dashboard reset-password
+```
+
+The command removes the password from `config.yaml` and does not call the
+server. Restart Canonry afterward: a running server keeps the old password until
+it restarts. The dashboard then asks for a new password under the rules above,
+so stop any port forwarder first and create the password right away. If the
+server uses another config directory, set `CANONRY_CONFIG_DIR` to it before you
+run the command. Installs with named accounts do not use this password: remove
+and recreate the account with `canonry user delete <name>` and `canonry user
+create`.
+
+Dashboard sessions persist in the database and survive server restarts. Shared-password
+and API-key logins expire twelve hours after sign-in; logout and key revocation
+still end access. Rotating an API key ends its browser sessions, even when bootstrap
+retains the key's ID. Changing the dashboard password hash and restarting ends
+password-derived sessions; API-key sign-ins are independent of that password.
+Restoring previous credentials does not revive ended sessions. Named-account
+sessions renew during use, up to thirty days.
+Cookies are HttpOnly, so page JavaScript cannot read them; inspect them in the
+browser's cookie storage. Sessions created before durable storage was introduced
+need one new sign-in after upgrading. Upgrading sessions without credential
+bindings also requires a new sign-in.
 
 > **Only disable the dashboard password behind upstream auth.** `dashboard:
 > { requirePassword: false }` (or `CANONRY_DASHBOARD_REQUIRE_PASSWORD=0`) skips
@@ -63,12 +135,52 @@ dashboard:
 ```
 
 `showResourceLinks` removes the GitHub, documentation, and changelog icons
-from the sidebar and page footer. `showUpdateNotification` removes the
+from the sidebar and page footer, plus repository documentation links on Agent
+Setup. `showUpdateNotification` removes the
 available-version badge from the sidebar but keeps update checks and CLI
 notices active.
 
 For container deployments, set `CANONRY_DASHBOARD_SHOW_RESOURCE_LINKS=0` or
 `CANONRY_DASHBOARD_SHOW_UPDATE_NOTIFICATION=0`.
+
+### Agent setup instructions
+
+Agent Setup includes local plugins, CLI, and `canonry-mcp` instructions by
+default. For a client deployment whose users connect through ChatGPT or Claude,
+hide those instructions explicitly:
+
+```yaml
+dashboard:
+  showLocalAgentSetup: false
+```
+
+For containers, set `CANONRY_DASHBOARD_SHOW_LOCAL_AGENT_SETUP=0` and restart.
+The environment value overrides YAML; `1` restores local instructions. Blank or
+unrecognized environment values fall back to YAML, then the default `true`.
+
+This setting changes only Agent Setup presentation. CLI, API, MCP, permissions,
+and hosted connector readiness stay the same. The page does not infer the
+audience from public URL, readiness, or user role. Both views include hosted
+connection steps when configured; the client view never falls back to local
+commands if hosted setup needs attention. `showResourceLinks: false` hides
+repository documentation links while retaining the ChatGPT and Claude help
+links.
+
+### Brand mark
+
+The dashboard shows the Canonry mascot in the browser tab, the sidebar, and its
+sign-in screen. For a client deployment, show the Canonry icon instead: the
+canary on a white tile, as in the plugin listings and on the OAuth sign-in pages.
+
+```yaml
+dashboard:
+  brandMark: icon
+```
+
+For containers, set `CANONRY_DASHBOARD_BRAND_MARK=icon` and restart. The
+environment value overrides YAML; `mascot` restores the default. Blank or
+unrecognized values fall back to YAML, then `mascot`. This changes presentation
+only.
 
 ### Managed run kinds
 
@@ -139,6 +251,24 @@ every tool scope, so a write-scope Aero turn from the API or
 schedules. The operator's own `canonry run` and `canonry schedule` commands are
 unaffected.
 
+### Aero reasoning
+
+Aero asks the model to reason a little before it answers and calls tools.
+OpenAI models default to `low`; Claude, Gemini and Z.ai default to `off`. A model
+used through OpenRouter gets the same default as its own provider, so
+`openai/gpt-6-luna` runs at `low`. To set it for the install:
+
+```yaml
+agent:
+  reasoning: low
+```
+
+Levels are `off`, `minimal`, `low`, `medium`, `high`, `xhigh` and `max`. A model
+that does not support a level uses the nearest one it does.
+`CANONRY_AGENT_REASONING` overrides it for container deployments. Higher levels
+take longer and cost more per answer; on Canonry's analyst eval, GPT-6 Luna at
+`low` was both faster and more accurate than at `off` or `medium`.
+
 ### Viewer Aero
 
 By default only administrators can use Aero. To let signed-in viewer accounts
@@ -200,11 +330,93 @@ All dashboards use the bundled Geist fonts. They do not load Google Fonts or
 fonts from the host page. The `mode`, `bg`, `fg`, and `accent` theme keys remain
 available.
 
+### Embedded query editing
+
+An embedded dashboard is read-only, with one exception. When the fronting proxy
+lets a dashboard's clients manage their own queries, the dashboard can add and
+remove that project's tracked queries.
+
+Two things turn this on:
+
+- The proxy sends `X-Canonry-Embed-Query-Limit: <n>` on the dashboard's
+  requests. The value is the plan's query limit, a whole number from 1 to
+  1000. With this header, the dashboard shows its Queries tab, and the embed
+  tab allowlist lets it read `/projects/:name/query-tracking`.
+- The proxy sends query changes with an API key that holds only the
+  `embed.queries.write` scope and is scoped to that one project.
+
+A key with `embed.queries.write` can call only
+`POST /projects/:name/query-tracking/preview` and
+`POST /projects/:name/query-tracking/commit`. Every write it sends must carry
+the limit header. Canonry then applies these rules:
+
+- Each request is one change: add one written query, or remove one query by
+  id. Wording edits, saved research, discovery results, templates,
+  audiences, contexts, and classification are refused.
+- Only simple projects accept these changes. An advanced portfolio stays with
+  the operator.
+- A change cannot take the query list past the limit. Canonry checks the
+  limit at review and again at save. Removals stay allowed when the list is
+  already over the limit.
+
+A caller that holds `*` or `measurement-plan.write` keeps full authority on
+these routes, and the embed rules do not apply to it.
+
 ---
 
 ## Behind a Reverse Proxy
 
 You can serve canonry behind any reverse proxy — nginx, Caddy, Traefik, etc. — at either the root path or a sub-path.
+
+Canonry checks the HTTP `Host` header to prevent DNS rebinding. It accepts
+`localhost`, valid IPv4/IPv6 addresses, the configured bind hostname, and the
+hostnames in `apiUrl` and `publicUrl`. Other DNS names receive HTTP 403.
+
+If the proxy hostname is absent from `apiUrl`, set `publicUrl` in
+`~/.canonry/config.yaml`:
+
+```yaml
+publicUrl: https://example.com
+```
+
+Use the external URL's actual scheme and hostname. Restart Canonry after this
+change. Configure the proxy to forward the external `Host` header.
+
+For a sub-path, include the prefix in `publicUrl`, for example
+`https://example.com/canonry/`, and set `basePath: /canonry/`.
+
+**First-run password through a proxy.** The proxy connects to Canonry over
+loopback, but the visitor is remote. Enter the root API key in the setup form
+(see [First-run dashboard password](#first-run-dashboard-password)). You can
+also create the password on the server itself before you set `publicUrl` and
+open the proxy.
+
+Canonry refuses a first-run password setup without the root API key in these
+cases:
+
+- `publicUrl` or `apiUrl` names a host other than `localhost` or a loopback
+  address, a base path is set, or `CANONRY_TRUST_PROXY` is set. This applies
+  to every request.
+- The request has a `Forwarded`, `X-Forwarded-*`, `X-Real-IP`, `Via`,
+  `CF-Connecting-IP`, or `True-Client-IP` header.
+- The request has a `Host` that is not `localhost` or a loopback address.
+- The request uses HTTP/1.0. nginx sends HTTP/1.0 to Canonry unless you set
+  `proxy_http_version`. This catches a bare `proxy_pass`, which sets `Host` to
+  the loopback upstream and adds no forwarding header.
+
+The client sets `Host`, and nginx's `$host` is the value that the client sent.
+Thus `Host` cannot show that a request is local. The forwarding headers mark a
+request as proxied, so configure the proxy to send `X-Forwarded-For`, as the
+examples below do.
+
+> **A proxy without forwarding headers leaves setup open.** Some proxies send
+> HTTP/1.1 and no forwarding header, for example nginx with
+> `proxy_http_version 1.1;` and no `X-Forwarded-For`, or HAProxy without
+> `option forwardfor`. Through such a proxy, a visitor who sends
+> `Host: localhost` looks local to Canonry. If neither `publicUrl` nor a base
+> path is set, that visitor can create the password without the root API key.
+> Create the password before you open the proxy, or configure the proxy to
+> send `X-Forwarded-For`.
 
 ### Root path (`/`)
 
@@ -226,6 +438,8 @@ server {
     location / {
         proxy_pass http://localhost:4100;
         proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
     }
 }
 ```
@@ -282,12 +496,16 @@ server {
     location /api/v1/ {
         proxy_pass http://localhost:4100;
         proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
     }
 
     # Canonry UI
     location /canonry/ {
         proxy_pass http://localhost:4100/;
         proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
     }
 }
 ```
@@ -336,12 +554,24 @@ CANONRY_INSTANCE=acme-demo CANONRY_INSTANCE_ROLE=client-demo canonry serve
 
 To share canonry over a Tailscale network with HTTPS:
 
+Set `publicUrl` to your Tailscale HTTPS URL in `~/.canonry/config.yaml`:
+
+```yaml
+publicUrl: https://your-node.your-tailnet.ts.net
+```
+
+Restart Canonry after this change.
+
 ```bash
 # Expose port 4100 via Tailscale Serve (HTTPS on :443)
 tailscale serve --bg http://localhost:4100
 
 # Access at https://<hostname>.tail…ts.net
 ```
+
+Because `publicUrl` names the tailnet host, the first-run password setup asks
+for the root API key, also on this machine (see
+[First-run dashboard password](#first-run-dashboard-password)).
 
 For sub-path via Caddy + Tailscale, configure Tailscale Serve to point at Caddy's port (80) and use the Caddy sub-path config above.
 
@@ -378,7 +608,7 @@ sudo systemctl enable --now canonry
 ## Docker
 
 ```dockerfile
-FROM node:22-alpine
+FROM node:26.12.1-bookworm-slim@sha256:1e96b01216cab31612cd1f9480e83413472dee8686d423cb4c1ec62bf8a26e9e
 RUN npm install -g @canonry/canonry
 # Tells update notices to upgrade by rebuilding this image.
 ENV CANONRY_INSTALL_METHOD=docker
@@ -393,6 +623,19 @@ docker run -d \
   -v $HOME/.canonry:/root/.canonry \
   -e CANONRY_BASE_PATH=/canonry/ \
   canonry
+```
+
+Direct access through `localhost` or the Docker host's IP address requires no
+`publicUrl`. For a DNS name, configure `publicUrl` as described under
+"Behind a Reverse Proxy".
+
+The container binds `0.0.0.0`, so the first-run password setup always asks
+for the root API key, also from the Docker host. In the example above, the key
+is `apiKey` in the mounted `$HOME/.canonry/config.yaml`. For a container
+without that mount, read it from the container:
+
+```bash
+docker exec <container> sh -c 'grep "^apiKey:" "${CANONRY_CONFIG_DIR:-$HOME/.canonry}/config.yaml"'
 ```
 
 ---

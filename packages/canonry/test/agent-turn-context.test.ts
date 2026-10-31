@@ -3,8 +3,8 @@ import os from 'node:os'
 import path from 'node:path'
 import Fastify, { type FastifyInstance } from 'fastify'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { createClient, migrate, projects, type DatabaseClient } from '@ainyc/canonry-db'
-import { AppError, validationError, agentViewContextSchema } from '@ainyc/canonry-contracts'
+import { createClient, migrate, projects, type DatabaseClient } from '@canonry/canonry-db'
+import { AppError, notFound, validationError, agentViewContextSchema } from '@canonry/canonry-contracts'
 import { fauxAssistantMessage, fauxToolCall } from '@earendil-works/pi-ai'
 import { aeroEvidenceFixture } from '../../contracts/test/fixtures/aero-evidence.js'
 import { registerAeroFaux, type AeroFaux } from './helpers/aero-faux.js'
@@ -76,6 +76,17 @@ it('rejects foreign scope before a model call and rejects malformed limits', asy
   const invalid = await app.inject({ method: 'POST', url: '/projects/demo/agent/prompt', payload: { prompt: 'Explain', limits: { maxToolCalls: 101 } } })
   expect(invalid.statusCode).toBe(400)
   expect(read).toHaveBeenCalledTimes(1)
+})
+
+it('answers without the view when what it selects no longer exists, such as a cancelled scan', async () => {
+  read.mockRejectedValue(notFound('Site crawl run', 'run-3'))
+  const generate = vi.fn(() => fauxAssistantMessage('That scan is no longer stored, so this answer does not use it.'))
+  faux.setResponses([generate])
+  const response = await app.inject({ method: 'POST', url: '/projects/demo/agent/prompt', payload: { prompt: 'Explain this Property', context } })
+  expect(response.statusCode).toBe(200)
+  expect(generate).toHaveBeenCalledTimes(1)
+  const events = response.body.split('\n').filter(line => line.startsWith('data:')).map(line => JSON.parse(line.slice(5)))
+  expect(events.find(event => event.type === 'aero_turn_status').status).toMatchObject({ reason: 'completed', modelCalls: 1 })
 })
 
 it('reserves the session during context reads and honors cancellation before generation', async () => {

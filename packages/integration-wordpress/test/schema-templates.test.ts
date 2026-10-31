@@ -2,8 +2,6 @@ import { describe, expect, it } from 'vitest'
 import {
   generateSchema,
   isSupportedSchemaType,
-  parseSchemaPageEntry,
-  supportedSchemaTypes,
   type BusinessProfile,
 } from '../src/schema-templates.js'
 
@@ -39,74 +37,31 @@ describe('schema-templates', () => {
     })
   })
 
-  describe('supportedSchemaTypes', () => {
-    it('returns list of supported types', () => {
-      const types = supportedSchemaTypes()
-      expect(types).toEqual([
-        'LocalBusiness',
-        'Organization',
-        'FAQPage',
-        'Service',
-        'WebPage',
-      ])
-    })
-  })
-
-  describe('parseSchemaPageEntry', () => {
-    it('parses string entry', () => {
-      const result = parseSchemaPageEntry('LocalBusiness')
-      expect(result).toEqual({ type: 'LocalBusiness' })
-    })
-
-    it('parses object entry with type only', () => {
-      const result = parseSchemaPageEntry({ type: 'Organization' })
-      expect(result).toEqual({ type: 'Organization' })
-    })
-
-    it('parses object entry with type and faqs', () => {
-      const faqs = [
-        { q: 'Question 1', a: 'Answer 1' },
-        { q: 'Question 2', a: 'Answer 2' },
-      ]
-      const result = parseSchemaPageEntry({ type: 'FAQPage', faqs })
-      expect(result).toEqual({ type: 'FAQPage', faqs })
-    })
-  })
-
   describe('generateSchema', () => {
     it('generates LocalBusiness schema', () => {
-      const schema = generateSchema('LocalBusiness', mockBusiness)
-      expect(schema['@type']).toBe('LocalBusiness')
-      expect(schema.name).toBe(mockBusiness.name)
-      expect(schema.url).toBe(mockBusiness.url)
-      expect(schema.description).toBe(mockBusiness.description)
-      expect(schema.telephone).toBe(mockBusiness.phone)
-      expect(schema.email).toBe(mockBusiness.email)
-      expect(schema.address).toEqual({
-        '@type': 'PostalAddress',
-        streetAddress: mockBusiness.address!.street,
-        addressLocality: mockBusiness.address!.city,
-        addressRegion: mockBusiness.address!.state,
-        postalCode: mockBusiness.address!.zip,
-        addressCountry: mockBusiness.address!.country,
+      expect(generateSchema('LocalBusiness', mockBusiness)).toEqual({
+        '@context': 'https://schema.org', '@type': 'LocalBusiness', name: 'Test Business',
+        url: 'https://example.com', description: 'A test business',
+        telephone: '+1234567890', email: 'info@example.com',
+        address: {
+          '@type': 'PostalAddress', streetAddress: '123 Main St', addressLocality: 'Anytown',
+          addressRegion: 'CA', postalCode: '90210', addressCountry: 'USA',
+        },
       })
     })
 
     it('generates Organization schema', () => {
-      const schema = generateSchema('Organization', mockBusiness)
-      expect(schema['@type']).toBe('Organization')
-      expect(schema.name).toBe(mockBusiness.name)
-      expect(schema.url).toBe(mockBusiness.url)
-      expect(schema.description).toBe(mockBusiness.description)
-      expect(schema.telephone).toBe(mockBusiness.phone)
-      expect(schema.email).toBe(mockBusiness.email)
-      expect(schema.address).toEqual({
-        '@type': 'PostalAddress',
-        streetAddress: mockBusiness.address!.street,
-        addressLocality: mockBusiness.address!.city,
-        addressRegion: mockBusiness.address!.state,
-        postalCode: mockBusiness.address!.zip,
-        addressCountry: mockBusiness.address!.country,
+      expect(generateSchema('Organization', mockBusiness)).toEqual({
+        '@context': 'https://schema.org', '@type': 'Organization', name: 'Test Business',
+        url: 'https://example.com', description: 'A test business',
+        telephone: '+1234567890', email: 'info@example.com',
+        address: {
+          '@type': 'PostalAddress', streetAddress: '123 Main St', addressLocality: 'Anytown',
+          addressRegion: 'CA', postalCode: '90210', addressCountry: 'USA',
+        },
+      })
+      expect(generateSchema('Organization', { name: 'Minimal Co' })).toEqual({
+        '@context': 'https://schema.org', '@type': 'Organization', name: 'Minimal Co',
       })
     })
 
@@ -115,27 +70,13 @@ describe('schema-templates', () => {
         { q: 'Question 1', a: 'Answer 1' },
         { q: 'Question 2', a: 'Answer 2' },
       ]
-      const schema = generateSchema('FAQPage', mockBusiness, { faqs })
-      expect(schema['@type']).toBe('FAQPage')
-      expect(schema.name).toBe(mockBusiness.name)
-      expect(schema.mainEntity).toEqual([
-        {
-          '@type': 'Question',
-          name: 'Question 1',
-          acceptedAnswer: {
-            '@type': 'Answer',
-            text: 'Answer 1',
-          },
-        },
-        {
-          '@type': 'Question',
-          name: 'Question 2',
-          acceptedAnswer: {
-            '@type': 'Answer',
-            text: 'Answer 2',
-          },
-        },
-      ])
+      expect(generateSchema('FAQPage', mockBusiness, { faqs })).toEqual({
+        '@context': 'https://schema.org', '@type': 'FAQPage', name: 'Test Business',
+        mainEntity: [
+          { '@type': 'Question', name: 'Question 1', acceptedAnswer: { '@type': 'Answer', text: 'Answer 1' } },
+          { '@type': 'Question', name: 'Question 2', acceptedAnswer: { '@type': 'Answer', text: 'Answer 2' } },
+        ],
+      })
     })
 
     it('generates FAQPage schema without faqs', () => {
@@ -146,27 +87,21 @@ describe('schema-templates', () => {
     })
 
     it('generates Service schema', () => {
-      const schema = generateSchema('Service', mockBusiness)
-      expect(schema['@type']).toBe('Service')
-      expect(schema.name).toBe(mockBusiness.name)
-      expect(schema.url).toBe(mockBusiness.url)
-      expect(schema.description).toBe(mockBusiness.description)
-      expect(schema.areaServed).toEqual({
-        '@type': 'PostalAddress',
-        streetAddress: mockBusiness.address!.street,
-        addressLocality: mockBusiness.address!.city,
-        addressRegion: mockBusiness.address!.state,
-        postalCode: mockBusiness.address!.zip,
-        addressCountry: mockBusiness.address!.country,
+      expect(generateSchema('Service', mockBusiness)).toEqual({
+        '@context': 'https://schema.org', '@type': 'Service', name: 'Test Business',
+        url: 'https://example.com', description: 'A test business',
+        areaServed: {
+          '@type': 'PostalAddress', streetAddress: '123 Main St', addressLocality: 'Anytown',
+          addressRegion: 'CA', postalCode: '90210', addressCountry: 'USA',
+        },
       })
     })
 
     it('generates WebPage schema', () => {
-      const schema = generateSchema('WebPage', mockBusiness)
-      expect(schema['@type']).toBe('WebPage')
-      expect(schema.name).toBe(mockBusiness.name)
-      expect(schema.url).toBe(mockBusiness.url)
-      expect(schema.description).toBe(mockBusiness.description)
+      expect(generateSchema('WebPage', mockBusiness)).toEqual({
+        '@context': 'https://schema.org', '@type': 'WebPage', name: 'Test Business',
+        url: 'https://example.com', description: 'A test business',
+      })
     })
 
     it('throws error for unsupported type', () => {

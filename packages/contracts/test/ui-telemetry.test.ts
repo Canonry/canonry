@@ -1,0 +1,91 @@
+import { describe, expect, it } from 'vitest'
+import {
+  isUiApiRouteTemplate,
+  uiPageFromRoutePath,
+  uiProjectTabFromPage,
+  uiTelemetryEventSchema,
+} from '../src/ui-telemetry.js'
+
+const ids = { eventId: '30ed4717-c740-433f-9d37-05421e3f1a75', uiSessionId: '02db91c9-98d6-4826-b2cf-a9d4bec84768' }
+
+describe('uiTelemetryEventSchema', () => {
+  it('accepts each event shape', () => {
+    for (const event of [
+      { ...ids, event: 'ui.page_viewed', page: '/projects/:projectName/report', tab: 'report' },
+      { ...ids, event: 'ui.action', page: '/projects/:projectName/settings', action: 'integration.connect', integration: 'ga' },
+      { ...ids, event: 'ui.action', page: '/projects/:projectName/settings', action: 'integration.connect_started', integration: 'google_ads' },
+      { ...ids, event: 'ui.error', page: '/runs', kind: 'api', route: '/api/v1/projects/{name}/runs', method: 'POST', statusClass: '5xx', status: 503 },
+      { ...ids, event: 'ui.error', page: '/', kind: 'render', component: 'root', errorName: 'TypeError' },
+      { ...ids, event: 'ui.vitals', page: '/', metric: 'LCP', rating: 'good' },
+      { ...ids, event: 'ui.action', page: '/projects/:projectName', action: 'filter.change', filter: 'query_class' },
+      { ...ids, event: 'ui.action', page: '/runs', action: 'search.submit' },
+    ]) {
+      expect(uiTelemetryEventSchema.safeParse(event).success, JSON.stringify(event)).toBe(true)
+    }
+  })
+
+  it('accepts the project tab on every event, since the dashboard adds it on every project page', () => {
+    const onProjectPage = { ...ids, page: '/projects/:projectName', tab: 'overview' }
+    for (const event of [
+      { ...onProjectPage, event: 'ui.page_viewed' },
+      { ...onProjectPage, event: 'ui.action', action: 'sweep.launch' },
+      { ...onProjectPage, event: 'ui.error', kind: 'render' },
+      { ...onProjectPage, event: 'ui.vitals', metric: 'TTFB', rating: 'good' },
+    ]) {
+      expect(uiTelemetryEventSchema.safeParse(event).success, JSON.stringify(event)).toBe(true)
+    }
+    expect(uiTelemetryEventSchema.safeParse({ ...onProjectPage, event: 'ui.vitals', metric: 'TTFB', rating: 'good', tab: 'acme-co' }).success).toBe(false)
+  })
+
+  it('rejects free text, real paths, unknown keys and unknown enums', () => {
+    for (const event of [
+      { ...ids, event: 'ui.page_viewed', page: '/projects/acme-co/report' },
+      { ...ids, event: 'ui.action', page: '/', action: 'clicked the blue button' },
+      { ...ids, event: 'ui.error', page: '/', kind: 'render', message: 'Cannot read property x of undefined' },
+      { ...ids, event: 'ui.error', page: '/', kind: 'render', errorName: 'Cannot read property' },
+      { ...ids, event: 'ui.error', page: '/', kind: 'api', route: '/api/v1/projects/acme-co/runs' },
+      { ...ids, event: 'ui.error', page: '/', kind: 'api', route: '/api/v1/runs/30ed4717-c740-433f-9d37-05421e3f1a75' },
+      { ...ids, event: 'ui.error', page: '/', kind: 'render', component: 'Root Layout!' },
+      { ...ids, event: 'ui.vitals', page: '/', metric: 'LCP', rating: 'good', value: 2400 },
+      { ...ids, event: 'ui.action', page: '/', action: 'filter.change', filter: 'gemini' },
+      { ...ids, event: 'ui.action', page: '/', action: 'search.submit', query: 'dentist brooklyn' },
+      { event: 'ui.page_viewed', page: '/' },
+    ]) {
+      expect(uiTelemetryEventSchema.safeParse(event).success, JSON.stringify(event)).toBe(false)
+    }
+  })
+})
+
+describe('page and tab normalization', () => {
+  it('maps router patterns to pages without ever carrying a real name', () => {
+    expect(uiPageFromRoutePath('/projects/$projectName/')).toBe('/projects/:projectName')
+    expect(uiPageFromRoutePath('/projects/$projectName/search-console')).toBe('/projects/:projectName/search-console')
+    expect(uiPageFromRoutePath('/traffic/$projectName/$sourceId')).toBe('/traffic/:projectName/:sourceId')
+    expect(uiPageFromRoutePath('/')).toBe('/')
+    expect(uiPageFromRoutePath('*')).toBe('not-found')
+    expect(uiPageFromRoutePath('/*')).toBe('not-found')
+    expect(uiPageFromRoutePath('/$')).toBe('not-found')
+    expect(uiPageFromRoutePath('/projects/acme-co')).toBe('other')
+    expect(uiPageFromRoutePath(undefined)).toBe('other')
+  })
+
+  it('derives the project tab', () => {
+    expect(uiProjectTabFromPage('/projects/:projectName')).toBe('overview')
+    expect(uiProjectTabFromPage('/projects/:projectName/properties/:targetKey')).toBe('properties')
+    expect(uiProjectTabFromPage('/runs')).toBeUndefined()
+  })
+
+  it('tells a route template from a real path', () => {
+    expect(isUiApiRouteTemplate('/api/v1/projects/{name}/queries/generate')).toBe(true)
+    expect(isUiApiRouteTemplate('/api/v1/runs/{id}/cancel')).toBe(true)
+    expect(isUiApiRouteTemplate('/api/v1/projects/acme/queries')).toBe(false)
+    expect(isUiApiRouteTemplate('https://evil.example/api/v1/x')).toBe(false)
+    expect(isUiApiRouteTemplate('/api/v1/keys/self')).toBe(true)
+    expect(isUiApiRouteTemplate('/api/v1/projects/{name}/ads/ads/{id}')).toBe(true)
+    expect(isUiApiRouteTemplate('/api/v1/projects/{name}/report.html')).toBe(true)
+    expect(isUiApiRouteTemplate('/api/v1/traffic/sources/abc')).toBe(false)
+    expect(isUiApiRouteTemplate('/api/v1/keys/cnry_abcdef')).toBe(false)
+    expect(isUiApiRouteTemplate('/api/v1/projects/{name}/competitors/acme.com')).toBe(false)
+    expect(isUiApiRouteTemplate(`/api/v1/${'a/'.repeat(80)}x`)).toBe(false)
+  })
+})

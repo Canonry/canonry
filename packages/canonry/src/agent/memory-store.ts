@@ -1,12 +1,12 @@
 import crypto from 'node:crypto'
 import { and, desc, eq, like, sql, or } from 'drizzle-orm'
-import { agentMemory, type DatabaseClient } from '@ainyc/canonry-db'
+import { agentMemory, type DatabaseClient } from '@canonry/canonry-db'
 import {
   AGENT_MEMORY_VALUE_MAX_BYTES,
   MemorySources,
   type AgentMemoryEntryDto,
   type MemorySource,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 
 /**
  * Key prefix reserved for LLM-authored transcript compaction summaries.

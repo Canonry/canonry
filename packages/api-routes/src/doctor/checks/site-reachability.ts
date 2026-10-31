@@ -1,4 +1,4 @@
-import { CheckCategories, CheckScopes, CheckStatuses } from '@ainyc/canonry-contracts'
+import { CheckCategories, CheckScopes, CheckStatuses } from '@canonry/canonry-contracts'
 import { probeSiteReachability } from '../../site-reachability.js'
 import type { CheckDefinition, CheckOutput } from '../types.js'
 
@@ -73,6 +73,7 @@ const siteReachabilityCheck: CheckDefinition = {
       return {
         status: CheckStatuses.fail,
         code: 'site.reachability.refused-address',
+        urgent: true,
         summary: `${url} resolves only to addresses that cannot serve visitors: ${result.reason}.`,
         remediation: 'Check the domain registration and its DNS records. A suspended or parked domain resolves this way.',
         details: { url, finalUrl: result.finalUrl, reason: result.reason, attempts: result.attempts, durationMs: result.durationMs },
@@ -81,8 +82,9 @@ const siteReachabilityCheck: CheckDefinition = {
     return {
       status: CheckStatuses.fail,
       code: 'site.reachability.down',
+      urgent: true,
       summary: `${url} is not responding: ${result.reason}.`,
-      remediation: 'Open the site in a browser and check with the host. Canonry keeps checking and sends health.recovered when it answers again.',
+      remediation: 'Open the site in a browser and check with the host. Canonry keeps checking and sends a recovery alert when it answers again.',
       details: { url, finalUrl: result.finalUrl, httpStatus: result.httpStatus, reason: result.reason, attempts: result.attempts, durationMs: result.durationMs },
     }
   },

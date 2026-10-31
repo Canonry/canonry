@@ -1,3 +1,4 @@
+import { AppError, parseWindowIn, resolveDateRange } from '@canonry/canonry-contracts'
 import type { ParseArgsOptionsConfig } from 'node:util'
 import type { CliCommandInput, CliValues } from './cli-dispatch.js'
 import { usageError } from './cli-error.js'
@@ -106,4 +107,43 @@ export function unknownSubcommand(
       available: config.available,
     },
   })
+}
+
+export interface WindowAliases {
+  window?: string
+  start?: string
+  end?: string
+}
+
+/** Canonical flags and explicitly declared compatibility aliases only. */
+export function windowOptions(config: { window?: boolean; dates?: boolean; aliases?: WindowAliases } = {}): ParseArgsOptionsConfig {
+  const options: ParseArgsOptionsConfig = {}
+  if (config.window) options.window = stringOption()
+  if (config.dates) { options.start = stringOption(); options.end = stringOption() }
+  for (const alias of [config.aliases?.window, config.aliases?.start, config.aliases?.end]) {
+    if (alias !== undefined) options[alias] = stringOption()
+  }
+  return options
+}
+
+export function readWindowOptions(input: CliCommandInput, config: { allowed?: readonly string[]; command: string; usage: string; aliases?: WindowAliases }): { window?: string; startDate?: string; endDate?: string } {
+  const read = (canonical: 'window' | 'start' | 'end') => {
+    const direct = getString(input.values, canonical)
+    const alias = config.aliases?.[canonical]
+    const old = alias ? getString(input.values, alias) : undefined
+    if (direct !== undefined && old !== undefined) throw usageError(`Use either --${canonical} or --${alias}, not both.`, { details: { command: config.command, usage: config.usage } })
+    return direct ?? old
+  }
+  const rawWindow = read('window')
+  try {
+    const window = rawWindow === undefined || rawWindow === '' ? undefined : parseWindowIn(rawWindow, config.allowed ?? [], { fallback: config.allowed?.[0] ?? '', field: 'window' })
+    const startDate = read('start')
+    const endDate = read('end')
+    if (rawWindow !== undefined && (startDate !== undefined || endDate !== undefined)) throw usageError('Use --window or --start/--end, not both.')
+    const dates = resolveDateRange({ startDate, endDate })
+    return { window, startDate: dates.startDate ?? undefined, endDate: dates.endDate ?? undefined }
+  } catch (error) {
+    if (error instanceof AppError) throw usageError(error.message, { details: error.details })
+    throw error
+  }
 }

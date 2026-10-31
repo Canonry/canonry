@@ -3,13 +3,13 @@ import { useQueries, useQuery } from '@tanstack/react-query'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { ArrowRight, Plus } from 'lucide-react'
 
-import type { TrafficSourceDto } from '@ainyc/canonry-contracts'
+import type { TrafficSourceDto } from '@canonry/canonry-contracts'
 
 import { heyClient, isEmbed, type ApiProject, type ApiTrafficSourceDetail } from '../api.js'
 import {
   getApiV1ProjectsByNameTrafficSourcesByIdOptions,
   getApiV1ProjectsOptions,
-} from '@ainyc/canonry-api-client/react-query'
+} from '@canonry/canonry-api-client/react-query'
 import { Button } from '../components/ui/button.js'
 import { Card } from '../components/ui/card.js'
 import { ToneBadge } from '../components/shared/ToneBadge.js'
@@ -80,11 +80,11 @@ export function TrafficPage() {
 
       <section>
         {projects.length > 1 && (
-          <label className="mb-4 flex w-fit items-center gap-2 text-sm font-medium text-secondary" htmlFor="traffic-project">
+          <label className="mb-4 flex w-fit items-center gap-2 text-label-14-strong text-secondary" htmlFor="traffic-project">
             Project
             <select
               id="traffic-project"
-              className="h-8 min-w-44 rounded-md border border-base bg-bg px-2 text-sm text-heading outline-none transition focus:border-mono-500 focus:ring-1 focus:ring-mono-500"
+              className="h-8 min-w-44 rounded-md border border-base bg-bg px-2 text-label-14 text-heading outline-none transition focus:border-mono-500 focus:ring-1 focus:ring-mono-500"
               value={activeProject}
               onChange={(event) => setSelectedProject(event.target.value)}
             >
@@ -98,15 +98,15 @@ export function TrafficPage() {
         )}
 
         {!activeProject ? (
-          <Card className="p-6 text-center text-sm text-muted">No projects yet.</Card>
+          <Card className="p-6 text-center text-label-14 text-muted">No projects yet.</Card>
         ) : sourcesQuery.isLoading ? (
-          <Card className="p-6 text-center text-sm text-muted">Loading sources…</Card>
+          <Card className="p-6 text-center text-label-14 text-muted">Loading sources…</Card>
         ) : sources.length === 0 ? (
           <Card className="p-8 text-center">
-            <p className="text-sm text-neutral">No traffic sources connected for {activeProject}.</p>
+            <p className="text-copy-14 text-neutral">No traffic sources connected for {activeProject}.</p>
             {!isEmbed() && (
               <>
-                <p className="mt-1 text-sm text-secondary">Connect a source to start collecting traffic.</p>
+                <p className="mt-1 text-copy-14 text-secondary">Connect a source to start collecting traffic.</p>
                 <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
                   <Button type="button" variant="outline" size="sm" onClick={() => setConnectOpen(true)}>
                     <Plus className="size-3.5" />
@@ -153,9 +153,9 @@ function SourcesTable({ projectName, sources }: { projectName: string; sources: 
   }))
 
   return (
-    <div className="rounded-xl border border-default bg-surface overflow-hidden">
-      <table className="w-full text-sm">
-        <thead className="bg-bg-elevated/50 text-[10px] font-semibold uppercase tracking-wider text-muted">
+    <div className="material-base overflow-hidden">
+      <table className="w-full text-label-14">
+        <thead className="bg-bg-elevated/50 text-label-12-strong normal-case text-muted">
           <tr>
             <th className="px-4 py-2 text-left">Source</th>
             <th className="px-4 py-2 text-left">Status</th>
@@ -186,7 +186,7 @@ function SourcesTable({ projectName, sources }: { projectName: string; sources: 
                 <Link
                   to="/traffic/$projectName/$sourceId"
                   params={{ projectName, sourceId: source.id }}
-                  className="font-medium text-heading hover:underline"
+                  className="text-label-14-strong text-heading hover:underline"
                 >
                   {source.displayName}
                 </Link>
@@ -196,7 +196,7 @@ function SourcesTable({ projectName, sources }: { projectName: string; sources: 
                   {source.status}
                 </ToneBadge>
                 {source.lastError ? (
-                  <p className="mt-1 max-w-[18rem] truncate text-sm text-negative-400" title={source.lastError}>
+                  <p className="mt-1 max-w-[18rem] truncate text-copy-14 text-negative-400" title={source.lastError}>
                     {source.lastError}
                   </p>
                 ) : null}
@@ -221,7 +221,7 @@ function SourcesTable({ projectName, sources }: { projectName: string; sources: 
                 <Link
                   to="/traffic/$projectName/$sourceId"
                   params={{ projectName, sourceId: source.id }}
-                  className="inline-flex items-center gap-1 text-sm text-secondary hover:text-heading"
+                  className="inline-flex items-center gap-1 text-label-14 text-secondary hover:text-heading"
                 >
                   View
                   <ArrowRight className="size-3.5" />

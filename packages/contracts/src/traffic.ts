@@ -1,6 +1,8 @@
 import { linearTrendSchema } from './statistics.js'
 import { z } from 'zod'
 import { runStatusSchema } from './run.js'
+import { cloudflareQueueDrainSummarySchema, runSyncSummarySchema } from './run-sync-summary.js'
+import { aiReferralTrafficClassSchema } from './traffic-class.js'
 import type { TrafficCrawlerSegments, TrafficPathClass } from './traffic-path.js'
 
 /**
@@ -260,6 +262,11 @@ const cloudflareTrafficSourceBaseSchema = z.object({
   expectedBotListVersion: z.string().min(1),
   /** Target Cloudflare zone for the operator-managed Worker route. */
   zoneId: z.string().nullable(),
+  /**
+   * The generated Worker also forwards people's page views (document loads),
+   * so AI visitor journeys see later visits. Absent on older rows: off.
+   */
+  forwardPageViews: z.boolean().default(false),
 })
 
 export const cloudflareDirectPushTrafficSourceConfigSchema = cloudflareTrafficSourceBaseSchema.extend({
@@ -304,6 +311,11 @@ const trafficConnectCloudflareBaseRequestSchema = z.object({
   displayName: z.string().min(1).optional(),
   /** Target Cloudflare zone. Canonry does not validate it against Cloudflare. */
   zoneId: z.string().min(1).optional(),
+  /**
+   * Generate a Worker that also forwards page views, for complete AI visitor
+   * journeys. Omitted on a reconnect keeps the source's current setting.
+   */
+  forwardPageViews: z.boolean().optional(),
 })
 
 export const trafficConnectCloudflareDirectPushRequestSchema = trafficConnectCloudflareBaseRequestSchema.extend({
@@ -343,6 +355,8 @@ const trafficConnectCloudflareResponseBaseSchema = z.object({
   workerScript: z.string().min(1),
   wranglerToml: z.string().min(1),
   workerVersion: z.string().min(1),
+  /** Whether the generated Worker forwards page views. */
+  forwardPageViews: z.boolean().default(false),
   instructions: z.string().min(1),
 })
 
@@ -451,6 +465,8 @@ export const trafficSyncResponseSchema = z.object({
   sampleRows: z.number().int().nonnegative(),
   /** Residual upstream Queue depth after a bounded sync; present for Queue pull. */
   remainingBacklogCount: z.number().int().nonnegative().optional(),
+  /** What the Queue drain did and why it stopped; present for Queue pull. */
+  queueDrain: cloudflareQueueDrainSummarySchema.optional(),
   windowStart: z.string(),
   windowEnd: z.string(),
 })
@@ -481,6 +497,20 @@ export const trafficResetRequestSchema = z.object({
   advanceToNow: z.literal(true),
 })
 export type TrafficResetRequest = z.infer<typeof trafficResetRequestSchema>
+
+/**
+ * `POST /projects/:name/traffic/sources/:id/declare-gap` — record a source's
+ * unrecovered skip as data that cannot be recovered, and clear it.
+ *
+ * `skippedThroughAt` must repeat the source's current marker exactly, so a
+ * newer skip recorded after the operator looked is never cleared by accident.
+ * Meant for WordPress, whose plugin feed cannot prove a historical repair, and
+ * for any source whose provider no longer retains the skipped span.
+ */
+export const trafficDeclareGapRequestSchema = z.object({
+  skippedThroughAt: z.string().min(1),
+})
+export type TrafficDeclareGapRequest = z.infer<typeof trafficDeclareGapRequestSchema>
 
 /**
  * Async backfill response — returned as soon as the run row is created and the
@@ -557,6 +587,8 @@ export const trafficSourceDetailDtoSchema = trafficSourceDtoSchema.extend({
       startedAt: z.string().nullable(),
       finishedAt: z.string().nullable(),
       error: z.string().nullable(),
+      /** What the run did and why it stopped, when the sync records one (Queue pull). */
+      syncSummary: runSyncSummarySchema.optional(),
     })
     .nullable(),
 })
@@ -750,3 +782,52 @@ export const trafficEventsResponseSchema = z.object({
   events: z.array(trafficEventEntrySchema),
 })
 export type TrafficEventsResponse = z.infer<typeof trafficEventsResponseSchema>
+
+
+export const trafficSampleKindSchema = z.enum(['crawler', 'ai-user-fetch', 'ai-referral', 'unknown'])
+export type TrafficSampleKind = z.infer<typeof trafficSampleKindSchema>
+export const TrafficSampleKinds = trafficSampleKindSchema.enum
+
+export const trafficSamplesQuerySchema = z.object({
+  kind: z.enum(['crawler', 'ai-user-fetch', 'ai-referral', 'unknown', 'all']).optional(),
+  sourceId: z.string().min(1).optional(),
+  since: z.union([z.iso.datetime({ offset: true }), z.iso.date()], { error: 'Expected an ISO timestamp or YYYY-MM-DD date' }).optional(),
+  until: z.union([z.iso.datetime({ offset: true }), z.iso.date()], { error: 'Expected an ISO timestamp or YYYY-MM-DD date' }).optional(),
+  path: z.string().optional(),
+  limit: z.number().int().min(1).max(500).optional(),
+  offset: z.number().int().nonnegative().optional(),
+}).strict()
+export type TrafficSamplesQuery = z.infer<typeof trafficSamplesQuerySchema>
+
+// Stored classifier evidence may come from an install upgraded within the
+// retention window. Inner fields may be absent or null; unknown fields are stripped.
+const sampleUserFetchSchema = z.object({
+  botId: z.string().nullish(),
+  operator: z.string().nullish(),
+  product: z.string().nullish(),
+  verificationStatus: verificationStatusSchema.nullish(),
+  verificationManifest: z.object({ id: z.string().nullish(), source: z.string().nullish(), version: z.string().nullish() }).nullish(),
+  matchedUserAgent: z.string().nullish(),
+})
+export const trafficSampleClassifierSchema = z.object({
+  crawler: sampleUserFetchSchema.extend({ purpose: z.string().nullish() }).nullable().default(null),
+  aiUserFetch: sampleUserFetchSchema.nullable().default(null),
+  aiReferral: z.object({
+    operator: z.string().nullish(), product: z.string().nullish(), sourceDomain: z.string().nullish(),
+    evidenceType: z.enum(['referer', 'utm', 'referer-utm']).nullish(), trafficClass: aiReferralTrafficClassSchema.nullish(),
+  }).nullable().default(null),
+})
+export type TrafficSampleClassifier = z.infer<typeof trafficSampleClassifierSchema>
+export const trafficSampleDtoSchema = z.object({
+  id: z.string(), sourceId: z.string(), ts: z.string(), kind: trafficSampleKindSchema,
+  pathNormalized: z.string(), status: z.number().int().nullable(), refererHost: z.string().nullable(), userAgent: z.string().nullable(),
+  classifier: trafficSampleClassifierSchema,
+})
+export type TrafficSampleDto = z.infer<typeof trafficSampleDtoSchema>
+export const trafficSamplesResponseSchema = z.object({
+  scope: z.object({ project: z.string(), sourceId: z.string().nullable(), attribution: z.literal('project-source-only'), unavailableDimensions: z.array(z.enum(['property', 'target', 'market'])) }),
+  windowStart: z.string(), windowEnd: z.string(), retentionDays: z.literal(30),
+  sampling: z.object({ complete: z.literal(false), perSync: z.literal(100), perBackfill: z.literal(500), perPushHour: z.literal(100) }),
+  totalRows: z.number().int().nonnegative(), limit: z.number().int(), offset: z.number().int(), samples: z.array(trafficSampleDtoSchema),
+})
+export type TrafficSamplesResponse = z.infer<typeof trafficSamplesResponseSchema>

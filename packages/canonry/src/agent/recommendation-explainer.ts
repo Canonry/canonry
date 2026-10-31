@@ -10,7 +10,7 @@ import {
   type ContentBriefDto,
   type ContentTargetRowDto,
   type DemandSource,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import type {
   ExplainContentRecommendationFn,
   ExplainContentRecommendationInput,
@@ -18,12 +18,13 @@ import type {
   SynthesizeContentBriefFn,
   SynthesizeContentBriefInput,
   SynthesizeContentBriefResult,
-} from '@ainyc/canonry-api-routes'
+} from '@canonry/canonry-api-routes'
 import type { CanonryConfig } from '../config.js'
 import {
   agentProviderApiKeyEnvVar,
   agentProvidersByPriority,
   coerceAgentProvider,
+  refreshAgentModels,
   resolveApiKeyFor,
   resolveModelForCapability,
   type SupportedAgentProvider,
@@ -180,6 +181,7 @@ export function createRecommendationExplainer(
 ): ExplainContentRecommendationFn {
   return async (input: ExplainContentRecommendationInput): Promise<ExplainContentRecommendationResult> => {
     const provider = pickExplainProvider(opts.config, input.providerOverride)
+    await refreshAgentModels(provider)
     const model = resolveModelForCapability(provider, 'analyze', input.modelOverride)
 
     const prompt = buildRecommendationPrompt({
@@ -303,6 +305,7 @@ export function createRecommendationBriefSynthesizer(
 ): SynthesizeContentBriefFn {
   return async (input: SynthesizeContentBriefInput): Promise<SynthesizeContentBriefResult> => {
     const provider = pickExplainProvider(opts.config, input.providerOverride)
+    await refreshAgentModels(provider)
     const model = resolveModelForCapability(provider, 'analyze', input.modelOverride)
     const apiKey = resolveApiKeyFor(provider, opts.config)
     const prompt = buildBriefPrompt({

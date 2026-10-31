@@ -11,7 +11,7 @@ import {
   upgradeCommandFor,
   type InstallMethod,
   type UpdateCheckEnvOptOut,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { configExists, loadConfigRaw, saveConfigPatch } from './config.js'
 
 export { compareSemver, type InstallMethod }
@@ -349,7 +349,9 @@ function startBackgroundRefresh(getNow: () => number): void {
 export function checkLatestVersionForServer(opts?: {
   ttlMs?: number
   now?: () => number
+  storedOnly?: boolean
 }): UpdateAvailable | null {
+  if (opts?.storedOnly) return memoryCache?.latest ? buildUpdateAvailable(PKG_VERSION, memoryCache.latest) : null
   if (!isUpdateCheckEnabled()) return null
 
   const getNow = opts?.now ?? Date.now

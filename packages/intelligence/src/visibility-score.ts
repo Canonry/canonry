@@ -1,4 +1,4 @@
-import { CitationStates, formatPercent, percentOf, type ScoreSummaryDto } from '@ainyc/canonry-contracts'
+import { CitationStates, formatPercent, percentOf, type ScoreSummaryDto } from '@canonry/canonry-contracts'
 import { scoreTone } from './score-tones.js'
 
 export interface VisibilityScoreSnapshot {
@@ -37,7 +37,7 @@ export function buildVisibilityScore(
   snapshots: readonly VisibilityScoreSnapshot[],
   options: VisibilityScoreOptions,
 ): ScoreSummaryDto {
-  const tooltip = 'An LLM used a page on your domain as a source for its answer.'
+  const tooltip = 'An AI engine used a page on your domain as a source for its answer.'
 
   if (snapshots.length === 0) {
     return {
@@ -76,7 +76,7 @@ export function buildVisibilityScore(
     trend: [],
     progress: score,
     providerCoverage: isPartialProviderRun
-      ? `${runApiProviderCount} of ${options.configuredApiProviders.length} providers`
+      ? `${runApiProviderCount} of ${options.configuredApiProviders.length} engines`
       : undefined,
   }
 }

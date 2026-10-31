@@ -16,6 +16,8 @@ type Lookup = { project: ProjectName; read: (path: string) => Promise<Json>; rec
 
 /** One seeded record of each kind a route addresses, or undefined when the sample has none. */
 const SAMPLE_RECORDS = {
+  seoProfile: async ({ read }: Lookup) => (await read('seo/profiles')).profiles[0]?.id,
+  seoRun: async ({ read }: Lookup) => (await read('seo/runs')).runs[0]?.id,
   adsOperation: async ({ read }: Lookup) => (await read('ads/operations')).operations[0]?.operationKey,
   contentTarget: async ({ read }: Lookup) => (await read('content/targets')).targets[0]?.targetRef,
   conversionContract: async ({ read }: Lookup) => (await read('conversion-tracking/contracts'))[0]?.id,
@@ -56,6 +58,8 @@ const MISSING_RECORD = 'missing-sample-record'
  */
 const PATH_PARAMETERS: Record<string, RecordKind | 'project'> = {
   '/api/v1/projects/:name': 'project',
+  '/api/v1/projects/:name/seo/profiles/:id': 'seoProfile',
+  '/api/v1/projects/:name/seo/runs/:id': 'seoRun',
   '/api/v1/projects/:name/ads/operations/:operationKey': 'adsOperation',
   '/api/v1/projects/:name/content/recommendations/:targetRef': 'contentTarget',
   '/api/v1/projects/:name/conversion-tracking/contracts/:contractId': 'conversionContract',
@@ -73,6 +77,7 @@ const PATH_PARAMETERS: Record<string, RecordKind | 'project'> = {
 
 /** Routes whose handlers refuse to run without these query parameters. */
 const REQUIRED_QUERIES: Record<string, (lookup: Lookup) => Promise<Record<string, string>>> = {
+  ...Object.fromEntries(['overview', 'keyword-metrics', 'domain-intelligence', 'ranked-keywords', 'market-rankings', 'market-rankings/summary'].map(path => [`/api/v1/projects/:name/seo/${path}`, async ({ record }: Lookup) => ({ profileId: await record('seoProfile') })])),
   '/api/v1/projects/:name/measurement-overview': async () => ({ scope: 'all' }),
   '/api/v1/projects/:name/measurement-property-competitors': async ({ record }) => ({ targetKey: await record('measurementProperty') }),
   '/api/v1/projects/:name/measurement-property-evidence': async ({ record }) => ({ targetKey: await record('measurementProperty') }),

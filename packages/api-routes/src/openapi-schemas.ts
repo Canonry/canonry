@@ -1,3 +1,5 @@
+import { mcpProfileDtoSchema } from '@canonry/canonry-contracts'
+import { gbpLocalPostDtoSchema, gbpLocalPostListSchema, gbpLocalPostAttemptSchema, gbpLiveReviewsSchema, gbpLocalPostCreateSchema } from '@canonry/canonry-contracts'
 /**
  * Centralized OpenAPI schema registry for canonry's API responses.
  *
@@ -15,7 +17,7 @@
  * 3. TypeScript enforces the schema name is registered — typos become
  *    compile errors, not silent broken `$ref`s.
  *
- * If a response shape has no matching Zod schema in `@ainyc/canonry-contracts`,
+ * If a response shape has no matching Zod schema in `@canonry/canonry-contracts`,
  * either:
  *   (a) add it to contracts first (preferred — keeps contracts the single
  *       source of truth), or
@@ -23,11 +25,14 @@
  *       hatch and TODO it for migration.
  */
 import { z, type ZodType } from 'zod'
-import { sentimentSummarySchema, sentimentSettingsSchema, sentimentSettingsUpdateSchema, sentimentEvidencePageSchema, sentimentComparisonSchema, sentimentBackfillPreviewSchema, sentimentBackfillRequestSchema, sentimentJobsSchema, sentimentJobSchema } from '@ainyc/canonry-contracts'
-import { visibilityReportResponseSchema } from '@ainyc/canonry-contracts'
-import { queryTrackingWorkspaceResponseSchema, queryTrackingPreviewRequestSchema, queryTrackingPreviewResponseSchema, queryTrackingCommitRequestSchema, queryTrackingCommitResponseSchema } from '@ainyc/canonry-contracts'
+import { seoOperatorTaskSchema, seoReconcileInputSchema, seoReconcileResultSchema } from '@canonry/canonry-contracts'
+import { seoContextSchema, seoStatusSchema, seoProfileSchema, seoProfileListSchema, seoProfileInputSchema, seoQuoteSchema, seoRefreshIntentInputSchema, seoSyncInputSchema, seoRunSchema, seoRunDetailSchema, seoRunListSchema, seoOverviewSchema, seoKeywordMetricsListSchema, seoDomainIntelligenceListSchema, seoRankedKeywordListSchema, seoMarketRankingListSchema, seoMarketRankingSummarySchema } from '@canonry/canonry-contracts'
+import { sentimentSummarySchema, sentimentSettingsSchema, sentimentSettingsUpdateSchema, sentimentEvidencePageSchema, sentimentComparisonSchema, sentimentBackfillPreviewSchema, sentimentBackfillRequestSchema, sentimentJobsSchema, sentimentJobSchema } from '@canonry/canonry-contracts'
+import { visibilityReportResponseSchema } from '@canonry/canonry-contracts'
+import { queryTrackingWorkspaceResponseSchema, queryTrackingPreviewRequestSchema, queryTrackingPreviewResponseSchema, queryTrackingCommitRequestSchema, queryTrackingCommitResponseSchema } from '@canonry/canonry-contracts'
 import {
   agentProvidersResponseDtoSchema,
+  applyPreviewDtoSchema,
   agentPromptRequestSchema,
   agentConversationSchema, agentConversationListSchema, agentConversationCreateSchema, agentConversationDeleteSchema,
   apiKeyDtoSchema,
@@ -35,6 +40,8 @@ import {
   auditLogEntrySchema,
   integrationSettingsSummaryDtoSchema,
   providerSummaryEntryDtoSchema,
+  providerReloadRequestSchema,
+  providerReloadResponseDtoSchema,
   createApiKeyRequestSchema,
   createdApiKeyDtoSchema,
   backlinkHistoryEntrySchema,
@@ -58,8 +65,15 @@ import {
   ccReleaseSyncDtoSchema,
   cdpStatusDtoSchema,
   citationVisibilityResponseSchema,
+  competitorAliasBlockRequestSchema,
+  competitorAliasesRequestSchema,
+  competitorAutoAliasDetectionDtoSchema,
+  competitorAppendRequestSchema,
   competitorDtoSchema,
   competitorLandscapeResponseSchema,
+  competitorSuggestionsResponseSchema,
+  competitorChangePreviewRequestSchema,
+  competitorChangePreviewResponseSchema,
   contentGapsResponseDtoSchema,
   contentSourcesResponseDtoSchema,
   contentTargetDismissalDtoSchema,
@@ -84,15 +98,19 @@ import {
   resultsClearRequestSchema,
   resultsClearResponseSchema,
   doctorReportSchema,
+  instanceStatusDtoSchema,
   ga4AiReferralDailyDtoSchema,
   ga4AiReferralHistoryEntrySchema,
   ga4SessionHistoryEntrySchema,
+  gaOverviewResponseSchema,
   ga4SocialReferralHistoryEntrySchema,
   ga4PropertiesDtoSchema,
   ga4StatusDtoSchema,
   ga4SyncResponseDtoSchema,
   gaAttributionTrendResponseSchema,
   gaMeasurementAnalysisDtoSchema,
+  gaSearchLandingPagesResponseSchema,
+  gaAcquisitionResponseSchema,
   gaSocialReferralTrendResponseSchema,
   gaTrafficResponseSchema,
   gbpAccountListResponseSchema,
@@ -118,6 +136,7 @@ import {
   googleMarketingDisconnectResponseSchema,
   googleMarketingOAuthConnectRequestSchema,
   googleMarketingOAuthConnectResponseSchema,
+  googleOAuthStartResponseSchema,
   gscCoverageSnapshotDtoSchema,
   gscCoverageSummaryDtoSchema,
   gscDeindexedRowSchema,
@@ -140,7 +159,9 @@ import {
   healthSnapshotDtoSchema,
   indexingRequestResponseDtoSchema,
   keywordDtoSchema,
+  keywordGenerateResponseSchema,
   latestProjectRunDtoSchema,
+  runAdmissionDtoSchema,
   locationContextSchema,
   measurementDiscoveryRequestSchema,
   measurementDiscoveryResponseSchema,
@@ -168,11 +189,13 @@ import {
   measurementDraftPreviewAssignmentsResponseSchema,
   measurementDraftPreviewGroupMembershipRequestSchema,
   measurementDraftPreviewGroupMembershipResponseSchema,
+  measurementDraftPreviewMarketRoutingResponseSchema,
   measurementDraftRebindTargetRequestSchema,
   measurementDraftRemoveAssignmentRequestSchema,
   measurementDraftRemoveCompetitorRequestSchema,
   measurementDraftRemoveGroupRequestSchema,
   measurementDraftReplaceAssignmentsRequestSchema,
+  measurementDraftRouteMarketsRequestSchema,
   measurementDraftRenameTargetRequestSchema,
   measurementChangesResponseSchema,
   measurementDataQualityResponseSchema,
@@ -211,16 +234,21 @@ import {
   measurementSetupResponseSchema,
   notificationDtoSchema,
   onboardingTelemetryEventSchema,
+  uiTelemetryEventSchema,
   organicEvidenceDtoSchema,
   projectCreateRequestSchema,
   projectDtoSchema,
+  projectDefaultLocationResponseSchema,
+  projectPatchRequestSchema,
   projectUpsertRequestSchema,
   projectConfigSchema,
+  projectConfigExportSchema,
   projectOverviewDtoSchema,
-  projectReportDtoSchema,
+  trafficAnalyticsResponseSchema,
   projectSearchResponseSchema,
   resultsExportDtoSchema,
   queryDtoSchema,
+  queryGenerateResponseSchema,
   runDetailDtoSchema,
   runCompletenessDtoSchema,
   runFillResponseDtoSchema,
@@ -257,6 +285,8 @@ import {
   siteCrawlInternalLinksResponseSchema,
   siteCrawlNeighborsResponseSchema,
   siteCrawlPageAuditSchema,
+  siteAuditIssuesResponseSchema,
+  siteAuditIssuePagesResponseSchema,
   siteCrawlPagesResponseSchema,
   siteCrawlStructureResponseSchema,
   siteCrawlSummarySchema,
@@ -270,6 +300,8 @@ import {
   snapshotRequestInputSchema,
   sourceBreakdownDtoSchema,
   telemetryEventAcceptedDtoSchema,
+  feedbackSubmissionSchema,
+  feedbackAcceptedDtoSchema,
   telemetryStatusDtoSchema,
   operationalLogListDtoSchema,
   cloudflareWorkerIngestRequestSchema,
@@ -279,6 +311,10 @@ import {
   trafficConnectCloudflareResponseSchema,
   referralAssessmentSchema,
   trafficEventsResponseSchema,
+  trafficSamplesResponseSchema,
+  journeysResponseSchema,
+  journeyDetailResponseSchema,
+  journeySummaryResponseSchema,
   trafficSourceDetailDtoSchema,
   trafficSourceDtoSchema,
   trafficSourceListResponseSchema,
@@ -291,18 +327,19 @@ import {
   userListDtoSchema,
   visibilityCompareDtoSchema,
   visibilityStatsDtoSchema,
-  wordpressAuditPageDtoSchema,
+  wordpressAuditDtoSchema,
   wordpressBulkMetaResultDtoSchema,
   wordpressDiffDtoSchema,
+  wordpressLlmsTxtDtoSchema,
   wordpressManualAssistDtoSchema,
   wordpressOnboardResultDtoSchema,
   wordpressPageDetailDtoSchema,
-  wordpressPageSummaryDtoSchema,
+  wordpressPageListDtoSchema,
   wordpressSchemaBlockDtoSchema,
   wordpressSchemaDeployResultDtoSchema,
   wordpressSchemaStatusResultDtoSchema,
   wordpressStatusDtoSchema,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 
 /**
  * Schemas registered here become referenceable by their component name from
@@ -310,6 +347,26 @@ import {
  * obvious in review.
  */
 const SCHEMA_TABLE = {
+  SeoOperatorTask: seoOperatorTaskSchema,
+  SeoReconcileInput: seoReconcileInputSchema,
+  SeoReconcileResult: seoReconcileResultSchema,
+  SeoContext: seoContextSchema,
+  SeoStatus: seoStatusSchema,
+  SeoProfile: seoProfileSchema,
+  SeoProfileList: seoProfileListSchema,
+  SeoProfileInput: seoProfileInputSchema,
+  SeoQuote: seoQuoteSchema,
+  SeoRefreshIntentInput: seoRefreshIntentInputSchema,
+  SeoSyncInput: seoSyncInputSchema,
+  SeoRun: seoRunSchema,
+  SeoRunDetail: seoRunDetailSchema,
+  SeoRunList: seoRunListSchema,
+  SeoOverview: seoOverviewSchema,
+  SeoKeywordMetricsList: seoKeywordMetricsListSchema,
+  SeoDomainIntelligenceList: seoDomainIntelligenceListSchema,
+  SeoRankedKeywordList: seoRankedKeywordListSchema,
+  SeoMarketRankingList: seoMarketRankingListSchema,
+  SeoMarketRankingSummary: seoMarketRankingSummarySchema,
   SentimentSummary: sentimentSummarySchema,
   SentimentSettings: sentimentSettingsSchema,
   SentimentSettingsUpdate: sentimentSettingsUpdateSchema,
@@ -331,6 +388,7 @@ const SCHEMA_TABLE = {
   AgentConversationCreate: agentConversationCreateSchema,
   AgentConversationDelete: agentConversationDeleteSchema,
   AgentProvidersResponseDto: agentProvidersResponseDtoSchema,
+  ApplyPreviewDto: applyPreviewDtoSchema,
   AdsAccountDto: adsAccountDtoSchema,
   AdsActivateTreeResponse: adsActivateTreeResponseSchema,
   AdsActivationGrantResponse: adsActivationGrantResponseSchema,
@@ -373,8 +431,15 @@ const SCHEMA_TABLE = {
   CcReleaseSyncDto: ccReleaseSyncDtoSchema,
   CdpStatusDto: cdpStatusDtoSchema,
   CitationVisibilityResponse: citationVisibilityResponseSchema,
+  CompetitorAliasBlockRequest: competitorAliasBlockRequestSchema,
+  CompetitorAliasesRequest: competitorAliasesRequestSchema,
+  CompetitorAppendRequest: competitorAppendRequestSchema,
+  CompetitorAutoAliasDetectionDto: competitorAutoAliasDetectionDtoSchema,
   CompetitorDto: competitorDtoSchema,
   CompetitorLandscapeResponse: competitorLandscapeResponseSchema,
+  CompetitorSuggestionsResponse: competitorSuggestionsResponseSchema,
+  CompetitorChangePreviewRequest: competitorChangePreviewRequestSchema,
+  CompetitorChangePreviewResponse: competitorChangePreviewResponseSchema,
   ContentGapsResponseDto: contentGapsResponseDtoSchema,
   ContentSourcesResponseDto: contentSourcesResponseDtoSchema,
   ContentTargetDismissalDto: contentTargetDismissalDtoSchema,
@@ -401,17 +466,27 @@ const SCHEMA_TABLE = {
   ResultsClearRequest: resultsClearRequestSchema,
   ResultsClearResponse: resultsClearResponseSchema,
   DoctorReportDto: doctorReportSchema,
+  InstanceStatusDto: instanceStatusDtoSchema,
+  McpProfileDto: mcpProfileDtoSchema,
   GA4AiReferralDailyDto: ga4AiReferralDailyDtoSchema,
   GA4AiReferralHistoryEntry: ga4AiReferralHistoryEntrySchema,
   GA4MeasurementAnalysisDto: gaMeasurementAnalysisDtoSchema,
   GA4SessionHistoryEntry: ga4SessionHistoryEntrySchema,
+  GaOverviewResponse: gaOverviewResponseSchema,
   GA4SocialReferralHistoryEntry: ga4SocialReferralHistoryEntrySchema,
   GA4PropertiesDto: ga4PropertiesDtoSchema,
   GA4StatusDto: ga4StatusDtoSchema,
   GA4SyncResponseDto: ga4SyncResponseDtoSchema,
   GaAttributionTrendResponse: gaAttributionTrendResponseSchema,
+  GaAcquisitionResponse: gaAcquisitionResponseSchema,
+  GaSearchLandingPagesResponse: gaSearchLandingPagesResponseSchema,
   GaSocialReferralTrendResponse: gaSocialReferralTrendResponseSchema,
   GaTrafficResponse: gaTrafficResponseSchema,
+  GbpLocalPost: gbpLocalPostDtoSchema,
+  GbpLocalPostList: gbpLocalPostListSchema,
+  GbpLocalPostAttempt: gbpLocalPostAttemptSchema,
+  GbpLiveReviews: gbpLiveReviewsSchema,
+  GbpLocalPostCreate: gbpLocalPostCreateSchema,
   GbpAccountListResponse: gbpAccountListResponseSchema,
   GbpDailyMetricListResponse: gbpDailyMetricListResponseSchema,
   GbpKeywordImpressionListResponse: gbpKeywordImpressionListResponseSchema,
@@ -435,6 +510,7 @@ const SCHEMA_TABLE = {
   GoogleMarketingDisconnectResponse: googleMarketingDisconnectResponseSchema,
   GoogleMarketingOAuthConnectRequest: googleMarketingOAuthConnectRequestSchema,
   GoogleMarketingOAuthConnectResponse: googleMarketingOAuthConnectResponseSchema,
+  GoogleOAuthStartResponse: googleOAuthStartResponseSchema,
   GscCoverageSnapshotDto: gscCoverageSnapshotDtoSchema,
   GscCoverageSummaryDto: gscCoverageSummaryDtoSchema,
   GscDeindexedRowDto: gscDeindexedRowSchema,
@@ -458,7 +534,9 @@ const SCHEMA_TABLE = {
   IndexingRequestResponseDto: indexingRequestResponseDtoSchema,
   IntegrationSettingsSummaryDto: integrationSettingsSummaryDtoSchema,
   KeywordDto: keywordDtoSchema,
+  KeywordGenerateResponse: keywordGenerateResponseSchema,
   LatestProjectRunDto: latestProjectRunDtoSchema,
+  RunAdmissionDto: runAdmissionDtoSchema,
   LocationContext: locationContextSchema,
   MeasurementDiscoveryRequest: measurementDiscoveryRequestSchema,
   MeasurementDiscoveryResponse: measurementDiscoveryResponseSchema,
@@ -486,11 +564,13 @@ const SCHEMA_TABLE = {
   MeasurementDraftPreviewAssignmentsResponse: measurementDraftPreviewAssignmentsResponseSchema,
   MeasurementDraftPreviewGroupMembershipRequest: measurementDraftPreviewGroupMembershipRequestSchema,
   MeasurementDraftPreviewGroupMembershipResponse: measurementDraftPreviewGroupMembershipResponseSchema,
+  MeasurementDraftPreviewMarketRoutingResponse: measurementDraftPreviewMarketRoutingResponseSchema,
   MeasurementDraftRebindTargetRequest: measurementDraftRebindTargetRequestSchema,
   MeasurementDraftRemoveAssignmentRequest: measurementDraftRemoveAssignmentRequestSchema,
   MeasurementDraftRemoveCompetitorRequest: measurementDraftRemoveCompetitorRequestSchema,
   MeasurementDraftRemoveGroupRequest: measurementDraftRemoveGroupRequestSchema,
   MeasurementDraftReplaceAssignmentsRequest: measurementDraftReplaceAssignmentsRequestSchema,
+  MeasurementDraftRouteMarketsRequest: measurementDraftRouteMarketsRequestSchema,
   MeasurementDraftRenameTargetRequest: measurementDraftRenameTargetRequestSchema,
   MeasurementChangesResponse: measurementChangesResponseSchema,
   MeasurementDataQualityResponse: measurementDataQualityResponseSchema,
@@ -529,16 +609,23 @@ const SCHEMA_TABLE = {
   MeasurementSetupResponse: measurementSetupResponseSchema,
   NotificationDto: notificationDtoSchema,
   OnboardingTelemetryEvent: onboardingTelemetryEventSchema,
+  UiTelemetryEvent: uiTelemetryEventSchema,
   OrganicEvidenceDto: organicEvidenceDtoSchema,
   ProjectCreateRequest: projectCreateRequestSchema,
   ProjectDto: projectDtoSchema,
+  ProjectDefaultLocationResponse: projectDefaultLocationResponseSchema,
+  ProjectPatchRequest: projectPatchRequestSchema,
   ProjectUpsertRequest: projectUpsertRequestSchema,
   ProjectConfig: projectConfigSchema,
+  ProjectConfigExport: projectConfigExportSchema,
   ProjectOverviewDto: projectOverviewDtoSchema,
-  ProjectReportDto: projectReportDtoSchema,
+  TrafficAnalyticsResponse: trafficAnalyticsResponseSchema,
   ProjectSearchResponseDto: projectSearchResponseSchema,
+  ProviderReloadRequest: providerReloadRequestSchema,
+  ProviderReloadResponseDto: providerReloadResponseDtoSchema,
   ProviderSummaryEntryDto: providerSummaryEntryDtoSchema,
   QueryDto: queryDtoSchema,
+  QueryGenerateResponse: queryGenerateResponseSchema,
   ReferralAssessment: referralAssessmentSchema,
   ResultsExportDto: resultsExportDtoSchema,
   RunCompletenessDto: runCompletenessDtoSchema,
@@ -549,6 +636,8 @@ const SCHEMA_TABLE = {
   CalendarRecurrence: calendarRecurrenceSchema,
   ScheduleDto: scheduleDtoSchema,
   SettingsDto: settingsDtoSchema,
+  SiteAuditIssuePagesResponseDto: siteAuditIssuePagesResponseSchema,
+  SiteAuditIssuesResponseDto: siteAuditIssuesResponseSchema,
   SiteAuditLivePageHealthDto: siteAuditLivePageHealthSchema,
   SiteAuditPagesResponseDto: siteAuditPagesResponseSchema,
   SiteAuditRunProgressDto: siteAuditRunProgressSchema,
@@ -574,6 +663,8 @@ const SCHEMA_TABLE = {
   SnapshotRequest: z.object(snapshotRequestInputSchema.shape).omit({ phrases: true }),
   SourceBreakdownDto: sourceBreakdownDtoSchema,
   TelemetryEventAcceptedDto: telemetryEventAcceptedDtoSchema,
+  FeedbackSubmission: feedbackSubmissionSchema,
+  FeedbackAcceptedDto: feedbackAcceptedDtoSchema,
   TelemetryStatusDto: telemetryStatusDtoSchema,
   OperationalLogListDto: operationalLogListDtoSchema,
   CloudflareWorkerIngestRequest: cloudflareWorkerIngestRequestSchema,
@@ -582,6 +673,10 @@ const SCHEMA_TABLE = {
   TrafficConnectCloudflareRequest: trafficConnectCloudflareRequestSchema,
   TrafficConnectCloudflareResponse: trafficConnectCloudflareResponseSchema,
   TrafficEventsResponse: trafficEventsResponseSchema,
+  TrafficSamplesResponse: trafficSamplesResponseSchema,
+  JourneysResponse: journeysResponseSchema,
+  JourneyDetailResponse: journeyDetailResponseSchema,
+  JourneySummaryResponse: journeySummaryResponseSchema,
   TrafficSourceDetailDto: trafficSourceDetailDtoSchema,
   TrafficSourceDto: trafficSourceDtoSchema,
   TrafficSourceListResponse: trafficSourceListResponseSchema,
@@ -593,13 +688,14 @@ const SCHEMA_TABLE = {
   LoginRequest: loginRequestSchema,
   VisibilityCompareDto: visibilityCompareDtoSchema,
   VisibilityStatsDto: visibilityStatsDtoSchema,
-  WordpressAuditPageDto: wordpressAuditPageDtoSchema,
+  WordpressAuditDto: wordpressAuditDtoSchema,
   WordpressBulkMetaResultDto: wordpressBulkMetaResultDtoSchema,
   WordpressDiffDto: wordpressDiffDtoSchema,
+  WordpressLlmsTxtDto: wordpressLlmsTxtDtoSchema,
   WordpressManualAssistDto: wordpressManualAssistDtoSchema,
   WordpressOnboardResultDto: wordpressOnboardResultDtoSchema,
   WordpressPageDetailDto: wordpressPageDetailDtoSchema,
-  WordpressPageSummaryDto: wordpressPageSummaryDtoSchema,
+  WordpressPageListDto: wordpressPageListDtoSchema,
   WordpressSchemaBlockDto: wordpressSchemaBlockDtoSchema,
   WordpressSchemaDeployResultDto: wordpressSchemaDeployResultDtoSchema,
   WordpressSchemaStatusResultDto: wordpressSchemaStatusResultDtoSchema,
@@ -639,13 +735,48 @@ const SHARED_ENUM_REFS: ReadonlyArray<{ schema: RegisteredSchemaName; property: 
 ]
 
 /**
+ * OpenAPI 3.0.3 admits `null` into an `enum` only when `null` is one of the
+ * listed values; `nullable: true` beside the `enum` does not widen it. Zod's
+ * `toJSONSchema` emits `z.enum([...]).nullable()` as `{ type, enum,
+ * nullable: true }`, so codegen dropped the `| null` (e.g.
+ * `Ga4StatusDto.authMethod`). Append `null` to every such `enum` so the
+ * generated types keep it. A nullable `$ref` is left alone: its enum lives in
+ * the shared component, which is not nullable everywhere.
+ */
+function addNullToNullableEnums(node: unknown): void {
+  if (Array.isArray(node)) {
+    for (const item of node) addNullToNullableEnums(item)
+    return
+  }
+  if (node === null || typeof node !== 'object') return
+  const record = node as Record<string, unknown>
+  if (record.nullable === true && Array.isArray(record.enum)) {
+    const values: unknown[] = record.enum
+    if (!values.includes(null)) record.enum = [...values, null]
+  }
+  for (const value of Object.values(record)) addNullToNullableEnums(value)
+}
+
+/**
+ * Schemas documented in their input form. `ProjectConfig` is the `POST /apply`
+ * body, which may leave any defaulted field out: apply fills the defaults when
+ * it parses the document. The output form would mark every defaulted field
+ * (`providerModels`, `autoExtractBacklinks`, ...) required. `GET /export`
+ * writes most of them, so it has its own `ProjectConfigExport`.
+ */
+const INPUT_FORM_SCHEMAS: ReadonlySet<string> = new Set<RegisteredSchemaName>(['ProjectConfig'])
+
+/**
  * Convert every registered schema to its OpenAPI 3.0 JSON Schema. Called once
  * during spec build, embedded as `components.schemas` in the OpenAPI doc.
  */
 export function buildComponentSchemas(): Record<string, Record<string, unknown>> {
   const out: Record<string, Record<string, unknown>> = {}
   for (const [name, schema] of Object.entries(SCHEMA_TABLE) as [string, ZodType][]) {
-    out[name] = z.toJSONSchema(schema, { target: 'openapi-3.0' }) as Record<string, unknown>
+    const io = INPUT_FORM_SCHEMAS.has(name) ? 'input' : 'output'
+    const json = z.toJSONSchema(schema, { target: 'openapi-3.0', io }) as Record<string, unknown>
+    addNullToNullableEnums(json)
+    out[name] = json
   }
   for (const { schema, property, component } of SHARED_ENUM_REFS) {
     const properties = out[schema]?.properties as Record<string, unknown> | undefined

@@ -3,7 +3,8 @@ import os from 'node:os'
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { createClient, migrate, apiKeys, queries, querySnapshots, runs } from '@ainyc/canonry-db'
+import { RunKinds, RunStatuses, RunTriggers } from '@canonry/canonry-contracts'
+import { createClient, migrate, apiKeys, queries, querySnapshots, runs } from '@canonry/canonry-db'
 import { createServer } from '../src/server.js'
 import { ApiClient } from '../src/client.js'
 import { loadConfig } from '../src/config.js'
@@ -109,7 +110,7 @@ describe('operator CLI contract', () => {
     expect(parsed.error.code).toBe('CLI_USAGE_ERROR')
     expect(parsed.error.message).toBe('project name is required')
     expect(parsed.error.details.command).toBe('status')
-    expect(parsed.error.details.usage).toBe('canonry status <project> [--format json]')
+    expect(parsed.error.details.usage).toBe('canonry status <project>|--all [--problems] [--format json|jsonl]')
   })
 
   it('prints project status to stdout in JSON mode', async () => {
@@ -123,6 +124,41 @@ describe('operator CLI contract', () => {
     }
     expect(parsed.project.name).toBe('test-proj')
     expect(parsed.runs).toBeInstanceOf(Array)
+  })
+
+  it.each([
+    { label: 'combined legacy and multiple exclusions', flags: ['--exclude-kind', 'bing-inspect', '--exclude-kinds', 'traffic-sync'] },
+    { label: 'multiple exclusions', flags: ['--exclude-kinds', 'bing-inspect,traffic-sync'] },
+  ])('lists five meaningful activity runs through the CLI with $label', async ({ flags }) => {
+    await client.putProject('demo', {
+      displayName: 'Demo', canonicalDomain: 'demo.example.com', country: 'US', language: 'en',
+    })
+    const project = await client.getProject('demo')
+    const kinds = [
+      ...Array.from({ length: 6 }, () => RunKinds['traffic-sync']),
+      RunKinds['bing-inspect'], RunKinds['bing-inspect'],
+      RunKinds['site-audit'], RunKinds['backlink-extract'], RunKinds['answer-visibility'],
+      RunKinds['gsc-sync'], RunKinds['bing-inspect-sitemap'], RunKinds['ga-sync'],
+    ]
+    const ids = kinds.map(() => crypto.randomUUID())
+    db.insert(runs).values(kinds.map((kind, index) => ({
+      id: ids[index]!, projectId: project.id, kind,
+      status: kind === RunKinds['answer-visibility'] ? RunStatuses.failed : RunStatuses.completed,
+      trigger: kind === RunKinds['traffic-sync'] ? RunTriggers.scheduled : RunTriggers.manual,
+      createdAt: `2026-10-07T21:${String(59 - index).padStart(2, '0')}:00.000Z`,
+    }))).run()
+
+    const result = await invokeCli(['runs', 'demo', ...flags, '--limit', '5', '--format', 'json'])
+
+    expect(result.exitCode).toBe(undefined)
+    expect(result.stderr).toBe('')
+    const parsed = JSON.parse(result.stdout) as Array<{ id: string; kind: string; status: string }>
+    expect(parsed.map(run => run.id)).toEqual(ids.slice(8, 13).reverse())
+    expect(parsed.map(run => run.kind)).toEqual([
+      RunKinds['bing-inspect-sitemap'], RunKinds['gsc-sync'], RunKinds['answer-visibility'],
+      RunKinds['backlink-extract'], RunKinds['site-audit'],
+    ])
+    expect(parsed.find(run => run.kind === RunKinds['answer-visibility'])?.status).toBe(RunStatuses.failed)
   })
 
   it('supports JSON output for query replace and competitor remove', async () => {
@@ -957,8 +993,10 @@ describe('operator CLI contract', () => {
     fs.mkdirSync(isolatedConfigDir, { recursive: true })
     const originalConfigDir = process.env.CANONRY_CONFIG_DIR
     const originalGeminiApiKey = process.env.GEMINI_API_KEY
+    const originalApiUrl = process.env.CANONRY_API_URL
     process.env.CANONRY_CONFIG_DIR = isolatedConfigDir
     process.env.GEMINI_API_KEY = 'test-gemini-key'
+    process.env.CANONRY_API_URL = 'http://127.0.0.1:1'
 
     try {
       const bootstrapResult = await invokeCli(['bootstrap', '--format', 'json'])
@@ -970,8 +1008,10 @@ describe('operator CLI contract', () => {
         changed: boolean
         providers: string[]
         configPath: string
+        nextSteps: string[]
       }
       expect(bootstrapParsed.bootstrapped).toBe(true)
+      expect(bootstrapParsed.nextSteps).toEqual(['Start `canonry serve` to use the saved configuration.'])
       expect(bootstrapParsed.status).toBe('created')
       expect(bootstrapParsed.changed).toBe(true)
       expect(bootstrapParsed.providers).toContain('gemini')
@@ -1014,6 +1054,11 @@ describe('operator CLI contract', () => {
       } else {
         process.env.GEMINI_API_KEY = originalGeminiApiKey
       }
+      if (originalApiUrl === undefined) {
+        delete process.env.CANONRY_API_URL
+      } else {
+        process.env.CANONRY_API_URL = originalApiUrl
+      }
       fs.rmSync(isolatedConfigDir, { recursive: true, force: true })
     }
   })
@@ -1023,7 +1068,7 @@ describe('operator CLI contract', () => {
 
     expect(result.exitCode).toBe(undefined)
     expect(result.stderr).toBe('')
-    expect(result.stdout).toContain('Usage:  canonry bootstrap [--format json]')
+    expect(result.stdout).toContain('Usage:  canonry bootstrap [--ref <tag>] [--format json]')
     expect(result.stdout).toContain('local config, SQLite database, and default API key')
     expect(result.stdout).toContain('Provider credentials are optional')
     expect(result.stdout).toContain('Safe to rerun')

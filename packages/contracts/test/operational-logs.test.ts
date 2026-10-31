@@ -24,7 +24,12 @@ describe('operational log contracts', () => {
       message: 'safe message', context: {
         actor: 'scheduler', credentialId: 'key_123', userAgent: 'canonry-cli/1.0', actorSession: 'session_123',
       },
-    }).message).toBe('safe message')
+    })).toEqual({
+      cursor: 'cursor', ts: '2026-09-11T00:00:00.000Z', level: 'fatal', module: 'worker', action: 'job.failed',
+      message: 'safe message', context: {
+        actor: 'scheduler', credentialId: 'key_123', userAgent: 'canonry-cli/1.0', actorSession: 'session_123',
+      },
+    })
   })
 
   test('carries the provider an entry came from, bounded like the other diagnostic names', () => {
@@ -75,7 +80,20 @@ describe('operational log contracts', () => {
     expect(logQuerySchema.parse({
       actor: 'scheduler', requestId: 'request_123', since: '2026-09-10T00:00:00.000Z', until: '2026-09-11T00:00:00.000Z',
     })).toMatchObject({ actor: 'scheduler', requestId: 'request_123', limit: 100 })
-    expect(() => logQuerySchema.parse({ since: '2026-09-12T00:00:00.000Z', until: '2026-09-11T00:00:00.000Z' })).toThrow()
+    for (const [field, max] of [['actor', 512], ['requestId', 256], ['cursor', 512]] as const) {
+      expect(logQuerySchema.parse({ [field]: 'x'.repeat(max) })[field]).toBe('x'.repeat(max))
+      for (const value of ['', '   ', 'x'.repeat(max + 1)]) {
+        const parsed = logQuerySchema.safeParse({ [field]: value })
+        expect(parsed.success ? [] : parsed.error.issues.map(issue => issue.path)).toEqual([[field]])
+      }
+    }
+    expect(logQuerySchema.parse({ limit: '200' }).limit).toBe(200)
+    for (const limit of [0, 201]) {
+      const parsed = logQuerySchema.safeParse({ limit })
+      expect(parsed.success ? [] : parsed.error.issues.map(issue => issue.path)).toEqual([['limit']])
+    }
+    const reversed = logQuerySchema.safeParse({ since: '2026-09-12T00:00:00.000Z', until: '2026-09-11T00:00:00.000Z' })
+    expect(reversed.success ? [] : reversed.error.issues.map(issue => issue.path)).toEqual([['until']])
     expect(() => logQuerySchema.parse({ stack: 'nope' })).toThrow()
   })
 

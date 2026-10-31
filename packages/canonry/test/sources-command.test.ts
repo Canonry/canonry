@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest'
-import type { SourceBreakdownDto } from '@ainyc/canonry-contracts'
+import type { SourceBreakdownDto } from '@canonry/canonry-contracts'
 
 const mockGetAnalyticsSources = vi.fn()
 

@@ -1,6 +1,8 @@
+import { wasOnboardingScanSkipped } from '../../lib/onboarding-draft.js'
 import { usePublishAeroView } from '../../contexts/aero-view-context.js'
 import {
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -10,6 +12,7 @@ import {
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import {
   AlertTriangle,
+  Check,
   ChevronDown,
   ChevronRight,
   ExternalLink,
@@ -22,7 +25,6 @@ import {
   formatPercent,
   RatioUnits,
   RunKinds,
-  SITE_AUDIT_DEFAULT_PAGE_LIMIT,
   SITE_AUDIT_DEFAULT_MAX_DEPTH,
   SITE_AUDIT_ONBOARDING_PAGE_LIMIT,
   SITE_CRAWL_GRAPH_MAX_EDGES,
@@ -42,8 +44,9 @@ import {
   type SiteHealthScanDto,
   type SiteHealthState,
   type SiteHealthTemplateDetection,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
+  getApiV1ProjectsByNameOptions,
   getApiV1ProjectsByNameTechnicalAeoCrawlOptions,
   getApiV1ProjectsByNameTechnicalAeoCrawlPagesAuditOptions,
   getApiV1ProjectsByNameTechnicalAeoCrawlPagesOptions,
@@ -55,13 +58,15 @@ import {
   getApiV1ProjectsByNameTechnicalAeoRunsByRunIdPageHealthPreviewOptions,
   getApiV1ProjectsByNameTechnicalAeoRunsByRunIdProgressOptions,
   getApiV1ProjectsByNameTechnicalAeoStructureInfiniteOptions,
-} from '@ainyc/canonry-api-client/react-query'
+} from '@canonry/canonry-api-client/react-query'
 
 import { heyClient, isDashboardManagedRunKind, isEmbed, isPublicDemo } from '../../api.js'
 import { useAccount } from '../../contexts/account-context.js'
 import { ManagedSweepStatus, MANAGED_SCANS_COPY } from './ManagedSweepStatus.js'
 import { cn } from '../../lib/utils.js'
+import { PAGE_BUDGET_HELP, PAGE_BUDGET_PRESETS, oneOffFullSiteChoice, projectDefaultPageBudgetLabel } from '../../lib/site-audit-page-budget.js'
 import { useTriggerSiteAudit } from '../../queries/mutations.js'
+import { STATIC_VISIBILITY_STALE_MS } from '../../queries/query-client.js'
 import type { MetricTone } from '../../view-models.js'
 import { SiteGraphSigma } from './SiteGraphSigma.js'
 import {
@@ -72,6 +77,7 @@ import {
 } from './site-graph-sigma.js'
 import { displayPagePath, siteHostFromUrl } from './site-health-paths.js'
 import { PageAuditEvidence } from './PageAuditEvidence.js'
+import { SITE_HEALTH_CHECK_HELP } from './site-health-check-help.js'
 import { TechnicalAeoSection } from './TechnicalAeoSection.js'
 import { WriteButton } from '../shared/AccessControls.js'
 import { OnboardingProgress } from '../shared/OnboardingProgress.js'
@@ -89,7 +95,7 @@ const SITE_HEALTH_VIEWS = [
   { id: 'technical', label: 'Page health' },
 ] as const satisfies ReadonlyArray<{ id: SiteHealthView; label: string }>
 
-export const SITE_HEALTH_VIEW_DESCRIPTIONS: Record<SiteHealthView, string> = {
+const SITE_HEALTH_VIEW_DESCRIPTIONS: Record<SiteHealthView, string> = {
   map: 'Explore how pages, site sections, and internal links fit together.',
   inventory: 'Review discovered pages and the links that shape their visibility.',
   technical: 'Prioritize audit findings and inspect the pages that need work.',
@@ -118,6 +124,43 @@ const INVENTORY_FILTERS = [
   label: string
   healthState: SiteHealthState | undefined
 }>
+
+/**
+ * The address as two lines: the path, then any parameters, which are what tell
+ * two rows with the same path apart. Parameters are decoded for reading only;
+ * the full URL stays in the row's title and in what it opens.
+ */
+function inventoryAddress(url: string, fallbackPath: string, rootHost: string | null): { path: string; query: string | null } {
+  const display = displayPagePath(url, rootHost) || fallbackPath
+  const start = display.indexOf('?')
+  if (start < 0) return { path: display, query: null }
+  const query = display.slice(start)
+  let readable = query
+  try {
+    readable = decodeURIComponent(query.replaceAll('+', ' '))
+  } catch {
+    readable = query
+  }
+  return { path: display.slice(0, start), query: readable }
+}
+
+/**
+ * Every URL version a scan found: those fetched and set aside, plus those the
+ * crawl never fetched once their parameter pattern proved to make copies.
+ */
+function urlVersionsFound(summary: { urlVersions: number; urlVersionsNotFetched?: number } | null | undefined): number | null {
+  if (!summary) return null
+  return summary.urlVersions + (summary.urlVersionsNotFetched ?? 0)
+}
+
+/** The caveat beside the page count; its sentence is the tooltip. */
+function urlVersionsSkippedHelp(count: number): { label: string; text: string } {
+  const label = `${metricValue(count)} URL version${count === 1 ? '' : 's'} skipped`
+  return {
+    label,
+    text: `${label}. These addresses add parameters, such as a filter, to a page and name that page as canonical, so they are copies of it. The audit does not score them or list them here.`,
+  }
+}
 
 /**
  * Plain-word reading of the crawler's machine indexability reasons. The
@@ -261,7 +304,7 @@ const FULL_GRAPH_METRICS: ReadonlySet<SiteHealthMetric> = new Set([
  * Help text for one metric, told truthfully for the surface it sits on.
  * `filtered` means THIS surface is currently hiding nav and footer links.
  */
-export function siteHealthMetricHelp(metric: SiteHealthMetric, filtered: boolean): string {
+function siteHealthMetricHelp(metric: SiteHealthMetric, filtered: boolean): string {
   const base = SITE_HEALTH_METRIC_HELP[metric]
   if (FULL_GRAPH_METRICS.has(metric)) {
     return `${base} This always counts every link, including menu and footer.`
@@ -301,6 +344,9 @@ function scanTone(status: string | null | undefined): MetricTone {
   return 'neutral'
 }
 
+const DEFAULT_SCAN_OPTION_LABEL = 'Latest scan'
+const DEFAULT_SCAN_HELP = 'Shows the most complete scan from the latest day with results. Choose a dated entry to view another scan.'
+
 /**
  * A scan that kept no crawl is still real, selectable history. Say what it
  * holds ("Score only") rather than hiding it or letting it look broken.
@@ -336,26 +382,23 @@ const TERMINATION_COPY: Record<SiteCrawlTermination, string> = {
 const TERMINATION_LABELS = new Map<string, string>(Object.entries(TERMINATION_COPY))
 
 /**
- * Crawl budgets the operator can actually set, as a short list rather than a
- * free number. A scan that stops early is the single most common complaint
- * about a first result, and until now the only way to change either budget was
- * the CLI, which the dashboard never mentions.
+ * Crawl budgets the operator can actually set for one scan, as a short list
+ * rather than a free number. A scan that stops early is the single most common
+ * complaint about a first result, and until now the only way to change either
+ * budget was the CLI, which the dashboard never mentions.
  *
- * `null` means "send nothing and let the server apply its default", which is a
- * different request identity from sending the default explicitly.
+ * The picker's first option, ahead of these, sends no budget: the server then
+ * applies the project's saved budget (Project Settings), else the full site.
+ * It resolves that before computing request identity, so sending nothing and
+ * sending the same number explicitly are the same request. The option's label
+ * reads the saved budget from the project; the dashboard never fills one in.
  */
-const PAGE_BUDGET_CHOICES: readonly { value: number | null; label: string }[] = [
-  { value: null, label: `Default (${SITE_AUDIT_DEFAULT_PAGE_LIMIT.toLocaleString()} pages)` },
-  { value: SITE_AUDIT_ONBOARDING_PAGE_LIMIT, label: '100 pages (quick look)' },
-  { value: 500, label: '500 pages' },
-  { value: 2_500, label: '2,500 pages' },
-  { value: 10_000, label: '10,000 pages' },
-]
+const PAGE_BUDGET_CHOICES = PAGE_BUDGET_PRESETS
 
 // "No limit set" is not unlimited: the crawler stops at its own default. Name
 // it, and offer deeper limits, or "Raise the crawl depth" has nowhere to go
 // from a default scan.
-export const CRAWL_DEPTH_CHOICES: readonly { value: number | null; label: string }[] = [
+const CRAWL_DEPTH_CHOICES: readonly { value: number | null; label: string }[] = [
   { value: null, label: `Default (${SITE_AUDIT_DEFAULT_MAX_DEPTH} clicks)` },
   { value: 1, label: '1 click from the home page' },
   { value: 2, label: '2 clicks' },
@@ -409,7 +452,7 @@ function terminationCopy(termination: string | null): string {
  * because the site changed or because the scan could finally see where each
  * link sits.
  */
-export const TEMPLATE_DETECTION_COPY: Record<SiteHealthTemplateDetection, string> = {
+const TEMPLATE_DETECTION_COPY: Record<SiteHealthTemplateDetection, string> = {
   'applied': 'This scan told menu and footer links apart by how often the same link repeats across pages. It cannot spot a link written into the page text when its wording matches the menu. Run a new scan to read the page layout instead.',
   'applied-placement': 'This scan read where each link sits in the page, so links in the page text are separated from the menu, header, and footer even when they use the same wording.',
   'applied-placement-with-ubiquity': 'This scan read where each link sits in the page. Some pages mark out no menu or main area, so those links fall back to how often the link repeats across pages, which can miss a link written into the page text.',
@@ -435,12 +478,12 @@ function templateDetectionCopy(detection: SiteHealthTemplateDetection | null): s
  * and third line of the header strip.
  */
 /** Heading help for the map. Was a subtitle line under the heading. */
-export const SITE_MAP_HELP = 'Scroll to zoom. Click a page to inspect it.'
+const SITE_MAP_HELP = 'Scroll to zoom. Click a page to inspect it.'
 
 /** Heading help for the page inspector's link section. Was a subtitle line. */
 export const PAGE_INTERNAL_LINKS_HELP = 'Observed links to and from this page in the selected scan.'
 
-export const SITE_MAP_STALE_LAYOUT_COPY =
+const SITE_MAP_STALE_LAYOUT_COPY =
   'Page positions on this map were set before menu and footer links were separated. Run a new scan to update them.'
 
 /**
@@ -455,7 +498,7 @@ export const SITE_MAP_STALE_LAYOUT_COPY =
  * furniture that repeats on every page. The copy says that; the wire format
  * (`linkKind=content|template|all`) is unchanged and stays our vocabulary.
  */
-export function siteMapLinkCountsLabel(counts: {
+function siteMapLinkCountsLabel(counts: {
   filterUnavailable: boolean
   showTemplateLinks: boolean
   contentEdgeCount: number
@@ -477,7 +520,7 @@ export function siteMapLinkCountsLabel(counts: {
  * why the map hides most of their links, so the tooltip answers that first and
  * only then explains the rule behind the numbers.
  */
-export const SITE_MAP_LINK_SPLIT_COPY =
+const SITE_MAP_LINK_SPLIT_COPY =
   'Menu, header, and footer links repeat on every page, so they say nothing about which pages relate to each other. Links written in your page text do.'
 
 /**
@@ -485,7 +528,7 @@ export const SITE_MAP_LINK_SPLIT_COPY =
  * which rule produced it, and whether the positions predate it. Nothing was
  * dropped in the compression, it moved into the tooltip.
  */
-export function siteMapLinkRuleHelp(
+function siteMapLinkRuleHelp(
   detection: SiteHealthTemplateDetection | null,
   options: { staleLayout: boolean },
 ): string {
@@ -528,7 +571,7 @@ function deadLinkLabel(state: string, found?: number, unverified?: number): { la
  * 48" directly above a table headed "Links in (1)". Both were right and the
  * pair was unreadable. The tile now counts exactly what the table lists.
  */
-export function linkTileCount(counts: {
+function linkTileCount(counts: {
   total: number
   visible: number
   hidden: number
@@ -565,12 +608,12 @@ function LinkMetricTile({ label, value, hiddenNote, help }: {
 }) {
   return (
     <div className="px-4 py-3">
-      <dt className="flex items-center gap-1 text-xs text-muted">
+      <dt className="flex items-center gap-1 text-label-12 text-muted">
         {label}
         <InfoTooltip text={help} />
       </dt>
-      <dd className="mt-1 text-sm font-medium tabular-nums text-heading">{value}</dd>
-      {hiddenNote && <dd className="mt-0.5 text-xs text-muted">{hiddenNote}</dd>}
+      <dd className="mt-1 text-label-14-strong tabular-nums text-heading">{value}</dd>
+      {hiddenNote && <dd className="mt-0.5 text-label-12 text-muted">{hiddenNote}</dd>}
     </div>
   )
 }
@@ -588,7 +631,7 @@ function LinkMetrics({ page, inbound, outbound }: {
   // The footnote was the duplicate, so it is gone and nothing was lost.
   return (
     <>
-      <dl className="grid grid-cols-2 divide-x divide-y divide-default rounded-lg border border-default sm:grid-cols-4 sm:divide-y-0">
+      <dl className="grid grid-cols-2 divide-x divide-y divide-default material-base sm:grid-cols-4 sm:divide-y-0">
         <LinkMetricTile
           label="Clicks from home"
           value={String(page.depth ?? 'Not reached')}
@@ -679,13 +722,13 @@ function NeighborTable({
   return (
     <section className="min-w-0" aria-labelledby={`site-health-${direction}-heading`}>
       <div className="mb-2 flex items-center justify-between gap-3">
-        <h4 id={`site-health-${direction}-heading`} className="text-sm font-medium text-heading">
+        <h4 id={`site-health-${direction}-heading`} className="text-heading-14 text-heading">
           {heading} ({metricValue(edges.length)})
         </h4>
-        {truncated && <span className="text-xs text-muted">First {NEIGHBOR_LIMIT}</span>}
+        {truncated && <span className="text-label-12 text-muted">First {NEIGHBOR_LIMIT}</span>}
       </div>
       {edges.length === 0 ? (
-        <p className="rounded-lg border border-subtle bg-surface-subtle px-3 py-4 text-sm text-secondary">
+        <p className="material-base px-3 py-4 text-copy-14 text-secondary">
           {emptyLinkCopy(direction, hiddenTemplateCount, truncated)}
         </p>
       ) : (
@@ -752,14 +795,14 @@ function PageInspector({
 }: {
   page: InspectableCrawlPage | null
   isLoading: boolean
-  error: Error | null
+  error: unknown
   inbound: SiteCrawlEdgeDto[]
   outbound: SiteCrawlEdgeDto[]
   inboundTruncated: boolean
   outboundTruncated: boolean
   audit: SiteCrawlPageAuditDto | undefined
   auditLoading: boolean
-  auditError: Error | null
+  auditError: unknown
   onRetryAudit: () => void
   rootHost: string | null
   /** The same page from the inventory read, which carries the crawler reasons. */
@@ -772,14 +815,16 @@ function PageInspector({
   if (!page) {
     return (
       <section className="border-t border-default pt-5" aria-label="Selected page details">
-        <h3 className="text-base font-medium text-heading">Page links</h3>
-        <p className="mt-1 text-sm text-secondary">Select a page to inspect its internal links and crawl signals.</p>
+        <h3 className="text-heading-16 text-heading">Page links</h3>
+        <p className="mt-1 text-copy-14 text-secondary">Select a page to inspect its internal links and crawl signals.</p>
       </section>
     )
   }
 
   const status = crawlStatus(page)
   const reasons = indexabilityReasons(reasonSource ?? page)
+  // Only the full page DTO knows; a URL version is opened from the map, never the list.
+  const versionOf = reasonSource?.urlVersionOf ?? null
   // The inspector shows what the MAP shows. Listing nav links the map is
   // hiding would make the two disagree about the same page.
   const visibleInbound = showTemplateLinks ? inbound : inbound.filter((edge) => !edge.isTemplate)
@@ -812,21 +857,22 @@ function PageInspector({
       <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <h3 id="site-health-page-inspector-title" className="break-words font-mono text-base font-semibold text-heading">
+            <h3 id="site-health-page-inspector-title" className="break-words font-mono text-heading-16 text-heading">
               {page.path}
             </h3>
             <ToneBadge tone={status.tone}>{status.label}</ToneBadge>
           </div>
-          <p className="mt-1 break-all text-sm text-secondary">{page.url}</p>
+          <p className="mt-1 break-all text-copy-14 text-secondary">{page.url}</p>
           {reasonsState === 'loading' ? (
-            <p className="mt-2 text-sm text-secondary" role="status">Loading page details...</p>
+            <p className="mt-2 text-copy-14 text-secondary" role="status">Loading page details...</p>
           ) : reasonsState === 'error' ? (
-            <p className="mt-2 flex flex-wrap items-center gap-2 text-sm text-negative" role="alert">
+            <p className="mt-2 flex flex-wrap items-center gap-2 text-copy-14 text-negative" role="alert">
               Page details could not be loaded, so any reason this page is hidden is unknown.
               <Button type="button" variant="secondary" size="sm" onClick={onRetryReasons}>Try again</Button>
             </p>
-          ) : reasons.length > 0 ? (
-            <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-secondary" aria-label="Why this page is hidden">
+          ) : reasons.length > 0 || versionOf ? (
+            <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-label-14 text-secondary" aria-label="Why this page is hidden">
+              {versionOf && <li>{`URL version of ${displayPagePath(versionOf, rootHost)}, not scored`}</li>}
               {reasons.map((reason) => (
                 <li key={reason}>{indexabilityReasonLabel(reason)}</li>
               ))}
@@ -851,7 +897,7 @@ function PageInspector({
 
       <section className="mt-5 border-t border-default pt-5" aria-labelledby="site-health-page-links-heading">
         <div className="flex items-center gap-1">
-          <h3 id="site-health-page-links-heading" className="text-base font-semibold text-heading">Internal links</h3>
+          <h3 id="site-health-page-links-heading" className="text-heading-16 text-heading">Internal links</h3>
           <InfoTooltip text={PAGE_INTERNAL_LINKS_HELP} />
         </div>
         <div className="mt-4">
@@ -859,12 +905,12 @@ function PageInspector({
         </div>
         <div className="mt-5">
           {isLoading ? (
-          <div className="flex items-center gap-2 py-6 text-sm text-secondary">
+          <div className="flex items-center gap-2 py-6 text-label-14 text-secondary">
             <LoaderCircle className="size-4 motion-safe:animate-spin" aria-hidden="true" />
             Loading page links...
           </div>
         ) : error ? (
-          <p className="rounded-lg border border-negative bg-negative-soft px-4 py-3 text-sm text-negative" role="alert">
+          <p className="rounded-md border border-negative bg-negative-soft px-4 py-3 text-copy-14 text-negative" role="alert">
             Page links could not be loaded.
           </p>
         ) : (
@@ -894,6 +940,8 @@ function PageInspector({
 function InventoryTable({
   pages,
   total,
+  skippedUrlVersions,
+  rootHost,
   selectedNodeKey,
   onSelect,
   hasNextPage,
@@ -905,6 +953,9 @@ function InventoryTable({
 }: {
   pages: SiteCrawlPageDto[]
   total: number
+  /** URL versions the scan found (see `urlVersionsFound`); null or 0 shows nothing. */
+  skippedUrlVersions: number | null
+  rootHost: string | null
   selectedNodeKey: string | null
   onSelect: (nodeKey: string) => void
   hasNextPage: boolean
@@ -929,12 +980,17 @@ function InventoryTable({
     <section aria-labelledby="site-health-inventory-heading">
       <div className="mb-3 flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
         <div>
-          <h2 id="site-health-inventory-heading" className="text-base font-semibold text-heading">Pages</h2>
-          <p className="mt-1 text-sm text-secondary">
-            {filter === 'all'
-              ? `Showing ${metricValue(pages.length)} of ${metricValue(total)} pages found.`
-              : `Showing ${metricValue(pages.length)} of ${metricValue(total)} hidden pages.`}
-          </p>
+          <h2 id="site-health-inventory-heading" className="text-heading-16 text-heading">Pages</h2>
+          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+            <p className="text-copy-14 text-secondary">
+              {filter === 'all'
+                ? `Showing ${metricValue(pages.length)} of ${metricValue(total)} pages found.`
+                : `Showing ${metricValue(pages.length)} of ${metricValue(total)} hidden pages.`}
+            </p>
+            {skippedUrlVersions != null && skippedUrlVersions > 0 && (
+              <InfoTooltip {...urlVersionsSkippedHelp(skippedUrlVersions)} />
+            )}
+          </div>
         </div>
         <label className="relative block w-full sm:w-72">
           <span className="sr-only">Search loaded pages</span>
@@ -944,7 +1000,7 @@ function InventoryTable({
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder="Search loaded pages"
-            className="h-9 w-full rounded-md border border-base bg-bg pl-9 pr-3 text-sm text-primary outline-none placeholder-mono-600 focus:border-strong focus:ring-2 focus:ring-mono-600"
+            className="h-9 w-full rounded-md border border-base bg-bg pl-9 pr-3 text-label-14 text-primary outline-none placeholder-mono-400 focus:border-strong focus:ring-2 focus:ring-mono-600"
           />
         </label>
       </div>
@@ -979,16 +1035,20 @@ function InventoryTable({
           <tbody>
             {visiblePages.map((page) => {
               const status = crawlStatus(page)
+              const address = inventoryAddress(page.url, page.path, rootHost)
               return (
                 <tr key={page.nodeKey} className={selectedNodeKey === page.nodeKey ? 'bg-surface-active' : undefined}>
                   <td className="max-w-80">
                     <button
                       type="button"
                       onClick={() => onSelect(page.nodeKey)}
-                      className="block max-w-full truncate rounded-sm font-mono text-sm font-medium text-link outline-none focus-visible:ring-2 focus-visible:ring-mono-400"
+                      className="block max-w-full rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-mono-400"
                       title={page.url}
                     >
-                      {page.path}
+                      <span className="block truncate font-mono text-button-14 text-link">{address.path}</span>
+                      {address.query && (
+                        <span className="line-clamp-2 [overflow-wrap:anywhere] text-label-12-mono text-secondary">{address.query}</span>
+                      )}
                     </button>
                   </td>
                   <td title={siteGraphStatusDescription(siteGraphVisualState(page))}>
@@ -1006,7 +1066,7 @@ function InventoryTable({
         </table>
       </div>
       {visiblePages.length === 0 && (
-        <p className="border-x border-b border-default px-4 py-8 text-center text-sm text-secondary">
+        <p className="border-x border-b border-default px-4 py-8 text-center text-copy-14 text-secondary">
           {normalizedSearch.length === 0
             ? filterUnavailable
               ? 'This scan cannot be filtered. Run a new scan to filter its pages.'
@@ -1066,11 +1126,11 @@ function SiteSectionRow({
         <button
           type="button"
           onClick={() => onSelect(section.path)}
-          className="min-w-0 flex-1 break-all rounded-sm py-2 text-left font-mono text-sm text-heading outline-none hover:text-link focus-visible:ring-2 focus-visible:ring-mono-400"
+          className="min-w-0 flex-1 break-all rounded-sm py-2 text-left font-mono text-button-14 text-heading outline-none hover:text-link focus-visible:ring-2 focus-visible:ring-mono-400"
         >
           {section.path}
         </button>
-        <span className="shrink-0 px-2 font-mono text-xs text-muted">{metricValue(section.pageCount)}</span>
+        <span className="shrink-0 px-2 text-label-12-mono text-muted">{metricValue(section.pageCount)}</span>
       </div>
       {expanded && (
         <div className="ml-6 border-l border-default pl-1">
@@ -1101,11 +1161,11 @@ function RootPageRow({ page, onSelect }: {
         <button
           type="button"
           onClick={() => onSelect(page.nodeKey)}
-          className="min-w-0 flex-1 break-all rounded-sm py-2 text-left font-mono text-sm font-semibold text-heading outline-none hover:text-link focus-visible:ring-2 focus-visible:ring-mono-400"
+          className="min-w-0 flex-1 break-all rounded-sm py-2 text-left font-mono text-button-14 text-heading outline-none hover:text-link focus-visible:ring-2 focus-visible:ring-mono-400"
         >
           {page.path || '/'}
         </button>
-        <span className="shrink-0 px-2 font-mono text-xs text-muted">{metricValue(1)}</span>
+        <span className="shrink-0 px-2 text-label-12-mono text-muted">{metricValue(1)}</span>
       </div>
     </li>
   )
@@ -1146,16 +1206,16 @@ function SiteSectionChildren({
 
   if (structureQuery.isLoading) {
     return (
-      <div className="flex items-center gap-2 px-3 py-4 text-sm text-secondary" role="status">
+      <div className="flex items-center gap-2 px-3 py-4 text-label-14 text-secondary" role="status">
         <LoaderCircle className="size-4 motion-safe:animate-spin" aria-hidden="true" /> Loading sections...
       </div>
     )
   }
   if (structureQuery.error) {
-    return <p className="px-3 py-4 text-sm text-negative" role="alert">Site sections could not be loaded.</p>
+    return <p className="px-3 py-4 text-copy-14 text-negative" role="alert">Site sections could not be loaded.</p>
   }
   if (sections.length === 0 && !rootPage) {
-    return <p className="px-3 py-4 text-sm text-secondary">No nested sections were found.</p>
+    return <p className="px-3 py-4 text-copy-14 text-secondary">No nested sections were found.</p>
   }
 
   return (
@@ -1194,12 +1254,12 @@ function GraphLoadingState() {
   return (
     <div
       role="status"
-      className="flex min-h-[420px] items-center justify-center rounded-lg border border-default bg-surface-inset px-6 text-center lg:min-h-[520px]"
+      className="flex min-h-[420px] items-center justify-center material-base px-6 text-center lg:min-h-[520px]"
     >
       <div className="max-w-sm">
         <LoaderCircle className="mx-auto size-5 motion-safe:animate-spin text-muted" aria-hidden="true" />
-        <p className="mt-3 text-sm font-medium text-heading">Preparing the interactive site map</p>
-        <p className="mt-1 text-sm text-secondary">Page and link data is ready for the graph renderer.</p>
+        <p className="mt-3 text-copy-14-strong text-heading">Preparing the interactive site map</p>
+        <p className="mt-1 text-copy-14 text-secondary">Page and link data is ready for the graph renderer.</p>
       </div>
     </div>
   )
@@ -1223,6 +1283,60 @@ function scanPhaseCopy(phase: SiteAuditProgressSnapshot['phase'] | 'running' | '
   if (phase === 'arranging-map') return 'Arranging map'
   if (phase === 'queued') return 'Waiting to start'
   return 'Preparing scan'
+}
+
+const SCAN_STEP_COUNT = 3
+
+/** Which of the three scan steps a phase is in: find pages, check pages, build the result. */
+function scanStepIndex(phase: SiteAuditProgressSnapshot['phase'] | 'running' | 'queued' | null | undefined): number {
+  if (phase === 'checking') return 1
+  if (phase === 'arranging-map') return 2
+  return 0
+}
+
+/**
+ * The scan as three steps. Finished steps are full; the current step fills
+ * from real counts only (pages checked against the scan's page limit, when
+ * the limit is known) and otherwise pulses, so the bar never shows a guessed
+ * percentage.
+ */
+function ScanPhaseBar({ phase, pagesChecked, pageLimit, finalStep }: {
+  phase: SiteAuditProgressSnapshot['phase'] | 'running' | 'queued' | null | undefined
+  pagesChecked: number | null
+  pageLimit: number | null
+  finalStep: string
+}) {
+  const current = scanStepIndex(phase)
+  const checkedShare = current === 1 && pagesChecked !== null && pageLimit ? Math.min(1, pagesChecked / pageLimit) : null
+  const labels = [
+    'Find pages',
+    current === 1 && pagesChecked !== null
+      ? `Check pages · ${metricValue(pagesChecked)}${pageLimit ? ` of up to ${metricValue(pageLimit)}` : ''}`
+      : 'Check pages',
+    finalStep,
+  ]
+  return (
+    <div className="mt-4" role="progressbar" aria-label="Scan progress" aria-valuemin={0} aria-valuemax={SCAN_STEP_COUNT} aria-valuenow={current + (checkedShare ?? 0)} aria-valuetext={labels[current]}>
+      <div className="grid grid-cols-[1fr_2fr_1fr] gap-1.5" aria-hidden="true">
+        {labels.map((label, index) => (
+          <div key={label} className="h-2 overflow-hidden rounded-full bg-surface-inset">
+            {index < current ? <div className="h-full w-full rounded-full bg-positive-400" />
+              : index === current && checkedShare !== null ? <div className="h-full rounded-full bg-positive-400 transition-[width] duration-500" style={{ width: `${Math.max(4, checkedShare * 100)}%` }} />
+                : index === current ? <div className="h-full w-full rounded-full bg-positive-400/40 motion-safe:animate-pulse" />
+                  : null}
+          </div>
+        ))}
+      </div>
+      <div className="mt-2 grid grid-cols-[1fr_2fr_1fr] gap-1.5 text-label-14" aria-hidden="true">
+        {labels.map((label, index) => (
+          <span key={label} className={`flex min-w-0 items-center gap-1 truncate ${index === current ? 'text-label-14-strong text-heading' : index < current ? 'text-secondary' : 'text-muted'}`}>
+            {index < current ? <Check className="h-3.5 w-3.5 shrink-0" aria-hidden="true" /> : null}
+            <span className="truncate">{label}</span>
+          </span>
+        ))}
+      </div>
+    </div>
+  )
 }
 
 function shouldPollSiteAuditProgress(phase: SiteAuditProgressSnapshot['phase'] | undefined): boolean {
@@ -1313,8 +1427,8 @@ function OnboardingContinuationActions({
   return (
     <section aria-labelledby="site-health-continuation-heading" className="mt-5 flex flex-col gap-3 border-t border-default pt-5 sm:flex-row sm:items-center sm:justify-between">
       <div>
-        <h3 id="site-health-continuation-heading" className="text-base font-semibold text-heading">Continue while Site Health finishes</h3>
-        <p className="mt-1 text-sm text-secondary">Canonry will finish this scan locally. Saved results will appear in Site Health.</p>
+        <h3 id="site-health-continuation-heading" className="text-heading-16 text-heading">Continue while Site Health finishes</h3>
+        <p className="mt-1 text-copy-14 text-secondary">Canonry will finish this scan locally. Saved results will appear in Site Health.</p>
       </div>
       <div className="flex shrink-0 flex-wrap gap-2">
         <Button type="button" onClick={onContinueOnboarding}>Set up AI Visibility</Button>
@@ -1382,12 +1496,22 @@ function ActiveScanState({
   return (
     <section
       aria-label="Current scan progress"
-      className="rounded-lg border border-caution bg-caution-soft px-5 py-6"
+      className="material-base px-5 py-6"
     >
-      <h2 className="min-h-6 text-base font-semibold text-heading">
-        {arrangingMap && pageHealthDestination ? 'Preparing page health' : arrangingMap ? 'Preparing site map' : 'Scanning site'}
-      </h2>
-      <p aria-atomic="true" aria-label="Current scan progress" aria-live="polite" role="status" className="mt-1 min-h-[4.5rem] text-sm text-secondary sm:min-h-10">
+      <div className="flex min-h-6 items-center gap-2">
+        <h2 className="text-heading-16 text-heading">
+          {arrangingMap && pageHealthDestination ? 'Preparing page health' : arrangingMap ? 'Preparing site map' : firstLook ? 'Checking your site' : 'Scanning site'}
+        </h2>
+        {firstLook ? (
+          // Said to someone who may not know what Canonry is yet: name what the
+          // scan is FOR. The tooltip names the time limit too, since a first
+          // scan on a real site usually stops there before the page budget.
+          <InfoTooltip text={boundedPageLimit
+            ? `A quick scan to find your first fixes. Reads up to ${boundedPageLimit} pages, or stops sooner at the time limit, so results come back fast. You can run a larger scan from Site Health later.`
+            : 'A quick scan to find your first fixes. Stops at its page budget or the time limit, so results come back fast. You can run a larger scan from Site Health later.'} />
+        ) : null}
+      </div>
+      <p aria-atomic="true" aria-label="Current scan progress" aria-live="polite" role="status" className="sr-only">
         {pageHealthDestination
           ? arrangingMap
             ? 'Finalizing page health. The scan is complete and its findings are being published.'
@@ -1396,39 +1520,27 @@ function ActiveScanState({
             ? 'Arranging map. The scan is complete and its map is being published.'
             : `${scanPhaseCopy(phase)}. The map appears after the scan finishes.`}
       </p>
-      {firstLook ? (
-        // Said to someone who may not know what Canonry is yet: name what the
-        // scan is FOR, not what it is not. Neutral, because the panel around
-        // it is already the caution tone and this is not a warning. The
-        // tooltip names the time limit too, since a first scan on a real site
-        // usually stops there before the page budget.
-        <p className="mt-3 flex items-center gap-1.5 rounded-lg border border-default bg-bg px-4 py-2 text-sm text-primary">
-          A quick scan to find your first fixes.
-          <InfoTooltip text={boundedPageLimit
-            ? `Reads up to ${boundedPageLimit} pages, or stops sooner at the time limit, so results come back fast. You can run a larger scan from Site Health later.`
-            : 'Stops at its page budget or the time limit, so results come back fast. You can run a larger scan from Site Health later.'} />
-        </p>
-      ) : null}
-      <dl aria-label="Live scan counters" className="mt-5 grid grid-cols-2 divide-x divide-y divide-default rounded-lg border border-default bg-surface-subtle sm:grid-cols-4 sm:divide-y-0">
+      <ScanPhaseBar phase={phase} pagesChecked={attempt?.pagesFetched ?? null} pageLimit={boundedPageLimit ?? null} finalStep={pageHealthDestination ? 'Build report' : 'Build map'} />
+      <dl aria-label="Live scan counters" className="mt-5 grid grid-cols-2 divide-x divide-y divide-default material-base sm:grid-cols-4 sm:divide-y-0">
           <div className="px-4 py-3">
-            <dt className="text-sm text-secondary">Pages found</dt>
-            <dd className="mt-1 font-mono text-lg font-semibold tabular-nums text-heading">{attempt ? metricValue(attempt.pagesDiscovered) : '—'}</dd>
+            <dt className="text-label-14 text-secondary">Pages found</dt>
+            <dd className="mt-1 font-mono text-label-18-strong tabular-nums text-heading">{attempt ? metricValue(attempt.pagesDiscovered) : '—'}</dd>
           </div>
           <div className="px-4 py-3">
-            <dt className="text-sm text-secondary">Pages checked</dt>
-            <dd className="mt-1 font-mono text-lg font-semibold tabular-nums text-heading">{attempt ? metricValue(attempt.pagesFetched) : '—'}</dd>
+            <dt className="text-label-14 text-secondary">Pages checked</dt>
+            <dd className="mt-1 font-mono text-label-18-strong tabular-nums text-heading">{attempt ? metricValue(attempt.pagesFetched) : '—'}</dd>
           </div>
           <div className="px-4 py-3">
-            <dt className="text-sm text-secondary">Links found</dt>
-            <dd className="mt-1 font-mono text-lg font-semibold tabular-nums text-heading">{attempt ? metricValue(attempt.edgesDiscovered) : '—'}</dd>
+            <dt className="text-label-14 text-secondary">Links found</dt>
+            <dd className="mt-1 font-mono text-label-18-strong tabular-nums text-heading">{attempt ? metricValue(attempt.edgesDiscovered) : '—'}</dd>
           </div>
           <div className="px-4 py-3">
-            <dt className="text-sm text-secondary">Pages failed</dt>
-            <dd className="mt-1 font-mono text-lg font-semibold tabular-nums text-heading">{attempt ? metricValue(attempt.pagesErrored) : '—'}</dd>
+            <dt className="text-label-14 text-secondary">Pages failed</dt>
+            <dd className="mt-1 font-mono text-label-18-strong tabular-nums text-heading">{attempt ? metricValue(attempt.pagesErrored) : '—'}</dd>
           </div>
         </dl>
       {progressError && (
-        <div className="mt-4 flex flex-wrap items-center gap-3 text-sm text-secondary">
+        <div className="mt-4 flex flex-wrap items-center gap-3 text-label-14 text-secondary">
           <span>{arrangingMap
             ? pageHealthDestination ? 'Page health publishing status could not load.' : 'Map publishing status could not load.'
             : 'Live scan counts could not load. The scan is still running.'}</span>
@@ -1550,8 +1662,8 @@ export function LivePageHealthFindings({
 
   return (
     <section aria-labelledby="live-page-health-findings-heading" className="mt-5 border-t border-default pt-5">
-      <h3 id="live-page-health-findings-heading" className="text-base font-semibold text-heading">Findings so far</h3>
-      <div className="relative mt-1 min-h-[5.25rem] text-sm text-secondary sm:min-h-[3.5rem]">
+      <h3 id="live-page-health-findings-heading" className="text-heading-16 text-heading">Findings so far</h3>
+      <div className="relative mt-1 min-h-[5.25rem] text-label-14 text-secondary sm:min-h-[3.5rem]">
         <p>Based on {numberFormatter.format(pagesAudited)} audited pages. Results may change until the scan finishes.</p>
         <p className={cn('absolute bottom-0 text-caution', error ? 'visible' : 'invisible')}>
           Live findings paused. The scan is still running.
@@ -1559,7 +1671,7 @@ export function LivePageHealthFindings({
       </div>
       <ul
         aria-label="Live Page Health findings"
-        className="mt-3 grid h-[10.5rem] grid-rows-3 divide-y divide-default overflow-hidden rounded-lg border border-default bg-surface-subtle"
+        className="mt-3 grid h-[10.5rem] grid-rows-3 divide-y divide-default overflow-hidden material-base"
       >
         {slots.map((example, index) => {
           const placeholder = example == null && index === 0 && !hasExamples
@@ -1574,15 +1686,15 @@ export function LivePageHealthFindings({
             >
               {example ? (
                 <>
-                  <span className="min-w-0 truncate text-sm font-medium text-strong" title={example.url}>{example.url}</span>
-                  <span className="shrink-0 whitespace-nowrap text-sm tabular-nums text-secondary">
+                  <span className="min-w-0 truncate text-label-14-strong text-strong" title={example.url}>{example.url}</span>
+                  <span className="shrink-0 whitespace-nowrap text-label-14 tabular-nums text-secondary">
                     <span aria-hidden="true" className="sm:hidden">{numberFormatter.format(example.checksNeedingAttention)} checks</span>
                     <span className="hidden sm:inline">{numberFormatter.format(example.checksNeedingAttention)} checks need attention</span>
                     <span className="sr-only sm:hidden">{numberFormatter.format(example.checksNeedingAttention)} checks need attention</span>
                   </span>
                 </>
               ) : placeholder ? (
-                <span className="text-sm text-secondary">Checks that need attention will appear here.</span>
+                <span className="text-label-14 text-secondary">Checks that need attention will appear here.</span>
               ) : null}
             </li>
           )
@@ -1610,10 +1722,10 @@ function TerminalScanRecoveryState({
     <section
       aria-label="Site scan recovery"
       role="alert"
-      className="rounded-lg border border-negative bg-negative-soft px-5 py-6"
+      className="rounded-md border border-negative bg-negative-soft px-5 py-6"
     >
-      <h2 className="text-base font-semibold text-negative">{cancelled ? 'Scan cancelled' : 'Scan failed'}</h2>
-      <p className="mt-1 text-sm text-secondary">
+      <h2 className="text-heading-16 text-negative">{cancelled ? 'Scan cancelled' : 'Scan failed'}</h2>
+      <p className="mt-1 text-copy-14 text-secondary">
         {pageHealthDestination
           ? cancelled
             ? 'The scan was cancelled before Canonry could publish page health results.'
@@ -1622,7 +1734,7 @@ function TerminalScanRecoveryState({
             ? 'The scan was cancelled before Canonry could publish a site map.'
             : 'The scan did not complete, so there is no site map for this run.'}
       </p>
-      {error && <p className="mt-3 text-sm text-negative">{error}</p>}
+      {error && <p className="mt-3 text-copy-14 text-negative">{error}</p>}
       {onRunAgain && <Button type="button" className="mt-4" onClick={onRunAgain}>Run scan again</Button>}
     </section>
   )
@@ -1650,13 +1762,19 @@ export function SiteHealthSection({
   /** Leaves the explicit onboarding flow. */
   onSkipOnboarding?: () => void
 }) {
+  const scanHistoryId = useId()
   const [view, setView] = useState<SiteHealthView>('map')
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([])
   const [selectedRunId, setSelectedRunId] = useState<string | null>(() => initialRunId ?? null)
+  // A scan this section started stops being followed once the operator picks a scan.
+  const [releasedRescanRunId, setReleasedRescanRunId] = useState<string | null>(null)
   const previousInitialRunId = useRef(initialRunId)
   const [selectedNodeKey, setSelectedNodeKey] = useState<string | null>(null)
   const [checkDeadLinks, setCheckDeadLinks] = useState(false)
-  // `null` on both = send nothing and take the server's defaults.
+  const [includeGeo, setIncludeGeo] = useState(false)
+  const [includeAgentSkills, setIncludeAgentSkills] = useState(true)
+  // `null` on both = send nothing: the server applies the project's saved
+  // page budget (else the full site) and the crawler's default depth.
   const [pageBudget, setPageBudget] = useState<number | null>(null)
   const [crawlDepth, setCrawlDepth] = useState<number | null>(null)
   // True once this section dispatched an onboarding scan, so its budget is known.
@@ -1675,6 +1793,15 @@ export function SiteHealthSection({
   const managedScanForViewer = (publicDemo || isDashboardManagedRunKind(RunKinds['site-audit'])) && !isAdmin
   const explicitOnboarding = showOnboardingActions && !embedded
   const runMutation = useTriggerSiteAudit()
+  // Scan settings names the project's saved page budget. This is the project
+  // page's own cached project read (same key and freshness), so it adds no
+  // request there, and it stays off wherever Scan settings is not shown.
+  const scanSettingsShown = !explicitOnboarding && !embedded && !managedScanForViewer
+  const projectQuery = useQuery({
+    ...getApiV1ProjectsByNameOptions({ client: heyClient, path: { name: projectName } }),
+    enabled: scanSettingsShown,
+    staleTime: STATIC_VISIBILITY_STALE_MS,
+  })
 
   useEffect(() => {
     const previous = previousInitialRunId.current
@@ -1702,12 +1829,19 @@ export function SiteHealthSection({
   const latestTerminalAudit = auditScans
     .find((scan) => scan.status === 'completed' || scan.status === 'partial')
   const mutationRunId = explicitOnboarding ? runMutation.data?.runId ?? null : null
+  // The default is the API's preferred scan, which can be an earlier, fuller
+  // scan from the same day. A scan started here is the result the operator is
+  // waiting for, so once it finishes it is shown until they pick another scan.
+  const rescanRunId = explicitOnboarding ? null : runMutation.data?.runId ?? null
+  const finishedRescanRunId = rescanRunId && rescanRunId !== releasedRescanRunId && auditScans.some(
+    (scan) => scan.runId === rescanRunId && (scan.status === 'completed' || scan.status === 'partial'),
+  ) ? rescanRunId : null
   // During explicit setup, a replacement scan remains the current work through
   // every status transition. Its own terminal evidence or recovery must replace
   // the prior result; merely appearing in scan history does not release it.
   const requestedRunId = selectedRunId ?? (explicitOnboarding
     ? mutationRunId ?? activeAudit?.runId ?? latestTerminalAudit?.runId
-    : latestTerminalAudit?.runId ?? activeAudit?.runId) ?? null
+    : finishedRescanRunId ?? auditRunsQuery.data?.preferredRunId ?? latestTerminalAudit?.runId ?? activeAudit?.runId) ?? null
   // Scan history is eventually consistent. Keep its active state only until
   // the exact progress read for this selected run can say otherwise.
   const activeRequestedRun = activeAudit?.runId === requestedRunId ? activeAudit : null
@@ -1818,6 +1952,9 @@ export function SiteHealthSection({
     query: {
       ...scopedRunQuery,
       ...(inventoryHealthState ? { healthState: inventoryHealthState } : {}),
+      // A URL version is a copy of a page the audit did not score; the list
+      // holds pages and the skipped copies are one count beside it.
+      urlVersions: 'exclude' as const,
       limit: INVENTORY_LIMIT,
       sort: 'path' as const,
     },
@@ -2048,6 +2185,19 @@ export function SiteHealthSection({
     runId: requestedRunId,
     createdAt: requestedAuditRun?.createdAt,
   })
+  const scanHistoryUnconfirmed = explicitOnboarding && !requestedRunId && !auditRunsQuery.isSuccess
+  const scanNotStarted = explicitOnboarding && auditRunsQuery.isSuccess && auditScans.length === 0 && !requestedRunId && !runMutation.isPending
+  const scanSkipped = scanNotStarted && wasOnboardingScanSkipped(projectName)
+  const onboardingEmptyHeading = scanHistoryUnconfirmed
+    ? auditRunsQuery.isError ? 'Scan history could not be loaded' : 'Checking scan history…'
+    : scanNotStarted
+      ? scanSkipped ? 'Site scan skipped' : 'No site scan yet'
+      : 'Page health results unavailable'
+  const onboardingEmptyDescription = scanHistoryUnconfirmed
+    ? 'Scan status is not confirmed. Check scan history before starting a scan.'
+    : scanNotStarted
+      ? 'No scan has been started for this project. Run a first scan or continue without scanning.'
+      : 'This scan did not produce page health results. Run it again to continue setup.'
   const siteAuditReady = Boolean(crawl?.hasCrawlData && !showProgressState && !recoveryPhase)
   // Explicit onboarding has one task per state. A usable terminal crawl opens
   // Page health immediately; active and recovery states stay on the scan view.
@@ -2057,6 +2207,7 @@ export function SiteHealthSection({
   const transientView = currentView === 'technical' ? 'map' : currentView
   const selectRun = (runId: string) => {
     setSelectedRunId(runId || null)
+    setReleasedRescanRunId(rescanRunId)
     setSelectedNodeKey(null)
   }
   const startScan = () => {
@@ -2075,10 +2226,13 @@ export function SiteHealthSection({
       projectId,
       body: {
         checkDeadLinks: explicitOnboarding || checkDeadLinks,
+        ...(includeGeo ? { includeGeo: true } : {}),
+        ...(!includeAgentSkills ? { includeAgentSkills: false } : {}),
         // Onboarding is a bounded first look, so it does not spend the full
         // crawl budget before the operator has seen any result. Everywhere
         // else the budget is whatever Scan settings says, and an unset budget
-        // is omitted so the server applies its own default.
+        // is omitted so the server applies the project's saved budget, else
+        // the full site.
         ...(explicitOnboarding
           ? { maxPages: SITE_AUDIT_ONBOARDING_PAGE_LIMIT }
           : pageBudget === null ? {} : { maxPages: pageBudget }),
@@ -2115,41 +2269,45 @@ export function SiteHealthSection({
       {!explicitOnboarding && <header className="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
         <div>
           <div className="flex flex-wrap items-center gap-3">
-            <h2 className="text-xl font-semibold tracking-tight text-heading">Site Health</h2>
+            <h2 className="text-heading-20 text-heading">Site Health</h2>
             <InfoTooltip text={SITE_HEALTH_VIEW_DESCRIPTIONS[currentView]} />
             <ToneBadge tone={scanTone(status)}>{statusLabel}</ToneBadge>
             {selectedRun && (
-              <span className="text-xs text-muted">{formatScanDate(selectedRun.finishedAt ?? selectedRun.startedAt)}</span>
+              <span className="text-label-12 text-muted">{formatScanDate(selectedRun.finishedAt ?? selectedRun.startedAt)}</span>
             )}
           </div>
         </div>
 
         <div className="flex flex-wrap items-start gap-2">
-          <label className="grid gap-1 text-xs text-muted">
-            Scan history
+          <div className="grid gap-1 text-label-12 text-muted">
+            <div className="flex items-center gap-1.5">
+              <label htmlFor={scanHistoryId}>Scan history</label>
+              <InfoTooltip text={DEFAULT_SCAN_HELP} placement="bottom" />
+            </div>
             <select
+              id={scanHistoryId}
               aria-label="View a Site Health scan"
-              value={selectedRunId ?? ''}
+              value={selectedRunId ?? finishedRescanRunId ?? ''}
               onChange={(event) => selectRun(event.target.value)}
-              className="h-9 min-w-48 rounded-md border border-base bg-bg px-3 text-sm text-primary outline-none focus:border-strong focus:ring-2 focus:ring-mono-600"
+              className="h-9 min-w-48 rounded-md border border-base bg-bg px-3 text-label-14 text-primary outline-none focus:border-strong focus:ring-2 focus:ring-mono-600"
             >
-              <option value="">Latest scan</option>
+              <option value="">{DEFAULT_SCAN_OPTION_LABEL}</option>
               {selectableScans.map((scan) => (
                 <option key={scan.runId} value={scan.runId}>{scanOptionLabel(scan)}</option>
               ))}
             </select>
-          </label>
+          </div>
 
           {!embedded && !managedScanForViewer && (
             <div className="flex items-end gap-2 pt-5">
               <details className="group relative">
-                <summary className="flex h-9 cursor-pointer list-none items-center gap-2 rounded-md border border-base bg-bg px-3 text-sm font-medium text-heading outline-none hover:bg-bg-elevated focus-visible:ring-2 focus-visible:ring-mono-400">
+                <summary className="flex h-9 cursor-pointer list-none items-center gap-2 rounded-md border border-base bg-bg px-3 text-label-14-strong text-heading outline-none hover:bg-bg-elevated focus-visible:ring-2 focus-visible:ring-mono-400">
                   <Settings2 className="size-4" aria-hidden="true" />
                   Scan settings
                 </summary>
-                <div className="absolute right-0 z-20 mt-2 w-72 rounded-lg border border-strong bg-bg-elevated p-4 shadow-[0_12px_32px_var(--color-shadow-panel)]">
-                  <div className="flex items-center justify-between gap-3 text-sm text-heading">
-                    <span className="flex items-center gap-1.5 font-medium">
+                <div className="absolute left-0 z-20 mt-2 w-72 material-menu p-4 sm:left-auto sm:right-0">
+                  <div className="flex items-center justify-between gap-3 text-label-14 text-heading">
+                    <span className="flex items-center gap-1.5 text-label-14-strong">
                       Check dead links
                       <InfoTooltip text="Adds dead-link analysis to this scan. Slower on a large site." />
                     </span>
@@ -2162,28 +2320,57 @@ export function SiteHealthSection({
                       className="size-4 rounded border-base accent-mono-200 focus:ring-2 focus:ring-mono-400"
                     />
                   </div>
+                  <div className="mt-3 flex items-center justify-between gap-3 text-label-14 text-heading">
+                    <span className="flex items-center gap-1.5 text-label-14-strong">
+                      Geographic signals
+                      <InfoTooltip text={SITE_HEALTH_CHECK_HELP['geographic-signals']!} placement="bottom" />
+                    </span>
+                    <input
+                      type="checkbox"
+                      aria-label="Geographic signals"
+                      checked={includeGeo}
+                      disabled={scanBusy}
+                      onChange={(event) => setIncludeGeo(event.target.checked)}
+                      className="size-4 rounded border-base accent-mono-200 focus:ring-2 focus:ring-mono-400"
+                    />
+                  </div>
+                  <div className="mt-3 flex items-center justify-between gap-3 text-label-14 text-heading">
+                    <span className="flex items-center gap-1.5 text-label-14-strong">
+                      Agent integrations
+                      <InfoTooltip text={SITE_HEALTH_CHECK_HELP['agent-skill-exposure']!} placement="bottom" />
+                    </span>
+                    <input
+                      type="checkbox"
+                      aria-label="Agent integrations"
+                      checked={includeAgentSkills}
+                      disabled={scanBusy}
+                      onChange={(event) => setIncludeAgentSkills(event.target.checked)}
+                      className="size-4 rounded border-base accent-mono-200 focus:ring-2 focus:ring-mono-400"
+                    />
+                  </div>
                   {/* The tooltip sits OUTSIDE the label: inside it, its own
                       accessible name folds into the control's, and both answer
                       to the same name. */}
                   <div className="mt-4">
-                    <span className="flex items-center gap-1.5 text-sm font-medium text-heading">
+                    <span className="flex items-center gap-1.5 text-label-14-strong text-heading">
                       Page budget
-                      <InfoTooltip text="How many pages one scan may read before it stops." />
+                      <InfoTooltip text={PAGE_BUDGET_HELP} placement="bottom" />
                     </span>
                     <select
                       aria-label="Page budget"
                       value={pageBudget === null ? '' : String(pageBudget)}
                       disabled={scanBusy}
                       onChange={(event) => setPageBudget(event.target.value === '' ? null : Number(event.target.value))}
-                      className="mt-1 h-9 w-full rounded-md border border-base bg-bg px-2 text-sm text-primary outline-none focus:border-strong focus:ring-2 focus:ring-mono-600"
+                      className="mt-1 h-9 w-full rounded-md border border-base bg-bg px-2 text-label-14 text-primary outline-none focus:border-strong focus:ring-2 focus:ring-mono-600"
                     >
-                      {PAGE_BUDGET_CHOICES.map((choice) => (
-                        <option key={String(choice.value)} value={choice.value === null ? '' : String(choice.value)}>{choice.label}</option>
+                      <option value="">{projectDefaultPageBudgetLabel(projectQuery.data)}</option>
+                      {[...(oneOffFullSiteChoice(projectQuery.data) ? [oneOffFullSiteChoice(projectQuery.data)!] : []), ...PAGE_BUDGET_CHOICES].map((choice) => (
+                        <option key={choice.value} value={String(choice.value)}>{choice.label}</option>
                       ))}
                     </select>
                   </div>
                   <div className="mt-3">
-                    <span className="flex items-center gap-1.5 text-sm font-medium text-heading">
+                    <span className="flex items-center gap-1.5 text-label-14-strong text-heading">
                       Crawl depth
                       <InfoTooltip text="How far from the home page to follow links. A smaller scan is what fixes a scan that ran out of time." />
                     </span>
@@ -2192,7 +2379,7 @@ export function SiteHealthSection({
                       value={crawlDepth === null ? '' : String(crawlDepth)}
                       disabled={scanBusy}
                       onChange={(event) => setCrawlDepth(event.target.value === '' ? null : Number(event.target.value))}
-                      className="mt-1 h-9 w-full rounded-md border border-base bg-bg px-2 text-sm text-primary outline-none focus:border-strong focus:ring-2 focus:ring-mono-600"
+                      className="mt-1 h-9 w-full rounded-md border border-base bg-bg px-2 text-label-14 text-primary outline-none focus:border-strong focus:ring-2 focus:ring-mono-600"
                     >
                       {CRAWL_DEPTH_CHOICES.map((choice) => (
                         <option key={String(choice.value)} value={choice.value === null ? '' : String(choice.value)}>{choice.label}</option>
@@ -2212,31 +2399,31 @@ export function SiteHealthSection({
       {managedScanForViewer && <ManagedSweepStatus projectName={projectName} kind={RunKinds['site-audit']} loadSchedule={!publicDemo} />}
 
       {crawl?.hasCrawlData && currentView !== 'technical' && (
-        <div className="grid grid-cols-2 divide-x divide-y divide-default rounded-lg border border-default bg-surface-subtle sm:grid-cols-4 sm:divide-y-0">
+        <div className="grid grid-cols-2 divide-x divide-y divide-default material-base sm:grid-cols-4 sm:divide-y-0">
           <div className="px-4 py-3">
-            <div className="flex items-center gap-1 text-xs text-muted">
+            <div className="flex items-center gap-1 text-label-12 text-muted">
               Pages found
               <InfoTooltip text={siteHealthMetricHelp('pagesFound', false)} />
             </div>
-            <div className="mt-1 text-xl font-semibold tabular-nums text-heading">{metricValue(crawl.counts.pagesDiscovered)}</div>
+            <div className="mt-1 text-label-20-strong tabular-nums text-heading">{metricValue(crawl.counts.pagesDiscovered)}</div>
           </div>
           <div className="px-4 py-3">
-            <div className="flex items-center gap-1 text-xs text-muted">
+            <div className="flex items-center gap-1 text-label-12 text-muted">
               Pages checked
               <InfoTooltip text={siteHealthMetricHelp('pagesChecked', false)} />
             </div>
-            <div className="mt-1 text-xl font-semibold tabular-nums text-heading">{metricValue(crawl.counts.pagesFetched)}</div>
+            <div className="mt-1 text-label-20-strong tabular-nums text-heading">{metricValue(crawl.counts.pagesFetched)}</div>
           </div>
           <div className="px-4 py-3">
-            <div className="text-xs text-muted" title={siteGraphStatusDescription('eligible')}>Indexable</div>
-            <div className="mt-1 text-xl font-semibold tabular-nums text-heading">{metricValue(crawl.counts.pagesEligible)}</div>
+            <div className="text-label-12 text-muted" title={siteGraphStatusDescription('eligible')}>Indexable</div>
+            <div className="mt-1 text-label-20-strong tabular-nums text-heading">{metricValue(crawl.counts.pagesEligible)}</div>
           </div>
           <div className="px-4 py-3">
-            <div className="flex items-center gap-1 text-xs text-muted">
+            <div className="flex items-center gap-1 text-label-12 text-muted">
               Internal links
               <InfoTooltip text={siteHealthMetricHelp('internalLinks', false)} />
             </div>
-            <div className="mt-1 text-xl font-semibold tabular-nums text-heading">{metricValue(internalLinkCount)}</div>
+            <div className="mt-1 text-label-20-strong tabular-nums text-heading">{metricValue(internalLinkCount)}</div>
           </div>
         </div>
       )}
@@ -2255,7 +2442,7 @@ export function SiteHealthSection({
               ref={(element) => { tabRefs.current[index] = element }}
               onClick={() => selectView(item.id)}
               onKeyDown={(event) => handleViewKeyDown(event, index)}
-              className={`min-h-11 border-b-2 px-0.5 text-sm font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-mono-400 disabled:cursor-not-allowed disabled:opacity-50 ${
+              className={`min-h-11 border-b-2 px-0.5 text-button-14 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-mono-400 disabled:cursor-not-allowed disabled:opacity-50 ${
                 currentView === item.id
                   ? 'border-strong text-heading'
                   : 'border-transparent text-secondary hover:border-base hover:text-primary'
@@ -2267,20 +2454,20 @@ export function SiteHealthSection({
         </div>
         {crawl?.hasCrawlData && currentView !== 'technical' && (
           <div className="flex items-center gap-2 pb-2">
-            <span className="text-xs text-muted">Dead-link check</span>
+            <span className="text-label-12 text-muted">Dead-link check</span>
             <ToneBadge tone={deadLinkStatus.tone}>{deadLinkStatus.label}</ToneBadge>
           </div>
         )}
       </div>}
 
       {!selectedRunId && activeAudit && !activeRunWithoutPublishedMap && (
-        <div className="rounded-lg border border-caution bg-caution-soft px-4 py-3 text-sm text-caution" role="status">
+        <div className="rounded-md border border-caution bg-caution-soft px-4 py-3 text-label-14 text-caution" role="status">
           A newer scan is running. The latest published result remains available until it finishes.
         </div>
       )}
       {movedSite && (
-        <div className="rounded-lg border border-base bg-surface-subtle px-4 py-3 text-sm text-secondary" role="status">
-          <span className="font-medium text-heading">Site address changed during this scan.</span>{' '}
+        <div className="material-base px-4 py-3 text-label-14 text-secondary" role="status">
+          <span className="text-label-14-strong text-heading">Site address changed during this scan.</span>{' '}
           The scan started at <span className="font-mono text-primary">{movedSite.requested}</span> and continued at{' '}
           <span className="font-mono text-primary">{movedSite.effective}</span>.{' '}
           {explicitOnboarding
@@ -2289,7 +2476,7 @@ export function SiteHealthSection({
         </div>
       )}
       {crawl?.hasCrawlData && !crawl.complete && (
-        <div className="rounded-lg border border-caution bg-caution-soft px-4 py-3 text-sm text-caution" role="status">
+        <div className="rounded-md border border-caution bg-caution-soft px-4 py-3 text-label-14 text-caution" role="status">
           {terminationCopy(crawl.termination)}{' '}
           {/* Naming the limit without naming the remedy leaves the operator
               looking at a result they have been told is incomplete with
@@ -2298,7 +2485,7 @@ export function SiteHealthSection({
         </div>
       )}
       {!activeAudit && newestRunStatus === 'failed' && !selectedRunId && (
-        <div className="flex gap-3 rounded-lg border border-negative bg-negative-soft px-4 py-3 text-sm text-negative" role="alert">
+        <div className="flex gap-3 rounded-md border border-negative bg-negative-soft px-4 py-3 text-label-14 text-negative" role="alert">
           <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
           <span>The latest scan failed. The previous completed results remain available.</span>
         </div>
@@ -2342,7 +2529,7 @@ export function SiteHealthSection({
           className="min-w-0 space-y-6"
         >
           {explicitOnboarding ? (
-            <h2 className="text-xl font-semibold tracking-tight text-heading">Page health</h2>
+            <h2 className="text-heading-20 text-heading">Page health</h2>
           ) : null}
           <TechnicalAeoSection
             projectName={projectName}
@@ -2353,8 +2540,8 @@ export function SiteHealthSection({
             afterSummary={explicitOnboarding && siteAuditReady ? (
               <section aria-labelledby="ai-visibility-next-heading" className="flex flex-col gap-3 border-b border-default py-5 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <h2 id="ai-visibility-next-heading" className="text-base font-semibold text-heading">Next: Set up AI Visibility</h2>
-                  <p className="mt-1 text-sm text-secondary">
+                  <h2 id="ai-visibility-next-heading" className="text-heading-16 text-heading">Next: Set up AI Visibility</h2>
+                  <p className="mt-1 text-copy-14 text-secondary">
                     See whether answer engines mention your brand and cite your pages.
                   </p>
                 </div>
@@ -2382,55 +2569,59 @@ export function SiteHealthSection({
         </div>
       ) : crawlQuery.isLoading ? (
         <TransientSiteHealthPanel view={currentView} tabbed={!explicitOnboarding}>
-          <div className="flex min-h-72 items-center justify-center gap-2 text-sm text-secondary" role="status">
+          <div className="flex min-h-72 items-center justify-center gap-2 text-label-14 text-secondary" role="status">
             <LoaderCircle className="size-4 motion-safe:animate-spin" aria-hidden="true" />
             Loading site health...
           </div>
         </TransientSiteHealthPanel>
       ) : crawlQuery.error ? (
         <TransientSiteHealthPanel view={currentView} tabbed={!explicitOnboarding}>
-          <section className="rounded-lg border border-negative bg-negative-soft px-5 py-6" role="alert">
-            <h2 className="font-semibold text-negative">Site Health could not load</h2>
-            <p className="mt-1 text-sm text-negative">Try loading the crawl again.</p>
+          <section className="rounded-md border border-negative bg-negative-soft px-5 py-6" role="alert">
+            <h2 className="text-heading-14 text-negative">Site Health could not load</h2>
+            <p className="mt-1 text-copy-14 text-negative">Try loading the crawl again.</p>
             <Button variant="secondary" size="sm" className="mt-4" onClick={() => void crawlQuery.refetch()}>Try again</Button>
           </section>
         </TransientSiteHealthPanel>
       ) : !crawl?.hasCrawlData ? (
         <TransientSiteHealthPanel view={currentView} tabbed={!explicitOnboarding}>
-          <section className="rounded-lg border border-default bg-surface-subtle px-5 py-8 text-center">
-            <h2 className="text-base font-semibold text-heading">
-              {explicitOnboarding ? 'Page health results unavailable' : 'Full-site map not available'}
+          <section className="material-base px-5 py-8 text-center">
+            <h2 className="text-heading-16 text-heading">
+              {explicitOnboarding ? onboardingEmptyHeading : 'Full-site map not available'}
             </h2>
-            <p className="mx-auto mt-2 max-w-xl text-sm text-secondary">
+            <p className="mx-auto mt-2 max-w-xl text-copy-14 text-secondary">
               {managedScanForViewer
                 ? MANAGED_SCANS_COPY
                 : explicitOnboarding
-                ? 'This scan did not produce page health results. Run it again to continue setup.'
+                ? onboardingEmptyDescription
                 : crawl?.legacyAuditAvailable
                 ? 'Existing page health results are preserved. Run a new scan to build the page and internal-link map.'
                 : embedded
                   ? 'A full-site scan has not been run for this project.'
                   : 'Run a scan to discover pages, site sections, and internal links.'}
             </p>
+            {explicitOnboarding && !scanHistoryUnconfirmed ? <p className="mt-2 text-copy-14 text-secondary">First scan: up to {SITE_AUDIT_ONBOARDING_PAGE_LIMIT} pages.</p> : null}
             {(crawl?.legacyAuditAvailable || explicitOnboarding) && (
               <div className="mt-4 flex flex-wrap justify-center gap-2">
                 {crawl?.legacyAuditAvailable && !explicitOnboarding && (
                   <Button variant="secondary" size="sm" onClick={() => setView('technical')}>View page health</Button>
                 )}
-                {explicitOnboarding && !managedScanForViewer && (
-                  <Button type="button" size="sm" onClick={startScan}>Run scan again</Button>
+                {scanHistoryUnconfirmed && auditRunsQuery.isError ? <Button type="button" size="sm" onClick={() => { void auditRunsQuery.refetch() }}>Retry scan history</Button> : null}
+                {explicitOnboarding && !scanHistoryUnconfirmed && !managedScanForViewer && (
+                  <Button type="button" size="sm" disabled={scanBusy} onClick={startScan}>{scanNotStarted ? 'Run first scan' : 'Run scan again'}</Button>
                 )}
+                {explicitOnboarding && onContinueOnboarding ? <Button type="button" variant="secondary" size="sm" onClick={onContinueOnboarding}>{scanHistoryUnconfirmed ? 'Continue setup' : 'Continue without scanning'}</Button> : null}
+                {explicitOnboarding && onSkipOnboarding ? <Button type="button" variant="ghost" size="sm" onClick={onSkipOnboarding}>Skip for now</Button> : null}
               </div>
             )}
           </section>
         </TransientSiteHealthPanel>
       ) : !crawl.detailsAvailable ? (
         <TransientSiteHealthPanel view={currentView} tabbed={!explicitOnboarding}>
-          <section className="rounded-lg border border-caution bg-caution-soft px-5 py-6">
-            <h2 className="font-semibold text-caution">
+          <section className="rounded-md border border-caution bg-caution-soft px-5 py-6">
+            <h2 className="text-heading-14 text-caution">
               {explicitOnboarding ? 'Page health results unavailable' : 'Page details unavailable'}
             </h2>
-            <p className="mt-1 text-sm text-caution">
+            <p className="mt-1 text-copy-14 text-caution">
               {managedScanForViewer && explicitOnboarding
                 ? 'This scan did not publish page-level results.'
                 : explicitOnboarding
@@ -2445,18 +2636,20 @@ export function SiteHealthSection({
       ) : currentView === 'inventory' ? (
         <div id="site-health-inventory-panel" role="tabpanel" aria-labelledby="site-health-inventory-tab" className="space-y-5">
           {pagesQuery.isLoading ? (
-            <div className="flex min-h-56 items-center justify-center gap-2 text-sm text-secondary" role="status">
+            <div className="flex min-h-56 items-center justify-center gap-2 text-label-14 text-secondary" role="status">
               <LoaderCircle className="size-4 motion-safe:animate-spin" aria-hidden="true" />
               Loading page inventory...
             </div>
           ) : pagesQuery.error ? (
-            <p className="rounded-lg border border-negative bg-negative-soft px-4 py-3 text-sm text-negative" role="alert">
+            <p className="rounded-md border border-negative bg-negative-soft px-4 py-3 text-copy-14 text-negative" role="alert">
               The page inventory could not be loaded.
             </p>
           ) : (
             <InventoryTable
               pages={inventoryPages}
               total={inventoryTotal}
+              skippedUrlVersions={urlVersionsFound(pagesQuery.data?.pages[0]?.inventorySummary)}
+              rootHost={rootHost}
               filterUnavailable={pagesQuery.data?.pages[0]?.healthStateFilter === 'unavailable-legacy-scan'}
               selectedNodeKey={effectiveSelectedNodeKey}
               onSelect={setSelectedNodeKey}
@@ -2492,12 +2685,12 @@ export function SiteHealthSection({
             <div className="mb-3 flex flex-col justify-between gap-2 sm:flex-row sm:items-end">
               <div>
                 <div className="flex items-center gap-1">
-                  <h2 id="site-map-heading" className="text-base font-semibold text-heading">Site map</h2>
+                  <h2 id="site-map-heading" className="text-heading-16 text-heading">Site map</h2>
                   <InfoTooltip text={SITE_MAP_HELP} />
                 </div>
               </div>
               {graphQuery.data?.sampled && (
-                <span className="text-xs text-muted">
+                <span className="text-label-12 text-muted">
                   Showing {metricValue(graphQuery.data.nodes.length)} of {metricValue(graphQuery.data.totalNodes)} pages
                   {' · '}
                   {metricValue(graphQuery.data.edges.length)} of {metricValue(graphQuery.data.totalEdges)} links
@@ -2506,7 +2699,7 @@ export function SiteHealthSection({
             </div>
 
             {graphQuery.data?.layout.state === 'ready' && graphEdges.length > 0 && (
-              <div className="mb-3 flex flex-col gap-1.5 rounded-lg border border-default bg-surface-subtle px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="mb-3 flex flex-col gap-1.5 material-base px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
                 {/*
                   One line, the numbers only. The rule that produced them and
                   any staleness warning are always available on the tooltip, in
@@ -2515,7 +2708,7 @@ export function SiteHealthSection({
                   which rule ran cannot tell a real change on the site from a
                   change in how it was measured.
                 */}
-                <p className="flex items-center gap-1 text-sm text-secondary" data-testid="site-map-link-counts">
+                <p className="flex items-center gap-1 text-copy-14 text-secondary" data-testid="site-map-link-counts">
                   {siteMapLinkCountsLabel({
                     filterUnavailable: templateFilterUnavailable,
                     showTemplateLinks,
@@ -2529,7 +2722,7 @@ export function SiteHealthSection({
                 </p>
                 <label
                   className={cn(
-                    'flex shrink-0 items-center gap-2 text-sm',
+                    'flex shrink-0 items-center gap-2 text-label-14',
                     templateFilterUnavailable ? 'cursor-not-allowed text-muted' : 'cursor-pointer text-heading',
                   )}
                   title={templateFilterUnavailable
@@ -2549,10 +2742,10 @@ export function SiteHealthSection({
             )}
 
             <div id="site-health-map-explorer" className="grid gap-4 lg:grid-cols-[minmax(14rem,18rem)_minmax(0,1fr)]">
-              <aside className="rounded-lg border border-default bg-surface-subtle" aria-labelledby="site-sections-heading">
+              <aside className="material-base" aria-labelledby="site-sections-heading">
                 <div className="border-b border-default px-4 py-3">
-                  <h3 id="site-sections-heading" className="text-sm font-semibold text-heading">Site sections</h3>
-                  <p className="mt-1 text-xs text-muted">Folders in this scan</p>
+                  <h3 id="site-sections-heading" className="text-heading-14 text-heading">Site sections</h3>
+                  <p className="mt-1 text-copy-13 text-muted">Folders in this scan</p>
                 </div>
                 <div className="max-h-[468px] overflow-auto">
                   {resolvedRunId && (
@@ -2572,10 +2765,10 @@ export function SiteHealthSection({
                 {graphQuery.isLoading ? (
                   <GraphLoadingState />
                 ) : graphQuery.error ? (
-                  <div className="flex min-h-[420px] items-center justify-center rounded-lg border border-negative bg-negative-soft px-6 text-center lg:min-h-[520px]" role="alert">
+                  <div className="flex min-h-[420px] items-center justify-center rounded-md border border-negative bg-negative-soft px-6 text-center lg:min-h-[520px]" role="alert">
                     <div>
-                      <p className="text-sm font-medium text-negative">The interactive map could not be loaded.</p>
-                      <p className="mt-1 text-sm text-secondary">The page inventory and technical findings remain available.</p>
+                      <p className="text-copy-14-strong text-negative">The interactive map could not be loaded.</p>
+                      <p className="mt-1 text-copy-14 text-secondary">The page inventory and technical findings remain available.</p>
                       <Button variant="secondary" size="sm" className="mt-4" onClick={() => setView('inventory')}>Open page inventory</Button>
                     </div>
                   </div>

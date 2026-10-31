@@ -25,6 +25,26 @@
         "mcp"
       ],
       "category": "productivity"
+    },
+    {
+      "name": "canonry-remote",
+      "source": "./plugins/canonry-remote",
+      "displayName": "Canonry Remote",
+      "description": "Read stored Canonry measurements in a hosted workspace through a read-only OAuth connection.",
+      "author": {
+        "name": "Canonry"
+      },
+      "homepage": "https://canonry.ai",
+      "repository": "https://github.com/Canonry/canonry",
+      "license": "MIT",
+      "keywords": [
+        "aeo",
+        "citations",
+        "mentions",
+        "analytics",
+        "mcp"
+      ],
+      "category": "productivity"
     }
   ]
 }

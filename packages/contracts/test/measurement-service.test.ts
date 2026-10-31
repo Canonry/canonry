@@ -24,6 +24,7 @@ const ANSWER_EVIDENCE = {
   location: 'Northbridge',
   queryClass: 'non-brand',
   mentioned: true,
+  mentionIdentity: null,
   cited: true,
   sources: [{
     sourceUrl: 'https://northstar.example/locations/harbor',
@@ -41,18 +42,18 @@ const ANSWER_EVIDENCE = {
 
 describe('measurement service contracts', () => {
   it('accepts the deterministic sitemap discovery request vocabulary', () => {
-    expect(measurementDiscoveryRequestSchema.parse({
+    const input = {
       sitemapUrl: 'https://northstar.example/sitemap.xml',
       rule: {
         primary: { host: 'northstar.example', pathTemplate: '/locations/{slug}' },
         aliases: [{ host: 'homes.northstar.example', pathTemplate: '/{slug}' }],
         excludedSlugSuffixes: ['-regional'],
       },
-    })).toEqual(expect.objectContaining({ sitemapUrl: 'https://northstar.example/sitemap.xml' }))
-    expect(measurementDiscoveryRequestSchema.safeParse({
-      sitemapUrl: 'ftp://northstar.example/sitemap.xml',
-      rule: { primary: { host: 'northstar.example', pathTemplate: '/locations/{slug}' } },
-    }).success).toBe(false)
+    }
+    expect(measurementDiscoveryRequestSchema.parse(input)).toEqual(input)
+    const invalid = measurementDiscoveryRequestSchema.safeParse({ ...input, sitemapUrl: 'ftp://northstar.example/sitemap.xml' })
+    expect(invalid.success).toBe(false)
+    expect(invalid.error?.issues.map(issue => issue.path)).toEqual([['sitemapUrl']])
   })
 
   it('builds a canonical per-run expected-slot manifest', () => {
@@ -95,6 +96,12 @@ describe('measurement service contracts', () => {
       .toEqual({ numerator: 9, denominator: 11, rate: 9 / 11, unattributed: 1 })
     expect(measurementRateSchema.safeParse({ numerator: 9, denominator: 11, rate: 9 / 11, unattributed: 0 }).success).toBe(false)
     expect(measurementRateSchema.safeParse({ numerator: null, denominator: null, rate: null, reason: 'identity-ambiguous', unattributed: 2 }).success).toBe(false)
+    // Answers whose citation capture was incomplete ride beside a measured rate only, never beside unattributed.
+    expect(measurementRateSchema.parse({ numerator: 3, denominator: 9, rate: 3 / 9, unchecked: 1 }))
+      .toEqual({ numerator: 3, denominator: 9, rate: 3 / 9, unchecked: 1 })
+    expect(measurementRateSchema.safeParse({ numerator: 3, denominator: 9, rate: 3 / 9, unchecked: 0 }).success).toBe(false)
+    expect(measurementRateSchema.safeParse({ numerator: null, denominator: null, rate: null, reason: 'evidence-incomplete', unchecked: 2 }).success).toBe(false)
+    expect(measurementRateSchema.safeParse({ numerator: 3, denominator: 9, rate: 3 / 9, unattributed: 1, unchecked: 1 }).success).toBe(false)
     expect(measurementAttributionClassSchema.safeParse('unmapped').success).toBe(false)
     expect(measurementDiscoveryResponseSchema.safeParse({
       proposed: [], aliases: [], shared: [], unmatched: [], excluded: [{
@@ -105,7 +112,7 @@ describe('measurement service contracts', () => {
   })
 
   it('parses a complete synthetic report response', () => {
-    const response = measurementReportResponseSchema.parse({
+    const input = {
       revision: 3,
       run: { id: 'run-3', status: 'partial', createdAt: '2026-08-01T00:00:00.000Z', startedAt: null, finishedAt: null },
       groups: [{
@@ -140,20 +147,20 @@ describe('measurement service contracts', () => {
         bridgedObservationIds: [], historicalObservationIds: [], evidenceIncompleteObservationIds: [],
         ambiguousObservationIds: [], unmatchedObservationIds: [],
       },
-    })
+    }
 
-    expect(response.groups[0]?.targetIds).toEqual(['harbor'])
-    expect(response.evidence[0]?.classification).toBe('assigned')
+    expect(measurementReportResponseSchema.parse(input)).toEqual(input)
   })
 })
 
 describe('answer-level measurement evidence', () => {
   it('carries both signals on one row with its sources nested', () => {
-    const row = measurementAnswerEvidenceSchema.parse(ANSWER_EVIDENCE)
-
-    expect(row.mentioned).toBe(true)
-    expect(row.cited).toBe(true)
-    expect(row.sources).toEqual([expect.objectContaining({ classification: 'assigned' })])
+    const rows = [
+      ANSWER_EVIDENCE,
+      { ...ANSWER_EVIDENCE, mentioned: true, cited: false, sources: [], sourceCount: 0 },
+      { ...ANSWER_EVIDENCE, mentioned: false, cited: true },
+    ]
+    for (const input of rows) expect(measurementAnswerEvidenceSchema.parse(input)).toEqual(input)
   })
 
   it('represents an answer that cited nobody', () => {

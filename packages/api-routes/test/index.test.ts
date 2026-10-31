@@ -5,7 +5,8 @@ import os from 'node:os'
 import crypto from 'node:crypto'
 import Fastify from 'fastify'
 import { and, eq } from 'drizzle-orm'
-import { auditLog, competitors, createClient, migrate, projects, queries, querySnapshots, runs } from '@ainyc/canonry-db'
+import { auditLog, competitors, createClient, migrate, projects, queries, querySnapshots, runs } from '@canonry/canonry-db'
+import { keywordGenerateResponseSchema, projectDefaultLocationResponseSchema, queryGenerateResponseSchema } from '@canonry/canonry-contracts'
 import { apiRoutes } from '../src/index.js'
 import type { ApiRoutesOptions } from '../src/index.js'
 
@@ -370,6 +371,7 @@ describe('api-routes', () => {
       })
       expect(generatedRes.statusCode).toBe(200)
       expect(generatedRes.json()).toEqual({ keywords: ['ai citation tracking'], provider: 'gemini' })
+      expect(keywordGenerateResponseSchema.parse(generatedRes.json())).toEqual(generatedRes.json())
     } finally {
       await ctx.app.close()
       fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
@@ -410,6 +412,7 @@ describe('api-routes', () => {
         provider: 'gemini',
         queries: ['answer visibility software', 'ai citation tracking'],
       })
+      expect(queryGenerateResponseSchema.parse(JSON.parse(res.payload))).toEqual(JSON.parse(res.payload))
     } finally {
       await ctx.app.close()
       fs.rmSync(ctx.tmpDir, { recursive: true, force: true })
@@ -752,7 +755,14 @@ describe('api-routes', () => {
       captureVersion: 1,
       competitorOverlap: ['mentioned-rival.com', 'cited-rival.com'],
       recommendedCompetitors: ['Downtown Smiles'],
-      rawResponse: '{"groundingSources":[{"uri":"https://cited-rival.com/review"}],"searchQueries":[]}',
+      rawResponse: JSON.stringify({
+        groundingSources: [{ uri: 'https://cited-rival.com/review' }],
+        searchQueries: [],
+        retrievedSources: [
+          { uri: 'https://read-only.example/listing', title: 'Listing', kind: 'search-result', query: 'best dentist' },
+          { uri: 'https://cited-rival.com/review', title: '', kind: 'page-read', query: null },
+        ],
+      }),
       createdAt: now,
     }).run()
 
@@ -774,6 +784,12 @@ describe('api-routes', () => {
       }>
     }
     expect(runBody.snapshots[0]?.recommendedCompetitors).toEqual(['Downtown Smiles'])
+    // Retrieved pages ride along unchanged and never feed the citation fields.
+    expect((runBody.snapshots[0] as { retrievedSources?: unknown }).retrievedSources).toEqual([
+      { uri: 'https://read-only.example/listing', title: 'Listing', kind: 'search-result', query: 'best dentist' },
+      { uri: 'https://cited-rival.com/review', title: '', kind: 'page-read', query: null },
+    ])
+    expect(runBody.snapshots[0]?.citedUrls).not.toContain('https://read-only.example/listing')
     expect(runBody.snapshots[0]?.answerMentioned).toBe(false)
     expect(runBody.snapshots[0]?.visibilityState).toBe('not-visible')
     expect(runBody.snapshots[0]?.citedUrls).toEqual(['https://publisher.example/guides/answer'])
@@ -1366,6 +1382,7 @@ describe('api-routes', () => {
     expect(res.statusCode).toBe(200)
     const body = JSON.parse(res.payload)
     expect(body.defaultLocation).toBe('nyc')
+    expect(projectDefaultLocationResponseSchema.parse(body)).toEqual(body)
 
     // Verify via GET locations
     const getRes = await app.inject({ method: 'GET', url: '/api/v1/projects/my-site/locations' })

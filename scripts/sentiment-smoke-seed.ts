@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import {
   apiKeys, createClient, measurementPlans, measurementPlanVersions, migrate, projects, queries,
-  querySnapshots, runs, simpleMeasurementDefinitions,
+  querySnapshots, runs, simpleMeasurementDefinitions, siteCrawlAttempts, siteCrawlPages, siteCrawlSnapshots,
 } from '../packages/db/src/index.js'
 import { buildSimpleMeasurementDefinition, canonicalMeasurementPlanV2Json, measurementPlanV2Schema } from '../packages/contracts/src/index.js'
 import { buildMeasurementPlanV2Manifest } from '../packages/api-routes/src/measurement-report-adapter.js'
@@ -10,7 +10,7 @@ export const SMOKE_ADMIN = 'cnry_sentiment_synthetic_admin'
 export const SMOKE_READ = 'cnry_sentiment_synthetic_read'
 export const SMOKE_SCOPED = 'cnry_sentiment_synthetic_simple_scope'
 export const SMOKE_NOW = '2026-09-28T00:00:00.000Z'
-export function seedSentimentSmoke(database: string, options: { queryClass?: 'branded' | 'non-brand'; absentSubject?: boolean } = {}): void {
+export function seedSentimentSmoke(database: string, options: { queryClass?: 'branded' | 'non-brand'; absentSubject?: boolean; previousPeriod?: boolean; datedCrawls?: boolean } = {}): void {
   const queryClass = options.queryClass ?? 'branded'
   const simpleQuery = queryClass === 'branded' ? 'Aurora Service reviews' : 'Reliable local repair services'
   const advancedQuery = queryClass === 'branded' ? 'Compare Harbor Homes and Bayside Homes in Harbor' : 'Best apartments in Harbor'
@@ -46,5 +46,45 @@ export function seedSentimentSmoke(database: string, options: { queryClass?: 'br
   db.insert(measurementPlans).values({ projectId: 'advanced', activeVersionId: 'advanced-plan', createdAt: now, updatedAt: now }).run()
   db.insert(runs).values({ id: 'advanced-run', projectId: 'advanced', kind: 'answer-visibility', status: 'completed', trigger: 'manual', measurementPlanVersionId: 'advanced-plan', measurementManifest: buildMeasurementPlanV2Manifest(plan), measurementExecutionIdentity: { schemaVersion: 1, providers: ['openai'], models: { openai: 'source-model' }, checksum: 'c'.repeat(64), language: 'en' }, createdAt: now, finishedAt: now }).run()
   db.insert(querySnapshots).values({ id: 'advanced-answer', runId: 'advanced-run', queryId: 'advanced-query', queryText: advancedQuery, measurementExecutionId: 'shared-answer', requestedContext: location, location: location.label, supportedContext: { status: 'applied', resolved: location }, provider: 'openai', model: 'source-model', servedModel: 'source-model-v1', answerText: options.absentSubject ? 'Riverstone Apartments offers comfortable housing. Residents recommend Riverstone Apartments.' : 'Harbor Homes in Harbor at northstar.example/harbor is excellent, with reliable maintenance and helpful management. I strongly recommend Harbor Homes. Bayside Homes in Harbor at northstar.example/bayside is poorly managed, with unreliable maintenance and serious recurring problems. I would avoid Bayside Homes.', citationState: options.absentSubject ? 'not-cited' : 'cited', answerMentioned: !options.absentSubject, createdAt: now }).run()
+  if (options.previousPeriod) {
+    const previousAt = '2026-09-27T00:00:00.000Z'
+    for (const projectId of ['simple', 'advanced']) {
+      const sourceRunId = `${projectId}-run`
+      const runId = `${projectId}-previous-run`
+      const source = db.select().from(runs).all().find(run => run.id === sourceRunId)!
+      db.insert(runs).values({ ...source, id: runId, createdAt: previousAt, finishedAt: previousAt }).run()
+      const frozen = db.select().from(simpleMeasurementDefinitions).all().find(definition => definition.runId === sourceRunId)
+      if (frozen) {
+        const definition = { ...frozen.definition, capturedAt: previousAt }
+        db.insert(simpleMeasurementDefinitions).values({ ...frozen, runId, definition, capturedAt: previousAt, checksum: createHash('sha256').update(JSON.stringify(definition)).digest('hex') }).run()
+      }
+      for (const snapshot of db.select().from(querySnapshots).all().filter(snapshot => snapshot.runId === sourceRunId)) {
+        db.insert(querySnapshots).values({ ...snapshot, id: `${projectId}-previous-answer`, runId, createdAt: previousAt }).run()
+      }
+    }
+  }
+  if (options.datedCrawls) {
+    for (const projectId of ['simple', 'advanced']) {
+      const rootUrl = `https://${projectId}.example/`
+      for (const date of ['2026-09-26', '2026-09-28']) {
+        const createdAt = `${date}T12:00:00.000Z`
+        const runId = `${projectId}-crawl-${date}`
+        const attemptId = `${runId}-attempt`
+        const latest = date === '2026-09-28'
+        const eligible = latest ? 2 : 1
+        db.insert(runs).values({ id: runId, projectId, kind: 'site-audit', status: 'completed', trigger: 'manual', createdAt, finishedAt: createdAt }).run()
+        db.insert(siteCrawlAttempts).values({ id: attemptId, projectId, runId, attemptNumber: 1, state: 'completed', pagesDiscovered: eligible + 3, pagesFetched: eligible + 3, pagesEligible: eligible, startedAt: createdAt, finishedAt: createdAt, createdAt, updatedAt: createdAt }).run()
+        db.insert(siteCrawlSnapshots).values({ id: `${runId}-snapshot`, projectId, runId, attemptId, requestedRootUrl: rootUrl, rootUrl, complete: true, termination: 'complete', detailsAvailable: true, pagesDiscovered: eligible + 3, pagesFetched: eligible + 3, pagesEligible: eligible, createdAt, updatedAt: createdAt }).run()
+        const pages = [
+          { nodeKey: 'home', path: '/', fetchState: 'html', indexabilityState: 'indexable', inventoryEligible: true, canonicalNodeKey: 'home', indexabilityReasons: [] },
+          { nodeKey: 'redirect', path: '/redirect', fetchState: 'redirect', indexabilityState: 'unknown', inventoryEligible: false, canonicalNodeKey: 'home', indexabilityReasons: [] },
+          { nodeKey: 'canonical', path: '/canonical', fetchState: 'html', indexabilityState: 'unknown', inventoryEligible: false, canonicalNodeKey: 'home', indexabilityReasons: ['canonical-to-other'] },
+          { nodeKey: 'unknown', path: '/unknown', fetchState: 'html', indexabilityState: 'unknown', inventoryEligible: false, canonicalNodeKey: null, indexabilityReasons: [] },
+          ...(latest ? [{ nodeKey: 'guide', path: '/guide', fetchState: 'html', indexabilityState: 'indexable', inventoryEligible: true, canonicalNodeKey: 'guide', indexabilityReasons: [] }] : []),
+        ]
+        for (const page of pages) db.insert(siteCrawlPages).values({ ...page, id: `${runId}-${page.nodeKey}`, projectId, runId, attemptId, url: new URL(page.path, rootUrl).href, parentPath: '/', auditState: 'not-applicable', createdAt, updatedAt: createdAt }).run()
+      }
+    }
+  }
   db.$client.close()
 }

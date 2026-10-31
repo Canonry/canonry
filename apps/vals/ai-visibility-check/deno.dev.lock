@@ -2,6 +2,9 @@
   "version": "5",
   "specifiers": {
     "npm:@canonry/aeo-audit@7.2.0": "7.2.0",
+    "npm:@canonry/aeo-audit@7.3.0": "7.3.0",
+    "npm:@canonry/aeo-audit@7.4.1": "7.4.1",
+    "npm:@canonry/aeo-audit@7.5.0": "7.5.0",
     "npm:@canonry/val-kit@0.2.0": "0.2.0",
     "npm:@libsql/client@0.17.2": "0.17.2",
     "npm:hono@4.12.25": "4.12.25"
@@ -16,19 +19,47 @@
       ],
       "bin": true
     },
+    "@canonry/aeo-audit@7.3.0": {
+      "integrity": "sha512-jQwx9J7R85YPQ6vY7wQYK7D8xXw/3fY9U8S6FM30PTRs2N+R8x+YnpnaLsks3MY+zXsYYvCgyO2CTseWH6oIhg==",
+      "dependencies": [
+        "cheerio",
+        "ipaddr.js",
+        "undici"
+      ],
+      "bin": true
+    },
+    "@canonry/aeo-audit@7.4.1": {
+      "integrity": "sha512-W2xm0jeS+RjHFp8OMe4J+1AUzVb4X7oaGgCUxNJD54bNjESGFzfzkgn+HoR8Qm+qyxdnk+WhWnZjtiDYl5/njA==",
+      "dependencies": [
+        "cheerio",
+        "ipaddr.js",
+        "undici"
+      ],
+      "bin": true
+    },
+    "@canonry/aeo-audit@7.5.0": {
+      "integrity": "sha512-EkNXIzRyjWmxF4yVhuQIjUQi4jruyC5uAUag7C0+SZRhxVuXzj5i4/+YbFlFCCnR0G2qsAPb8MvZcTgo/Whszg==",
+      "dependencies": [
+        "cheerio",
+        "ipaddr.js",
+        "undici"
+      ],
+      "bin": true
+    },
     "@canonry/val-kit@0.2.0": {
       "dependencies": [
         "@google/genai"
       ]
     },
-    "@google/genai@1.46.0": {
-      "integrity": "sha512-ewPMN5JkKfgU5/kdco9ZhXBHDPhVqZpMQqIFQhwsHLf8kyZfx1cNpw1pHo1eV6PGEW7EhIBFi3aYZraFndAXqg==",
+    "@google/genai@2.30.0": {
+      "integrity": "sha512-Gkv1ix8iZey/V3WF4lHaRS8C71P533jenDT/lA+fdPTCfXYfmCVHvo+0H5jTgzonqsmROQG7QpzLJkpoP/x7bg==",
       "dependencies": [
         "google-auth-library",
         "p-retry",
         "protobufjs",
         "ws"
-      ]
+      ],
+      "scripts": true
     },
     "@libsql/client@0.17.2": {
       "integrity": "sha512-0aw0S3iQMHvOxfRt5j1atoCCPMT3gjsB2PS8/uxSM1DcDn39xqz6RlgSMxtP8I3JsxIXAFuw7S41baLEw0Zi+Q==",
@@ -526,7 +557,7 @@
     "links": {
       "npm:@canonry/val-kit@0.2.0": {
         "dependencies": [
-          "npm:@google/genai@1.46.0"
+          "npm:@google/genai@2.30.0"
         ]
       }
     }

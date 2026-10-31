@@ -5,7 +5,7 @@ import type {
   ConversionTrackingIntegrityAssessmentDto,
   ConversionTrackingIntegrityStatus,
   GoogleAdsConnectionState,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 
 import type { MetricTone } from '../../view-models.js'
 import { formatTimestamp } from '../../lib/format-helpers.js'
@@ -241,7 +241,7 @@ function gtmSetupAction(
   }
 }
 
-export function conversionIntegrityPrimaryAction(
+function conversionIntegrityPrimaryAction(
   workspace: ConversionIntegrityWorkspaceVm,
 ): PrimaryActionPresentation {
   if (workspace.googleAds.state === 'not-connected') {
@@ -495,26 +495,26 @@ function providerRow({
         : null
   return (
     <tr>
-      <td className="font-medium text-heading">{label}</td>
+      <td className="text-label-14-strong text-heading">{label}</td>
       <td><ToneBadge tone={state.tone}>{state.label}</ToneBadge></td>
       <td className="text-secondary">{connection.selection ?? 'No selection'}</td>
       <td>
         <p className="text-secondary">{connection.evidence}</p>
         {snapshotAvailabilityText ? (
-          <p className="mt-1 text-sm text-secondary">{snapshotAvailabilityText}</p>
+          <p className="mt-1 text-copy-14 text-secondary">{snapshotAvailabilityText}</p>
         ) : (
-          <p className="mt-1 text-[11px] text-muted">
+          <p className="mt-1 text-copy-13 text-muted">
             {connection.snapshotCount} stored {connection.snapshotCount === 1 ? 'snapshot' : 'snapshots'}{connection.lastSnapshotAt ? `, latest ${formatTimestamp(connection.lastSnapshotAt)}` : ''}
           </p>
         )}
-        {connection.snapshotError ? <p role="alert" className="mt-1 text-sm text-negative">{connection.snapshotError}</p> : null}
+        {connection.snapshotError ? <p role="alert" className="mt-1 text-copy-14 text-negative">{connection.snapshotError}</p> : null}
       </td>
       <td>
         {changeSelectionLabel && onChangeSelection ? (
           <WriteButton type="button" variant="outline" size="sm" disabled={actionPending} onClick={onChangeSelection}>
             {changeSelectionLabel}
           </WriteButton>
-        ) : <span className="text-sm text-secondary">Use the next step above</span>}
+        ) : <span className="text-label-14 text-secondary">Use the next step above</span>}
       </td>
     </tr>
   )
@@ -526,9 +526,9 @@ function providerRow({
  * two connections are independent, but a conversion names resources from each,
  * so it is the only genuinely dependent action here.
  */
-export const CONVERSION_TO_CHECK_HELP = 'A conversion names the website event, the Google Ads conversion action, and the Tag Manager tag that must agree. It needs both connections selected because it references resources from each.'
+const CONVERSION_TO_CHECK_HELP = 'A conversion names the website event, the Google Ads conversion action, and the Tag Manager tag that must agree. It needs both connections selected because it references resources from each.'
 
-export const CONVERSION_TO_CHECK_BLOCKED = 'Available once Google Ads and Tag Manager are connected.'
+const CONVERSION_TO_CHECK_BLOCKED = 'Available once Google Ads and Tag Manager are connected.'
 
 /**
  * Shown ONLY before anything is connected.
@@ -538,7 +538,7 @@ export const CONVERSION_TO_CHECK_BLOCKED = 'Available once Google Ads and Tag Ma
  * exception: there is no data to push down, and a reader who does not know what
  * the feature is cannot decide whether to connect two Google accounts to it.
  */
-export const CONVERSION_INTEGRITY_PURPOSE = 'Check that a conversion is wired the same way in Google Ads and Tag Manager, so the numbers you optimise against are the ones your site actually sends. Canonry only reads the configuration; it never changes or publishes it.'
+const CONVERSION_INTEGRITY_PURPOSE = 'Check that a conversion is wired the same way in Google Ads and Tag Manager, so the numbers you optimise against are the ones your site actually sends. Canonry only reads the configuration; it never changes or publishes it.'
 
 function ConversionIntegritySetup({
   workspace,
@@ -612,13 +612,13 @@ function ConversionIntegritySetup({
         <div>
           <p className="eyebrow">Google marketing</p>
           <div className="mt-1 flex items-center gap-1.5">
-            <h2 id="conversion-integrity-title" className="text-xl font-semibold tracking-[-0.02em] text-heading">
+            <h2 id="conversion-integrity-title" className="text-heading-20 text-heading">
               Conversion Integrity
             </h2>
             <InfoTooltip text="Canonry reads your Google configuration and never changes or publishes it. Connect Google Ads and Tag Manager, then choose one website conversion to check across both." />
           </div>
           {nothingConnected ? (
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-secondary">{CONVERSION_INTEGRITY_PURPOSE}</p>
+            <p className="mt-2 max-w-2xl text-copy-14 text-secondary">{CONVERSION_INTEGRITY_PURPOSE}</p>
           ) : null}
         </div>
       </div>
@@ -628,7 +628,7 @@ function ConversionIntegritySetup({
             an operator returns to; the connections settle once. */}
         <div className="flex flex-wrap items-center justify-between gap-3 border-y border-default py-4">
           <div className="flex items-center gap-1.5">
-            <h3 className="text-sm font-semibold text-heading">Conversion to check</h3>
+            <h3 className="text-heading-14 text-heading">Conversion to check</h3>
             <InfoTooltip text={CONVERSION_TO_CHECK_HELP} />
           </div>
           {conversionAction && onPrimaryAction ? (
@@ -640,7 +640,7 @@ function ConversionIntegritySetup({
               {actionPending ? 'Working…' : conversionAction.label}
             </WriteButton>
           ) : (
-            <p className="text-sm text-secondary">{CONVERSION_TO_CHECK_BLOCKED}</p>
+            <p className="text-copy-14 text-secondary">{CONVERSION_TO_CHECK_BLOCKED}</p>
           )}
         </div>
 
@@ -651,8 +651,8 @@ function ConversionIntegritySetup({
               : providerStatePresentation(connection.state)
             const action = connection.action
             return (
-              <li key={connection.title} className="flex min-w-0 flex-wrap items-center gap-2 text-sm">
-                <span className="font-medium text-heading">{connection.title}</span>
+              <li key={connection.title} className="flex min-w-0 flex-wrap items-center gap-2 text-label-14">
+                <span className="text-label-14-strong text-heading">{connection.title}</span>
                 <ToneBadge tone={badge.tone}>{badge.label}</ToneBadge>
                 {connection.summary ? (
                   <span className="min-w-0 truncate text-secondary">{connection.summary}</span>
@@ -685,7 +685,7 @@ function ConversionIntegritySetup({
           })}
         </ul>
 
-        {actionError ? <p role="alert" className="mt-3 text-sm text-negative">{actionError}</p> : null}
+        {actionError ? <p role="alert" className="mt-3 text-copy-14 text-negative">{actionError}</p> : null}
       </div>
     </section>
   )
@@ -754,7 +754,7 @@ export function ConversionIntegritySection({
       <div className="section-head mb-5">
         <div>
           <p className="eyebrow">Google marketing</p>
-          <h2 id="conversion-integrity-title" className="mt-1 text-xl font-semibold tracking-[-0.02em] text-heading">
+          <h2 id="conversion-integrity-title" className="mt-1 text-heading-20 text-heading">
             Conversion Integrity
           </h2>
           <p className="lede mt-2">
@@ -768,18 +768,18 @@ export function ConversionIntegritySection({
           <div className="flex flex-wrap items-center gap-2">
             <ToneBadge tone={presentation.tone}>{presentation.label}</ToneBadge>
             {workspace.assessment?.evaluatedAt ? (
-              <span className="text-[11px] text-muted">Assessed {formatTimestamp(workspace.assessment.evaluatedAt)}</span>
+              <span className="text-label-12 text-muted">Assessed {formatTimestamp(workspace.assessment.evaluatedAt)}</span>
             ) : null}
           </div>
           <p className="supporting-copy mt-2 max-w-2xl">{presentation.detail}</p>
           {workspace.assessmentEvidenceSnapshots?.length ? (
             <details className="inline-disclosure mt-3 max-w-2xl">
               <summary>Evidence used for this assessment</summary>
-              <ul className="mt-3 space-y-2 text-sm leading-6 text-secondary">
+              <ul className="mt-3 space-y-2 text-label-14 text-secondary">
                 {workspace.assessmentEvidenceSnapshots.map((snapshot) => (
                   <li key={snapshot.id} className="break-words">
                     {assessmentSnapshotSource(snapshot)} {snapshot.kind}, captured {formatTimestamp(snapshot.capturedAt)}
-                    <span className="ml-1 font-mono text-[11px] text-muted">({snapshot.id})</span>
+                    <span className="ml-1 text-label-12-mono text-muted">({snapshot.id})</span>
                   </li>
                 ))}
               </ul>
@@ -819,8 +819,8 @@ export function ConversionIntegritySection({
               <a href="#conversion-integrity-runtime-guidance">Review runtime verification</a>
             </Button>
           ) : null}
-          <p className="mt-2 text-sm leading-5 text-secondary">{action.detail}</p>
-          {actionError ? <p role="alert" className="mt-2 text-sm text-negative">{actionError}</p> : null}
+          <p className="mt-2 text-copy-14 text-secondary">{action.detail}</p>
+          {actionError ? <p role="alert" className="mt-2 text-copy-14 text-negative">{actionError}</p> : null}
         </div>
       </div>
 
@@ -828,7 +828,7 @@ export function ConversionIntegritySection({
         <div className="section-head section-head-inline">
           <div className="min-w-0">
             <p className="eyebrow eyebrow-soft">Declared conversion</p>
-            <h3 id="conversion-integrity-contract-title" className="min-w-0 break-words text-base font-semibold text-heading">
+            <h3 id="conversion-integrity-contract-title" className="min-w-0 break-words text-heading-16 text-heading">
               {workspace.contract?.name ?? (workspace.contractSelectionRequired ? 'Choose a conversion' : 'No conversion declared')}
             </h3>
           </div>
@@ -839,11 +839,11 @@ export function ConversionIntegritySection({
           ) : null}
         </div>
         {contracts.length > 1 ? (
-          <label htmlFor="conversion-integrity-contract-select" className="mb-5 block max-w-xl text-sm font-medium text-secondary">
+          <label htmlFor="conversion-integrity-contract-select" className="mb-5 block max-w-xl text-label-14-strong text-secondary">
             Conversion to inspect
             <select
               id="conversion-integrity-contract-select"
-              className="mt-1 w-full rounded-md border border-base bg-bg px-3 py-2 text-sm text-heading outline-none transition-colors focus:border-mono-500 focus:ring-2 focus:ring-mono-500/30"
+              className="mt-1 w-full rounded-md border border-base bg-bg px-3 py-2 text-label-14 text-heading outline-none transition-colors focus:border-mono-500 focus:ring-2 focus:ring-mono-500/30"
               value={selectedContractId ?? ''}
               onChange={(event) => onSelectContract?.(event.target.value)}
             >
@@ -856,27 +856,27 @@ export function ConversionIntegritySection({
           <>
             <dl className="grid gap-x-8 gap-y-4 sm:grid-cols-2 xl:grid-cols-4">
               <div>
-                <dt className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted">Website event</dt>
-                <dd className="mt-1 text-sm font-medium text-heading">{workspace.contract.eventName}</dd>
+                <dt className="text-label-12-strong normal-case text-muted">Website event</dt>
+                <dd className="mt-1 text-label-14-strong text-heading">{workspace.contract.eventName}</dd>
               </div>
               <div>
-                <dt className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted">Google Ads goal</dt>
-                <dd className="mt-1 text-sm text-secondary">{contractGoalSummary(workspace.contract)}</dd>
+                <dt className="text-label-12-strong normal-case text-muted">Google Ads goal</dt>
+                <dd className="mt-1 text-label-14 text-secondary">{contractGoalSummary(workspace.contract)}</dd>
               </div>
               <div>
-                <dt className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted">Tag Manager</dt>
-                <dd className="mt-1 text-sm text-secondary">
+                <dt className="text-label-12-strong normal-case text-muted">Tag Manager</dt>
+                <dd className="mt-1 text-label-14 text-secondary">
                   {workspace.contract.gtm.triggerIds.length} {workspace.contract.gtm.triggerIds.length === 1 ? 'trigger' : 'triggers'} and {workspace.contract.gtm.variableIds.length} {workspace.contract.gtm.variableIds.length === 1 ? 'variable' : 'variables'} required
                 </dd>
               </div>
               <div>
-                <dt className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted">Runtime event fields</dt>
-                <dd className="mt-1 text-sm text-secondary">{runtimeSummary(workspace.contract)}</dd>
+                <dt className="text-label-12-strong normal-case text-muted">Runtime event fields</dt>
+                <dd className="mt-1 text-label-14 text-secondary">{runtimeSummary(workspace.contract)}</dd>
               </div>
             </dl>
             <details className="inline-disclosure mt-5">
               <summary>Show declared identifiers</summary>
-              <dl className="mt-3 grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
+              <dl className="mt-3 grid gap-x-6 gap-y-3 text-label-14 sm:grid-cols-2">
                 <div><dt className="text-muted">Google Ads customer</dt><dd className="mt-0.5 font-mono text-secondary">{shortIdentifier(workspace.contract.googleAds.customerId)}</dd></div>
                 <div><dt className="text-muted">Google Ads conversion action</dt><dd className="mt-0.5 font-mono text-secondary">{shortIdentifier(workspace.contract.googleAds.conversionActionId)}</dd></div>
                 <div><dt className="text-muted">Tag Manager container</dt><dd className="mt-0.5 font-mono text-secondary">{shortIdentifier(workspace.contract.gtm.containerId)}</dd></div>
@@ -892,12 +892,12 @@ export function ConversionIntegritySection({
           </p>
         )}
         {contractError ? (
-          <div role="alert" className="mt-4 flex flex-wrap items-center gap-3 text-sm text-negative">
+          <div role="alert" className="mt-4 flex flex-wrap items-center gap-3 text-label-14 text-negative">
             <span>{contractError}</span>
             {onRetryContracts ? <Button type="button" variant="outline" onClick={onRetryContracts}>Retry contracts</Button> : null}
           </div>
         ) : null}
-        {workspace.assessmentError ? <p role="alert" className="mt-4 text-sm text-negative">{workspace.assessmentError}</p> : null}
+        {workspace.assessmentError ? <p role="alert" className="mt-4 text-copy-14 text-negative">{workspace.assessmentError}</p> : null}
       </section>
 
       {nonPassingFindings.length > 0 ? (
@@ -905,7 +905,7 @@ export function ConversionIntegritySection({
           <div className="section-head section-head-inline">
             <div>
               <p className="eyebrow eyebrow-soft">Assessment findings</p>
-              <h3 id="conversion-integrity-findings-title" className="text-base font-semibold text-heading">Checks to review</h3>
+              <h3 id="conversion-integrity-findings-title" className="text-heading-16 text-heading">Checks to review</h3>
             </div>
             <ToneBadge tone={findingsTone}>{nonPassingFindings.length} {nonPassingFindings.length === 1 ? 'check' : 'checks'}</ToneBadge>
           </div>
@@ -915,13 +915,13 @@ export function ConversionIntegritySection({
               return (
                 <li key={`${finding.code}:${finding.subject}`} className="py-3">
                   <div className="flex flex-wrap items-center gap-2">
-                    <p className="min-w-0 break-words text-sm font-medium text-heading">{item.label}</p>
+                    <p className="min-w-0 break-words text-copy-14-strong text-heading">{item.label}</p>
                     <ToneBadge tone={item.tone}>{item.outcome}</ToneBadge>
                   </div>
-                  <p className="mt-1 break-words text-sm text-secondary">Related item: {finding.subject}</p>
-                  <p className="mt-1 font-mono text-[11px] text-muted">Diagnostic: {finding.code}</p>
+                  <p className="mt-1 break-words text-copy-14 text-secondary">Related item: {finding.subject}</p>
+                  <p className="mt-1 text-copy-13-mono text-muted">Diagnostic: {finding.code}</p>
                   {finding.evidenceIds.length > 0 ? (
-                    <p className="mt-1 break-words font-mono text-[11px] text-muted">Evidence: {finding.evidenceIds.join(', ')}</p>
+                    <p className="mt-1 break-words text-copy-13-mono text-muted">Evidence: {finding.evidenceIds.join(', ')}</p>
                   ) : null}
                 </li>
               )
@@ -933,7 +933,7 @@ export function ConversionIntegritySection({
       <section className="page-section-divider" aria-labelledby="conversion-integrity-progression-title">
         <div className="section-head section-head-inline">
           <div className="flex items-center gap-1.5">
-            <h3 id="conversion-integrity-progression-title" className="text-base font-semibold text-heading">Evidence progression</h3>
+            <h3 id="conversion-integrity-progression-title" className="text-heading-16 text-heading">Evidence progression</h3>
             <InfoTooltip text="Configured means a contract exists. Static configuration is checked only against saved Google Ads and Tag Manager evidence. Observed requires separate runtime evidence." />
           </div>
         </div>
@@ -948,9 +948,9 @@ export function ConversionIntegritySection({
               <li key={step.key} className="grid gap-3 py-3 sm:grid-cols-[minmax(10rem,0.7fr)_minmax(0,1fr)_auto] sm:items-center">
                 <div className="flex items-center gap-2">
                   <span aria-hidden="true" className={`size-2 rounded-full ${tone === 'positive' ? 'bg-positive-fill' : tone === 'caution' ? 'bg-caution-fill' : tone === 'negative' ? 'bg-negative-fill' : 'bg-neutral-fill'}`} />
-                  <span className="text-sm font-medium text-heading">{step.title}</span>
+                  <span className="text-label-14-strong text-heading">{step.title}</span>
                 </div>
-                <p className="text-sm text-secondary">{step.detail}</p>
+                <p className="text-copy-14 text-secondary">{step.detail}</p>
                 <ToneBadge tone={tone}>{evidenceStepLabel(step.key, state)}</ToneBadge>
               </li>
             )
@@ -962,7 +962,7 @@ export function ConversionIntegritySection({
         <div className="section-head section-head-inline">
           <div>
             <p className="eyebrow eyebrow-soft">Connection evidence</p>
-            <h3 id="conversion-integrity-connections-title" className="text-base font-semibold text-heading">Google Ads and Tag Manager</h3>
+            <h3 id="conversion-integrity-connections-title" className="text-heading-16 text-heading">Google Ads and Tag Manager</h3>
           </div>
         </div>
         <div className="evidence-table-wrap">
@@ -997,7 +997,7 @@ export function ConversionIntegritySection({
             </tbody>
           </table>
         </div>
-        <p className="mt-3 text-sm leading-6 text-caution">
+        <p className="mt-3 text-copy-14 text-caution">
           Static API evidence does not prove that a browser tag fired or that Google Ads recorded a conversion.
         </p>
         {(workspace.googleAds.snapshotError || workspace.gtm.snapshotError) && onRetryEvidence ? (
@@ -1010,7 +1010,7 @@ export function ConversionIntegritySection({
           <div className="section-head section-head-inline">
             <div>
               <p className="eyebrow eyebrow-soft">Recent observations</p>
-              <h3 id="conversion-integrity-snapshots-title" className="text-base font-semibold text-heading">Latest sanitized snapshots</h3>
+              <h3 id="conversion-integrity-snapshots-title" className="text-heading-16 text-heading">Latest sanitized snapshots</h3>
             </div>
           </div>
           <div className="evidence-table-wrap">
@@ -1027,10 +1027,10 @@ export function ConversionIntegritySection({
               <tbody>
                 {workspace.snapshots.slice(0, 5).map((snapshot) => (
                   <tr key={snapshot.id}>
-                    <td className="font-medium text-heading">{snapshot.provider === 'google-ads' ? 'Google Ads' : 'Google Tag Manager'}</td>
+                    <td className="text-label-14-strong text-heading">{snapshot.provider === 'google-ads' ? 'Google Ads' : 'Google Tag Manager'}</td>
                     <td className="text-secondary">{snapshot.kind}</td>
                     <td className="text-secondary">{formatTimestamp(snapshot.capturedAt)}</td>
-                    <td className="font-mono text-[11px] text-muted">{shortIdentifier(snapshot.id)}</td>
+                    <td className="text-label-12-mono text-muted">{shortIdentifier(snapshot.id)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -1059,8 +1059,8 @@ export function ConversionIntegritySection({
                     <tr key={`${finding.code}:${finding.subject}`}>
                       <td className="text-secondary">
                         <p>{item.label}</p>
-                        <p className="mt-1 font-mono text-[11px] text-muted">Diagnostic: {finding.code}</p>
-                        {finding.evidenceIds.length > 0 ? <p className="mt-1 break-words font-mono text-[11px] text-muted">Evidence: {finding.evidenceIds.join(', ')}</p> : null}
+                        <p className="mt-1 text-copy-13-mono text-muted">Diagnostic: {finding.code}</p>
+                        {finding.evidenceIds.length > 0 ? <p className="mt-1 break-words text-copy-13-mono text-muted">Evidence: {finding.evidenceIds.join(', ')}</p> : null}
                       </td>
                       <td><ToneBadge tone={item.tone}>{item.outcome}</ToneBadge></td>
                       <td className="break-words text-secondary">{finding.subject}</td>
@@ -1078,10 +1078,10 @@ export function ConversionIntegritySection({
           <div className="section-head section-head-inline">
             <div>
               <p className="eyebrow eyebrow-soft">Runtime verification</p>
-              <h3 id="conversion-integrity-runtime-title" className="text-base font-semibold text-heading">Runtime verification checklist</h3>
+              <h3 id="conversion-integrity-runtime-title" className="text-heading-16 text-heading">Runtime verification checklist</h3>
             </div>
           </div>
-          <ol className="max-w-2xl list-decimal space-y-2 pl-5 text-sm leading-6 text-secondary marker:text-muted">
+          <ol className="max-w-2xl list-decimal space-y-2 pl-5 text-label-14 text-secondary marker:text-muted">
             <li>Use a controlled browser session on {runtimeHostSummary(workspace.contract!)} and complete the conversion that emits <span className="font-mono text-heading">{workspace.contract!.eventName}</span>.</li>
             <li>In Tag Manager preview or debugging, confirm tag <span className="font-mono text-heading">{shortIdentifier(workspace.contract!.gtm.tagId)}</span> fires with {runtimeFieldSummary(workspace.contract!)}.</li>
             <li>Confirm Google Ads records the matching conversion action <span className="font-mono text-heading">{shortIdentifier(workspace.contract!.googleAds.conversionActionId)}</span>. Do not change the account or publish a Tag Manager version just to verify it.</li>

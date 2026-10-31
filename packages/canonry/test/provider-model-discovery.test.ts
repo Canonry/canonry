@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { openaiAdapter } from '@ainyc/canonry-provider-openai'
-import { claudeAdapter } from '@ainyc/canonry-provider-claude'
-import { geminiAdapter } from '@ainyc/canonry-provider-gemini'
-import { localAdapter } from '@ainyc/canonry-provider-local'
-import { museAdapter } from '@ainyc/canonry-provider-muse'
+import { openaiAdapter } from '@canonry/canonry-provider-openai'
+import { claudeAdapter } from '@canonry/canonry-provider-claude'
+import { geminiAdapter } from '@canonry/canonry-provider-gemini'
+import { localAdapter } from '@canonry/canonry-provider-local'
+import { museAdapter } from '@canonry/canonry-provider-muse'
 
 const quotaPolicy = { maxConcurrency: 1, maxRequestsPerMinute: 10, maxRequestsPerDay: 100 }
 afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers() })

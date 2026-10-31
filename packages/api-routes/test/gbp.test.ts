@@ -5,8 +5,8 @@ import path from 'node:path'
 import os from 'node:os'
 import Fastify from 'fastify'
 import { eq } from 'drizzle-orm'
-import { createClient, migrate, projects, gbpLocations, gbpDailyMetrics, gbpKeywordImpressions, gbpKeywordMonthly, gbpPlaceActions, gbpLodgingSnapshots, gbpAttributesSnapshots, gbpPlaceDetails, gbpReviews, gbpReviewRatings, auditLog, writeNegativeReviewMaxStars } from '@ainyc/canonry-db'
-import { AppError, gbpReviewListResponseSchema, type GoogleConnectionType } from '@ainyc/canonry-contracts'
+import { createClient, migrate, projects, gbpLocations, gbpDailyMetrics, gbpKeywordImpressions, gbpKeywordMonthly, gbpPlaceActions, gbpLodgingSnapshots, gbpAttributesSnapshots, gbpPlaceDetails, gbpReviews, gbpReviewRatings, auditLog, writeNegativeReviewMaxStars } from '@canonry/canonry-db'
+import { AppError, gbpReviewListResponseSchema, type GoogleConnectionType } from '@canonry/canonry-contracts'
 import { googleRoutes } from '../src/google.js'
 
 interface StoredConnection {
@@ -530,6 +530,25 @@ describe('GBP routes (Phase 1)', () => {
   })
 
   describe('account selection (per project)', () => {
+    it('reports a rejected Google token as a reconnect error rather than a Canonry auth error', async () => {
+      ctx.seedProject('hotels', 'hotels.example.com')
+      ctx.seedGbpConnection('hotels.example.com', 'rejected-google-token')
+      fetchSpy.mockResolvedValueOnce(new Response(JSON.stringify({
+        error: { code: 401, status: 'UNAUTHENTICATED', message: 'Invalid authentication credentials.' },
+      }), { status: 401, headers: { 'content-type': 'application/json' } }))
+
+      const res = await ctx.app.inject({ method: 'GET', url: '/projects/hotels/gbp/accounts' })
+
+      expect(res.statusCode).toBe(403)
+      expect(res.json()).toMatchObject({
+        error: {
+          code: 'FORBIDDEN',
+          message: expect.stringMatching(/Reconnect Google Business Profile/),
+          details: { reason: 'gbp-reconnect', upstreamStatus: 401 },
+        },
+      })
+    })
+
     it('GET /gbp/accounts lists the accounts the connection can access', async () => {
       ctx.seedProject('hotels', 'hotels.example.com')
       ctx.seedGbpConnection('hotels.example.com', 'valid-access-token')

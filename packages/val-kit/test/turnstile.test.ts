@@ -2,7 +2,6 @@ import { test } from 'vitest'
 import {
   createTurnstileVerifier,
   HumanVerificationError,
-  TURNSTILE_AUDIT_ACTION,
 } from '../src/security/turnstile.js'
 
 function equal<T>(actual: T, expected: T, message = 'values differ'): void {
@@ -30,10 +29,11 @@ function verifierWithAction(action: string) {
 }
 
 test('Turnstile verifier enforces the fixed audit action', async () => {
-  await verifierWithAction(TURNSTILE_AUDIT_ACTION).verify({ token: 'token', remoteIp: null })
+  await verifierWithAction('audit').verify({ token: 'token', remoteIp: null })
   const error = await rejects(() =>
     verifierWithAction('client-controlled-action').verify({ token: 'token', remoteIp: null })
   )
   if (!(error instanceof HumanVerificationError)) throw error
+  equal(error.code, 'invalid')
   equal(error.message, 'Human verification did not match this check.')
 })

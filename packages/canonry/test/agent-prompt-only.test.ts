@@ -26,7 +26,7 @@ import {
   parseJsonColumn,
   projects,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { fauxAssistantMessage } from '@earendil-works/pi-ai'
 import type { AgentMessage } from '@earendil-works/pi-agent-core'
 import { resolveAgentEnabled, resolveAgentProactiveEnabled } from '../src/agent-config.js'

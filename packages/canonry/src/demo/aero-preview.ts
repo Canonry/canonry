@@ -11,13 +11,14 @@
 import { and, asc, desc, eq } from 'drizzle-orm'
 import {
   aeroPreviewResponseSchema,
+  compareText,
   formatPercent,
   parseStoredMeasurementPlanAnyVersion,
   wilsonInterval,
   type AeroPreviewResponse,
   type AeroPreviewStarter,
   type AeroPreviewStep,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   insights,
   measurementPlanVersions,
@@ -27,7 +28,7 @@ import {
   siteCrawlFindings,
   siteCrawlSnapshots,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { canonryMcpTools } from '../mcp/tool-registry.js'
 import { SUMMIT_QUERIES } from './summit-sweeps.js'
 import type { DemoSeedContext, DemoSeedProject } from './types.js'
@@ -118,7 +119,7 @@ function engineOrder(left: string, right: string): number {
     const index = ENGINE_ORDER.indexOf(provider)
     return index === -1 ? ENGINE_ORDER.length : index
   }
-  return rank(left) - rank(right) || (left < right ? -1 : left > right ? 1 : 0)
+  return rank(left) - rank(right) || compareText(left, right)
 }
 
 function tally(answers: readonly Answer[]): Tally {

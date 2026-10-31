@@ -207,7 +207,7 @@ Site Health already runs through public HTTP with no answer provider or paid API
 - prioritized fixes
 - canonical crawl evidence that can seed a structured measurement plan
 
-Use the real canonical Site Health run with the existing server defaults: 1,000 pages and 100,000 link relationships, with explicit partial coverage when a limit or deadline is reached. A 5–10 page preview is too small to communicate site structure and is incompatible with the current non-probe graph reads.
+Use the real canonical Site Health run with the existing server defaults: the full site (up to 50,000 pages) and an engine-derived link budget, with explicit partial coverage when a limit or deadline is reached. A 5–10 page preview is too small to communicate site structure and is incompatible with the current non-probe graph reads.
 
 The map is published only when the crawl reaches a terminal complete or partial state because layout is calculated and persisted server-side. While it runs, show truthful stages, live counts, and a bounded sample of already-audited pages that need attention. Label that sample as provisional. Never show a live site score, pass state, “no issues” conclusion, progressive graph, or fabricated percentage. If layout or WebGL is unavailable, the page inventory and exact technical evidence remain the equivalent continuation path.
 
@@ -445,7 +445,7 @@ Use a normal `site-audit` run for the first scan. It is not disposable preview d
 Reuse the current crawl contract:
 
 - explicit operator approval before public network work
-- server defaults of 1,000 pages and 100,000 link relationships
+- server defaults of the full site (up to 50,000 pages) and an engine-derived link budget
 - exact active-request replay and typed conflict for different options
 - terminal complete or partial crawl snapshots
 - deterministic persisted graph layout, capped at 20,000 nodes and 50,000 edges

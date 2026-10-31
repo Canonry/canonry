@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { queryTrackingWorkspaceResponseSchema } from '@ainyc/canonry-contracts'
+import { queryTrackingWorkspaceResponseSchema } from '@canonry/canonry-contracts'
 
 const client = vi.hoisted(() => ({ getQueryTrackingWorkspace: vi.fn() }))
 vi.mock('../src/client.js', () => ({ createApiClient: () => client }))

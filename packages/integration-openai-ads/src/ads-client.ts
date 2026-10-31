@@ -1,4 +1,5 @@
 import { OPENAI_ADS_API_BASE, OPENAI_ADS_MAX_PAGES, OPENAI_ADS_REQUEST_TIMEOUT_MS } from './constants.js'
+import { describeFetchError } from '@canonry/canonry-contracts'
 import type {
   OpenAiAdsAccount,
   OpenAiAdsAd,
@@ -393,15 +394,20 @@ async function adsFetch<T>(
 ): Promise<T> {
   const url = buildUrl(path, queryPairs)
 
-  const res = await fetch(url, {
-    method,
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: body === undefined ? undefined : JSON.stringify(body),
-    signal: AbortSignal.timeout(OPENAI_ADS_REQUEST_TIMEOUT_MS),
-  })
+  let res: Response
+  try {
+    res = await fetch(url, {
+      method,
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal: AbortSignal.timeout(OPENAI_ADS_REQUEST_TIMEOUT_MS),
+    })
+  } catch (error) {
+    throw new Error(describeFetchError(error, url), { cause: error })
+  }
 
   if (res.status === 401 || res.status === 403) {
     const { code } = parseErrorEnvelope(await res.text())
@@ -562,7 +568,7 @@ export async function pauseCampaign(apiKey: string, campaignId: string): Promise
  * consistent: a campaign the direct `campaigns/{id}` read already reported as
  * `archived` was still reported as `paused` by the campaigns list. An archive
  * must therefore only ever be confirmed by a single-entity read; see the
- * archive routes and reconciler in @ainyc/canonry-api-routes.
+ * archive routes and reconciler in @canonry/canonry-api-routes.
  */
 export async function archiveCampaign(apiKey: string, campaignId: string): Promise<OpenAiAdsCampaign> {
   validateApiKey(apiKey)

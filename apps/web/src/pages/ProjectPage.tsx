@@ -15,8 +15,8 @@ import {
   type QueryWorkspace,
 } from '../lib/project-scope.js'
 import { useQueryClient } from '@tanstack/react-query'
-import { formatPercent, parseVisibilityReportScopeErrorDetails, RatioUnits, RunKinds, RunStatuses, RunTriggers } from '@ainyc/canonry-contracts'
-import type { MeasurementOverviewSort } from '@ainyc/canonry-contracts'
+import { COMPETITOR_BULK_ADD_REFUSAL_REASON, COMPETITOR_BULK_ADD_WINDOW_HOURS, compileQueryClassifier, effectiveBrandNames, formatPercent, normalizeQueryText, parseVisibilityReportScopeErrorDetails, RatioUnits, RunKinds, RunStatuses } from '@canonry/canonry-contracts'
+import type { MeasurementOverviewSort } from '@canonry/canonry-contracts'
 
 import { Button } from '../components/ui/button.js'
 import { Card } from '../components/ui/card.js'
@@ -32,20 +32,22 @@ import {
   type CompetitorLandscapeWindow,
 } from '../components/project/CompetitorLandscape.js'
 import { ProviderBadge } from '../components/shared/ProviderBadge.js'
-import { RunRow } from '../components/shared/RunRow.js'
 import { ToneBadge } from '../components/shared/ToneBadge.js'
-import { SentimentScopeProvider, SentimentControls } from '../components/project/SentimentSection.js'
+import { SentimentScopeProvider } from '../components/project/SentimentSection.js'
 import { sentimentSelectionFromVisibility, sentimentSelectionForSimpleEvidence } from '../queries/sentiment.js'
-import { EvidenceTable } from '../components/project/EvidenceTable.js'
+import { EvidenceTable, QueryEvidenceSummary } from '../components/project/EvidenceTable.js'
 import { BingSummaryMetric } from '../components/project/BingSummaryMetric.js'
 import { ActivitySection } from '../components/project/ActivitySection.js'
 import { GscSection } from '../components/project/GscSection.js'
 import { GbpSection } from '../components/project/GbpSection.js'
 import { BacklinksSection } from '../components/project/BacklinksSection.js'
+import { SeoDataSection } from '../components/project/SeoDataSection.js'
 import { CitationVisibilitySection } from '../components/project/CitationVisibilitySection.js'
+import { PastSweeps } from '../components/project/PastSweeps.js'
 import { useVisibilityReportFirstPage, VisibilityOverview, VisibilityTrendSection } from '../components/project/VisibilityTrendSection.js'
 import { VisibilityScopePicker } from '../components/project/VisibilityScopePicker.js'
 import { QueriesSection } from '../components/project/DiscoverySection.js'
+import { EmbedQueriesSection } from '../components/project/EmbedQueriesSection.js'
 import { SiteHealthSection } from '../components/project/SiteHealthSection.js'
 import { ProjectHistorySection } from '../components/project/ProjectHistorySection.js'
 import { ConversionIntegrityWorkspace } from '../components/project/ConversionIntegrityWorkspace.js'
@@ -54,6 +56,7 @@ import { AdvancedMeasurementSection } from '../components/project/advanced-measu
 import { AdvancedMeasurementLanding } from '../components/project/advanced-measurement/AdvancedMeasurementLanding.js'
 import {
   advancedMeasurementSetupActionLabel,
+  advancedProjectTagDetail,
   resolveAdvancedMeasurementMode,
 } from '../components/project/advanced-measurement/model.js'
 import { adaptVersionOneMeasurementReport } from '../components/project/advanced-measurement/v1-report-adapter.js'
@@ -61,14 +64,16 @@ import {
   adaptV2MeasurementOverview,
   areV2OverviewPagesCompatible,
 } from '../components/project/advanced-measurement/v2-overview-adapter.js'
-import { ReportPage } from './ReportPage.js'
-import { formatTimestamp, SEARCH_METRIC_SHORT_LABELS, SearchMetric, splitPercentSign } from '../lib/format-helpers.js'
+import { formatTimestamp, SEARCH_METRIC_SHORT_LABELS, SearchMetric, siteCitationLabel, splitPercentSign } from '../lib/format-helpers.js'
 import { METRIC_TONE_TEXT_CLASS } from '../lib/tone-helpers.js'
+import type { QueryClassLookup } from '../lib/answer-movement.js'
 import { addToast } from '../lib/toast-store.js'
 import { asyncHandler } from '../lib/async-handler.js'
 import { ProjectSettingsSection } from '../components/project/ProjectSettingsSection.js'
-import { ProjectEngineSettingsSection } from '../components/project/ProjectEngineSettingsSection.js'
-import { ManagedSweepStatus, MANAGED_SWEEPS_COPY, managedSweepDate } from '../components/project/ManagedSweepStatus.js'
+import { ProjectEngineSettingsSection, SiteHealthScanSettingsSection } from '../components/project/ProjectEngineSettingsSection.js'
+import { ManagedSweepStatus, managedSweepDate } from '../components/project/ManagedSweepStatus.js'
+import { RunAdmissionNoticeView, useRunAdmission } from '../components/project/RunAdmissionNotice.js'
+import { providerDisplayName } from '../lib/visibility-trend-helpers.js'
 import { ScheduleSection } from '../components/project/ScheduleSection.js'
 import { NotificationsSection } from '../components/project/NotificationsSection.js'
 import {
@@ -93,6 +98,7 @@ import {
   getViewerResearchConfig,
   isEmbed,
   isDashboardManagedSweeps,
+  isPublicDemo,
   type ApiBingConnection,
   type ApiBingSite,
   type ApiBingInspection,
@@ -101,7 +107,7 @@ import {
   type ApiGoogleConnection,
   type ApiProject,
 } from '../api.js'
-import { effectiveEmbedProjectTabs, isEmbedProjectTabAllowed, resolveEmbedProjectTab } from '../embed.js'
+import { effectiveEmbedProjectTabs, embedQueryLimit, isEmbedProjectTabAllowed, resolveProjectPageTab } from '../embed.js'
 import {
   getApiV1CdpStatusOptions,
   getApiV1ProjectsByNameBingCoverageOptions,
@@ -118,17 +124,15 @@ import {
   getApiV1ProjectsByNameTechnicalAeoRunsOptions,
   getApiV1ProjectsByNameMeasurementReportOptions,
   getApiV1ProjectsByNameMeasurementSetupOptions,
-  getApiV1ProjectsByNameMeasurementSetupQueryKey,
   getApiV1ProjectsByNameQueriesOptions,
   getApiV1ProjectsByNameQueryTrackingOptions,
-  getApiV1ProjectsQueryKey,
   getApiV1ProjectsByNameQueryKey,
-} from '@ainyc/canonry-api-client/react-query'
+} from '@canonry/canonry-api-client/react-query'
 import { useAppendQueries, useTriggerRun } from '../queries/mutations.js'
 import { GSC_STALE_MS } from '../queries/query-client.js'
 import { invalidateProjectQueryDomain } from '../queries/query-invalidation.js'
 import { keepPreviousData, useInfiniteQuery, useMutation, useQuery } from '@tanstack/react-query'
-import { getApiV1ProjectsOptions } from '@ainyc/canonry-api-client/react-query'
+import { getApiV1ProjectsOptions } from '@canonry/canonry-api-client/react-query'
 import { useProjectDashboard } from '../queries/use-project-dashboard.js'
 import { STATIC_VISIBILITY_STALE_MS } from '../queries/query-client.js'
 import { useCompetitorLandscapeRefresh } from '../queries/competitor-landscape-refresh.js'
@@ -141,26 +145,33 @@ import {
 } from '../lib/ai-visibility-provider-readiness.js'
 import type { ProjectCommandCenterVm, RunHistoryPoint } from '../view-models.js'
 
-export type ProjectPageTab = 'overview' | 'portfolio' | 'search-console' | 'conversions' | 'local' | 'queries' | 'discovery' | 'report' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings'
+export type ProjectPageTab = 'overview' | 'portfolio' | 'search-console' | 'seo-data' | 'conversions' | 'local' | 'queries' | 'client-queries' | 'discovery' | 'activity' | 'backlinks' | 'technical-aeo' | 'history' | 'settings'
 
-export function ProjectSweepConfirmation({ open, projectLabel, onOpenChange, onConfirm, onClosed, disabled }: {
+export function ProjectSweepConfirmation({ open, projectLabel, onOpenChange, onConfirm, onClosed, disabled, leftOut = [] }: {
   open: boolean
   projectLabel: string
   onOpenChange: (open: boolean) => void
   onConfirm: () => void
   onClosed?: () => void
   disabled: boolean
+  /** Providers this sweep will not call because each keeps failing on its account. */
+  leftOut?: readonly string[]
 }) {
   if (isEmbed() || isDashboardManagedSweeps()) return null
   return <Sheet open={open} onOpenChange={onOpenChange}>
     <SheetContent onCloseAutoFocus={event => { if (onClosed) { event.preventDefault(); onClosed() } }}>
       <SheetHeader>
-        <SheetTitle>Run AI sweep for the whole project?</SheetTitle>
-        <SheetDescription>Runs all tracked queries for {projectLabel}. Report filters do not limit the sweep. Provider charges apply.</SheetDescription>
+        <SheetTitle>Run AI Visibility check for the whole project?</SheetTitle>
+        <SheetDescription>
+          Runs all tracked queries for {projectLabel}. View filters do not limit the check. Provider charges apply.
+          {leftOut.length > 0
+            ? ` ${leftOut.map(name => providerDisplayName(name)).join(' and ')} ${leftOut.length === 1 ? 'is' : 'are'} left out: ${leftOut.length === 1 ? 'it keeps failing on its account' : 'they keep failing on their accounts'}.`
+            : null}
+        </SheetDescription>
       </SheetHeader>
       <div className="mt-6 flex flex-wrap gap-3">
         <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-        <WriteButton disabled={disabled} onClick={onConfirm}>Run project-wide sweep</WriteButton>
+        <WriteButton disabled={disabled} onClick={onConfirm}>Run project-wide check</WriteButton>
       </div>
     </SheetContent>
   </Sheet>
@@ -411,7 +422,7 @@ function BingSection({
   if (loading) {
     return (
       <Card className="surface-card">
-        <div className="text-sm text-secondary">Loading Bing data...</div>
+        <div className="text-label-14 text-secondary">Loading Bing data...</div>
       </Card>
     )
   }
@@ -427,7 +438,7 @@ function BingSection({
             </div>
             <ToneBadge tone="caution">Not connected</ToneBadge>
           </div>
-          <p className="text-sm text-neutral">Bing Webmaster Tools is not connected for this project.</p>
+          <p className="text-copy-14 text-neutral">Bing Webmaster Tools is not connected for this project.</p>
         </Card>
       )
     }
@@ -440,16 +451,16 @@ function BingSection({
           </div>
           <ToneBadge tone="caution">Not connected</ToneBadge>
         </div>
-        <p className="text-sm text-neutral">
+        <p className="text-copy-14 text-neutral">
           Connect Bing Webmaster Tools to inspect URLs, monitor index coverage, and submit pages for indexing.
         </p>
         <div className="mt-3">
-          <label className="text-xs text-muted" htmlFor="bing-api-key">API Key</label>
+          <label className="text-label-12 text-muted" htmlFor="bing-api-key">API Key</label>
           <div className="flex items-center gap-2 mt-1">
             <input
               id="bing-api-key"
               type="password"
-              className="flex-1 rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
+              className="flex-1 rounded border border-strong bg-transparent px-2 py-1.5 text-label-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none"
               placeholder="Bing Webmaster Tools API key"
               value={apiKeyInput}
               onChange={(e) => setApiKeyInput(e.target.value)}
@@ -459,7 +470,7 @@ function BingSection({
               Connect
             </WriteButton>
           </div>
-          <p className="mt-1 text-sm text-secondary">
+          <p className="mt-1 text-copy-14 text-secondary">
             Get your API key from{' '}
             <a
               href="https://www.bing.com/webmasters/"
@@ -471,7 +482,7 @@ function BingSection({
             </a>
           </p>
         </div>
-        {error && <p className="mt-3 text-xs text-negative-400">{error}</p>}
+        {error && <p className="mt-3 text-copy-13 text-negative-400">{error}</p>}
       </Card>
     )
   }
@@ -490,32 +501,32 @@ function BingSection({
           </div>
         </div>
         <div className="space-y-3">
-          <div className="rounded-lg border border-default bg-surface px-4 py-3">
+          <div className="material-base px-4 py-3">
             <div className="flex items-center gap-3">
               <span className="h-2 w-2 rounded-full bg-positive-500" />
-              <span className="text-sm text-strong">Authorized for this project domain</span>
-              <span className="text-xs text-muted">{connection.domain}</span>
+              <span className="text-label-14 text-strong">Authorized for this project domain</span>
+              <span className="text-label-12 text-muted">{connection.domain}</span>
             </div>
-            <p className="mt-2 text-xs text-muted">
+            <p className="mt-2 text-copy-13 text-muted">
               The API key is connected, but no Bing site is selected yet. Pick the verified site that should receive inspections and indexing requests.
             </p>
           </div>
           <div className="grid gap-3 lg:grid-cols-2">
-            <div className="rounded-lg border border-default bg-surface-subtle p-3">
-              <p className="text-xs uppercase tracking-wide text-muted">Registered domain</p>
-              <p className="mt-1 text-sm text-strong">{connection.domain}</p>
+            <div className="material-base p-3">
+              <p className="text-label-12 normal-case text-muted">Registered domain</p>
+              <p className="mt-1 text-copy-14 text-strong">{connection.domain}</p>
             </div>
-            <div className="rounded-lg border border-default bg-surface-subtle p-3">
-              <p className="text-xs uppercase tracking-wide text-muted">Last auth update</p>
-              <p className="mt-1 text-sm text-strong">{connection.updatedAt ? formatTimestamp(connection.updatedAt) : '\u2014'}</p>
+            <div className="material-base p-3">
+              <p className="text-label-12 normal-case text-muted">Last auth update</p>
+              <p className="mt-1 text-copy-14 text-strong">{connection.updatedAt ? formatTimestamp(connection.updatedAt) : '\u2014'}</p>
             </div>
           </div>
-          <div className="rounded-lg border border-default bg-surface-subtle p-3">
-            <p className="text-xs uppercase tracking-wide text-muted">Select site</p>
+          <div className="material-base p-3">
+            <p className="text-label-12 normal-case text-muted">Select site</p>
             {sites.length > 0 ? (
               <div className="mt-3 flex flex-col gap-2 lg:flex-row">
                 <select
-                  className="flex-1 rounded border border-strong bg-bg-elevated px-2 py-1.5 text-sm text-strong focus:border-mono-500 focus:outline-none"
+                  className="flex-1 rounded border border-strong bg-bg-elevated px-2 py-1.5 text-label-14 text-strong focus:border-mono-500 focus:outline-none"
                   value={selectedSite}
                   onChange={(e) => setSelectedSite(e.target.value)}
                 >
@@ -527,13 +538,13 @@ function BingSection({
                 {!isEmbed() && <WriteButton size="sm" disabled={!selectedSite} onClick={asyncHandler(handleSetSite)}>Set Site</WriteButton>}
               </div>
             ) : (
-              <p className="mt-3 text-xs text-muted">
+              <p className="mt-3 text-copy-13 text-muted">
                 No verified Bing sites are available yet. Verify the domain in Bing Webmaster Tools, then use the page-level refresh to reload everything.
               </p>
             )}
           </div>
         </div>
-        {error && <p className="mt-3 text-xs text-negative-400">{error}</p>}
+        {error && <p className="mt-3 text-copy-13 text-negative-400">{error}</p>}
       </Card>
     )
   }
@@ -558,24 +569,24 @@ function BingSection({
             {!isEmbed() && <WriteButton size="sm" variant="ghost" onClick={asyncHandler(handleDisconnect)}>Disconnect</WriteButton>}
           </div>
         </div>
-        {error && <p className="mb-3 text-xs text-negative-400">{error}</p>}
+        {error && <p className="mb-3 text-copy-13 text-negative-400">{error}</p>}
         <div className="space-y-3">
-          <div className="rounded-lg border border-default bg-surface px-4 py-3">
+          <div className="material-base px-4 py-3">
             <div className="flex items-center gap-3">
               <span className="h-2 w-2 rounded-full bg-positive-500" />
-              <span className="text-sm text-strong">Authorized for this project domain</span>
-              <span className="text-xs text-muted">{connection.domain}</span>
+              <span className="text-label-14 text-strong">Authorized for this project domain</span>
+              <span className="text-label-12 text-muted">{connection.domain}</span>
             </div>
-            <p className="mt-2 text-sm text-secondary">This project uses <code>{connection.siteUrl}</code>.</p>
+            <p className="mt-2 text-copy-14 text-secondary">This project uses <code>{connection.siteUrl}</code>.</p>
           </div>
           <div className="grid gap-3 lg:grid-cols-2">
-            <div className="rounded-lg border border-default bg-surface-subtle p-3">
-              <p className="text-xs uppercase tracking-wide text-muted">Selected site</p>
-              <p className="mt-1 text-sm text-strong">{connection.siteUrl}</p>
+            <div className="material-base p-3">
+              <p className="text-label-12 normal-case text-muted">Selected site</p>
+              <p className="mt-1 text-copy-14 text-strong">{connection.siteUrl}</p>
             </div>
-            <div className="rounded-lg border border-default bg-surface-subtle p-3">
-              <p className="text-xs uppercase tracking-wide text-muted">Last auth update</p>
-              <p className="mt-1 text-sm text-strong">{connection.updatedAt ? formatTimestamp(connection.updatedAt) : '\u2014'}</p>
+            <div className="material-base p-3">
+              <p className="text-label-12 normal-case text-muted">Last auth update</p>
+              <p className="mt-1 text-copy-14 text-strong">{connection.updatedAt ? formatTimestamp(connection.updatedAt) : '\u2014'}</p>
             </div>
           </div>
         </div>
@@ -587,7 +598,7 @@ function BingSection({
             <p className="eyebrow eyebrow-soft">{activeTabMeta.eyebrow}</p>
             <h3>{activeTabMeta.title}</h3>
           </div>
-          <p className="text-xs text-muted">
+          <p className="text-copy-13 text-muted">
             {coverage?.lastInspectedAt ? `Last inspected ${formatTimestamp(coverage.lastInspectedAt)}` : 'No inspection history yet'}
           </p>
         </div>
@@ -596,7 +607,7 @@ function BingSection({
           {tabs.map((t) => (
             <button
               key={t.key}
-              className={`px-3 py-1.5 text-xs font-medium border-b-2 transition-colors ${
+              className={`px-3 py-1.5 text-button-14 border-b-2 transition-colors ${
                 activeTab === t.key
                   ? 'border-mono-200 text-strong'
                   : 'border-transparent text-muted hover:text-neutral'
@@ -620,20 +631,20 @@ function BingSection({
             {coverage.notIndexed.length > 0 && (
               <div>
                 <div className="mb-2 flex items-center justify-between gap-3">
-                  <h4 className="text-xs font-medium text-secondary">Not Indexed ({coverage.notIndexed.length})</h4>
+                  <h4 className="text-heading-14 text-secondary">Not Indexed ({coverage.notIndexed.length})</h4>
                   {!isEmbed() && (
                     <WriteButton size="sm" variant="ghost" disabled={requestingIndexing} onClick={asyncHandler(handleSubmitAllUnindexed)}>
                       {requestingIndexing ? 'Submitting…' : 'Submit all to Bing'}
                     </WriteButton>
                   )}
                 </div>
-                <div className="overflow-x-auto rounded-lg border border-default">
-                  <table className="w-full text-xs">
+                <div className="overflow-x-auto material-base">
+                  <table className="w-full text-label-12">
                     <thead>
                       <tr className="border-b border-base">
-                        <th className="text-left py-1.5 px-3 text-muted font-medium">URL</th>
-                        <th className="text-left py-1.5 px-3 text-muted font-medium w-16">HTTP</th>
-                        {!isEmbed() && <th className="text-right py-1.5 px-3 text-muted font-medium w-20">Action</th>}
+                        <th className="text-left py-1.5 px-3 text-muted text-label-12-strong">URL</th>
+                        <th className="text-left py-1.5 px-3 text-muted text-label-12-strong w-16">HTTP</th>
+                        {!isEmbed() && <th className="text-right py-1.5 px-3 text-muted text-label-12-strong w-20">Action</th>}
                       </tr>
                     </thead>
                     <tbody>
@@ -644,7 +655,7 @@ function BingSection({
                           {!isEmbed() && (
                             <td className="py-1.5 px-3 text-right">
                               <button
-                                className="text-sm text-secondary hover:text-strong underline underline-offset-2"
+                                className="text-button-14 text-secondary hover:text-strong underline underline-offset-2"
                                 disabled={requestingIndexing}
                                 onClick={() => { void handleSubmitUrl(row.url) }}
                               >
@@ -663,20 +674,20 @@ function BingSection({
             {(coverage.unknown ?? []).length > 0 && (
               <div>
                 <div className="mb-2 flex items-center justify-between gap-3">
-                  <h4 className="text-sm font-medium text-secondary">Unknown, not yet confirmed ({(coverage.unknown ?? []).length})</h4>
+                  <h4 className="text-heading-14 text-secondary">Unknown, not yet confirmed ({(coverage.unknown ?? []).length})</h4>
                   {!isEmbed() && (
                     <WriteButton size="sm" variant="ghost" disabled={requestingIndexing} onClick={asyncHandler(handleSubmitAllUnindexed)}>
                       {requestingIndexing ? 'Submitting…' : 'Submit all to Bing'}
                     </WriteButton>
                   )}
                 </div>
-                <div className="overflow-x-auto rounded-lg border border-default">
-                  <table className="w-full text-xs">
+                <div className="overflow-x-auto material-base">
+                  <table className="w-full text-label-12">
                     <thead>
                       <tr className="border-b border-base">
-                        <th className="text-left py-1.5 px-3 text-muted font-medium">URL</th>
-                        <th className="text-left py-1.5 px-3 text-muted font-medium w-32">Last Crawled</th>
-                        {!isEmbed() && <th className="text-right py-1.5 px-3 text-muted font-medium w-20">Action</th>}
+                        <th className="text-left py-1.5 px-3 text-muted text-label-12-strong">URL</th>
+                        <th className="text-left py-1.5 px-3 text-muted text-label-12-strong w-32">Last Crawled</th>
+                        {!isEmbed() && <th className="text-right py-1.5 px-3 text-muted text-label-12-strong w-20">Action</th>}
                       </tr>
                     </thead>
                     <tbody>
@@ -687,7 +698,7 @@ function BingSection({
                           {!isEmbed() && (
                             <td className="py-1.5 px-3 text-right">
                               <button
-                                className="text-sm text-secondary hover:text-strong underline underline-offset-2"
+                                className="text-button-14 text-secondary hover:text-strong underline underline-offset-2"
                                 disabled={requestingIndexing}
                                 onClick={() => { void handleSubmitUrl(row.url) }}
                               >
@@ -705,13 +716,13 @@ function BingSection({
 
             {coverage.indexed.length > 0 && (
               <div>
-                <h4 className="mb-2 text-xs font-medium text-secondary">Indexed ({coverage.indexed.length})</h4>
-                <div className="overflow-x-auto rounded-lg border border-default">
-                  <table className="w-full text-xs">
+                <h4 className="mb-2 text-heading-14 text-secondary">Indexed ({coverage.indexed.length})</h4>
+                <div className="overflow-x-auto material-base">
+                  <table className="w-full text-label-12">
                     <thead>
                       <tr className="border-b border-base">
-                        <th className="text-left py-1.5 px-3 text-muted font-medium">URL</th>
-                        <th className="text-left py-1.5 px-3 text-muted font-medium w-32">Last Crawled</th>
+                        <th className="text-left py-1.5 px-3 text-muted text-label-12-strong">URL</th>
+                        <th className="text-left py-1.5 px-3 text-muted text-label-12-strong w-32">Last Crawled</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -730,7 +741,7 @@ function BingSection({
         )}
 
         {activeTab === 'coverage' && !coverage && (
-          <p className="mt-4 text-xs text-muted">No coverage data yet. Inspect URLs to build coverage data.</p>
+          <p className="mt-4 text-copy-13 text-muted">No coverage data yet. Inspect URLs to build coverage data.</p>
         )}
 
         {activeTab === 'inspections' && (
@@ -739,7 +750,7 @@ function BingSection({
               <div className="flex flex-col gap-2 lg:flex-row">
                 <input
                   type="text"
-                  className="flex-1 rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
+                  className="flex-1 rounded border border-strong bg-transparent px-2 py-1.5 text-label-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none"
                   placeholder="URL to inspect"
                   value={inspectionUrl}
                   onChange={(e) => setInspectionUrl(e.target.value)}
@@ -752,8 +763,8 @@ function BingSection({
             )}
 
             {inspectionResult && (
-              <div className="rounded border border-base bg-bg-elevated/40 p-3 text-xs space-y-1">
-                <div className="font-medium text-strong">{inspectionResult.url}</div>
+              <div className="material-base p-3 text-label-12 space-y-1">
+                <div className="text-label-12-strong text-strong">{inspectionResult.url}</div>
                 <div className="text-secondary">
                   In Index: <span className={inspectionResult.inIndex ? 'text-positive-400' : 'text-negative-400'}>
                     {inspectionResult.inIndex ? 'Yes' : 'No'}
@@ -765,14 +776,14 @@ function BingSection({
             )}
 
             {inspections.length > 0 && (
-              <div className="overflow-x-auto rounded-lg border border-default">
-                <table className="w-full text-xs">
+              <div className="overflow-x-auto material-base">
+                <table className="w-full text-label-12">
                   <thead>
                     <tr className="border-b border-base">
-                      <th className="text-left py-1.5 px-3 text-muted font-medium">URL</th>
-                      <th className="text-left py-1.5 px-3 text-muted font-medium w-16">Index</th>
-                      <th className="text-left py-1.5 px-3 text-muted font-medium w-14">HTTP</th>
-                      <th className="text-left py-1.5 px-3 text-muted font-medium w-32">Inspected</th>
+                      <th className="text-left py-1.5 px-3 text-muted text-label-12-strong">URL</th>
+                      <th className="text-left py-1.5 px-3 text-muted text-label-12-strong w-16">Index</th>
+                      <th className="text-left py-1.5 px-3 text-muted text-label-12-strong w-14">HTTP</th>
+                      <th className="text-left py-1.5 px-3 text-muted text-label-12-strong w-32">Inspected</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -796,17 +807,17 @@ function BingSection({
         {activeTab === 'performance' && (
           <div className="mt-4">
             {performance.length === 0 ? (
-              <p className="text-xs text-muted">No Bing performance data available.</p>
+              <p className="text-copy-13 text-muted">No Bing performance data available.</p>
             ) : (
-              <div className="overflow-x-auto rounded-lg border border-default">
-                <table className="w-full text-xs">
+              <div className="overflow-x-auto material-base">
+                <table className="w-full text-label-12">
                   <thead>
                     <tr className="border-b border-base">
-                      <th className="text-left py-1.5 px-3 text-muted font-medium">Query</th>
-                      <th className="text-right py-1.5 px-3 text-muted font-medium w-16">{SEARCH_METRIC_SHORT_LABELS[SearchMetric.Clicks]}</th>
-                      <th className="text-right py-1.5 px-3 text-muted font-medium w-16">{SEARCH_METRIC_SHORT_LABELS[SearchMetric.Impressions]}</th>
-                      <th className="text-right py-1.5 px-3 text-muted font-medium w-14">{SEARCH_METRIC_SHORT_LABELS[SearchMetric.CTR]}</th>
-                      <th className="text-right py-1.5 px-3 text-muted font-medium w-14">{SEARCH_METRIC_SHORT_LABELS[SearchMetric.Position]}</th>
+                      <th className="text-left py-1.5 px-3 text-muted text-label-12-strong">Query</th>
+                      <th className="text-right py-1.5 px-3 text-muted text-label-12-strong w-16">{SEARCH_METRIC_SHORT_LABELS[SearchMetric.Clicks]}</th>
+                      <th className="text-right py-1.5 px-3 text-muted text-label-12-strong w-16">{SEARCH_METRIC_SHORT_LABELS[SearchMetric.Impressions]}</th>
+                      <th className="text-right py-1.5 px-3 text-muted text-label-12-strong w-14">{SEARCH_METRIC_SHORT_LABELS[SearchMetric.CTR]}</th>
+                      <th className="text-right py-1.5 px-3 text-muted text-label-12-strong w-14">{SEARCH_METRIC_SHORT_LABELS[SearchMetric.Position]}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -945,7 +956,7 @@ function SearchConsoleSection({
         if (!bingConnection?.connected) return
         const run = await inspectBingSitemap(projectName).catch(() => null)
         if (!run?.id) {
-          failures.push('Bing sweep could not be started')
+          failures.push('Bing check could not be started')
           return
         }
 
@@ -958,15 +969,15 @@ function SearchConsoleSection({
           const detail = await fetchRunDetail(run.id).catch(() => null)
           if (!detail) break
           if (['completed', 'failed', 'cancelled', 'partial'].includes(detail.status)) {
-            if (detail.status === 'failed') failures.push('Bing sweep failed')
-            else if (detail.status === 'partial') notices.push('Bing sweep finished with some pages unverified')
+            if (detail.status === 'failed') failures.push('Bing check failed')
+            else if (detail.status === 'partial') notices.push('Bing check finished with some pages unverified')
             return
           }
         }
 
         // Still running at the deadline. The run continues in the engine — say
         // so rather than reporting a failure the user cannot act on.
-        notices.push('Bing sweep is still running — coverage will update shortly')
+        notices.push('Bing check is still running. Coverage will update shortly.')
       }
 
       const results = await Promise.allSettled([syncGoogle(), syncBing()])
@@ -1090,7 +1101,7 @@ function SearchConsoleSection({
       </div>
 
       {error && (
-        <div className="rounded-lg border border-negative-800/40 bg-negative-950/20 px-3 py-2 text-sm text-negative">
+        <div className="rounded-md border border-negative-800/40 bg-negative-950/20 px-3 py-2 text-label-14 text-negative">
           {error}
         </div>
       )}
@@ -1152,172 +1163,18 @@ function OverviewMetricRow({
           style={{ width: `${progress}%` }}
         />
       </div>
-      <p className="aeo-hero-row-detail">{summary.delta}</p>
     </div>
-  )
-}
-
-function OverviewBrief({
-  model,
-  sweepRunning,
-  hasVisibilityBaseline,
-}: {
-  model: ProjectCommandCenterVm
-  sweepRunning: boolean
-  hasVisibilityBaseline: boolean
-}) {
-  const citationMovement = model.citationMovement
-  const mentionMovement = model.mentionMovement
-  const comparison = model.movementComparison
-  const latestBaselineSweep = model.recentRuns.find(run =>
-    run.kind === RunKinds['answer-visibility']
-    && (run.status === RunStatuses.completed || run.status === RunStatuses.partial),
-  )
-
-  const movementDirection = (movement: ProjectCommandCenterVm['mentionMovement']) => {
-    if (movement.tone === 'positive') return 'improved'
-    if (movement.tone === 'negative') return 'declined'
-    if (movement.gained > 0 || movement.lost > 0) return 'mixed'
-    return 'steady'
-  }
-  const mentionDirection = movementDirection(mentionMovement)
-  const citationDirection = movementDirection(citationMovement)
-
-  const headline = (() => {
-    if (sweepRunning) return 'A fresh sweep is running now'
-    if (!hasVisibilityBaseline) return 'No AI Visibility baseline yet'
-    if (!comparison.hasPreviousRun) return 'Baseline captured. The next sweep will show change.'
-    if (comparison.querySetChanged) return 'Tracking scope changed since the previous sweep'
-    if (mentionDirection === citationDirection) {
-      if (mentionDirection === 'steady') return 'Answer mentions and citation coverage held steady'
-      if (mentionDirection === 'mixed') return 'Answer mention and citation movement was mixed'
-      return `Answer mentions and citation coverage ${mentionDirection}`
-    }
-    const mentionPhrase = mentionDirection === 'mixed'
-      ? 'Answer mention movement was mixed'
-      : mentionDirection === 'steady'
-        ? 'Answer mentions held steady'
-        : `Answer mentions ${mentionDirection}`
-    const citationPhrase = citationDirection === 'mixed'
-      ? 'citation movement was mixed'
-      : citationDirection === 'steady'
-        ? 'citation coverage held steady'
-        : `citation coverage ${citationDirection}`
-    return `${mentionPhrase}; ${citationPhrase}`
-  })()
-
-  const scopeChange = [
-    comparison.addedQueryCount > 0 && `${comparison.addedQueryCount} ${comparison.addedQueryCount === 1 ? 'query' : 'queries'} added`,
-    comparison.removedQueryCount > 0 && `${comparison.removedQueryCount} ${comparison.removedQueryCount === 1 ? 'query' : 'queries'} removed`,
-  ].filter(Boolean).join(', ')
-  const comparableScope = `${comparison.comparableQueryCount} comparable ${comparison.comparableQueryCount === 1 ? 'query' : 'queries'}`
-
-  return (
-    <section className="overview-brief" aria-labelledby="overview-brief-title">
-      <div className="overview-brief-head">
-        <div>
-          <p className="eyebrow eyebrow-soft">
-            Visibility
-            <InfoTooltip text="Each sweep records two independent signals: answer mentions (your brand named in the answer text) and source citations (your domain in the engine's source list). They move separately." />
-          </p>
-          <h2 id="overview-brief-title" className="overview-brief-title">{headline}</h2>
-        </div>
-        {latestBaselineSweep ? (
-          <p className="overview-brief-updated">Updated {latestBaselineSweep.startedAt}</p>
-        ) : null}
-      </div>
-
-      {!hasVisibilityBaseline ? (
-        <div className="overview-brief-grid">
-          <div className="overview-brief-panel">
-            <p className="overview-brief-label">Coverage signals</p>
-            <dl className="grid gap-4 sm:grid-cols-2">
-              <div>
-                <dt className="text-sm font-medium text-heading">Mentioned</dt>
-                <dd className="mt-1 text-sm text-secondary">Your brand or domain appears in the answer text.</dd>
-              </div>
-              <div>
-                <dt className="text-sm font-medium text-heading">Cited</dt>
-                <dd className="mt-1 text-sm text-secondary">Your domain appears in the engine's source list.</dd>
-              </div>
-            </dl>
-            <p className="mt-4 border-t border-subtle pt-4 text-sm font-medium text-strong">
-              {sweepRunning
-                ? 'Your first sweep is running. Results will appear when it completes.'
-                : isDashboardManagedSweeps() ? MANAGED_SWEEPS_COPY : 'Complete your first AI Visibility sweep to measure both signals.'}
-            </p>
-          </div>
-        </div>
-      ) : (
-        <div className="overview-brief-grid">
-          <div className="overview-brief-panel overview-brief-coverage">
-            <p className="overview-brief-label">Coverage now</p>
-            <div className="aeo-hero-rows">
-              <OverviewMetricRow label="Mentioned" summary={model.mentionSummary} />
-              <OverviewMetricRow label="Cited" summary={model.visibilitySummary} />
-            </div>
-            {model.mentionSummary.providerCoverage && (
-              <p className="overview-brief-note">Partial sweep: {model.mentionSummary.providerCoverage}</p>
-            )}
-          </div>
-
-          <div className="overview-brief-panel">
-            <p className="overview-brief-label">Since last sweep</p>
-            {!comparison.hasPreviousRun ? (
-              <>
-                <p className="overview-brief-panel-title">No comparison yet</p>
-                <p className="overview-brief-panel-copy">{isDashboardManagedSweeps() ? MANAGED_SWEEPS_COPY : 'Run another sweep to measure mention and citation movement.'}</p>
-              </>
-            ) : (
-              <>
-                <div className="overview-signal-change-list">
-                  <div className="overview-signal-change-row">
-                    <span className="overview-signal-change-label">Mentioned</span>
-                    {mentionMovement.gained === 0 && mentionMovement.lost === 0 ? (
-                      <span className="text-secondary">No change</span>
-                    ) : (
-                      <span className="flex gap-3 tabular-nums">
-                        {mentionMovement.gained > 0 && <span className="text-positive-400">+{mentionMovement.gained}</span>}
-                        {mentionMovement.lost > 0 && <span className="text-negative-400">-{mentionMovement.lost}</span>}
-                      </span>
-                    )}
-                  </div>
-                  <div className="overview-signal-change-row">
-                    <span className="overview-signal-change-label">Cited</span>
-                    {citationMovement.gained === 0 && citationMovement.lost === 0 ? (
-                      <span className="text-secondary">No change</span>
-                    ) : (
-                      <span className="flex gap-3 tabular-nums">
-                        {citationMovement.gained > 0 && <span className="text-positive-400">+{citationMovement.gained}</span>}
-                        {citationMovement.lost > 0 && <span className="text-negative-400">-{citationMovement.lost}</span>}
-                      </span>
-                    )}
-                  </div>
-                </div>
-                <p className={`overview-brief-panel-copy ${comparison.querySetChanged ? 'text-caution-400/80' : ''}`}>
-                  {comparison.querySetChanged
-                    ? `${scopeChange || 'Query set changed'} · ${comparableScope}.`
-                    : `${comparableScope}.`}
-                </p>
-              </>
-            )}
-          </div>
-        </div>
-      )}
-    </section>
   )
 }
 
 function OverviewDisclosure({
   id,
-  eyebrow,
   title,
   meta,
   defaultOpen = false,
   children,
 }: {
   id?: string
-  eyebrow: string
   title: string
   meta?: string
   defaultOpen?: boolean
@@ -1326,10 +1183,7 @@ function OverviewDisclosure({
   return (
     <details id={id} className="overview-disclosure page-section-divider scroll-mt-24" open={defaultOpen || undefined}>
       <summary className="overview-disclosure-summary">
-        <span>
-          <span className="eyebrow eyebrow-soft">{eyebrow}</span>
-          <span className="overview-disclosure-title">{title}</span>
-        </span>
+        <h2 className="overview-disclosure-title">{title}</h2>
         <span className="overview-disclosure-meta">
           {meta && <span>{meta}</span>}
           <ChevronDown className="overview-disclosure-icon" size={16} aria-hidden="true" />
@@ -1344,7 +1198,14 @@ function OverviewSignals({
   insights,
   suggestedQueries,
   onManageQueries,
+  siteDomain,
 }: {
+  /**
+   * Set where these signals sit beside per-property numbers: their citation
+   * state is the older site-wide flag, so each badge names the domain and
+   * "any page" instead of a bare "Cited".
+   */
+  siteDomain?: string
   insights: ProjectCommandCenterVm['insights']
   suggestedQueries: ProjectCommandCenterVm['suggestedQueries']
   onManageQueries?: () => void
@@ -1359,22 +1220,22 @@ function OverviewSignals({
     <div key={insight.id} className="py-3">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <p className="text-sm font-medium text-heading">{insight.title}</p>
-          {insight.detail ? <p className="mt-1 max-w-3xl text-sm leading-6 text-secondary">{insight.detail}</p> : null}
+          <p className="text-copy-14-strong text-heading">{insight.title}</p>
+          {insight.detail ? <p className="mt-1 max-w-3xl text-copy-14 text-secondary">{insight.detail}</p> : null}
         </div>
         <ToneBadge tone={insight.tone}>{insight.actionLabel}</ToneBadge>
       </div>
 
       {insight.affectedPhrases.length > 0 ? (
         <details className="mt-2">
-          <summary className="w-fit cursor-pointer text-sm font-medium text-secondary transition-colors hover:text-heading focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-500/60">
+          <summary className="w-fit cursor-pointer text-label-14-strong text-secondary transition-colors hover:text-heading focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-500/60">
             Evidence · {insight.affectedPhrases.length} affected {insight.affectedPhrases.length === 1 ? 'query' : 'queries'}
           </summary>
           <ul className="mt-2 divide-y divide-subtle border-y border-subtle">
             {insight.affectedPhrases.map((phrase, index) => (
               <li key={phrase.evidenceId || `${insight.id}-${index}`} className="flex flex-wrap items-center gap-2 py-2">
-                <CitationBadge state={phrase.citationState} />
-                <span className="min-w-0 flex-1 text-sm text-strong">{phrase.query}</span>
+                <CitationBadge state={phrase.citationState} {...(siteDomain && phrase.siteCitation !== false ? { label: siteCitationLabel(siteDomain, phrase.citationState) } : {})} />
+                <span className="min-w-0 flex-1 text-label-14 text-strong">{phrase.query}</span>
                 {phrase.provider ? <ProviderBadge provider={phrase.provider} /> : null}
                 {!isEmbed() && phrase.evidenceId ? (
                   <Button type="button" variant="ghost" size="sm" onClick={() => { void openEvidence(phrase.evidenceId) }}>
@@ -1392,9 +1253,9 @@ function OverviewSignals({
   const renderSuggestion = (suggestion: ProjectCommandCenterVm['suggestedQueries']['rows'][number]) => (
     <div key={suggestion.query} className="flex items-start justify-between gap-4 py-3">
       <div className="min-w-0">
-        <p className="text-xs font-medium uppercase tracking-wide text-muted">Suggested query</p>
-        <p className="mt-1 text-sm font-medium text-strong">{suggestion.query}</p>
-        <p className="mt-1 text-sm text-secondary">{suggestion.reason}</p>
+        <p className="text-label-12-strong normal-case text-muted">Suggested query</p>
+        <p className="mt-1 text-copy-14-strong text-strong">{suggestion.query}</p>
+        <p className="mt-1 text-copy-14 text-secondary">{suggestion.reason}</p>
       </div>
       {onManageQueries ? <Button type="button" variant="outline" size="sm" onClick={onManageQueries}>Review in Queries</Button> : null}
     </div>
@@ -1418,7 +1279,7 @@ function OverviewSignals({
       </div>
       {remainingCount > 0 ? (
         <details className="mt-2">
-          <summary className="w-fit cursor-pointer text-sm font-medium text-secondary transition-colors hover:text-heading focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-500/60">
+          <summary className="w-fit cursor-pointer text-label-14-strong text-secondary transition-colors hover:text-heading focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-500/60">
             {remainingCount} more {remainingCount === 1 ? 'signal' : 'signals'}
           </summary>
           <div className="mt-2 divide-y divide-default border-y border-default">
@@ -1461,7 +1322,7 @@ export function ProjectPage(props: { tab: ProjectPageTab }) {
     ?? projectsListQuery.data?.find(p => p.name === routeIdentifier || p.id === routeIdentifier)?.name
     ?? null
   const embed = getEmbedConfig()
-  const resolvedTab = resolveEmbedProjectTab(props.tab, effectiveEmbedProjectTabs(embed))
+  const resolvedTab = resolveProjectPageTab(props.tab, embed)
   // The server overview supplies Simple's primary metrics, but Advanced only
   // exposes it through the collapsed Project signals disclosure. Wait until
   // the plan resolves (or that disclosure opens) before starting the read.
@@ -1762,6 +1623,9 @@ function ProjectSubnavMore({ items, activeTab }: { items: ProjectTabItem[]; acti
  */
 const MAP_SITE_SCAN_HISTORY_LIMIT = 20
 
+/** The newest saved sweeps the sentiment backfill offers. */
+const SENTIMENT_BACKFILL_SWEEP_OPTIONS = 5
+
 function ProjectPageContent({
   tab: requestedTab,
   model,
@@ -1785,7 +1649,7 @@ function ProjectPageContent({
 }) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const { account, canWrite } = useAccount()
+  const { account, canWrite, isAdmin } = useAccount()
   const [sweepConfirmationProject, setSweepConfirmationProject] = useState<string | null>(null)
   const sweepOpener = useRef<HTMLButtonElement | null>(null)
   const initialDashboard = useInitialDashboard()
@@ -1856,8 +1720,25 @@ function ProjectPageContent({
   // an embed without `projectTabs` gets the embed-safe set. The subnav below is
   // filtered to it; a direct-URL hit on a hidden tab falls back to a visible board.
   const embedProjectTabs = useMemo(() => effectiveEmbedProjectTabs(getEmbedConfig()), [])
-  const tab = resolveEmbedProjectTab(requestedTab, embedProjectTabs)
+  // The embedded client Queries tab comes from the agency's grant, not the allowlist.
+  const queryLimit = useMemo(() => embedQueryLimit(getEmbedConfig()), [])
+  const tab = useMemo(() => resolveProjectPageTab(requestedTab, getEmbedConfig()), [requestedTab])
   const competitorDomains = useMemo(() => model.competitors.map(c => c.domain), [model.competitors])
+  const competitorAliases = useMemo<Record<string, readonly string[]>>(
+    () => Object.fromEntries(model.competitors.map(c => [c.domain, c.aliases ?? []])),
+    [model.competitors],
+  )
+  // Names detected from stored answers, shown labelled "auto" beside the curated ones.
+  const competitorAutoAliases = useMemo<Record<string, readonly string[]>>(
+    () => Object.fromEntries(model.competitors.map(c => [c.domain, c.autoAliases ?? []])),
+    [model.competitors],
+  )
+  // Every name a competitor answers to (curated and auto): both change mention
+  // share, so both key the cached trend frames.
+  const competitorIdentityNames = useMemo<Record<string, readonly string[]>>(
+    () => Object.fromEntries(model.competitors.map(c => [c.domain, [...(c.aliases ?? []), ...(c.autoAliases ?? [])]])),
+    [model.competitors],
+  )
   // "Local Presence" is always shown — GbpSection renders a setup guide when no
   // Google Business Profile is connected, so the tab is the entry point to
   // connecting one rather than being hidden until after connection.
@@ -1933,9 +1814,11 @@ function ProjectPageContent({
   })
   const activeMeasurementPlanQuery = useQuery({
     ...getApiV1ProjectsByNameMeasurementPlanOptions({ client: heyClient, path: { name: projectName } }),
+    // The public demo reads it on every tab: its context row tags an advanced
+    // project wherever it renders, including a deep link.
     enabled: !isEmbed()
       && Boolean(projectName)
-      && (canWrite || tab === 'portfolio' || tab === 'overview' || tab === 'settings'),
+      && (canWrite || isPublicDemo() || tab === 'portfolio' || tab === 'overview' || tab === 'settings'),
     staleTime: 0,
     refetchOnMount: 'always',
   })
@@ -2048,6 +1931,10 @@ function ProjectPageContent({
     hasDraft: measurementSetupQuery.data?.draft !== null && measurementSetupQuery.data?.draft !== undefined,
   })
   const isSimpleOverview = advancedMeasurementMode.surface === 'simple-overview'
+  // Demo only: it tells a visitor switching projects why this one looks different.
+  const advancedProjectTag = isPublicDemo() && activeMeasurementPlan?.plan.schemaVersion === 2
+    ? advancedProjectTagDetail(activeMeasurementPlan.plan)
+    : null
   /**
    * Which overview to show is not known until one of the two plan reads lands.
    * Until then the expression above is `undefined ?? null`, and `null` is what
@@ -2090,6 +1977,33 @@ function ProjectPageContent({
   const needsSimpleEvidence = tab === 'overview' && isSimpleOverview && !isMeasurementModeUnresolved
   const evidenceDashboard = useProjectDashboard(projectName, { evidence: needsSimpleEvidence })
   const visibilityEvidence = evidenceDashboard.commandCenter?.visibilityEvidence ?? model.visibilityEvidence
+  // One query classifier for the trend and the class-split cards. Evidence rows
+  // carry the class the query table shows; anything else (a removed query, a
+  // stored basket key) goes through the brand matcher the metrics route uses.
+  const classifyQuery = useMemo<QueryClassLookup>(() => {
+    const known = new Map(visibilityEvidence.map(row => [normalizeQueryText(row.query), row.queryClass ?? null]))
+    const classifier = compileQueryClassifier(effectiveBrandNames(model.project))
+    return text => {
+      const hit = known.get(normalizeQueryText(text))
+      return hit !== undefined ? hit : classifier?.classify(text) ?? null
+    }
+  }, [visibilityEvidence, model.project])
+  // Query text as written, so the trend can name a stored (lowercase) basket key.
+  const trackedQueryTexts = useMemo(() => [...new Set([
+    ...visibilityEvidence.map(row => row.query),
+    ...model.movementComparison.addedQueries,
+    ...model.movementComparison.removedQueries,
+  ])], [visibilityEvidence, model.movementComparison])
+  // The trend splits by query class only when there is something on each side
+  // and a brand name the metrics route can classify with.
+  const trendQueryClassSplit = useMemo(() => {
+    if (!compileQueryClassifier(effectiveBrandNames(model.project))) return false
+    const classes = new Set(visibilityEvidence.map(row => classifyQuery(row.query)))
+    return classes.has('branded') && classes.has('non-brand')
+  }, [model.project, visibilityEvidence, classifyQuery])
+  // Real sweeps only, to date the sweep before a model or query change. Every
+  // one back from the latest, so newer failed runs never leave a gap.
+  const recentSweepTimes = useMemo(() => model.visibilitySweeps.map(run => run.createdAt), [model.visibilitySweeps])
   // Other tabs still expose the admin sweep control. Its readiness needs the
   // tracked basket, but never answer bodies or historical run detail.
   const needsHeaderQueries = canWrite && !isEmbed() && !isDashboardManagedSweeps() && tab !== 'overview'
@@ -2144,6 +2058,7 @@ function ProjectPageContent({
     setCompetitorHistoryOpenForProject(null)
   }, [projectName])
   const competitorHistoryOpen = competitorHistoryOpenForProject === projectName
+  // Historical evidence is read when its disclosure opens.
   const competitorLandscapeReadEnabled = competitorLandscapeAvailable && competitorHistoryOpen
   const competitorLandscapeQuery = useQuery({
     ...getApiV1ProjectsByNameAnalyticsCompetitorsOptions(competitorLandscapeQueryInput),
@@ -2155,7 +2070,7 @@ function ProjectPageContent({
   })
   useCompetitorLandscapeRefresh(projectName, JSON.stringify([
     competitorHistoryRevision,
-    model.competitors.map(competitor => competitor.domain).sort(),
+    model.competitors.map(competitor => `${competitor.domain}=${[...(competitor.aliases ?? []), ...(competitor.autoAliases ?? [])].join('|')}`).sort(),
     model.project.canonicalDomain, model.project.ownedDomains, model.project.aliases, model.project.displayName,
     activeMeasurementRevision,
     measurementSetupQuery.data?.draft?.etag ?? null,
@@ -2163,8 +2078,8 @@ function ProjectPageContent({
   const competitorLandscapeError = !competitorLandscapeQuery.isError
     ? undefined
     : competitorLandscapeQuery.data === undefined
-      ? 'Could not load competitor history. Your pinned competitors remain available.'
-      : 'Could not refresh competitor history. Showing the last available data.'
+      ? 'Could not load competitors over time. Your pinned competitors remain available.'
+      : 'Could not refresh competitors over time. Showing the last available data.'
   const projectPinnedCompetitorFallback = useMemo<CompetitorLandscapeRow[]>(() => (
     model.competitors.map(competitor => ({
       domain: competitor.domain,
@@ -2287,6 +2202,13 @@ function ProjectPageContent({
   const hasActiveVisibilitySweep = (model?.recentRuns ?? []).some(
     r => r.kind === RunKinds['answer-visibility'] && (r.status === RunStatuses.running || r.status === RunStatuses.queued),
   )
+  // Manual launches use the project roster; schedules may select other providers.
+  const runAdmission = useRunAdmission(projectName, !isEmbed() && !isDashboardManagedSweeps(), 'manual').data
+  const scheduledRunAdmission = useRunAdmission(projectName, !isEmbed(), 'scheduled').data
+  const admissionScopesDiffer = runAdmission && scheduledRunAdmission
+    && JSON.stringify(runAdmission) !== JSON.stringify(scheduledRunAdmission)
+  const sweepsOnHold = runAdmission?.refused === true
+  const sweepLeavesOut = runAdmission && !runAdmission.refused ? Object.keys(runAdmission.providers) : []
   // `queryCounts` is derived from the authoritative latest completed/partial
   // visibility-run snapshot group. `recentRuns` is only a five-row
   // presentation slice and can contain five newer failures while a valid
@@ -2338,12 +2260,10 @@ function ProjectPageContent({
   // so it needs the one fact the sweep-readiness flags never carry: whether
   // this project already has a Site Health scan.
   //
-  // Scan history, not the crawl summary. Without a `runId` the crawl summary
-  // deliberately resolves only a COMPLETE crawl of a COMPLETED run, because it
-  // answers "what is the current graph". A first run bounded by the page or
-  // duration budget lands as `partial`, so asking the crawl summary reports no
-  // scan for a project that plainly has one, and the button comes back. Scan
-  // history is the list of readable scans and already excludes probes.
+  // Scan history, not the crawl summary: a scorecard-only scan published no
+  // crawl, so the crawl summary reports no scan for a project that has one and
+  // the button comes back. Scan history is the list of readable scans and
+  // already excludes probes.
   const mapSiteCandidate = !isEmbed() && tab === 'overview' && sweepSetupRequired && !hasVisibilityInputs
   const siteAuditScansQuery = useQuery({
     ...getApiV1ProjectsByNameTechnicalAeoRunsOptions({
@@ -2385,7 +2305,7 @@ function ProjectPageContent({
   const nextSweepDate = sweepSchedule?.enabled && sweepSchedule.nextRunAt
     ? managedSweepDate(sweepSchedule.nextRunAt, sweepSchedule.timezone)
     : null
-  const nextSweepLabel = nextSweepDate ? `Next AI sweep ${nextSweepDate}` : null
+  const nextSweepLabel = nextSweepDate ? `Next AI Visibility check ${nextSweepDate}` : null
   const distinctLocationsForCompare = useMemo(() => {
     // "Compare" needs ≥2 locations with selectable data. Prefer evidence-backed
     // locations, but fall back to configured locations so a fresh project that
@@ -2460,7 +2380,7 @@ function ProjectPageContent({
   // resolved but neither matched the URL's identifier).
 
   async function handleTriggerRun() {
-    if (sweepConfirmationProject !== projectName || !canWrite || isEmbed() || isDashboardManagedSweeps() || triggerRunMutation.isPending || hasActiveVisibilitySweep || !sweepPrerequisitesReady) return
+    if (sweepConfirmationProject !== projectName || !canWrite || isEmbed() || isDashboardManagedSweeps() || triggerRunMutation.isPending || hasActiveVisibilitySweep || sweepsOnHold || !sweepPrerequisitesReady) return
     try {
       await triggerRunMutation.mutateAsync({
         projectName,
@@ -2468,7 +2388,6 @@ function ProjectPageContent({
         sourceAction: 'project-run',
       })
       setSweepConfirmationProject(null)
-      void refetch()
     } catch {
       // Mutation hook surfaces the toast and error state.
     }
@@ -2502,8 +2421,7 @@ function ProjectPageContent({
         dedupeKey: `project:delete:${projectName}`,
         dedupeMode: 'drop',
       })
-      void navigate({ to: '/' })
-      void refetch()
+      await navigate({ to: '/' })
     } catch (err) {
       console.error('Failed to delete project:', err)
     } finally {
@@ -2517,7 +2435,6 @@ function ProjectPageContent({
     setQuerySaving(true)
     try {
       await apiAppendQueries(projectName, queries)
-      void refetch()
       setNewQueryText('')
     } finally {
       setQuerySaving(false)
@@ -2528,7 +2445,6 @@ function ProjectPageContent({
     setRemovingQuery(query)
     try {
       await apiRemoveQueries(projectName, [query])
-      void refetch()
     } catch (err) {
       addToast({
         title: 'Could not remove query',
@@ -2547,23 +2463,27 @@ function ProjectPageContent({
     if (!domain) return false
     try {
       await apiAppendCompetitors(projectName, [domain])
-      // No `['analytics-metrics', projectName]` invalidation — same mechanism
-      // as the answer-visibility case in `queries/run-invalidations.ts`. The
-      // trend key's `metricsFrameKey` segment is `competitorFrameKey(...)` of
-      // `model.competitors`, i.e. the exact DB list the server builds the
-      // mention-share denominator from. `refetch()` reloads that list, the
-      // frame key rotates, and the chart mounts a new key — one fetch.
-      // Invalidating first refetched the outgoing key too: a second
-      // full-history analytics scan whose result is unreachable once the
-      // frame key moves. If `refetch()` fails, the project detail query polls
-      // every PROJECT_DETAIL_REFRESH_MS, so the rotation still lands.
-      void refetch()
-      // The refreshed pin set changes the landscape revision above.
       return true
     } catch (err) {
+      let failure: unknown = err
+      const details = apiErrorDetails(err)
+      if (details?.reason === COMPETITOR_BULK_ADD_REFUSAL_REASON) {
+        const trackedBefore = typeof details.trackedBefore === 'number' ? details.trackedBefore : '?'
+        const trackedAfter = typeof details.trackedAfter === 'number' ? details.trackedAfter : '?'
+        const windowHours = typeof details.windowHours === 'number' ? details.windowHours : COMPETITOR_BULK_ADD_WINDOW_HOURS
+        const accepted = window.confirm(`This add would grow tracked competitors from ${trackedBefore} to ${trackedAfter} within ${windowHours} hours. Continue?`)
+        if (accepted) {
+          try {
+            await apiAppendCompetitors(projectName, [domain], { acknowledgeBulkAdd: true })
+            return true
+          } catch (retryError) {
+            failure = retryError
+          }
+        }
+      }
       addToast({
         title: 'Could not add competitor',
-        detail: err instanceof Error ? err.message : `Failed to add ${domain}`,
+        detail: failure instanceof Error ? failure.message : `Failed to add ${domain}`,
         tone: 'negative',
         dedupeKey: 'competitor:add',
         dedupeMode: 'replace',
@@ -2587,9 +2507,6 @@ function ProjectPageContent({
 
     try {
       await apiRemoveCompetitorById(projectName, competitor.id)
-      // See handleAddCompetitor: the frame key rotation is the refetch.
-      void refetch()
-      // The refreshed pin set changes the landscape revision above.
       return true
     } catch (err) {
       addToast({
@@ -2651,39 +2568,17 @@ function ProjectPageContent({
     }
   }
 
-  async function handleUpdateProject(pName: string, updates: { displayName?: string; canonicalDomain?: string; ownedDomains?: string[]; aliases?: string[]; country?: string; language?: string; locations?: Array<{ label: string; city: string; region: string; country: string; timezone?: string }>; defaultLocation?: string | null; providers?: string[]; providerModels?: Record<string, string> }) {
+  async function handleUpdateProject(pName: string, updates: { displayName?: string; canonicalDomain?: string; ownedDomains?: string[]; aliases?: string[]; country?: string; language?: string; locations?: Array<{ label: string; city: string; region: string; country: string; timezone?: string }>; defaultLocation?: string | null; providers?: string[]; providerModels?: Record<string, string>; siteAuditMaxPages?: number | null }) {
     const updated = await apiUpdateProject(pName, updates)
-    // Invalidate the whole 'projects' branch (prefix match) so every consumer
-    // — sidebar, project page, per-project detail queries — refetches the new
-    // displayName before the user sees the next render. `refetch()` alone only
-    // covers the top-level lists; detail queries were keyed on run IDs and
-    // would silently hold the stale project object.
-    // Project rename / metadata edit — refresh the top-level projects list
-    // so sidebar/dashboard pick up the new displayName. Use the exact key
-    // (not a prefix) so we don't churn every Bing/GSC/GA cache under the
-    // project's sub-tree.
-    await queryClient.invalidateQueries({ queryKey: getApiV1ProjectsQueryKey({ client: heyClient }) })
     queryClient.setQueryData(getApiV1ProjectsByNameQueryKey({ client: heyClient, path: { name: pName } }), updated)
     // Scoped to the edited project's own cache entries — see the helper.
     patchProjectDashboardCache(queryClient, updated)
-    if (updates.providers !== undefined) {
-      // Provider readiness is computed by the server from the project's exact
-      // allowlist. Refresh that authority before the save completes so the
-      // page-header sweep action cannot keep the previous allowlist's state.
-      await queryClient.invalidateQueries({
-        queryKey: getApiV1ProjectsByNameMeasurementSetupQueryKey({
-          client: heyClient,
-          path: { name: pName },
-        }),
-        exact: true,
-      })
-    }
     return updated
   }
 
   // Quiet underline tabs (Vercel/Linear lineage), not a pill rack. Section nav
   // is chrome: plain text that recedes, the active tab marked by a Snow
-  // underline on the bar's hairline. Low-frequency sections (Report) live in a
+  // underline on the bar's hairline. Low-frequency sections live in a
   // trailing "More" overflow; Settings is split out at the far right (universal
   // convention). "Local Presence" only appears once GBP is connected.
   const projectTabBase = `/projects/${encodeURIComponent(model.project.name)}`
@@ -2692,6 +2587,7 @@ function ProjectPageContent({
     // and it appears in saved URLs, so it stays `overview` however the label reads.
     { key: 'overview', label: 'AI Visibility', href: projectTabBase },
     { key: 'search-console', label: 'Search Engines', href: `${projectTabBase}/search-console` },
+    { key: 'seo-data', label: 'SEO', href: `${projectTabBase}/seo-data` },
     { key: 'activity', label: 'Activity', href: `${projectTabBase}/activity` },
     // `technical-aeo` is a stable route and embed token. Site Health is the product label.
     { key: 'technical-aeo', label: 'Site Health', href: `${projectTabBase}/technical-aeo` },
@@ -2701,16 +2597,19 @@ function ProjectPageContent({
     { key: 'backlinks', label: 'Backlinks', href: `${projectTabBase}/backlinks` },
   ]
   const projectOverflowTabItemsAll: ProjectTabItem[] = [
-    { key: 'report', label: 'Report', href: `${projectTabBase}/report` },
     { key: 'history', label: 'Change History', href: `${projectTabBase}/history` },
   ]
   // In embed mode the effective allowlist narrows the subnav to the curated
-  // client-facing tabs; outside embed it is undefined and every tab shows.
-  const projectTabItems = projectTabItemsAll.filter((item) => isEmbedProjectTabAllowed(item.key, embedProjectTabs))
+  // client-facing tabs. Settings also requires write access outside embed/demo.
+  const projectTabItems = [
+    ...projectTabItemsAll.filter((item) => isEmbedProjectTabAllowed(item.key, embedProjectTabs)),
+    ...(queryLimit !== undefined ? [{ key: 'client-queries' as const, label: 'Queries', href: `${projectTabBase}/client-queries` }] : []),
+  ]
   const projectOverflowTabItems = projectOverflowTabItemsAll.filter((item) =>
     isEmbedProjectTabAllowed(item.key, embedProjectTabs),
   )
-  const projectSettingsTab = isEmbedProjectTabAllowed('settings', embedProjectTabs)
+  const canViewProjectSettings = canWrite || isEmbed() || isPublicDemo()
+  const projectSettingsTab = canViewProjectSettings && isEmbedProjectTabAllowed('settings', embedProjectTabs)
     ? { key: 'settings' as const, label: 'Settings', href: `${projectTabBase}/settings` }
     : null
 
@@ -2731,10 +2630,14 @@ function ProjectPageContent({
         onSelectionChange={updateVisibilitySearch}
         onManageQueries={!isEmbed() ? () => { void navigate({ to: '/projects/$projectName/queries', params: { projectName }, search: previous => ({ ...previous, queryWorkspace: 'tracked', trackingQueryId: undefined, measurementMarketKey: undefined }) }) } : undefined}
         renderPropertyLink={!isEmbed() ? ({ id, label }) => (
-          <Link to="/projects/$projectName/properties/$targetKey" params={{ projectName, targetKey: id }} search={carryVisibilitySearch} aria-label={`Property details for ${label}`} className="inline-flex min-h-11 items-center text-sm text-link hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400">
+          <Link to="/projects/$projectName/properties/$targetKey" params={{ projectName, targetKey: id }} search={carryVisibilitySearch} aria-label={`Property details for ${label}`} className="inline-flex min-h-11 items-center text-label-14 text-link hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400">
             Property details
           </Link>
         ) : undefined}
+        // Embeds and managed dashboards name neither date. A sweep already under way brings
+        // new numbers before the scheduled one, so it names no date either.
+        trackingChangedAt={isEmbed() || isDashboardManagedSweeps() ? undefined : activeMeasurementPlan?.createdAt}
+        nextSweepDate={isEmbed() || isDashboardManagedSweeps() || hasActiveVisibilitySweep ? undefined : nextSweepDate ?? undefined}
         fallback={overview}
       />
     )
@@ -2744,7 +2647,7 @@ function ProjectPageContent({
       sentimentSelection.location = locationFilter === '' ? 'none' : locationFilter
       sentimentSelection = sentimentSelectionForSimpleEvidence(sentimentSelection, filteredEvidence, evidenceProvider)
     }
-    return <SentimentScopeProvider hasSourceEvidence={!isSimpleOverview || Boolean(sentimentSelection.runId || sentimentSelection.runIds?.length)} evidenceReady={!isSimpleOverview || !(evidenceDashboard.isLoading || evidenceDashboard.evidenceLoading || evidenceDashboard.evidenceError)} waitForResolvedRun={!isSimpleOverview} projectName={projectName} runOptions={model.recentRuns.filter(run => run.kind === RunKinds['answer-visibility'] && run.trigger !== RunTriggers.probe && (run.status === RunStatuses.completed || run.status === RunStatuses.partial)).map(run => ({ id: run.id, label: formatTimestamp(run.finishedAt ?? run.createdAt) }))} selection={sentimentSelection}>{content}</SentimentScopeProvider>
+    return <SentimentScopeProvider hasSourceEvidence={!isSimpleOverview || Boolean(sentimentSelection.runId || sentimentSelection.runIds?.length)} evidenceReady={!isSimpleOverview || !(evidenceDashboard.isLoading || evidenceDashboard.evidenceLoading || evidenceDashboard.evidenceError)} waitForResolvedRun={!isSimpleOverview} projectName={projectName} runOptions={model.visibilitySweeps.slice(0, SENTIMENT_BACKFILL_SWEEP_OPTIONS).map(run => ({ id: run.id, label: formatTimestamp(run.finishedAt ?? run.createdAt) }))} selection={sentimentSelection}>{content}</SentimentScopeProvider>
   }
 
   // The context row's measurement scope slot. Each tab owns recovery for a
@@ -2755,7 +2658,7 @@ function ProjectPageContent({
         if (reportScopeQuery.error) {
           // Any other failure belongs to the workspace alert below.
           return parseVisibilityReportScopeErrorDetails(apiErrorDetails(reportScopeQuery.error))
-            ? <p className="text-[13px] text-secondary">{PROJECT_SCOPE_COPY.savedScopeUnavailable}</p>
+            ? <p className="text-copy-13 text-secondary">{PROJECT_SCOPE_COPY.savedScopeUnavailable}</p>
             : null
         }
         const report = reportScopeQuery.data
@@ -2788,11 +2691,11 @@ function ProjectPageContent({
         ) : null
       }
       case 'scope-unavailable':
-        return <p className="text-[13px] text-secondary">{PROJECT_SCOPE_COPY.savedScopeUnavailable}</p>
+        return <p className="text-copy-13 text-secondary">{PROJECT_SCOPE_COPY.savedScopeUnavailable}</p>
       case 'project-wide':
         return (
           <span className="flex items-center gap-1">
-            <span className="text-[13px] text-secondary">{PROJECT_SCOPE_COPY.projectWide}</span>
+            <span className="text-label-13 text-secondary">{PROJECT_SCOPE_COPY.projectWide}</span>
             <InfoTooltip text={PROJECT_SCOPE_COPY.projectWideHelp} />
           </span>
         )
@@ -2801,17 +2704,99 @@ function ProjectPageContent({
     }
   }
 
-  // Overview's date range. Simple always shows it; an Advanced portfolio shows
-  // only an explicit historical range and renders no element otherwise.
-  const overviewRangeLabel = tab === 'overview' && (isSimpleOverview || visibilitySelection.from || visibilitySelection.to)
-    ? isSimpleOverview
-      ? model.dateRangeLabel
-      : `${visibilitySelection.from?.slice(0, 10) ?? 'First measurement'} to ${visibilitySelection.to?.slice(0, 10) ?? 'Latest measurement'}`
+  // Overview's date range: only an Advanced portfolio's explicit historical
+  // range, shown in the embed header. Simple shows no range label: its cards
+  // read different windows (latest sweep, the chart's own window), so no one
+  // label is true of the page. An Advanced range is a filter token in the
+  // operator's results toolbar.
+  const overviewRangeLabel = tab === 'overview' && !isSimpleOverview && (visibilitySelection.from || visibilitySelection.to)
+    ? `${visibilitySelection.from?.slice(0, 10) ?? 'First measurement'} to ${visibilitySelection.to?.slice(0, 10) ?? 'Latest measurement'}`
     : null
-  // The operator row keeps only the Simple range. An Advanced explicit range is a
-  // filter token in the results toolbar; the embed header keeps its text.
-  const contextMetaLabel = isSimpleOverview ? overviewRangeLabel : null
   const scopeSlotContent = renderScopeSlot()
+  const competitorLandscapeCard = competitorLandscapeAvailable ? (
+    <CompetitorLandscape
+      window={competitorLandscapeWindow}
+      landscape={competitorLandscapeQuery.data}
+      pinnedFallback={competitorLandscapePinnedFallback}
+      competitorAliases={competitorAliases}
+      competitorAutoAliases={competitorAutoAliases}
+      canWrite={canWrite}
+      isEmbed={isEmbed()}
+      onWindowChange={setCompetitorLandscapeWindow}
+      // A group write is an additive, revision-guarded draft action.
+      // All-markets has no single safe market target, so it stays
+      // read-only even for an operator.
+      onPin={competitorLandscapeGroupKey && canWrite && !isEmbed()
+        ? handlePinAdvancedCompetitor
+        : !isAdvancedAllMarkets && canWrite && !isEmbed()
+          ? handleAddCompetitor
+          : undefined}
+      onUnpin={competitorLandscapeGroupKey || isAdvancedAllMarkets || !canWrite || isEmbed()
+        ? undefined
+        : handleRemoveCompetitor}
+      onAddCompetitor={competitorLandscapeGroupKey && canWrite && !isEmbed()
+        ? handlePinAdvancedCompetitor
+        : !isAdvancedAllMarkets && canWrite && !isEmbed()
+          ? handleAddCompetitor
+          : undefined}
+      error={competitorLandscapeError}
+      onRetry={competitorLandscapeReadEnabled ? () => { void competitorLandscapeQuery.refetch() } : undefined}
+      isLoading={competitorLandscapeReadEnabled && competitorLandscapeQuery.isPending && competitorLandscapeQuery.data === undefined}
+      scopeLabel={competitorLandscapeGroupKey
+        ? `${selectedCompetitorLandscapeGroup?.label ?? competitorLandscapeGroupKey} group`
+        : isAdvancedAllMarkets ? 'All markets' : 'Project-wide'}
+      advancedPortfolio={!isSimpleOverview}
+    />
+  ) : null
+
+  // Query evidence's actions sit in a row above the Sentiment block (Manage
+  // sentiment lives in that block's title row), and the query editor they open
+  // sits directly under the block. Embeds are read-only.
+  const evidenceActions = isEmbed() ? null : (
+    <>
+      <WriteButton type="button" variant="outline" size="sm" onClick={() => setManagingQueries(!managingQueries)}>
+        {managingQueries ? 'Done' : 'Manage queries'}
+      </WriteButton>
+    </>
+  )
+  const evidenceQueryEditor = !isEmbed() && managingQueries ? (
+    <div className="mb-3 material-base p-3">
+      {trackedQueries.length > 0 ? (
+        <ul className="mb-3 max-h-64 divide-y divide-mono-800/60 overflow-y-auto material-base">
+          {trackedQueries.map((q) => (
+            <li key={q} className="flex items-center justify-between gap-3 px-3 py-2">
+              <span className="min-w-0 truncate text-label-14 text-strong" title={q}>{q}</span>
+              <button
+                type="button"
+                className="shrink-0 rounded px-1.5 py-0.5 text-button-14 text-muted transition-colors hover:text-negative-400 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-negative-500 disabled:opacity-50"
+                aria-label={`Remove query ${q}`}
+                title={`Stop tracking "${q}"`}
+                disabled={removingQuery !== null}
+                onClick={() => { void handleRemoveQuery(q) }}
+              >
+                {removingQuery === q ? 'Removing…' : 'Remove'}
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mb-3 text-copy-13 text-muted">No queries tracked yet. Add some below.</p>
+      )}
+      <textarea
+        className="w-full resize-none rounded border border-strong bg-transparent px-2 py-1.5 text-copy-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none"
+        rows={3}
+        placeholder="Enter queries to add, one per line"
+        value={newQueryText}
+        onChange={(e) => setNewQueryText(e.target.value)}
+      />
+      <div className="mt-2 flex items-center justify-between">
+        <p className="text-copy-13 text-muted">{newQueryText.split('\n').filter(k => k.trim()).length} to add</p>
+        <WriteButton type="button" size="sm" disabled={!newQueryText.trim() || querySaving} onClick={asyncHandler(handleAddQueries)}>
+          {querySaving ? 'Adding...' : 'Add queries'}
+        </WriteButton>
+      </div>
+    </div>
+  ) : null
 
   return (
     <div className="page-container">
@@ -2826,26 +2811,28 @@ function ProjectPageContent({
             </p>
           </div>
           <div className={isDashboardManagedSweeps() ? 'page-header-right min-w-0 flex-wrap sm:shrink sm:justify-end' : 'page-header-right'}>
-            {overviewRangeLabel !== null ? <p className="text-sm text-muted">{overviewRangeLabel}</p> : null}
+            {overviewRangeLabel !== null ? <p className="text-copy-14 text-muted">{overviewRangeLabel}</p> : null}
           </div>
         </div>
       ) : (
         // The topbar breadcrumb names the project. The row keeps the page's one
-        // h1 for assistive tech and narrow screens, except on Report, which
-        // renders its own.
+        // h1 for assistive tech and narrow screens.
         <div className="project-context-row">
-          {tab !== 'report' ? (
-            <h1 className="project-context-title md:sr-only">{model.project.displayName || model.project.name}</h1>
-          ) : null}
+          <h1 className="project-context-title md:sr-only">{model.project.displayName || model.project.name}</h1>
           {scopeSlotContent !== null ? <div className="project-context-scope">{scopeSlotContent}</div> : null}
           {model.project.canonicalDomain ? <span className="project-context-domain">{model.project.canonicalDomain}</span> : null}
-          {contextMetaLabel !== null ? <p className="project-context-meta">{contextMetaLabel}</p> : null}
+          {advancedProjectTag !== null ? (
+            <span className="project-mode-tag">
+              <span className="project-mode-tag-label">Advanced</span>
+              <span className="project-mode-tag-detail">{advancedProjectTag}</span>
+            </span>
+          ) : null}
           <div className="project-context-actions" data-project-actions>
             {isDashboardManagedSweeps() ? (
               <ManagedSweepStatus projectName={projectName} running={hasActiveVisibilitySweep} portfolio={!isSimpleOverview} />
             ) : (
               <>
-                {nextSweepLabel ? <p className="text-sm text-secondary">{nextSweepLabel}</p> : null}
+                {nextSweepLabel ? <p className="text-copy-14 text-secondary">{nextSweepLabel}</p> : null}
                 {showMapSite ? (
                   <WriteButton type="button" onClick={openSiteHealth}>
                     Map site
@@ -2863,7 +2850,7 @@ function ProjectPageContent({
                 <WriteButton
                   type="button"
                   variant="outline"
-                  disabled={triggerRunMutation.isPending || hasActiveVisibilitySweep || sweepReadinessPending}
+                  disabled={triggerRunMutation.isPending || hasActiveVisibilitySweep || sweepReadinessPending || (sweepsOnHold && !providerReadinessFailed && !sweepSetupRequired)}
                   onClick={providerReadinessFailed
                     ? () => { void Promise.all([measurementSetupQuery.refetch(), ...(needsHeaderQueries ? [headerQueriesQuery.refetch()] : [])]) }
                     : sweepSetupRequired
@@ -2873,14 +2860,16 @@ function ProjectPageContent({
                   {triggerRunMutation.isPending
                     ? 'Starting…'
                     : hasActiveVisibilitySweep
-                      ? 'AI sweep running…'
+                      ? 'AI Visibility check running…'
                       : sweepReadinessPending
                         ? 'Checking AI readiness…'
                         : providerReadinessFailed
                           ? 'Retry AI readiness'
                         : sweepSetupRequired
                           ? 'Set up AI Visibility'
-                          : 'Run AI sweep'}
+                          : sweepsOnHold
+                            ? 'AI Visibility checks on hold'
+                            : 'Run AI Visibility check'}
                 </WriteButton>
               </>
             )}
@@ -2894,7 +2883,8 @@ function ProjectPageContent({
         onOpenChange={open => setSweepConfirmationProject(open ? projectName : null)}
         onConfirm={asyncHandler(handleTriggerRun)}
         onClosed={() => sweepOpener.current?.focus()}
-        disabled={triggerRunMutation.isPending || hasActiveVisibilitySweep || !sweepPrerequisitesReady}
+        disabled={triggerRunMutation.isPending || hasActiveVisibilitySweep || sweepsOnHold || !sweepPrerequisitesReady}
+        leftOut={sweepLeavesOut}
       />}
       <ProjectSubnav
         items={projectTabItems}
@@ -2913,6 +2903,9 @@ function ProjectPageContent({
           isQueryError={isPortfolioQueriesError}
           onRetryQueries={() => { void portfolioQueriesQuery.refetch() }}
           publishedPlan={activeMeasurementPlan}
+          sweepActive={hasActiveVisibilitySweep}
+          executionProviders={model.project.providers}
+          executionProviderModels={model.project.providerModels}
           onCreateQueries={async texts => {
             // The shared mutation carries the write guard and invalidates both
             // the projects list and the per-project detail. Calling the raw
@@ -2947,7 +2940,13 @@ function ProjectPageContent({
           }}
         />
       ) : tab === 'overview' ? (
-        isMeasurementModeUnresolved || (isSimpleOverview && !hasInitialProjectDashboard && (!overviewRequested || overviewLoading)) ? (
+        <>
+        {/* Above both overviews and their loading state: a refused or partial sweep is the project's state, whichever portfolio it is. */}
+        {!isEmbed() ? <>
+          {scheduledRunAdmission ? <RunAdmissionNoticeView admission={scheduledRunAdmission} canFix={canWrite && isAdmin} selection={admissionScopesDiffer || !runAdmission ? 'scheduled' : undefined} /> : null}
+          {runAdmission && (admissionScopesDiffer || !scheduledRunAdmission) ? <RunAdmissionNoticeView admission={runAdmission} canFix={canWrite && isAdmin} selection="manual" /> : null}
+        </> : null}
+        {isMeasurementModeUnresolved || (isSimpleOverview && !hasInitialProjectDashboard && (!overviewRequested || overviewLoading)) ? (
           <div role="status" aria-live="polite">
             <span className="sr-only">Loading project overview</span>
             <div className="h-32 animate-pulse rounded-md bg-surface-subtle" aria-hidden="true" />
@@ -2960,7 +2959,7 @@ function ProjectPageContent({
         ) : (
         <>
           {isActiveMeasurementPlanError ? (
-            <div role="alert" className="mb-5 flex flex-wrap items-center gap-3 border-y border-negative-800/40 bg-negative-950/20 py-4 text-sm text-negative">
+            <div role="alert" className="mb-5 flex flex-wrap items-center gap-3 border-y border-negative-800/40 bg-negative-950/20 py-4 text-label-14 text-negative">
               <span>Could not check the advanced measurement setup. Existing project-wide results remain available.</span>
               <Button type="button" size="sm" variant="outline" onClick={() => { void activeMeasurementPlanQuery.refetch() }}>
                 Retry setup check
@@ -2977,27 +2976,23 @@ function ProjectPageContent({
             <VisibilityTrendSection
               projectName={model.project.name}
               competitorDomains={competitorDomains}
+              competitorAliases={competitorIdentityNames}
               analyticsRevision={latestVisibilityRevision}
+              queryTexts={trackedQueryTexts}
+              classifyQuery={classifyQuery}
+              sweepTimes={recentSweepTimes}
+              queryClassSplit={trendQueryClassSplit}
             />
           </section>
 
-          <OverviewBrief
-            model={model}
-            sweepRunning={hasActiveVisibilitySweep}
-            hasVisibilityBaseline={hasVisibilityBaseline}
-          />
-
           <section className="page-section-divider">
-            <div className="section-head section-head-inline">
-              <div>
-                <p className="eyebrow eyebrow-soft">Competitive</p>
-                <h2>Where competitors are winning</h2>
-                <p className="supporting-copy">Latest measured results against pinned competitors.</p>
-              </div>
+            <div className="av-card-head">
+              <h2 className="av-card-title">Where competitors are winning</h2>
+              {hasVisibilityBaseline ? <p className="av-card-meta">Latest check</p> : null}
             </div>
 
             {hasVisibilityBaseline ? (
-              <div className="aeo-hero competitive-summary">
+              <div className="competitive-summary">
                 <MentionShare
                   key={model.project.name}
                   summary={model.mentionShareSummary}
@@ -3006,85 +3001,41 @@ function ProjectPageContent({
                 />
 
                 <div className="competitive-gaps">
+                  <p className="competitive-gaps-scope">All queries</p>
                   <div className="aeo-hero-rows">
                     <OverviewMetricRow
                       label="Mention gaps"
                       summary={model.mentionGaps}
-                      displayValue={<><span className="text-primary">{model.mentionGaps.value}</span><span className="text-faint"> / {model.queryCounts.total}</span></>}
-                      tooltip="Queries where a competitor was mentioned in the answer but your brand was not."
+                      displayValue={<><span className="text-primary">{model.mentionGaps.value}</span><span className="text-secondary"> / {model.queryCounts.total}</span><span className="sr-only"> queries, all queries</span></>}
+                      tooltip="Across all queries, branded and non-brand: a competitor was mentioned in an answer and your brand was not mentioned by any engine. The mention-share query type does not filter these counts."
                     />
                     <OverviewMetricRow
                       label="Citation gaps"
                       summary={model.gapQueries}
-                      displayValue={<><span className="text-primary">{model.gapQueries.value}</span><span className="text-faint"> / {model.queryCounts.total}</span></>}
-                      tooltip="Queries where a competitor was cited as a source but you were not."
+                      displayValue={<><span className="text-primary">{model.gapQueries.value}</span><span className="text-secondary"> / {model.queryCounts.total}</span><span className="sr-only"> queries, all queries</span></>}
+                      tooltip="Across all queries, branded and non-brand: a competitor was cited as a source and your domain was not cited by any engine. The mention-share query type does not filter these counts."
                     />
                   </div>
                 </div>
               </div>
             ) : (
-              <p className="text-sm text-secondary">
-                Competitive mention and citation gaps appear after the first AI Visibility sweep.
+              <p className="text-copy-14 text-secondary">
+                Competitive mention and citation gaps appear after the first AI Visibility check.
               </p>
             )}
 
           </section>
 
-
+          <div className="page-section-divider">
+            <CitationVisibilitySection projectName={model.project.name} classify={classifyQuery} hasCompetitors={competitorDomains.length > 0} providerScores={model.providerScores} />
+          </div>
 
           <OverviewDisclosure
             id="evidence-section"
-            eyebrow="Tracked coverage"
             title="Query evidence"
             meta={`${model.queryCounts.total} ${model.queryCounts.total === 1 ? 'query' : 'queries'}`}
             defaultOpen
           >
-            {!isEmbed() && (
-              <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
-                <SentimentControls />
-                <WriteButton type="button" variant="outline" size="sm" onClick={() => setManagingQueries(!managingQueries)}>
-                  {managingQueries ? 'Done' : 'Manage queries'}
-                </WriteButton>
-              </div>
-            )}
-            {!isEmbed() && managingQueries && (
-              <div className="mb-3 rounded-lg border border-base bg-bg-elevated/40 p-3">
-                {trackedQueries.length > 0 ? (
-                  <ul className="mb-3 max-h-64 divide-y divide-mono-800/60 overflow-y-auto rounded border border-default">
-                    {trackedQueries.map((q) => (
-                      <li key={q} className="flex items-center justify-between gap-3 px-3 py-2">
-                        <span className="min-w-0 truncate text-sm text-strong" title={q}>{q}</span>
-                        <button
-                          type="button"
-                          className="shrink-0 rounded px-1.5 py-0.5 text-xs text-muted transition-colors hover:text-negative-400 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-negative-500 disabled:opacity-50"
-                          aria-label={`Remove query ${q}`}
-                          title={`Stop tracking "${q}"`}
-                          disabled={removingQuery !== null}
-                          onClick={() => { void handleRemoveQuery(q) }}
-                        >
-                          {removingQuery === q ? 'Removing…' : 'Remove'}
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="mb-3 text-xs text-muted">No queries tracked yet. Add some below.</p>
-                )}
-                <textarea
-                  className="w-full resize-none rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none"
-                  rows={3}
-                  placeholder="Enter queries to add, one per line"
-                  value={newQueryText}
-                  onChange={(e) => setNewQueryText(e.target.value)}
-                />
-                <div className="mt-2 flex items-center justify-between">
-                  <p className="text-xs text-muted">{newQueryText.split('\n').filter(k => k.trim()).length} to add</p>
-                  <WriteButton type="button" size="sm" disabled={!newQueryText.trim() || querySaving} onClick={asyncHandler(handleAddQueries)}>
-                    {querySaving ? 'Adding...' : 'Add queries'}
-                  </WriteButton>
-                </div>
-              </div>
-            )}
             {model.project.locations.length > 0 && (
               <div className="filter-row mb-3" role="toolbar" aria-label="Location filters">
                 <button
@@ -3129,66 +3080,28 @@ function ProjectPageContent({
                 )}
               </div>
             )}
-            {evidenceDashboard.evidenceLoading ? (
-              <p role="status" className="text-sm text-secondary">Loading query evidence…</p>
-            ) : evidenceDashboard.evidenceError ? (
-              <div role="alert" className="text-sm text-secondary">
-                <p>Could not load query evidence.</p>
-                <Button type="button" variant="outline" onClick={() => { void evidenceDashboard.refetch() }}>Retry</Button>
-              </div>
-            ) : (
-              <EvidenceTable evidence={filteredEvidence} compareLocations={compareLocations} providerSelection={evidenceProvider} onProviderSelectionChange={setEvidenceProvider} />
-            )}
-          </OverviewDisclosure>
-
-          <OverviewDisclosure eyebrow="Analysis" title="Citation and engine diagnostics" meta="Deep dive" defaultOpen={isEmbed()}>
-            <CitationVisibilitySection projectName={model.project.name} />
-
-            {model.providerScores.length > 1 && (
-              <section className="page-section-divider">
-                <div className="section-head section-head-inline">
-                  <div>
-                    <p className="eyebrow eyebrow-soft">Model breakdown</p>
-                    <h2>Citation rate by model <InfoTooltip text="Per-model citation rate in the latest sweep. The same query set can perform differently across engines." /></h2>
+            {evidenceDashboard.evidenceLoading || evidenceDashboard.evidenceError ? (
+              <>
+                {evidenceActions && <QueryEvidenceSummary actions={evidenceActions} />}
+                {evidenceQueryEditor}
+                {evidenceDashboard.evidenceLoading ? (
+                  <p role="status" className="text-copy-14 text-secondary">Loading query evidence…</p>
+                ) : (
+                  <div role="alert" className="text-label-14 text-secondary">
+                    <p>Could not load query evidence.</p>
+                    <Button type="button" variant="outline" onClick={() => { void evidenceDashboard.refetch() }}>Retry</Button>
                   </div>
-                </div>
-                <div className="evidence-table-wrap">
-                  <table className="evidence-table">
-                    <thead>
-                      <tr>
-                        <th scope="col">Model</th>
-                        <th scope="col">Citation rate</th>
-                        <th scope="col">Cited queries</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {model.providerScores.map((ps) => (
-                        <tr key={`${ps.provider}::${ps.model ?? 'unknown'}`}>
-                          <td>
-                            <div className="flex flex-col items-start gap-0.5">
-                              <ProviderBadge provider={ps.provider} />
-                              {ps.model && <span className="text-[11px] font-mono text-muted">{ps.model}</span>}
-                            </div>
-                          </td>
-                          <td><span className="font-semibold text-strong">{formatPercent(ps.score, RatioUnits.percent)}</span></td>
-                          <td className="text-muted">{ps.cited} of {ps.total}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </section>
+                )}
+              </>
+            ) : (
+              <EvidenceTable evidence={filteredEvidence} compareLocations={compareLocations} providerSelection={evidenceProvider} onProviderSelectionChange={setEvidenceProvider} addedQueries={model.movementComparison.addedQueries} actions={evidenceActions} actionPanel={evidenceQueryEditor} />
             )}
           </OverviewDisclosure>
 
           {!isEmbed() && (
-            <OverviewDisclosure eyebrow="Run history" title="Recent execution history" meta={`${model.recentRuns.length} recent`}>
-              <div className="run-list">
-                {model.recentRuns.map((run) => (
-                  <RunRow key={run.id} run={run} />
-                ))}
-              </div>
-            </OverviewDisclosure>
+            <div className="page-section-divider">
+              <PastSweeps runs={model.recentRuns} projectName={model.project.name} collapsed />
+            </div>
           )}
 
               </>
@@ -3234,9 +3147,9 @@ function ProjectPageContent({
           }}>
             <summary className="visibility-disclosure-summary"><span className="visibility-disclosure-label">Project signals</span></summary>
             {!overviewRequested || overviewLoading ? (
-              <p role="status" className="text-sm text-secondary">Loading project signals…</p>
+              <p role="status" className="text-copy-14 text-secondary">Loading project signals…</p>
             ) : overviewError ? (
-              <div role="alert" className="text-sm text-secondary">
+              <div role="alert" className="text-label-14 text-secondary">
                 <p>Could not load project signals.</p>
                 <Button type="button" variant="outline" onClick={() => { void refetch() }}>Retry</Button>
               </div>
@@ -3244,65 +3157,43 @@ function ProjectPageContent({
               <OverviewSignals
                 insights={model.insights}
                 suggestedQueries={model.suggestedQueries}
+                siteDomain={model.project.canonicalDomain || undefined}
                 onManageQueries={!isEmbed() ? () => { void navigate({ to: '/projects/$projectName/queries', params: { projectName }, search: previous => ({ ...previous, queryWorkspace: 'tracked', trackingQueryId: undefined }) }) } : undefined}
               />
             )}
           </details> : null}
-          {competitorLandscapeAvailable ? (
-            // The Simple overview keeps its own section rhythm, where this row
-            // sits among page sections rather than in the Advanced stack of
-            // collapsed detail rows.
-            <details className={isSimpleOverview ? 'page-section-divider' : 'visibility-disclosure'} open={competitorHistoryOpen} onToggle={event => setCompetitorHistoryOpenForProject(event.currentTarget.open ? projectName : null)}>
-              <summary className={isSimpleOverview ? 'min-h-11 cursor-pointer py-3 text-sm font-medium text-heading' : 'visibility-disclosure-summary'}>{isSimpleOverview ? 'Competitor history' : <span className="visibility-disclosure-label">Competitor history</span>}</summary>
-              <p className="pb-3 text-sm text-secondary">History for this scope uses the time window below.</p>
-              <CompetitorLandscape
-                window={competitorLandscapeWindow}
-                landscape={competitorLandscapeQuery.data}
-                pinnedFallback={competitorLandscapePinnedFallback}
-                canWrite={canWrite}
-                isEmbed={isEmbed()}
-                onWindowChange={setCompetitorLandscapeWindow}
-                // A group write is an additive, revision-guarded draft action.
-                // All-markets has no single safe market target, so it stays
-                // read-only even for an operator.
-                onPin={competitorLandscapeGroupKey && canWrite && !isEmbed()
-                  ? handlePinAdvancedCompetitor
-                  : !isAdvancedAllMarkets && canWrite && !isEmbed()
-                    ? handleAddCompetitor
-                    : undefined}
-                onUnpin={competitorLandscapeGroupKey || isAdvancedAllMarkets || !canWrite || isEmbed()
-                  ? undefined
-                  : handleRemoveCompetitor}
-                onAddCompetitor={competitorLandscapeGroupKey && canWrite && !isEmbed()
-                  ? handlePinAdvancedCompetitor
-                  : !isAdvancedAllMarkets && canWrite && !isEmbed()
-                    ? handleAddCompetitor
-                    : undefined}
-                error={competitorLandscapeError}
-                onRetry={competitorLandscapeReadEnabled ? () => { void competitorLandscapeQuery.refetch() } : undefined}
-                isLoading={competitorLandscapeReadEnabled && competitorLandscapeQuery.isPending && competitorLandscapeQuery.data === undefined}
-                scopeLabel={competitorLandscapeGroupKey
-                  ? `${selectedCompetitorLandscapeGroup?.label ?? competitorLandscapeGroupKey} group`
-                  : isAdvancedAllMarkets ? 'All markets' : 'Project-wide'}
-              />
+          {competitorLandscapeCard !== null ? (
+            <details className={`visibility-disclosure${isSimpleOverview ? ' page-section-divider' : ''}`} open={competitorHistoryOpen} onToggle={event => setCompetitorHistoryOpenForProject(event.currentTarget.open ? projectName : null)}>
+              <summary className="visibility-disclosure-summary"><span className="visibility-disclosure-label">Competitor history</span></summary>
+              <div className="visibility-disclosure-panel">{competitorLandscapeCard}</div>
             </details>
           ) : null}
         </>
-        )
-      ) : tab === 'settings' ? (
+        )}
+        </>
+      ) : tab === 'settings' ? !canViewProjectSettings ? (
+        <Card className="surface-card empty-card">
+          <h2>Project settings unavailable</h2>
+          <p>Your account has view-only access to this project.</p>
+          <Button asChild>
+            <Link to="/projects/$projectName" params={{ projectName }}>Return to overview</Link>
+          </Button>
+        </Card>
+      ) : (
         <>
-          <ProjectSettingsSection project={{ ...model.project, displayName: model.project.displayName ?? model.project.name, defaultLocation: model.project.defaultLocation ?? null }} onUpdateProject={async (name, updates) => { await handleUpdateProject(name, updates) }} onRefresh={() => void refetch()} />
+          <ProjectSettingsSection project={{ ...model.project, displayName: model.project.displayName ?? model.project.name, defaultLocation: model.project.defaultLocation ?? null }} onUpdateProject={async (name, updates) => { await handleUpdateProject(name, updates) }} />
           <ProjectEngineSettingsSection project={model.project} onSave={async next => { await handleUpdateProject(model.project.name, next) }} />
+          <SiteHealthScanSettingsSection key={model.project.id} project={model.project} onSave={async siteAuditMaxPages => { await handleUpdateProject(model.project.name, { siteAuditMaxPages }) }} />
           {canWrite && !isEmbed() ? (
             <section className="page-section-divider">
-              <h2 className="text-lg font-semibold text-heading">Advanced measurement</h2>
+              <h2 className="text-heading-20 text-heading">Advanced measurement</h2>
               <p className="supporting-copy mt-1 mb-3">
                 Measure individual properties, locations, or site sections with separate query sets.
               </p>
               {measurementSetupDisplayState === 'pending' ? (
-                <p role="status" className="text-sm text-secondary">Loading setup…</p>
+                <p role="status" className="text-copy-14 text-secondary">Loading setup…</p>
               ) : measurementSetupDisplayState === 'error' ? (
-                <div role="alert" className="flex flex-wrap items-center gap-3 text-sm text-negative">
+                <div role="alert" className="flex flex-wrap items-center gap-3 text-label-14 text-negative">
                   <span>Could not load advanced measurement setup.</span>
                   <Button type="button" size="sm" variant="outline" onClick={() => { void measurementSetupQuery.refetch() }}>
                     Retry
@@ -3323,18 +3214,18 @@ function ProjectPageContent({
           <NotificationsSection projectName={model.project.name} />
           {/* Deleting the project lives here, at the far end of Settings, rather
               than as an icon in the page header where it sat one misclick from
-              "Run AI sweep". It destroys every query, run and snapshot, and a
+              "Run AI Visibility check". It destroys every query, run and snapshot, and a
               confirm dialog was the only thing standing between the two. */}
           {canWrite && !isEmbed() ? (
             <section className="page-section-divider">
-              <h2 className="text-lg font-semibold text-negative-400">Delete project</h2>
+              <h2 className="text-heading-20 text-negative-400">Delete project</h2>
               <p className="supporting-copy mt-1 mb-3">
                 Permanently deletes this project and all its queries, competitors, runs, and snapshots.
               </p>
               {showDeleteConfirm ? (
-                <Card className="surface-card p-6 border-negative-800/60">
-                  <h3 className="text-base font-semibold text-negative-400 mb-2">Delete project?</h3>
-                  <p className="text-sm text-secondary mb-4">
+                <Card className="surface-card p-6 bg-negative-soft">
+                  <h3 className="text-heading-16 text-negative-400 mb-2">Delete project?</h3>
+                  <p className="text-copy-14 text-secondary mb-4">
                     This will permanently delete <strong className="text-strong">{model.project.displayName || model.project.name}</strong> and
                     all its queries, competitors, runs, and snapshots. This cannot be undone.
                   </p>
@@ -3361,8 +3252,8 @@ function ProjectPageContent({
             </section>
           ) : null}
         </>
-      ) : tab === 'report' ? (
-        <ReportPage projectName={model.project.name} projectTitle={model.project.displayName || model.project.name} />
+      ) : tab === 'client-queries' && queryLimit !== undefined ? (
+        <EmbedQueriesSection projectName={projectName} limit={queryLimit} />
       ) : tab === 'queries' || tab === 'discovery' ? (
         <QueriesSection
           projectName={projectName}
@@ -3374,6 +3265,7 @@ function ProjectPageContent({
           onSelectionChange={updateVisibilitySearch}
           trackingQueryId={typeof projectSearchParams.trackingQueryId === 'string' ? projectSearchParams.trackingQueryId : undefined}
           onTrackingQueryIdChange={value => updateVisibilitySearch({ trackingQueryId: value })}
+          publishGuard={{ sweepActive: hasActiveVisibilitySweep }}
         />
       ) : tab === 'technical-aeo' ? (
         <SiteHealthSection
@@ -3400,6 +3292,8 @@ function ProjectPageContent({
         <ActivitySection projectName={model.project.name} />
       ) : tab === 'backlinks' ? (
         <BacklinksSection projectName={model.project.name} />
+      ) : tab === 'seo-data' ? (
+        <SeoDataSection key={model.project.id} projectName={model.project.name} />
       ) : tab === 'local' ? (
         // Local presence (Google Business Profile + Places). GbpSection
         // self-gates on the connection and renders its own empty state.

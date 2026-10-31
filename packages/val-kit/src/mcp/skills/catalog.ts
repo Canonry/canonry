@@ -6,23 +6,28 @@ import type { SkillDocument } from '../skill-types.js'
 import { part as aeroSkillPart0 } from './aero-skill.0.js'
 import { part as aeroReferencesAeoDiscoveryPart0 } from './aero-references-aeo-discovery.0.js'
 import { part as aeroReferencesAgentOperationsPart0 } from './aero-references-agent-operations.0.js'
+import { part as aeroReferencesAiTrafficTrackingPart0 } from './aero-references-ai-traffic-tracking.0.js'
 import { part as aeroReferencesMemoryPatternsPart0 } from './aero-references-memory-patterns.0.js'
 import { part as aeroReferencesOrchestrationPart0 } from './aero-references-orchestration.0.js'
 import { part as aeroReferencesPortfolioAnalysisPart0 } from './aero-references-portfolio-analysis.0.js'
 import { part as aeroReferencesRegressionPlaybookPart0 } from './aero-references-regression-playbook.0.js'
 import { part as aeroReferencesReportingPart0 } from './aero-references-reporting.0.js'
+import { part as aeroReferencesSeoAnalysisPart0 } from './aero-references-seo-analysis.0.js'
 import { part as aeroReferencesSiteHealthPart0 } from './aero-references-site-health.0.js'
 import { part as aeroReferencesWordpressElementorMcpPart0 } from './aero-references-wordpress-elementor-mcp.0.js'
 import { part as aeroSoulPart0 } from './aero-soul.0.js'
 import { part as canonrySkillPart0 } from './canonry-skill.0.js'
 import { part as canonryReferencesAeoAnalysisPart0 } from './canonry-references-aeo-analysis.0.js'
+import { part as canonryReferencesAiTrafficTrackingPart0 } from './canonry-references-ai-traffic-tracking.0.js'
 import { part as canonryReferencesCanonryCliPart0 } from './canonry-references-canonry-cli.0.js'
 import { part as canonryReferencesCanonryCliPart1 } from './canonry-references-canonry-cli.1.js'
 import { part as canonryReferencesCanonryCliPart2 } from './canonry-references-canonry-cli.2.js'
+import { part as canonryReferencesCanonryCliPart3 } from './canonry-references-canonry-cli.3.js'
 import { part as canonryReferencesGoogleBusinessProfilePart0 } from './canonry-references-google-business-profile.0.js'
 import { part as canonryReferencesGoogleMarketingPart0 } from './canonry-references-google-marketing.0.js'
 import { part as canonryReferencesIndexingPart0 } from './canonry-references-indexing.0.js'
 import { part as canonryReferencesServerSideTrafficPart0 } from './canonry-references-server-side-traffic.0.js'
+import { part as canonryReferencesServerSideTrafficPart1 } from './canonry-references-server-side-traffic.1.js'
 import { part as canonryReferencesWordpressIntegrationPart0 } from './canonry-references-wordpress-integration.0.js'
 
 export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
@@ -31,9 +36,9 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     skill: "aero",
     path: "SKILL.md",
     title: "aero skill",
-    description: "Diagnose AEO regressions and interpret Canonry AI visibility, Advanced multi-property portfolios, and Site Health evidence. Use when a mention or citation coverage number moved and needs explaining, when comparing Properties or markets, diagnosing crawl or page findings, preparing a client report or month-over-month comparison, or analyzing a completed `cnry` sweep or site audit. Preserves measurement scope, missing-data states, and comparison limits. Use the canonry skill for setup and operations.",
+    description: "Diagnose AEO regressions and interpret Canonry AI visibility, SEO data, Advanced multi-property portfolios, and Site Health evidence. Use when prioritizing keyword or organic ranking opportunities, explaining mention or citation changes, comparing Properties or markets, diagnosing page findings, preparing reports, or analyzing a completed `cnry` sweep or site audit. Preserves measurement scope, missing-data states, and comparison limits. Use the canonry skill for setup and operations.",
     entryPoint: true,
-    characters: 14416,
+    characters: 20208,
     content: aeroSkillPart0,
   },
   {
@@ -43,7 +48,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "AEO Discovery (Tracked-Basket Expansion)",
     description: "How to operate the tracked-basket discovery pipeline. Read when an operator asks to expand a project's basket, audit its competitive surface, or you wake unprompted on `aeo-discover-probe.completed`.",
     entryPoint: false,
-    characters: 12640,
+    characters: 13316,
     content: aeroReferencesAeoDiscoveryPart0,
   },
   {
@@ -53,8 +58,18 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Canonry Operations Guide v1",
     description: "Shared Canonry vocabulary, evidence scope, comparison rules, and authority boundaries. Read when interpreting unfamiliar data or checking an operation.",
     entryPoint: false,
-    characters: 14120,
+    characters: 15867,
     content: aeroReferencesAgentOperationsPart0,
+  },
+  {
+    uri: "canonry-skill://aero/references/ai-traffic-tracking.md",
+    skill: "aero",
+    path: "references/ai-traffic-tracking.md",
+    title: "Tracking AI traffic to visits and conversions",
+    description: "Crawled, read, clicked, came back, converted: which instrument measures each step, the checks to run before reporting a zero, attribution limits, and user stories such as whether anyone from AI search bought or booked. Read when asked about AI traffic, returning AI visitors, conversions, or broken tracking.",
+    entryPoint: false,
+    characters: 9575,
+    content: aeroReferencesAiTrafficTrackingPart0,
   },
   {
     uri: "canonry-skill://aero/references/memory-patterns.md",
@@ -73,7 +88,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Orchestration Workflows",
     description: "Workflow recipes — baseline, regression response, weekly review, content gap analysis. Read when planning a multi-step task or recurring review.",
     entryPoint: false,
-    characters: 7493,
+    characters: 7780,
     content: aeroReferencesOrchestrationPart0,
   },
   {
@@ -83,7 +98,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Portfolio analysis",
     description: "Interpret Simple and Advanced portfolios, compare Properties and markets, trace answer evidence, and qualify missing or incompatible measurements.",
     entryPoint: false,
-    characters: 9156,
+    characters: 11287,
     content: aeroReferencesPortfolioAnalysisPart0,
   },
   {
@@ -103,8 +118,18 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Reporting Templates",
     description: "Weekly and monthly report templates with metric tables, regression/gain sections, and recommended-actions structure. Read when asked to produce a client-facing summary.",
     entryPoint: false,
-    characters: 12045,
+    characters: 11151,
     content: aeroReferencesReportingPart0,
+  },
+  {
+    uri: "canonry-skill://aero/references/seo-analysis.md",
+    skill: "aero",
+    path: "references/seo-analysis.md",
+    title: "SEO analysis",
+    description: "Prioritize keyword and organic ranking opportunities from saved SEO evidence. Covers profile selection, bounded samples, Advanced scopes, market rankings, provider estimates, and actionable shortlists.",
+    entryPoint: false,
+    characters: 13081,
+    content: aeroReferencesSeoAnalysisPart0,
   },
   {
     uri: "canonry-skill://aero/references/site-health.md",
@@ -113,7 +138,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Site Health diagnosis",
     description: "Diagnose Site Health scores, page findings, crawl coverage, internal links, and scan changes while preserving run provenance and incomplete-data limits.",
     entryPoint: false,
-    characters: 6191,
+    characters: 7165,
     content: aeroReferencesSiteHealthPart0,
   },
   {
@@ -143,7 +168,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "canonry skill",
     description: "Navigate Canonry through connected MCP tools or the `cnry` CLI to inspect evidence, diagnose changes, plan measurement, review integrations, and report results. Use this optional host-native skill for CLI workflows and detailed references; connected MCP users can operate through canonry_help without installing a local runtime or skill.",
     entryPoint: true,
-    characters: 14338,
+    characters: 16170,
     content: canonrySkillPart0,
   },
   {
@@ -153,8 +178,18 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "AEO Analysis: Interpreting Canonry Results",
     description: "canonry skill reference: references/aeo-analysis.md",
     entryPoint: false,
-    characters: 16664,
+    characters: 19144,
     content: canonryReferencesAeoAnalysisPart0,
+  },
+  {
+    uri: "canonry-skill://canonry/references/ai-traffic-tracking.md",
+    skill: "canonry",
+    path: "references/ai-traffic-tracking.md",
+    title: "Tracking AI traffic to visits and conversions",
+    description: "canonry skill reference: references/ai-traffic-tracking.md",
+    entryPoint: false,
+    characters: 9109,
+    content: canonryReferencesAiTrafficTrackingPart0,
   },
   {
     uri: "canonry-skill://canonry/references/canonry-cli.md",
@@ -163,8 +198,8 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Canonry CLI Reference",
     description: "canonry skill reference: references/canonry-cli.md",
     entryPoint: false,
-    characters: 124012,
-    content: [canonryReferencesCanonryCliPart0, canonryReferencesCanonryCliPart1, canonryReferencesCanonryCliPart2].join(''),
+    characters: 198651,
+    content: [canonryReferencesCanonryCliPart0, canonryReferencesCanonryCliPart1, canonryReferencesCanonryCliPart2, canonryReferencesCanonryCliPart3].join(''),
   },
   {
     uri: "canonry-skill://canonry/references/google-business-profile.md",
@@ -173,7 +208,7 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Google Business Profile Integration",
     description: "canonry skill reference: references/google-business-profile.md",
     entryPoint: false,
-    characters: 35976,
+    characters: 36380,
     content: canonryReferencesGoogleBusinessProfilePart0,
   },
   {
@@ -203,8 +238,8 @@ export const SKILL_DOCUMENTS: readonly SkillDocument[] = [
     title: "Server-side traffic (AI Visibility — Server-Side)",
     description: "canonry skill reference: references/server-side-traffic.md",
     entryPoint: false,
-    characters: 55285,
-    content: canonryReferencesServerSideTrafficPart0,
+    characters: 61168,
+    content: [canonryReferencesServerSideTrafficPart0, canonryReferencesServerSideTrafficPart1].join(''),
   },
   {
     uri: "canonry-skill://canonry/references/wordpress-integration.md",

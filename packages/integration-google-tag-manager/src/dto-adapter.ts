@@ -14,14 +14,14 @@ import type {
   GtmTriggerDto,
   GtmVariableDto,
   GtmWorkspaceDto,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   gtmGoogleAdsConversionIdMappingDtoSchema,
   gtmGoogleAdsConversionLabelMappingDtoSchema,
   gtmGoogleAdsConversionValueMappingDtoSchema,
   gtmGoogleAdsCurrencyMappingDtoSchema,
   gtmGoogleAdsTransactionIdMappingDtoSchema,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { recognizeGoogleAdsConversionTag } from './recognizer.js'
 import { GtmApiError } from './types.js'
 import type {

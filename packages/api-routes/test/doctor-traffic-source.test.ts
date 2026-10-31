@@ -7,11 +7,13 @@ import {
   createClient,
   migrate,
   projects,
+  runs,
   trafficSources,
   crawlerEventsHourly,
   aiUserFetchEventsHourly,
   aiReferralEventsHourly,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
+import type { CloudflareQueueDrainStopReason } from '@canonry/canonry-contracts'
 import { CURRENT_CLOUDFLARE_WORKER_VERSION } from '../src/cloudflare-worker-version.js'
 import { TRAFFIC_SOURCE_CHECKS } from '../src/doctor/checks/traffic-source.js'
 import type { CheckOutput, DoctorContext, ProjectInfo, TrafficSourceProbe, TrafficSourceValidator } from '../src/doctor/types.js'
@@ -207,6 +209,29 @@ describe('traffic.source.connected', () => {
     expect(r.status).toBe('fail')
     expect(r.code).toBe('traffic.source.all-errored')
     expect(r.remediation).toContain('auth bad')
+  })
+
+  // A source reads `error` after one failed sync, until its next success.
+  it.each([
+    { failed: 1, status: 'warn', code: 'traffic.source.all-errored-recently' },
+    { failed: 3, status: 'fail', code: 'traffic.source.all-errored' },
+  ])('is $status after $failed failed sync(s) in a row since the last success', async ({ failed, status, code }) => {
+    const hoursAgo = (hours: number) => new Date(Date.now() - hours * 60 * 60_000).toISOString()
+    const lastSyncedAt = hoursAgo(failed + 1)
+    const sourceId = insertTrafficSource(h, {
+      sourceType: 'wordpress', status: 'error', lastError: 'hostname could not be resolved', lastSyncedAt,
+    })
+    const syncRun = (runStatus: string, hours: number) => h.db.insert(runs).values({
+      id: crypto.randomUUID(), projectId: h.project.id, kind: 'traffic-sync', status: runStatus, trigger: 'manual',
+      sourceId, createdAt: hoursAgo(hours), finishedAt: hoursAgo(hours - 0.01),
+    }).run()
+    syncRun('completed', failed + 1)
+    for (let hours = failed; hours >= 1; hours--) syncRun('failed', hours)
+
+    const r = await sourceConnectedCheck.run(ctxFor(h))
+
+    expect(r).toMatchObject({ status, code })
+    expect(r.summary).toContain(`No new data since ${lastSyncedAt}`)
   })
 
   it('treats archived-only sources as no source', async () => {
@@ -496,6 +521,45 @@ describe('traffic.source.worker-version', () => {
     },
   )
 
+  // Connect defaults to direct push. A Queue source redeployed with the plain
+  // command would become a different source instead of being repaired.
+  const queueSource = {
+    schemaVersion: 1, deliveryMode: 'queue-pull', workerVersion: '1.0.0', expectedBotListVersion: 'v1',
+    zoneId: 'zone-1', forwardPageViews: false, accountId: 'acct-1', queueId: 'queue-1',
+    queueName: 'canonry-traffic', retentionSeconds: 345600,
+  }
+  const queueCommand = '`cnry traffic connect cloudflare test-project --delivery-mode queue-pull --account-id acct-1'
+    + ' --queue-id queue-1 --queue-name canonry-traffic --retention-seconds 345600 --zone-id zone-1 --api-token-file <path>`'
+
+  it('tells a stale Queue source to reconnect in Queue mode with its own Queue options', async () => {
+    insertTrafficSource(h, { sourceType: 'cloudflare', configJson: queueSource, lastWorkerVersion: '1.0.0' })
+    const r = await workerVersionCheck.run(ctxFor(h))
+    expect(r.alert?.next).toBe(`Redeploy it with ${queueCommand}.`)
+  })
+
+  it('tells a stale direct-push source the plain command, which keeps its zone and account', async () => {
+    insertTrafficSource(h, { sourceType: 'cloudflare', configJson: { deliveryMode: 'direct-push', workerVersion: '1.0.0' }, lastWorkerVersion: '1.0.0' })
+    const r = await workerVersionCheck.run(ctxFor(h))
+    expect(r.alert?.next).toBe('Redeploy it with `cnry traffic connect cloudflare test-project`.')
+  })
+
+  it('still names Queue mode when a Queue source\'s stored options are incomplete', async () => {
+    insertTrafficSource(h, { sourceType: 'cloudflare', configJson: { deliveryMode: 'queue-pull', workerVersion: '1.0.0' }, lastWorkerVersion: '1.0.0' })
+    const r = await workerVersionCheck.run(ctxFor(h))
+    expect(r.alert?.next).toBe(
+      'Redeploy it with `cnry traffic connect cloudflare test-project --delivery-mode queue-pull` with its Queue options (`cnry traffic sources test-project`).',
+    )
+  })
+
+  it('gives each stale source its own command when there are several', async () => {
+    insertTrafficSource(h, { sourceType: 'cloudflare', displayName: 'Queue', configJson: queueSource, lastWorkerVersion: '1.0.0' })
+    insertTrafficSource(h, { sourceType: 'cloudflare', displayName: 'Edge', configJson: { deliveryMode: 'direct-push', workerVersion: '1.0.0' }, lastWorkerVersion: '1.0.0' })
+    const next = (await workerVersionCheck.run(ctxFor(h))).alert?.next ?? ''
+    expect(next.startsWith('Redeploy each in its own delivery mode: ')).toBe(true)
+    expect(next).toContain(`Queue: ${queueCommand}`)
+    expect(next).toContain('Edge: `cnry traffic connect cloudflare test-project`')
+  })
+
   it.each([
     ['legacy direct-push', { workerVersion: '1.0.0' }],
     ['queue-pull', { deliveryMode: 'queue-pull', workerVersion: '1.0.0' }],
@@ -515,6 +579,22 @@ describe('traffic.source.worker-version', () => {
         state: 'current',
       }],
     })
+  })
+
+  it('expects the page-view version when a source forwards page views', async () => {
+    const pageViewVersion = `${CURRENT_CLOUDFLARE_WORKER_VERSION}+page-views`
+    insertTrafficSource(h, {
+      sourceType: 'cloudflare',
+      configJson: { deliveryMode: 'direct-push', workerVersion: pageViewVersion, forwardPageViews: true },
+      lastWorkerVersion: CURRENT_CLOUDFLARE_WORKER_VERSION,
+    })
+    const stale = await workerVersionCheck.run(ctxFor(h))
+    expect(stale.code).toBe('traffic.worker-version.stale')
+    expect(stale.details).toMatchObject({ sources: [{ expectedVersion: pageViewVersion, observedVersion: CURRENT_CLOUDFLARE_WORKER_VERSION, state: 'stale' }] })
+
+    h.db.update(trafficSources).set({ lastWorkerVersion: pageViewVersion }).run()
+    const current = await workerVersionCheck.run(ctxFor(h))
+    expect(current.code).toBe('traffic.worker-version.current')
   })
 })
 
@@ -563,7 +643,7 @@ describe('traffic.source.queue-backlog', () => {
     })
   })
 
-  it('reports the residual Queue backlog as within one default drain budget', async () => {
+  it('reports a residual Queue backlog of up to 1,000 as normal inflow during a drain', async () => {
     insertTrafficSource(h, {
       sourceType: 'cloudflare',
       displayName: 'Production Queue',
@@ -576,24 +656,99 @@ describe('traffic.source.queue-backlog', () => {
     expect(result.status).toBe('ok')
     expect(result.code).toBe('traffic.queue-backlog.within-drain-budget')
     expect(result.summary).toContain('1,000')
-    expect(result.remediation).toContain('next scheduled sync')
+    expect(result.remediation).toContain('next scheduled sync drains')
   })
 
-  it('warns with drain remediation while messages remain after a bounded sync', async () => {
-    insertTrafficSource(h, {
+  /** A finished Queue sync run that recorded why it stopped. */
+  function recordQueueSync(sourceId: string, stopReason: CloudflareQueueDrainStopReason, minutesAgo: number) {
+    const at = new Date(Date.now() - minutesAgo * 60_000).toISOString()
+    h.db.insert(runs).values({
+      id: crypto.randomUUID(), projectId: h.project.id, kind: 'traffic-sync', status: 'completed', trigger: 'scheduled',
+      sourceId, createdAt: at, startedAt: at, finishedAt: at,
+      syncSummary: {
+        type: 'cloudflare-queue', stopReason, pulls: 5, emptyPulls: 2, messagesPulled: 300, messagesAcknowledged: 300,
+        poisonMessages: 0, skippedUnleasedMessages: 0, acceptedEvents: 300, duplicateEvents: 0,
+        backlogAtFirstPull: 5000, backlogAtLastPull: 4500, elapsedMs: 8_000,
+      },
+    }).run()
+  }
+
+  function insertResidualQueue(): string {
+    return insertTrafficSource(h, {
       sourceType: 'cloudflare',
       displayName: 'Production Queue',
       configJson: queueConfig,
       queueBacklogCount: 1250,
       queueBacklogObservedAt: '2026-08-11T12:00:00.000Z',
     })
+  }
+
+  it('warns and points to the stored stop reason when no sync recorded one', async () => {
+    insertResidualQueue()
 
     const result = await queueBacklogCheck.run(ctxFor(h))
     expect(result.status).toBe('warn')
     expect(result.code).toBe('traffic.queue-backlog.remaining')
     expect(result.summary).toContain('1,250')
-    expect(result.remediation).toContain('traffic sync <project> --source <id>')
-    expect(result.remediation).toContain('shorten the traffic-sync schedule interval')
+    expect(result.summary).toContain('stopped before the Queue was empty')
+    expect(result.summary).not.toContain('time limit')
+    expect(result.remediation).toContain('canonry runs <project> --kind traffic-sync')
+    expect(result.remediation).toContain('CANONRY_CLOUDFLARE_QUEUE_SYNC_DEADLINE_MS')
+    expect(result.details).toMatchObject({ sources: [{ lastStopReason: null }] })
+    expect(result.alert).toEqual({
+      label: 'Traffic backlog',
+      line: '1,250 site requests are waiting to be processed. Normal is under 1,000.',
+      next: 'See why the last sync stopped with `cnry runs test-project --kind traffic-sync`.',
+    })
+  })
+
+  it.each(['deadline', 'batch-cap'] as const)('blames the drain limit when the last sync stopped at %s', async (stopReason) => {
+    const sourceId = insertResidualQueue()
+    recordQueueSync(sourceId, 'empty-pulls', 20)
+    recordQueueSync(sourceId, stopReason, 10)
+
+    const result = await queueBacklogCheck.run(ctxFor(h))
+    expect(result.status).toBe('warn')
+    expect(result.summary).toContain('stopped at its time limit or pull cap')
+    expect(result.remediation).toContain('Shorten the traffic-sync schedule interval')
+    expect(result.remediation).toContain('CANONRY_CLOUDFLARE_QUEUE_SYNC_DEADLINE_MS')
+    expect(result.details).toMatchObject({ sources: [{ lastStopReason: stopReason }] })
+    expect(result.alert?.next).toBe('If it keeps growing, sync more often, or the oldest requests expire from the queue.')
+  })
+
+  it.each(['empty-pulls', 'unleased-only'] as const)('says the rest was not visible when the last sync stopped on %s', async (stopReason) => {
+    const sourceId = insertResidualQueue()
+    recordQueueSync(sourceId, 'deadline', 20)
+    recordQueueSync(sourceId, stopReason, 10)
+
+    const result = await queueBacklogCheck.run(ctxFor(h))
+    expect(result.status).toBe('warn')
+    expect(result.summary).toContain('leased or not yet visible')
+    expect(result.summary).not.toContain('time limit or pull cap')
+    expect(result.remediation).toContain('Later syncs pull them as they become visible')
+    expect(result.remediation).not.toContain('CANONRY_CLOUDFLARE_QUEUE_SYNC_DEADLINE_MS')
+    // Syncing more often does not release leased messages, so the alert does not say to.
+    expect(result.alert?.next).toBe('Nothing yet. Later syncs pull them once Cloudflare releases them.')
+  })
+
+  it('points to the sync error when the last sync failed', async () => {
+    const sourceId = insertResidualQueue()
+    recordQueueSync(sourceId, 'error', 10)
+
+    const result = await queueBacklogCheck.run(ctxFor(h))
+    expect(result.summary).toContain('last sync failed')
+    expect(result.remediation).toContain('Fix the sync error')
+    expect(result.alert?.next).toBe(`Fix the sync error, then run \`cnry traffic sync test-project --source ${sourceId}\`.`)
+  })
+
+  it('ignores stop reasons recorded for other sources', async () => {
+    const sourceId = insertResidualQueue()
+    const other = insertTrafficSource(h, { sourceType: 'cloudflare', status: 'paused', configJson: queueConfig })
+    recordQueueSync(other, 'deadline', 5)
+    recordQueueSync(sourceId, 'empty-pulls', 10)
+
+    const result = await queueBacklogCheck.run(ctxFor(h))
+    expect(result.summary).toContain('leased or not yet visible')
   })
 })
 

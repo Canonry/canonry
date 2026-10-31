@@ -1,6 +1,7 @@
 import type {
   DraftMutationResponse,
   MeasurementDraftAuthoring,
+  MeasurementDraftContextOverride,
   MeasurementDraftCompilePreviewResponse,
   MeasurementDraftDiffPreviewResponse,
   MeasurementDraftResponse,
@@ -8,9 +9,11 @@ import type {
   MeasurementDraftGroupMembershipRow,
   MeasurementDraftGroupMembershipRowStatus,
   MeasurementDraftPreviewGroupMembershipResponse,
+  MeasurementDraftPreviewMarketRoutingResponse,
+  MeasurementDraftRouteMarketsRequest,
   MeasurementPlanV2PublishResponse,
   MeasurementSetupResponse,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   getApiV1ProjectsByNameMeasurementPlanDraft,
   getApiV1ProjectsByNameMeasurementSetup,
@@ -26,15 +29,17 @@ import {
   postApiV1ProjectsByNameMeasurementPlanDraftActionsImportSitemap,
   postApiV1ProjectsByNameMeasurementPlanDraftActionsPreviewAssignments,
   postApiV1ProjectsByNameMeasurementPlanDraftActionsPreviewGroupMembership,
+  postApiV1ProjectsByNameMeasurementPlanDraftActionsPreviewRouteMarkets,
   postApiV1ProjectsByNameMeasurementPlanDraftActionsPublish,
   postApiV1ProjectsByNameMeasurementPlanDraftActionsRemoveAssignment,
   postApiV1ProjectsByNameMeasurementPlanDraftActionsRemoveCompetitor,
   postApiV1ProjectsByNameMeasurementPlanDraftActionsRemoveGroup,
   postApiV1ProjectsByNameMeasurementPlanDraftActionsReplaceAssignments,
+  postApiV1ProjectsByNameMeasurementPlanDraftActionsRouteMarkets,
   postApiV1ProjectsByNameMeasurementPlanDraftActionsUpsertCompetitor,
   postApiV1ProjectsByNameMeasurementPlanDraftActionsUpsertGroup,
   postApiV1ProjectsByNameMeasurementPlanDraftActionsUpsertTarget,
-} from '@ainyc/canonry-api-client'
+} from '@canonry/canonry-api-client'
 
 import { ApiError, heyClient, invokeWeb } from '../../../api.js'
 
@@ -64,6 +69,7 @@ export interface MeasurementAudienceAssignmentInput {
   targetKeys?: string[]
   groupKeys?: string[]
   queryIds: string[]
+  contextOverride?: MeasurementDraftContextOverride
 }
 
 export interface MeasurementAudienceAssignmentPreview {
@@ -88,6 +94,10 @@ export interface MeasurementAudienceAssignmentPreview {
     fullRunProviderCalls: number
   }
 }
+
+/** Provider/model changes for frozen market edges. Locations are deliberately not mutable here. */
+export type MeasurementMarketRoutingInput = MeasurementDraftRouteMarketsRequest
+export type MeasurementMarketRoutingPreview = MeasurementDraftPreviewMarketRoutingResponse
 
 export type GroupMembershipMatchStatus = MeasurementDraftGroupMembershipRowStatus
 export type GroupMembershipPreviewRow = MeasurementDraftGroupMembershipRow
@@ -116,7 +126,9 @@ export interface AdvancedMeasurementService {
   previewAssignments(projectName: string, input: MeasurementAudienceAssignmentInput): Promise<MeasurementAudienceAssignmentPreview>
   applyAssignments(projectName: string, etag: string, input: MeasurementAudienceAssignmentInput): Promise<DraftMutationResponse>
   replaceAssignments(projectName: string, etag: string, input: MeasurementAudienceAssignmentInput): Promise<DraftMutationResponse>
-  applyPairedAssignments(projectName: string, etag: string, pairs: { targetKey: string; queryId: string }[]): Promise<DraftMutationResponse>
+  applyPairedAssignments(projectName: string, etag: string, pairs: { targetKey: string; queryId: string }[], contextOverride?: MeasurementDraftContextOverride): Promise<DraftMutationResponse>
+  previewMarketRouting(projectName: string, input: MeasurementMarketRoutingInput): Promise<MeasurementMarketRoutingPreview>
+  routeMarkets(projectName: string, etag: string, input: MeasurementMarketRoutingInput): Promise<DraftMutationResponse>
   removeAssignment(projectName: string, etag: string, targetKeys: string[], queryId: string): Promise<DraftMutationResponse>
   excludeTarget(projectName: string, etag: string, targetKey: string): Promise<DraftMutationResponse>
   upsertTarget(projectName: string, etag: string, target: MeasurementDraftAuthoring['targets'][number]): Promise<DraftMutationResponse>
@@ -217,11 +229,22 @@ export const advancedMeasurementService: AdvancedMeasurementService = {
     headers: mutationHeaders(etag),
     body: input,
   })),
-  applyPairedAssignments: (projectName, etag, pairs) => invokeWeb(() => postApiV1ProjectsByNameMeasurementPlanDraftActionsApplyPairedAssignments({
+  applyPairedAssignments: (projectName, etag, pairs, contextOverride) => invokeWeb(() => postApiV1ProjectsByNameMeasurementPlanDraftActionsApplyPairedAssignments({
     client: heyClient,
     path: { name: projectName },
     headers: mutationHeaders(etag),
-    body: { pairs },
+    body: { pairs, ...(contextOverride ? { contextOverride } : {}) },
+  })),
+  previewMarketRouting: (projectName, input) => invokeWeb(() => postApiV1ProjectsByNameMeasurementPlanDraftActionsPreviewRouteMarkets({
+    client: heyClient,
+    path: { name: projectName },
+    body: input,
+  })),
+  routeMarkets: (projectName, etag, input) => invokeWeb(() => postApiV1ProjectsByNameMeasurementPlanDraftActionsRouteMarkets({
+    client: heyClient,
+    path: { name: projectName },
+    headers: mutationHeaders(etag),
+    body: input,
   })),
   removeAssignment: (projectName, etag, targetKeys, queryId) => invokeWeb(() => postApiV1ProjectsByNameMeasurementPlanDraftActionsRemoveAssignment({
     client: heyClient,

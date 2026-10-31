@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { AGENT_PROVIDER_IDS } from '@canonry/canonry-contracts'
 import { GA_AUTH_CHECKS } from '../src/doctor/checks/ga-auth.js'
 import { PROVIDERS_CHECKS } from '../src/doctor/checks/providers.js'
 import type { DoctorContext, ProjectInfo } from '../src/doctor/types.js'
@@ -9,8 +10,8 @@ const verifyConnectionMock = vi.fn()
 const verifyConnectionWithTokenMock = vi.fn()
 const refreshAccessTokenMock = vi.fn()
 
-vi.mock('@ainyc/canonry-integration-google-analytics', async () => {
-  const actual = await vi.importActual<typeof import('@ainyc/canonry-integration-google-analytics')>('@ainyc/canonry-integration-google-analytics')
+vi.mock('@canonry/canonry-integration-google-analytics', async () => {
+  const actual = await vi.importActual<typeof import('@canonry/canonry-integration-google-analytics')>('@canonry/canonry-integration-google-analytics')
   return {
     ...actual,
     verifyConnection: (...args: unknown[]) => verifyConnectionMock(...args),
@@ -18,8 +19,8 @@ vi.mock('@ainyc/canonry-integration-google-analytics', async () => {
   }
 })
 
-vi.mock('@ainyc/canonry-integration-google', async () => {
-  const actual = await vi.importActual<typeof import('@ainyc/canonry-integration-google')>('@ainyc/canonry-integration-google')
+vi.mock('@canonry/canonry-integration-google', async () => {
+  const actual = await vi.importActual<typeof import('@canonry/canonry-integration-google')>('@canonry/canonry-integration-google')
   return {
     ...actual,
     refreshAccessToken: (...args: unknown[]) => refreshAccessTokenMock(...args),
@@ -117,6 +118,25 @@ describe('ga.auth.connection', () => {
     expect(result.details).toMatchObject({ propertyId: '123456' })
   })
 
+  it('fails as verify-unreachable, not a rejected key, when Google cannot be reached', async () => {
+    verifyConnectionMock.mockRejectedValue(new TypeError('fetch failed', {
+      cause: Object.assign(new Error('getaddrinfo ENOTFOUND oauth2.googleapis.com'), { code: 'ENOTFOUND', syscall: 'getaddrinfo', hostname: 'oauth2.googleapis.com' }),
+    }))
+    const record: Ga4CredentialRecord = {
+      projectName: 'demo',
+      propertyId: '123456',
+      clientEmail: 'svc@project.iam',
+      privateKey: 'key',
+      createdAt: '2026-04-01T00:00:00.000Z',
+      updatedAt: '2026-04-01T00:00:00.000Z',
+    }
+    const result = await gaCheck.run({ db: {} as DoctorContext['db'], project, ga4CredentialStore: gaStore(record) })
+    expect(result.status).toBe('fail')
+    expect(result.code).toBe('ga.auth.verify-unreachable')
+    expect(result.summary).toBe('Could not reach Google to verify the GA4 service account: fetch failed (ENOTFOUND resolving oauth2.googleapis.com)')
+    expect(result.details).toMatchObject({ propertyId: '123456', authMethod: 'service-account' })
+  })
+
   it('fails when service account is incomplete', async () => {
     const record: Ga4CredentialRecord = {
       projectName: 'demo',
@@ -157,6 +177,36 @@ describe('ga.auth.connection', () => {
     expect(result.status).toBe('fail')
     expect(result.code).toBe('ga.auth.refresh-failed')
     expect(result.details).toMatchObject({ authMethod: 'oauth', error: 'invalid_grant' })
+  })
+
+  it('reports refresh-unreachable when the OAuth token host cannot be reached', async () => {
+    refreshAccessTokenMock.mockRejectedValue(new TypeError('fetch failed', {
+      cause: Object.assign(new Error('connect ECONNREFUSED 0.0.0.0:443'), { code: 'ECONNREFUSED', syscall: 'connect', address: '0.0.0.0', port: 443 }),
+    }))
+    const result = await gaCheck.run({
+      db: {} as DoctorContext['db'],
+      project,
+      googleConnectionStore: googleStoreWithGa4({}),
+      getGoogleAuthConfig: () => ({ clientId: 'client', clientSecret: 'secret' }),
+    })
+    expect(result.status).toBe('fail')
+    expect(result.code).toBe('ga.auth.refresh-unreachable')
+    expect(result.summary).toBe('Could not reach Google to refresh the GA4 token: fetch failed (ECONNREFUSED connecting to oauth2.googleapis.com at 0.0.0.0:443)')
+    expect(result.details).toMatchObject({ authMethod: 'oauth' })
+  })
+
+  it('reports verify-unreachable when the GA4 Data API cannot be reached', async () => {
+    refreshAccessTokenMock.mockResolvedValue({ access_token: 'tok', expires_in: 3600 })
+    verifyConnectionWithTokenMock.mockRejectedValue(new DOMException('The operation was aborted due to timeout', 'TimeoutError'))
+    const result = await gaCheck.run({
+      db: {} as DoctorContext['db'],
+      project,
+      googleConnectionStore: googleStoreWithGa4({}),
+      getGoogleAuthConfig: () => ({ clientId: 'client', clientSecret: 'secret' }),
+    })
+    expect(result.status).toBe('fail')
+    expect(result.code).toBe('ga.auth.verify-unreachable')
+    expect(result.summary).toBe('Could not reach Google to verify GA4 property access: The operation was aborted due to timeout')
   })
 
   it('reports verify-failed when OAuth token cannot reach property', async () => {
@@ -259,11 +309,43 @@ describe('config.providers', () => {
     expect(result.code).toBe('providers.none-configured')
     expect(result.summary).toContain('Page Health remains available')
     expect(result.remediation).toContain('canonry bootstrap')
+    expect(result.remediation).toContain('canonry settings provider <name> --api-key <key>')
   })
 
   it('skips when summary is unavailable', () => {
     const result = providersCheck.run({ db: {} as DoctorContext['db'], project: null })
     expect(result.status).toBe('skipped')
+  })
+
+  it('never counts a search answer service toward AI Visibility, and names it separately', () => {
+    // An answer service runs only where a project picks one of its profiles,
+    // so a key for one alone leaves "all configured engines" with nothing to run.
+    const onlyService = providersCheck.run({
+      db: {} as DoctorContext['db'],
+      project: null,
+      providerSummary: [
+        { name: 'gemini', configured: false },
+        { name: 'exa', configured: true, kind: 'answer-service' },
+      ],
+    })
+    expect(onlyService.status).toBe('warn')
+    expect(onlyService.code).toBe('providers.none-configured')
+    expect(onlyService.summary).toBe('No answer-engine provider is configured. Page Health remains available; AI Visibility is disabled. Search answer services configured (used only where a project picks one of their profiles): exa.')
+    expect(onlyService.details).toEqual({ available: ['gemini'], answerServices: ['exa'] })
+
+    const withEngine = providersCheck.run({
+      db: {} as DoctorContext['db'],
+      project: null,
+      providerSummary: [
+        { name: 'gemini', configured: true },
+        { name: 'openai', configured: false },
+        { name: 'exa', configured: true, kind: 'answer-service' },
+        { name: 'parallel', configured: false, kind: 'answer-service' },
+      ],
+    })
+    expect(withEngine.status).toBe('ok')
+    expect(withEngine.summary).toBe('1 of 2 providers configured: gemini. Search answer services configured (used only where a project picks one of their profiles): exa.')
+    expect(withEngine.details).toEqual({ configured: ['gemini'], total: 2, answerServices: ['exa'] })
   })
 })
 
@@ -274,101 +356,105 @@ function agentEntry(id: string, configured: boolean, keySource: 'config' | 'env'
 }
 
 describe('config.agent-providers', () => {
-  it('returns ok and reports the configured agent providers (incl. deepinfra)', () => {
-    const result = agentProvidersCheck.run({
+  it('returns ok and reports the configured agent providers', async () => {
+    const result = await agentProvidersCheck.run({
       db: {} as DoctorContext['db'],
       project: null,
       getAgentProviderSummary: () => [
         agentEntry('claude', true, 'env'),
-        agentEntry('deepinfra', true, 'config'),
-        agentEntry('zai', false),
+        agentEntry('zai', true, 'config'),
+        agentEntry('gemini', false),
       ],
     })
     expect(result.status).toBe('ok')
     expect(result.code).toBe('agent-providers.configured')
-    expect(result.summary).toContain('deepinfra')
-    expect(result.details).toMatchObject({ configured: ['claude', 'deepinfra'] })
+    expect(result.summary).toContain('zai')
+    expect(result.details).toMatchObject({ configured: ['claude', 'zai'] })
   })
 
-  it('warns (not fails) when no agent provider has a key', () => {
-    const result = agentProvidersCheck.run({
+  it('warns (not fails) when no agent provider has a key', async () => {
+    const result = await agentProvidersCheck.run({
       db: {} as DoctorContext['db'],
       project: null,
-      getAgentProviderSummary: () => [agentEntry('claude', false), agentEntry('deepinfra', false)],
+      getAgentProviderSummary: () => [agentEntry('claude', false), agentEntry('zai', false)],
     })
     expect(result.status).toBe('warn')
     expect(result.code).toBe('agent-providers.none-configured')
-    expect(result.remediation).toMatch(/DEEPINFRA_TOKEN/)
+    // The remediation names every agent provider an operator can add a key for.
+    for (const id of AGENT_PROVIDER_IDS) expect(result.remediation).toContain(id)
+    expect(result.remediation).toMatch(/ANTHROPIC_API_KEY/)
+    expect(result.remediation).toMatch(/OPENROUTER_API_KEY/)
   })
 
-  it('warns on an agent.provider pin with no key, even while other providers are configured', () => {
-    const result = agentProvidersCheck.run({
+  it('warns on an agent.provider pin with no key, even while other providers are configured', async () => {
+    const result = await agentProvidersCheck.run({
       db: {} as DoctorContext['db'],
       project: null,
-      getAgentProviderSummary: () => [agentEntry('claude', true, 'config'), agentEntry('deepinfra', false)],
-      getAgentPin: () => ({ provider: 'deepinfra', model: 'deepseek-ai/DeepSeek-V4-Flash', configured: false, envVar: 'DEEPINFRA_TOKEN', modelError: null }),
+      getAgentProviderSummary: () => [agentEntry('claude', true, 'config'), agentEntry('zai', false)],
+      getAgentPin: () => ({ provider: 'zai', model: 'glm-5.2', configured: false, envVar: 'ZAI_API_KEY', modelError: null }),
     })
     expect(result.status).toBe('warn')
     expect(result.code).toBe('agent-providers.pin-unconfigured')
-    expect(result.remediation).toMatch(/DEEPINFRA_TOKEN/)
-    expect(result.details).toMatchObject({ pin: { provider: 'deepinfra' } })
+    expect(result.remediation).toMatch(/ZAI_API_KEY/)
+    expect(result.details).toMatchObject({ pin: { provider: 'zai' } })
   })
 
-  it('warns when the pinned agent.model does not resolve', () => {
-    const result = agentProvidersCheck.run({
+  it('warns when the pinned agent.model does not resolve', async () => {
+    const result = await agentProvidersCheck.run({
       db: {} as DoctorContext['db'],
       project: null,
       getAgentProviderSummary: () => [agentEntry('claude', true, 'config')],
-      getAgentPin: () => ({ provider: 'claude', model: 'not-a-model', configured: true, envVar: 'ANTHROPIC_API_KEY', modelError: 'unknown model' }),
+      // The host may load a live model list first, so the pin can arrive later.
+      getAgentPin: async () => ({ provider: 'claude', model: 'not-a-model', configured: true, envVar: 'ANTHROPIC_API_KEY', modelError: 'unknown model' }),
     })
     expect(result.status).toBe('warn')
     expect(result.code).toBe('agent-providers.pin-model-invalid')
     expect(result.summary).toContain('not-a-model')
   })
 
-  it('names a healthy pin on the ok result', () => {
-    const result = agentProvidersCheck.run({
+  it('names a healthy pin on the ok result', async () => {
+    const result = await agentProvidersCheck.run({
       db: {} as DoctorContext['db'],
       project: null,
-      getAgentProviderSummary: () => [agentEntry('claude', true, 'config'), agentEntry('deepinfra', true, 'config')],
-      getAgentPin: () => ({ provider: 'deepinfra', model: 'zai-org/GLM-5.2', configured: true, envVar: 'DEEPINFRA_TOKEN', modelError: null }),
+      getAgentProviderSummary: () => [agentEntry('claude', true, 'config'), agentEntry('zai', true, 'config')],
+      getAgentPin: () => ({ provider: 'zai', model: 'glm-5-turbo', configured: true, envVar: 'ZAI_API_KEY', modelError: null }),
     })
     expect(result.status).toBe('ok')
-    expect(result.summary).toContain('pinned to deepinfra (zai-org/GLM-5.2)')
+    expect(result.summary).toContain('pinned to zai (glm-5-turbo)')
   })
 
-  it('skips when the agent provider summary is unavailable (e.g. cloud)', () => {
-    const result = agentProvidersCheck.run({ db: {} as DoctorContext['db'], project: null })
+  it('skips when the agent provider summary is unavailable (e.g. cloud)', async () => {
+    const result = await agentProvidersCheck.run({ db: {} as DoctorContext['db'], project: null })
     expect(result.status).toBe('skipped')
     expect(result.code).toBe('agent-providers.summary-unavailable')
   })
 
-  it('tells a caller who is not an install administrator nothing', () => {
-    const result = agentProvidersCheck.run({
+  it('tells a caller who is not an install administrator nothing', async () => {
+    const result = await agentProvidersCheck.run({
       db: {} as DoctorContext['db'],
       project: null,
       callerIsInstanceAdministrator: false,
       getAgentProviderSummary: () => [
         agentEntry('claude', false),
-        agentEntry('deepinfra', true, 'config'),
+        agentEntry('zai', true, 'config'),
       ],
     })
     expect(result.status).toBe('skipped')
     expect(result.code).toBe('agent-providers.restricted')
     // Which providers exist and that one is configured is most of the answer,
     // so a count is as disclosing as a name.
-    expect(result.summary).not.toContain('deepinfra')
+    expect(result.summary).not.toContain('zai')
     expect(result.summary).not.toMatch(/\d+ of \d+/)
     expect(result.details).toBeUndefined()
   })
 
-  it('treats an unwired caller as the operator, so the CLI doctor is unchanged', () => {
-    const result = agentProvidersCheck.run({
+  it('treats an unwired caller as the operator, so the CLI doctor is unchanged', async () => {
+    const result = await agentProvidersCheck.run({
       db: {} as DoctorContext['db'],
       project: null,
-      getAgentProviderSummary: () => [agentEntry('deepinfra', true, 'config')],
+      getAgentProviderSummary: () => [agentEntry('zai', true, 'config')],
     })
     expect(result.status).toBe('ok')
-    expect(result.summary).toContain('deepinfra')
+    expect(result.summary).toContain('zai')
   })
 })

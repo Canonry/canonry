@@ -11,6 +11,7 @@ import {
   type AdvancedMeasurementProperty,
   type AdvancedMeasurementQuery,
 } from '../src/components/project/advanced-measurement/SetupQueriesGroupsReview.js'
+import { compileAppStyles, compiledElementProperty, cssLengthPx, parseCompiledCss } from './compiled-app-css.js'
 
 afterEach(cleanup)
 
@@ -159,7 +160,7 @@ test('shows Property scope before dependent query patterns and previews cross-pr
 
   expect(scope?.compareDocumentPosition(creation!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
   expect(screen.getByText(/2 new, 0 already assigned/)).toBeTruthy()
-  const apply = screen.getByRole('button', { name: 'Assign 1 query to all 2 Properties' })
+  const apply = screen.getByRole('button', { name: 'Assign 1 query to every location (2)' })
   expect(apply.className).toContain('min-h-11')
   expect(apply.className).toContain('bg-accent')
   expect(screen.getByRole('button', { name: 'Continue' }).className).toContain('border')
@@ -213,14 +214,14 @@ test('supports bulk query selection through the live audience control', () => {
   const { props } = renderQueries()
 
   expect((screen.getByLabelText('Apply to') as HTMLSelectElement).value).toBe('all')
-  expect(screen.queryByText('Specific Properties')).toBeNull()
+  expect(screen.queryByText('Specific locations')).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: 'Select all shown queries' }))
   expect(props.onSelectedQueryIdsChange).toHaveBeenCalledWith(queries.map(query => query.id))
   fireEvent.click(screen.getByRole('button', { name: 'Clear query selection' }))
   expect(props.onSelectedQueryIdsChange).toHaveBeenLastCalledWith([])
 })
 
-test('uses one audience control for all Properties, groups, and the Specific Properties escape hatch', () => {
+test('uses one audience control for every location, groups, and the Specific locations escape hatch', () => {
   const onAudienceChange = vi.fn()
   const onApplySelectedQueries = vi.fn()
   const metroGroups: AdvancedMeasurementGroup[] = [
@@ -255,6 +256,14 @@ test('uses one audience control for all Properties, groups, and the Specific Pro
   })
 })
 
+test('returns Apply to to nothing chosen when its last group is removed', () => {
+  const onAudienceChange = vi.fn()
+  renderQueries({ groups, audience: { kind: 'groups', groupIds: ['waterfront-venues'] }, onAudienceChange })
+
+  fireEvent.click(screen.getByRole('button', { name: 'Remove Waterfront venues' }))
+  expect(onAudienceChange).toHaveBeenLastCalledWith({ kind: 'none' })
+})
+
 test('shows zero new provider requests when the execution nodes are already reused', () => {
   renderQueries({
     groups,
@@ -284,7 +293,7 @@ test('keeps selected queries visible and disables assignment when the server imp
   })
 
   expect(screen.getByRole('alert').textContent).toContain('Could not calculate assignment impact.')
-  expect(screen.getByRole('button', { name: 'Assign 1 query to all 2 Properties' })).toHaveProperty('disabled', true)
+  expect(screen.getByRole('button', { name: 'Assign 1 query to every location (2)' })).toHaveProperty('disabled', true)
   expect((screen.getByLabelText('Select query Harbor House events') as HTMLInputElement).checked).toBe(true)
   fireEvent.click(screen.getByRole('button', { name: 'Retry impact' }))
   expect(onRetryAssignmentImpact).toHaveBeenCalledTimes(1)
@@ -537,6 +546,21 @@ test('keeps query creation away from viewers', () => {
   expect(screen.queryByLabelText('New queries, one per line')).toBeNull()
   expect(screen.queryByRole('button', { name: /Add .* quer(y|ies)/ })).toBeNull()
   expect(screen.queryByRole('button', { name: 'Manage project queries' })).toBeNull()
+})
+
+test('keeps accessible query table headings inside its horizontal scroll boundary', async () => {
+  renderQueries()
+  const clearColumn = screen.getByRole('columnheader', { name: 'Clear query assignments' })
+  const table = clearColumn.closest('table')!
+  const scroll = table.parentElement!
+  expect(screen.getByRole('columnheader', { name: 'Select query' }).closest('table')).toBe(table)
+  const rules = parseCompiledCss(await compileAppStyles([...scroll.classList, ...table.classList]))
+  expect(compiledElementProperty(rules, scroll, 'overflow-x')).toBe('auto')
+  // The hidden headings are positioned absolutely; without this containing
+  // block they escape the table's scroller and widen a narrow document.
+  expect(compiledElementProperty(rules, scroll, 'position')).toBe('relative')
+  expect(cssLengthPx(compiledElementProperty(rules, table, 'min-width')!, rules)).toBe(620)
+  expect(compiledElementProperty(rules, scroll, 'min-width')).toBeUndefined()
 })
 
 test('uses an accessible hit target for each table query checkbox', () => {
@@ -923,9 +947,9 @@ test('review states why assignments outrun queries, and never puts a button name
   // a value rather than as "not computed yet".
   expect(screen.queryByText('Review changes', { selector: 'td' })).toBeNull()
 
-  // One query aimed at a market writes one assignment per Property in it, so
+  // One query applied to a group writes one assignment per Property in it, so
   // 1 query and 3 assignments is correct and needs saying.
-  expect(screen.getByText(/a query aimed at a market is measured on every Property in it/)).toBeTruthy()
+  expect(screen.getByText(/Queries applied to groups create one assignment for every Property in each group/)).toBeTruthy()
 })
 
 test('the assignment impact slot keeps a reserved height so ticking a box cannot move the table', () => {

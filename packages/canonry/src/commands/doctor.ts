@@ -1,5 +1,5 @@
-import type { CheckResultDto, DoctorReportDto } from '@ainyc/canonry-contracts'
-import { CheckScopes, CheckStatuses } from '@ainyc/canonry-contracts'
+import type { CheckResultDto, DoctorReportDto } from '@canonry/canonry-contracts'
+import { CheckScopes, CheckStatuses } from '@canonry/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { CliError, EXIT_USER_ERROR } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
@@ -123,11 +123,11 @@ function printAllHumanReport(byKey: Record<string, DoctorReportDto>, projectName
     const s = report.summary
     const tag = s.fail > 0 ? '[FAIL]' : s.warn > 0 ? '[WARN]' : '[OK]  '
     console.log(`  ${tag} ${label.padEnd(28)} ${s.ok} ok, ${s.warn} warn, ${s.fail} fail, ${s.skipped} skipped`)
-    if (s.fail > 0) {
-      const failedIds = report.checks
-        .filter(c => c.status === CheckStatuses.fail)
-        .map(c => `${c.id} — ${c.summary}`)
-      for (const line of failedIds) {
+    if (s.fail > 0 || s.warn > 0) {
+      const attentionIds = report.checks
+        .filter(c => c.status === CheckStatuses.fail || c.status === CheckStatuses.warn)
+        .map(c => `${c.id}: ${c.summary}`)
+      for (const line of attentionIds) {
         console.log(`           ✗ ${line}`)
       }
     }

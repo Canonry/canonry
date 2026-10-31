@@ -1,18 +1,17 @@
 {
-  "name": "@ainyc/canonry-worker",
+  "name": "@canonry/canonry-worker",
   "version": "0.0.0",
   "private": true,
   "type": "module",
   "license": "MIT",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck": "node ../../scripts/typecheck.mjs --noEmit -p tsconfig.json",
     "test": "vitest run --config ../../vitest.package.config.ts",
-    "lint": "eslint src/ test/"
+    "lint": "oxlint -c ../../.oxlintrc.json --type-aware src/ test/"
   },
   "dependencies": {
-    "@ainyc/aeo-audit": "4.2.0",
-    "@ainyc/canonry-config": "workspace:*",
-    "tsx": "^4.20.5"
+    "@canonry/canonry-config": "workspace:*",
+    "tsx": "^4.23.15"
   }
 }

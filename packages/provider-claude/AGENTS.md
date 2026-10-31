@@ -16,7 +16,7 @@ Claude/Anthropic adapter — implements `ProviderAdapter` for Anthropic's Messag
 
 ## Patterns
 
-All provider packages follow the same 4-file structure and implement the same `ProviderAdapter` interface from `@ainyc/canonry-contracts`:
+All provider packages follow the same 4-file structure and implement the same `ProviderAdapter` interface from `@canonry/canonry-contracts`:
 
 - **`validateConfig(config)`** — verify API key and model are valid
 - **`healthcheck(config)`** — test connectivity to the provider
@@ -24,6 +24,8 @@ All provider packages follow the same 4-file structure and implement the same `P
   - It is `buildTrackedQueryRequest` (the exact wire body) → the SDK call → `parseTrackedQueryResponse` (usage and stop reason included). Batch dispatch reuses both halves, so change the request or its reading there, never inline in `executeTrackedQuery`; `test/tracked-query-request.test.ts` pins the built body against the wire.
 - **`normalizeResult(raw)`** — convert provider-specific response to standard `NormalizedQueryResult`
 - **`generateText(config, prompt)`** — general-purpose text generation
+
+- **Answer anchors for competitor auto-aliases.** `extractAnchoredSpans` (`src/anchored-spans.ts`) pairs each `web_search_result_location` citation URL with its cited text block plus the last line of the uncited block before it (where `**Name** -` usually sits). `cited_text` and `title` are the source page's words and are never read. Stored data only.
 
 ## Retrieval contract
 

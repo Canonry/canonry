@@ -1,0 +1,176 @@
+import { expect, test } from 'vitest'
+
+import { computeCompetitorOverlap, extractRecommendedCompetitors } from '../src/competitor-matching.js'
+import type { NormalizedQueryResult } from '../src/provider.js'
+
+function buildResult(answer: string, overrides?: Partial<NormalizedQueryResult>): NormalizedQueryResult {
+  return {
+    provider: 'test',
+    answerText: answer,
+    citedDomains: [],
+    groundingSources: [],
+    searchQueries: [],
+    ...overrides,
+  }
+}
+
+test('extractRecommendedCompetitors excludes headings and the target brand', () => {
+  const answer = [
+    '### Why it stands out',
+    'Use a provider with borough coverage.',
+    '',
+    '1. **Citypoint Dental** - the target brand',
+    '2. **Downtown Smiles** - same-day care',
+  ].join('\n')
+
+  expect(
+    extractRecommendedCompetitors(
+      answer,
+      ['citypointdental.com'],
+      ['citypointdental.com', 'downtownsmiles.com'],
+      [],
+    ),
+  ).toEqual(['Downtown Smiles'])
+})
+
+test('extractRecommendedCompetitors matches spaced company names to compact domains', () => {
+  const answer = [
+    '1. Regional Joint Care — broad orthopedic network',
+    '2. Northstar Ortho — physician bios and outcomes',
+  ].join('\n')
+
+  expect(
+    extractRecommendedCompetitors(
+      answer,
+      ['acmehealth.com'],
+      ['regionaljointcare.com', 'northstarortho.com'],
+      [],
+    ),
+  ).toEqual(['Regional Joint Care', 'Northstar Ortho'])
+})
+
+test('computeCompetitorOverlap does not match a subdomain label as a brand word', () => {
+  // Regression: with stored competitor `offers.quotebird.test`, the prior code
+  // pulled `offers` from the leftmost label and word-boundary-matched it
+  // against arbitrary prose. Use the registrable domain's brand label
+  // (`quotebird`) instead — the answer below should produce zero overlap.
+  const answer = 'Northwind Solar Systems offers a white-label lead generation tool. Acme IQ uses AI-driven estimates.'
+  const result = buildResult(answer)
+  expect(computeCompetitorOverlap(result, ['offers.quotebird.test'])).toEqual([])
+})
+
+test('computeCompetitorOverlap still flags the registrable brand of a subdomained competitor', () => {
+  // Sanity: the brand label drawn from the eTLD+1 still matches when the
+  // answer mentions the actual brand name.
+  const answer = 'Brokers turn to Quotebird for instant install quotes.'
+  const result = buildResult(answer)
+  expect(computeCompetitorOverlap(result, ['offers.quotebird.test'])).toEqual(['offers.quotebird.test'])
+})
+
+test('computeCompetitorOverlap matches the full registrable domain in the answer', () => {
+  const answer = 'See pricing at quotebird.example.com for details.'
+  const result = buildResult(answer)
+  expect(computeCompetitorOverlap(result, ['quotebird.example.com'])).toEqual(['quotebird.example.com'])
+})
+
+test('computeCompetitorOverlap rejects hostname and prose substrings', () => {
+  const result = buildResult('Acmeology links to notacme.com.', {
+    groundingSources: [{ uri: 'https://notacme.com/path/acme.com', title: 'Not Acme' }],
+  })
+  expect(computeCompetitorOverlap(result, ['acme.com'])).toEqual([])
+})
+
+test('extractRecommendedCompetitors does not seed a brand from a subdomain label', () => {
+  // The competitor `offers.quotebird.test` should source brand keys from
+  // `quotebird.test` (keys: `quotebirdtest`, `quotebird`) — never from `offers`. So
+  // a heading like `### Offers` must not promote "Offers" to a recommended
+  // competitor.
+  const answer = [
+    '### Offers',
+    'Northwind Solar Systems is a major provider.',
+    '',
+    '1. **Quotebird** - install-quote engine',
+  ].join('\n')
+
+  expect(
+    extractRecommendedCompetitors(
+      answer,
+      ['acmeiq.test'],
+      [],
+      ['offers.quotebird.test'],
+    ),
+  ).toEqual(['Quotebird'])
+})
+
+test('extractRecommendedCompetitors never recommends a cited listing marketplace, but keeps a real rival', () => {
+  const answer = [
+    'Here are the best options:',
+    '',
+    '1. **Apartments.com** - the biggest listing site',
+    '2. **Rival Homes** - well reviewed downtown buildings',
+  ].join('\n')
+  expect(extractRecommendedCompetitors(answer, ['brand.example'], ['apartments.com', 'rivalhomes.example'], [], ['Brand'])).toEqual(['Rival Homes'])
+})
+
+test('extractRecommendedCompetitors never recommends a rival named only in a citation chip', () => {
+  // Shape of an OpenAI web-search answer: sources are inline chips whose
+  // labels can be a site name. A chip is a citation, not a recommendation.
+  const chipOnly = 'Pet fees at Bayside Flats run $300 to $400 per pet. ([Rival Homes](https://rivalhomes.example/pets/?utm_source=chatgpt.com), [harborview.com](https://harborview.com/pets/?utm_source=chatgpt.com))'
+  expect(extractRecommendedCompetitors(chipOnly, ['harborview.com'], ['rivalhomes.example', 'harborview.com'], [], ['Harborview Living'])).toEqual([])
+  // The same rival linked in a sentence is named by the answer.
+  const prose = `For lower fees, [Rival Homes](https://rivalhomes.example/pets) charges $200 per pet. ${chipOnly.slice(chipOnly.indexOf('(['))}`
+  expect(extractRecommendedCompetitors(prose, ['harborview.com'], ['rivalhomes.example', 'harborview.com'], [], ['Harborview Living'])).toEqual(['Rival Homes'])
+})
+
+test('extractRecommendedCompetitors keeps possessive names and names identified only by a parenthetical site', () => {
+  // The stored values keep the laid-out form: a possessive is part of the
+  // brand, and a parenthetical host is what ties a generic label to the site.
+  const answer = [
+    'Shops riders mention:',
+    "- **Joe's Spokes**: tune-ups while you wait.",
+    "- **Ana's**: wheel truing.",
+    '- **Bike Repair Co (gearloft.example)** - mobile service.',
+  ].join('\n')
+  expect(extractRecommendedCompetitors(answer, ['rotorwise.example'], ['joesspokes.example', 'anas.example', 'gearloft.example'], [], ['Rotorwise']))
+    .toEqual(["Joe's Spokes", "Ana's", 'Bike Repair Co (gearloft.example)'])
+})
+
+test('extractRecommendedCompetitors never stores a curly-apostrophe contraction or possessive phrase that holds a known name', () => {
+  // Each line holds a cited or tracked identity (Google, Bing, Spokebot,
+  // Tunequill, Lakeview), so a layout read through the curly apostrophe would
+  // store the whole phrase as a recommended name.
+  const answer = [
+    'How to get found:',
+    '- **If you\u2019re shopping in Lakeview**: compare three quotes.',
+    '- **Don\u2019t block Google/Bing crawlers** - keep pages indexable.',
+    '- Allow Spokebot\u2019s crawler: in robots.txt.',
+    '- **Tunequill\u2019s city bike page** - the one to beat.',
+    '- **Tunequill** - mobile tune-ups.',
+  ].join('\n')
+  expect(extractRecommendedCompetitors(
+    answer,
+    ['rotorwise.example'],
+    ['google.com', 'bing.com', 'spokebot.example', 'lakeview.example'],
+    ['tunequill.example'],
+    ['Rotorwise'],
+  )).toEqual(['Tunequill'])
+})
+
+test('extractRecommendedCompetitors still recommends a marketplace the operator tracks as a competitor', () => {
+  const answer = '1. **Zillow** - search every listing in one place\n2. **Other Pick** - an alternative'
+  expect(extractRecommendedCompetitors(answer, ['brand.example'], ['zillow.com'], ['zillow.com'], ['Brand'])).toEqual(['Zillow'])
+})
+
+test('extractRecommendedCompetitors keeps a cited OTA as a rival: only listing marketplaces are ruled out', () => {
+  const answer = '1. **Booking.com** - compare rates\n2. **Apartments.com** - browse rentals'
+  expect(extractRecommendedCompetitors(answer, ['hotel.example'], ['booking.com', 'apartments.com'], [], ['Hotel'])).toEqual(['Booking.com'])
+})
+
+test('a competitor\'s operator-approved name counts in overlap and recommendations without a citation', () => {
+  const aliases = new Map([['qravelhomes.example', ['QRA', 'Qravel Residential Associates']]])
+  const answer = 'Consider these operators:\n\n1. **QRA** - large portfolio in the metro\n2. **Other Option** - smaller'
+  expect(computeCompetitorOverlap(buildResult(answer), ['qravelhomes.example'], aliases)).toEqual(['qravelhomes.example'])
+  expect(extractRecommendedCompetitors(answer, ['brand.example'], [], ['qravelhomes.example'], ['Brand'], aliases)).toEqual(['QRA'])
+  // Without the plan's names, the domain label "qravelhomes" never matches "QRA".
+  expect(computeCompetitorOverlap(buildResult(answer), ['qravelhomes.example'])).toEqual([])
+})

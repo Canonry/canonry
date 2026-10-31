@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest'
-import type { GscQueryTotalsDto } from '@ainyc/canonry-contracts'
+import type { GscQueryTotalsDto } from '@canonry/canonry-contracts'
 
 const mockGscQueryTotals = vi.fn()
 
@@ -19,6 +19,7 @@ const WINDOW: GscQueryTotalsDto['window'] = {
   endDate: '2026-06-30',
   latestDataDate: '2026-07-02',
   daysSinceLatestData: 3,
+  earliestDataDate: '2026-03-01',
 }
 
 /** Fictional per-query totals, as the route returns them. */
@@ -79,16 +80,28 @@ describe('canonry google query-totals', () => {
     mockGscQueryTotals.mockResolvedValue(envelope())
   })
 
-  it('passes --start, --end, --window, --limit and --offset through as query params', async () => {
+  it('passes explicit dates, --limit and --offset through as query params', async () => {
     await captureLog(() => runCli([
       'google', 'query-totals', PROJECT,
-      '--start', '2026-06-01', '--end', '2026-06-30', '--window', '90d',
+      '--start', '2026-06-01', '--end', '2026-06-30',
       '--limit', '100', '--offset', '200', '--format', 'json',
     ]))
     expect(mockGscQueryTotals).toHaveBeenCalledTimes(1)
     expect(mockGscQueryTotals).toHaveBeenCalledWith(PROJECT, {
       startDate: '2026-06-01',
       endDate: '2026-06-30',
+      limit: '100',
+      offset: '200',
+    })
+  })
+
+  it('passes --window, --limit and --offset through as query params', async () => {
+    await captureLog(() => runCli([
+      'google', 'query-totals', PROJECT,
+      '--window', '90d', '--limit', '100', '--offset', '200', '--format', 'json',
+    ]))
+    expect(mockGscQueryTotals).toHaveBeenCalledTimes(1)
+    expect(mockGscQueryTotals).toHaveBeenCalledWith(PROJECT, {
       window: '90d',
       limit: '100',
       offset: '200',

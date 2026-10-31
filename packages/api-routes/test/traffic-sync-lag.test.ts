@@ -3,13 +3,14 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { createClient, migrate, projects, trafficSources, crawlerEventsHourly } from '@ainyc/canonry-db'
+import { createClient, migrate, projects, trafficSources, crawlerEventsHourly } from '@canonry/canonry-db'
 import { TRAFFIC_SOURCE_CHECKS } from '../src/doctor/checks/traffic-source.js'
 import {
+  resolveCloudflareQueueSyncDeadlineMs,
   resolveVercelSyncDeadlineMs,
+  DEFAULT_CLOUDFLARE_QUEUE_SYNC_DEADLINE_MS,
   DEFAULT_VERCEL_SYNC_DEADLINE_MS,
   VERCEL_MAX_SYNC_WINDOW_MS,
-  TRAFFIC_SOURCE_MAX_CATCHUP_MS,
 } from '../src/traffic-limits.js'
 import type { DoctorContext } from '../src/doctor/types.js'
 
@@ -69,7 +70,7 @@ function seed(opts: {
   }
 
   const ctx = { db, project: { id: projectId, name: 'lagproj' } } as unknown as DoctorContext
-  return { ctx, cleanup: () => fs.rmSync(tmp, { recursive: true, force: true }) }
+  return { ctx, sourceId, cleanup: () => fs.rmSync(tmp, { recursive: true, force: true }) }
 }
 
 describe('traffic sync lag', () => {
@@ -105,14 +106,19 @@ describe('traffic sync lag', () => {
     } finally { cleanup() }
   })
 
-  it('does not claim a cursor-resumable adapter is discarding, however far behind it is', async () => {
-    // cloud-run resumes from its cursor, so lag is staleness, never data loss.
-    const { ctx, cleanup } = seed({ lagMs: VERCEL_MAX_SYNC_WINDOW_MS * 3, sourceType: 'cloud-run' })
+  it('reports Cloud Run lag without inventing a time-based catch-up cliff', async () => {
+    const { ctx, cleanup } = seed({ lagMs: 72 * 3_600_000, sourceType: 'cloud-run' })
     try {
       const out = await syncLagCheck.run(ctx)
       expect(out.status).toBe('warn')
       expect(out.code).toBe('traffic.sync-lag.behind')
-      expect(TRAFFIC_SOURCE_MAX_CATCHUP_MS['cloud-run' as never]).toBeUndefined()
+      expect((out.details as { sources: unknown[] }).sources).toEqual([
+        expect.objectContaining({
+          sourceType: 'cloud-run',
+          maxCatchUpMs: null,
+          discardingOlderTraffic: false,
+        }),
+      ])
     } finally { cleanup() }
   })
 
@@ -194,6 +200,30 @@ describe('unrecovered skips', () => {
     } finally { cleanup() }
   })
 
+  it('tells the operator to declare a WordPress gap, naming the exact source, in plain words', async () => {
+    const { ctx, sourceId, cleanup } = seed({ lagMs: 5 * 60_000, sourceType: 'wordpress', skippedThroughAt: '2026-08-20T20:39:49.403Z' })
+    try {
+      const out = await syncLagCheck.run(ctx)
+      expect(out.code).toBe('traffic.sync-lag.unrecovered-skip')
+      expect(out.remediation).toContain('canonry traffic declare-gap <project> --source <id>')
+      expect(out.alert).toEqual({
+        label: 'Traffic gap before Aug 20',
+        line: "A stretch of traffic before Aug 20 is missing for Vercel (example.com). WordPress can't replay it.",
+        next: `Record it as lost with \`cnry traffic declare-gap lagproj --source ${sourceId}\`.`,
+      })
+    } finally { cleanup() }
+  })
+
+  it('tells the operator to backfill a gap a provider can still replay', async () => {
+    const { ctx, sourceId, cleanup } = seed({ lagMs: 5 * 60_000, skippedThroughAt: '2026-07-30T04:00:00.000Z' })
+    try {
+      const out = await syncLagCheck.run(ctx)
+      // Missing, not lost: a provider that still retains the span can replay it.
+      expect(out.alert?.line).toBe('A stretch of traffic before Jul 30 is missing for Vercel (example.com).')
+      expect(out.alert?.next).toBe(`Backfill it with \`cnry traffic backfill lagproj --source ${sourceId} --days N\`.`)
+    } finally { cleanup() }
+  })
+
   it('returns to ok once the skip marker is cleared', async () => {
     const { ctx, cleanup } = seed({ lagMs: 5 * 60_000, skippedThroughAt: null })
     try {
@@ -233,21 +263,24 @@ describe('never-synced siblings', () => {
   })
 })
 
-describe('vercel sync deadline override', () => {
+describe.each([
+  ['vercel', resolveVercelSyncDeadlineMs, 'CANONRY_VERCEL_SYNC_DEADLINE_MS', DEFAULT_VERCEL_SYNC_DEADLINE_MS],
+  ['cloudflare queue', resolveCloudflareQueueSyncDeadlineMs, 'CANONRY_CLOUDFLARE_QUEUE_SYNC_DEADLINE_MS', DEFAULT_CLOUDFLARE_QUEUE_SYNC_DEADLINE_MS],
+] as const)('%s sync deadline override', (_label, resolve, envName, defaultMs) => {
   it('is unset by default so the built-in budget applies', () => {
-    expect(resolveVercelSyncDeadlineMs({})).toBeUndefined()
-    expect(resolveVercelSyncDeadlineMs({ CANONRY_VERCEL_SYNC_DEADLINE_MS: '' })).toBeUndefined()
-    expect(DEFAULT_VERCEL_SYNC_DEADLINE_MS).toBe(4 * 60_000)
+    expect(resolve({})).toBeUndefined()
+    expect(resolve({ [envName]: '' })).toBeUndefined()
+    expect(defaultMs).toBe(4 * 60_000)
   })
 
   it('accepts a raise, which is the whole point of the knob', () => {
-    expect(resolveVercelSyncDeadlineMs({ CANONRY_VERCEL_SYNC_DEADLINE_MS: '600000' })).toBe(600_000)
+    expect(resolve({ [envName]: '600000' })).toBe(600_000)
   })
 
   it('clamps rather than rejects, so a bad value cannot remove the bound', () => {
-    expect(resolveVercelSyncDeadlineMs({ CANONRY_VERCEL_SYNC_DEADLINE_MS: '1' })).toBe(30_000)
-    expect(resolveVercelSyncDeadlineMs({ CANONRY_VERCEL_SYNC_DEADLINE_MS: '99999999' })).toBe(15 * 60_000)
-    expect(resolveVercelSyncDeadlineMs({ CANONRY_VERCEL_SYNC_DEADLINE_MS: 'abc' })).toBeUndefined()
-    expect(resolveVercelSyncDeadlineMs({ CANONRY_VERCEL_SYNC_DEADLINE_MS: '-5' })).toBeUndefined()
+    expect(resolve({ [envName]: '1' })).toBe(30_000)
+    expect(resolve({ [envName]: '99999999' })).toBe(15 * 60_000)
+    expect(resolve({ [envName]: 'abc' })).toBeUndefined()
+    expect(resolve({ [envName]: '-5' })).toBeUndefined()
   })
 })

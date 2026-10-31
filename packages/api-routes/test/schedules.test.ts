@@ -5,8 +5,8 @@ import path from 'node:path'
 import os from 'node:os'
 import Fastify from 'fastify'
 import { and, eq } from 'drizzle-orm'
-import { createClient, migrate, projects, schedules, trafficSources } from '@ainyc/canonry-db'
-import { SchedulableRunKinds, TrafficSourceStatuses, TrafficSourceTypes, type SchedulableRunKind } from '@ainyc/canonry-contracts'
+import { createClient, migrate, projects, schedules, trafficSources } from '@canonry/canonry-db'
+import { SchedulableRunKinds, TrafficSourceStatuses, TrafficSourceTypes, type SchedulableRunKind } from '@canonry/canonry-contracts'
 import { apiRoutes } from '../src/index.js'
 
 interface Harness {
@@ -33,15 +33,15 @@ async function buildHarness(onScheduleUpdated?: (action: 'upsert' | 'delete', pr
     name: 'site-a',
     displayName: 'Site A',
     canonicalDomain: 'site-a.example.com',
-    ownedDomains: '[]',
+    ownedDomains: [],
     country: 'US',
     language: 'en',
-    tags: '[]',
-    labels: '{}',
-    providers: '[]',
-    locations: '[]',
+    tags: [],
+    labels: {},
+    providers: [],
+    locations: [],
     defaultLocation: null,
-    autoExtractBacklinks: 0,
+    autoExtractBacklinks: false,
     configSource: 'api',
     configRevision: 1,
     createdAt: now,
@@ -52,15 +52,15 @@ async function buildHarness(onScheduleUpdated?: (action: 'upsert' | 'delete', pr
     name: 'site-b',
     displayName: 'Site B',
     canonicalDomain: 'site-b.example.com',
-    ownedDomains: '[]',
+    ownedDomains: [],
     country: 'US',
     language: 'en',
-    tags: '[]',
-    labels: '{}',
-    providers: '[]',
-    locations: '[]',
+    tags: [],
+    labels: {},
+    providers: [],
+    locations: [],
     defaultLocation: null,
-    autoExtractBacklinks: 0,
+    autoExtractBacklinks: false,
     configSource: 'api',
     configRevision: 1,
     createdAt: now,

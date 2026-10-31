@@ -177,6 +177,14 @@ does not break a chart series. Each answer records `dispatchMode`
 Every result line is mapped back to its answer slot and recorded through the
 same pipeline as a sync answer.
 
+Result ingestion prepares evidence before taking a database write lock, then
+commits up to 32 answers and their request outcomes together. It yields between
+chunks so other work can run. Large answers reduce the chunk size, with a
+1 MiB budget for serialized responses, answer text and errors; a single larger
+answer commits alone. An interrupted stream commits its prepared tail so the
+next pass can skip those results; cancellation keeps committed chunks and discards the
+uncommitted tail. Logging and result callbacks run after commit.
+
 | Outcome | What happens |
 |---|---|
 | Line succeeded | Recorded, `dispatchMode: batch`, priced at the batch tier |

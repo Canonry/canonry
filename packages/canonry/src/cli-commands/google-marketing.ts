@@ -1,4 +1,5 @@
-import { googleAdsMetricsWindowSchema, type GoogleAdsMetricsWindow } from '@ainyc/canonry-contracts'
+import { WINDOW_SETS, parseWindowIn, AppError } from '@canonry/canonry-contracts'
+import { type GoogleAdsMetricsWindow } from '@canonry/canonry-contracts'
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import {
   getString,
@@ -9,33 +10,7 @@ import {
   stringOption,
 } from '../cli-command-helpers.js'
 import { usageError } from '../cli-error.js'
-import {
-  conversionTrackingContract,
-  conversionTrackingContracts,
-  conversionTrackingCreate,
-  conversionTrackingDelete,
-  conversionTrackingIntegrity,
-  conversionTrackingUpdate,
-  googleAdsCustomers,
-  googleAdsDisconnect,
-  googleAdsPerformance,
-  googleAdsSelect,
-  googleAdsSnapshot,
-  googleAdsSnapshots,
-  googleAdsStatus,
-  googleAdsSync,
-  gtmAccounts,
-  gtmContainers,
-  gtmDisconnect,
-  gtmSelect,
-  gtmSnapshot,
-  gtmSnapshots,
-  gtmStatus,
-  gtmSync,
-  gtmWorkspaces,
-  readConversionTrackingContractInput,
-  type GoogleMarketingCliClient,
-} from '../commands/google-marketing.js'
+import type { GoogleMarketingCliClient } from '../commands/google-marketing.js'
 
 function snapshotLimit(
   input: Parameters<CliCommandSpec['run']>[0],
@@ -67,14 +42,11 @@ function performanceWindow(
 ): GoogleAdsMetricsWindow | undefined {
   const raw = getString(input.values, 'window')
   if (raw === undefined) return undefined
-  const parsed = googleAdsMetricsWindowSchema.safeParse(raw)
-  if (!parsed.success) {
-    throw usageError(`Error: --window must be one of 7d, 14d, 30d\nUsage: ${usage}`, {
-      message: '--window must be one of 7d, 14d, 30d',
-      details: { command: 'google-ads.performance', usage, option: 'window', value: raw },
-    })
+  try { return parseWindowIn(raw, WINDOW_SETS.googleAdsMetrics, { fallback: '14d' }) }
+  catch (error) {
+    if (error instanceof AppError) throw usageError(error.message, { details: { ...error.details, command: 'google-ads.performance', usage } })
+    throw error
   }
-  return parsed.data
 }
 
 /**
@@ -90,6 +62,7 @@ export function createGoogleMarketingCliCommands(
       path: ['google-ads', 'disconnect'],
       usage: 'canonry google-ads disconnect <project> [--format json]',
       run: async (input) => {
+        const { googleAdsDisconnect } = await import('../commands/google-marketing.js')
         const usage = 'canonry google-ads disconnect <project> [--format json]'
         await googleAdsDisconnect(createClient(), requireProject(input, 'google-ads.disconnect', usage), { format: input.format })
       },
@@ -98,6 +71,7 @@ export function createGoogleMarketingCliCommands(
       path: ['google-ads', 'status'],
       usage: 'canonry google-ads status <project> [--format json]',
       run: async (input) => {
+        const { googleAdsStatus } = await import('../commands/google-marketing.js')
         const usage = 'canonry google-ads status <project> [--format json]'
         await googleAdsStatus(createClient(), requireProject(input, 'google-ads.status', usage), { format: input.format })
       },
@@ -106,6 +80,7 @@ export function createGoogleMarketingCliCommands(
       path: ['google-ads', 'customers'],
       usage: 'canonry google-ads customers <project> [--format json|jsonl]',
       run: async (input) => {
+        const { googleAdsCustomers } = await import('../commands/google-marketing.js')
         const usage = 'canonry google-ads customers <project> [--format json|jsonl]'
         await googleAdsCustomers(createClient(), requireProject(input, 'google-ads.customers', usage), { format: input.format })
       },
@@ -115,6 +90,7 @@ export function createGoogleMarketingCliCommands(
       usage: 'canonry google-ads select <project> --customer <customer-id> [--login-customer <manager-id>] [--format json]',
       options: { customer: stringOption(), 'login-customer': stringOption() },
       run: async (input) => {
+        const { googleAdsSelect } = await import('../commands/google-marketing.js')
         const usage = 'canonry google-ads select <project> --customer <customer-id> [--login-customer <manager-id>] [--format json]'
         const project = requireProject(input, 'google-ads.select', usage)
         const customerId = requireStringOption(input, 'customer', {
@@ -130,15 +106,18 @@ export function createGoogleMarketingCliCommands(
       path: ['google-ads', 'sync'],
       usage: 'canonry google-ads sync <project> [--format json]',
       run: async (input) => {
+        const { googleAdsSync } = await import('../commands/google-marketing.js')
         const usage = 'canonry google-ads sync <project> [--format json]'
         await googleAdsSync(createClient(), requireProject(input, 'google-ads.sync', usage), { format: input.format })
       },
     },
     {
       path: ['google-ads', 'performance'],
+      windows: WINDOW_SETS.googleAdsMetrics,
       usage: 'canonry google-ads performance <project> [--window 7d|14d|30d] [--format json]',
       options: { window: stringOption() },
       run: async (input) => {
+        const { googleAdsPerformance } = await import('../commands/google-marketing.js')
         const usage = 'canonry google-ads performance <project> [--window 7d|14d|30d] [--format json]'
         const project = requireProject(input, 'google-ads.performance', usage)
         const window = performanceWindow(input, usage)
@@ -153,6 +132,7 @@ export function createGoogleMarketingCliCommands(
       usage: 'canonry google-ads snapshots <project> [--limit <n>] [--cursor <opaque>] [--format json|jsonl]',
       options: { limit: stringOption(), cursor: stringOption() },
       run: async (input) => {
+        const { googleAdsSnapshots } = await import('../commands/google-marketing.js')
         const usage = 'canonry google-ads snapshots <project> [--limit <n>] [--cursor <opaque>] [--format json|jsonl]'
         await googleAdsSnapshots(createClient(), requireProject(input, 'google-ads.snapshots', usage), {
           limit: snapshotLimit(input, 'google-ads.snapshots', usage),
@@ -165,6 +145,7 @@ export function createGoogleMarketingCliCommands(
       path: ['google-ads', 'snapshot'],
       usage: 'canonry google-ads snapshot <project> <snapshot-id> [--format json]',
       run: async (input) => {
+        const { googleAdsSnapshot } = await import('../commands/google-marketing.js')
         const usage = 'canonry google-ads snapshot <project> <snapshot-id> [--format json]'
         const project = requireProject(input, 'google-ads.snapshot', usage)
         await googleAdsSnapshot(createClient(), project, requirePositional(input, 1, {
@@ -176,6 +157,7 @@ export function createGoogleMarketingCliCommands(
       path: ['gtm', 'disconnect'],
       usage: 'canonry gtm disconnect <project> [--format json]',
       run: async (input) => {
+        const { gtmDisconnect } = await import('../commands/google-marketing.js')
         const usage = 'canonry gtm disconnect <project> [--format json]'
         await gtmDisconnect(createClient(), requireProject(input, 'gtm.disconnect', usage), { format: input.format })
       },
@@ -184,6 +166,7 @@ export function createGoogleMarketingCliCommands(
       path: ['gtm', 'status'],
       usage: 'canonry gtm status <project> [--format json]',
       run: async (input) => {
+        const { gtmStatus } = await import('../commands/google-marketing.js')
         const usage = 'canonry gtm status <project> [--format json]'
         await gtmStatus(createClient(), requireProject(input, 'gtm.status', usage), { format: input.format })
       },
@@ -192,6 +175,7 @@ export function createGoogleMarketingCliCommands(
       path: ['gtm', 'accounts'],
       usage: 'canonry gtm accounts <project> [--format json|jsonl]',
       run: async (input) => {
+        const { gtmAccounts } = await import('../commands/google-marketing.js')
         const usage = 'canonry gtm accounts <project> [--format json|jsonl]'
         await gtmAccounts(createClient(), requireProject(input, 'gtm.accounts', usage), { format: input.format })
       },
@@ -201,6 +185,7 @@ export function createGoogleMarketingCliCommands(
       usage: 'canonry gtm containers <project> --account <account-id> [--format json|jsonl]',
       options: { account: stringOption() },
       run: async (input) => {
+        const { gtmContainers } = await import('../commands/google-marketing.js')
         const usage = 'canonry gtm containers <project> --account <account-id> [--format json|jsonl]'
         const project = requireProject(input, 'gtm.containers', usage)
         await gtmContainers(createClient(), project, requireStringOption(input, 'account', {
@@ -213,6 +198,7 @@ export function createGoogleMarketingCliCommands(
       usage: 'canonry gtm workspaces <project> --account <account-id> --container <container-id> [--format json|jsonl]',
       options: { account: stringOption(), container: stringOption() },
       run: async (input) => {
+        const { gtmWorkspaces } = await import('../commands/google-marketing.js')
         const usage = 'canonry gtm workspaces <project> --account <account-id> --container <container-id> [--format json|jsonl]'
         const project = requireProject(input, 'gtm.workspaces', usage)
         const accountId = requireStringOption(input, 'account', { command: 'gtm.workspaces', usage, message: '--account is required' })
@@ -225,6 +211,7 @@ export function createGoogleMarketingCliCommands(
       usage: 'canonry gtm select <project> --account <account-id> --container <container-id> [--workspace <workspace-id>] [--format json]',
       options: { account: stringOption(), container: stringOption(), workspace: stringOption() },
       run: async (input) => {
+        const { gtmSelect } = await import('../commands/google-marketing.js')
         const usage = 'canonry gtm select <project> --account <account-id> --container <container-id> [--workspace <workspace-id>] [--format json]'
         const project = requireProject(input, 'gtm.select', usage)
         const accountId = requireStringOption(input, 'account', { command: 'gtm.select', usage, message: '--account is required' })
@@ -241,6 +228,7 @@ export function createGoogleMarketingCliCommands(
       path: ['gtm', 'sync'],
       usage: 'canonry gtm sync <project> [--format json]',
       run: async (input) => {
+        const { gtmSync } = await import('../commands/google-marketing.js')
         const usage = 'canonry gtm sync <project> [--format json]'
         await gtmSync(createClient(), requireProject(input, 'gtm.sync', usage), { format: input.format })
       },
@@ -250,6 +238,7 @@ export function createGoogleMarketingCliCommands(
       usage: 'canonry gtm snapshots <project> [--limit <n>] [--cursor <opaque>] [--format json|jsonl]',
       options: { limit: stringOption(), cursor: stringOption() },
       run: async (input) => {
+        const { gtmSnapshots } = await import('../commands/google-marketing.js')
         const usage = 'canonry gtm snapshots <project> [--limit <n>] [--cursor <opaque>] [--format json|jsonl]'
         await gtmSnapshots(createClient(), requireProject(input, 'gtm.snapshots', usage), {
           limit: snapshotLimit(input, 'gtm.snapshots', usage),
@@ -262,6 +251,7 @@ export function createGoogleMarketingCliCommands(
       path: ['gtm', 'snapshot'],
       usage: 'canonry gtm snapshot <project> <snapshot-id> [--format json]',
       run: async (input) => {
+        const { gtmSnapshot } = await import('../commands/google-marketing.js')
         const usage = 'canonry gtm snapshot <project> <snapshot-id> [--format json]'
         const project = requireProject(input, 'gtm.snapshot', usage)
         await gtmSnapshot(createClient(), project, requirePositional(input, 1, {
@@ -273,6 +263,7 @@ export function createGoogleMarketingCliCommands(
       path: ['conversion-tracking', 'contracts'],
       usage: 'canonry conversion-tracking contracts <project> [--format json|jsonl]',
       run: async (input) => {
+        const { conversionTrackingContracts } = await import('../commands/google-marketing.js')
         const usage = 'canonry conversion-tracking contracts <project> [--format json|jsonl]'
         await conversionTrackingContracts(createClient(), requireProject(input, 'conversion-tracking.contracts', usage), { format: input.format })
       },
@@ -281,6 +272,7 @@ export function createGoogleMarketingCliCommands(
       path: ['conversion-tracking', 'contracts', 'get'],
       usage: 'canonry conversion-tracking contracts get <project> <contract-id> [--format json]',
       run: async (input) => {
+        const { conversionTrackingContract } = await import('../commands/google-marketing.js')
         const usage = 'canonry conversion-tracking contracts get <project> <contract-id> [--format json]'
         const project = requireProject(input, 'conversion-tracking.contracts.get', usage)
         await conversionTrackingContract(createClient(), project, requirePositional(input, 1, {
@@ -293,6 +285,7 @@ export function createGoogleMarketingCliCommands(
       usage: 'canonry conversion-tracking contracts create <project> --input <json-file|-> [--format json]',
       options: { input: stringOption() },
       run: async (input) => {
+        const { conversionTrackingCreate, readConversionTrackingContractInput } = await import('../commands/google-marketing.js')
         const usage = 'canonry conversion-tracking contracts create <project> --input <json-file|-> [--format json]'
         await conversionTrackingCreate(createClient(), requireProject(input, 'conversion-tracking.contracts.create', usage), readConversionTrackingContractInput(getString(input.values, 'input')), { format: input.format })
       },
@@ -302,6 +295,7 @@ export function createGoogleMarketingCliCommands(
       usage: 'canonry conversion-tracking contracts update <project> <contract-id> --input <json-file|-> [--format json]',
       options: { input: stringOption() },
       run: async (input) => {
+        const { conversionTrackingUpdate, readConversionTrackingContractInput } = await import('../commands/google-marketing.js')
         const usage = 'canonry conversion-tracking contracts update <project> <contract-id> --input <json-file|-> [--format json]'
         const project = requireProject(input, 'conversion-tracking.contracts.update', usage)
         const contractId = requirePositional(input, 1, { command: 'conversion-tracking.contracts.update', usage, message: 'contract id is required' })
@@ -312,6 +306,7 @@ export function createGoogleMarketingCliCommands(
       path: ['conversion-tracking', 'contracts', 'delete'],
       usage: 'canonry conversion-tracking contracts delete <project> <contract-id> [--format json]',
       run: async (input) => {
+        const { conversionTrackingDelete } = await import('../commands/google-marketing.js')
         const usage = 'canonry conversion-tracking contracts delete <project> <contract-id> [--format json]'
         const project = requireProject(input, 'conversion-tracking.contracts.delete', usage)
         await conversionTrackingDelete(createClient(), project, requirePositional(input, 1, {
@@ -323,6 +318,7 @@ export function createGoogleMarketingCliCommands(
       path: ['conversion-tracking', 'contracts', 'integrity'],
       usage: 'canonry conversion-tracking contracts integrity <project> <contract-id> [--format json|jsonl]',
       run: async (input) => {
+        const { conversionTrackingIntegrity } = await import('../commands/google-marketing.js')
         const usage = 'canonry conversion-tracking contracts integrity <project> <contract-id> [--format json|jsonl]'
         const project = requireProject(input, 'conversion-tracking.contracts.integrity', usage)
         await conversionTrackingIntegrity(createClient(), project, requirePositional(input, 1, {

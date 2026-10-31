@@ -5,7 +5,7 @@ import type {
   TrafficConnectCloudflareRequest,
   TrafficConnectCloudflareResponse,
   TrafficSourceDto,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CliError } from '../src/cli-error.js'
 import type { CanonryConfig } from '../src/config.js'
@@ -17,6 +17,7 @@ const response: TrafficConnectCloudflareResponse = {
   workerScript: 'export default { async fetch(request, env) { return fetch(request) } }',
   wranglerToml: 'main = "worker.js"\n[secrets]\nrequired = ["CANONRY_BEARER_TOKEN", "CANONRY_HMAC_SECRET"]\n',
   workerVersion: '1.0.0',
+  forwardPageViews: false,
   instructions: 'Attach `example.com/*` manually. Set Request limit failure mode to Fail open before activation.',
 }
 
@@ -31,6 +32,7 @@ const queueResponse: TrafficConnectCloudflareResponse = {
   workerScript: 'export default { async fetch(request, env) { return fetch(request) } }',
   wranglerToml: 'main = "worker.js"\n[[queues.producers]]\nqueue = "canonry-traffic"\n',
   workerVersion: '1.0.0',
+  forwardPageViews: false,
   instructions: 'Deploy the Worker, then activate queue delivery.',
 }
 
@@ -181,6 +183,49 @@ describe('trafficConnectCloudflare', () => {
       accountId: 'account_test',
       zoneId: 'zone_test',
     })
+  })
+
+  it('passes page-view forwarding only when a flag asks for it, and reports it', async () => {
+    const requests: TrafficConnectCloudflareRequest[] = []
+    const connect = (forwardPageViews: boolean | undefined) => trafficConnectCloudflare('demo', {
+      outputDirectory: path.join(scratch(), 'worker'),
+      forwardPageViews,
+      format: 'json',
+    }, {
+      client: {
+        trafficConnectCloudflare: async (_project, body) => {
+          requests.push(body)
+          return { ...response, forwardPageViews: body.forwardPageViews === true, workerVersion: body.forwardPageViews ? '1.0.0+page-views' : '1.0.0' }
+        },
+      },
+      loadLocalConfig: () => localConfig('bearer', 'hmac'),
+    })
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+    try {
+      await connect(true)
+      await connect(false)
+      await connect(undefined)
+      expect(requests.map(r => 'forwardPageViews' in r ? r.forwardPageViews : 'omitted')).toEqual([true, false, 'omitted'])
+      expect(JSON.parse(String(log.mock.calls[0]![0]))).toMatchObject({ forwardPageViews: true, workerVersion: '1.0.0+page-views' })
+    } finally {
+      log.mockRestore()
+    }
+  })
+
+  it('bundle-checks the page-view Worker during deploy preflight', async () => {
+    const preflight = vi.fn(async () => { throw new Error('stop after preflight') })
+    await expect(trafficConnectCloudflare('demo', {
+      outputDirectory: path.join(scratch(), 'worker'),
+      zoneId: 'zone_test',
+      forwardPageViews: true,
+      deploy: true,
+      confirmRoute: true,
+      confirmFailOpen: true,
+    }, {
+      client: { trafficConnectCloudflare: async () => response },
+      preflightWrangler: preflight,
+    })).rejects.toMatchObject({ code: 'TRAFFIC_CLOUDFLARE_WRANGLER_UNSUPPORTED' })
+    expect(preflight).toHaveBeenCalledWith({ deliveryMode: 'direct-push', forwardPageViews: true })
   })
 
   it('reads the queue token only from a regular file and keeps it out of output and artifacts', async () => {

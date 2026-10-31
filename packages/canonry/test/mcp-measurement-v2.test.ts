@@ -121,6 +121,38 @@ const draftActionCasesRaw = [
     args: [project, { pairs: [{ targetKey: 'target-a', queryId: 'query-a' }] }, idempotencyKey, etag],
   },
   {
+    action: 'preview-route-markets',
+    input: {
+      project,
+      action: 'preview-route-markets',
+      request: { marketKeys: ['market-a'], contextOverride: { providers: ['openai'], models: { openai: 'gpt-5' } } },
+    },
+    method: 'previewMeasurementDraftMarketRouting',
+    args: [project, { marketKeys: ['market-a'], contextOverride: { providers: ['openai'], models: { openai: 'gpt-5' } } }],
+  },
+  {
+    action: 'route-markets',
+    input: {
+      project,
+      action: 'route-markets',
+      request: {
+        marketKeys: ['market-a'],
+        targetKeys: ['target-a'],
+        queryIds: ['query-a'],
+        contextOverride: { providers: ['openai'], models: { openai: 'gpt-5' } },
+      },
+      etag,
+      idempotencyKey,
+    },
+    method: 'routeMeasurementDraftMarkets',
+    args: [project, {
+      marketKeys: ['market-a'],
+      targetKeys: ['target-a'],
+      queryIds: ['query-a'],
+      contextOverride: { providers: ['openai'], models: { openai: 'gpt-5' } },
+    }, idempotencyKey, etag],
+  },
+  {
     action: 'remove-assignment',
     input: { project, action: 'remove-assignment', request: { targetKey: 'target-a', queryId: 'query-a' }, etag, idempotencyKey },
     method: 'removeMeasurementDraftAssignment',
@@ -248,7 +280,7 @@ const readToolCases = [
     operation: 'GET /api/v1/projects/{name}/measurement-overview',
     input: { project, scope: 'all', search: 'Target', limit: 25, sort: 'citationCoverage-asc' },
     method: 'getMeasurementOverview',
-    args: [project, { scope: 'all', search: 'Target', limit: 25, sort: 'citationCoverage-asc' }],
+    args: [project, { scope: 'all', search: 'Target', limit: 25, sort: 'citationCoverage-asc', queryClass: 'non-brand', compact: true }],
   },
   {
     name: 'canonry_measurement_draft_get',
@@ -370,6 +402,7 @@ function makeClient() {
   return {
     getMeasurementSetup: vi.fn().mockResolvedValue({}),
     getMeasurementOverview: vi.fn().mockResolvedValue({}),
+    getMeasurementReport: vi.fn().mockResolvedValue({}),
     getMeasurementPlanDraft: vi.fn().mockResolvedValue({}),
     getMeasurementDraftTargets: vi.fn().mockResolvedValue({}),
     getMeasurementDraftAssignments: vi.fn().mockResolvedValue({}),
@@ -389,6 +422,8 @@ function makeClient() {
     previewMeasurementDraftAssignments: vi.fn().mockResolvedValue({}),
     replaceMeasurementDraftAssignments: vi.fn().mockResolvedValue({}),
     applyPairedMeasurementDraftAssignments: vi.fn().mockResolvedValue({}),
+    previewMeasurementDraftMarketRouting: vi.fn().mockResolvedValue({}),
+    routeMeasurementDraftMarkets: vi.fn().mockResolvedValue({}),
     removeMeasurementDraftAssignment: vi.fn().mockResolvedValue({}),
     clearMeasurementDraftAssignments: vi.fn().mockResolvedValue({}),
     classifyMeasurementDraftAssignments: vi.fn().mockResolvedValue({}),
@@ -472,7 +507,38 @@ describe('Advanced Measurement v2 MCP tools', () => {
     expect(client.getMeasurementOverview).toHaveBeenCalledWith(project, {
       scope: 'all',
       sort: 'mentionCoverage-desc',
+      queryClass: 'non-brand',
+      compact: true,
     })
+  })
+
+  it('reads one class through the overview tool, non-brand unless the agent names another, and reaches a market by its key', async () => {
+    const tool = toolFor('canonry_measurement_overview')
+    const call = async (input: Record<string, unknown>) => {
+      const client = makeClient()
+      await tool.handler(client as unknown as ApiClient, tool.inputSchema.parse({ project, ...input }))
+      return client.getMeasurementOverview.mock.calls[0]![1] as Record<string, unknown>
+    }
+
+    // Aero validates against the JSON schema without zod defaults, so the
+    // handler itself must send the class.
+    expect((await call({ scope: 'all' })).queryClass).toBe('non-brand')
+    expect((await call({ scope: 'all', queryClass: 'branded' })).queryClass).toBe('branded')
+    expect((await call({ scope: 'all', queryClass: 'all' })).queryClass).toBe('all')
+    expect(await call({ scope: 'market', marketKey: 'downtown' })).toMatchObject({ scope: 'market', marketKey: 'downtown', queryClass: 'non-brand' })
+    expect(tool.inputSchema.safeParse({ project, scope: 'market' }).success).toBe(false)
+    expect(tool.inputSchema.safeParse({ project, scope: 'group', groupKey: 'downtown', marketKey: 'downtown' }).success).toBe(false)
+  })
+
+  it('sends a report class only when the agent names one, so a schema v1 revision is never refused by default', async () => {
+    const tool = toolFor('canonry_measurement_report')
+    const client = makeClient()
+    await tool.handler(client as unknown as ApiClient, tool.inputSchema.parse({ project, revision: 2 }))
+    await tool.handler(client as unknown as ApiClient, tool.inputSchema.parse({ project, revision: 2, queryClass: 'branded' }))
+    expect(client.getMeasurementReport.mock.calls).toEqual([
+      [project, 2, undefined, undefined],
+      [project, 2, undefined, 'branded'],
+    ])
   })
 
   it('keeps draft action headers action-specific', () => {
@@ -497,6 +563,18 @@ describe('Advanced Measurement v2 MCP tools', () => {
     expect(schema.safeParse({ project, operation: { action: 'compile-preview' } }).success).toBe(true)
     expect(schema.safeParse({ project, operation: { action: 'compile-preview', etag } }).success).toBe(false)
     expect(schema.safeParse({ project, operation: { action: 'diff-preview', idempotencyKey } }).success).toBe(false)
+    expect(schema.safeParse({
+      project,
+      operation: {
+        action: 'route-markets',
+        request: {
+          marketKeys: ['market-a'],
+          contextOverride: { providers: ['openai'], locations: ['Boston'] },
+        },
+        etag,
+        idempotencyKey,
+      },
+    }).success).toBe(false)
     expect(schema.safeParse({
       project,
       operation: {

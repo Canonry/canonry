@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { syncAgentOperations } from './sync-agent-operations.mjs'
+import { syncAgentOperations, syncMirroredReferences } from './sync-agent-operations.mjs'
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const managedSkills = ['aero', 'canonry']
@@ -332,29 +332,55 @@ function checkVersionAdvancement(ref, failures) {
     return
   }
 
-  if (changedFiles.length === 0) return
+  const requireAdvance = (relativePaths, changed, reason) => {
+    for (const relativePath of relativePaths) {
+      const baseManifest = readJsonAtRef(mergeBase, relativePath)
+      if (!baseManifest) continue
 
-  const versionFiles = [rootManifestPath, packageManifestPath, ...pluginManifestPaths]
-  for (const filePath of versionFiles) {
-    const relativePath = path.relative(repoRoot, filePath)
-    const baseManifest = readJsonAtRef(mergeBase, relativePath)
-    if (!baseManifest) continue
-
-    const currentVersion = readJson(filePath).version
-    const comparison = compareSemver(currentVersion, baseManifest.version)
-    if (comparison === undefined) {
-      failures.push(`${relativePath} has a non-semver version (${baseManifest.version} -> ${currentVersion})`)
-    } else if (comparison <= 0) {
-      failures.push(
-        `${relativePath} version must advance beyond ${baseManifest.version} because plugin inputs changed: ${changedFiles.join(', ')}`,
-      )
+      const currentVersion = readJson(path.join(repoRoot, relativePath)).version
+      const comparison = compareSemver(currentVersion, baseManifest.version)
+      if (comparison === undefined) {
+        failures.push(`${relativePath} has a non-semver version (${baseManifest.version} -> ${currentVersion})`)
+      } else if (comparison <= 0) {
+        failures.push(`${relativePath} version must advance beyond ${baseManifest.version} because ${reason}: ${changed.join(', ')}`)
+      }
     }
+  }
+
+  if (changedFiles.length > 0) {
+    const versionFiles = [rootManifestPath, packageManifestPath, ...pluginManifestPaths]
+    requireAdvance(versionFiles.map(filePath => path.relative(repoRoot, filePath)), changedFiles, 'plugin inputs changed')
+  }
+
+  // The remote plugin versions on its own. Codex and Claude Code fetch a new copy
+  // only when its manifest version changes, so an unbumped edit never reaches
+  // anyone who already installed it.
+  let remoteChanged
+  try {
+    remoteChanged = runGit([
+      'diff',
+      '--name-only',
+      '--diff-filter=ACDMRTUXB',
+      mergeBase,
+      '--',
+      'plugins/canonry-remote',
+    ]).split('\n').filter(Boolean)
+  } catch {
+    failures.push(`cannot compare remote plugin paths with merge base ${mergeBase}`)
+    return
+  }
+  if (remoteChanged.length > 0) {
+    requireAdvance(
+      ['plugins/canonry-remote/plugin.json', 'plugins/canonry-remote/.claude-plugin/plugin.json'],
+      remoteChanged,
+      'the remote plugin changed',
+    )
   }
 }
 
 const packageVersion = readJson(packageManifestPath).version
 const rootVersion = readJson(rootManifestPath).version
-const failures = syncAgentOperations(repoRoot, checkOnly)
+const failures = [...syncAgentOperations(repoRoot, checkOnly), ...syncMirroredReferences(repoRoot, checkOnly)]
 
 validatePortablePlugin(failures)
 

@@ -4,9 +4,9 @@ import os from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
 import { beforeEach, expect, test } from 'vitest'
-import { createClient, migrate, projects, healthSnapshots } from '@ainyc/canonry-db'
+import { createClient, migrate, projects, healthSnapshots } from '@canonry/canonry-db'
 import { apiRoutes } from '../src/index.js'
-import type { HealthSnapshotDto } from '@ainyc/canonry-contracts'
+import type { HealthSnapshotDto } from '@canonry/canonry-contracts'
 
 function buildApp() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-health-latest-'))
@@ -136,7 +136,7 @@ test('still returns 404 when the project itself does not exist', async () => {
 })
 
 test('aggregates healthSnapshots across the latest fan-out group when a multi-location sweep wrote one snapshot per location (#480)', async () => {
-  const { runs } = await import('@ainyc/canonry-db')
+  const { runs } = await import('@canonry/canonry-db')
   const projectId = insertProject(ctx.db, 'multi-loc-health')
   const createdAt = '2026-05-13T17:23:20.060Z'
   const flRunId = '00000000-0000-0000-0000-0000000000ff'

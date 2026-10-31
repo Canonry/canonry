@@ -1,4 +1,5 @@
 import { SENTIMENT_CLI_COMMANDS } from './cli-commands/sentiment.js'
+import { SEO_CLI_COMMANDS } from './cli-commands/seo.js'
 import type { CliCommandSpec } from './cli-dispatch.js'
 import { DEMO_CLI_COMMANDS } from './cli-commands/demo.js'
 import { createApiClient } from './client.js'
@@ -6,6 +7,7 @@ import { BACKFILL_CLI_COMMANDS } from './cli-commands/backfill.js'
 import { BACKLINKS_CLI_COMMANDS } from './cli-commands/backlinks.js'
 import { BING_CLI_COMMANDS } from './cli-commands/bing.js'
 import { CDP_CLI_COMMANDS } from './cli-commands/cdp.js'
+import { DASHBOARD_CLI_COMMANDS } from './cli-commands/dashboard.js'
 import { DISCOVER_CLI_COMMANDS } from './cli-commands/discover.js'
 import { RESEARCH_CLI_COMMANDS } from './cli-commands/research.js'
 import { DOCTOR_CLI_COMMANDS } from './cli-commands/doctor.js'
@@ -15,6 +17,7 @@ import { GBP_CLI_COMMANDS } from './cli-commands/gbp.js'
 import { createGoogleMarketingCliCommands } from './cli-commands/google-marketing.js'
 import { GET_CLI_COMMANDS } from './cli-commands/get.js'
 import { TRAFFIC_CLI_COMMANDS } from './cli-commands/traffic.js'
+import { JOURNEYS_CLI_COMMANDS } from './cli-commands/journeys.js'
 import { COMPETITOR_CLI_COMMANDS } from './cli-commands/competitor.js'
 import { GOOGLE_CLI_COMMANDS } from './cli-commands/google.js'
 import { KEYS_CLI_COMMANDS } from './cli-commands/keys.js'
@@ -25,7 +28,6 @@ import { MCP_CLI_COMMANDS } from './cli-commands/mcp.js'
 import { NOTIFY_CLI_COMMANDS } from './cli-commands/notify.js'
 import { OPERATOR_CLI_COMMANDS } from './cli-commands/operator.js'
 import { PROJECT_CLI_COMMANDS } from './cli-commands/project.js'
-import { REPORT_CLI_COMMANDS } from './cli-commands/report.js'
 import { ORGANIC_EVIDENCE_CLI_COMMANDS } from './cli-commands/organic-evidence.js'
 import { RUN_CLI_COMMANDS } from './cli-commands/run.js'
 import { SCHEDULE_CLI_COMMANDS } from './cli-commands/schedule.js'
@@ -40,15 +42,16 @@ import { VISIBILITY_STATS_CLI_COMMANDS } from './cli-commands/visibility-stats.j
 import { WORDPRESS_CLI_COMMANDS } from './cli-commands/wordpress.js'
 import { AGENT_CLI_COMMANDS } from './cli-commands/agent.js'
 import { MEASUREMENT_PLAN_CLI_COMMANDS } from './cli-commands/measurement-plan.js'
+import { resolveCliAccess } from './cli-access.js'
 
-export const REGISTERED_CLI_COMMANDS: readonly CliCommandSpec[] = [
+const REGISTERED_COMMANDS: readonly CliCommandSpec[] = [
   ...DEMO_CLI_COMMANDS,
   ...SENTIMENT_CLI_COMMANDS,
+  ...SEO_CLI_COMMANDS,
   ...BACKFILL_CLI_COMMANDS,
   ...BACKLINKS_CLI_COMMANDS,
   ...SYSTEM_CLI_COMMANDS,
   ...PROJECT_CLI_COMMANDS,
-  ...REPORT_CLI_COMMANDS,
   ...ORGANIC_EVIDENCE_CLI_COMMANDS,
   ...QUERY_CLI_COMMANDS,
   ...KEYWORD_CLI_COMMANDS,
@@ -56,6 +59,7 @@ export const REGISTERED_CLI_COMMANDS: readonly CliCommandSpec[] = [
   ...USERS_CLI_COMMANDS,
   ...COMPETITOR_CLI_COMMANDS,
   ...SETTINGS_CLI_COMMANDS,
+  ...DASHBOARD_CLI_COMMANDS,
   ...SKILLS_CLI_COMMANDS,
   ...SNAPSHOT_CLI_COMMANDS,
   ...RUN_CLI_COMMANDS,
@@ -71,6 +75,7 @@ export const REGISTERED_CLI_COMMANDS: readonly CliCommandSpec[] = [
   ...GBP_CLI_COMMANDS,
   ...createGoogleMarketingCliCommands(createApiClient),
   ...TRAFFIC_CLI_COMMANDS,
+  ...JOURNEYS_CLI_COMMANDS,
   ...INTELLIGENCE_CLI_COMMANDS,
   ...VISIBILITY_STATS_CLI_COMMANDS,
   ...CONTENT_CLI_COMMANDS,
@@ -83,3 +88,8 @@ export const REGISTERED_CLI_COMMANDS: readonly CliCommandSpec[] = [
   ...MCP_CLI_COMMANDS,
   ...MEASUREMENT_PLAN_CLI_COMMANDS,
 ]
+
+export const REGISTERED_CLI_COMMANDS: readonly CliCommandSpec[] = REGISTERED_COMMANDS.map(spec => ({
+  ...spec,
+  access: resolveCliAccess(spec),
+}))

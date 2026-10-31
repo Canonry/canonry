@@ -21,11 +21,13 @@ vi.mock('../src/client.js', () => ({
 }))
 
 import { TECHNICAL_AEO_CLI_COMMANDS } from '../src/cli-commands/technical-aeo.js'
+import { dispatchRegisteredCommand } from '../src/cli-dispatch.js'
 import {
   technicalAeoChanges,
   technicalAeoCrawlPages,
   technicalAeoDeadLinks,
   technicalAeoInternalLinks,
+  technicalAeoLinkNeighbors,
   technicalAeoPageAudit,
   technicalAeoProgress,
   technicalAeoScore,
@@ -68,16 +70,13 @@ async function captureConsole(fn: () => Promise<void>): Promise<string[]> {
 }
 
 describe('Technical AEO full-crawl CLI', () => {
-  it('leaves omitted budgets for the API to normalize into the shared default identity', async () => {
+  // The API resolves an omitted page budget (the project's saved one, else the
+  // full site), so the CLI must not fill one in.
+  it('leaves omitted budgets for the API to resolve', async () => {
     mocked.triggerSiteAudit.mockResolvedValue({ runId: 'run-defaults', status: 'queued' })
     const log = vi.spyOn(console, 'log').mockImplementation(() => undefined)
     try {
-      await command(['technical-aeo', 'run']).run({
-        positionals: ['acme'],
-        values: { wait: false },
-        format: 'json',
-        dryRun: false,
-      })
+      await dispatchRegisteredCommand(['technical-aeo', 'run', 'acme'], 'json', TECHNICAL_AEO_CLI_COMMANDS)
     } finally {
       log.mockRestore()
     }
@@ -87,19 +86,27 @@ describe('Technical AEO full-crawl CLI', () => {
       maxPages: undefined,
       maxEdges: undefined,
       checkDeadLinks: false,
+      includeGeo: false,
+      includeAgentSkills: true,
     }))
+  })
+
+  it('says in --help that an omitted --max-pages uses the saved budget, else the full site, and that --wait can stop first', async () => {
+    const help = (await captureConsole(async () => {
+      await dispatchRegisteredCommand(['technical-aeo', 'run', '--help'], 'text', TECHNICAL_AEO_CLI_COMMANDS)
+    })).join('\n')
+    expect(help).toContain('Usage:  canonry technical-aeo run <project> [--sitemap-url <url>] [--max-pages <n>]')
+    expect(help).toContain("Without --max-pages the scan uses the project's saved page budget (canonry project update <project> --site-audit-max-pages <n|full>), else the full site, up to 50,000 pages.")
+    expect(help).toContain('--wait polls for up to 15 minutes, so a large full-site scan can outlast it; follow it with canonry technical-aeo progress <project> --run-id <id>.')
   })
 
   it('keeps dead-link checks off unless --check-dead-links is explicitly supplied', async () => {
     mocked.triggerSiteAudit.mockResolvedValue({ runId: 'run-1', status: 'queued' })
     const log = vi.spyOn(console, 'log').mockImplementation(() => undefined)
     try {
-      await command(['technical-aeo', 'run']).run({
-        positionals: ['acme'],
-        values: { 'max-pages': '50000', 'max-edges': '1000000', 'max-depth': '12', wait: false },
-        format: 'json',
-        dryRun: false,
-      })
+      await dispatchRegisteredCommand([
+        'technical-aeo', 'run', 'acme', '--max-pages', '50000', '--max-edges', '1000000', '--max-depth', '12',
+      ], 'json', TECHNICAL_AEO_CLI_COMMANDS)
     } finally {
       log.mockRestore()
     }
@@ -111,6 +118,8 @@ describe('Technical AEO full-crawl CLI', () => {
       maxEdges: 1_000_000,
       maxDepth: 12,
       checkDeadLinks: false,
+      includeGeo: false,
+      includeAgentSkills: true,
     })
   })
 
@@ -481,6 +490,8 @@ describe('Technical AEO full-crawl CLI', () => {
     mocked.getTechnicalAeoCrawlPages.mockResolvedValue({
       project: 'acme',
       runId: 'run-1',
+      complete: false,
+      termination: 'max-pages',
       total: 2,
       nextCursor: 'page-2',
       pages: [{ url: 'https://acme.test/', nodeKey: 'page:root' }],
@@ -494,6 +505,8 @@ describe('Technical AEO full-crawl CLI', () => {
         kind: 'technical-aeo-crawl-pages-header',
         project: 'acme',
         runId: 'run-1',
+        complete: false,
+        termination: 'max-pages',
         total: 2,
         nextCursor: 'page-2',
       },
@@ -505,6 +518,8 @@ describe('Technical AEO full-crawl CLI', () => {
     mocked.getTechnicalAeoStructure.mockResolvedValue({
       project: 'acme',
       runId: 'run-1',
+      complete: true,
+      termination: 'complete',
       parentPath: '/guides',
       total: 2,
       nextCursor: 'path-2',
@@ -519,6 +534,8 @@ describe('Technical AEO full-crawl CLI', () => {
         kind: 'technical-aeo-structure-header',
         project: 'acme',
         runId: 'run-1',
+        complete: true,
+        termination: 'complete',
         parentPath: '/guides',
         returned: 1,
         nextCursor: 'path-2',
@@ -538,6 +555,8 @@ describe('Technical AEO full-crawl CLI', () => {
     mocked.getTechnicalAeoInternalLinks.mockResolvedValue({
       project: 'acme',
       runId: 'run-1',
+      complete: false,
+      termination: 'max-pages',
       total: 2,
       nextCursor: 'link-2',
       edges: [{ sourceUrl: 'https://acme.test/', targetUrl: 'https://acme.test/a', followable: true, occurrences: 1 }],
@@ -551,6 +570,8 @@ describe('Technical AEO full-crawl CLI', () => {
         kind: 'technical-aeo-internal-links-header',
         project: 'acme',
         runId: 'run-1',
+        complete: false,
+        termination: 'max-pages',
         total: 2,
         nextCursor: 'link-2',
       },
@@ -755,6 +776,67 @@ function coreScore(recorded: boolean) {
     prioritizedFixes: [],
   }
 }
+
+describe('crawl reads from a scan that stopped at its budget', () => {
+  const PARTIAL_NOTE = 'Partial crawl (max-pages): pages and links beyond the crawl budget were not observed, so a missing page or link is not proof it does not exist.'
+  const neighbors = (complete: boolean) => ({
+    project: 'acme', hasCrawlData: true, runId: 'run-1', complete, termination: complete ? 'complete' : 'max-pages',
+    nodeKey: 'home', url: 'https://acme.test/', templateDetection: 'applied-placement', linkKind: 'all',
+    inbound: [],
+    outbound: [{ sourceUrl: 'https://acme.test/', targetUrl: 'https://acme.test/a' }],
+    inboundTruncated: false, outboundTruncated: false,
+  })
+
+  it('says an empty neighbor list from a partial crawl is not a site-wide absence', async () => {
+    mocked.getTechnicalAeoInternalLinkNeighbors.mockResolvedValue(neighbors(false))
+    const [output] = await captureConsole(() => technicalAeoLinkNeighbors('acme', { nodeKey: 'home' }))
+    expect(output!.split('\n')).toEqual([
+      'Internal links for https://acme.test/:',
+      '',
+      'Inbound:',
+      '  (none observed in this partial crawl)',
+      '',
+      'Outbound:',
+      '  https://acme.test/ → https://acme.test/a',
+      '',
+      PARTIAL_NOTE,
+    ])
+  })
+
+  it('keeps the plain empty marker and no caveat for a complete crawl', async () => {
+    mocked.getTechnicalAeoInternalLinkNeighbors.mockResolvedValue(neighbors(true))
+    const [output] = await captureConsole(() => technicalAeoLinkNeighbors('acme', { nodeKey: 'home' }))
+    expect(output!.split('\n')).toContain('  (none)')
+    expect(output).not.toContain('Partial crawl')
+  })
+
+  it('adds the caveat to page, structure, and link lists, empty or not', async () => {
+    const partial = { project: 'acme', hasCrawlData: true, runId: 'run-1', complete: false, termination: 'max-pages', nextCursor: null }
+    mocked.getTechnicalAeoCrawlPages.mockResolvedValue({
+      ...partial, total: 1, healthStateFilter: null,
+      pages: [{ url: 'https://acme.test/', nodeKey: 'home', depth: 0, auditScore: 90, indexabilityState: 'indexable' }],
+    })
+    mocked.getTechnicalAeoStructure.mockResolvedValue({ ...partial, parentPath: '/', children: [] })
+    mocked.getTechnicalAeoInternalLinks.mockResolvedValue({
+      ...partial, total: 0, templateDetection: 'applied-placement', linkKind: 'all', edges: [],
+    })
+
+    const [pages] = await captureConsole(() => technicalAeoCrawlPages('acme', {}))
+    const [structure] = await captureConsole(() => technicalAeoStructure('acme', {}))
+    const [links] = await captureConsole(() => technicalAeoInternalLinks('acme', {}))
+    expect(pages!.split('\n').at(-1)).toBe(PARTIAL_NOTE)
+    expect(structure!.split('\n')).toEqual(['No crawl structure below / for "acme".', PARTIAL_NOTE])
+    expect(links!.split('\n')).toEqual(['No persisted internal links for "acme".', PARTIAL_NOTE])
+  })
+
+  it('stays silent about completeness for a server too old to report it', async () => {
+    const { complete: _complete, termination: _termination, ...legacy } = neighbors(false)
+    mocked.getTechnicalAeoInternalLinkNeighbors.mockResolvedValue(legacy)
+    const [output] = await captureConsole(() => technicalAeoLinkNeighbors('acme', { nodeKey: 'home' }))
+    expect(output!.split('\n')).toContain('  (none)')
+    expect(output).not.toContain('Partial crawl')
+  })
+})
 
 describe('Technical AEO factor shares in the CLI', () => {
   it('prints each factor share of the site score, and the shares add up to 100%', async () => {

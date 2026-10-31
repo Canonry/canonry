@@ -1,14 +1,21 @@
 import { stringify } from 'yaml'
 import { createApiClient, type ApiClient, type ExportDto } from '../client.js'
 import { isEndpointMissing, isMachineFormat } from '../cli-error.js'
+import { isRedactedNotificationUrl } from '@canonry/canonry-contracts'
 
 export async function exportProject(
   project: string,
-  opts: { includeResults?: boolean; format?: string },
+  opts: { includeResults?: boolean; includeSecrets?: boolean; format?: string },
 ): Promise<void> {
   const client = createApiClient()
 
-  const data: ExportDto = await client.getExport(project)
+  const data: ExportDto = opts.includeSecrets
+    ? await client.getExport(project, { includeSecrets: true })
+    : await client.getExport(project)
+
+  if (data.spec.notifications?.some(notification => isRedactedNotificationUrl(notification.url))) {
+    console.error('Notification webhook URLs are redacted. Use --include-secrets with administrator authority to export them.')
+  }
 
   if (opts.includeResults) {
     const results = await loadLatestRunForExport(client, project)

@@ -1,0 +1,71 @@
+name: Change policy
+
+on:
+  workflow_call:
+    outputs:
+      owner_only:
+        description: Whether complete change provenance belongs exclusively to arberx
+        value: ${{ jobs.classify.outputs.owner_only }}
+
+jobs:
+  classify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      owner_only: ${{ steps.policy.outputs.owner_only }}
+    steps:
+      # Inspect metadata only; contributor code never executes here.
+      - id: policy
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const owner = user => user?.id === 14798762 && user.type === 'User';
+            const owned = commits => Array.isArray(commits) && commits.length > 0 &&
+              commits.length <= 100 && commits.every(commit => owner(commit.author));
+            const event = context.payload;
+            const sha = /^[a-f0-9]{40}$/;
+            const ownedPull = async pull => {
+              if (!owner(pull?.user) || !event.repository?.id || pull.head?.repo?.id !== event.repository.id ||
+                  !Number.isInteger(pull.commits) || pull.commits < 1 || pull.commits > 100 || !sha.test(pull.head?.sha)) return false;
+              const { data: commits } = await github.rest.pulls.listCommits({
+                ...context.repo, pull_number: pull.number, per_page: 100, page: 1,
+              });
+              return owned(commits) && commits.length === pull.commits && commits.at(-1).sha === pull.head.sha;
+            };
+            let ownerOnly = false;
+            try {
+              if (owner(event.sender) && context.eventName === 'pull_request') {
+                ownerOnly = await ownedPull(event.pull_request);
+              } else if (owner(event.sender) && context.eventName === 'push' &&
+                         event.forced === false && event.deleted === false &&
+                         sha.test(event.before) && !/^0+$/.test(event.before) &&
+                         sha.test(event.after) && event.after === context.sha) {
+                const { data: range } = await github.rest.repos.compareCommitsWithBasehead({
+                  ...context.repo, basehead: `${event.before}...${event.after}`, per_page: 100, page: 1,
+                });
+                ownerOnly = range.status === 'ahead' && range.base_commit?.sha === event.before &&
+                  range.merge_base_commit?.sha === event.before && owned(range.commits) &&
+                  range.commits.length === range.total_commits && range.commits.at(-1).sha === event.after;
+                if (ownerOnly) for (const commit of range.commits) {
+                  const { data: pulls } = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+                    ...context.repo, commit_sha: commit.sha, per_page: 100, page: 1,
+                  });
+                  if (!Array.isArray(pulls) || pulls.length >= 100 || !pulls.every(pull => owner(pull.user))) {
+                    ownerOnly = false;
+                    break;
+                  }
+                  for (const pull of pulls) {
+                    const { data: source } = await github.rest.pulls.get({ ...context.repo, pull_number: pull.number });
+                    if (!await ownedPull(source)) ownerOnly = false;
+                  }
+                  if (!ownerOnly) break;
+                }
+              }
+            } catch (error) {
+              ownerOnly = false;
+              core.info(`Unknown change provenance; full validation applies: ${error.message}`);
+            }
+            core.setOutput('owner_only', String(ownerOnly));

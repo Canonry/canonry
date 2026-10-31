@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import { desc, eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { apiKeys, projects } from '@ainyc/canonry-db'
+import { apiKeys, dashboardSessions, projects } from '@canonry/canonry-db'
 import {
   createApiKeyRequestSchema,
   forbidden,
@@ -10,7 +10,7 @@ import {
   validationError,
   type ApiKeyDto,
   type CreatedApiKeyDto,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { hashApiKey, requireAdminSession, requireScope } from './auth.js'
 import { auditFromRequest, writeAuditLog } from './helpers.js'
 
@@ -221,6 +221,7 @@ export async function keysRoutes(app: FastifyInstance) {
 
     const now = new Date().toISOString()
     app.db.transaction((tx) => {
+      tx.delete(dashboardSessions).where(eq(dashboardSessions.apiKeyId, id)).run()
       tx.update(apiKeys).set({ revokedAt: now }).where(eq(apiKeys.id, id)).run()
       writeAuditLog(tx, auditFromRequest(request, {
         actor: 'api',

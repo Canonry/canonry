@@ -1,10 +1,10 @@
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
-import { REPORT_VISIBILITY_COPY, visibilityReportResponseSchema } from '@ainyc/canonry-contracts'
-import type { VisibilityReportComparison, VisibilityReportPopulationClass, VisibilityReportRate, VisibilityReportResponse } from '@ainyc/canonry-contracts'
+import { VISIBILITY_DISPLAY_COPY, visibilityReportResponseSchema } from '@canonry/canonry-contracts'
+import type { VisibilityReportComparison, VisibilityReportPopulationClass, VisibilityReportRate, VisibilityReportResponse } from '@canonry/canonry-contracts'
 import { CHART_SERIES_COLORS, CHART_TONE } from '../src/components/shared/ChartPrimitives.js'
-import { REPORT_CHANGE_COPY, REPORT_CLASS_NOUN, REPORT_HEADLINE_HELP, VisibilityReportView } from '../src/components/project/VisibilityTrendSection.js'
+import { REPORT_TREND_UNCHECKED_NOTE, REPORT_CHANGE_COPY, REPORT_CLASS_NOUN, REPORT_HEADLINE_HELP, VisibilityReportView } from '../src/components/project/VisibilityTrendSection.js'
 
 // jsdom lays out no SVG, so each Recharts Line renders as a span carrying the
 // props that decide what is drawn: its series key, stroke, dash, and dot.
@@ -15,7 +15,8 @@ vi.mock('recharts', async importOriginal => {
   return {
     ...actual,
     ResponsiveContainer: passthrough,
-    ComposedChart: passthrough,
+    // The plotted rows ride on an attribute, so a test reads which rates are drawn.
+    ComposedChart: ({ children, data }: { children?: ReactNode; data?: unknown[] }) => <div data-points={JSON.stringify(data ?? [])}>{children}</div>,
     CartesianGrid: nul,
     XAxis: nul,
     YAxis: nul,
@@ -30,15 +31,17 @@ afterEach(cleanup)
 // A midday-UTC sweep reads as the same calendar date in every zone from UTC-11 to UTC+11.
 const DISPLAYED_RUN_AT = '2026-09-13T12:00:00.000Z'
 const PREVIOUS_RUN = { id: 'run-1', createdAt: '2026-09-06T12:00:00.000Z', completedAt: '2026-09-06T12:30:00.000Z' }
-/** Same year as the displayed sweep, so the caption drops the year. */
+/** Same year as the displayed check, so the caption drops the year. */
 const PREVIOUS_DATE = 'Sep 6'
 const EARLIER_YEAR_RUN = { id: 'run-0', createdAt: '2025-12-28T12:00:00.000Z', completedAt: '2025-12-28T12:30:00.000Z' }
 const EARLIER_YEAR_DATE = 'Dec 28, 2025'
 const CLASS_LABEL = { 'non-brand': 'Non-brand queries', branded: 'Branded queries', unknown: 'Unclassified queries' } as const
 
-const VALUE_CLASS = 'text-3xl font-semibold tabular-nums text-heading'
-const DETAIL_CLASS = 'text-sm tabular-nums text-secondary'
-const REASON_CLASS = 'text-lg text-secondary'
+const VALUE_CLASS = 'text-heading-32 tabular-nums text-heading'
+const DETAIL_CLASS = 'text-label-14 tabular-nums text-secondary'
+// The left-out answers flag, pulled back so its icon lines up with the count above.
+const FLAG_CLASS = '-ml-2 flex'
+const REASON_CLASS = 'text-label-18 text-secondary'
 
 function rate(numerator: number, denominator: number): VisibilityReportRate {
   return { numerator, denominator, rate: numerator / denominator }
@@ -171,21 +174,21 @@ describe('headline strip', () => {
     expect(REPORT_CHANGE_COPY.down('8.3')).toBe('Down 8.3 pts')
     expect(REPORT_CHANGE_COPY.none).toBe('No change')
     expect(REPORT_CHANGE_COPY.previousUnavailable).toBe('No earlier value')
-    expect(REPORT_CHANGE_COPY.comparedWith(PREVIOUS_DATE)).toBe('vs Sep 6 sweep')
-    expect(REPORT_CHANGE_COPY.noPreviousRun).toBe('No earlier sweep to compare')
+    expect(REPORT_CHANGE_COPY.comparedWith(PREVIOUS_DATE)).toBe('vs Sep 6 check')
+    expect(REPORT_CHANGE_COPY.noPreviousRun).toBe('No earlier check to compare')
     expect(REPORT_CHANGE_COPY.definitionChanged(PREVIOUS_DATE)).toBe('Not compared: setup changed since Sep 6')
     expect(REPORT_CHANGE_COPY.definitionChanged(null)).toBe('Not compared: setup changed')
     expect(REPORT_CHANGE_COPY.modelChanged(PREVIOUS_DATE)).toBe('Not compared: engines or models changed since Sep 6')
     expect(REPORT_CHANGE_COPY.modelChanged(null)).toBe('Not compared: engines or models changed')
-    expect(REPORT_CHANGE_COPY.legacyUnknown).toBe('Not compared: older sweep lacks comparison details')
-    expect(REPORT_CHANGE_COPY.partialRun).toBe('Not compared: a sweep was incomplete')
-    expect(REPORT_CHANGE_COPY.scopedRun).toBe('Not compared: this sweep covered part of the project')
-    expect(REPORT_CHANGE_COPY.explanation).toBe('Change compares this sweep with the sweep before it when both completed and used the same setup, engines and models.')
+    expect(REPORT_CHANGE_COPY.legacyUnknown).toBe('Not compared: older check lacks comparison details')
+    expect(REPORT_CHANGE_COPY.partialRun).toBe('Not compared: a check was incomplete')
+    expect(REPORT_CHANGE_COPY.scopedRun).toBe('Not compared: this check covered part of the project')
+    expect(REPORT_CHANGE_COPY.explanation).toBe('Change compares this check with the check before it when both completed and used the same setup, engines and models.')
     // Mention reads the answer text and Cited reads the source links, in both modes.
     expect(REPORT_HEADLINE_HELP.simpleMention).toBe('Mentioned counts answers naming your brand in the answer text, not in the source links.')
     expect(REPORT_HEADLINE_HELP.simpleCitation).toBe('Cited counts answers linking to your site in the sources behind the answer, not in the answer text.')
     expect(REPORT_HEADLINE_HELP.advancedMention).toBe('An answer counts when it mentions any assigned property. This does not mean every property was mentioned. An answer that could not be tied to one property is left out of the rate, never counted as not mentioned.')
-    expect(REPORT_HEADLINE_HELP.advancedCitation).toBe('An answer counts when it cites a matching URL for any assigned property. This does not mean every property was cited.')
+    expect(REPORT_HEADLINE_HELP.advancedCitation).toBe('An answer counts when it cites a matching URL for any assigned property. This does not mean every property was cited. An answer whose sources could not be checked is left out of the rate, as neither cited nor not cited, and counted on its own line.')
     // Server truth: eligible = the property has a name to match (`mentionEligible`),
     // reach counts a property once across its answers, and one unknown property
     // makes the whole rate unavailable rather than partial.
@@ -202,9 +205,9 @@ describe('headline strip', () => {
     for (const label of [MENTION_LABEL, CITATION_LABEL, REACH_LABEL] as const) {
       expect(tile(label).className).toBe('report-headline-tile')
     }
-    expect(valueRow(MENTION_LABEL)).toEqual([['66.7%', VALUE_CLASS], [SR_CLASS_SUFFIX, 'sr-only'], ['Down 8.3 pts', 'text-sm text-negative']])
-    expect(valueRow(CITATION_LABEL)).toEqual([['66.7%', VALUE_CLASS], [SR_CLASS_SUFFIX, 'sr-only'], ['Up 16.7 pts', 'text-sm text-positive']])
-    expect(valueRow(REACH_LABEL)).toEqual([['100%', VALUE_CLASS], [SR_CLASS_SUFFIX, 'sr-only'], ['No change', 'text-sm text-secondary']])
+    expect(valueRow(MENTION_LABEL)).toEqual([['66.7%', VALUE_CLASS], [SR_CLASS_SUFFIX, 'sr-only'], ['Down 8.3 pts', 'text-label-14 text-negative']])
+    expect(valueRow(CITATION_LABEL)).toEqual([['66.7%', VALUE_CLASS], [SR_CLASS_SUFFIX, 'sr-only'], ['Up 16.7 pts', 'text-label-14 text-positive']])
+    expect(valueRow(REACH_LABEL)).toEqual([['100%', VALUE_CLASS], [SR_CLASS_SUFFIX, 'sr-only'], ['No change', 'text-label-14 text-secondary']])
     // One supporting line under the value, and nothing else.
     expect(cell(REACH_LABEL).map(([, className]) => className)).toEqual(['report-headline-value', DETAIL_CLASS])
     expect(cell(REACH_LABEL).at(-1)).toEqual(['12 of 12 properties', DETAIL_CLASS])
@@ -218,8 +221,8 @@ describe('headline strip', () => {
       citationCoverage: change(CURRENT.citationCoverage, rate(2401, 3600)),
     }
     render(<VisibilityReportView report={headlineReport({ comparison })} onSelectionChange={() => {}} />)
-    expect(valueRow(MENTION_LABEL).at(-1)).toEqual(['Up <0.1 pts', 'text-sm text-positive'])
-    expect(valueRow(CITATION_LABEL).at(-1)).toEqual(['Down <0.1 pts', 'text-sm text-negative'])
+    expect(valueRow(MENTION_LABEL).at(-1)).toEqual(['Up <0.1 pts', 'text-label-14 text-positive'])
+    expect(valueRow(CITATION_LABEL).at(-1)).toEqual(['Down <0.1 pts', 'text-label-14 text-negative'])
   })
 
   it('prints a line only for a missing previous value, not for an unavailable or inapplicable current value', () => {
@@ -231,14 +234,14 @@ describe('headline strip', () => {
       propertyReach: { state: 'unavailable', reason: 'not-applicable' },
     }
     render(<VisibilityReportView report={headlineReport({ comparison })} onSelectionChange={() => {}} />)
-    expect(valueRow(MENTION_LABEL).at(-1)).toEqual([REPORT_CHANGE_COPY.previousUnavailable, 'text-sm text-secondary'])
+    expect(valueRow(MENTION_LABEL).at(-1)).toEqual([REPORT_CHANGE_COPY.previousUnavailable, 'text-label-14 text-secondary'])
     expect(cell(CITATION_LABEL)).toEqual(figure(CITATION_LABEL))
     expect(cell(REACH_LABEL)).toEqual(figure(REACH_LABEL))
   })
 
   it('names the comparison once in the caption and never in a tile', () => {
     render(<VisibilityReportView report={headlineReport({ comparison: MOVED })} onSelectionChange={() => {}} />)
-    expect(caption()).toBe(`12 queries · 36 answers · vs ${PREVIOUS_DATE} sweep`)
+    expect(caption()).toBe(`12 queries · 36 answers · vs ${PREVIOUS_DATE} check`)
     expect(within(section()).getByRole('button', { name: REPORT_CHANGE_COPY.explanation })).toBeTruthy()
     for (const label of [MENTION_LABEL, CITATION_LABEL, REACH_LABEL] as const) {
       expect(visibleText(tile(label))).not.toContain('vs ')
@@ -248,7 +251,7 @@ describe('headline strip', () => {
   it('keeps the year on a previous sweep from another year', () => {
     const comparison: VisibilityReportComparison = { ...MOVED, previousRun: EARLIER_YEAR_RUN }
     render(<VisibilityReportView report={headlineReport({ comparison })} onSelectionChange={() => {}} />)
-    expect(caption()).toBe(`12 queries · 36 answers · vs ${EARLIER_YEAR_DATE} sweep`)
+    expect(caption()).toBe(`12 queries · 36 answers · vs ${EARLIER_YEAR_DATE} check`)
   })
 
   it.each([
@@ -260,7 +263,7 @@ describe('headline strip', () => {
     ['legacy-unknown', PREVIOUS_RUN, REPORT_CHANGE_COPY.legacyUnknown],
     ['partial-run', PREVIOUS_RUN, REPORT_CHANGE_COPY.partialRun],
     ['scoped-run', null, REPORT_CHANGE_COPY.scopedRun],
-  ] as const)('captions an unavailable %s comparison (previous run %o) in place of the sweep date', (reason, previousRun, expected) => {
+  ] as const)('captions an unavailable %s comparison (previous run %o) in place of the check date', (reason, previousRun, expected) => {
     render(<VisibilityReportView report={headlineReport({ comparison: { state: 'unavailable', reason, previousRun } })} onSelectionChange={() => {}} />)
     expect(caption()).toBe(`12 queries · 36 answers · ${expected}`)
     for (const label of [MENTION_LABEL, CITATION_LABEL, REACH_LABEL] as const) expect(cell(label)).toEqual(figure(label))
@@ -283,7 +286,7 @@ describe('headline strip', () => {
     const comparison: VisibilityReportComparison = { ...MOVED, mentionCoverage: { state: 'unavailable', reason: 'current-unavailable' } }
     render(<VisibilityReportView report={headlineReport({ summary: { mentionCoverage: NOT_MEASURED }, comparison })} onSelectionChange={() => {}} />)
     expect(cell(MENTION_LABEL)).toEqual([[`Not measured · ${REPORT_CLASS_NOUN['non-brand']}`, REASON_CLASS]])
-    expect(valueRow(CITATION_LABEL).at(-1)).toEqual(['Up 16.7 pts', 'text-sm text-positive'])
+    expect(valueRow(CITATION_LABEL).at(-1)).toEqual(['Up 16.7 pts', 'text-label-14 text-positive'])
   })
 
   it('shows the server rate over attributable answers and, under it, the answers it left out', () => {
@@ -294,17 +297,54 @@ describe('headline strip', () => {
     expect(cell(MENTION_LABEL, 'branded')).toEqual([
       [`92.5% · ${REPORT_CLASS_NOUN.branded}`, 'report-headline-value'],
       ['1055 of 1140 answers', DETAIL_CLASS],
-      ['12 of 1152 answers could not be tied to one property', DETAIL_CLASS],
+      ['12 unattributed', FLAG_CLASS],
     ])
-    expect(visibleText(tile(MENTION_LABEL, 'branded'))).not.toContain(REPORT_VISIBILITY_COPY.ambiguous)
+    expect(within(tile(MENTION_LABEL, 'branded')).getByRole('button', { name: '12 unattributed. 12 of 1152 answers could not be tied to one property, so this rate leaves them out.' })).toBeTruthy()
+    expect(visibleText(tile(MENTION_LABEL, 'branded'))).not.toContain(VISIBILITY_DISPLAY_COPY.ambiguous)
     // Cited is a separate signal with its own denominator and no such line.
     expect(cell(CITATION_LABEL, 'branded')).toEqual(figure(CITATION_LABEL, 'branded'))
+  })
+
+  it('shows the server citation rate over checked answers and, under it, the answers whose sources could not be checked', () => {
+    // The incident: 2 of 2796 saved answers had incomplete source capture. The
+    // server left them out of both sides; the tile states the rate and the count.
+    const checked: VisibilityReportRate = { numerator: 1397, denominator: 2794, rate: 0.5, unchecked: 2 }
+    render(<VisibilityReportView report={headlineReport({ answerCount: 2796, summary: { mentionCoverage: rate(1398, 2796), citationCoverage: checked } })} onSelectionChange={() => {}} />)
+    expect(cell(CITATION_LABEL)).toEqual([
+      [`50.0% · ${REPORT_CLASS_NOUN['non-brand']}`, 'report-headline-value'],
+      ['1397 of 2794 answers', DETAIL_CLASS],
+      ['2 unchecked', FLAG_CLASS],
+    ])
+    expect(within(tile(CITATION_LABEL)).getByRole('button', { name: '2 unchecked. 2 of 2796 answers had sources that could not be checked, so this rate leaves them out.' })).toBeTruthy()
+    // Mention reads the answer text, so its tile carries no source-check line.
+    expect(cell(MENTION_LABEL)).toEqual([
+      [`50.0% · ${REPORT_CLASS_NOUN['non-brand']}`, 'report-headline-value'],
+      ['1398 of 2796 answers', DETAIL_CLASS],
+    ])
+  })
+
+  it('reads each left-out count under its own signal only', () => {
+    // A mention rate's count says nothing about sources, and a citation rate's
+    // says nothing about property identity, whatever field a rate carries.
+    const mention: VisibilityReportRate = { numerator: 24, denominator: 36, rate: 24 / 36, unchecked: 3 }
+    const citation: VisibilityReportRate = { numerator: 24, denominator: 36, rate: 24 / 36, unattributed: 5 }
+    render(<VisibilityReportView report={headlineReport({ summary: { mentionCoverage: mention, citationCoverage: citation } })} onSelectionChange={() => {}} />)
+    expect(cell(MENTION_LABEL)).toEqual(figure(MENTION_LABEL))
+    expect(cell(CITATION_LABEL)).toEqual(figure(CITATION_LABEL))
+  })
+
+  it('leaves a Simple Cited tile as the rate and its count under the Simple help', () => {
+    // Simple citation state comes from stored cited domains, so the server never
+    // leaves a Simple answer unchecked and the tile keeps its two lines.
+    render(<VisibilityReportView report={headlineReport({ mode: 'simple' })} onSelectionChange={() => {}} />)
+    expect(cell('Cited answers')).toEqual([[`66.7% · ${REPORT_CLASS_NOUN['non-brand']}`, 'report-headline-value'], ['24 of 36 answers', DETAIL_CLASS]])
+    expect(within(tile('Cited answers')).getByRole('button', { name: REPORT_HEADLINE_HELP.simpleCitation })).toBeTruthy()
   })
 
   it('keeps an all-unattributable rate unavailable with its reason and no count line', () => {
     const ambiguous: VisibilityReportRate = { numerator: null, denominator: null, rate: null, reason: 'identity-ambiguous' }
     render(<VisibilityReportView report={headlineReport({ queryClass: 'branded', summary: { mentionCoverage: ambiguous } })} onSelectionChange={() => {}} />)
-    expect(cell(MENTION_LABEL, 'branded')).toEqual([[`${REPORT_VISIBILITY_COPY.ambiguous} · ${REPORT_CLASS_NOUN.branded}`, REASON_CLASS]])
+    expect(cell(MENTION_LABEL, 'branded')).toEqual([[`${VISIBILITY_DISPLAY_COPY.ambiguous} · ${REPORT_CLASS_NOUN.branded}`, REASON_CLASS]])
   })
 
   it.each([
@@ -352,7 +392,7 @@ describe('headline strip', () => {
     expect(strip().dataset.columns).toBe('2')
     expect(within(strip()).getAllByText(/answers$/, { selector: 'dt span' }).map(term => term.textContent)).toEqual(['Mentioned answers', 'Cited answers'])
     expect(within(strip()).queryByText(REACH_LABEL)).toBeNull()
-    expect(valueRow('Mentioned answers').at(-1)).toEqual(['Down 8.3 pts', 'text-sm text-negative'])
+    expect(valueRow('Mentioned answers').at(-1)).toEqual(['Down 8.3 pts', 'text-label-14 text-negative'])
   })
 
   it('toggles trend series from the checkbox legend without ever emptying the chart', () => {
@@ -424,8 +464,46 @@ describe('headline strip', () => {
     const breakdown = screen.getByRole('region', { name: 'Scope breakdown' })
     fireEvent.click(within(breakdown).getByRole('button', { name: 'Properties' }))
     const [, , mentioned, cited] = [...within(breakdown).getByRole('button', { name: 'Harbor House' }).closest('tr')!.querySelectorAll('td')]
-    expect(mentioned!.textContent).toBe('75.0%3 of 41 of 5 answers could not be tied to one property')
+    expect(mentioned!.textContent).toBe('75.0%3 of 41 unattributed')
+    expect(within(mentioned!).getByRole('button', { name: '1 unattributed. 1 of 5 answers could not be tied to one property, so this rate leaves it out.' })).toBeTruthy()
     expect(cited!.textContent).toBe('50.0%2 of 4')
+  })
+
+  it('states the answers whose sources could not be checked beneath a breakdown row\'s citation rate', () => {
+    const report = headlineReport()
+    report.populations[0]!.breakdown.properties[0]!.citationCoverage = { numerator: 2, denominator: 3, rate: 2 / 3, unchecked: 1 }
+    render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
+    const breakdown = screen.getByRole('region', { name: 'Scope breakdown' })
+    fireEvent.click(within(breakdown).getByRole('button', { name: 'Properties' }))
+    const [, , mentioned, cited] = [...within(breakdown).getByRole('button', { name: 'Harbor House' }).closest('tr')!.querySelectorAll('td')]
+    expect(mentioned!.textContent).toBe('75.0%3 of 4')
+    expect(cited!.textContent).toBe('66.7%2 of 31 unchecked')
+    expect(within(cited!).getByRole('button', { name: '1 unchecked. 1 of 4 answers had sources that could not be checked, so this rate leaves it out.' })).toBeTruthy()
+  })
+
+  it.each([
+    ['one earlier check is still unavailable', { numerator: null, denominator: null, rate: null, reason: 'evidence-incomplete' } as VisibilityReportRate, null, true],
+    ['every check left some answers unchecked', { numerator: 9, denominator: 18, rate: 0.5, unchecked: 1 } as VisibilityReportRate, 0.5, false],
+  ])('plots a check whose citation rate left unchecked answers out when %s', (_name, earlier, earlierPlotted, notesMissing) => {
+    const report = headlineReport({ answerCount: 2796, summary: { mentionCoverage: rate(1398, 2796), citationCoverage: { numerator: 1397, denominator: 2794, rate: 0.5, unchecked: 2 } } })
+    report.populations[0]!.trend[0]!.citationCoverage = earlier
+    render(<VisibilityReportView report={report} onSelectionChange={() => {}} />)
+    const chart = screen.getByRole('img', { name: 'Non-brand queries mention and citation trend' })
+    // Before the rule, the displayed sweep's citation rate was withheld and drew no point.
+    expect(JSON.parse(chart.querySelector<HTMLElement>('[data-points]')!.dataset.points!)).toEqual([
+      { createdAt: Date.parse(PREVIOUS_RUN.createdAt), 'mentioned-0': 0.75, 'cited-0': earlierPlotted },
+      { createdAt: Date.parse(DISPLAYED_RUN_AT), 'mentioned-0': 0.5, 'cited-0': 0.5 },
+    ])
+    const note = 'Missing citation results mean the saved evidence is incomplete.'
+    const describedBy = chart.getAttribute('aria-describedby')
+    // The displayed sweep left 2 answers unchecked, so the chart says Cited counts only checked answers in both cases.
+    expect(describedBy === null ? '' : document.getElementById(describedBy)!.textContent).toBe(notesMissing ? `${note} ${REPORT_TREND_UNCHECKED_NOTE}` : REPORT_TREND_UNCHECKED_NOTE)
+    // The history table carries the same count under Cited, never under Mentioned.
+    const history = within(screen.getByRole('table', { name: 'Non-brand queries trend data' })).getAllByRole('row')
+    const [, mentionedCell, citedCell] = [...history[2]!.querySelectorAll('td')]
+    expect(mentionedCell!.textContent).toBe('50.0%1398 of 2796')
+    expect(citedCell!.textContent).toBe('50.0%1397 of 27942 unchecked')
+    expect(within(citedCell!).getByRole('button', { name: '2 unchecked. 2 of 2796 answers had sources that could not be checked, so this rate leaves them out.' })).toBeTruthy()
   })
 
   it('orders the strip, trend chart, breakdown, Property outcomes, and query results', () => {

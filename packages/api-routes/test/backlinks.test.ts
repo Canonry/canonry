@@ -13,9 +13,12 @@ import {
   migrate,
   projects,
   runs,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { backlinksRoutes, type BacklinksRoutesOptions } from '../src/backlinks.js'
-import type { BacklinkSource, BacklinkSourcesResponseDto } from '@ainyc/canonry-contracts'
+import { BACKLINKS_CHECKS } from '../src/doctor/checks/backlinks.js'
+import type { BacklinkSource, BacklinkSourcesResponseDto } from '@canonry/canonry-contracts'
+import { createOutcomeEmitter, type OutcomeTelemetryEvent } from '../src/outcome-telemetry.js'
+import { featureOutcomes } from './feature-outcome-capture.js'
 
 function buildApp(overrides: Partial<BacklinksRoutesOptions> = {}) {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'backlinks-routes-'))
@@ -25,6 +28,8 @@ function buildApp(overrides: Partial<BacklinksRoutesOptions> = {}) {
 
   const app = Fastify()
   app.decorate('db', db)
+  const outcomes: OutcomeTelemetryEvent[] = []
+  app.decorate('emitOutcome', createOutcomeEmitter(event => { outcomes.push(event) }))
   app.setErrorHandler((error, _request, reply) => {
     const statusCode = (error as { statusCode?: number }).statusCode ?? 500
     const code = (error as { code?: string }).code
@@ -49,7 +54,7 @@ function buildApp(overrides: Partial<BacklinksRoutesOptions> = {}) {
   }
   app.register(backlinksRoutes, { ...defaults, ...overrides })
 
-  return { app, db, tmpDir }
+  return { app, db, tmpDir, outcomes }
 }
 
 function insertProject(db: ReturnType<typeof createClient>, id: string, name: string, domain: string): void {
@@ -144,6 +149,33 @@ describe('Backlinks routes', () => {
       expect(body.installed).toBe(true)
       expect(body.alreadyPresent).toBe(false)
       await custom.close()
+    })
+
+    it('reports each install attempt: installed, already present, failed, or unsupported here', async () => {
+      const cases: Array<[Partial<BacklinksRoutesOptions>, Record<string, unknown>]> = [
+        [{}, { status: 'succeeded' }],
+        [
+          { onInstallBacklinks: async () => ({ installed: true, version: '1.4.4-r.3', path: '/tmp/plugins', alreadyPresent: true }) },
+          { status: 'skipped', reasonCode: 'ALREADY_CONNECTED' },
+        ],
+        [
+          { onInstallBacklinks: async () => { throw new Error('npm install exited with code 1 in /home/someone/.canonry') } },
+          { status: 'failed', reasonCode: 'UNKNOWN', errorName: 'Error' },
+        ],
+        // A deployment that cannot host DuckDB (the cloud API).
+        [{ onInstallBacklinks: undefined }, { status: 'failed', reasonCode: 'UNSUPPORTED', errorName: 'AppError' }],
+      ]
+      for (const [overrides, expected] of cases) {
+        const { app: custom, outcomes, tmpDir: customDir } = buildApp(overrides)
+        await custom.ready()
+        await custom.inject({ method: 'POST', url: '/backlinks/install' })
+        expect(featureOutcomes(outcomes)).toEqual([{
+          feature: 'backlinks', operation: 'install', durationBucket: 'under_1s', ...expected,
+        }])
+        expect(JSON.stringify(outcomes)).not.toContain('/home/someone')
+        await custom.close()
+        fs.rmSync(customDir, { recursive: true, force: true })
+      }
     })
   })
 
@@ -797,36 +829,68 @@ describe('Backlinks routes', () => {
       expect(body.sources.find((s) => s.source === 'bing-webmaster')!.connected).toBe(false)
     })
 
-    it('reports CC connected only when autoExtract is on AND a ready sync exists', async () => {
+    // The release sync is workspace-global and writes every project's rows, so
+    // `connected` is graded from stored data. It used to require the project's
+    // `autoExtractBacklinks` flag, which reported projects with current data
+    // as disconnected. The doctor check reads the same rule: one table pins
+    // both, so the API and the check cannot drift apart.
+    // `release` is the only sync row: `ready`, `never` completed (a first
+    // sync still downloading), or `resyncing` (completed before, re-queued).
+    it.each([
+      { release: 'ready', data: true, autoExtract: false, connected: true },
+      { release: 'ready', data: true, autoExtract: true, connected: true },
+      { release: 'ready', data: false, autoExtract: true, connected: false },
+      { release: 'resyncing', data: true, autoExtract: false, connected: true },
+      { release: 'resyncing', data: false, autoExtract: true, connected: false },
+      { release: 'never', data: true, autoExtract: true, connected: false },
+      { release: 'never', data: false, autoExtract: true, connected: false },
+    ] as const)('CC connected=$connected with release $release, project data=$data, autoExtract=$autoExtract, matching the doctor check', async ({ release, data, autoExtract, connected }) => {
       const now = new Date().toISOString()
       db.insert(projects).values({
-        id: 'p1', name: 'roots', displayName: 'roots', canonicalDomain: 'roots.io',
-        country: 'US', language: 'en', autoExtractBacklinks: true, createdAt: now, updatedAt: now,
+        id: 'p1', name: 'demo', displayName: 'demo', canonicalDomain: 'example.com',
+        country: 'US', language: 'en', autoExtractBacklinks: autoExtract, createdAt: now, updatedAt: now,
       }).run()
-      db.insert(ccReleaseSyncs).values({ id: 's1', release: 'cc-main-2026-jan-feb-mar', status: 'ready', createdAt: now, updatedAt: now }).run()
-      seedSourceData(db, { projectId: 'p1', source: 'commoncrawl', release: 'cc-main-2026-jan-feb-mar', domains: [['cc-a.com', 10]] })
+      db.insert(ccReleaseSyncs).values({
+        id: 's1', release: 'cc-main-2026-jan-feb-mar', status: release === 'ready' ? 'ready' : 'downloading',
+        queryFinishedAt: release === 'never' ? null : now, createdAt: now, updatedAt: now,
+      }).run()
+      if (data) seedSourceData(db, { projectId: 'p1', source: 'commoncrawl', release: 'cc-main-2026-jan-feb-mar', targetDomain: 'example.com', domains: [['linker.example.org', 10]] })
 
-      const res = await app.inject({ method: 'GET', url: '/projects/roots/backlinks/sources' })
+      const res = await app.inject({ method: 'GET', url: '/projects/demo/backlinks/sources' })
       const body = res.json() as BacklinkSourcesResponseDto
       const cc = body.sources.find((s) => s.source === 'commoncrawl')!
-      expect(cc.connected).toBe(true)
-      expect(cc.hasData).toBe(true)
-      expect(cc.totalLinkingDomains).toBe(1)
-      expect(cc.latestRelease).toBe('cc-main-2026-jan-feb-mar')
-      expect(body.anyConnected).toBe(true)
+      expect(cc.connected).toBe(connected)
+      expect(cc.hasData).toBe(data)
+      expect(cc.totalLinkingDomains).toBe(data ? 1 : 0)
+      expect(cc.latestRelease).toBe(data ? 'cc-main-2026-jan-feb-mar' : null)
+      expect(body.anyConnected).toBe(connected)
+
+      const check = await BACKLINKS_CHECKS.find((c) => c.id === 'backlinks.source.connected')!
+        .run({ db, project: { id: 'p1', name: 'demo', canonicalDomain: 'example.com', displayName: 'demo' } })
+      expect(check.status).toBe(connected ? 'ok' : 'warn')
+      expect(check.code).toBe(connected ? 'backlinks.source.connected' : 'backlinks.source.none')
     })
 
-    it('CC stays not-connected when autoExtract is on but only a non-ready sync exists', async () => {
+    // Through the real re-queue: syncing the newest release again must not
+    // report every project as disconnected for the length of the download.
+    it('keeps CC connected while a completed release is synced again', async () => {
+      const { app: custom, db: customDb } = buildApp({ onReleaseSyncRequested: vi.fn() })
+      await custom.ready()
       const now = new Date().toISOString()
-      db.insert(projects).values({
-        id: 'p1', name: 'roots', displayName: 'roots', canonicalDomain: 'roots.io',
-        country: 'US', language: 'en', autoExtractBacklinks: true, createdAt: now, updatedAt: now,
-      }).run()
-      db.insert(ccReleaseSyncs).values({ id: 's1', release: 'cc-main-2026-jan-feb-mar', status: 'downloading', createdAt: now, updatedAt: now }).run()
+      const release = 'cc-main-2026-jan-feb-mar'
+      insertProject(customDb, 'p1', 'demo', 'example.com')
+      customDb.insert(ccReleaseSyncs).values({ id: 's1', release, status: 'ready', queryFinishedAt: now, createdAt: now, updatedAt: now }).run()
+      seedSourceData(customDb, { projectId: 'p1', source: 'commoncrawl', release, targetDomain: 'example.com', domains: [['linker.example.org', 10]] })
 
-      const res = await app.inject({ method: 'GET', url: '/projects/roots/backlinks/sources' })
+      const requeued = await custom.inject({ method: 'POST', url: '/backlinks/syncs', payload: { release } })
+      expect(requeued.statusCode).toBe(200)
+      expect((requeued.json() as { status: string }).status).toBe('queued')
+
+      const res = await custom.inject({ method: 'GET', url: '/projects/demo/backlinks/sources' })
       const body = res.json() as BacklinkSourcesResponseDto
-      expect(body.sources.find((s) => s.source === 'commoncrawl')!.connected).toBe(false)
+      expect(body.sources.find((s) => s.source === 'commoncrawl')!.connected).toBe(true)
+      expect(body.anyConnected).toBe(true)
+      await custom.close()
     })
 
     it('keeps historical Bing data readable without reporting it as connected', async () => {

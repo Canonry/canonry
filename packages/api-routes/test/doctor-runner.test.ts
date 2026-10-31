@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { CheckCategories, CheckScopes, CheckStatuses } from '@ainyc/canonry-contracts'
+import { CheckCategories, CheckScopes, CheckStatuses } from '@canonry/canonry-contracts'
 import { runChecks, matchesCheckId } from '../src/doctor/runner.js'
 import type { CheckDefinition, DoctorContext } from '../src/doctor/types.js'
 
@@ -69,6 +69,40 @@ describe('runChecks', () => {
     expect(report.checks.map(c => c.id)).toEqual(['google.auth.connection'])
   })
 
+  it('carries an urgent output onto the result, and adds the field to nothing else', async () => {
+    const urgent: CheckDefinition = {
+      id: 'demo.data',
+      category: CheckCategories.integrations,
+      scope: CheckScopes.project,
+      title: 'demo data',
+      run: () => ({ status: CheckStatuses.warn, code: 'demo.data.stale', summary: 'stale', urgent: true }),
+    }
+    const report = await runChecks(fakeCtx({ name: 'demo', canonicalDomain: 'example.com' }), [urgent, failCheck('demo.auth', 'project')])
+    expect(report.checks.find(c => c.id === 'demo.data')).toMatchObject({ code: 'demo.data.stale', urgent: true })
+    // A failing check is not urgent unless it says so.
+    expect(report.checks.find(c => c.id === 'demo.auth')).not.toHaveProperty('urgent')
+  })
+
+  it('carries a check\'s plain alert wording onto its result, and drops it from a superseded symptom', async () => {
+    const alert = { label: 'Demo sync failing', line: 'The demo sync failed 3 times.', next: null }
+    const symptom: CheckDefinition = {
+      id: 'demo.sync.recent-failures',
+      category: CheckCategories.integrations,
+      scope: CheckScopes.project,
+      title: 'symptom',
+      supersededBy: ['demo.auth'],
+      run: () => ({ status: CheckStatuses.fail, code: 'demo.sync.repeated-failures', summary: 'failed', alert }),
+    }
+    const worded: CheckDefinition = { ...symptom, id: 'demo.data', supersededBy: undefined }
+    const project = fakeCtx({ name: 'demo', canonicalDomain: 'example.com' })
+
+    expect((await runChecks(project, [worded])).checks[0]!.alert).toEqual(alert)
+    // The cause's wording speaks for a superseded symptom; its own would contradict it.
+    const superseded = (await runChecks(project, [symptom, failCheck('demo.auth', 'project')])).checks[0]!
+    expect(superseded.status).toBe('skipped')
+    expect(superseded).not.toHaveProperty('alert')
+  })
+
   it('captures runtime errors as fail with runtime-error code', async () => {
     const broken: CheckDefinition = {
       id: 'broken',
@@ -82,6 +116,79 @@ describe('runChecks', () => {
     expect(report.checks[0]!.status).toBe('fail')
     expect(report.checks[0]!.code).toBe('broken.runtime-error')
     expect(report.checks[0]!.details).toMatchObject({ error: 'boom' })
+  })
+
+  describe('supersededBy', () => {
+    const project = { name: 'demo', canonicalDomain: 'example.com' }
+    const cause = (status: 'ok' | 'warn' | 'fail'): CheckDefinition => ({
+      id: 'demo.auth.connection',
+      category: CheckCategories.auth,
+      scope: CheckScopes.project,
+      title: 'cause',
+      run: () => ({ status: CheckStatuses[status], code: `demo.auth.${status}`, summary: 'grant revoked', remediation: 'reconnect' }),
+    })
+    const symptom = (run: CheckDefinition['run'] = () => ({
+      status: CheckStatuses.fail, code: 'demo.sync.repeated-failures', summary: 'The last 3 syncs failed.', remediation: 'fix the cause', details: { consecutiveFailures: 3 },
+    })): CheckDefinition => ({
+      id: 'demo.sync.recent-failures',
+      category: CheckCategories.integrations,
+      scope: CheckScopes.project,
+      title: 'symptom',
+      supersededBy: ['demo.auth.connection'],
+      run,
+    })
+
+    it('reports a failing symptom as superseded while its cause fails, keeping what it found', async () => {
+      // Listed before its cause: supersession is decided after every check ran.
+      const report = await runChecks(fakeCtx(project), [symptom(), cause('fail')])
+
+      expect(report.checks.map(check => [check.id, check.status, check.code])).toEqual([
+        ['demo.sync.recent-failures', 'skipped', 'demo.sync.recent-failures.superseded'],
+        ['demo.auth.connection', 'fail', 'demo.auth.fail'],
+      ])
+      expect(report.checks[0]).toMatchObject({
+        summary: 'Superseded by failing demo.auth.connection, which names the cause. The last 3 syncs failed.',
+        remediation: null,
+        details: { consecutiveFailures: 3, supersededBy: ['demo.auth.connection'], supersededStatus: 'fail', supersededCode: 'demo.sync.repeated-failures' },
+      })
+      expect(report.summary).toMatchObject({ total: 2, fail: 1, skipped: 1 })
+    })
+
+    it('keeps the symptom failing when its cause passes, only warns, or is not in the pass', async () => {
+      for (const status of ['ok', 'warn'] as const) {
+        const report = await runChecks(fakeCtx(project), [cause(status), symptom()])
+        expect(report.checks[1]).toMatchObject({ status: 'fail', code: 'demo.sync.repeated-failures', remediation: 'fix the cause' })
+      }
+      const filtered = await runChecks(fakeCtx(project), [cause('fail'), symptom()], { checkIds: ['demo.sync.*'] })
+      expect(filtered.checks).toEqual([expect.objectContaining({ status: 'fail', code: 'demo.sync.repeated-failures' })])
+    })
+
+    it('keeps the symptom failing when its cause threw or could not reach its provider', async () => {
+      // Neither tested what the cause checks, so the symptom's own error is
+      // the better evidence and must stay in the alert.
+      const threwCause: CheckDefinition = { ...cause('fail'), run: () => { throw new Error('boom') } }
+      const threw = await runChecks(fakeCtx(project), [threwCause, symptom()])
+      expect(threw.checks.map(check => [check.id, check.status, check.code])).toEqual([
+        ['demo.auth.connection', 'fail', 'demo.auth.connection.runtime-error'],
+        ['demo.sync.recent-failures', 'fail', 'demo.sync.repeated-failures'],
+      ])
+
+      const unreachableCause: CheckDefinition = {
+        ...cause('fail'),
+        run: () => ({ status: CheckStatuses.fail, code: 'demo.auth.refresh-unreachable', summary: 'Could not reach the provider: fetch failed (ENOTFOUND resolving api.example.com)' }),
+      }
+      const unreachable = await runChecks(fakeCtx(project), [unreachableCause, symptom()])
+      expect(unreachable.checks[1]).toMatchObject({ status: 'fail', code: 'demo.sync.repeated-failures', remediation: 'fix the cause' })
+      expect(unreachable.summary).toMatchObject({ fail: 2, skipped: 0 })
+    })
+
+    it('leaves a passing symptom and a symptom check that threw as they are', async () => {
+      const passing = await runChecks(fakeCtx(project), [cause('fail'), symptom(() => ({ status: CheckStatuses.ok, code: 'demo.sync.ok', summary: 'fine' }))])
+      expect(passing.checks[1]).toMatchObject({ status: 'ok', code: 'demo.sync.ok' })
+
+      const threw = await runChecks(fakeCtx(project), [cause('fail'), symptom(() => { throw new Error('boom') })])
+      expect(threw.checks[1]).toMatchObject({ status: 'fail', code: 'demo.sync.recent-failures.runtime-error' })
+    })
   })
 
   it('measures durationMs per check and overall', async () => {

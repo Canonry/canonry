@@ -2,35 +2,27 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import readline from 'node:readline'
 import path from 'node:path'
-import { getBootstrapEnv } from '@ainyc/canonry-config'
+import {
+  getBootstrapEnv,
+  withBootstrapProviderDefaults,
+  type BootstrapProviderEnvConfig,
+  type BootstrapProviderName,
+  type LocalBootstrapProviderConfig,
+} from '@canonry/canonry-config'
 import { getConfigDir, getConfigPath, configExists, saveConfig } from '../config.js'
 import type { CanonryConfig } from '../config.js'
 import { trackEvent, showFirstRunNotice, isTelemetryEnabled } from '../telemetry.js'
 import { buildSetupState } from '../setup-state.js'
 import { cliRuntimeContext } from '../runtime-context.js'
-import { createClient, migrate } from '@ainyc/canonry-db'
-import { apiKeys } from '@ainyc/canonry-db'
+import { trackCliConnection } from '../cli-connection-telemetry.js'
+import { createClient, migrate } from '@canonry/canonry-db'
+import { apiKeys } from '@canonry/canonry-db'
 import { CliError, type CliFormat, isMachineFormat } from '../cli-error.js'
+import { queueServeHandoff } from '../serve-handoff.js'
 import { installSkills, type SkillsInstallSummary } from './skills.js'
 import { installMcp, type McpInstallResult } from './mcp.js'
-import { describeError } from '@ainyc/canonry-contracts'
-
-/**
- * Hand control to `canonry serve` after init finishes.
- *
- * A flag rather than a direct call, because init's own lifecycle telemetry is
- * emitted by the dispatcher when the command RETURNS. Serve never returns, so
- * launching it from inside init would record every init that chose the
- * dashboard as a half-hour command. The dispatcher consumes this after the
- * init event is on the wire.
- */
-let pendingServeHandoff = false
-
-export function consumePendingServeHandoff(): boolean {
-  const pending = pendingServeHandoff
-  pendingServeHandoff = false
-  return pending
-}
+import { describeError } from '@canonry/canonry-contracts'
+import { installAttribution, recordInstallRef } from '../telemetry-environment.js'
 
 /**
  * Ask for a provider key, offering one the machine ALREADY HAS first.
@@ -84,6 +76,8 @@ function cwdLooksLikeProject(dir: string): boolean {
 
 export interface InitOptions {
   force?: boolean
+  /** First-touch campaign tag; see `recordInstallRef`. */
+  ref?: string
   geminiKey?: string
   openaiKey?: string
   claudeKey?: string
@@ -115,7 +109,7 @@ const DEFAULT_AGENT_MODELS: Record<string, string> = {
   openai: 'openai/gpt-4o',
   openrouter: 'openrouter/anthropic/claude-sonnet-4-6',
   groq: 'groq/llama-4-scout-17b',
-  google: 'google/gemini-2.5-flash',
+  google: 'google/gemini-3.8-flash',
   mistral: 'mistral/mistral-large-latest',
   xai: 'xai/grok-2',
 }
@@ -199,8 +193,11 @@ export async function initCommand(opts?: InitOptions): Promise<ResolvedAgentLLM 
   }
 
   if (nonInteractive) {
-    // Non-interactive mode — providers fully resolved by getBootstrapEnv
-    Object.assign(providers, envProviders)
+    // Non-interactive mode: every entry is new, so each takes the setup
+    // defaults for any model or quota the environment does not set.
+    for (const [name, entry] of Object.entries(envProviders) as [BootstrapProviderName, BootstrapProviderEnvConfig | LocalBootstrapProviderConfig | undefined][]) {
+      if (entry) providers[name] = withBootstrapProviderDefaults(name, entry)
+    }
     if (envGoogleConfigured) {
       google = {
         clientId: bootstrapEnv.googleClientId,
@@ -220,7 +217,7 @@ export async function initCommand(opts?: InitOptions): Promise<ResolvedAgentLLM 
     // Gemini
     const geminiApiKey = await promptProviderApiKey('Gemini', 'GEMINI_API_KEY')
     if (geminiApiKey) {
-      const geminiModel = await prompt('  Gemini model [gemini-2.5-flash]: ') || 'gemini-2.5-flash'
+      const geminiModel = await prompt('  Gemini model [gemini-flash-latest]: ') || 'gemini-flash-latest'
       providers.gemini = { apiKey: geminiApiKey, model: geminiModel, quota: DEFAULT_QUOTA }
     }
 
@@ -448,7 +445,8 @@ export async function initCommand(opts?: InitOptions): Promise<ResolvedAgentLLM 
   }
 
   if (isTelemetryEnabled()) {
-    const postInitSetupState = buildSetupState()
+    const postInitSetupState = await buildSetupState()
+    recordInstallRef(opts?.ref)
     trackEvent('cli.init', {
       providerCount: providerNames.length,
       providers: providerNames,
@@ -473,8 +471,13 @@ export async function initCommand(opts?: InitOptions): Promise<ResolvedAgentLLM 
         hasAgent: !!agentLLM,
       }),
       skillsInstalled: !!skillsSummary,
+      ...installAttribution(),
       ...cliRuntimeContext(),
     })
+    // Init writes a fresh config, so every provider it stored is a new connection.
+    for (const provider of Object.keys(providers) as BootstrapProviderName[]) {
+      trackCliConnection({ integration: 'provider', provider, action: 'connect', status: 'succeeded' })
+    }
   }
 
   // End inside the product, not at a printout. Half of new installs run init
@@ -486,7 +489,7 @@ export async function initCommand(opts?: InitOptions): Promise<ResolvedAgentLLM 
   if (!isMachineFormat(format) && process.stdin.isTTY && process.stdout.isTTY) {
     const answer = await prompt('\nStart the dashboard now? [Y/n]: ')
     if (!/^n/i.test(answer.trim())) {
-      pendingServeHandoff = true
+      queueServeHandoff()
       console.log('Handing off to the dashboard. Map your site at /setup once it is up.')
     }
   }
@@ -514,7 +517,7 @@ function buildNextSteps(): string[] {
     '',
     '   Map your public site and capture a persisted Page Health baseline.',
     '   AI Visibility is optional and can be configured after Page Health.',
-    '   For remote/exposed hosts, complete dashboard password setup from loopback first.',
+    '   On a remote or proxied host, dashboard password setup asks for the root API key (apiKey in config.yaml).',
     '',
     'Prefer the terminal? The same flow as CLI commands:',
     '',

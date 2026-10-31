@@ -9,8 +9,8 @@ import type {
   CcCachedRelease,
   CcReleaseSyncDto,
   RunDto,
-} from '@ainyc/canonry-contracts'
-import { BacklinkSources, CcReleaseSyncStatuses, RunStatuses, backlinkSourceSchema, formatPercent, formatRunErrorOneLine } from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
+import { BacklinkSources, CcReleaseSyncStatuses, RunStatuses, backlinkSourceSchema, formatPercent, formatRunErrorOneLine } from '@canonry/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { emitJsonl } from '../cli-output.js'
 import { CliError, isMachineFormat } from '../cli-error.js'
@@ -42,7 +42,7 @@ function printJson(value: unknown): void {
   console.log(JSON.stringify(value, null, 2))
 }
 
-export function formatInstallStatus(status: BacklinksInstallStatusDto): string {
+function formatInstallStatus(status: BacklinksInstallStatusDto): string {
   const lines: string[] = []
   lines.push(status.duckdbInstalled ? 'DuckDB: installed' : 'DuckDB: not installed')
   if (status.duckdbVersion) lines.push(`Version: ${status.duckdbVersion}`)
@@ -55,7 +55,7 @@ export function formatInstallStatus(status: BacklinksInstallStatusDto): string {
   return lines.join('\n')
 }
 
-export function formatSync(sync: CcReleaseSyncDto): string {
+function formatSync(sync: CcReleaseSyncDto): string {
   const lines: string[] = []
   lines.push(`Release: ${sync.release}`)
   lines.push(`Status:  ${sync.status}`)
@@ -66,7 +66,7 @@ export function formatSync(sync: CcReleaseSyncDto): string {
   return lines.join('\n')
 }
 
-export function formatSummaryAndDomains(
+function formatSummaryAndDomains(
   project: string,
   response: BacklinkListResponse,
 ): string {
@@ -100,7 +100,7 @@ export function formatSummaryAndDomains(
   return lines.join('\n')
 }
 
-export function formatCachedReleases(rows: CcCachedRelease[]): string {
+function formatCachedReleases(rows: CcCachedRelease[]): string {
   if (rows.length === 0) return 'No cached releases.'
   const lines: string[] = []
   lines.push('Release                        Status       Bytes        Last used')
@@ -260,7 +260,7 @@ export async function backlinksList(opts: FormatOptions & {
   console.log(formatSummaryAndDomains(opts.project, response))
 }
 
-export function formatSourceAvailability(res: BacklinkSourcesResponseDto): string {
+function formatSourceAvailability(project: string, res: BacklinkSourcesResponseDto): string {
   const lines: string[] = []
   lines.push(`Project: ${res.projectId}   Target: ${res.targetDomain}`)
   lines.push('')
@@ -273,8 +273,8 @@ export function formatSourceAvailability(res: BacklinkSourcesResponseDto): strin
   }
   if (!res.anyConnected) {
     lines.push('')
-    lines.push('No active backlink source is set up. Enable Common Crawl on the project,')
-    lines.push('then run `canonry backlinks sync`.')
+    lines.push('No active backlink source is set up. Run `canonry backlinks sync` to download a')
+    lines.push(`Common Crawl release, or \`canonry backlinks extract ${project}\` when one is already synced.`)
   }
   return lines.join('\n')
 }
@@ -293,7 +293,7 @@ export async function backlinksSources(opts: FormatOptions & {
     emitJsonl(res.sources.map((s) => ({ project: opts.project, targetDomain: res.targetDomain, ...s })))
     return
   }
-  console.log(formatSourceAvailability(res))
+  console.log(formatSourceAvailability(opts.project, res))
 }
 
 export async function backlinksReleases(opts: FormatOptions = {}): Promise<void> {

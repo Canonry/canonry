@@ -2,6 +2,8 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 [![npm version](https://img.shields.io/npm/v/@canonry/canonry)](https://www.npmjs.com/package/@canonry/canonry)
+[![Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white)](https://discord.gg/8K9yY7GywJ)
+[![Twitter](https://img.shields.io/badge/Twitter-Follow-000000?logo=x&logoColor=white)](https://x.com/canonry_ai)
 
 Canonry is an **agent-first (CLI, MCP, API), open-source AEO operating platform with a comprehensive web UI.** Track AI visibility over time, investigate changes across search and traffic, and measure progress after you or your agent acts.
 
@@ -11,7 +13,7 @@ Canonry is an **agent-first (CLI, MCP, API), open-source AEO operating platform 
 
 <p align="center">
   <a href="https://raw.githubusercontent.com/Canonry/canonry/main/docs/images/measure-act.svg">
-    <img src="https://raw.githubusercontent.com/Canonry/canonry/main/docs/images/measure-act.svg" alt="AI, search, analytics, and traffic sources feed Canonry on schedules or on demand. Historical evidence across multiple domains and portfolios runs from baseline through the latest checks. Your agent reads evidence and sends commands to Canonry tools, while using its own tools for code and content. Canonry publishes to WordPress, submits to Google and Bing, and supplies the dashboard, reports, and webhooks. Site changes loop back into measurement." width="100%" />
+    <img src="https://raw.githubusercontent.com/Canonry/canonry/main/docs/images/measure-act.svg" alt="AI, search, analytics, and traffic sources feed Canonry on schedules or on demand. Historical evidence across multiple domains and portfolios runs from baseline through the latest checks. Your agent reads evidence and sends commands to Canonry tools, while using its own tools for code and content. Canonry publishes to WordPress, submits to Google and Bing, and supplies the dashboard, evidence exports, and webhooks. Site changes loop back into measurement." width="100%" />
   </a>
 </p>
 
@@ -59,6 +61,8 @@ Connect the [Agent Plugin](docs/plugins.md) or [MCP adapter](docs/mcp.md) to you
    ```bash
    npm install -g @canonry/canonry
    ```
+
+   If you previously installed `@ainyc/canonry`, run `npm uninstall -g @ainyc/canonry` first to release the shared command names. Existing configuration and data in `~/.canonry` stay in place. New releases are published only under `@canonry`.
 
 2. Initialize Canonry.
 
@@ -108,6 +112,8 @@ Your agent and dashboard use the same project API. The dashboard makes trends, e
 
 Track brand mentions and citations over time, by query and answer engine. Find answers that cite competitors but omit your site.
 
+Compare direct AI engines, OpenRouter models, and search answers from Exa and Parallel.
+
 ![Canonry AI Visibility mention share trend across answer engines](https://raw.githubusercontent.com/Canonry/canonry/main/docs/images/ai-visibility-trend.png)
 
 *Track your share of answer-engine brand mentions over time.*
@@ -129,6 +135,9 @@ For an existing project, configure a provider with your own key.
 | Meta (Muse) | [Meta Model API](https://dev.meta.ai/) | `MUSE_API_KEY` |
 | Claude | [Anthropic Console](https://console.anthropic.com/settings/keys) | `ANTHROPIC_API_KEY` |
 | Perplexity | [Perplexity settings](https://www.perplexity.ai/settings/api) | `PERPLEXITY_API_KEY` |
+| [OpenRouter](docs/providers/openrouter.md) | [OpenRouter keys](https://openrouter.ai/keys) | `OPENROUTER_API_KEY` |
+| [Exa](docs/providers/answer-services/exa.md) | [Exa dashboard](https://dashboard.exa.ai/api-keys) | `EXA_API_KEY` |
+| [Parallel](docs/providers/answer-services/parallel.md) | [Parallel platform](https://platform.parallel.ai) | `PARALLEL_API_KEY` |
 | Local model | Any OpenAI-compatible endpoint | `LOCAL_BASE_URL` |
 
 Add the queries that matter to your project:
@@ -144,13 +153,20 @@ cnry visibility-stats my-site --by-provider
 <a id="why-we-use-model-providers-apis-directly-not-a-router"></a>
 
 <details>
-<summary>Why Canonry uses direct provider APIs</summary>
+<summary>Direct APIs, OpenRouter, and search answer services</summary>
 
-Canonry uses direct provider APIs to capture answers, citations, and available
-search details that model routers can omit. This richer data helps us measure
-brand mentions and website citations accurately and explain changes in your
-visibility.
-[Read more about accuracy and why we chose models and direct provider API adapters individually](docs/providers/model-selection.md).
+Canonry supports direct model APIs, OpenRouter, and search answer services such
+as Exa and Parallel. Direct adapters retain the search and grounding details
+each provider exposes. OpenRouter offers multiple models through one key. Exa
+and Parallel search the web and return answers with source evidence.
+
+Each direct engine, OpenRouter model route, and service profile keeps separate
+results and history. The same model through different APIs can return different
+answers and citation evidence. Canonry measures brand mentions separately from
+source citations and keeps missing evidence unknown.
+
+[Provider guides](docs/providers/README.md) describe the evidence and limits of
+each integration.
 
 </details>
 
@@ -176,6 +192,19 @@ Site audits show technical findings alongside that evidence.
 
 *Map crawlable pages and the internal links that connect them.*
 
+<a id="seo-data"></a>
+
+### SEO data with DataForSEO
+
+Use **DataForSEO Labs** for Google keyword research, organic rankings, and domain comparisons.
+Explore search volume, difficulty, CPC, ranking URLs, and estimated traffic through the dashboard, CLI, MCP, and API.
+
+[Configure DataForSEO](docs/seo-data.md).
+
+![Canonry DataForSEO integration showing domain metrics and ranked keywords](docs/images/seo-data-phase-one/desktop.jpg)
+
+*SEO dashboard with sample data: organic keyword totals, estimated traffic, and ranked keywords.*
+
 ### Portfolios and competitors
 
 Use [versioned measurement plans](docs/mcp.md#tool-surface) for portfolios of locations, products, or site sections.
@@ -190,7 +219,7 @@ Your agent coordinates the work through Canonry and its own tools.
 
 - **Improve the site:** Combine your agent's coding tools with Canonry's content, [WordPress publishing](docs/wordpress-setup.md), JSON-LD, and [indexing workflows](skills/canonry/references/indexing.md).
 - **Measure after changes:** Configure [independent schedules](skills/canonry/references/canonry-cli.md#scheduling--notifications) for data syncs and checks. Compare new results with earlier evidence.
-- **Report and follow up:** Generate [HTML reports or JSON evidence](skills/canonry/references/canonry-cli.md#reports). Send [webhook alerts](skills/canonry/references/canonry-cli.md#agent) to Discord, Slack, or your systems.
+- **Export and follow up:** Read [AI visibility evidence](docs/report-retirement.md) and [traffic analytics](docs/report-retirement.md). Send [webhook alerts](skills/canonry/references/canonry-cli.md#agent) to Discord, Slack, or your systems.
 
 **An example job for your connected agent:**
 
@@ -206,6 +235,7 @@ Connect the sources you use. Each integration adds evidence or tools to the same
 |---|---|
 | **AI answers** | ChatGPT · Claude · Gemini · Meta (Muse) · Perplexity · OpenAI-compatible local models |
 | **Search and local** | [Google Search Console](docs/google-search-console-setup.md) · [Bing Webmaster Tools](docs/bing-webmaster-setup.md) · [Google Business Profile](skills/canonry/references/google-business-profile.md) |
+| **SEO research** | **[DataForSEO Labs](docs/seo-data.md)**: keyword metrics, ranked keywords, and domain comparison |
 | **Analytics** | [Google Analytics 4](docs/google-analytics-setup.md) |
 | **Conversion measurement** | [Google Ads + Google Tag Manager](docs/google-marketing.md): read-only snapshots and declared conversion contracts |
 | **Server traffic** | [Cloudflare · Vercel · Cloud Run · WordPress](skills/canonry/references/server-side-traffic.md) |
@@ -220,7 +250,7 @@ Connect the sources you use. Each integration adds evidence or tools to the same
 
 Canonry is single-tenant. Run one instance for one operator or team. Keep unrelated teams on separate instances.
 
-The CLI and REST API are the primary interfaces. They expose measurements, diagnoses, actions, reports, and schedules.
+The CLI and REST API are the primary interfaces. They expose measurements, diagnoses, actions, evidence exports, and schedules.
 OpenAPI is available at `GET /api/v1/openapi.json`.
 
 See the [deployment guide](docs/deployment.md) for reverse proxies, daemon mode, Docker, systemd, and Tailscale.
@@ -255,10 +285,11 @@ Join the [Canonry Discord](https://discord.gg/8K9yY7GywJ) for support and questi
 
 ```bash
 git clone https://github.com/Canonry/canonry.git && cd canonry
-pnpm install && pnpm run typecheck && pnpm run test && pnpm run lint
+pnpm install
 ```
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md).
+For local agent work, run tests only after changes are finalized and ready for push or review.
+`pnpm verify` is optional locally. See [CONTRIBUTING.md](./CONTRIBUTING.md) and the [testing guide](docs/testing.md).
 
 ## License
 

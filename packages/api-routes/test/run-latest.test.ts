@@ -4,7 +4,7 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import Fastify from 'fastify'
 import { describe, expect, it } from 'vitest'
-import { createClient, migrate, projects, runs, queries, querySnapshots } from '@ainyc/canonry-db'
+import { createClient, migrate, projects, runs, queries, querySnapshots } from '@canonry/canonry-db'
 import { apiRoutes } from '../src/index.js'
 import type { ApiRoutesOptions } from '../src/index.js'
 
@@ -186,6 +186,8 @@ describe('GET /api/v1/projects/:name/runs/latest', () => {
     expect(JSON.parse(res.payload)).toEqual({
       totalRuns: 0,
       run: null,
+      admission: { refused: false, retryAfter: null, providers: {} },
+      manualAdmission: { refused: false, retryAfter: null, providers: {} },
     })
 
     await app.close()

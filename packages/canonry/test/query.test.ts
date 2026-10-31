@@ -3,7 +3,7 @@ import os from 'node:os'
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { createClient, migrate, apiKeys } from '@ainyc/canonry-db'
+import { createClient, migrate, apiKeys } from '@canonry/canonry-db'
 import { createServer } from '../src/server.js'
 import { ApiClient } from '../src/client.js'
 import { invokeCli, parseJsonOutput } from './cli-test-utils.js'
@@ -123,6 +123,39 @@ describe('query commands', () => {
 
     const output = logs.join('\n')
     expect(output).toMatch(/Removed 1 query from "test-proj"/)
+  })
+
+  it('query add and query list report the class the server gave each query', async () => {
+    // The project is "Test" at example.com, so a query naming Test is branded.
+    const added = await invokeCli(['query', 'add', 'test-proj', 'is Test worth it', 'answer engine tools', '--format', 'json'])
+    expect(added.exitCode).toBeUndefined()
+    expect(parseJsonOutput(added.stdout)).toEqual({
+      project: 'test-proj',
+      queries: ['is Test worth it', 'answer engine tools'],
+      addedCount: 2,
+      queryClasses: [
+        { query: 'is Test worth it', queryClass: 'branded' },
+        { query: 'answer engine tools', queryClass: 'non-brand' },
+      ],
+    })
+
+    const addedText = await invokeCli(['query', 'add', 'test-proj', 'test pricing'])
+    expect(addedText.stdout).toBe('Added 1 query to "test-proj".\n  branded    test pricing')
+
+    const listed = parseJsonOutput((await invokeCli(['query', 'list', 'test-proj', '--format', 'json'])).stdout) as Array<{ query: string; queryClass: string | null }>
+    expect(Object.fromEntries(listed.map(row => [row.query, row.queryClass]))).toEqual({
+      'is Test worth it': 'branded',
+      'answer engine tools': 'non-brand',
+      'test pricing': 'branded',
+    })
+
+    const listedText = (await invokeCli(['query', 'list', 'test-proj'])).stdout.split('\n')
+    expect(listedText.slice(0, 3)).toEqual(['Queries for "test-proj" (3):', '', '  CLASS      QUERY'])
+    expect(listedText.slice(3).sort()).toEqual([
+      '  branded    is Test worth it',
+      '  branded    test pricing',
+      '  non-brand  answer engine tools',
+    ])
   })
 
   it('legacy keyword CLI aliases the canonical query store', async () => {

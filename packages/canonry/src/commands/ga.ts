@@ -1,8 +1,10 @@
-import type { GaConnectResponse, GA4PropertiesDto, GaStatusResponse, GaSyncResponse, GaTrafficResponse, GaCoverageResponse, GaMeasurementAnalysisDto, GaSocialReferralTrendResponse, GaAttributionTrendResponse, GaSourceMover, GA4AiReferralDailyDto, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry } from '@ainyc/canonry-contracts'
+import type { AiEngineLeadRateUnavailableReason, GaConnectResponse, GA4PropertiesDto, GaStatusResponse, GaSyncResponse, GaTrafficResponse, GaCoverageResponse, GaMeasurementAnalysisDto, GaSocialReferralTrendResponse, GaAttributionTrendResponse, GaSourceMover, GA4AiReferralDailyDto, GA4AiReferralHistoryEntry, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, GaSearchLandingMetrics, GaSearchLandingPagesResponse } from '@canonry/canonry-contracts'
 import { createApiClient } from '../client.js'
-import { CliError, isMachineFormat } from '../cli-error.js'
+import { formatValidationIssues, gaAcquisitionQuerySchema, type GaAcquisitionQuery } from '@canonry/canonry-contracts'
+import { CliError, isMachineFormat, usageError } from '../cli-error.js'
 import { emitJsonl } from '../cli-output.js'
-import { GaMoverChangeBases, describeError, formatPercent } from '@ainyc/canonry-contracts'
+import { GA_SEARCH_LANDING_WINDOW_DAYS, GaMoverChangeBases, describeError, formatPercent, gaSearchLandingHasSearchData, gaSearchLandingPageLabel } from '@canonry/canonry-contracts'
+import { GA_OVERVIEW_METRICS, GA_OVERVIEW_METRIC_ORDER, RatioUnits, formatGaOverviewValue, formatSignedPercent, isGaOverviewWindow, type GaOverviewResponse } from '@canonry/canonry-contracts'
 
 function getClient() {
   return createApiClient()
@@ -33,6 +35,23 @@ function rangeParams(opts?: GaRangeOptions, extra?: Record<string, string>): Rec
 /** True when the read was scoped at all, so an empty result can say why. */
 function isRangeScoped(opts?: GaRangeOptions): boolean {
   return Boolean(opts?.window || opts?.startDate || opts?.endDate)
+}
+
+export async function gaAcquisition(project: string, opts: Omit<GaAcquisitionQuery, 'window'> & { window?: string; format?: string }): Promise<void> {
+  const { format, ...input } = opts
+  const parsed = gaAcquisitionQuerySchema.safeParse(input)
+  if (!parsed.success) throw usageError(formatValidationIssues(parsed.error.issues), { details: { issues: parsed.error.issues.map(({ path, message }) => ({ path, message })) } })
+  const result = await createApiClient().gaAcquisition(project, parsed.data)
+  if (isMachineFormat(format)) {
+    if (format === 'jsonl') emitJsonl(result.rows.map(row => ({ project, windowStart: result.window.startDate, windowEnd: result.window.endDate, ...row })))
+    else console.log(JSON.stringify(result, null, 2))
+    return
+  }
+  console.log(`Stored GA4 acquisition for "${project}": ${result.rows.length} of ${result.totalRows} rows, ${result.totalSessions} sessions in window`)
+  console.log(`Status: ${result.status}; synced: ${result.syncedAt ?? 'never'}; coverage: ${result.coverage.earliestDate ?? '-'} to ${result.coverage.latestDate ?? '-'}`)
+  if (result.error) console.log(`Stored sync error: ${result.error}`)
+  console.log([...result.groupBy, 'sessions'].join('  '))
+  for (const row of result.rows) console.log([...result.groupBy.map(key => row[key] ?? '-'), row.sessions].join('  '))
 }
 
 export async function gaConnect(project: string, opts: {
@@ -198,7 +217,144 @@ export async function gaSync(project: string, opts?: { days?: number; only?: str
   console.log(`  AI rows:     ${result.aiReferralCount}`)
   console.log(`  Social rows: ${result.socialReferralCount}`)
   console.log(`  Period:      ${result.days} days${result.clamped ? ` (requested ${result.requestedDays})` : ''}`)
+  const leadSync = result.measurement?.leads
+  if (leadSync?.eventNames) {
+    console.log(`  Lead events: ${leadSync.eventNames.join(', ') || '(none)'} (${leadSync.days} days, ${leadSync.rowCount} rows)`)
+  }
+  if (leadSync?.keyEvents?.status === 'error') {
+    console.log(`    GA4 key event read failed, kept the previous list: ${leadSync.keyEvents.error ?? 'unknown error'}`)
+  }
+  const searchLanding = result.measurement.searchLandingPages
+  if (searchLanding) {
+    console.log(`  Search Console landing pages: ${searchLanding.status} (${searchLanding.rowCount} rows)`)
+    if (searchLanding.error) console.log(`    Error: ${searchLanding.error}`)
+  }
   console.log(`  Synced at:   ${result.syncedAt}`)
+}
+
+/** How a nullable GA4 ratio prints: undefined with no impressions, never 0. */
+const SEARCH_LANDING_NOT_AVAILABLE = 'n/a'
+
+function searchLandingCells(metrics: GaSearchLandingMetrics): string[] {
+  return [
+    metrics.organicGoogleSearchClicks.toLocaleString('en-US'),
+    metrics.organicGoogleSearchImpressions.toLocaleString('en-US'),
+    metrics.organicGoogleSearchClickThroughRate === null
+      ? SEARCH_LANDING_NOT_AVAILABLE
+      : formatPercent(metrics.organicGoogleSearchClickThroughRate),
+    metrics.organicGoogleSearchAveragePosition === null
+      ? SEARCH_LANDING_NOT_AVAILABLE
+      : metrics.organicGoogleSearchAveragePosition.toFixed(1),
+    metrics.activeUsers.toLocaleString('en-US'),
+  ]
+}
+
+/**
+ * `ga search-landing-pages`: GA4's "Google organic search traffic: Landing
+ * page + query string" report as the last GA sync stored it. The Total row is
+ * the API's (GA4's own Total), printed first as GA4 does, never a sum of the
+ * rows shown.
+ */
+export async function gaSearchLandingPages(project: string, opts?: {
+  window?: string
+  limit?: string
+  offset?: string
+  format?: string
+}): Promise<void> {
+  const client = getClient()
+  const params: Record<string, string> = {}
+  if (opts?.window) params.window = opts.window
+  if (opts?.limit) params.limit = opts.limit
+  if (opts?.offset) params.offset = opts.offset
+  const result: GaSearchLandingPagesResponse = await client.gaSearchLandingPages(
+    project,
+    Object.keys(params).length > 0 ? params : undefined,
+  )
+
+  if (opts?.format === 'json') {
+    console.log(JSON.stringify(result, null, 2))
+    return
+  } else if (opts?.format === 'jsonl') {
+    // One landing page per line, stamped with the window it belongs to. The
+    // Total is not a row: read it from `--format json`.
+    emitJsonl(result.rows.map(row => ({
+      project,
+      window: result.window,
+      windowStart: result.windowStart,
+      windowEnd: result.windowEnd,
+      ...row,
+    })))
+    return
+  }
+
+  if (result.status === 'never-synced') {
+    console.log(`No GA4 Search Console landing-page data for "${project}" yet. Run "canonry ga sync ${project}".`)
+    return
+  }
+
+  console.log(`Google organic search traffic: landing page + query string (GA4 Search Console link) for "${project}"`)
+  if (result.windowStart && result.windowEnd) {
+    console.log(`Last ${result.windowDays ?? GA_SEARCH_LANDING_WINDOW_DAYS[result.window]} days: ${result.windowStart} to ${result.windowEnd}${result.timeZone ? ` (${result.timeZone})` : ''}`)
+  }
+  if (result.status === 'unavailable') {
+    console.log(`Status: unavailable. GA4 did not return Search Console data: ${result.error ?? 'no reason given'}`)
+    console.log(`Link Search Console to this GA4 property (GA4 Admin, Product links, Search Console links), then run "canonry ga sync ${project}".`)
+  } else if (result.status === 'error') {
+    console.log(`Status: the last refresh failed${result.attemptedAt ? ` (${result.attemptedAt})` : ''}: ${result.error ?? 'unknown error'}`)
+  }
+  if (result.status !== 'ready' && result.total) {
+    console.log(`Showing the snapshot synced ${result.syncedAt ?? 'earlier'}.`)
+  }
+  if (!result.total) {
+    console.log('No stored snapshot.')
+    return
+  }
+
+  const headers = ['LANDING PAGE', 'CLICKS', 'IMPRESSIONS', 'CTR', 'AVG POSITION', 'ACTIVE USERS']
+  const table = [
+    ['Total', ...searchLandingCells(result.total)],
+    ...result.rows.map(row => [gaSearchLandingPageLabel(row.landingPage), ...searchLandingCells(row)]),
+  ]
+  const pageWidth = Math.min(60, Math.max(headers[0]!.length, ...table.map(row => row[0]!.length)))
+  const widths = headers.map((header, index) => index === 0
+    ? pageWidth
+    : Math.max(header.length, ...table.map(row => row[index]!.length)))
+  const line = (cells: string[]) => `  ${cells.map((cell, index) => index === 0
+    ? (cell.length > pageWidth ? `${cell.slice(0, pageWidth - 3)}...` : cell).padEnd(pageWidth)
+    : cell.padStart(widths[index]!)).join('  ')}`
+
+  console.log()
+  console.log(line(headers))
+  console.log(`  ${widths.map(width => '─'.repeat(width)).join('  ')}`)
+  for (const row of table) console.log(line(row))
+  console.log()
+
+  if (result.rows.length > 0) {
+    console.log(`  Showing ${result.offset + 1}-${result.offset + result.rows.length} of ${result.totalRows} pages.`)
+  } else if (result.totalRows > 0) {
+    console.log(`  No landing-page rows at offset ${result.offset} (${result.totalRows} stored).`)
+  }
+  // GA4's Total, not the row count, as the dashboard reads it: pages with
+  // active users and no clicks or impressions are still listed.
+  const link = result.searchConsoleLink
+  if (link?.state === 'not-linked') {
+    console.log(`  Search Console not linked: GA4 has no Search Console data for this site, but Search Console recorded ${(link.searchConsoleImpressions ?? 0).toLocaleString('en-US')} impressions in this window.`)
+    console.log('  Link the site\'s Search Console property in GA4 (Admin, Product links, Search Console links).')
+  } else if (!gaSearchLandingHasSearchData(result.total)) {
+    console.log('  No landing pages had Google organic search traffic in this window.')
+    console.log(link?.state === 'no-search-data'
+      ? '  Search Console also recorded no impressions for these days.'
+      : '  If the property should have some, check its Search Console link in GA4 (Admin, Product links, Search Console links).')
+  }
+  if (result.rowsCapped && result.reportRowCount !== null) {
+    console.log(`  GA4 reported ${result.reportRowCount} rows; the ${result.totalRows} with the most clicks are stored.`)
+  }
+  if (result.subjectToThresholding) {
+    console.log('  GA4 applied thresholding to this report, so some rows may be withheld.')
+  }
+  if (result.status === 'ready' && result.syncedAt) {
+    console.log(`  Synced at: ${result.syncedAt}`)
+  }
 }
 
 export async function gaTraffic(project: string, opts?: GaRangeOptions & { limit?: number }): Promise<void> {
@@ -232,6 +388,12 @@ export async function gaTraffic(project: string, opts?: GaRangeOptions & { limit
     }
   }
   console.log()
+
+  // `aiEngines` / `socialPlatforms` are optional here only for a server older
+  // than the grouping; their rows are the same rows the source tables print.
+  if ((result.aiEngines?.length ?? 0) > 0) {
+    printReferralGroups('AI REFERRALS BY ENGINE', 'ENGINE', result.aiEngines)
+  }
 
   if (result.aiReferrals.length > 0) {
     const attrWidth = 12
@@ -274,6 +436,13 @@ export async function gaTraffic(project: string, opts?: GaRangeOptions & { limit
     const chanWidth = 12
     if (result.socialSessions > 0) {
       console.log(`  Social Sessions:         ${result.socialSessions} (${result.socialSharePctDisplay} of total)`)
+      if ((result.paidSocialSessions ?? 0) > 0) {
+        console.log(`    Paid Social:           ${result.paidSocialSessions} (${formatPercent(result.paidSocialShare)} of social)`)
+      }
+      console.log()
+    }
+    if ((result.socialPlatforms?.length ?? 0) > 0) {
+      printReferralGroups('SOCIAL PLATFORMS', 'PLATFORM', result.socialPlatforms)
     }
     console.log('  SOCIAL REFERRAL SOURCES')
     console.log(`  ${'SOURCE'.padEnd(25)}  ${'MEDIUM'.padEnd(15)}  ${'CHANNEL'.padEnd(chanWidth)}  ${'SESSIONS'.padEnd(10)}  SHARE`)
@@ -305,6 +474,93 @@ export async function gaTraffic(project: string, opts?: GaRangeOptions & { limit
   if (result.lastSyncedAt) {
     console.log(`\n  Last synced: ${result.lastSyncedAt}`)
   }
+}
+
+type AiEngineLeads = GaMeasurementAnalysisDto['leads']['aiEngines']
+type AiEngineLeadClass = AiEngineLeads['organic']
+
+/** Why the lead rates are blank; `no-data` prints nothing because the block is empty. */
+const AI_ENGINE_LEAD_RATE_NOTES: Record<AiEngineLeadRateUnavailableReason, string | null> = {
+  'no-data': null,
+  'sync-not-ready': 'the latest acquisition or lead sync failed, so sessions and lead events may cover different days; rerun the GA sync for lead rates.',
+  'channel-leads-unfiltered': 'lead events are channel-level here, so host and path filters narrow sessions but not leads; rerun with --host-scope all and no --path-prefix for lead rates.',
+  'paid-split-needs-landing-page': 'lead events are channel-level here, so the paid/organic split cannot read landing-page utm tags, and some AI sessions were paid only by those tags (counted as organic above); tag paid AI links with a paid utm_medium such as cpc for lead rates.',
+  'sessions-behind-leads': 'stored lead events run past the last stored session date, so recent leads have no sessions to divide by; rerun the GA sync for lead rates.',
+  'sessions-missing-on-lead-days': 'some days in this window have stored lead events but no stored sessions, so those leads have no sessions to divide by; rerun the GA sync with --days covering the window for lead rates.',
+}
+
+function hasAiEngineLeadRows(block: AiEngineLeadClass): boolean {
+  return block.engines.length > 0 || block.unattributed.sources.length > 0
+}
+
+/** One row per AI engine, the unattributed AI channel rows, and the class total; each cell is one 30-day cohort. */
+function printAiEngineLeadClass(heading: string, block: AiEngineLeadClass): void {
+  const cell = (period: AiEngineLeadClass['periods'][number]) => (
+    `${period.eventCount} / ${period.sessions}  ${formatPercent(period.leadRate)}`
+  )
+  const rows = [
+    ...block.engines.map(engine => ({ label: engine.label, cells: engine.periods.map(cell) })),
+    ...(block.unattributed.sources.length > 0
+      ? [{ label: 'Other AI Assistant', cells: block.unattributed.periods.map(cell) }]
+      : []),
+    { label: 'All AI', cells: block.periods.map(cell) },
+  ]
+  const labelWidth = Math.max('ENGINE'.length, ...rows.map(row => row.label.length))
+  const widths = block.periods.map((period, index) => Math.max(
+    period.label.length,
+    ...rows.map(row => row.cells[index]?.length ?? 0),
+  ))
+  const line = (label: string, cells: string[]) => (
+    `    ${label.padEnd(labelWidth)}  ${cells.map((value, index) => value.padEnd(widths[index] ?? 0)).join('  ')}`.trimEnd()
+  )
+  console.log(`  ${heading} (lead events / AI sessions, lead rate)`)
+  console.log(line('ENGINE', block.periods.map(period => period.label.toUpperCase())))
+  for (const row of rows) console.log(line(row.label, row.cells))
+}
+
+/**
+ * Which GA4 events count, and each one's latest-cohort total, so sales,
+ * bookings and form leads read separately. A server older than
+ * `leads.countedEvents` omits both fields.
+ */
+function printCountedEvents(leads: Partial<Pick<GaMeasurementAnalysisDto['leads'], 'countedEvents' | 'events'>>): void {
+  const counted = leads.countedEvents
+  if (counted) {
+    const keyEvents = !counted.keyEventsEnabled
+      ? 'not counted'
+      : counted.keyEvents === null ? 'not read yet' : (counted.keyEvents.join(', ') || '(none marked in GA4)')
+    console.log(`  Counted events: configured ${counted.configured.join(', ') || '(none)'}; GA4 key events ${keyEvents}`)
+    if (counted.ignoredKeyEvents?.length) {
+      console.log(`    Not counted (funnel or engagement steps): ${counted.ignoredKeyEvents.join(', ')}`)
+    }
+    if (counted.keyEventsError) console.log(`    Key event read failed: ${counted.keyEventsError}`)
+  }
+  for (const event of leads.events ?? []) {
+    console.log(event.measured === false
+      ? `    ${event.eventName} (${event.origin}): not synced yet`
+      : `    ${event.eventName} (${event.origin}): ${event.periods.at(-1)?.eventCount ?? 0} in the latest cohort`)
+  }
+}
+
+/**
+ * Organic AI leads by engine, then paid AI clicks only when there are any, then why rates are blank.
+ * A server older than `leads.aiEngines` omits the block, so there is nothing to print.
+ */
+function printAiEngineLeads(aiEngines: AiEngineLeads | undefined): void {
+  if (!aiEngines) return
+  if (aiEngines.organic.periods.length === 0) return
+  if (!hasAiEngineLeadRows(aiEngines.organic) && !hasAiEngineLeadRows(aiEngines.paid)) {
+    console.log('  Leads by AI engine: no AI engine sessions or lead events in this window')
+    return
+  }
+  printAiEngineLeadClass('Leads by AI engine, organic', aiEngines.organic)
+  if (hasAiEngineLeadRows(aiEngines.paid)) {
+    printAiEngineLeadClass('Leads by AI engine, paid clicks', aiEngines.paid)
+  }
+  const note = aiEngines.leadRateUnavailableReason === null
+    ? null
+    : AI_ENGINE_LEAD_RATE_NOTES[aiEngines.leadRateUnavailableReason]
+  if (note) console.log(`    Note: ${note}`)
 }
 
 export async function gaMeasurementAnalysis(project: string, opts?: {
@@ -348,6 +604,8 @@ export async function gaMeasurementAnalysis(project: string, opts?: {
   for (const period of result.leads.periods) {
     console.log(`    ${period.label.padEnd(8)} ${period.eventCount} leads  ${period.startDate} to ${period.endDate}`)
   }
+  printCountedEvents(result.leads)
+  printAiEngineLeads(result.leads.aiEngines)
 
   console.log(`  Search demand: ${result.searchDemand.status}`)
   for (const period of result.searchDemand.periods) {
@@ -391,6 +649,25 @@ export async function gaAiReferralHistory(project: string, opts?: GaRangeOptions
   }
 }
 
+/** One row per engine or platform group, with how many source rows it folds. */
+function printReferralGroups(
+  heading: string,
+  column: string,
+  groups: ReadonlyArray<{ label: string; sessions: number; organicSessions: number; paidSessions: number; share: number; sources: readonly unknown[] }>,
+): void {
+  const labelWidth = Math.min(30, Math.max(column.length, ...groups.map(group => group.label.length)))
+  console.log(`  ${heading}`)
+  console.log(`  ${column.padEnd(labelWidth)}  ${'SESSIONS'.padEnd(10)}${'ORGANIC'.padEnd(9)}${'PAID'.padEnd(8)}${'SHARE'.padEnd(8)}SOURCES`)
+  console.log(`  ${'─'.repeat(labelWidth)}  ${'─'.repeat(10)}${'─'.repeat(9)}${'─'.repeat(8)}${'─'.repeat(8)}${'─'.repeat(7)}`)
+  for (const group of groups) {
+    const label = group.label.length > labelWidth ? group.label.slice(0, labelWidth - 3) + '...' : group.label
+    console.log(
+      `  ${label.padEnd(labelWidth)}  ${String(group.sessions).padEnd(10)}${String(group.organicSessions).padEnd(9)}${String(group.paidSessions).padEnd(8)}${formatPercent(group.share).padEnd(8)}${group.sources.length}`,
+    )
+  }
+  console.log()
+}
+
 export async function gaAiReferralDaily(project: string, opts?: GaRangeOptions): Promise<void> {
   const client = getClient()
   const result: GA4AiReferralDailyDto = await client.gaAiReferralDaily(project, rangeParams(opts))
@@ -426,6 +703,10 @@ export async function gaAiReferralDaily(project: string, opts?: GaRangeOptions):
     }
   }
   console.log(`\n  Total: ${result.totalSessions} sessions (${result.totalPaidSessions} paid, ${result.totalOrganicSessions} organic)`)
+  if (result.byEngine && result.byEngine.series.length > 0) {
+    const folded = result.byEngine.otherCount > 0 ? ` (Other folds ${result.byEngine.otherCount})` : ''
+    console.log(`  By engine${folded}: ${result.byEngine.series.map(series => `${series.label} ${series.sessions}`).join(' · ')}`)
+  }
 }
 
 export async function gaSocialReferralHistory(project: string, opts?: GaRangeOptions): Promise<void> {
@@ -457,6 +738,45 @@ export async function gaSocialReferralHistory(project: string, opts?: GaRangeOpt
     const chanLabel = row.channelGroup === 'Paid Social' ? 'paid' : 'organic'
     console.log(
       `  ${row.date.padEnd(dateWidth)}  ${row.source.padEnd(sourceWidth)}  ${chanLabel.padEnd(chanWidth)}  ${String(row.sessions).padEnd(10)}${String(row.users).padEnd(8)}`,
+    )
+  }
+}
+
+export async function gaOverview(project: string, opts?: { window?: string; format?: string }): Promise<void> {
+  const window = opts?.window
+  if (window !== undefined && !isGaOverviewWindow(window)) {
+    throw usageError(`Invalid --window "${window}": the GA4 overview supports 7d, 30d or 90d.`)
+  }
+  const client = getClient()
+  const result: GaOverviewResponse = await client.gaOverview(project, window)
+
+  if (opts?.format === 'json') {
+    console.log(JSON.stringify(result, null, 2))
+    return
+  } else if (opts?.format === 'jsonl') {
+    // An object command: `jsonl` is its JSON document on one line.
+    console.log(JSON.stringify(result))
+    return
+  }
+
+  const span = (period: GaOverviewResponse['current']) =>
+    period.startDate && period.endDate ? `${period.startDate} to ${period.endDate}` : 'not synced'
+  console.log(`GA4 overview for "${project}", ${span(result.current)} vs ${span(result.previous)}:\n`)
+  if (result.syncedAt === null) {
+    console.log('No GA4 overview figures yet. Run "canonry ga sync <project>" to fetch them.')
+    return
+  }
+
+  const labelWidth = Math.max(...GA_OVERVIEW_METRIC_ORDER.map(key => GA_OVERVIEW_METRICS[key].label.length)) + 2
+  console.log(`  ${'METRIC'.padEnd(labelWidth)}${'THIS PERIOD'.padStart(14)}${'PREVIOUS'.padStart(14)}${'CHANGE'.padStart(10)}`)
+  console.log(`  ${'─'.repeat(labelWidth)}${'─'.repeat(14)}${'─'.repeat(14)}${'─'.repeat(10)}`)
+  for (const key of GA_OVERVIEW_METRIC_ORDER) {
+    const change = result.changePct[key]
+    console.log(
+      `  ${GA_OVERVIEW_METRICS[key].label.padEnd(labelWidth)}`
+      + `${formatGaOverviewValue(key, result.totals[key]).padStart(14)}`
+      + `${formatGaOverviewValue(key, result.previousTotals[key]).padStart(14)}`
+      + `${(change === null ? '—' : formatSignedPercent(change, RatioUnits.percent)).padStart(10)}`,
     )
   }
 }

@@ -29,7 +29,7 @@ import {
   type SiteGraphSigmaEdge,
   type SiteGraphSigmaNode,
 } from '../src/components/project/site-graph-sigma.js'
-import { SITE_GRAPH_LEGEND_STATES } from '@ainyc/canonry-contracts'
+import { SITE_GRAPH_LEGEND_STATES } from '@canonry/canonry-contracts'
 
 const theme: SigmaSiteGraphTheme = {
   eligible: 'rgb(1, 2, 3)',
@@ -79,7 +79,7 @@ function edge(
 }
 
 describe('buildSigmaSiteGraph', () => {
-  it('uses only non-black colors accepted by Sigma 3 for every renderer binding', () => {
+  it('uses only non-black colors accepted by Sigma for every renderer binding', () => {
     for (const [binding, token] of Object.entries(SITE_GRAPH_SIGMA_COLOR_TOKENS)) {
       expect(isSigmaWebGlColor(token.fallback), `${binding} must use Sigma's supported color syntax`).toBe(true)
       const parsed = parseColor(token.fallback)
@@ -229,15 +229,13 @@ describe('buildSigmaSiteGraph', () => {
     expect(reducers.nodeReducer('unrelated', result.graph.getNodeAttributes('unrelated'))).toMatchObject({
       color: theme.dimmedNode,
       label: '',
-      status: 'failed',
-      glyph: '×',
     })
     expect(reducers.edgeReducer('home-pricing', result.graph.getEdgeAttributes('home-pricing'))).toMatchObject({
       color: theme.edgeActive,
       zIndex: 2,
     })
     expect(reducers.edgeReducer('pricing-unrelated', result.graph.getEdgeAttributes('pricing-unrelated'))).toMatchObject({
-      hidden: true,
+      visibility: 'hidden',
     })
   })
 
@@ -360,18 +358,18 @@ describe('buildSigmaSiteGraph', () => {
       expect(reducers.nodeReducer(
         neighbor.nodeKey,
         result.graph.getNodeAttributes(neighbor.nodeKey),
-      )).toMatchObject({ forceLabel: false })
+      )).toMatchObject({ labelVisibility: 'auto' })
     }
     expect(suppressedNeighbors).toHaveLength(16)
     for (const neighbor of suppressedNeighbors) {
       expect(reducers.nodeReducer(
         neighbor.nodeKey,
         result.graph.getNodeAttributes(neighbor.nodeKey),
-      )).toMatchObject({ color: theme.eligible, forceLabel: false, label: '' })
+      )).toMatchObject({ color: theme.eligible, labelVisibility: 'auto', label: '' })
     }
     expect(reducers.nodeReducer('blog', result.graph.getNodeAttributes('blog'))).toMatchObject({
       label: '● /blog',
-      forceLabel: true,
+      labelVisibility: 'visible',
     })
 
     const reversed = buildSigmaSiteGraph(
@@ -394,7 +392,7 @@ describe('buildSigmaSiteGraph', () => {
     expect(zoomedIn.nodeReducer(
       'article-00',
       result.graph.getNodeAttributes('article-00'),
-    )).toEqual(result.graph.getNodeAttributes('article-00'))
+    )).toMatchObject({ label: '● /blog/article-00', labelVisibility: 'auto', color: theme.eligible })
   })
 })
 
@@ -444,7 +442,7 @@ describe('the crawl root', () => {
     // The root reads as the path it is; the ring and the forced label are
     // what mark it, not a different name.
     expect(root.label).toBe('● /')
-    expect(root.forceLabel).toBe(true)
+    expect(root.labelVisibility).toBe('visible')
     expect(root.isRoot).toBe(true)
     // No ring: a coloured halo read as "selected" or "broken here", when all
     // it meant was "you are here". The label and the size say that already.
@@ -464,20 +462,20 @@ describe('the crawl root', () => {
     const overview = createSigmaSiteGraphReducers(built.graph, null, 2, theme)
     expect(overview.nodeReducer('home', root)).toMatchObject({
       label: '● /',
-      forceLabel: true,
+      labelVisibility: 'visible',
     })
 
     // Focused elsewhere, and not even a neighbor of the focus.
     const focusedElsewhere = createSigmaSiteGraphReducers(built.graph, 'deep', 2, theme)
     expect(focusedElsewhere.nodeReducer('home', root)).toMatchObject({
       label: '● /',
-      forceLabel: true,
+      labelVisibility: 'visible',
     })
     expect(focusedElsewhere.nodeReducer('home', root).color).toBe(theme.eligible)
 
     const focusedOnRoot = createSigmaSiteGraphReducers(built.graph, 'home', 2, theme)
     expect(focusedOnRoot.nodeReducer('home', root)).toMatchObject({
-      forceLabel: true,
+      labelVisibility: 'visible',
       zIndex: 3,
       size: root.size * 1.35,
     })
@@ -529,21 +527,21 @@ describe('a real template-mesh site (canonry.ai shape: 50 pages, ~1,259 links)',
 
     // The default view of a dense site shows nodes only.
     const visibleEdges = built.graph.edges().filter((edgeKey) => (
-      fitted.edgeReducer(edgeKey, built.graph.getEdgeAttributes(edgeKey)).hidden !== true
+      fitted.edgeReducer(edgeKey, built.graph.getEdgeAttributes(edgeKey)).visibility !== 'hidden'
     ))
     expect(visibleEdges).toEqual([])
 
     // Selecting a page brings back that page's own links, still fitted.
     const focused = createSigmaSiteGraphReducers(built.graph, 'page-07', 1, theme)
     const focusedEdges = built.graph.edges().filter((edgeKey) => (
-      focused.edgeReducer(edgeKey, built.graph.getEdgeAttributes(edgeKey)).hidden !== true
+      focused.edgeReducer(edgeKey, built.graph.getEdgeAttributes(edgeKey)).visibility !== 'hidden'
     ))
     expect(focusedEdges.length).toBeGreaterThan(0)
     for (const edgeKey of focusedEdges) {
       expect(built.graph.extremities(edgeKey)).toContain('page-07')
     }
     // And its own label is drawn whatever the budget says.
-    expect(focused.nodeReducer('page-07', built.graph.getNodeAttributes('page-07')).forceLabel).toBe(true)
+    expect(focused.nodeReducer('page-07', built.graph.getNodeAttributes('page-07')).labelVisibility).toBe('visible')
 
     // Dots stay small enough at this density to read as separate pages.
     expect(siteGraphMaxNodeSize(50)).toBeLessThanOrEqual(9)

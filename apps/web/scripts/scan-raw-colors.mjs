@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 // Progress reporter for the design-token migration (engine issue #767, Phase 3).
 // Counts remaining raw Tailwind palette utilities per file under apps/web/src.
-// The ENFORCED gate is the `design-tokens/no-literal-palette` ESLint rule (plus
-// its allowlist in eslint.config.js); this script is just a "how much is left"
-// view for tracking the ratchet across slices. Run: `pnpm --filter @ainyc/canonry-web scan:colors`.
+// The ENFORCED gate is the `design-tokens/no-literal-palette` lint rule (plus
+// its exemptions in .oxlintrc.json); this script is just a "how much is left"
+// view for tracking the ratchet across slices. Run: `pnpm --filter @canonry/canonry-web scan:colors`.
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -16,7 +16,7 @@ const REPO_ROOT = join(WEB_DIR, '..', '..')
 // Same pattern the lint rule enforces (shared source of truth), global for counting.
 const RE = new RegExp(RAW_PALETTE_SOURCE, 'g')
 
-// PERMANENT exclusions (see eslint.config.js): engine identity + chart fallbacks.
+// PERMANENT exclusions (see .oxlintrc.json): engine identity + chart fallbacks.
 const EXCLUDE = new Set(['ProviderBadge.tsx', 'ChartPrimitives.tsx'])
 
 function walk(dir) {

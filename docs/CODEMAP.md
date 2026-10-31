@@ -25,7 +25,7 @@ Bundled via `packages/canonry/build-web.ts` → `packages/canonry/assets/`. Lowe
 | `src/App.tsx` | Root layout, first-run redirect (`/` → `/setup` when 0 projects), health, notifications, AeroBar host | Check before changing first-open flow |
 | `src/router/routes.tsx` | TanStack Router tree (`/`, `/projects`, `/projects/$projectName`, `/runs`, `/traffic`, etc.) | Route = one lazy chunk |
 | `src/pages/SetupPage.tsx` | 1260 LOC wizard: `System check → Create project → Queries → Competitors → Launch` | Largest page — state machine `deriveSetupStep`, resume from `useDashboard` |
-| `src/pages/ProjectPage.tsx` | Project shell + tab router (`overview`, `portfolio`, `search-console`, `local`, `discovery`, `report`, `activity`, `backlinks`, `technical-aeo`, `history`, `settings`); stable `technical-aeo` key/route is labeled **Site Health** | Extract before adding hooks |
+| `src/pages/ProjectPage.tsx` | Project shell + tab router (`overview`, `portfolio`, `search-console`, `local`, `discovery`, `activity`, `backlinks`, `technical-aeo`, `history`, `settings`); stable `technical-aeo` key/route is labeled **Site Health** | Extract before adding hooks |
 | `src/pages/OverviewPage.tsx` | Portfolio overview (project list, sparkline, health cards) | |
 | `src/pages/ProjectsPage.tsx` / `HistoryPage.tsx` / `RunsPage.tsx` / `SettingsPage.tsx` / `BacklinksPage.tsx` / `TrafficPage.tsx` | One file per route | |
 | `src/components/project/*` | Section components: `GscSection`, `BingSummaryMetric`, `SiteHealthSection`, `SiteGraphSigma`, `TechnicalAeoSection`, `DiscoverySection`, `CitationVisibilitySection`, `VisibilityTrendSection`, `ActivitySection`, `BacklinksSection`, `GbpSection`, etc. | Site Health's map is Sigma v3 WebGL + Graphology; browser consumes published coordinates and never runs layout physics. |
@@ -33,7 +33,7 @@ Bundled via `packages/canonry/build-web.ts` → `packages/canonry/assets/`. Lowe
 | `src/components/shared/*` | `ChartPrimitives` (Recharts wrapper), `AeroBar`, `BrandLockup`, `ToneBadge`, `ProviderBadge`, `StatusBadge` | |
 | `src/components/ui/*` | `button`, `card`, `badge`, `sheet` (Radix + Tailwind) | |
 | `src/components/layout/*` | `Drawer`, `ErrorBoundary`, `TaskCenter`, `Toaster` | |
-| `src/api.ts` | `heyClient`, `apiFetch<T>`, typed wrappers over `@ainyc/canonry-api-client` | **All web API calls must go through generated SDK** (`@ainyc/canonry-api-client/react-query`) — `fetch()` banned except here |
+| `src/api.ts` | `heyClient`, `apiFetch<T>`, typed wrappers over `@canonry/canonry-api-client` | **All web API calls must go through generated SDK** (`@canonry/canonry-api-client/react-query`) — `fetch()` banned except here |
 | `src/api-aero.ts` | Aero SSE client | |
 | `src/embed.ts` | Presentational embed helpers: `embedViewIdForPath`, `isEmbedProjectTabAllowed`, `embedThemeStyle` | Pure, testable |
 | `src/lib/*` | `health-helpers`, `onboarding-telemetry`, `format-helpers`, `run-tracker-store`, `tone-helpers`, `write-guard`, `base-path`, `safe-url`, `measurement-view-url` (shared measurement URL selection and the first-page visibility-report query key), `project-scope` (which scope control the project context row shows on each tab), etc. | `VisibilityTrendSection` exports `VisibilityOverview` (results toolbar above the keyed workspace) and `useVisibilityReportFirstPage`. |
@@ -94,7 +94,7 @@ cannot resolve until the version it pins exists on npm.
 | `ui` | Server-rendered evidence UI: markup, styles, and the client script (no inline styles — the page CSP blocks them) |
 | `config` | Environment-driven limits and feature configuration |
 
-### `packages/canonry/` — Publishable npm (`@canonry/canonry`, compat `@ainyc/canonry`)
+### `packages/canonry/` — Publishable npm (`@canonry/canonry`)
 CLI + Fastify server + job runner + scheduler + bundled SPA. The published product package (`packages/val-kit` is the
 only other published artifact; every remaining internal package is bundled into this one).
 
@@ -106,7 +106,7 @@ only other published artifact; every remaining internal package is bundled into 
 | `src/config.ts` | `CanonryConfig` + `.canonry/config.yaml` load/save, provider creds, Cloudflare per-source traffic credentials, `embed`, `agent.mode`, `basePath` |
 | `src/google-marketing-runtime.ts` | Project-scoped Google Ads and GTM discovery and snapshot runtime. Provider calls are bounded and read-only. |
 | `src/cloudflare-traffic-config.ts` / `src/cloudflare-ingest-url.ts` | Source-ID-keyed local Cloudflare credentials for direct push (bearer/HMAC) and Queue pull (Account Queues token); no cleartext secret enters generated artifacts |
-| `src/execute-site-audit.ts` | `executeSiteAudit` — runs `@canonry/aeo-audit` `runSiteCrawl`, upserts the live attempt graph from events, then publishes immutable complete/selected-partial snapshots. It also materializes the deterministic Site Health 20k-node / 50k-edge graph sample. Default page budget 1,000; an unset edge budget stays unset so the engine derives it from the page count. Caps: 50,000 pages / 1,000,000 edges. Dead-link checks are opt-in. |
+| `src/execute-site-audit.ts` | `executeSiteAudit` — runs `@canonry/aeo-audit` `runSiteCrawl`, upserts the live attempt graph from events, then publishes immutable complete/selected-partial snapshots. It also materializes the deterministic Site Health 20k-node / 50k-edge graph sample. Page budget: the run creator's resolved one (request, else the project's saved `siteAuditMaxPages`, else the full site up to 50,000); an unset edge budget stays unset so the engine derives it from the page count. Caps: 50,000 pages / 1,000,000 edges. Dead-link checks are opt-in. |
 | `src/site-audit-factors.ts` | `computeFactorAverages`: the site factor scorecard the executor publishes and the demo seed reuses. Each factor's site `sharePct` is the mean of the engine's per-page shares, apportioned to add up to 100; a factor's `weight` is relative and never a percentage. |
 | `src/site-crawl-graph-layout.ts` | Publication-time Graphology/ForceAtlas2 worker: deterministic hierarchy seed → bounded layout → persisted coordinates/edge sample; timeout or failure records an unavailable layout without failing the crawl. |
 | `src/job-runner.ts` | In-process queue: `answer-visibility`, `site-audit`, `discovery`, `research`, etc. |
@@ -135,8 +135,9 @@ only other published artifact; every remaining internal package is bundled into 
 | `src/provider-batches.ts` | Reads over `provider_batches` (run detail, fill age, scheduler `batch-pending`) |
 | `src/snapshot-evidence-fingerprint.ts` | The evidence fingerprint measurement cursors pin (excludes dispatch provenance columns) |
 | `src/queries.ts` / `src/query-replace.ts` | Query basket ops — `replaceProjectQueries` is only declarative replace (preserves FKs) |
+| `src/query-class-read.ts` | `readQueryClasses`: the branded / non-brand `queryClass` on every `/queries` row (text classifier for a simple project or a schema v1 plan, stored assignment class under an active schema v2 plan) |
 | `src/technical-aeo.ts` | Exact-identity `POST /technical-aeo/runs`; legacy score/page/trend reads; bounded crawl summary, page inventory, hierarchy, links/neighbors, semantic subgraph/path, complete-run changes, opt-in dead-links, persisted `/technical-aeo/graph` visualization projection (with server-owned `rootNodeKey`), and `GET /technical-aeo/runs` scan history with per-scan `hasCrawlData`. Legacy score-only runs answer crawl-scoped reads with their no-crawl shape; only unknown run ids 404. All use `notProbeRun()`. |
-| `src/composites.ts` / `src/db-derived-dtos.ts` | Composite reads, `drizzle-zod` row schemas |
+| `src/composites.ts` | Composite reads |
 | `src/analytics.ts` / `visibility-stats.ts` / `visibility-compare.ts` | Aggregated metrics, per-query rates, month compare |
 | `src/google.ts` / `src/bing.ts` / `src/ga.ts` / `src/traffic.ts` / `src/backlinks.ts` / `src/ads.ts` | Integration routes |
 | `src/doctor/*` | Health checks — `registry.ts`, `runner.ts`, `checks/*`. Cloudflare direct push skips pull lag. Both direct and Queue sources use `traffic.source.worker-version` to compare the generated version with the most recently ingested batch's Worker version. |
@@ -158,7 +159,7 @@ Schema in `src/schema.ts`. ER diagram in `docs/data-model.md`.
 ### `packages/intelligence/` — Insights + health snapshot logic
 
 ### Providers (`packages/provider-*`)
-`provider-gemini`, `provider-openai`, `provider-muse`, `provider-claude`, `provider-local`, `provider-perplexity`, `provider-cdp` — each implements `ProviderAdapter` from `contracts`. Every API provider except `provider-muse` (and not cdp) splits `executeTrackedQuery` into `buildTrackedQueryRequest` + `parseTrackedQueryResponse`; `provider-claude/src/batch.ts` is the Message Batches capability (`adapter.batch`).
+`provider-gemini`, `provider-openai`, `provider-openrouter`, `provider-muse`, `provider-claude`, `provider-local`, `provider-perplexity`, `provider-cdp` — each implements `ProviderAdapter` from `contracts`. OpenRouter resolves project model routes through a shared connection. Every API provider except `provider-muse` (and not cdp) splits `executeTrackedQuery` into `buildTrackedQueryRequest` + `parseTrackedQueryResponse`; `provider-claude/src/batch.ts` is the Message Batches capability (`adapter.batch`). `provider-answer-services` is the one shared layer for hosted search answer services: `src/core/` (adapter factory, HTTP, SSE, evidence) plus one folder per vendor registered in `src/services/index.ts`.
 
 ### Integrations (`packages/integration-*`)
 `integration-google`, `integration-google-ads` (read-only Google Ads discovery and snapshots), `integration-google-analytics`, `integration-bing`, `integration-google-business-profile`, `integration-google-places`, `integration-google-tag-manager` (read-only GTM discovery and live-container snapshots), `integration-openai-ads`, `integration-wordpress`, `integration-commoncrawl`, `integration-cloud-run`, `integration-cloudflare-worker` (transport-neutral edge batch + ES-module direct-push / Queue-producer delivery), `integration-cloudflare-queue` (Queues HTTP pull/ack client), `integration-vercel`, `integration-traffic`, `integration-wordpress-traffic`.

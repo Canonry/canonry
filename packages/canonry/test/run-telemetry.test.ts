@@ -1,8 +1,15 @@
 import { describe, it, expect } from 'vitest'
 import crypto from 'node:crypto'
 import {
+  FAILURE_STREAK_SAMPLE_AFTER,
+  FAILURE_STREAK_SAMPLE_RATE,
+  buildProviderOutcomeProps,
   buildRunCompletedProps,
+  buildRunRefusedProps,
   buildSiteAuditCompletedProps,
+  describeRunFailure,
+  failureStreakSampling,
+  runFailureSite,
   extractRegistrableHost,
   hashDomain,
 } from '../src/run-telemetry.js'
@@ -132,6 +139,109 @@ describe('buildRunCompletedProps', () => {
     expect(props.phases).toEqual(phases)
     expect(props.durationMs).toBe(28100)
   })
+
+  const priced = (tier: 'standard' | 'batch', cost: number | null) => ({
+    inputTokens: 1000, cachedInputTokens: 50, cacheWriteTokens: 0, outputTokens: 200, searchCount: 1,
+    pricingTier: tier, estimatedCostMicros: cost, priceSource: cost === null ? null : 'default' as const,
+  })
+
+  it('counts calls from stored answers, and sends tokens only for answers that recorded usage', () => {
+    const props = buildRunCompletedProps({
+      ...baseInput,
+      answers: [
+        // A browser answer records no usage: a call, but unmeasured, not free.
+        { provider: 'cdp:chatgpt', usage: null, dispatchMode: 'sync' },
+        { provider: 'cdp:chatgpt', usage: null, dispatchMode: 'sync' },
+        // A name outside the provider list never reaches the wire.
+        { provider: 'mystery', usage: priced('standard', 10), dispatchMode: 'sync' },
+      ],
+    })
+    expect(props.providerCalls).toEqual({ 'cdp:chatgpt': 2 })
+    expect(props.usage).toEqual({ batchCalls: 0 })
+  })
+
+  it('reports each provider\'s median call latency in whole milliseconds', () => {
+    const props = buildRunCompletedProps({
+      ...baseInput,
+      callLatencies: new Map([['gemini', [2400, 1000, 5000]], ['openai', [5100.6]], ['claude', []], ['mystery', [100]]]),
+    })
+    expect(props.providerLatencyMs).toEqual({ gemini: 2400, openai: 5101 })
+    expect(buildRunCompletedProps({ ...baseInput, callLatencies: new Map([['claude', []]]) })).not.toHaveProperty('providerLatencyMs')
+  })
+
+  it('aggregates routed model calls and latency samples without sending model identities', () => {
+    const google = 'openrouter:google/gemini-3.1-flash-lite'
+    const anthropic = 'openrouter:anthropic/claude-sonnet-4.6'
+    const props = buildRunCompletedProps({
+      ...baseInput, providerCount: 3, providers: ['gemini', google, anthropic],
+      answers: [
+        { provider: 'gemini', usage: priced('standard', 1), dispatchMode: 'sync' },
+        { provider: google, usage: priced('standard', 3), dispatchMode: 'sync' },
+        { provider: google, usage: priced('standard', 3), dispatchMode: 'sync' },
+        { provider: anthropic, usage: priced('batch', 5), dispatchMode: 'batch' },
+      ],
+      callLatencies: new Map([['gemini', [2]], [google, [10, 100, 1000]], [anthropic, [2000]]]),
+    })
+    expect(props.providers).toEqual(['gemini', 'openrouter'])
+    expect(props.providerCount).toBe(3)
+    expect(props.providerCalls).toEqual({ gemini: 1, openrouter: 3 })
+    expect(props.usage).toEqual({ inputTokens: 4000, outputTokens: 800, costMicros: 12, batchCalls: 1 })
+    // The median of all four calls is 550; averaging route medians would be 1050.
+    expect(props.providerLatencyMs).toEqual({ gemini: 2, openrouter: 550 })
+    expect(JSON.stringify(props)).not.toMatch(/google\/|anthropic\//)
+  })
+
+  it('reports an answer-service profile as its connection, never the profile', () => {
+    const props = buildRunCompletedProps({ ...baseInput, providerCount: 3, providers: ['gemini', 'acme-answers:deep', 'acme-answers:fast', 'cdp:chatgpt'] })
+    expect(props.providers).toEqual(['gemini', 'acme-answers', 'cdp:chatgpt'])
+    expect(JSON.stringify(props)).not.toMatch(/:deep|:fast/)
+  })
+
+  it('stays within the collector limits with every property present', () => {
+    const providers = ['gemini', 'openai', 'claude', 'perplexity', 'muse', 'local', 'cdp:chatgpt']
+    const props = {
+      ...buildRunCompletedProps({
+        ...baseInput,
+        status: 'failed',
+        providerCount: providers.length,
+        providers,
+        queryCount: 500,
+        trigger: 'scheduled',
+        canonicalDomain: 'example.com',
+        phases: { setup_ms: 1234, provider_call_ms: 1234567, total_ms: 1235801 },
+        location: 'North City, NC',
+        answers: providers.flatMap(provider => Array.from({ length: 3 }, (_, index) => ({
+          provider, usage: priced(index === 0 ? 'batch' : 'standard', 123_456), dispatchMode: index === 0 ? 'batch' as const : 'sync' as const,
+        }))),
+        callLatencies: new Map(providers.map(provider => [provider, [123_456, 234_567]])),
+      }),
+      ...buildProviderOutcomeProps(providers, new Map(providers.map(provider => [provider, '503 Service Unavailable']))),
+      ...describeRunFailure(Object.assign(new TypeError('boom'), { code: 'SQLITE_BUSY' }), 'provider_call'),
+      failureStreak: 50,
+      sampleRate: FAILURE_STREAK_SAMPLE_RATE,
+    }
+    expect(Object.keys(props).sort()).toEqual([
+      'domainHash', 'durationMs', 'errorName', 'errorSite', 'errorSysCode', 'failureStreak', 'location', 'phases',
+      'providerCalls', 'providerCount', 'providerHttpStatus', 'providerLatencyMs', 'providerOutcomes', 'providers',
+      'queryCount', 'sampleRate', 'status', 'trigger', 'usage',
+    ])
+    expect(Object.keys(props).length).toBeLessThanOrEqual(20)
+    expect(props.usage).toEqual({ inputTokens: 21_000, outputTokens: 4_200, costMicros: 21 * 123_456, batchCalls: 7 })
+    for (const value of Object.values(props)) {
+      expect(value).not.toBeNull()
+      if (value && typeof value === 'object' && !Array.isArray(value)) {
+        expect(Object.keys(value).length).toBeLessThanOrEqual(12)
+        for (const nested of Object.values(value)) expect(['number', 'string', 'boolean']).toContain(typeof nested)
+      }
+    }
+    // The collector's whole-event limit, with the envelope it arrives in.
+    const envelope = {
+      eventId: crypto.randomUUID(), anonymousId: crypto.randomUUID(), sessionId: crypto.randomUUID(),
+      source: 'cli-server', event: 'run.completed', timestamp: '2026-10-09T12:00:00.000Z', version: '7.123.456',
+      nodeVersion: 'v24.123.456', os: 'darwin', arch: 'arm64', errorCode: 'PROVIDER_UNAVAILABLE',
+    }
+    expect(Buffer.byteLength(JSON.stringify({ ...envelope, properties: props }))).toBeLessThanOrEqual(2048)
+  })
 })
 
 describe('buildSiteAuditCompletedProps', () => {
@@ -208,5 +318,95 @@ describe('buildSiteAuditCompletedProps', () => {
       crawl: { ...crawl, termination: 'max-pages', checkDeadLinks: true, deadLinksFound: 4 },
     })
     expect(checked).toMatchObject({ termination: 'max-pages', checkDeadLinks: true, deadLinksFound: 4 })
+  })
+})
+
+describe('buildProviderOutcomeProps', () => {
+  it('sends nothing when every provider succeeded', () => {
+    expect(buildProviderOutcomeProps(['gemini', 'openai'], new Map())).toEqual({})
+  })
+
+  it('reports which provider failed and why, alongside the ones that did not', () => {
+    const props = buildProviderOutcomeProps(['gemini', 'openai', 'claude'], new Map([
+      ['openai', '[provider-openai] 401 Incorrect API key provided'],
+      ['claude', '[provider-claude] 529 {"type":"error","error":{"type":"overloaded_error"}}'],
+    ]))
+    expect(props).toEqual({
+      providerOutcomes: { gemini: 'ok', openai: 'PROVIDER_AUTH', claude: 'PROVIDER_UNAVAILABLE' },
+      providerHttpStatus: { openai: 401, claude: 529 },
+    })
+  })
+
+  it('omits providerHttpStatus when no failure carried a status', () => {
+    expect(buildProviderOutcomeProps(['gemini'], new Map([['gemini', 'fetch failed']]))).toEqual({
+      providerOutcomes: { gemini: 'NETWORK' },
+    })
+  })
+
+  it('keeps the strongest routed connection failure and refusal without sending model identities', () => {
+    const google = 'openrouter:google/gemini-3.1-flash-lite'
+    const anthropic = 'openrouter:anthropic/claude-sonnet-4.6'
+    const outcomes = buildProviderOutcomeProps(['gemini', google, anthropic], new Map([
+      [google, '503 Service Unavailable'], [anthropic, '401 Incorrect API key provided'],
+    ]))
+    expect(outcomes).toEqual({ providerOutcomes: { gemini: 'ok', openrouter: 'PROVIDER_AUTH' }, providerHttpStatus: { openrouter: 401 } })
+    const refusal = buildRunRefusedProps({ providers: { [google]: 'PROVIDER_BILLING', [anthropic]: 'PROVIDER_AUTH' }, trigger: 'scheduled' })
+    expect(refusal).toEqual({ reason: 'providers_failing', providerCount: 2, providers: ['openrouter'], providerOutcomes: { openrouter: 'PROVIDER_AUTH' }, trigger: 'scheduled' })
+    expect(JSON.stringify({ outcomes, refusal })).not.toMatch(/google\/|anthropic\//)
+  })
+
+  it('stays within the collector limit of 12 nested keys', () => {
+    const providers = Array.from({ length: 15 }, (_, i) => `p${i}`)
+    const props = buildProviderOutcomeProps(providers, new Map([['p0', 'boom']]))
+    expect(Object.keys(props.providerOutcomes!)).toHaveLength(12)
+  })
+})
+
+describe('describeRunFailure', () => {
+  it('sends the class name and system code, never the message', () => {
+    const err = Object.assign(new TypeError('secret path /Users/me/x'), { code: 'SQLITE_BUSY' })
+    const props = describeRunFailure(err, 'provider_call')
+    expect(props).toEqual({ errorName: 'TypeError', errorSysCode: 'SQLITE_BUSY', errorSite: 'provider_call' })
+    expect(JSON.stringify(props)).not.toContain('secret')
+  })
+
+  it('drops values that do not look like identifiers', () => {
+    const err = Object.assign(new Error('x'), { code: 'not a code' })
+    err.name = 'has spaces in it'
+    expect(describeRunFailure(err)).toEqual({})
+  })
+
+  it('describes a non-Error throw by its type', () => {
+    expect(describeRunFailure('boom', 'setup')).toEqual({ errorName: 'string', errorSite: 'setup' })
+  })
+})
+
+describe('runFailureSite', () => {
+  it('places the failure by which provider phase had started and ended', () => {
+    expect(runFailureSite(undefined, undefined)).toBe('setup')
+    expect(runFailureSite(1, undefined)).toBe('provider_call')
+    expect(runFailureSite(1, 2)).toBe('finalize')
+  })
+})
+
+describe('failureStreakSampling', () => {
+  it('always reports a success, without streak fields', () => {
+    expect(failureStreakSampling('completed', 40, 'run-1')).toEqual({ report: true, props: {} })
+  })
+
+  it('reports every failure early in a streak, stamped with the streak', () => {
+    for (let streak = 0; streak < FAILURE_STREAK_SAMPLE_AFTER; streak++) {
+      expect(failureStreakSampling('failed', streak, `run-${streak}`)).toEqual({ report: true, props: { failureStreak: streak } })
+    }
+  })
+
+  it('samples a long streak at a stable 1-in-N, stamped so it can be weighted back up', () => {
+    const decisions = Array.from({ length: 2000 }, (_, i) => failureStreakSampling('partial', 30, `run-${i}`))
+    for (const d of decisions) expect(d.props).toEqual({ failureStreak: 30, sampleRate: FAILURE_STREAK_SAMPLE_RATE })
+    const reported = decisions.filter(d => d.report).length
+    expect(reported).toBeGreaterThan(2000 / FAILURE_STREAK_SAMPLE_RATE / 2)
+    expect(reported).toBeLessThan(2000 / FAILURE_STREAK_SAMPLE_RATE * 2)
+    // Same run id, same answer: a retried emission cannot double-count.
+    expect(failureStreakSampling('failed', 30, 'run-7').report).toBe(decisions[7]!.report)
   })
 })

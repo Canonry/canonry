@@ -1,4 +1,4 @@
-import { TrafficSourceTypes, type TrafficSourceType } from '@ainyc/canonry-contracts'
+import { TrafficSourceTypes, type TrafficSourceType } from '@canonry/canonry-contracts'
 
 /**
  * Bounds on incremental traffic sync, shared by the sync route and the doctor
@@ -24,14 +24,26 @@ export const DEFAULT_VERCEL_SYNC_DEADLINE_MS = 4 * 60_000
 /** Maximum Queue envelopes requested in one Cloudflare HTTP pull. */
 export const CLOUDFLARE_QUEUE_BATCH_SIZE = 100
 
-/** Maximum Queue batches drained by one sync unless the host overrides it. */
-export const DEFAULT_CLOUDFLARE_QUEUE_MAX_BATCHES = 10
+/**
+ * Wall-clock budget for one Cloudflare Queue sync's drain, checked before each
+ * pull. The drain keeps pulling while Cloudflare reports a backlog and stops at
+ * this deadline, so a busy Queue drains as fast as pulls allow instead of a
+ * fixed number of messages per sync. Overridable with
+ * `CANONRY_CLOUDFLARE_QUEUE_SYNC_DEADLINE_MS`.
+ */
+export const DEFAULT_CLOUDFLARE_QUEUE_SYNC_DEADLINE_MS = 4 * 60_000
 
-/** Default number of Queue envelopes that one sync can drain. */
-export const DEFAULT_CLOUDFLARE_QUEUE_DRAIN_BUDGET =
-  CLOUDFLARE_QUEUE_BATCH_SIZE * DEFAULT_CLOUDFLARE_QUEUE_MAX_BATCHES
+/** Safety cap on pulls per Queue sync, behind the deadline. Hosts may override it. */
+export const DEFAULT_CLOUDFLARE_QUEUE_MAX_BATCHES = 300
 
-/** Floor/ceiling for the env override, so a typo cannot disable the bound. */
+/**
+ * Residual backlog after a sync that still reads as normal: messages that
+ * arrived while the drain ran. More than this means the drain stopped at its
+ * deadline or cap before the Queue was empty.
+ */
+export const CLOUDFLARE_QUEUE_RESIDUAL_WARN_COUNT = 1_000
+
+/** Floor/ceiling for the env overrides, so a typo cannot disable the bound. */
 const MIN_VERCEL_SYNC_DEADLINE_MS = 30_000
 const MAX_VERCEL_SYNC_DEADLINE_MS = 15 * 60_000
 
@@ -70,6 +82,23 @@ export function resolveVercelSyncDeadlineMs(
   env: NodeJS.ProcessEnv = process.env,
 ): number | undefined {
   const raw = env.CANONRY_VERCEL_SYNC_DEADLINE_MS
+  if (raw === undefined || raw.trim() === '') return undefined
+  const parsed = Number(raw)
+  if (!Number.isFinite(parsed) || parsed <= 0) return undefined
+  return Math.min(MAX_VERCEL_SYNC_DEADLINE_MS, Math.max(MIN_VERCEL_SYNC_DEADLINE_MS, Math.trunc(parsed)))
+}
+
+/**
+ * Resolve the Cloudflare Queue drain deadline from the environment, like
+ * `resolveVercelSyncDeadlineMs`: the drain rate is what decides whether a busy
+ * Queue catches up before its retention drops messages, so an operator needs
+ * to raise it without shipping code. Undefined when unset or unparseable;
+ * clamped to 30 seconds through 15 minutes.
+ */
+export function resolveCloudflareQueueSyncDeadlineMs(
+  env: NodeJS.ProcessEnv = process.env,
+): number | undefined {
+  const raw = env.CANONRY_CLOUDFLARE_QUEUE_SYNC_DEADLINE_MS
   if (raw === undefined || raw.trim() === '') return undefined
   const parsed = Number(raw)
   if (!Number.isFinite(parsed) || parsed <= 0) return undefined

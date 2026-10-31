@@ -1,8 +1,8 @@
-import { readCompetitorLandscape } from './competitor-landscape.js'
+import { readCompetitorIdentityChangedAt, readCompetitorLandscape, readCompetitorSetChangedAt } from './competitor-landscape.js'
 import { activeMeasurementPlan } from './measurement-overview.js'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { competitors, queries, querySnapshots, runs, type DatabaseClient } from '@ainyc/canonry-db'
+import { competitors, queries, querySnapshots, runs, type DatabaseClient } from '@canonry/canonry-db'
 import {
   calendarMonthBounds,
   CitationStates,
@@ -24,12 +24,14 @@ import {
   type VisibilityStatsProviderEntry,
   type VisibilityStatsQueryEntry,
   type VisibilityStatsShareOfVoice,
-} from '@ainyc/canonry-contracts'
+  normalizeIdentityText as normalizeText,
+} from '@canonry/canonry-contracts'
 import { notProbeRun, resolveProject } from './helpers.js'
-import { projectQueryClassifier, shareOfVoiceFromLandscape, mentionShareCompetitorsFromDomains } from './mention-share-inputs.js'
+import { projectQueryClassifier, shareOfVoiceFromLandscape, mentionShareCompetitors } from './mention-share-inputs.js'
 import { computeVisibilityCompare, type VisibilityCompareSnapshotInput } from './visibility-compare.js'
 import { readVisibilityComparisonRuns } from './visibility-report.js'
-import { normalizeText, visibilityComparisonPopulation, VisibilityReportScopeError, type VisibilityReportReaderSelection } from './visibility-report-reader.js'
+import { visibilityComparisonPopulation, VisibilityReportScopeError, type VisibilityReportReaderSelection } from './visibility-report-reader.js'
+import { competitorIdentityColumns } from './competitor-writes.js'
 
 /** Snapshot fields the aggregation reads. Tri-state `answerMentioned` is read RAW. */
 export interface VisibilityStatsSnapshotInput {
@@ -468,11 +470,12 @@ export function readVisibilityCompare(db: DatabaseClient, projectName: string, q
     .all()
 
   const competitorRows = db
-    .select({ domain: competitors.domain })
+    .select(competitorIdentityColumns)
     .from(competitors)
     .where(eq(competitors.projectId, project.id))
+    .orderBy(competitors.domain)
     .all()
-  const competitorInputs = mentionShareCompetitorsFromDomains(competitorRows.map((c) => c.domain))
+  const competitorInputs = mentionShareCompetitors(competitorRows)
 
   const loadMonth = (bounds: MonthBounds) => {
     const runIds = legacyCompareRunIds(db, project.id, bounds)
@@ -486,6 +489,7 @@ export function readVisibilityCompare(db: DatabaseClient, projectName: string, q
               model: querySnapshots.model,
               citationState: querySnapshots.citationState,
               answerMentioned: querySnapshots.answerMentioned,
+              mentionIdentity: querySnapshots.mentionIdentity,
               answerText: querySnapshots.answerText,
               citedDomains: querySnapshots.citedDomains,
               location: querySnapshots.location,
@@ -507,6 +511,12 @@ export function readVisibilityCompare(db: DatabaseClient, projectName: string, q
   const fromMonth = loadMonth(fromBounds)
   const toMonth = loadMonth(toBounds)
 
+  // Both months are read with the tracked competitors' current names; this
+  // says when the project's competitor names last changed (market pin and
+  // learned names included, which share of voice does not read), so a reader
+  // can tell a restated month.
+  const competitorIdentityChangedAt = readCompetitorIdentityChangedAt(db, project.id)
+  const competitorSetChangedAt = readCompetitorSetChangedAt(db, project.id)
   const dto = computeVisibilityCompare({
     project: project.name,
     queries: projectQueries,
@@ -525,9 +535,11 @@ export function readVisibilityCompare(db: DatabaseClient, projectName: string, q
         ...advancedComparison.metrics.filter(metric => isVisibilityCompareClassMetric(metric.key)),
       ],
       classComparison: { from, to, basket, continuity, modelChanges },
+      competitorIdentityChangedAt,
+      competitorSetChangedAt,
     }
   }
-  return { ...dto, selection: filters }
+  return { ...dto, selection: filters, competitorIdentityChangedAt, competitorSetChangedAt }
 }
 
 type MonthBounds = { since: string; until: string }
@@ -605,6 +617,9 @@ function loadAdvancedCompareMonth(db: DatabaseClient, projectId: string, bounds:
       citationState: snapshot.citation === true ? CitationStates.cited : CitationStates['not-cited'],
       citationChecked: snapshot.citation !== null,
       citedDomains: [],
+      // The frozen reader already applied each answer's sentiment verdicts to
+      // its stored mention; this frame never re-matches answer text.
+      mentionIdentity: null,
     })
     snapshots.push(...population.snapshots.map(adapt))
     classSnapshots.push(...population.classSnapshots.map(adapt))
@@ -638,6 +653,7 @@ export function readVisibilityContinuity(db: DatabaseClient, projectName: string
     ...(snapshot.cohortKey === undefined ? {} : { cohortKey: snapshot.cohortKey }),
     citationState: CitationStates['not-cited'],
     answerMentioned: null,
+    mentionIdentity: null,
     answerText: null,
     citedDomains: [],
   })

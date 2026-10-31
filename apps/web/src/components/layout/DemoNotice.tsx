@@ -1,5 +1,5 @@
 import { useId } from 'react'
-import { ArrowUpRight, ChevronDown, Github } from 'lucide-react'
+import { ArrowUpRight, ChevronDown, CodeXml } from 'lucide-react'
 import { getPublicBase, isPublicDemo } from '../../api.js'
 
 const REPOSITORY_URL = 'https://github.com/Canonry/canonry'
@@ -11,7 +11,6 @@ const FEATURE_GROUPS = [
     ['AI visibility', '/projects/summit-roofing'],
     ['Search engines', '/projects/summit-roofing/search-console'],
     ['Traffic & conversions', '/projects/summit-roofing/conversions'],
-    ['Reports', '/projects/harbor-resorts/report'],
   ] },
   { title: 'Portfolio', links: [
     ['Properties & markets', '/projects/harbor-resorts'],
@@ -42,7 +41,7 @@ export function DemoNotice() {
           <ArrowUpRight aria-hidden="true" size={14} />
         </a>
         <a className="demo-banner-secondary" href={REPOSITORY_URL} {...external}>
-          <Github aria-hidden="true" size={15} />
+          <CodeXml aria-hidden="true" size={15} />
           GitHub
         </a>
         <details onKeyDown={(event) => { if (event.key === 'Escape') { event.currentTarget.open = false; event.currentTarget.querySelector('summary')?.focus() } }}>

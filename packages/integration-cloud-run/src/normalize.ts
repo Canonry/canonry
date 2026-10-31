@@ -3,7 +3,7 @@ import {
   TrafficEvidenceKinds,
   TrafficSourceTypes,
   type NormalizedTrafficRequest,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import type { CloudRunLogEntry } from './types.js'
 
 function numberOrNull(value: string | number | undefined): number | null {

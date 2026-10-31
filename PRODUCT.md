@@ -6,7 +6,7 @@ register: product
 
 AI Visibility shows measured trends, query performance, answers, sources, and competitors.
 Queries controls assignments and keeps ICP discovery and bounded tests in a separate Research workspace. Portfolio filters follow the URL. Assignment details expose property and group memberships.
-Research reports brand-name matches and project-domain citations separately from verified property measurement. Direct query entry is the default for every authorized role. Optional patterns repeat across explicit markets, properties, or configured locations. Groups never become research destinations. Each preview shows editable final query text and a separate provider location. A destination never silently sets provider geography. Users review every concrete query before a repeat request starts. Named saved patterns are optional authoring aids, not active measurement templates. Authorized writers can save patterns in the browser. Research stays available without a portfolio plan. Saved runs retain each destination, pattern provenance, and execution settings. Tracking review preselects the saved destination and exposes its property assignments. The server classifies final text against project and property identities, independent of the source pattern.
+Research reports brand-name matches and project-domain citations separately from verified property measurement. Direct query entry is the default for every authorized role. Optional patterns repeat across explicit markets, properties, or configured locations. Groups never become research destinations. Each preview shows editable final query text and a separate provider location. A destination never silently sets provider geography. Users review every concrete query before a repeat request starts. Named saved patterns are optional authoring aids, not active measurement templates. Authorized writers can save patterns in the browser. Research stays available without a portfolio plan. Saved runs retain each destination, pattern provenance, and execution settings. Tracking review preselects only a saved run's own market or property and exposes its property assignments. A new tracked query never defaults to every location; Every location is an explicit writer choice. The server classifies final text against project and property identities, independent of the source pattern.
 Publication starts no provider work. New assignments await the project-wide sweep.
 Simple sites and portfolios use the same report contract with separate query-class populations.
 The Simple dashboard keeps its trend controls, coverage summary, competitive gaps,
@@ -36,6 +36,8 @@ Users usually arrive to answer four questions, in this order:
 
 ## Product principles
 
+- Design the dashboard for desktop operators first. Preserve narrow-width
+  compatibility without making mobile sizing drive the desktop layout.
 - Lead with operator state, not implementation state.
 - Show one clear next action when an action is necessary.
 - Keep the default view concise; preserve detail through tables, tooltips, and
@@ -56,7 +58,12 @@ Users usually arrive to answer four questions, in this order:
 - Scope Advanced Measurement competitor landscapes to the selected market.
   Aggregate all markets from raw evidence, never by averaging market rates.
 - Use truthful readiness, empty, loading, success, and failure states.
+- Portfolio Activity includes bulk jobs across projects, including sweeps,
+  audits, backlink extractions, discovery, sitemap inspections, and syncs.
+  Traffic pulls and single-URL inspections stay out before the five-job limit;
+  read-only embeds retain sweep-only history.
 - Prefer familiar product controls over invented interactions.
+- Successful browser writes update the affected views without a page reload.
 
 ## Voice
 

@@ -9,6 +9,15 @@ function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
 }
 
 describe('Google Tag Manager read client', () => {
+  it('includes the provider host and dialed address for transport failures', async () => {
+    const cause = Object.assign(new Error('connect failed'), {
+      code: 'ECONNREFUSED', syscall: 'connect', address: '203.0.113.8', port: 443,
+    })
+    const fetchImpl: typeof fetch = async () => { throw Object.assign(new TypeError('fetch failed'), { cause }) }
+    const client = createGoogleTagManagerClient('oauth-token', { fetch: fetchImpl, retry: { maxRetries: 0 } })
+    await expect(client.listAccounts()).rejects.toThrow(/ECONNREFUSED.*tagmanager\.googleapis\.com.*203\.0\.113\.8:443/)
+  })
+
   it('paginates accounts and lists canonical containers and workspaces with GET only', async () => {
     const calls: Array<{ url: URL; init?: RequestInit }> = []
     const fetchImpl: typeof fetch = async (input, init) => {

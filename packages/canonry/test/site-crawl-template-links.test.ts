@@ -12,8 +12,8 @@ import {
   siteCrawlAttempts,
   siteCrawlEdges,
   siteCrawlPages,
-} from '@ainyc/canonry-db'
-import { TEMPLATE_LINK_MIN_FETCHED_PAGES } from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-db'
+import { TEMPLATE_LINK_MIN_FETCHED_PAGES } from '@canonry/canonry-contracts'
 import { prepareSiteCrawlGraphLayout } from '../src/site-crawl-graph-layout.js'
 import { classifySiteCrawlTemplateLinks } from '../src/site-crawl-template-links.js'
 

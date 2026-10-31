@@ -1,19 +1,20 @@
 import crypto from 'node:crypto'
-import { AppError, agentBusy } from '@ainyc/canonry-contracts'
-import type { AgentViewContext } from '@ainyc/canonry-contracts'
-import { apiKeys, type DatabaseClient } from '@ainyc/canonry-db'
-import { hashApiKey } from '@ainyc/canonry-api-routes'
+import { AppError, agentBusy } from '@canonry/canonry-contracts'
+import type { AgentViewContext } from '@canonry/canonry-contracts'
+import { apiKeys, dashboardSessions, type DatabaseClient } from '@canonry/canonry-db'
+import { hashApiKey } from '@canonry/canonry-api-routes'
 import type { Agent, AgentMessage, AgentTool } from '@earendil-works/pi-agent-core'
 import { and, eq, isNotNull, like } from 'drizzle-orm'
 import { ApiClient } from '../client.js'
 import type { CanonryConfig } from '../config.js'
 import { CanonryMcpToolNames, canonryMcpTools, type CanonryMcpToolName } from '../mcp/tool-registry.js'
 import { configureAeroRuntime, setAeroSystemPrompt } from './runtime.js'
+import { refreshAgentModels } from './providers.js'
 import { createAeroSession, loadAeroSystemPrompt, resolveSessionProviderAndModel } from './session.js'
 import { withoutPersistedToolDetails } from './session-registry.js'
 import { buildSkillDocTools } from './skill-tools.js'
 import { AeroToolScopes, buildAeroStateTools } from './tools.js'
-import { aeroViewPrompt, buildAeroViewTool, readAeroViewEvidence } from './view-context.js'
+import { aeroViewPrompt, buildAeroViewTool, readAeroViewEvidenceForTurn } from './view-context.js'
 import { aeroProjectShape } from './project-shape.js'
 
 /**
@@ -227,12 +228,12 @@ export class ViewerAeroSessions {
     let handedOff = false
     try {
       const client = new ApiClient(this.opts.selfApiUrl, minted.raw, { skipProbe: true, surface: 'aero' })
-      const agent = this.sessions.get(key)?.agent ?? this.createAgent(project, client)
+      const agent = this.sessions.get(key)?.agent ?? await this.createAgent(project, client, preferences.signal)
       // Count and trim conversation turns only; the leading system message is
       // rebuilt below.
       agent.state.messages = trimViewerTranscript(agent.state.messages.filter(message => message.role !== 'system'))
       const view = { client, projectName: project.name, basePath: this.opts.config.basePath, context: preferences.context }
-      const evidence = preferences.context ? await readAeroViewEvidence(view) : undefined
+      const evidence = preferences.context ? await readAeroViewEvidenceForTurn(view, preferences.signal) : undefined
       preferences.signal?.throwIfAborted()
       // Without the operator's AERO_SYSTEM_PROMPT_APPEND / _FILE extras: those
       // are the operator's instructions, not the viewer's to read.
@@ -273,8 +274,10 @@ export class ViewerAeroSessions {
     }
   }
 
-  private createAgent(project: { id: string; name: string }, client: ApiClient): Agent {
+  private async createAgent(project: { id: string; name: string }, client: ApiClient, signal?: AbortSignal): Promise<Agent> {
     const { provider, modelId } = resolveSessionProviderAndModel(this.opts.config)
+    // On OpenRouter, load the live list before the model is resolved.
+    await refreshAgentModels(provider, signal)
     return createAeroSession({
       projectName: project.name,
       client,
@@ -299,7 +302,10 @@ export class ViewerAeroSessions {
       this.opts.db.delete(apiKeys).where(eq(apiKeys.id, id)).run()
     } catch {
       try {
-        this.opts.db.update(apiKeys).set({ revokedAt: new Date(this.now()).toISOString() }).where(eq(apiKeys.id, id)).run()
+        this.opts.db.transaction(tx => {
+          tx.delete(dashboardSessions).where(eq(dashboardSessions.apiKeyId, id)).run()
+          tx.update(apiKeys).set({ revokedAt: new Date(this.now()).toISOString() }).where(eq(apiKeys.id, id)).run()
+        })
       } catch {
         // Gone or revoked is the desired end state either way.
       }

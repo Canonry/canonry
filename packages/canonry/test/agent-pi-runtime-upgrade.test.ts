@@ -8,19 +8,21 @@ import { eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   Type,
+  createAssistantMessageEventStream,
   fauxAssistantMessage,
   fauxToolCall,
   getCurrentSystemPrompt,
   getCurrentTools,
   normalizeContext,
   validateToolArguments,
+  type AssistantMessage,
   type SimpleStreamOptions,
   type Tool,
   type ToolCall,
 } from '@earendil-works/pi-ai'
-import type { Agent, AgentMessage, AgentTool } from '@earendil-works/pi-agent-core'
-import { AppError } from '@ainyc/canonry-contracts'
-import { agentSessions, createClient, migrate, parseJsonColumn, projects, type DatabaseClient } from '@ainyc/canonry-db'
+import type { Agent, AgentMessage, AgentOptions, AgentTool } from '@earendil-works/pi-agent-core'
+import { AppError } from '@canonry/canonry-contracts'
+import { agentSessions, agentToolEvents, createClient, llmUsageEvents, migrate, parseJsonColumn, projects, type DatabaseClient } from '@canonry/canonry-db'
 import { registerAeroFaux, type AeroFaux } from './helpers/aero-faux.js'
 import { aeroStreamFn, completeOnce } from '../src/agent/pi-models.js'
 import { aeroTurnStatus, configureAeroRuntime, isRunFailureMessage, isSystemMessage, setAeroSystemPrompt } from '../src/agent/runtime.js'
@@ -40,9 +42,10 @@ import type { CanonryMcpTool } from '../src/mcp/tool-registry.js'
 import type { ApiClient } from '../src/client.js'
 import type { CanonryConfig } from '../src/config.js'
 
-// Regression tests for the pi 0.67 -> 0.87 upgrade (@mariozechner -> @earendil-works).
-// Each one pins a Canonry behavior the old runtime gave for free and the new
-// one only keeps because Canonry now does it explicitly.
+// Regression tests for the pi 0.67 -> 0.87 upgrade (@mariozechner -> @earendil-works)
+// and later bumps. Each one pins a Canonry behavior the old runtime gave for free
+// and the new one only keeps because Canonry now does it explicitly, or a pi
+// behavior Canonry's own code depends on, driven through pi's real agent loop.
 
 let directory: string
 let db: DatabaseClient
@@ -60,6 +63,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.useRealTimers()
   faux.unregister()
   fs.rmSync(directory, { recursive: true, force: true })
 })
@@ -165,7 +169,7 @@ describe('tool arguments', () => {
 })
 
 describe('turn limits', () => {
-  it('runs the calls within the limit from one parallel batch, answers the rest with "Turn stopped." and ends without another model request', async () => {
+  it('runs the calls within the limit from one parallel batch, answers the rest with "Turn stopped.", then asks once, with no tools, for an answer', async () => {
     const execute = vi.fn(async (id: string) => ({ content: [{ type: 'text' as const, text: `ran ${id}` }], details: {} }))
     const check: AgentTool = { name: 'check', label: 'Check', description: 'Test', parameters: Type.Object({}), execute }
     const agent = fauxSession([check], { maxToolCalls: 2, timeoutMs: 10_000 })
@@ -177,6 +181,14 @@ describe('turn limits', () => {
         fauxToolCall('check', {}, { id: 'second' }),
         fauxToolCall('check', {}, { id: 'third' }),
       ], { stopReason: 'toolUse' }),
+      context => {
+        // The wrap-up request carries no tools and says why.
+        expect(getCurrentTools(context.messages)).toEqual([])
+        const last = context.messages.at(-1) as { role: string; content: unknown }
+        expect(last.role).toBe('system')
+        expect(JSON.stringify(last.content)).toContain('used its tool budget')
+        return fauxAssistantMessage('Two checks ran; the third could not.')
+      },
       fauxAssistantMessage('Should never be requested.'),
     ])
     await agent.prompt('Check three times')
@@ -188,13 +200,36 @@ describe('turn limits', () => {
       ['second', false, 'ran second'],
       ['third', true, 'Turn stopped.'],
     ])
-    expect(faux.state.callCount).toBe(1)
+    expect(faux.state.callCount).toBe(2)
     expect(faux.getPendingResponseCount()).toBe(1)
-    expect(aeroTurnStatus(agent)).toMatchObject({ reason: 'tool-limit', toolCalls: 2, modelCalls: 1 })
+    expect(aeroTurnStatus(agent)).toMatchObject({ reason: 'tool-limit', toolCalls: 2, modelCalls: 2 })
+    const answer = agent.state.messages.at(-1) as AssistantMessage
+    expect(answer.role).toBe('assistant')
+    expect(answer.content).toEqual([expect.objectContaining({ type: 'text', text: 'Two checks ran; the third could not.' })])
     // The limit is a clean stop, not a failed run.
     const withError = [...agent.state.messages, ...ended.flat()].filter(message => message.role === 'assistant' && (message as { errorMessage?: string }).errorMessage)
     expect(withError).toEqual([])
     expect(agent.state.errorMessage).toBeUndefined()
+  })
+
+  it('blocks a tool call made during the wrap-up and ends the run', async () => {
+    const execute = vi.fn(async () => ({ content: [{ type: 'text' as const, text: 'ran' }], details: {} }))
+    const check: AgentTool = { name: 'check', label: 'Check', description: 'Test', parameters: Type.Object({}), execute }
+    const agent = fauxSession([check], { maxToolCalls: 1, timeoutMs: 10_000 })
+    faux.setResponses([
+      fauxAssistantMessage([fauxToolCall('check', {}, { id: 'first' }), fauxToolCall('check', {}, { id: 'second' })], { stopReason: 'toolUse' }),
+      fauxAssistantMessage(fauxToolCall('check', {}, { id: 'ignored' }), { stopReason: 'toolUse' }),
+      fauxAssistantMessage('Should never be requested.'),
+    ])
+    await agent.prompt('Keep checking')
+
+    expect(execute).toHaveBeenCalledTimes(1)
+    expect(faux.state.callCount).toBe(2)
+    expect(faux.getPendingResponseCount()).toBe(1)
+    // No tools are declared in the wrap-up, so the stray call is refused, never run.
+    const ignored = agent.state.messages.find(message => message.role === 'toolResult' && message.toolCallId === 'ignored') as { isError: boolean } | undefined
+    expect(ignored?.isError).toBe(true)
+    expect(aeroTurnStatus(agent)).toMatchObject({ reason: 'tool-limit', toolCalls: 1, modelCalls: 2 })
   })
 
   it('counts unknown-tool and invalid-argument attempts toward the tool limit', async () => {
@@ -214,9 +249,72 @@ describe('turn limits', () => {
     await agent.prompt('Try three calls')
 
     expect(execute).not.toHaveBeenCalled()
-    expect(aeroTurnStatus(agent)).toMatchObject({ reason: 'tool-limit', toolCalls: 2, modelCalls: 1 })
+    // The second request is the tool-less wrap-up answer.
+    expect(aeroTurnStatus(agent)).toMatchObject({ reason: 'tool-limit', toolCalls: 2, modelCalls: 2 })
     const valid = agent.state.messages.find(message => message.role === 'toolResult' && message.toolCallId === 'valid') as { content: Array<{ text: string }> } | undefined
     expect(valid?.content[0]!.text).toBe('Turn stopped.')
+  })
+})
+
+describe('tool results', () => {
+  it('flags a result a tool returns with isError on tool_execution_end, in afterToolCall and on the toolResult message', async () => {
+    // pi-agent-core 1.0 honours `isError: true` on a returned result; 0.87 only
+    // flagged a thrown error. Canonry's tool ledger and the toolkit loader read
+    // the flag in afterToolCall, and the dashboard and CLI read it on the
+    // event and the stored message.
+    const projectId = insertProject()
+    const refuse: AgentTool = {
+      name: 'refuse',
+      label: 'Refuse',
+      description: 'Test',
+      parameters: Type.Object({}),
+      execute: async () => ({ content: [{ type: 'text', text: 'Upstream refused.' }], details: {}, isError: true }),
+    }
+    const agent = createAeroSession({ projectName: 'demo', projectId, db, client: {} as ApiClient, config: config(), systemPromptOverride: 'You are a test agent.', tools: [refuse] })
+    agent.state.model = faux.getModel('test')!
+    const hooked: boolean[] = []
+    const after = agent.afterToolCall
+    agent.afterToolCall = async (event, signal) => {
+      hooked.push(event.isError)
+      return after?.(event, signal)
+    }
+    const ended: boolean[] = []
+    agent.subscribe(event => { if (event.type === 'tool_execution_end') ended.push(event.isError) })
+    faux.setResponses([
+      fauxAssistantMessage(fauxToolCall('refuse', {}, { id: 'refused' }), { stopReason: 'toolUse' }),
+      fauxAssistantMessage('It was refused.'),
+    ])
+    await agent.prompt('Try it')
+
+    expect(ended).toEqual([true])
+    expect(hooked).toEqual([true])
+    const results = agent.state.messages.filter(message => message.role === 'toolResult')
+    expect(results).toMatchObject([{ toolCallId: 'refused', isError: true, content: [{ type: 'text', text: 'Upstream refused.' }] }])
+    expect(db.select().from(agentToolEvents).all().map(row => [row.toolCallId, row.status])).toEqual([['refused', 'error']])
+  })
+
+  it('still words a call to an unknown tool the way Canonry looks for, so the reply says what to do instead', async () => {
+    // explainMissingTool (runtime.ts) rewrites pi's "Tool X not found" by
+    // matching that exact text. If pi rewords it, the model gets the bare
+    // reply again and retries the same name.
+    const check: AgentTool = { name: 'check', label: 'Check', description: 'Test', parameters: Type.Object({}), execute: async () => ({ content: [{ type: 'text', text: 'ran' }], details: {} }) }
+    const agent = fauxSession([check])
+    const fromPi: string[] = []
+    agent.subscribe(event => {
+      if (event.type === 'tool_execution_end') fromPi.push(...(event.result.content as Array<{ text: string }>).map(block => block.text))
+    })
+    faux.setResponses([
+      fauxAssistantMessage(fauxToolCall('missing_tool', {}, { id: 'unknown' }), { stopReason: 'toolUse' }),
+      fauxAssistantMessage('Done.'),
+    ])
+    await agent.prompt('Call a tool that does not exist')
+
+    expect(fromPi).toEqual(['Tool missing_tool not found'])
+    const unknown = agent.state.messages.find(message => message.role === 'toolResult' && message.toolCallId === 'unknown')
+    expect(unknown).toMatchObject({
+      isError: true,
+      content: [{ type: 'text', text: 'missing_tool is not available in this conversation. Use only the tools listed for you.' }],
+    })
   })
 })
 
@@ -247,6 +345,8 @@ describe('system messages', () => {
   }
 
   it('keeps one leading system message with the prompt Canonry set, never persists or streams it, and replaces it without accumulating', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2030-12-31T23:59:55.000Z'))
     const seen: string[] = []
     faux.setResponses([
       context => {
@@ -261,7 +361,13 @@ describe('system messages', () => {
     const turn = await promptTurn('What docs do you have?')
 
     const expected = registry.buildHydratedSystemPrompt(projectId, loadAeroSystemPrompt()) + aeroProjectShape(db, projectId).prompt + aeroViewPrompt(undefined)
-    expect(seen).toEqual([expected, expected])
+    expect(seen).toHaveLength(2)
+    for (const prompt of seen) {
+      const [staticPrefix, clock] = prompt.split('\n\nCurrent turn clock (UTC): ')
+      expect(staticPrefix).toBe(expected)
+      expect(clock).toMatch(/^2030-12-31T23:59:55\.000Z\./)
+      expect(prompt.match(/Current turn clock \(UTC\):/g)).toHaveLength(1)
+    }
     const agent = registry.getOrCreate('demo')
     const inMemory = agent.state.messages
     expect(inMemory[0]!.role).toBe('system')
@@ -275,6 +381,7 @@ describe('system messages', () => {
     const stored = parseJsonColumn<AgentMessage[]>(sessionRow(projectId)!.messages, [])
     expect(stored.map(message => message.role)).toEqual(['user', 'assistant', 'toolResult', 'assistant'])
     expect(turn.body).not.toContain('"role":"system"')
+    expect(turn.body).not.toContain('Current turn clock (UTC):')
     expect(turn.events.find(event => event.type === 'agent_end')!.messages!.map(message => (message as { role: string }).role)).toEqual(['user', 'assistant', 'toolResult', 'assistant'])
     const transcript = (await app.inject('/projects/demo/agent/transcript')).json() as { messages: Array<{ role: string }> }
     expect(transcript.messages.map(message => message.role)).toEqual(['user', 'assistant', 'toolResult', 'assistant'])
@@ -370,20 +477,20 @@ describe('stored model fallback', () => {
   }
 
   it('moves a stored model id the catalog dropped to the provider default, but still refuses a requested or pinned one', async () => {
-    expect(getAgentProvider('zai').defaultModel).toBe('glm-5.2')
+    expect(getAgentProvider('zai').defaultModel).toBe('glm-5.3-flash')
     const projectId = insertProject()
     insertZaiSession(projectId, 'glm-5.1')
     const registry = new SessionRegistry({ db, client: {} as ApiClient, config: config({ zai: { apiKey: 'zai-key' } }) })
 
     const agent = await registry.acquireForTurn('demo')
-    expect(agent.state.model).toMatchObject({ provider: 'zai', id: 'glm-5.2' })
-    expect(sessionRow(projectId)).toMatchObject({ modelProvider: 'zai', modelId: 'glm-5.2' })
+    expect(agent.state.model).toMatchObject({ provider: 'zai', id: 'glm-5.3-flash' })
+    expect(sessionRow(projectId)).toMatchObject({ modelProvider: 'zai', modelId: 'glm-5.3-flash' })
 
     // An explicit request is kept as given, so a retired id fails loudly on a
     // live session and leaves the turn model and the row alone.
     await expect(registry.acquireForTurn('demo', { provider: 'zai', modelId: 'glm-5.1' })).rejects.toThrow(/glm-5\.1/)
-    expect(agent.state.model).toMatchObject({ provider: 'zai', id: 'glm-5.2' })
-    expect(sessionRow(projectId)).toMatchObject({ modelProvider: 'zai', modelId: 'glm-5.2' })
+    expect(agent.state.model).toMatchObject({ provider: 'zai', id: 'glm-5.3-flash' })
+    expect(sessionRow(projectId)).toMatchObject({ modelProvider: 'zai', modelId: 'glm-5.3-flash' })
     expect(registry.isBusy('demo')).toBe(false)
 
     // ...and on a cold one.
@@ -412,6 +519,26 @@ describe('createAeroSession', () => {
     expect(last.role).toBe('assistant')
     expect(last.content).toEqual([{ type: 'text', text: 'Hello from Aero.' }])
   })
+
+  it('stamps the requested reasoning level ("off" for Claude) on every streamed answer', async () => {
+    // pi-agent-core 1.0 records the requested thinking level on each answer it
+    // streams. Claude's default is "off" (PROVIDER_DEFAULT_REASONING). The field reaches the transcript, storage and SSE frames, so the
+    // viewer redaction in agent-routes.ts has to keep hiding it.
+    const check: AgentTool = { name: 'check', label: 'Check', description: 'Test', parameters: Type.Object({}), execute: async () => ({ content: [{ type: 'text', text: 'ran' }], details: {} }) }
+    const agent = fauxSession([check])
+    const streamed: AgentMessage[] = []
+    agent.subscribe(event => { if (event.type === 'message_end' && event.message.role === 'assistant') streamed.push(event.message) })
+    faux.setResponses([
+      fauxAssistantMessage(fauxToolCall('check', {}), { stopReason: 'toolUse' }),
+      fauxAssistantMessage('Done.'),
+    ])
+    await agent.prompt('Check')
+
+    expect(agent.state.thinkingLevel).toBe('off')
+    const levels = (messages: AgentMessage[]) => messages.filter(message => message.role === 'assistant').map(message => (message as AssistantMessage).thinkingLevel)
+    expect(levels(streamed)).toEqual(['off', 'off'])
+    expect(levels(agent.state.messages)).toEqual(['off', 'off'])
+  })
 })
 
 describe('run-failure placeholder detection', () => {
@@ -432,6 +559,52 @@ describe('run-failure placeholder detection', () => {
     const httpError = { role: 'assistant', content: [], usage: usage(0), stopReason: 'error', errorMessage: '401 invalid x-api-key', timestamp: 1 }
     const partialAnswer = { role: 'assistant', content: [{ type: 'text', text: 'Partial' }], usage: usage(12), stopReason: 'aborted', timestamp: 1 }
     for (const message of [openaiError, httpError, partialAnswer]) expect(isRunFailureMessage(message)).toBe(false)
+  })
+
+  it('matches what pi streams when a run fails before any answer, but not a provider error that carries a responseId', async () => {
+    const projectId = insertProject()
+    async function turn(setup: (agent: Agent) => void, streamFn?: AgentOptions['streamFn']): Promise<AgentMessage[]> {
+      const agent = createAeroSession({ projectName: 'demo', projectId, db, client: {} as ApiClient, config: config(), systemPromptOverride: 'You are a test agent.', tools: [], streamFn })
+      agent.state.model = faux.getModel('test')!
+      setup(agent)
+      // The SSE route filters on message_end, the usage ledger on turn_end.
+      const ended: AgentMessage[] = []
+      agent.subscribe(event => { if ((event.type === 'message_end' || event.type === 'turn_end') && event.message.role === 'assistant') ended.push(event.message) })
+      await agent.prompt('Hello')
+      return ended
+    }
+    const outcome = (messages: AgentMessage[]) => messages.map(message => {
+      const { stopReason, errorMessage, responseId } = message as AssistantMessage
+      return { stopReason, errorMessage, responseId, runFailure: isRunFailureMessage(message) }
+    })
+
+    // Stopped before the first model request: Canonry's stream wrapper throws on the aborted signal.
+    const stopped = await turn(agent => agent.subscribe(event => { if (event.type === 'agent_start') agent.abort() }))
+    // A stream function that throws instead of answering.
+    const thrown = await turn(() => {}, () => { throw new Error('stream setup failed') })
+    expect(faux.state.callCount).toBe(0)
+    const placeholder = (stopReason: string, errorMessage: string) => ({ stopReason, errorMessage, responseId: undefined, runFailure: true })
+    expect(outcome(stopped)).toEqual([placeholder('aborted', 'This operation was aborted'), placeholder('aborted', 'This operation was aborted')])
+    expect(outcome(thrown)).toEqual([placeholder('error', 'stream setup failed'), placeholder('error', 'stream setup failed')])
+    // No provider call was made, so nothing reaches the usage ledger.
+    expect(db.select().from(llmUsageEvents).all()).toEqual([])
+
+    // An OpenAI Responses failure after the response opened: the same empty
+    // text part and zero usage, told apart only by its responseId. The faux
+    // provider always estimates usage, so this stream is scripted.
+    const providerError = await turn(() => {}, model => {
+      const stream = createAssistantMessageEventStream()
+      const error: AssistantMessage = {
+        role: 'assistant', content: [{ type: 'text', text: '' }], api: model.api, provider: model.provider, model: model.id,
+        responseId: 'resp_1', usage: usage(0), stopReason: 'error', errorMessage: 'server_error', timestamp: Date.now(),
+      }
+      stream.push({ type: 'error', reason: 'error', error })
+      stream.end(error)
+      return stream
+    })
+    const providerFailure = { stopReason: 'error', errorMessage: 'server_error', responseId: 'resp_1', runFailure: false }
+    expect(outcome(providerError)).toEqual([providerFailure, providerFailure])
+    expect(db.select().from(llmUsageEvents).all().map(row => [row.responseId, row.totalTokens])).toEqual([['resp_1', 0]])
   })
 
   it('treats only role system as a system message', () => {

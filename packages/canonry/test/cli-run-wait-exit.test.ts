@@ -1,6 +1,6 @@
 import { Console } from 'node:console'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ProjectDto, RunDetailDto } from '@ainyc/canonry-contracts'
+import type { ProjectDto, RunDetailDto } from '@canonry/canonry-contracts'
 
 const mockTriggerRun = vi.fn()
 const mockListProjects = vi.fn()
@@ -16,6 +16,9 @@ vi.mock('../src/client.js', async (importOriginal) => ({
 }))
 
 const { runCli } = await import('../src/cli.js')
+// The CLI imports `run`'s implementation when the command dispatches. Load it
+// now, so the fake clock these tests advance never races a real module load.
+await import('../src/commands/run.js')
 
 // Past the 10-minute poll bound, so a --wait that never returned would fail
 // with the timeout instead of hanging the test.

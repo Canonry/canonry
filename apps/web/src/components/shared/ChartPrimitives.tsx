@@ -43,30 +43,33 @@ export {
   YAxis,
 }
 
-/** Standard dark-theme tooltip styles matching the design system. */
+/** Theme-aware Geist tooltip material and Copy 13 typography. */
 export const CHART_TOOLTIP_STYLE: {
   contentStyle: CSSProperties
   labelStyle: CSSProperties
   itemStyle: CSSProperties
 } = {
   contentStyle: {
-    backgroundColor: 'var(--chart-tooltip-bg, #18181b)',
-    border: '1px solid var(--chart-tooltip-border, #3f3f46)',
-    borderRadius: 8,
-    fontSize: 12,
+    backgroundColor: 'var(--chart-tooltip-bg, #0a0a0a)',
+    border: 'none',
+    borderRadius: 'var(--radius-material-tooltip)',
+    boxShadow: 'var(--shadow-material-tooltip)',
+    fontSize: 13,
+    lineHeight: '18px',
+    fontWeight: 400,
   },
-  labelStyle: { color: 'var(--chart-tooltip-label, #e4e4e7)' },
-  itemStyle: { color: 'var(--chart-tooltip-item, #a1a1aa)' },
+  labelStyle: { color: 'var(--chart-tooltip-label, #ededed)' },
+  itemStyle: { color: 'var(--chart-tooltip-item, #a1a1a1)' },
 }
 
 /** Standard axis tick styling. */
-export const CHART_AXIS_TICK = { fill: 'var(--chart-neutral-text-dim, #8b8b93)', fontSize: 11 } as const
+export const CHART_AXIS_TICK = { fill: 'var(--chart-neutral-text-dim, #a1a1a1)', fontSize: 12 } as const
 
 /** Standard grid line color. */
-export const CHART_GRID_STROKE = 'var(--chart-grid, #27272a)'
+export const CHART_GRID_STROKE = 'var(--chart-grid, #2e2e2e)'
 
 /** Standard axis line stroke. */
-export const CHART_AXIS_STROKE = 'var(--chart-axis, #27272a)'
+export const CHART_AXIS_STROKE = 'var(--chart-axis, #2e2e2e)'
 
 /**
  * Palette for multi-series charts (up to 8 series). Each entry bridges to the
@@ -110,14 +113,13 @@ export function providerSeriesColor(provider: string, fallbackIndex = 0): string
 
 /**
  * Neutral color tokens for custom SVG visualizations (non-Recharts).
- * Mirrors the dashboard's zinc neutral ramp so custom charts stay on
- * the documented dashboard palette.
+ * Mirrors the dashboard's Geist neutral ramp.
  */
 export const CHART_NEUTRAL = {
-  text: 'var(--chart-neutral-text, #a1a1aa)',           // zinc-400 — primary axis labels
-  textDim: 'var(--chart-neutral-text-dim, #8b8b93)',    // AA-compliant dim on the dark chart canvas
-  textFaint: 'var(--chart-neutral-text-faint, #52525b)', // zinc-600 — faintest text, track lines
-  surface: 'var(--chart-neutral-surface, #27272a)',     // zinc-800 — area fill, track surface
+  text: 'var(--chart-neutral-text, #a1a1a1)',
+  textDim: 'var(--chart-neutral-text-dim, #a1a1a1)',
+  textFaint: 'var(--chart-neutral-text-faint, #7d7d7d)',
+  surface: 'var(--chart-neutral-surface, #2e2e2e)',
   trackSubtle: 'var(--chart-neutral-track-subtle, rgb(255 255 255 / 0.04))',
   gridLine: 'var(--chart-neutral-grid-line, rgb(255 255 255 / 0.06))',
 } as const
@@ -133,7 +135,7 @@ export const CHART_TONE = {
   positiveDeep: 'var(--chart-tone-positive-deep, #10b981)', // emerald-500 — donut arc weight
   caution: 'var(--chart-tone-caution, #fbbf24)',            // amber-400
   negative: 'var(--chart-tone-negative, #fb7185)',          // rose-400
-  neutral: 'var(--chart-tone-neutral, #a1a1aa)',            // zinc-400
+  neutral: 'var(--chart-tone-neutral, #a1a1a1)',
 } as const
 
 /**
@@ -394,7 +396,10 @@ export function MultiAxisTrendChart({
         })}
         <RechartsTooltip
           {...CHART_TOOLTIP_STYLE}
-          labelFormatter={(label) => (labelFormatter ? labelFormatter(String(label)) : String(label))}
+          labelFormatter={(label) => {
+            const text = typeof label === 'string' || typeof label === 'number' ? String(label) : ''
+            return labelFormatter ? labelFormatter(text) : text
+          }}
           formatter={(value, name) => {
             const key = String(name ?? '')
             if (typeof value !== 'number') return [String(value ?? ''), key]

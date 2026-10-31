@@ -1,4 +1,4 @@
-import { withRetry, isRetryableHttpError, retryAfterDelayMs } from '@ainyc/canonry-contracts'
+import { withRetry, isRetryableHttpError, retryAfterDelayMs, escapeRegExp, describeFetchError } from '@canonry/canonry-contracts'
 import crypto from 'node:crypto'
 import { BING_WMT_API_BASE, BING_SUBMIT_URL_BATCH_LIMIT, BING_SUBMIT_URL_DAILY_LIMIT, BING_REQUEST_TIMEOUT_MS, BING_MAX_RETRIES, BING_RETRY_BASE_DELAY_MS, BING_RETRY_MAX_DELAY_MS, BING_THROTTLE_COOLDOWN_MS } from './constants.js'
 import type {
@@ -69,10 +69,6 @@ function bingClientLog(level: 'info' | 'warn' | 'error', action: string, ctx?: R
   stream.write(JSON.stringify(entry) + '\n')
 }
 
-function escapeRegExp(str: string): string {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
-
 /**
  * Pull Bing's `ErrorCode` out of an error body.
  *
@@ -105,12 +101,17 @@ async function bingFetchOnce<T>(apiKey: string, endpoint: string, opts?: { metho
     'Content-Type': 'application/json; charset=utf-8',
   }
 
-  const res = await fetch(url, {
-    method,
-    headers,
-    body: opts?.body != null ? JSON.stringify(opts.body) : undefined,
-    signal: AbortSignal.timeout(BING_REQUEST_TIMEOUT_MS),
-  })
+  let res: Response
+  try {
+    res = await fetch(url, {
+      method,
+      headers,
+      body: opts?.body != null ? JSON.stringify(opts.body) : undefined,
+      signal: AbortSignal.timeout(BING_REQUEST_TIMEOUT_MS),
+    })
+  } catch (error) {
+    throw new Error(describeFetchError(error, url), { cause: error })
+  }
 
   if (res.status === 401 || res.status === 403) {
     bingClientLog('error', 'http.auth-failed', { endpoint, method, httpStatus: res.status })

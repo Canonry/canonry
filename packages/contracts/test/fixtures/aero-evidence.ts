@@ -1,4 +1,4 @@
-import { visibilityReportResponseSchema, type VisibilityReportResponse } from '@ainyc/canonry-contracts'
+import { visibilityReportResponseSchema, type VisibilityReportResponse } from '@canonry/canonry-contracts'
 
 export function aeroEvidenceFixture(mode: 'simple' | 'advanced' = 'advanced'): VisibilityReportResponse {
   return visibilityReportResponseSchema.parse({

@@ -61,7 +61,7 @@ describe('ApiClient usage labels', () => {
   })
 
   it('claims no env-detected agent for clients the server builds for itself', async () => {
-    vi.stubEnv('CLAUDECODE', '1')
+    vi.stubEnv('CANONRY_AGENT', 'claude')
     try {
       const requests = captureRequests()
 

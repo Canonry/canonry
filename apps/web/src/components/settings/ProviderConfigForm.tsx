@@ -1,24 +1,35 @@
 import { useState, type ReactNode } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 
 import { Button } from '../ui/button.js'
 import { updateProviderConfig } from '../../api.js'
 import { addToast } from '../../lib/toast-store.js'
 import { asyncHandler } from '../../lib/async-handler.js'
+import { invalidateProjectQueryDomain } from '../../queries/query-invalidation.js'
+import { providerDisplayName } from '../../lib/visibility-trend-helpers.js'
+import { InfoTooltip } from '../shared/InfoTooltip.js'
 
-export function ProviderConfigForm({ providerName, keyUrl, modelHint, compact = false, leadingField, secondaryActions, onSaved }: {
+export function ProviderConfigForm({ providerName, keyUrl, modelHint, kind, compact = false, offerFreeTier = true, leadingField, secondaryActions, onSaved }: {
   providerName: string
   keyUrl?: string
   modelHint?: string
+  /** A routed connection (gateway or answer service) takes no connection model; projects pick routes. */
+  kind?: 'answer-engine' | 'model-gateway' | 'answer-service'
   /** Keep optional tuning out of the first-run provider connection path. */
   compact?: boolean
+  /** Lead the compact Gemini form with its free tier. Off once another provider is connected. */
+  offerFreeTier?: boolean
   /** An adjacent provider selector for the compact connection form. */
   leadingField?: ReactNode
   /** Keep connection actions together in the compact form footer. */
   secondaryActions?: ReactNode
   onSaved: () => void
 }) {
+  const queryClient = useQueryClient()
   const isLocal = providerName.toLowerCase() === 'local'
-  const showGeminiFreeTier = compact && providerName.toLowerCase() === 'gemini' && !!keyUrl
+  const isOpenRouter = providerName.toLowerCase() === 'openrouter'
+  const routedConnection = isOpenRouter || kind === 'model-gateway' || kind === 'answer-service'
+  const showGeminiFreeTier = compact && offerFreeTier && providerName.toLowerCase() === 'gemini' && !!keyUrl
   const [apiKey, setApiKey] = useState('')
   const [baseUrl, setBaseUrl] = useState('')
   const [model, setModel] = useState('')
@@ -61,6 +72,12 @@ export function ProviderConfigForm({ providerName, keyUrl, modelHint, compact = 
       setMaxPerMinute('')
       setMaxPerDay('')
       setSuccess(true)
+      // A new key, model or endpoint lifts that provider's hold on every
+      // project, so their notices and sweep buttons must not wait for staleness.
+      void invalidateProjectQueryDomain(queryClient, 'runAdmission')
+      // The model catalog is read with the saved credential, so a corrected key
+      // must reach any open model picker now, not after the settings read goes stale.
+      void queryClient.invalidateQueries({ queryKey: ['settings'] })
       addToast({
         title: 'Provider updated',
         detail: `${providerName} configuration saved.`,
@@ -77,14 +94,14 @@ export function ProviderConfigForm({ providerName, keyUrl, modelHint, compact = 
   }
 
   const modelPlaceholder = modelHint ?? 'Use default model'
-  const labelClassName = compact ? 'block text-sm font-medium text-secondary' : 'text-sm text-secondary'
+  const labelClassName = compact ? 'block text-label-14-strong text-secondary' : 'text-label-14 text-secondary'
   const inputClassName = compact
     ? 'setup-input min-h-11 w-full'
-    : 'mt-0.5 w-full rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none'
+    : 'mt-0.5 w-full rounded border border-strong bg-transparent px-2 py-1.5 text-label-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none'
 
   const optionalFields = (
     <>
-      <div className={compact ? 'space-y-1.5' : undefined}>
+      {!routedConnection && <div className={compact ? 'space-y-1.5' : undefined}>
         <label className={labelClassName} htmlFor={`model-${providerName}`}>Model (optional)</label>
         <input
           id={`model-${providerName}`}
@@ -94,7 +111,7 @@ export function ProviderConfigForm({ providerName, keyUrl, modelHint, compact = 
           value={model}
           onChange={(e) => setModel(e.target.value)}
         />
-      </div>
+      </div>}
       <div>
         <label className={labelClassName}>Quota (optional)</label>
         <div className="mt-0.5 grid grid-cols-3 gap-1.5">
@@ -102,34 +119,34 @@ export function ProviderConfigForm({ providerName, keyUrl, modelHint, compact = 
             <input
               type="number"
               min="1"
-              className={compact ? 'setup-input min-h-11 w-full' : 'w-full rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none'}
+              className={compact ? 'setup-input min-h-11 w-full' : 'w-full rounded border border-strong bg-transparent px-2 py-1.5 text-label-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none'}
               placeholder="Concurrent"
               value={maxConcurrency}
               onChange={(e) => setMaxConcurrency(e.target.value)}
             />
-            <p className="mt-1 text-sm text-secondary">Max concurrent</p>
+            <p className="mt-1 text-copy-14 text-secondary">Max concurrent</p>
           </div>
           <div>
             <input
               type="number"
               min="1"
-              className={compact ? 'setup-input min-h-11 w-full' : 'w-full rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none'}
+              className={compact ? 'setup-input min-h-11 w-full' : 'w-full rounded border border-strong bg-transparent px-2 py-1.5 text-label-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none'}
               placeholder="/min"
               value={maxPerMinute}
               onChange={(e) => setMaxPerMinute(e.target.value)}
             />
-            <p className="mt-1 text-sm text-secondary">Per minute</p>
+            <p className="mt-1 text-copy-14 text-secondary">Per minute</p>
           </div>
           <div>
             <input
               type="number"
               min="1"
-              className={compact ? 'setup-input min-h-11 w-full' : 'w-full rounded border border-strong bg-transparent px-2 py-1.5 text-sm text-strong placeholder-mono-600 focus:border-mono-500 focus:outline-none'}
+              className={compact ? 'setup-input min-h-11 w-full' : 'w-full rounded border border-strong bg-transparent px-2 py-1.5 text-label-14 text-strong placeholder-mono-400 focus:border-mono-500 focus:outline-none'}
               placeholder="/day"
               value={maxPerDay}
               onChange={(e) => setMaxPerDay(e.target.value)}
             />
-            <p className="mt-1 text-sm text-secondary">Per day</p>
+            <p className="mt-1 text-copy-14 text-secondary">Per day</p>
           </div>
         </div>
       </div>
@@ -147,21 +164,24 @@ export function ProviderConfigForm({ providerName, keyUrl, modelHint, compact = 
         value={baseUrl}
         onChange={(e) => setBaseUrl(e.target.value)}
       />
-      <p className="mt-1 text-sm text-secondary">Use any OpenAI-compatible endpoint, such as Ollama or vLLM.</p>
+      <p className="mt-1 text-copy-14 text-secondary">Use any OpenAI-compatible endpoint, such as Ollama or vLLM.</p>
     </div>
   ) : null
   const apiKeyField = (
     <div className={compact ? 'min-w-0 space-y-1.5' : undefined}>
       <div className={compact ? 'flex items-center justify-between gap-3' : 'flex items-center justify-between'}>
-        <label className={labelClassName} htmlFor={`api-key-${providerName}`}>
-          API key{isLocal ? ' (optional)' : ''}
-        </label>
+        <span className="flex items-center gap-2">
+          <label className={labelClassName} htmlFor={`api-key-${providerName}`}>
+            API key{isLocal ? ' (optional)' : ''}
+          </label>
+          {isOpenRouter && <InfoTooltip text="OpenRouter bills your account for each answer, including its web search. An AI Visibility check asks every query once per model." />}
+        </span>
         {keyUrl && !showGeminiFreeTier && (
           <a
             href={keyUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-sm text-secondary hover:text-neutral underline underline-offset-2"
+            className="text-label-14 text-secondary hover:text-neutral underline underline-offset-2"
           >
             Get API key {'\u2197'}
           </a>
@@ -174,32 +194,32 @@ export function ProviderConfigForm({ providerName, keyUrl, modelHint, compact = 
         autoCapitalize="none"
         spellCheck={false}
         className={inputClassName}
-        placeholder={isLocal ? 'Optional. Most local servers do not need one.' : `Enter ${providerName} API key`}
+        placeholder={isLocal ? 'Optional. Most local servers do not need one.' : `Enter ${providerDisplayName(providerName)} API key`}
         value={apiKey}
         onChange={(e) => setApiKey(e.target.value)}
       />
     </div>
   )
   const saveButton = (
-    <Button type="button" size={compact ? 'default' : 'sm'} className={compact ? 'min-h-11' : undefined} disabled={!canSave || saving} onClick={asyncHandler(handleSave)}>
+    <Button type="button" size={compact ? 'default' : 'sm'} className={compact ? 'pointer-coarse:min-h-11' : undefined} disabled={!canSave || saving} onClick={asyncHandler(handleSave)}>
       {saving ? 'Saving...' : compact ? 'Save connection' : 'Save'}
     </Button>
   )
 
   return (
-    <div className={compact ? 'space-y-3' : 'mt-3 rounded-lg border border-base bg-bg-elevated/40 p-3 space-y-2'}>
+    <div className={compact ? 'space-y-3' : 'mt-3 material-base p-3 space-y-2'}>
       {showGeminiFreeTier && (
         <div className="flex flex-wrap items-start gap-x-6 gap-y-3 pb-2">
           <div className="min-w-0 flex-1 basis-72 space-y-1">
-            <h3 className="text-base font-semibold text-heading">Start with Gemini’s free tier</h3>
-            <p className="max-w-prose text-sm text-secondary">
+            <h3 className="text-heading-16 text-heading">Start with Gemini’s free tier</h3>
+            <p className="max-w-prose text-copy-14 text-secondary">
               Get a key in Google AI Studio, then paste it below. Free usage has model and rate limits; paid usage is billed by Google.{' '}
               <a href="https://ai.google.dev/gemini-api/docs/pricing" target="_blank" rel="noopener noreferrer" className="text-link underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2">
                 Pricing and limits
               </a>
             </p>
           </div>
-          <Button variant="outline" className="min-h-11" asChild>
+          <Button variant="outline" className="pointer-coarse:min-h-11" asChild>
             <a href={keyUrl} target="_blank" rel="noopener noreferrer">
               Get a free Gemini API key {'\u2197'}
             </a>
@@ -217,12 +237,12 @@ export function ProviderConfigForm({ providerName, keyUrl, modelHint, compact = 
       ) : <>{localEndpointField}{apiKeyField}</>}
       {compact ? (
         <details>
-          <summary className="min-h-11 cursor-pointer text-sm text-secondary py-3">Advanced provider settings</summary>
+          <summary className="min-h-11 cursor-pointer text-label-14 text-secondary py-3">Advanced provider settings</summary>
           <div className="space-y-3 pt-2">{optionalFields}</div>
         </details>
       ) : optionalFields}
-      {error && <p role="alert" className="text-sm text-negative-400">{error}</p>}
-      {success && <p className="text-sm text-positive-400">Provider updated.</p>}
+      {error && <p role="alert" className="text-copy-14 text-negative-400">{error}</p>}
+      {success && <p className="text-copy-14 text-positive-400">Provider updated.</p>}
       {compact ? <div className="flex flex-wrap items-center gap-2">{saveButton}{secondaryActions}</div> : saveButton}
     </div>
   )

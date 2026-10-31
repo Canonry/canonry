@@ -32,7 +32,14 @@ Common Crawl hyperlink-graph backlinks extractor. Downloads the domain-level ver
 - Common Crawl publishes **rolling, monthly-stepped, overlapping 3-month windows**: `cc-main-YYYY-<mon>-<mon>-<mon>`, e.g. `cc-main-2026-mar-apr-may`. A release is named by its **first month's year** (`cc-main-2025-oct-nov-dec` = Oct/Nov/Dec 2025). The old fixed calendar quarters (`jan-feb-mar`, `apr-may-jun`, …) are still published as a subset of this cadence, so legacy slugs keep resolving.
 - Empirically (verified 2026-06 via HEAD probe): windows whose **first month is Jan–Oct** are published; cross-year windows (first month Nov/Dec, e.g. `nov-dec-jan`) and not-yet-crawled future windows 404. `RELEASE_ID_REGEX` accepts any well-formed `<mon>-<mon>-<mon>` triplet — it gates slug **shape**, not existence; a well-formed-but-unpublished slug 404s at probe/download time.
 - Files live at `https://data.commoncrawl.org/projects/hyperlinkgraph/<release>/domain/<release>-domain-{vertices,edges}.txt.gz`.
-- `probeLatestRelease()` issues HEAD requests working backward **one month at a time** from the current month (the window's first month) to find the newest published release. `probeRecentReleases()` lists the overlapping monthly windows newest-first.
+- `probeLatestRelease()` issues HEAD requests working backward **one month at a time** from the current month (the window's first month) to find the newest published release.
+
+### Test ownership
+
+- Validate release shape through `isValidReleaseId` and actual cache directory filtering. Pin published URLs independently in `ccReleasePaths`; do not build expected URLs from production constants.
+- Use literal reversed-domain TSV fixtures for native DuckDB queries. The input encoder cannot serve as the fixture oracle.
+- Exercise directory creation and operator metadata preservation through `installDuckdb`. Only the package-manager process is stubbed; installation acknowledgment reads the real filesystem.
+- Do not add parser or release-list helpers without a runtime consumer. The unused parser and recent-release probe were removed with their test-only surface.
 
 ### Downloads
 

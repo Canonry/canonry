@@ -15,7 +15,7 @@ OAuth and token storage live in `packages/integration-google` and `packages/api-
 | `src/accounts-client.ts` | `listAccounts(accessToken)` — Account Management API |
 | `src/locations-client.ts` | `listLocations(accessToken, accountName)` — Business Information API |
 | `src/performance-client.ts` | `fetchDailyMetrics` (all 11 DailyMetric over a date range; parses string-encoded values, treats omitted zero-days as 0, flattens split date objects to YYYY-MM-DD) + `listMonthlyKeywords` (paginated; maps the `insightsValue.value\|threshold` union to typed `valueCount`/`valueThreshold`) — Performance API |
-| `src/place-actions-client.ts` | `listPlaceActionLinks(accessToken, locationName)` — booking / reservation / order CTAs ("place action links") for a location, fully paginated (Business Information v1 host). Returns `{ placeActionLinkName, placeActionType, uri, isPreferred, providerType }` rows. |
+| `src/place-actions-client.ts` | `listPlaceActionLinks(accessToken, locationName)` — booking / reservation / order CTAs ("place action links") for a location, fully paginated (Place Actions v1 host). Returns `{ placeActionLinkName, placeActionType, uri, isPreferred, providerType }` rows. |
 | `src/lodging-client.ts` | `getLodging` (maps HTTP 400 `FAILED_PRECONDITION` → `null` for non-lodging locations so the worker skips them cleanly; other errors propagate) + `countPopulatedGroups` (non-empty top-level attribute groups, excluding `name`/`metadata`) + `hashLodging` (stable key-sorted stringify + sha256, drives snapshot-on-change) — Lodging API |
 | `src/attributes-client.ts` | `getAttributes` (owner-set attributes for ANY business category via Business Information `GET /{location}/attributes`; flattens the BOOL/ENUM/URL/REPEATED_ENUM value carriers into `{values, unsetValues, uris}`; returns `[]` on 404; no readMask, no pagination) + `countAttributes` + `hashAttributes` (order-independent sha256, drives snapshot-on-change) — Business Information API |
 | `src/reviews-client.ts` | `listReviews(accessToken, accountName, locationName, { stopBefore })` — v4 `GET accounts/{a}/locations/{l}/reviews`, 50 per page, `orderBy=update_time desc`, maps the `ONE`..`FIVE` enum to 1-5 and normalizes timestamps to millisecond ISO (`normalizeGoogleTimestamp`; Google mixes fractional precisions, which do not sort as strings). Stops paging past `stopBefore` only when the page really is newest-first. All-or-nothing: a failed page throws. `classifyReviewsError` → `unavailable` (403, zero-quota 429, 404; `projectWide` for SERVICE_DISABLED / API_DISABLED / QUOTA_ZERO) or `error`. Shapes are from Google's reference, not a live capture, since the API is gated. |
@@ -34,7 +34,7 @@ OAuth and token storage live in `packages/integration-google` and `packages/api-
 
 ## Host Map
 
-Every GBP sub-API this package calls lives on a v1 host (one host per sub-API — see `constants.ts`): Account Management, Business Information (locations + place actions), Performance, and Lodging. Each client file documents which host it targets. The only sub-API Google never migrated off v4 is **Reviews** (`mybusiness.googleapis.com/v4/...`), which `reviews-client.ts` targets; it is access-gated (see the Purpose note). v4 addresses a location through its account (`accounts/{a}/locations/{l}`), which is why `gbp_locations` keeps `account_name`.
+Every GBP sub-API this package calls lives on a v1 host (one host per sub-API — see `constants.ts`): Account Management, Business Information (locations + attributes), Place Actions, Performance, and Lodging. Each client file documents which host it targets. The only sub-API Google never migrated off v4 is **Reviews** (`mybusiness.googleapis.com/v4/...`), which `reviews-client.ts` targets; it is access-gated (see the Purpose note). v4 addresses a location through its account (`accounts/{a}/locations/{l}`), which is why `gbp_locations` keeps `account_name`.
 
 ## Common Mistakes
 
@@ -47,3 +47,11 @@ Every GBP sub-API this package calls lives on a v1 host (one host per sub-API �
 - `packages/api-routes/src/google.ts` — OAuth flow + token storage; calls into this package
 - `packages/integration-google/src/oauth.ts` — shared Google OAuth helpers (used by api-routes)
 - `skills/canonry/references/google-business-profile.md` — user-facing setup guide
+
+Local Post exact reads can return `providerImageUrls` for documented PHOTO `googleUrl`
+values on Google's image host when `sourceUrl` is absent. These are pixel-fetch evidence,
+not source identity: `imageUrls` stays empty and `mediaSourceUrlsComplete` is false.
+Consumers must compare the returned image against approved pixels before producing a receipt.
+Mixed/unsupported LIVE media still fails exact reads. An explicit REJECTED state remains
+observable without photo evidence; it cannot become a verified publication receipt.
+No provider POST retry is introduced.

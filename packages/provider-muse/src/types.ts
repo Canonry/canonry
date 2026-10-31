@@ -1,6 +1,6 @@
-import type { GroundingSource, LocationContext, ProviderQuotaPolicy, ProviderUsage, RetrievalStatus } from '@ainyc/canonry-contracts'
+import type { GroundingSource, LocationContext, ProviderQuotaPolicy, ProviderUsage, RetrievalStatus, RetrievedSource } from '@canonry/canonry-contracts'
 
-export type { GroundingSource }
+export type { GroundingSource, RetrievedSource }
 
 export interface MuseConfig {
   apiKey: string
@@ -24,6 +24,8 @@ export interface MuseRawResult {
   servedModel?: string
   groundingSources: GroundingSource[]
   searchQueries: string[]
+  /** Pages Muse's searches listed or opened; null when the stored response predates capture. */
+  retrievedSources: RetrievedSource[] | null
   retrievalStatus: RetrievalStatus
   /** Billable usage from the response's `usage` object; undefined when it had none. */
   usage?: ProviderUsage
@@ -37,5 +39,6 @@ export interface MuseNormalizedResult {
   citedDomains: string[]
   groundingSources: GroundingSource[]
   searchQueries: string[]
+  retrievedSources: RetrievedSource[] | null
   retrievalStatus: RetrievalStatus
 }

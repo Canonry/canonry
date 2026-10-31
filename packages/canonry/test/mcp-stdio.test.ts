@@ -3,9 +3,9 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { Client } from '@modelcontextprotocol/sdk/client/index.js'
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
-import { afterEach, describe, expect, it } from 'vitest'
+import { Client, type JSONRPCMessage } from '@modelcontextprotocol/client'
+import { StdioClientTransport } from '@modelcontextprotocol/client/stdio'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { canonryMcpTools } from '../src/mcp/tool-registry.js'
 
 const packageRoot = fileURLToPath(new URL('..', import.meta.url))
@@ -14,8 +14,8 @@ const tsxCli = path.join(repoRoot, 'node_modules', 'tsx', 'dist', 'cli.mjs')
 const mcpCli = path.join(packageRoot, 'src', 'mcp', 'cli.ts')
 
 /**
- * The MCP adapter must write NOTHING to stderr (AGENTS.md → MCP adapter
- * boundary), so the assertion below is an exact empty-string match.
+ * Successful MCP requests produce no stderr diagnostics. Transport failures
+ * belong on stderr; stdout carries MCP frames only.
  *
  * One Node-generated line would otherwise break it: the subprocess is
  * `node <tsx>/cli.mjs src/mcp/cli.ts`, and tsx's ESM loader calls
@@ -75,26 +75,45 @@ describe('canonry-mcp stdio', () => {
     await Promise.all(servers.splice(0).map(server => server.close()))
   }, HANDSHAKE_TIMEOUT_MS)
 
-  it('initializes, lists tools, and calls stubbed read/write tools through stdio frames', async () => {
+  it.each([
+    { era: 'legacy', profile: false }, { era: 'modern', profile: false },
+    { era: 'legacy', profile: true }, { era: 'modern', profile: true },
+  ] as const)('lists and calls tools through $era stdio frames (named profile: $profile)', async ({ era, profile }) => {
     const runRequests: unknown[] = []
-    const api = await startStubApi(body => runRequests.push(body))
+    const api = await startStubApi(body => runRequests.push(body), undefined, profile)
     servers.push(api)
 
-    const { client, stderr } = await startMcpClient({
+    const onToolsChanged = vi.fn()
+    const { client, transport, stderr } = await startMcpClient({
       apiOrigin: api.origin,
       configPrefix: 'canonry-mcp-stdio-',
       database: '/tmp/canonry-mcp-stdio.sqlite',
       clientName: 'canonry-mcp-test',
+      era, onToolsChanged,
     })
     clients.push(client)
+    const protocolErrors = vi.fn()
+    client.onerror = protocolErrors
+    expect(client.getProtocolEra()).toBe(era)
+    expect(Boolean(client.autoOpenedSubscription)).toBe(era === 'modern')
 
     const list = await client.listTools()
-    expect(list.tools).toHaveLength(13)
+    expect(list.tools).toHaveLength(profile ? 17 : 16)
     const listedNames = list.tools.map(tool => tool.name)
+    if (profile) {
+      expect(listedNames).toContain('canonry_mcp_profile')
+      const identity = await client.callTool({ name: 'canonry_mcp_profile', arguments: {} })
+      expect(identity.structuredContent).toMatchObject({ userId: 'named-reader', scopes: ['read'] })
+    } else {
+      expect(listedNames).not.toContain('canonry_mcp_profile')
+      await expect(client.callTool({ name: 'canonry_mcp_profile', arguments: {} })).rejects.toThrow('Tool canonry_mcp_profile not found')
+    }
     expect(listedNames).toContain('canonry_projects_list')
     expect(listedNames).toContain('canonry_project_overview')
     expect(listedNames).toContain('canonry_search')
     expect(listedNames).toContain('canonry_doctor')
+    expect(listedNames).toContain('canonry_status')
+    expect(listedNames).toContain('canonry_apply_config_preview')
     expect(listedNames).toContain('canonry_key_self')
     expect(listedNames).toContain('canonry_help')
     expect(listedNames).toContain('canonry_load_toolkit')
@@ -103,7 +122,7 @@ describe('canonry-mcp stdio', () => {
     const help = await client.callTool({ name: 'canonry_help', arguments: { includeCatalog: true } })
     expect(help.isError).not.toBe(true)
     const helpPayload = jsonText(help) as { toolkits: Array<{ name: string; toolCount: number }> }
-    expect(helpPayload.toolkits.map(t => t.name)).toEqual(['monitoring', 'setup', 'gsc', 'ga', 'gbp', 'ads', 'google-ads', 'gtm', 'conversion-tracking', 'traffic', 'agent', 'discovery'])
+    expect(helpPayload.toolkits.map(t => t.name)).toEqual(['seo', 'monitoring', 'setup', 'gsc', 'bing', 'ga', 'gbp', 'ads', 'google-ads', 'gtm', 'conversion-tracking', 'traffic', 'agent', 'discovery'])
 
     const projects = await client.callTool({ name: 'canonry_projects_list', arguments: {} })
     expect(projects.isError).not.toBe(true)
@@ -117,19 +136,19 @@ describe('canonry-mcp stdio', () => {
     expect(jsonText(museRun)).toMatchObject({ id: 'run-muse-1' })
     expect(runRequests).toEqual([{ providers: ['muse'], trigger: 'probe' }])
 
-    const beforeLoad = await client.callTool({ name: 'canonry_insights_list', arguments: { project: 'acme' } })
-    expect(beforeLoad.isError).toBe(true)
-    const beforeLoadText = (beforeLoad.content?.[0] as { text?: string } | undefined)?.text ?? ''
     // The pipelining caveat documented on canonry_load_toolkit and in docs/mcp.md must match
     // the error wording the MCP SDK actually emits. If the SDK changes its message, both the
     // tool description and the docs need to be updated together.
-    expect(beforeLoadText).toMatch(/MCP error -32602: Tool canonry_insights_list disabled/)
+    await expect(client.callTool({ name: 'canonry_insights_list', arguments: { project: 'acme' } })).rejects.toMatchObject({
+      name: 'ProtocolError', code: -32602, message: 'Tool canonry_insights_list disabled',
+    })
     const loadToolkitTool = list.tools.find(tool => tool.name === 'canonry_load_toolkit')
     expect(loadToolkitTool?.description ?? '').toContain('Tool ... disabled')
 
     const loaded = await client.callTool({ name: 'canonry_load_toolkit', arguments: { name: 'monitoring' } })
     expect(loaded.isError).not.toBe(true)
     expect(jsonText(loaded)).toMatchObject({ status: 'loaded', name: 'monitoring' })
+    await vi.waitFor(() => expect(onToolsChanged).toHaveBeenCalledTimes(1))
 
     const expandedList = await client.listTools()
     expect(expandedList.tools.map(tool => tool.name)).toContain('canonry_insights_list')
@@ -140,13 +159,20 @@ describe('canonry-mcp stdio', () => {
 
     const setupLoad = await client.callTool({ name: 'canonry_load_toolkit', arguments: { name: 'setup' } })
     expect(setupLoad.isError).not.toBe(true)
+    await vi.waitFor(() => expect(onToolsChanged).toHaveBeenCalledTimes(2))
+
+    const reload = await client.callTool({ name: 'canonry_providers_reload', arguments: {} })
+    expect(reload.isError).not.toBe(true)
+    expect(jsonText(reload)).toEqual({ reloaded: true, providers: [{ name: 'gemini', configured: true }] })
 
     const addQueries = await client.callTool({
       name: 'canonry_queries_add',
       arguments: { project: 'acme', request: { queries: ['alpha', 'alpha'] } },
     })
     expect(addQueries.isError).not.toBe(true)
-    expect(jsonText(addQueries)).toEqual({ ok: true })
+    // The class is the API's, read back from the rows the append returns; the
+    // repeated query is reported once.
+    expect(jsonText(addQueries)).toEqual({ ok: true, queryClasses: [{ query: 'alpha', queryClass: 'non-brand' }] })
 
     const invalid = await client.callTool({
       name: 'canonry_queries_add',
@@ -180,12 +206,18 @@ describe('canonry-mcp stdio', () => {
     expect(jsonText(trafficSync)).toMatchObject({ runId: 'run-traffic-1', sourceId: 'src-1' })
 
     expect(stderr()).toBe('')
+    // Malformed wire data reaches the real SDK transport diagnostic callback.
+    await transport.send({ jsonrpc: '1.0', id: 'invalid-frame', method: 'tools/list' } as unknown as JSONRPCMessage)
+    await vi.waitFor(() => expect(stderr()).toContain('canonry-mcp: '))
+    expect(stderr()).toContain('jsonrpc')
+    expect((await client.listTools()).tools.map(tool => tool.name)).toContain('canonry_projects_list')
+    expect(protocolErrors).not.toHaveBeenCalled()
   }, SUBPROCESS_CASE_TIMEOUT_MS)
 
   it('docs/mcp.md documents the same pipelining error wording the SDK emits', () => {
     const docsPath = path.resolve(repoRoot, 'docs', 'mcp.md')
     const docs = fs.readFileSync(docsPath, 'utf8')
-    expect(docs).toContain('MCP error -32602: Tool ... disabled')
+    expect(docs).toContain('Tool ... disabled')
   })
 
   it('loads every permitted toolkit with --eager without granting unknown operator authority', async () => {
@@ -203,21 +235,26 @@ describe('canonry-mcp stdio', () => {
 
     const list = await client.listTools()
     // This older host has no /keys/self: internal tools must fail closed.
-    const permitted = canonryMcpTools.filter(tool => !tool.requiresOperator)
+    const permitted = canonryMcpTools.filter(tool => !tool.requiresOperator && !tool.requiresConnectionProfile)
     expect(list.tools).toHaveLength(permitted.length + 2)
     const names = list.tools.map(tool => tool.name)
     expect(names).toEqual(expect.arrayContaining(permitted.map(tool => tool.name)))
     for (const name of ['canonry_logs_list', 'canonry_telemetry_get', 'canonry_telemetry_update']) {
       expect(names).not.toContain(name)
-      expect((await client.callTool({ name, arguments: {} })).isError).toBe(true)
+      await expect(client.callTool({ name, arguments: {} })).rejects.toMatchObject({
+        name: 'ProtocolError', code: -32602, message: `Tool ${name} not found`,
+      })
     }
     expect(list.tools.find(tool => tool.name === 'canonry_results_clear')?.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: true })
     expect(names).toContain('canonry_insights_list')
     expect(names).toContain('canonry_project_overview')
-    expect(names).toContain('canonry_report')
+    expect(names).not.toContain('canonry_report')
+    expect(names).toContain('canonry_traffic_analytics')
     expect(names).toContain('canonry_history_global')
     expect(names).toContain('canonry_search')
     expect(names).toContain('canonry_competitor_landscape')
+    expect(names).toContain('canonry_competitors_suggest')
+    expect(names).toContain('canonry_competitors_change_preview')
     expect(names).toContain('canonry_backlinks_latest_release')
     expect(names).toContain('canonry_traffic_connect_vercel')
     expect(names).toContain('canonry_traffic_referral_assessment')
@@ -339,6 +376,28 @@ describe('canonry-mcp stdio', () => {
       },
     })
   }, SUBPROCESS_CASE_TIMEOUT_MS)
+
+  it('keeps stdio stored-only startup and a stored tool request on the marked read boundary', async () => {
+    const requests: Array<{ method: string; path: string; storedOnly: string | undefined }> = []
+    const api = await startStubApi(undefined, request => {
+      requests.push({ method: request.method ?? '', path: new URL(request.url ?? '/', 'http://127.0.0.1').pathname, storedOnly: request.headers['x-canonry-stored-only'] as string | undefined })
+    })
+    servers.push(api)
+    const { client } = await startMcpClient({
+      apiOrigin: api.origin,
+      configPrefix: 'canonry-mcp-stored-only-',
+      database: '/tmp/canonry-mcp-stored-only.sqlite',
+      clientName: 'canonry-mcp-stored-only-test',
+      args: ['--stored-only'],
+    })
+    clients.push(client)
+    const tools = await client.listTools()
+    expect(tools.tools.some(tool => tool.name === 'canonry_projects_list')).toBe(true)
+    expect(tools.tools.some(tool => tool.name === 'canonry_run_trigger')).toBe(false)
+    const projects = await client.callTool({ name: 'canonry_projects_list', arguments: {} })
+    expect(projects.isError).not.toBe(true)
+    expect(requests.find(request => request.path === '/api/v1/projects')?.storedOnly).toBe('1')
+  }, SUBPROCESS_CASE_TIMEOUT_MS)
 })
 
 /**
@@ -358,7 +417,9 @@ async function startMcpClient(options: {
   database: string
   clientName: string
   args?: readonly string[]
-}): Promise<{ client: Client; stderr: () => string }> {
+  era?: 'legacy' | 'modern'
+  onToolsChanged?: () => void
+}): Promise<{ client: Client; transport: StdioClientTransport; stderr: () => string }> {
   const configDir = fs.mkdtempSync(path.join(os.tmpdir(), options.configPrefix))
   fs.writeFileSync(path.join(configDir, 'config.yaml'), [
     `apiUrl: ${options.apiOrigin}`,
@@ -393,7 +454,10 @@ async function startMcpClient(options: {
   // diagnostic in a failed handshake, and an unread pipe the child can block on.
   transport.stderr?.on('data', chunk => stderrChunks.push(String(chunk)))
 
-  const client = new Client({ name: options.clientName, version: '0.0.0' })
+  const client = new Client({ name: options.clientName, version: '0.0.0' }, {
+    versionNegotiation: { mode: options.era === 'modern' ? { pin: '2026-07-28' } : 'legacy' },
+    ...(options.onToolsChanged ? { listChanged: { tools: { autoRefresh: false, debounceMs: 0, onChanged: options.onToolsChanged } } } : {}),
+  })
   let timer: NodeJS.Timeout | undefined
   try {
     await Promise.race([
@@ -402,7 +466,7 @@ async function startMcpClient(options: {
         timer = setTimeout(() => {
           const stderr = stderrChunks.join('').trim()
           reject(new Error(
-            `canonry-mcp did not answer initialize within ${HANDSHAKE_TIMEOUT_MS}ms`
+            `canonry-mcp did not complete protocol negotiation within ${HANDSHAKE_TIMEOUT_MS}ms`
             + `${stderr ? `; stderr: ${stderr}` : ' (no stderr output)'}`,
           ))
         }, HANDSHAKE_TIMEOUT_MS)
@@ -420,11 +484,18 @@ async function startMcpClient(options: {
     clearTimeout(timer)
   }
 
-  return { client, stderr: () => stderrChunks.join('') }
+  return { client, transport, stderr: () => stderrChunks.join('') }
 }
 
-async function startStubApi(onRunRequest?: (body: unknown) => void): Promise<{ origin: string; close: () => Promise<void> }> {
-  const server = createServer((request, response) => handleRequest(request, response, onRunRequest))
+async function startStubApi(onRunRequest?: (body: unknown) => void, onRequest?: (request: IncomingMessage) => void, profile = false): Promise<{ origin: string; close: () => Promise<void> }> {
+  const server = createServer((request, response) => {
+    onRequest?.(request)
+    if (profile && request.method === 'GET' && request.url === '/api/v1/mcp/profile') {
+      send(response, { userId: 'named-reader', displayName: 'Reader', instance: { issuer: 'https://named.example', resource: 'https://named.example/api/v1/mcp' }, scopes: ['read'] })
+      return
+    }
+    handleRequest(request, response, onRunRequest)
+  })
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
   const address = server.address()
   if (!address || typeof address === 'string') throw new Error('Failed to start stub API')
@@ -436,6 +507,11 @@ async function startStubApi(onRunRequest?: (body: unknown) => void): Promise<{ o
 
 function handleRequest(request: IncomingMessage, response: ServerResponse, onRunRequest?: (body: unknown) => void): void {
   const url = new URL(request.url ?? '/', 'http://127.0.0.1')
+  if (request.method === 'POST' && url.pathname === '/api/v1/settings/providers/reload') {
+    request.resume()
+    send(response, { reloaded: true, providers: [{ name: 'gemini', configured: true }] })
+    return
+  }
   if (request.method === 'POST' && url.pathname === '/api/v1/projects/acme/runs') {
     const chunks: Buffer[] = []
     request.on('data', (chunk: Buffer) => chunks.push(chunk))
@@ -455,7 +531,7 @@ function handleRequest(request: IncomingMessage, response: ServerResponse, onRun
   }
   if (request.method === 'POST' && url.pathname === '/api/v1/projects/acme/queries') {
     request.resume()
-    send(response, [{ id: 'k1', query: 'alpha', createdAt: '2026-04-27T00:00:00Z' }])
+    send(response, [{ id: 'k1', query: 'alpha', createdAt: '2026-04-27T00:00:00Z', queryClass: 'non-brand' }])
     return
   }
   if (request.method === 'GET' && url.pathname === '/api/v1/projects/acme/traffic/sources') {

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
-import type { VisibilityReportScopeOption } from '@ainyc/canonry-contracts'
+import type { VisibilityReportScopeOption } from '@canonry/canonry-contracts'
 import { VisibilityScopePicker, MARKET_SCOPE_COPY } from '../src/components/project/VisibilityScopePicker.js'
 
 afterEach(cleanup)
@@ -281,7 +281,7 @@ describe('trigger label and naming', () => {
     const trigger = screen.getByText('Whole site', { selector: 'summary' })
     expect(label.id).not.toBe('')
     expect(trigger.getAttribute('aria-labelledby')).toBe(`${label.id} ${trigger.id}`)
-    expect(label.className).toBe(labelVisibility === 'sr-only' ? 'sr-only' : 'mb-1 block text-sm font-medium text-heading')
+    expect(label.className).toBe(labelVisibility === 'sr-only' ? 'sr-only' : 'mb-1 block text-label-14-strong text-heading')
     const picker = trigger.closest('details')!
     picker.open = true
     const search = screen.getByRole('searchbox', { name: 'Search scopes' })
@@ -294,7 +294,7 @@ describe('trigger label and naming', () => {
 
   it('defaults to a visible label and never changes the trigger classes', () => {
     const visible = render(<VisibilityScopePicker options={scopes} selected={scopes[0]!} onSelect={vi.fn()} />)
-    expect(screen.getByText('Measurement scope').className).toBe('mb-1 block text-sm font-medium text-heading')
+    expect(screen.getByText('Measurement scope').className).toBe('mb-1 block text-label-14-strong text-heading')
     const visibleTriggerClass = visible.container.querySelector('summary')!.className
     visible.unmount()
     const hidden = render(<VisibilityScopePicker options={scopes} selected={scopes[0]!} onSelect={vi.fn()} labelVisibility="sr-only" />)

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { validateConfig, normalizeResult } from '../src/normalize.js'
+import { validateConfig } from '../src/normalize.js'
 
 describe('provider-local validateConfig', () => {
   it('rejects missing base URL', () => {
@@ -17,22 +17,5 @@ describe('provider-local validateConfig', () => {
       quotaPolicy: { maxConcurrency: 2, maxRequestsPerMinute: 10, maxRequestsPerDay: 1000 },
     })
     expect(result.ok).toBe(true)
-  })
-})
-
-describe('provider-local normalizeResult', () => {
-  it('keeps answer-text domains separate from structured citations', () => {
-    const raw = {
-      provider: 'local' as const,
-      model: 'llama3',
-      rawResponse: {
-        choices: [{ message: { content: 'Check out example.com and https://test.org' } }]
-      },
-      groundingSources: [],
-      searchQueries: []
-    }
-    const result = normalizeResult(raw)
-    expect(result.citedDomains).toEqual([])
-    expect(result.groundingSources).toEqual([])
   })
 })

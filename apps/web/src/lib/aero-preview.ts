@@ -1,4 +1,4 @@
-import type { AeroPreviewStarter } from '@ainyc/canonry-contracts'
+import type { AeroPreviewStarter } from '@canonry/canonry-contracts'
 import type { AeroAssistantMessage, AeroEvent, AeroToolResultMessage } from '../api-aero.js'
 
 /**

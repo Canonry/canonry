@@ -1,4 +1,4 @@
-import { RunKinds, RunStatuses, RunTriggers } from '@ainyc/canonry-contracts'
+import { RunKinds, RunStatuses, RunTriggers } from '@canonry/canonry-contracts'
 import { randomUUID } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
 import { and, asc, eq, gt, inArray, isNotNull, isNull, lt, lte, or, sql } from 'drizzle-orm'
@@ -145,6 +145,13 @@ function cancelProject(db: SentimentDb, projectId: string, now: string, reason: 
 }
 
 /** Synchronous transactional storage; no provider or other asynchronous I/O belongs in these methods. */
+/** Attempts dispatched in the minute before `now`, shared by the claim-time and attempt-time rate checks. */
+function dispatchedInLastMinute(db: Pick<DatabaseClient, 'select'>, now: string): { requests: number; tokens: number } {
+  const since = new Date(Date.parse(now) - 60_000).toISOString()
+  return db.select({ requests: sql<number>`count(*)`, tokens: sql<number>`coalesce(sum(${sentimentAttempts.estimatedInputTokens}), 0)` })
+    .from(sentimentAttempts).where(gt(sentimentAttempts.dispatchedAt, since)).get()!
+}
+
 export class SentimentRepository {
   constructor(private readonly db: DatabaseClient) {}
 
@@ -313,6 +320,11 @@ export class SentimentRepository {
     }, { behavior: 'immediate' })
   }
 
+  /** Requests and estimated input tokens dispatched in the minute before `now`: the window `startAttempt` enforces. */
+  recentDispatch(now: string): { requests: number; tokens: number } {
+    return dispatchedInLastMinute(this.db, now)
+  }
+
   startAttempt(input: {
     workItemId: string; owner: string; requestedModel: string; now: string; estimatedInputTokens?: number
     maxRequestsPerMinute?: number; maxInputTokensPerMinute?: number; maxAttempts?: number
@@ -328,9 +340,7 @@ export class SentimentRepository {
       if (input.maxAttempts !== undefined && work.attemptCount - work.attemptBudgetStart >= input.maxAttempts) return undefined
       const estimate = input.estimatedInputTokens ?? 0
       if (!Number.isSafeInteger(estimate) || estimate < 0) throw new Error('Invalid sentiment token estimate')
-      const since = new Date(Date.parse(input.now) - 60_000).toISOString()
-      const used = tx.select({ requests: sql<number>`count(*)`, tokens: sql<number>`coalesce(sum(${sentimentAttempts.estimatedInputTokens}), 0)` })
-        .from(sentimentAttempts).where(gt(sentimentAttempts.dispatchedAt, since)).get()!
+      const used = dispatchedInLastMinute(tx, input.now)
       if (input.maxRequestsPerMinute !== undefined && used.requests >= input.maxRequestsPerMinute) return undefined
       if (input.maxInputTokensPerMinute !== undefined && used.tokens + estimate > input.maxInputTokensPerMinute) return undefined
       const attemptNumber = work.attemptCount + 1
@@ -343,7 +353,7 @@ export class SentimentRepository {
   }
 
   finishAttempt(input: {
-    attemptId: string; now: string; returnedModel: string | null; usageStatus: 'reported' | 'estimated' | 'unknown'
+    attemptId: string; now: string; returnedModel: string | null; usageStatus: 'reported' | 'estimated' | 'unknown'; provider?: 'typesafe' | 'openrouter'
     usage?: { inputTokens: number; outputTokens: number; costMillicents?: number }; safeFailure?: string | null
   }) {
     return this.db.transaction(tx => {
@@ -356,17 +366,26 @@ export class SentimentRepository {
       if (input.usage && input.usageStatus === 'reported') {
         const work = tx.select().from(sentimentWorkItems).where(eq(sentimentWorkItems.id, attempt.workItemId)).get()!
         tx.insert(llmUsageEvents).values({
-          id: `sentiment:${attempt.id}`, projectId: attempt.projectId, runId: work.runId, feature: 'sentiment', provider: 'typesafe',
+          id: `sentiment:${attempt.id}`, projectId: attempt.projectId, runId: work.runId, feature: 'sentiment', provider: input.provider ?? 'typesafe',
           model: input.returnedModel ?? attempt.requestedModel, inputTokens: input.usage.inputTokens, outputTokens: input.usage.outputTokens,
           totalTokens: input.usage.inputTokens + input.usage.outputTokens, costMillicents: input.usage.costMillicents ?? 0,
-          metadata: { sentimentAttemptId: attempt.id, usageStatus: 'reported' }, createdAt: input.now,
+          metadata: { sentimentAttemptId: attempt.id, usageStatus: 'reported', ...(input.usage.costMillicents === undefined ? { costStatus: 'unknown' } : {}) }, createdAt: input.now,
         }).onConflictDoNothing().run()
       }
       return true
     }, { behavior: 'immediate' })
   }
 
-  completeWork(input: { workItemId: string; owner: string; outcome: string; result: unknown; returnedModel: string | null; now: string }) {
+  /**
+   * `onCompleted` runs in the same transaction once a completed result is
+   * stored, so state derived from the verdict (the snapshot's mention identity)
+   * commits with it or not at all. It does not run for work canceled while it
+   * ran: that result stays out of every read.
+   */
+  completeWork(
+    input: { workItemId: string; owner: string; outcome: string; result: unknown; returnedModel: string | null; now: string },
+    onCompleted?: (tx: Pick<DatabaseClient, 'select' | 'update'>, work: { projectId: string; runId: string; snapshotId: string }) => void,
+  ) {
     return this.db.transaction(tx => {
       const work = tx.select().from(sentimentWorkItems).where(and(
         eq(sentimentWorkItems.id, input.workItemId), eq(sentimentWorkItems.leaseOwner, input.owner),
@@ -381,7 +400,18 @@ export class SentimentRepository {
         leaseOwner: null, leaseExpiresAt: null, nextAttemptAt: null, updatedAt: input.now,
       }).where(eq(sentimentWorkItems.id, work.id)).run()
       shiftJobs(tx, work.id, work.status, status, input.now)
+      if (status === 'completed') onCompleted?.(tx, work)
       return true
+    }, { behavior: 'immediate' })
+  }
+
+  /** Hand claimed work back to the queue untouched: no error, no retry time, no attempt counted. */
+  releaseWork(input: { workItemId: string; owner: string; now: string }) {
+    return this.db.transaction(tx => {
+      const changed = tx.update(sentimentWorkItems).set({ status: 'pending', leaseOwner: null, leaseExpiresAt: null, updatedAt: input.now })
+        .where(and(eq(sentimentWorkItems.id, input.workItemId), eq(sentimentWorkItems.leaseOwner, input.owner), eq(sentimentWorkItems.status, 'running'))).returning().all()
+      if (changed.length > 0) shiftJobs(tx, changed[0].id, 'running', 'pending', input.now)
+      return changed.length > 0
     }, { behavior: 'immediate' })
   }
 

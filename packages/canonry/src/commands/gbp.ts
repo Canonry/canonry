@@ -1,5 +1,7 @@
-import type { GbpAccountListResponse, GbpLocationListResponse, GbpSummaryDto } from '@ainyc/canonry-contracts'
-import { formatGbpMetricLabel, formatPercent } from '@ainyc/canonry-contracts'
+import { readFileSync } from 'node:fs'
+import { validationError, gbpLocalPostCreateSchema } from '@canonry/canonry-contracts'
+import type { GbpAccountListResponse, GbpLocationListResponse, GbpSummaryDto } from '@canonry/canonry-contracts'
+import { formatGbpMetricLabel, formatPercent } from '@canonry/canonry-contracts'
 import { createApiClient } from '../client.js'
 import { isMachineFormat } from '../cli-error.js'
 
@@ -431,4 +433,31 @@ export async function gbpSummary(
     + (pc.permanentlyClosed || pc.temporarilyClosed
       ? `; closed: ${pc.permanentlyClosed} permanently, ${pc.temporarilyClosed} temporarily`
       : ''))
+}
+
+/** Low-level transport for the separately approved outbox; never invents approval. */
+export async function gbpLocalPosts(project: string, action: string, opts: {account?:string;location?:string;pageToken?:string;post?:string;request?:string;attempt?:string;package?:string}): Promise<void> {
+  const client = getClient()
+  const target = (): {accountName:string;locationName:string} => {
+    if (!opts.account || !opts.location) throw validationError('Exact --account and --location are required.')
+    return {accountName:opts.account,locationName:opts.location}
+  }
+  let result: unknown
+  if (action === 'list') result = await client.listGbpLocalPosts(project,{...target(),pageToken:opts.pageToken})
+  else if (action === 'get') {
+    if (!opts.post) throw validationError('An exact --post resource is required.')
+    result = await client.getGbpLocalPost(project,opts.post)
+  } else if (action === 'attempt') {
+    if (!opts.attempt || !opts.package) throw validationError('Exact --attempt and --package identities are required.')
+    result = await client.getGbpLocalPostAttempt(project, opts.attempt, opts.package)
+  } else if (action === 'reviews') result = await client.readGbpReviewsLive(project,target())
+  else if (action === 'create') {
+    if (!opts.request) throw validationError('An exact approved --request JSON file is required.')
+    const raw = readFileSync(opts.request,'utf8')
+    if (Buffer.byteLength(raw)>16384) throw validationError('GBP request exceeds the limit.')
+    const parsed = gbpLocalPostCreateSchema.safeParse(JSON.parse(raw))
+    if (!parsed.success) throw validationError('Invalid GBP package/attempt request.')
+    result = await client.createGbpLocalPost(project,parsed.data)
+  } else throw validationError('Unknown GBP Local Posts action.')
+  console.log(JSON.stringify(result,null,2))
 }

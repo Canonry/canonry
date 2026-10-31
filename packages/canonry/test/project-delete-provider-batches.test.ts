@@ -4,9 +4,9 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { eq } from 'drizzle-orm'
-import { createClient, migrate, projects, providerBatches, runs, type DatabaseClient } from '@ainyc/canonry-db'
-import { ProviderBatchStatuses, RunStatuses } from '@ainyc/canonry-contracts'
-import { claudeAdapter } from '@ainyc/canonry-provider-claude'
+import { createClient, migrate, projects, providerBatches, runs, type DatabaseClient } from '@canonry/canonry-db'
+import { ProviderBatchStatuses, RunStatuses } from '@canonry/canonry-contracts'
+import { claudeAdapter } from '@canonry/canonry-provider-claude'
 import type { CanonryConfig } from '../src/config.js'
 import { loadConfigRaw, saveConfig, saveConfigPatch } from '../src/config.js'
 import { getGoogleAdsConnection, upsertGoogleAdsConnection } from '../src/google-ads-config.js'
@@ -47,7 +47,7 @@ async function serverWithBatchPendingProject() {
     providers: { claude: { apiKey: 'sk-ant-test', batch: { enabled: true } } },
   }
   saveConfig(config)
-  const app = await createServer({ config, db, logger: false })
+  const app = await createServer({ config, configPath: path.join(tmpDir, 'config.yaml'), db, logger: false })
   const created = await app.inject({
     method: 'PUT',
     url: '/api/v1/projects/acme',

@@ -1,6 +1,6 @@
 import { MANAGED_SWEEPS_COPY } from '../src/components/project/ManagedSweepStatus.js'
-import { afterEach, expect, test, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, expect, onTestFinished, test, vi } from 'vitest'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
   createMemoryHistory,
@@ -10,14 +10,14 @@ import {
   Outlet,
   RouterProvider,
 } from '@tanstack/react-router'
-import { getApiV1ProjectsByNameAgentProvidersQueryKey } from '@ainyc/canonry-api-client/react-query'
+import { getApiV1ProjectsByNameAgentProvidersQueryKey } from '@canonry/canonry-api-client/react-query'
 
 import { heyClient } from '../src/api.js'
 import * as api from '../src/api.js'
 import { AeroBar } from '../src/components/shared/AeroBar.js'
 import { AccountProvider, type ApiKeyAccess } from '../src/contexts/account-context.js'
 import * as aero from '../src/api-aero.js'
-import type { AeroPreviewResponse } from '@ainyc/canonry-contracts'
+import type { AeroPreviewResponse, AgentProvidersResponse } from '@canonry/canonry-contracts'
 
 const PROJECT_NAME = 'citypoint'
 
@@ -33,16 +33,7 @@ afterEach(() => {
   }
 })
 
-async function renderWithProviderReadiness(data: {
-  providers: Array<{
-    id: 'openai'
-    label: string
-    defaultModel: string
-    configured: boolean
-    keySource: 'config' | null
-  }>
-  defaultProvider: 'openai' | null
-} | null, role: 'admin' | 'viewer' | null = null, apiKey?: ApiKeyAccess) {
+async function renderWithProviderReadiness(data: AgentProvidersResponse | null, role: 'admin' | 'viewer' | null = null, apiKey?: ApiKeyAccess) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   if (data) {
     queryClient.setQueryData(
@@ -157,7 +148,7 @@ test('managed sweeps hides the Aero sweep shortcut while retaining read shortcut
   fireEvent.change(screen.getByPlaceholderText('Ask Aero, or / for commands…'), { target: { value: '/' } })
   expect(screen.getByText('/status')).toBeTruthy()
   expect(screen.queryByText('/run-sweep')).toBeNull()
-  expect(screen.queryByText('Run sweep now')).toBeNull()
+  expect(screen.queryByText('Run check now')).toBeNull()
 })
 
 test('offers analysis starters, not failed-run or schedule shortcuts', async () => {
@@ -197,7 +188,7 @@ async function openAeroWithSavedWriteScope(managedSweeps: boolean) {
 test.each([
   ['enter', '/run-sweep'], ['submit', '/run-sweep'],
   ['enter', '  /RUN-SWEEP now'], ['submit', '/run-sweep '],
-] as const)('managed Aero blocks the typed sweep command through %s (%s)', async (method, draft) => {
+] as const)('managed Aero blocks the typed check command through %s (%s)', async (method, draft) => {
   const { prompt, input } = await openAeroWithSavedWriteScope(true)
   fireEvent.change(input, { target: { value: draft } })
   if (method === 'enter') fireEvent.keyDown(input, { key: 'Enter' })
@@ -214,14 +205,14 @@ test.each([false, true])('managed=%s uses the effective Aero scope even with a s
   expect(screen.queryByText('Read only')).toBeNull()
   // Managed deployments additionally hide the provider picker, and with it the
   // title that named the exact model behind Aero.
-  const picker = screen.queryByRole('button', { name: 'Switch agent model' })
+  const picker = screen.queryByRole('button', { name: /^Aero model:/ })
   if (managed) {
     expect(picker).toBeNull()
     expect(screen.queryByTitle(/OpenAI/)).toBeNull()
   } else {
     expect(picker).toBeTruthy()
   }
-  fireEvent.change(input, { target: { value: 'Show the latest sweep results' } })
+  fireEvent.change(input, { target: { value: 'Show the latest check results' } })
   fireEvent.click(screen.getByRole('button', { name: 'Send' }))
   await waitFor(() => expect(prompt).toHaveBeenCalledWith(expect.objectContaining({ scope: managed ? 'read-only' : 'all' })))
 })
@@ -281,8 +272,8 @@ async function openAeroWithSavedProvider(managedSweeps: boolean) {
 // provider a prompt carries.
 test.each([false, true])('managed=%s honors a saved provider override only when the picker is visible', async managed => {
   const { prompt, input } = await openAeroWithSavedProvider(managed)
-  expect(screen.queryByRole('button', { name: 'Switch agent model' }) === null).toBe(managed)
-  fireEvent.change(input, { target: { value: 'Show the latest sweep results' } })
+  expect(screen.queryByRole('button', { name: /^Aero model:/ }) === null).toBe(managed)
+  fireEvent.change(input, { target: { value: 'Show the latest check results' } })
   fireEvent.click(screen.getByRole('button', { name: 'Send' }))
   await waitFor(() => expect(prompt).toHaveBeenCalledWith(expect.objectContaining({
     provider: managed ? undefined : 'openai',
@@ -294,7 +285,7 @@ test('operator mode retains the exact Aero sweep shortcut and saved write scope'
   fireEvent.change(input, { target: { value: '/run-sweep' } })
   fireEvent.keyDown(input, { key: 'Enter' })
   await waitFor(() => expect(prompt).toHaveBeenCalledWith(expect.objectContaining({
-    prompt: 'Run a new answer-visibility sweep for this project now and tell me when it lands.', scope: 'all',
+    prompt: 'Run a new AI Visibility check for this project now and tell me when it lands.', scope: 'all',
   })))
 })
 
@@ -304,7 +295,166 @@ const READY_AERO = {
 }
 const EMPTY_TRANSCRIPT = { messages: [], modelProvider: 'openai', modelId: 'model', updatedAt: null }
 
-test('keeps intermediate responses and renders a completed tool call once', async () => {
+test('chooses an Aero OpenRouter model independently and includes it in the copied CLI command', async () => {
+  vi.spyOn(aero, 'fetchAeroTranscript').mockResolvedValue(EMPTY_TRANSCRIPT)
+  const prompt = vi.spyOn(aero, 'promptAero').mockRejectedValue(new Error('Provider temporarily unavailable'))
+  const writeText = vi.fn().mockResolvedValue(undefined)
+  const descriptor = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+  onTestFinished(() => { if (descriptor) Object.defineProperty(navigator, 'clipboard', descriptor); else Reflect.deleteProperty(navigator, 'clipboard') })
+  await renderWithProviderReadiness({ providers: [{ id: 'openrouter', label: 'OpenRouter', defaultModel: 'anthropic/claude-default', configured: true, keySource: 'config' }], defaultProvider: 'openrouter' }, 'admin')
+  fireEvent.click(screen.getByRole('button', { name: /Ask Aero about citypoint/i }))
+  fireEvent.click(await screen.findByRole('button', { name: /^Aero model:/ }))
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Other model…' }))
+  const model = screen.getByRole('textbox', { name: 'Other model ID' })
+  // A typed ID is checked before it is saved, and nothing is stored while it is wrong.
+  fireEvent.change(model, { target: { value: 'claude custom' } })
+  fireEvent.submit(model)
+  expect(screen.getByRole('alert').textContent).toBe('Model IDs have no spaces.')
+  expect(window.localStorage.getItem('canonry:aero:model:citypoint:openrouter')).toBeNull()
+  fireEvent.change(model, { target: { value: 'anthropic/claude-custom' } })
+  fireEvent.submit(model)
+  expect(screen.queryByRole('menu', { name: 'Aero model' })).toBeNull()
+  expect(window.localStorage.getItem('canonry:aero:model:citypoint:openrouter')).toBe('anthropic/claude-custom')
+  fireEvent.change(screen.getByPlaceholderText('Ask Aero, or / for commands…'), { target: { value: 'Explain my saved results' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+  await waitFor(() => expect(prompt).toHaveBeenCalledWith(expect.objectContaining({ provider: 'openrouter', modelId: 'anthropic/claude-custom' })))
+  fireEvent.click(await screen.findByRole('button', { name: 'Copy as CLI command' }))
+  await waitFor(() => expect(writeText).toHaveBeenCalledWith("canonry agent ask citypoint 'Explain my saved results' --provider openrouter --model anthropic/claude-custom --scope read-only"))
+})
+
+test('offers a short model list for a direct provider and sends the picked model, the default included', async () => {
+  vi.spyOn(aero, 'fetchAeroTranscript').mockResolvedValue(EMPTY_TRANSCRIPT)
+  const prompt = vi.spyOn(aero, 'promptAero').mockRejectedValue(new Error('Provider temporarily unavailable'))
+  await renderWithProviderReadiness({
+    providers: [{
+      id: 'openai', label: 'OpenAI', defaultModel: 'gpt-cheap', configured: true, keySource: 'config',
+      models: [{ id: 'gpt-cheap', displayName: 'GPT Cheap' }, { id: 'gpt-strong', displayName: 'GPT Strong' }],
+    }],
+    defaultProvider: 'openai',
+  }, 'admin')
+  fireEvent.click(screen.getByRole('button', { name: /Ask Aero about citypoint/i }))
+  const picker = await screen.findByRole('button', { name: /^Aero model:/ })
+  expect(picker.textContent).toContain('OpenAI · GPT Cheap')
+  // With no pick, nothing is sent and the conversation keeps its model.
+  const input = screen.getByPlaceholderText('Ask Aero, or / for commands…')
+  fireEvent.change(input, { target: { value: 'Unpicked question' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+  await waitFor(() => expect(prompt).toHaveBeenCalledTimes(1))
+  expect(prompt.mock.lastCall?.[0]).toMatchObject({ provider: undefined, modelId: undefined })
+
+  fireEvent.click(picker)
+  const list = screen.getByRole('group', { name: 'Model' })
+  expect(within(list).getAllByRole('menuitemradio').map(option => option.textContent)).toEqual(['GPT CheapDefault', 'GPT Strong'])
+  expect(within(list).getByRole('menuitemradio', { name: /GPT Cheap/ }).getAttribute('aria-checked')).toBe('true')
+  fireEvent.click(within(list).getByRole('menuitemradio', { name: /GPT Strong/ }))
+  expect(window.localStorage.getItem('canonry:aero:model:citypoint:openai')).toBe('gpt-strong')
+  expect(picker.textContent).toContain('OpenAI · GPT Strong')
+  fireEvent.change(input, { target: { value: 'First question' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+  await waitFor(() => expect(prompt).toHaveBeenLastCalledWith(expect.objectContaining({ provider: 'openai', modelId: 'gpt-strong' })))
+
+  // Picking the default is a pick too: it is sent, so the server moves the
+  // conversation off GPT Strong instead of keeping it while the bar shows Cheap.
+  fireEvent.click(picker)
+  fireEvent.click(within(screen.getByRole('group', { name: 'Model' })).getByRole('menuitemradio', { name: /GPT Cheap/ }))
+  expect(window.localStorage.getItem('canonry:aero:model:citypoint:openai')).toBe('gpt-cheap')
+  expect(picker.textContent).toContain('OpenAI · GPT Cheap')
+  fireEvent.change(input, { target: { value: 'Second question' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+  await waitFor(() => expect(prompt).toHaveBeenCalledTimes(3))
+  expect(prompt.mock.lastCall?.[0]).toMatchObject({ provider: 'openai', modelId: 'gpt-cheap' })
+})
+
+test('shows a resumed conversation\'s own model when nothing is picked, and keeps it', async () => {
+  vi.spyOn(aero, 'fetchAeroTranscript').mockResolvedValue({ ...EMPTY_TRANSCRIPT, modelProvider: 'openai', modelId: 'gpt-strong', nextTurn: { provider: 'openai', modelId: 'gpt-strong' } })
+  const prompt = vi.spyOn(aero, 'promptAero').mockRejectedValue(new Error('Provider temporarily unavailable'))
+  await renderWithProviderReadiness({
+    providers: [{
+      id: 'openai', label: 'OpenAI', defaultModel: 'gpt-cheap', configured: true, keySource: 'config',
+      models: [{ id: 'gpt-cheap', displayName: 'GPT Cheap' }, { id: 'gpt-strong', displayName: 'GPT Strong' }],
+    }],
+    defaultProvider: 'openai',
+  }, 'admin')
+  fireEvent.click(screen.getByRole('button', { name: /Ask Aero about citypoint/i }))
+  const picker = await screen.findByRole('button', { name: /^Aero model:/ })
+  // The conversation runs on Strong, so the bar shows Strong, not the default.
+  await waitFor(() => expect(picker.textContent).toContain('OpenAI · GPT Strong'))
+  fireEvent.click(picker)
+  const list = screen.getByRole('group', { name: 'Model' })
+  expect(within(list).getByRole('menuitemradio', { name: /GPT Strong/ }).getAttribute('aria-checked')).toBe('true')
+  expect(within(list).getByRole('menuitemradio', { name: /GPT Cheap/ }).getAttribute('aria-checked')).toBe('false')
+  fireEvent.keyDown(document.activeElement as Element, { key: 'Escape' })
+  // Nothing is sent, so the server keeps the model the bar shows.
+  fireEvent.change(screen.getByPlaceholderText('Ask Aero, or / for commands…'), { target: { value: 'Next question' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+  await waitFor(() => expect(prompt).toHaveBeenCalledTimes(1))
+  expect(prompt.mock.lastCall?.[0]).toMatchObject({ provider: undefined, modelId: undefined })
+  expect(window.localStorage.getItem('canonry:aero:model:citypoint:openai')).toBeNull()
+})
+
+test('shows the provider a resumed conversation runs on, not the default provider', async () => {
+  vi.spyOn(aero, 'fetchAeroTranscript').mockResolvedValue({ ...EMPTY_TRANSCRIPT, modelProvider: 'openai', modelId: 'gpt-strong', nextTurn: { provider: 'openai', modelId: 'gpt-strong' } })
+  await renderWithProviderReadiness({
+    providers: [
+      { id: 'claude', label: 'Anthropic (Claude)', defaultModel: 'claude-cheap', configured: true, keySource: 'config' },
+      { id: 'openai', label: 'OpenAI', defaultModel: 'gpt-cheap', configured: true, keySource: 'config' },
+    ],
+    defaultProvider: 'claude',
+  }, 'admin')
+  fireEvent.click(screen.getByRole('button', { name: /Ask Aero about citypoint/i }))
+  const picker = await screen.findByRole('button', { name: /^Aero model:/ })
+  await waitFor(() => expect(picker.textContent).toContain('OpenAI · gpt-strong'))
+})
+
+test('lists only providers with a key, moves by arrow keys, and Escape closes the menu but not Aero', async () => {
+  vi.spyOn(aero, 'fetchAeroTranscript').mockResolvedValue(EMPTY_TRANSCRIPT)
+  await renderWithProviderReadiness({
+    providers: [
+      { id: 'claude', label: 'Anthropic (Claude)', defaultModel: 'claude-cheap', configured: false, keySource: null },
+      {
+        id: 'openai', label: 'OpenAI', defaultModel: 'gpt-cheap', configured: true, keySource: 'config',
+        models: [{ id: 'gpt-cheap', displayName: 'GPT Cheap' }, { id: 'gpt-strong', displayName: 'GPT Strong' }],
+      },
+    ],
+    defaultProvider: 'openai',
+  }, 'admin')
+  fireEvent.click(screen.getByRole('button', { name: /Ask Aero about citypoint/i }))
+  const picker = await screen.findByRole('button', { name: /^Aero model:/ })
+  expect(picker.getAttribute('aria-haspopup')).toBe('menu')
+  fireEvent.click(picker)
+  const menu = screen.getByRole('menu', { name: 'Aero model' })
+  const providers = within(screen.getByRole('group', { name: 'Provider' })).getAllByRole('menuitemradio')
+  expect(providers.map(item => item.textContent)).toEqual(['OpenAI'])
+  expect(within(menu).getByRole('menuitem', { name: 'Connect another provider' }).getAttribute('href')).toBe('/settings')
+
+  // The checked model has focus; arrow keys move through the items and wrap.
+  const cheap = within(menu).getByRole('menuitemradio', { name: /GPT Cheap/ })
+  await waitFor(() => expect(document.activeElement).toBe(cheap))
+  fireEvent.keyDown(cheap, { key: 'ArrowDown' })
+  expect(document.activeElement).toBe(within(menu).getByRole('menuitemradio', { name: /GPT Strong/ }))
+  fireEvent.keyDown(document.activeElement as Element, { key: 'Home' })
+  expect(document.activeElement).toBe(providers[0])
+
+  fireEvent.keyDown(document.activeElement as Element, { key: 'Escape' })
+  expect(screen.queryByRole('menu', { name: 'Aero model' })).toBeNull()
+  expect(document.activeElement).toBe(picker)
+  expect(screen.getByRole('button', { name: 'Close Aero' })).toBeTruthy()
+})
+
+test('keeps an OpenRouter model chosen before every provider had a model list', async () => {
+  window.localStorage.setItem('canonry:aero:openrouter-model:citypoint', 'anthropic/claude-saved')
+  onTestFinished(() => window.localStorage.clear())
+  vi.spyOn(aero, 'fetchAeroTranscript').mockResolvedValue(EMPTY_TRANSCRIPT)
+  const prompt = vi.spyOn(aero, 'promptAero').mockRejectedValue(new Error('Provider temporarily unavailable'))
+  await renderWithProviderReadiness({ providers: [{ id: 'openrouter', label: 'OpenRouter', defaultModel: 'openai/gpt-default', configured: true, keySource: 'config' }], defaultProvider: 'openrouter' }, 'admin')
+  fireEvent.click(screen.getByRole('button', { name: /Ask Aero about citypoint/i }))
+  fireEvent.change(await screen.findByPlaceholderText('Ask Aero, or / for commands…'), { target: { value: 'Explain my saved results' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+  await waitFor(() => expect(prompt).toHaveBeenCalledWith(expect.objectContaining({ provider: 'openrouter', modelId: 'anthropic/claude-saved' })))
+})
+
+test('keeps intermediate responses and renders a completed tool call once, behind its run header', async () => {
   const transcript = vi.spyOn(aero, 'fetchAeroTranscript').mockResolvedValue(EMPTY_TRANSCRIPT)
   vi.spyOn(aero, 'promptAero').mockImplementation(async ({ onEvent }) => {
     const assistant: aero.AeroAssistantMessage = { role: 'assistant', timestamp: 1, content: [
@@ -326,8 +476,568 @@ test('keeps intermediate responses and renders a completed tool call once', asyn
   fireEvent.change(screen.getByRole('textbox', { name: 'Message Aero' }), { target: { value: 'Check this market' } })
   fireEvent.click(screen.getByRole('button', { name: 'Send' }))
   await screen.findByText('No active insights.')
-  expect(screen.getAllByText('Read insights')).toHaveLength(1)
   expect(screen.getByText('Checking the selected market.')).toBeTruthy()
+  // The live event and the persisted call are one step, collapsed under one header.
+  const header = screen.getByRole('button', { name: /^1 step/ })
+  expect(header.getAttribute('aria-expanded')).toBe('false')
+  expect(screen.queryByText('Read insights')).toBeNull()
+  fireEvent.click(header)
+  expect(screen.getAllByText('Read insights')).toHaveLength(1)
+})
+
+// ── Tool runs ────────────────────────────────────────────────────────
+// A run is the tool calls of consecutive assistant messages with no text
+// between them. Its header counts real steps; toolkit setup is not one.
+
+interface ScriptedCall {
+  id: string
+  name: string
+  label: string
+  durationMs: number
+  isError?: boolean
+  /** The live start event names no label, as for a tool whose toolkit is not loaded yet. */
+  startUnlabelled?: boolean
+}
+interface ScriptedRound { text?: string; calls: ScriptedCall[] }
+type OnAeroEvent = (event: aero.AeroEvent) => void
+
+const LIST_TOOLKITS: ScriptedCall = { id: 'setup-1', name: 'aero_list_toolkits', label: 'Find relevant tools', durationMs: 5 }
+const LOAD_TOOLKIT: ScriptedCall = { id: 'setup-2', name: 'aero_load_toolkit', label: 'Load relevant tools', durationMs: 7 }
+
+function readInsights(id: string, durationMs: number, extra: Partial<ScriptedCall> = {}): ScriptedCall {
+  return { id, name: 'canonry_insights_list', label: 'Read insights', durationMs, ...extra }
+}
+
+function readSentiment(id: string, durationMs: number, extra: Partial<ScriptedCall> = {}): ScriptedCall {
+  return { id, name: 'canonry_sentiment_evidence', label: 'Read sentiment evidence', durationMs, ...extra }
+}
+
+/**
+ * Toolkit setup, then insights, sentiment and insights again, one round each:
+ * 3 steps in 120 + 900 + 180 = 1200ms. Setup's 5 + 7ms is not a step's time.
+ */
+const MULTI_ROUND_RUN: ScriptedRound[] = [
+  { calls: [LIST_TOOLKITS] },
+  { calls: [LOAD_TOOLKIT] },
+  { calls: [readInsights('step-1', 120)] },
+  { calls: [readSentiment('step-2', 900)] },
+  { calls: [readInsights('step-3', 180)] },
+]
+const MULTI_ROUND_ANSWER = 'Two insights need attention.'
+const MULTI_ROUND_HEADER = '3 steps1.2s'
+const SAVED_AT = '2026-10-07T10:00:00.000Z'
+
+function scriptedAssistant(round: ScriptedRound, timestamp: number): aero.AeroAssistantMessage {
+  return { role: 'assistant', timestamp, stopReason: 'toolUse', content: [
+    ...(round.text ? [{ type: 'text' as const, text: round.text }] : []),
+    ...round.calls.map((call) => ({ type: 'toolCall' as const, id: call.id, name: call.name, arguments: {} })),
+  ] }
+}
+
+function scriptedResult(call: ScriptedCall, timestamp: number): aero.AeroToolResultMessage {
+  return {
+    role: 'toolResult', timestamp, toolCallId: call.id, isError: call.isError ?? false,
+    aeroToolLabel: call.label, aeroDurationMs: call.durationMs, content: [{ type: 'text', text: '{}' }],
+  }
+}
+
+function finalAnswer(text: string, timestamp = 99): aero.AeroAssistantMessage {
+  return { role: 'assistant', timestamp, stopReason: 'stop', content: [{ type: 'text', text }] }
+}
+
+function partialAnswer(text: string): aero.AeroEvent {
+  return { type: 'message_update', message: { role: 'assistant', content: [{ type: 'text', text }] }, assistantMessageEvent: {} }
+}
+
+/** The transcript the server saves for a scripted turn. */
+function scriptedMessages(rounds: ScriptedRound[], answer: string): aero.AeroMessage[] {
+  const messages: aero.AeroMessage[] = [{ role: 'user', content: 'Which insights need attention?', timestamp: 1 }]
+  rounds.forEach((round, index) => {
+    messages.push(scriptedAssistant(round, 10 + index * 10))
+    round.calls.forEach((call, offset) => messages.push(scriptedResult(call, 11 + index * 10 + offset)))
+  })
+  messages.push(finalAnswer(answer))
+  return messages
+}
+
+function startCall(onEvent: OnAeroEvent, call: ScriptedCall) {
+  onEvent({ type: 'tool_execution_start', toolCallId: call.id, toolName: call.name, label: call.startUnlabelled ? undefined : call.label, args: {} })
+}
+
+function endCall(onEvent: OnAeroEvent, call: ScriptedCall, timestamp: number) {
+  onEvent({ type: 'tool_execution_end', toolCallId: call.id, toolName: call.name, isError: call.isError ?? false, result: {} })
+  onEvent({ type: 'message_end', message: scriptedResult(call, timestamp) })
+}
+
+/** One round's live events: the message asking for its calls, then each call's start, end and result. */
+function emitRound(onEvent: OnAeroEvent, round: ScriptedRound, index: number) {
+  onEvent({ type: 'message_end', message: scriptedAssistant(round, 10 + index * 10) })
+  for (const call of round.calls) startCall(onEvent, call)
+  round.calls.forEach((call, offset) => endCall(onEvent, call, 11 + index * 10 + offset))
+}
+
+function gate() {
+  let open!: () => void
+  const wait = new Promise<void>((resolve) => { open = resolve })
+  return { wait, open }
+}
+
+/**
+ * Stream a scripted turn through the live events, then hold it open after the
+ * answer so a test reads the live render before the saved transcript replaces
+ * it. `finish` releases the turn and waits for the saved transcript's reload.
+ */
+function streamScriptedTurn(rounds: ScriptedRound[], answer: string) {
+  const transcript = vi.spyOn(aero, 'fetchAeroTranscript').mockResolvedValue(EMPTY_TRANSCRIPT)
+  const held = gate()
+  vi.spyOn(aero, 'promptAero').mockImplementation(async ({ onEvent }) => {
+    rounds.forEach((round, index) => emitRound(onEvent, round, index))
+    onEvent({ type: 'message_end', message: finalAnswer(answer) })
+    onEvent({ type: 'aero_turn_status', status: { reason: 'completed', toolCalls: 5, modelCalls: rounds.length + 1, durationMs: 1300 } })
+    await held.wait
+    transcript.mockResolvedValue({ ...EMPTY_TRANSCRIPT, messages: scriptedMessages(rounds, answer), updatedAt: SAVED_AT })
+  })
+  return {
+    async finish() {
+      // Still the live turn: nothing has been reloaded yet.
+      expect(screen.getByRole('button', { name: 'Stop Aero' })).toBeTruthy()
+      const reloads = transcript.mock.calls.length
+      await act(async () => { held.open() })
+      await waitFor(() => expect(screen.queryByRole('button', { name: 'Stop Aero' })).toBeNull())
+      expect(transcript.mock.calls.length).toBeGreaterThan(reloads)
+    },
+  }
+}
+
+async function openAero() {
+  await renderWithProviderReadiness(READY_AERO)
+  fireEvent.click(screen.getByRole('button', { name: /Ask Aero/ }))
+}
+
+function sendPrompt(prompt: string) {
+  fireEvent.change(screen.getByRole('textbox', { name: 'Message Aero' }), { target: { value: prompt } })
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+}
+
+async function askAero(prompt = 'Which insights need attention?') {
+  await openAero()
+  sendPrompt(prompt)
+}
+
+/** Run headers only: "3 steps…" when done, "Reading insights…" or "Working…" while running. */
+function runHeaders() {
+  return screen.getAllByRole('button', { name: /^(\d+ (setup )?steps?|[A-Z][a-z]+ing\b[^…]*…)/ })
+}
+
+function runPanel(header: HTMLElement) {
+  const panel = document.getElementById(header.getAttribute('aria-controls') ?? '')
+  expect(panel).not.toBeNull()
+  return within(panel as HTMLElement)
+}
+
+test('collapses a multi-round tool run into one header that counts real steps, live and saved', async () => {
+  const turn = streamScriptedTurn(MULTI_ROUND_RUN, MULTI_ROUND_ANSWER)
+  await askAero()
+  await screen.findByText(MULTI_ROUND_ANSWER)
+
+  const expectOneCollapsedRun = () => {
+    const headers = runHeaders()
+    expect(headers).toHaveLength(1)
+    expect(headers[0].textContent).toBe(MULTI_ROUND_HEADER)
+    expect(headers[0].getAttribute('aria-expanded')).toBe('false')
+    expect(screen.queryByText('Read insights')).toBeNull()
+    expect(screen.queryByText('Find relevant tools')).toBeNull()
+  }
+  // The live render of the finished turn, before any reload.
+  expectOneCollapsedRun()
+  await turn.finish()
+  // The saved transcript renders the same run.
+  expectOneCollapsedRun()
+})
+
+test('an expanded run merges same-label calls in first-seen order and folds toolkit setup out of the step count', async () => {
+  const turn = streamScriptedTurn(MULTI_ROUND_RUN, MULTI_ROUND_ANSWER)
+  await askAero()
+  await screen.findByText(MULTI_ROUND_ANSWER)
+
+  fireEvent.click(runHeaders()[0])
+  // One row per label, in the order each label first ran: both insight reads
+  // (×2, 120 + 180ms) come before sentiment, which ran between them. Setup is
+  // one muted row (5 + 7ms) after the steps.
+  const expectRows = () => {
+    const [header] = runHeaders()
+    expect(header.getAttribute('aria-expanded')).toBe('true')
+    expect(runPanel(header).getAllByRole('button').map((row) => row.textContent)).toEqual([
+      'Read insights×2done300ms',
+      'Read sentiment evidencedone900ms',
+      '+ 2 setup stepsdone12ms',
+    ])
+  }
+  expectRows()
+  await turn.finish()
+  // The reload keeps the run open, with the same rows.
+  expectRows()
+
+  const steps = runPanel(runHeaders()[0])
+  expect(steps.queryByText('Find relevant tools')).toBeNull()
+  fireEvent.click(steps.getByRole('button', { name: /setup steps/ }))
+  expect(steps.getByText('Find relevant tools')).toBeTruthy()
+  expect(steps.getByText('Load relevant tools')).toBeTruthy()
+  fireEvent.click(steps.getByRole('button', { name: /^Read insights/ }))
+  // The merged row's title plus each call's own card.
+  expect(steps.getAllByText('Read insights')).toHaveLength(3)
+})
+
+test('the run header names each phase without duplicating progress or losing its open state', async () => {
+  const transcript = vi.spyOn(aero, 'fetchAeroTranscript').mockResolvedValue(EMPTY_TRANSCRIPT)
+  const thinking = gate()
+  const loading = gate()
+  const between = gate()
+  const reading = gate()
+  const reviewing = gate()
+  const nextReading = gate()
+  const answering = gate()
+  const saving = gate()
+  const read = readSentiment('step-1', 900)
+  const nextRead = readInsights('step-2', 100)
+  // Whitespace ahead of a message's calls is not text: it neither closes the run nor ends it.
+  const rounds: ScriptedRound[] = [{ calls: [LOAD_TOOLKIT] }, { text: '\n\n', calls: [read] }, { calls: [nextRead] }]
+  vi.spyOn(aero, 'promptAero').mockImplementation(async ({ onEvent }) => {
+    await thinking.wait
+    onEvent({ type: 'message_end', message: scriptedAssistant(rounds[0], 10) })
+    startCall(onEvent, LOAD_TOOLKIT)
+    await loading.wait
+    endCall(onEvent, LOAD_TOOLKIT, 11)
+    onEvent(partialAnswer('\n\n'))
+    await between.wait
+    onEvent({ type: 'message_end', message: scriptedAssistant(rounds[1], 20) })
+    startCall(onEvent, read)
+    await reading.wait
+    endCall(onEvent, read, 21)
+    await reviewing.wait
+    onEvent({ type: 'message_end', message: scriptedAssistant(rounds[2], 30) })
+    startCall(onEvent, nextRead)
+    await nextReading.wait
+    endCall(onEvent, nextRead, 31)
+    onEvent(partialAnswer('Two insights'))
+    await answering.wait
+    onEvent({ type: 'message_end', message: finalAnswer(MULTI_ROUND_ANSWER) })
+    transcript.mockImplementation(async () => {
+      await saving.wait
+      return { ...EMPTY_TRANSCRIPT, messages: scriptedMessages(rounds, MULTI_ROUND_ANSWER), updatedAt: SAVED_AT }
+    })
+  })
+  await askAero()
+  const expectProgress = (text: string) => {
+    expect(screen.queryByLabelText('Aero is thinking')).toBeNull()
+    const statuses = screen.getAllByRole('status')
+    expect(statuses).toHaveLength(1)
+    expect(statuses[0].textContent).toContain(text)
+    return statuses[0]
+  }
+  expectProgress('Thinking…')
+
+  // Only toolkit setup is running: no step yet.
+  await act(async () => { thinking.open() })
+  const header = await screen.findByRole('button', { name: /^Loading tools…/ })
+  const progress = expectProgress('Loading tools…')
+  expect(header.getAttribute('aria-expanded')).toBe('false')
+  expect(within(header).queryByText(/^step/)).toBeNull()
+
+  // Whitespace and gaps keep one progress owner, without a second typing row.
+  await act(async () => { loading.open() })
+  expect(expectProgress('Preparing next step…')).toBe(progress)
+  fireEvent.click(header)
+  expect(header.getAttribute('aria-expanded')).toBe('true')
+
+  await act(async () => { between.open() })
+  expect(expectProgress('Reading sentiment evidence…')).toBe(progress)
+  // The ticking clock is shown but kept out of the button's name.
+  expect(screen.getByRole('button', { name: /^Reading sentiment evidence…\s*step 1$/ })).toBe(header)
+  expect(within(header).getByText(/^\d+s$/)).toBeTruthy()
+  expect(runHeaders()).toHaveLength(1)
+  expect(header.getAttribute('aria-expanded')).toBe('true')
+  expect(runPanel(header).getByText('running…')).toBeTruthy()
+
+  await act(async () => { reading.open() })
+  expect(expectProgress('Reviewing results…')).toBe(progress)
+  await act(async () => { reviewing.open() })
+  expect(expectProgress('Reading insights…')).toBe(progress)
+  expect(header.getAttribute('aria-expanded')).toBe('true')
+
+  // Once the answer streams, the run before it is done.
+  await act(async () => { nextReading.open() })
+  await screen.findByText('Two insights')
+  expect(screen.queryAllByRole('status')).toHaveLength(0)
+  expect(header.textContent).toBe('2 steps1.0s')
+  expect(header.getAttribute('aria-expanded')).toBe('true')
+
+  const reloads = transcript.mock.calls.length
+  await act(async () => { answering.open() })
+  await screen.findByText(MULTI_ROUND_ANSWER)
+  await waitFor(() => expect(transcript.mock.calls.length).toBeGreaterThan(reloads))
+  // A final message must not restart progress while its saved transcript is loading.
+  expect(screen.getByRole('button', { name: 'Stop Aero' })).toBeTruthy()
+  expect(screen.queryAllByRole('status')).toHaveLength(0)
+  await act(async () => { saving.open() })
+  await waitFor(() => expect(screen.queryByRole('button', { name: 'Stop Aero' })).toBeNull())
+  // The saved transcript's reload keeps the same run, still open.
+  const [saved] = runHeaders()
+  expect(saved.textContent).toBe('2 steps1.0s')
+  expect(saved.getAttribute('aria-expanded')).toBe('true')
+})
+
+test('a two-verb tool label reads as working rather than half a sentence', async () => {
+  vi.spyOn(aero, 'fetchAeroTranscript').mockResolvedValue(EMPTY_TRANSCRIPT)
+  const clearing = gate()
+  const clear: ScriptedCall = { id: 'step-1', name: 'canonry_results_clear', label: 'Preview or clear saved results', durationMs: 30 }
+  vi.spyOn(aero, 'promptAero').mockImplementation(async ({ onEvent }) => {
+    onEvent({ type: 'message_end', message: scriptedAssistant({ calls: [clear] }, 10) })
+    startCall(onEvent, clear)
+    await clearing.wait
+    endCall(onEvent, clear, 11)
+    onEvent({ type: 'message_end', message: finalAnswer('Nothing was cleared.') })
+  })
+  await askAero()
+
+  expect(await screen.findByRole('button', { name: /^Working…\s*step 1$/ })).toBeTruthy()
+  expect(screen.queryByText(/^Previewing or clear/)).toBeNull()
+  await act(async () => { clearing.open() })
+  await waitFor(() => expect(screen.queryByRole('button', { name: 'Stop Aero' })).toBeNull())
+})
+
+test('a failed step stays visible on the collapsed run header; a failed setup call is not a failed step', async () => {
+  const turn = streamScriptedTurn([
+    { calls: [{ ...LOAD_TOOLKIT, isError: true }] },
+    { calls: [readInsights('step-1', 100), readSentiment('step-2', 50, { isError: true })] },
+  ], 'Sentiment could not be read.')
+  await askAero()
+  await screen.findByText('Sentiment could not be read.')
+
+  const expectFailedRun = () => {
+    const [header] = runHeaders()
+    expect(header.getAttribute('aria-expanded')).toBe('false')
+    // One of two steps failed, in 100 + 50ms. The failed toolkit load adds
+    // neither a failure nor time to the steps.
+    expect(header.textContent).toBe('2 steps1 failed150ms')
+    // The failing call's own card stays folded until the run opens.
+    expect(screen.queryByText('Read sentiment evidence')).toBeNull()
+    expect(screen.queryByText('failed')).toBeNull()
+  }
+  expectFailedRun()
+  await turn.finish()
+  expectFailedRun()
+
+  // The setup row keeps its own failure.
+  const [header] = runHeaders()
+  fireEvent.click(header)
+  expect(runPanel(header).getByRole('button', { name: /setup step/ }).textContent).toBe('+ 1 setup step1 failed7ms')
+})
+
+test('a call that streams with no label takes its saved label, so live and saved rows match', async () => {
+  // Called before its toolkit loaded: the live start event has no label, the saved result does.
+  const turn = streamScriptedTurn([
+    { calls: [readInsights('step-1', 5, { isError: true, startUnlabelled: true })] },
+    { calls: [LOAD_TOOLKIT] },
+    { calls: [readInsights('step-2', 50)] },
+  ], MULTI_ROUND_ANSWER)
+  await askAero()
+  await screen.findByText(MULTI_ROUND_ANSWER)
+
+  fireEvent.click(runHeaders()[0])
+  const expectRows = () => {
+    const [header] = runHeaders()
+    expect(header.textContent).toBe('2 steps1 failed55ms')
+    expect(runPanel(header).getAllByRole('button').map((row) => row.textContent)).toEqual([
+      'Read insights×21 failed55ms',
+      '+ 1 setup stepdone7ms',
+    ])
+  }
+  expectRows()
+  await turn.finish()
+  expectRows()
+})
+
+test('a step row keeps its place, open and focused, when a same-label call joins it', async () => {
+  const transcript = vi.spyOn(aero, 'fetchAeroTranscript').mockResolvedValue(EMPTY_TRANSCRIPT)
+  const firstDone = gate()
+  const held = gate()
+  const rounds: ScriptedRound[] = [{ calls: [readInsights('step-1', 120)] }, { calls: [readInsights('step-2', 180)] }]
+  vi.spyOn(aero, 'promptAero').mockImplementation(async ({ onEvent }) => {
+    emitRound(onEvent, rounds[0], 0)
+    await firstDone.wait
+    emitRound(onEvent, rounds[1], 1)
+    await held.wait
+    onEvent({ type: 'message_end', message: finalAnswer(MULTI_ROUND_ANSWER) })
+    transcript.mockResolvedValue({ ...EMPTY_TRANSCRIPT, messages: scriptedMessages(rounds, MULTI_ROUND_ANSWER), updatedAt: SAVED_AT })
+  })
+  await askAero()
+
+  const header = await screen.findByRole('button', { name: /^Reviewing results…/ })
+  fireEvent.click(header)
+  // One call so far: its own card, opened and focused to read its inputs.
+  const card = runPanel(header).getByRole('button', { name: /^Read insights/ })
+  act(() => { card.focus() })
+  fireEvent.click(card)
+  expect(card.getAttribute('aria-expanded')).toBe('true')
+  expect(runPanel(header).getByText('Inputs')).toBeTruthy()
+
+  await act(async () => { firstDone.open() })
+  await waitFor(() => expect(runPanel(header).getAllByRole('button')).toHaveLength(3))
+  const [fold, first, second] = runPanel(header).getAllByRole('button')
+  // The fold header joins above the same card, which stays mounted, open and focused.
+  expect(fold.textContent).toBe('Read insights×2done300ms')
+  expect(fold.getAttribute('aria-expanded')).toBe('true')
+  expect(first).toBe(card)
+  expect(card.isConnected).toBe(true)
+  expect(document.activeElement).toBe(card)
+  expect(card.getAttribute('aria-expanded')).toBe('true')
+  expect(second.getAttribute('aria-expanded')).toBe('false')
+
+  await act(async () => { held.open() })
+  await screen.findByText(MULTI_ROUND_ANSWER)
+})
+
+test('a saved transcript renders the same collapsed run header as the live turn', async () => {
+  vi.spyOn(aero, 'fetchAeroTranscript').mockResolvedValue({
+    ...EMPTY_TRANSCRIPT,
+    messages: scriptedMessages(MULTI_ROUND_RUN, MULTI_ROUND_ANSWER),
+    updatedAt: SAVED_AT,
+  })
+  await openAero()
+  await screen.findByText(MULTI_ROUND_ANSWER)
+
+  const headers = runHeaders()
+  expect(headers).toHaveLength(1)
+  expect(headers[0].textContent).toBe(MULTI_ROUND_HEADER)
+  expect(headers[0].getAttribute('aria-expanded')).toBe('false')
+  // Nothing is streaming, so nothing in the saved run is running or interrupted.
+  expect(screen.queryByText('interrupted')).toBeNull()
+})
+
+test('assistant text between tool calls closes one run and starts the next', async () => {
+  vi.spyOn(aero, 'fetchAeroTranscript').mockResolvedValue({
+    ...EMPTY_TRANSCRIPT,
+    messages: scriptedMessages([
+      { calls: [readInsights('step-1', 100)] },
+      { text: 'Two insights are open. Checking sentiment next.', calls: [readSentiment('step-2', 200)] },
+    ], MULTI_ROUND_ANSWER),
+    updatedAt: SAVED_AT,
+  })
+  await openAero()
+  await screen.findByText(MULTI_ROUND_ANSWER)
+
+  const headers = runHeaders()
+  expect(headers.map((header) => header.textContent)).toEqual(['1 step100ms', '1 step200ms'])
+  const interim = screen.getByText('Two insights are open. Checking sentiment next.')
+  // The interim text sits between the two runs, above the calls it introduced.
+  expect(headers[0].compareDocumentPosition(interim) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(interim.compareDocumentPosition(headers[1]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+})
+
+test('a new prompt closes the run before it, even when that turn ended on tool calls', async () => {
+  const first = readInsights('step-1', 100)
+  const second = readSentiment('step-2', 200)
+  vi.spyOn(aero, 'fetchAeroTranscript').mockResolvedValue({
+    ...EMPTY_TRANSCRIPT,
+    // The first turn hit its tool limit: calls, no text.
+    messages: [
+      { role: 'user', content: 'Which insights need attention?', timestamp: 1 },
+      scriptedAssistant({ calls: [first] }, 10),
+      scriptedResult(first, 11),
+      { role: 'user', content: 'And sentiment?', timestamp: 20 },
+      scriptedAssistant({ calls: [second] }, 30),
+      scriptedResult(second, 31),
+      finalAnswer(MULTI_ROUND_ANSWER),
+    ],
+    updatedAt: SAVED_AT,
+  })
+  await openAero()
+  await screen.findByText(MULTI_ROUND_ANSWER)
+
+  const headers = runHeaders()
+  expect(headers.map((header) => header.textContent)).toEqual(['1 step100ms', '1 step200ms'])
+  const secondPrompt = screen.getByText('And sentiment?')
+  expect(headers[0].compareDocumentPosition(secondPrompt) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(secondPrompt.compareDocumentPosition(headers[1]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+})
+
+test('runs from earlier turns stay settled while a new turn streams', async () => {
+  const cutOff = readInsights('cut-1', 0)
+  const earlier = readSentiment('done-1', 100)
+  const current = readInsights('live-1', 40)
+  const savedEarlier: aero.AeroMessage[] = [
+    { role: 'user', content: 'Which insights need attention?', timestamp: 1 },
+    // Stopped while the model was still asking for a call: no result was saved.
+    { role: 'assistant', timestamp: 10, stopReason: 'aborted', content: [
+      { type: 'text', text: 'Looking.' },
+      { type: 'toolCall', id: cutOff.id, name: cutOff.name, arguments: {} },
+    ] },
+    { role: 'user', content: 'And sentiment?', timestamp: 20 },
+    scriptedAssistant({ calls: [earlier] }, 30),
+    scriptedResult(earlier, 31),
+    finalAnswer('Sentiment is steady.', 40),
+  ]
+  const transcript = vi.spyOn(aero, 'fetchAeroTranscript').mockResolvedValue({ ...EMPTY_TRANSCRIPT, messages: savedEarlier, updatedAt: SAVED_AT })
+  const inFlight = gate()
+  const between = gate()
+  vi.spyOn(aero, 'promptAero').mockImplementation(async ({ onEvent }) => {
+    onEvent({ type: 'message_end', message: scriptedAssistant({ calls: [current] }, 50) })
+    startCall(onEvent, current)
+    await inFlight.wait
+    endCall(onEvent, current, 51)
+    await between.wait
+    onEvent({ type: 'message_end', message: finalAnswer('The market held.', 60) })
+    transcript.mockResolvedValue({ ...EMPTY_TRANSCRIPT, messages: [
+      ...savedEarlier,
+      { role: 'user', content: 'And the market?', timestamp: 45 },
+      scriptedAssistant({ calls: [current] }, 50),
+      scriptedResult(current, 51),
+      finalAnswer('The market held.', 60),
+    ], updatedAt: '2026-10-07T10:05:00.000Z' })
+  })
+  await openAero()
+  await screen.findByText('Sentiment is steady.')
+  expect(runHeaders().map((header) => header.textContent)).toEqual(['1 stepinterrupted', '1 step100ms'])
+
+  sendPrompt('And the market?')
+  // The cut-off call is not running again, and the finished run is not waiting on a step.
+  const expectEarlierRunsSettled = () => {
+    const headers = runHeaders()
+    expect(headers).toHaveLength(3)
+    expect(headers[0].textContent).toBe('1 stepinterrupted')
+    expect(headers[1].textContent).toBe('1 step100ms')
+    return headers[2]
+  }
+  await screen.findByRole('button', { name: /^Reading insights…/ })
+  expect(expectEarlierRunsSettled().textContent).toMatch(/^Reading insights…step 1\d+s$/)
+
+  await act(async () => { inFlight.open() })
+  await waitFor(() => expect(expectEarlierRunsSettled().textContent).toMatch(/^Reviewing results…\d+s$/))
+
+  await act(async () => { between.open() })
+  await screen.findByText('The market held.')
+  await waitFor(() => expect(screen.queryByRole('button', { name: 'Stop Aero' })).toBeNull())
+  expect(runHeaders().map((header) => header.textContent)).toEqual(['1 stepinterrupted', '1 step100ms', '1 step40ms'])
+})
+
+test('shows an error when a turn ends with an error status and no error event', async () => {
+  vi.spyOn(aero, 'fetchAeroTranscript').mockResolvedValue(EMPTY_TRANSCRIPT)
+  const settling = gate()
+  vi.spyOn(aero, 'promptAero').mockImplementation(async ({ onEvent }) => {
+    // A wrap-up request that threw: its failure message is filtered, only the status arrives.
+    onEvent({ type: 'aero_turn_status', status: { reason: 'error', toolCalls: 30, modelCalls: 12, durationMs: 9 } })
+    await settling.wait
+  })
+  await renderWithProviderReadiness(READY_AERO)
+  fireEvent.click(screen.getByRole('button', { name: /Ask Aero/ }))
+  fireEvent.change(screen.getByRole('textbox', { name: 'Message Aero' }), { target: { value: 'Which Properties are most criticized?' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+  await screen.findByText('Aero could not finish this answer. Retry to ask again.')
+  expect(screen.queryByText(/Tool-call limit reached/)).toBeNull()
+  expect(screen.queryAllByRole('status')).toHaveLength(0)
+  await act(async () => { settling.open() })
+  await waitFor(() => expect(screen.queryByRole('button', { name: 'Stop Aero' })).toBeNull())
 })
 
 test('Stop preserves a partial answer and offers an explicit retry', async () => {
@@ -435,7 +1145,7 @@ test('fits the slash palette to the room above the composer so no command is cut
 
 const DEMO_KEY: ApiKeyAccess = { id: 'public-demo-viewer', scopes: ['read'], projectId: null, readOnly: false }
 const PREVIEW_URL = `/api/v1/projects/${PROJECT_NAME}/agent/preview`
-const STATUS_PROMPT = 'Give me a quick status: the latest sweep, which engines answered, and anything that needs attention.'
+const STATUS_PROMPT = 'Give me a quick status: the latest check, which engines answered, and anything that needs attention.'
 const PREVIEW: AeroPreviewResponse = {
   project: PROJECT_NAME,
   seededAt: '2026-09-23T12:00:00.000Z',
@@ -443,7 +1153,7 @@ const PREVIEW: AeroPreviewResponse = {
     {
       id: 'status',
       steps: [{
-        text: 'Checking the latest sweep.',
+        text: 'Checking the latest check.',
         tool: {
           name: 'canonry_project_overview',
           label: 'Get project overview (composite)',
@@ -452,7 +1162,7 @@ const PREVIEW: AeroPreviewResponse = {
           durationMs: 640,
         },
       }],
-      answer: 'The latest sweep completed on all three engines.',
+      answer: 'The latest check completed on all three engines.',
     },
     { id: 'changes', steps: [], answer: 'Nothing moved beyond normal run-to-run noise.' },
     { id: 'gaps', steps: [], answer: 'Two tracked queries have no mention from any engine.' },
@@ -497,7 +1207,7 @@ test('the demo preview shows the bar with no provider check and no operator cont
   await waitFor(() => expect(requestedUrls()).toEqual([PREVIEW_URL]))
   expect(screen.getByRole('button', { name: /New conversation/i })).toBeTruthy()
   expect(screen.queryByRole('button', { name: /History/i })).toBeNull()
-  expect(screen.queryByRole('button', { name: 'Switch agent model' })).toBeNull()
+  expect(screen.queryByRole('button', { name: /^Aero model:/ })).toBeNull()
   expect(screen.getByPlaceholderText('Type / for a starting point')).toBeTruthy()
 
   expect(screen.getByText(/Sample answers on demo data\./)).toBeTruthy()
@@ -513,13 +1223,15 @@ test('a demo starter plays its scripted answer, shows the tool once and complete
   fireEvent.click(screen.getByRole('button', { name: /Ask Aero about citypoint/i }))
   fireEvent.click(await screen.findByRole('button', { name: 'Status' }))
 
-  await screen.findByText('The latest sweep completed on all three engines.')
+  await screen.findByText('The latest check completed on all three engines.')
   expect(screen.getByText(STATUS_PROMPT)).toBeTruthy()
-  expect(screen.getByText('Checking the latest sweep.')).toBeTruthy()
+  expect(screen.getByText('Checking the latest check.')).toBeTruthy()
+  const header = screen.getByRole('button', { name: /^1 step/ })
+  expect(header.textContent).toBe('1 step640ms')
+  expect(screen.queryByText('interrupted')).toBeNull()
+  fireEvent.click(header)
   expect(screen.getAllByText('Get project overview (composite)')).toHaveLength(1)
   expect(screen.getByText('done')).toBeTruthy()
-  expect(screen.getByText('640ms')).toBeTruthy()
-  expect(screen.queryByText('interrupted')).toBeNull()
   // Nothing an operator would run elsewhere: the demo has no CLI to paste into.
   expect(screen.queryByRole('button', { name: 'Copy as CLI command' })).toBeNull()
   // The starters stay in reach once an answer is in.
@@ -573,10 +1285,10 @@ test('New conversation in the demo clears the page only', async () => {
   const { expectNoLiveCalls } = await renderPreview()
   fireEvent.click(screen.getByRole('button', { name: /Ask Aero about citypoint/i }))
   fireEvent.click(await screen.findByRole('button', { name: 'Status' }))
-  await screen.findByText('The latest sweep completed on all three engines.')
+  await screen.findByText('The latest check completed on all three engines.')
 
   fireEvent.click(screen.getByRole('button', { name: /New conversation/i }))
-  expect(screen.queryByText('The latest sweep completed on all three engines.')).toBeNull()
+  expect(screen.queryByText('The latest check completed on all three engines.')).toBeNull()
   expect(screen.getByText(/See how Aero answers about/)).toBeTruthy()
   expectNoLiveCalls()
 })
@@ -586,15 +1298,16 @@ test('Stop in the demo keeps the partial answer and says nothing was left runnin
   fireEvent.click(screen.getByRole('button', { name: /Ask Aero about citypoint/i }))
   fireEvent.click(await screen.findByRole('button', { name: 'Status' }))
 
-  await screen.findByText('Checking the latest sweep.')
-  expect(screen.getByText('running…')).toBeTruthy()
+  await screen.findByText('Checking the latest check.')
+  expect(screen.getByText('Getting project overview (composite)…')).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: 'Stop Aero' }))
 
   expect(await screen.findByText('Stopped. The sample answer so far is kept.')).toBeTruthy()
   expect(screen.queryByText(/dispatched/)).toBeNull()
-  expect(screen.getByText('Checking the latest sweep.')).toBeTruthy()
-  expect(screen.getByText('interrupted')).toBeTruthy()
-  expect(screen.queryByText('The latest sweep completed on all three engines.')).toBeNull()
+  expect(screen.getByText('Checking the latest check.')).toBeTruthy()
+  // The pill stays on the collapsed header.
+  expect(screen.getByRole('button', { name: /^1 step/ }).textContent).toBe('1 stepinterrupted')
+  expect(screen.queryByText('The latest check completed on all three engines.')).toBeNull()
   expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy()
   expectNoLiveCalls()
 })
@@ -604,9 +1317,13 @@ test('with motion the demo shows the tool running, then types the answer to comp
   fireEvent.click(screen.getByRole('button', { name: /Ask Aero about citypoint/i }))
   fireEvent.click(await screen.findByRole('button', { name: 'Status' }))
 
-  expect(await screen.findByText('running…')).toBeTruthy()
-  await screen.findByText('The latest sweep completed on all three engines.', {}, { timeout: 4000 })
+  expect(await screen.findByText('Getting project overview (composite)…')).toBeTruthy()
+  expect(screen.getByText('step 1')).toBeTruthy()
+  await screen.findByText('The latest check completed on all three engines.', {}, { timeout: 4000 })
   await waitFor(() => expect(screen.queryByRole('button', { name: 'Stop Aero' })).toBeNull())
+  const header = screen.getByRole('button', { name: /^1 step/ })
+  expect(header.textContent).toBe('1 step640ms')
+  fireEvent.click(header)
   expect(screen.getByText('done')).toBeTruthy()
   expect(screen.getAllByText('Get project overview (composite)')).toHaveLength(1)
 })
@@ -616,7 +1333,7 @@ test('unmounting the demo bar stops playback', async () => {
   const abort = vi.spyOn(AbortController.prototype, 'abort')
   fireEvent.click(screen.getByRole('button', { name: /Ask Aero about citypoint/i }))
   fireEvent.click(await screen.findByRole('button', { name: 'Status' }))
-  await screen.findByText('Checking the latest sweep.')
+  await screen.findByText('Checking the latest check.')
   unmount()
   expect(abort).toHaveBeenCalled()
 })

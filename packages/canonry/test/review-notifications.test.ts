@@ -1,11 +1,12 @@
+import * as reviewDelivery from '../src/review-webhook-delivery.js'
 import { test, expect, onTestFinished, vi } from 'vitest'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { eq } from 'drizzle-orm'
-import { createClient, migrate, gbpLocations, gbpReviewRatings, gbpReviews, notifications, projects, writeNegativeReviewMaxStars } from '@ainyc/canonry-db'
-import type { GbpReviewAlertState, GbpReviewOrigin, RatingWebhookPayload, ReviewWebhookPayload } from '@ainyc/canonry-contracts'
+import { createClient, migrate, gbpLocations, gbpReviewRatings, gbpReviews, notifications, projects, writeNegativeReviewMaxStars } from '@canonry/canonry-db'
+import type { GbpReviewAlertState, GbpReviewOrigin, RatingWebhookPayload, ReviewWebhookPayload } from '@canonry/canonry-contracts'
 import { Notifier } from '../src/notifier.js'
 
 // The sync decides what is news (see gbp-sync.test.ts); these tests pin what
@@ -46,6 +47,11 @@ function harness(opts: { events?: string[] | null } = {}) {
     sent.push(args[1] as ReviewWebhookPayload)
     return accept.value
   })
+  vi.spyOn(reviewDelivery, 'deliverReviewEvent').mockImplementation(async options => {
+    sent.push(options.payload)
+    if (accept.value) options.onDelivered?.()
+    return accept.value
+  })
   return { db, projectId, notifier, sent, accept }
 }
 
@@ -81,7 +87,7 @@ function reviewState(db: ReturnType<typeof createClient>, id: string) {
   return db.select().from(gbpReviews).where(eq(gbpReviews.id, id)).get()!.alertState
 }
 
-test('sends one review.negative payload with every queued review, oldest first, then marks them sent', async () => {
+test('sends one stable review event per material review, oldest first, then marks them sent', async () => {
   const { db, projectId, notifier, sent } = harness()
   addReview(db, projectId, 'newer', { starRating: 1, updateTime: ago(HOUR) })
   addReview(db, projectId, 'older', { starRating: 3, updateTime: ago(5 * HOUR), replyComment: 'Thanks for the note.' })
@@ -89,14 +95,15 @@ test('sends one review.negative payload with every queued review, oldest first, 
 
   const result = await notifier.dispatchReviewAlerts(projectId)
 
-  expect(result).toEqual({ reviews: 2, ratingDrops: 0, delivered: 1 })
-  expect(sent).toHaveLength(1)
+  expect(result).toEqual({ reviews: 2, ratingDrops: 0, delivered: 2 })
+  expect(sent).toHaveLength(2)
+  expect(new Set((sent as ReviewWebhookPayload[]).map(p=>p.eventId)).size).toBe(2)
   const payload = sent[0] as ReviewWebhookPayload
   expect(payload.event).toBe('review.negative')
   expect(payload).not.toHaveProperty('run')
   expect(payload.project).toEqual({ name: 'harborline', canonicalDomain: 'harborline.example.com' })
   expect(payload.dashboardUrl).toBe('https://canonry.test/projects/harborline')
-  expect(payload.reviews.map((r) => [r.reviewName.split('/').at(-1), r.starRating, r.replied])).toEqual([
+  expect((sent as ReviewWebhookPayload[]).flatMap(p=>p.reviews).map((r) => [r.reviewName.split('/').at(-1), r.starRating, r.replied])).toEqual([
     ['older', 3, true],
     ['newer', 1, false],
   ])
@@ -109,7 +116,7 @@ test('sends one review.negative payload with every queued review, oldest first, 
 
   // Nothing is queued any more, so a second dispatch sends nothing.
   expect(await notifier.dispatchReviewAlerts(projectId)).toEqual({ reviews: 0, ratingDrops: 0, delivered: 0 })
-  expect(sent).toHaveLength(1)
+  expect(sent).toHaveLength(2)
 })
 
 test('only webhooks subscribed to the event receive it', async () => {
@@ -237,4 +244,24 @@ test('two dispatches racing for one project send the queue once', async () => {
   await Promise.all([notifier.dispatchReviewAlerts(projectId), notifier.dispatchReviewAlerts(projectId)])
   expect(sent).toHaveLength(1)
   expect(reviewState(db, 'r1')).toBe('sent')
+})
+
+
+test('older delivery cannot acknowledge a newer material edit with the same provider timestamp', async () => {
+  const { db, projectId, notifier, sent } = harness()
+  addReview(db, projectId, 'r1')
+  const original = db.select().from(gbpReviews).where(eq(gbpReviews.id, 'r1')).get()!
+  const deliver = vi.spyOn(reviewDelivery, 'deliverReviewEvent')
+  deliver.mockImplementationOnce(async options => {
+    db.update(gbpReviews).set({comment:'An edited complaint',alertStateAt:new Date(Date.parse(original.alertStateAt!)+1000).toISOString()}).where(eq(gbpReviews.id,'r1')).run()
+    sent.push(options.payload)
+    options.onDelivered?.()
+    return true
+  })
+  await notifier.dispatchReviewAlerts(projectId)
+  expect(reviewState(db,'r1')).toBe('pending')
+  await notifier.dispatchReviewAlerts(projectId)
+  expect(reviewState(db,'r1')).toBe('sent')
+  expect(sent).toHaveLength(2)
+  expect((sent[0] as ReviewWebhookPayload).eventId).not.toBe((sent[1] as ReviewWebhookPayload).eventId)
 })

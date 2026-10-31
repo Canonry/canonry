@@ -3,7 +3,7 @@ import os from 'node:os'
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { createClient, migrate, apiKeys, gaTrafficSnapshots } from '@ainyc/canonry-db'
+import { createClient, migrate, apiKeys, gaTrafficSnapshots } from '@canonry/canonry-db'
 import { createServer } from '../src/server.js'
 import { ApiClient } from '../src/client.js'
 
@@ -99,7 +99,7 @@ describe('canonry ga attribution --format json', () => {
     }
 
     // gaTrafficSummaries row so totalSessions/share calculations work
-    const { gaTrafficSummaries } = await import('@ainyc/canonry-db')
+    const { gaTrafficSummaries } = await import('@canonry/canonry-db')
     db.insert(gaTrafficSummaries).values({
       id: crypto.randomUUID(),
       projectId: project.id,
@@ -137,7 +137,7 @@ describe('canonry ga attribution --format json', () => {
 
     // AI referrals: sessionSource lens (5) + firstUserSource lens (12) for the
     // same source/medium → dedup MAX = 12, bySession = 5.
-    const { gaAiReferrals } = await import('@ainyc/canonry-db')
+    const { gaAiReferrals } = await import('@canonry/canonry-db')
     db.insert(gaAiReferrals).values({
       id: crypto.randomUUID(),
       projectId: project.id,

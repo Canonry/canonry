@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
 import { afterEach, describe, expect, it } from 'vitest'
-import { apiKeys, auditLog, createClient, migrate, projects, users } from '@ainyc/canonry-db'
+import { apiKeys, auditLog, createClient, migrate, projects, users } from '@canonry/canonry-db'
 import { eq, inArray } from 'drizzle-orm'
 import { apiRoutes, hashApiKey, hashUserPassword } from '../src/index.js'
 import { USER_SESSION_COOKIE_NAME } from '../src/user-session.js'
@@ -54,6 +54,7 @@ describe('full HTTP audit attribution', () => {
 
     const rows = db.select().from(auditLog).where(inArray(auditLog.action, ['competitors.replaced', 'competitors.appended', 'notification.created'])).all()
     expect(rows.find(row => row.action === 'competitors.replaced')).toMatchObject({ actor: `api-key:${normalKeyId}`, credentialId: normalKeyId, userAgent: 'normal-client', actorSession: 'normal-session' })
+    expect(JSON.parse(rows.find(row => row.action === 'competitors.replaced')!.diff!)).toMatchObject({ added: ['normal.example'], removed: [] })
     expect(rows.find(row => row.action === 'notification.created')).toMatchObject({ actor: 'user:user-one', credentialId: null })
     const appended = rows.filter(row => row.action === 'competitors.appended')
     expect(appended.map(row => row.actor)).toEqual(expect.arrayContaining(['user:user-two', 'user:user-one']))

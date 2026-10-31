@@ -40,6 +40,18 @@ describe('ApiClient reliability metadata', () => {
     expect(connectionFailureMessage(target)).not.toContain('secret')
   })
 
+  it('maps SDK transport failures to the CLI connection-error contract', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('fetch failed')))
+    const client = new ApiClient('https://canonry.test', 'cnry_test', { skipProbe: true })
+
+    const error = await expectCliError(() => client.listProjects())
+
+    expect(error.code).toBe('CONNECTION_ERROR')
+    expect(error.exitCode).toBe(EXIT_SYSTEM_ERROR)
+    expect(error.details).toEqual({ connectionUnavailable: true })
+    expect(error.message).toContain('https://canonry.test')
+  })
+
   it('maps 429 response details, Retry-After delta seconds, and request ID without retrying', async () => {
     const fetchMock = vi.fn(async () => apiError(429, {
       'retry-after': '2.5',

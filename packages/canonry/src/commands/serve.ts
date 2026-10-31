@@ -1,33 +1,27 @@
 import { and, asc, eq, ne } from 'drizzle-orm'
 
-import { loadConfig } from '../config.js'
-import { createClient, migrate, projects, runs } from '@ainyc/canonry-db'
-import { createServer, isLoopbackBindHost, waitForServerRuntimeStartup } from '../server.js'
+import { getConfigPath, loadConfig, saveConfigPatch } from '../config.js'
+import { resolveJourneyKeySecret } from '../journey-secret.js'
+import { createClient, migrate, projects, runs } from '@canonry/canonry-db'
+import { allowsKeylessFirstRunSetup, createServer, waitForServerRuntimeStartup } from '../server.js'
 import { closeWithIdleSweep } from '../server-shutdown.js'
 import { trackEvent, setTelemetrySource } from '../telemetry.js'
 import { cliRuntimeContext } from '../runtime-context.js'
 import { CliError, type CliFormat, isMachineFormat } from '../cli-error.js'
-import { backfillAiReferralPaths, backfillNormalizedPaths } from './backfill.js'
+import { repairAiReferralPathsOnStartup, repairNormalizedPathsOnStartup } from '../startup-path-repairs.js'
+import { repairSentimentMentionIdentityOnStartup } from '../startup-sentiment-mention-identity.js'
 import { getMissingUserSkillsNudge, shouldPrintServeSkillsNudge } from './skills.js'
 import { getPrintedUpdateAvailable } from '../update-check.js'
 import { detectCanonryAgentPlugin } from '../agent-plugin.js'
-import { describeError, RunKinds, RunStatuses, RunTriggers } from '@ainyc/canonry-contracts'
+import { describeError, RunKinds, RunStatuses, RunTriggers } from '@canonry/canonry-contracts'
 import { operatorHttpUrl } from '../operator-url.js'
-import { resolveServePort } from '../serve-endpoint.js'
+import { isLoopbackBindHost, resolveServePort } from '../serve-endpoint.js'
+import { installAttribution } from '../telemetry-environment.js'
+import { reportPreviousServerCrash, trackServerStartFailure, watchServerCrashes } from '../server-crash-telemetry.js'
+import { registeredProviderNames } from '../provider-registration.js'
 
-/**
- * Precedence: `CANONRY_PORT` env var (also set by `--port`) > config.yaml `port:` > 4100.
- * Re-exported here to preserve the command's public test seam.
- */
-export { resolveServePort } from '../serve-endpoint.js'
-
-/** First-run password setup is loopback-only for every non-loopback bind. */
-export function shouldWarnAboutRemoteSetup(host: string | undefined): boolean {
-  return !isLoopbackBindHost(host)
-}
-
-/** Exported for the banner's tests; `serveCommand` is the only caller. */
-export function readServeOpenState(db: ReturnType<typeof createClient>): {
+/** Read persisted scan state for the startup guidance. */
+function readServeOpenState(db: ReturnType<typeof createClient>): {
   projectCount: number
   firstProjectName?: string
   hasSiteAudit: boolean
@@ -77,7 +71,7 @@ export function readServeOpenState(db: ReturnType<typeof createClient>): {
 }
 
 /** First-run banner: empty installs and unscanned projects still point at Page Health. */
-export function buildServeOpenLine(input: {
+function buildServeOpenLine(input: {
   url: string
   projectCount: number
   firstProjectName?: string
@@ -93,24 +87,26 @@ export function buildServeOpenLine(input: {
 }
 
 export async function serveCommand(format: CliFormat = 'text'): Promise<void> {
-  const config = loadConfig()
+  const configPath = getConfigPath()
+  const config = loadConfig(configPath)
   const port = resolveServePort(process.env.CANONRY_PORT, config.port)
   const host = process.env.CANONRY_HOST ?? '127.0.0.1'
   config.port = port
 
   // Create DB client and run migrations
   const db = createClient(config.database)
-  migrate(db)
-
-  // Auto-backfill landing_page_normalized for any rows still null after
-  // migration v44. Idempotent: only touches rows with null normalized,
-  // returns immediately when there's nothing to do. Without this, click-
-  // ID-fragmented historical rows in ga_traffic_snapshots would only
-  // collapse in dashboards after the user manually ran
-  // `canonry backfill normalized-paths`.
   try {
-    const result = backfillNormalizedPaths(db)
-    if (result.updated > 0 && format === 'text') {
+    migrate(db)
+  } catch (err) {
+    trackServerStartFailure(err, 'MIGRATION_FAILED')
+    throw err
+  }
+
+  // Repair historical paths once per normalization version. Successful
+  // passes are recorded in this database; failed passes retry next startup.
+  try {
+    const result = await repairNormalizedPathsOnStartup(db)
+    if (result && result.updated > 0 && format === 'text') {
       console.log(
         `Migrated ${result.updated} GA landing-page row${result.updated === 1 ? '' : 's'} to canonical form.`,
       )
@@ -123,13 +119,11 @@ export async function serveCommand(format: CliFormat = 'text'): Promise<void> {
     process.stderr.write(`warning: normalized-path backfill skipped: ${msg}\n`)
   }
 
-  // Same idea for ga_ai_referrals — landing_page_normalized was added in
-  // v46. Without this, the dashboard's "Known AI referrers by landing page"
-  // panel surfaces legacy rows as a synthetic '(not set)' bucket until the
-  // user re-syncs.
+  // Keep a separate completion marker so one failed repair does not rerun
+  // the other table's successful pass on every restart.
   try {
-    const result = backfillAiReferralPaths(db)
-    if (result.updated > 0 && format === 'text') {
+    const result = await repairAiReferralPathsOnStartup(db)
+    if (result && result.updated > 0 && format === 'text') {
       console.log(
         `Migrated ${result.updated} GA AI referral row${result.updated === 1 ? '' : 's'} to canonical form.`,
       )
@@ -139,8 +133,23 @@ export async function serveCommand(format: CliFormat = 'text'): Promise<void> {
     process.stderr.write(`warning: ai-referral-paths backfill skipped: ${msg}\n`)
   }
 
-  // Create and start server. Pass the bind host so the server can gate the
-  // unauthenticated first-run dashboard password setup when exposed off-box.
+  // Sentiment verdicts stored before answers recorded their mention identity.
+  // A failure keeps the pass pending for the next startup; new verdicts still
+  // apply as they are stored.
+  try {
+    const result = repairSentimentMentionIdentityOnStartup(db)
+    if (result && result.updated > 0 && format === 'text') {
+      console.log(
+        `Applied sentiment identity verdicts to ${result.updated} answer${result.updated === 1 ? '' : 's'}.`,
+      )
+    }
+  } catch (err) {
+    const msg = describeError(err)
+    process.stderr.write(`warning: sentiment mention identity repair skipped: ${msg}\n`)
+  }
+
+  // Create and start server. Pass the bind host so the server can require the
+  // root API key for first-run dashboard password setup when exposed off-box.
   // User-global only. Project-local client settings belong to the invoking
   // coding-agent process, not to this long-running API daemon. Keep this as a
   // closure so doctor reflects plugin installs/removals without a server restart.
@@ -149,7 +158,11 @@ export async function serveCommand(format: CliFormat = 'text'): Promise<void> {
     claudeConfigDir: process.env.CLAUDE_CONFIG_DIR,
     codexHome: process.env.CODEX_HOME,
   })
-  const app = await createServer({ config, db, host, getAgentPluginState })
+  // The journey key secret is resolved here, against the config read from disk,
+  // so a generated secret is saved to that file and stays stable across restarts.
+  const journeyKeySecret = resolveJourneyKeySecret(config, process.env, saveConfigPatch)
+  // The server writes its config changes back to the file it was loaded from.
+  const app = await createServer({ config, configPath, db, host, getAgentPluginState, journeyKeySecret })
 
   // Set the moment the server is bound and serving. Everything after that point
   // in this `try` is reporting: console output, the skills nudge, telemetry.
@@ -182,8 +195,12 @@ export async function serveCommand(format: CliFormat = 'text'): Promise<void> {
     if (!isMachineFormat(format)) {
       console.log(`\nCanonry server running at ${url}`)
       console.log(buildServeOpenLine({ url, ...readServeOpenState(db) }))
-      if (shouldWarnAboutRemoteSetup(host)) {
-        console.log('First-run dashboard password setup is unauthenticated only on loopback; complete setup from this machine first or use a bearer cnry_... key.')
+      // First-run password setup needs the root API key on every non-loopback
+      // bind, and on a loopback bind whose config names another way in.
+      if (!allowsKeylessFirstRunSetup(app)) {
+        console.log(isLoopbackBindHost(host)
+          ? 'This server is configured to be reached through a proxy or external URL (publicUrl, apiUrl, basePath, or CANONRY_TRUST_PROXY), so first-run dashboard password setup requires the root API key (apiKey in config.yaml).'
+          : 'This server is not bound to loopback, so first-run dashboard password setup requires the root API key (apiKey in config.yaml).')
       }
       console.log('Press Ctrl+C to stop.\n')
       const nudge = getMissingUserSkillsNudge(process.env.HOME, getAgentPluginState())
@@ -210,12 +227,13 @@ export async function serveCommand(format: CliFormat = 'text'): Promise<void> {
     // CLI events.
     setTelemetrySource('cli-server')
 
-    const providerNames = Object.keys(config.providers ?? {}).filter(
-      k => config.providers?.[k as keyof typeof config.providers]?.apiKey || config.providers?.[k as keyof typeof config.providers]?.baseUrl,
-    )
+    watchServerCrashes()
+    reportPreviousServerCrash()
+    const providerNames = registeredProviderNames(config)
     trackEvent('serve.started', {
       providerCount: providerNames.length,
       providers: providerNames,
+      ...installAttribution(),
       // Who launched the server: an agent-started install is its own funnel.
       ...cliRuntimeContext(),
     })
@@ -227,6 +245,7 @@ export async function serveCommand(format: CliFormat = 'text'): Promise<void> {
       process.stderr.write(`warning: server started but post-startup reporting failed: ${message}\n`)
       return
     }
+    trackServerStartFailure(err)
     try {
       await closeWithIdleSweep(app)
     } catch (closeErr) {

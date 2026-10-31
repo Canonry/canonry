@@ -16,8 +16,8 @@
  * mentioned").
  */
 
-import { measurementPlanV2Schema, type MeasurementPlanV2 } from '@ainyc/canonry-contracts'
-import { querySnapshots, type DatabaseClient } from '@ainyc/canonry-db'
+import { measurementPlanV2Schema, type MeasurementPlanV2 } from '@canonry/canonry-contracts'
+import { querySnapshots, type DatabaseClient } from '@canonry/canonry-db'
 
 export const PAGING_CONTEXT = { label: 'Harbor', city: 'Harbor', region: 'EX', country: 'US' } as const
 

@@ -1,19 +1,20 @@
 import crypto from 'node:crypto'
 import { eq, and, sql } from 'drizzle-orm'
-import type { DatabaseClient } from '@ainyc/canonry-db'
-import { runs, projects, gscSearchData, gscDailyTotals, gscQueryDailyTotals, gscDataWatermarks } from '@ainyc/canonry-db'
+import type { DatabaseClient } from '@canonry/canonry-db'
+import { runs, projects, gscSearchData, gscDailyTotals, gscQueryDailyTotals, gscDataWatermarks } from '@canonry/canonry-db'
 import {
   fetchSearchAnalytics,
   refreshAccessToken,
   GSC_DATA_LAG_DAYS,
   GSC_REPORTING_TIME_ZONE,
-} from '@ainyc/canonry-integration-google'
-import { formatIsoDateInTimeZone, shiftIsoCalendarDate, describeError } from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-integration-google'
+import { formatIsoDateInTimeZone, shiftIsoCalendarDate, describeError, FeatureNames, OutcomeReasonCodes, OutcomeStatuses } from '@canonry/canonry-contracts'
 import type { CanonryConfig } from './config.js'
 import { saveConfigPatch } from './config.js'
 import { writeCoverageSnapshot } from './gsc-coverage-snapshot.js'
 import { getGoogleAuthConfig, getGoogleConnection, patchGoogleConnection } from './google-config.js'
 import { createLogger } from './logger.js'
+import { googleRunFailure, startRunOutcome, withOutcomeReason } from './sync-outcome.js'
 
 const log = createLogger('GscSync')
 
@@ -26,6 +27,8 @@ interface GscSyncOptions {
   days?: number
   full?: boolean
   config: CanonryConfig
+  /** Persists a refreshed access token; defaults to the active config.yaml. */
+  saveConfigPatch?: (patch: Partial<CanonryConfig>) => void
 }
 
 export async function executeGscSync(
@@ -34,6 +37,7 @@ export async function executeGscSync(
   projectId: string,
   opts: GscSyncOptions,
 ): Promise<void> {
+  const reportOutcome = startRunOutcome(db, runId, FeatureNames.search_console, 'sync')
   const now = new Date().toISOString()
 
   // Mark run as running
@@ -42,22 +46,25 @@ export async function executeGscSync(
   try {
     const { clientId: googleClientId, clientSecret: googleClientSecret } = getGoogleAuthConfig(opts.config)
     if (!googleClientId || !googleClientSecret) {
-      throw new Error('Google OAuth is not configured in the local Canonry config')
+      throw withOutcomeReason(new Error('Google OAuth is not configured in the local Canonry config'), OutcomeReasonCodes.NOT_CONNECTED)
     }
 
     // Load the project to get canonicalDomain for domain-scoped connection lookup
     const project = db.select().from(projects).where(eq(projects.id, projectId)).get()
     if (!project) {
-      throw new Error(`Project not found: ${projectId}`)
+      throw withOutcomeReason(new Error(`Project not found: ${projectId}`), OutcomeReasonCodes.NOT_FOUND)
     }
 
     const conn = getGoogleConnection(opts.config, project.canonicalDomain, 'gsc')
     if (!conn || !conn.refreshToken) {
-      throw new Error('No GSC connection found or connection is incomplete')
+      throw withOutcomeReason(new Error('No GSC connection found or connection is incomplete'), OutcomeReasonCodes.NOT_CONNECTED)
     }
 
     if (!conn.propertyId) {
-      throw new Error('No GSC property selected. Use "canonry google properties" to list available sites, then set one with the API.')
+      throw withOutcomeReason(
+        new Error('No GSC property selected. Use "canonry google properties" to list available sites, then set one with the API.'),
+        OutcomeReasonCodes.PROPERTY_NOT_FOUND,
+      )
     }
     const propertyId = conn.propertyId
 
@@ -72,7 +79,8 @@ export async function executeGscSync(
         tokenExpiresAt: new Date(Date.now() + tokens.expires_in * 1000).toISOString(),
         updatedAt: new Date().toISOString(),
       })
-      saveConfigPatch(opts.config)
+      const persistConfigPatch = opts.saveConfigPatch ?? saveConfigPatch
+      persistConfigPatch(opts.config)
     }
 
     // Determine date range.
@@ -290,6 +298,10 @@ export async function executeGscSync(
       .run()
 
     log.info('sync.completed', { runId, projectId, searchDataRows: rows.length, indexed: coverage.indexed, notIndexed: coverage.notIndexed, unknown: coverage.unknown, verifiedByInspection: coverage.verifiedByInspection })
+    const counts = { rows: rows.length, urls: new Set(rows.map((row) => row.keys[1] ?? '')).size }
+    reportOutcome(rows.length === 0
+      ? { status: OutcomeStatuses.skipped, reasonCode: OutcomeReasonCodes.NO_DATA, counts }
+      : { status: OutcomeStatuses.succeeded, counts })
   } catch (err) {
     const errorMsg = describeError(err)
     db.update(runs)
@@ -298,6 +310,7 @@ export async function executeGscSync(
       .run()
 
     log.error('sync.failed', { runId, projectId, error: errorMsg })
+    reportOutcome({ status: OutcomeStatuses.failed, ...googleRunFailure(err) })
     throw err
   }
 }

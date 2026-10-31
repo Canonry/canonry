@@ -4,9 +4,9 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { eq } from 'drizzle-orm'
-import { RunKinds } from '@ainyc/canonry-contracts'
-import type { RetrievalContract, RetrievalStatus } from '@ainyc/canonry-contracts'
-import { createClient, migrate, projects, queries, querySnapshots, runs } from '@ainyc/canonry-db'
+import { RunKinds } from '@canonry/canonry-contracts'
+import type { RetrievalContract, RetrievalStatus } from '@canonry/canonry-contracts'
+import { createClient, migrate, projects, queries, querySnapshots, runs } from '@canonry/canonry-db'
 import { backfillAnswerVisibilityCommand } from '../src/commands/backfill.js'
 
 // Every published canonry release has sent OpenAI tracked queries with

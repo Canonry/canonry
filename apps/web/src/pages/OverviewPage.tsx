@@ -1,6 +1,6 @@
 import { ChevronRight } from 'lucide-react'
 import { Link } from '@tanstack/react-router'
-import { formatPercent, RatioUnits } from '@ainyc/canonry-contracts'
+import { formatPercent, RatioUnits } from '@canonry/canonry-contracts'
 
 import { Button } from '../components/ui/button.js'
 import { Card } from '../components/ui/card.js'
@@ -12,18 +12,21 @@ import { toneFromRunStatus } from '../lib/tone-helpers.js'
 import { buildSystemHealthCards, serviceStatusTooltip } from '../lib/health-helpers.js'
 import { useDashboardOverview as useDashboard } from '../queries/use-dashboard-overview.js'
 import { useHealth } from '../queries/use-health.js'
-import { useDrawer } from '../hooks/use-drawer.js'
+import { RunDetailLink } from '../components/shared/RunDetailLink.js'
 import { useAccount } from '../contexts/account-context.js'
 import { useInitialDashboard } from '../contexts/dashboard-context.js'
 import type { PortfolioProjectVm } from '../view-models.js'
 
 function OverviewProjectCard({
   project,
+  sentimentColumn,
 }: {
   project: PortfolioProjectVm
+  /** The list reserves the Sentiment column for every row when any row shows it, so Mentioned and Pressure line up across rows. */
+  sentimentColumn: boolean
 }) {
   return (
-    <div className={`project-row relative${showsSentimentOverview(project.sentiment) ? ' project-row-with-sentiment' : ''}`}>
+    <div className={`project-row relative${sentimentColumn ? ' project-row-with-sentiment' : ''}`}>
       <div className="project-row-chart">
         <Sparkline points={project.trend} tone={toneFromRunStatus(project.lastRun.status)} />
       </div>
@@ -31,7 +34,7 @@ function OverviewProjectCard({
         <Link
           to="/projects/$projectName"
           params={{ projectName: project.project.name }}
-          className="after:absolute after:inset-0 after:rounded-xl focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-mono-400"
+          className="after:absolute after:inset-0 after:rounded-md focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-mono-400"
         >
           <p className="project-name">{project.project.name}</p>
           <p className="project-domain">{project.project.canonicalDomain}</p>
@@ -54,7 +57,7 @@ function OverviewProjectCard({
             title={project.providerCoverage}
           >
             {project.providerCoverage
-              ? <><span className="sr-only">Partial sweep: </span>{project.providerCoverage}</>
+              ? <><span className="sr-only">Partial check: </span>{project.providerCoverage}</>
               : project.mentionDelta}
           </p>
         </div>
@@ -77,7 +80,9 @@ function OverviewProjectCard({
           <p className="metric-inline-caption" aria-hidden="true"></p>
         </div>
       </div>
-      <SentimentOverviewMetric value={project.sentiment} />
+      {showsSentimentOverview(project.sentiment)
+        ? <SentimentOverviewMetric value={project.sentiment} />
+        : sentimentColumn && <div className="project-row-stat" aria-hidden="true" data-sentiment-placeholder />}
       <span className="project-row-link">
         <ChevronRight className="h-4 w-4 text-muted" />
       </span>
@@ -88,7 +93,7 @@ function OverviewProjectCard({
 export function OverviewPage() {
   const { isAdmin } = useAccount()
   const contextDashboard = useInitialDashboard()
-  const { dashboard, isLoading, isError, refetch } = useDashboard()
+  const { dashboard, isLoading, isError, activityLoading, activityError, refetch } = useDashboard()
   const safeDashboard = dashboard ?? contextDashboard?.dashboard
 
   // Every hook has to run on every render, so they all sit above the skeleton
@@ -99,22 +104,21 @@ export function OverviewPage() {
   // skeleton branch first and hit this on every cold load.
   const enableLiveStatus = !contextDashboard
   const healthQuery = useHealth(enableLiveStatus, contextDashboard?.health)
-  const { openRun } = useDrawer()
 
   if (isError && !safeDashboard) {
     return (
       <div className="page-container">
         <div className="page-header">
           <div className="page-header-left">
-            <h1 className="page-title">Portfolio unavailable</h1>
+            <h1 className="page-title">All projects unavailable</h1>
             <p className="page-subtitle">Canonry could not load the project list.</p>
           </div>
         </div>
-        <div className="max-w-xl rounded-lg border border-negative bg-negative-soft p-4" role="alert">
-          <p className="text-sm font-medium text-heading">Your projects have not been changed.</p>
-          <p className="mt-1 text-sm text-secondary">Check the connection or sign in again, then retry.</p>
+        <div className="max-w-xl rounded-md border border-negative bg-negative-soft p-4" role="alert">
+          <p className="text-copy-14-strong text-heading">Your projects have not been changed.</p>
+          <p className="mt-1 text-copy-14 text-secondary">Check the connection or sign in again, then retry.</p>
           <Button type="button" variant="secondary" className="mt-4" onClick={() => { void refetch() }}>
-            Retry loading portfolio
+            Retry loading projects
           </Button>
         </div>
       </div>
@@ -130,7 +134,7 @@ export function OverviewPage() {
         </div>
         <div className="space-y-3">
           {[1, 2, 3].map((i) => (
-            <div key={i} className="rounded-xl border border-default bg-surface p-4 flex items-center gap-4">
+            <div key={i} className="material-base p-4 flex items-center gap-4">
               <div className="flex-1 space-y-2">
                 <div className="skeleton-text w-36" />
                 <div className="skeleton-text-sm w-48" />
@@ -147,8 +151,9 @@ export function OverviewPage() {
 
   const model = safeDashboard.portfolioOverview
   const awaitingBaseline = model.projects.length > 0 && model.projects.every(project => project.hasMeasurement === false)
+  const sentimentColumn = model.projects.some(project => showsSentimentOverview(project.sentiment))
   const attentionItems = model.attentionItems.map(item => awaitingBaseline && item.id === 'attention_stable'
-    ? { ...item, tone: 'neutral' as const, title: 'Awaiting first measurement', detail: 'Visibility results will appear after the first sweep.' }
+    ? { ...item, tone: 'neutral' as const, title: 'Awaiting first measurement', detail: 'Visibility results will appear after the first check.' }
     : item)
 
   const healthSnapshot = healthQuery.data ?? contextDashboard?.health ?? { apiStatus: { label: 'API', state: 'checking', detail: 'Checking service health' }, workerStatus: { label: 'Worker', state: 'checking', detail: 'Checking service health' } }
@@ -158,7 +163,7 @@ export function OverviewPage() {
     <div className="page-container">
       <div className="page-header">
         <div className="page-header-left">
-          <h1 className="page-title">Portfolio</h1>
+          <h1 className="page-title">All projects</h1>
           <p className="page-subtitle">Visibility across all projects.</p>
         </div>
       </div>
@@ -166,7 +171,11 @@ export function OverviewPage() {
       {model.projects.length > 0 ? (
         <div className="project-list project-list-scrollable">
           {model.projects.map((project) => (
-            <OverviewProjectCard key={project.project.id} project={project} />
+            <OverviewProjectCard
+              key={project.project.id}
+              project={project}
+              sentimentColumn={sentimentColumn}
+            />
           ))}
         </div>
       ) : (
@@ -229,15 +238,22 @@ export function OverviewPage() {
             </div>
           </div>
           <div className="compact-stack compact-stack-scrollable">
-            {model.recentRuns.length > 0 ? (
+            {activityError ? (
+              <div role="alert">
+                <p className="text-copy-14 text-secondary">Recent jobs could not be loaded.</p>
+                <Button type="button" variant="secondary" className="mt-3" onClick={() => { void refetch() }}>Retry loading activity</Button>
+              </div>
+            ) : activityLoading ? (
+              <p className="supporting-copy" role="status">Loading recent jobs…</p>
+            ) : model.recentRuns.length > 0 ? (
               model.recentRuns.map((run) => (
-                <button key={run.id} className="compact-run" type="button" onClick={() => openRun(run.id)}>
+                <RunDetailLink key={run.id} run={run} projectName={model.projects.find(project => project.project.id === run.projectId)?.project.name} className="compact-run">
                   <div>
                     <p className="compact-run-title">{run.projectName}</p>
                     <p className="compact-run-detail">{run.summary}</p>
                   </div>
                   <StatusBadge status={run.status} />
-                </button>
+                </RunDetailLink>
               ))
             ) : (
               <p className="supporting-copy">Run history appears here after the first launch.</p>
@@ -267,8 +283,8 @@ export function OverviewPage() {
             return (
               <div key={item.id} className="flex items-start justify-between gap-4 py-3">
                 <div>
-                  <p className="text-sm font-medium text-heading">{item.label}</p>
-                  {visibleDetail && <p className="mt-1 text-sm text-secondary">{visibleDetail}</p>}
+                  <p className="text-copy-14-strong text-heading">{item.label}</p>
+                  {visibleDetail && <p className="mt-1 text-copy-14 text-secondary">{visibleDetail}</p>}
                 </div>
                 <ToneBadge tone={item.tone} title={serviceStatus ? serviceStatusTooltip(serviceStatus) : item.meta}>
                   {item.detail}

@@ -29,6 +29,7 @@ erDiagram
   measurement_plan_versions ||--o{ runs : "optionally pins"
   projects ||--o| schedules : "has (1:1)"
   projects ||--o{ notifications : has
+  notifications ||--o{ review_webhook_deliveries : delivers
   projects ||--o{ audit_log : has
   projects ||--o{ insights : has
   projects ||--o{ health_snapshots : has
@@ -66,9 +67,12 @@ erDiagram
   projects ||--o| ga_connections : "has (1:1)"
   projects ||--o{ ga_traffic_snapshots : has
   projects ||--o{ ga_daily_totals : has
+  projects ||--o{ ga_window_metrics : has
   projects ||--o{ ga_traffic_summaries : has
   projects ||--o{ ga_ai_referrals : has
   projects ||--o{ ga_social_referrals : has
+  projects ||--o{ ga_search_landing_windows : has
+  projects ||--o{ ga_search_landing_pages : has
 
   projects ||--o{ gbp_locations : has
   projects ||--o{ gbp_daily_metrics : has
@@ -98,6 +102,9 @@ erDiagram
   traffic_sources ||--o{ ai_user_fetch_events_hourly : "rolls up"
   traffic_sources ||--o{ ai_referral_events_hourly : "rolls up"
   traffic_sources ||--o{ raw_event_samples : "samples"
+  projects ||--o{ journey_visitors : has
+  traffic_sources ||--o{ journey_visits : "sessionizes"
+  journey_visits ||--o{ journey_events : contains
 
   projects ||--o| agent_sessions : "active conversation"
   projects ||--o{ agent_conversations : "saved conversations"
@@ -108,6 +115,7 @@ erDiagram
   projects ||--o{ research_runs : has
   research_runs ||--o{ research_run_queries : contains
   users ||--o{ api_keys : delegates
+  api_keys ||--o{ dashboard_sessions : authenticates
 ```
 
 ## Table Groups
@@ -116,14 +124,15 @@ erDiagram
 
 | Table | Purpose | Key Constraints |
 |-------|---------|----------------|
-| **projects** | Root entity — domain, location config, provider list, per-project `provider_models` overrides, `provider_dispatch_modes` (JSON: provider → `sync`/`batch`, read by scheduled sweeps only), `measurement_config` (JSON: marketing hosts, brand terms, and GA4 lead-event names), optional `icp_description` (free-text ICP used by discovery seed phase) | Unique: `name` |
+| **projects** | Root entity: domain, location config, provider list, `aliases`, `qualified_aliases` (JSON: the operator-chosen subset of `aliases` that Simple sentiment tells its evaluator are the brand's own names; frozen into each Simple run's sidecar, never read by mention detection), per-project `provider_models` overrides, `provider_dispatch_modes` (JSON: provider → `sync`/`batch`, read by scheduled sweeps only), `measurement_config` (JSON: marketing hosts, brand terms, and GA4 lead-event names), optional `icp_description` (free-text ICP used by discovery seed phase), nullable `site_audit_max_pages` (migration 169: the Site Health page budget for scans that set none, 1 to 50,000; null means the full site), `competitor_auto_aliases` (migration 171, NOT NULL DEFAULT `preview`: what the unattended answer-derived competitor alias pass does, queued after a completed or partial sweep, a competitor add, an unblock or a market pin write that changes pins: `off` runs no pass, `preview` logs and stores nothing, `apply` stores the names; an explicit apply-now stores in every mode), nullable `answer_fields_recompute` (migration 171: `full` or `competitors` while a recompute of the stored answer fields queued after an identity change is unfinished; the local server requeues it on boot) | Unique: `name` |
 | **queries** | Tracked queries per project. `provenance` tags where the entry came from (e.g. `cli`, `discovery:<session_id>`) so adopted basket entries can be traced back to a discovery run. | Unique: `(projectId, query)` |
-| **competitors** | Competitor domains per project. `provenance` tags origin (`cli`, `discovery:<session_id>`) for the same traceability reason. | Unique: `(projectId, domain)` |
+| **competitors** | Competitor domains per project. `provenance` tags origin (`cli`, `discovery:<session_id>`) for the same traceability reason. `aliases` (JSON `string[]`, migration 168, default `[]`) holds operator-curated names the competitor goes by in answer text; every competitor mention matcher layers them onto the domain label, and a Simple run freezes them into its definition. Never auto-filled from the domain label. `auto_aliases` (JSON, migration 171, default `[]`) holds names detected automatically from the project's own stored answers, each with its evidence (`CompetitorAutoAlias`: direct pairs, co-occurrences, naming answers, precision, lift, answers writing it as a name, distinct sweeps (`runs`), first and last seen, when applied); `auto_aliases` are stored only by a detection pass that applies (the project's `competitor_auto_aliases` is `apply`, or an explicit apply-now). `blocked_aliases` (JSON `string[]`, migration 171) holds names the operator blocked from that detection; removing the competitor keeps them on `market_competitor_names`, and a new row for the same domain starts with them. Readers match curated plus auto names minus blocked ones (`competitorIdentityAliases`); curated identity always wins a conflict. Every competitor list read orders by `domain`. | Unique: `(projectId, domain)` |
+| **market_competitor_names** | Answer-derived names of a competitor an Advanced market pins without a `competitors` row (migration 172): `domain` (registrable), `auto_aliases` and `blocked_aliases` as on `competitors`. Published plan revisions are immutable, so readers that score a market answer against live identity layer these onto the pin (`readMarketCompetitorNames`); a new pin by domain never copies them. A row also keeps the blocked names of a removed project competitor (with `auto_aliases` `[]` when it had no learned names), which a re-added or promoted competitor starts with: a row holding only blocked names is not empty and must be kept. | Unique: `(projectId, domain)` |
 | **measurement_plans** | Optional active-plan pointer for a project. | PK: `projectId`; composite FK `(projectId, activeVersionId)` → plan version |
 | **measurement_plan_versions** | Immutable canonical Target-model revisions. A revision freezes project brand identity, Targets, optional reporting groups, URL matchers, query snapshots, deduplicated execution nodes with expected snapshot counts, and baseline/Target usage edges. Groups never own queries or execution edges. | Unique: `(projectId, revision)` |
 | **measurement_segments** | Stable project-local identity for a Target or group, including its immutable `kind`. Only explicit retirement permanently prevents key reuse; omission from a revision does not. First publish a revision without the key, then run `canonry measurement-plan retire <project> <stable-key>` (or the matching API/MCP mutation). Retirement is idempotent and irreversible. Labels, memberships, aliases, and URL matchers remain versioned in canonical plan JSON. | Unique: `(projectId, stableKey)` |
-| **runs** | Existing sweep executions. A run queued for a project with an active plan pins `measurement_plan_version_id` and freezes its execution graph, provider list, and any group/target scope in `measurement_manifest`; planless runs keep both null. `provider_dispatch_modes` freezes which providers go to a batch API (null = all sync); `pending_provider_errors` holds sync-provider errors while finalization waits on a batch. | FK: projectId → projects; optional composite FK `(projectId, measurementPlanVersionId)` → plan version |
-| **query_snapshots** | Per-query per-provider results. A row written by a plan-aware run also records `measurement_execution_id`, the `requested_context` it was measured under, and `supported_context` — filled only when the provider actually forwards the location, null otherwise. Historical and planless rows keep all three null. `dispatch_mode` (`sync`/`batch`), `provider_batch_id`, `stop_reason`, and `usage` (tokens, searches, estimated cost) are null on rows that predate batch dispatch. | FK: runId → runs, queryId → queries, providerBatchId → provider_batches (SET NULL, indexed) |
+| **runs** | Existing sweep executions. A run queued for a project with an active plan pins `measurement_plan_version_id` and freezes its execution graph, provider list, and any group/target scope in `measurement_manifest`; planless runs keep both null. `provider_dispatch_modes` freezes which providers go to a batch API (null = all sync); `pending_provider_errors` holds sync-provider errors while finalization waits on a batch; `skipped_providers` (nullable JSON, migration 175) freezes the providers the run does not call because each keeps failing on its account, with the streak that decided it (null = none skipped). | FK: projectId → projects; optional composite FK `(projectId, measurementPlanVersionId)` → plan version |
+| **query_snapshots** | Per-query per-provider results. A row written by a plan-aware run also records `measurement_execution_id`, the `requested_context` it was measured under, and `supported_context` — filled only when the provider actually forwards the location, null otherwise. Historical and planless rows keep all three null. `dispatch_mode` (`sync`/`batch`), `provider_batch_id`, `stop_reason`, and `usage` (tokens, searches, estimated cost) are null on rows that predate batch dispatch. `mention_identity` (`wrong-subject` or null) and `wrong_subject_target_keys` (JSON Property stable keys or null) cache sentiment's identity verdicts (migration 185): a Simple answer judged `wrong-subject` has `answer_mentioned` false, and an Advanced report drops the listed Properties' mentions of the answer (`docs/sentiment.md`). | FK: runId → runs, queryId → queries, providerBatchId → provider_batches (SET NULL, indexed) |
 | **run_fills** | One attempt to complete a partial plan run in place; its answers land in the parent run's own snapshot rows. | Composite FK `(projectId, runId)` → runs |
 | **provider_batches** | One batch submitted to a provider's asynchronous batch API for a run (see `docs/batch-mode.md`). Written as `submitting` before the submit call; carries the provider's batch id, status, counts, deadline, and the stored daily-quota reservation. | Composite FK `(projectId, runId)` → runs (CASCADE); indexes on `status`, `run_id` |
 | **provider_batch_requests** | Maps each batch line's short `custom_id` (the row id) to its slot: execution id, query, requested model and location, and the ingest `outcome`. | FK: batchId → provider_batches (CASCADE), queryId → queries (SET NULL, indexed); unique `(batchId, executionId)` |
@@ -131,6 +140,7 @@ erDiagram
 | **research_run_queries** | One persisted answer/evidence result per research batch query. | FK: researchRunId → research_runs, unique `(researchRunId, position)` |
 | **schedules** | Cron schedules (1:1 with project) | Unique: projectId |
 | **notifications** | Alert configurations per project | FK: projectId → projects |
+| **review_webhook_deliveries** | One durable delivery per negative-review event and destination (v189), empty on upgrade. `state` is `pending`, `attempting`, `sent`, `uncertain` (a chat send that got no answer, never resent), `failed` (refused, or out of retries) or `canceled`; `retry_at` is when a pending delivery is next due. An engine timer drains due rows every minute. | FK: projectId → projects, notificationId → notifications; unique (project_id, notification_id, event_id) |
 | **audit_log** | Change tracking. Authenticated actor plus nullable `credentialId` and `requestId`; client/session hints are not identity. Credential IDs remain after key deletion. | FK: projectId → projects (optional) |
 
 `research_runs` and `research_run_queries` are the durable ad-hoc research
@@ -210,9 +220,9 @@ reused as seeds.
 
 | Table | Purpose | Key Constraints |
 |-------|---------|----------------|
-| **site_crawl_run_requests** | Canonical effective options and identity for a queued crawl. Identical requests may reuse one active run; different options receive a conflict. | PK: `runId`; composite FK `(projectId, runId)` → runs |
+| **site_crawl_run_requests** | Canonical effective options and identity for a queued crawl. Its stored `maxPages` option is the resolved budget: the request's, else the project's `site_audit_max_pages`, else the full site. Identical requests may reuse one active run; different options receive a conflict. | PK: `runId`; composite FK `(projectId, runId)` → runs |
 | **site_crawl_attempts** | Mutable event-stream progress for one execution attempt. | Unique: `(runId, attemptNumber)`; composite FK to runs |
-| **site_crawl_snapshots** | Immutable terminal crawl metadata, including the requested root, effective root, which rule classified the links (`template_detection`; NULL means a scan published before it existed), and the crawler landmark ruleset behind that rule (`link_placement_ruleset_version`; NULL means the scan recorded no placement and can never be reclassified). Default reads select only the latest complete snapshot; explicitly selected partial runs remain historical. | Unique: `runId`; composite FK to runs and attempt |
+| **site_crawl_snapshots** | Immutable terminal crawl metadata, including the requested root, effective root, which rule classified the links (`template_detection`; NULL means a scan published before it existed), and the crawler landmark ruleset behind that rule (`link_placement_ruleset_version`; NULL means the scan recorded no placement and can never be reclassified). Default reads select the newest snapshot of a completed or partial (budget-capped) run; any older run stays selectable by ID. | Unique: `runId`; composite FK to runs and attempt |
 | **site_crawl_pages** | URL inventory with discovery provenance, fetch/indexability state, depth, internal-link counts, and link score. | Unique: `(projectId, runId, attemptId, nodeKey)` |
 | **site_crawl_edges** | Bounded typed link observations with occurrence, followability, anchor summaries, the crawler placement split (`placement_navigation_occurrences` / `placement_content_occurrences` / `placement_unknown_occurrences`; all NULL means the scan recorded none, which is different from all zero), and the template-link decision (`is_template` plus the `template_ratio` that the ubiquity fallback produced). NULL `is_template` means never classified, never "not a nav link". | Unique: `(projectId, runId, attemptId, edgeKey)` |
 | **site_crawl_graph_layouts** | One immutable derived-layout status per crawl attempt, with version, failure code, source totals (including the template-link share), sampled counts, and whether template links were kept out of the physics. Absent means a pre-v127 snapshot; `unavailable` means layout could not safely publish and does not invalidate the crawl. | Unique: `(projectId, runId, attemptId)` |
@@ -235,6 +245,18 @@ same page state, crawl depth, importance, and link evidence that the operator
 can inspect. Path reads follow persisted internal links. Run-change reads
 compare two immutable complete snapshots by stable page and edge identity at
 query time; ForceAtlas2 coordinates are never considered a website change.
+
+Migration 180 adds nullable `site_crawl_snapshots.issue_evidence`, a versioned
+record of the crawler's cross-page findings. NULL means the scan did not record
+that source; an envelope with an empty `siteIssues` list means no groups were
+observed within that scan's coverage. Existing scans are not backfilled.
+Duplicate metadata groups retain sorted, distinct affected URLs. Their stable
+keys use the full exact trimmed metadata value, issue code and identity version,
+so a changing page count or a truncated display message cannot change identity.
+If the original metadata cannot establish that identity, the group survives
+with a null key. Stored issue reads combine these groups with recorded page
+findings, independently of the score, and expose source coverage and pagination.
+The existing page/link comparison does not establish issue resolution.
 
 #### `projects.provider_models`
 
@@ -300,17 +322,22 @@ configuration value into an observation. Treat NULL as unknown.
 
 ### Integrations — Google Analytics
 
+GA rows record no GA4 property (only `ga_search_landing_windows.property_id` does), so a project's rows always come from the one property it resolves to. `ga disconnect`, and every connection write that moves a project to another property or to none, deletes that project's rows from every table below except `ga_connections` (`packages/api-routes/src/ga-property-data.ts`). That includes `ga_measurement_sync_state`, so the next sync backfills acquisition and lead events in full, as a first sync does.
+
 | Table | Purpose |
 |-------|---------|
 | **ga_connections** | GA4 property connection (1:1 with project) |
 | **ga_traffic_snapshots** | Per-page daily traffic snapshots. Includes `sessions`, `organic_sessions`, and `direct_sessions` (nullable; populated by GA4 sync) — supports per-channel landing-page breakdowns. |
-| **ga_daily_totals** | GA4 property-level daily totals (no landing-page dimension), so `users` is deduplicated by GA and matches the GA UI. `SUM(users)` over `ga_traffic_snapshots` overcounts multi-page visitors and must not be used for a daily user count. Also holds `engagement_rate` (a real GA4 metric, requested directly) and `new_users`; returning users are DERIVED as `users - new_users` because GA4 exposes no `returningUsers` metric, and the subtraction is exact here since the date-only grain has GA deduplicate both counts inside the day. Both columns are nullable with no default — rows written before v116 have no reading, and a 0 would read as a real "nobody engaged, nobody returned" day. Unique: `(project_id, date)` |
+| **ga_daily_totals** | GA4 property-level daily totals (no landing-page dimension), so `users` is deduplicated by GA and matches the GA UI. `SUM(users)` over `ga_traffic_snapshots` overcounts multi-page visitors and must not be used for a daily user count. Also holds `engagement_rate` (a real GA4 metric, requested directly) and `new_users`; returning users are DERIVED as `users - new_users` because GA4 exposes no `returningUsers` metric, and the subtraction is exact here since the date-only grain has GA deduplicate both counts inside the day. Both columns are nullable with no default — rows written before v116 have no reading, and a 0 would read as a real "nobody engaged, nobody returned" day. v188 adds the rest of the GA4 overview's daily figures (`active_users`, `organic_sessions`, `views`, `event_count`, `key_events`, `engagement_seconds`, `bounce_rate`), nullable for the same reason; every sync rewrites the last `GA_OVERVIEW_HISTORY_DAYS` (180) days, counted in the property's reporting time zone like GA4's own dates, so each overview window has its previous period. Disconnect deletes the rows. Unique: `(project_id, date)` |
+| **ga_window_metrics** | GA4's own totals for each overview window (`7d` / `30d` / `90d` of complete days ending yesterday in the property's reporting time zone) and for the period of the same length before it: one row per `(project_id, window_key, period)` with `period` `current` or `previous`, replaced together on every sync (v188). Users are distinct over the whole period and the rates are GA4's, which no sum of daily rows reproduces. Every figure is nullable: GA4 sends no row for a period with no data. Disconnect deletes the rows, so another property never shows them. |
 | **ga_traffic_summaries** | Aggregated traffic summaries |
 | **ga_ai_referrals** | AI engine referral tracking. `traffic_class` splits `paid` AI traffic (paid/cpc/sponsored UTM values or GA4 paid channel groups, including tagged ChatGPT ads) from `organic`/non-paid AI referrals. Unique: `(projectId, date, source, medium, sourceDimension, channelGroup, landingPage)` |
 | **ga_social_referrals** | Social media referral tracking. Unique: `(projectId, date, source, medium, channelGroup)` |
 | **ga_acquisition_daily** | GA4 session acquisition rows at `(project, date, channel group, source, medium, host, landing page)` grain. `landing_page_normalized` supports page rollups; sessions are non-negative. |
 | **ga_lead_events_daily** | GA4 configured lead-event counts at acquisition dimensions plus `event_name` and `attribution_scope`. Scope is `landing-page` or `channel`; counts are non-negative, and the full grain is unique. |
-| **ga_measurement_sync_state** | One per-project status row for acquisition and lead components. Each component is `never-synced`, `ready`, or `error`, with its error/timestamp; lead scope is nullable until a lead sync establishes `landing-page` or `channel`. |
+| **ga_measurement_sync_state** | One per-project status row for the acquisition, lead and Search Console landing-page components. Acquisition and leads are `never-synced`, `ready`, or `error`, with their error/timestamp; lead scope is nullable until a lead sync establishes `landing-page` or `channel`. The landing-page component (v176, defaulted columns `search_landing_status` / `_error` / `_synced_at` / `_attempted_at`) adds `unavailable` (GA4 refused the Search Console metrics); `synced_at` is when the stored snapshot was written and `attempted_at` the last try, so a failed try keeps the old snapshot and its time. `lead_event_names` is the event set the last lead sync counted (a changed set refreshes the full GA4 window), `key_event_names` the property's key events from the last successful Admin API read, and `key_events_error` the latest failed read (v194). |
+| **ga_search_landing_windows** | GA4's "Google organic search traffic: Landing page + query string" report (Search Console link), one row per project and `window_key` (`7d` / `28d` / `90d`, each ending yesterday in the property time zone). Holds the GA4 `property_id` it was read from (a failed sync against another property drops the snapshot rather than keep it), the window dates and `time_zone`, GA4's own TOTAL row (`total_clicks`, `total_impressions`, `total_ctr` 0..1, `total_average_position`, `total_active_users`; the ratios are null with no impressions), `report_row_count`, `rows_capped`, and GA4's thresholding / `(other)` row flags. The Total is never a sum of `ga_search_landing_pages`: users are distinct per grain and CTR and position are ratios. A sync deletes and rewrites every window and page row together. Unique: `(project_id, window_key)` |
+| **ga_search_landing_pages** | One landing page of one window of that report: GA4's raw `landingPagePlusQueryString` in `landing_page` (never normalized), `clicks`, `impressions`, `ctr` (0..1) and `average_position` (both null with no impressions), `active_users` (GA4's plain `activeUsers`). At most 10,000 rows per window, the most clicks, then impressions, first. Unique: `(project_id, window_key, landing_page)` |
 
 ### Integrations — Google Business Profile
 
@@ -348,11 +375,14 @@ Local-AEO signals. The OAuth connection reuses `google_connections` with `connec
 | Table | Purpose |
 |-------|---------|
 | **traffic_sources** | Per-connection metadata for Cloud Run, WordPress, Vercel, and Cloudflare. Status `connected` / `paused` / `error` / `archived`. Pull credentials, Cloudflare direct-push secrets, and Queue API tokens live in `~/.canonry/config.yaml`, never here; push sources store only a bearer digest. Queue pull adds nullable owner/expiry fields for one durable source-scoped sync lease, including stale-owner recovery, plus the last observed residual Queue depth and observation time so a bounded drain cannot hide remaining work. FK: projectId → projects. |
-| **traffic_event_receipts** | Durable transport-neutral idempotency claims keyed by `(source_id, event_id)`. A push receiver or buffered pull consumer claims the event in the same transaction as its rollup writes, then acknowledges upstream only after commit. `expires_at` lets each delivery mode retain claims for its full replay/redelivery horizon. FK: sourceId → traffic_sources (cascade). |
+| **traffic_event_receipts** | Durable transport-neutral idempotency claims keyed by `(source_id, event_id)`. A push receiver or buffered pull consumer claims the event in the same transaction as its rollup writes, then acknowledges upstream only after commit. `expires_at` lets each delivery mode retain claims for its full replay/redelivery horizon: direct push keeps them 10 minutes; Queue pull keeps them for the Queue's live retention (read from Cloudflare each sync) plus 10 minutes, or 14 days plus 10 minutes when that read fails. FK: sourceId → traffic_sources (cascade). |
 | **crawler_events_hourly** | Hourly rollup of server-observed bulk crawler hits (GPTBot, OAI-SearchBot, PerplexityBot, Googlebot, etc.). Composite PK `(projectId, sourceId, tsHour, botId, verificationStatus, pathNormalized, status)` so repeat syncs upsert via `hits + ?`. Excludes the per-user-fetch UAs — those land in `ai_user_fetch_events_hourly`. |
 | **ai_user_fetch_events_hourly** | Hourly rollup of on-demand per-user fetches from AI surfaces (ChatGPT-User, Perplexity-User, MistralAI-User). UA-evidenced like a crawler, but each hit was initiated by a real user inside an AI surface — kept disjoint from `crawler_events_hourly` so dashboard / API totals don't conflate machine crawl with human-in-the-loop fetch. Composite PK matches `crawler_events_hourly`. |
 | **ai_referral_events_hourly** | Hourly rollup of server-observed human AI-referral clicks (UTM or referer evidence). Composite PK matches the crawler bucket pattern. `paid_sessions_or_hits` / `organic_sessions_or_hits` split `sessions_or_hits` by traffic class; unclassified is the residual `sessions_or_hits - paid - organic`. The split rides the measure (not the PK) because the paid marker lives in the query string that `landing_path_normalized` strips, so one bucket can hold both classes. Rows written before the ingest classifier (both counters 0) surface as unclassified rather than organic. |
 | **raw_event_samples** | Bounded sample tail for classifier debugging. Source writes reject already-expired samples and prune source-local rows; a startup and daily global sweep removes expired rows from dormant sources. Timestamps are canonical UTC, and the 30-day boundary is inclusive. FK: sourceId → traffic_sources. |
+| **journey_visitors** | AI visitor journeys: one row per keyed visitor with at least one AI-referred visit, followed from that first AI visit (earlier visits are not stored). `visitor_key` is an HMAC (the install's `journeys.visitorKeySecret`, kept in config.yaml, never here) over project, key basis, IP and user agent; `key_basis` is `ip-ua`, or `ua` for sources with no IP (Vercel), which can merge people on the same device and browser version. No IP is stored. Holds the full `user_agent`, `first_ai_at`/`first_ai_engine`, `last_ai_at` and `last_seen_at` (writes only widen these bounds), and `capped_days`, the UTC days on which the key reached the 300-requests-per-day cap (a set, so replays never count twice; AI touches are always stored). PK: `(project_id, visitor_key)`. FK: projectId → projects (cascade). |
+| **journey_visits** | 30-minute visits of those visitors: requests within 30 days after an AI visit, and the rest of a visit already kept. A late request that becomes a visit's first rewrites its `landing_path` and entry. `entry_class` is `ai` / `search` / `social` / `paid` / `referral` / `direct`, with `entry_name`, `entry_host`, `paid`, `landing_path`, `request_count` and `page_count`. A request from a different outside source starts a new visit; a same-site, sign-in, payment or booking-engine referer is a step inside one. FK: sourceId → traffic_sources (cascade). |
+| **journey_events** | The requests in each visit: time, method, path (query cut to `utm_*`, secret-like segments such as tokens, UUIDs and emails masked), status, `kind` (`page`, or `data` for JSON and API calls) and `ai_touch` (the request started or renewed the lookback). Visit times and counts are recomputed from these rows after every write. Unique `(project_id, source_id, source_event_id)` makes every traffic write path idempotent. Journey rows are deleted 180 days after their time by the daily traffic sweep, which also removes visitors left with no visits. FK: visitId → journey_visits (cascade). |
 
 ### Experimental Sentiment
 
@@ -381,12 +411,23 @@ Sentiment JSON columns use native Drizzle JSON mode. Provider calls run outside 
 | Table | Purpose |
 |-------|---------|
 | **api_keys** | API authentication. Unique: `keyHash`. Internal nullable `delegatedUserId` → users (cascade delete) preserves OAuth account authority and research attribution across the MCP-to-REST hop; ordinary/historical keys remain null. |
+| **dashboard_sessions** | Durable shared-password/API-key browser sessions (migration 173). PK: SHA-256 token digest; FK: `apiKeyId` → api_keys (cascade delete). Fixed twelve-hour expiry, indexed by key and expiry. Migration 174 adds `apiKeyHash` and nullable `passwordFingerprint` to bind the credential used at sign-in. Rotation/revocation deletes bound sessions transactionally; native startup removes sessions with missing or outdated password bindings. Named-account sessions remain in `user_sessions`. |
 | **usage_counters** | Rate limiting and usage tracking. Unique: `(scope, period, metric)` |
+| **doctor_health_state** | Health alert bookkeeping, one row per project (PK: `projectId` → projects, cascade delete). Holds the last scheduled doctor pass (`status`, headline `code`, `failingSignature` as sorted `status:code` pairs, and since migration 178 `failingChecks`, the same set as `status:code:id`) and the last alert a webhook accepted (`notifiedAt`, and `notifiedSignature` since migration 177, also `status:code:id`). Migration 179 adds nullable `pendingSignature`: triggering breaches owed by an unaccepted degraded alert, separate from the delivered set so quiet clearances and recurrences cannot erase retries. Pending triggers are stored before delivery, survive restarts, and stop retrying when they clear, ease or become superseded; accepted delivery clears them. The notifier compares checks by id to alert only on new or worse results, and uses the last delivered set to list what cleared. Internal only: the live report is `GET /projects/:name/doctor`. |
 | **runtime_logs** | Sanitized runtime messages and allowlisted metadata, queried with indexed identity/time filters and opaque keyset cursors. Default retention: 10,000 events/seven days. Separate from business audit history; logs contain no raw HTTP bodies, headers, or provider payloads. |
 | **runtime_log_metadata** | Store identity, sequence, and eviction accounting for restart-safe pagination and honest retention/loss reporting. Runtime diagnostic data is bounded; audit history is not pruned by this policy. |
 | **oauth_clients** | OAuth 2.1 clients for the remote MCP surface. `registration` records how one came to exist: `operator` (created deliberately) or `dynamic` (registered itself over the open RFC 7591 endpoint and chose its own display name, so the consent screen marks that name unverified). `secretHash` is NULL for a public client authenticating by PKCE alone. `redirectUris` is an exact-match allowlist, except that RFC 8252 s7.3 lets the PORT float for loopback redirects so a native app can bind an ephemeral one. Revoking a client also revokes its outstanding tokens |
 | **oauth_authorization_codes** | Single-use authorization codes, 60s TTL, bound to their PKCE challenge and RFC 8707 resource. Key is the SHA-256 of the code. Burned on first redemption even when that attempt fails, so a wrong verifier cannot be retried. FK: clientId → oauth_clients, userId → users |
-| **oauth_tokens** | Issued access and refresh tokens, stored as SHA-256 digests for the same reason `user_sessions` stores one: the row records that a token exists, it is not a way to become it. `resource` is the audience and is enforced on every resource request. Refresh tokens rotate, so a stolen one is usable at most once. FK: clientId → oauth_clients, userId → users |
+| **oauth_grants** | Durable identity of one authorization and its rotated token family. Revocation covers all access/refresh tokens and delegated MCP keys for that grant. Migration 199 groups historical tokens only within the same user, client, audience and scope because historical rotations stored no lineage. It removes only tokens with a missing client or user, and retires old `mcp-session:<delegatedUserId>` keys plus unbound keys under the reserved `mcp-session:` namespace and their dashboard sessions; clients reinitialize with preserved OAuth tokens. Ordinary keys outside that namespace and Aero viewer keys survive. FK: clientId → oauth_clients, userId → users |
+| **oauth_tokens** | Issued access and refresh tokens, stored as SHA-256 digests for the same reason `user_sessions` stores one: the row records that a token exists, it is not a way to become it. `resource` is the audience and is enforced on every resource request. Refresh tokens rotate atomically and retain `grantId`; revoking a valid token revokes its entire family. Explicit revocation of a stale token is a no-op; authenticated reuse of a consumed refresh token at the token endpoint revokes the active family. FK: grantId → oauth_grants, clientId → oauth_clients, userId → users |
+
+Health notification migration 183 adds nullable native JSON `urgentReceipts`
+to `doctor_health_state` and `site_liveness_state`. Each notification id stores
+its URL and outstanding breach signature or outage timestamp. These histories
+separate new destinations from receivers that already heard an alert. Legacy
+`urgentNotified` and `urgentNotifiedAt` remain aggregate summaries. Older rows
+without recipient identity establish no receipt, and changed aggregate summaries
+invalidate histories left behind by an older writer.
 
 ### Agent
 
@@ -408,14 +449,14 @@ Sentiment JSON columns use native Drizzle JSON mode. Provider calls run outside 
 
 | Table | Purpose |
 |-------|---------|
-| **content_target_dismissals** | Per-recommendation "mark addressed" records. The report/targets surfaces filter out any `target_ref` present here. Unique: `(projectId, targetRef)`. FK: projectId → projects |
+| **content_target_dismissals** | Per-recommendation "mark addressed" records. Content-target reads filter out any `target_ref` present here. List, dismiss, and restore records through the content API, CLI, or MCP. Unique: `(projectId, targetRef)`. FK: projectId → projects |
 | **recommendation_explanations** | Cached LLM prose rationale ("Why this?") for a content recommendation. Keyed by prompt version so a template bump invalidates forward. Unique: `(projectId, targetRef, promptVersion)`. FK: projectId → projects |
 | **recommendation_briefs** | Cached LLM **structured** content brief (`brief` JSON column: `{targetQuery, winnabilityClass, angle, whyWinnable, schemaHookup, controllableSurfaceRationale}`). Separate table from `recommendation_explanations` so the structured payload and its version-keyed cache never collide with the prompt-version-blind explanation lookup. Gated to `ownable` targets. Unique: `(projectId, targetRef, promptVersion)`. FK: projectId → projects |
 | **domain_classifications** | Durable per-domain cited-surface classification (`competitorType`) accumulated from discovery completions, upserted last-write-wins. Powers the deterministic `winnabilityClass` gate on content targets without re-running discovery. Unique: `(projectId, domain)`. FK: projectId → projects |
 
 ## JSON Columns
 
-Several text columns store serialized JSON. Always use `parseJsonColumn()` from `@ainyc/canonry-db`:
+Several text columns store serialized JSON. Always use `parseJsonColumn()` from `@canonry/canonry-db`:
 
 | Table.Column | Expected Shape |
 |-------------|---------------|
@@ -429,11 +470,17 @@ Several text columns store serialized JSON. Always use `parseJsonColumn()` from 
 | `runs.providerDispatchModes` | `Record<provider, 'batch'>` (native `mode: 'json'`; null = every provider sync) |
 | `runs.pendingProviderErrors` | `Record<provider, message>` (native `mode: 'json'`) |
 | `projects.providerDispatchModes` | `ProviderDispatchModesMap` (native `mode: 'json'`) |
+| `competitors.aliases` | `string[]` (native `mode: 'json'`; normalized by `normalizeCompetitorAliases`) |
+| `competitors.autoAliases` | `CompetitorAutoAlias[]` (native `mode: 'json'`; written by `api-routes/src/competitor-auto-aliases.ts`, pruned by `competitor-writes.ts`) |
+| `competitors.blockedAliases` | `string[]` (native `mode: 'json'`; compared by brand key) |
+| `market_competitor_names.autoAliases` | `CompetitorAutoAlias[]` (native `mode: 'json'`; written by `api-routes/src/competitor-auto-aliases.ts` and the block routes) |
+| `market_competitor_names.blockedAliases` | `string[]` (native `mode: 'json'`; compared by brand key) |
 | `query_snapshots.usage` | `SnapshotUsage` (native `mode: 'json'`) |
 | `provider_batch_requests.requestedContext` | `LocationContext` (native `mode: 'json'`) |
 | `query_snapshots.citedDomains` | `string[]` |
 | `query_snapshots.groundingSources` | `GroundingSource[]` |
 | `query_snapshots.competitorOverlap` | `string[]` (legacy mixed mention/citation evidence; never a metric source by itself) |
+| `query_snapshots.wrongSubjectTargetKeys` | `string[]` or null (Advanced Properties sentiment judged `wrong-subject` for the answer) |
 | `insights.recommendation` | `{ action: string; detail?: string }` |
 | `insights.cause` | `{ category: string; detail?: string }` |
 | `health_snapshots.providerBreakdown` | `Record<string, { total: number; cited: number; rate: number }>` |

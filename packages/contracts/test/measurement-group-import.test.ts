@@ -27,16 +27,24 @@ describe('measurement group membership import contracts', () => {
 
   it('requires both checksums and a unique non-empty reviewed selection for apply', () => {
     const request = {
-      csv: 'property,group\nHarbor House,Dallas',
-      sourceChecksum: CHECKSUM,
-      previewChecksum: 'b'.repeat(64),
-      acceptedRows: [1, 2],
+      csv: 'property,group\nHarbor House,Dallas', sourceChecksum: CHECKSUM,
+      previewChecksum: 'b'.repeat(64), acceptedRows: [1, 2],
     }
     expect(measurementDraftApplyGroupMembershipRequestSchema.parse(request)).toEqual(request)
-    expect(() => measurementDraftApplyGroupMembershipRequestSchema.parse({ ...request, acceptedRows: [] })).toThrow()
-    expect(() => measurementDraftApplyGroupMembershipRequestSchema.parse({ ...request, acceptedRows: [1, 1] })).toThrow()
-    expect(() => measurementDraftApplyGroupMembershipRequestSchema.parse({ ...request, sourceChecksum: 'not-a-checksum' })).toThrow()
-    expect(() => measurementDraftApplyGroupMembershipRequestSchema.parse({ ...request, acceptedRows: [0] })).toThrow()
+    const { sourceChecksum: _source, ...withoutSource } = request
+    const { previewChecksum: _preview, ...withoutPreview } = request
+    for (const [invalid, expectedPath] of [
+      [withoutSource, ['sourceChecksum']], [withoutPreview, ['previewChecksum']],
+      [{ ...request, sourceChecksum: 'not-a-checksum' }, ['sourceChecksum']],
+      [{ ...request, previewChecksum: 'not-a-checksum' }, ['previewChecksum']],
+      [{ ...request, acceptedRows: [] }, ['acceptedRows']],
+      [{ ...request, acceptedRows: [1, 1] }, ['acceptedRows']],
+      [{ ...request, acceptedRows: [0] }, ['acceptedRows', 0]],
+    ] as const) {
+      const result = measurementDraftApplyGroupMembershipRequestSchema.safeParse(invalid)
+      expect(result.success).toBe(false)
+      expect(result.error?.issues.map(issue => issue.path)).toEqual([expectedPath])
+    }
   })
 
   it('makes persisted segment state typed and explicit for preview/apply parity', () => {
@@ -61,7 +69,7 @@ describe('measurement group membership import contracts', () => {
       normalizedProperty: 'harbor house',
       normalizedGroupLabel: 'dallas',
     }
-    const response = measurementDraftPreviewGroupMembershipResponseSchema.parse({
+    const input = {
       draftEtag: '"mpd_4"',
       sourceChecksum: CHECKSUM,
       previewChecksum: 'b'.repeat(64),
@@ -93,7 +101,7 @@ describe('measurement group membership import contracts', () => {
         duplicateRows: 1,
         proposedRows: 1,
         excludedRows: 1,
-        needsAttention: 4,
+        needsAttention: 5,
         groupsReady: 1,
         groupsToCreate: 1,
         groupsToExtend: 0,
@@ -101,16 +109,16 @@ describe('measurement group membership import contracts', () => {
         addedMemberships: 1,
         unchangedMemberships: 0,
       },
-    })
-    expect(response.rows).toHaveLength(7)
+    }
+    expect(measurementDraftPreviewGroupMembershipResponseSchema.parse(input)).toEqual(input)
     expect(() => measurementDraftPreviewGroupMembershipResponseSchema.parse({
-      ...response,
+      ...input,
       rows: [{ ...base, status: 'matched', targetKey: 'harbor-house' }],
     })).toThrow()
   })
 
   it('extends the standard draft mutation response with concrete import result counts', () => {
-    const response = measurementDraftApplyGroupMembershipResponseSchema.parse({
+    const input = {
       etag: '"mpd_5"',
       changed: true,
       warnings: [],
@@ -125,7 +133,7 @@ describe('measurement group membership import contracts', () => {
       appliedRows: 2,
       addedMemberships: 1,
       unchangedMemberships: 1,
-    })
-    expect(response.addedMemberships).toBe(1)
+    }
+    expect(measurementDraftApplyGroupMembershipResponseSchema.parse(input)).toEqual(input)
   })
 })

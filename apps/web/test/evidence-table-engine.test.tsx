@@ -19,6 +19,21 @@ function selectEngine(provider: string) {
   fireEvent.change(screen.getByRole('combobox', { name: 'Answer engine' }), { target: { value: provider } })
 }
 
+test('keeps direct Gemini and two OpenRouter models independently selectable with their saved answers', () => {
+  const first = 'openrouter:google/gemini-model'
+  const second = 'openrouter:anthropic/claude-model'
+  render(<EvidenceTable evidence={[
+    evidence('Best widgets', 'gemini'), evidence('Best widgets', first), evidence('Best widgets', second),
+  ]} />)
+  expect(screen.getByRole('option', { name: 'Gemini' })).toHaveProperty('value', 'gemini')
+  expect(screen.getByRole('option', { name: 'google/gemini-model via OpenRouter' })).toHaveProperty('value', first)
+  expect(screen.getByRole('option', { name: 'anthropic/claude-model via OpenRouter' })).toHaveProperty('value', second)
+  selectEngine(second)
+  fireEvent.click(screen.getByRole('button', { name: 'Best widgets', exact: true }))
+  fireEvent.click(screen.getByRole('button', { name: 'View', exact: true }))
+  expect(openEvidence).toHaveBeenCalledWith(`Best widgets-${second}`)
+})
+
 test('filters engine evidence before grouping, including counts, history, both signals and answer actions', () => {
   const history = { runId: 'run-1', createdAt: '2026-09-01T12:00:00Z' }
   render(<EvidenceTable evidence={[
@@ -36,7 +51,9 @@ test('filters engine evidence before grouping, including counts, history, both s
   selectEngine('claude')
   const row = screen.getByText('Best widgets').closest('tr')!
   expect(screen.queryByText('Gemini only')).toBeNull()
-  expect(within(row).queryByText('gemini')).toBeNull()
+  // Engines read by their display names, never the stored lowercase ids.
+  expect(within(row).getByText('Claude')).toBeTruthy()
+  expect(within(row).queryByText('Gemini')).toBeNull()
   expect(within(row).getByTitle('1 of 1 engines mentioned').textContent).toBe('1/1')
   expect(within(row).getByText('First mention')).toBeTruthy()
   expect(within(row).getByText('No citation')).toBeTruthy()
@@ -67,7 +84,7 @@ test('engine selection composes with class, search and location grouping', () =>
   const rows = screen.getAllByText('Best widgets').map(query => query.closest('tr')!)
   expect(within(rows[0]!).getByText('East')).toBeTruthy()
   expect(within(rows[1]!).getByText('West')).toBeTruthy()
-  for (const row of rows) expect(within(row).queryByText('gemini')).toBeNull()
+  for (const row of rows) expect(within(row).queryByText('Gemini')).toBeNull()
   selectEngine('custom-engine')
   expect(screen.getByText('No tracked queries match this filter.')).toBeTruthy()
   fireEvent.change(screen.getByRole('combobox', { name: 'Query class' }), { target: { value: 'unclassified' } })
@@ -97,7 +114,7 @@ test.each([
   fireEvent.change(screen.getByRole('searchbox', { name: 'Find a query' }), { target: { value: term } })
   expect(screen.queryByText('Best widgets')).toBeNull()
   const row = screen.getByText(matchingQuery).closest('tr')!
-  expect(within(row).queryByText('gemini')).toBeNull()
+  expect(within(row).queryByText('Gemini')).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: matchingQuery, exact: true }))
   fireEvent.click(screen.getByRole('button', { name: 'View', exact: true }))
   expect(openEvidence).toHaveBeenCalledWith(`${matchingQuery}-claude`)
@@ -133,7 +150,7 @@ test('pending queries without an engine do not create a duplicate All engines op
     evidence('Measured query', 'claude'),
   ]} />)
   const selector = screen.getByRole('combobox', { name: 'Answer engine' })
-  expect(within(selector).getAllByRole('option').map(option => option.textContent)).toEqual(['All engines', 'claude'])
+  expect(within(selector).getAllByRole('option').map(option => option.textContent)).toEqual(['All engines', 'Claude'])
   expect(screen.getByText('Pending query')).toBeTruthy()
   selectEngine('claude')
   expect(screen.queryByText('Pending query')).toBeNull()

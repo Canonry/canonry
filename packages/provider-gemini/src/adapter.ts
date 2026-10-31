@@ -1,4 +1,5 @@
 import { listModels } from './list-models.js'
+import { FinishReason, type GenerateContentResponse } from '@google/genai'
 import type {
   ProviderAdapter,
   ProviderConfig,
@@ -7,7 +8,9 @@ import type {
   TrackedQueryRequest,
   RawQueryResult,
   NormalizedQueryResult,
-} from '@ainyc/canonry-contracts'
+  RetrievalStatus,
+} from '@canonry/canonry-contracts'
+import { RetrievalStatuses, usageCount } from '@canonry/canonry-contracts'
 import {
   validateConfig as geminiValidateConfig,
   healthcheck as geminiHealthcheck,
@@ -19,7 +22,7 @@ import {
 } from './normalize.js'
 import type { GeminiConfig, GeminiRawResult, GeminiTrackedQueryInput } from './types.js'
 
-export function toGeminiConfig(config: ProviderConfig): GeminiConfig {
+function toGeminiConfig(config: ProviderConfig): GeminiConfig {
   return {
     apiKey: config.apiKey ?? '',
     model: config.model,
@@ -49,16 +52,49 @@ function toRawQueryResult(raw: GeminiRawResult): RawQueryResult {
     servedModel: raw.servedModel,
     groundingSources: raw.groundingSources,
     searchQueries: raw.searchQueries,
-    // Retrieval detection is not implemented for this provider. Its candidate
-    // marker is present on 100% of stored rows, so it has never been shown to
-    // discriminate a non-retrieving answer and wiring it up would hardcode
-    // `used`. `unknown` states what we actually know. The contract is a
-    // declaration about how we build the request, so it is always knowable.
-    retrievalStatus: 'unknown' as const,
+    retrievalStatus: readRetrievalStatus(raw.rawResponse),
     retrievalContract: 'native-auto-v1' as const,
     usage: raw.usage,
     stopReason: raw.stopReason,
   }
+}
+
+/**
+ * The most prompt tokens an answer can report and still read as unsearched.
+ * The request carries only the query (plus an optional location clause), so an
+ * unsearched answer reports only the query's tokens; a query alone took at most
+ * 20 in stored answers. Gemini 3.5 and 3.6 never report
+ * `toolUsePromptTokenCount` and count search input as prompt tokens instead:
+ * every stored answer of theirs that listed its searches reported at least 95.
+ */
+const QUERY_ONLY_PROMPT_TOKEN_LIMIT = 60
+
+function readRetrievalStatus(rawResponse: Record<string, unknown>): RetrievalStatus {
+  const response = rawResponse as Partial<GenerateContentResponse>
+  // Google Search is the only offered tool; result tokens prove execution
+  // even when Gemini omits grounding metadata or produces no final answer.
+  if (usageCount(response.usageMetadata?.toolUsePromptTokenCount) > 0) return RetrievalStatuses.used
+  const candidate = Array.isArray(response.candidates) ? response.candidates[0] : undefined
+  if (!candidate) return RetrievalStatuses.unknown
+  const metadata = candidate.groundingMetadata
+  const queries = metadata?.webSearchQueries
+  const chunks = metadata?.groundingChunks
+  if ((Array.isArray(queries) && queries.some(query => typeof query === 'string' && query.trim().length > 0))
+    || (Array.isArray(chunks) && chunks.some(chunk => typeof chunk.web?.uri === 'string' && chunk.web.uri.trim().length > 0))) {
+    return RetrievalStatuses.used
+  }
+  // Absence is conclusive only for a completed, nonempty answer. A blocked or
+  // unfinished response does not establish that a search was never executed.
+  const parts = candidate.content?.parts
+  const hasAnswer = Array.isArray(parts) && parts.some(part => !part.thought && typeof part.text === 'string' && part.text.trim().length > 0)
+  if (candidate.finishReason !== FinishReason.STOP || !hasAnswer) return RetrievalStatuses.unknown
+  // Gemini can also search without returning grounding metadata. Only a
+  // prompt count no larger than a query alone rules that out; a larger count
+  // (most likely search input) or a missing one leaves retrieval undetermined.
+  const promptTokens = usageCount(response.usageMetadata?.promptTokenCount)
+  return promptTokens > 0 && promptTokens <= QUERY_ONLY_PROMPT_TOKEN_LIMIT
+    ? RetrievalStatuses['not-used']
+    : RetrievalStatuses.unknown
 }
 
 export const geminiAdapter: ProviderAdapter = {
@@ -70,10 +106,20 @@ export const geminiAdapter: ProviderAdapter = {
   keyUrl: 'https://aistudio.google.com/apikey',
   // Upstream model list: https://ai.google.dev/gemini-api/docs/models
   modelRegistry: {
-    defaultModel: 'gemini-2.5-flash',
+    defaultModel: 'gemini-flash-latest',
     validationPattern: /./,
-    validationHint: 'any valid Google model name (e.g. gemini-2.5-flash, learnlm-1.5-pro-experimental)',
+    validationHint: 'any valid Google model name (e.g. gemini-flash-latest, gemini-3.8-flash)',
     knownModels: [
+      // Google's moving aliases: always the newest Flash / Flash-Lite, with
+      // 2 weeks' email notice before a breaking change. The model actually
+      // served is recorded per snapshot (`servedModel`), so trends still show
+      // when the model behind an alias changed.
+      { id: 'gemini-flash-latest', displayName: 'Gemini Flash (latest)', tier: 'standard' },
+      { id: 'gemini-flash-lite-latest', displayName: 'Gemini Flash-Lite (latest)', tier: 'economy' },
+      { id: 'gemini-3.8-flash', displayName: 'Gemini 3.8 Flash', tier: 'standard' },
+      { id: 'gemini-3.5-flash-lite', displayName: 'Gemini 3.5 Flash-Lite', tier: 'economy' },
+      // Google limits the 2.5 models to projects that already used them, so a
+      // new key may be refused. Listed for installs that still pin them.
       { id: 'gemini-2.5-pro', displayName: 'Gemini 2.5 Pro', tier: 'flagship' },
       { id: 'gemini-2.5-flash', displayName: 'Gemini 2.5 Flash', tier: 'standard' },
       { id: 'gemini-2.5-flash-lite', displayName: 'Gemini 2.5 Flash-Lite', tier: 'economy' },
@@ -130,7 +176,7 @@ export const geminiAdapter: ProviderAdapter = {
       citedDomains: normalized.citedDomains,
       groundingSources: normalized.groundingSources,
       searchQueries: normalized.searchQueries,
-      retrievalStatus: 'unknown' as const,
+      retrievalStatus: readRetrievalStatus(raw.rawResponse),
     }
   },
 

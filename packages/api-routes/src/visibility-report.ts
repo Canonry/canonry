@@ -15,6 +15,7 @@ import {
   RunStatuses,
   answerProseForMentions,
   compileBrandAliases,
+  countsAsMention,
   effectiveBrandNames,
   matcherMatchesText,
   measurementV2UsageEdgeKey,
@@ -28,14 +29,15 @@ import {
   type SimpleMeasurementDefinition,
   type VisibilityReportPopulationClass,
   type VisibilityReportQuery,
-} from '@ainyc/canonry-contracts'
+  normalizeIdentityText as normalizedText,
+} from '@canonry/canonry-contracts'
 import {
   measurementPlanVersions,
   querySnapshots,
   runs,
   simpleMeasurementDefinitions,
   type DatabaseClient,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { notProbeRun, resolveProject } from './helpers.js'
 import { activeMeasurementPlan } from './measurement-overview.js'
 import {
@@ -55,10 +57,6 @@ import {
   type VisibilityReportReaderInput,
   type VisibilityReportRunInput,
 } from './visibility-report-reader.js'
-
-function normalizedText(value: string): string {
-  return value.normalize('NFKC').trim().replace(/\s+/g, ' ').toLocaleLowerCase('en')
-}
 
 /** Provider-supplied alternative names are observations, never identities. */
 function observedCompetitorNames(values: readonly string[] | null | undefined): string[] {
@@ -105,11 +103,14 @@ type VisibilitySnapshot = Pick<typeof querySnapshots.$inferSelect,
   | 'servedModel'
   | 'citationState'
   | 'answerMentioned'
+  | 'mentionIdentity'
+  | 'wrongSubjectTargetKeys'
   | 'answerText'
   | 'recommendedCompetitors'
   | 'citedDomains'
   | 'citedUrls'
   | 'captureStatus'
+  | 'retrievalStatus'
   | 'location'
   | 'measurementExecutionId'
   | 'requestedContext'
@@ -130,11 +131,14 @@ function loadVisibilitySnapshots(db: DatabaseClient, runIds: readonly string[]):
     servedModel: querySnapshots.servedModel,
     citationState: querySnapshots.citationState,
     answerMentioned: querySnapshots.answerMentioned,
+    mentionIdentity: querySnapshots.mentionIdentity,
+    wrongSubjectTargetKeys: querySnapshots.wrongSubjectTargetKeys,
     answerText: querySnapshots.answerText,
     recommendedCompetitors: querySnapshots.recommendedCompetitors,
     citedDomains: querySnapshots.citedDomains,
     citedUrls: querySnapshots.citedUrls,
     captureStatus: querySnapshots.captureStatus,
+    retrievalStatus: querySnapshots.retrievalStatus,
     location: querySnapshots.location,
     measurementExecutionId: querySnapshots.measurementExecutionId,
     requestedContext: querySnapshots.requestedContext,
@@ -315,6 +319,7 @@ function v2Observations(
       unknownMentionTargetKeys: attribution?.unknownMentionTargetIds ?? [],
       citedTargetKeys: attribution?.citedTargetIds ?? [],
       citationComplete: attribution?.sourceComplete ?? false,
+      retrievalStatus: raw.retrievalStatus ?? null,
       competitorMentionDomains: signals.mentioned,
       competitorCitationDomains: signals.cited,
       observedCompetitorNames: includeEvidence ? observedCompetitorNames(raw.recommendedCompetitors) : [],
@@ -377,10 +382,15 @@ function stableSimpleDefinitionId(definition: SimpleMeasurementDefinition): stri
       .sort((left, right) => left.queryId.localeCompare(right.queryId, 'en')),
     // `undefined` deliberately differs from `[]`: historical sidecars did
     // not freeze a competitor set, whereas a newly captured empty list did.
+    // A competitor's names (curated aliases, and the auto aliases detection
+    // adds after sweeps on its own) are left out: the continuity this id
+    // gates covers the project's own mention and citation coverage, which no
+    // competitor name changes, and each run still reads its competitors
+    // through the names it froze.
     competitors: definition.competitors === undefined
       ? null
       : [...definition.competitors]
-        .map(competitor => ({ domain: competitor.domain, label: competitor.label, aliases: [...competitor.aliases].sort() }))
+        .map(competitor => ({ domain: competitor.domain, label: competitor.label }))
         .sort((left, right) => left.domain.localeCompare(right.domain, 'en')),
   }
   return `simple:${createHash('sha256').update(JSON.stringify(source)).digest('hex')}`
@@ -450,7 +460,7 @@ function frozenSimpleRun(
     if (!slotKeys.has(slotId)) throw new Error(`Frozen simple definition has no slot for stored snapshot ${snapshot.id}`)
     const preparedAnswerText = preparedAnswerProse(snapshot.answerText)
     const mentioned = snapshot.answerText !== null
-      ? matcherMatchesText(matcher, preparedAnswerText)
+      ? countsAsMention(matcherMatchesText(matcher, preparedAnswerText), snapshot.mentionIdentity)
       : snapshot.answerMentioned === true
     const competitorSignalsForSnapshot = !includeEvidence || competitors === null
       ? { mentioned: [], cited: [] }
@@ -463,7 +473,10 @@ function frozenSimpleRun(
       mentionComplete: snapshot.answerText !== null || snapshot.answerMentioned !== null,
       mentionedTargetKeys: mentioned ? ['project'] : [],
       citedTargetKeys: snapshot.citationState === 'cited' ? ['project'] : [],
+      // Simple citation state comes from the stored cited domains, not from
+      // source-URL capture, so a saved Simple answer is never `unchecked`.
       citationComplete: true,
+      retrievalStatus: snapshot.retrievalStatus ?? null,
       competitorMentionDomains: competitorSignalsForSnapshot.mentioned,
       competitorCitationDomains: competitorSignalsForSnapshot.cited,
       observedCompetitorNames: includeEvidence ? observedCompetitorNames(snapshot.recommendedCompetitors) : [],
@@ -553,7 +566,9 @@ function legacySimpleRun(
       mentionComplete: snapshot.answerMentioned !== null,
       mentionedTargetKeys: snapshot.answerMentioned === true ? ['project'] : [],
       citedTargetKeys: snapshot.citationState === 'cited' ? ['project'] : [],
+      // Legacy rows carry only the stored citation state (see the frozen-simple note).
       citationComplete: true,
+      retrievalStatus: snapshot.retrievalStatus ?? null,
       competitorMentionDomains: [],
       competitorCitationDomains: [],
       observedCompetitorNames: includeEvidence ? observedCompetitorNames(snapshot.recommendedCompetitors) : [],
@@ -764,7 +779,6 @@ function advancedReaderInput(
   projectId: string,
   active: NonNullable<ReturnType<typeof activeMeasurementPlan>>,
   query: VisibilityReportQuery,
-  includeComparison: boolean,
 ): VisibilityReportReaderInput {
   if (active.plan.schemaVersion !== MEASUREMENT_PLAN_V2_SCHEMA_VERSION) throw new Error('Expected a v2 active plan')
   const allVersionRows = db.select().from(measurementPlanVersions)
@@ -851,7 +865,7 @@ function advancedReaderInput(
     activeDefinition: activeV2Definition(presentationPlan, presentationVersion.revision),
     ...(preferredSource === undefined ? {} : { preferredRunId: preferredSource.run.id }),
     runs: candidates,
-    ...(includeComparison ? { previous: previousInput() } : {}),
+    previous: previousInput(),
   }
 }
 
@@ -887,7 +901,6 @@ function simpleReaderInput(
   db: DatabaseClient,
   project: { id: string; displayName: string; canonicalDomain: string },
   query: VisibilityReportQuery,
-  includeComparison: boolean,
 ): VisibilityReportReaderInput {
   const sourceRuns = completedVisibilityRuns(db, project.id, true, query)
   // Apply the run/time predicate before touching sidecars. A long-lived
@@ -919,25 +932,21 @@ function simpleReaderInput(
     selection: query,
     activeDefinition: simpleActiveDefinition(project),
     runs: candidates,
-    ...(includeComparison ? { previous: previousInput() } : {}),
+    previous: previousInput(),
   }
 }
 
 /**
  * Shared stored-evidence reader. Callers enforce authorization before resolving the project.
  *
- * `includeComparison` (default true) adds each population's change since the
- * previous eligible sweep. Report builds pass false: they keep only summary and
- * trend, so they skip the predecessor read entirely. A previous sweep that
- * cannot be read leaves the change off and never fails the report.
+ * Adds each population's change since the previous eligible sweep. An unreadable
+ * predecessor leaves the change off without failing the current measurement.
  */
 export function readVisibilityReport(
   db: DatabaseClient,
   project: { id: string; displayName: string; canonicalDomain: string },
   rawQuery: Record<string, unknown>,
-  options: { includeComparison?: boolean } = {},
 ) {
-  const includeComparison = options.includeComparison ?? true
   const query = parseQuery(rawQuery)
   const active = activeMeasurementPlan(db, project.id)
   const mode = query.mode === 'auto' ? (active === null ? 'simple' : 'advanced') : query.mode
@@ -945,9 +954,9 @@ export function readVisibilityReport(
     if (mode === 'advanced') {
       if (active === null) throw validationError('This project has no advanced measurement plan.')
       if (active.plan.schemaVersion !== MEASUREMENT_PLAN_V2_SCHEMA_VERSION) return unsupportedAdvancedResponse(query, active)
-      return buildVisibilityReport(advancedReaderInput(db, project.id, active, query, includeComparison))
+      return buildVisibilityReport(advancedReaderInput(db, project.id, active, query))
     }
-    const simple = simpleReaderInput(db, project, query, includeComparison)
+    const simple = simpleReaderInput(db, project, query)
     // Simple mode reads planless sweeps only. On a v2 project with no planless
     // sweep at all, the default read would answer "not measured", which reads
     // as an empty project rather than as the wrong mode. Refuse only that

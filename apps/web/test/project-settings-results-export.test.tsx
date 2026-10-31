@@ -36,7 +36,6 @@ test('offers explicit CSV and JSON tracking-results downloads in Project Setting
         defaultLocation: null,
       }}
       onUpdateProject={vi.fn().mockResolvedValue(undefined)}
-      onRefresh={vi.fn()}
     />,
   )
 

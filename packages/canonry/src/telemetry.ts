@@ -1,13 +1,16 @@
 import crypto from 'node:crypto'
+import fs from 'node:fs'
 import os from 'node:os'
+import path from 'node:path'
 import {
   isGhostTelemetryEvent,
   maskTelemetryAnonymousId,
   type TelemetryStatusDto,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import { loadConfig, saveConfigPatch, configExists, loadConfigRaw, getConfigPath } from './config.js'
 import type { SetupState } from './setup-state.js'
 import { cliRuntimeContext } from './runtime-context.js'
+import { telemetryEnvironment } from './telemetry-environment.js'
 
 import { createRequire } from 'node:module'
 const _require = createRequire(import.meta.url)
@@ -50,6 +53,8 @@ export interface TelemetryEvent {
   eventId: string
   /** Stable per-install UUID stored in `~/.canonry/config.yaml`. */
   anonymousId: string
+  /** Per-machine UUID saved in `~/.canonry/machine-id`; absent in containers. See `getMachineId`. */
+  machineId?: string
   /** Per-process UUID — groups the events from one CLI invocation or one
    *  server boot together so a single user-session can be reconstructed. */
   sessionId: string
@@ -68,6 +73,8 @@ export interface TelemetryEvent {
   arch: string
   /** Stable error classifier when the event represents a failure. */
   errorCode?: string
+  /** Automation or development markers (container, temp_config, dev_build, ...); absent for an ordinary install. */
+  environment?: string[]
   /** Free-shape per-event payload. */
   properties?: TelemetryProperties
 }
@@ -100,13 +107,6 @@ export interface CliCommandFinishedInput {
   setupState?: SetupState
   /** Stable `CliError.code`; raw error text must never be sent. */
   errorCode?: string
-}
-
-export function shouldDropTelemetryEvent(
-  event: string,
-  properties?: TelemetryProperties,
-): boolean {
-  return isGhostTelemetryEvent(event, properties)
 }
 
 /**
@@ -186,7 +186,7 @@ export function setTelemetrySource(source: TelemetrySource): void {
  * Check whether telemetry is enabled.
  * Priority: env vars > config file. Disabled in CI by default.
  */
-export interface TelemetryStatusResolutionInput {
+interface TelemetryStatusResolutionInput {
   canonryTelemetryDisabled?: string
   doNotTrack?: string
   ci?: string
@@ -200,10 +200,10 @@ export interface TelemetryStatusResolutionInput {
  * Environment opt-outs deliberately win in the same order used by event
  * emission, so status and collection cannot disagree.
  */
-export function resolveTelemetryStatus(input: TelemetryStatusResolutionInput): TelemetryStatusDto {
+function resolveTelemetryStatus(input: TelemetryStatusResolutionInput): TelemetryStatusDto {
   const base = {
     configuredEnabled: input.configuredEnabled,
-    ...(input.anonymousId ? { anonymousId: maskAnonymousId(input.anonymousId) } : {}),
+    ...(input.anonymousId ? { anonymousId: maskTelemetryAnonymousId(input.anonymousId) } : {}),
     target: 'local' as const,
   }
   if (input.canonryTelemetryDisabled === '1') {
@@ -217,11 +217,6 @@ export function resolveTelemetryStatus(input: TelemetryStatusResolutionInput): T
   if (input.configState === 'absent') return { ...base, enabled: true, reason: 'NO_CONFIG' }
   if (input.configState === 'unavailable') return { ...base, enabled: true, reason: 'CONFIG_UNAVAILABLE' }
   return { ...base, enabled: true, reason: 'enabled' }
-}
-
-/** Mask an install identifier before it can reach a status response or CLI. */
-export function maskAnonymousId(value: string | undefined): string | undefined {
-  return maskTelemetryAnonymousId(value)
 }
 
 /**
@@ -264,8 +259,9 @@ export function isTelemetryEnabled(): boolean {
  *   3. A new UUID, persisted back to config.yaml on first run.
  *   4. A deterministic machine-derived fallback — used when config does
  *      not exist or cannot be persisted (no $HOME, ephemeral container,
- *      read-only fs). Without this, every invocation in such an
- *      environment would emit a brand-new UUID and poison telemetry.
+ *      read-only fs), or while `holdAnonymousIdWrites` is in effect.
+ *      Without this, every invocation in such an environment would emit a
+ *      brand-new UUID and poison telemetry.
  *
  * Returns undefined only if every fallback fails (should not happen in
  * practice — `os.hostname()` always returns something).
@@ -278,12 +274,14 @@ export function getOrCreateAnonymousId(): string | undefined {
     try {
       const config = loadConfig()
       if (config.anonymousId) return config.anonymousId
+      if (anonymousIdWriteHolds > 0) return getDeterministicAnonymousId()
 
       const carried = preConfigAnonymousId?.configPath === getConfigPath() ? preConfigAnonymousId.id : undefined
       const id = carried ?? crypto.randomUUID()
-      config.anonymousId = id
       try {
-        saveConfigPatch(config)
+        // Only the ID: `config` carries runtime overrides (CANONRY_PORT,
+        // CANONRY_BASE_PATH) that must never be written back.
+        saveConfigPatch({ anonymousId: id })
       } catch {
         // Config exists but can't be written (read-only fs, permission denied).
         // Fall through to the deterministic fallback so we still emit a stable ID.
@@ -312,6 +310,24 @@ export function getOrCreateAnonymousId(): string | undefined {
  */
 let preConfigAnonymousId: { configPath: string; id: string } | undefined
 
+/**
+ * Servers running in this process from a config other than the default
+ * config.yaml (a test or local dashboard). While one runs, the install ID is
+ * read but never created: creating it rewrites the operator's config.yaml.
+ */
+let anonymousIdWriteHolds = 0
+
+/** Keep `getOrCreateAnonymousId` from writing config.yaml until the returned release runs. */
+export function holdAnonymousIdWrites(): () => void {
+  anonymousIdWriteHolds += 1
+  let held = true
+  return () => {
+    if (!held) return
+    held = false
+    anonymousIdWriteHolds -= 1
+  }
+}
+
 function readEnvAnonymousId(): string | undefined {
   const raw = process.env[ANON_ID_ENV_VAR]?.trim()
   if (!raw) return undefined
@@ -334,10 +350,15 @@ function readEnvAnonymousId(): string | undefined {
  * version nibble to "5" (name-based) just to keep parsers happy.
  */
 function getDeterministicAnonymousId(): string | undefined {
+  return hostDerivedId('canonry-anon')
+}
+
+/** Hash `<prefix>:<hostname>:<mac>` into the UUID shape described above. */
+function hostDerivedId(prefix: string): string | undefined {
   try {
     const hostname = os.hostname() || ''
     const mac = firstNonInternalMac()
-    const seed = `canonry-anon:${hostname}:${mac}`
+    const seed = `${prefix}:${hostname}:${mac}`
     const hex = crypto.createHash('sha256').update(seed).digest('hex')
     // Reformat the first 32 hex chars as 8-4-4-4-12, with the UUID version
     // nibble set to 5 so consumers that validate UUID shape accept it.
@@ -349,6 +370,58 @@ function getDeterministicAnonymousId(): string | undefined {
     const d = dHi + hex.slice(18, 20)
     const e = hex.slice(20, 32)
     return `${a}-${b}-${c}-${d}-${e}`
+  } catch {
+    return undefined
+  }
+}
+
+let machineId: { value: string | undefined } | undefined
+
+/**
+ * Per-machine ID sent beside `anonymousId` on every event, so analysis can
+ * group several config dirs (install IDs) on one machine. Computed once per
+ * process; undefined when no stable ID exists.
+ */
+export function getMachineId(): string | undefined {
+  machineId ??= {
+    value: resolveMachineId({
+      filePath: path.join(os.homedir(), '.canonry', 'machine-id'),
+      inContainer: telemetryEnvironment().includes('container'),
+      derive: () => hostDerivedId('canonry-machine'),
+    }),
+  }
+  return machineId.value
+}
+
+/**
+ * The first ID a machine derives is saved and reused: re-hashing hostname and
+ * MAC on every start gave a Mac a new ID whenever its network changed. A
+ * container gets none, because its hostname and MAC change on every restart.
+ */
+export function resolveMachineId(opts: {
+  filePath: string
+  inContainer: boolean
+  derive: () => string | undefined
+}): string | undefined {
+  if (opts.inContainer) return undefined
+  const saved = readMachineIdFile(opts.filePath)
+  if (saved) return saved
+  const derived = opts.derive()
+  if (!derived) return undefined
+  try {
+    fs.mkdirSync(path.dirname(opts.filePath), { recursive: true })
+    fs.writeFileSync(opts.filePath, `${derived}\n`, { flag: 'wx' })
+    return derived
+  } catch {
+    // Another process saved one first, or home is read-only.
+    return readMachineIdFile(opts.filePath) ?? derived
+  }
+}
+
+function readMachineIdFile(filePath: string): string | undefined {
+  try {
+    const value = fs.readFileSync(filePath, 'utf8').trim().toLowerCase()
+    return ANON_ID_PATTERN.test(value) ? value : undefined
   } catch {
     return undefined
   }
@@ -443,7 +516,23 @@ export function trackEvent(
   void deliverEvent(event, properties, options)
 }
 
+/**
+ * Forward a validated dashboard event (onboarding milestone or UI usage).
+ * `eventId` becomes the idempotency key and every other field a property.
+ * Goes through `trackEvent`, so an opted-out install sends nothing.
+ */
+export function recordDashboardEvent(event: { event: string; eventId: string } & TelemetryProperties): void {
+  const { event: eventName, eventId, ...properties } = event
+  trackEvent(eventName, properties, { source: 'dashboard', eventId: String(eventId) })
+}
+
 export type TelemetryPreferenceMethod = 'cli' | 'api'
+
+/** Who turned telemetry off: the interface, and the coding agent when one is known. */
+export interface TelemetryPreferenceAttribution {
+  surface: string
+  agent?: string
+}
 
 /**
  * Persist the telemetry preference, announcing an opt-out first.
@@ -464,16 +553,36 @@ export type TelemetryPreferenceMethod = 'cli' | 'api'
  * server ignores it, and the CLI awaits it so process exit cannot drop the one
  * event that can never be retried.
  */
-export function setTelemetryPreference(enabled: boolean, method: TelemetryPreferenceMethod): Promise<void> {
+export function setTelemetryPreference(
+  enabled: boolean,
+  method: TelemetryPreferenceMethod,
+  attribution?: TelemetryPreferenceAttribution,
+): Promise<void> {
   // Validate the whole config before touching it. A bare patch succeeds on a
   // config that fails validation, which turned `telemetry enable` into a silent
   // write to an invalid file instead of a path-qualified CONFIG_INVALID error.
   loadConfig()
   const announce = !enabled && isTelemetryEnabled()
   saveConfigPatch({ telemetry: enabled })
+  // From the CLI the agent comes from this process's environment; an API caller is attributed by the server.
+  const who = attribution ?? (method === 'cli' ? { surface: 'cli', agent: cliRuntimeContext().agent } : { surface: 'system' })
+  const properties = {
+    method,
+    surface: who.surface,
+    ...(who.agent ? { agent: who.agent } : {}),
+  }
   return announce
-    ? deliverEvent('telemetry.disabled', { method }, undefined, { preferenceChecked: true })
+    ? deliverEvent('telemetry.disabled', properties, undefined, { preferenceChecked: true })
     : Promise.resolve()
+}
+
+function environmentField(): { environment?: string[] } {
+  try {
+    const flags = telemetryEnvironment()
+    return flags.length > 0 ? { environment: flags } : {}
+  } catch {
+    return {}
+  }
 }
 
 /** Compose and send one event. Settles when the collector answers or the timeout aborts; never rejects. */
@@ -486,14 +595,16 @@ function deliverEvent(
   // `preferenceChecked`: the caller already confirmed telemetry was on before
   // it wrote the opt-out that would otherwise suppress this final event.
   if (!delivery.preferenceChecked && !isTelemetryEnabled()) return Promise.resolve()
-  if (shouldDropTelemetryEvent(event, properties)) return Promise.resolve()
+  if (isGhostTelemetryEvent(event, properties)) return Promise.resolve()
 
   const anonymousId = getOrCreateAnonymousId()
   if (!anonymousId) return Promise.resolve()
+  const machine = getMachineId()
 
   const payload: TelemetryEvent = {
     eventId: options?.eventId ?? crypto.randomUUID(),
     anonymousId,
+    ...(machine ? { machineId: machine } : {}),
     sessionId: SESSION_ID,
     source: options?.source ?? envSourceOverride() ?? CURRENT_SOURCE,
     event,
@@ -504,6 +615,7 @@ function deliverEvent(
     arch: process.arch,
     ...(options?.sourceContext ? { sourceContext: options.sourceContext } : {}),
     ...(options?.errorCode ? { errorCode: options.errorCode } : {}),
+    ...environmentField(),
     ...(properties ? { properties } : {}),
   }
 

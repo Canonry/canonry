@@ -5,10 +5,18 @@ import {
   AdsOperationStates,
   MIN_PCT_BASE,
   OPERATIONAL_LOG_FIELDS_HEADER,
+  PROVIDER_ACCOUNT_FAILURE_STREAK,
+  PROVIDER_ACCOUNT_RETRY_HOURS,
+  gaSearchLandingWindowSchema,
+  gaSyncOnlySchema,
   providerDispatchModeSchema,
   runKindSchema,
   runStatusSchema,
-} from '@ainyc/canonry-contracts'
+  sentimentOutcomeSchema,
+  seoMarketRankingFilterSchema,
+  seoMarketRankingSortSchema,
+  operationAccess,
+} from '@canonry/canonry-contracts'
 import {
   buildComponentSchemas,
   errorResponse,
@@ -38,7 +46,7 @@ export interface OpenApiInfo {
   includeCanonryLocal?: boolean
 }
 
-type HttpMethod = 'get' | 'post' | 'put' | 'delete'
+type HttpMethod = 'get' | 'post' | 'put' | 'patch' | 'delete'
 
 interface OpenApiParameter {
   name: string
@@ -201,6 +209,14 @@ const measurementReportRunParameter: OpenApiParameter = {
   schema: stringSchema,
 }
 
+const measurementReportQueryClassParameter: OpenApiParameter = {
+  name: 'queryClass',
+  in: 'query',
+  required: false,
+  description: 'Query class every group, Target and evidence row is taken over. Defaults to non-brand; branded is a separate read. all pools branded and non-brand into one rate and is served only when asked for. A schema v1 revision records no class: omit this (or pass all) to read every answer, and the response echoes queryClass null.',
+  schema: { type: 'string', enum: ['non-brand', 'branded', 'all'], default: 'non-brand' },
+}
+
 const runIdParameter: OpenApiParameter = {
   name: 'id',
   in: 'path',
@@ -225,6 +241,14 @@ const competitorIdParameter: OpenApiParameter = {
   schema: stringSchema,
 }
 
+const competitorDomainParameter: OpenApiParameter = {
+  name: 'domain',
+  in: 'path',
+  required: true,
+  description: 'Tracked competitor domain (any spelling of it; it is reduced to the stored registrable domain, and a row stored as a subdomain is found too). A competitor stored as two rows is refused (400) rather than one picked.',
+  schema: stringSchema,
+}
+
 const notificationIdParameter: OpenApiParameter = {
   name: 'id',
   in: 'path',
@@ -245,8 +269,14 @@ const providerNameParameter: OpenApiParameter = {
   name: 'name',
   in: 'path',
   required: true,
-  description: 'Provider name.',
-  schema: { type: 'string', enum: ['gemini', 'openai', 'claude', 'perplexity', 'muse', 'local'] },
+  description: 'Registered API provider connection name. OpenRouter settings use the bare `openrouter` connection id, never a model route.',
+  schema: { type: 'string', minLength: 1 },
+}
+
+const queryGenerationProviderSchema = {
+  type: 'string',
+  minLength: 1,
+  description: 'Configured sweep provider. OpenRouter models use `openrouter:publisher/model`; the bare `openrouter` connection is not executable.',
 }
 
 const locationLabelParameter: OpenApiParameter = {
@@ -354,7 +384,7 @@ const scheduleExpectedUpdatedAtQueryParameter: OpenApiParameter = {
   schema: { type: 'string', format: 'date-time' },
 }
 
-// Both list filters take their enum from the contracts schema the route
+// List filters take their enum from the contracts schema the route
 // validates against, so the spec (and the generated SDK) cannot drift from
 // what the server accepts.
 const runsListKindQueryParameter: OpenApiParameter = {
@@ -362,6 +392,22 @@ const runsListKindQueryParameter: OpenApiParameter = {
   in: 'query',
   description: 'Restrict results to a single run kind. Without this filter, integration syncs (bing-inspect, gsc-sync, ga-sync) can fill the default 500-row cap within minutes on busy projects and push answer-visibility runs out of the response. Unknown values are rejected with 400.',
   schema: { type: 'string', enum: [...runKindSchema.options] },
+}
+
+const runsListExcludeKindQueryParameter: OpenApiParameter = {
+  name: 'excludeKind',
+  in: 'query',
+  description: 'Exclude one run kind before applying the row limit. Combines with kind and status filters. Unknown values are rejected with 400.',
+  schema: { type: 'string', enum: [...runKindSchema.options] },
+}
+
+const runsListExcludeKindsQueryParameter: OpenApiParameter = {
+  name: 'excludeKinds',
+  in: 'query',
+  description: 'Exclude multiple run kinds before applying the row limit. Accepts repeated or comma-separated values. Combines with excludeKind, kind, and status; unknown values are rejected with 400.',
+  style: 'form',
+  explode: true,
+  schema: { type: 'array', items: { type: 'string', enum: [...runKindSchema.options] }, maxItems: runKindSchema.options.length },
 }
 
 const runsListStatusQueryParameter: OpenApiParameter = {
@@ -378,6 +424,13 @@ const runsListSinceQueryParameter: OpenApiParameter = {
   schema: stringSchema,
 }
 
+const projectRunsSinceQueryParameter: OpenApiParameter = {
+  name: 'since',
+  in: 'query',
+  description: 'Only return runs created at or after this ISO 8601 timestamp. Omitted means no lower bound.',
+  schema: stringSchema,
+}
+
 const runsListIncludeProbeQueryParameter: OpenApiParameter = {
   name: 'includeProbe',
   in: 'query',
@@ -385,18 +438,18 @@ const runsListIncludeProbeQueryParameter: OpenApiParameter = {
   schema: stringSchema,
 }
 
-const reportAudienceQueryParameter: OpenApiParameter = {
-  name: 'audience',
-  in: 'query',
-  description: 'HTML report audience mode. Defaults to agency.',
-  schema: { type: 'string', enum: ['agency', 'client'] },
-}
-
 const analyticsWindowParameter: OpenApiParameter = {
   name: 'window',
   in: 'query',
   description: 'Time window for analytics queries. An unrecognised value is rejected with 400; it is never widened to the full history.',
   schema: { type: 'string', enum: ['7d', '30d', '90d', 'all'] },
+}
+
+const gaOverviewWindowParameter: OpenApiParameter = {
+  name: 'window',
+  in: 'query',
+  description: 'Overview window: the complete days ending yesterday, as GA4 counts "Last 30 days". Defaults to 30d. Any other value is rejected with 400.',
+  schema: { type: 'string', enum: ['7d', '30d', '90d'] },
 }
 
 const competitorLandscapeGroupKeyParameter: OpenApiParameter = {
@@ -480,6 +533,13 @@ const sourcesQueryClassParameter: OpenApiParameter = {
   schema: { type: 'string', enum: ['all', 'branded', 'non-brand'] },
 }
 
+const metricsQueryClassParameter: OpenApiParameter = {
+  name: 'queryClass',
+  in: 'query',
+  description: 'Restrict every rate, bucket, change and query-set event to branded or non-brand answers, classified from the query text by the project\'s brand names (the same split mention share uses). Mention share stays non-brand, so it is empty under branded. Bucket boundaries do not move with the class, so the two classes plot on the same dates. 400 when the project has no brand name or alias to classify with, or has a published v2 measurement plan (its classes live on the plan assignments; read the split from the visibility report). Defaults to all, which pools both classes.',
+  schema: { type: 'string', enum: ['all', 'branded', 'non-brand'] },
+}
+
 const sourcesIncludeByQueryParameter: OpenApiParameter = {
   name: 'includeByQuery',
   in: 'query',
@@ -507,14 +567,6 @@ const organicEvidencePeriodQueryParameter: OpenApiParameter = {
   description:
     'Evidence window in days — 60 or 90 (default 90). GSC and GA4 retain source-specific 30-day cohort dates.',
   schema: { type: 'integer', enum: [60, 90] },
-}
-
-const reportPeriodQueryParameter: OpenApiParameter = {
-  name: 'period',
-  in: 'query',
-  description:
-    'Report window in days — one of 7, 14, 30, 90 (default 30). Scopes the GSC, GA4, and server-side AI activity sections and the period-over-period comparisons to this window.',
-  schema: { type: 'integer', enum: [7, 14, 30, 90] },
 }
 
 const sinceQueryParameter: OpenApiParameter = {
@@ -681,8 +733,8 @@ const measurementOverviewCursorParameter: OpenApiParameter = {
 const measurementPropertyEvidenceShapeParameter: OpenApiParameter = {
   name: 'shape',
   in: 'query',
-  description: 'What one row is. sources (the default) returns one row per cited URL under evidence, which is what a caller written before this parameter existed reads. answers returns one row per measured answer under answers, with the cited URLs nested inside it, so the answers that cited nothing at all are present rather than missing. Exactly one of the two keys is returned; the other is absent, not empty.',
-  schema: { type: 'string', enum: ['sources', 'answers'], default: 'sources' },
+  description: 'What one row is. sources (the default) returns one row per cited URL under evidence, which is what a caller written before this parameter existed reads. answers returns one row per measured answer under answers, with the cited URLs nested inside it, so the answers that cited nothing at all are present rather than missing. other-queries returns, under otherQueries, one row per answer to a query NOT assigned to this Property that cited one of its own pages, per assignment class; those answers are outside its rates. Exactly one of the keys is returned; the others are absent, not empty.',
+  schema: { type: 'string', enum: ['sources', 'answers', 'other-queries'], default: 'sources' },
 }
 
 const measurementPropertyEvidenceCursorParameter: OpenApiParameter = {
@@ -792,7 +844,254 @@ function measurementDraftAction(input: {
   }
 }
 
+const seoEvidenceParameters: OpenApiParameter[] = [
+  { name: 'profileId', in: 'query', description: 'Exact saved profile. Required when multiple profiles exist.', schema: stringSchema },
+  { name: 'runId', in: 'query', description: 'Exact historical refresh. Omit for latest saved evidence for the selected profile.', schema: stringSchema },
+  { name: 'limit', in: 'query', description: 'Page size only. Never changes the evidence scope or denominator.', schema: { type: 'integer', minimum: 1, maximum: 100, default: 50 } },
+  { name: 'offset', in: 'query', description: 'Evidence page offset.', schema: { type: 'integer', minimum: 0, default: 0 } },
+]
+
 const routeCatalog: OpenApiOperation[] = [
+  {
+    method: 'get', path: '/api/v1/seo/operator/tasks/{id}',
+    summary: 'Inspect a private SEO task receipt', tags: ['seo'],
+    description: 'Host operator only: requires a direct unscoped bearer key ID on CANONRY_OPERATOR_KEY_IDS. Customer administrators, browser sessions and delegated credentials cannot read financial receipts.',
+    parameters: [{ name: 'id', in: 'path', required: true, description: 'Exact SEO task ID.', schema: stringSchema }],
+    responses: { 200: jsonResponse('Private receipt.', 'SeoOperatorTask'), 403: errorResponse('Host operator authority required.'), 404: errorResponse('Task not found.') },
+  },
+  {
+    method: 'post', path: '/api/v1/seo/operator/tasks/{id}/reconcile',
+    summary: 'Reconcile an unknown SEO receipt', tags: ['seo'],
+    description: 'Host operator and seo.run only. Record an independently verified upstream receipt, actual cost, outcome and verification note. Never calls the provider or resubmits the request. Exact replay is idempotent; conflicting settlement is refused.',
+    parameters: [{ name: 'id', in: 'path', required: true, description: 'Exact SEO task ID.', schema: stringSchema }],
+    requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/SeoReconcileInput' } } } },
+    responses: { 200: jsonResponse('Receipt reconciled.', 'SeoReconcileResult'), 400: errorResponse('Invalid receipt.'), 403: errorResponse('Host operator authority and seo.run required.'), 404: errorResponse('Task not found.'), 409: errorResponse('Receipt already reconciled differently.') },
+  },
+  {
+    method: 'get', path: '/api/v1/projects/{name}/seo/context',
+    summary: 'Inspect SEO connections, scope support and permissions', tags: ['seo'],
+    description: "Stored evidence only; never calls a provider. Preserves the selected profile, target, locale and measurement scope.",
+    parameters: [nameParameter],
+    responses: {
+      200: jsonResponse('SEO response.', 'SeoContext'),
+      400: errorResponse('Invalid scope or input.'),
+      403: errorResponse('Insufficient authority.'),
+      404: errorResponse('Project or selected evidence not found.'),
+      409: errorResponse('Selection, intent or execution identity changed.'),
+    },
+  },
+  {
+    method: 'get', path: '/api/v1/projects/{name}/seo/status',
+    summary: 'Inspect stored SEO readiness and latest run', tags: ['seo'],
+    description: "Stored evidence only; never calls a provider. Preserves the selected profile, target, locale and measurement scope.",
+    parameters: [nameParameter],
+    responses: {
+      200: jsonResponse('SEO response.', 'SeoStatus'),
+      400: errorResponse('Invalid scope or input.'),
+      403: errorResponse('Insufficient authority.'),
+      404: errorResponse('Project or selected evidence not found.'),
+      409: errorResponse('Selection, intent or execution identity changed.'),
+    },
+  },
+  {
+    method: 'get', path: '/api/v1/projects/{name}/seo/profiles',
+    summary: 'List SEO profiles', tags: ['seo'],
+    description: "Stored evidence only; never calls a provider. Preserves the selected profile, target, locale and measurement scope.",
+    parameters: [nameParameter],
+    responses: {
+      200: jsonResponse('SEO response.', 'SeoProfileList'),
+      400: errorResponse('Invalid scope or input.'),
+      403: errorResponse('Insufficient authority.'),
+      404: errorResponse('Project or selected evidence not found.'),
+      409: errorResponse('Selection, intent or execution identity changed.'),
+    },
+  },
+  {
+    method: 'get', path: '/api/v1/projects/{name}/seo/profiles/{id}',
+    summary: 'Read an SEO profile', tags: ['seo'],
+    description: "Stored evidence only; never calls a provider. Preserves the selected profile, target, locale and measurement scope.",
+    parameters: [nameParameter, { name: 'id', in: 'path', required: true, description: 'Exact project-scoped identifier.', schema: stringSchema }],
+    responses: {
+      200: jsonResponse('SEO response.', 'SeoProfile'),
+      400: errorResponse('Invalid scope or input.'),
+      403: errorResponse('Insufficient authority.'),
+      404: errorResponse('Project or selected evidence not found.'),
+      409: errorResponse('Selection, intent or execution identity changed.'),
+    },
+  },
+  {
+    method: 'get', path: '/api/v1/projects/{name}/seo/runs',
+    summary: 'List stored SEO refreshes', tags: ['seo'],
+    description: "Stored evidence only; never calls a provider. Preserves the selected profile, target, locale and measurement scope.",
+    parameters: [nameParameter, { name: 'profileId', in: 'query', description: 'Restrict history to this profile.', schema: stringSchema }],
+    responses: {
+      200: jsonResponse('SEO response.', 'SeoRunList'),
+      400: errorResponse('Invalid scope or input.'),
+      403: errorResponse('Insufficient authority.'),
+      404: errorResponse('Project or selected evidence not found.'),
+      409: errorResponse('Selection, intent or execution identity changed.'),
+    },
+  },
+  {
+    method: 'get', path: '/api/v1/projects/{name}/seo/runs/{id}',
+    summary: 'Read stored SEO run details', tags: ['seo'],
+    description: "Stored evidence only; never calls a provider. Preserves the selected profile, target, locale and measurement scope.",
+    parameters: [nameParameter, { name: 'id', in: 'path', required: true, description: 'Exact project-scoped identifier.', schema: stringSchema }],
+    responses: {
+      200: jsonResponse('SEO response.', 'SeoRunDetail'),
+      400: errorResponse('Invalid scope or input.'),
+      403: errorResponse('Insufficient authority.'),
+      404: errorResponse('Project or selected evidence not found.'),
+      409: errorResponse('Selection, intent or execution identity changed.'),
+    },
+  },
+  {
+    method: 'get', path: '/api/v1/projects/{name}/seo/overview',
+    summary: 'Read the saved SEO overview', tags: ['seo'],
+    description: "Stored evidence only; never calls a provider. Preserves the selected profile, target, locale and measurement scope.",
+    parameters: [nameParameter, ...seoEvidenceParameters],
+    responses: {
+      200: jsonResponse('SEO response.', 'SeoOverview'),
+      400: errorResponse('Invalid scope or input.'),
+      403: errorResponse('Insufficient authority.'),
+      404: errorResponse('Project or selected evidence not found.'),
+      409: errorResponse('Selection, intent or execution identity changed.'),
+    },
+  },
+  {
+    method: 'get', path: '/api/v1/projects/{name}/seo/keyword-metrics',
+    summary: 'Read stored keyword metrics', tags: ['seo'],
+    description: "Stored evidence only; never calls a provider. Preserves the selected profile, target, locale and measurement scope.",
+    parameters: [nameParameter, ...seoEvidenceParameters],
+    responses: {
+      200: jsonResponse('SEO response.', 'SeoKeywordMetricsList'),
+      400: errorResponse('Invalid scope or input.'),
+      403: errorResponse('Insufficient authority.'),
+      404: errorResponse('Project or selected evidence not found.'),
+      409: errorResponse('Selection, intent or execution identity changed.'),
+    },
+  },
+  {
+    method: 'get', path: '/api/v1/projects/{name}/seo/domain-intelligence',
+    summary: 'Read stored domain intelligence', tags: ['seo'],
+    description: "Stored evidence only; never calls a provider. Preserves the selected profile, target, locale and measurement scope.",
+    parameters: [nameParameter, ...seoEvidenceParameters],
+    responses: {
+      200: jsonResponse('SEO response.', 'SeoDomainIntelligenceList'),
+      400: errorResponse('Invalid scope or input.'),
+      403: errorResponse('Insufficient authority.'),
+      404: errorResponse('Project or selected evidence not found.'),
+      409: errorResponse('Selection, intent or execution identity changed.'),
+    },
+  },
+  {
+    method: 'get', path: '/api/v1/projects/{name}/seo/ranked-keywords',
+    summary: 'Read stored ranked keywords', tags: ['seo'],
+    description: "Stored evidence only; never calls a provider. Preserves the selected profile, target, locale and measurement scope.",
+    parameters: [nameParameter, ...seoEvidenceParameters],
+    responses: {
+      200: jsonResponse('SEO response.', 'SeoRankedKeywordList'),
+      400: errorResponse('Invalid scope or input.'),
+      403: errorResponse('Insufficient authority.'),
+      404: errorResponse('Project or selected evidence not found.'),
+      409: errorResponse('Selection, intent or execution identity changed.'),
+    },
+  },
+  {
+    method: 'get', path: '/api/v1/projects/{name}/seo/market-rankings',
+    summary: 'Read stored market rankings', tags: ['seo'],
+    description: "Stored evidence only; never calls a provider. The project's position for each tracked non-brand query, searched on Google from its market's location. searchStatus says how each search ended: in a completed or partial row a null rank means the site was not in the checked results (depth, which is lower when only part of the results came back); a failed or cancelled search keeps its rows with no rank. outcome says where each row landed (a partial search without the site is partly-checked, never not-ranked) and rivalAhead whether a tracked competitor ranks above the site.",
+    parameters: [
+      nameParameter, ...seoEvidenceParameters,
+      { name: 'marketKey', in: 'query', description: 'Only rows for this market (an Advanced market key or a Simple location label).', schema: stringSchema },
+      { name: 'regionKey', in: 'query', description: "Only rows whose market sits under this top-level group.", schema: stringSchema },
+      { name: 'outcome', in: 'query', description: 'Only rows with this outcome. `partly-checked` is a partial search that did not reach the site, so ranks past its depth are unknown; `needs-work` is ranks 11 and deeper, not ranked or partly checked; `rival-ahead` is rows where a tracked competitor ranks above the site.', schema: { type: 'string', enum: [...seoMarketRankingFilterSchema.options] } },
+      { name: 'q', in: 'query', description: 'Only rows whose query, searched text or market label contains this text, ignoring case.', schema: { type: 'string', minLength: 1, maxLength: 200 } },
+      { name: 'sort', in: 'query', description: '`market` (default): region, market, search text. `rank`: best rank first, then partly checked rows, then rows not in the results with the strongest rival first, then searches with no result. `-rank`: rows not in the results first, then partly checked rows, then the worst rank. `query` / `-query`: by query text.', schema: { type: 'string', enum: [...seoMarketRankingSortSchema.options], default: 'market' } },
+    ],
+    responses: {
+      200: jsonResponse('SEO response.', 'SeoMarketRankingList'),
+      400: errorResponse('Invalid scope or input.'),
+      403: errorResponse('Insufficient authority.'),
+      404: errorResponse('Project or selected evidence not found.'),
+      409: errorResponse('Selection, intent or execution identity changed.'),
+    },
+  },
+  {
+    method: 'get', path: '/api/v1/projects/{name}/seo/market-rankings/summary',
+    summary: 'Summarize stored market rankings by outcome', tags: ['seo'],
+    description: 'Stored evidence only; never calls a provider. Outcome counts for the selected scope (the whole profile, one region or one market) and for the groups under it: regions for the whole profile, markets within one region, none within one market. Groups come in needs-work order: most ranks 11-20, then most ranks 21 and deeper.',
+    parameters: [
+      nameParameter,
+      { name: 'profileId', in: 'query', description: 'Exact saved profile. Required when multiple profiles exist.', schema: stringSchema },
+      { name: 'runId', in: 'query', description: 'Exact historical refresh. Omit for latest saved evidence for the selected profile.', schema: stringSchema },
+      { name: 'marketKey', in: 'query', description: 'Summarize one market (an Advanced market key or a Simple location label).', schema: stringSchema },
+      { name: 'regionKey', in: 'query', description: 'Summarize one top-level group and the markets under it.', schema: stringSchema },
+    ],
+    responses: {
+      200: jsonResponse('SEO response.', 'SeoMarketRankingSummary'),
+      400: errorResponse('Invalid scope or input.'),
+      403: errorResponse('Insufficient authority.'),
+      404: errorResponse('Project or selected evidence not found.'),
+      409: errorResponse('Selection, intent or execution identity changed.'),
+    },
+  },
+  {
+    method: 'put', path: '/api/v1/projects/{name}/seo/profiles/{id}',
+    summary: 'Save an SEO profile', tags: ['seo'],
+    description: "Requires seo.write and an administrator session. Saving never starts provider work. Scope, locale, targets, capabilities, keywords and row limit are identity parameters.",
+    parameters: [nameParameter, { name: 'id', in: 'path', required: true, description: 'Exact project-scoped identifier.', schema: stringSchema }],
+    requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/SeoProfileInput' } } } },
+    responses: {
+      200: jsonResponse('SEO response.', 'SeoProfile'),
+      400: errorResponse('Invalid scope or input.'),
+      403: errorResponse('Insufficient authority.'),
+      404: errorResponse('Project or selected evidence not found.'),
+      409: errorResponse('Selection, intent or execution identity changed.'),
+    },
+  },
+  {
+    method: 'post', path: '/api/v1/projects/{name}/seo/refresh-intents',
+    summary: 'Prepare an SEO refresh intent', tags: ['seo'],
+    description: "Pure local preview. Does not reserve funds or call a provider. The opaque expiring intent binds the profile revision, scope, adapter catalog and private policy without exposing financial data.",
+    parameters: [nameParameter],
+    requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/SeoRefreshIntentInput' } } } },
+    responses: {
+      200: jsonResponse('SEO response.', 'SeoQuote'),
+      400: errorResponse('Invalid scope or input.'),
+      403: errorResponse('Insufficient authority.'),
+      404: errorResponse('Project or selected evidence not found.'),
+      409: errorResponse('Selection, intent or execution identity changed.'),
+    },
+  },
+  {
+    method: 'post', path: '/api/v1/projects/{name}/seo/sync',
+    summary: 'Start an explicit SEO refresh', tags: ['seo'],
+    description: "Requires seo.run and an administrator session. The intent token is the complete execution identity. The caller idempotencyKey must be reused for a retry; reusing it for another identity conflicts. All tasks reserve private host policy before dispatch. No implicit refresh occurs on reads.",
+    parameters: [nameParameter],
+    requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/SeoSyncInput' } } } },
+    responses: {
+      200: jsonResponse('SEO response.', 'SeoRun'),
+      202: jsonResponse('SEO refresh accepted.', 'SeoRun'),
+      400: errorResponse('Invalid scope or input.'),
+      403: errorResponse('Insufficient authority.'),
+      404: errorResponse('Project or selected evidence not found.'),
+      409: errorResponse('Selection, intent or execution identity changed.'),
+    },
+  },
+  {
+    method: 'post', path: '/api/v1/projects/{name}/seo/runs/{id}/cancel',
+    summary: 'Cancel an SEO refresh', tags: ['seo'],
+    description: "Requires seo.run and an administrator session. Stops undispatched tasks; already submitted tasks retain their evidence and unresolved liabilities.",
+    parameters: [nameParameter, { name: 'id', in: 'path', required: true, description: 'Exact project-scoped identifier.', schema: stringSchema }],
+    responses: {
+      200: jsonResponse('SEO response.', 'SeoRun'),
+      400: errorResponse('Invalid scope or input.'),
+      403: errorResponse('Insufficient authority.'),
+      404: errorResponse('Project or selected evidence not found.'),
+      409: errorResponse('Selection, intent or execution identity changed.'),
+    },
+  },
   {
     method: 'get',
     path: '/api/v1/openapi.json',
@@ -871,6 +1170,28 @@ const routeCatalog: OpenApiOperation[] = [
     responses: {
       200: jsonResponse('Project updated.', 'ProjectDto'),
       201: jsonResponse('Project created.', 'ProjectDto'),
+    },
+  },
+  {
+    method: 'patch',
+    path: '/api/v1/projects/{name}',
+    summary: 'Update named project fields',
+    description: 'Updates only the named project fields. Omitted fields keep their stored values, measurement lists merge one level, and expectedConfigRevision provides compare-and-swap protection.',
+    tags: ['projects'],
+    parameters: [nameParameter],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: { $ref: '#/components/schemas/ProjectPatchRequest' },
+        },
+      },
+    },
+    responses: {
+      200: jsonResponse('Project updated.', 'ProjectDto'),
+      400: errorResponse('Invalid project patch.'),
+      404: errorResponse('Project not found.'),
+      409: errorResponse('The project revision is stale.'),
     },
   },
   {
@@ -1014,12 +1335,12 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/measurement-report',
     summary: 'Get a revision-pinned measurement report',
-    description: 'Builds the Target, group, and evidence report from the immutable plan revision and either its latest eligible stored run or the exact eligible runId supplied by the caller. Missing run population remains explicit and never triggers live provider execution.',
+    description: 'Builds the Target, group, and evidence report from the immutable plan revision and either its latest eligible stored run or the exact eligible runId supplied by the caller. On a schema v2 revision every rate is taken over one query class, non-brand unless queryClass names another; the response echoes the class it served. Missing run population remains explicit and never triggers live provider execution.',
     tags: ['measurement-plans'],
-    parameters: [nameParameter, measurementReportRevisionParameter, measurementReportRunParameter],
+    parameters: [nameParameter, measurementReportRevisionParameter, measurementReportRunParameter, measurementReportQueryClassParameter],
     responses: {
       200: jsonResponse('Revision-pinned measurement report returned.', 'MeasurementReportResponse'),
-      400: errorResponse('The revision query parameter is invalid.'),
+      400: errorResponse('The revision or queryClass parameter is invalid, or a class was requested for a schema v1 revision.'),
       404: errorResponse('Project, measurement-plan revision, or requested run not found.'),
     },
   },
@@ -1160,6 +1481,22 @@ const routeCatalog: OpenApiOperation[] = [
     request: 'MeasurementDraftApplyPairedAssignmentsRequest',
   }),
   measurementDraftAction({
+    action: 'preview-route-markets',
+    summary: 'Preview exact market engine routing',
+    description: 'Previews provider and model changes for exact edges in the selected markets. Frozen locations and unrelated or shared market edges are preserved.',
+    request: 'MeasurementDraftRouteMarketsRequest',
+    response: 'MeasurementDraftPreviewMarketRoutingResponse',
+    responseDescription: 'Matched market edges and execution impact returned.',
+    readOnly: true,
+    rateLimited: true,
+  }),
+  measurementDraftAction({
+    action: 'route-markets',
+    summary: 'Route selected market edges through an engine',
+    description: 'Changes provider and model identity only for exact edges in the selected markets. It preserves every frozen location and clones contexts shared with an unselected market.',
+    request: 'MeasurementDraftRouteMarketsRequest',
+  }),
+  measurementDraftAction({
     action: 'remove-assignment',
     summary: 'Remove one query assignment from draft Targets',
     description: 'Accepts the compatible singular `targetKey` or a bulk `targetKeys` selection. It removes assignments only; the project query behind them is never deleted.',
@@ -1221,7 +1558,7 @@ const routeCatalog: OpenApiOperation[] = [
   measurementDraftAction({
     action: 'pin-competitor',
     summary: 'Pin an observed Advanced Measurement competitor',
-    description: 'Atomically upserts one competitor into a pending market draft and returns the recomputed draft state. It is guarded by the active published revision, leaves that frozen revision unchanged, and is safe to retry with the same idempotency key.',
+    description: 'Atomically upserts one competitor into a pending market draft and returns the recomputed draft state. It is guarded by the active published revision, leaves that frozen revision unchanged, and is safe to retry with the same idempotency key. A pin is counted next to the tracked competitors, so one that answers to a tracked competitor\'s curated alias (reason `claimed-by-alias`), or whose label or alias overlaps a tracked competitor\'s own domain label or host (reason `other-competitor`), is rejected (400, `rejectedAliases`); upsert-competitor, upsert-group and publish refuse the same new pins and new pin names.',
     request: 'MeasurementDraftPinCompetitorRequest',
     response: 'MeasurementDraftPinCompetitorResponse',
     responseDescription: 'Pending draft competitor pinned; the active published revision is unchanged.',
@@ -1286,14 +1623,16 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/measurement-overview',
     summary: 'Get the scoped measurement overview',
-    description: 'Aggregates one revision-pinned run snapshot for All Properties, a group, or a single Property. This is snapshot ranking only: it never infers a trend or compares evidence across revisions. Without runId the most recent completed run pinned to the active revision is used; once paging begins, the cursor pins that revision, displayed run, evidence snapshot, and result filters. A run pinned to another revision is refused rather than joined, and appended evidence on a mutable named run invalidates its cursor. On a schema v2 plan every Property row carries its metro (the top-level group holding it, or null) and, when it sits in several top-level groups, otherMetros. Metrics are computed before search is applied, and a metric with no evidence is unavailable rather than zero. For coverage sorts, unavailable rows form the first bucket in either direction before available numeric rates follow the requested direction.',
+    description: 'Aggregates one revision-pinned run snapshot for All Properties, a group, a market, or a single Property. A group reads every query its Properties are assigned; a market reads only its own frozen queries, the population the dashboard\'s market view reads, and the response scope names which kind was read. Rates are taken over one query class, non-brand unless queryClass names another; all pools branded with non-brand and is served only when asked for. This is snapshot ranking only: it never infers a trend or compares evidence across revisions. Without runId the most recent completed run pinned to the active revision is used; once paging begins, the cursor pins that revision, displayed run, evidence snapshot, and result filters. A run pinned to another revision is refused rather than joined, and appended evidence on a mutable named run invalidates its cursor. On a schema v2 plan every Property row carries its metro (the top-level group holding it, or null) and, when it sits in several top-level groups, otherMetros. Metrics are computed before search is applied, and a metric with no evidence is unavailable rather than zero. For coverage sorts, unavailable rows form the first bucket in either direction before available numeric rates follow the requested direction.',
     tags: ['measurement-plans'],
     parameters: [
       nameParameter,
-      { name: 'scope', in: 'query', required: true, description: 'Reporting scope.', schema: { type: 'string', enum: ['all', 'group', 'property'] } },
+      { name: 'compact', in: 'query', description: 'Byte-bounded whole-row page; omits optional heavy detail with explicit metadata. Default false for compatibility.', schema: { type: 'boolean' } },
+      { name: 'scope', in: 'query', required: true, description: 'Reporting scope. group is every query of the group\'s Properties; market is only the market\'s own queries.', schema: { type: 'string', enum: ['all', 'group', 'market', 'property'] } },
       { name: 'groupKey', in: 'query', description: 'Group stable key, required when scope is "group".', schema: stringSchema },
+      { name: 'marketKey', in: 'query', description: 'Market stable key (a frozen reporting scope), required when scope is "market" and refused (400) with any other scope.', schema: stringSchema },
       { name: 'targetKey', in: 'query', description: 'Target stable key, required when scope is "property".', schema: stringSchema },
-      { name: 'queryClass', in: 'query', description: 'Restrict to one question class. Never pooled across classes.', schema: { type: 'string', enum: ['all', 'branded', 'non-brand'] } },
+      { name: 'queryClass', in: 'query', description: 'Query class the rates are taken over. Defaults to non-brand; read branded as a separate request. all pools branded and non-brand into one rate.', schema: { type: 'string', enum: ['non-brand', 'branded', 'all'], default: 'non-brand' } },
       { name: 'provider', in: 'query', description: 'Restrict to one answer provider.', schema: stringSchema },
       { name: 'location', in: 'query', description: 'Restrict to one execution location label.', schema: stringSchema },
       { name: 'from', in: 'query', description: 'Inclusive start of the window (YYYY-MM-DD).', schema: stringSchema },
@@ -1332,12 +1671,12 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get', path: '/api/v1/projects/{name}/sentiment/evidence', summary: 'Read verbatim sentiment evidence', tags: ['sentiment'],
-    parameters: [nameParameter, ...sentimentSelectionParameters, { name: 'assessmentId', in: 'query', description: 'Exact stored assessment within the authorized source, subject, scope, and evaluator selection. Does not widen access.', schema: stringSchema }, { name: 'cursor', in: 'query', description: 'Opaque cursor bound to every selection field and resolved evaluator ID.', schema: stringSchema }, { name: 'limit', in: 'query', description: 'Page size only; does not change assessment identity.', schema: { type: 'integer', minimum: 1, maximum: 100, default: 50 } }],
+    parameters: [nameParameter, ...sentimentSelectionParameters, { name: 'assessmentId', in: 'query', description: 'Exact stored assessment within the authorized source, subject, scope, and evaluator selection. Does not widen access.', schema: stringSchema }, { name: 'outcome', in: 'query', description: 'Outcomes to keep, repeated or comma-separated (for example mixed,unfavorable). Narrows the page to assessments with these outcomes; never changes how they were scored.', style: 'form', explode: true, schema: { type: 'array', items: { type: 'string', enum: [...sentimentOutcomeSchema.options] }, minItems: 1 } }, { name: 'cursor', in: 'query', description: 'Opaque cursor bound to every selection field and resolved evaluator ID.', schema: stringSchema }, { name: 'limit', in: 'query', description: 'Page size only; does not change assessment identity.', schema: { type: 'integer', minimum: 1, maximum: 100, default: 50 } }],
     responses: { 200: jsonResponse('Stored answer-subject evidence page.', 'SentimentEvidencePage'), 400: errorResponse('Invalid cursor or selection.'), 404: errorResponse('Project or selected source not found.') },
   },
   {
     method: 'get', path: '/api/v1/projects/{name}/sentiment/compare', summary: 'Compare compatible stored sentiment periods', tags: ['sentiment'],
-    parameters: [nameParameter, ...sentimentSelectionParameters, ...['fromRunId', 'toRunId'].map(name => ({ name, in: 'query' as const, required: true, description: 'Exact source run for this period.', schema: stringSchema }))],
+    parameters: [nameParameter, ...sentimentSelectionParameters, ...['fromRunId', 'toRunId'].map(name => ({ name, in: 'query' as const, required: true, description: name === 'fromRunId' ? 'Exact source run or previous-rated to resolve the preceding rated run in this scope. Identical run IDs are refused.' : 'Exact target run for this period.', schema: stringSchema }))],
     responses: { 200: jsonResponse('Matched units, exclusions, and conservative comparison or refusal reasons.', 'SentimentComparison'), 400: errorResponse('Invalid comparison selection.'), 404: errorResponse('Project or selected source not found.') },
   },
   {
@@ -1390,7 +1729,7 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/measurement-property-evidence',
     summary: 'Page one Property\'s evidence',
-    description: 'Returns the evidence rows for exactly one Property out of one revision-pinned run, optionally narrowed to a question class, provider, or location. shape chooses what a row is: sources (the default) is one row per cited URL, answers is one row per measured answer with its cited URLs nested inside. Prefer answers to explain a gap — an answer that mentioned the Property without linking it, or that named nobody, has no URL to hang a source row on and is invisible in the default shape. Run selection matches the overview: the most recent completed run pinned to the active revision unless runId names another. Use this rather than GET /measurement-report when you want one Property — the report reconstructs every group and Target for a revision and does not paginate. Not available for a schema v1 revision, which records no question class to scope by. An empty page under measurement.state = not_measured means the Property has not been measured, which is not the same statement as a measured Property with no evidence.',
+    description: 'Returns the evidence rows for exactly one Property out of one revision-pinned run, optionally narrowed to a question class, provider, or location. shape chooses what a row is: sources (the default) is one row per cited URL, answers is one row per measured answer with its cited URLs nested inside, other-queries is one row per answer to a query not assigned to this Property that cited its pages (outside its rates). Prefer answers to explain a gap — an answer that mentioned the Property without linking it, or that named nobody, has no URL to hang a source row on and is invisible in the default shape. Run selection matches the overview: the most recent completed run pinned to the active revision unless runId names another. Use this rather than GET /measurement-report when you want one Property — the report reconstructs every group and Target for a revision and does not paginate. Not available for a schema v1 revision, which records no question class to scope by. An empty page under measurement.state = not_measured means the Property has not been measured, which is not the same statement as a measured Property with no evidence.',
     tags: ['measurement-plans'],
     parameters: [
       nameParameter,
@@ -1414,16 +1753,20 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/measurement-portfolio-summary',
     summary: 'Get the weakest measured Properties',
-    description: 'Returns a compact, revision-pinned portfolio ranking from stored results, plus a worst-first market roll-up. It defaults to non-brand queries, ranks measured mention coverage before citation coverage, and keeps unavailable rows separate from measured weakness. Every Property row carries its metro, submarkets and query count; weakest rows also carry namedInsteadInAnswerText (names written in the answer text of answers that neither named nor cited the Property, counted by answer) and citedDomains (domains cited by the Property\'s answers, counted by answer, every engine included). tiedAtWeakest reports Properties sharing the weakest rates; over the whole tie, not just the returned rows, byMetro counts the tied Properties per metro label (a Property in two metros counts in both) and namedInstead ranks the names written in the answer text of the tie\'s answers that neither named nor cited the Property (distinct answers, never citations). weakestAnswerSources ranks the domains cited across the weakest and tied Properties, each answer once. markets holds one level by default (every top-level market, or every direct child of the selected group), worst-first and never capped by limit; includeNestedMarkets returns every level. Every market is scoped to the displayed run, so a market row matches that market read with groupKey; markets may share Properties and never sum to the portfolio totals. It never starts provider work.',
+    description: 'Returns a compact, revision-pinned portfolio ranking from stored results, plus a worst-first market roll-up. It defaults to non-brand queries, ranks measured mention coverage before citation coverage, and keeps unavailable rows separate from measured weakness. Every Property row carries its metro, submarkets and query count; weakest rows also carry namedInsteadInAnswerText (names written in the answer text of answers that neither named nor cited the Property, counted by answer) and citedDomains (domains cited by the Property\'s answers, counted by answer, every engine included). tiedAtWeakest reports Properties sharing the weakest rates; over the whole tie, not just the returned rows, byMetro counts the tied Properties per metro label (a Property in two metros counts in both) and namedInstead ranks the names written in the answer text of the tie\'s answers that neither named nor cited the Property (distinct answers, never citations). weakestAnswerSources ranks the domains cited across the weakest and tied Properties, each answer once. markets holds one level by default (top-level markets, or direct children of the selected group), worst-first; raw reads return all markets and compact reads return bounded summaries or list=markets pages. includeNestedMarkets selects every level. propertiesNeverMentioned counts zero mentions even if a Property was cited. tiedAtWeakest requires both zero mentions and zero citations. Compact nextCursor advances only pageList, default weakest-properties. Other default first-page lists are bounded summaries and later pages omit their row bodies. list selects one complete ranking, market or evidence list without repeating sibling rows; totals stay complete. List, filters, revision, run and evidence are bound to the cursor; limit may change. Every market is scoped to the displayed run, so a market row matches that market read with groupKey; markets may share Properties and never sum to the portfolio totals. It never starts provider work.',
     tags: ['measurement-plans'],
     parameters: [
       nameParameter,
+      { name: 'compact', in: 'query', description: 'Byte-bounded whole-row page of pageList, default weakest-properties. Other initial lists are bounded summaries. Default false for compatibility.', schema: { type: 'boolean' } },
+      { name: 'cursor', in: 'query', description: 'nextCursor from the preceding compact page; keep every selection unchanged.', schema: stringSchema },
+      { name: 'list', in: 'query', description: 'Compact page selection identity; enumerate this list only and omit sibling row lists. observed-names and cited-domains require answers=not-mentioned. Keep unchanged across cursors.', schema: { type: 'string', enum: ['weakest-properties', 'strongest-mentions', 'weakest-mentions', 'excluded-mentions', 'markets', 'observed-names', 'cited-domains'] } },
+      { name: 'answers', in: 'query', description: 'Competitor evidence population. not-mentioned excludes every answer naming any targeted Property.', schema: { type: 'string', enum: ['all', 'not-mentioned'] } },
       { name: 'groupKey', in: 'query', description: 'Optional reporting group stable key.', schema: stringSchema },
       { name: 'queryClass', in: 'query', description: 'Question class. Defaults to non-brand.', schema: { type: 'string', enum: ['all', 'branded', 'non-brand'], default: 'non-brand' } },
       { name: 'provider', in: 'query', description: 'Restrict to one answer provider.', schema: stringSchema },
       { name: 'location', in: 'query', description: 'Restrict to one execution location label.', schema: stringSchema },
       { name: 'runId', in: 'query', description: 'Read this completed or partial active-revision run, including a named spot check.', schema: stringSchema },
-      { name: 'limit', in: 'query', description: 'Caps the Property lists only: weakest Properties and both mention rankings. Markets are never capped. Defaults to 4, maximum 50.', schema: { type: 'integer', minimum: 1, maximum: 50 } },
+      { name: 'limit', in: 'query', description: 'Compact selected-list page size: auto-sized up to 50 by default; the byte budget may return fewer whole rows. Raw reads default to 4 Property rows and never cap markets.', schema: { type: 'integer', minimum: 1, maximum: 50 } },
       { name: 'includeNestedMarkets', in: 'query', description: 'Return every market in scope at every level. Defaults to false: one level (every top-level market, or every direct child of the selected group).', schema: { type: 'boolean' } },
     ],
     responses: {
@@ -1500,14 +1843,14 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/measurement-changes',
     summary: 'Compare the latest two comparable measurements',
-    description: 'Compares stored runs only when plan revision, execution identity, and full-or-spot-check scope agree. Deltas are current minus previous; it never crosses a revision or silently joins an engine/model change. changedProperties is ordered by the size of each move unless sort=label, and each row carries signed answer-count deltas, denominatorChanged (a metric was taken over a different number of answers, so its delta is not like for like) and withinNoise (every move is at most 2 answers). A move is the rate change times the larger of the two answer counts, the answer-count delta whenever the denominator held, so a falling rate never reads as a gain and a collapse never reads as noise. distribution buckets every Property in scope, not just the returned rows. With queryClass all, metricsByClass reports branded and non-brand beside the pooled metrics.',
+    description: 'Compares stored runs only when plan revision, execution identity, and full-or-spot-check scope agree. Deltas are current minus previous; it never crosses a revision or silently joins an engine/model change. changedProperties is ordered by the size of each move unless sort=label, and each row carries signed answer-count deltas, denominatorChanged (a metric was taken over a different number of answers, so its delta is not like for like) and withinNoise (every move is at most 2 answers). A move is the rate change times the larger of the two answer counts, the answer-count delta whenever the denominator held, so a falling rate never reads as a gain and a collapse never reads as noise. distribution buckets every Property in scope, not just the returned rows. Rates are taken over non-brand queries unless queryClass names another class. With queryClass all, the metrics, rows and distribution pool branded with non-brand, and metricsByClass reports each class beside them.',
     tags: ['measurement-plans'],
     parameters: [
       nameParameter,
       { name: 'scope', in: 'query', description: 'Reporting scope. Defaults to all.', schema: { type: 'string', enum: ['all', 'group', 'property'], default: 'all' } },
       { name: 'groupKey', in: 'query', description: 'Required for group scope.', schema: stringSchema },
       { name: 'targetKey', in: 'query', description: 'Required for Property scope.', schema: stringSchema },
-      { name: 'queryClass', in: 'query', description: 'Question class. Defaults to all.', schema: { type: 'string', enum: ['all', 'branded', 'non-brand'], default: 'all' } },
+      { name: 'queryClass', in: 'query', description: 'Query class. Defaults to non-brand; read branded as a separate request. all pools both classes.', schema: { type: 'string', enum: ['non-brand', 'branded', 'all'], default: 'non-brand' } },
       { name: 'provider', in: 'query', description: 'Restrict both runs to one answer provider.', schema: stringSchema },
       { name: 'location', in: 'query', description: 'Restrict both runs to one execution location label.', schema: stringSchema },
       { name: 'runId', in: 'query', description: 'Use this completed or partial run as the current side.', schema: stringSchema },
@@ -1823,7 +2166,7 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      200: jsonResponse('Default location updated.', 'ProjectDto'),
+      200: jsonResponse('Default location updated.', 'ProjectDefaultLocationResponse'),
       400: errorResponse('Invalid location.'),
       404: errorResponse('Project not found.'),
     },
@@ -1833,9 +2176,15 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/export',
     summary: 'Export a project as config',
     tags: ['projects'],
-    parameters: [nameParameter],
+    parameters: [nameParameter, {
+      name: 'includeSecrets',
+      in: 'query',
+      description: 'Include webhook URLs. Requires administrator authority or a wildcard API key.',
+      schema: booleanSchema,
+    }],
     responses: {
-      200: jsonResponse('Project configuration returned.', 'ProjectConfig'),
+      200: jsonResponse('Project configuration returned.', 'ProjectConfigExport'),
+      403: errorResponse('Webhook URLs require administrator authority.'),
       404: errorResponse('Project not found.'),
     },
   },
@@ -2031,7 +2380,7 @@ const routeCatalog: OpenApiOperation[] = [
             type: 'object',
             required: ['provider'],
             properties: {
-              provider: { type: 'string', enum: ['gemini', 'openai', 'claude', 'perplexity', 'muse', 'local'] },
+              provider: queryGenerationProviderSchema,
               count: integerSchema,
             },
           },
@@ -2039,7 +2388,7 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      200: rawJsonResponse('Query suggestions returned.', { type: 'object', properties: { suggestions: { type: 'array', items: { type: 'string' } } } }),
+      200: jsonResponse('Query suggestions returned.', 'QueryGenerateResponse'),
       501: errorResponse('Query generation is not available.'),
     },
   },
@@ -2140,7 +2489,7 @@ const routeCatalog: OpenApiOperation[] = [
             type: 'object',
             required: ['provider'],
             properties: {
-              provider: { type: 'string', enum: ['gemini', 'openai', 'claude', 'perplexity', 'muse', 'local'] },
+              provider: queryGenerationProviderSchema,
               count: integerSchema,
             },
           },
@@ -2148,8 +2497,7 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      // TODO: Add `KeywordGenerateResponse` Zod schema (`{ suggestions: string[] }`) in contracts.
-      200: rawJsonResponse('Legacy keyword suggestions returned.', looseObjectSchema),
+      200: jsonResponse('Legacy keyword suggestions returned.', 'KeywordGenerateResponse'),
       501: errorResponse('Legacy keyword generation is not available.'),
     },
   },
@@ -2167,6 +2515,7 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'put',
     path: '/api/v1/projects/{name}/competitors',
     summary: 'Replace competitors',
+    description: 'Replaces the tracked competitor domain set. A domain that stays keeps its row and its curated aliases; use PUT /projects/{name}/competitors/{domain}/aliases to change aliases. A new domain whose name overlaps another competitor\'s curated alias (one brand key contains the other, so the alias "Tune" claims `tunespoke.example`), or the label or a curated alias of a competitor an Advanced market pins (active revision, pending draft, or a superseded revision the project\'s runs were measured under; the rejection carries `markets` and, for a superseded revision, `supersededRevision`), is rejected (400, reason `claimed-by-alias`) until that name is removed, and a new domain that is the project\'s own site, a subdomain of it or a parent of an owned domain is rejected (400).',
     tags: ['competitors'],
     parameters: [nameParameter],
     requestBody: {
@@ -2178,6 +2527,7 @@ const routeCatalog: OpenApiOperation[] = [
             required: ['competitors'],
             properties: {
               competitors: stringArraySchema,
+              acknowledgeBulkAdd: { type: 'boolean', description: 'Acknowledge a measured project bulk-add guard when the trailing 24-hour growth exceeds the contract threshold.' },
             },
           },
         },
@@ -2191,31 +2541,114 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'post',
     path: '/api/v1/projects/{name}/competitors',
     summary: 'Append competitors',
+    description: 'Adds competitors not already tracked. Each entry is a domain or `{ domain, aliases }`; stated aliases are added to that competitor\'s curated alias list (also for an already-tracked domain) and must pass the alias rules (at most 10 per competitor, 80 characters each, at least 3 letters or digits, and no brand key that contains, or sits inside, one of the project\'s own names or hosts or another competitor\'s name, because answers may split or join the words: "Tune" cannot belong to one competitor while another answers to "Tune Spoke", "TuneSpoke" or `tunespoke.example`). A competitor an Advanced market pins (active revision, pending draft, or a superseded revision the project\'s runs were measured under, named in `supersededRevision`) counts as another competitor: an alias overlapping its label, aliases, domain label or host is rejected with reason `market-competitor` and the pinning group keys in `markets`, and a stored alias that already overlaps one is dropped and audited. A bare domain leaves stored aliases unchanged. A new domain whose name overlaps another competitor\'s curated alias, or a pin\'s label or curated alias, that way is rejected (400, reason `claimed-by-alias`) until that name is removed, and a new domain that is the project\'s own site, a subdomain of it or a parent of an owned domain is rejected (400).',
     tags: ['competitors'],
     parameters: [nameParameter],
     requestBody: {
       required: true,
       content: {
         'application/json': {
-          schema: {
-            type: 'object',
-            required: ['competitors'],
-            properties: {
-              competitors: stringArraySchema,
-            },
-          },
+          schema: { $ref: '#/components/schemas/CompetitorAppendRequest' },
         },
       },
     },
     responses: {
       200: jsonArrayResponse('Competitors appended.', 'CompetitorDto'),
-      400: errorResponse('Invalid competitor append request.'),
+      400: errorResponse('Invalid competitor append request or competitor aliases.'),
+    },
+  },
+  {
+    method: 'put',
+    path: '/api/v1/projects/{name}/competitors/{domain}/aliases',
+    summary: 'Set competitor aliases',
+    description: 'Sets one tracked competitor\'s operator-curated aliases exactly (`[]` clears): the names it goes by in answer text when they differ from its domain. Every competitor mention matcher (mention share, competitor landscape, mention gaps, run and history signals) layers them onto the domain label at read time; stored per-snapshot competitor columns are recomputed (after the response on local serve, inside the request on Cloud), and frozen Simple run definitions and Advanced plan revisions keep the identity they were measured with. Names detected automatically from the project\'s stored answers (`autoAliases`) are matched the same way; a curated alias always wins, so an auto name the new list overlaps is dropped, never the write. Aliases are trimmed and deduplicated case-insensitively; at most 10, each 80 characters or fewer with at least 3 letters or digits, and no brand key (letters and digits, case and punctuation folded) that contains, or sits inside, one of the project\'s own names or hosts or a name another tracked competitor answers to (its aliases, domain label or written host), because answers may split or join the words: "Tune" cannot belong to one competitor while another answers to "Tune Spoke", "TuneSpoke" or `tunespoke.example`, and joined-word lookalikes ("Tune" and "Tuner") are refused too. A competitor an Advanced market pins (active revision, pending draft, or a superseded revision the project\'s runs were measured under, named in `supersededRevision`, since those runs are still scored with it) counts as another competitor: an overlap with its label, aliases, domain label or host is rejected with reason `market-competitor` and the pinning group keys in `markets`, and another competitor\'s stored alias that already overlaps one is dropped and audited. Idempotent: an unchanged list writes nothing.',
+    tags: ['competitors'],
+    parameters: [nameParameter, competitorDomainParameter],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: { $ref: '#/components/schemas/CompetitorAliasesRequest' },
+        },
+      },
+    },
+    responses: {
+      200: jsonResponse('Competitor with its updated aliases returned.', 'CompetitorDto'),
+      400: errorResponse('Invalid competitor aliases.'),
+      404: errorResponse('Project or competitor not found.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/competitor-auto-aliases',
+    summary: 'Preview answer-derived competitor aliases',
+    description: 'Dry run of automatic competitor alias detection. Reads only the project\'s stored answers (the newest 60 completed or partial answer-visibility runs and at most 6000 snapshots, stopping inside a run when the cap falls there; probe runs excluded): never a provider, never a competitor\'s website. A name is paired with a competitor when the answer ties it to that competitor\'s site (a provider citation anchoring the name to a page on the domain, a named link `[Name](https://competitor.example/...)`, or `Name (competitor.example)`). An answer names a candidate only where it writes it outside the competitor\'s longer names (its domain label, a curated alias, a longer stored name, and for a competitor only an Advanced market pins its plan label and aliases), so a truncation of the brand never borrows the brand\'s evidence. A name is applied when it is paired in at least 2 answers from at least 2 sweeps (runs started together, one multi-location sweep, count once), at least 3 answers name it, at least 10% of those answers cite the competitor (precision), the competitor is cited at least 3 times as often in answers naming it as in answers that do not (lift, which is what rejects a generic phrase a much-cited competitor sits next to), at least 75% of those answers write it capitalized as a name, it reads as a business name and not as a place ("Larkfield, CO", "Larkfield, Colorado", "Oakvale County", "Metro Larkfield", "West LA"), its brand key has at least 4 letters or digits, this competitor holds at least twice the pairings of any other tracked competitor, and the name visibly belongs to the domain (label affinity: consecutive whole words of it spell the domain label; a name of two or more words opens the label whole, at its start or right after a lead word such as "my" or "get", and covers at least half of it; two or more of its words sit back to back in the label from that opening and cover at least half of it, one of them 4 or more letters long and inside fewer than two tracked identity labels, the project\'s and every competitor\'s; or a name of two or more words is an in-order abbreviation of the label that opens like it, with the same first 4 letters or a first word of 3 or more letters the label starts with. One shared word is never affinity unless it is the whole label). New names fill the cap of 10 per competitor strongest evidence first; a name the competitor\'s domain label, curated aliases, kept auto names or its own active or draft market pin already cover is not learned (`already-matched`), and a name built on an accepted shorter one is `subsumed`. Candidates that pass everything but label affinity (`no-label-affinity`) or the 4-character floor (`needs-approval`) are listed as `review` only, for an operator to verify and add as curated aliases. Review names are checked at the 3-character floor against the project\'s names and hosts, other competitors\' domain labels, hosts and curated aliases, market pins of another domain, blocks, and the competitor\'s own names and planned auto names; unlike applied names, they are not checked against other competitors\' auto-detected names. Applied names pass the same identity rules as curated aliases; curated aliases and blocked names always win. Stored names are re-checked against the scanned answers on every pass (see the POST). Concurrent dry runs of one project share one scan. Writes nothing, in every `competitorAutoAliases` mode.',
+    tags: ['competitors'],
+    parameters: [nameParameter],
+    responses: {
+      200: jsonResponse('What detection would store, per competitor, with evidence.', 'CompetitorAutoAliasDetectionDto'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/competitor-auto-aliases',
+    summary: 'Detect and apply answer-derived competitor aliases',
+    description: 'Runs the detection `GET /projects/{name}/competitor-auto-aliases` previews and stores the result, in every `competitorAutoAliases` mode: a one-off apply. The server\'s own unattended pass (queued after every completed or partial non-probe answer-visibility run, a competitor add, an unblock and a market pin write that changes the pins; never after a curated alias edit, a removal, a block or a project edit) stores names only for a project in `apply` mode; in `preview` (every project\'s default) it logs what it would add or remove and stores nothing, and in `off` it does not run. A storing pass and this request share one per-project queue, so they never run side by side, and this returns the result of a pass that started after the request. Stored names are sticky: one is removed only when blocked; claimed by identity (the competitor\'s own curated aliases or domain label already cover it; it overlaps the project\'s names or hosts, `project-brand`; or it overlaps another competitor\'s domain label, host or curated alias, a market pin of another domain, or, after an identity change, another competitor\'s stored auto name that resolves first (tracked competitors before market-only ones, each in domain order), `other-competitor`); replaced by an accepted shorter name it is built on (`subsumed`); or contradicted by the scanned answers: named in at least 3, and cited in under 5% of them, a lift under 1.5, or written as a name in under half; another tracked competitor now pairing it in at least 2 answers and at least twice as often (`other-competitor-dominates`); or no label affinity left, judged on the stored spelling (`no-label-affinity`). A tracked competitor\'s own market pin never removes a stored name; a market-only competitor\'s active pin names are its curated names and do (`already-matched`). Idempotent: unchanged answers write nothing. A change to the names is audited twice: the pass as `competitors.auto-aliases-updated` (actor `system`) and this request as `competitors.auto-aliases-apply-requested` with the caller\'s principal. It recomputes the stored per-snapshot competitor columns in the background and restates every period\'s competitor counts and, for a tracked competitor, share of voice: `competitorIdentityChangedAt` on the competitor landscape, project-frame `visibility-compare` and the analytics metrics marks when. Competitor names do not break comparison with the previous sweep: the Simple definition identity that gates it leaves them out.',
+    tags: ['competitors'],
+    parameters: [nameParameter],
+    responses: {
+      200: jsonResponse('What detection stored, per competitor, with evidence.', 'CompetitorAutoAliasDetectionDto'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/competitors/{domain}/aliases/block',
+    summary: 'Block competitor auto-aliases',
+    description: 'Blocks names from answer-derived auto-detection for one competitor: a tracked competitor, else a competitor the active Advanced plan pins without tracking it, else a domain with stored `market_competitor_names` (names learned for a pin a later revision dropped, or the blocked names a removed competitor left). A blocked name is never auto-applied again until unblocked, and a stored auto name among them is removed now (the stored competitor columns are then recomputed in the background). Blocks survive removing the competitor: a later add of the same domain, or promotion of a market-only pin, starts with them. Names compare by brand key, so case, spacing and punctuation variants are one name. A curated alias cannot be blocked (400); remove it with `PUT /projects/{name}/competitors/{domain}/aliases`. A name the measurement plan\'s own pin of that competitor carries (active revision or pending draft) cannot be blocked either (400, details `{ domain, pinned, marketKeys }`): the pin keeps counting it, so change the pin\'s names in a measurement draft. At most 50 blocked names per competitor. Idempotent.',
+    tags: ['competitors'],
+    parameters: [nameParameter, competitorDomainParameter],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: { $ref: '#/components/schemas/CompetitorAliasBlockRequest' },
+        },
+      },
+    },
+    responses: {
+      200: jsonResponse('Competitor with its updated blocked and auto-detected names returned.', 'CompetitorDto'),
+      400: errorResponse('Invalid names, more than 50 blocked names, or a name is a curated alias or a name of the plan\'s own pin of this competitor.'),
+      404: errorResponse('Project not found, or the domain is not a tracked competitor, an active market pin, or a domain with stored market competitor names.'),
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/competitors/{domain}/aliases/unblock',
+    summary: 'Unblock competitor auto-aliases',
+    description: 'Releases blocked names back to answer-derived auto-detection for one competitor (the same targets as the block). The unblock stores nothing new: a detection pass is requested, and it stores a name only for a project in `apply` mode and only if the stored answers still support it (in `preview` it logs, in `off` it does not run; `POST /projects/{name}/competitor-auto-aliases` stores now). A learned name still stored for a market-only competitor counts again at once. Idempotent.',
+    tags: ['competitors'],
+    parameters: [nameParameter, competitorDomainParameter],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: { $ref: '#/components/schemas/CompetitorAliasBlockRequest' },
+        },
+      },
+    },
+    responses: {
+      200: jsonResponse('Competitor with its updated blocked names returned.', 'CompetitorDto'),
+      400: errorResponse('Invalid names.'),
+      404: errorResponse('Project not found, or the domain is not a tracked competitor, an active market pin, or a domain with stored market competitor names.'),
     },
   },
   {
     method: 'delete',
     path: '/api/v1/projects/{name}/competitors',
     summary: 'Delete specific competitors',
+    description: 'Removes every stored row that is one of the listed competitors in any spelling (`www.`, a subdomain, or a row stored as a subdomain), and records their curated, auto-detected and blocked names on the audit row.',
     tags: ['competitors'],
     parameters: [nameParameter],
     requestBody: {
@@ -2256,6 +2689,7 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['analytics', 'competitors'],
     parameters: [
       nameParameter,
+      { name: 'answers', in: 'query', description: 'not-mentioned selects only answers where none of their targeted subjects was named. all or omitted keeps the full population; answerSelection reports population and selected counts.', schema: { type: 'string', enum: ['all', 'not-mentioned'] } },
       analyticsWindowParameter,
       competitorLandscapeGroupKeyParameter,
       competitorLandscapeScopeParameter,
@@ -2270,6 +2704,47 @@ const routeCatalog: OpenApiOperation[] = [
       200: jsonResponse('Stored competitor landscape returned.', 'CompetitorLandscapeResponse'),
       400: errorResponse('The landscape filters or Advanced Measurement group are invalid.'),
       404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/competitor-suggestions',
+    summary: 'Suggest competitors from stored evidence',
+    description: 'Returns evidence-backed competitor candidates from stored answer text and same-answer cited domains. This is a stored-evidence read: it never calls a provider, discovery, live classification, or write path. A cited domain without answer naming is excluded as a source, and queryClass defaults to non-brand for Advanced frozen assignments or a usable Simple project brand alias, and pooled all otherwise. Advanced scope defaults to all markets; groupKey selects one market.',
+    tags: ['competitors'],
+    parameters: [
+      nameParameter,
+      analyticsWindowParameter,
+      { name: 'minAnswers', in: 'query', description: 'Minimum answer count for a suggested candidate. Defaults to 3.', schema: { type: 'integer', minimum: 1, maximum: 1000 } },
+      { name: 'queryClass', in: 'query', description: 'One query population. Defaults to non-brand when the project can classify queries, otherwise all pooled.', schema: { type: 'string', enum: ['non-brand', 'branded', 'all'] } },
+      { ...competitorLandscapeGroupKeyParameter, description: 'Select one Advanced market by group key. Omit for all markets; Simple projects use project scope.' },
+      { name: 'limit', in: 'query', description: 'Maximum candidate rows returned. Defaults to 25 and is capped at 100.', schema: { type: 'integer', minimum: 1, maximum: 100 } },
+    ],
+    responses: {
+      200: jsonResponse('Stored-evidence competitor suggestions returned.', 'CompetitorSuggestionsResponse'),
+      400: errorResponse('Invalid suggestion filters or query class.'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/competitor-changes/preview',
+    summary: 'Preview competitor identity impact',
+    description: 'Read-only preview of the stored competitor identity and the resulting latest-sweep competitor landscape share. It performs no write, audit, provider, or discovery operation.',
+    tags: ['competitors'],
+    parameters: [nameParameter],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: { $ref: '#/components/schemas/CompetitorChangePreviewRequest' },
+        },
+      },
+    },
+    responses: {
+      200: jsonResponse('Competitor change preview returned.', 'CompetitorChangePreviewResponse'),
+      400: errorResponse('Invalid competitor change or stored identity plan.'),
+      404: errorResponse('Project or competitor not found.'),
     },
   },
   {
@@ -2300,19 +2775,35 @@ const routeCatalog: OpenApiOperation[] = [
               allLocations: booleanSchema,
               noLocation: booleanSchema,
               dispatchMode: dispatchModeRequestSchema,
+              force: {
+                type: 'boolean',
+                description: 'Call every provider: queue the run even when it would be refused with PROVIDERS_FAILING, and skip no provider '
+                  + 'that keeps failing on its account. Admission only; never stored.',
+              },
             },
           },
         },
       },
     },
     responses: {
-      201: jsonResponse('Run queued.', 'RunDto'),
+      201: jsonResponse(
+        'Run queued. `skippedProviders` names each provider it will not call because that provider failed on its account '
+        + `in each of its last ${PROVIDER_ACCOUNT_FAILURE_STREAK} runs (until its \`retryAfter\`); the run calls the rest and ends partial.`,
+        'RunDto',
+      ),
       400: errorResponse(
         'Invalid request: an untracked query, a measurement scope naming a group/target/question the published plan does not contain, '
         + 'a scope combined with a query list, a per-run location on a plan project, a provider roster the plan was not published for, '
         + 'or `dispatchMode: "batch"` when no provider of the run can batch (`details.ineligible` names each provider\'s reason).',
       ),
-      422: errorResponse('Project has no tracked queries.'),
+      422: errorResponse(
+        'NO_QUERIES: the project has no tracked queries. PROVIDERS_FAILING: every provider the run would call failed on its '
+        + `account (rejected key, denied access, no credit) in each of its last ${PROVIDER_ACCOUNT_FAILURE_STREAK} runs. `
+        + '`details.providers` names each provider\'s code and `details.retryAfter` when one run is let through again '
+        + `(${PROVIDER_ACCOUNT_RETRY_HOURS}h after a provider's newest failure; the run then calls only the providers due a retry). `
+        + 'Saving a new key, model or endpoint in a provider\'s settings lets the next run through at once, a probe is never '
+        + 'refused, and `force: true` overrides. When only some providers keep failing, the run is queued without them instead.',
+      ),
       409: errorResponse('Run already in progress.'),
       503: errorResponse('No runnable answer provider is configured.'),
     },
@@ -2322,7 +2813,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/runs',
     summary: 'List project runs',
     tags: ['runs'],
-    parameters: [nameParameter, limitQueryParameter, runsListKindQueryParameter, runsListStatusQueryParameter],
+    parameters: [nameParameter, limitQueryParameter, runsListKindQueryParameter, runsListExcludeKindQueryParameter, runsListExcludeKindsQueryParameter, runsListStatusQueryParameter, projectRunsSinceQueryParameter],
     responses: {
       200: jsonArrayResponse('Runs returned.', 'RunDto'),
     },
@@ -2331,10 +2822,37 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/runs/latest',
     summary: 'Get the latest project run',
+    description: 'The newest non-probe run, the run count, and `admission`: whether the next full sweep would be refused '
+      + '(PROVIDERS_FAILING) and which providers it would skip because each keeps failing on its account, with their codes '
+      + 'and `retryAfter`. `admission` uses the scheduled roster; `manualAdmission` describes an unfiltered manual launch. '
+      + 'A scheduled sweep that is refused leaves no run, so read `admission`, not the latest run, to tell.',
     tags: ['runs'],
     parameters: [nameParameter],
     responses: {
       200: jsonResponse('Latest run returned.', 'LatestProjectRunDto'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/run-admission',
+    summary: 'Get whether the next sweep would be admitted',
+    description: 'The `admission` or `manualAdmission` of `/projects/{name}/runs/latest` without the latest run: whether the next full sweep would '
+      + 'be refused (PROVIDERS_FAILING) and which providers it would skip because each failed on its account in each of its '
+      + `last ${PROVIDER_ACCOUNT_FAILURE_STREAK} runs, with each provider's code and \`retryAfter\`.`,
+    tags: ['runs'],
+    parameters: [
+      nameParameter,
+      {
+        name: 'selection',
+        in: 'query',
+        description: 'Read-selection identity: scheduled (default) uses the enabled schedule\'s providers; manual uses the '
+          + 'unfiltered manual launch\'s project or instance providers. Both use an Advanced revision\'s frozen engines.',
+        schema: { type: 'string', enum: ['manual', 'scheduled'], default: 'scheduled' },
+      },
+    ],
+    responses: {
+      200: jsonResponse('Run admission returned.', 'RunAdmissionDto'),
+      400: errorResponse('Invalid admission selection.'),
     },
   },
   {
@@ -2347,6 +2865,8 @@ const routeCatalog: OpenApiOperation[] = [
       runsListSinceQueryParameter,
       runsListIncludeProbeQueryParameter,
       runsListKindQueryParameter,
+      runsListExcludeKindQueryParameter,
+      runsListExcludeKindsQueryParameter,
       runsListStatusQueryParameter,
     ],
     responses: {
@@ -2367,6 +2887,11 @@ const routeCatalog: OpenApiOperation[] = [
               kind: stringSchema,
               providers: stringArraySchema,
               dispatchMode: dispatchModeRequestSchema,
+              force: {
+                type: 'boolean',
+                description: 'Call every provider: queue projects that would be refused with PROVIDERS_FAILING, and skip no '
+                  + 'provider that keeps failing on its account. Admission only; never stored.',
+              },
             },
           },
         },
@@ -2376,8 +2901,8 @@ const routeCatalog: OpenApiOperation[] = [
       // TODO: Add `TriggerAllRunsResponse` Zod schema in contracts.
       207: rawJsonResponse(
         'One row per project: either a queued run or an error for that project alone. A project that cannot be measured '
-        + '(for example one whose published measurement plan expects a different number of answers per question) never '
-        + 'prevents or hides the others.',
+        + '(for example one whose published measurement plan expects a different number of answers per question, or one '
+        + 'whose providers all keep failing on their accounts: `errorCode: PROVIDERS_FAILING`) never prevents or hides the others.',
         { type: 'array', items: looseObjectSchema },
       ),
       400: errorResponse('Invalid request: an unknown provider name, or an unsupported run kind.'),
@@ -2387,6 +2912,7 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/runs/{id}',
     summary: 'Get a run and its snapshots',
+    description: 'Includes independent citation and mention counts over distinct observed query IDs in this exact run. queryCounts is null when any snapshot lacks query identity; these counts are not planned-slot completeness.',
     tags: ['runs'],
     parameters: [runIdParameter],
     responses: {
@@ -2468,6 +2994,26 @@ const routeCatalog: OpenApiOperation[] = [
     },
   },
   {
+    method: 'post',
+    path: '/api/v1/apply/preview',
+    summary: 'Preview a Canonry config document',
+    description: 'Validate and simulate a config apply. The transaction is rolled back before the response and no audit rows, callbacks, or database writes persist. Webhook validation still resolves DNS to preserve the real apply verdict.',
+    tags: ['config'],
+    requestBody: {
+      required: true,
+      description: 'Canonry project configuration as JSON.',
+      content: {
+        'application/json': {
+          schema: { $ref: '#/components/schemas/ProjectConfig' },
+        },
+      },
+    },
+    responses: {
+      200: jsonResponse('Apply preview.', 'ApplyPreviewDto'),
+      400: errorResponse('Invalid config.'),
+    },
+  },
+  {
     method: 'get',
     path: '/api/v1/projects/{name}/history',
     summary: 'Get project audit history',
@@ -2476,9 +3022,13 @@ const routeCatalog: OpenApiOperation[] = [
       nameParameter,
       limitQueryParameter,
       offsetQueryParameter,
-      { name: 'since', in: 'query', description: 'ISO 8601 lower bound.', schema: stringSchema },
+      { name: 'since', in: 'query', description: 'Inclusive ISO 8601 lower bound, normalized to UTC.', schema: stringSchema },
+      { name: 'until', in: 'query', description: 'Inclusive ISO 8601 upper bound, normalized to UTC.', schema: stringSchema },
+      { name: 'actionPrefix', in: 'query', description: 'Literal audit action prefix.', schema: stringSchema },
+      { name: 'entityId', in: 'query', description: 'Exact entity identity filter.', schema: stringSchema },
+      { name: 'excludeEntityTypes', in: 'query', description: 'Exclude entity types before paging; repeated or comma-separated.', style: 'form', explode: true, schema: { type: 'array', items: stringSchema } },
       { name: 'action', in: 'query', description: 'Exact audit action filter.', schema: stringSchema },
-      { name: 'actor', in: 'query', description: 'Exact actor filter.', schema: stringSchema },
+      { name: 'actor', in: 'query', description: 'Exact actor, or api for legacy API, API-key, and user actors.', schema: stringSchema },
       { name: 'entityType', in: 'query', description: 'Exact entity type filter.', schema: stringSchema },
     ],
     responses: {
@@ -2493,9 +3043,13 @@ const routeCatalog: OpenApiOperation[] = [
     parameters: [
       limitQueryParameter,
       offsetQueryParameter,
-      { name: 'since', in: 'query', description: 'ISO 8601 lower bound.', schema: stringSchema },
+      { name: 'since', in: 'query', description: 'Inclusive ISO 8601 lower bound, normalized to UTC.', schema: stringSchema },
+      { name: 'until', in: 'query', description: 'Inclusive ISO 8601 upper bound, normalized to UTC.', schema: stringSchema },
+      { name: 'actionPrefix', in: 'query', description: 'Literal audit action prefix.', schema: stringSchema },
+      { name: 'entityId', in: 'query', description: 'Exact entity identity filter.', schema: stringSchema },
+      { name: 'excludeEntityTypes', in: 'query', description: 'Exclude entity types before paging; repeated or comma-separated.', style: 'form', explode: true, schema: { type: 'array', items: stringSchema } },
       { name: 'action', in: 'query', description: 'Exact audit action filter.', schema: stringSchema },
-      { name: 'actor', in: 'query', description: 'Exact actor filter.', schema: stringSchema },
+      { name: 'actor', in: 'query', description: 'Exact actor, or api for legacy API, API-key, and user actors.', schema: stringSchema },
       { name: 'entityType', in: 'query', description: 'Exact entity type filter.', schema: stringSchema },
     ],
     responses: {
@@ -2537,9 +3091,10 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/analytics/metrics',
     summary: 'Get citation trend analytics',
     tags: ['analytics'],
-    parameters: [nameParameter, analyticsWindowParameter],
+    parameters: [nameParameter, analyticsWindowParameter, metricsQueryClassParameter],
     responses: {
       200: jsonResponse('Citation metrics returned.', 'BrandMetricsDto'),
+      400: errorResponse('Invalid query parameters.'),
       404: errorResponse('Project not found.'),
     },
   },
@@ -2604,7 +3159,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/visibility-compare',
     summary: 'Compare AEO visibility month over month',
     description:
-      'Statistically honest month-over-month AEO comparison in one call. PRIMARY metric is share of voice (brand vs competitor mentions in the same answers), which is less exposed to broad model-wide naming propensity than an absolute rate but never bypasses model continuity. Rates are pooled per-snapshot over each month (invariant to sweep count), restricted to query/provider pairs present in BOTH months, and then restricted again to providers with exactly one known, identical configured model id in both months. `continuity` reports every provider and its model evidence; changed, mixed mid-month, or legacy-unknown models are excluded. When no provider remains, metrics return a continuity-blocked verdict rather than a directional call. `from` must be a month strictly before `to`. Adds separate branded/non-brand mention and cited rates with classification-unavailable rather than pooled fallback. Advanced class metrics read frozen Property/market/execution assignments and reuse each answer once per class. Without a scope or marketKey the four original metrics keep the project frame (provider/location narrow it the same way for Simple and Advanced) and Advanced class metrics carry their own `classComparison` cohort. A scope or marketKey answers entirely from the frozen frame and is refused when either month holds runs whose plan cannot be reconstructed (schema v1). On frozen frames, answers with incomplete source capture leave every citation figure and are counted in `excludedUnknown`. A silent upstream version bump under an unchanged configured id remains undetectable.',
+      'Statistically honest month-over-month AEO comparison in one call. PRIMARY metric is share of voice (brand vs competitor mentions in the same answers), which is less exposed to broad model-wide naming propensity than an absolute rate but never bypasses model continuity. Rates are pooled per-snapshot over each month (invariant to sweep count), restricted to query/provider pairs present in BOTH months, and then restricted again to providers with exactly one known, identical configured model id in both months. `continuity` reports every provider and its model evidence; changed, mixed mid-month, or legacy-unknown models are excluded. When no provider remains, metrics return a continuity-blocked verdict rather than a directional call. `from` must be a month strictly before `to`. Adds separate branded/non-brand mention and cited rates with classification-unavailable rather than pooled fallback. Advanced class metrics read frozen Property/market/execution assignments and reuse each answer once per class. Without a scope or marketKey the four original metrics keep the project frame (provider/location narrow it the same way for Simple and Advanced) and Advanced class metrics carry their own `classComparison` cohort. A scope or marketKey answers entirely from the frozen frame and is refused when either month holds runs whose plan cannot be reconstructed (schema v1). On frozen frames, answers with incomplete source capture leave every citation figure and are counted in `excludedUnknown`. An answer the provider wrote with no retrieval step at all (retrievalStatus of not-used) cites nothing by construction, so it also leaves the cited denominator and is counted in `excludedNoRetrieval`; it stays in the mention denominator, since brand recall does not need search. A silent upstream version bump under an unchanged configured id remains undetectable. competitorIdentityChangedAt is when the project\'s competitor names last changed (a tracked competitor\'s curated or stored auto-detected names (a block counts only when it removes a stored name), a detection pass or a write that moved a market-only competitor\'s learned names, or a published revision that renames a market pin). Share of voice reads both months with the tracked competitors\' current names only, so a comparison quoted before a change to those names was restated; a market pin or learned-name change moves the time without changing share of voice. A scoped comparison (a group, market or property scope, or a marketKey) reads frozen plan history and carries no competitorIdentityChangedAt.',
     tags: ['analytics'],
     parameters: [
       nameParameter, compareFromQueryParameter, compareToQueryParameter,
@@ -2684,6 +3239,21 @@ const routeCatalog: OpenApiOperation[] = [
       400: errorResponse('Invalid provider settings.'),
       403: errorResponse('The credential lacks settings.write.'),
       501: errorResponse('Provider updates are not supported.'),
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/settings/providers/reload',
+    summary: 'Reload saved provider configuration',
+    description: 'Requires settings.write and install administrator authority. Reloads only the execution host\'s own saved provider configuration, including credentials, models, quotas and batch settings. Returns credential-free provider status. Optional configPath and databasePath are an identity pair: supply both or neither. They must match the host\'s captured paths and never select an arbitrary file; a pair naming another install returns VALIDATION_ERROR with error.details.reason install-identity-mismatch. A config the host boots with also reloads, with the same registrations. No provider calls are made. Unsupported hosts return NOT_IMPLEMENTED.',
+    tags: ['settings'],
+    requestBody: { required: false, content: { 'application/json': { schema: { $ref: '#/components/schemas/ProviderReloadRequest' } } } },
+    responses: {
+      200: jsonResponse('Saved provider configuration is active.', 'ProviderReloadResponseDto'),
+      400: errorResponse('Invalid reload request, unloadable config, or install identity mismatch (error.details.reason install-identity-mismatch).'),
+      403: errorResponse('Install administrator authority is required.'),
+      409: errorResponse('Outstanding provider batch work requires the current registration. Quota-only changes remain available.'),
+      501: errorResponse('Provider reload is not supported.'),
     },
   },
   {
@@ -3187,6 +3757,47 @@ const routeCatalog: OpenApiOperation[] = [
     responses: {
       202: jsonResponse('Onboarding milestone accepted.', 'TelemetryEventAcceptedDto'),
       400: errorResponse('Invalid onboarding telemetry event.'),
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/telemetry/ui',
+    summary: 'Record a privacy-safe dashboard usage event',
+    description: 'Page views (route patterns), allowlisted feature actions, UI errors (class names and route templates only), and web vitals ratings from the dashboard. Forwarded through the opt-in anonymous telemetry path; accepted:false when this host does not collect telemetry.',
+    tags: ['telemetry'],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: { $ref: '#/components/schemas/UiTelemetryEvent' },
+        },
+      },
+    },
+    responses: {
+      202: jsonResponse('UI event accepted.', 'TelemetryEventAcceptedDto'),
+      400: errorResponse('Invalid UI telemetry event.'),
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/feedback',
+    summary: 'Send product feedback about Canonry',
+    description: 'Forwards a struggle, bug, improvement, or other note about Canonry itself to the Canonry team (canonry.ai). Free text is redacted for credentials before it leaves the machine; never include customer data. The server adds version, OS, and the calling surface and agent; the anonymous install id is attached only while telemetry is enabled.',
+    tags: ['feedback'],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: { $ref: '#/components/schemas/FeedbackSubmission' },
+        },
+      },
+    },
+    responses: {
+      202: jsonResponse('Feedback accepted by the collector.', 'FeedbackAcceptedDto'),
+      400: errorResponse('Invalid feedback.'),
+      429: errorResponse('Feedback rate limit reached; try again later.'),
+      501: errorResponse('Feedback is not available in this deployment.'),
+      502: errorResponse('The feedback collector could not be reached or rejected the submission.'),
     },
   },
   {
@@ -3732,7 +4343,7 @@ const routeCatalog: OpenApiOperation[] = [
       },
     },
     responses: {
-      200: rawJsonResponse('Google auth URL returned.', { type: 'object', properties: { url: { type: 'string' } } }),
+      200: jsonResponse('Google auth URL returned.', 'GoogleOAuthStartResponse'),
       400: errorResponse('Invalid Google connection request.'),
     },
   },
@@ -3913,7 +4524,7 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/google/gsc/query-totals',
     summary: 'Get GSC totals per query for a date window',
-    description: 'One row per search query over the window, read from stored sync data (no call to Google, no writes): clicks, impressions, CTR, impression-weighted average position (sum(position*impressions)/sum(impressions)) and the number of days the query appeared. Rows are ordered by clicks desc, impressions desc, then query ascending by code point, and paged with `limit` / `offset`; `totalMatching` counts every query and `truncated` says more rows follow. The rows cover the queries Google names only: Google leaves rare and anonymised queries out of per-query data, so their sum is below the property total (read `/google/gsc/performance/daily` for that). Each row carries `source`: `google` when every day came from Google\'s per-query fetch, `page-summed` when every day came from the legacy page-dimensioned table (impressions over-count), `mixed` when the window spans both.',
+    description: 'One row per search query over the window, read from stored sync data (no call to Google, no writes): clicks, impressions, CTR, impression-weighted average position (sum(position*impressions)/sum(impressions)) and the number of days the query appeared. Rows are ordered by clicks desc, impressions desc, then query ascending by code point, and paged with `limit` / `offset`; `totalMatching` counts every query and `truncated` says more rows follow. The rows cover the queries Google names only: Google leaves rare and anonymised queries out of per-query data, so their sum is below the property total (read `/google/gsc/performance/daily` for that). Each row carries `source`: `google` when every day came from Google\'s per-query fetch, `page-summed` when every day came from the legacy page-dimensioned table (impressions over-count), `mixed` when the window spans both. `window.earliestDataDate` is the first stored per-query date (null with none): a window that starts before it is only partly covered, so its missing days were never synced rather than zero traffic.',
     tags: ['google'],
     parameters: [
       nameParameter,
@@ -4104,10 +4715,16 @@ const routeCatalog: OpenApiOperation[] = [
     responses: {
       200: jsonResponse('List of discovered locations and selection summary returned.', 'GbpLocationListResponse'),
       400: errorResponse('Invalid discover request, unknown account, account-switch not opted into, or scope/API problem.'),
+      403: errorResponse('The Google connection was rejected; reconnect Google Business Profile.'),
       404: errorResponse('Project not found.'),
       429: errorResponse('GBP API quota exceeded (access form may not be approved).'),
     },
   },
+  { method: 'get', path: '/api/v1/projects/{name}/gbp/local-posts', summary: 'Read one bounded page of Local Posts', tags: ['gbp'], parameters: [nameParameter, { name: 'accountName', in: 'query', required: true, description: 'Exact selected Google account resource.', schema: { type: 'string' } }, { name: 'locationName', in: 'query', required: true, description: 'Exact selected Google location resource.', schema: { type: 'string' } }, { name: 'pageToken', in: 'query', required: false, description: 'Opaque next-page token; omission starts the scan.', schema: { type: 'string' } }], responses: { 200: jsonResponse('Live Google read returned.', 'GbpLocalPostList'), 400: errorResponse('Invalid scope.'), 403: errorResponse('Live GBP read not authorized.'), 502: errorResponse('Provider result unavailable or incomplete.') } },
+  { method: 'get', path: '/api/v1/projects/{name}/gbp/local-post', summary: 'Read one exact Local Post', tags: ['gbp'], parameters: [nameParameter, { name: 'postName', in: 'query', required: true, description: 'Exact existing Google post resource.', schema: { type: 'string' } }], responses: { 200: jsonResponse('Live Google read returned.', 'GbpLocalPost'), 400: errorResponse('Invalid scope.'), 403: errorResponse('Live GBP read not authorized.'), 502: errorResponse('Provider result unavailable or incomplete.') } },
+  { method: 'get', path: '/api/v1/projects/{name}/gbp/reviews/live', summary: 'Read a complete bounded review baseline without changing it', tags: ['gbp'], parameters: [nameParameter, { name: 'accountName', in: 'query', required: true, description: 'Exact selected Google account resource.', schema: { type: 'string' } }, { name: 'locationName', in: 'query', required: true, description: 'Exact selected Google location resource.', schema: { type: 'string' } }], responses: { 200: jsonResponse('Live Google read returned.', 'GbpLiveReviews'), 400: errorResponse('Invalid scope.'), 403: errorResponse('Live GBP read not authorized.'), 502: errorResponse('Provider result unavailable or incomplete.') } },
+  {method:'get',path:'/api/v1/projects/{name}/gbp/local-post-attempt',summary:'Read the saved attempt without another Google POST',tags:['gbp'],parameters:[nameParameter,{name:'attemptId',in:'query',required:true,description:'Exact saved UUID.',schema:{type:'string'}},{name:'packageId',in:'query',required:true,description:'Exact approved package digest.',schema:{type:'string'}}],responses:{200:jsonResponse('Saved accepted, rejected or uncertain result.','GbpLocalPostAttempt'),400:errorResponse('No matching saved attempt.'),403:errorResponse('Not authorized.')}},
+  { method: 'post', path: '/api/v1/projects/{name}/gbp/local-posts', summary: 'Create one already-approved STANDARD article post; replay never sends again', tags: ['gbp'], parameters: [nameParameter], requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/GbpLocalPostCreate' } } } }, responses: { 200: jsonResponse('Durable attempt state; accepted is not independent verification.', 'GbpLocalPostAttempt'), 400: errorResponse('Invalid or conflicting attempt.'), 403: errorResponse('GBP write not authorized or target unavailable.') } },
   {
     method: 'get',
     path: '/api/v1/projects/{name}/gbp/accounts',
@@ -4117,6 +4734,7 @@ const routeCatalog: OpenApiOperation[] = [
     responses: {
       200: jsonResponse('Accounts the OAuth user manages or owns.', 'GbpAccountListResponse'),
       400: errorResponse('No GBP connection or scope/API problem.'),
+      403: errorResponse('The Google connection was rejected; reconnect Google Business Profile.'),
       404: errorResponse('Project not found.'),
       429: errorResponse('GBP API quota exceeded (access form may not be approved).'),
     },
@@ -5348,7 +5966,7 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['wordpress'],
     parameters: [nameParameter, wordpressEnvQueryParameter],
     responses: {
-      200: jsonArrayResponse('WordPress pages returned.', 'WordpressPageSummaryDto'),
+      200: jsonResponse('WordPress pages returned.', 'WordpressPageListDto'),
       400: errorResponse('Invalid environment or missing connection.'),
       404: errorResponse('Project not found.'),
     },
@@ -5586,8 +6204,7 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['wordpress'],
     parameters: [nameParameter, wordpressEnvQueryParameter],
     responses: {
-      // Returns raw text/plain content of llms.txt.
-      200: { description: 'llms.txt returned.', content: { 'text/plain': { schema: { type: 'string' } } } },
+      200: jsonResponse('llms.txt returned.', 'WordpressLlmsTxtDto'),
       400: errorResponse('Invalid environment or missing connection.'),
       404: errorResponse('Project not found.'),
     },
@@ -5626,7 +6243,7 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['wordpress'],
     parameters: [nameParameter, wordpressEnvQueryParameter],
     responses: {
-      200: jsonArrayResponse('WordPress audit returned.', 'WordpressAuditPageDto'),
+      200: jsonResponse('WordPress audit returned.', 'WordpressAuditDto'),
       400: errorResponse('Invalid environment or missing connection.'),
       404: errorResponse('Project not found.'),
     },
@@ -5730,6 +6347,7 @@ const routeCatalog: OpenApiOperation[] = [
       // TODO: Add `GaConnectResponse` Zod schema in contracts.
       200: rawJsonResponse('GA4 connection established.', looseObjectSchema),
       400: errorResponse('Invalid GA4 connection request.'),
+      403: errorResponse('Google refused the property (`details.reason` is `ga4-permission-missing`). Retrying will not help until access is granted; repeated refusals are answered without asking Google again until `details.nextCheckAt`.'),
       404: errorResponse('Project not found.'),
     },
   },
@@ -5768,6 +6386,29 @@ const routeCatalog: OpenApiOperation[] = [
       400: errorResponse('No OAuth GA4 connection for this project.'),
       404: errorResponse('Project not found.'),
     },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/ga/acquisition',
+    summary: 'Read stored GA4 acquisition sessions with grouping and paging',
+    description: 'Stored GA4 reported sessions only; no Google call. Default grain is date, channel, source, medium, host and normalized landing page. Only tracking query variants merge; meaningful query parameters remain. totalSessions covers the full filtered set, independent of grouping and pagination. Rows lack property identity, so older property data cannot be separated after a connection change. Project-only for Simple and Advanced portfolios. GA4 may threshold or fold long tails into (other); no reconciliation against other GA totals is implied.',
+    tags: ['ga4'],
+    parameters: [
+      nameParameter,
+      { name: 'window', in: 'query', description: 'Rolling window, default all; explicit dates take precedence.', schema: { type: 'string', enum: ['7d', '30d', '90d', 'all'] } },
+      { name: 'startDate', in: 'query', description: 'Inclusive calendar date.', schema: stringSchema },
+      { name: 'endDate', in: 'query', description: 'Inclusive calendar date.', schema: stringSchema },
+      { name: 'channel', in: 'query', description: 'Case-insensitive exact channel group.', schema: stringSchema },
+      { name: 'source', in: 'query', description: 'Exact source.', schema: stringSchema },
+      { name: 'medium', in: 'query', description: 'Exact medium.', schema: stringSchema },
+      { name: 'hostName', in: 'query', description: 'Case-insensitive exact hostname.', schema: stringSchema },
+      { name: 'landingPage', in: 'query', description: 'Exact stored normalized page, including meaningful query parameters.', schema: stringSchema },
+      { name: 'pathPrefix', in: 'query', description: 'Literal boundary-safe normalized path prefix; page query parameters do not affect this filter.', schema: stringSchema },
+      { name: 'groupBy', in: 'query', description: 'Comma list: date,channelGroup,source,medium,hostName,landingPage. Default all six.', schema: stringSchema },
+      { name: 'limit', in: 'query', description: 'Page size, default 100.', schema: { type: 'integer', minimum: 1, maximum: 1000 } },
+      { name: 'offset', in: 'query', description: 'Rows to skip, default 0.', schema: { type: 'integer', minimum: 0 } },
+    ],
+    responses: { 200: jsonResponse('Stored grouped acquisition rows and filtered totals.', 'GaAcquisitionResponse'), 400: errorResponse('Invalid selection.'), 404: errorResponse('Project not found.') },
   },
   {
     method: 'get',
@@ -5811,6 +6452,39 @@ const routeCatalog: OpenApiOperation[] = [
     },
   },
   {
+    method: 'get',
+    path: '/api/v1/projects/{name}/ga/search-landing-pages',
+    summary: 'Get GA4 Google organic search traffic by landing page',
+    description: 'GA4\'s "Google organic search traffic: Landing page + query string" report (Search Console link), as stored by the last GA sync for one window ending yesterday in the property time zone: clicks, impressions, CTR, average position and active users per landing page. `total` is GA4\'s own Total row, never a sum of `rows`. Stored data only: no Google call. Only a snapshot of the GA4 property the project resolves to now (service account first, then OAuth) is shown: a project that never synced, has no GA connection, or was pointed at another property since its snapshot was stored reads `never-synced` with no `total` and no rows. A failed or `unavailable` refresh keeps the previous snapshot, whose `windowStart` / `windowEnd` say what it covers. No custom date range: every figure is GA4-computed for the stored window.',
+    tags: ['ga4'],
+    parameters: [
+      nameParameter,
+      {
+        name: 'window',
+        in: 'query',
+        description: 'Stored window, ending yesterday in the GA4 property time zone. 28d matches GA4\'s default "Last 28 days".',
+        schema: { type: 'string', enum: [...gaSearchLandingWindowSchema.options], default: '28d' },
+      },
+      {
+        name: 'limit',
+        in: 'query',
+        description: 'Landing-page rows per page, ordered by clicks then impressions (descending), then landing page.',
+        schema: { type: 'integer', minimum: 1, maximum: 1000, default: 50 },
+      },
+      {
+        name: 'offset',
+        in: 'query',
+        description: 'Rows to skip before the page starts.',
+        schema: { type: 'integer', minimum: 0, default: 0 },
+      },
+    ],
+    responses: {
+      200: jsonResponse('GA4 Search Console landing pages returned.', 'GaSearchLandingPagesResponse'),
+      400: errorResponse('Invalid window, limit or offset.'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
     method: 'post',
     path: '/api/v1/projects/{name}/ga/sync',
     summary: 'Sync GA4 traffic and AI referral data',
@@ -5825,6 +6499,7 @@ const routeCatalog: OpenApiOperation[] = [
             type: 'object',
             properties: {
               days: { ...integerSchema, description: 'Days of history to sync. Clamped to 1-90; check `clamped` in the response to detect truncation. Defaults to 30.' },
+              only: { type: 'string', enum: [...gaSyncOnlySchema.options], description: 'Refresh the foundation (traffic snapshots and summaries) plus at most one slice: traffic (foundation only), ai, social or search-landing (the GA4 Search Console landing-page snapshot). Omit for every slice.' },
             },
           },
         },
@@ -5915,6 +6590,18 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
+    path: '/api/v1/projects/{name}/ga/overview',
+    summary: 'Get the GA4 overview: totals, change against the previous period, and both periods by day',
+    tags: ['ga4'],
+    parameters: [nameParameter, gaOverviewWindowParameter],
+    responses: {
+      200: jsonResponse('GA4 overview returned.', 'GaOverviewResponse'),
+      400: errorResponse('GA4 is not connected, or the window is not 7d, 30d or 90d.'),
+      404: errorResponse('Project not found.'),
+    },
+  },
+  {
+    method: 'get',
     path: '/api/v1/projects/{name}/ga/session-history',
     summary: 'Get total sessions per day for the project',
     tags: ['ga4'],
@@ -5951,7 +6638,7 @@ const routeCatalog: OpenApiOperation[] = [
       { name: 'runId', in: 'query', description: 'Filter by run ID.', schema: stringSchema },
       { name: 'type', in: 'query', description: 'Filter by insight type. Exact match, or a trailing `*` for a prefix (e.g. `gbp-*`).', schema: stringSchema },
       { name: 'severity', in: 'query', description: 'Minimum severity (low|medium|high|critical); e.g. `high` returns high + critical.', schema: stringSchema },
-      { name: 'limit', in: 'query', description: 'Cap the number of (newest-first) insights returned.', schema: stringSchema },
+      { name: 'limit', in: 'query', description: 'Keep the first N insights. Order: newest analysis first; within one analysis, insights that need action before wins, then most severe first.', schema: stringSchema },
     ],
     responses: {
       // TODO: Add `InsightDto` Zod schema in contracts.
@@ -6005,27 +6692,20 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
-    path: '/api/v1/projects/{name}/report',
-    summary: 'Aggregated canonical AEO report',
-    tags: ['report'],
+    path: '/api/v1/projects/{name}/traffic/analytics',
+    summary: 'Full-window server traffic analytics',
+    tags: ['traffic'],
     description:
-      'Bundles every section the canonry-report HTML output needs (executive summary, client summary, agency diagnostics, action plan, citation scorecard, competitor landscape — citation + mention landscapes, AI citation sources, GSC, GA4, social/AI referrals, indexing health, citations trend, insights, and recommended next steps) into a single canonical JSON payload. Backs `canonry report <project>` and MCP report reads.',
-    parameters: [nameParameter, reportPeriodQueryParameter],
+      'Aggregates stored crawler, AI user-fetch, and countable referral evidence across the entire selected window, independently of the traffic events detail limit. Includes operator, path and referring-product breakdowns, daily history and the equal-length prior window. Preserves verified/unverified and paid/organic/unclassified counts. coverageStart is the earliest stored project observation; priorWindowComplete states whether recording began by the prior window start, not whether ingestion was uninterrupted. All deltas are null when that prior window is incomplete. Zero counts and hasData do not certify source health or measurement coverage. No provider calls or writes. Activity is null when no non-archived traffic source is connected. Replaces the retired Report serverActivity section.',
+    parameters: [nameParameter, {
+      name: 'period',
+      in: 'query',
+      description: 'Window in days: 7, 14, 30 or 90. Defaults to 30. Selects stored evidence only.',
+      schema: { type: 'integer', enum: [7, 14, 30, 90] },
+    }],
     responses: {
-      200: jsonResponse('Report returned.', 'ProjectReportDto'),
-      404: errorResponse('Project not found.'),
-    },
-  },
-  {
-    method: 'get',
-    path: '/api/v1/projects/{name}/report.html',
-    summary: 'Standalone HTML AEO report',
-    tags: ['report'],
-    description:
-      'Server-rendered self-contained HTML version of the project report. Same data as `/projects/{name}/report` (JSON), rendered through the canonry HTML report renderer in agency or client mode. Returns `text/html` with `Content-Disposition: attachment` so browsers download it as `canonry-report-<project>-<audience>-YYYY-MM-DD.html`. Open in a browser and Print → Save as PDF for a PDF copy.',
-    parameters: [nameParameter, reportAudienceQueryParameter, reportPeriodQueryParameter],
-    responses: {
-      200: { description: 'HTML report returned.', content: { 'text/html': { schema: { type: 'string' } } } },
+      200: jsonResponse('Traffic analytics returned.', 'TrafficAnalyticsResponse'),
+      400: errorResponse('Invalid analytics period.'),
       404: errorResponse('Project not found.'),
     },
   },
@@ -6096,7 +6776,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/content/dismissals',
     summary: 'List content-target dismissals for a project',
     description:
-      'Returns every persisted "mark addressed" record for the project. Each row is `{targetRef, addressedUrl?, note?, dismissedAt}`. The report filters out any opportunity whose `targetRef` appears here; un-dismiss via `DELETE`.',
+      'Returns every persisted "mark addressed" record for the project. Each row is `{targetRef, addressedUrl?, note?, dismissedAt}`. Content reads filter out any opportunity whose `targetRef` appears here; un-dismiss via `DELETE`.',
     tags: ['content'],
     parameters: [nameParameter],
     responses: {
@@ -6109,7 +6789,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/content/dismissals',
     summary: 'Mark a content opportunity as addressed',
     description:
-      'Persists a dismissal for one content recommendation, identified by its stable `targetRef` (the value `ContentTargetRowDto.targetRef` exposes — hashed from project + query + action + targetPage by `computeTargetRef`). Idempotent upsert: re-dismissing the same ref overwrites `addressedUrl`/`note` and refreshes `dismissedAt`. The row drops off the report and the dedicated content endpoints on the next read.',
+      'Persists a dismissal for one content recommendation, identified by its stable `targetRef` (the value `ContentTargetRowDto.targetRef` exposes — hashed from project + query + action + targetPage by `computeTargetRef`). Idempotent upsert: re-dismissing the same ref overwrites `addressedUrl`/`note` and refreshes `dismissedAt`. The row drops off the content endpoints on the next read.',
     tags: ['content'],
     parameters: [nameParameter],
     requestBody: {
@@ -6139,7 +6819,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/content/dismissals/{targetRef}',
     summary: 'Un-dismiss a content opportunity',
     description:
-      'Removes a persisted dismissal. The recommendation reappears on the report on the next read if the orchestrator still surfaces it. 404 if no dismissal exists for that `(project, targetRef)`.',
+      'Removes a persisted dismissal. The recommendation reappears in content reads if the orchestrator still surfaces it. 404 if no dismissal exists for that `(project, targetRef)`.',
     tags: ['content'],
     parameters: [
       nameParameter,
@@ -6155,7 +6835,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/content/recommendations/{targetRef}/analysis',
     summary: 'Get cached LLM explanation for a content recommendation',
     description:
-      'Returns the most recent cached LLM-generated rationale + recommended next steps for one content recommendation, or 404 if none exists. Triggered by the report SPA when rendering an already-analyzed card without re-paying the LLM cost. Use `POST /analyze` to generate one (idempotent — POST returns the cached row if present).',
+      'Returns the most recent cached LLM-generated rationale + recommended next steps for one content recommendation, or 404 if none exists. Use this to read an already-analyzed recommendation without repeating the LLM call. Use `POST /analyze` to generate one (idempotent — POST returns the cached row if present).',
     tags: ['content'],
     parameters: [
       nameParameter,
@@ -6342,6 +7022,35 @@ const routeCatalog: OpenApiOperation[] = [
     responses: {
       200: jsonResponse('Doctor report returned.', 'DoctorReportDto'),
       400: errorResponse('Invalid report month.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/mcp/profile',
+    summary: 'Read the authenticated MCP connection profile',
+    description: 'Identifies the named account within this configured MCP resource and its effective instance-wide read scope. Accepts MCP-audience OAuth tokens without granting access to other REST routes. Direct API keys without a named account are refused.',
+    tags: ['mcp'],
+    responses: {
+      200: jsonResponse('Authenticated MCP connection profile.', 'McpProfileDto'),
+      401: errorResponse('Authentication required or invalid.'),
+      403: errorResponse('An instance-wide named account with read scope is required.'),
+      501: errorResponse('MCP OAuth resource is not configured.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/status',
+    summary: 'Read stored integration status',
+    description: 'Reads stored synchronization state for every visible project. This endpoint performs no provider calls and does not run or write doctor checks.',
+    tags: ['status'],
+    parameters: [
+      { name: 'project', in: 'query', description: 'Optional project name.', schema: stringSchema },
+      { name: 'problems', in: 'query', description: 'When true, return only projects and integrations with a problem.', schema: booleanSchema },
+    ],
+    responses: {
+      200: jsonResponse('Stored status returned.', 'InstanceStatusDto'),
+      403: errorResponse('Project is outside the API key scope.'),
+      404: errorResponse('Project not found.'),
     },
   },
   {
@@ -6812,7 +7521,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/traffic/sources/{id}/reset',
     summary: 'Advance lastSyncedAt to NOW and clear the error state',
     description:
-      'Operator recovery: advances `lastSyncedAt` to NOW, sets `status` back to `connected`, and clears `last_error`. WordPress resets also clear `last_cursor` and the pending-window marker, then record an unrecovered skip through the reset instant so the next drain cannot combine an old cursor with a new window. That prevents replay but is not a historical repair. Generic WordPress replace-mode backfill is unavailable because the plugin feed cannot prove retained coverage; use a retention-aware repair and explicitly declare any unrecoverable span. Common trigger: an idle Vercel/Cloud Run source whose `lastSyncedAt` has aged past upstream retention (`request-logs` ~14d, Cloud Logging 30d) and now throws on every sync. `advanceToNow: true` is required (no implicit reset). Archived sources are rejected with 400 — re-connect them via the appropriate `traffic/connect/*` endpoint instead.',
+      'Operator recovery: advances `lastSyncedAt` to NOW, sets `status` back to `connected`, and clears `last_error`. WordPress resets also clear `last_cursor` and the pending-window marker, then record an unrecovered skip through the reset instant so the next drain cannot combine an old cursor with a new window. That prevents replay but is not a historical repair. Generic WordPress replace-mode backfill is unavailable because the plugin feed cannot prove retained coverage; record the skipped span with `POST /traffic/sources/{id}/declare-gap` once it cannot be recovered. Common trigger: an idle Vercel/Cloud Run source whose `lastSyncedAt` has aged past upstream retention (`request-logs` ~14d, Cloud Logging 30d) and now throws on every sync. `advanceToNow: true` is required (no implicit reset). Archived sources are rejected with 400 — re-connect them via the appropriate `traffic/connect/*` endpoint instead.',
     tags: ['traffic'],
     parameters: [
       nameParameter,
@@ -6835,6 +7544,37 @@ const routeCatalog: OpenApiOperation[] = [
     responses: {
       200: jsonResponse('Source reset; lastSyncedAt advanced to NOW.', 'TrafficSourceDetailDto'),
       400: errorResponse('Missing or invalid `advanceToNow` flag, or the source is archived.'),
+      404: errorResponse('Project or traffic source not found.'),
+    },
+  },
+  {
+    method: 'post',
+    path: '/api/v1/projects/{name}/traffic/sources/{id}/declare-gap',
+    summary: 'Record a source\'s unrecovered skip as lost and clear it',
+    description:
+      'Records the span a source skipped, through `skippedThroughAt`, as data that cannot be recovered, clears the marker so the `traffic.sync-lag.unrecovered-skip` doctor check passes, and writes a `traffic.source.gap-declared` audit entry with the span. Rollups are untouched. Meant for WordPress, whose plugin feed cannot prove a historical repair, and for any source whose provider no longer retains the span; a recoverable gap should be backfilled instead. `skippedThroughAt` must repeat the current marker exactly, so a newer skip recorded since the operator looked is refused, not cleared.',
+    tags: ['traffic'],
+    parameters: [
+      nameParameter,
+      { name: 'id', in: 'path', required: true, description: 'Traffic source ID.', schema: stringSchema },
+    ],
+    requestBody: {
+      required: true,
+      content: {
+        'application/json': {
+          schema: {
+            type: 'object',
+            required: ['skippedThroughAt'],
+            properties: {
+              skippedThroughAt: { type: 'string', description: 'The source\'s current `skippedThroughAt`, exactly as read.' },
+            },
+          },
+        },
+      },
+    },
+    responses: {
+      200: jsonResponse('Gap recorded; the source no longer reports an unrecovered skip.', 'TrafficSourceDetailDto'),
+      400: errorResponse('No gap is recorded, or `skippedThroughAt` does not match the current one.'),
       404: errorResponse('Project or traffic source not found.'),
     },
   },
@@ -6896,6 +7636,68 @@ const routeCatalog: OpenApiOperation[] = [
       400: errorResponse('Invalid or unsupported selection.'),
       404: errorResponse('Project or source not found.'),
     },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/traffic/samples',
+    summary: 'Read a stored sampled tail of server-side traffic evidence',
+    description: 'Stored rows only, with 30-day retention. Samples are not visits or sessions. Default kind excludes unknown traffic. Project/source attribution only for Simple and Advanced projects. Signed-in viewers and embedded dashboards cannot read samples. API read keys retain normal project scope. No provider calls or writes.',
+    tags: ['traffic'],
+    parameters: [
+      nameParameter,
+      { name: 'kind', in: 'query', description: 'Default all includes classified samples only.', schema: { type: 'string', enum: ['crawler', 'ai-user-fetch', 'ai-referral', 'unknown', 'all'] } },
+      { name: 'sourceId', in: 'query', description: 'Restrict to a traffic source in this project.', schema: stringSchema },
+      { name: 'since', in: 'query', description: 'Inclusive ISO timestamp, default 24 hours before until.', schema: stringSchema },
+      { name: 'until', in: 'query', description: 'Inclusive ISO timestamp, default now.', schema: stringSchema },
+      { name: 'path', in: 'query', description: 'Literal normalized path prefix.', schema: stringSchema },
+      { name: 'limit', in: 'query', description: 'Page size, default 100.', schema: { type: 'integer', minimum: 1, maximum: 500 } },
+      { name: 'offset', in: 'query', description: 'Rows to skip, default 0.', schema: { type: 'integer', minimum: 0 } },
+    ],
+    responses: { 200: jsonResponse('Stored sample page and sampling limits.', 'TrafficSamplesResponse'), 400: errorResponse('Invalid selection.'), 403: errorResponse('Samples are unavailable to this principal.'), 404: errorResponse('Project not found.') },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/journeys/summary',
+    summary: 'Summarize stored AI visitor journeys',
+    description: 'Visitors whose first AI-referred visit started in the window (default the last 30 days): how many came back in a later visit, through which channel (search, direct, social, paid, referral, another AI visit), and how long after. Built from server-side traffic with no site code. A visitor is a keyed hash of IP and user agent (user agent alone where the provider reports no IP); keyBasis counts each kind. `partialSources` names project sources whose logs miss later visits (the Cloudflare Worker forwards only AI and bot requests). Stored rows only, 180-day retention. No provider calls or writes.',
+    tags: ['traffic'],
+    parameters: [
+      nameParameter,
+      { name: 'since', in: 'query', description: 'Inclusive ISO timestamp or date, default 30 days before until.', schema: stringSchema },
+      { name: 'until', in: 'query', description: 'Inclusive ISO timestamp or date, default now.', schema: stringSchema },
+    ],
+    responses: { 200: jsonResponse('Journey summary for the window.', 'JourneySummaryResponse'), 400: errorResponse('Invalid selection.'), 403: errorResponse('Journeys are unavailable to this principal.'), 404: errorResponse('Project not found.') },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/journeys',
+    summary: 'List stored AI visitor journeys',
+    description: 'AI-touched visitors whose first AI-referred visit started in the window, newest first, each with its first 20 visits within 30 days after an AI visit (entry channel, landing page, page count; `visitCount` is the total). `device` is a short label; `userAgent` is the full string. `cappedDays` counts the days a key reached the 300-requests-per-day cap, a sign of a user agent many people share. `partialSources` names sources whose logs miss later visits. Stored rows only, 180-day retention. No provider calls or writes.',
+    tags: ['traffic'],
+    parameters: [
+      nameParameter,
+      { name: 'since', in: 'query', description: 'Inclusive ISO timestamp or date, default 30 days before until.', schema: stringSchema },
+      { name: 'until', in: 'query', description: 'Inclusive ISO timestamp or date, default now.', schema: stringSchema },
+      { name: 'engine', in: 'query', description: 'First AI engine, e.g. ChatGPT (case-insensitive).', schema: stringSchema },
+      { name: 'returned', in: 'query', description: 'true: only visitors who came back later; false: only those who did not.', schema: { type: 'string', enum: ['true', 'false'] } },
+      { name: 'limit', in: 'query', description: 'Page size, default 50.', schema: { type: 'integer', minimum: 1, maximum: 200 } },
+      { name: 'offset', in: 'query', description: 'Visitors to skip, default 0.', schema: { type: 'integer', minimum: 0 } },
+    ],
+    responses: { 200: jsonResponse('Journey page.', 'JourneysResponse'), 400: errorResponse('Invalid selection.'), 403: errorResponse('Journeys are unavailable to this principal.'), 404: errorResponse('Project not found.') },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/journeys/{visitorKey}',
+    summary: 'Read one stored AI visitor journey',
+    description: 'One visitor and a page of its stored visits in time order, each with its requests (path with secret-like segments masked and utm parameters only, status, page or data request). Stored rows only. No provider calls or writes.',
+    tags: ['traffic'],
+    parameters: [
+      nameParameter,
+      { name: 'visitorKey', in: 'path', required: true, description: 'Visitor key from the journey list.', schema: stringSchema },
+      { name: 'limit', in: 'query', description: 'Visits per page, default 100.', schema: { type: 'integer', minimum: 1, maximum: 500 } },
+      { name: 'offset', in: 'query', description: 'Visits to skip, default 0.', schema: { type: 'integer', minimum: 0 } },
+    ],
+    responses: { 200: jsonResponse('Journey detail.', 'JourneyDetailResponse'), 400: errorResponse('Invalid selection.'), 403: errorResponse('Journeys are unavailable to this principal.'), 404: errorResponse('Project or journey not found.') },
   },
   {
     method: 'get',
@@ -7015,7 +7817,7 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/discover/sessions/{id}/promote',
     summary: 'Preview a discovery promotion plan (read-only)',
-    description: 'Returns available promotion candidates: queries grouped by bucket, plus recurring suggested competitor domains not already tracked. Read-only — use the POST to actually adopt the default subset or an explicit bucket subset.',
+    description: 'Returns available promotion candidates: queries grouped by bucket; the recurring competitors of every classified type a promote could add (`suggestedCompetitors`, each stored as its registrable domain, with the cited hosts merged into it as `sources`); and the eligible competitors a promote leaves out (`skippedCompetitors`: already tracked, the project\'s own site, cited as two or more different subdomains of one possibly shared host, or claimed by another competitor\'s curated alias), each with a reason and a message. Read-only; use the POST to adopt the default subset or an explicit bucket subset.',
     tags: ['discovery'],
     parameters: [
       nameParameter,
@@ -7031,7 +7833,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/discover/sessions/{id}/promote',
     summary: 'Promote a discovery session into the tracked basket',
     description:
-      "Adopts a completed session's bucketed queries into the project's tracked basket, tagged with `provenance=\"discovery:<sessionId>\"`. By default, only `cited` and `aspirational` queries are promoted; include `wasted-surface` explicitly when off-ICP competitor gaps should also be tracked. Recurring discovered competitor domains classified as `direct-competitor` are also merged by default — pass `competitorTypes` to adopt other classified types or to recover legacy `unknown` entries. Add-only and idempotent: queries/domains already tracked are returned under `skipped` rather than inserted twice. Only sessions with `status: \"completed\"` can be promoted.",
+      "Adopts a completed session's bucketed queries into the project's tracked basket, tagged with `provenance=\"discovery:<sessionId>\"`. By default, only `cited` and `aspirational` queries are promoted; include `wasted-surface` explicitly when off-ICP competitor gaps should also be tracked. Recurring discovered competitors with a host classified as `direct-competitor` are also merged by default; pass `competitorTypes` to adopt other classified types or to recover legacy `unknown` entries. Cited hosts are grouped into the registrable domain every competitor write stores (`offers.rival.example` promotes as `rival.example`) before the hit floor and the cap apply, counting each probe once. Eligible competitors that are already tracked, the project's own site, cited as two or more different subdomains of one possibly shared host, or claimed by another competitor's curated alias are left out and listed under `skipped.competitors`, with the reason and the merged hosts in `competitorDetails`; the rest of the promote proceeds. Add-only and idempotent: queries/domains already tracked are returned under `skipped` rather than inserted twice. Only sessions with `status: \"completed\"` can be promoted.",
     tags: ['discovery'],
     parameters: [
       nameParameter,
@@ -7078,7 +7880,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/technical-aeo',
     summary: 'Get the Technical AEO scorecard for a project',
     description:
-      'Returns the latest completed/partial site-audit, or the historical audit selected by `runId`: aggregate 0–100 score, page counts, the full per-factor scorecard (site-level averages with pass/partial/fail distribution), cross-cutting issues, prioritized fixes, and the delta vs the audit immediately before it. When the project has never been audited, `hasData` is false and the numeric fields are zeroed — render an onboarding state.',
+      'runSelection selects a complete run on the latest UTC scan date, otherwise the largest page sample, then newest; it flags same-date candidates. Factor pagesFailing and pagesPartial are separate; a factor with failing pages is fail. Returns the latest completed/partial site-audit, or the historical audit selected by `runId`: aggregate 0–100 score, page counts, the full per-factor scorecard (site-level averages with pass/partial/fail distribution), cross-cutting issues, prioritized fixes, and the delta vs the scan a default read returned just before this one was recorded. A default read whose preferred crawl audited no page falls back to the preferred scored crawl. When the project has never been audited, `hasData` is false and the numeric fields are zeroed — render an onboarding state.',
     tags: ['technical-aeo'],
     parameters: [
       nameParameter,
@@ -7128,13 +7930,15 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/technical-aeo/crawl',
     summary: 'Get persisted Technical AEO crawl metadata',
-    description: 'Returns the latest complete non-probe site-audit crawl, or the selected historical run (which may be partial). `hasCrawlData=false` never synthesizes a graph from legacy scorecard rows; `legacyAuditAvailable` says that the old score/pages/trend data can still be read separately.',
+    description: 'Returns a non-probe site-audit crawl on the requested UTC date, the selected run, or the latest scan date. Prefer complete scans, then the largest page sample, then the latest scan on that date. runSelection records same-date ambiguity; inventorySummary reports exact whole-snapshot eligibility and disjoint excluded reasons. `complete` and `termination` qualify budget-limited evidence. `hasCrawlData=false` never synthesizes a graph from legacy scorecard rows; dated no-data reads expose bounded `availableScanDates` with full distinct-date totals and matching month/day candidates to resolve an omitted year; `legacyAuditAvailable` says that the old score/pages/trend data can still be read separately.',
     tags: ['technical-aeo'],
     parameters: [
       nameParameter,
       { name: 'runId', in: 'query', description: 'Historical site-audit run ID. Omit for the latest crawl.', schema: stringSchema },
+      { name: 'date', in: 'query', description: 'UTC scan date YYYY-MM-DD, mutually exclusive with runId. Prefer complete, then largest, then latest scans on that exact date; missing data never falls back to another date.', schema: { type: 'string', format: 'date' } },
     ],
     responses: {
+      400: errorResponse('Invalid date, conflicting runId/date, or invalid cursor identity.'),
       200: jsonResponse('Persisted crawl summary returned.', 'SiteCrawlSummaryDto'),
       404: errorResponse('Project or site-audit run not found. A known run that published no crawl returns 200 with the no-crawl state instead.'),
     },
@@ -7143,11 +7947,11 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/technical-aeo/graph',
     summary: 'Get a persisted Site Health graph projection',
-    description: 'Returns the deterministic graph projection computed once when the latest complete or selected historical crawl was published. ForceAtlas2 positions and the exact internal-anchor edge sample are persisted, so reads run no layout physics and never rescan the crawl edge table. Nav, header, and footer links are excluded from the layout physics but retained in the sample and tagged `isTemplate`, so a viewer can draw them without a refetch and without any node moving. The response is bounded to 20,000 nodes / 50,000 edges; `layout`, `omittedNodes`, `omittedEdges`, and `sampled` disclose legacy/unavailable layouts and intentional truncation, and `templateDetection` says whether template links could be told apart at all and by which rule.',
+    description: 'Returns the deterministic graph projection computed once when the latest or selected historical crawl was published. ForceAtlas2 positions and the exact internal-anchor edge sample are persisted, so reads run no layout physics and never rescan the crawl edge table. Nav, header, and footer links are excluded from the layout physics but retained in the sample and tagged `isTemplate`, so a viewer can draw them without a refetch and without any node moving. The response is bounded to 20,000 nodes / 50,000 edges; `layout`, `omittedNodes`, `omittedEdges`, and `sampled` disclose legacy/unavailable layouts and intentional truncation, and `templateDetection` says whether template links could be told apart at all and by which rule.',
     tags: ['technical-aeo'],
     parameters: [
       nameParameter,
-      { name: 'runId', in: 'query', description: 'Historical site-audit run ID. Omit for the latest complete crawl.', schema: stringSchema },
+      { name: 'runId', in: 'query', description: 'Historical site-audit run ID. Omit for the latest crawl.', schema: stringSchema },
       { name: 'maxNodes', in: 'query', description: 'Maximum graph nodes. Defaults to and is capped at 20,000.', schema: { type: 'integer', minimum: 1, maximum: 20_000 } },
       { name: 'maxEdges', in: 'query', description: 'Maximum graph edges. Defaults to and is capped at 50,000.', schema: { type: 'integer', minimum: 1, maximum: 50_000 } },
       linkKindParameter,
@@ -7165,7 +7969,7 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['technical-aeo'],
     parameters: [
       nameParameter,
-      { name: 'runId', in: 'query', description: 'Historical site-audit run ID. Omit for the latest complete crawl.', schema: stringSchema },
+      { name: 'runId', in: 'query', description: 'Historical site-audit run ID. Omit for the latest crawl.', schema: stringSchema },
       { name: 'nodeKey', in: 'query', description: 'Focus page canonical node key. Omit nodeKey and url to use the crawl root.', schema: stringSchema },
       { name: 'url', in: 'query', description: 'Focus page canonical URL. Omit nodeKey and url to use the crawl root.', schema: stringSchema },
       { name: 'hops', in: 'query', description: 'Undirected neighborhood radius. Defaults to 1; maximum 3.', schema: { type: 'integer', minimum: 0, maximum: 3 } },
@@ -7185,7 +7989,7 @@ const routeCatalog: OpenApiOperation[] = [
     tags: ['technical-aeo'],
     parameters: [
       nameParameter,
-      { name: 'runId', in: 'query', description: 'Historical site-audit run ID. Omit for the latest complete crawl.', schema: stringSchema },
+      { name: 'runId', in: 'query', description: 'Historical site-audit run ID. Omit for the latest crawl.', schema: stringSchema },
       { name: 'fromNodeKey', in: 'query', description: 'Source canonical node key. Omit both source selectors to start at the crawl root.', schema: stringSchema },
       { name: 'fromUrl', in: 'query', description: 'Source canonical URL. Omit both source selectors to start at the crawl root.', schema: stringSchema },
       { name: 'toNodeKey', in: 'query', description: 'Target canonical node key. Required when toUrl is omitted.', schema: stringSchema },
@@ -7202,7 +8006,7 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/technical-aeo/changes',
     summary: 'Compare canonical Site Health snapshots',
-    description: 'Returns exact page and internal-link additions, removals, and semantic field changes between immutable complete crawl snapshots. Omitted toRunId selects the latest complete crawl; omitted fromRunId selects the complete crawl immediately before the target. ForceAtlas2 positions are presentation data and never count as a change. The first page includes exact post-filter summary counts; cursor pages set summary and total to null so they never repeat full snapshot joins or trust caller-carried counts. Results use a snapshot- and filter-bound keyset cursor.',
+    description: 'Returns exact page and internal-link additions, removals, and semantic field changes between immutable complete crawl snapshots. Omitted toRunId selects the latest complete crawl; omitted fromRunId selects the complete crawl immediately before the target. A crawl stopped at its budget is never compared: when every crawl is partial, the result is `partial-not-comparable` with the newest crawl as `toRunId`, and `no-crawl` means no scan published a crawl. ForceAtlas2 positions are presentation data and never count as a change. The first page includes exact post-filter summary counts; cursor pages set summary and total to null so they never repeat full snapshot joins or trust caller-carried counts. Results use a snapshot- and filter-bound keyset cursor.',
     tags: ['technical-aeo'],
     parameters: [
       nameParameter,
@@ -7221,13 +8025,50 @@ const routeCatalog: OpenApiOperation[] = [
   },
   {
     method: 'get',
+    path: '/api/v1/projects/{name}/technical-aeo/issues',
+    summary: 'List stored audit issue groups and representative URLs',
+    description: 'Read-only retained evidence, without provider calls. Includes coded findings and independent critical defects at every page score and retained cross-page groups; mirrored duplicate annotations appear once. Returns stored run/date/attempt, crawl completeness, and separate page-finding/cross-page coverage so legacy absence and malformed evidence cannot imply a clean site. Disposition is a prioritization hint, not permission to edit or proof of score impact. Recommendations distinguish whole-factor guidance from independently issue-scoped critical-defect guidance. Page-finding identities use factor/code/type; duplicate metadata identities use the full exact metadata value. Unknown cross-page identities are run-local. Reads fail explicitly above 128 MiB evidence or 4096 groups; they never sample an apparently complete total.',
+    tags: ['technical-aeo'],
+    parameters: [
+      nameParameter,
+      { name: 'runId', in: 'query', description: 'Stored non-probe audit run. Omit for the standard latest crawl selection.', schema: stringSchema },
+      { name: 'cursor', in: 'query', description: 'Opaque continuation bound to project, run, published attempt, issue, and exact retained evidence.', schema: { type: 'string', maxLength: 2048 } },
+      { name: 'limit', in: 'query', description: 'Maximum rows; the 16 KiB serialized response budget may return fewer. Follow nextCursor until null.', schema: { type: 'integer', minimum: 1, maximum: 100, default: 25 } },
+    ],
+    responses: {
+      200: jsonResponse('Stored issue groups and coverage returned.', 'SiteAuditIssuesResponseDto'),
+      400: errorResponse('Invalid query/cursor or evidence/response read budget exceeded.'),
+      404: errorResponse('Project or explicitly selected non-probe audit run not found.'),
+    },
+  },
+  {
+    method: 'get',
+    path: '/api/v1/projects/{name}/technical-aeo/issues/{issueId}/pages',
+    summary: 'List affected URLs for one stored audit issue',
+    description: 'Read-only bounded membership of one issue in the selected published audit attempt. Preserve runId from the issue list when following historical evidence. Messages and factor-scoped recommendations expose explicit truncation; URLs are preserved. Missing legacy evidence remains unavailable, never a measured empty result.',
+    tags: ['technical-aeo'],
+    parameters: [
+      nameParameter,
+      { name: 'runId', in: 'query', description: 'Stored non-probe audit run. Omit for the standard latest crawl selection.', schema: stringSchema },
+      { name: 'cursor', in: 'query', description: 'Opaque continuation bound to project, run, published attempt, issue, and exact retained evidence.', schema: { type: 'string', maxLength: 2048 } },
+      { name: 'limit', in: 'query', description: 'Maximum rows; the 16 KiB serialized response budget may return fewer. Follow nextCursor until null.', schema: { type: 'integer', minimum: 1, maximum: 100, default: 25 } },
+      { name: 'issueId', in: 'path', required: true, description: 'Exact issue ID from the stored issue list.', schema: stringSchema },
+    ],
+    responses: {
+      200: jsonResponse('Stored affected page evidence and coverage returned.', 'SiteAuditIssuePagesResponseDto'),
+      400: errorResponse('Invalid query/cursor or evidence/response read budget exceeded.'),
+      404: errorResponse('Project, selected non-probe audit run, or issue not found.'),
+    },
+  },
+  {
+    method: 'get',
     path: '/api/v1/projects/{name}/technical-aeo/crawl/pages/audit',
     summary: 'Get exact audit evidence for one persisted crawl page',
     description: 'Returns one page score with the exact weighted-factor findings, recommendations, applicability, and independent critical defects persisted for the selected crawl. Exactly one of nodeKey or url is required. The discriminated state preserves crawl completeness and termination provenance, distinguishes a page that was not audited from one that was not found, and marks legacy score-only rows without fabricating missing evidence. This one-page read keeps verbose evidence out of the bounded interactive graph projection.',
     tags: ['technical-aeo'],
     parameters: [
       nameParameter,
-      { name: 'runId', in: 'query', description: 'Historical site-audit run ID. Omit for the latest complete crawl.', schema: stringSchema },
+      { name: 'runId', in: 'query', description: 'Historical site-audit run ID. Omit for the latest crawl.', schema: stringSchema },
       { name: 'nodeKey', in: 'query', description: 'Exact canonical crawl node key. Required when url is omitted.', schema: stringSchema },
       { name: 'url', in: 'query', description: 'Exact persisted crawl URL. Required when nodeKey is omitted.', schema: stringSchema },
     ],
@@ -7241,22 +8082,25 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/technical-aeo/crawl/pages',
     summary: 'List persisted Technical AEO crawl pages',
-    description: 'Cursor-paged canonical crawl nodes for the latest or selected crawl. `inventoryEligible` is Canonry technical-inventory eligibility, not a statement about actual Google index state.',
+    description: 'Cursor-paged canonical crawl nodes for the requested UTC date, latest scan date, or selected crawl. inventorySummary gives whole-snapshot eligibility and excluded reasons independent of paging and filters; healthReasonCounts sums the filtered list before paging. Dated no-data reads expose `availableScanDates` for an explicit retry on a known date, never an automatic fallback. Unknown indexability never means canonical-away. `inventoryEligible` is Canonry technical-inventory eligibility, not a statement about actual Google index state.',
     tags: ['technical-aeo'],
     parameters: [
       nameParameter,
       { name: 'runId', in: 'query', description: 'Historical site-audit run ID. Omit for the latest crawl.', schema: stringSchema },
+      { name: 'date', in: 'query', description: 'UTC scan date YYYY-MM-DD, mutually exclusive with runId. Prefer complete, then largest, then latest scans on that exact date; missing data never falls back to another date.', schema: { type: 'string', format: 'date' } },
       { name: 'inventoryEligible', in: 'query', description: 'Filter Canonry technical inventory eligibility (`true` or `false`).', schema: booleanSchema },
       { name: 'fetchState', in: 'query', description: 'Filter by persisted fetch state.', schema: stringSchema },
       { name: 'indexabilityState', in: 'query', description: 'Filter by crawler-derived indexability state; this is not Google index coverage.', schema: stringSchema },
       { name: 'nodeKey', in: 'query', description: 'Return only the page with this node key. Combined with a filter it answers whether that exact page is in the filtered set, without paging through the list.', schema: stringSchema },
       { name: 'healthState', in: 'query', description: 'Filter by the derived Site Health state shared with the dashboard and agents. Unlike `indexabilityState` this folds fetch state, canonical identity, and the crawler reasons into one decision. `hidden` means the SITE told answer engines not to index the page (noindex, canonical-away, robots.txt); a non-HTML file is `resource` and a redirect is `redirect`, because neither is suppressed. Values: `eligible`, `hidden`, `resource`, `redirect`, `failed`, `unchecked`.', schema: { type: 'string', enum: ['eligible', 'hidden', 'resource', 'redirect', 'failed', 'unchecked'] } },
-      { name: 'auditState', in: 'query', description: 'Filter by audit state.', schema: stringSchema },
+      { name: 'auditState', in: 'query', description: 'Filter by audit state. A URL version has `url-version`: it was fetched and classified but not scored.', schema: stringSchema },
+      { name: 'urlVersions', in: 'query', description: 'URL versions are parameter addresses (filters, views, cache settings) whose canonical names the same path, so the site marks them as copies of that page. The audit does not score them or count them in fixes, and `inventorySummary.urlVersions` counts them. `include` (default) keeps every crawled address, `exclude` lists pages only, as the dashboard does, and `only` lists the URL versions, each with `urlVersionOf`. Once a few addresses with the same parameter pattern prove to be copies, the crawl stops fetching that pattern: those have no rows and `inventorySummary.urlVersionsNotFetched` counts them. Scans made before URL versions were set aside have none.', schema: { type: 'string', enum: ['include', 'exclude', 'only'] } },
       { name: 'sort', in: 'query', description: 'Sort order. Defaults to `url`.', schema: { type: 'string', enum: ['url', 'path', 'score-asc', 'score-desc'] } },
       crawlCursorParameter,
       crawlLimitParameter,
     ],
     responses: {
+      400: errorResponse('Invalid date, conflicting runId/date, invalid urlVersions, or invalid cursor identity.'),
       200: jsonResponse('Crawl pages returned.', 'SiteCrawlPagesResponseDto'),
       404: errorResponse('Project or site-audit run not found. A known run that published no crawl returns 200 with the no-crawl state instead.'),
     },
@@ -7341,7 +8185,7 @@ const routeCatalog: OpenApiOperation[] = [
     method: 'get',
     path: '/api/v1/projects/{name}/technical-aeo/runs',
     summary: 'List Site Health scan history',
-    description: 'Returns every non-probe `site-audit` run for the project, newest first, including runs still queued or running and runs that failed. `hasCrawlData` says whether that scan published a page and internal-link crawl: a legacy score-only scan is listed with `hasCrawlData=false` rather than hidden, and the crawl-scoped reads answer it with their no-crawl state instead of a 404.',
+    description: 'Returns every non-probe `site-audit` run for the project, newest first, including runs still queued or running and runs that failed. `hasCrawlData` says whether that scan published a page and internal-link crawl: a legacy score-only scan is listed with `hasCrawlData=false` rather than hidden, and the crawl-scoped reads answer it with their no-crawl state instead of a 404. `preferredRunId` identifies the default persisted scan shared by score/crawl reads, independently of the history page limit; an explicit selected run stays authoritative.',
     tags: ['technical-aeo'],
     parameters: [
       nameParameter,
@@ -7389,7 +8233,7 @@ const routeCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/technical-aeo/runs',
     summary: 'Trigger a Technical AEO site-audit run',
     description:
-      'Queues a `site-audit` run. The run discovers pages from the root, recursive sitemaps, and internal links. An active run is reused only when its persisted effective sitemap, budgets, depth, and dead-link option match exactly; a semantic mismatch returns 409.',
+      'Queues a `site-audit` run. The run discovers pages from the root, recursive sitemaps, and internal links. An active run is reused only when its persisted effective sitemap, budgets, depth, dead-link option, and optional factor selections match exactly; a semantic mismatch returns 409.',
     tags: ['technical-aeo'],
     parameters: [nameParameter],
     requestBody: {
@@ -7401,10 +8245,12 @@ const routeCatalog: OpenApiOperation[] = [
             properties: {
               sitemapUrl: { ...stringSchema, description: 'Deprecated compatibility alias for the sitemap override.' },
               limit: { ...integerSchema, minimum: 1, maximum: 2_000, description: 'Deprecated compatibility alias for maxPages. Max 2000.' },
-              maxPages: { ...integerSchema, minimum: 1, maximum: 50_000, description: 'Crawl page budget. Defaults to 1000; max 50000.' },
+              maxPages: { ...integerSchema, minimum: 1, maximum: 50_000, description: 'Crawl page budget. When omitted, the project\'s saved budget (siteAuditMaxPages) applies, else the full site; max 50000.' },
               maxEdges: { ...integerSchema, minimum: 1, maximum: 1_000_000, description: 'Internal-link observation budget. When omitted the crawl engine derives it from the page count; max 1000000.' },
               maxDepth: { ...integerSchema, minimum: 0, maximum: 100, description: 'Maximum crawl depth from the root. Max 100.' },
               checkDeadLinks: { ...booleanSchema, default: false, description: 'Enable dead-link checking. Defaults to false.' },
+              includeGeo: { ...booleanSchema, default: false, description: 'Opt in to geographic signals for location and service-area businesses. Part of scan identity.' },
+              includeAgentSkills: { ...booleanSchema, default: true, description: 'Check discoverable actions, forms, and agent integrations by default. Set false to disable. Part of scan identity.' },
             },
           },
         },
@@ -7479,7 +8325,7 @@ export const canonryLocalRouteCatalog: OpenApiOperation[] = [
     path: '/api/v1/projects/{name}/agent/transcript',
     summary: 'Get the rolling Aero transcript for this project',
     description:
-      'Returns the full message history of the project-scoped Aero session plus the persisted model provider/id and last-updated timestamp. Empty messages array when the project has no session yet. Administrator-only: a signed-in viewer, and any API key narrower than the install (read-only, or scoped to a single project), are refused with 403. There is one Aero session per project, so this is the operator conversation rather than metadata about it.',
+      'Returns the full message history of the project-scoped Aero session plus the persisted model provider/id, `nextTurn` (the provider and model a turn that names neither would run on: the conversation\'s own model unless the `agent.provider` pin overrides it; null when no provider can run) and last-updated timestamp. Empty messages array when the project has no session yet. Administrator-only: a signed-in viewer, and any API key narrower than the install (read-only, or scoped to a single project), are refused with 403. There is one Aero session per project, so this is the operator conversation rather than metadata about it.',
     tags: ['agent'],
     parameters: [nameParameter],
     responses: {
@@ -7626,6 +8472,7 @@ export function buildOpenApiDocument(info: OpenApiInfo = {}) {
       tags: route.tags,
       responses: route.responses,
       operationId: buildOperationId(route.method, route.path),
+      'x-canonry-access': operationAccess(route.method, route.path),
     }
 
     if (route.description) operation.description = route.description

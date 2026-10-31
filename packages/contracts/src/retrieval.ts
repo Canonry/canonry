@@ -44,10 +44,15 @@ export const RetrievalStatuses = retrievalStatusSchema.enum
  *                        search-grounded answer. NOT a reproduction of any
  *                        consumer product, whose system instructions, routing,
  *                        and search policy are not public
+ * - `service-native-v1`  unmodified query sent to a hosted web-search answer
+ *                        service. The service's own search policy applies and
+ *                        Canonry adds no system prompt or instructions. Measures
+ *                        that service's grounded answer, not a model's
  */
 export const retrievalContractSchema = z.enum([
   'native-auto-v1',
   'search-required-v1',
+  'service-native-v1',
 ])
 export type RetrievalContract = z.infer<typeof retrievalContractSchema>
 export const RetrievalContracts = retrievalContractSchema.enum

@@ -3,9 +3,9 @@ import os from 'node:os'
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { createClient, migrate, apiKeys, projects, runs, users, type DatabaseClient } from '@ainyc/canonry-db'
-import { hashUserPassword } from '@ainyc/canonry-api-routes'
-import { RunKinds } from '@ainyc/canonry-contracts'
+import { createClient, migrate, apiKeys, projects, runs, users, type DatabaseClient } from '@canonry/canonry-db'
+import { hashUserPassword } from '@canonry/canonry-api-routes'
+import { RunKinds } from '@canonry/canonry-contracts'
 import { createServer } from '../src/server.js'
 import type { CanonryConfig } from '../src/config.js'
 
@@ -19,12 +19,14 @@ const EMBED_ENV = [
   'CANONRY_EMBED_PROJECT_TABS',
   'CANONRY_DASHBOARD_REQUIRE_PASSWORD',
   'CANONRY_DASHBOARD_SHOW_RESOURCE_LINKS',
+  'CANONRY_DASHBOARD_SHOW_LOCAL_AGENT_SETUP',
   'CANONRY_DASHBOARD_SHOW_UPDATE_NOTIFICATION',
   'CANONRY_DASHBOARD_MANAGED_SWEEPS',
   'CANONRY_RESEARCH_ALLOW_VIEWERS',
   'CANONRY_RESEARCH_VIEWER_DAILY_RUN_LIMIT',
   'CANONRY_DASHBOARD_MANAGED_RUN_KINDS',
   'CANONRY_ONBOARDING_MODE',
+  'CANONRY_DASHBOARD_BRAND_MARK',
 ] as const
 
 interface Built {
@@ -38,11 +40,12 @@ async function buildServer(
   embed?: CanonryConfig['embed'],
   withIndexHtml = true,
   configPatch: Partial<CanonryConfig> = {},
+  indexHtml = FIXTURE_HTML,
 ): Promise<Built> {
   const tmpDir = path.join(os.tmpdir(), `canonry-embed-${crypto.randomUUID()}`)
   const assetsDir = path.join(tmpDir, 'assets')
   fs.mkdirSync(assetsDir, { recursive: true })
-  if (withIndexHtml) fs.writeFileSync(path.join(assetsDir, 'index.html'), FIXTURE_HTML)
+  if (withIndexHtml) fs.writeFileSync(path.join(assetsDir, 'index.html'), indexHtml)
   // A real static asset so we can assert the framing header is NOT set on it.
   fs.writeFileSync(path.join(assetsDir, 'app.js'), 'console.log(1)')
 
@@ -59,7 +62,13 @@ async function buildServer(
     ...configPatch,
   }
 
-  const app = await createServer({ config, db, logger: false, assetsDir })
+  let app: Built['app']
+  try {
+    app = await createServer({ config, db, logger: false, assetsDir })
+  } catch (error) {
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+    throw error
+  }
   return {
     app,
     apiKey,
@@ -102,6 +111,54 @@ describe('server embed mode (#716)', () => {
     for (const key of EMBED_ENV) {
       if (saved[key] === undefined) delete process.env[key]
       else process.env[key] = saved[key]
+    }
+  })
+
+  it.each([
+    { projectTabs: ['report'] },
+    { projectTabs: ['report', 'overview'] },
+    { projectTabs: ['technical-aeo', 'report'], basePath: '/canonry/' },
+  ])('refuses to boot a retired Report embed instead of silently granting overview: %j', async ({ projectTabs, basePath }) => {
+    await expect(buildServer({ enabled: true, projectTabs }, true, { basePath }))
+      .rejects.toThrow('The report embed tab has been retired')
+  })
+
+  it('refuses legacy Report tabs configured through the environment', async () => {
+    process.env.CANONRY_EMBED = 'true'
+    process.env.CANONRY_EMBED_PROJECT_TABS = 'REPORT,technical-aeo'
+    await expect(buildServer()).rejects.toThrow('The report embed tab has been retired')
+  })
+
+  it('rejects retired Report request overrides on root and base-path project documents', async () => {
+    const { app, apiKey, db, cleanup } = await buildServer({
+      enabled: true,
+      projectTabs: ['overview', 'technical-aeo'],
+    }, true, { basePath: '/canonry/' })
+    try {
+      const { name } = seedProject(db)
+      for (const projectTabs of ['report', 'report,overview', 'technical-aeo,REPORT']) {
+        for (const url of ['/canonry/', `/canonry/projects/${name}/report`]) {
+          const response = await app.inject({ method: 'GET', url, headers: { 'x-canonry-embed-tabs': projectTabs } })
+          expect(response.statusCode, `${url}: ${projectTabs}`).toBe(400)
+          expect(response.json()).toMatchObject({ statusCode: 400, code: 'VALIDATION_ERROR' })
+          expect(response.body).toContain('The report embed tab has been retired')
+          expect(response.body).not.toContain('id="root"')
+        }
+      }
+      const denied = await app.inject({
+        method: 'GET',
+        url: `/canonry/api/v1/projects/${name}/overview`,
+        headers: { authorization: `Bearer ${apiKey}`, 'x-canonry-embed-tabs': 'report' },
+      })
+      expect(denied.statusCode).toBe(403)
+      const notWidened = await app.inject({
+        method: 'GET',
+        url: `/canonry/api/v1/projects/${name}/technical-aeo`,
+        headers: { authorization: `Bearer ${apiKey}`, 'x-canonry-embed-tabs': 'report,overview' },
+      })
+      expect(notWidened.statusCode).toBe(403)
+    } finally {
+      await cleanup()
     }
   })
 
@@ -231,6 +288,74 @@ describe('server embed mode (#716)', () => {
       expect(res.body).toContain(
         '<script>window.__CANONRY_CONFIG__={"dashboard":{"showResourceLinks":false}}</script>',
       )
+    } finally {
+      await cleanup()
+    }
+  })
+
+  it.each([
+    [undefined, undefined, true],
+    [undefined, true, true],
+    [undefined, false, false],
+    ['0', true, false],
+    ['1', false, true],
+    ['invalid', false, false],
+    ['invalid', undefined, true],
+    [' ', false, false],
+  ] as const)('local agent setup env=%s config=%s injects only the opt-out', async (env, configured, expected) => {
+    if (env !== undefined) process.env.CANONRY_DASHBOARD_SHOW_LOCAL_AGENT_SETUP = env
+    const { app, cleanup } = await buildServer(undefined, true, {
+      basePath: '/console',
+      dashboard: { ...(configured === undefined ? {} : { showLocalAgentSetup: configured }) },
+    })
+    try {
+      const expectedConfig = JSON.stringify({
+        basePath: '/console/',
+        ...(!expected ? { dashboard: { showLocalAgentSetup: false } } : {}),
+      })
+      for (const url of ['/console/', '/console/agent-setup']) {
+        const response = await app.inject({ method: 'GET', url })
+        expect(response.statusCode).toBe(200)
+        expect(response.body.match(/window\.__CANONRY_CONFIG__=(.*?)<\/script>/)?.[1]).toBe(expectedConfig)
+      }
+    } finally {
+      await cleanup()
+    }
+  })
+
+  it.each([
+    [undefined, undefined, false],
+    [undefined, 'icon', true],
+    [undefined, 'mascot', false],
+    ['icon', undefined, true],
+    [' ICON ', 'mascot', true],
+    ['mascot', 'icon', false],
+    ['invalid', 'icon', true],
+    ['', undefined, false],
+  ] as const)('brand mark env=%s config=%s shows the plugin icon only when chosen', async (env, configured, icon) => {
+    // The tab icons as the Vite build writes them (relative to <base href>).
+    const tabIcons = '<link rel="icon" type="image/svg+xml" href="./favicon.svg" />'
+      + '<link rel="icon" type="image/png" sizes="32x32" href="./favicon-32.png" />'
+      + '<link rel="apple-touch-icon" href="./apple-touch-icon.png" />'
+    if (env !== undefined) process.env.CANONRY_DASHBOARD_BRAND_MARK = env
+    const { app, cleanup } = await buildServer(undefined, true, {
+      dashboard: { ...(configured === undefined ? {} : { brandMark: configured }) },
+    }, `<!doctype html><html><head>${tabIcons}<title>canonry</title></head><body><div id="root"></div></body></html>`)
+    try {
+      for (const url of ['/', '/projects/acme']) {
+        const response = await app.inject({ method: 'GET', url })
+        expect(response.statusCode).toBe(200)
+        expect(response.body.match(/window\.__CANONRY_CONFIG__=(.*?)<\/script>/)?.[1])
+          .toBe(JSON.stringify(icon ? { dashboard: { brandMark: 'icon' } } : {}))
+        const hrefs = [...response.body.matchAll(/<link rel="(?:icon|apple-touch-icon)"[^>]*href="\.\/([^"]+)"/g)].map(match => match[1])
+        expect(hrefs).toEqual(icon
+          ? ['canonry-icon-favicon.svg', 'canonry-icon-32.png', 'canonry-icon-touch.png']
+          : ['favicon.svg', 'favicon-32.png', 'apple-touch-icon.png'])
+        // The dashboard build ships whatever the document points at.
+        for (const href of hrefs) {
+          expect(fs.existsSync(new URL(`../../../apps/web/public/${href}`, import.meta.url)), href).toBe(true)
+        }
+      }
     } finally {
       await cleanup()
     }
@@ -517,21 +642,21 @@ describe('server embed mode (#716)', () => {
     const { app, cleanup } = await buildServer({
       enabled: true,
       allowOrigins: ['https://host.example'],
-      projectTabs: ['overview', 'technical-aeo', 'report'],
+      projectTabs: ['overview', 'technical-aeo'],
     })
     try {
       // No header => the boot-wide projectTabs.
       const boot = await app.inject({ method: 'GET', url: '/' })
-      expect(boot.body).toContain('"projectTabs":["overview","technical-aeo","report"]')
+      expect(boot.body).toContain('"projectTabs":["overview","technical-aeo"]')
 
       // Header => THIS request's projectTabs, normalized; the boot value is replaced.
       const scoped = await app.inject({
         method: 'GET',
         url: '/',
-        headers: { 'x-canonry-embed-tabs': 'Overview, technical-aeo' },
+        headers: { 'x-canonry-embed-tabs': 'technical-aeo' },
       })
-      expect(scoped.body).toContain('"projectTabs":["overview","technical-aeo"]')
-      expect(scoped.body).not.toContain('"report"')
+      expect(scoped.body).toContain('"projectTabs":["technical-aeo"]')
+      expect(scoped.body).not.toContain('"projectTabs":["overview"')
 
       // The deep-link fallback (the embedded route) honors the header too.
       const deep = await app.inject({
@@ -614,6 +739,36 @@ describe('server embed mode (#716)', () => {
         headers: { 'x-canonry-embed-render-token': 'render.jwt.token' },
       })
       expect(res.body).toContain('"renderToken":"render.jwt.token"')
+    } finally {
+      await cleanup()
+    }
+  })
+
+  it('ON: a per-request X-Canonry-Embed-Query-Limit header turns on the client Queries tab', async () => {
+    const { app, cleanup } = await buildServer({ enabled: true, allowOrigins: ['https://host.example'] })
+    try {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/projects/acme',
+        headers: { 'x-canonry-embed-query-limit': '10' },
+      })
+      expect(res.body).toContain('"queries":{"limit":10}')
+      const bad = await app.inject({
+        method: 'GET',
+        url: '/projects/acme',
+        headers: { 'x-canonry-embed-query-limit': '10; drop' },
+      })
+      expect(bad.body).not.toContain('"queries"')
+    } finally {
+      await cleanup()
+    }
+  })
+
+  it('OFF: the X-Canonry-Embed-Query-Limit header is ignored (no embed block)', async () => {
+    const { app, cleanup } = await buildServer()
+    try {
+      const res = await app.inject({ method: 'GET', url: '/', headers: { 'x-canonry-embed-query-limit': '10' } })
+      expect(res.body).toContain('<script>window.__CANONRY_CONFIG__={}</script>')
     } finally {
       await cleanup()
     }
@@ -816,53 +971,28 @@ describe('server embed mode (#716)', () => {
         expect(res.statusCode, `${url} should be hidden by overview-only embed tabs`).toBe(403)
       }
 
+      // A write with a FULL key and NO embed header is the control plane, not the
+      // iframe, and must go through. Asserting 403 here is what made every embed
+      // instance refuse its own client provisioning once tabs were configured
+      // ("client provisioning failed: This endpoint is not available in embed
+      // mode"). The iframe is still covered, twice over: the read-only key it
+      // carries is gated by the regression test above, and a write that actually
+      // carries the tab header is refused below.
       const write = await app.inject({
         method: 'POST',
         url: `/api/v1/projects/${name}/queries`,
         headers: auth,
         payload: { queries: ['best roofer'] },
       })
-      expect(write.statusCode).toBe(403)
-    } finally {
-      await cleanup()
-    }
-  })
+      expect(write.statusCode).not.toBe(403)
 
-  it('ON + per-request tabs: X-Canonry-Embed-Tabs narrows the configured allowlist to report', async () => {
-    // The per-request header only ever NARROWS what the operator configured —
-    // it cannot grant a tab the operator did not allow. `projectTabs` names
-    // all three here so the header has something to narrow FROM; see the
-    // "cannot widen past the overview-only default" test below for what
-    // happens when the operator never configured `projectTabs` at all.
-    const { app, apiKey, db, cleanup } = await buildServer({
-      enabled: true,
-      allowOrigins: ['https://host.example'],
-      projectTabs: ['overview', 'technical-aeo', 'report'],
-    })
-    try {
-      const { name } = seedProject(db)
-      const auth = {
-        authorization: `Bearer ${apiKey}`,
-        'x-canonry-embed-tabs': 'report',
-      }
-
-      for (const url of [
-        '/api/v1/projects',
-        `/api/v1/projects/${name}`,
-        `/api/v1/projects/${name}/runs?kind=answer-visibility`,
-        `/api/v1/projects/${name}/report`,
-        `/api/v1/projects/${name}/report.html?audience=client&period=30`,
-      ]) {
-        const res = await app.inject({ method: 'GET', url, headers: auth })
-        expect(res.statusCode, `${url} should be reachable for report embed data`).not.toBe(403)
-      }
-
-      const hidden = await app.inject({
-        method: 'GET',
-        url: `/api/v1/projects/${name}/technical-aeo`,
-        headers: auth,
+      const iframeWrite = await app.inject({
+        method: 'POST',
+        url: `/api/v1/projects/${name}/queries`,
+        headers: { ...auth, 'x-canonry-embed-tabs': 'overview' },
+        payload: { queries: ['best roofer'] },
       })
-      expect(hidden.statusCode).toBe(403)
+      expect(iframeWrite.statusCode).toBe(403)
     } finally {
       await cleanup()
     }
@@ -872,7 +1002,7 @@ describe('server embed mode (#716)', () => {
     const { app, db, cleanup } = await buildServer({
       enabled: true,
       allowOrigins: ['https://host.example'],
-      projectTabs: ['overview', 'technical-aeo', 'report'],
+      projectTabs: ['overview', 'technical-aeo'],
     })
     try {
       const { id: projectId, name, now } = seedProject(db)
@@ -925,8 +1055,7 @@ describe('server embed mode (#716)', () => {
   })
 
   it('ON, no explicit projectTabs config: X-Canonry-Embed-Tabs cannot widen past the overview-only default', async () => {
-    // Before this fix, a header naming a server-enforced tab (`report`,
-    // `technical-aeo`) was honored even when the operator never configured
+    // Before this fix, a header naming a server-enforced tab (`technical-aeo`) was honored even when the operator never configured
     // `projectTabs` and the install silently defaulted to overview-only — the
     // header REPLACED the allowlist instead of narrowing it. A caller-settable
     // header must never grant more than the operator configured, defaulted or

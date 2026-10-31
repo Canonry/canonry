@@ -4,22 +4,21 @@ import path from 'node:path'
 import { gzipSync } from 'node:zlib'
 import { afterAll, beforeAll, describe, expect, test } from 'vitest'
 import { queryBacklinks } from '../src/duckdb-query.js'
-import { reverseDomain } from '../src/reverse-domain.js'
 
 let duckdb: unknown
 let tmpDir: string
 let vertexPath: string
 let edgesPath: string
 
-const vertices: { id: number; domain: string; numHosts: number }[] = [
-  { id: 1, domain: 'roots.io', numHosts: 5 },
-  { id: 2, domain: 'laravel.com', numHosts: 10 },
-  { id: 3, domain: 'github.com', numHosts: 20000 },
-  { id: 4, domain: 'reddit.com', numHosts: 8000 },
-  { id: 5, domain: 'wordpress.org', numHosts: 12000 },
-  { id: 6, domain: 'stackoverflow.com', numHosts: 15000 },
-  { id: 7, domain: 'medium.com', numHosts: 7000 },
-  { id: 8, domain: 'unused.example', numHosts: 1 },
+const vertices: { id: number; revDomain: string; numHosts: number }[] = [
+  { id: 1, revDomain: 'io.roots', numHosts: 5 },
+  { id: 2, revDomain: 'com.laravel', numHosts: 10 },
+  { id: 3, revDomain: 'com.github', numHosts: 20000 },
+  { id: 4, revDomain: 'com.reddit', numHosts: 8000 },
+  { id: 5, revDomain: 'org.wordpress', numHosts: 12000 },
+  { id: 6, revDomain: 'com.stackoverflow', numHosts: 15000 },
+  { id: 7, revDomain: 'com.medium', numHosts: 7000 },
+  { id: 8, revDomain: 'example.unused', numHosts: 1 },
 ]
 
 const edges: { fromId: number; toId: number }[] = [
@@ -34,7 +33,7 @@ const edges: { fromId: number; toId: number }[] = [
 
 function verticesTsv(): string {
   return vertices
-    .map((v) => `${v.id}\t${reverseDomain(v.domain)}\t${v.numHosts}`)
+    .map((v) => `${v.id}\t${v.revDomain}\t${v.numHosts}`)
     .join('\n') + '\n'
 }
 
@@ -77,21 +76,13 @@ describe('queryBacklinks', () => {
       targets: ['roots.io', 'laravel.com'],
       duckdb,
     })
-    const byTarget = new Map<string, { linkingDomain: string; numHosts: number }[]>()
-    for (const r of rows) {
-      const bucket = byTarget.get(r.targetDomain) ?? []
-      bucket.push({ linkingDomain: r.linkingDomain, numHosts: r.numHosts })
-      byTarget.set(r.targetDomain, bucket)
-    }
-    expect(byTarget.get('roots.io')).toEqual([
-      { linkingDomain: 'github.com', numHosts: 20000 },
-      { linkingDomain: 'wordpress.org', numHosts: 12000 },
-      { linkingDomain: 'reddit.com', numHosts: 8000 },
-    ])
-    expect(byTarget.get('laravel.com')).toEqual([
-      { linkingDomain: 'github.com', numHosts: 20000 },
-      { linkingDomain: 'stackoverflow.com', numHosts: 15000 },
-      { linkingDomain: 'medium.com', numHosts: 7000 },
+    expect(rows).toEqual([
+      { targetDomain: 'laravel.com', linkingDomain: 'github.com', numHosts: 20000 },
+      { targetDomain: 'laravel.com', linkingDomain: 'stackoverflow.com', numHosts: 15000 },
+      { targetDomain: 'laravel.com', linkingDomain: 'medium.com', numHosts: 7000 },
+      { targetDomain: 'roots.io', linkingDomain: 'github.com', numHosts: 20000 },
+      { targetDomain: 'roots.io', linkingDomain: 'wordpress.org', numHosts: 12000 },
+      { targetDomain: 'roots.io', linkingDomain: 'reddit.com', numHosts: 8000 },
     ])
   })
 

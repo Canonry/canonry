@@ -1,4 +1,3 @@
-import { researchBatch, researchList, researchRun, researchShow } from '../commands/research.js'
 import type { CliCommandSpec, CliCommandInput } from '../cli-dispatch.js'
 import {
   getBoolean,
@@ -12,7 +11,7 @@ import {
 } from '../cli-command-helpers.js'
 import { usageError } from '../cli-error.js'
 import { createApiClient } from '../client.js'
-import { deduplicateResearchQueries, type LocationContext, type ResearchRunCreate } from '@ainyc/canonry-contracts'
+import { deduplicateResearchQueries, type LocationContext, type ResearchRunCreate } from '@canonry/canonry-contracts'
 
 const RUN_USAGE = 'canonry research run <project> <query...> [--query <text>] [--provider <name>] [--model <id>] [--market <key>|--property <key>] [--template-id <id> --template-version <version>] [--location <label>|--no-location] [--idempotency-key <key>] [--wait] [--format json|jsonl]'
 const BATCH_USAGE = 'canonry research batch <project> <json-file|-> [--wait] [--format json|jsonl]'
@@ -104,6 +103,7 @@ export const RESEARCH_CLI_COMMANDS: readonly CliCommandSpec[] = [
     usage: BATCH_USAGE,
     options: { wait: { type: 'boolean', default: false } },
     run: async (input) => {
+      const { researchBatch } = await import('../commands/research.js')
       const project = requireProject(input, 'research.batch', BATCH_USAGE)
       const source = requirePositional(input, 1, {
         command: 'research.batch', usage: BATCH_USAGE, message: 'reviewed research batch JSON file is required',
@@ -128,6 +128,7 @@ export const RESEARCH_CLI_COMMANDS: readonly CliCommandSpec[] = [
       wait: { type: 'boolean', default: false },
     },
     run: async (input) => {
+      const { researchRun } = await import('../commands/research.js')
       const project = requireProject(input, 'research.run', RUN_USAGE)
       const provider = getString(input.values, 'provider')?.trim() || undefined
       const model = getString(input.values, 'model')?.trim() || undefined
@@ -155,6 +156,7 @@ export const RESEARCH_CLI_COMMANDS: readonly CliCommandSpec[] = [
     usage: 'canonry research list <project> [--limit <n>] [--cursor <cursor>] [--format json|jsonl]',
     options: { limit: stringOption(), cursor: stringOption() },
     run: async (input) => {
+      const { researchList } = await import('../commands/research.js')
       const usage = 'canonry research list <project> [--limit <n>] [--cursor <cursor>] [--format json|jsonl]'
       const project = requireProject(input, 'research.list', usage)
       await researchList(project, {
@@ -168,6 +170,7 @@ export const RESEARCH_CLI_COMMANDS: readonly CliCommandSpec[] = [
     path: ['research', 'show'],
     usage: 'canonry research show <project> <run-id> [--format json|jsonl]',
     run: async (input) => {
+      const { researchShow } = await import('../commands/research.js')
       const usage = 'canonry research show <project> <run-id> [--format json|jsonl]'
       const project = requireProject(input, 'research.show', usage)
       const runId = requirePositional(input, 1, { command: 'research.show', usage, message: 'research run ID is required' })

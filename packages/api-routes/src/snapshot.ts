@@ -1,11 +1,16 @@
 import type { FastifyInstance } from 'fastify'
-import { AppError, internalError, notImplemented, resolveSnapshotRequestQueries, snapshotRequestSchema, validationError, type SnapshotReportDto, type SnapshotRequestDto } from '@ainyc/canonry-contracts'
+import { AppError, internalError, notImplemented, resolveSnapshotRequestQueries, snapshotRequestSchema, validationError, type SnapshotReportDto, type SnapshotRequestDto } from '@canonry/canonry-contracts'
+import { assertProviderRouteScope, providerRouteFamilies } from './provider-models.js'
+import type { ProviderAdapterInfo } from './settings.js'
 
 export interface SnapshotRoutesOptions {
   onSnapshotRequested?: (input: SnapshotRequestDto) => Promise<SnapshotReportDto>
+  /** Route families, so choosing any routed model or profile needs settings authority. */
+  providerAdapters?: ProviderAdapterInfo[]
 }
 
 export async function snapshotRoutes(app: FastifyInstance, opts: SnapshotRoutesOptions) {
+  const routeFamilies = providerRouteFamilies(opts.providerAdapters)
   app.post<{
     Body: SnapshotRequestDto
   }>('/snapshot', async (request) => {
@@ -28,6 +33,7 @@ export async function snapshotRoutes(app: FastifyInstance, opts: SnapshotRoutesO
       queries: resolveSnapshotRequestQueries(parsed.data),
     }
     delete input.phrases
+    assertProviderRouteScope(request, input.providers ?? [], [], routeFamilies)
 
     try {
       return await opts.onSnapshotRequested(input)

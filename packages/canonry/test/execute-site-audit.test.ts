@@ -19,13 +19,13 @@ import {
   siteCrawlGraphNodes,
   siteCrawlPages,
   siteCrawlSnapshots,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 
 // The executor is intentionally tested at the event boundary.  The audit
 // engine has its own HTTP/BFS suite; Canonry owns receipt, graph, and publish
 // semantics.
 vi.mock('@canonry/aeo-audit', () => ({ runSiteCrawl: vi.fn() }))
-vi.mock('@ainyc/canonry-api-routes', () => ({
+vi.mock('@canonry/canonry-api-routes', () => ({
   resolvePublicHttpTarget: vi.fn(),
   resolveWebhookTarget: vi.fn().mockResolvedValue({ ok: true }),
 }))
@@ -48,7 +48,7 @@ import { isNonPageMedia,
 import { hashDomain } from '../src/run-telemetry.js'
 import { resolveSiteAuditRootUrl } from '../src/site-audit-root.js'
 import { SITE_CRAWL_GRAPH_LAYOUT_VERSION } from '../src/site-crawl-graph-layout.js'
-import { deriveSiteHealthState } from '@ainyc/canonry-contracts'
+import { deriveSiteHealthState } from '@canonry/canonry-contracts'
 
 const NOW = '2026-08-08T00:00:00.000Z'
 
@@ -146,6 +146,7 @@ async function emitCompleteGraph(
   options: { onEvent?: (event: unknown) => Promise<void> | void },
   complete = true,
   rootUrl = 'https://example.com/',
+  summaryOverrides: Record<string, unknown> = {},
 ) {
   const childUrl = new URL('/a', rootUrl).href
   await options.onEvent?.({
@@ -170,6 +171,7 @@ async function emitCompleteGraph(
     rootUrl,
     finalRootUrl: rootUrl,
     ...(complete ? {} : { complete: false, terminationReason: 'max-pages' }),
+    ...summaryOverrides,
   })
   await options.onEvent?.({ type: 'summary', sequence: 4, batchId: 'summary-1', checksum: complete ? 'summary-ok' : 'summary-partial', summary: endSummary })
   return { mode: 'summary', summary: endSummary, deadLinks: { state: 'disabled', findings: [], unverified: [] } }
@@ -272,6 +274,171 @@ describe('executeSiteAudit', () => {
     })
     expect(db.select().from(siteAuditSnapshots).where(eq(siteAuditSnapshots.runId, runId)).get()).toMatchObject({ aggregateScore: 88 })
     expect(db.select().from(siteAuditPages).where(eq(siteAuditPages.runId, runId)).all()).toHaveLength(2)
+  })
+
+  it('asks the crawl to stop fetching proven URL versions and stores how many it skipped', async () => {
+    const urlVersions = {
+      skipAfter: 3,
+      skipped: 40,
+      patterns: [{ section: '/units', parameters: ['forcecache'], copies: 3, skipped: 40, exampleUrl: 'https://example.com/units/1/?forcecache=1' }],
+    }
+    vi.mocked(runSiteCrawl).mockImplementation(async (url, options) => emitCompleteGraph(options, true, url, { urlVersions }))
+    const runId = seedRun()
+    await executeSiteAudit(db, runId, projectId)
+
+    expect(runSiteCrawl).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ skipUrlVersionsAfter: 3 }))
+    expect(db.select().from(siteCrawlAttempts).where(eq(siteCrawlAttempts.runId, runId)).get()).toMatchObject({ urlVersionsSkipped: 40 })
+
+    // An engine summary without the count (older engines) stores 0.
+    vi.mocked(runSiteCrawl).mockImplementation(async (url, options) => emitCompleteGraph(options, true, url))
+    const olderRun = seedRun()
+    await executeSiteAudit(db, olderRun, projectId)
+    expect(db.select().from(siteCrawlAttempts).where(eq(siteCrawlAttempts.runId, olderRun)).get()).toMatchObject({ urlVersionsSkipped: 0 })
+  })
+
+  it('does not score URL versions: the site score, fix counts and legacy scorecard cover pages only', async () => {
+    const scored = (url: string, score: number) => page(`page:${new URL(url).pathname}${new URL(url).search}`, url, {
+      audit: { ...page('page:x', url).audit, overallScore: score, factors: [scoredFactor('sd', 'Structured Data', 12, score)] },
+    })
+    // Stored shapes from a real crawl: a filter view whose canonical names
+    // its path (indexability unknown), and a cache-busting unit address
+    // marked noindex with the clean address as canonical.
+    const filterView = page('page:filter', 'https://example.com/apartments/?field=neighborhood&value=Buckhead', {
+      canonicalUrl: 'https://example.com/apartments/',
+      indexability: { state: 'unknown', reasons: ['canonical-to-other'], rulesetVersion: '1.0.0' },
+      audit: { ...page('page:x', 'https://example.com/').audit, overallScore: 20, factors: [scoredFactor('sd', 'Structured Data', 12, 20)] },
+    })
+    const cacheCopy = page('page:unit', 'https://example.com/units/7/?forcecache=1', {
+      canonicalUrl: 'https://example.com/units/7/',
+      indexability: { state: 'noindex', reasons: ['meta-robots-noindex'], rulesetVersion: '1.0.0' },
+      audit: { ...page('page:x', 'https://example.com/').audit, overallScore: 10, factors: [scoredFactor('sd', 'Structured Data', 12, 10)] },
+    })
+    // A parameter address that names itself as canonical is a page.
+    const pageTwo = scored('https://example.com/blog?page=2', 60)
+    vi.mocked(runSiteCrawl).mockImplementation(async (_url, options) => {
+      await options.onEvent?.({
+        type: 'pages', sequence: 1, batchId: 'pages-1', checksum: 'pages-checksum',
+        rows: [scored('https://example.com/', 90), scored('https://example.com/apartments/', 70), pageTwo, filterView, cacheCopy],
+      })
+      // The engine's own rollup counts every audited address: (90+70+60+20+10)/5.
+      const endSummary = summary({ pagesObserved: 5, auditRollup: { auditedPages: 5, aggregateScore: 50, factors: [] } })
+      await options.onEvent?.({ type: 'summary', sequence: 2, batchId: 'summary-1', checksum: 'summary-ok', summary: endSummary })
+      return { mode: 'summary', summary: endSummary, deadLinks: { state: 'disabled', findings: [], unverified: [] } }
+    })
+    const runId = seedRun()
+    await executeSiteAudit(db, runId, projectId)
+
+    const snapshot = db.select().from(siteAuditSnapshots).where(eq(siteAuditSnapshots.runId, runId)).get()!
+    // (90 + 70 + 60) / 3 = 73.3, not the engine's 50 over five addresses.
+    expect(snapshot).toMatchObject({ aggregateScore: 73, pagesAudited: 3 })
+    // Scores 90 and 70 pass, 60 is partial; the copies' failing 20 and 10 are not counted.
+    expect(snapshot.factorAverages).toEqual([expect.objectContaining({
+      id: 'sd', avgScore: 73, status: 'partial', pagesPassing: 2, pagesPartial: 1, pagesFailing: 0,
+    })])
+    expect(db.select({ url: siteAuditPages.url }).from(siteAuditPages).where(eq(siteAuditPages.runId, runId)).all().map((row) => row.url).sort())
+      .toEqual(['https://example.com/', 'https://example.com/apartments/', 'https://example.com/blog?page=2'])
+
+    const rows = db.select().from(siteCrawlPages).where(eq(siteCrawlPages.runId, runId)).all()
+    const row = (url: string) => rows.find((candidate) => candidate.url === url)!
+    for (const [url, main] of [
+      ['https://example.com/apartments/?field=neighborhood&value=Buckhead', 'https://example.com/apartments/'],
+      ['https://example.com/units/7/?forcecache=1', 'https://example.com/units/7/'],
+    ]) {
+      expect(row(url)).toMatchObject({ urlVersionOf: main, auditState: 'url-version', auditScore: null, auditFields: {}, healthState: 'hidden' })
+    }
+    expect(row('https://example.com/blog?page=2')).toMatchObject({ urlVersionOf: null, auditState: 'success', auditScore: 60 })
+  })
+
+  it.each([
+    { name: 'omitted', summaryFields: {}, expected: null },
+    { name: 'measured empty', summaryFields: { siteIssues: [] }, expected: { schemaVersion: '1.0', groupIdentityVersion: 'duplicate-metadata-v1', siteIssues: [] } },
+  ])('persists $name cross-page issue evidence distinctly', async ({ summaryFields, expected }) => {
+    vi.mocked(runSiteCrawl).mockImplementation(async (url, options) => emitCompleteGraph(options, true, url, summaryFields))
+    const runId = seedRun()
+    await executeSiteAudit(db, runId, projectId)
+    expect(db.select().from(siteCrawlSnapshots).where(eq(siteCrawlSnapshots.runId, runId)).get()?.issueEvidence).toEqual(expected)
+  })
+
+  it.each([true, false])('retains updated issue findings and final depths with complete=%s provenance', async (complete) => {
+    const rootUrl = 'https://example.com/'
+    const urls = [rootUrl, `${rootUrl}bridge`, `${rootUrl}child`, `${rootUrl}orphan`]
+    const title = 'A shared page title for these observed pages'
+    const advisory = 'Review this title for useful page-specific context.'
+    const message = '4 pages share the same title word for word.'
+    vi.mocked(runSiteCrawl).mockImplementation(async (_url, options) => {
+      const pages = urls.map((url, index) => {
+        const original = page(index === 0 ? 'page:root' : `page:${index}`, url)
+        return {
+          ...original,
+          depth: 0,
+          provenance: { ...original.provenance, sitemapSources: [`${rootUrl}sitemap.xml`] },
+          audit: {
+            ...original.audit,
+            metadata: { pageTitle: title, metaDescription: null },
+            factors: [{
+              ...scoredFactor('entity-consistency', 'Entity Consistency', 8, 88),
+              recommendations: [advisory],
+              advisoryRecommendations: [advisory],
+            }],
+          },
+          metrics: { ...original.metrics, shortestFollowableAnchorDepth: index === 3 ? null : index },
+        }
+      })
+      await options.onEvent?.({ type: 'pages', sequence: 1, batchId: 'initial-pages', checksum: 'initial-pages', rows: pages })
+      await options.onEvent?.({
+        type: 'edges', sequence: 2, batchId: 'edges', checksum: 'edges',
+        rows: [0, 1].map((index) => ({
+          key: `edge:${index}`, from: urls[index], to: urls[index + 1], type: 'anchor', classification: 'internal',
+          totalOccurrences: 1, followableOccurrences: 1, nofollowOccurrences: 0, anchorSummaries: [{ text: 'Next', occurrences: 1 }],
+        })),
+      })
+      const updatedPages = pages.map((observation) => ({
+        ...observation,
+        audit: {
+          ...observation.audit,
+          factors: observation.audit.factors.map((factor) => ({
+            ...factor,
+            findings: [...factor.findings, { type: 'info', code: 'site.duplicate-title', message }],
+          })),
+        },
+      }))
+      await options.onEvent?.({ type: 'pages', sequence: 3, batchId: 'duplicate-pages', checksum: 'duplicate-pages', rows: updatedPages })
+      await options.onEvent?.({
+        type: 'metrics', sequence: 4, batchId: 'final-metrics', checksum: 'final-metrics',
+        rows: pages.map((observation) => ({ key: observation.key, metrics: observation.metrics })),
+      })
+      const endSummary = summary({
+        engineVersion: '7.3.0', complete, terminationReason: complete ? null : 'max-pages',
+        pagesDiscovered: 4, pagesFetched: 4, pagesObserved: 4, edgesObserved: 2,
+        auditRollup: { auditedPages: 4, aggregateScore: 88, factors: [] },
+        siteIssues: [{ code: 'site.duplicate-title', message, affectedUrls: [urls[3], urls[1], urls[0], urls[2], urls[1]] }],
+      })
+      await options.onEvent?.({ type: 'summary', sequence: 5, batchId: 'summary', checksum: 'summary', summary: endSummary })
+      return { mode: 'summary', summary: endSummary, deadLinks: { state: 'disabled', findings: [], unverified: [] } }
+    })
+
+    const runId = seedRun()
+    await executeSiteAudit(db, runId, projectId)
+    const snapshot = db.select().from(siteCrawlSnapshots).where(eq(siteCrawlSnapshots.runId, runId)).get()!
+    expect(snapshot).toMatchObject({ complete, termination: complete ? 'complete' : 'max-pages', engineVersion: '7.3.0' })
+    expect(snapshot.issueEvidence).toEqual({
+      schemaVersion: '1.0', groupIdentityVersion: 'duplicate-metadata-v1',
+      siteIssues: [{ key: expect.stringMatching(/^site-issue:[a-f0-9]{64}$/), code: 'site.duplicate-title', message, affectedUrls: urls }],
+    })
+    const retainedPages = db.select().from(siteCrawlPages).where(eq(siteCrawlPages.runId, runId)).all()
+    expect(retainedPages).toHaveLength(4)
+    expect(retainedPages.find((row) => row.url === urls[2])?.depth).toBe(2)
+    expect(retainedPages.find((row) => row.url === urls[3])?.depth).toBeNull()
+    for (const retained of retainedPages) {
+      expect(retained.auditScore).toBe(88)
+      expect(retained.auditFields).toMatchObject({
+        factors: [{
+          id: 'entity-consistency', score: 88, status: 'pass',
+          advisoryRecommendations: [advisory],
+          findings: expect.arrayContaining([{ type: 'info', code: 'site.duplicate-title', message }]),
+        }],
+      })
+    }
   })
 
   it('persists the crawler placement report, and the ruleset version that produced it', async () => {
@@ -1193,7 +1360,7 @@ describe('executeSiteAudit', () => {
       expect(byEvent(payloads, 'activation.completed')[0]!.properties).toMatchObject({ kind: 'site_health', status: 'partial' })
     })
 
-    it('reports a failed crawl without crawl counts, with UNKNOWN, and does not activate', async () => {
+    it('reports a failed crawl without crawl counts, as INTERNAL with its error class, and does not activate', async () => {
       vi.mocked(runSiteCrawl).mockImplementation(async () => { throw new Error('provider connection failed') })
 
       const { payloads } = await captureTelemetry(async () => {
@@ -1202,9 +1369,10 @@ describe('executeSiteAudit', () => {
 
       const audits = byEvent(payloads, 'site_audit.completed')
       expect(audits).toHaveLength(1)
-      expect(audits[0]!.errorCode).toBe('UNKNOWN')
-      expect(Object.keys(audits[0]!.properties as object).sort()).toEqual(['domainHash', 'durationMs', 'status', 'trigger'])
-      expect(audits[0]!.properties).toMatchObject({ status: 'failed' })
+      expect(audits[0]!.errorCode).toBe('INTERNAL')
+      expect(Object.keys(audits[0]!.properties as object).sort()).toEqual(['domainHash', 'durationMs', 'errorName', 'status', 'trigger'])
+      expect(audits[0]!.properties).toMatchObject({ status: 'failed', errorName: 'Error' })
+      expect(JSON.stringify(audits[0])).not.toContain('provider connection failed')
       expect(byEvent(payloads, 'activation.completed')).toEqual([])
     })
 

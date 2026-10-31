@@ -17,40 +17,29 @@ beforeEach(() => {
   resetRateGatesForTest()
 })
 
-/** Records the ORDER slots are granted in, plus a virtual clock. */
-function recordingSleep() {
-  let now = 0
-  const grants: Array<{ at: number; tag: string }> = []
-  const sleep = (tag: string) => async (ms: number) => {
-    now += ms
-    grants.push({ at: now, tag })
-  }
-  return { grants, sleep, now: () => now }
-}
-
 describe('sharedRateGate', () => {
-  it('serialises waiters that name the same resource', async () => {
-    const { grants, sleep } = recordingSleep()
-    const a = sharedRateGate('bing:acct')
-    const b = sharedRateGate('bing:acct')
+  it('queues the same resource while a different resource continues', async () => {
+    const started: string[] = []
+    let releaseFirst = () => {}
+    const first = sharedRateGate('bing:account-one').take(1000, () => new Promise<void>((resolve) => {
+      started.push('account-one:first')
+      releaseFirst = resolve
+    }))
+    const second = sharedRateGate('bing:account-one').take(1000, async () => {
+      started.push('account-one:second')
+    })
+    const independent = sharedRateGate('bing:account-two').take(1000, async () => {
+      started.push('account-two')
+    })
 
-    await Promise.all([a.take(1000, sleep('a')), b.take(1000, sleep('b'))])
-
-    // Two callers, two spacings — not two callers each starting immediately.
-    expect(grants.map((g) => g.at)).toEqual([1000, 2000])
-  })
-
-  it('keeps different resources independent', async () => {
-    const { grants, sleep } = recordingSleep()
-    const bing = sharedRateGate('bing:acct')
-    const gsc = sharedRateGate('gsc:sc-domain:example.com')
-
-    await Promise.all([bing.take(1000, sleep('bing')), gsc.take(1000, sleep('gsc'))])
-
-    // Separate chains: neither waited on the other, so both land at 1000 on
-    // their own clock. (The shared virtual clock advances twice; what matters
-    // is that they did not queue.)
-    expect(grants).toHaveLength(2)
+    try {
+      await Promise.resolve()
+      expect(started).toEqual(['account-one:first', 'account-two'])
+    } finally {
+      releaseFirst()
+      await Promise.all([first, second, independent])
+    }
+    expect(started).toEqual(['account-one:first', 'account-two', 'account-one:second'])
   })
 
   it('does not wedge every future waiter when one rejects', async () => {

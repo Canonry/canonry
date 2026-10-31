@@ -8,6 +8,8 @@ import {
   measurementStateSchema,
   measurementV2StableKeySchema,
 } from './measurement-plan-v2.js'
+import { compareText } from './text-order.js'
+import { mentionIdentitySchema } from './mention-identity.js'
 
 /** The five deterministic outcomes produced by sitemap target discovery. */
 export const measurementDiscoveryClassificationSchema = z.enum([
@@ -171,10 +173,14 @@ export const measurementMetricReasonSchema = z.enum([
 export type MeasurementMetricReason = z.infer<typeof measurementMetricReasonSchema>
 
 /**
- * A rate is either measured or wholly unavailable. Missing evidence never
- * shrinks a denominator. The one exclusion is a mention rate's unattributable
- * answers: an answer whose identity could not be tied to one Property leaves
- * both sides of the rate and is counted in `unattributed` (absent means none).
+ * A rate is either measured or wholly unavailable. A missing answer never
+ * shrinks a denominator. Two kinds of saved answer leave both sides of a rate
+ * and are counted beside it instead (absent means none):
+ * - `unattributed`, on a mention rate: the answer's identity could not be tied
+ *   to one Property.
+ * - `unchecked`, on a citation rate: the answer's source-link capture was
+ *   incomplete. A link it did capture is not counted either.
+ * One rate reads one signal, so the two never appear together.
  */
 export const measurementRateSchema = z.union([
   z.object({
@@ -182,6 +188,7 @@ export const measurementRateSchema = z.union([
     denominator: z.number().int().positive(),
     rate: fraction(z.number().min(0).max(1)),
     unattributed: z.number().int().positive().optional(),
+    unchecked: z.number().int().positive().optional(),
   }).strict(),
   z.object({
     numerator: z.null(),
@@ -192,6 +199,9 @@ export const measurementRateSchema = z.union([
 ]).superRefine((value, ctx) => {
   if (value.numerator !== null && value.numerator > value.denominator) {
     ctx.addIssue({ code: 'custom', path: ['numerator'], message: 'Rate numerator cannot exceed denominator' })
+  }
+  if (value.numerator !== null && value.unattributed !== undefined && value.unchecked !== undefined) {
+    ctx.addIssue({ code: 'custom', path: ['unchecked'], message: 'A rate reads one signal: unattributed (mention) and unchecked (citation) cannot share it' })
   }
 })
 export type MeasurementRate = z.infer<typeof measurementRateSchema>
@@ -229,7 +239,6 @@ export function parseMeasurementRunManifestV1(value: unknown): MeasurementRunMan
 }
 
 export function buildMeasurementRunManifestV1(input: Omit<MeasurementRunManifestV1, 'schemaVersion'>): MeasurementRunManifestV1 {
-  const compareText = (left: string, right: string): number => left < right ? -1 : left > right ? 1 : 0
   const expectedSlots = [...input.expectedSlots]
     .map(slot => measurementExpectedSlotV1Schema.parse(slot))
     .sort((left, right) => (
@@ -382,6 +391,13 @@ export const measurementAnswerEvidenceSchema = z.object({
   queryClass: z.union([z.enum(['branded', 'non-brand']), z.null()]),
   mentioned: z.boolean().nullable(),
   /**
+   * `wrong-subject` when the answer writes this Property's name but sentiment
+   * found it is about another subject, so `mentioned` is false. Null when no
+   * sentiment verdict changes the mention, and always on a baseline edge.
+   * Defaults to null for a row from a server that predates the field.
+   */
+  mentionIdentity: z.union([mentionIdentitySchema, z.null()]).default(null),
+  /**
    * Null where citation capture was incomplete and nothing matched: with the
    * sources unseen, "not cited" is a claim the run does not support.
    */
@@ -395,6 +411,43 @@ export const measurementAnswerEvidenceSchema = z.object({
   evidenceComplete: z.boolean(),
 }).strict()
 export type MeasurementAnswerEvidence = z.infer<typeof measurementAnswerEvidenceSchema>
+
+/** One of this Property's own pages, cited in an answer to a query it is not assigned. */
+export const measurementOtherQuerySourceSchema = z.object({
+  sourceUrl: z.string(),
+  normalizedUrl: z.string().nullable(),
+  matchedUrlIds: z.array(z.string().trim().min(1)),
+}).strict()
+export type MeasurementOtherQuerySource = z.infer<typeof measurementOtherQuerySourceSchema>
+
+/**
+ * One answer to a query this Property is NOT assigned that cited one of its own
+ * pages. The Property was never measured on the query, so the row is outside
+ * every Mentioned and Cited rate for it, and nothing here moves one.
+ *
+ * The class is that of the query's assignments to `assignedTargetKeys`, the
+ * Properties the query was asked for. A query assigned Branded to one Property
+ * and Non-brand to another yields one row per class, so the two classes never
+ * share a list.
+ */
+export const measurementOtherQueryCitationSchema = z.object({
+  observationId: z.string().trim().min(1),
+  expectedSlotId: z.string().trim().min(1),
+  executionId: z.string().trim().min(1),
+  provider: providerNameSchema,
+  queryText: z.string().trim().min(1),
+  location: z.string().nullable(),
+  queryClass: z.enum(['branded', 'non-brand']),
+  assignedTargetKeys: z.array(measurementV2StableKeySchema).min(1),
+  /** Only this Property's pages; other links in the answer are not listed. */
+  sources: z.array(measurementOtherQuerySourceSchema).min(1),
+  /** Always the FULL count of this Property's cited pages in the answer. */
+  sourceCount: z.number().int().positive(),
+  sourcesTruncated: z.boolean(),
+  /** False when the engine's source list was only partly saved. */
+  evidenceComplete: z.boolean(),
+}).strict()
+export type MeasurementOtherQueryCitation = z.infer<typeof measurementOtherQueryCitationSchema>
 
 export const measurementReportDiagnosticsSchema = z.object({
   bridgedObservationIds: z.array(z.string()),
@@ -417,6 +470,13 @@ export type MeasurementReportRun = z.infer<typeof measurementReportRunSchema>
 /** Adapter response: a revision-pinned kernel report with optional run metadata. */
 export const measurementReportResponseSchema = z.object({
   revision: z.number().int().positive(),
+  /**
+   * The query class every group, Target and evidence row below is taken over:
+   * non-brand unless the request named another, and `all` pools branded with
+   * non-brand. Null for a schema v1 revision, which records no class. Absent on
+   * servers that predate it.
+   */
+  queryClass: measurementQueryClassFilterSchema.nullable().optional(),
   run: measurementReportRunSchema.nullable(),
   groups: z.array(measurementGroupReportSchema),
   targets: z.array(measurementTargetReportSchema),
@@ -454,8 +514,10 @@ export const measurementPropertyEvidenceResponseSchema = z.object({
   }).strict(),
   evidence: measurementCursorPageSchema(measurementAttributionEvidenceSchema).optional(),
   answers: measurementCursorPageSchema(measurementAnswerEvidenceSchema).optional(),
+  /** Served for `shape=other-queries`: citations of this Property's pages outside its own queries. */
+  otherQueries: measurementCursorPageSchema(measurementOtherQueryCitationSchema).optional(),
 }).strict().refine(
-  response => (response.evidence === undefined) !== (response.answers === undefined),
-  { message: 'Exactly one of evidence or answers is present, naming the shape that was served.' },
+  response => [response.evidence, response.answers, response.otherQueries].filter(page => page !== undefined).length === 1,
+  { message: 'Exactly one of evidence, answers or otherQueries is present, naming the shape that was served.' },
 )
 export type MeasurementPropertyEvidenceResponse = z.infer<typeof measurementPropertyEvidenceResponseSchema>

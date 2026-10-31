@@ -1,7 +1,8 @@
-import type { AgentConversation, AgentConversationList, AgentConversationDelete } from '@ainyc/canonry-contracts'
-import { getApiV1ProjectsByNameAgentConversations, getApiV1ProjectsByNameAgentConversationsById, postApiV1ProjectsByNameAgentConversations, postApiV1ProjectsByNameAgentConversationsByIdResume, deleteApiV1ProjectsByNameAgentConversationsById } from '@ainyc/canonry-api-client'
-import { mcpHealthSchema, DEFAULT_VIEWER_RESEARCH_DAILY_RUN_LIMIT, RunKinds } from '@ainyc/canonry-contracts'
-import type { ApiKeyDto, CalendarRecurrence, SchedulableRunKind, EmbedClientConfig, ErrorCode, GroundingSource, ProjectOverviewDto, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, GscPerformanceDailyDto, IndexingRequestResultDto, MetricsWindow, BrandMetricsDto, GA4AiReferralDailyDto, GA4AiReferralHistoryEntry, GA4ChannelBreakdownDto, GA4ChannelBucketDto, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, GaTrafficResponse, InsightDto, ProjectReportDto, ReportAudience, ResultsExportFormat, CitationVisibilityResponse, BacklinkSource, BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto, TrafficSourceDto, TrafficSourceDetailDto, TrafficSourceListResponse, TrafficStatusResponse, TrafficEventsResponse, TrafficConnectCloudRunRequest, TrafficConnectWordpressRequest, TrafficConnectVercelRequest, TrafficSyncResponse, TrafficBackfillResponse, DiscoveryRunRequest, DiscoverySessionDto, DiscoverySessionDetailDto, DiscoveryPromotePreview, DiscoveryPromoteRequest, DiscoveryPromoteResult, ProjectDto, ProjectCreateRequest, ProjectUpsertRequest, QueryDto, CompetitorDto, LocationContext, GoogleConnectionDto, GscUrlInspectionDto, GscDeindexedRowDto, BingUrlInspectionDto, BingCoverageSummaryDto, BingKeywordStatsDto, BingStatusDto, BingConnectResponseDto, BingSetSiteResponseDto, BingSitesResponseDto, GscSearchDataDto, GscPerformanceResponseDto, GscPerformanceOrderBy, ContentTargetDismissalDto, ContentTargetDismissRequest, SiteAuditRunRequest, SiteAuditRunResponseDto, GscSitemapDto, GscSitemapListResponseDto, GscSubmitSitemapsResponseDto, GscDiscoverSitemapsResponseDto, OnboardingTelemetryEvent, TelemetryEventAcceptedDto } from '@ainyc/canonry-contracts'
+import type { AgentConversation, AgentConversationList, AgentConversationDelete, ProviderCatalogEntryDto } from '@canonry/canonry-contracts'
+import { getApiV1ProjectsByNameAgentConversations, getApiV1ProjectsByNameAgentConversationsById, postApiV1ProjectsByNameAgentConversations, postApiV1ProjectsByNameAgentConversationsByIdResume, deleteApiV1ProjectsByNameAgentConversationsById } from '@canonry/canonry-api-client'
+import { mcpHealthSchema, DEFAULT_VIEWER_RESEARCH_DAILY_RUN_LIMIT, RunKinds } from '@canonry/canonry-contracts'
+import { recordUiApiResult, trackUiAction } from './lib/ui-telemetry.js'
+import type { ApiKeyDto, CalendarRecurrence, SchedulableRunKind, EmbedClientConfig, ErrorCode, GroundingSource, ProjectOverviewDto, ScheduleDto, NotificationDto, GscCoverageSummaryDto, GscCoverageSnapshotDto, GscPerformanceDailyDto, IndexingRequestResultDto, MetricsWindow, BrandMetricsDto, GA4AiReferralDailyDto, GA4AiReferralHistoryEntry, GA4ChannelBreakdownDto, GA4ChannelBucketDto, GA4SessionHistoryEntry, GA4SocialReferralHistoryEntry, GaTrafficResponse, InsightDto, ResultsExportFormat, CitationVisibilityResponse, BacklinkSource, BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto, TrafficSourceDto, TrafficSourceDetailDto, TrafficSourceListResponse, TrafficStatusResponse, TrafficEventsResponse, TrafficConnectCloudRunRequest, TrafficConnectWordpressRequest, TrafficConnectVercelRequest, TrafficSyncResponse, TrafficBackfillResponse, DiscoveryRunRequest, DiscoverySessionDto, DiscoverySessionDetailDto, DiscoveryPromotePreview, DiscoveryPromoteRequest, DiscoveryPromoteResult, ProjectDto, ProjectCreateRequest, ProjectUpsertRequest, QueryDto, CompetitorDto, LocationContext, GoogleConnectionDto, GoogleOAuthStartResponse, GscUrlInspectionDto, GscDeindexedRowDto, BingUrlInspectionDto, BingCoverageSummaryDto, BingKeywordStatsDto, BingStatusDto, BingConnectResponseDto, BingSetSiteResponseDto, BingSitesResponseDto, GscSearchDataDto, GscPerformanceResponseDto, GscPerformanceOrderBy, SiteAuditRunRequest, SiteAuditRunResponseDto, GscSitemapDto, GscSitemapListResponseDto, GscSubmitSitemapsResponseDto, GscDiscoverSitemapsResponseDto, OnboardingTelemetryEvent, TelemetryEventAcceptedDto } from '@canonry/canonry-contracts'
 import {
   createClient as createHeyClient,
   // Projects + queries + competitors + locations + runs + apply + settings + telemetry
@@ -16,8 +17,6 @@ import {
   postApiV1ProjectsByNameQueries,
   deleteApiV1ProjectsByNameQueries,
   postApiV1ProjectsByNameQueriesGenerate,
-  postApiV1ProjectsByNameContentDismissals,
-  deleteApiV1ProjectsByNameContentDismissalsByTargetRef,
   deleteApiV1ProjectsByNameCompetitorsById,
   getApiV1ProjectsByNameCompetitors,
   postApiV1ProjectsByNameCompetitors,
@@ -90,8 +89,6 @@ import {
   postApiV1ProjectsByNameBingInspectSitemap,
   postApiV1ProjectsByNameBingRequestIndexing,
   getApiV1ProjectsByNameBingPerformance,
-  // Report
-  getApiV1ProjectsByNameReport,
   // GA4
   getApiV1ProjectsByNameGaStatus,
   postApiV1ProjectsByNameGaConnect,
@@ -129,8 +126,8 @@ import {
   postApiV1ProjectsByNameBacklinksExtract,
   postApiV1TelemetryOnboarding,
   getApiV1KeysSelf,
-} from '@ainyc/canonry-api-client'
-import type { RunDto, RunDetailDto } from '@ainyc/canonry-api-client'
+} from '@canonry/canonry-api-client'
+import type { RunDto, RunDetailDto } from '@canonry/canonry-api-client'
 export type { ProjectOverviewDto }
 export type { BacklinkSource, BacklinkSummaryDto, BacklinkDomainDto, BacklinkListResponse, BacklinkHistoryEntry, BacklinksInstallStatusDto, BacklinksInstallResultDto, CcAvailableRelease, CcCachedRelease, CcReleaseSyncDto }
 export type { TrafficSourceDto, TrafficSourceDetailDto, TrafficSourceListResponse, TrafficStatusResponse, TrafficEventsResponse, TrafficConnectCloudRunRequest, TrafficConnectWordpressRequest, TrafficConnectVercelRequest, TrafficSyncResponse, TrafficBackfillResponse }
@@ -196,12 +193,15 @@ declare global {
       /** Present only when dashboard chrome differs from its defaults. */
       dashboard?: {
         showResourceLinks?: boolean
+        showLocalAgentSetup?: boolean
         showUpdateNotification?: boolean
         managedSweeps?: boolean
         managedRunKinds?: SchedulableRunKind[]
         showAgentBar?: boolean
         /** Runtime rollout selection for the first-open setup experience. */
         onboardingMode?: OnboardingMode
+        /** Present only as `icon`: the deployment shows the plugin icon, not the mascot. */
+        brandMark?: 'icon'
       }
       /** Present only when this deployment lets viewer accounts use Aero. */
       agent?: {
@@ -318,6 +318,18 @@ export function getEmbedConfig(): EmbedClientConfig | null {
 export function shouldShowDashboardResourceLinks(): boolean {
   if (typeof window === 'undefined') return true
   return window.__CANONRY_CONFIG__?.dashboard?.showResourceLinks !== false
+}
+
+/** Whether local plugin, CLI, and stdio MCP onboarding instructions render. */
+export function shouldShowDashboardLocalAgentSetup(): boolean {
+  if (typeof window === 'undefined') return true
+  return window.__CANONRY_CONFIG__?.dashboard?.showLocalAgentSetup !== false
+}
+
+/** Whether this deployment shows the plugin icon instead of the mascot (`dashboard.brandMark: icon`). */
+export function dashboardShowsIconMark(): boolean {
+  if (typeof window === 'undefined') return false
+  return window.__CANONRY_CONFIG__?.dashboard?.brandMark === 'icon'
 }
 
 /**
@@ -517,7 +529,7 @@ export function handleAuthExpired(): void {
  *
  * Exported so TanStack Query hooks can pass it to the generated
  * `<op>Options(...)` / `<op>Mutation(...)` helpers from
- * `@ainyc/canonry-api-client/react-query`. The hooks import this client
+ * `@canonry/canonry-api-client/react-query`. The hooks import this client
  * rather than re-creating one so the dashboard's auth + basePath + test
  * stubs stay in one place.
  */
@@ -563,8 +575,8 @@ heyClient.interceptors.request.use((req) => {
 type SdkResult = {
   data?: unknown
   error?: unknown
-  request: Request
-  response: Response
+  request?: Request
+  response?: Response
 }
 
 /**
@@ -578,6 +590,10 @@ type SdkResult = {
  */
 export async function invokeWeb<T>(call: () => Promise<SdkResult>): Promise<T> {
   const result = await call()
+  // The SDK returns transport and parsing failures in its result envelope.
+  if (!result.response || result.error instanceof Error) {
+    throw result.error ?? new Error('API request failed before receiving a response')
+  }
   if (result.error !== undefined && result.error !== null) {
     const status = result.response.status
     let message = `API ${status}: ${result.response.statusText}`
@@ -847,50 +863,22 @@ export function removeQueries(projectName: string, queries: string[]): Promise<A
   )
 }
 
-/**
- * Persist a "mark addressed" dismissal for one content recommendation. The
- * backend (`POST /projects/:name/content/dismissals`) idempotently upserts a
- * row keyed by `(projectId, targetRef)`. Returns the stored dismissal so the
- * caller can confirm what landed (timestamp + audit fields).
- */
-export function dismissContentTarget(
-  projectName: string,
-  body: ContentTargetDismissRequest,
-): Promise<ContentTargetDismissalDto> {
-  return invokeWeb<ContentTargetDismissalDto>(() =>
-    postApiV1ProjectsByNameContentDismissals({ client: heyClient, path: { name: projectName }, body }),
-  )
-}
-
-/**
- * Reverse a dismissal. The recommendation reappears on the next report load
- * if the orchestrator still surfaces it.
- */
-export function undismissContentTarget(projectName: string, targetRef: string): Promise<void> {
-  return invokeWeb<void>(() =>
-    deleteApiV1ProjectsByNameContentDismissalsByTargetRef({
-      client: heyClient,
-      path: { name: projectName, targetRef },
-    }),
-  )
-}
-
-export function setCompetitors(projectName: string, competitors: string[]): Promise<ApiCompetitor[]> {
+export function setCompetitors(projectName: string, competitors: string[], options?: { acknowledgeBulkAdd?: boolean }): Promise<ApiCompetitor[]> {
   return invokeWeb<ApiCompetitor[]>(() =>
     putApiV1ProjectsByNameCompetitors({
       client: heyClient,
       path: { name: projectName },
-      body: { competitors },
+      body: { competitors, ...(options?.acknowledgeBulkAdd !== undefined ? { acknowledgeBulkAdd: options.acknowledgeBulkAdd } : {}) },
     }),
   )
 }
 
-export function appendCompetitors(projectName: string, competitors: string[]): Promise<ApiCompetitor[]> {
+export function appendCompetitors(projectName: string, competitors: string[], options?: { acknowledgeBulkAdd?: boolean }): Promise<ApiCompetitor[]> {
   return invokeWeb<ApiCompetitor[]>(() =>
     postApiV1ProjectsByNameCompetitors({
       client: heyClient,
       path: { name: projectName },
-      body: { competitors },
+      body: { competitors, ...(options?.acknowledgeBulkAdd !== undefined ? { acknowledgeBulkAdd: options.acknowledgeBulkAdd } : {}) },
     }),
   )
 }
@@ -953,6 +941,8 @@ export async function updateProject(projectName: string, updates: {
   defaultLocation?: string | null
   providers?: string[]
   providerModels?: Record<string, string>
+  /** Site Health page budget; null means the full site. Omitted keeps the stored value. */
+  siteAuditMaxPages?: number | null
 }): Promise<ApiProject> {
   const project = await fetchProject(projectName)
   return createProject(projectName, {
@@ -969,6 +959,10 @@ export async function updateProject(projectName: string, updates: {
     locations: updates.locations ?? project.locations,
     defaultLocation: updates.defaultLocation !== undefined ? updates.defaultLocation : project.defaultLocation,
     autoExtractBacklinks: project.autoExtractBacklinks,
+    // Sent only when this save sets it. The server keeps the stored budget when
+    // the field is omitted, so a save of any other setting can neither drop it
+    // nor overwrite a budget changed elsewhere since the read above.
+    ...(updates.siteAuditMaxPages !== undefined ? { siteAuditMaxPages: updates.siteAuditMaxPages } : {}),
   })
 }
 
@@ -1023,20 +1017,14 @@ export interface ApiProviderSummary {
     maxRequestsPerMinute: number
     maxRequestsPerDay: number
   }
+  /** Absent means an answer engine. */
+  kind?: ProviderCatalogEntryDto['kind']
 }
 
 export interface ApiSettings {
   providers: ApiProviderSummary[]
-  providerCatalog: Array<{
-    name: string
-    displayName: string
-    mode: 'api' | 'browser'
-    modelConfigurable: boolean
-    defaultModel: string
-    knownModels: Array<{ id: string; displayName: string; tier: 'flagship' | 'standard' | 'fast' | 'economy' }>
-    modelValidationPattern: { source: string; flags: string }
-    modelValidationHint: string
-  }>
+  /** Credential-free adapter metadata, including routed connections and answer-service profiles. */
+  providerCatalog: ProviderCatalogEntryDto[]
   google: {
     configured: boolean
   }
@@ -1060,10 +1048,17 @@ export function fetchSession(): Promise<ApiSessionState> {
   return apiFetch('/session')
 }
 
-export function setupDashboardPassword(password: string): Promise<ApiSessionState> {
+/**
+ * First-run password setup. A server reached through a proxy or over the
+ * network refuses it without the install's root API key (401
+ * `AUTH_REQUIRED`); `rootApiKey` is then sent as the bearer on this one
+ * request. It is never stored, and no later request carries it.
+ */
+export function setupDashboardPassword(password: string, rootApiKey?: string): Promise<ApiSessionState> {
   return apiFetch('/session/setup', {
     method: 'POST',
     body: JSON.stringify({ password }),
+    ...(rootApiKey ? { headers: { Authorization: `Bearer ${rootApiKey}` } } : {}),
   })
 }
 
@@ -1142,7 +1137,7 @@ export function updateProviderConfig(provider: string, body: {
   return invokeWeb<ApiProviderSummary>(() =>
     putApiV1SettingsProvidersByName({
       client: heyClient,
-      path: { name: provider } as never,
+      path: { name: provider },
       body,
     }),
   )
@@ -1256,13 +1251,16 @@ export async function removeNotification(project: string, id: string): Promise<v
   )
 }
 
-export function sendTestNotification(project: string, id: string): Promise<{ status: number; ok: boolean }> {
-  return invokeWeb<{ status: number; ok: boolean }>(() =>
+export async function sendTestNotification(project: string, id: string): Promise<{ status: number; ok: boolean }> {
+  const result = await invokeWeb<{ status: number; ok: boolean }>(() =>
     postApiV1ProjectsByNameNotificationsByIdTest({
       client: heyClient,
       path: { name: project, id },
     }),
   )
+  // The route answers 200 even when the destination refused, so only a real delivery counts.
+  if (result.ok) trackUiAction('notification.test')
+  return result
 }
 
 export function generateQueries(projectName: string, provider: string, count?: number): Promise<{ queries: string[]; provider: string }> {
@@ -1270,7 +1268,7 @@ export function generateQueries(projectName: string, provider: string, count?: n
     postApiV1ProjectsByNameQueriesGenerate({
       client: heyClient,
       path: { name: projectName },
-      body: { provider, count } as never,
+      body: { provider, count },
     }),
   )
 }
@@ -1324,9 +1322,9 @@ export function fetchGoogleConnections(project: string): Promise<ApiGoogleConnec
   )
 }
 
-export function googleConnect(project: string, type: 'gsc' | 'ga4'): Promise<{ authUrl: string; redirectUri?: string }> {
+export function googleConnect(project: string, type: 'gsc' | 'ga4'): Promise<GoogleOAuthStartResponse> {
   const publicUrl = getGoogleConnectPublicUrl()
-  return invokeWeb<{ authUrl: string; redirectUri?: string }>(() =>
+  return invokeWeb<GoogleOAuthStartResponse>(() =>
     postApiV1ProjectsByNameGoogleConnect({
       client: heyClient,
       path: { name: project },
@@ -1350,8 +1348,8 @@ export function fetchGoogleProperties(project: string): Promise<{ sites: ApiGoog
   )
 }
 
-export function saveGoogleProperty(project: string, type: 'gsc' | 'ga4', propertyId: string): Promise<{ propertyId: string }> {
-  return invokeWeb<{ propertyId: string }>(() =>
+export function saveGoogleProperty(project: string, type: 'gsc' | 'ga4', propertyId: string): Promise<ApiGoogleConnection> {
+  return invokeWeb<ApiGoogleConnection>(() =>
     putApiV1ProjectsByNameGoogleConnectionsByTypeProperty({
       client: heyClient,
       path: { name: project, type } as never,
@@ -1360,8 +1358,8 @@ export function saveGoogleProperty(project: string, type: 'gsc' | 'ga4', propert
   )
 }
 
-export function saveSitemapUrl(project: string, type: 'gsc' | 'ga4', sitemapUrl: string): Promise<{ sitemapUrl: string }> {
-  return invokeWeb<{ sitemapUrl: string }>(() =>
+export function saveSitemapUrl(project: string, type: 'gsc' | 'ga4', sitemapUrl: string): Promise<ApiGoogleConnection> {
+  return invokeWeb<ApiGoogleConnection>(() =>
     putApiV1ProjectsByNameGoogleConnectionsByTypeSitemap({
       client: heyClient,
       path: { name: project, type } as never,
@@ -1405,9 +1403,12 @@ export function fetchGscPerformance(
 export function fetchAnalyticsMetrics(
   project: string,
   window?: MetricsWindow,
+  /** Branded or non-brand answers only; omitted or `all` pools both. */
+  queryClass?: 'all' | 'branded' | 'non-brand',
 ): Promise<BrandMetricsDto> {
   const query: Record<string, string> = {}
   if (window && window !== 'all') query.window = window
+  if (queryClass && queryClass !== 'all') query.queryClass = queryClass
   return invokeWeb<BrandMetricsDto>(() =>
     getApiV1ProjectsByNameAnalyticsMetrics({
       client: heyClient,
@@ -1787,48 +1788,10 @@ export function updateBingApiKey(apiKey: string): Promise<{ configured: boolean 
   )
 }
 
-// Report
-export function fetchReport(project: string): Promise<ProjectReportDto> {
-  return invokeWeb<ProjectReportDto>(() =>
-    getApiV1ProjectsByNameReport({ client: heyClient, path: { name: project } }),
-  )
-}
-
 function parseFilenameFromContentDisposition(header: string | null): string | null {
   if (!header) return null
   const match = /filename\s*=\s*"?([^";]+)"?/i.exec(header)
   return match?.[1] ?? null
-}
-
-// Blob download — keep raw fetch so we can read the binary body + parse
-// the Content-Disposition filename. The generated SDK would JSON-parse the
-// response and discard the binary payload.
-export async function downloadReportHtml(project: string, audience: ReportAudience = 'agency', period?: number): Promise<void> {
-  const key = getApiKey()
-  const params = new URLSearchParams({ audience })
-  if (period !== undefined) params.set('period', String(period))
-  const res = await fetch(
-    appendEmbedRenderToken(`${API_BASE}/projects/${encodeURIComponent(project)}/report.html?${params.toString()}`),
-    {
-      credentials: 'same-origin',
-      headers: key ? { Authorization: `Bearer ${key}` } : {},
-    },
-  )
-  if (!res.ok) {
-    throw new ApiError(`Failed to download report: ${res.status}`, res.status)
-  }
-  const blob = await res.blob()
-  const url = URL.createObjectURL(blob)
-  const filename =
-    parseFilenameFromContentDisposition(res.headers.get('Content-Disposition'))
-    ?? `canonry-report-${project}.html`
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
-  URL.revokeObjectURL(url)
 }
 
 /** Download the historical query × provider results attachment from Project Settings. */
@@ -1839,8 +1802,10 @@ export async function downloadResultsExport(project: string, format: ResultsExpo
     headers: key ? { Authorization: `Bearer ${key}` } : {},
   })
   if (!res.ok) {
+    recordUiApiResult({ method: 'GET', route: '/api/v1/projects/{name}/results/export', status: res.status })
     throw new ApiError(`Failed to download results: ${res.status}`, res.status)
   }
+  trackUiAction('export.download', { format })
   const blob = await res.blob()
   const url = URL.createObjectURL(blob)
   const filename =
@@ -2300,9 +2265,9 @@ import {
   putApiV1ProjectsByNameSentimentSettings, getApiV1ProjectsByNameSentimentEvidence,
   getApiV1ProjectsByNameSentimentBackfillPreview, postApiV1ProjectsByNameSentimentBackfills,
   getApiV1ProjectsByNameSentimentJobs, getApiV1ProjectsByNameSentimentCompare, getApiV1ProjectsByNameSentimentJobsByJobId,
-} from '@ainyc/canonry-api-client'
-import { SENTIMENT_QUERY_PAGE_MAX } from '@ainyc/canonry-contracts'
-import type { SentimentSelection, SentimentSummary, SentimentSettings, SentimentBackfillSelection, SentimentBackfillPreview, SentimentJob, SentimentJobSummary, SentimentEvidenceSelection, SentimentEvidencePage, SentimentComparison } from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-api-client'
+import { SENTIMENT_QUERY_PAGE_MAX } from '@canonry/canonry-contracts'
+import type { SentimentSelection, SentimentSummary, SentimentSettings, SentimentBackfillSelection, SentimentBackfillPreview, SentimentJob, SentimentJobSummary, SentimentEvidenceSelection, SentimentEvidencePage, SentimentComparison } from '@canonry/canonry-contracts'
 
 /**
  * The dashboard lays out every query row with its per-engine assessments and

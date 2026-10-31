@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { querySnapshots } from '@ainyc/canonry-db'
+import type { querySnapshots } from '@canonry/canonry-db'
 import { snapshotEvidenceFingerprint } from '../src/snapshot-evidence-fingerprint.js'
 
 type SnapshotRow = typeof querySnapshots.$inferSelect
@@ -15,6 +15,8 @@ function row(overrides: Partial<SnapshotRow> = {}): SnapshotRow {
     servedModel: null,
     citationState: 'cited',
     answerMentioned: true,
+    mentionIdentity: null,
+    wrongSubjectTargetKeys: null,
     answerText: 'Acme is a good pick.',
     citedDomains: ['acme.com'],
     citedUrls: null,
@@ -53,6 +55,15 @@ describe('snapshotEvidenceFingerprint', () => {
         pricingTier: 'batch', estimatedCostMicros: 10, priceSource: 'default',
       },
     })])).toBe(before)
+  })
+
+  it('counts a sentiment identity verdict only once one is stored', () => {
+    // A row read before the verdict columns existed carries neither key.
+    const { mentionIdentity: _identity, wrongSubjectTargetKeys: _targets, ...preUpgrade } = row()
+    const before = snapshotEvidenceFingerprint([preUpgrade as SnapshotRow])
+    expect(snapshotEvidenceFingerprint([row({ mentionIdentity: null, wrongSubjectTargetKeys: null })])).toBe(before)
+    expect(snapshotEvidenceFingerprint([row({ mentionIdentity: 'wrong-subject' })])).not.toBe(before)
+    expect(snapshotEvidenceFingerprint([row({ wrongSubjectTargetKeys: ['harbor'] })])).not.toBe(before)
   })
 
   it('changes when what the answer said changes, and ignores row order', () => {

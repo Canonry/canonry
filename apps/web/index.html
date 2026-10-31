@@ -3,10 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#10141C" />
+    <meta name="theme-color" content="#0a0a0a" />
     <meta
       name="description"
-      content="See how your brand and properties appear in AI answers. Track mentions, citations, and competitors over time."
+      content="An agent-first platform for AI visibility, technical SEO, search analytics, server traffic, and content workflows. Investigate, act, and measure results."
     />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
@@ -14,6 +14,26 @@
     <title>Canonry</title>
   </head>
   <body>
+    <script id="theme-bootstrap">
+      // Runs before the app paints, after the server's config in <head>.
+      // Keep preference resolution aligned with ThemeProvider.
+      (() => {
+        let preference = 'dark'
+        try {
+          const saved = localStorage.getItem('canonry:theme')
+          if (saved === 'light' || saved === 'system') preference = saved
+        } catch {}
+        const embed = window.__CANONRY_CONFIG__?.embed
+        const mode = embed?.enabled
+          ? (embed.theme?.mode?.trim() === 'light' ? 'light' : 'dark')
+          : preference === 'system'
+            ? (window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+            : preference
+        document.documentElement.dataset.theme = mode
+        document.documentElement.style.colorScheme = mode
+        document.querySelector('meta[name="theme-color"]').setAttribute('content', mode === 'light' ? '#ffffff' : '#0a0a0a')
+      })()
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

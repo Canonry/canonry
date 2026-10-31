@@ -77,11 +77,10 @@ describe('AI referral attribution dedup', () => {
 })
 
 /**
- * The report builder carries its own copy of this collapse. Nothing tested it,
- * so reverting report.ts alone left CI green while every AI figure in a client
- * report doubled. These assert the primitive the builder must agree with.
+ * Stored attribution dimensions overlap. These cases prevent a missing medium
+ * from turning one visit into two across the session and manual-UTM lenses.
  */
-describe('report-surface dedup agreement', () => {
+describe('attribution dimension dedup agreement', () => {
   it('a manual-UTM lens with no medium does not add a second visit', () => {
     // Exactly the row shape that produced 308 sessions where the truth was 155.
     const totals = summarizeAiReferralCounts(ONE_VISIT_THREE_LENSES)

@@ -1,4 +1,4 @@
-import { agentProviderIdSchema, DEFAULT_VIEWER_RESEARCH_DAILY_RUN_LIMIT, providerQuotaPolicySchema, resolveProviderModel, schedulableRunKindSchema, type ProviderQuotaPolicy } from '@ainyc/canonry-contracts'
+import { agentProviderIdSchema, DEFAULT_VIEWER_RESEARCH_DAILY_RUN_LIMIT, providerQuotaPolicySchema, resolveProviderModel, schedulableRunKindSchema, type ProviderQuotaPolicy } from '@canonry/canonry-contracts'
 import { z } from 'zod'
 
 /** Presentation only. A missing or blank YAML value leaves the opt-in unset. */
@@ -6,6 +6,10 @@ export const dashboardManagedSweepsSchema = z.boolean().nullish()
 export const researchAllowViewersSchema = z.boolean().nullish()
 /** Lets signed-in viewer accounts use Aero, in their own read-only lane. Blank leaves it off. */
 export const agentAllowViewersSchema = z.boolean().nullish()
+/** Reasoning levels Aero can ask a model for, lowest to highest (pi-agent-core's `ThinkingLevel`). */
+export const AGENT_REASONING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const
+export type AgentReasoningLevel = (typeof AGENT_REASONING_LEVELS)[number]
+export const agentReasoningSchema = z.enum(AGENT_REASONING_LEVELS).nullish()
 export const researchViewerDailyRunLimitSchema = z.number().int().positive().nullish()
 export const dashboardManagedRunKindsSchema = z.array(schedulableRunKindSchema).nullish()
 
@@ -15,6 +19,24 @@ export const dashboardManagedRunKindsSchema = z.array(schedulableRunKindSchema).
  */
 export const agentProviderSchema = agentProviderIdSchema.nullish()
 export const agentModelSchema = z.string().trim().min(1).nullish()
+
+/**
+ * The shared MCP gateway an operator registered this instance with, so Agent
+ * setup can show Canonry plugin instructions for this workspace. `workspace`
+ * is what a user enters at the gateway; blank uses this instance's public host.
+ */
+export const mcpGatewayConfigSchema = z.object({
+  url: z.url().refine(value => {
+    try {
+      const parsed = new URL(value)
+      return parsed.protocol === 'https:' && !parsed.username && !parsed.password && !parsed.search && !parsed.hash
+    } catch {
+      return false
+    }
+  }),
+  workspace: z.string().trim().min(1).max(253).nullish(),
+}).strict().nullish()
+export type McpGatewayConfig = NonNullable<z.infer<typeof mcpGatewayConfigSchema>>
 
 /** Host-only trust anchor. No API, account role, or key scope can modify it. */
 export function resolveOperatorApiKeyIds(source: NodeJS.ProcessEnv): string[] {
@@ -51,6 +73,11 @@ const envSchema = z.object({
   OPENAI_MAX_CONCURRENCY: z.coerce.number().int().positive().default(2),
   OPENAI_MAX_REQUESTS_PER_MINUTE: z.coerce.number().int().positive().default(10),
   OPENAI_MAX_REQUESTS_PER_DAY: z.coerce.number().int().positive().default(1000),
+  OPENROUTER_API_KEY: z.string().optional(),
+  OPENROUTER_MODEL: z.string().optional(),
+  OPENROUTER_MAX_CONCURRENCY: z.coerce.number().int().positive().default(2),
+  OPENROUTER_MAX_REQUESTS_PER_MINUTE: z.coerce.number().int().positive().default(10),
+  OPENROUTER_MAX_REQUESTS_PER_DAY: z.coerce.number().int().positive().default(1000),
   // Anthropic / Claude
   ANTHROPIC_API_KEY: z.string().optional(),
   ANTHROPIC_MODEL: z.string().optional(),
@@ -93,11 +120,27 @@ export interface ProviderEnvConfig {
   vertexCredentials?: string
 }
 
+/**
+ * A provider entry as `bootstrap` / `init` read it from the environment.
+ * `model` is set only by its env var, and `quota` never is: an unset field
+ * stays undefined so a saved value survives a rerun. A new entry gets the
+ * setup defaults from `withBootstrapProviderDefaults`.
+ */
+export interface BootstrapProviderEnvConfig {
+  apiKey: string
+  model?: string
+  baseUrl?: string
+  quota?: ProviderQuotaPolicy
+  vertexProject?: string
+  vertexRegion?: string
+  vertexCredentials?: string
+}
+
 export interface LocalBootstrapProviderConfig {
   apiKey?: string
   baseUrl: string
   model?: string
-  quota: ProviderQuotaPolicy
+  quota?: ProviderQuotaPolicy
 }
 
 export interface BootstrapEnv {
@@ -107,12 +150,49 @@ export interface BootstrapEnv {
   googleClientId?: string
   googleClientSecret?: string
   providers: {
-    gemini?: ProviderEnvConfig
-    openai?: ProviderEnvConfig
-    claude?: ProviderEnvConfig
-    perplexity?: ProviderEnvConfig
-    muse?: ProviderEnvConfig
+    gemini?: BootstrapProviderEnvConfig
+    openai?: BootstrapProviderEnvConfig
+    claude?: BootstrapProviderEnvConfig
+    perplexity?: BootstrapProviderEnvConfig
+    muse?: BootstrapProviderEnvConfig
     local?: LocalBootstrapProviderConfig
+    openrouter?: BootstrapProviderEnvConfig
+  }
+}
+
+export type BootstrapProviderName = keyof BootstrapEnv['providers']
+
+/** The model a provider entry starts with when setup creates it and no model env var is set. */
+export const BOOTSTRAP_PROVIDER_DEFAULT_MODELS: Readonly<Record<BootstrapProviderName, string>> = {
+  gemini: 'gemini-flash-latest',
+  openai: 'gpt-5.4',
+  claude: 'claude-sonnet-4-6',
+  perplexity: resolveProviderModel('perplexity', 'fast'),
+  muse: 'muse-spark-1.3',
+  local: 'llama3',
+  openrouter: 'google/gemini-3.8-flash',
+}
+
+/** The quota a provider entry starts with when setup creates it. Bootstrap reads no quota env vars. */
+export const BOOTSTRAP_PROVIDER_DEFAULT_QUOTA: Readonly<ProviderQuotaPolicy> = {
+  maxConcurrency: 2,
+  maxRequestsPerMinute: 10,
+  maxRequestsPerDay: 500,
+}
+
+/**
+ * Fill the setup defaults into a provider entry's gaps: a missing (or blank
+ * YAML) model or quota. Any value already present, from the environment or
+ * from a saved entry, is kept.
+ */
+export function withBootstrapProviderDefaults<T extends { model?: string | null; quota?: ProviderQuotaPolicy | null }>(
+  name: BootstrapProviderName,
+  entry: T,
+): T & { model: string; quota: ProviderQuotaPolicy } {
+  return {
+    ...entry,
+    model: entry.model ?? BOOTSTRAP_PROVIDER_DEFAULT_MODELS[name],
+    quota: entry.quota ?? { ...BOOTSTRAP_PROVIDER_DEFAULT_QUOTA },
   }
 }
 
@@ -140,6 +220,7 @@ export interface PlatformEnv {
     claude?: ProviderEnvConfig
     perplexity?: ProviderEnvConfig
     muse?: ProviderEnvConfig
+    openrouter?: ProviderEnvConfig
   }
 }
 
@@ -156,6 +237,8 @@ const bootstrapEnvSchema = z.object({
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_MODEL: z.string().optional(),
   OPENAI_BASE_URL: z.string().optional(),
+  OPENROUTER_API_KEY: z.string().optional(),
+  OPENROUTER_MODEL: z.string().optional(),
   ANTHROPIC_API_KEY: z.string().optional(),
   ANTHROPIC_MODEL: z.string().optional(),
   PERPLEXITY_API_KEY: z.string().optional(),
@@ -174,6 +257,12 @@ export function getPlatformEnv(source: NodeJS.ProcessEnv): PlatformEnv {
   const parsed = envSchema.parse(source)
 
   const providers: PlatformEnv['providers'] = {}
+  if (parsed.OPENROUTER_API_KEY?.trim()) {
+    providers.openrouter = {
+      apiKey: parsed.OPENROUTER_API_KEY.trim(), model: parsed.OPENROUTER_MODEL?.trim() || undefined,
+      quota: providerQuotaPolicySchema.parse({ maxConcurrency: parsed.OPENROUTER_MAX_CONCURRENCY, maxRequestsPerMinute: parsed.OPENROUTER_MAX_REQUESTS_PER_MINUTE, maxRequestsPerDay: parsed.OPENROUTER_MAX_REQUESTS_PER_DAY }),
+    }
+  }
 
   if (parsed.GEMINI_API_KEY || parsed.GEMINI_VERTEX_PROJECT) {
     providers.gemini = {
@@ -276,17 +365,19 @@ export function getBootstrapEnv(
     : {}
   const parsed = bootstrapEnvSchema.parse({ ...source, ...filtered })
   const providers: BootstrapEnv['providers'] = {}
+  if (parsed.OPENROUTER_API_KEY?.trim()) {
+    providers.openrouter = { apiKey: parsed.OPENROUTER_API_KEY.trim(), model: parsed.OPENROUTER_MODEL?.trim() || undefined, quota: undefined }
+  }
 
+  // `model` comes only from its env var and `quota` from none: both stay
+  // undefined here (in the key positions a written entry keeps) so a rerun
+  // never replaces a saved value with a default.
   if (parsed.GEMINI_API_KEY || parsed.GEMINI_VERTEX_PROJECT) {
     providers.gemini = {
       apiKey: parsed.GEMINI_API_KEY ?? '',
-      model: parsed.GEMINI_MODEL || 'gemini-2.5-flash',
+      model: parsed.GEMINI_MODEL || undefined,
       baseUrl: parsed.GEMINI_BASE_URL,
-      quota: providerQuotaPolicySchema.parse({
-        maxConcurrency: 2,
-        maxRequestsPerMinute: 10,
-        maxRequestsPerDay: 500,
-      }),
+      quota: undefined,
       vertexProject: parsed.GEMINI_VERTEX_PROJECT,
       vertexRegion: parsed.GEMINI_VERTEX_REGION,
       vertexCredentials: parsed.GEMINI_VERTEX_CREDENTIALS,
@@ -296,37 +387,26 @@ export function getBootstrapEnv(
   if (parsed.OPENAI_API_KEY) {
     providers.openai = {
       apiKey: parsed.OPENAI_API_KEY,
-      model: parsed.OPENAI_MODEL || 'gpt-5.4',
+      model: parsed.OPENAI_MODEL || undefined,
       baseUrl: parsed.OPENAI_BASE_URL,
-      quota: providerQuotaPolicySchema.parse({
-        maxConcurrency: 2,
-        maxRequestsPerMinute: 10,
-        maxRequestsPerDay: 500,
-      }),
+      quota: undefined,
     }
   }
 
   if (parsed.ANTHROPIC_API_KEY) {
     providers.claude = {
       apiKey: parsed.ANTHROPIC_API_KEY,
-      model: parsed.ANTHROPIC_MODEL || 'claude-sonnet-4-6',
-      quota: providerQuotaPolicySchema.parse({
-        maxConcurrency: 2,
-        maxRequestsPerMinute: 10,
-        maxRequestsPerDay: 500,
-      }),
+      model: parsed.ANTHROPIC_MODEL || undefined,
+      quota: undefined,
     }
   }
 
   if (parsed.PERPLEXITY_API_KEY) {
     providers.perplexity = {
       apiKey: parsed.PERPLEXITY_API_KEY,
-      model: resolveProviderModel('perplexity', parsed.PERPLEXITY_MODEL || 'fast'),
-      quota: providerQuotaPolicySchema.parse({
-        maxConcurrency: 2,
-        maxRequestsPerMinute: 10,
-        maxRequestsPerDay: 500,
-      }),
+      // A retired Sonar name resolves to the Agent API preset that now answers.
+      model: parsed.PERPLEXITY_MODEL ? resolveProviderModel('perplexity', parsed.PERPLEXITY_MODEL) : undefined,
+      quota: undefined,
     }
   }
 
@@ -334,13 +414,9 @@ export function getBootstrapEnv(
   if (museKey) {
     providers.muse = {
       apiKey: museKey,
-      model: parsed.MUSE_MODEL?.trim() || 'muse-spark-1.3',
+      model: parsed.MUSE_MODEL?.trim() || undefined,
       baseUrl: parsed.MUSE_BASE_URL?.trim() || undefined,
-      quota: providerQuotaPolicySchema.parse({
-        maxConcurrency: 2,
-        maxRequestsPerMinute: 10,
-        maxRequestsPerDay: 500,
-      }),
+      quota: undefined,
     }
   }
 
@@ -348,12 +424,8 @@ export function getBootstrapEnv(
     providers.local = {
       baseUrl: parsed.LOCAL_BASE_URL,
       apiKey: parsed.LOCAL_API_KEY,
-      model: parsed.LOCAL_MODEL || 'llama3',
-      quota: providerQuotaPolicySchema.parse({
-        maxConcurrency: 2,
-        maxRequestsPerMinute: 10,
-        maxRequestsPerDay: 500,
-      }),
+      model: parsed.LOCAL_MODEL || undefined,
+      quota: undefined,
     }
   }
 
@@ -368,4 +440,35 @@ export function getBootstrapEnv(
 }
 
 export { sentimentInstallConfigSchema, resolveSentimentInstallConfig, sentimentInstallReadiness } from './sentiment.js'
+export { classificationConfigSchema } from './classification.js'
+export type { ClassificationConfig } from './classification.js'
 export type { SentimentInstallConfig, SentimentInstallConfigInput } from './sentiment.js'
+
+/** The part of an answer-service descriptor bootstrap reads: its id and credential env variables. */
+export interface AnswerServiceEnvDescriptor {
+  id: string
+  settings: { fields: ReadonlyArray<{ key: 'apiKey'; env: string | null }> }
+}
+
+/**
+ * Credentials for hosted answer services, read generically from each
+ * descriptor's declared env variables, so a new service needs no edit here.
+ * Only a non-blank key creates an entry; a service whose variable is unset is
+ * left out entirely (never an empty or default entry).
+ */
+export function getAnswerServiceEnv(
+  source: NodeJS.ProcessEnv,
+  services: readonly AnswerServiceEnvDescriptor[],
+): Record<string, { apiKey: string }> {
+  const providers: Record<string, { apiKey: string }> = {}
+  for (const service of services) {
+    for (const field of service.settings.fields) {
+      if (field.key !== 'apiKey' || !field.env) continue
+      const value = source[field.env]?.trim()
+      if (value) providers[service.id] = { apiKey: value }
+    }
+  }
+  return providers
+}
+export * from './seo.js'
+export * from './mcp-gateway.js'

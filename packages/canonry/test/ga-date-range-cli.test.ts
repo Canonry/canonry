@@ -1,5 +1,6 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest'
 
+const mockGaAcquisition = vi.fn()
 const mockGaTraffic = vi.fn()
 const mockGaAiReferralHistory = vi.fn()
 const mockGaAiReferralDaily = vi.fn()
@@ -9,6 +10,7 @@ const mockGaSessionHistory = vi.fn()
 vi.mock('../src/client.js', () => ({
   createApiClient: () => ({
     gaTraffic: mockGaTraffic,
+    gaAcquisition: mockGaAcquisition,
     gaAiReferralHistory: mockGaAiReferralHistory,
     gaAiReferralDaily: mockGaAiReferralDaily,
     gaSocialReferralHistory: mockGaSocialReferralHistory,
@@ -26,6 +28,7 @@ async function dispatch(argv: string[]): Promise<void> {
 describe('ga CLI --start / --end', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
+    mockGaAcquisition.mockReset().mockResolvedValue({ rows: [], window: { startDate: null, endDate: null } })
     mockGaTraffic.mockReset().mockResolvedValue({
       totalSessions: 0,
       totalOrganicSessions: 0,
@@ -41,6 +44,32 @@ describe('ga CLI --start / --end', () => {
     mockGaSocialReferralHistory.mockReset().mockResolvedValue([])
     mockGaSessionHistory.mockReset().mockResolvedValue([])
     vi.spyOn(console, 'log').mockImplementation(() => {})
+  })
+
+  it('forwards an acquisition window with grouped CLI aliases and paging', async () => {
+    await dispatch(['ga', 'acquisition', 'example', '--window', '7d', '--channel', 'Organic Search', '--host', 'EXAMPLE.com', '--landing-page', '/pricing?plan=team', '--source', 'google', '--medium', 'organic', '--group-by', 'date,channel,host,landing-page', '--limit', '20', '--offset', '10'])
+    expect(mockGaAcquisition).toHaveBeenCalledWith('example', expect.objectContaining({ window: '7d', channel: 'Organic Search', hostName: 'EXAMPLE.com', landingPage: '/pricing?plan=team', source: 'google', medium: 'organic', groupBy: 'date,channelGroup,hostName,landingPage', limit: 20, offset: 10 }))
+    expect(mockGaAcquisition.mock.calls[0]![1].startDate).toBeUndefined()
+    expect(mockGaAcquisition.mock.calls[0]![1].endDate).toBeUndefined()
+  })
+
+  it('forwards an acquisition calendar range with grouped CLI aliases and paging', async () => {
+    await dispatch(['ga', 'acquisition', 'example', '--start', '2026-09-01', '--end', '2026-09-30', '--channel', 'Organic Search', '--host', 'EXAMPLE.com', '--landing-page', '/pricing?plan=team', '--source', 'google', '--medium', 'organic', '--group-by', 'date,channel,host,landing-page', '--limit', '20', '--offset', '10'])
+    expect(mockGaAcquisition).toHaveBeenCalledWith('example', expect.objectContaining({ startDate: '2026-09-01', endDate: '2026-09-30', channel: 'Organic Search', hostName: 'EXAMPLE.com', landingPage: '/pricing?plan=team', source: 'google', medium: 'organic', groupBy: 'date,channelGroup,hostName,landingPage', limit: 20, offset: 10 }))
+    expect(mockGaAcquisition.mock.calls[0]![1].window).toBeUndefined()
+  })
+
+  it('leaves acquisition dates and window absent by default', async () => {
+    await dispatch(['ga', 'acquisition', 'example'])
+    const selection = mockGaAcquisition.mock.calls[0]![1]
+    expect(selection.window).toBeUndefined()
+    expect(selection.startDate).toBeUndefined()
+    expect(selection.endDate).toBeUndefined()
+  })
+
+  it.each([['--group-by', 'unknown'], ['--limit', '1001'], ['--window', '60d'], ['--start', '2026-02-30']])('refuses invalid acquisition %s before calling the API', async (flag, value) => {
+    await expect(dispatch(['ga', 'acquisition', 'example', flag, value])).rejects.toMatchObject({ code: 'CLI_USAGE_ERROR', exitCode: 1 })
+    expect(mockGaAcquisition).not.toHaveBeenCalled()
   })
 
   it('forwards a calendar month from ga session-history', async () => {

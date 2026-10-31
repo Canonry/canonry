@@ -3,8 +3,8 @@ import { test, expect, beforeAll, afterEach } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { RouterProvider } from '@tanstack/react-router'
-import type { VisibilityReportResponse } from '@ainyc/canonry-contracts'
-import { visibilityReportResponseSchema } from '@ainyc/canonry-contracts'
+import type { VisibilityReportResponse } from '@canonry/canonry-contracts'
+import { visibilityReportResponseSchema } from '@canonry/canonry-contracts'
 
 import { createDashboardFixture } from '../src/mock-data.js'
 import { createAppRouter } from '../src/router/router.js'
@@ -15,10 +15,10 @@ import type { VisibilitySelectionState } from '../src/lib/measurement-view-url.j
 import {
   getApiV1ProjectsByNameMeasurementPlanQueryKey,
   getApiV1ProjectsByNameVisibilityReportQueryKey,
-} from '@ainyc/canonry-api-client/react-query'
+} from '@canonry/canonry-api-client/react-query'
 import { heyClient } from '../src/api.js'
 
-type EmbedBlock = { enabled: boolean; views?: string[]; theme?: Record<string, string> }
+type EmbedBlock = { enabled: boolean; views?: string[]; projectTabs?: string[]; theme?: Record<string, string>; queries?: { limit: number } }
 type DashboardBlock = { showResourceLinks?: boolean; showUpdateNotification?: boolean; showAgentBar?: boolean }
 
 beforeAll(async () => {
@@ -91,6 +91,12 @@ function parseHtml(html: string): Document {
 function detailsForTitle(doc: Document, title: string): HTMLDetailsElement | null {
   return [...doc.querySelectorAll<HTMLDetailsElement>('details.overview-disclosure')]
     .find((details) => details.querySelector('.overview-disclosure-title')?.textContent === title) ?? null
+}
+
+/** An AI Visibility card, which is always on screen rather than a disclosure. */
+function cardForTitle(doc: Document, title: string): HTMLElement | null {
+  return [...doc.querySelectorAll<HTMLElement>('section.overview-brief')]
+    .find(card => card.querySelector('.av-card-title')?.textContent === title) ?? null
 }
 
 function visibilityReportQuery(projectName: string, selection: VisibilitySelectionState) {
@@ -186,14 +192,13 @@ function visibilityReportResponse(selection: VisibilitySelectionState): Visibili
 test('without embed config the full application chrome renders', async () => {
   const html = await renderAt('/')
   expect(html).toContain('class="sidebar"')
-  expect(html).toContain('class="sidebar-footer"')
   expect(html).toContain('class="footer-links"')
   expect(html).toContain('aria-label="GitHub"')
   expect(html).toContain('aria-label="Docs"')
   expect(html).toContain('aria-label="Changelog"')
   expect(html).toContain('class="topbar"')
   expect(html).toContain('class="footer"')
-  expect(html).toContain('id="mobile-nav"')
+  expect(html).toContain('Open navigation')
   expect(html).not.toContain('app-shell-embed')
 })
 
@@ -202,7 +207,6 @@ test('dashboard resource-link opt-out removes the sidebar and footer icon cluste
   expect(html).toContain('class="sidebar"')
   expect(html).toContain('class="footer"')
   expect(html).toContain('class="footer-brand"')
-  expect(html).not.toContain('class="sidebar-footer"')
   expect(html).not.toContain('class="footer-links"')
   expect(html).not.toContain('aria-label="GitHub"')
   expect(html).not.toContain('aria-label="Docs"')
@@ -248,6 +252,17 @@ test('embed view allowlist permits an allowlisted route', async () => {
   expect(html).not.toContain('embed-view-unavailable')
 })
 
+test.each([[['report']], [['report', 'overview']], [['technical-aeo', 'report']]])(
+  'a legacy Report embed shows a retirement message without rendering another project tab: %j',
+  async (projectTabs) => {
+    const html = await renderAt('/projects/project_citypoint/report', { enabled: true, projectTabs })
+    expect(html).toContain('This embed uses the retired Report tab.')
+    expect(html).toContain('Update its allowed tabs to show AI Visibility.')
+    expect(html).not.toContain('Citypoint Dental NYC')
+    expect(html).not.toContain('project-subnav')
+  },
+)
+
 test('embed theme applies allowlisted CSS custom properties to the shell', async () => {
   const html = await renderAt('/projects/project_citypoint', {
     enabled: true,
@@ -271,7 +286,7 @@ test('embed hides the project sweep action that leaks on every tab', async () =>
   // to it.)
   const operatorDoc = new DOMParser().parseFromString(operator, 'text/html')
   const embedDoc = new DOMParser().parseFromString(embed, 'text/html')
-  const isSweepAction = (button: Element) => /^(?:Run AI sweep|AI sweep running…|Starting…)$/.test(button.textContent ?? '')
+  const isSweepAction = (button: Element) => /^(?:Run AI Visibility check|AI Visibility check running…|Starting…)$/.test(button.textContent ?? '')
   expect([...operatorDoc.querySelectorAll('[data-project-actions] button')].some(isSweepAction)).toBe(true)
   // …the embed render has no project actions at all, and its page header
   // carries no button (this renders OUTSIDE the tab switch, so it would
@@ -285,10 +300,40 @@ test('embed hides the project sweep action that leaks on every tab', async () =>
   // A read-only report still renders in the embed, proving we hid controls,
   // not content.
   expect(embed).toContain('Citypoint Dental NYC')
-  expect(embed).toContain('Answer-engine trend')
-  expect(embed).toContain('Coverage now')
+  expect(embed).toContain('AI answers over time')
+  // The trend chart is the embed's first card too: no Visibility card above it.
+  expect(embed).not.toContain('id="overview-brief-title"')
+  expect(embedDoc.querySelector('.av-card-title')?.textContent).toBe('AI answers over time')
   expect(embed).toContain('Query evidence')
   expect(embed).toContain('Mention share')
+})
+
+test('the client Queries tab appears only when the embed grants query editing', async () => {
+  const subnavHrefs = (html: string) => [...parseHtml(html).querySelectorAll('[data-project-tab]')]
+    .map(link => `${link.getAttribute('data-project-tab')}:${link.textContent}`)
+
+  const granted = await renderAt('/projects/project_citypoint', { enabled: true, projectTabs: ['overview'], queries: { limit: 10 } })
+  expect(subnavHrefs(granted)).toContain('client-queries:Queries')
+
+  const notGranted = await renderAt('/projects/project_citypoint', { enabled: true, projectTabs: ['overview'] })
+  expect(subnavHrefs(notGranted).some(item => item.startsWith('client-queries:'))).toBe(false)
+
+  // An allowlist alone cannot turn editing on.
+  const listedOnly = await renderAt('/projects/project_citypoint', { enabled: true, projectTabs: ['overview', 'client-queries'] })
+  expect(subnavHrefs(listedOnly).some(item => item.startsWith('client-queries:'))).toBe(false)
+
+  const operator = await renderAt('/projects/project_citypoint')
+  expect(subnavHrefs(operator).some(item => item.startsWith('client-queries:'))).toBe(false)
+})
+
+test('the client Queries route renders the client query list only under the grant', async () => {
+  const granted = await renderAt('/projects/project_citypoint/client-queries', { enabled: true, queries: { limit: 10 } })
+  expect(granted).toContain('Loading your queries…')
+
+  // Without the grant the route falls back to the first visible tab, like any hidden tab.
+  const fallback = await renderAt('/projects/project_citypoint/client-queries', { enabled: true })
+  expect(fallback).not.toContain('Loading your queries…')
+  expect(fallback).toContain('AI answers over time')
 })
 
 test('embed hides the overview competitor and query managers', async () => {
@@ -314,17 +359,17 @@ test('embed hides the overview competitor and query managers', async () => {
   expect(embedDoc.querySelector('.page-header .tag-row')).toBeNull()
 })
 
-test('embed defaults client-value overview disclosures open and omits run history', async () => {
+test('embed shows the query evidence and By engine cards and omits past sweeps', async () => {
   const embedDoc = parseHtml(await renderAt('/projects/project_citypoint', { enabled: true, views: ['project'] }))
   const operatorDoc = parseHtml(await renderAt('/projects/project_citypoint'))
 
   expect(detailsForTitle(operatorDoc, 'Query evidence')?.hasAttribute('open')).toBe(true)
-  expect(detailsForTitle(operatorDoc, 'Citation and engine diagnostics')?.hasAttribute('open')).toBe(false)
-  expect(detailsForTitle(operatorDoc, 'Recent execution history')).not.toBeNull()
+  expect(cardForTitle(operatorDoc, 'By engine')).not.toBeNull()
+  expect(cardForTitle(operatorDoc, 'Past checks')).not.toBeNull()
 
   expect(detailsForTitle(embedDoc, 'Query evidence')?.hasAttribute('open')).toBe(true)
-  expect(detailsForTitle(embedDoc, 'Citation and engine diagnostics')?.hasAttribute('open')).toBe(true)
-  expect(detailsForTitle(embedDoc, 'Recent execution history')).toBeNull()
+  expect(cardForTitle(embedDoc, 'By engine')).not.toBeNull()
+  expect(cardForTitle(embedDoc, 'Past checks')).toBeNull()
 })
 
 // A default embed config (enabled, no `views` allowlist) makes every top-level

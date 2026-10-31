@@ -13,8 +13,8 @@ import {
   describeError,
   usageCount,
   RetrievalContracts,
-} from "@ainyc/canonry-contracts";
-import type { ProviderUsage, TrackedQueryRequest } from "@ainyc/canonry-contracts";
+} from "@canonry/canonry-contracts";
+import type { ProviderUsage, TrackedQueryRequest } from "@canonry/canonry-contracts";
 import { withRetry } from "./utils.js";
 import type {
   ClaudeConfig,
@@ -68,7 +68,7 @@ const VALIDATION_PATTERN = /^claude-/;
  * https://platform.claude.com/docs/en/agents-and-tools/tool-use/overview
  * https://platform.claude.com/docs/en/agents-and-tools/tool-use/web-search-tool
  */
-export const CLAUDE_RETRIEVAL_CONTRACT: RetrievalContract =
+export const CLAUDE_RETRIEVAL_CONTRACT: ClaudeRetrievalContract =
   RetrievalContracts["search-required-v1"];
 
 /**
@@ -107,7 +107,7 @@ export function claudeModelRejectsForcedToolChoice(model: string): boolean {
  * runs `native-auto-v1`: the same unmodified query, the same `web_search` tool,
  * no system prompt, and `tool_choice: auto`, which leaves the search decision to
  * Claude. That is exactly the definition of `native-auto-v1` in
- * `@ainyc/canonry-contracts`, and the request this adapter sent before
+ * `@canonry/canonry-contracts`, and the request this adapter sent before
  * `search-required-v1` existed, when `tool_choice` was left at its `auto`
  * default. It guarantees no retrieval. Per-answer `retrievalStatus` detection is
  * unchanged, so an answer written without a search is stored as `not-used`
@@ -115,18 +115,20 @@ export function claudeModelRejectsForcedToolChoice(model: string): boolean {
  */
 export function claudeRetrievalContractForModel(
   model: string,
-): RetrievalContract {
+): ClaudeRetrievalContract {
   return claudeModelRejectsForcedToolChoice(model)
     ? RetrievalContracts["native-auto-v1"]
     : CLAUDE_RETRIEVAL_CONTRACT;
 }
 
 /**
- * The `tool_choice` each retrieval contract sends. Keyed on every contract, so
- * adding a contract to `@ainyc/canonry-contracts` fails typecheck here until
- * its request shape is decided.
+ * The `tool_choice` each retrieval contract sends. Keyed on every model
+ * contract, so adding one to `@canonry/canonry-contracts` fails typecheck here
+ * until its request shape is decided. `service-native-v1` belongs to hosted
+ * answer services, which choose their own search policy, so Claude never runs it.
  */
-const CLAUDE_TOOL_CHOICE_BY_CONTRACT: Record<RetrievalContract, ToolChoice> = {
+type ClaudeRetrievalContract = Exclude<RetrievalContract, typeof RetrievalContracts['service-native-v1']>
+const CLAUDE_TOOL_CHOICE_BY_CONTRACT: Record<ClaudeRetrievalContract, ToolChoice> = {
   [RetrievalContracts["search-required-v1"]]: {
     type: "tool",
     name: "web_search",
@@ -614,7 +616,7 @@ function extractDomainFromUri(uri: string): string | null {
   if (
     !hostname ||
     !registrableDomain(hostname) ||
-    hostMatchesAnyDomain(hostname, AI_ENGINE_SELF_DOMAINS.chatgpt)
+    hostMatchesAnyDomain(hostname, AI_ENGINE_SELF_DOMAINS.claude)
   ) {
     return null;
   }

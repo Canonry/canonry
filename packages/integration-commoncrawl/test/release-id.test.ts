@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { formatReleaseId, isValidReleaseId, parseReleaseId } from '../src/release-id.js'
+import { formatReleaseId, isValidReleaseId } from '../src/release-id.js'
 
 describe('isValidReleaseId', () => {
   test.each([
@@ -29,6 +29,7 @@ describe('isValidReleaseId', () => {
     'cc-main-2024-foo-bar-baz', // non-month tokens
     'CC-MAIN-2024-jan-feb-mar', // uppercase
     'cc-main-2024-jan-feb-mar ', // trailing space
+    'cc-main-2024-jul-aug-sep\n', // trailing newline
     ' cc-main-2024-jan-feb-mar', // leading space
     'cc-main-2024-jan', // single token
     'cc-main-2024-jan-feb', // two tokens
@@ -36,37 +37,10 @@ describe('isValidReleaseId', () => {
   ])('rejects %s', (id) => {
     expect(isValidReleaseId(id)).toBe(false)
   })
-
-  test('accepts the issue exemplar rolling window cc-main-2026-mar-apr-may', () => {
-    expect(isValidReleaseId('cc-main-2026-mar-apr-may')).toBe(true)
-  })
-})
-
-describe('parseReleaseId', () => {
-  test('extracts year + window + months for a rolling window', () => {
-    expect(parseReleaseId('cc-main-2026-mar-apr-may')).toEqual({
-      year: 2026,
-      window: 'mar-apr-may',
-      months: ['mar', 'apr', 'may'],
-    })
-  })
-
-  test('extracts a legacy fixed quarter', () => {
-    expect(parseReleaseId('cc-main-2024-oct-nov-dec')).toEqual({
-      year: 2024,
-      window: 'oct-nov-dec',
-      months: ['oct', 'nov', 'dec'],
-    })
-  })
-
-  test('returns null for invalid ids', () => {
-    expect(parseReleaseId('bad')).toBeNull()
-  })
 })
 
 describe('formatReleaseId', () => {
-  test('reconstructs the original id from a parsed window', () => {
-    const parsed = parseReleaseId('cc-main-2026-mar-apr-may')!
-    expect(formatReleaseId(parsed.year, parsed.window)).toBe('cc-main-2026-mar-apr-may')
+  test('formats a year and monthly window as a release id', () => {
+    expect(formatReleaseId(2026, 'mar-apr-may')).toBe('cc-main-2026-mar-apr-may')
   })
 })

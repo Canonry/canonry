@@ -1,10 +1,13 @@
 import crypto from 'node:crypto'
-import { and, eq, asc, desc, inArray, or, sql } from 'drizzle-orm'
+import { and, eq, ne, asc, desc, inArray, notInArray, or, sql } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
-import { runs, querySnapshots, queries, projects, competitors, parseJsonColumn } from '@ainyc/canonry-db'
-import { compileCompetitiveSignalResolver } from '@ainyc/canonry-intelligence'
-import type { LocationContext, MeasurementExecutionIdentity, MeasurementRunScope, ProviderDispatchMode, RunDispatchModes, RunListFilterQuery } from '@ainyc/canonry-contracts'
+import { runs, querySnapshots, queries, projects, competitors, parseJsonColumn } from '@canonry/canonry-db'
+import { compileCompetitiveSignalResolver } from '@canonry/canonry-intelligence'
+import type { CitationState, LocationContext, MeasurementExecutionIdentity, MeasurementRunScope, ProviderAccountStreak, ProviderDispatchMode, RunDispatchModes, RunListFilterQuery, RunSyncSummary } from '@canonry/canonry-contracts'
 import {
+  ProviderWorkflows,
+  SEO_RUN_SCOPE,
+  type ProviderRouteFamily,
   AppError as AppErrorClass,
   type AppError,
   batchDispatchRefusalMessage,
@@ -12,6 +15,7 @@ import {
   providerDispatchModeSchema,
   resolveRunDispatchModes,
   summarizeRunUsage,
+  summarizeObservedQueryCounts,
   measurementRunScopeIsEmpty,
   RunKinds,
   RunTriggers,
@@ -31,13 +35,20 @@ import {
   validationError,
   parseRunError,
   serializeRunError,
-} from '@ainyc/canonry-contracts'
+  retrievedSourceSchema,
+  type RetrievedSource,
+} from '@canonry/canonry-contracts'
+import { z } from 'zod'
 import { notProbeRun, resolveProject, resolveSnapshotAnswerMentioned, resolveSnapshotMentionState, resolveSnapshotVisibilityState, resolveSnapshotMatchedTerms, writeAuditLog } from './helpers.js'
-import { assertProjectScope } from './auth.js'
+import { assertProjectScope, requireScope, requireAdminSession } from './auth.js'
 import { gte } from 'drizzle-orm'
-import { assertMeasurementRunStampable, hasActiveMeasurementPlan, queueRunIfProjectIdle, resolveRunnableProviderSelection } from './run-queue.js'
+import { activeRevisionProviders, assertMeasurementRunStampable, hasActiveMeasurementPlan, providerAccountAdmission, providersARunWouldCall, providersFailingError, queueRunIfProjectIdle, resolveRunnableProviderSelection, runAdmissionState } from './run-queue.js'
 import { queueRunFill, readRunCompleteness } from './run-fill.js'
 import { readRunProviderBatches } from './provider-batches.js'
+import { cancelSeoRefresh } from './seo.js'
+import { competitorIdentityColumns } from './competitor-writes.js'
+import { assertProviderRouteScope, invalidProviderSelections, providerRouteFamilies } from './provider-models.js'
+import type { ProviderAdapterInfo } from './settings.js'
 
 export interface RunRoutesOptions {
   onRunCreated?: (runId: string, projectId: string, providers?: string[], location?: LocationContext | null) => void
@@ -48,6 +59,8 @@ export interface RunRoutesOptions {
   onRunCancelled?: (runId: string, projectId: string) => void
   /** Valid provider names from registered adapters — used to reject unknown providers */
   validProviderNames?: string[]
+  /** Adapter descriptions: route families and which workflows each route may run. */
+  providerAdapters?: ProviderAdapterInfo[]
   /** Current provider registry membership. When omitted, activation preflight is disabled. */
   getRunnableProviderNames?: () => readonly string[]
   /** Provider → the model this instance has it pointed at, for freezing model identity. */
@@ -65,6 +78,7 @@ export interface RunRoutesOptions {
 }
 
 export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
+  const routeFamilies = providerRouteFamilies(opts.providerAdapters)
   // POST /projects/:name/runs — trigger a run
   app.post<{
     Params: { name: string }
@@ -81,7 +95,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
       const normalized = rawProviders.map(p => p.trim().toLowerCase()).filter(Boolean)
       const validNames = opts.validProviderNames ?? []
       if (validNames.length) {
-        const invalid = normalized.filter(p => !validNames.includes(p))
+        const invalid = invalidProviderSelections(normalized, validNames, opts.providerAdapters, ProviderWorkflows['visibility-sweep'])
         if (invalid.length) {
           throw validationError(`Invalid provider(s): ${invalid.join(', ')}. Must be one of: ${validNames.join(', ')}`, {
             invalidProviders: invalid,
@@ -92,6 +106,8 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
       rawProviders.splice(0, rawProviders.length, ...normalized)
     }
     const providers = rawProviders?.length ? rawProviders : undefined
+    const revisionProviders = activeRevisionProviders(app.db, project.id)
+    assertProviderRouteScope(request, providers ?? [], [...project.providers, ...revisionProviders], routeFamilies)
 
     // Validate activation state before queuing a normal sweep. Probe runs keep
     // their existing operator-test semantics and are validated by the worker.
@@ -104,29 +120,13 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
           .where(eq(queries.projectId, project.id))
           .all()
       : []
-    if (shouldPreflight) {
-      // A published plan froze its own questions. Deleting a query from the
-      // live library must not retroactively make a published revision
-      // unrunnable — and the scheduler never consulted the live library, so
-      // without this the two paths disagreed about the same project.
-      const measuresAPlan = hasActiveMeasurementPlan(app.db, project.id)
-      const preflightError = answerVisibilityPreflightError({
-        projectName: project.name,
-        projectProviders: project.providers,
-        requestedProviders: providers,
-        runnableProviderNames: opts.getRunnableProviderNames!(),
-        trackedQueryCount: measuresAPlan ? 1 : trackedRows.length,
-      })
-      if (preflightError) throw preflightError
-    }
-
     // A scope that names nothing is not a request for everything. An agent
     // whose filter came back empty would otherwise buy a full sweep by
     // accident; omitting the field entirely is how you ask for one.
     if (body.measurementScope !== undefined && measurementRunScopeIsEmpty(body.measurementScope)) {
       throw validationError(
         'The measurement scope names nothing to measure. Name at least one group or target, '
-        + 'or leave the scope out entirely to run a full sweep.',
+        + 'or leave the scope out entirely to run a full AI Visibility check.',
       )
     }
 
@@ -167,6 +167,28 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
       scopedQueries = body.queries
     }
     const queriesColumn = scopedQueries ?? null
+
+    if (shouldPreflight) {
+      // A published plan froze its own questions. Deleting a query from the
+      // live library must not retroactively make a published revision
+      // unrunnable — and the scheduler never consulted the live library, so
+      // without this the two paths disagreed about the same project. A scoped
+      // run checks only the execution nodes it will actually dispatch.
+      const measuresAPlan = hasActiveMeasurementPlan(app.db, project.id)
+      const scopedRevisionProviders = activeRevisionProviders(app.db, project.id, {
+        measurementScope: body.measurementScope ?? null,
+        queries: scopedQueries,
+      })
+      const preflightError = answerVisibilityPreflightError({
+        projectName: project.name,
+        projectProviders: scopedRevisionProviders.length > 0 ? scopedRevisionProviders : project.providers,
+        requestedProviders: providers,
+        runnableProviderNames: opts.getRunnableProviderNames!(),
+        routeFamilies,
+        trackedQueryCount: measuresAPlan ? 1 : trackedRows.length,
+      })
+      if (preflightError) throw preflightError
+    }
 
     // Resolve location for this run
     let resolvedLocation: LocationContext | null | undefined
@@ -214,6 +236,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
             requestedProviders: providers,
             projectProviders: project.providers,
             runnableProviders: opts.getRunnableProviderNames?.(),
+            routeFamilies,
           }).selectedProviders,
           expectedSlots: null,
           scoped: queriesColumn !== null,
@@ -235,6 +258,26 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
         if (activeRun) {
           return { conflict: true as const, activeRunId: activeRun.id }
         }
+        // Same admission rule as the queue helper this branch bypasses: one
+        // decision for the whole fan-out, so every location skips the same providers.
+        const admission = providerAccountAdmission(tx, {
+          projectId: project.id,
+          trigger,
+          force: body.force ?? false,
+          now,
+          providers: () => {
+            const runnable = opts.getRunnableProviderNames?.()
+            const roster = resolveRunnableProviderSelection({
+              requestedProviders: providers,
+              projectProviders: project.providers,
+              runnableProviders: runnable,
+              routeFamilies,
+            }).selectedProviders
+            return providersARunWouldCall(roster, runnable, routeFamilies)
+          },
+        })
+        if (admission.refused) return { conflict: false as const, refused: admission.refused }
+        const skippedProviders = Object.keys(admission.skipped).length > 0 ? admission.skipped : null
 
         const inserted: Array<{ runId: string; loc: LocationContext }> = []
         for (const loc of projectLocations) {
@@ -247,6 +290,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
             trigger,
             location: loc.label,
             queries: queriesColumn,
+            skippedProviders,
             createdAt: now,
           }).run()
           inserted.push({ runId, loc })
@@ -257,6 +301,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
       if (result.conflict) {
         throw runInProgress(project.name, kind, result.activeRunId)
       }
+      if (result.refused) throw providersFailingError(project.name, result.refused)
 
       const results = []
       for (const { runId, loc } of result.inserted) {
@@ -282,7 +327,8 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
     // answers cost, never what is measured, so it stays out of the execution
     // identity and every series. It is frozen on the run row regardless. This
     // route never reuses an in-flight run (a second sweep is a 409), so the
-    // parameter can never be dropped onto another request's run.
+    // parameter can never be dropped onto another request's run. `force` is
+    // neither: it decides only whether the run is admitted, and is not stored.
     const queueResult = queueRunIfProjectIdle(app.db, {
       createdAt: now,
       kind,
@@ -292,13 +338,16 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
       queries: queriesColumn,
       providers,
       runnableProviders: opts.getRunnableProviderNames?.(),
+      routeFamilies,
       providerModels: opts.getEffectiveProviderModels?.(),
       measurementScope: body.measurementScope ?? null,
       dispatchMode: body.dispatchMode ?? null,
       batchEligibleProviders: opts.getBatchEligibleProviderNames?.() ?? null,
+      force: body.force ?? false,
     })
 
     if (queueResult.conflict) throw runInProgress(project.name, kind, queueResult.activeRunId)
+    if (queueResult.refused) throw providersFailingError(project.name, queueResult.refused)
 
     const runId = queueResult.runId
 
@@ -322,7 +371,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
   // GET /projects/:name/runs — list runs for project
   app.get<{
     Params: { name: string }
-    Querystring: { limit?: string; kind?: string; status?: string }
+    Querystring: { limit?: string; since?: string; kind?: string; excludeKind?: string; excludeKinds?: string | string[]; status?: string }
   }>('/projects/:name/runs', async (request, reply) => {
     const project = resolveProject(app.db, request.params.name)
 
@@ -332,10 +381,15 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
     // Per-URL integration runs (bing-inspect especially) can fill the limit
     // window and push answer-visibility runs out — the same footgun GET /runs
     // guards against. ?kind= scopes the list to the one kind a caller needs;
-    // ?status= to the one status (e.g. `running` for in-flight work).
-    const { kind, status } = parseListFilters(request.query)
+    // ?excludeKind= and ?excludeKinds= remove noisy kinds before the limit;
+    // ?status= scopes to the one status (e.g. `running` for in-flight work).
+    const { kind, excludeKind, excludeKinds, status } = parseListFilters(request.query)
     const filters = [eq(runs.projectId, project.id)]
+    const since = parseListSince(request.query.since)
+    if (since) filters.push(gte(runs.createdAt, since))
     if (kind) filters.push(eq(runs.kind, kind))
+    if (excludeKind) filters.push(ne(runs.kind, excludeKind))
+    if (excludeKinds?.length) filters.push(notInArray(runs.kind, excludeKinds))
     if (status) filters.push(eq(runs.status, status))
     const where = and(...filters)
 
@@ -381,14 +435,45 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
       .limit(1)
       .get()
 
+    // Whether the next sweep would be admitted: a project whose sweeps are
+    // refused has no newer run to show, so the latest run alone cannot say.
+    const admissionParams = {
+      projectId: project.id,
+      now: new Date().toISOString(),
+      runnableProviders: opts.getRunnableProviderNames?.(),
+      routeFamilies,
+    }
+    const admission = runAdmissionState(app.db, admissionParams)
+    const manualAdmission = runAdmissionState(app.db, { ...admissionParams, selection: RunTriggers.manual })
+
     if (!latestRun) {
-      return reply.send({ totalRuns: 0, run: null })
+      return reply.send({ totalRuns: 0, run: null, admission, manualAdmission })
     }
 
     return reply.send({
       totalRuns,
       run: loadRunDetail(app, latestRun),
+      admission,
+      manualAdmission,
     })
+  })
+
+  // GET /projects/:name/run-admission: the `admission` or `manualAdmission` of `/runs/latest`
+  // without the latest run's answers, for the dashboard's notice on every
+  // project page. Agents and the CLI read it on `/runs/latest` and the overview.
+  app.get<{ Params: { name: string }; Querystring: { selection?: string } }>('/projects/:name/run-admission', async (request, reply) => {
+    const selection = request.query.selection ?? RunTriggers.scheduled
+    if (selection !== RunTriggers.manual && selection !== RunTriggers.scheduled) {
+      throw validationError('"selection" must be one of: manual, scheduled')
+    }
+    const project = resolveProject(app.db, request.params.name)
+    return reply.send(runAdmissionState(app.db, {
+      projectId: project.id,
+      now: new Date().toISOString(),
+      runnableProviders: opts.getRunnableProviderNames?.(),
+      routeFamilies,
+      selection,
+    }))
   })
 
   // GET /runs — list runs newest-first with sensible defaults
@@ -417,17 +502,21 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
   //                      actually needs off the response.
   //   ?status=S        — restrict to a single run status (e.g. 'running' to
   //                      find in-flight work, 'failed' to triage).
+  //   ?excludeKind=K   — exclude one run kind before the row limit applies.
+  //   ?excludeKinds=K — exclude repeated or comma-separated run kinds.
   app.get<{
-    Querystring: { limit?: string; since?: string; includeProbe?: string; kind?: string; status?: string }
+    Querystring: { limit?: string; since?: string; includeProbe?: string; kind?: string; excludeKind?: string; excludeKinds?: string | string[]; status?: string }
   }>('/runs', async (request, reply) => {
     const limit = parseListLimit(request.query.limit, 500, 5000)
-    const since = parseListSince(request.query.since)
+    const since = parseListSince(request.query.since, new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString())
     const includeProbe = request.query.includeProbe === '1' || request.query.includeProbe === 'true'
-    const { kind, status } = parseListFilters(request.query)
+    const { kind, excludeKind, excludeKinds, status } = parseListFilters(request.query)
 
     const filters = [gte(runs.createdAt, since)]
     if (!includeProbe) filters.push(notProbeRun())
     if (kind) filters.push(eq(runs.kind, kind))
+    if (excludeKind) filters.push(ne(runs.kind, excludeKind))
+    if (excludeKinds?.length) filters.push(notInArray(runs.kind, excludeKinds))
     if (status) filters.push(eq(runs.status, status))
     // A project-scoped key sees ONLY its own project's runs (this global list
     // is not under the /projects/:name auth gate, so filter explicitly).
@@ -446,7 +535,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
 
   // POST /runs — trigger a run for all projects
   app.post<{
-    Body: { kind?: string; providers?: string[]; dispatchMode?: string }
+    Body: { kind?: string; providers?: string[]; dispatchMode?: string; force?: boolean }
   }>('/runs', async (request, reply) => {
     // A project-scoped key may only trigger runs for ITS project — restrict the
     // batch to that project so it can never queue runs for a sibling.
@@ -467,13 +556,15 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
     // Tuning, like the single-project route: frozen per run, never identity.
     const dispatchMode: ProviderDispatchMode | null = parsedDispatchMode.data ?? null
     const batchEligibleProviders = opts.getBatchEligibleProviderNames?.() ?? null
+    const force = request.body?.force
+    if (force !== undefined && typeof force !== 'boolean') throw validationError('"force" must be a boolean')
 
     const rawProviders = request.body?.providers
     if (rawProviders?.length) {
       const normalized = rawProviders.map(p => p.trim().toLowerCase()).filter(Boolean)
       const validNames = opts.validProviderNames ?? []
       if (validNames.length) {
-        const invalid = normalized.filter(p => !validNames.includes(p))
+        const invalid = invalidProviderSelections(normalized, validNames, opts.providerAdapters, ProviderWorkflows['visibility-sweep'])
         if (invalid.length) {
           throw validationError(`Invalid provider(s): ${invalid.join(', ')}. Must be one of: ${validNames.join(', ')}`, {
             invalidProviders: invalid,
@@ -494,9 +585,14 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
     // was already dispatched: every project is checked first, then the ones
     // that can run are queued, and each project gets its own row in the
     // response — queued with its run id, or refused with the reason.
-    const eligible: Array<{ project: typeof allProjects[number]; resolvedLocation: LocationContext | undefined }> = []
+    const eligible: Array<{
+      project: typeof allProjects[number]
+      revisionProviders: string[]
+      resolvedLocation: LocationContext | undefined
+    }> = []
 
     for (const project of allProjects) {
+      const revisionProviders = activeRevisionProviders(app.db, project.id)
       if (runnableProviderNames) {
         const trackedQuery = app.db
           .select({ id: queries.id })
@@ -506,7 +602,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
           .get()
         const preflightError = answerVisibilityPreflightError({
           projectName: project.name,
-          projectProviders: project.providers,
+          projectProviders: revisionProviders.length > 0 ? revisionProviders : project.providers,
           requestedProviders: providers,
           runnableProviderNames,
           // A project measuring a published plan runs the plan's frozen
@@ -538,22 +634,26 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
         resolvedLocation = loc
       }
 
-      eligible.push({ project, resolvedLocation })
+      eligible.push({ project, revisionProviders, resolvedLocation })
     }
 
     const dispatchable: typeof eligible = []
     for (const entry of eligible) {
       try {
+        assertProviderRouteScope(request, providers ?? [], [...entry.project.providers, ...entry.revisionProviders], routeFamilies)
         assertMeasurementRunStampable(app.db, {
+          createdAt: now,
           projectId: entry.project.id,
           kind,
           trigger: 'manual',
           location: entry.resolvedLocation?.label ?? null,
           providers,
           runnableProviders: runnableProviderNames,
+          routeFamilies,
           providerModels: opts.getEffectiveProviderModels?.(),
           dispatchMode,
           batchEligibleProviders,
+          force: force ?? false,
         })
         dispatchable.push(entry)
       } catch (error) {
@@ -579,13 +679,20 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
         // against is what it was actually asked to do.
         providers,
         runnableProviders: runnableProviderNames,
+        routeFamilies,
         providerModels: opts.getEffectiveProviderModels?.(),
         dispatchMode,
         batchEligibleProviders,
+        force: force ?? false,
       })
 
       if (queueResult.conflict) {
         results.push({ projectName: project.name, projectId: project.id, status: 'conflict', error: 'run_in_progress' })
+        continue
+      }
+      if (queueResult.refused) {
+        const refusal = providersFailingError(project.name, queueResult.refused)
+        results.push({ projectName: project.name, projectId: project.id, status: 'error', error: refusal.message, errorCode: refusal.code })
         continue
       }
 
@@ -615,6 +722,13 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
     const run = app.db.select().from(runs).where(eq(runs.id, request.params.id)).get()
     if (!run) throw notFound('Run', request.params.id)
     assertProjectScope(request, run.projectId)
+
+    if (run.kind === RunKinds['seo-sync']) {
+      requireScope(request, SEO_RUN_SCOPE)
+      requireAdminSession(request)
+      cancelSeoRefresh(app.db, run.projectId, run.id)
+      return reply.send(formatRun(app.db.select().from(runs).where(eq(runs.id, run.id)).get()!))
+    }
 
     const terminalStatuses = new Set(['completed', 'partial', 'failed', 'cancelled'])
     if (terminalStatuses.has(run.status)) throw runNotCancellable(run.id, run.status)
@@ -660,6 +774,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
     const input = {
       providers: parsed.data.providers,
       runnableProviders: opts.getRunnableProviderNames?.() ?? null,
+      routeFamilies,
       dailyLimits: opts.getProviderDailyLimits?.() ?? null,
     }
 
@@ -693,6 +808,7 @@ export async function runRoutes(app: FastifyInstance, opts: RunRoutesOptions) {
     assertProjectScope(request, run.projectId)
     return reply.send(readRunCompleteness(app.db, run, {
       runnableProviders: opts.getRunnableProviderNames?.() ?? null,
+      routeFamilies,
       dailyLimits: opts.getProviderDailyLimits?.() ?? null,
     }))
   })
@@ -711,6 +827,7 @@ export function answerVisibilityPreflightError(input: {
   projectProviders: readonly string[]
   requestedProviders?: readonly string[]
   runnableProviderNames: readonly string[]
+  routeFamilies?: readonly ProviderRouteFamily[]
   trackedQueryCount: number
 }): AppError | null {
   if (input.trackedQueryCount === 0) {
@@ -721,6 +838,7 @@ export function answerVisibilityPreflightError(input: {
     requestedProviders: input.requestedProviders,
     projectProviders: input.projectProviders,
     runnableProviders: input.runnableProviderNames,
+    routeFamilies: input.routeFamilies,
   })
 
   if (selection.runnableProviders.length > 0) return null
@@ -765,6 +883,8 @@ function parseListLimit(raw: string | undefined, defaultValue: number, max: numb
  */
 const RUN_LIST_FILTER_OPTIONS: Record<keyof RunListFilterQuery, readonly string[]> = {
   kind: runKindSchema.options,
+  excludeKind: runKindSchema.options,
+  excludeKinds: runKindSchema.options,
   status: runStatusSchema.options,
 }
 
@@ -773,36 +893,33 @@ function isRunListFilterField(field: PropertyKey | undefined): field is keyof Ru
 }
 
 /**
- * Parse the `?kind=` / `?status=` filters shared by `GET /runs` and
- * `GET /projects/:name/runs`. An absent or empty param applies no filter. An
+ * Parse the kind, exclusion, and status filters shared by `GET /runs` and
+ * `GET /projects/:name/runs`. An absent param applies no filter. An
  * unknown value is a 400 naming the param and its allowed values: a typo that
  * silently returned `[]` would be indistinguishable from "no runs exist", and
  * an ignored param is worse still (`?status=running` used to return completed
  * rows).
  */
-function parseListFilters(query: { kind?: string; status?: string }): RunListFilterQuery {
+function parseListFilters(query: { kind?: string; excludeKind?: string; excludeKinds?: string | string[]; status?: string }): RunListFilterQuery {
   const parsed = runListFilterQuerySchema.safeParse({
-    kind: query.kind === '' ? undefined : query.kind,
-    status: query.status === '' ? undefined : query.status,
+    kind: query.kind,
+    excludeKind: query.excludeKind,
+    excludeKinds: query.excludeKinds,
+    status: query.status,
   })
   if (parsed.success) return parsed.data
-  const invalid = parsed.error.issues.map(issue => issue.path[0]).filter(isRunListFilterField)
+  const invalid = [...new Set(parsed.error.issues.map(issue => issue.path[0]).filter(isRunListFilterField))]
   const message = invalid.length > 0
     ? invalid.map(field => `"${field}" must be one of: ${RUN_LIST_FILTER_OPTIONS[field].join(', ')}`).join('; ')
     : 'Invalid run list filters'
   throw validationError(message, { invalid: Object.fromEntries(invalid.map(field => [field, query[field]])) })
 }
 
-/**
- * Parse the `?since=` query param. Accepts an ISO 8601 timestamp; defaults
- * to 30 days ago. SQLite text comparisons on `created_at` work because the
- * column is consistently ISO 8601 UTC ("YYYY-MM-DDTHH:MM:SS.SSSZ").
- */
-function parseListSince(raw: string | undefined): string {
-  if (raw === undefined) {
-    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
-    return thirtyDaysAgo.toISOString()
-  }
+/** Normalize timestamps before comparing the stored UTC ISO strings. */
+function parseListSince(raw: string | undefined, fallback: string): string
+function parseListSince(raw: string | undefined): string | undefined
+function parseListSince(raw: string | undefined, fallback?: string): string | undefined {
+  if (raw === undefined) return fallback
   const date = new Date(raw)
   if (Number.isNaN(date.getTime())) {
     throw validationError('"since" must be a valid ISO 8601 timestamp')
@@ -827,6 +944,9 @@ export function formatRun(row: {
   measurementScope?: MeasurementRunScope | null
   measurementExecutionIdentity?: MeasurementExecutionIdentity | null
   providerDispatchModes?: RunDispatchModes | null
+  skippedProviders?: Record<string, ProviderAccountStreak> | null
+  syncSummary?: RunSyncSummary | null
+  sourceId?: string | null
 }) {
   const measurementManifest = row.measurementManifest !== null
     && typeof row.measurementManifest === 'object'
@@ -848,6 +968,7 @@ export function formatRun(row: {
     startedAt: row.startedAt,
     finishedAt: row.finishedAt,
     error: parseRunError(row.error),
+    ...(row.sourceId != null ? { sourceId: row.sourceId } : {}),
     ...(hasMeasurementProvenance
       ? {
           measurementPlanVersionId: row.measurementPlanVersionId ?? null,
@@ -858,6 +979,10 @@ export function formatRun(row: {
           dispatchModes: row.providerDispatchModes ?? {},
         }
       : {}),
+    // Only on a run that skipped a provider, so other runs read as before.
+    ...(row.skippedProviders && Object.keys(row.skippedProviders).length > 0 ? { skippedProviders: row.skippedProviders } : {}),
+    // Only on a sync that recorded one, so other runs read as before.
+    ...(row.syncSummary ? { syncSummary: row.syncSummary } : {}),
     createdAt: row.createdAt,
   }
 }
@@ -865,12 +990,16 @@ export function formatRun(row: {
 function parseSnapshotRawResponse(raw: string | null): {
   groundingSources: unknown[]
   searchQueries: string[]
+  retrievedSources: RetrievedSource[] | null
   model: string | null
 } {
   const parsed = parseJsonColumn<Record<string, unknown>>(raw, {})
+  const retrieved = z.array(retrievedSourceSchema).safeParse(parsed.retrievedSources)
   return {
     groundingSources: (parsed.groundingSources as unknown[] | undefined) ?? [],
     searchQueries: (parsed.searchQueries as string[] | undefined) ?? [],
+    // Absent on engines that do not report retrievals and on older rows.
+    retrievedSources: retrieved.success ? retrieved.data : null,
     model: (parsed.model as string | undefined) ?? null,
   }
 }
@@ -886,13 +1015,12 @@ function loadRunDetail(app: FastifyInstance, run: typeof runs.$inferSelect) {
     .from(projects)
     .where(eq(projects.id, run.projectId))
     .get()
-  const competitorDomains = app.db
-    .select({ domain: competitors.domain })
+  const competitiveSignalResolver = compileCompetitiveSignalResolver(app.db
+    .select(competitorIdentityColumns)
     .from(competitors)
     .where(eq(competitors.projectId, run.projectId))
-    .all()
-    .map(row => row.domain)
-  const competitiveSignalResolver = compileCompetitiveSignalResolver(competitorDomains)
+    .orderBy(competitors.domain)
+    .all())
 
   const snapshots = app.db
     .select({
@@ -905,6 +1033,7 @@ function loadRunDetail(app: FastifyInstance, run: typeof runs.$inferSelect) {
       servedModel: querySnapshots.servedModel,
       citationState: querySnapshots.citationState,
       answerMentioned: querySnapshots.answerMentioned,
+      mentionIdentity: querySnapshots.mentionIdentity,
       answerText: querySnapshots.answerText,
       citedDomains: querySnapshots.citedDomains,
       citedUrls: querySnapshots.citedUrls,
@@ -924,6 +1053,7 @@ function loadRunDetail(app: FastifyInstance, run: typeof runs.$inferSelect) {
       dispatchMode: querySnapshots.dispatchMode,
       stopReason: querySnapshots.stopReason,
       usage: querySnapshots.usage,
+      answerEvidence: querySnapshots.answerEvidence,
       rawResponse: querySnapshots.rawResponse,
       createdAt: querySnapshots.createdAt,
     })
@@ -932,69 +1062,82 @@ function loadRunDetail(app: FastifyInstance, run: typeof runs.$inferSelect) {
     .where(eq(querySnapshots.runId, run.id))
     .all()
 
+  const mappedSnapshots = snapshots.map(s => {
+    const rawParsed = parseSnapshotRawResponse(s.rawResponse)
+    const signalGroundingSources = rawParsed.groundingSources.filter(
+      (source): source is { uri: string } =>
+        typeof source === 'object'
+        && source !== null
+        && typeof (source as { uri?: unknown }).uri === 'string',
+    )
+    const competitiveSignals = competitiveSignalResolver.resolve({
+      citedDomains: s.citedDomains,
+      groundingSources: signalGroundingSources,
+      answerText: s.answerText,
+    })
+    const answerMentioned = project
+      ? resolveSnapshotAnswerMentioned(s, project)
+      : (s.answerMentioned ?? false)
+    return {
+      id: s.id,
+      runId: s.runId,
+      queryId: s.queryId,
+      query: s.query,
+      provider: s.provider,
+      citationState: s.citationState,
+      answerMentioned,
+      // Legacy alias of `mentionState`, retained for backwards compatibility.
+      visibilityState: project
+        ? resolveSnapshotVisibilityState(s, project)
+        : (answerMentioned ? 'visible' : 'not-visible'),
+      // Canonical vocabulary for answer-text presence; new consumers prefer this.
+      mentionState: project
+        ? resolveSnapshotMentionState(s, project)
+        : (answerMentioned ? 'mentioned' : 'not-mentioned'),
+      answerText: s.answerText,
+      citedDomains: s.citedDomains,
+      citedUrls: s.citedUrls,
+      captureStatus: s.captureStatus,
+      sourceCount: s.sourceCount,
+      resolvedCount: s.resolvedCount,
+      captureVersion: s.captureVersion,
+      ...competitiveSignals,
+      // Legacy mixed signal retained for backwards compatibility.
+      competitorOverlap: s.competitorOverlap,
+      recommendedCompetitors: s.recommendedCompetitors,
+      matchedTerms: project ? resolveSnapshotMatchedTerms(s, project) : [],
+      mentionIdentity: s.mentionIdentity ?? null,
+      model: s.model ?? rawParsed.model,
+      // Column only. `model` may fall back to the stored envelope because both
+      // record the same requested value; a served id has no such equivalent —
+      // an unrecoverable one stays null rather than echoing configuration.
+      servedModel: s.servedModel,
+      location: s.location,
+      requestedContext: s.requestedContext,
+      supportedContext: s.supportedContext,
+      dispatchMode: s.dispatchMode,
+      stopReason: s.stopReason,
+      usage: s.usage,
+      groundingSources: rawParsed.groundingSources,
+      searchQueries: rawParsed.searchQueries,
+      retrievedSources: rawParsed.retrievedSources,
+      // Only answer services record evidence; other rows keep their exact shape.
+      ...(s.answerEvidence ? { evidence: s.answerEvidence } : {}),
+      createdAt: s.createdAt,
+    }
+  })
+  const identifiedSignals = mappedSnapshots.flatMap(snapshot =>
+    typeof snapshot.queryId === 'string' && snapshot.queryId.length > 0
+      ? [{ queryId: snapshot.queryId, citationState: snapshot.citationState as CitationState, answerMentioned: snapshot.answerMentioned }]
+      : [],
+  )
   return {
     ...formatRun(run),
     providerBatches: readRunProviderBatches(app.db, run.id),
     usage: summarizeRunUsage(snapshots),
-    snapshots: snapshots.map(s => {
-      const rawParsed = parseSnapshotRawResponse(s.rawResponse)
-      const signalGroundingSources = rawParsed.groundingSources.filter(
-        (source): source is { uri: string } =>
-          typeof source === 'object'
-          && source !== null
-          && typeof (source as { uri?: unknown }).uri === 'string',
-      )
-      const competitiveSignals = competitiveSignalResolver.resolve({
-        citedDomains: s.citedDomains,
-        groundingSources: signalGroundingSources,
-        answerText: s.answerText,
-      })
-      const answerMentioned = project
-        ? resolveSnapshotAnswerMentioned(s, project)
-        : (s.answerMentioned ?? false)
-      return {
-        id: s.id,
-        runId: s.runId,
-        queryId: s.queryId,
-        query: s.query,
-        provider: s.provider,
-        citationState: s.citationState,
-        answerMentioned,
-        // Legacy alias of `mentionState`, retained for backwards compatibility.
-        visibilityState: project
-          ? resolveSnapshotVisibilityState(s, project)
-          : (answerMentioned ? 'visible' : 'not-visible'),
-        // Canonical vocabulary for answer-text presence; new consumers prefer this.
-        mentionState: project
-          ? resolveSnapshotMentionState(s, project)
-          : (answerMentioned ? 'mentioned' : 'not-mentioned'),
-        answerText: s.answerText,
-        citedDomains: s.citedDomains,
-        citedUrls: s.citedUrls,
-        captureStatus: s.captureStatus,
-        sourceCount: s.sourceCount,
-        resolvedCount: s.resolvedCount,
-        captureVersion: s.captureVersion,
-        ...competitiveSignals,
-        // Legacy mixed signal retained for backwards compatibility.
-        competitorOverlap: s.competitorOverlap,
-        recommendedCompetitors: s.recommendedCompetitors,
-        matchedTerms: project ? resolveSnapshotMatchedTerms(s, project) : [],
-        model: s.model ?? rawParsed.model,
-        // Column only. `model` may fall back to the stored envelope because both
-        // record the same requested value; a served id has no such equivalent —
-        // an unrecoverable one stays null rather than echoing configuration.
-        servedModel: s.servedModel,
-        location: s.location,
-        requestedContext: s.requestedContext,
-        supportedContext: s.supportedContext,
-        dispatchMode: s.dispatchMode,
-        stopReason: s.stopReason,
-        usage: s.usage,
-        groundingSources: rawParsed.groundingSources,
-        searchQueries: rawParsed.searchQueries,
-        createdAt: s.createdAt,
-      }
-    }),
+    snapshots: mappedSnapshots,
+    queryCounts: identifiedSignals.length === mappedSnapshots.length
+      ? summarizeObservedQueryCounts(identifiedSignals)
+      : null,
   }
 }

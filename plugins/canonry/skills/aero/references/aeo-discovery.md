@@ -75,7 +75,8 @@ The preview returns every bucket so you can explain the tradeoff:
 - `cited` — already grounded to the project, safe to track.
 - `aspirational` — greenfield ICP-fit opportunities, safe to track as a growth basket.
 - `wasted-surface` — competitor-cited but project-missing. Treat as content-planning evidence first; do not add it to the weekly tracked basket unless the operator explicitly wants those off-ICP competitor gaps tracked.
-- `suggestedCompetitors` — recurring domains (≥ 2 hits) not already tracked, of **every** classified type, each tagged with `competitorType`. The default promote adopts only the `direct-competitor` ones; the others are shown so you can recommend a `--competitor-types` widening.
+- `suggestedCompetitors`: recurring competitors (≥ 2 probes) not already tracked, of **every** classified type, each tagged with `competitorType` and stored as its registrable domain, with the cited hosts merged into it under `sources` (`offers.rival.example` promotes as `rival.example`). The default promote adopts only the `direct-competitor` ones; the others are shown so you can recommend a `--competitor-types` widening.
+- `skippedCompetitors`: eligible competitors a promote leaves out, each with a `reason` and a `message`: `already-tracked`, `project-domain` (the project's own site), `shared-host` (cited as two or more different subdomains of one possibly shared host; add it by hand if they are one competitor), or `claimed-by-alias` (another competitor's curated alias names it; fix the alias first).
 
 Promote with one of these paths:
 
@@ -101,7 +102,7 @@ That default request promotes `cited` + `aspirational` queries and `direct-compe
 
 - **Default is cited + aspirational.** `wasted-surface` queries are off-ICP competitor gaps; promote them only when the operator explicitly wants those tracked in the weekly basket.
 - **Competitor promotion requires recurrence + a promotable type.** The default competitor merge ignores one-off domains (< 2 hits) and adopts only domains classified `direct-competitor`. Pass `competitorTypes` (CLI: `--competitor-types`) to also adopt `editorial-media` channels, or `competitorTypes: ["unknown"]` to recover a legacy session promoted before classification existed.
-- **Add-only and idempotent.** Queries and competitor domains already tracked are returned under `skipped`, never inserted twice. Re-running a promote is safe.
+- **Add-only and idempotent.** Queries and competitor domains already tracked are returned under `skipped`, never inserted twice. Re-running a promote is safe. Competitors left out for any other reason are listed there too, with the reason in `competitorDetails`; the rest of the promote still lands.
 - **Completed sessions only.** Promoting a `queued`/`seeding`/`probing`/`failed` session is rejected — the buckets aren't final.
 - Promoted rows carry `provenance="discovery:<sessionId>"`, so a tracked query can always be traced back to the session that surfaced it.
 

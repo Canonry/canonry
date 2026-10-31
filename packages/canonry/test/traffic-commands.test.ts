@@ -1,10 +1,10 @@
-import { describe, it, beforeEach, afterEach, expect } from 'vitest'
+import { describe, it, beforeEach, afterEach, expect, vi } from 'vitest'
 import os from 'node:os'
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { parse } from 'yaml'
-import { createClient, migrate, apiKeys, trafficSources } from '@ainyc/canonry-db'
+import { createClient, migrate, apiKeys, runs, trafficSources, rawEventSamples, projects } from '@canonry/canonry-db'
 import { createServer } from '../src/server.js'
 import { ApiClient } from '../src/client.js'
 import { invokeCli, parseJsonOutput } from './cli-test-utils.js'
@@ -49,6 +49,7 @@ describe('traffic CLI commands', () => {
 
     const app = await createServer({
       config: config as Parameters<typeof createServer>[0]['config'],
+      configPath,
       db,
       logger: false,
     })
@@ -76,6 +77,40 @@ describe('traffic CLI commands', () => {
     if (origConfigDir === undefined) delete process.env.CANONRY_CONFIG_DIR
     else process.env.CANONRY_CONFIG_DIR = origConfigDir
     fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('reads sample JSON and JSONL from the stored API with exact timestamps and no private hash', async () => {
+    const project = db.select().from(projects).all()[0]!
+    const at = '2026-10-10T12:00:00.123Z'
+    db.insert(trafficSources).values({ id: 'samples-source', projectId: project.id, sourceType: 'cloudflare', displayName: 'Edge', status: 'connected', createdAt: at, updatedAt: at }).run()
+    db.insert(rawEventSamples).values({ id: 'sample', projectId: project.id, sourceId: 'samples-source', ts: at, eventType: 'ai_referral', ipHash: 'never-public', pathNormalized: '/blog/post', status: 200, refererHost: 'chatgpt.com', userAgent: 'Synthetic Browser', classifierDetailsJson: { crawler: null, aiUserFetch: null, aiReferral: { operator: 'OpenAI', product: 'ChatGPT', sourceDomain: 'chatgpt.com', evidenceType: 'referer', trafficClass: 'organic' } }, createdAt: at }).run()
+    const selection = { kind: 'ai-referral' as const, sourceId: 'samples-source', since: '2026-10-10T00:00:00Z', until: '2026-10-11T00:00:00Z', path: '/blog', limit: 1, offset: 0 }
+    const expected = await client.trafficListSamples('test-proj', selection)
+    const args = ['traffic', 'samples', 'test-proj', '--kind', selection.kind, '--source', selection.sourceId, '--since', selection.since, '--until', selection.until, '--path', selection.path, '--limit', '1', '--offset', '0']
+    const json = await invokeCli([...args, '--format', 'json'])
+    expect(json.exitCode, json.stderr).toBeUndefined()
+    expect(parseJsonOutput(json.stdout)).toEqual(expected)
+    expect(json.stdout).not.toMatch(/ipHash|ip_hash|never-public/)
+    expect(expected.samples).toHaveLength(1)
+    expect(expected.samples[0]!.ts).toBe(at)
+    let streamed = ''
+    const write = vi.spyOn(process.stdout, 'write').mockImplementation(chunk => { streamed += String(chunk); return true })
+    try {
+      const jsonl = await invokeCli([...args, '--format', 'jsonl'])
+      expect(jsonl.exitCode, jsonl.stderr).toBeUndefined()
+    } finally { write.mockRestore() }
+    expect(streamed.trim().split('\n').map(line => JSON.parse(line))).toEqual(expected.samples.map(sample => ({ project: 'test-proj', windowStart: expected.windowStart, windowEnd: expected.windowEnd, ...sample })))
+    const text = await invokeCli(args)
+    expect(text.stdout).toContain('Sampled tail, not visits')
+    expect(text.stdout).toContain('traffic events')
+    expect(text.stdout).toContain('last-24h sample count')
+  })
+
+  it.each([['--kind', 'visitor'], ['--limit', '501'], ['--since-minutes', '0'], ['--since', 'invalid']])('rejects invalid samples option %s %s as a user error', async (flag, value) => {
+    const result = await invokeCli(['traffic', 'samples', 'test-proj', flag, value, '--format', 'json'])
+    expect(result.exitCode).toBe(1)
+    expect(result.stdout).toBe('')
+    expect(JSON.parse(result.stderr).error.code).toBe('CLI_USAGE_ERROR')
   })
 
   it('rejects traffic connect cloud-run without --gcp-project', async () => {
@@ -178,6 +213,22 @@ describe('traffic CLI commands', () => {
     const row = db.select().from(trafficSources).all()[0]
     expect(row?.sourceType).toBe('cloudflare')
     expect(row?.configJson).toMatchObject({ deliveryMode: 'direct-push' })
+  })
+
+  it('connects a page-view Cloudflare Worker end to end and rejects contradictory flags', async () => {
+    const conflicting = await invokeCli(['traffic', 'connect', 'cloudflare', 'test-proj', '--forward-page-views', '--no-forward-page-views', '--format', 'json'])
+    expect(conflicting.exitCode).toBe(1)
+    expect((parseJsonOutput(conflicting.stderr) as { error: { code: string } }).error.code).toBe('CLI_USAGE_ERROR')
+    expect(db.select().from(trafficSources).all()).toHaveLength(0)
+
+    const outputDirectory = path.join(tmpDir, 'page-view-worker')
+    const result = await invokeCli(['traffic', 'connect', 'cloudflare', 'test-proj', '--forward-page-views', '--output-dir', outputDirectory, '--format', 'json'])
+    expect(result.exitCode, result.stderr).toBeUndefined()
+    const summary = parseJsonOutput(result.stdout) as { forwardPageViews: boolean; workerVersion: string; files: { workerScript: string } }
+    expect(summary.forwardPageViews).toBe(true)
+    expect(summary.workerVersion).toMatch(/\+page-views$/)
+    expect(fs.readFileSync(summary.files.workerScript, 'utf-8')).toContain('function isPageView')
+    expect(db.select().from(trafficSources).all()[0]?.configJson).toMatchObject({ forwardPageViews: true })
   })
 
   it('requires a zone id and explicit route acknowledgement before Cloudflare deploy', async () => {
@@ -493,10 +544,48 @@ describe('traffic CLI commands', () => {
     expect(result.stderr).toMatch(/--limit/)
   })
 
+  it.each(['json', 'jsonl'])('reads the source-free traffic analytics envelope through the live API in %s', async format => {
+    const result = await invokeCli(['traffic', 'analytics', 'test-proj', '--period', '7', '--format', format])
+    expect(result.exitCode, result.stderr).toBeUndefined()
+    expect(parseJsonOutput(result.stdout)).toEqual({ activity: null })
+  })
+
+  it('rejects the retired dedicated report command', async () => {
+    const result = await invokeCli(['report', 'test-proj', '--format', 'json'])
+    expect(result.exitCode).toBe(1)
+    expect(result.stdout).toBe('')
+    expect(result.stderr).toContain('unknown command: report')
+  })
+
   it('reports no sources for `traffic status` when none are connected', async () => {
     const result = await invokeCli(['traffic', 'status', 'test-proj', '--format', 'json'])
     expect(result.exitCode).toBeUndefined()
     const body = parseJsonOutput(result.stdout) as { sources: unknown[] }
     expect(body.sources.length).toBe(0)
+  })
+
+  it('shows why the latest Queue sync stopped in `traffic status`', async () => {
+    const project = db.select().from(projects).all().find(row => row.name === 'test-proj')!
+    const sourceId = crypto.randomUUID()
+    const now = new Date().toISOString()
+    db.insert(trafficSources).values({
+      id: sourceId, projectId: project.id, sourceType: 'cloudflare', displayName: 'Queue', status: 'connected',
+      configJson: { deliveryMode: 'queue-pull' }, queueBacklogCount: 4200, queueBacklogObservedAt: now,
+      createdAt: now, updatedAt: now,
+    }).run()
+    const syncSummary = {
+      type: 'cloudflare-queue' as const, stopReason: 'empty-pulls' as const, pulls: 7, emptyPulls: 2, messagesPulled: 500,
+      messagesAcknowledged: 500, poisonMessages: 0, skippedUnleasedMessages: 0, acceptedEvents: 480, duplicateEvents: 20,
+      backlogAtFirstPull: 4800, backlogAtLastPull: 4200, elapsedMs: 9_000,
+    }
+    db.insert(runs).values({
+      id: crypto.randomUUID(), projectId: project.id, kind: 'traffic-sync', status: 'completed', trigger: 'scheduled',
+      sourceId, startedAt: now, finishedAt: now, createdAt: now, syncSummary,
+    }).run()
+
+    const text = await invokeCli(['traffic', 'status', 'test-proj'])
+    expect(text.stdout).toContain('Queue drain:   no more messages to pull (the rest is leased or not yet visible); 7 pull(s), 500 message(s), 20 redelivered, 9s')
+    const json = parseJsonOutput((await invokeCli(['traffic', 'status', 'test-proj', '--format', 'json'])).stdout) as { sources: Array<{ latestRun: { syncSummary?: unknown } }> }
+    expect(json.sources[0]!.latestRun.syncSummary).toEqual(syncSummary)
   })
 })

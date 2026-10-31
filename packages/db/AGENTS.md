@@ -20,17 +20,36 @@ Drizzle ORM schema, migrations, and database client. SQLite locally (via better-
 
 - **Core domain**: projects, queries, competitors, runs, querySnapshots, auditLog
 - **Simple measurement provenance**: `simpleMeasurementDefinitions` stores dispatch inputs for new official simple runs. Migration 150 leaves historical runs untouched. A composite project/run foreign key prevents cross-project captures. An UPDATE trigger protects the frozen definition. Run deletion cascades to its definition.
-- **Scheduling**: schedules, notifications, webhooks
-- **Integrations**: googleConnections (metadata only — credentials in config.yaml), gscData, gscDailyTotals (property-level daily totals — headline/trend source), gscQueryDailyTotals (per-query daily totals — the accurate per-query impressions/position source), urlInspections, gscCoverage, gscTraffic, bingConnections, bingUrlInspections, bingKeywordStats, ga4Connections (metadata only — credentials in config.yaml), ga4TrafficSnapshots, gaDailyTotals (property-level daily totals — deduplicated `users`, unlike the per-page snapshots), ga4AiReferrals, ga4Summaries, gaSocialReferrals
-- **System**: apiKeys, usageCounters
+- **Scheduling**: schedules, notifications, webhooks. Migration 196 adds nullable `schedules.enabled_at`: when the schedule last turned on, null while disabled. The schedule routes and config apply write it through `scheduleEnabledAt` (contracts); the traffic-sync and health-schedule inserts, always enabled, write their creation time. Rows from before it hold null while enabled and read as enabled since `created_at`
+- **Integrations**: googleConnections (metadata only — credentials in config.yaml), gscData, gscDailyTotals (property-level daily totals — headline/trend source), gscQueryDailyTotals (per-query daily totals — the accurate per-query impressions/position source), urlInspections, gscCoverage, gscTraffic, bingConnections, bingUrlInspections, bingKeywordStats, ga4Connections (metadata only — credentials in config.yaml), ga4TrafficSnapshots, gaDailyTotals (property-level daily totals — deduplicated `users`, unlike the per-page snapshots; migration 188 adds the GA4 overview's daily figures), gaWindowMetrics (migration 188: GA4's totals per overview window and the period before it), ga4AiReferrals, ga4Summaries, gaSocialReferrals, gaSearchLandingWindows + gaSearchLandingPages (migration 176: GA4's Search Console landing-page report as one snapshot per `7d` / `28d` / `90d` window; the window row holds GA4's own Total, never a sum of the page rows, and a sync replaces every window together; its state is the defaulted `search_landing_*` columns on `ga_measurement_sync_state`)
+- **System**: apiKeys, usageCounters, dataRepairCompletions. Migration 173 adds `dashboardSessions`: token digests bound to live API keys, with key-deletion cascade and expiry indexes. Migration 174 binds sessions to the key hash and, for password sign-ins, the configured password hash's digest. Key rotation and revocation writers delete bound sessions in the same transaction; restoring a key cannot restore its old sessions. Native shared-password/API-key logins use this storage to survive ordinary restarts; named-account sessions remain in `userSessions`.
+- **Competitor aliases**: migration 168 adds `competitors.aliases` (native JSON `string[]`, default `[]`), the operator-curated answer-text names of a competitor. Inserts and alias changes go through `api-routes/src/competitor-writes.ts` so validation (`planCompetitorAliases` in contracts) holds on every surface; the DELETE routes remove rows directly and audit the discarded aliases. A domain-only replace keeps the aliases of rows that stay.
+- **Competitor auto aliases**: migration 171 adds `competitors.auto_aliases` (native JSON `CompetitorAutoAlias[]`: name plus evidence) and `competitors.blocked_aliases` (native JSON `string[]`), both default `[]`. Only `api-routes/src/competitor-auto-aliases.ts` writes auto names, and only in a pass that applies (the project in `apply` mode, or an explicit apply-now); the shared competitor writer prunes them when curated identity claims one, and the block route removes a blocked one. The block/unblock routes write blocked names; a removal keeps them on `market_competitor_names` and a new row for the domain starts with them. The same migration adds `projects.competitor_auto_aliases` (`TEXT NOT NULL DEFAULT 'preview'`: `off`, `preview` or `apply`, what the server's unattended detection pass does; one is queued after a completed or partial sweep, a competitor add, an unblock or a market pin write that changes pins), so every existing project reads `preview` and no stored name changes on upgrade, and nullable `projects.answer_fields_recompute` (`full` or `competitors` while a recompute of the stored answer fields the local server queued is unfinished; the server requeues it on boot). Wider rows changed SQLite's plan for `WHERE project_id = ?` from the unique `(project_id, domain)` index to `idx_competitors_project`, so every competitor list read orders by `domain` explicitly to keep the order it always had.
+- **Market competitor names**: migration 172 adds `market_competitor_names` (`project_id`, registrable `domain`, `auto_aliases`, `blocked_aliases`, unique per project and domain, cascading with the project): names learned for a competitor an Advanced market pins without a `competitors` row, and the blocked names a removed project competitor leaves (a row with `auto_aliases` `[]` is still meaningful: never clean it up as empty). Written by `api-routes/src/competitor-auto-aliases.ts`, the block/unblock routes and `keepBlockedAliasesOfRemovedCompetitors` (`competitor-writes.ts`); read through `readMarketCompetitorNames` (api-routes), and by a competitor add for the blocked names its new row starts with.
+- **Sentiment mention identity**: migration 185 adds nullable `query_snapshots.mention_identity` (`wrong-subject` or NULL) and `query_snapshots.wrong_subject_target_keys` (native JSON `string[]` or NULL). Both cache sentiment's identity verdicts. Only `refreshSnapshotMentionIdentity` (api-routes) writes them: inside `SentimentRepository.completeWork`'s transaction through its `onCompleted` hook, and once over stored history by the local server's `sentiment-mention-identity` data repair. NULL means no completed verdict judged the answer to be about another subject; it does not say whether sentiment assessed the answer.
+- **Data repairs**: migration 167 adds `data_repair_completions`, one row per install-wide repair name. Record the highest successfully completed repair version only after the entire pass succeeds. Partial progress and failures leave the marker unchanged; conditional upserts prevent an older repair from overwriting a newer completion.
+- **Health alert state**: `doctor_health_state` is one row per project, written only by `Notifier.onHealthChecked` (canonry). `failing_signature` (migration 157) is the failing set of the last scheduled pass as `status:code` pairs; `failing_checks` (migration 178) is the same set as `status:code:id`, because alerts compare by check id; `notified_signature` (migration 177, same `status:code:id` form) is the set the last DELIVERED alert reported, so the next alert can list what cleared since. These three are nullable with no default, and NULL means unknown, never empty. `pending_signature` (migration 179, same form) stores only triggering breaches owed by an unaccepted degraded alert; NULL means no delivery owed. It is written with the observation before delivery, survives restarts, and clears after any webhook accepts the alert, or when its triggers clear, ease or become superseded. The delivered set stays untouched on refusal, since an earlier occurrence of a check cannot acknowledge its recurrence. Never change the format of `failing_signature`: a rolled-back release compares it as a string, and it is how the notifier detects that such a release wrote the row since `failing_checks` was stored; a mismatch invalidates pending ids too.
+- **Site Health page budget**: migration 169 adds nullable `projects.site_audit_max_pages` with no default, so every existing project reads `null` (the full site). Scan creators read it only through `normalizeSiteAuditRunRequest`.
+- **Site Health issues**: migration 180 adds nullable native JSON `siteCrawlSnapshots.issueEvidence`. NULL means the crawl did not record cross-page issue evidence; a versioned envelope with an empty `siteIssues` list means the engine checked the observed pages and found none. Never backfill missing evidence as empty. The executor persists it with the same terminal snapshot and its complete/partial provenance.
 - **Aero history**: migration 159 adds `agent_conversations` for inactive transcripts. The unique `agent_sessions.projectId` slot remains active; swaps are transactional. No existing transcript is rewritten.
 - **Aero ledgers**: `llm_usage_events.agent_session_id` and `agent_tool_events.agent_session_id` hold the Aero conversation id, which lives in `agent_sessions` while active and in `agent_conversations` once archived. Migration 165 rebuilt both tables without a foreign key on it (project and run keys unchanged), so rows stay attributed to their conversation. Deleting a conversation clears the id in `api-routes/agent-conversations.ts`.
-- **Aero model upgrade**: migration 158 moves existing DeepInfra GLM-5.2 sessions to DeepSeek-V4-Flash once. Later explicit selections survive subsequent migrations and hydration; transcript, queue, and activity timestamps stay intact.
+- **Aero model upgrade**: migration 158 moved existing DeepInfra GLM-5.2 sessions to DeepSeek-V4-Flash once (the DeepInfra provider has since been removed; its rows resume on the current provider). Later explicit selections survive subsequent migrations and hydration; transcript, queue, and activity timestamps stay intact.
 - **Provider batch dispatch**: migration 162 adds `provider_batches` and `provider_batch_requests`, plus nullable/defaulted dispatch columns on `projects`, `runs`, and `query_snapshots`. A batch row is written `submitting` before the submit call and is never resubmitted. Its composite project/run foreign key cascades with the run. `provider_batch_requests.query_id` is SET NULL so a deleted query cannot make ingest write a dangling id. Both SET NULL child columns (`provider_batch_requests.query_id`, `query_snapshots.provider_batch_id`) are indexed so a parent delete does not scan the child table. See `docs/batch-mode.md`.
+- **Answer evidence**: migration 186 adds nullable native JSON `answer_evidence` to `query_snapshots` and `research_run_queries` (`AnswerEvidence` from contracts). Only hosted answer services write it; NULL means no evidence was recorded, never "no sources". It is left out of `snapshotEvidenceFingerprint` so the upgrade does not invalidate paging cursors.
+- **Research upstream jobs**: migration 187 adds nullable `research_run_queries.upstream_job_id` (partially indexed where set). It holds the upstream job a `waiting-upstream` query waits on, so a job executor resumes that job by id and never submits the query again; NULL everywhere else.
+- **Tests replay a migrated database**: under Vitest, `migrate(db)` on an empty database replays a copy migrated once per run (`test-setup/migrated-database.ts`). A version list or an already-seeded database runs the real migrations; pass `[...MIGRATION_VERSIONS]` to run every real migration from empty.
 - **Upgrade tests seed physical columns**: a test that migrates to an older version must seed with `test/legacy-rows.ts` (raw SQL), not Drizzle — Drizzle names every current column, so a later migration adding one breaks the seed.
+- **OAuth grant lineage**: migration 199 adds `oauthGrants`, `oauthTokens.grantId` and `apiKeys.delegatedOAuthGrantId`. Each new authorization gets a UUID preserved by refresh rotation; revocation commits the grant, token and delegated-key changes together. Historical tokens had no lineage, so the migration groups only identical client/user/resource/scope rows; it preserves valid token values and expiry, removing only credential rows whose client or user no longer exists. Pre-upgrade MCP keys have no recoverable grant link: the migration retires historical `mcp-session:<delegatedUserId>` keys and older unbound keys in the reserved `mcp-session:` namespace, plus their dashboard sessions. A manually named key in that reserved namespace also needs reissue. Clients reinitialize using their preserved OAuth tokens; ordinary keys outside that reserved namespace and Aero viewer keys survive. Tokens created later by an older binary are adopted before access resolution and on refresh/revoke using that same boundary. Never delete a revoked token independently of the family's revocation horizon.
 - **Delegated MCP identity**: `apiKeys.delegatedUserId` is internal, nullable for historical/ordinary keys, and cascade-deleted with its user (migration 154). It retains the originating account across the MCP-to-REST hop; never derive this identity from a key name or expose it as client-settable input.
 
 ## Patterns
+
+Health notification recipient histories live in `doctor_health_state.urgentReceipts`
+and `site_liveness_state.urgentReceipts` (migration 183, nullable native JSON).
+Each notification id stores its destination URL and outstanding breach signature
+or outage timestamp. The notifier prunes inactive destinations and groups identical
+histories for any-accepted delivery. Existing aggregate fields remain summaries;
+NULL recipient histories establish no identity and never authorize a resolution.
 
 ### Schema changes (Critical)
 
@@ -80,7 +99,7 @@ const enabled = project.autoExtractBacklinks // boolean (integer mode: 'boolean'
 Other tables (`runs`, `querySnapshots`, `schedules`, `notifications`, GA/GSC/Bing rollups, agent sessions, traffic sources, etc.) still store JSON as raw `text(...)` for the moment. Reads from those columns use the typed helper:
 
 ```typescript
-import { parseJsonColumn } from '@ainyc/canonry-db'
+import { parseJsonColumn } from '@canonry/canonry-db'
 
 // ✅ Correct — handles null, empty string, invalid JSON for the legacy raw-text columns
 const breakdown = parseJsonColumn<HealthSnapshotDto['providerBreakdown']>(row.providerBreakdown, {})
@@ -175,7 +194,8 @@ for each claim. The outbound caller must check install readiness again before
 reconciliation after reenablement; the persisted observation survives restart and
 advances the admission boundary past the disabled interval. Attempt reservations
 are conservative across crashes; unknown usage stays on the receipt, while reported
-usage is written once into `llm_usage_events` under provider `typesafe`.
+usage is written once into `llm_usage_events` under the frozen evaluator's
+`typesafe` or `openrouter` provider, separately from the original answer engine.
 
 Assessments are unique by project, snapshot, source hash, subject hash and evaluation
 definition. Job membership retains its cancellation epoch when an explicit backfill
@@ -199,3 +219,26 @@ credential fingerprint, never the key. A refused attempt is requeued outside the
 retry budget by advancing `attempt_budget_start`. Partial index
 `idx_sentiment_work_lease` serves the concurrency count, and
 `idx_sentiment_work_source(run_id, snapshot_id)` serves the snapshot cascade.
+
+## SEO storage
+
+Migration 190 adds `seo_profiles`, `seo_jobs`, `seo_tasks`, and `seo_budgets`.
+`SeoRepository` owns atomic capacity reservation, leases, settlement, cancellation,
+and operator reconciliation. Jobs retain the profile and Advanced plan context at
+admission. Project/run deletion nulls their public links but retains financial
+liabilities. Prior-period unresolved holds count against current capacity, and
+queued holds move to the submission period before dispatch. Never cascade these
+private receipts or expose their amounts through customer projections.
+Migration 191 indexes accepted intent hashes. Admission consumes an intent once
+across idempotency keys, including after its public run is deleted. Settlement
+may accept a late receipt from the same lease owner after recovery, but never
+overwrite operator reconciliation.
+Migration 195 adds nullable `seo_tasks.retry_of`. When the runtime settles a
+`retryable` failure with its current limits, `settle` queues one new task that
+points at the first attempt and reserves the same amount, only if the run ceiling
+and every bucket still have room. Claims take first attempts before retries, so a
+retry runs at the end of its refresh, and a retry is never retried.
+`currentSeoTasks` (and `currentSeoTaskCondition` for SQL counts) is the one rule
+for which attempt counts: a retry replaces its first attempt unless it was
+cancelled. Status, counts and evidence read through it; operator receipts still
+see every paid attempt.

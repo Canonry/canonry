@@ -1,16 +1,26 @@
 import { describe, it, expect } from 'vitest'
 import {
-  absolutizeProjectUrl,
   brandLabelFromDomain,
-  describeLandingPage,
+  competitorLabelFromDomain,
   extractDomainsFromText,
   hostMatchesDomain,
   hostOf,
   normalizeUrlPath,
+  normalizeHostname,
   registrableDomain,
-  safeLinkHref,
   textContainsDomain,
+  URL_PATH_NORMALIZATION_VERSION,
 } from '../src/url-normalize.js'
+
+describe('normalizeHostname', () => {
+  it('preserves every DNS label when normalizing exact-host evidence scope', () => {
+    expect(normalizeHostname(' WWW.Shop.Example.COM ')).toBe('www.shop.example.com')
+    expect(normalizeHostname('shop.example.com')).toBe('shop.example.com')
+  })
+  it.each(['https://example.com', 'example.com/path', 'example.com:443', 'me@example.com', 'example.com?x=1', 'example.com#part', '-bad.example.com', 'example..com', 'example.com.', 'exa mple.com', '%65xample.com', '127.0.0.1', '2130706433'])('rejects non-host scope %s without widening it', input => {
+    expect(normalizeHostname(input)).toBeNull()
+  })
+})
 
 describe('hostOf', () => {
   it('extracts the host from a full URL, www-stripped and lowercased', () => {
@@ -41,6 +51,13 @@ describe('domain identity', () => {
   it('treats private-suffix tenants as separate domains', () => {
     expect(registrableDomain('docs.canonry.github.io')).toBe('canonry.github.io')
     expect(brandLabelFromDomain('docs.canonry.github.io')).toBe('canonry')
+  })
+
+  it('labels a stored competitor by its brand label, else by the stored domain', () => {
+    expect(competitorLabelFromDomain('rivalhomes.example')).toBe('rivalhomes')
+    expect(competitorLabelFromDomain('news.bbc.co.uk')).toBe('bbc')
+    expect(competitorLabelFromDomain('localhost')).toBe('localhost')
+    expect(competitorLabelFromDomain('10.0.0.1')).toBe('10.0.0.1')
   })
 
   it('matches only the same host or a real subdomain', () => {
@@ -259,99 +276,46 @@ describe('normalizeUrlPath', () => {
   })
 })
 
-describe('absolutizeProjectUrl', () => {
-  it('prefixes path-only URLs with https://<canonicalDomain>', () => {
-    expect(absolutizeProjectUrl('/blog/foo', 'example.com')).toBe('https://example.com/blog/foo')
-  })
+describe('URL_PATH_NORMALIZATION_VERSION', () => {
+  // Stored GA paths keep the normalization that wrote them, and startup only
+  // repairs them again when this version increases. A change to any output
+  // below needs a version bump: record the new outputs under the new version
+  // and leave earlier versions' rows unchanged.
+  const NORMALIZED_PATHS_BY_VERSION: Record<number, ReadonlyArray<readonly [string, string | null]>> = {
+    1: [
+      ['', null],
+      ['   ', null],
+      ['/', '/'],
+      ['(not set)', null],
+      ['/index.html', '/'],
+      ['/index.php', '/'],
+      ['/about/', '/about'],
+      ['/Blog/Post/', '/Blog/Post'],
+      ['/docs//', '/docs'],
+      ['/pricing?utm_source=chatgpt&utm_medium=referral', '/pricing'],
+      ['/?fbclid=A', '/'],
+      ['/?gclid=B&msclkid=C', '/'],
+      ['/search?q=shoes&page=2', '/search?page=2&q=shoes'],
+      ['/search?page=2&q=shoes', '/search?page=2&q=shoes'],
+      ['/landing?ref&b=2&a=1', '/landing?a=1&b=2&ref'],
+      ['/guide#section-2', '/guide'],
+      ['/guide/?utm_campaign=x#top', '/guide'],
+      ['https://www.example.com/Store/?b=2&a=1&utm_content=y', '/Store?a=1&b=2'],
+      ['https://example.com', '/'],
+      ['/blog/post).', '/blog/post'],
+      ['/) open', '/'],
+      ['/features&nbsp;page', '/features'],
+      ['  /contact  ', '/contact'],
+      ['http://[bad', null],
+    ],
+  }
 
-  it('preserves the query string when prefixing a path', () => {
-    expect(absolutizeProjectUrl('/p?q=1', 'example.com')).toBe('https://example.com/p?q=1')
-  })
-
-  it('returns absolute https URLs unchanged', () => {
-    expect(absolutizeProjectUrl('https://other.com/x', 'example.com')).toBe('https://other.com/x')
-  })
-
-  it('returns absolute http URLs unchanged', () => {
-    expect(absolutizeProjectUrl('http://other.com/x', 'example.com')).toBe('http://other.com/x')
-  })
-
-  it('upgrades protocol-relative URLs to https', () => {
-    expect(absolutizeProjectUrl('//cdn.example.com/x', 'example.com')).toBe('https://cdn.example.com/x')
-  })
-
-  it('strips an http(s) prefix and trailing slash from the canonical domain', () => {
-    expect(absolutizeProjectUrl('/x', 'https://example.com/')).toBe('https://example.com/x')
-    expect(absolutizeProjectUrl('/x', 'http://example.com')).toBe('https://example.com/x')
-  })
-
-  it('returns empty string for null, undefined, or whitespace input', () => {
-    expect(absolutizeProjectUrl(null, 'example.com')).toBe('')
-    expect(absolutizeProjectUrl(undefined, 'example.com')).toBe('')
-    expect(absolutizeProjectUrl('   ', 'example.com')).toBe('')
-  })
-
-  it('treats bare slugs (no leading slash) as paths under the canonical host', () => {
-    expect(absolutizeProjectUrl('blog/foo', 'example.com')).toBe('https://example.com/blog/foo')
-  })
-
-  it('returns the original input when canonicalDomain is empty', () => {
-    expect(absolutizeProjectUrl('/blog/foo', '')).toBe('/blog/foo')
-  })
-})
-
-describe('safeLinkHref', () => {
-  it('keeps http(s), mailto, and slash-prefixed links as written, trimmed and unescaped', () => {
-    expect(safeLinkHref('https://rival.com/post?a=1&b=2')).toBe('https://rival.com/post?a=1&b=2')
-    expect(safeLinkHref('  HTTP://example.com/x  ')).toBe('HTTP://example.com/x')
-    expect(safeLinkHref('mailto:hello@example.com')).toBe('mailto:hello@example.com')
-    expect(safeLinkHref('/blog/foo')).toBe('/blog/foo')
-    expect(safeLinkHref('//cdn.example.com/x')).toBe('//cdn.example.com/x')
-  })
-
-  it('turns executable schemes, bare paths, and empty values into #', () => {
-    for (const value of ['javascript:alert(1)', ' JavaScript:alert(1)', 'data:text/html,<script>alert(2)</script>', 'vbscript:msgbox', 'blog/foo', '', '   ', null, undefined]) {
-      expect(safeLinkHref(value), String(value)).toBe('#')
-    }
-  })
-})
-
-describe('describeLandingPage', () => {
-  it('returns the path alone when there is no query string', () => {
-    expect(describeLandingPage('/blog/foo')).toEqual({ path: '/blog/foo', querySummary: null, raw: '/blog/foo' })
-    expect(describeLandingPage('(not set)')).toEqual({ path: '(not set)', querySummary: null, raw: '(not set)' })
-  })
-
-  it('shows / for an empty path, with or without a query', () => {
-    expect(describeLandingPage('')).toEqual({ path: '/', querySummary: null, raw: '' })
-    expect(describeLandingPage('?gclid=1')).toEqual({ path: '/', querySummary: 'Google Ad · 1 param', raw: '?gclid=1' })
-  })
-
-  it('treats a query with no parameters as no query', () => {
-    expect(describeLandingPage('/x?')).toEqual({ path: '/x', querySummary: null, raw: '/x?' })
-    expect(describeLandingPage('/x?&')).toEqual({ path: '/x', querySummary: null, raw: '/x?&' })
-  })
-
-  it('names the ad click id or campaign tags behind a query, with the parameter count', () => {
-    const cases: Array<[string, string]> = [
-      ['/pricing?gclid=abc&utm_source=x', 'Google Ad · 2 params'],
-      ['/solar?fbclid=abc&h_ad_id=123', 'Facebook Ad · 2 params'],
-      ['/x?gbraid=abc', 'Google Ad · 1 param'],
-      ['/x?wbraid=abc', 'Google Ad · 1 param'],
-      ['/x?msclkid=abc', 'Microsoft Ad · 1 param'],
-      ['/x?ttclid=abc', 'TikTok Ad · 1 param'],
-      ['/x?li_fat_id=abc', 'LinkedIn Ad · 1 param'],
-      ['/x?twclid=abc', 'X / Twitter Ad · 1 param'],
-      ['/x?epik=abc', 'Pinterest Ad · 1 param'],
-      ['/roofing?adgroupid=1&hsa_acc=2&hsa_cam=3&hsa_grp=4&hsa_ad=5&hsa_kw=roof&hsa_mt=e&hsa_net=adwords&hsa_ver=3', 'Search Ad · 9 params'],
-      ['/x?utm_source=newsletter&utm_medium=email&utm_campaign=may', 'newsletter / email · 3 params'],
-      ['/x?utm_source=newsletter', 'Source: newsletter · 1 param'],
-      ['/x?utm_medium=email', 'Medium: email · 1 param'],
-      ['/x?foo=1&bar=2', '2 tracking params'],
-      ['/x?foo=1', '1 tracking param'],
-    ]
-    for (const [raw, querySummary] of cases) {
-      expect(describeLandingPage(raw), raw).toEqual({ path: raw.slice(0, raw.indexOf('?')), querySummary, raw })
-    }
+  it('pins normalizeUrlPath output to the stored-path repair version', () => {
+    const golden = NORMALIZED_PATHS_BY_VERSION[URL_PATH_NORMALIZATION_VERSION]
+    expect(golden, `record normalizeUrlPath outputs for version ${URL_PATH_NORMALIZATION_VERSION}`).toBeDefined()
+    expect(
+      golden!.map(([input]) => [input, normalizeUrlPath(input)]),
+      'normalizeUrlPath output changed: bump URL_PATH_NORMALIZATION_VERSION so startup repairs stored GA paths',
+    ).toEqual(golden)
   })
 })

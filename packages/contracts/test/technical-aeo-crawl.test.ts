@@ -4,10 +4,13 @@ import {
   SITE_AUDIT_MAX_EDGE_LIMIT,
   SITE_AUDIT_MAX_PAGE_LIMIT,
   deriveSiteHealthState,
+  deriveSiteHealthReason,
+  factorStatusFromDistribution,
   normalizeSiteAuditRunRequest,
   siteAuditRequestIdentity,
   siteAuditFactorSummarySchema,
   siteAuditLivePageHealthSchema,
+  siteAuditPageBudgetSchema,
   siteAuditPageFactorSchema,
   siteAuditRunRequestSchema,
   siteAuditRunProgressSchema,
@@ -18,26 +21,59 @@ import {
   siteCrawlSummarySchema,
   siteHealthScansResponseSchema,
   siteHealthStateSchema,
+  siteCrawlUrlVersionOf,
   SITE_HEALTH_SCANS_DEFAULT_LIMIT,
   SITE_HEALTH_SCANS_MAX_LIMIT,
+  formatPageCount,
+  formatSiteAuditPageBudget,
 } from '../src/technical-aeo.js'
 import { ratioUnitOf } from '../src/ratio-unit.js'
 
+describe('Site Health page budget wording', () => {
+  it('names a page count and a saved budget the same way everywhere', () => {
+    expect([formatPageCount(1), formatPageCount(2), formatPageCount(2_500), formatPageCount(50_000)]).toEqual(['1 page', '2 pages', '2,500 pages', '50,000 pages'])
+    expect(formatSiteAuditPageBudget(null)).toBe('full site (up to 50,000 pages)')
+    expect([formatSiteAuditPageBudget(1), formatSiteAuditPageBudget(750)]).toEqual(['1 page', '750 pages'])
+  })
+})
+
 describe('Technical AEO crawl contracts', () => {
+  it.each([
+    { pagesFailing: 1, pagesPartial: 2, expected: 'fail' },
+    { pagesFailing: 0, pagesPartial: 1, expected: 'partial' },
+    { pagesFailing: 0, pagesPartial: 0, expected: 'pass' },
+  ])('preserves the worst observed page band $expected', ({ pagesFailing, pagesPartial, expected }) => {
+    expect(factorStatusFromDistribution({ pagesFailing, pagesPartial })).toBe(expected)
+  })
+
+  it.each([
+    { fetchState: 'redirect', indexabilityState: 'unknown', indexabilityReasons: ['redirect-terminal'], expected: 'redirect-terminal' },
+    { fetchState: 'html', indexabilityState: 'unknown', indexabilityReasons: ['canonical-to-other'], expected: 'canonical-to-other' },
+    { fetchState: 'html', indexabilityState: 'noindex', indexabilityReasons: ['meta-robots-noindex'], nodeKey: 'page-2', canonicalNodeKey: 'page-1', expected: 'noindex' },
+    { fetchState: 'html', indexabilityState: 'blocked', indexabilityReasons: ['robots-disallow', 'canonical-to-other'], nodeKey: 'page-2', canonicalNodeKey: 'page-1', expected: 'robots-disallow' },
+    { fetchState: 'html', indexabilityState: 'unknown', indexabilityReasons: [], expected: 'unknown' },
+    { fetchState: 'non-html', indexabilityState: 'unknown', indexabilityReasons: [], expected: 'non-html' },
+  ])('labels stored $fetchState evidence as $expected', ({ expected, ...row }) => {
+    expect(deriveSiteHealthReason(row)).toBe(expected)
+  })
+
   it('defaults the page budget but leaves the edge budget unset for the engine to derive', () => {
-    expect(SITE_AUDIT_DEFAULT_PAGE_LIMIT).toBe(1_000)
+    // A scan with no page budget covers the full site, the same budget scheduled audits pass.
+    expect(SITE_AUDIT_DEFAULT_PAGE_LIMIT).toBe(SITE_AUDIT_MAX_PAGE_LIMIT)
     expect(SITE_AUDIT_MAX_PAGE_LIMIT).toBe(50_000)
     expect(SITE_AUDIT_MAX_EDGE_LIMIT).toBe(1_000_000)
     // A flat edge default here caps BELOW the engine's own derivation
     // (pages x 50, floored at 100,000) on any crawl over 2,000 pages, so an
     // omitted maxEdges must stay null all the way to the executor.
     expect(normalizeSiteAuditRunRequest({})).toEqual({
-      schemaVersion: 2,
+      schemaVersion: 3,
       sitemapUrl: null,
-      maxPages: 1_000,
+      maxPages: 50_000,
       maxEdges: null,
       maxDepth: null,
       checkDeadLinks: false,
+      includeGeo: false,
+      includeAgentSkills: true,
     })
     expect(normalizeSiteAuditRunRequest({ maxEdges: 435_000 })).toMatchObject({ maxEdges: 435_000 })
   })
@@ -111,8 +147,10 @@ describe('Technical AEO crawl contracts', () => {
 
   it('dedups two unset edge budgets against each other but never against an explicit number', () => {
     const unset = siteAuditRequestIdentity(normalizeSiteAuditRunRequest(siteAuditRunRequestSchema.parse({})))
+    // An omitted page budget is the full site, so it is the same request as an
+    // explicit 50,000 with no edge budget either.
     const alsoUnset = siteAuditRequestIdentity(
-      normalizeSiteAuditRunRequest(siteAuditRunRequestSchema.parse({ maxPages: 1_000 })),
+      normalizeSiteAuditRunRequest(siteAuditRunRequestSchema.parse({ maxPages: 50_000 })),
     )
     // Unset is one stable request, so two unattended crawls still consolidate.
     expect(unset).toBe(alsoUnset)
@@ -129,9 +167,56 @@ describe('Technical AEO crawl contracts', () => {
     expect(JSON.parse(unset)[3]).toBeNull()
     expect(JSON.parse(explicitOldDefault)[3]).toBe(100_000)
     // A version-1 key (omitted maxEdges stored as 100000) can never be read as
-    // a version-2 request, so a pre-upgrade in-flight run refuses instead of
+    // a version-3 request, so a pre-upgrade in-flight run refuses instead of
     // silently absorbing a crawl with different budget semantics.
-    expect(JSON.parse(unset)[0]).toBe(2)
+    expect(JSON.parse(unset)[0]).toBe(3)
+  })
+
+  it('accepts a page budget of whole pages from 1 to the 50,000 hard limit, and nothing else', () => {
+    for (const value of [1, 2_500, 50_000]) {
+      const parsed = siteAuditPageBudgetSchema.safeParse(value)
+      expect(parsed.success, String(value)).toBe(true)
+      expect(parsed.data, String(value)).toBe(value)
+    }
+    // The bare schema has no "full site" value: null is the project field's
+    // nullable wrapper, never a budget a scan can be given.
+    for (const value of [0, -1, 50_001, 1.5, null, '2500']) {
+      expect(siteAuditPageBudgetSchema.safeParse(value).success, JSON.stringify(value)).toBe(false)
+    }
+    // A request's maxPages is the same budget, so the two can never disagree.
+    for (const maxPages of [0, 1.5, null]) {
+      expect(siteAuditRunRequestSchema.safeParse({ maxPages }).success, JSON.stringify(maxPages)).toBe(false)
+    }
+  })
+
+  it('resolves the page budget from maxPages, then limit, then the saved budget, then the full site', () => {
+    const pagesFor = (request: Parameters<typeof normalizeSiteAuditRunRequest>[0], saved?: number | null) =>
+      normalizeSiteAuditRunRequest(request, saved).maxPages
+
+    expect(pagesFor({ maxPages: 40, limit: 30 }, 2_500)).toBe(40)
+    expect(pagesFor({ limit: 30 }, 2_500)).toBe(30)
+    expect(pagesFor({}, 2_500)).toBe(2_500)
+    // No saved budget, stored as null or never read, is the full site.
+    expect(pagesFor({}, null)).toBe(50_000)
+    expect(pagesFor({}, undefined)).toBe(50_000)
+    expect(pagesFor({ maxPages: 40 }, null)).toBe(40)
+
+    // The saved budget changes only the page budget...
+    expect(normalizeSiteAuditRunRequest({}, 2_500)).toEqual({
+      schemaVersion: 3,
+      sitemapUrl: null,
+      maxPages: 2_500,
+      maxEdges: null,
+      maxDepth: null,
+      checkDeadLinks: false,
+      includeGeo: false,
+      includeAgentSkills: true,
+    })
+    // ...and is part of identity: it is the same request as asking for that
+    // budget explicitly, and a different one from the full site.
+    const saved = siteAuditRequestIdentity(normalizeSiteAuditRunRequest({}, 2_500))
+    expect(saved).toBe(siteAuditRequestIdentity(normalizeSiteAuditRunRequest({ maxPages: 2_500 })))
+    expect(saved).not.toBe(siteAuditRequestIdentity(normalizeSiteAuditRunRequest({})))
   })
 
   it('makes no crawl data distinct from a zero-count crawl and from disabled dead-link checks', () => {
@@ -150,6 +235,7 @@ describe('Technical AEO crawl contracts', () => {
   it('models a bounded graph projection separately from the full crawl', () => {
     expect(siteCrawlGraphResponseSchema.parse({
       project: 'example', hasCrawlData: true, runId: 'run-1', rootNodeKey: 'home',
+      complete: false, termination: 'max-pages',
       layout: {
         state: 'ready', version: 'site-health-fa2-v1', computedAt: '2026-08-09T12:00:00.000Z',
         templateLinksExcluded: true,
@@ -165,6 +251,7 @@ describe('Technical AEO crawl contracts', () => {
       }], edges: [], omittedNodes: 684, omittedEdges: 15_402, sampled: true,
     })).toMatchObject({
       project: 'example', runId: 'run-1', sampled: true,
+      complete: false, termination: 'max-pages',
       // Root identity is server-owned so the home page never has to be
       // inferred from a path, a depth, or a link score.
       rootNodeKey: 'home',
@@ -179,7 +266,7 @@ describe('Technical AEO crawl contracts', () => {
     })
 
     const empty = siteCrawlGraphResponseSchema.parse({
-      project: 'example', hasCrawlData: false, runId: null, rootNodeKey: null,
+      project: 'example', hasCrawlData: false, runId: null, rootNodeKey: null, complete: false, termination: null,
       layout: { state: 'unavailable', version: null, reason: 'no-crawl' },
       templateDetection: 'unavailable-legacy-scan', linkKind: 'all',
       totalNodes: 0, totalEdges: 0, totalTemplateEdges: 0, totalContentEdges: 0,
@@ -189,7 +276,7 @@ describe('Technical AEO crawl contracts', () => {
     expect(empty.rootNodeKey).toBeNull()
 
     expect(siteCrawlGraphResponseSchema.parse({
-      project: 'example', hasCrawlData: true, runId: 'legacy-run', rootNodeKey: 'home',
+      project: 'example', hasCrawlData: true, runId: 'legacy-run', rootNodeKey: 'home', complete: true, termination: 'complete',
       layout: { state: 'unavailable', version: null, reason: 'legacy-snapshot' },
       templateDetection: 'unavailable-legacy-scan', linkKind: 'all',
       totalNodes: 0, totalEdges: 0, totalTemplateEdges: 0, totalContentEdges: 0,
@@ -410,5 +497,36 @@ describe('audit factor shares', () => {
     expect(ratioUnitOf(siteAuditPageFactorSchema.shape.sharePct)).toBe('percent')
     expect(ratioUnitOf(siteCrawlAuditFactorSchema.shape.sharePct)).toBe('percent')
     expect(ratioUnitOf(siteAuditFactorSummarySchema.shape.sharePct)).toBe('percent')
+  })
+})
+
+describe('URL versions', () => {
+  const html = (url: string, canonicalUrl: string | null) => siteCrawlUrlVersionOf({ fetchState: 'html', url, canonicalUrl })
+
+  it.each([
+    ['a filter view naming its path', 'https://example.com/apartments/?field=neighborhood&value=Buckhead', 'https://example.com/apartments/'],
+    ['a cache-busting address', 'https://example.com/units/7/?forcecache=1', 'https://example.com/units/7/'],
+    ['a sort naming the same path with other parameters', 'https://example.com/search?q=roof&sort=new', 'https://example.com/search?q=roof'],
+    ['a canonical on the www host', 'https://example.com/a?view=map', 'https://www.example.com/a'],
+  ])('%s is a URL version of its canonical', (_case, url, canonical) => {
+    expect(html(url, canonical)).toBe(new URL(canonical).href)
+  })
+
+  it.each([
+    ['a parameter page naming itself', 'https://example.com/blog?page=2', 'https://example.com/blog?page=2'],
+    ['a parameter page with no canonical', 'https://example.com/listing?id=123', null],
+    ['a canonical naming another path', 'https://example.com/gallery/your-home/?x=1', 'https://example.com/gallery/'],
+    ['a trailing-slash difference, which is another path', 'https://example.com/a?view=map', 'https://example.com/a/'],
+    ['a canonical on another site', 'https://example.com/a?view=map', 'https://partner.example.org/a'],
+    ['an address without parameters', 'https://example.com/a/', 'https://example.com/b/'],
+    ['an unparseable canonical', 'https://example.com/a?view=map', 'not a url'],
+  ])('%s is a page', (_case, url, canonical) => {
+    expect(html(url, canonical)).toBeNull()
+  })
+
+  it('reads only fetched HTML pages', () => {
+    for (const fetchState of ['redirect', 'non-html', 'fetch-error', 'discovered', 'robots-blocked']) {
+      expect(siteCrawlUrlVersionOf({ fetchState, url: 'https://example.com/a?view=map', canonicalUrl: 'https://example.com/a' })).toBeNull()
+    }
   })
 })

@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type FormEvent, type ReactNode } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { RunKinds } from '@ainyc/canonry-contracts'
+import { RunKinds } from '@canonry/canonry-contracts'
 import type {
   ConversionTrackingOptionsDto,
   ConversionTrackingContractWriteRequest,
   GoogleAdsConnectionStatusDto,
   GtmConnectionStatusDto,
-} from '@ainyc/canonry-api-client'
+} from '@canonry/canonry-api-client'
 import {
   deleteApiV1ProjectsByNameGoogleAdsConnectionMutation,
   deleteApiV1ProjectsByNameGtmConnectionMutation,
@@ -28,7 +28,7 @@ import {
   postApiV1ProjectsByNameGtmSyncMutation,
   putApiV1ProjectsByNameGoogleAdsSelectionMutation,
   putApiV1ProjectsByNameGtmSelectionMutation,
-} from '@ainyc/canonry-api-client/react-query'
+} from '@canonry/canonry-api-client/react-query'
 
 import { heyClient, type ApiRun } from '../../api.js'
 import { useAccount } from '../../contexts/account-context.js'
@@ -87,8 +87,8 @@ const EMPTY_CONTRACT_DRAFT: ContractDraft = {
   requireCurrency: true,
 }
 
-const fieldClassName = 'mt-1 w-full rounded-md border border-base bg-bg px-3 py-2 text-sm text-heading outline-none transition-colors placeholder-mono-600 focus:border-mono-500 focus:ring-2 focus:ring-mono-500/30'
-const labelClassName = 'text-sm font-medium text-secondary'
+const fieldClassName = 'mt-1 w-full rounded-md border border-base bg-bg px-3 py-2 text-label-14 text-heading outline-none transition-colors placeholder-mono-400 focus:border-mono-500 focus:ring-2 focus:ring-mono-500/30'
+const labelClassName = 'text-label-14-strong text-secondary'
 
 type SnapshotEvidenceVm = Pick<ConversionIntegrityConnectionVm, 'snapshotCount' | 'snapshotState' | 'snapshotError'>
 
@@ -182,7 +182,7 @@ function googleAdsConnectionVm(
  * operator recognises them: the container first, then the account it lives
  * under, then the draft workspace when one is pinned.
  */
-export function gtmSelectionSummary(
+function gtmSelectionSummary(
   containerId: string,
   accountId: string,
   workspaceId: string | null,
@@ -345,7 +345,7 @@ function CheckField({
   children: ReactNode
 }) {
   return (
-    <label htmlFor={id} className="flex items-start gap-2 text-sm text-secondary">
+    <label htmlFor={id} className="flex items-start gap-2 text-label-14 text-secondary">
       <input id={id} type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} className="mt-0.5 size-4 rounded border-base bg-bg accent-mono-100" />
       <span>{children}</span>
     </label>
@@ -400,26 +400,26 @@ function DisconnectConnection({
     <div ref={controlRef} className="mt-5 border-t border-subtle pt-4">
       {armed ? (
         <div role="group" aria-label={`Confirm disconnect ${providerLabel}`} className="max-w-2xl">
-          <p className="text-sm font-medium text-heading">Remove Canonry's stored access and selection?</p>
-          <p className="mt-1 text-sm leading-6 text-secondary">
+          <p className="text-copy-14-strong text-heading">Remove Canonry's stored access and selection?</p>
+          <p className="mt-1 text-copy-14 text-secondary">
             Saved evidence and conversion contracts remain. New checks stop until you reconnect.
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
-            <Button ref={keepConnectedRef} type="button" variant="outline" size="sm" className="min-h-11" disabled={disconnecting} onClick={cancel}>
+            <Button ref={keepConnectedRef} type="button" variant="outline" size="sm" className="pointer-coarse:min-h-11" disabled={disconnecting} onClick={cancel}>
               Keep connected
             </Button>
-            <WriteButton type="button" variant="destructive" size="sm" className="min-h-11" disabled={disabled || disconnecting} onClick={() => void disconnect()}>
+            <WriteButton type="button" variant="destructive" size="sm" className="pointer-coarse:min-h-11" disabled={disabled || disconnecting} onClick={() => void disconnect()}>
               {disconnecting ? 'Disconnecting…' : `Disconnect ${providerLabel}`}
             </WriteButton>
           </div>
-          {error ? <p role="alert" className="mt-2 text-sm text-negative">{error}</p> : null}
+          {error ? <p role="alert" className="mt-2 text-copy-14 text-negative">{error}</p> : null}
         </div>
       ) : (
         <WriteButton
           type="button"
           variant="ghost"
           size="sm"
-          className="min-h-11 text-negative hover:text-negative"
+          className="pointer-coarse:min-h-11 text-negative hover:text-negative"
           disabled={disabled}
           onClick={arm}
         >
@@ -483,7 +483,7 @@ function ConversionOptionField({
       <div>
         {labelEl}
         <input id={id} required className={fieldClassName} value={value} onChange={(event) => onChange(event.target.value)} />
-        <p className="mt-1 text-xs text-negative">
+        <p className="mt-1 text-copy-13 text-negative">
           Could not load the list.{' '}
           <button type="button" className="text-link underline" onClick={onRetry}>Retry</button>
         </p>
@@ -496,7 +496,7 @@ function ConversionOptionField({
       <div>
         {labelEl}
         <input id={id} required className={fieldClassName} value={value} onChange={(event) => onChange(event.target.value)} />
-        <p className="mt-1 text-xs text-muted">{synced ? 'Synced, but nothing to choose from yet.' : emptyHint}</p>
+        <p className="mt-1 text-copy-13 text-muted">{synced ? 'Synced, but nothing to choose from yet.' : emptyHint}</p>
       </div>
     )
   }
@@ -520,7 +520,7 @@ function ConversionOptionField({
       )}
       <button
         type="button"
-        className="mt-1 text-xs text-link"
+        className="mt-1 text-button-14 text-link"
         onClick={() => { setManual(!useManual); onChange('') }}
       >
         {useManual ? 'Choose from synced list' : 'Enter an ID manually'}
@@ -1254,7 +1254,7 @@ export function ConversionIntegrityWorkspace({ projectId, projectName }: { proje
     return (
       <section className="page-section" aria-busy="true" aria-labelledby="conversion-integrity-title">
         <p className="eyebrow">Google marketing</p>
-        <h2 id="conversion-integrity-title" className="mt-1 text-xl font-semibold tracking-[-0.02em] text-heading">Conversion Integrity</h2>
+        <h2 id="conversion-integrity-title" className="mt-1 text-heading-20 text-heading">Conversion Integrity</h2>
         <div aria-hidden="true" className="mt-5 grid gap-4 sm:grid-cols-2">
           {[0, 1].map((index) => (
             <div key={index} className="page-skeleton-card">
@@ -1273,8 +1273,8 @@ export function ConversionIntegrityWorkspace({ projectId, projectName }: { proje
     return (
       <section className="page-section" aria-labelledby="conversion-integrity-title">
         <p className="eyebrow">Google marketing</p>
-        <h2 id="conversion-integrity-title" className="mt-1 text-xl font-semibold tracking-[-0.02em] text-heading">Conversion Integrity</h2>
-        <p role="alert" className="mt-3 text-sm text-negative">Could not load conversion contracts: {extractErrorMessage(contractsQuery.error)}</p>
+        <h2 id="conversion-integrity-title" className="mt-1 text-heading-20 text-heading">Conversion Integrity</h2>
+        <p role="alert" className="mt-3 text-copy-14 text-negative">Could not load conversion contracts: {extractErrorMessage(contractsQuery.error)}</p>
         <Button type="button" variant="outline" className="mt-3" onClick={() => void contractsQuery.refetch()}>Retry contracts</Button>
       </section>
     )
@@ -1300,17 +1300,17 @@ export function ConversionIntegrityWorkspace({ projectId, projectName }: { proje
         onAddContract={() => handlePrimaryAction('declare-contract')}
       />
 
-      {oauthNotice ? <p role="status" className="page-section text-sm text-secondary">{oauthNotice}</p> : null}
+      {oauthNotice ? <p role="status" className="page-section text-copy-14 text-secondary">{oauthNotice}</p> : null}
 
       {showGoogleAdsConnect ? (
         <section id="google-ads-connect-panel" className="page-section-divider" aria-labelledby="google-ads-connect-title">
           <div className="section-head section-head-inline">
             <div>
               <p className="eyebrow eyebrow-soft">Google Ads</p>
-              <h3 id="google-ads-connect-title" tabIndex={-1} className="text-base font-semibold text-heading">Connect read-only access</h3>
+              <h3 id="google-ads-connect-title" tabIndex={-1} className="text-heading-16 text-heading">Connect read-only access</h3>
             </div>
           </div>
-          {actionError ? <p role="alert" className="mb-4 text-sm text-negative">{actionError}</p> : null}
+          {actionError ? <p role="alert" className="mb-4 text-copy-14 text-negative">{actionError}</p> : null}
           <form className="max-w-xl" onSubmit={asyncHandler(async (event: FormEvent<HTMLFormElement>) => {
             event.preventDefault()
             await beginGoogleAdsOAuth()
@@ -1327,7 +1327,7 @@ export function ConversionIntegrityWorkspace({ projectId, projectName }: { proje
                 placeholder="Required only when this project has no saved token"
               />
             </label>
-            <p className="mt-2 text-sm leading-6 text-secondary">
+            <p className="mt-2 text-copy-14 text-secondary">
               Canonry stores this securely. It never appears in saved evidence.
             </p>
             <div className="mt-4 flex flex-wrap gap-3">
@@ -1345,17 +1345,17 @@ export function ConversionIntegrityWorkspace({ projectId, projectName }: { proje
           <div className="section-head section-head-inline">
             <div>
               <p className="eyebrow eyebrow-soft">Google Ads</p>
-              <h3 id="google-ads-selection-title" tabIndex={-1} className="text-base font-semibold text-heading">Select customer context</h3>
+              <h3 id="google-ads-selection-title" tabIndex={-1} className="text-heading-16 text-heading">Select customer context</h3>
             </div>
           </div>
           {selectionError ? (
-            <div role="alert" className="mb-4 flex flex-wrap items-center gap-3 text-sm text-negative">
+            <div role="alert" className="mb-4 flex flex-wrap items-center gap-3 text-label-14 text-negative">
               <span>{selectionError}</span>
               <Button type="button" variant="outline" size="sm" onClick={retryGoogleAdsSelectionDiscovery}>Retry customer list</Button>
             </div>
           ) : null}
-          {actionError ? <p role="alert" className="mb-4 text-sm text-negative">{actionError}</p> : null}
-          {googleAdsSavedCustomerUnavailable ? <p role="alert" className="mb-4 text-sm text-negative">The saved customer is no longer accessible. Choose another customer before saving.</p> : null}
+          {actionError ? <p role="alert" className="mb-4 text-copy-14 text-negative">{actionError}</p> : null}
+          {googleAdsSavedCustomerUnavailable ? <p role="alert" className="mb-4 text-copy-14 text-negative">The saved customer is no longer accessible. Choose another customer before saving.</p> : null}
           <div className="grid max-w-2xl gap-4 sm:grid-cols-2">
             <SelectionField id="google-ads-customer" label="Customer account" value={googleAdsCustomerId} onChange={(customerId) => {
               setGoogleAdsSelectionSeeded(true)
@@ -1383,7 +1383,7 @@ export function ConversionIntegrityWorkspace({ projectId, projectName }: { proje
               }} placeholder="Use only when a manager context is required" />
             </label>
           </div>
-          {googleAdsDiscoverySummary ? <p role="status" className={`mt-3 text-sm ${googleAdsCustomersQuery.data?.truncated ? 'text-caution' : 'text-secondary'}`}>{googleAdsDiscoverySummary}</p> : null}
+          {googleAdsDiscoverySummary ? <p role="status" className={`mt-3 text-copy-14 ${googleAdsCustomersQuery.data?.truncated ? 'text-caution' : 'text-secondary'}`}>{googleAdsDiscoverySummary}</p> : null}
           <div className="mt-4 flex flex-wrap gap-3">
             <WriteButton type="button" disabled={googleAdsSelectionMutation.isPending || googleAdsCustomersQuery.isLoading || googleAdsCustomersQuery.isError || googleAdsSavedCustomerUnavailable || !googleAdsCustomerId} onClick={asyncHandler(saveGoogleAdsSelection)}>
               {googleAdsSelectionMutation.isPending ? 'Saving…' : 'Save customer selection'}
@@ -1405,19 +1405,19 @@ export function ConversionIntegrityWorkspace({ projectId, projectName }: { proje
           <div className="section-head section-head-inline">
             <div>
               <p className="eyebrow eyebrow-soft">Google Tag Manager</p>
-              <h3 id="gtm-selection-title" tabIndex={-1} className="text-base font-semibold text-heading">Select container context</h3>
+              <h3 id="gtm-selection-title" tabIndex={-1} className="text-heading-16 text-heading">Select container context</h3>
             </div>
           </div>
           {selectionError ? (
-            <div role="alert" className="mb-4 flex flex-wrap items-center gap-3 text-sm text-negative">
+            <div role="alert" className="mb-4 flex flex-wrap items-center gap-3 text-label-14 text-negative">
               <span>{selectionError}</span>
               <Button type="button" variant="outline" size="sm" onClick={retryGtmSelectionDiscovery}>
                 {gtmAccountsQuery.isError ? 'Retry account list' : gtmContainersQuery.isError ? 'Retry container list' : 'Retry workspace list'}
               </Button>
             </div>
           ) : null}
-          {actionError ? <p role="alert" className="mb-4 text-sm text-negative">{actionError}</p> : null}
-          {gtmSavedSelectionUnavailableMessage ? <p role="alert" className="mb-4 text-sm text-negative">{gtmSavedSelectionUnavailableMessage}</p> : null}
+          {actionError ? <p role="alert" className="mb-4 text-copy-14 text-negative">{actionError}</p> : null}
+          {gtmSavedSelectionUnavailableMessage ? <p role="alert" className="mb-4 text-copy-14 text-negative">{gtmSavedSelectionUnavailableMessage}</p> : null}
           <div className="grid max-w-3xl gap-4 sm:grid-cols-3">
             <SelectionField id="gtm-account" label="Account" value={gtmAccountId} onChange={(value) => {
               setGtmSelectionSeeded(true)
@@ -1449,7 +1449,7 @@ export function ConversionIntegrityWorkspace({ projectId, projectName }: { proje
               {gtmWorkspaces.map(workspace => <option key={workspace.id} value={workspace.id}>{workspace.name}</option>)}
             </SelectionField>
           </div>
-          <div className="mt-3 grid max-w-3xl gap-2 text-sm sm:grid-cols-3">
+          <div className="mt-3 grid max-w-3xl gap-2 text-label-14 sm:grid-cols-3">
             {gtmAccountsDiscoverySummary ? <p role="status" className={gtmAccountsQuery.data?.truncated ? 'text-caution' : 'text-secondary'}>{gtmAccountsDiscoverySummary}</p> : null}
             {gtmContainersDiscoverySummary ? <p role="status" className={gtmContainersQuery.data?.truncated ? 'text-caution' : 'text-secondary'}>{gtmContainersDiscoverySummary}</p> : null}
             {gtmWorkspacesDiscoverySummary ? <p role="status" className={gtmWorkspacesQuery.data?.truncated ? 'text-caution' : 'text-secondary'}>{gtmWorkspacesDiscoverySummary}</p> : null}
@@ -1486,10 +1486,10 @@ export function ConversionIntegrityWorkspace({ projectId, projectName }: { proje
           <div className="section-head section-head-inline">
             <div>
               <p className="eyebrow eyebrow-soft">Declared conversion</p>
-              <h3 id="conversion-integrity-contract-form-title" tabIndex={-1} className="text-base font-semibold text-heading">Declare the expected path</h3>
+              <h3 id="conversion-integrity-contract-form-title" tabIndex={-1} className="text-heading-16 text-heading">Declare the expected path</h3>
             </div>
           </div>
-          {actionError ? <p role="alert" className="mb-4 text-sm text-negative">{actionError}</p> : null}
+          {actionError ? <p role="alert" className="mb-4 text-copy-14 text-negative">{actionError}</p> : null}
           <form onSubmit={asyncHandler(async (event: FormEvent<HTMLFormElement>) => {
             event.preventDefault()
             await createContract()
@@ -1557,7 +1557,7 @@ export function ConversionIntegrityWorkspace({ projectId, projectName }: { proje
                 </label>
               </div>
               <fieldset className="mt-5 border-t border-subtle pt-4">
-                <legend className="text-sm font-medium text-heading">Required evidence</legend>
+                <legend className="text-label-14-strong text-heading">Required evidence</legend>
                 <div className="mt-3 grid gap-3 sm:grid-cols-2">
                   <CheckField id="contract-primary-action" checked={contractDraft.requirePrimaryAction} onChange={(checked) => setContractDraft(previous => ({ ...previous, requirePrimaryAction: checked }))}>Google Ads action is primary</CheckField>
                   <CheckField id="contract-biddable-goal" checked={contractDraft.requireBiddableGoal} onChange={(checked) => setContractDraft(previous => ({ ...previous, requireBiddableGoal: checked }))}>Google Ads goal is biddable</CheckField>
@@ -1568,7 +1568,7 @@ export function ConversionIntegrityWorkspace({ projectId, projectName }: { proje
                 </div>
               </fieldset>
             </details>
-            <p className="mt-4 max-w-2xl text-sm leading-6 text-secondary">
+            <p className="mt-4 max-w-2xl text-copy-14 text-secondary">
               This creates a Canonry contract only. It does not alter a Google Ads conversion action or create, edit, or publish a Tag Manager version.
             </p>
             <div className="mt-4 flex flex-wrap gap-3">

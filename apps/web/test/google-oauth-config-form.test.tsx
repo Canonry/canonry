@@ -1,11 +1,6 @@
 import { afterEach, expect, onTestFinished, test } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
 
-import {
-  buildGoogleMarketingRedirectUri,
-  buildGoogleRedirectUri,
-  resolveLocalGooglePublicUrl,
-} from '../src/api.js'
 import { GoogleOAuthConfigForm } from '../src/components/settings/GoogleOAuthConfigForm.js'
 
 afterEach(() => {
@@ -21,9 +16,10 @@ test('Google OAuth settings shows both local redirect URIs to register', () => {
 
   render(<GoogleOAuthConfigForm onSaved={() => {}} />)
 
-  const publicUrl = resolveLocalGooglePublicUrl(window.location, '/canonry/')
-  if (!publicUrl) throw new Error('expected jsdom to run on a loopback URL')
+  expect(window.location.origin, 'native Vitest jsdom fixture origin').toBe('http://localhost:3000')
   expect(screen.getByText('Authorized redirect URIs')).toBeTruthy()
-  expect(screen.getByText(buildGoogleRedirectUri(publicUrl))).toBeTruthy()
-  expect(screen.getByText(buildGoogleMarketingRedirectUri(publicUrl))).toBeTruthy()
+  expect(screen.getByText('Search Console and Business Profile')).toBeTruthy()
+  expect(screen.getByText('Google Ads and Tag Manager')).toBeTruthy()
+  expect(screen.getByText('http://localhost:3000/canonry/api/v1/google/callback')).toBeTruthy()
+  expect(screen.getByText('http://localhost:3000/canonry/api/v1/google-marketing/callback')).toBeTruthy()
 })

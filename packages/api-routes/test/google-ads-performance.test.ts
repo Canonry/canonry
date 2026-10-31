@@ -15,7 +15,7 @@ import {
   shiftIsoCalendarDate,
   type GoogleAdsCampaignMetricDto,
   type GoogleAdsPerformanceDto,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import {
   createClient,
   googleAdsConnections,
@@ -23,7 +23,7 @@ import {
   migrate,
   projects,
   runs,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { googleMarketingRoutes } from '../src/google-marketing.js'
 
 /**
@@ -516,6 +516,15 @@ describe('GET /projects/:name/google-ads/performance', () => {
     expect(context.liveCalls).toEqual([])
   })
 
+  it('normalizes a bare day count and keeps an empty selection at the default', async () => {
+    const context = buildApp()
+    contexts.push(context)
+    await context.app.ready()
+    seedReferenceFixture(context)
+    expect(await readPerformance(context, '?window=7')).toEqual(await readPerformance(context, '?window=7d'))
+    expect(await readPerformance(context, '?window=')).toEqual(await readPerformance(context))
+  })
+
   it('rejects an unsupported window instead of silently serving another one', async () => {
     const context = buildApp()
     contexts.push(context)
@@ -524,7 +533,7 @@ describe('GET /projects/:name/google-ads/performance', () => {
 
     // 30d is now SERVABLE (it consumes all 30 closed days) so it is no longer a
     // rejection case; 90d still is, since the stored snapshot cannot reach it.
-    for (const window of ['28d', '90d', '7', 'week', '']) {
+    for (const window of ['28d', '90d', 'week']) {
       const response = await context.app.inject({
         method: 'GET',
         url: `/projects/acme/google-ads/performance?window=${encodeURIComponent(window)}`,

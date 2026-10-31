@@ -23,6 +23,13 @@ export const checkCategorySchema = z.enum([
 export type CheckCategory = z.infer<typeof checkCategorySchema>
 export const CheckCategories = checkCategorySchema.enum
 
+/**
+ * Suffix of the code the runner gives a check that threw (`<id>.runtime-error`).
+ * Such a result is graded `fail`, and it tested nothing: it is not evidence
+ * that the thing it checks is broken, or that it is fixed.
+ */
+export const CHECK_RUNTIME_ERROR_SUFFIX = '.runtime-error'
+
 export const checkNotificationPolicySchema = z.enum(['health', 'silent'])
 export const CheckNotificationPolicies = checkNotificationPolicySchema.enum
 export type CheckNotificationPolicy = z.infer<typeof checkNotificationPolicySchema>
@@ -48,17 +55,32 @@ export function gradedReportMonths(months: readonly string[], now: Date = new Da
   return new Set(months.length > 1 ? months.filter(month => month !== current) : months)
 }
 
+/**
+ * Plain words for an alert about one check result, written by the check that
+ * knows the facts: a few-word name for the problem, what happened in one line,
+ * and the next step (null when there is nothing to do yet). Alerts show these
+ * instead of the summary and remediation, which stay the full explanation.
+ */
+export const healthAlertCopySchema = z.object({
+  label: z.string().describe('The problem in a few words, e.g. "Can\'t reach Google".'),
+  line: z.string().describe('What happened, in one plain sentence.'),
+  next: z.string().nullable().describe('What to do, in one plain sentence; null when nothing needs doing yet.'),
+})
+export type HealthAlertCopy = z.infer<typeof healthAlertCopySchema>
+
 export const checkResultSchema = z.object({
   id: z.string(),
   category: checkCategorySchema,
   scope: checkScopeSchema,
   title: z.string(),
   status: checkStatusSchema,
-  notificationPolicy: checkNotificationPolicySchema.optional().describe('Health checks page by default. Silent report advisories remain visible but never affect health alert state.'),
+  notificationPolicy: checkNotificationPolicySchema.optional().describe('Health checks page by default. Silent checks (report advisories and standing advisories) remain visible but never affect health alert state.'),
   code: z.string().describe('Stable machine-readable code (e.g. "google.token.refresh-failed"). Use this for filtering and remediation logic.'),
+  urgent: z.boolean().optional().describe('True when this result is a problem a person has to act on now (the website is down, daily data stopped arriving, a sync keeps failing). Urgent results are what the health.urgent notification event reports. A result set aside under its failing cause (status "skipped", code "<id>.superseded") keeps the flag: the problem is still open.'),
   summary: z.string(),
   remediation: z.string().nullable().optional().describe('Operator-facing next step. Null when status is "ok" or no specific remediation applies.'),
   details: z.record(z.string(), z.unknown()).optional().describe('Structured context — principal email, redirect URI, missing scopes, etc. Stable per check id.'),
+  alert: healthAlertCopySchema.optional().describe('Plain words a health alert shows for this result. Absent when the check has none; alerts then fall back to the summary.'),
   durationMs: z.number().int().nonnegative().describe('How long the check took to execute.'),
 })
 export type CheckResultDto = z.infer<typeof checkResultSchema>

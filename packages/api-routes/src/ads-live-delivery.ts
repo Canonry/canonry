@@ -10,7 +10,7 @@ import {
   dollarsToMicros,
   formatIsoDateInTimeZone,
   isoDateDaysBeforeInTimeZone,
-} from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
 import type {
   AdsLiveDeliveryDto,
   AdsLiveEntityComparison,
@@ -22,8 +22,8 @@ import type {
   AdsLiveMetricValues,
   AdsLivePresence,
   AdsStoredEntityState,
-} from '@ainyc/canonry-contracts'
-import { AdsLivePresences } from '@ainyc/canonry-contracts'
+} from '@canonry/canonry-contracts'
+import { AdsLivePresences } from '@canonry/canonry-contracts'
 
 /** A stored `ads_insights_daily` row, already narrowed to the comparable columns. */
 export interface AdsStoredMetricRow {

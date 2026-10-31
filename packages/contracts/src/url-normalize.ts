@@ -8,6 +8,7 @@
 import { LinkifyIt } from 'linkify-it'
 import tlds from 'tlds'
 import { getDomain, getDomainWithoutSuffix, getHostname } from 'tldts'
+import { compareText } from './text-order.js'
 
 const DOMAIN_PARSE_OPTIONS = { allowPrivateDomains: true } as const
 const LINKIFY = new LinkifyIt({ fuzzyLink: true, fuzzyEmail: false }).tlds(tlds)
@@ -83,109 +84,6 @@ function dropTrailingSlash(path: string): string {
 }
 
 /**
- * Build an absolute URL for a path stored against a project domain. GSC
- * returns most landing pages as path-only strings (`/blog/foo`), and storing
- * them that way is correct — but rendering them as `<a href="/blog/foo">` in
- * a report HTML file makes the browser resolve the path against whatever host
- * the file is served from (often the canonry dashboard host or `file://`).
- * This helper prepends `https://<canonicalDomain>` so the link resolves to
- * the project's actual site instead. Already-absolute URLs (http/https) and
- * protocol-relative URLs (`//host/...`) are returned unchanged. Returns the
- * input as-is when it can't be confidently absolutized.
- */
-export function absolutizeProjectUrl(
-  url: string | null | undefined,
-  canonicalDomain: string,
-): string {
-  if (!url) return ''
-  const trimmed = url.trim()
-  if (!trimmed) return ''
-  if (/^https?:\/\//i.test(trimmed)) return trimmed
-  if (trimmed.startsWith('//')) return `https:${trimmed}`
-  const host = canonicalDomain.trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '')
-  if (!host) return trimmed
-  if (trimmed.startsWith('/')) return `https://${host}${trimmed}`
-  // Bare paths or domain-prefixed strings are ambiguous — treat as paths.
-  return `https://${host}/${trimmed}`
-}
-
-/**
- * A value that is safe to put in an `href`. Report links point at citation and
- * competitor URLs taken from LLM grounding sources, so a planted `javascript:`
- * or `data:` URI would otherwise run when someone clicks it. Keeps http(s),
- * `mailto:`, and slash-prefixed paths as written (trimmed, NOT HTML-escaped:
- * the HTML renderer escapes on output and React escapes attributes); returns
- * `#` for anything else, including an empty value.
- */
-export function safeLinkHref(value: string | null | undefined): string {
-  const trimmed = (value ?? '').trim()
-  if (!trimmed) return '#'
-  if (trimmed.startsWith('/')) return trimmed
-  if (/^https?:\/\//i.test(trimmed)) return trimmed
-  if (/^mailto:/i.test(trimmed)) return trimmed
-  return '#'
-}
-
-/** A landing page as a report cell shows it: the path, plus a short summary of any tracking query. */
-export interface LandingPageDescription {
-  /** The path before any `?`, or `/` when that is empty. */
-  path: string
-  /** e.g. `Google Ad · 2 params` or `3 tracking params`; null when there is no query to summarize. */
-  querySummary: string | null
-  /** The full value as stored, for a title that shows the whole URL. */
-  raw: string
-}
-
-/**
- * Split a stored landing page (GA, AI referral, or crawled path) into the path
- * a reader scans and a summary of its query string, so ad-click noise does not
- * bury the path. Both report renderers display pages this way.
- */
-export function describeLandingPage(raw: string | null | undefined): LandingPageDescription {
-  const value = raw ?? ''
-  const queryIndex = value.indexOf('?')
-  const path = queryIndex === -1 ? value : value.slice(0, queryIndex)
-  const query = queryIndex === -1 ? '' : value.slice(queryIndex + 1)
-  const displayPath = path || '/'
-  if (!query) return { path: displayPath, querySummary: null, raw: value }
-  let summary = ''
-  try {
-    summary = summarizeQueryParams(new URLSearchParams(query))
-  } catch {
-    summary = 'tracking params'
-  }
-  return { path: displayPath, querySummary: summary || null, raw: value }
-}
-
-function summarizeQueryParams(params: URLSearchParams): string {
-  const keys = Array.from(params.keys())
-  const total = keys.length
-  if (total === 0) return ''
-  const noun = total === 1 ? 'param' : 'params'
-  const tag = inferAdSource(params)
-  return tag ? `${tag} · ${total} ${noun}` : `${total} tracking ${noun}`
-}
-
-function inferAdSource(params: URLSearchParams): string | null {
-  if (params.has('fbclid')) return 'Facebook Ad'
-  if (params.has('gclid') || params.has('gbraid') || params.has('wbraid')) return 'Google Ad'
-  if (params.has('msclkid')) return 'Microsoft Ad'
-  if (params.has('ttclid')) return 'TikTok Ad'
-  if (params.has('li_fat_id')) return 'LinkedIn Ad'
-  if (params.has('twclid')) return 'X / Twitter Ad'
-  if (params.has('epik')) return 'Pinterest Ad'
-  for (const k of params.keys()) {
-    if (k.startsWith('hsa_')) return 'Search Ad'
-  }
-  const src = params.get('utm_source')
-  const med = params.get('utm_medium')
-  if (src && med) return `${src} / ${med}`
-  if (src) return `Source: ${src}`
-  if (med) return `Medium: ${med}`
-  return null
-}
-
-/**
  * Extract the normalized host from a URL or bare hostname: lowercased, with a
  * leading `www.` stripped and the scheme/path/query discarded. Accepts both
  * full URLs (`https://www.Example.com/x`) and bare hosts (`Example.com`).
@@ -200,6 +98,19 @@ export function hostOf(value: string | null | undefined): string | null {
   return hostname ? hostname.replace(/^www\./i, '').toLowerCase() : null
 }
 
+/** A bare DNS hostname, preserving www and every other label for exact-host scope. */
+export function normalizeHostname(input: string): string | null {
+  const value = input.trim()
+  if (!value || /[\s/\\:@?#%]/.test(value) || value.endsWith('.')) return null
+  try {
+    const host = new URL(`https://${value}`).hostname.toLowerCase()
+    if (/^\d+\.\d+\.\d+\.\d+$/.test(host) || host.length > 253 || host.split('.').some(label => !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label))) return null
+    return host
+  } catch {
+    return null
+  }
+}
+
 /**
  * Reduce a URL or hostname to its registrable domain (eTLD+1) using the
  * maintained Public Suffix List bundled by `tldts`. Private suffixes are
@@ -211,10 +122,36 @@ export function registrableDomain(value: string | null | undefined): string {
   return getDomain(value, DOMAIN_PARSE_OPTIONS)?.toLowerCase() ?? ''
 }
 
+/** Normalize a user-supplied project domain for matching and deduplication. */
+export function normalizeProjectDomain(input: string): string {
+  return hostOf(input) ?? input.trim().toLowerCase().replace(/^www\./, '')
+}
+
+/**
+ * The stored form of a competitor domain: its registrable domain (eTLD+1), so
+ * a subdomain label like `offers` in `offers.quotebird.test` never leaks into
+ * brand-token matching, or the normalized host when there is no recognizable
+ * suffix. Every competitor write and lookup (REST, apply, CLI, discovery
+ * promote) uses this, and a lookup compares stored rows in this form too, so
+ * a row stored unnormalized by an older build stays reachable.
+ */
+export function normalizeCompetitorDomain(input: string): string {
+  return registrableDomain(input) || normalizeProjectDomain(input)
+}
+
 /** The registrable domain without its public suffix. */
 export function brandLabelFromDomain(value: string | null | undefined): string {
   if (value == null || value.trim() === '') return ''
   return getDomainWithoutSuffix(value, DOMAIN_PARSE_OPTIONS)?.toLowerCase() ?? ''
+}
+
+/**
+ * The brand label a stored competitor domain contributes: its domain label, or
+ * the domain itself when it has no recognizable suffix. A Simple run freezes
+ * competitors with this label, and qualified-alias writes check against it.
+ */
+export function competitorLabelFromDomain(domain: string): string {
+  return brandLabelFromDomain(domain) || domain
 }
 
 /**
@@ -262,6 +199,9 @@ export function textContainsDomain(
 ): boolean {
   return extractDomainsFromText(text).some(candidate => hostMatchesDomain(candidate, domain))
 }
+
+/** Bump when path normalization changes require repairing previously stored GA paths. */
+export const URL_PATH_NORMALIZATION_VERSION = 1
 
 export function normalizeUrlPath(input: string | null | undefined): string | null {
   if (input == null) return null
@@ -321,12 +261,17 @@ export function normalizeUrlPath(input: string | null | undefined): string | nul
   pathPart = dropTrailingSlash(pathPart)
 
   const pairs = parseQuery(queryPart).filter((p) => !shouldStrip(p.key))
-  pairs.sort((a, b) => {
-    if (a.key < b.key) return -1
-    if (a.key > b.key) return 1
-    return 0
-  })
+  pairs.sort((a, b) => compareText(a.key, b.key))
 
   if (pairs.length === 0) return pathPart
   return `${pathPart}?${encodeQuery(pairs)}`
+}
+
+
+/** Normalize a landing-page prefix using the same URL identity as stored GA rows. */
+export function normalizePathPrefix(value: string | undefined): string | null {
+  if (!value) return null
+  const normalized = normalizeUrlPath(value)
+  if (!normalized) return null
+  return normalized.startsWith('/') ? normalized : `/${normalized}`
 }

@@ -151,13 +151,17 @@ const mockListen = vi.fn()
 const mockClose = vi.fn()
 const mockCloseIdleConnections = vi.fn()
 const mockWaitForServerRuntimeStartup = vi.fn()
-vi.mock('@ainyc/canonry-db', () => ({
+const mockCreateServer = vi.fn(async () => ({ listen: mockListen, close: mockClose, server: { closeIdleConnections: mockCloseIdleConnections } }))
+const mockRepairNormalizedPaths = vi.fn()
+const mockRepairAiReferralPaths = vi.fn()
+const mockRepairSentimentMentionIdentity = vi.fn()
+vi.mock('@canonry/canonry-db', () => ({
   createClient: () => ({}),
   migrate: vi.fn(),
 }))
 vi.mock('../src/server.js', () => ({
-  createServer: async () => ({ listen: mockListen, close: mockClose, server: { closeIdleConnections: mockCloseIdleConnections } }),
-  isLoopbackBindHost: (host: string | undefined) => host == null || host === '' || host === 'localhost' || host === '127.0.0.1' || host === '::1',
+  allowsKeylessFirstRunSetup: () => true,
+  createServer: () => mockCreateServer(),
   waitForServerRuntimeStartup: () => mockWaitForServerRuntimeStartup(),
 }))
 vi.mock('../src/telemetry.js', () => ({
@@ -172,9 +176,12 @@ vi.mock('../src/telemetry.js', () => ({
   }),
   maskAnonymousId: (value: string | undefined) => value ? `${value.slice(0, 8)}...` : undefined,
 }))
-vi.mock('../src/commands/backfill.js', () => ({
-  backfillNormalizedPaths: () => ({ updated: 0 }),
-  backfillAiReferralPaths: () => ({ updated: 0 }),
+vi.mock('../src/startup-path-repairs.js', () => ({
+  repairNormalizedPathsOnStartup: () => mockRepairNormalizedPaths(),
+  repairAiReferralPathsOnStartup: () => mockRepairAiReferralPaths(),
+}))
+vi.mock('../src/startup-sentiment-mention-identity.js', () => ({
+  repairSentimentMentionIdentityOnStartup: () => mockRepairSentimentMentionIdentity(),
 }))
 
 describe('serve jsonl degrade', () => {
@@ -184,6 +191,61 @@ describe('serve jsonl degrade', () => {
     mockListen.mockResolvedValue(undefined)
     mockClose.mockResolvedValue(undefined)
     mockWaitForServerRuntimeStartup.mockResolvedValue(undefined)
+    mockRepairNormalizedPaths.mockResolvedValue(null)
+    mockRepairAiReferralPaths.mockResolvedValue(null)
+    mockRepairSentimentMentionIdentity.mockReturnValue(null)
+  })
+
+  it('awaits both versioned path repairs before creating the server', async () => {
+    let finishTraffic!: () => void
+    let finishReferrals!: () => void
+    let referralsStarted!: () => void
+    const referralStarted = new Promise<void>(resolve => { referralsStarted = resolve })
+    mockRepairNormalizedPaths.mockImplementationOnce(() => new Promise<void>(resolve => { finishTraffic = resolve }))
+    mockRepairAiReferralPaths.mockImplementationOnce(() => {
+      referralsStarted()
+      return new Promise<void>(resolve => { finishReferrals = resolve })
+    })
+    const { serveCommand } = await import('../src/commands/serve.js')
+    const startup = withLog(() => serveCommand('json'))
+    expect(mockRepairNormalizedPaths).toHaveBeenCalledOnce()
+    expect(mockRepairAiReferralPaths).not.toHaveBeenCalled()
+    expect(mockCreateServer).not.toHaveBeenCalled()
+    finishTraffic()
+    await referralStarted
+    expect(mockCreateServer).not.toHaveBeenCalled()
+    finishReferrals()
+    await startup
+    expect(mockCreateServer).toHaveBeenCalledOnce()
+  })
+
+  it('continues independent repairs and startup when one repair fails', async () => {
+    mockRepairNormalizedPaths.mockRejectedValueOnce(new Error('interrupted path repair'))
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    try {
+      const { serveCommand } = await import('../src/commands/serve.js')
+      const logs = await withLog(() => serveCommand('json'))
+      expect(mockRepairAiReferralPaths).toHaveBeenCalledOnce()
+      expect(mockCreateServer).toHaveBeenCalledOnce()
+      expect(JSON.parse(logs.join(''))).toMatchObject({ started: true })
+      expect(stderr).toHaveBeenCalledWith(expect.stringContaining('interrupted path repair'))
+    } finally {
+      stderr.mockRestore()
+    }
+  })
+
+  it('starts the server when the sentiment mention identity repair fails', async () => {
+    mockRepairSentimentMentionIdentity.mockImplementationOnce(() => { throw new Error('interrupted sentiment repair') })
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    try {
+      const { serveCommand } = await import('../src/commands/serve.js')
+      const logs = await withLog(() => serveCommand('json'))
+      expect(mockCreateServer).toHaveBeenCalledOnce()
+      expect(JSON.parse(logs.join(''))).toMatchObject({ started: true })
+      expect(stderr).toHaveBeenCalledWith(expect.stringContaining('interrupted sentiment repair'))
+    } finally {
+      stderr.mockRestore()
+    }
   })
 
   it('jsonl emits the same JSON document as json', async () => {

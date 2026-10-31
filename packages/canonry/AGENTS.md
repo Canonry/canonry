@@ -1,8 +1,10 @@
 # canonry
 
+SEO integration uses `SeoRuntime` for durable explicit refresh dispatch. `commands/seo.ts` and `cli-commands/seo.ts` use only public ApiClient methods; `seo market-rankings` reads the rows api-routes plans from the project's markets and tracked queries, and `seo market-summary` counts them by outcome; their human output shares the depth-aware band labels (`marketRankingBands`) with the dashboard. Host-only credentials and financial limits come from `config.seo`; customer DTOs never expose them. See `docs/seo-data.md` for scope, receipt recovery and deployment limits.
+
 ## Purpose
 
-The publishable npm package (`@canonry/canonry`, plus compatibility publish as `@ainyc/canonry`). Bundles the CLI, local Fastify server, in-process job runner, provider registry, scheduler, and pre-built SPA. This is what users install with `npm install -g @canonry/canonry`.
+The publishable npm package (`@canonry/canonry`). Bundles the CLI, local Fastify server, in-process job runner, provider registry, scheduler, and pre-built SPA. This is what users install with `npm install -g @canonry/canonry`.
 
 ## Key Files
 
@@ -50,13 +52,20 @@ Canonry then reuses the checked web output. Keep this dependency when changing b
 ### How to add a CLI command
 
 1. Create or extend a file in `src/commands/` for the domain.
-2. Add a command spec to the `REGISTERED_CLI_COMMANDS` array in `src/cli-commands.ts`:
+2. Add a command spec to the `REGISTERED_CLI_COMMANDS` array in `src/cli-commands.ts` and declare its `access` effect (`stored`, `live`, or `write`):
    ```typescript
-   { path: ['mycommand', 'subcommand'], usage: 'Description', run: myHandler }
+   { path: ['mycommand', 'subcommand'], usage: 'Description', access: 'stored', run: myHandler }
    ```
-3. The CLI dispatches based on `path` matching argv.
+3. For a new root, add its section and summary to `CLI_ROOT_SUMMARIES` in `src/cli-catalog.ts`. The catalog drift guard rejects missing and phantom roots.
+4. The CLI dispatches based on `path` matching argv. `help`, top-level help and group help expose the registry as JSON or JSONL; help requests skip API calls, telemetry, skill sync and update checks.
 
 ### ApiClient usage (Critical)
+
+`settings reload-providers` calls `ApiClient.reloadProviders` (`POST /settings/providers/reload`)
+to activate the connected host's saved provider configuration without restarting it.
+JSON and JSONL preserve the response DTO. It requires install administrator authority
+and `settings.write`; the MCP counterpart is `canonry_providers_reload`, excluded from
+native Aero. Unsupported hosts return `NOT_IMPLEMENTED`.
 
 **Always use `createApiClient()`** — never instantiate `ApiClient` directly:
 
@@ -68,12 +77,12 @@ function getClient() {
 }
 ```
 
-All `ApiClient` methods must return typed DTOs from `@ainyc/canonry-contracts`. Never cast responses with `as Record<string, unknown>`. Define response interfaces in `packages/contracts/` when they don't already exist, and add a typed client method for every new API endpoint.
+All `ApiClient` methods must return typed DTOs from `@canonry/canonry-contracts`. Never cast responses with `as Record<string, unknown>`. Define response interfaces in `packages/contracts/` when they don't already exist, and add a typed client method for every new API endpoint.
 
 **Every `ApiClient` method delegates to the generated SDK via `invoke()`.** Adding a new method is:
 
 ```typescript
-import { getApiV1ProjectsByNameMyNewThing } from '@ainyc/canonry-api-client'
+import { getApiV1ProjectsByNameMyNewThing } from '@canonry/canonry-api-client'
 
 async myNewThing(name: string): Promise<MyNewDto> {
   return this.invoke<MyNewDto>(() =>
@@ -82,7 +91,7 @@ async myNewThing(name: string): Promise<MyNewDto> {
 }
 ```
 
-`invoke()` handles base-path probing, CliError mapping, structured-error envelopes, and the `CANONRY_TRACE=1` request log. **Do not call `fetch()` directly** — ESLint blocks it in `packages/canonry/src/**` except in a handful of files that legitimately hit external HTTP (`telemetry.ts` → telemetry collector, `update-check.ts` → npm registry, `sitemap-parser.ts` → user sitemap, `commands/daemon.ts` → localhost health probe). If you need raw `fetch()` for a NEW external service, add the file to the `ignores` list in `eslint.config.js` with a one-line comment naming the service.
+`invoke()` handles base-path probing, CliError mapping, structured-error envelopes, and the `CANONRY_TRACE=1` request log. **Do not call `fetch()` directly** — the `canonry-guards/no-raw-http-cli` lint rule blocks it in `packages/canonry/src/**` except in a handful of files that legitimately hit external HTTP (`telemetry.ts` → telemetry collector, `update-check.ts` → npm registry, `commands/daemon.ts` → localhost health probe). If you need raw `fetch()` for a NEW external service, add the file to that rule's exemption override in `.oxlintrc.json` with a one-line comment naming the service. A URL an operator or a third party supplies (a sitemap, a site, a redirect target) never gets raw `fetch()`: use `createGuardedFetch` from `@canonry/canonry-api-routes`, which checks every request and redirect hop against the egress policy and dials only the checked address (`sitemap-parser.ts` does).
 
 The legacy `request<T>()` raw-fetch wrapper was removed in v4.51; if you find any reference to it, replace with an SDK call through `invoke()`.
 
@@ -93,14 +102,31 @@ Rules for `canonry-mcp`, hosted MCP catalogs, guidance generation, MCP parity, a
 File-level rules for the MCP pieces in this package:
 
 - `src/mcp/server.ts` — `createCanonryMcpServer` registers all API tools, then disables non-core tiers unless `--eager`.
-- `src/mcp/tool-registry.ts` — all 188 API tools, including Site Health semantic graph and page-audit evidence reads, sitemap Target discovery, and revision-pinned measurement reports, each tagged with a `tier` (`core` or one of the toolkit names).
-- `src/mcp/cli.ts` — `canonry-mcp` stdio entrypoint; parses `--read-only`, `--eager`, `--scope`, plus `CANONRY_MCP_*` env. `resolveEffectiveScope()` best-effort probes `GET /keys/self` at startup and forces `read-only` when the configured key is read-only (auto-restricts the catalog to read tools; falls back to the flag scope on any probe failure).
+- `src/mcp/tool-registry.ts` - the API tool catalog, including stored competitor suggestions, the config apply preview, Site Health issue groups, affected pages, semantic graph and page-audit evidence reads, sitemap Target discovery, and revision-pinned measurement reports, each tagged with a `tier` (`core` or one of the toolkit names).
+- `src/mcp/cli.ts` - `canonry-mcp` stdio entrypoint; parses `--read-only`, `--eager`, `--scope`, plus `CANONRY_MCP_*` env. `resolveEffectiveScope()` best-effort probes `GET /keys/self` at startup and forces `read-only` when the configured key is read-only (auto-restricts the catalog to read tools; falls back to the flag scope on any probe failure). Stored-only scope from `--stored-only`, `--scope=stored-only`, `CANONRY_MCP_SCOPE=stored-only`, or `CANONRY_STORED_ONLY=1` narrows monotonically and suppresses client housekeeping; hosted catalogs remain fixed.
 - `src/mcp/operations-guide.ts` — compact intent routing filtered against the connection's loaded tools; generated source is `docs/agent-operations/v1.md`. No provider calls or permission grants.
+- `canonry mcp profile` / `ApiClient.getMcpProfile()` / `canonry_mcp_profile` read the named account behind the current MCP credential. Direct API keys have no person and receive 403; profile identity uses the configured canonical MCP resource.
 - `src/commands/mcp.ts` — MCP client install helpers: `mcp install`, `mcp config` (writes to client config files only — separate from the `canonry-mcp` stdio bin). `src/mcp-clients.ts` is the registry of supported MCP clients (Claude Desktop, Cursor, Codex) — config-path resolvers and format hints used by `mcp install`/`mcp config`.
 
 ### Referral assessment
 
-`traffic referral-assessment` reads `/projects/:name/traffic/referral-assessment` through the SDK. UTC date bounds and source select stored evidence; thresholds and detail limit tune only this read. JSON and MCP preserve the full response. Raw traffic/report headlines stay unchanged. Server rows have no Property, Target or market attribution, so Simple and Advanced projects share the explicitly project/source-only diagnostic.
+`traffic referral-assessment` reads `/projects/:name/traffic/referral-assessment` through the SDK. UTC date bounds and source select stored evidence; thresholds and detail limit tune only this read. JSON and MCP preserve the full response. Raw traffic totals stay unchanged. Server rows have no Property, Target or market attribution, so Simple and Advanced projects share the explicitly project/source-only diagnostic.
+
+### Content-target dismissals
+
+`content dismissals`, `content dismiss`, and `content restore` use the public
+content-dismissal client methods. List JSON preserves `{ dismissals }`; JSONL
+streams the records. Dismiss and restore require write scope. Restore's API
+response is 204; CLI and MCP acknowledge it with `{ targetRef, restored: true }`.
+Their MCP equivalents live in monitoring: `canonry_content_dismissals` (read),
+`canonry_content_dismiss` and `canonry_content_restore` (write).
+
+### Stored run history
+
+`run list <project>` aliases `runs <project>` with one handler and option table.
+The optional `--since` forwards an inclusive timestamp without imposing a default
+window or limit. Both forms include probes; traffic rows expose stored `sourceId`.
+With no project positional, `run list` retains the sweep of a project named `list`.
 
 ### Command output
 
@@ -114,7 +140,7 @@ canonry doctor --check 'google.auth.*' --format jsonl
 
 directly — no `2>/dev/null`, no `| jq '(.checks // .results // [])[] | ...'`, no guessing the envelope key. Each line stands alone for `grep`/`head`/per-line `jq`.
 
-`jsonl` is wired into **every collection command** (a command whose primary output is a list) — `insights`, `runs`, `evidence`, `history`, `query/keyword/competitor list`, `notify list/events`, the `google`/`bing`/`ga` reads, `ads geo search`, `ads conversions pixels/event-settings`, `traffic events/sources/status`, `discover list/show`, `content targets/sources/gaps`, `backlinks list/releases`, `project list/locations`, `agent memory list`, `agent providers`, and `doctor`. The per-command primary collection + the context each line carries is catalogued in `skills/canonry/references/canonry-cli.md` ("Output schema per command" + "Output Formats"). Composite/object commands (`status`, `ads account`, `analytics`, `ga traffic`/`attribution`, `gbp summary`, index `coverage`) have **no** `jsonl` — they stay `json`.
+`jsonl` is wired into **every collection command** (a command whose primary output is a list) — `insights`, `runs`, `evidence`, `history`, `query/keyword/competitor list`, `notify list/events`, the `google`/`bing`/`ga` reads, `ads geo search`, `ads conversions pixels/event-settings`, `traffic events/sources/status`, `discover list/show`, `content targets/sources/gaps`, `backlinks list/releases`, `project list/locations`, `agent memory list`, `agent providers`, `status --all`, and `doctor`. The per-command primary collection + the context each line carries is catalogued in `skills/canonry/references/canonry-cli.md` ("Output schema per command" + "Output Formats"). Composite/object commands (`ads account`, `analytics`, `ga traffic`/`attribution`, `gbp summary`, index `coverage`) have **no** `jsonl` — they stay `json`.
 
 Conventions when adding `jsonl` to a command:
 
@@ -137,11 +163,12 @@ The stable, machine-readable formats are `json` and `jsonl`; `text` is decorated
 - An `--all` row with `status: 'error'` (the trigger failed, so no run exists) is not a waited run and does not change the exit code.
 - `test/cli-run-wait-exit.test.ts` pins stdout and the exit code for each case.
 
-The update notice is the one piece of chrome that reaches agents as well as people, because an agent is usually the one running an outdated install. `cli.ts` prints it synchronously from the on-disk cache (`readCachedUpdateAvailable`) BEFORE dispatch, so it is always the first stderr line and never interleaves with output; stdout is untouched, and the registry refresh only rewrites the cache in the background. `formatUpdateNotice` picks the shape: the human banner on a terminal, one plain `[canonry] UPDATE_AVAILABLE: ...` line when stderr is captured, and one compact `{"notice":{"code":"UPDATE_AVAILABLE",...}}` line for `--format json|jsonl` (so `2>&1` still yields a valid JSON stream). The upgrade command follows `detectInstallMethod` (`CANONRY_INSTALL_METHOD`, which the published image sets to `docker`; then Homebrew `Cellar/canonry/`; then a container marker; else npm) and comes from `upgradeCommandFor` in contracts, with `upgradeCaveatFor` adding the Homebrew-lags-npm note, and the registry value must pass `isStrictSemver` (contracts) before it is cached or printed, because agents act on this text. Skipped for help and `telemetry`; silenced by the update-check opt-outs. The server-side counterpart is the `canonry.version.current` doctor check (`getServerUpdateStatus`). MCP-only agents never run the CLI, so `canonry-mcp` fetches the connected server's `/health` notice at startup (`createUpdateNoticeSource` in `src/mcp/update-notice.ts`: honours the env opt-outs in the adapter's own environment and refreshes hourly; `ApiClient.getServerUpdateAvailable` reads `/health` and `parseServerUpdateAvailable` keeps only the strict-semver versions and the install-method enum, rebuilding the command and URL from contracts so no server text reaches the initialize instructions, which clients load into the system prompt) and hosted MCP reads the server cache (`McpHttpOptions.getUpdateAvailable`); both append it to the initialize instructions and add `updateAvailable` to every `canonry_help` result. Other interactive chrome (skills auto-sync notice, setup nudge) stays gated on `process.stderr.isTTY`. Errors still go to stderr.
+The update notice is the one piece of chrome that reaches agents as well as people, because an agent is usually the one running an outdated install. `cli.ts` prints it synchronously from the on-disk cache (`readCachedUpdateAvailable`) BEFORE dispatch, so it is always the first stderr line and never interleaves with output; stdout is untouched, and the registry refresh only rewrites the cache in the background. `formatUpdateNotice` picks the shape: the human banner on a terminal, one plain `[canonry] UPDATE_AVAILABLE: ...` line when stderr is captured, and one compact `{"notice":{"code":"UPDATE_AVAILABLE",...}}` line for `--format json|jsonl` (so `2>&1` still yields a valid JSON stream). The upgrade command follows `detectInstallMethod` (`CANONRY_INSTALL_METHOD`, which the published image sets to `docker`; then Homebrew `Cellar/canonry/`; then a container marker; else npm) and comes from `upgradeCommandFor` in contracts, with `upgradeCaveatFor` adding the Homebrew-lags-npm note, and the registry value must pass `isStrictSemver` (contracts) before it is cached or printed, because agents act on this text. Skipped for help and `telemetry`; silenced by the update-check opt-outs. The server-side counterpart is the `canonry.version.current` doctor check (`getServerUpdateStatus`). MCP-only agents never run the CLI, so `canonry-mcp` fetches the connected server's `/health` notice at startup (`createUpdateNoticeSource` in `src/mcp/update-notice.ts`: honours the env opt-outs in the adapter's own environment and refreshes hourly; `ApiClient.getServerUpdateAvailable` reads `/health` and `parseServerUpdateAvailable` keeps only the strict-semver versions and the install-method enum, rebuilding the command and URL from contracts so no server text reaches the initialize instructions, which clients load into the system prompt) and hosted MCP reads the server cache (`McpHttpOptions.getUpdateAvailable`); both append it to the initialize instructions and add `updateAvailable` to every `canonry_help` result. The setup nudge's Page Health handoff is the other one: after `technical-aeo run|score|crawl` or `site-health overview` on a provider-less install, `buildSetupNudgeLine` prints the AI Visibility next step in the same three shapes (`[canonry] NO_PROVIDER: ...` when captured, `{"notice":{"code":"NO_PROVIDER",...}}` for machine formats), because most such installs are driven by agents that never open the dashboard, where onboarding makes the same handoff. Its other commands, and the skills auto-sync notice, stay gated on `process.stderr.isTTY`. Errors still go to stderr.
 
 Chrome helpers:
 
-- `src/setup-nudge.ts` — the stalled-setup stderr line: human-mode + TTY only, lazy state read, exempt roots
+- `src/setup-nudge.ts` — the stalled-setup stderr line: human-mode + TTY only, lazy state read, exempt roots; the Page Health handoff commands print it in every output mode
+- `src/provider-registration.ts`: the one rule for which providers the server registers from config (`local` by base URL, Gemini by API key or Vertex project, others by API key, CDP by host or port, plus the legacy top-level Gemini key). Boot registration, `buildSetupState`, `serve.started`, and bootstrap's provider-free check all use it; never count providers by `apiKey || baseUrl`
 - `src/activation-notice.ts` — once-ever first-activation notice; marker written before printing, TTY-gated
 
 ### Telemetry helpers
@@ -150,7 +177,12 @@ The event catalog and envelope are under "Telemetry events" below.
 
 - `src/telemetry.ts` — `trackEvent`, source attribution (incl. the validated `CANONRY_TELEMETRY_SOURCE` harness override), per-process `sessionId`, `cli.upgraded` detection
 - `src/run-telemetry.ts` — `classifyRunError`, `buildRunCompletedProps`: keeps the `run.completed` payload composition in one spot
+  OpenRouter routes aggregate under their connection through `providerConnectionName`: usage sums answers, latency uses all call samples, and outcomes keep the strongest error. Telemetry omits sweep route/model IDs; saved product evidence retains them.
 - `src/setup-state.ts` — `buildSetupState`: `{ provider_count, has_keywords, project_count, is_first_run }` snapshot ridden on every `cli.command`
+
+Telemetry tests exercise the collector through a mocked upstream `fetch`, and CLI guards through `runCli`.
+Keep status resolution internal and use the shared ghost-event and masking helpers directly.
+Hold the collector response when checking opt-out delivery; an immediate response cannot prove the command waits.
 
 ### Logging and runtime diagnostics
 
@@ -188,19 +220,70 @@ Flag-driven, no prompts; delegates to `ApiClient.listApiKeys` / `createApiKey` /
 Different run kinds may overlap on one project. Preserve shared provider gates
 and same-kind admission guards. Project-only cancellation requires exactly one
 active run; otherwise the CLI lists the candidates and requires a run ID.
+Fill admission tests use distinct eligible runs and another project to isolate
+the project lock. Failed-fill budget tests observe actual peer dispatch before
+the minute window ends and native usage counts; private gate-call counts alone
+are not the resource contract.
 Boot recovery fails every queued/running run and its active crawl attempts;
 it does not resume interrupted work. The one exception is a running sweep that
 wrote provider batches (see "Finalizing a sweep" below).
 
 Before provider dispatch, `JobRunner` captures the resolved inputs of each official simple run.
-The frozen definition records exact query text, identity, classification, location, and requested models.
+The frozen definition records exact query text, identity (including the project's sentiment-only qualified aliases, omitted when empty), classification, location, and requested models.
 Capture failure prevents provider calls. Probe and advanced runs retain their existing paths.
 Queue-time configuration does not define simple runs because their inputs resolve at dispatch.
-This capture does not change current report calculations or reconstruct historical definitions.
+This capture does not reconstruct historical definitions.
 
 Simple and Advanced snapshots use `isSearchLocationIgnored` to clear a search-tool location when retrieval is `not-used`. Preserve the requested location in `requestedContext` and record `supportedContext.status: 'ignored'` for these answers.
 
+An identity change (a curated competitor alias saved, a detection pass that
+changes auto-detected or market names, a market pin write that claims or
+releases one, or a project alias edit) while a
+sweep, fill or batch ingest is recording is applied once by
+`onCompetitorAliasesChanged` or `onAliasesChanged`; each writer then calls
+`reconcileRunAnswerFields` after its last write (success, cancel or failure)
+and rescores its own run when the identity it read (`answerIdentityFrom`,
+api-routes `src/answer-identity.ts`: project names and domains, every
+competitor's curated plus auto names minus blocked, learned market names) is
+no longer current: the competitor fields only, or `answer_mentioned` too when
+the project's own identity moved. `test/job-runner-competitor-alias-edits.test.ts`
+covers each writer, including a fill a newer sweep stops and one that fails.
+
+The recompute queue holds its pending passes in memory, so every request
+also marks the project (`projects.answer_fields_recompute`: `full`, or
+`competitors` unless a full pass is already owed). Only the pass that served
+the project's latest request clears the mark, and only once no full pass is
+still owed (a failed full pass is not paid by a later competitors-only one).
+A restart that kills a pass, or the queue before it, leaves the mark, and
+`onReady` requeues every marked project (`resumeAnswerFieldRecomputes` in
+`server.ts`). The writer side stays in memory, a known trade-off: a writer
+reconciles only when it reaches its last write, so a process that exits after
+the recompute finished but before a still-recording writer reconciled leaves
+the answers that writer stored afterwards scored with the older identity.
+Boot recovery does not rescore those; the project's next recompute of the
+same fields, or `canonry backfill answer-mentions`, does.
+
 When a sweep finishes, the flow is: `JobRunner` → `RunCoordinator.onRunCompleted()` → `IntelligenceService.analyzeAndPersist()` then `Notifier.onRunCompleted()`. The coordinator runs intelligence first (synchronous) so insights are persisted before webhooks fire. Each subscriber is wrapped in an independent try/catch — one failing must not block the others.
+
+Answer-derived competitor aliases: `RunCoordinator.onAnswersRecorded` fires for every non-probe answer-visibility run that ends `completed` or `partial` (before the incomplete-plan gate: those answers are evidence, not a conclusion). `server.ts` queues an unattended pass for it off the completion path (`scheduleCompetitorAutoAliases` over its own `createProjectPassQueue`: one pass per project at a time, a burst shares one follow-up pass, failures logged), and so does `onCompetitorAutoAliasRescan` (a competitor added on any surface, a name unblocked, a market pin write that changes the pins; never a curated alias edit, a removal, a block or a project edit). The pass reads the project's `competitorAutoAliases` mode when it starts: `off` runs nothing; `preview` (every project's default) runs `previewCompetitorAutoAliases` (api-routes) and logs `wouldAdd` / `wouldRemove`, storing nothing; `apply` hands the project to `createCompetitorAutoAliasRunner` (`src/competitor-auto-alias-runner.ts`), which runs `applyCompetitorAutoAliases` through its own per-project queue and, on a names change, the same competitor-fields recompute as a curated alias edit. `POST /competitor-auto-aliases` (`runCompetitorAutoAliasPass`) goes straight to that runner in every mode, so an explicit apply stores once whatever the mode and never races a storing post-run pass. Aero never applies: `canonry_competitors_auto_aliases_apply` is in `AERO_EXCLUDED_MCP_TOOLS`, and the project writes that can set the mode (`canonry_project_upsert`, `canonry_apply_config`) refuse an Aero call that would change it (`refuseCompetitorAutoAliasModeChange` in `src/agent/mcp-to-agent-tool.ts`). Every identity-change recompute of the stored answer fields goes through ONE per-project queue (`createAnswerFieldRecomputeQueue`, `src/answer-field-recompute.ts`): a project alias change (full: `answer_mentioned` too) and a competitor names change on any surface or by detection (competitor fields only). Passes run in chunks of 50 snapshots that yield to the event loop (`backfillProjectAnswerMentionsInChunks`, api-routes `src/snapshot-competitor-refresh.ts`), never interleave for one project, and re-read the identity (`readAnswerIdentity`, api-routes) before every chunk, starting over when it changed, so no chunk is ever written from an identity a newer change replaced. A run still recording when the identity changes rescores itself (`reconcileRunAnswerFields`, above), so the queue never needs to know about runs. The CLI backfill keeps the one-pass `backfillProjectAnswerMentions`. Provider citation structures are read through `src/stored-answer-anchors.ts` (`extractStoredAnswerAnchors`, dispatched to each provider package's `extractAnchoredSpans`), injected into api-routes as `competitorAnswerAnchors`. Stored data only: nothing resolves a URL or reads a competitor site.
+
+Notifier sibling and citation-history reads exclude probes with `notProbeRun()`
+before limiting history. The coordinator's probe callback guard cannot protect a
+later ordinary run from stored probe rows. Keep the public delivery and SQLite
+receipt cases in `test/notifier-fanout.test.ts` for Simple and Advanced runs.
+Fanout winner, pending-sibling, location and stored-fill notification contracts
+also live there through public `onRunCompleted`, actual subscriptions and delivery
+receipts. `test/run-fill.test.ts` owns actual JobRunner fill execution; stored rows
+in a notifier fixture prove admission and delivery only.
+
+Health alerts are a separate path: the `doctor` schedule (`onDoctorRequested` in `server.ts`) hands each pass to `Notifier.onHealthChecked`, which sends `health.degraded` only when a check is new or worse and `health.recovered` when all pass again; a pass that only clears or eases checks is stored and logged as `health.improved`. Checks are compared by id (their codes change with severity). A degraded alert no webhook accepted owes its triggering checks through durable pending state, separate from the last delivered clearance baseline; the next pass retries it even after a restart or when the same breach recurs. Rules, stored state, payload fields (`added`, `cleared`) and the silent-check policy: `api-routes/src/doctor/AGENTS.md` → "Scheduled health alerts". Branch-by-branch cases live in `test/health-notifications.test.ts`. Urgent problems (`health.urgent`, `health.urgent-resolved`) are tracked beside that in `doctor_health_state.urgent_notified` (and `site_liveness_state.urgent_notified_at` for the website loop) and go only to webhooks that list them; such a webhook receives no other health event (`receivesHealthEvent`). Rules: the same doc → "Urgent problems"; cases: `test/urgent-health-notifications.test.ts`.
+
+Urgent delivery histories are persisted by notification id and destination URL
+in both health-state tables' `urgent_receipts` columns. New destinations receive
+open-problem catchup independently. Receivers with identical histories retain
+any-accepted fanout. A general liveness delivery settles urgent debt only when
+that subscribed destination accepts it; refused recovery retries under the urgent
+name on the next pass.
 
 `IntelligenceService` reads query snapshots from the DB, calls the pure analysis functions in `packages/intelligence/`, and persists insights + health snapshots. It also provides `backfill()` for reprocessing historical runs chronologically.
 
@@ -270,7 +353,16 @@ Provider batch lifecycle (`docs/batch-mode.md`):
 - `src/provider-batch-poller.ts` polls with a per-batch backoff, cancels at the
   deadline (then waits an hour for the batch to end), and drives
   `ingestProviderBatch`: lines map by `custom_id` → `parseTrackedQueryResponse`
-  → `recordSlot` (idempotent, `dispatch_mode: batch`, batch price tier).
+  → the shared slot preparation/recording path (idempotent,
+  `dispatch_mode: batch`, batch price tier). Prepare network/file evidence
+  outside transactions, then commit at most 32 snapshots with their request
+  outcomes in one immediate transaction. Flush earlier when the retained
+  serialized raw responses, answer text and errors would exceed 1 MiB; one
+  oversized answer commits alone. Recheck batch/run state and the
+  ledger's current query references before writing. Report each committed
+  result only after commit and yield between count- or byte-limited chunks. A broken stream flushes
+  its prepared tail; cancellation discards the uncommitted tail. An individual
+  answer's preparation cost still depends on its payload size.
   Unbilled lines (`errored|expired|canceled`) release their reservation under
   `quota_released`. Ingest scores answers against the project's identity at
   ingest time, as a fill does. An ended batch whose results stay unreadable is
@@ -354,7 +446,7 @@ insights <project>` — add `--dry-run` first to see the delta.
 
 `gscUrlInspections` (the index-coverage dashboard's source of truth) is populated **only** by an `inspect-sitemap` run. `gsc-sync` does not inspect URLs at all: each URL Inspection call costs ~7.1s (Google's own live-index-lookup latency plus the ~1.1s pacing its 1 req/sec soft limit needs) and one unit of a 2000/property/day quota, so inspecting inline made the sync scale with the site — measured at 240.9s of a 241.9s run for 31 URLs while the search-analytics work took 1.07s, past the dashboard's 120s poll window. `server.ts` chains a full GSC `inspect-sitemap` off the **success** of both `executeGscSync` (`gsc-sync`) and `executeBingInspectSitemap` (`bing-inspect-sitemap` — Bing's coverage sync, which has no separate `bing-sync` kind). `packages/canonry/test/gsc-sync-no-inspection.test.ts` guards the split. The chaining lives in the `onGscSyncRequested` / `onBingInspectSitemapRequested` callbacks, so it covers UI and CLI uniformly (both hit the same endpoints) and the dashboard "Refresh search data" button.
 
-`maybeRefreshGscCoverage` (`src/coverage-refresh.ts`) owns the decision: it no-ops when GSC isn't connected for the project (so the Bing → GSC chain is silent on Bing-only projects), always skips while an `inspect-sitemap` run is `queued`/`running` (the in-flight guard, which is what collapses the GSC and Bing arms of "Refresh search data" into one sweep), and otherwise applies a spacing window sized by **who asked**:
+`maybeRefreshGscCoverage` (`src/coverage-refresh.ts`) owns the decision: it no-ops when GSC isn't connected for the project (so the Bing → GSC chain is silent on Bing-only projects), always skips while an `inspect-sitemap` run is `queued`/`running` (the in-flight guard, which is what collapses the GSC and Bing arms of "Refresh search data" into one sweep), and otherwise applies a spacing window sized by **who asked**. Scheduled GSC sync rows carry `trigger: scheduled`, so this classification uses the stored run trigger rather than a caller label:
 
 | Caller | Window | Constant |
 |---|---|---|
@@ -377,13 +469,30 @@ That is not a style preference. The gate used to be a `let` inside `inspectUrlsP
 
 ### GSC sitemap submission
 
-`src/gsc-sitemap-submission.ts`: `dedupeGscSitemapUrls` + `resolveDiscoveredGscSitemapUrls` (indexes vs all-files, 4× parallel) + `requireGscSitemapUrls` + `submitGscSitemapBatches` (50-url batches).
+`src/gsc-sitemap-submission.ts`: `dedupeGscSitemapUrls` + `resolveDiscoveredGscSitemapUrls` (indexes vs all-files, 4× parallel) + `requireGscSitemapUrls` + `submitGscSitemapBatches` (50-url batches). CLI `submitGscSitemaps` and MCP `canonry_gsc_sitemaps_submit` call these. The dashboard keeps its own progress and toasts.
 
 ### Data refresh
 
-`src/data-refresh.ts`: `refreshAllIntegrations` — fires GSC + Bing + GA + GBP + ads syncs for a project via the in-process API client, `Promise.allSettled` for per-integration isolation. Wired to the scheduler's `data-refresh` kind in `server.ts`.
+`src/data-refresh.ts`: `refreshAllIntegrations` fires GSC + Bing + GA + GBP + ads syncs for a project via the in-process API client, `Promise.allSettled` for per-integration isolation. Wired to the scheduler's `data-refresh` kind in `server.ts`. The host claims each scheduled integration before calling its endpoint and clears the claim in `finally`; the route consumes the claim when it inserts the run, so scheduled data-refresh and traffic-sync rows store `trigger: scheduled` while ordinary CLI and API calls remain manual. Only GA syncs before its endpoint answers, so only GA logs `integration.refreshed`; every other endpoint only queues a run and logs `integration.queued` with its `runId`, and its real outcome lands on that run row. The `<integration>.sync.recent-failures` doctor checks grade the run rows of Google Ads, GTM, GBP, GSC and GA. Bing `bing-inspect-sitemap` runs are not graded, and OpenAI Ads is covered only by `ads.data.recent-sync`. A refused endpoint logs `integration.refresh-failed` and releases its claim.
 
 ### Backfill behavior
+
+`startup-path-repairs.ts` runs GA traffic and AI-referral path repairs once per
+`URL_PATH_NORMALIZATION_VERSION`, with independent `data_repair_completions`
+records. Mark a version complete only after the whole pass succeeds without
+conditional-write conflicts; interrupted/failed passes retry next startup.
+The explicit backfill commands always run and never mark a project-scoped
+repair as database-wide completion. Increment the contracts normalization
+version when historical paths need recalculation.
+
+Both tables share one paged repair (`repairStoredPaths` in
+`src/commands/backfill.ts`) that walks the primary-key id index. A
+project-scoped pass filters with unary `+project_id`: a plain project filter
+makes SQLite sort that project's rows for every page.
+`test/path-repair-query-plan.test.ts` pins both plans. The explicit commands
+commit 128-row pages so a running server's writers can interleave. Startup
+runs before the server listens, so it uses `STARTUP_REPAIR_PAGE_SIZE` (4096)
+pages, which keeps the one-time pass close to single-transaction cost.
 
 `canonry backfill answer-visibility` does more than recompute `answerMentioned`. It also reparses stored provider `raw_response` payloads for supported API providers (OpenAI, Claude, Gemini, Perplexity, Muse) and refreshes derived snapshot fields such as `citationState`, `citedDomains`, `groundingSources`, and `searchQueries`.
 
@@ -391,19 +500,37 @@ It writes retrieval fields in exactly one case: OpenAI rows labelled `native-aut
 
 The command lives in `src/commands/backfill.ts` (historical recomputation for answer visibility fields and insights).
 
+The snapshot rescore behind `canonry backfill answer-mentions`, the alias hooks and `reconcileRunAnswerFields`, `backfillProjectAnswerMentions` (and its chunked form `backfillProjectAnswerMentionsInChunks`), lives in `@canonry/canonry-api-routes` (`src/snapshot-competitor-refresh.ts`) so Cloud can run it too; `src/commands/backfill.ts` re-exports it. `src/citation-utils.ts` keeps only the citation helpers; the competitor matchers `computeCompetitorOverlap` and `extractRecommendedCompetitors` are in contracts (`competitor-matching.ts`).
+
 ### Server and SPA serving
 
+- Shared-password and API-key browser sessions persist token digests in `dashboardSessions`, retain their fixed twelve-hour expiry, and resolve the bound key's current authority on every request. Each session binds the key's current hash; password sign-ins also bind a digest of the configured password hash. Startup removes outdated password sessions and sessions without credential bindings. Key rotation and revocation writers delete bound sessions in their transaction, so bootstrap restoration cannot revive them. Logout deletes the row; restart must not extend expiry. Named-account cookies use `userSessions` and renew whenever their stored session renews.
+- First-run `POST /session/setup` sets a standing credential for the default `*` key (`config.apiKey`), so it is root. It accepts only the exact default key as `Bearer` (digest compared in constant time; any other key, narrow or `*`, is refused), or a direct local request (`isDirectLocalRequest`: HTTP/1.1, loopback socket peer, no forwarding or proxy header, loopback `Host`) on a loopback bind whose config names no other way in (`configuresExternalAccess`: no non-loopback `apiUrl` / `publicUrl`, no base path, no `CANONRY_TRUST_PROXY`). HTTP/1.1 is required because nginx talks HTTP/1.0 upstream by default, and a bare `proxy_pass http://127.0.0.1:4100;` also sets a loopback `Host` and adds no forwarding header. `Host` is chosen by the client, and a proxy or TCP forwarder on the same host that speaks HTTP/1.1 and adds no forwarding header (nginx with `proxy_http_version 1.1` and no `X-Forwarded-For`, HAProxy without `option forwardfor`, `ssh -R`, `socat`) makes a remote request look direct, so the request checks can only refuse: keyless setup trusts every process that can open a loopback connection. Never gate it on the bind address alone or on `request.ip`/`request.hostname`, which `CANONRY_TRUST_PROXY` rewrites. While the default key's row is revoked or missing, only a caller the gate would otherwise admit (one presenting the configured `apiKey`, or a keyless direct local request) gets the `AUTH_INVALID` bootstrap hint; every other caller gets `401 AUTH_REQUIRED`. The gate runs before authentication and before the one-time check, so any other answer would reveal the key's state. It validates the default key before writing, then writes the `dashboard-password.created` audit row, the session, and config.yaml (last) in one transaction, so a failure leaves no password behind. Cover changes in `test/session-setup-authority.test.ts`.
+- `dashboardPasswordHash` has one owner, `config.yaml`. `saveConfigPatch` keeps what a readable `config.yaml` holds, including its absence, because every server caller passes its startup snapshot (a missing, empty, or unparseable file says nothing, so the patch's hash stands); only `/session/setup` adds a hash, through `setDashboardPasswordHash`, and never over a saved one. `canonry dashboard reset-password` (`clearDashboardPassword`, `src/commands/dashboard.ts`) removes it from the file without calling the server, which keeps the old password until it restarts. The first start that finds a created password gone writes one `dashboard-password.cleared` audit row (`actor: system`). The command is local only, with no API route and no MCP tool, because it must work when the operator cannot sign in. Cover changes in `test/dashboard-password-reset.test.ts` and `test/session-setup-authority.test.ts`.
+- `createServer` writes config only to the file its config came from (`configPath`, defaulting to the file `loadConfig()` read; `canonry serve` passes it), through its local `persistConfigPatch`. A config built in memory (tests, local dashboards) keeps its changes in memory. Install-wide state in the default `config.yaml` (telemetry setting, first-sweep notice, install ID) changes only from a server running from that file: otherwise `PUT /telemetry` answers 501 and `holdAnonymousIdWrites` stops telemetry saving an install ID. Never call `saveConfigPatch` or `saveConfig` directly in server code: they write `getConfigPath()`, the operator's file. Cover changes in `test/server-config-persistence.test.ts`.
+- `server.ts` checks request Host names against loopback, valid IP literals, the bind hostname, and the configured `apiUrl` / `publicUrl` hostnames. A wildcard bind does not allow arbitrary DNS names; reverse proxies use `publicUrl` for their external hostname. Keep IPv6 normalization consistent and cover admission through real `createServer` requests in `test/server-host-validation.test.ts`.
 - `assets/`: `server.ts` default `assetsDir` is this dir; `createServer({assetsDir: '/tmp/my-dist'})` override lets tests/custom builds point elsewhere without forking the package.
 - `src/server.ts`: `createServer` opts take an optional `assetsDir` override (default = bundled `assets/`) so integration tests can point at a temp `index.html`.
 - The SPA document's embed config and headers are covered in "Embed mode (#716)".
+- `dashboard.showLocalAgentSetup` is a deployment presentation setting, defaulting to true. `CANONRY_DASHBOARD_SHOW_LOCAL_AGENT_SETUP` overrides YAML; inject only false into the SPA config. Never infer it from public URL, hosted readiness, or user role, or use it to gate CLI/API/MCP authority. `showResourceLinks` also gates the Agent Setup page's repository documentation links. See `docs/deployment.md`.
+- `dashboard.brandMark` (`mascot` default, `icon` for client deployments) is the same kind of presentation setting. `CANONRY_DASHBOARD_BRAND_MARK` overrides YAML, and unrecognized values fall back. Inject only `icon` into the SPA config, and only then point the document's tab icons at the `canonry-icon*` files in `apps/web/public` (`withIconMarkLinks`). Never infer it from public URL, hosted readiness, or user role.
 
 ### Provider registration
 
-Providers are registered at server startup in `server.ts`. Each provider adapter (from `packages/provider-*`) is imported and added to the `ProviderRegistry`. Projects reference providers by name.
+`provider-answer-services` adapters are spread once into `API_ADAPTERS`; their descriptors feed the settings catalog (`ANSWER_SERVICE_CATALOG`) and env bootstrap (`getAnswerServiceEnv`). `ProviderRegistry.get` resolves any route family through the connection's `forRoute`, `getForProject([])` and snapshot defaults admit implicit-eligible engines only, and gates and quotas key on `adapterConnectionName`. Research and snapshots keep an `IncompleteAnswerError`'s evidence on the failed row; generation roles require `canGenerateText`. Telemetry reports connections only (`telemetryConnectionName`).
+`provider-openrouter` registers one key connection named `openrouter`. Projects select pinned model routes (`openrouter:publisher/model`); the bare connection is never swept automatically. `ProviderRegistry.get` resolves each route to its own adapter identity with the shared connection config. Gate and daily-quota keys use `providerConnectionName`, while snapshots, execution manifests, filters and analytics retain the route name. The adapter requests search internally, extracts source annotations, and preserves requested versus served model IDs. Both Simple and Advanced sweeps capture routed citation URLs and record requested locations as ignored. See `docs/providers/openrouter.md`.
+
+`src/provider-reload-batch-guard.ts` refuses changes other than quota while a batch still needs its registration. It checks pending database batches and `JobRunner.getExecutingBatchRegistrations()`, which retains captured base registrations before submission starts and until both the sweep and late submissions settle. Cancellation loops capture every registration before their first await.
+
+`src/provider-runtime-config.ts` builds the complete API and CDP registration set for startup and explicit provider reloads, using the shared eligibility rules in `src/provider-registration.ts` and `resolveProviderQuotaPolicy` (each saved limit wins; a limit a partial or missing `quota:` block leaves out takes the default). Settings writes register through the same resolver. A config the server boots with must reload to the same registrations, so never add a reload-only check: reload refuses only what `loadConfig` refuses, and that refusal preserves the running registry. `server.ts` captures its config path and database identity at startup as resolved directory plus file name, because the atomic config write replaces a symlinked config.yaml; reload identity arguments must match them, and a mismatch is `VALIDATION_ERROR` with `details.reason: install-identity-mismatch` (`ProviderReloadErrorReasons`). Only provider and CDP settings reload; listener, authentication, sessions and database settings keep their startup values. Existing runs retain captured provider configs. `ProviderRegistry` updates shared execution gates without resetting active slots or dispatch history. Projects reference providers by name.
+
+`src/commands/bootstrap.ts` merges each env provider into its saved entry: env credentials replace the saved credential set as a unit (Gemini: `apiKey`, `vertexProject`, `vertexRegion`, `vertexCredentials`; `local`: `baseUrl`, `apiKey`; others: `apiKey`), env-set fields win, and other saved fields stay. `getBootstrapEnv` leaves an unset model and every quota undefined; `withBootstrapProviderDefaults` fills only the gaps of a new entry, for `init` too. Bootstrap asks a loopback server to reload only when the saved providers changed. A 401/403, an identity mismatch, a missing route (404/405) or a 501 is `serverReload.status: not-matching` with exit 0; only other reload errors are `failed`.
 
 `src/provider-batch-config.ts` owns batch dispatch configuration (`docs/batch-mode.md`). `loadConfig` validates `providers.<name>.batch` / `.pricing` with the contracts schemas and refuses a malformed block. `providerConfigFromEntry` builds every registered `ProviderConfig`, carrying both blocks, and is used by boot and the provider-update path, so a dashboard key rotation keeps them. `batchEligibleProviderNames` (adapter capability AND `batch.enabled`) is the one rule behind `getBatchEligibleProviderNames`. `server.ts` passes it to the API routes and the scheduler. Boot logs `provider.batch.unsupported` once per provider whose config enables batch but whose adapter has none. Log a provider name as `provider`: it is the key the durable log store keeps as `context.provider`. `canonry run --dispatch-mode` and `canonry project create|update --dispatch-mode provider=sync|batch` / `--clear-dispatch-mode` are the CLI surfaces. `run show` prints batch state lines and the usage table from the run detail, and `--format json` prints the response verbatim.
 
 ### Health endpoint
+
+`mcp.status` reports transport registration. Optional `mcp.hosted` reports the configured HTTPS connector URL only when the public URL, OAuth routes and named accounts are ready; it never claims client authorization or external reachability. The same host callback supplies `/status` for CLI/MCP parity. Keep health free of DNS/provider probes or MCP session creation. Browser OAuth authorization follows the instance base path so named-account cookies retain their tenant scope; legacy root authorization URLs redirect with method/query preserved.
 
 `GET /health` (also served at `<basePath>health`) exposes `basePath` for auto-discovery and identifies the build and the deployment it is running as:
 ```json
@@ -432,7 +559,7 @@ Every field after `version` is optional and is omitted rather than nulled, so co
 `src/embed.ts`:
 
 - `resolveEmbedConfig(env, config)` resolves embed mode (#716) from `CANONRY_EMBED` / `CANONRY_EMBED_ORIGINS` / `CANONRY_EMBED_VIEWS` / `CANONRY_EMBED_PROJECT_TABS` layered over config.yaml `embed:` (env over config, mirroring basePath).
-- Delegates origin normalization + the `frame-ancestors` value + the client block to the pure helpers in `@ainyc/canonry-contracts` (`normalizeFrameOrigin` / `parseOriginList` / `frameAncestorsHeaderValue` / `buildEmbedClientConfig`).
+- Delegates origin normalization + the `frame-ancestors` value + the client block to the pure helpers in `@canonry/canonry-contracts` (`normalizeFrameOrigin` / `parseOriginList` / `frameAncestorsHeaderValue` / `buildEmbedClientConfig`).
 - `enabled` is decoupled from origins so `--embed` without origins fails closed; an empty views/projectTabs list collapses to `undefined` (= all).
 - `projectTabs` is the project-page TAB allowlist (overview/technical-aeo/search-console/activity/backlinks/...) the embedded dashboard renders — finer than `views`, which only gates whole top-level routes.
 - Serve/start flags: `--embed`, `--embed-allow-origin <origin>…`, `--embed-view <view>…`, `--embed-project-tab <tab>…` (in `cli-commands/system.ts` → env via `applyServerEnv`; `start` forwards them through `buildServeForwardArgs` in `commands/daemon.ts`).
@@ -445,18 +572,22 @@ Every field after `version` is optional and is omitted rather than nulled, so co
 
 ### Technical AEO / Site Health
 
-`src/scheduler.ts`: `onSiteAuditRequested` starts a Technical AEO full crawl unless one is active.
+`src/scheduler.ts`: a scheduled `site-audit` resolves its page budget with `normalizeSiteAuditRunRequest({}, project.siteAuditMaxPages)` (the project's saved budget, else the full site), records that identity on the run, then calls `onSiteAuditRequested`; it skips when a site-audit run is already queued or running.
 
 `src/execute-site-audit.ts` — `executeSiteAudit` runs `@canonry/aeo-audit`'s `runSiteCrawl`:
 
-- Events update an attempt graph with idempotent receipts. Terminal runs keep immutable complete or partial snapshots. Default reads select only the latest complete snapshot.
-- The page budget defaults to 1,000; an unset edge budget is left unset so the engine derives it from the resolved page count (floored at 100,000), and an explicit one is a ceiling that replaces the derivation. Hard limits are 50,000 pages and 1,000,000 edges.
+- Events update an attempt graph with idempotent receipts. Terminal runs keep immutable complete or partial snapshots. Default reads select the latest UTC scan date, preferring complete scans, then the largest page sample, then the newest scan; `runSelection` exposes same-date ambiguity. Crawl summary/pages accept an exact UTC `date` instead of `runId`; dated no-data reads expose bounded `availableScanDates` with full distinct-date totals and matching month/day candidates, without substituting dates; `inventorySummary` carries whole-snapshot eligibility and disjoint exclusion reasons, while page `healthReasonCounts` belongs to the filtered list; only the `changes` diff is limited to complete snapshots.
+- Stored issue evidence uses the nullable `issueEvidence` envelope (`schemaVersion: 1.0`, `groupIdentityVersion: duplicate-metadata-v1`, and `siteIssues` with nullable stable keys, codes, messages and affected URLs). Missing cross-page results remain unavailable; an emitted empty array is measured empty. Duplicate groups survive regardless of score. Keys derive from the full exact metadata and code, never shortened messages; unknown identity stays null.
+- The page budget is the one the run creator resolved through `normalizeSiteAuditRunRequest`: the request's, else the project's saved `siteAuditMaxPages`, else the full site (`SITE_AUDIT_DEFAULT_PAGE_LIMIT` = the 50,000 hard limit), for manual and scheduled scans alike; onboarding sends its own 100. An unset edge budget is left unset so the engine derives it from the resolved page count (floored at 100,000), and an explicit one is a ceiling that replaces the derivation. Hard limits are 50,000 pages and 1,000,000 edges.
+- `includeGeo` defaults off; `includeAgentSkills` defaults on and can be explicitly disabled (`--no-agent-skills` in the CLI). Both are forwarded to the engine and retained in the published crawl's `effectiveOptions`. Lighthouse is not exposed. Both are request identity, shared by Simple and Advanced projects through the same project-level scan.
 - The engine (>= 7.1.0) derives `maxFetches`/`maxDurationMs`/`maxBytes`/`maxEdges` from the page budget natively and honours explicit values exactly, so this file passes ONLY `maxPages`/`maxEdges` (the operator-facing limits) and never a fetch-side budget — setting one would pin it and fight the derivation.
 - The engine also makes the dead-link split itself (6.0.0+): `deadLinks.findings` always carry a real 4xx/5xx status and `deadLinks.unverified` carries the targets the crawl could not check (timeout, reset socket, throttled 429), and ONLY findings are written to `site_crawl_findings` — every reader of that table renders a row as a broken link, and a crawl timeout is not evidence of one.
 - `deadLinkCheckedCount` excludes unfetchable targets for the same reason — a URL that never answered was attempted, not checked.
+- URL versions are not scored. A fetched HTML page whose address carries parameters and whose canonical names the same path on the same host (contract `siteCrawlUrlVersionOf`) is a copy of that page: `persistPage` stores `url_version_of`, `audit_state = url-version`, no score and no factor evidence. The site score is recomputed over pages with the engine's formula (rounded mean page score), because `crawlSummary.auditRollup` counts every audited address; `computeFactorAverages`, the legacy cross-cutting issues, `site_audit_pages` and issue evidence read the same page set. Only the site's own canonical decides it: a parameter page without one stays a page. The crawl runs with `skipUrlVersionsAfter: 3` (engine 7.5.0): once 3 copies of a parameter pattern are proven, the engine stops fetching that pattern, and `summary.urlVersions.skipped` is stored on the attempt as `url_versions_skipped` (migration 198). Those copies have no page rows; `inventorySummary.urlVersionsNotFetched` reads the attempt column, and the dashboard shows `urlVersions + urlVersionsNotFetched`.
 
 `src/site-audit-factors.ts` — `computeFactorAverages`, the site factor rollup the executor publishes and the demo seed reuses (one implementation, so the example scorecard is computed, not copied):
 
+- Summary status preserves the worst observed page band (`factorStatusFromDistribution`): any failing page means `fail`, otherwise any partial page means `partial`. The mean score and the passing/partial/failing counts remain separate. Historical API reads normalize previously stored mean-based labels too.
 - A factor's `weight` is RELATIVE (the sixteen core weights sum to 111), so it is never shown with a percent sign. The percentage is `sharePct`, which the engine records per page; `toPageFactor` in the executor carries it onto every stored factor.
 - The site `sharePct` is the mean of a factor's page shares over the audited pages, 0 on a page where it did not apply, apportioned to tenths by `roundPreservingTotal` so the rollup adds up to exactly 100. If any audited page recorded no share, every site share is `null`; nothing is derived from `weight`.
 - Display it with `formatPercent(sharePct, 'percent')` (dashboard, `technical-aeo score`, `technical-aeo page-audit`); a `null` share shows a dash in a table and no share line in prose.
@@ -473,20 +604,23 @@ Every field after `version` is optional and is omitted rather than nulled, so co
 
 `src/commands/technical-aeo.ts`: dead-link analysis requires `--check-dead-links`. The dead-link renderers print `unverified` as "could not be checked" and never fold it into `found`: those are different claims and only the first may reach a client.
 
+`site-health issues` and `site-health issue-pages --issue-id` (also under `technical-aeo`) read stored finding groups and affected URLs through typed `ApiClient` methods. They never initiate crawls. Preserve run/attempt/date, finding coverage, nullable totals, and cursors in JSON and each JSONL record; even empty JSONL emits a metadata header. Pin the returned run ID when paging or drilling down. Missing or partial evidence is not a clean audit, and dispositions never grant edit authority. Critical defects retain severity and issue-specific guidance; `recommendationsScope` distinguishes this from broader factor recommendations.
+
 ### Advanced Measurement commands
 
 `src/commands/measurement-plan.ts` — Advanced Measurement plan commands: `measurement-plan show` / `versions` / `publish` / `retire` / `discover` / `report`, plus the two per-Property reads:
 
-- `measurement-plan property <project> --target-key <key>` (one Property out of `GET /measurement-overview?scope=property`, rendering mention/citation coverage and the per-answer-engine split)
+- `measurement-plan property <project> --target-key <key>` (one Property out of `GET /measurement-overview?scope=property`, rendering mention/citation coverage and the per-answer-engine split; non-brand unless `--query-class` names another, and the heading says when `all` pooled both classes)
 - `measurement-plan property-evidence <project> --target-key <key>` (cursor-paged `GET /measurement-property-evidence`):
   - `--shape answers` switches a row from one cited URL to one measured ANSWER with its cited URLs nested and both signals on the row — the only shape that shows the answers a Property was not cited in
-  - `--format jsonl` streams one row per line in either shape, under a header line carrying the shape, the measurement state and the cursor, and an unknown mention prints `not measured` rather than `no`
+  - `--shape other-queries` lists answers to queries NOT assigned to the Property that cited its own pages, one row per answer and assignment class (`assignedTargetKeys` names who the query was asked for). They are outside the Property's rates and must never be added to them
+  - `--format jsonl` streams one row per line in any shape, under a header line carrying the shape, the measurement state and the cursor, and an unknown mention prints `not measured` rather than `no`
 - The per-Property reads share `--query-class` / `--provider` / `--location` / `--run-id`, and both render an unavailable metric as `not measured (<reason>)` — never a percentage, so an unmeasured class can't read as a measured zero. `--format json` is the endpoint response verbatim.
 - `measurement-plan advanced <project> <operation> [<json|->]` is the compact typed-JSON bridge for the remaining v2 reads/writes; its paged/list reads stream a metadata header and records with `--format jsonl`.
 
 Registered via `src/cli-commands/measurement-plan.ts`.
 
-### Visibility stats, reports, and exports
+### Visibility stats and exports
 
 `src/commands/visibility-stats.ts`:
 
@@ -494,8 +628,6 @@ Registered via `src/cli-commands/measurement-plan.ts`.
 - Also `visibility-compare <project> --from <YYYY-MM> --to <YYYY-MM>` (`showVisibilityCompare`) — month-over-month AEO comparison rendered as the statistician-panel table (share-of-voice-led with `*` drift-robust marker, each cell `point [ci-lo, ci-hi]`, within-noise/moved verdict, basket + low-sweep caveat + model-change note); object command, `--format json` (jsonl degrades to json).
 - Monthly class rates have distinct branded/non-brand metric keys. `--scope`, `--scope-key`, `--market-key`, `--provider`, and `--location` map to the same REST/MCP selection. Print the Advanced `classComparison` cohort separately from the preserved legacy project basket, and print the selection whenever one is set; JSON retains the complete API response. A bad selector is a usage error (exit 1).
 - Delegates to `ApiClient.getVisibilityStats` / `getVisibilityCompare`. Registered via `src/cli-commands/visibility-stats.ts`.
-
-`src/commands/report.ts`: `runReportCommand` — `canonry report <project>` — fetches `/report` JSON, renders self-contained HTML to disk via `renderReportHtml` from `@ainyc/canonry-api-routes`.
 
 `src/commands/results-export.ts`: `exportResults` — `canonry results export <project>` — downloads the historical query × provider observations attachment via `ApiClient.downloadResultsExport`.
 
@@ -512,11 +644,11 @@ Registered via `src/cli-commands/measurement-plan.ts`.
 `src/discovery-run.ts`:
 
 - `executeDiscoveryRun` — fires `executeDiscovery` (api-routes orchestrator) with Gemini-backed seed/embed/probe/classifyDomains deps, writes the `discovery.basket-divergence` insight, and hands off to `RunCoordinator.onRunCompleted` so Aero wakes up with a bucket-count payload. Forwards the run's resolved `locations` into `executeDiscovery` → `deps.seed`.
-- `classifyDomains` is one plain-text `generateText` call per session; `buildClassificationPrompt` / `parseClassificationResponse` are exported pure helpers that build the `domain => category` prompt and forgivingly parse the model's reply into a `DiscoveryDomainClassification`.
-- `buildSeedPrompt` / `buildLocationConstraint` are exported pure helpers that build the Gemini seed prompt — when locations are present they geo-constrain the prompt and (for 2+ locations) add a per-area seed quota of `floor(DEFAULT_SEED_COUNT / locationCount)`.
+- `classifyDomains` is one plain-text generation per session; `buildClassificationPrompt` / `parseClassificationResponse` are private helpers that build the `domain => category` prompt and parse the reply. Without a role override it retains the native Gemini adapter. `classification.provider` / `classification.model` independently selects a pi generative classify model, including OpenRouter using its shared credential. Sweep, query-class, mention and citation decisions do not inherit that role. The session's competitor-map JSON freezes evaluator provider, requested model, prompt version and nullable served model beside each category; historical entries omit it. pi's normalized generative model ID is requested provenance, so served model stays null unless transport supplies it literally.
+- `buildSeedPrompt` / `buildLocationConstraint` are private helpers that build the Gemini seed prompt — when locations are present they geo-constrain the prompt and (for 2+ locations) add a per-area seed quota of `floor(DEFAULT_SEED_COUNT / locationCount)`.
 - The probe dep computes BOTH signals from the normalized result: `citationState` from cited domains AND `answerMentioned` from the answer text via the shared `determineAnswerMentioned` (brand names from `effectiveBrandNames`, domains from `canonicalDomains`) — same helper the answer-visibility writer uses, so discovery and sweeps agree on "mentioned".
-- The embed dep wraps `embedQueries` in `embedWithRetry` (exported, testable) — shared `withRetry` + `isRetryableHttpError` with a per-attempt wall-clock timeout, so a transient blip between the two paid grounded phases no longer fails the session while a permanent 4xx still does.
-- `buildDefaultDeps` is exported for unit-testing `probe()` offline.
+- The embed dep wraps `embedQueries` in private `embedWithRetry` — shared `withRetry` + `isRetryableHttpError` with a per-attempt wall-clock timeout, so a transient blip between the two paid grounded phases no longer fails the session while a permanent 4xx still does.
+- `buildDefaultDeps` is internal. Exercise Discovery through `executeDiscoveryRun`, migrated SQLite, registered public SPI adapters, and the installed embedding SDK at the fetch boundary; keep literal model-request and persisted-result oracles.
 
 `src/commands/discover.ts` — discovery commands:
 
@@ -561,10 +693,12 @@ Direct and reviewed requests submit final query text: a scope only records a mar
 - `ga ai-referral-history` (raw per-landing-page detail rows, never a total)
 - `ga social-referral-history`, `ga social-referral-summary`, `ga attribution`
 - `ga traffic` prints each referral row's `share` and each top page's `organicShare` as the API sent them (the dashboard's Share and Organic % columns).
+- `ga search-landing-pages` (GA4's Search Console landing-page report, `--window 7d|28d|90d`, no `--start` / `--end`: every figure is GA4-computed for a stored window ending yesterday in the property time zone). The human table prints the API's `total` (GA4's own Total) FIRST and never sums the rows shown; a null CTR or position prints `n/a`, never 0. A non-`ready` status prints its own line above the table and says the snapshot shown is the last good one. The "no Google organic search traffic" hint reads the Total through `gaSearchLandingHasSearchData` (0 clicks and 0 impressions), as the dashboard does, never the row count. `ga sync --only search-landing` refreshes only that slice.
 
 Date windows and headers:
 
 - Every date-scoped read (`ga traffic`, `ga session-history`, `ga ai-referral-daily`, `ga ai-referral-history`, `ga social-referral-history`) takes `--window` OR the explicit `--start` / `--end` calendar bounds (`YYYY-MM-DD`, inclusive). `--window` is rolling from now and cannot name a calendar month, so a monthly client total had to be hand-filtered out of a wider pull before. Explicit dates win over `--window`, and both are forwarded verbatim so the server (`resolveDateRange` in contracts) is the single place that decides. An unrecognised `--window` is rejected, not silently widened to the full history.
+- `ga overview` takes `--window 7d|30d|90d` and no calendar bounds: it reads GA4's own totals for a fixed window of complete days ending yesterday and for the period before it, which the sync stores per window (`WINDOW_SETS.gaOverview`).
 - `ga attribution` and `ga social-referral-summary` print `windowLine` — the measured window and its day count — ABOVE the numbers rather than as a trailing `Period:` footer, and carry `windowStart` / `windowEnd` / `windowDays` in `--format json`. Both render percentages that are only meaningful against that window, and a reader who meets "Direct 69%" before the period has already formed a view of the business by the time a footer tells them what it covers.
 
 ### Google Business Profile
@@ -637,9 +771,22 @@ Insight date ranges:
 
 ### Server-side traffic
 
+`traffic analytics <project> --period 7|14|30|90` reads complete stored aggregates
+through `ApiClient.getTrafficAnalytics`; omitted period is 30 days. JSON and
+JSONL preserve `TrafficAnalyticsResponse`. A null activity means no source;
+connected sources without events return stored aggregate zeros, not proof of
+sync or measurement coverage. Preserve `coverageStart` and `priorWindowComplete`:
+the latter tests whether the earliest project observation reaches the prior
+window's start; incomplete prior recording withholds all `deltaPct` values.
+Neither field proves continuous or matching source coverage. Keep server-owned
+counts, prior-window changes, verification and arrival-class splits. This is a
+project-wide read for Simple and Advanced, with no Property/Target/market
+attribution and no provider calls or sync.
+
 `src/commands/traffic.ts` — server-side traffic commands: pull-source connects for Cloud Run / WordPress / Vercel plus local-only `traffic connect cloudflare` for direct push or Queue pull.
 
 - Cloudflare writes secret-free `worker.js` / `wrangler.toml` artifacts and safely updates recognizable generated files.
+- `--forward-page-views` / `--no-forward-page-views` set the source's page-view forwarding (neither flag keeps it on a reconnect); deploy preflight bundle-checks that Worker variant.
 - Queue tokens are accepted only through `--api-token-file` and remain in local config; direct deployment installs bearer/HMAC through a mode-0600 temporary file, while Queue deployment uses only a producer binding and requires a separate `wrangler queues consumer http add <queue>` step.
 - Both require `--zone-id --confirm-route --confirm-fail-open`, deploy no route, and require explicit `traffic activate` cutover when staged.
 - Other commands: `traffic sync`, async `backfill`, explicit `reset --advance-to-now`, `sources`, `status`, and windowed `events`.
@@ -648,6 +795,25 @@ Insight date ranges:
 
 - Cloudflare direct bearer/HMAC and Queue API tokens stay only in local config; generated source/TOML, stdout, API descriptions, and transcripts must never contain them.
 - Entries are keyed by source ID so a paused staged mode can coexist with the active source.
+- Credential selection tests use multiple valid projects with distinct secrets and
+  a populated unknown lookup. Initial upserts assert the complete stored record;
+  keep legacy-mode, Queue validation, staged-source, and deletion contracts here.
+
+### AI visitor journeys
+
+`src/commands/journeys.ts`: `journeys summary`, `journeys list` and `journeys show`
+read stored journeys through `journeysSummary`, `journeysList` and `journeyGet`
+(MCP: `canonry_journeys_summary`, `canonry_journeys_list`, `canonry_journey_get`).
+JSON is the API DTO; `list --format jsonl` streams visitors with project and
+window context. Human output shows the short device label, not the full user
+agent, except `show`, which prints both. Say when visitors are keyed by user
+agent only.
+
+`src/journey-secret.ts`: `resolveJourneyKeySecret` picks the HMAC secret for
+visitor keys: `CANONRY_JOURNEY_KEY_SECRET` (at least 32 characters), then
+`journeys.visitorKeySecret`, else it generates one and saves it with
+`saveConfigPatch`. `serve` resolves it, never `createServer`, so test servers do
+not write to the active config. Never print the secret.
 
 ### Backlinks
 
@@ -671,6 +837,12 @@ Insight date ranges:
   (`src/agent/mcp-to-agent-tool.ts`) in every scope and profile. Do not use
   this setting for any other authorization. See `docs/deployment.md`.
 
+- `CANONRY_AGENT_REASONING` overrides `agent.reasoning` (Aero's reasoning
+  level). Unset, the model's default comes from `defaultAgentReasoning` in
+  `src/agent/providers.ts` (`PROVIDER_DEFAULT_REASONING`; an OpenRouter model
+  takes its direct provider's level); an unknown env value is ignored.
+  Resolved by `resolveAgentReasoning` in `src/agent-config.ts`.
+
 - `CANONRY_AGENT_ALLOW_VIEWERS` overrides `agent.allowViewers` (default off).
   When on, signed-in viewers use Aero through `ViewerAeroSessions`
   (`src/agent/viewer-sessions.ts`): their own in-memory conversation and a
@@ -690,6 +862,9 @@ Insight date ranges:
   safe provider catalog, and `access` metadata as REST; explicit read-only
   endpoints/flags never expose the research-start tool.
 
+- `competitor aliases <project> <domain>` reads or edits one competitor's curated answer-text names: `--set`/`--clear` write the exact list (`PUT .../aliases`); `--add` alone appends server-side in one call (`POST /competitors` with `{ domain, aliases }`), so concurrent adds never overwrite each other; `--remove` reads, edits and writes the list back, so an edit another client makes between that read and write is lost (documented in the CLI reference). `competitor add --alias` (one domain only) adds names on create; its JSON carries the aliased competitor as `competitor` (a `CompetitorDto`). `aliases` JSON output is the API's `CompetitorDto`. MCP twins: `canonry_competitors_aliases_set`, and `canonry_competitors_add` with `{ domain, aliases }` entries.
+- Answer-derived auto aliases: the read form of `competitor aliases <project> <domain>` prints curated names, auto-detected names with their evidence, and blocked names; `--block <name>` / `--unblock <name>` (repeatable, never combined with curated edits) call `POST .../aliases/block` / `.../unblock`. `competitor aliases detect <project> [--apply]` is the stored-evidence dry run (`GET /competitor-auto-aliases`) or the apply-now pass (`POST`, which stores in every `competitorAutoAliases` mode); `project update --competitor-auto-aliases <off|preview|apply>` sets the mode and `project show` prints it; `jsonl` streams one competitor per line with `project` and `applied`. `detect` is a reserved first positional (longest path wins), so a project literally named "detect" reads its names through `competitor list`. MCP twins: `canonry_competitors_auto_aliases_detect` (read), `canonry_competitors_auto_aliases_apply`, `canonry_competitors_aliases_block`, `canonry_competitors_aliases_unblock`.
+- Measured competitor growth over five new or recent domains in 24 hours is refused unless the operator sends `--acknowledge-bulk-add` or the equivalent REST or MCP field. The shared guard counts only new retained domains, reports its `limit`, `count` and `acknowledgementRequired` fields in explicit change previews, and bypasses projects with no completed or partial non-probe answer-visibility run. Apply and discovery promote are outside this guard.
 - `competitor landscape --by-model` reads stored requested-model groups.
   Keep served identity separate. A model filter requires a provider.
   JSONL preserves the complete response as one compact document.
@@ -726,6 +901,7 @@ top-level envelope:
   "os":          "darwin",
   "arch":        "arm64",
   "errorCode":   "NO_PROVIDERS",     // present only when the event represents a failure
+  "environment": ["container"],      // automation or development markers; absent for an ordinary install
   "properties":  { ... }
 }
 ```
@@ -748,20 +924,34 @@ top-level envelope:
 |-------|-----------|-------|
 | `cli.command` | `{ command, setup_state?, agent, interactive }` | Fires on every CLI invocation except `telemetry` and `--help`. `setup_state: { provider_count, has_keywords, project_count, is_first_run }` lets the receiver cohort by configured / not-configured. `agent` and `interactive` (`cliRuntimeContext`, `src/runtime-context.ts`) also ride `cli.command.finished`, `cli.init`, and `serve.started`: `agent` is the coding agent from `detectAgentRuntime` in contracts (`claude`, `codex`, `cursor`, `gemini`, ..., or `none`; `CANONRY_AGENT` overrides), `interactive` is true when stdin and stdout are both terminals. An absent `agent` means a client older than the field. |
 | `cli.command.finished` | `{ command, success, duration_bucket, setup_state? }` | Terminal command outcome. Command is resolved from the registered command catalog; raw argv and exact duration are never sent. Failures use top-level stable `errorCode`. |
-| `cli.init` | `{ providerCount, providers, setup_state?, googleConfigured, agentConfigured, setupState, skillsInstalled }` | Fires after successful `canonry init`; `setup_state` is the post-init snapshot. `setupState` is retained temporarily for report compatibility. |
+| `cli.init` | `{ providerCount, providers, setup_state?, googleConfigured, agentConfigured, setupState, skillsInstalled, installSource?, installRef? }` | Fires after successful `canonry init`; `setup_state` is the post-init snapshot. `setupState` is retained temporarily for report compatibility. |
 | `cli.upgraded` | `{ fromVersion, toVersion }` | Fires once when the on-disk `lastSeenVersion` differs from the running build. Suppressed on a fresh install (no prior version recorded). |
-| `serve.started` | `{ providerCount, providers }` | Fires after `canonry serve` opens its listener; this is also when `source` flips to `cli-server`. |
-| `run.completed` | `{ status, providerCount, providers, queryCount, durationMs, trigger?, domainHash?, phases?, location? }` | `trigger` mirrors `runs.trigger` (`manual` / `scheduled` / `config-apply`). `domainHash` = SHA-256 of the project canonical hostname (no raw domains stored). `phases = { setup_ms, provider_call_ms, total_ms }`. Failures additionally set top-level `errorCode` from `RunErrorCode` (`PROJECT_NOT_FOUND` / `RUN_NOT_FOUND` / `RUN_NOT_EXECUTABLE` / `NO_PROVIDERS` / `QUOTA_EXCEEDED` / `RUN_CANCELLED` / `PROVIDER_ERROR` / `INTERNAL`). |
+| `serve.started` | `{ providerCount, providers, installSource?, installRef? }` | Fires after `canonry serve` opens its listener; this is also when `source` flips to `cli-server`. `installSource` is how this copy was installed (`npm`, `homebrew`, `docker`, `source`); `installRef` is the first campaign tag the install arrived with (`--ref` on `init`/`bootstrap`, or `CANONRY_REF`), kept in config and never overwritten. |
+| `run.completed` | `{ status, providerCount, providers, queryCount, durationMs, trigger?, domainHash?, phases?, location?, providerOutcomes?, providerHttpStatus?, failureStreak?, sampleRate?, errorName?, errorSysCode?, errorSite?, providerCalls?, usage?, providerLatencyMs? }` | `trigger` mirrors `runs.trigger` (`manual` / `scheduled` / `config-apply`). `domainHash` = SHA-256 of the project canonical hostname (no raw domains stored). `phases = { setup_ms, provider_call_ms, total_ms }`. A run where providers failed sets top-level `errorCode` to the most actionable `ProviderErrorCode` (`PROVIDER_AUTH` > `PROVIDER_BILLING` (402 / out of credit / exhausted quota; Gemini's `RESOURCE_EXHAUSTED` limits stay `RATE_LIMITED`) > `RATE_LIMITED` > `PROVIDER_UNAVAILABLE` (5xx / overloaded) > `TIMEOUT` > `NETWORK` > `PARSE_ERROR` > `UNKNOWN`), plus `providerOutcomes` (`{ <provider>: 'ok' \| 'skipped' \| <code> }`) and `providerHttpStatus` (`{ <provider>: <status> }`, only for failures whose message carried one). `skipped` is a provider the run did not call because it keeps failing on its account (`runs.skipped_providers`); the run is partial, and `errorCode` counts it with that account code. An exception that escapes the runner itself sets `errorCode` `INTERNAL` with `errorName` (class name), `errorSysCode` (e.g. `SQLITE_BUSY`) and `errorSite` (`setup` / `provider_call` / `finalize`); `UNKNOWN` therefore means only provider text that matched no pattern. `cancelled` uses `RUN_CANCELLED`, a server restart `SERVER_RESTARTED`. Failed and partial runs carry `failureStreak` (failed/partial runs of the same kind created before this one, in a row, per project; probes excluded, other kinds and pre-provider aborts skipped; capped at 50); from a streak of 5 on, only a stable 1-in-20 sample by run id is sent, stamped `sampleRate: 20` so analysis can weight it back up. `providerCalls` counts saved answers per provider, `usage` is `{ inputTokens?, outputTokens?, costMicros? }` (cost only when every answer was priced), and `providerLatencyMs` the median sync-call latency per provider. Raw error text is never sent. Composed in `src/run-telemetry.ts`. |
 | `onboarding.started` | `{ flowVersion, onboardingSessionId, step, resumed }` | Dashboard setup entry/resume. Accepted through the strict `/api/v1/telemetry/onboarding` contract; the browser-generated top-level `eventId` is preserved across one delivery retry. |
 | `onboarding.step_completed` | `{ flowVersion, onboardingSessionId, step, method, countBucket? }` | Durable setup milestone; raw domains, queries, and keys are forbidden by the contract. |
 | `onboarding.blocked` | `{ flowVersion, onboardingSessionId, step, action, reasonCode }` | Stable recovery point and low-cardinality blocker. |
+| `ui.page_viewed` | `{ uiSessionId, page, tab? }` | Dashboard page view, at most once per (page, tab) per browser-tab session. `page` is the router PATTERN from `UI_PAGES` (`/projects/:projectName/report`), never a real URL or name; `tab` is the project section from `UI_PROJECT_TABS`. Accepted through the strict `/api/v1/telemetry/ui` contract (`uiTelemetryEventSchema`); `source` is `dashboard`, and the browser `eventId` is the idempotency key. |
+| `ui.action` | `{ uiSessionId, page, tab?, action, integration?, format?, filter? }` | Key feature use, from the closed `UI_ACTIONS` enum. Writes are derived in one place: a successful dashboard API call whose method and route TEMPLATE (and, for the project upsert, status: 201 create, 200 update) are in `ACTION_BY_ROUTE` (`apps/web/src/lib/ui-telemetry.ts`); downloads and Aero call `trackUiAction` directly. An OAuth start is `integration.connect_started`; `integration.connect` means confirmed (credentials accepted, or a property / account chosen). `filter.change` (with `filter`: provider, model, location, window, query_class, other) is one event per settled change of a shared filter, from the URL filter params on the same page or the shared window picker; `search.submit` is a settled non-empty table search (or Enter). Neither ever carries the value or text. |
+| `ui.error` | `{ uiSessionId, page, tab?, kind, component?, errorName?, route?, method?, statusClass?, status? }` | `kind`: `render` (error boundary), `unhandled` (window error / rejection), `api` (a failed dashboard API call, by route template). Only unexpected 4xx, every 5xx, and network failures: 401 and the statuses in `EXPECTED_STATUSES` (no schedule yet, measurement-draft conflicts, a gone audit run, a taken project name) are normal outcomes. Class names and templates only: never messages, stacks or URLs. Deduped per session. |
+| `ui.vitals` | `{ uiSessionId, page, tab?, metric, rating }` | LCP, INP, CLS, FCP, TTFB rated good / needs-improvement / poor (web.dev thresholds), once per metric per page load, attributed to the page (and its project `tab`) the document LANDED on (queued until the first route resolves). CLS is the largest session window; INP counts only entries with an `interactionId`. |
+
+`ui.error.route` must pass `isUiApiRouteTemplate` (contracts `ui-telemetry.ts`): the collector's shape rule, at most 160 characters, and after an id collection (`UI_ROUTE_ID_COLLECTIONS`) only a `{param}` or a listed fixed child (`UI_ROUTE_FIXED_CHILDREN`). Both sets are mirrored by value in canonry.ai `lib/telemetry/validation.ts` and canonry-telemetry `lib/metrics.py`. **Adding an API path:** `packages/api-routes/test/ui-telemetry-route-templates.test.ts` checks every OpenAPI path against the rule; if yours fails, add its fixed sub-path to the contracts sets and to both mirrors in the same change.
+
+`/api/v1/telemetry/ui` answers `accepted: false` while telemetry is effectively off (config, DO_NOT_TRACK, CI, env) or past its per-process cap (`createUiTelemetryGate`: a burst of 60 refilling one a second, and 600 an hour), and the dashboard then stops sending for the tab session. The dashboard also caps itself at 30 a minute and 120 an hour per tab (the hour persisted in sessionStorage), and sends with `keepalive` so events flushed on page hide are delivered. The dashboard adds `tab` to EVERY event sent from a project page, so every `ui.*` shape accepts it. The route is `readSemantic` (it writes nothing on the install), so a signed-in view-only account's dashboard reports usage too; a read-only API key is still refused, and so is a viewer's `PUT /telemetry`.
+| `run.aborted` | `{ reason, providerCount, providers, trigger?, domainHash?, location?, queryCount?, durationMs?, phases?, providerOutcomes? }` | A sweep that ended or never started without reaching provider work. The job runner sends `no_provider`, `project_not_found`, `quota_exceeded`, `run_not_found` and `run_not_executable` for a setup abort (the run row is still `failed`). The scheduler sends `providers_failing` (top-level `errorCode` `PROVIDERS_FAILING`, `providerOutcomes` each provider's account code, `buildRunRefusedProps`) when it skips a slot because every provider keeps failing on its account: once per refusal, with its `run.refused` audit row, not once per slot. |
 | `run.requested` | `{ flowVersion, onboardingSessionId, origin, result, kind?, providerCountBucket, queryCountBucket, reasonCode? }` | Setup launch attempt, including synchronous rejection. `kind` is `answer_visibility` or `site_health`; absent on older clients means `answer_visibility`. |
 | `activation.completed` | `{ flowVersion, kind, status, providerCountBucket?, queryCountBucket?, snapshotCountBucket?, pagesAuditedBucket? }` | Once per project per `kind`. `answer_visibility` (with the provider/query/snapshot buckets): the first non-probe answer-visibility run that persists at least one snapshot. `site_health` (with `pagesAuditedBucket`): the first site audit that scores at least one page. Events without `kind` predate the field and are `answer_visibility`. |
-| `site_audit.completed` | `{ status, durationMs, trigger?, domainHash?, complete?, termination?, pagesDiscovered?, pagesFetched?, pagesAudited?, pagesErrored?, aggregateScore?, pageBudget?, checkDeadLinks?, deadLinksFound? }` | Every terminal Technical AEO / Site Health crawl (`executeSiteAudit`), manual or scheduled. Crawl counts are present only for `completed` / `partial`; `aggregateScore` only when a page was audited; `deadLinksFound` only when the run checked dead links. Failures set top-level `errorCode` `UNKNOWN`, cancellations `RUN_CANCELLED`. A crawl interrupted by a server restart is reported at the next boot by `JobRunner.recoverStaleRuns` as `failed` with `errorCode` `SERVER_RESTARTED` (no crawl counts; `durationMs` spans the downtime). Composed by `buildSiteAuditCompletedProps` in `src/run-telemetry.ts`. |
-| `traffic.synced` | `{ status, sourceType, sourceId, pulledEvents, selfTrafficExcluded, crawlerHits, aiReferralHits, durationMs }` | Every server-side traffic sync. Failures set top-level `errorCode`. |
-| `api.request` | `{ surface, agent, method, route, statusClass, durationBucket, mcpClient?, mcpTool?, mcpCallId?, droppedBefore? }` | Server-side, one per API request from an AGENT SURFACE: `mcp-stdio`, `mcp-http`, `aero`, or a raw `api` caller. CLI requests (already `cli.command`) and dashboard requests (polling) are skipped, as are health, OpenAPI, and telemetry routes. `route` is the template, never a URL. `surface` comes from the `x-canonry-surface` label a first-party `ApiClient` sends (`ApiClientOptions.surface`), else the user agent. `agent` is the client's env-detected agent, falling back to the MCP client name. Clients the server builds for itself (hosted MCP, Aero) send no env-detected agent, because whichever agent launched `canonry serve` is not their caller. Scheduler callbacks (data refresh, traffic sync, doctor, backlinks) use a separate unlabelled `schedulerClient`, so automation is never reported as Aero traffic. `mcpTool` / `mcpCallId` come from `runWithUsageTags`, which the MCP server and Aero wrap around every tool call; group by `mcpCallId` to count tool calls. Capped per process by a token bucket (burst 20, one token per 10s, so at most ~360/hour); suppressed requests are reported as `droppedBefore` on the next event. The cap is sized to the canonry.ai collector's per-IP limit (100/minute, 1,000/hour), past which it drops every event from that IP; do not raise one without the other. Built by `createApiUsageTelemetry` (`src/usage-telemetry.ts`) from the `onRequestCompleted` api-routes hook. The labels are caller-controlled, validated to enums/slugs, and never identity. |
+| `site_audit.completed` | `{ status, durationMs, trigger?, domainHash?, complete?, termination?, pagesDiscovered?, pagesFetched?, pagesAudited?, pagesErrored?, aggregateScore?, pageBudget?, checkDeadLinks?, deadLinksFound? }` | Every terminal Technical AEO / Site Health crawl (`executeSiteAudit`), manual or scheduled. Crawl counts are present only for `completed` / `partial`; `aggregateScore` only when a page was audited; `deadLinksFound` only when the run checked dead links. Failures set top-level `errorCode` `INTERNAL` with `errorName` / `errorSysCode` (no message text), cancellations `RUN_CANCELLED`. A crawl interrupted by a server restart is reported at the next boot by `JobRunner.recoverStaleRuns` as `failed` with `errorCode` `SERVER_RESTARTED` (no crawl counts; `durationMs` spans the downtime). Composed by `buildSiteAuditCompletedProps` in `src/run-telemetry.ts`. |
+| `traffic.synced` | `{ status, sourceType, sourceId, pulledEvents, selfTrafficExcluded, crawlerHits, aiUserFetchHits, aiReferralHits, durationMs }` | Every server-side traffic sync. Failures set top-level `errorCode`: `PROVIDER_AUTH` (a credential that will not resolve, or a Vercel 401/403: token rejected or lacking team/project/plan access), `PROVIDER_PULL` (any other pull failure), `INTERNAL`. |
+| `api.request` | `{ surface, agent, method, route, statusClass, durationBucket, mcpClient?, mcpTool?, mcpCallId?, droppedBefore? }` | Server-side, one per API request from an AGENT SURFACE: `mcp-stdio`, `mcp-http`, `aero`, or a raw `api` caller. CLI requests (already `cli.command`) and dashboard requests (polling) are skipped, as are health, OpenAPI, and telemetry routes and the Cloudflare Worker's ingest push. `route` is the template, never a URL. `surface` comes from the `x-canonry-surface` label a first-party `ApiClient` sends (`ApiClientOptions.surface`), else the user agent. `agent` is the client's env-detected agent, falling back to the MCP client name. Clients the server builds for itself (hosted MCP, Aero) send no env-detected agent, because whichever agent launched `canonry serve` is not their caller. Scheduler callbacks (data refresh, traffic sync, doctor, backlinks) use a separate `schedulerClient` labelled `system`, which outcome events read as the server acting alone; `api.request` sees its CLI user agent and skips it, so automation is never reported as Aero traffic. `mcpTool` / `mcpCallId` come from `runWithUsageTags`, which the MCP server and Aero wrap around every tool call; group by `mcpCallId` to count tool calls. Failed requests carry top-level `errorCode`, the stable code from the error body. Capped per process by two token buckets, one for successes and one for failures so errors are never starved (each burst 20, one token per 10s, so at most ~720/hour); suppressed requests are reported as `droppedBefore` on the next event from the same bucket. The cap is sized to the canonry.ai collector's per-IP limit (100/minute, 1,000/hour), past which it drops every event from that IP; do not raise one without the other. Built by `createApiUsageTelemetry` (`src/usage-telemetry.ts`) from the `onRequestCompleted` api-routes hook. The labels are caller-controlled, validated to enums/slugs, and never identity. |
 | `mcp.session.started` | `{ surface, agent, mcpClient? }` | Once per MCP connection (keyed by the client's `x-canonry-actor-session` correlation value), on its first tool call, which is the first request that carries the MCP client name. |
-| `telemetry.disabled` | `{ method }` | The last event an install sends, so the opt-out rate is measurable. Whether to send it is decided while telemetry is still on; it is sent only after the opt-out is written, so an opt-out that could not be persisted (read-only config) is never announced. `method` is `cli` (`canonry telemetry disable`) or `api` (`PUT /telemetry`: dashboard checkbox, settings, MCP, or `--target server`). Not sent when telemetry is already effectively off, including env overrides. All preference writes go through `setTelemetryPreference` in `src/telemetry.ts`; the CLI awaits delivery so process exit cannot drop it. |
+| `telemetry.disabled` | `{ method, surface, agent? }` | The last event an install sends, so the opt-out rate is measurable. `surface` and `agent` say who turned it off: the CLI and its detected agent, or the request's surface and agent as `api.request` classifies them. Whether to send it is decided while telemetry is still on; it is sent only after the opt-out is written, so an opt-out that could not be persisted (read-only config) is never announced. `method` is `cli` (`canonry telemetry disable`) or `api` (`PUT /telemetry`: dashboard checkbox, settings, MCP, or `--target server`). Not sent when telemetry is already effectively off, including env overrides. All preference writes go through `setTelemetryPreference` in `src/telemetry.ts`; the CLI awaits delivery so process exit cannot drop it. |
+| `integration.connection` | `{ integration, provider?, action, status, reasonCode?, errorName?, target?, surface?, agent?, durationBucket?, attempt?, first? }` | One per connect, disconnect, test, reauth or select attempt for any integration (answer-engine providers, Search Console, GA4, Bing, Business Profile, Google Ads, GTM, OpenAI Ads, traffic sources, WordPress, backlinks, webhooks, agent webhooks, CDP). `started` marks a multi-step flow (an OAuth redirect) whose result arrives later. A failed or cancelled attempt always carries a `reasonCode`. `first` marks the install's first success of its kind. |
+| `feature.completed` | `{ feature, operation, status, trigger?, surface?, agent?, reasonCode?, errorName?, durationBucket?, counts?, target?, eventType?, statusClass?, provider?, model?, modelProvider?, sampleRate?, droppedBefore?, domainHash?, first? }` | One per job, sync, delivery, agent turn or other operation, for every feature in `FEATURE_OPERATIONS`. `counts` holds up to 12 integer results from `OUTCOME_COUNT_KEYS` (rows synced, links found, model and tool calls, tokens, cost in micro-USD). Anything but `succeeded` carries a `reasonCode`. High-volume operations (webhook deliveries, traffic push ingest) go through `createOutcomeSampler`, and `droppedBefore` keeps totals reconstructable. |
+| `install.state` | `{ providers, integrations, counts, usage24h, providerCalls24h?, agentProvider?, agentModel?, uptimeBucket?, installSource?, installRef? }` | One per running server per day: which providers and integrations are set up, setup counts, and 24-hour usage totals (sweeps, audits, answer-engine provider calls, tokens and cost, Aero turns and LLM usage, webhook deliveries). It shows headless installs and separates churn from silence. |
+
+The three outcome events go through the helpers in `src/outcome-telemetry.ts` (`app.emitOutcome` in api-routes), never `trackEvent`: they validate against contracts `outcome-telemetry.ts`, where a new feature, operation, integration, count or reason is added, and carry reason codes, never messages.
 
 A new event name must also be added to `ALLOWED_EVENTS` in the canonry.ai collector (`lib/telemetry/validation.ts`) before it ships; the collector rejects unknown names with a 400, and `trackEvent` never surfaces that failure. Property values must be string, number, boolean, string array, or a flat object: `null` rejects the whole event.
 
@@ -805,10 +995,12 @@ JSONL records keep their check's `details.months`. Report advisories have
 `notificationPolicy: silent` and cannot change operational health signatures or
 produce degraded/recovered notifications; the scheduled health pass does not run
 them at all (`scheduledHealthCheckIds`), and a crashed advisory reports `warn`,
-so it never sets a failing exit code. See `api-routes/src/doctor/AGENTS.md`.
+so it never sets a failing exit code. The standing advisories
+`content.winnability.coverage` and `traffic.source.cache-blindspot` carry the
+same policy. See `api-routes/src/doctor/AGENTS.md`.
 ### Sentiment worker
 
-`sentiment-worker.ts` owns all TypeSafe I/O; classifier calls are single attempts and durable scheduling owns retries. Both `sentiment.enabled` in private install config and project sentiment settings default off. `TYPESAFE_API_KEY` and `CANONRY_SENTIMENT_ENABLED` override the private YAML configuration. `sentiment-config.ts` rereads it immediately before dispatch so disabling does not require restarting the server. Only an explicit disable cancels; an invalid or unreadable file holds dispatch as `invalid-config`, and a missing key or unsupported model holds the same way. `saveConfigPatch` never writes `sentiment`, because config.yaml is its only source. A definition frozen under an earlier request template (`hasCurrentSentimentTemplate` in contracts) admits and dispatches nothing until the project is configured again. Only `jev-1.13.0` is ready. The coordinator only wakes the worker; startup/poll reconciliation reads completion receipts atomically persisted by the initial success and fill transactions, including superseded fills. Install suspension persists cancellation and a resume boundary; reenablement never revives old selections. Shared SQLite leases and attempt reservations bound concurrent requests and input tokens across projects. Each actual attempt has a receipt and reported usage goes directly to `llm_usage_events` as `typesafe`/`sentiment`; unknown remote billing stays unknown. No secret reaches these records. A crash can require another billed attempt; successful result uniqueness is not exactly-once external billing. A 429 pauses dispatch for every project for 30-60s, doubling with each further 429 up to 15-30 min (a longer Retry-After wins). A 401/403 pauses it until the configured key changes, with one probe request per hour. Neither refusal counts against `maxAttempts`. When a pause ends, one probe request goes first, and a success releases the pause only if it was sent after the pause began. Reconciliation keeps a per-project receipt cursor, so each completion is selected once. Claims take automatic work before backfills and rotate across projects.
+`sentiment-worker.ts` owns direct TypeSafe and pi OpenRouter Jev classification; classifier calls are single attempts and durable scheduling owns retries. Both `sentiment.enabled` in private install config and project sentiment settings default off. `TYPESAFE_API_KEY` and `CANONRY_SENTIMENT_ENABLED` override the private YAML configuration. `sentiment-config.ts` rereads it immediately before dispatch so disabling does not require restarting the server. Only an explicit disable cancels; an invalid or unreadable file holds dispatch as `invalid-config`, and a missing key or unsupported model holds the same way. `saveConfigPatch` never writes `sentiment`, because config.yaml is its only source. A definition frozen under an earlier request template (`hasCurrentSentimentTemplate` in contracts) admits and dispatches nothing until the project is configured again. `sentiment.provider` selects direct TypeSafe (`jev-1.13.0`) or OpenRouter (`typesafe/jev-1.13`, requiring served snapshot `typesafe/jev-1.13-20260917`). The routed evaluator uses the shared OpenRouter key and connection gate, rereads configuration after queued waits, and preserves literal served-model and usage metadata through pi’s transport observer. A route change holds the old frozen definition until project reconfiguration starts a new epoch. The coordinator only wakes the worker; startup/poll reconciliation reads completion receipts atomically persisted by the initial success and fill transactions, including superseded fills. Install suspension persists cancellation and a resume boundary; reenablement never revives old selections. Shared SQLite leases and attempt reservations bound concurrent requests and input tokens across projects. Each actual attempt has a receipt and reported usage goes directly to `llm_usage_events` under the frozen `typesafe` or `openrouter` evaluator provider with kind `sentiment`; unknown remote billing stays unknown. No secret reaches these records. A crash can require another billed attempt; successful result uniqueness is not exactly-once external billing. A 429 pauses dispatch for every project for 30-60s, doubling with each further 429 up to 15-30 min (a longer Retry-After wins). A 401/403 pauses it until the configured key changes, with one probe request per hour. Neither refusal counts against `maxAttempts`. When a pause ends, one probe request goes first, and a success releases the pause only if it was sent after the pause began. Reconciliation keeps a per-project receipt cursor, so each completion is selected once. Claims take automatic work before backfills and rotate across projects.
 
 ### Sentiment CLI
 
@@ -817,7 +1009,9 @@ stored sentiment surface through typed ApiClient/SDK calls. `sentiment <project>
 reads one page of the summary (`--query-limit`, `--query-cursor`; per-engine and
 location detail with `--include assessments,locations`); subcommands are settings,
 configure, evidence, compare, backfill, jobs and job (`--attempt-limit`,
-`--attempt-cursor`). A backfill preview requires `--query-class`. JSON preserves the API DTO unchanged. Evidence JSONL preserves the
+`--attempt-cursor`). A backfill preview requires `--query-class`. `sentiment evidence --outcome mixed,unfavorable`
+narrows evidence to those outcomes; text summaries print the server's "Most criticized properties"
+for branded reads, and `overview` prints the branded sentiment headline. JSON preserves the API DTO unchanged. Evidence JSONL preserves the
 page envelope because empty state, resolved evaluator and cursor belong together;
 jobs JSONL streams project-stamped job summaries.
 
@@ -831,3 +1025,70 @@ identity. Summary and evidence accept repeatable `--run-ids` for the exact group
 location runs, mutually exclusive with `--run-id`; backfill keeps its existing
 repeatable `--run-id` syntax. Favorable % uses favorable / (favorable + mixed + unfavorable), excluding
 factual and unjudged assessments.
+
+`traffic samples` reads stored diagnostic evidence through `trafficListSamples`.
+JSON is the API DTO; JSONL streams samples with project and window context. Human
+output must distinguish sample rows from visits and the all-kind 24-hour sample
+count shown by `traffic status`.
+
+`ga acquisition` reads grouped stored sessions through `gaAcquisition`. Explicit
+dates follow `resolveDateRange`; omitted window means all history. JSON preserves
+the API envelope and JSONL stamps each grouped row with project and window bounds.
+
+### Stored read window grammar
+
+`CliCommandSpec.windows` selects a tuple from contracts `WINDOW_SETS`.
+`windowOptions` and `readWindowOptions` normalize positive bare day counts or
+lowercase `Nd` before creating an API client. The allowed sets stay specific to
+the stored source. `windowAliases` retains period/from/to/start-date/end-date
+flags and rejects mixed alias/canonical input. `commandUsage` renders each full
+set for contextual help. Calendar dates retain `resolveDateRange` validation;
+Google performance `--days` remains a separate span from `--window`.
+
+### Config apply preview
+
+`canonry apply --dry-run` calls only `POST /api/v1/apply/preview` for each YAML
+document and reports the typed per-field diff. It never falls back to a write
+route when preview is unavailable. `canonry_apply_config_preview` is the
+read-only MCP twin; call it before `canonry_apply_config`.
+
+### Targeted project writes
+
+Project update flags use ApiClient PATCH with the loaded revision. Preserve omitted fields and validate explicit revision guards before writing. The legacy route-unavailable fallback re-reads before full PUT but cannot promise atomic conflict detection. Measurement flags normalize through the shared config schema. Native MCP `canonry_project_update` uses the same PATCH route.
+### Competitor import and completion
+
+`competitor import` validates curated JSON entries or line files before one append
+request, retaining each entry's aliases. Add, import and alias edits accept
+`--wait [--wait-timeout seconds]` for stored answer-field recomputation only.
+The optional project DTO mark is not an alias-detection completion signal.
+An omitted mark from an older server is reported after the committed write;
+it must not be treated as completed.
+
+### Stored operator read diagnostics
+
+Project status includes stored health in its aggregate state: fail is failing,
+warn is warning unless an integration is worse. Single-project JSONL emits one
+compact envelope; instance JSONL retains health-only rows. Explicit project
+`--problems` reads retain health and filter only integration rows.
+
+History errors reject empty filters before HTTP, instance rows retain their API
+project name, and `--all` cannot accompany a project. Stored sample/acquisition
+validation uses field-aware single-line errors. Sample dates mean UTC midnight.
+Calendar bounds and rolling windows are mutually exclusive CLI selections.
+
+Invocation-dependent commands use `CliCommandSpec.accessFor` for stored-only
+dispatch: competitor previews and alias reads/detection stay stored; actual
+mutations stay write. `get --from doctor` remains live. Access filters apply to
+both help forms, including parent-only roots, and are rejected on normal
+execution. A registered group with no matching access remains a valid empty
+catalog, not an unknown command.
+
+## SEO dispatch
+
+`seo-runtime.ts` executes durable SEO tasks after the listener binds. It reloads
+host configuration before submission, checks current policy and reserved pricing,
+renews task leases, and never resubmits uncertain requests. `JobRunner` skips
+`seo-sync` recovery; only `SeoRepository` owns those receipts and liabilities.
+Fleet tenants run this same `canonry serve` runtime. The lightweight `apps/api`
+entry point has saved reads but reports SEO execution unavailable without a runtime.
+SEO completion does not trigger Aero or another paid workflow.

@@ -15,7 +15,7 @@ OpenAI adapter — implements `ProviderAdapter` for OpenAI's Responses API using
 
 ## Patterns
 
-All provider packages follow the same 4-file structure and implement the same `ProviderAdapter` interface from `@ainyc/canonry-contracts`:
+All provider packages follow the same 4-file structure and implement the same `ProviderAdapter` interface from `@canonry/canonry-contracts`:
 
 - **`validateConfig(config)`** — verify API key and model are valid
 - **`healthcheck(config)`** — test connectivity to the provider
@@ -28,6 +28,8 @@ Retrieval contract: every tracked query runs `search-required-v1` (`OPENAI_RETRI
 
 Note: The OpenAI `web_search` API returns fewer/different results than the ChatGPT UI search. That gap is structural (the API does not carry logged-in user context, conversation history, or personalization) and is addressed separately by a planned browser provider (drive the ChatGPT UI itself), not by switching API tool flavors.
 
+- **Answer anchors for competitor auto-aliases.** `extractAnchoredSpans` (`src/anchored-spans.ts`) reads a stored response's `url_citation` annotations. The annotation span is the citation chip itself, so the window is the text before it on the same line (from the previous annotation's end at most); offsets are UTF-16, which `String.slice` counts. Stored data only; it never resolves a URL.
+
 ## Common Mistakes
 
 - **Not normalizing grounding sources to standard `CitedSource` format** — each provider returns different shapes.
@@ -39,3 +41,9 @@ Note: The OpenAI `web_search` API returns fewer/different results than the ChatG
 - `docs/providers/openai.md` — OpenAI-specific API quirks
 - `docs/providers/README.md` — provider system overview
 - `packages/contracts/src/provider.ts` — `ProviderAdapter` interface definition
+
+## Test ownership
+
+- `test/base-url.test.ts` drives the real Responses SDK through the adapter for proxy, unset, empty and prefixed URLs.
+- `test/tracked-query-request.test.ts` independently pins request bytes and full sync/batch result projections, including captured model disclosures and the SDK-only `output_text` field.
+- `test/web-search-retrieval.test.ts` owns response-driven retrieval and stored-response reconstruction; malformed and unfinished results remain distinct from a completed no-search answer.

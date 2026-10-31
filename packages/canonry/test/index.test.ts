@@ -4,6 +4,7 @@ import os from 'node:os'
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
+import { parse, stringify } from 'yaml'
 import { eq } from 'drizzle-orm'
 import {
   adsActivationGrants,
@@ -12,11 +13,12 @@ import {
   createClient,
   migrate,
   projects,
-} from '@ainyc/canonry-db'
+} from '@canonry/canonry-db'
 import { bootstrapCommand } from '../src/commands/bootstrap.js'
 import { initCommand } from '../src/commands/init.js'
-import { getConfigDir, loadConfig } from '../src/config.js'
-import { createServer, isLoopbackBindHost } from '../src/server.js'
+import { getConfigDir, loadConfig, type CanonryConfig } from '../src/config.js'
+import { createServer } from '../src/server.js'
+import { isLoopbackBindHost } from '../src/serve-endpoint.js'
 import { ApiClient } from '../src/client.js'
 
 const _require = createRequire(import.meta.url)
@@ -351,6 +353,10 @@ describe('canonry', () => {
         apiUrl: 'http://127.0.0.1:4999',
         providers: [],
       })
+      const { nextSteps } = JSON.parse(output.at(-1)!) as { nextSteps: string[] }
+      expect(nextSteps.join(' ')).toContain('GEMINI_API_KEY')
+      expect(nextSteps.join(' ')).toContain('canonry settings provider gemini --api-key <key>')
+      expect(nextSteps.join(' ')).toContain('never ask for it in chat')
       expect(loadConfig()).toMatchObject({
         database: databasePath,
         apiUrl: 'http://127.0.0.1:4999',
@@ -423,7 +429,7 @@ describe('canonry', () => {
       createdAt: new Date().toISOString(),
     }).run()
 
-    const config = {
+    const config: CanonryConfig = {
       apiUrl: 'http://localhost:4100',
       database: dbPath,
       apiKey: rawKey,
@@ -543,70 +549,194 @@ describe('canonry', () => {
     }
   })
 
-  it('dashboard login transparently migrates a legacy unsalted SHA-256 password hash to scrypt', async () => {
-    // Simulate an install upgraded from a pre-scrypt build by pre-populating
-    // config.dashboardPasswordHash with the legacy SHA-256 hex format. The
-    // first successful login should accept it (so users aren't locked out)
-    // and rewrite the config with a fresh scrypt-format hash.
-    const tmpDir = path.join(os.tmpdir(), `canonry-pw-migration-${crypto.randomUUID()}`)
-    fs.mkdirSync(tmpDir, { recursive: true })
-    const dbPath = path.join(tmpDir, 'test.db')
-    const db = createClient(dbPath)
-    migrate(db)
-
-    const rawKey = `cnry_${crypto.randomBytes(16).toString('hex')}`
-    const keyHash = crypto.createHash('sha256').update(rawKey).digest('hex')
-    db.insert(apiKeys).values({
-      id: crypto.randomUUID(),
-      name: 'test',
-      keyHash,
-      keyPrefix: rawKey.slice(0, 9),
-      scopes: ['*'],
-      createdAt: new Date().toISOString(),
-    }).run()
-
-    const legacyPassword = 'legacy-password'
-    // Legacy storage: raw SHA-256 hex, no salt.
-    const legacyHash = crypto.createHash('sha256').update(legacyPassword).digest('hex')
-    const config = {
-      apiUrl: 'http://localhost:4100',
-      database: dbPath,
-      apiKey: rawKey,
-      geminiApiKey: 'test-key',
-      dashboardPasswordHash: legacyHash,
+  it.each([
+    'native-restart', 'live-password-change', 'missing-file',
+    'malformed-yaml', 'read-error', 'rename-error',
+  ] as const)('dashboard login transparently migrates a legacy unsalted SHA-256 password hash to scrypt [%s]', async boundary => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'canonry-pw-migration-'))
+    vi.stubEnv('CANONRY_CONFIG_DIR', tmpDir)
+    for (const key of ['CANONRY_PORT', 'CANONRY_BASE_PATH', 'CANONRY_EXTERNAL_MCP']) {
+      vi.stubEnv(key, undefined as unknown as string)
     }
-    const app = await createServer({ config, db, logger: false })
+    vi.stubEnv('CANONRY_DASHBOARD_REQUIRE_PASSWORD', '1')
+    vi.stubEnv('CANONRY_AGENT_DISABLED', '1')
+    vi.stubEnv('CANONRY_TELEMETRY_DISABLED', '1')
+    vi.stubEnv('CANONRY_DISABLE_UPDATE_CHECK', '1')
+    vi.stubEnv('CANONRY_SENTIMENT_ENABLED', '0')
 
+    const configPath = path.join(tmpDir, 'config.yaml')
+    const dbPath = path.join(tmpDir, 'test.db')
+    let db = createClient(dbPath)
+    let app: Awaited<ReturnType<typeof createServer>> | undefined
     try {
-      // Wrong password still rejected on legacy format.
+      migrate(db)
+      const startupKey = `cnry_${crypto.randomBytes(16).toString('hex')}`
+      const liveKey = `cnry_${crypto.randomBytes(16).toString('hex')}`
+      for (const rawKey of [startupKey, liveKey]) {
+        db.insert(apiKeys).values({
+          id: crypto.randomUUID(),
+          name: 'migration-fixture',
+          keyHash: crypto.createHash('sha256').update(rawKey).digest('hex'),
+          keyPrefix: rawKey.slice(0, 9),
+          scopes: ['*'],
+          createdAt: new Date().toISOString(),
+        }).run()
+      }
+
+      const legacyPassword = 'legacy-password'
+      const legacyHash = crypto.createHash('sha256').update(legacyPassword).digest('hex')
+      const initial: Parameters<typeof createServer>[0]['config'] = {
+        apiUrl: 'http://localhost:4100',
+        database: dbPath,
+        apiKey: startupKey,
+        anonymousId: 'startup-anonymous-id',
+        dashboardPasswordHash: legacyHash,
+        dashboard: { requirePassword: true },
+        agent: { mode: 'disabled' },
+        telemetry: false,
+        sentiment: { enabled: false, apiKey: 'startup-sentiment-key' },
+        providers: { openai: { apiKey: 'startup-openai-key' } },
+        google: { clientId: 'startup-google-client', clientSecret: 'startup-google-secret', connections: [] },
+      }
+      if (boundary !== 'missing-file') {
+        fs.writeFileSync(configPath, stringify(initial), { encoding: 'utf8', mode: 0o600 })
+      }
+      let config = boundary === 'missing-file' ? { ...initial } : loadConfig()
+      app = await createServer({ config, configPath, db, logger: false })
+      await app.ready()
+
+      // A live operator change must survive a login using the startup snapshot.
+      // Both stored keys are real native credentials, so restart remains valid.
+      const live = {
+        ...initial,
+        apiKey: liveKey,
+        anonymousId: 'live-anonymous-id',
+        providers: { openai: { apiKey: 'live-openai-key' } },
+        google: { clientId: 'live-google-client', clientSecret: 'live-google-secret', connections: [] },
+        sentiment: { enabled: false, apiKey: 'live-sentiment-key' },
+      }
+      const rotatedPassword = 'rotated-live-password'
+      if (boundary === 'live-password-change') {
+        live.dashboardPasswordHash = crypto.createHash('sha256').update(rotatedPassword).digest('hex')
+      }
+      const expectedDisk = boundary === 'missing-file' ? initial : live
+      if (boundary === 'malformed-yaml') {
+        fs.writeFileSync(configPath, 'dashboardPasswordHash: [\n', 'utf8')
+      } else if (boundary !== 'missing-file') {
+        fs.writeFileSync(configPath, stringify(live), 'utf8')
+      }
+      const beforeLogin = fs.existsSync(configPath) ? fs.readFileSync(configPath, 'utf8') : null
+      let loginPassword = legacyPassword
+
       const badLogin = await app.inject({
-        method: 'POST',
-        url: '/api/v1/session',
-        payload: { password: 'not-the-password' },
+        method: 'POST', url: '/api/v1/session', payload: { password: 'not-the-password' },
       })
       expect(badLogin.statusCode).toBe(401)
-      // Wrong attempt must not rewrite the stored hash.
+      expect(badLogin.json()).toEqual({ error: { code: 'AUTH_INVALID', message: 'Incorrect password' } })
       expect(config.dashboardPasswordHash).toBe(legacyHash)
+      if (beforeLogin === null) expect(fs.existsSync(configPath)).toBe(false)
+      else expect(fs.readFileSync(configPath, 'utf8')).toBe(beforeLogin)
 
-      // Correct password is accepted AND triggers rehash.
+      if (boundary === 'live-password-change') {
+        const staleLogin = await app.inject({
+          method: 'POST', url: '/api/v1/session', payload: { password: legacyPassword },
+        })
+        expect(staleLogin.statusCode).toBe(401)
+        expect(staleLogin.json()).toEqual({ error: { code: 'AUTH_INVALID', message: 'Incorrect password' } })
+        expect(staleLogin.cookies).toEqual([])
+        expect(fs.readFileSync(configPath, 'utf8')).toBe(beforeLogin)
+        expect(config.dashboardPasswordHash).toBe(legacyHash)
+
+        // New disk credentials remain usable through the actual reload path.
+        await app.close()
+        app = undefined
+        config = loadConfig()
+        expect(config.dashboardPasswordHash).toBe(live.dashboardPasswordHash)
+        app = await createServer({ config, configPath, db, logger: false })
+        await app.ready()
+        loginPassword = rotatedPassword
+      } else if (['malformed-yaml', 'read-error', 'rename-error'].includes(boundary)) {
+        const ioFailure = boundary === 'read-error'
+          ? vi.spyOn(fs, 'readFileSync').mockImplementationOnce(() => { throw new Error('simulated config read failure') })
+          : boundary === 'rename-error'
+            ? vi.spyOn(fs, 'renameSync').mockImplementationOnce(() => { throw new Error('simulated config rename failure') })
+            : undefined
+        let failedLogin: typeof badLogin
+        try {
+          failedLogin = await app.inject({
+            method: 'POST', url: '/api/v1/session', payload: { password: legacyPassword },
+          })
+          if (boundary === 'read-error') expect(ioFailure?.mock.calls[0]).toEqual([configPath, 'utf-8'])
+          if (boundary === 'rename-error') expect(ioFailure?.mock.calls[0]?.[1]).toBe(configPath)
+        } finally {
+          ioFailure?.mockRestore()
+        }
+        expect(failedLogin.statusCode).toBe(500)
+        expect(failedLogin.cookies).toEqual([])
+        expect(config.dashboardPasswordHash).toBe(legacyHash)
+        expect(fs.readFileSync(configPath, 'utf8')).toBe(beforeLogin)
+        expect(fs.readdirSync(tmpDir).filter(name => name.endsWith('.tmp'))).toEqual([])
+        // Same-Host retry must recover after the disk/I/O problem is removed.
+        if (boundary === 'malformed-yaml') fs.writeFileSync(configPath, stringify(live), 'utf8')
+      }
+
       const goodLogin = await app.inject({
-        method: 'POST',
-        url: '/api/v1/session',
-        payload: { password: legacyPassword },
+        method: 'POST', url: '/api/v1/session', payload: { password: loginPassword },
       })
       expect(goodLogin.statusCode).toBe(200)
-      expect(config.dashboardPasswordHash).toMatch(/^scrypt\$1\$/)
-      expect(config.dashboardPasswordHash).not.toBe(legacyHash)
+      expect(goodLogin.json()).toEqual({ authenticated: true })
+      const persisted = parse(fs.readFileSync(configPath, 'utf8')) as Record<string, unknown>
+      // First intended pre-fix failure: the real YAML still contains SHA-256.
+      expect(persisted.dashboardPasswordHash).toMatch(/^scrypt\$1\$/)
+      expect(persisted.dashboardPasswordHash).not.toBe(legacyHash)
+      expect(config.dashboardPasswordHash).toBe(persisted.dashboardPasswordHash)
+      expect(persisted).toEqual({ ...expectedDisk, dashboardPasswordHash: persisted.dashboardPasswordHash })
+      expect(loadConfig().dashboardPasswordHash).toBe(persisted.dashboardPasswordHash)
+      const cookie = goodLogin.cookies.find(value => value.name === 'canonry_session')
+      expect(cookie).toBeDefined()
+      const authorized = await app.inject({
+        method: 'GET', url: '/api/v1/projects', headers: { cookie: `canonry_session=${cookie?.value}` },
+      })
+      expect(authorized.statusCode).toBe(200)
+      expect(authorized.json()).toEqual([])
 
-      // Next login uses the fresh scrypt hash and still works.
+      const migratedBytes = fs.readFileSync(configPath, 'utf8')
       const secondLogin = await app.inject({
-        method: 'POST',
-        url: '/api/v1/session',
-        payload: { password: legacyPassword },
+        method: 'POST', url: '/api/v1/session', payload: { password: loginPassword },
       })
       expect(secondLogin.statusCode).toBe(200)
-    } finally {
+      expect(fs.readFileSync(configPath, 'utf8')).toBe(migratedBytes)
+
       await app.close()
+      app = undefined
+      db.$client.close()
+      db = createClient(dbPath)
+      const restartedConfig = loadConfig()
+      expect(restartedConfig.apiKey).toBe(expectedDisk.apiKey)
+      app = await createServer({ config: restartedConfig, configPath, db, logger: false })
+      const restartedGood = await app.inject({
+        method: 'POST', url: '/api/v1/session', payload: { password: loginPassword },
+      })
+      expect(restartedGood.statusCode).toBe(200)
+      expect(restartedGood.json()).toEqual({ authenticated: true })
+      expect(fs.readFileSync(configPath, 'utf8')).toBe(migratedBytes)
+      const restartedBad = await app.inject({
+        method: 'POST', url: '/api/v1/session', payload: { password: 'not-the-password' },
+      })
+      expect(restartedBad.statusCode).toBe(401)
+      expect(restartedBad.json()).toEqual({ error: { code: 'AUTH_INVALID', message: 'Incorrect password' } })
+      expect(fs.readFileSync(configPath, 'utf8')).toBe(migratedBytes)
+      if (boundary === 'live-password-change') {
+        const oldSecret = await app.inject({
+          method: 'POST', url: '/api/v1/session', payload: { password: legacyPassword },
+        })
+        expect(oldSecret.statusCode).toBe(401)
+        expect(oldSecret.cookies).toEqual([])
+        expect(fs.readFileSync(configPath, 'utf8')).toBe(migratedBytes)
+      }
+    } finally {
+      await app?.close()
+      if (db.$client.open) db.$client.close()
       fs.rmSync(tmpDir, { recursive: true, force: true })
     }
   })
@@ -626,70 +756,6 @@ describe('canonry', () => {
     expect(isLoopbackBindHost('192.168.1.10')).toBe(false)
     expect(isLoopbackBindHost('10.0.0.5')).toBe(false)
     expect(isLoopbackBindHost('203.0.113.7')).toBe(false)
-  })
-
-  it('first-run /session/setup requires the API key when the server is bound off-box', async () => {
-    // A non-loopback bind means an unauthenticated remote first-visitor could
-    // otherwise claim a full-access `*` session. Setup must demand the bearer key.
-    const tmpDir = path.join(os.tmpdir(), `canonry-setup-gate-${crypto.randomUUID()}`)
-    fs.mkdirSync(tmpDir, { recursive: true })
-    const dbPath = path.join(tmpDir, 'test.db')
-    const db = createClient(dbPath)
-    migrate(db)
-
-    const rawKey = `cnry_${crypto.randomBytes(16).toString('hex')}`
-    const keyHash = crypto.createHash('sha256').update(rawKey).digest('hex')
-    db.insert(apiKeys).values({
-      id: crypto.randomUUID(),
-      name: 'test',
-      keyHash,
-      keyPrefix: rawKey.slice(0, 9),
-      scopes: ['*'],
-      createdAt: new Date().toISOString(),
-    }).run()
-
-    const config = {
-      apiUrl: 'http://localhost:4100',
-      database: dbPath,
-      apiKey: rawKey,
-      geminiApiKey: 'test-key',
-    }
-    // Bind to all interfaces — the exposed configuration.
-    const app = await createServer({ config, db, logger: false, host: '0.0.0.0' })
-
-    try {
-      // Unauthenticated setup is rejected (the pre-auth escalation is closed).
-      const unauth = await app.inject({
-        method: 'POST',
-        url: '/api/v1/session/setup',
-        payload: { password: 'a-strong-password' },
-      })
-      expect(unauth.statusCode).toBe(401)
-      // No password was written.
-      expect((config as { dashboardPasswordHash?: string }).dashboardPasswordHash).toBeFalsy()
-
-      // An invalid bearer key is still rejected.
-      const badKey = await app.inject({
-        method: 'POST',
-        url: '/api/v1/session/setup',
-        headers: { authorization: 'Bearer cnry_not_a_real_key' },
-        payload: { password: 'a-strong-password' },
-      })
-      expect(badKey.statusCode).toBe(401)
-
-      // With the valid bearer key, setup proceeds.
-      const ok = await app.inject({
-        method: 'POST',
-        url: '/api/v1/session/setup',
-        headers: { authorization: `Bearer ${rawKey}` },
-        payload: { password: 'a-strong-password' },
-      })
-      expect(ok.statusCode).toBe(200)
-      expect((config as { dashboardPasswordHash?: string }).dashboardPasswordHash).toBeTruthy()
-    } finally {
-      await app.close()
-      fs.rmSync(tmpDir, { recursive: true, force: true })
-    }
   })
 
   it('API flow: create and get project via inject', async () => {
@@ -868,9 +934,10 @@ describe('canonry', () => {
       const config = loadConfig()
       expect(config.database).toBe(path.join(tmpDir, 'data.db'))
       expect(config.providers?.gemini?.apiKey).toBe('test-gemini-key')
-      expect(config.providers?.gemini?.model).toBe('gemini-2.5-flash')
+      expect(config.providers?.gemini?.model).toBe('gemini-flash-latest')
       expect(config.providers?.openai?.apiKey).toBe('test-openai-key')
       expect(config.providers?.openai?.model).toBe('gpt-5.4')
+      expect(config.providers?.openai?.quota).toEqual({ maxConcurrency: 2, maxRequestsPerMinute: 10, maxRequestsPerDay: 500 })
       expect(config.providers?.claude).toBeUndefined()
       expect(config.apiKey).toMatch(/^cnry_/)
     } finally {
@@ -953,6 +1020,9 @@ describe('canonry', () => {
       expect(payload.nextSteps!.some(s => s.includes('canonry project create'))).toBe(true)
       expect(payload.nextSteps!.some(s => s.includes('canonry technical-aeo run'))).toBe(true)
       expect(payload.nextSteps!.some(s => s.includes('AI Visibility is optional'))).toBe(true)
+      // Off loopback or behind a proxy, setup from this machine needs the root
+      // key too, so the guidance names the key rather than a place to stand.
+      expect(payload.nextSteps!.some(s => s.includes('root API key (apiKey in config.yaml)'))).toBe(true)
     } finally {
       console.log = originalLog
       fs.rmSync(tmpDir, { recursive: true, force: true })
@@ -1040,6 +1110,7 @@ describe('canonry', () => {
         database: dbPath,
         apiKey: rawKey,
       },
+      configPath: path.join(tmpDir, 'config.yaml'),
       db,
       logger: false,
     })
@@ -1101,6 +1172,7 @@ describe('canonry', () => {
           },
         },
       },
+      configPath: path.join(tmpDir, 'config.yaml'),
       db,
       logger: false,
     })
@@ -1203,6 +1275,7 @@ describe('canonry', () => {
           },
         },
       },
+      configPath: path.join(tmpDir, 'config.yaml'),
       db,
       logger: false,
     })
@@ -1259,6 +1332,68 @@ describe('canonry', () => {
       expect(providerHistory!.entityId).toBe('gemini')
       expect(providerHistory!.diff.before?.baseUrl ?? null).toBeNull()
       expect(providerHistory!.diff.after.baseUrl).toBe('https://proxy.example.com')
+    } finally {
+      await app.close()
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  it('settings/providers audits a key rotation without recording the key', async () => {
+    const tmpDir = path.join(os.tmpdir(), `canonry-provider-rotate-${crypto.randomUUID()}`)
+    fs.mkdirSync(tmpDir, { recursive: true })
+    vi.stubEnv('CANONRY_CONFIG_DIR', tmpDir)
+    const dbPath = path.join(tmpDir, 'test.db')
+    const db = createClient(dbPath)
+    migrate(db)
+    const rawKey = `cnry_${crypto.randomBytes(16).toString('hex')}`
+    db.insert(apiKeys).values({
+      id: crypto.randomUUID(),
+      name: 'test',
+      keyHash: crypto.createHash('sha256').update(rawKey).digest('hex'),
+      keyPrefix: rawKey.slice(0, 9),
+      scopes: ['*'],
+      createdAt: new Date().toISOString(),
+    }).run()
+    const app = await createServer({
+      config: {
+        apiUrl: 'http://localhost:4100',
+        database: dbPath,
+        apiKey: rawKey,
+        providers: {
+          gemini: { apiKey: 'g-old-key', model: 'gemini-2.5-flash' },
+          // A key read from OPENAI_API_KEY leaves the entry with an endpoint and no key.
+          openai: { baseUrl: 'https://proxy.example.com/v1', model: 'gpt-5' },
+        },
+      },
+      db,
+      logger: false,
+    })
+
+    try {
+      // Same model and endpoint: only the key changes, which the settings
+      // summary leaves out. Run admission reads this row to let a replaced key
+      // run again, so it must exist.
+      const res = await app.inject({
+        method: 'PUT',
+        url: '/api/v1/settings/providers/gemini',
+        headers: { authorization: `Bearer ${rawKey}` },
+        payload: { apiKey: 'g-new-key' },
+      })
+      expect(res.statusCode).toBe(200)
+      const fromEnv = await app.inject({
+        method: 'PUT',
+        url: '/api/v1/settings/providers/openai',
+        headers: { authorization: `Bearer ${rawKey}` },
+        payload: { apiKey: 'sk-new-key' },
+      })
+      expect(fromEnv.statusCode).toBe(200)
+
+      const rows = db.select().from(auditLog).all().filter(entry => entry.entityType === 'provider')
+      expect(rows.map(row => [row.action, row.entityId]).sort()).toEqual([['provider.updated', 'gemini'], ['provider.updated', 'openai']])
+      for (const row of rows) {
+        expect(JSON.parse(row.diff ?? 'null')).toMatchObject({ apiKeyRotated: true })
+        expect(row.diff).not.toMatch(/g-old-key|g-new-key|sk-new-key/)
+      }
     } finally {
       await app.close()
       fs.rmSync(tmpDir, { recursive: true, force: true })
@@ -1558,7 +1693,7 @@ describe('canonry', () => {
   })
 
   it('ApiClient keeps analytics, visibility stats, and bounded Technical AEO reads under /api/v1 for an external base URL', async () => {
-    const fakeFetch = vi.fn(async () =>
+    const fakeFetch = vi.fn(async (_request: Request) =>
       new Response('{}', {
         status: 200,
         headers: { 'content-type': 'application/json' },
@@ -1583,7 +1718,7 @@ describe('canonry', () => {
     await client.getTechnicalAeoInternalLinkNeighbors('acme', { nodeKey: 'node-1', limit: 20 })
     await client.getTechnicalAeoDeadLinks('acme', { limit: 20 })
 
-    expect(fakeFetch.mock.calls.map(([request]) => (request as Request).url)).toEqual([
+    expect(fakeFetch.mock.calls.map(([request]) => request.url)).toEqual([
       'https://example.test/canonry/api/v1/projects/acme/visibility-stats',
       'https://example.test/canonry/api/v1/projects/acme/analytics/metrics',
       'https://example.test/canonry/api/v1/projects/acme/analytics/gaps',
@@ -1603,7 +1738,7 @@ describe('canonry', () => {
   })
 
   it('ApiClient scopes analytics sources to one run and class and sends includeByQuery only when set', async () => {
-    const fakeFetch = vi.fn(async () =>
+    const fakeFetch = vi.fn(async (_request: Request) =>
       new Response('{}', {
         status: 200,
         headers: { 'content-type': 'application/json' },
@@ -1616,7 +1751,7 @@ describe('canonry', () => {
     await client.getAnalyticsSources('acme', { includeByQuery: true })
     await client.getAnalyticsSources('acme', { queryClass: 'branded' })
 
-    expect(fakeFetch.mock.calls.map(([request]) => (request as Request).url)).toEqual([
+    expect(fakeFetch.mock.calls.map(([request]) => request.url)).toEqual([
       'https://example.test/canonry/api/v1/projects/acme/analytics/sources?window=30d&limit=10&runId=run-1&queryClass=non-brand&includeByQuery=false',
       'https://example.test/canonry/api/v1/projects/acme/analytics/sources?includeByQuery=true',
       'https://example.test/canonry/api/v1/projects/acme/analytics/sources?queryClass=branded',

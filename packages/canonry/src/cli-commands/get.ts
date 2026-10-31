@@ -1,4 +1,5 @@
 import { getCommand, GET_SOURCES } from '../commands/get.js'
+import { OperationAccesses } from '@canonry/canonry-contracts'
 import type { CliCommandSpec } from '../cli-dispatch.js'
 import { getString, requirePositional, requireProject, stringOption } from '../cli-command-helpers.js'
 
@@ -8,6 +9,7 @@ export const GET_CLI_COMMANDS: readonly CliCommandSpec[] = [
   {
     path: ['get'],
     usage: USAGE,
+    accessFor: ({ values }) => getString(values, 'from') === 'doctor' ? OperationAccesses.live : OperationAccesses.stored,
     options: {
       from: stringOption(),
     },

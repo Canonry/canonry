@@ -432,6 +432,32 @@ describe('ApiClient Advanced Measurement v2 draft actions', () => {
       },
     },
     {
+      name: 'preview market routing',
+      invoke: (api: ApiClient) => api.previewMeasurementDraftMarketRouting(PROJECT, {
+        marketKeys: ['metro-north'],
+        contextOverride: { providers: ['openai'], models: { openai: 'gpt-5' } },
+      }),
+      expected: {
+        method: 'POST',
+        pathname: `/api/v1/projects/${PROJECT}/measurement-plan/draft/actions/preview-route-markets`,
+        headers: { 'Idempotency-Key': undefined, 'If-Match': undefined },
+      },
+    },
+    {
+      name: 'route markets',
+      invoke: (api: ApiClient) => api.routeMeasurementDraftMarkets(PROJECT, {
+        marketKeys: ['metro-north'],
+        targetKeys: [target.stableKey],
+        queryIds: ['northstar-query'],
+        contextOverride: { providers: ['openai'], models: { openai: 'gpt-5' } },
+      }, IDEMPOTENCY_KEY, ETAG),
+      expected: {
+        method: 'POST',
+        pathname: `/api/v1/projects/${PROJECT}/measurement-plan/draft/actions/route-markets`,
+        headers: ordinaryHeaders,
+      },
+    },
+    {
       name: 'remove assignment',
       invoke: (api: ApiClient) => api.removeMeasurementDraftAssignment(PROJECT, {
         targetKey: target.stableKey,

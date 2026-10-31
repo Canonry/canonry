@@ -4,9 +4,9 @@ import os from 'node:os'
 import path from 'node:path'
 import Fastify from 'fastify'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createClient, measurementPlans, measurementPlanVersions, measurementQueryTemplates, migrate, projects, queries, researchRuns, runs } from '@ainyc/canonry-db'
+import { createClient, measurementPlans, measurementPlanVersions, measurementQueryTemplates, migrate, projects, queries, researchRuns, runs } from '@canonry/canonry-db'
 import { eq } from 'drizzle-orm'
-import { canonicalMeasurementPlanJson, canonicalMeasurementPlanV2Json, compileMeasurementPlan, ResearchRunStatuses } from '@ainyc/canonry-contracts'
+import { canonicalMeasurementPlanJson, canonicalMeasurementPlanV2Json, compileMeasurementPlan, ResearchRunStatuses } from '@canonry/canonry-contracts'
 import { apiRoutes, type ApiRoutesOptions } from '../src/index.js'
 import { measurementPlanV2Fixture } from './measurement-plan-v2-fixture.js'
 
@@ -24,15 +24,17 @@ function harness(options: Partial<ApiRoutesOptions> = {}) {
   return { app, db, requested }
 }
 
-function publishResearchScopePlan(db: ReturnType<typeof harness>['db']) {
-  const plan = measurementPlanV2Fixture({
+function publishResearchScopePlan(
+  db: ReturnType<typeof harness>['db'],
+  plan = measurementPlanV2Fixture({
     reportingScopes: [{
       stableKey: 'north-market',
       label: 'North market',
       kind: 'market',
       usageEdges: [{ executionNodeKey: 'exec-nearby', targetKey: 'harbor', queryId: 'q-nearby' }],
     }],
-  })
+  }),
+) {
   const canonicalJson = canonicalMeasurementPlanV2Json(plan)
   const versionId = crypto.randomUUID()
   db.insert(measurementPlanVersions).values({
@@ -46,6 +48,40 @@ function publishResearchScopePlan(db: ReturnType<typeof harness>['db']) {
 }
 
 describe('research routes', () => {
+  it('catalogs and defaults to an OpenRouter route frozen only in the active v2 revision', async () => {
+    const route = 'openrouter:google/gemini-2.5-flash'
+    const { app, db } = harness({
+      providerSummary: [{ name: 'openrouter', configured: true }],
+      providerAdapters: [{
+        name: 'openrouter', displayName: 'OpenRouter', mode: 'api', modelConfigurable: true,
+        defaultModel: '', knownModels: [{ id: 'google/gemini-2.5-flash', displayName: 'Gemini 2.5 Flash', tier: 'fast' }],
+        modelValidationPattern: /^[\w.-]+\/[\w.:-]+$/, modelValidationHint: 'vendor/model',
+      }],
+    })
+    db.update(projects).set({ providers: [], providerModels: {} }).where(eq(projects.id, 'alpha')).run()
+    const base = measurementPlanV2Fixture()
+    publishResearchScopePlan(db, measurementPlanV2Fixture({
+      executionNodes: base.executionNodes.map(node => ({
+        ...node,
+        context: { ...node.context, providers: [route], models: { [route]: 'google/gemini-2.5-flash' } },
+        expectedSnapshots: 1,
+      })),
+    }))
+
+    const catalog = await app.inject({ method: 'GET', url: '/api/v1/projects/alpha/research/runs' })
+    expect(catalog.statusCode, catalog.body).toBe(200)
+    expect(catalog.json().providers).toEqual([expect.objectContaining({
+      name: route,
+      displayName: 'Gemini 2.5 Flash via OpenRouter',
+      defaultModel: 'google/gemini-2.5-flash',
+    })])
+    const created = await app.inject({
+      method: 'POST', url: '/api/v1/projects/alpha/research/runs', payload: { queries: ['active route default'] },
+    })
+    expect(created.statusCode, created.body).toBe(202)
+    expect(created.json()).toMatchObject({ provider: route, resolvedModel: 'google/gemini-2.5-flash' })
+  })
+
   it('persists an isolated batch, lists/details it, and protects retry/project boundaries', async () => {
     const { app, db, requested } = harness()
     const payload = { queries: ['best solar installer', 'solar cost'], provider: 'openai', model: 'gpt-4.1', location: { label: 'New York', city: 'New York', region: 'NY', country: 'US' }, idempotencyKey: 'retry-1' }

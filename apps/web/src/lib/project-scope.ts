@@ -1,12 +1,12 @@
 /**
  * Where the project context row puts measurement scope, per tab.
  *
- * Scope filters only AI Visibility and tracked Queries. Every other tab covers
- * the whole project, so the row says so instead of offering a control that
+ * Scope filters AI Visibility and tracked Queries. SEO owns a saved profile's
+ * scope in its workspace. Other tabs cover the whole project, so the row says so instead of offering a control that
  * would change nothing on the page. Each tab keeps its own recovery for a saved
  * scope that no longer exists; the row only reports it.
  */
-import type { QueryTrackingMode, QueryTrackingWorkspaceResponse, VisibilityReportScopeOption } from '@ainyc/canonry-contracts'
+import type { QueryTrackingMode, QueryTrackingWorkspaceResponse, VisibilityReportScopeOption } from '@canonry/canonry-contracts'
 import type { ViewerResearchConfig } from '../api.js'
 import type { AdvancedMeasurementSurface } from '../components/project/advanced-measurement/model.js'
 import type { ProjectPageTab } from '../pages/ProjectPage.js'
@@ -110,11 +110,13 @@ export function projectScopeSlot(input: ProjectScopeSlotInput): ProjectScopeSlot
     case 'conversions':
     case 'local':
     case 'backlinks':
-    case 'report':
     case 'history':
       return input.scoped && input.surface === 'advanced-overview' ? { kind: 'project-wide' } : { kind: 'none' }
+    // The embedded client Queries tab lists a simple project's queries; it has no scope.
+    case 'client-queries':
     case 'settings':
     case 'portfolio':
+    case 'seo-data':
       return { kind: 'none' }
     default: {
       const unhandled: never = tab

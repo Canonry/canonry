@@ -63,11 +63,11 @@ In Cloud Console → APIs & Services → Library, enable:
 | API | Purpose |
 |---|---|
 | My Business Account Management API | List accounts |
-| My Business Business Information API | List locations + place action links |
+| My Business Business Information API | List locations + owner-set attributes |
 | Business Profile Performance API | Daily metrics + monthly search keywords |
 | My Business Verifications API | (optional) Voice-of-Merchant state |
-| **My Business Lodging API** | **Hotel attributes — required if working with lodging properties** |
-| **My Business Place Actions API** | **Booking / reservation CTAs — required if hotels or restaurants use them** |
+| **My Business Lodging API** | **Hotel attributes — required for every GBP sync; non-lodging locations return no lodging data** |
+| **My Business Place Actions API** | **Booking / reservation CTAs — required for every GBP sync, even when no CTAs are configured** |
 
 **Do NOT enable "My Business Q&A API"** — Google **retired** it on 2025-11-03. It's listed in some older setup docs but no longer functions.
 
@@ -191,6 +191,7 @@ canonry doctor --project <name> --check 'gbp.*'
 ```
 
 - `gbp.auth.connection` — OAuth creds present + refresh token works.
+  - **Skipped** (`gbp.auth.not-connected`) for a project that never connected GBP: no connection and no selected location. It **fails** (`gbp.auth.no-connection`) only when the connection is gone while the project still has selected locations.
 - `gbp.auth.scopes` — granted scope includes `business.manage`.
 - `gbp.account.access` — the tracked account is still listable. A `gbp.account.quota-pending` **warn** means the API access form is still pending Google approval (0 QPM) — auth is fine, the API just isn't enabled yet.
 - `gbp.places.api-key` — Places API readiness for the listing cross-reference (#648). **Warns** when GBP is connected but no Places key is set, or when no selected location carries a Maps place id (re-run `gbp locations discover`). Skipped when Places is disabled (`places.tier: off`) or GBP isn't connected.
@@ -314,7 +315,7 @@ Validated against three live businesses of different types (a computer-support s
 | Lodging returns 200 with only `{ "name": ... }` | The GBP Lodging API returned no readable structured groups. In live testing this happened even when the "Hotel details" panel had amenities set | Not an error, and not proof of a gap. Surface as a verify: have the operator check the "Hotel details" panel; flag only if genuinely unset there |
 | Place action links empty | No CTAs configured | Set them up in the GBP UI; for many local businesses this is genuinely empty (an AEO gap) |
 | Reviews 403 `SERVICE_DISABLED` while v1 APIs work (`gbp reviews` shows `unavailable (SERVICE_DISABLED)`) | Legacy v4 `mybusiness.googleapis.com` not enabled for this account/project | See "The legacy Google My Business API" above — enable via the approval-email shortcut as the approved account; can't be done via library or gcloud. Meanwhile, the Places fallback covers review alerts partially |
-| No review alerts arrive | No webhook subscribes to `review.negative`, the location is still on its first (baseline) sync, or it has no review source | `cnry notify list <project>`, then `cnry doctor <project> --check gbp.reviews.access` for per-location coverage |
+| No review alerts arrive | No webhook subscribes to `review.negative`, the location is still on its first (baseline) sync, it has no review source, or the send did not land | `cnry notify list <project>`, then `cnry doctor <project> --check gbp.reviews.access` for per-location coverage and `--check gbp.reviews.delivery` for alerts a destination refused or never answered |
 | Q&A API unreachable | Google retired the Q&A API on 2025-11-03 | Permanent. Q&A is not available programmatically |
 | Keyword impressions mostly `threshold` instead of `value` | Low-volume keywords are privacy-redacted by Google | Expected — even a busy hotel can be ~89% thresholded; tiny businesses are 100%. Surfaced as `thresholdedKeywordPct` in the summary |
 
