@@ -243,7 +243,7 @@ describe('SEO market rankings', () => {
     expect((await read('&regionKey=metro&limit=1&offset=3')).items.map(row => [row.marketKey, row.queryId])).toEqual([['harbor-market', 'q-shared']])
     expect((await read('&regionKey=elsewhere')).total).toBe(0)
     expect((await h.app.inject({ url: `${base}/overview?profileId=markets` })).json()).toMatchObject({ evidenceRunId: run.id, marketRankingCount: 4 })
-    expect((await h.app.inject({ url: `${base}/runs/${run.id}` })).json<SeoRunDetail>().resultCounts).toEqual({ keywordMetrics: 0, domainIntelligence: 0, rankedKeywords: 0, marketRankings: 4 })
+    expect((await h.app.inject({ url: `${base}/runs/${run.id}` })).json<SeoRunDetail>().resultCounts).toEqual({ keywordMetrics: 0, domainIntelligence: 0, rankedKeywords: 0, marketRankings: 4, competitors: 0, keywordGaps: 0 })
     // Results stored before this field existed carry no marketRankings array at all.
     h.db.$client.prepare('UPDATE seo_tasks SET results = ? WHERE job_id = ?').run(JSON.stringify({ keywordMetrics: [], domainIntelligence: [], rankedKeywords: [] }), run.id)
     expect(await read('')).toMatchObject({ runId: run.id, total: 0, items: [] })
@@ -276,7 +276,7 @@ describe('SEO market rankings', () => {
     expect(rows.items[0]).toEqual({
       marketKey: 'bayside-market', marketLabel: 'Bayside, Coast', regionKey: 'metro', regionLabel: 'Coast Metro Area', queryId: 'q-bayside', queryText: 'best  homes in Bayside, coast', queryClass: 'non-brand',
       searchText: 'best homes in Bayside', locationLabel: 'Coast Metro', target: site, searchStatus: 'failed',
-      rankOrganic: null, rankAbsolute: null, url: null, depth: 0, competitors: [], provenance: null, outcome: 'failed', rivalAhead: false,
+      rankOrganic: null, rankAbsolute: null, url: null, depth: 0, competitors: [], provenance: null, outcome: 'failed', rivalAhead: false, topCompetitor: null, rankGap: null,
     })
     expect(rows.total).toBe(4)
     expect((await h.app.inject({ url: `${base}/overview?profileId=markets` })).json()).toMatchObject({ evidenceRunId: run.id, marketRankingCount: 4 })

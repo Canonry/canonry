@@ -142,7 +142,7 @@ import {
 } from './schema.js'
 import type { CanonryMcpTier } from './toolkits.js'
 import { seoOperatorTaskSchema, seoReconcileInputSchema, seoReconcileResultSchema } from '@canonry/canonry-contracts'
-import { seoContextSchema, seoStatusSchema, seoProfileListSchema, seoProfileSchema, seoQuoteSchema, seoRunSchema, seoRunListSchema, seoRunDetailSchema, seoOverviewSchema, seoKeywordMetricsListSchema, seoDomainIntelligenceListSchema, seoRankedKeywordListSchema, seoMarketRankingListSchema, seoMarketRankingQuerySchema, seoMarketRankingSummaryQuerySchema, seoMarketRankingSummarySchema, seoEvidenceQuerySchema, seoProfileInputSchema, seoRefreshIntentInputSchema, seoSyncInputSchema, SEO_RUN_SCOPE, SEO_WRITE_SCOPE } from '@canonry/canonry-contracts'
+import { seoContextSchema, seoStatusSchema, seoProfileListSchema, seoProfileSchema, seoQuoteSchema, seoRunSchema, seoRunListSchema, seoRunDetailSchema, seoOverviewSchema, seoKeywordMetricsListSchema, seoDomainIntelligenceListSchema, seoRankedKeywordListSchema, seoCompetitorListSchema, seoCompetitorQuerySchema, seoKeywordGapListSchema, seoKeywordGapQuerySchema, seoMarketRankingListSchema, seoMarketRankingQuerySchema, seoMarketRankingSummaryQuerySchema, seoMarketRankingSummarySchema, seoEvidenceQuerySchema, seoProfileInputSchema, seoRefreshIntentInputSchema, seoSyncInputSchema, SEO_RUN_SCOPE, SEO_WRITE_SCOPE } from '@canonry/canonry-contracts'
 
 export type McpToolAccess = 'read' | 'write'
 
@@ -1293,6 +1293,8 @@ const sentimentBackfillInputSchema = sentimentBackfillRequestSchema.extend({ pro
 
 const seoIdInputSchema = projectInputSchema.extend({ id: z.string().min(1) })
 const seoEvidenceInputSchema = seoEvidenceQuerySchema.extend({ project: projectNameSchema })
+const seoCompetitorInputSchema = seoCompetitorQuerySchema.extend({ project: projectNameSchema })
+const seoKeywordGapInputSchema = seoKeywordGapQuerySchema.extend({ project: projectNameSchema })
 const seoMarketRankingInputSchema = seoMarketRankingQuerySchema.extend({ project: projectNameSchema })
 const seoMarketRankingSummaryInputSchema = seoMarketRankingSummaryQuerySchema.extend({ project: projectNameSchema })
 
@@ -1440,8 +1442,26 @@ const rawCanonryMcpTools = [
     handler: (client, input) => { const { project, ...query } = input; return client.getSeoRankedKeywords(project, query) },
   }),
   defineTool({
+    name: 'canonry_seo_competitors', title: 'SEO organic competitors',
+    description: 'Read saved whole-domain organic competitor discovery only. No provider calls or automatic competitor pins. Preserve target, location, language, source date and runId while paging. Shared-search counts and traffic are provider database estimates; saved rows are bounded by the profile limit. Optional sort orders all saved rows before paging; a leading minus descends, missing values stay last, and omission preserves source order. Preserve sort while paging.',
+    access: 'read', tier: 'seo',
+    inputSchema: seoCompetitorInputSchema, outputSchema: seoCompetitorListSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/seo/competitors'],
+    handler: (client, input) => { const { project, ...query } = input; return client.getSeoCompetitors(project, query) },
+  }),
+  defineTool({
+    name: 'canonry_seo_keyword_gaps', title: 'SEO keyword gaps',
+    description: 'Read saved whole-domain organic search comparisons only. No provider calls. kind=shared includes all searches where both domains rank, including outranked; missing means the source database has a rival rank and no target rank; outranked means the rival ranks higher. rankGap is target rank minus rival rank and null without both. Preserve exact targets, locale, source date and runId while paging. Results are a bounded source sample, not all possible opportunities. Optional sort orders all filtered rows before paging; a leading minus descends, missing values stay last, and omission preserves source order. Preserve sort while paging.',
+    access: 'read', tier: 'seo',
+    inputSchema: seoKeywordGapInputSchema, outputSchema: seoKeywordGapListSchema,
+    annotations: readAnnotations(),
+    openApiOperations: ['GET /api/v1/projects/{name}/seo/keyword-gaps'],
+    handler: (client, input) => { const { project, ...query } = input; return client.getSeoKeywordGaps(project, query) },
+  }),
+  defineTool({
     name: 'canonry_seo_market_rankings', title: 'SEO market rankings',
-    description: "Read stored SEO data only. No provider calls. The site's Google position for each tracked non-brand query in each market, searched from that market's location; these are the same tracked queries AI visibility measures, and searchText is the exact text searched. searchStatus says how each search ended: a null rank in a completed or partial row means not in the checked results (depth, lower when only part of the results came back); a failed or cancelled row has no rank because the search returned nothing. outcome says where each row landed (page-1, ranks-11-20, ranks-21-plus, not-ranked, partly-checked for a partial search without the site, failed, cancelled) and rivalAhead whether a tracked competitor ranks above the site. Filter with marketKey, regionKey, outcome (needs-work = off page 1 with a result) and q; sort=rank puts the closest to page 1 first. Keep runId fixed while paging.",
+    description: "Read stored SEO data only. No provider calls. The site's Google position for each tracked non-brand query in each market, searched from that market's location; these are the same tracked queries AI visibility measures, and searchText is the exact text searched. searchStatus says how each search ended: a null rank in a completed or partial row means not in the checked results (depth, lower when only part of the results came back); a failed or cancelled row has no rank because the search returned nothing. outcome says where each row landed (page-1, ranks-11-20, ranks-21-plus, not-ranked, partly-checked for a partial search without the site, failed, cancelled) and rivalAhead whether a tracked competitor ranks above the site. topCompetitor is the best tracked rival; rankGap is target rank minus rival rank and null without both. Filter with marketKey, regionKey, outcome (needs-work = off page 1 with a result) and q; sort=rank puts the closest to page 1 first. Keep runId fixed while paging.",
     access: 'read', tier: 'seo',
     inputSchema: seoMarketRankingInputSchema, outputSchema: seoMarketRankingListSchema,
     annotations: readAnnotations(),

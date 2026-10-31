@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { seoDatasetWithoutVendor, seoProfileInputSchema, seoQuoteSchema, seoSearchTextForQuery, seoSyncInputSchema } from '../src/seo.js'
+import { seoDatasetWithoutVendor, seoKeywordGapComparison, seoProfileInputSchema, seoQuoteSchema, seoSearchTextForQuery, seoSyncInputSchema } from '../src/seo.js'
 
 describe('SEO public admission contracts', () => {
   it('requires bounded explicit profile scope and rejects upstream options that could expand spend', () => {
@@ -12,6 +12,7 @@ describe('SEO public admission contracts', () => {
     expect(seoProfileInputSchema.safeParse({ ...input, includeClickstreamData: true }).success).toBe(false)
     expect(seoProfileInputSchema.safeParse({ ...input, limit: 1001 }).success).toBe(false)
     expect(seoProfileInputSchema.safeParse({ ...input, locationCode: undefined }).success).toBe(false)
+    expect(seoProfileInputSchema.safeParse({ ...input, competitors: Array.from({ length: 6 }, (_, index) => ({ kind: 'domain', value: `rival${index}.com`, includeSubdomains: true })) }).success).toBe(false)
   })
 
   it('has no customer-controlled funding claims in either the intent or submission', () => {
@@ -22,6 +23,17 @@ describe('SEO public admission contracts', () => {
     expect(seoQuoteSchema.safeParse(quote).success).toBe(true)
     expect(seoQuoteSchema.safeParse({ ...quote, maxCostMicros: 123 }).success).toBe(false)
     expect(seoSyncInputSchema.safeParse({ quoteToken: 'opaque', idempotencyKey: 'stable', fundingMode: 'hosted' }).success).toBe(false)
+  })
+})
+
+describe('organic keyword comparison', () => {
+  it.each([
+    [12, 3, 'outranked', 9],
+    [3, 12, 'shared', -9],
+    [1, 1, 'shared', 0],
+    [null, 100, 'missing', null],
+  ] as const)('compares target %s with competitor %s without inventing an absent rank', (target, competitor, kind, rankGap) => {
+    expect(seoKeywordGapComparison(target, competitor)).toEqual({ kind, rankGap })
   })
 })
 

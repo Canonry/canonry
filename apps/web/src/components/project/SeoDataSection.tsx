@@ -3,11 +3,11 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import { Link, useNavigate, useSearch } from '@tanstack/react-router'
 import { ChevronRight, Loader2, Plus, RefreshCw, X } from 'lucide-react'
 import {
-  RatioUnits, SchedulableRunKinds, SeoAvailability, SeoCapabilities, SeoMarketRankingFilters, SeoMarketRankingGroupKinds, SeoMarketRankingOutcomes,
+  RatioUnits, SchedulableRunKinds, SeoAvailability, SeoCapabilities, SeoCompetitorSorts, SeoKeywordGapKinds, SeoKeywordGapSorts, SeoMarketRankingFilters, SeoMarketRankingGroupKinds, SeoMarketRankingOutcomes,
   SeoMarketRankingSearchStatuses, SeoMarketRankingSorts, SeoRunStatuses, SeoScopeKinds, SeoTargetKinds,
   compareText, formatCalendarDay, formatDate, formatIsoDateInTimeZone, formatZonedTimestamp, formatPercent, marketRankingBands,
   seoCapabilitySchema, seoDatasetWithoutVendor, seoMarketRankingFilterSchema, seoMarketRankingSortSchema, seoProfileInputSchema,
-  type MarketRankingBand, type SeoCapability, type SeoContext, type SeoDevice, type SeoDomainIntelligence, type SeoKeywordMetrics,
+  type MarketRankingBand, type SeoCapability, type SeoCompetitor, type SeoCompetitorSort, type SeoContext, type SeoDevice, type SeoDomainIntelligence, type SeoKeywordGap, type SeoKeywordGapKind, type SeoKeywordGapSort, type SeoKeywordMetrics,
   type SeoMarketRankingCounts, type SeoMarketRankingFilter, type SeoMarketRankingGroup, type SeoMarketRankingRow, type SeoMarketRankingSort,
   type SeoProfile, type SeoProfileInput, type SeoProvenance, type SeoRankedKeyword,
   type SeoRun, type SeoRunStatus, type SeoSyncInput, type SeoTarget, type SeoTask,
@@ -20,6 +20,8 @@ import {
   getApiV1ProjectsByNameSeoRankedKeywordsOptions,
   getApiV1ProjectsByNameSeoKeywordMetricsOptions,
   getApiV1ProjectsByNameSeoDomainIntelligenceOptions,
+  getApiV1ProjectsByNameSeoCompetitorsOptions,
+  getApiV1ProjectsByNameSeoKeywordGapsOptions,
   getApiV1ProjectsByNameSeoMarketRankingsOptions,
   getApiV1ProjectsByNameSeoMarketRankingsSummaryOptions,
   getApiV1ProjectsByNameSeoRunsOptions,
@@ -44,7 +46,15 @@ const CAPABILITY_LABELS: Record<SeoCapability, string> = {
   [SeoCapabilities['domain-intelligence']]: 'Domain comparison',
   [SeoCapabilities['ranked-keywords']]: 'Searches you rank for',
   [SeoCapabilities['market-rankings']]: 'Market rankings',
+  [SeoCapabilities['competitor-discovery']]: 'Organic competitors',
+  [SeoCapabilities['keyword-gaps']]: 'Search gaps',
 }
+const GAP_LABELS: Record<SeoKeywordGapKind, string> = {
+  [SeoKeywordGapKinds.shared]: 'Shared',
+  [SeoKeywordGapKinds.missing]: 'Missing',
+  [SeoKeywordGapKinds.outranked]: 'Competitor ahead',
+}
+const RANK_GAP_HELP = 'Your organic position minus the competitor’s position. Positive means the competitor ranks higher; negative means you rank higher. No gap is calculated when either position is unavailable.'
 const STATUS_LABELS: Record<SeoRunStatus, string> = {
   [SeoRunStatuses.queued]: 'Queued',
   [SeoRunStatuses.running]: 'Refreshing',
@@ -360,23 +370,77 @@ function SeoEvidence({ projectName, profileId, runId, view, active, nextRefresh 
 
 function SeoEvidenceTable({ projectName, profileId, runId, view, active }: { projectName: string; profileId: string; runId: string | null; view: Exclude<SeoCapability, 'market-rankings'>; active: boolean }) {
   const [page, setPage] = useState(1)
+  const [gapKind, setGapKind] = useState<SeoKeywordGapKind | ''>('')
+  const [competitorSort, setCompetitorSort] = useState<SeoCompetitorSort>()
+  const [gapSort, setGapSort] = useState<SeoKeywordGapSort>()
   const args = { client: heyClient, path: { name: projectName }, query: { profileId, runId: runId ?? undefined, limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE } }
   const ranked = useQuery({ ...getApiV1ProjectsByNameSeoRankedKeywordsOptions(args), enabled: Boolean(runId) && view === SeoCapabilities['ranked-keywords'] })
   const keywords = useQuery({ ...getApiV1ProjectsByNameSeoKeywordMetricsOptions(args), enabled: Boolean(runId) && view === SeoCapabilities['keyword-metrics'] })
   const domains = useQuery({ ...getApiV1ProjectsByNameSeoDomainIntelligenceOptions(args), enabled: Boolean(runId) && view === SeoCapabilities['domain-intelligence'] })
-  const selected = view === SeoCapabilities['ranked-keywords'] ? ranked : view === SeoCapabilities['keyword-metrics'] ? keywords : domains
+  const competitors = useQuery({ ...getApiV1ProjectsByNameSeoCompetitorsOptions({ ...args, query: { ...args.query, sort: competitorSort } }), placeholderData: keepPreviousData, enabled: Boolean(runId) && view === SeoCapabilities['competitor-discovery'] })
+  const gaps = useQuery({ ...getApiV1ProjectsByNameSeoKeywordGapsOptions({ ...args, query: { ...args.query, kind: gapKind || undefined, sort: gapSort } }), placeholderData: keepPreviousData, enabled: Boolean(runId) && view === SeoCapabilities['keyword-gaps'] })
+  const selected = view === SeoCapabilities['ranked-keywords'] ? ranked : view === SeoCapabilities['keyword-metrics'] ? keywords
+    : view === SeoCapabilities['competitor-discovery'] ? competitors : view === SeoCapabilities['keyword-gaps'] ? gaps : domains
   if (!runId) return <EmptyEvidence title="No saved data yet">Refresh this profile to collect {CAPABILITY_LABELS[view].toLowerCase()} for its saved scope.</EmptyEvidence>
-  if (selected.error) return <div className="py-4"><ReadError error={selected.error} retry={() => { void selected.refetch() }} /></div>
-  if (!selected.data) return <p role="status" className="py-8 text-copy-14 text-secondary">Loading {CAPABILITY_LABELS[view].toLowerCase()}…</p>
-  if (selected.data.items.length === 0) return <EmptyEvidence title={active ? 'Refresh in progress' : 'No results returned'}>{active ? 'This profile is collecting data.' : 'The source did not return records for this scope. Review the refresh in Activity before changing the profile.'}</EmptyEvidence>
-  return <div className="pt-4">
-      <div className="relative overflow-x-auto rounded-md border border-default" role="region" aria-label={`${CAPABILITY_LABELS[view]} table`} tabIndex={0}>
+  return <div className="space-y-3 pt-4">
+    {view === SeoCapabilities['keyword-gaps'] && <div className="flex items-center gap-3">
+      <label className="flex items-center gap-3 text-label-14"><span>Show</span><select aria-label="Show search gaps" className={`${FIELD} w-auto`} value={gapKind} onChange={event => { setGapKind(event.target.value as SeoKeywordGapKind | ''); setPage(1) }}><option value="">All comparisons</option><option value={SeoKeywordGapKinds.missing}>Missing</option><option value={SeoKeywordGapKinds.shared}>Shared</option><option value={SeoKeywordGapKinds.outranked}>Competitor ahead</option></select></label>
+      <InfoTooltip text="Missing: the source lists the search for the competitor but not your domain. Shared includes searches where the competitor ranks higher. These are bounded observations from the source’s organic search database, not a live check of every Google result." />
+    </div>}
+    {view === SeoCapabilities['competitor-discovery'] && <p className="flex items-center gap-1.5 text-label-13 text-secondary">Domains sharing organic searches<InfoTooltip text="Discovery uses this profile’s whole domains, location and language. Suggested domains are not automatically added to tracked competitors. Counts describe the source’s database; the table is limited to this refresh’s saved results." /></p>}
+    {selected.error ? <ReadError error={selected.error} retry={() => { void selected.refetch() }} />
+      : !selected.data ? <p role="status" className="py-8 text-label-14 text-secondary">Loading {CAPABILITY_LABELS[view].toLowerCase()}…</p>
+        : selected.data.items.length === 0 ? <EmptyEvidence title={active ? 'Refresh in progress' : gapKind ? 'No matching comparisons' : 'No results returned'}>{active ? 'This profile is collecting data.' : gapKind ? 'Choose another comparison filter to see the remaining saved results.' : 'The source did not return records for this scope. Review the refresh in Activity before changing the profile.'}</EmptyEvidence>
+          : <>
+      <div className="relative overflow-x-auto material-base" role="region" aria-label={`${CAPABILITY_LABELS[view]} table`} aria-busy={selected.isFetching} tabIndex={0}>
       {view === SeoCapabilities['ranked-keywords'] && ranked.data && <RankedTable rows={ranked.data.items} />}
       {view === SeoCapabilities['keyword-metrics'] && keywords.data && <KeywordTable rows={keywords.data.items} />}
       {view === SeoCapabilities['domain-intelligence'] && domains.data && <DomainTable rows={domains.data.items} />}
+      {view === SeoCapabilities['competitor-discovery'] && competitors.data && <CompetitorTable rows={competitors.data.items} sort={competitorSort} onSort={sort => { setCompetitorSort(sort); setPage(1) }} />}
+      {view === SeoCapabilities['keyword-gaps'] && gaps.data && <KeywordGapTable rows={gaps.data.items} sort={gapSort} onSort={sort => { setGapSort(sort); setPage(1) }} />}
     </div>
     <DataTablePagination page={page} pageSize={PAGE_SIZE} visibleRows={selected.data.items.length} totalRows={selected.data.total} onPageChange={setPage} disabled={selected.isFetching} className="text-label-13 [&_button]:min-h-11" />
+    </>}
   </div>
+}
+
+function RankGap({ value }: { value: number | null }) {
+  return value === null ? <Value value={null} /> : <>{value > 0 ? '+' : ''}{NUMBER.format(value)}</>
+}
+
+function EvidenceSortHeader<T extends SeoCompetitorSort | SeoKeywordGapSort>({ label, sort, ascending, descending, align = 'right', onSort, help }: { label: string; sort: T | undefined; ascending: T; descending: T; align?: 'left' | 'right'; onSort: (sort: T) => void; help?: string }) {
+  return <SortHeader label={label} align={align} sorted={sort === ascending ? 'ascending' : sort === descending ? 'descending' : null} onSort={() => onSort(sort === ascending ? descending : ascending)} help={help} showUnsorted />
+}
+
+function CompetitorTable({ rows, sort, onSort }: { rows: SeoCompetitor[]; sort: SeoCompetitorSort | undefined; onSort: (sort: SeoCompetitorSort) => void }) {
+  return <table className="w-full text-label-14"><caption className="sr-only">Organic competitors, from the selected refresh</caption><thead className="bg-surface text-label-13 text-secondary"><tr>
+    <EvidenceSortHeader label="Competitor" align="left" sort={sort} ascending={SeoCompetitorSorts.domain} descending={SeoCompetitorSorts['-domain']} onSort={onSort} />
+    <EvidenceSortHeader label="Shared searches" sort={sort} ascending={SeoCompetitorSorts.shared} descending={SeoCompetitorSorts['-shared']} onSort={onSort} />
+    <EvidenceSortHeader label="Avg. position" sort={sort} ascending={SeoCompetitorSorts.position} descending={SeoCompetitorSorts['-position']} onSort={onSort} />
+    <EvidenceSortHeader label="Est. organic traffic" sort={sort} ascending={SeoCompetitorSorts.traffic} descending={SeoCompetitorSorts['-traffic']} onSort={onSort} />
+    <th className="px-4"><span className="sr-only">Evidence</span></th>
+  </tr></thead><tbody className="divide-y divide-subtle">{rows.map((row, index) => <tr key={`${row.target.value}:${row.domain}:${index}`}>
+    <th scope="row" className={ROW_HEADER}><p className="text-primary">{row.domain}</p><p className="mt-1 text-label-13 text-secondary">Compared with {row.target.value}</p></th>
+    <td className={CELL}><Value value={row.sharedKeywords} /></td><td className={CELL}><Value value={row.averagePosition} /></td><td className={CELL}><Value value={row.estimatedOrganicTraffic} /></td>
+    <td className="px-4 align-top"><EvidenceDetails label={row.domain} source={row.provenance}><p>Average position covers shared searches. Traffic covers the competitor’s whole domain.</p><p>Competitor’s ranked searches: <Value value={row.organicKeywords} /></p><p>Target: {row.target.value} · includes subdomains</p></EvidenceDetails></td>
+  </tr>)}</tbody></table>
+}
+
+function KeywordGapTable({ rows, sort, onSort }: { rows: SeoKeywordGap[]; sort: SeoKeywordGapSort | undefined; onSort: (sort: SeoKeywordGapSort) => void }) {
+  return <table className="w-full text-label-14"><caption className="sr-only">Search gaps, from the selected refresh</caption><thead className="bg-surface text-label-13 text-secondary"><tr>
+    <EvidenceSortHeader label="Search" align="left" sort={sort} ascending={SeoKeywordGapSorts.keyword} descending={SeoKeywordGapSorts['-keyword']} onSort={onSort} />
+    <EvidenceSortHeader label="Comparison" align="left" sort={sort} ascending={SeoKeywordGapSorts.kind} descending={SeoKeywordGapSorts['-kind']} onSort={onSort} />
+    <EvidenceSortHeader label="Your rank" sort={sort} ascending={SeoKeywordGapSorts['target-rank']} descending={SeoKeywordGapSorts['-target-rank']} onSort={onSort} />
+    <EvidenceSortHeader label="Competitor rank" sort={sort} ascending={SeoKeywordGapSorts['competitor-rank']} descending={SeoKeywordGapSorts['-competitor-rank']} onSort={onSort} />
+    <EvidenceSortHeader label="Rank gap" sort={sort} ascending={SeoKeywordGapSorts['rank-gap']} descending={SeoKeywordGapSorts['-rank-gap']} onSort={onSort} help={RANK_GAP_HELP} />
+    <EvidenceSortHeader label="Monthly searches" sort={sort} ascending={SeoKeywordGapSorts.volume} descending={SeoKeywordGapSorts['-volume']} onSort={onSort} />
+    <th className="px-4"><span className="sr-only">Evidence</span></th>
+  </tr></thead><tbody className="divide-y divide-subtle">{rows.map((row, index) => <tr key={`${row.target.value}:${row.competitor.value}:${row.keyword}:${index}`}>
+    <th scope="row" className={ROW_HEADER}><p className="text-primary">{row.keyword}</p><p className="mt-1 text-label-13 text-secondary">{row.target.value} · {row.competitor.value}</p></th>
+    <td className="px-4 py-3 align-top"><ToneBadge tone={row.kind === SeoKeywordGapKinds.shared ? 'neutral' : 'caution'}>{GAP_LABELS[row.kind]}</ToneBadge></td>
+    <td className={CELL}>{row.kind === SeoKeywordGapKinds.missing ? <span className="text-secondary">Not found</span> : <Value value={row.targetRankOrganic} />}</td><td className={CELL}><Value value={row.competitorRankOrganic} /></td><td className={CELL}><RankGap value={row.rankGap} /></td><td className={CELL}><Value value={row.searchVolume} /></td>
+    <td className="px-4 align-top"><EvidenceDetails label={`${row.keyword} against ${row.competitor.value}`} source={row.provenance}><p>Your ranking page: {row.targetUrl ? <SourceLink url={row.targetUrl} /> : 'Not supplied'}</p><p>Competitor’s ranking page: {row.competitorUrl ? <SourceLink url={row.competitorUrl} /> : 'Not supplied'}</p><p>Difficulty /100: <Value value={row.keywordDifficulty} /></p><p>CPC: <Value value={row.cpcUsd} currency /></p></EvidenceDetails></td>
+  </tr>)}</tbody></table>
 }
 
 function RankedTable({ rows }: { rows: SeoRankedKeyword[] }) {
@@ -471,9 +535,9 @@ function useSettledText(value: string, delayMs = 250): string {
   return cleared ? '' : settled
 }
 
-function SortHeader({ label, align, sorted, onSort }: { label: string; align: 'left' | 'right'; sorted: 'ascending' | 'descending' | null; onSort: () => void }) {
+function SortHeader({ label, align, sorted, onSort, help, showUnsorted = false }: { label: string; align: 'left' | 'right'; sorted: 'ascending' | 'descending' | null; onSort: () => void; help?: string; showUnsorted?: boolean }) {
   return <th scope="col" aria-sort={sorted ?? undefined} className={`px-4 text-label-14-strong whitespace-nowrap ${align === 'right' ? 'text-right' : 'text-left'}`}>
-    <button type="button" onClick={onSort} className={`${SORT_BUTTON} ${sorted ? 'text-primary' : ''}`}>{label}{sorted && <span aria-hidden="true" className="ml-0.5">{sorted === 'ascending' ? '↑' : '↓'}</span>}</button>
+    <span className="inline-flex items-center gap-1"><button type="button" onClick={onSort} className={`${SORT_BUTTON} ${sorted ? 'text-primary' : ''}`}>{label}{(sorted || showUnsorted) && <span aria-hidden="true" className="ml-0.5">{sorted === 'ascending' ? '↑' : sorted === 'descending' ? '↓' : '↕'}</span>}</button>{help && <InfoTooltip text={help} />}</span>
   </th>
 }
 
@@ -699,6 +763,8 @@ function MarketQueries({ projectName, profileId, runId, regionKey, marketKey, to
                   <SortHeader label="Query" align="left" sorted={querySort} onSort={() => onSort(sort === SeoMarketRankingSorts.query ? SeoMarketRankingSorts['-query'] : SeoMarketRankingSorts.query)} />
                   <SortHeader label="Google rank" align="right" sorted={rankSort} onSort={() => onSort(sort === SeoMarketRankingSorts.rank ? SeoMarketRankingSorts['-rank'] : SeoMarketRankingSorts.rank)} />
                   <th className="px-4 py-3 text-left text-label-13-strong whitespace-nowrap">Top rival</th>
+                  <th className={`${CELL} text-label-13-strong`}>Rival rank</th>
+                  <th className={`${CELL} text-label-13-strong`}><span className="inline-flex items-center gap-1">Rank gap<InfoTooltip text={RANK_GAP_HELP} placement="bottom" /></span></th>
                   <th className="px-4"><span className="sr-only">Evidence</span></th>
                 </tr></thead>
                 <tbody className="divide-y divide-subtle">{items.map((row, index) => <MarketRankingRow key={`${row.marketKey}\u0000${row.queryId ?? row.queryText}\u0000${index}`} row={row} requested={depth} />)}</tbody>
@@ -722,6 +788,8 @@ function MarketRankingRow({ row, requested }: { row: SeoMarketRankingRow; reques
       <th scope="row" className={ROW_HEADER}><p className="text-primary">{row.queryText}</p><p className="mt-1 text-copy-13 text-secondary">{row.marketLabel}</p></th>
       <td className={CELL}><MarketRank row={row} requested={requested} /></td>
       <td className="px-4 py-3 align-top text-label-13"><TopRival row={row} /></td>
+      <td className={CELL}><Value value={row.topCompetitor?.rankOrganic ?? null} /></td>
+      <td className={CELL}><RankGap value={row.rankGap} /></td>
       <td className="px-4 text-right align-top">
         <button type="button" aria-expanded={open} aria-controls={detailsId} onClick={() => setOpen(value => !value)} className="inline-flex min-h-11 items-center whitespace-nowrap rounded-sm text-button-14 text-secondary hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mono-400">
           {open ? 'Hide details' : 'Details'}<span className="sr-only"> for {row.queryText} in {row.marketLabel}</span>
@@ -729,7 +797,7 @@ function MarketRankingRow({ row, requested }: { row: SeoMarketRankingRow; reques
       </td>
     </tr>
     <tr id={detailsId} hidden={!open}>
-      <td colSpan={4} className="bg-surface-subtle px-4 pb-4 pt-3"><MarketRankingDetails row={row} requested={requested} /></td>
+      <td colSpan={6} className="bg-surface-subtle px-4 pb-4 pt-3"><MarketRankingDetails row={row} requested={requested} /></td>
     </tr>
   </>
 }
@@ -750,10 +818,10 @@ function MarketRank({ row, requested }: { row: SeoMarketRankingRow; requested: n
 /** The best-ranked tracked competitor in the same results, marked when it ranks above the site. */
 function TopRival({ row }: { row: SeoMarketRankingRow }) {
   if (noResult(row)) return <span className="text-muted"><span aria-hidden="true">—</span><span className="sr-only">No result</span></span>
-  const rival = row.competitors[0]
+  const rival = row.topCompetitor
   if (!rival) return <span className="text-secondary">None in top {row.depth}</span>
   return <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-1">
-    <span className="text-primary">{rival.domain}</span><span className="tabular-nums text-secondary">#{rival.rankOrganic}</span>
+    <span className="text-primary">{rival.domain}</span>
     {row.rivalAhead && <ToneBadge tone="caution">Ahead</ToneBadge>}
   </span>
 }
@@ -801,7 +869,7 @@ function SeoActivity({ projectName, profileId, canRun, selectedRunId }: { projec
       <div className="flex flex-wrap items-center justify-between gap-3"><div className="space-y-2"><div className="flex flex-wrap items-center gap-3"><RunBadge status={run.status} /><span className="text-label-14">{formatZonedTimestamp(run.createdAt, TIME_ZONE)}</span></div><p className="text-copy-13 text-secondary">{run.completedTasks} of {run.taskCount} {taskNoun(run)} completed{run.failedTasks > 0 ? ` · ${run.failedTasks} failed` : ''}</p></div><div className="flex gap-2"><Button variant="ghost" className="pointer-coarse:min-h-11" aria-expanded={detailId === run.id} aria-controls={`seo-run-${run.id}`} onClick={() => setDetailId(detailId === run.id ? null : run.id)}>Details<span className="sr-only"> for refresh {run.id}</span></Button>{canRun && isActive(run) && <Button variant="secondary" className="pointer-coarse:min-h-11" disabled={cancel.isPending || run.cancelRequested} onClick={asyncHandler(() => stop(run.id))}>{run.cancelRequested ? 'Cancellation requested' : 'Cancel refresh'}</Button>}</div></div>
       {detailId === run.id && <div id={`seo-run-${run.id}`} className="mt-4 space-y-3 rounded-md bg-surface p-4 text-label-13 text-secondary">
         <p className="break-all">Refresh {run.id}</p><p>Profile revision {run.profileRevision} · {runLocation(run)} · {run.languageCode}</p><p>Scope: {run.scope.kind}{run.scope.key ? ` · ${run.scope.key}` : ''}{run.scope.expectedPlanRevision !== undefined ? ` · plan revision ${run.scope.expectedPlanRevision}` : ''}</p>{run.error && <p>{run.error}</p>}
-        {detail.error ? <ReadError error={detail.error} retry={() => { void detail.refetch() }} /> : detail.data ? detail.data.tasks.some(listedTask) && <ul className="space-y-3">{detail.data.tasks.filter(listedTask).map(task => <li key={task.id}><div className="flex flex-wrap items-center justify-between gap-2"><span>{CAPABILITY_LABELS[task.capability]}{task.searchText !== null ? ` · “${task.searchText}” from ${task.locationLabel ?? 'its market'}` : task.target ? ` · ${task.target.value}` : ''}{task.retried ? ' · retried once' : ''}</span><RunBadge status={task.status} /></div>{task.error && <p className="mt-1">{task.error}</p>}</li>)}</ul> : <p role="status">Loading refresh details…</p>}
+        {detail.error ? <ReadError error={detail.error} retry={() => { void detail.refetch() }} /> : detail.data ? detail.data.tasks.some(listedTask) && <ul className="space-y-3">{detail.data.tasks.filter(listedTask).map(task => <li key={task.id}><div className="flex flex-wrap items-center justify-between gap-2"><span>{CAPABILITY_LABELS[task.capability]}{task.searchText !== null ? ` · “${task.searchText}” from ${task.locationLabel ?? 'its market'}` : task.target ? ` · ${task.target.value}` : ''}{task.comparison ? ` · ${task.comparison.competitor.value} · ${GAP_LABELS[task.comparison.mode]} searches` : ''}{task.retried ? ' · retried once' : ''}</span><RunBadge status={task.status} /></div>{task.error && <p className="mt-1">{task.error}</p>}</li>)}</ul> : <p role="status">Loading refresh details…</p>}
       </div>}
     </div>)}
   </div>
@@ -813,6 +881,7 @@ function SeoProfileEditor({ projectName, context, profile, id, onClose, onSaved 
   const [connectionId, setConnectionId] = useState(profile?.connectionId ?? context.connections.at(0)?.id ?? '')
   const [capabilities, setCapabilities] = useState<SeoCapability[]>(profile?.capabilities ?? [SeoCapabilities['ranked-keywords']])
   const [targets, setTargets] = useState<SeoTarget[]>(profile?.targets ?? [{ kind: SeoTargetKinds.domain, value: '', includeSubdomains: true }])
+  const [competitors, setCompetitors] = useState(profile?.competitors?.map(target => target.value).join('\n') ?? '')
   const [keywords, setKeywords] = useState(profile?.keywords.join('\n') ?? '')
   const [locationCode, setLocationCode] = useState(profile?.locationCode.toString() ?? '')
   const [languageCode, setLanguageCode] = useState(profile?.languageCode ?? 'en')
@@ -824,8 +893,10 @@ function SeoProfileEditor({ projectName, context, profile, id, onClose, onSaved 
   const scope = context.scopes.find(item => `${item.kind}:${item.key ?? ''}` === selectedScope)
   const availableCapabilities = source?.capabilities.filter(capability => scope?.capabilities?.includes(capability) ?? true) ?? []
   const selectedCapabilities = capabilities.filter(capability => availableCapabilities.includes(capability))
-  const needsTargets = selectedCapabilities.includes(SeoCapabilities['ranked-keywords']) || selectedCapabilities.includes(SeoCapabilities['domain-intelligence']) || selectedCapabilities.includes(SeoCapabilities['market-rankings'])
-  const needsRankedLimit = selectedCapabilities.includes(SeoCapabilities['ranked-keywords'])
+  const needsGaps = selectedCapabilities.includes(SeoCapabilities['keyword-gaps'])
+  const domainResearch = needsGaps || selectedCapabilities.includes(SeoCapabilities['competitor-discovery'])
+  const needsTargets = selectedCapabilities.some(capability => capability !== SeoCapabilities['keyword-metrics'])
+  const needsRankedLimit = selectedCapabilities.includes(SeoCapabilities['ranked-keywords']) || domainResearch
   const marketNoteId = useId()
   const ranksMarkets = selectedCapabilities.includes(SeoCapabilities['market-rankings'])
   // Market rankings keep their own profile, and only a saved market-rankings profile carries their search settings.
@@ -838,12 +909,14 @@ function SeoProfileEditor({ projectName, context, profile, id, onClose, onSaved 
   const submit = async () => {
     if (!context.access.canWrite || isEmbed() || isPublicDemo() || save.isPending) return
     if (!scope) { setError('Choose a measurement scope.'); return }
+    if (domainResearch && targets.some(target => target.kind !== SeoTargetKinds.domain || !target.includeSubdomains)) { setError('Organic competitors and search gaps require whole-domain targets including subdomains.'); return }
     const input: SeoProfileInput = {
       name, connectionId, capabilities: selectedCapabilities, targets: needsTargets ? targets : [], keywords: keywords.split('\n').map(keyword => keyword.trim()).filter(Boolean),
       locationCode: Number(locationCode), languageCode, limit: needsRankedLimit ? Number(limit) : profile?.limit ?? 100,
       scope: { kind: scope.kind, ...(scope.key ? { key: scope.key } : {}), ...(scope.planRevision !== undefined ? { expectedPlanRevision: scope.planRevision } : {}) },
       // Market-rankings settings (locations, depth, device) are kept as saved; the editor does not change them.
       ...(selectedCapabilities.includes(SeoCapabilities['market-rankings']) && profile?.rankings ? { rankings: profile.rankings } : {}),
+      ...(needsGaps ? { competitors: competitors.split('\n').map(value => value.trim()).filter(Boolean).map(value => ({ kind: SeoTargetKinds.domain, value, includeSubdomains: true })) } : {}),
     }
     const parsed = seoProfileInputSchema.safeParse(input)
     if (!parsed.success) { setError(parsed.error.issues.map(issue => `${issue.path.join('.')}: ${issue.message}`).join(' ')); return }
@@ -874,7 +947,7 @@ function SeoProfileEditor({ projectName, context, profile, id, onClose, onSaved 
       const blocked = blockedByMarkets(capability)
       return <label key={capability} className="flex min-h-11 items-center gap-2 text-label-14"><input type="checkbox" checked={selectedCapabilities.includes(capability)} disabled={!availableCapabilities.includes(capability) || blocked} aria-describedby={blocked && marketNote ? marketNoteId : undefined} onChange={event => setCapabilities(previous => event.target.checked ? [...previous, capability] : previous.filter(item => item !== capability))} />{CAPABILITY_LABELS[capability]}</label>
     })}</div>{scope?.capabilities && <p className="mt-1 text-copy-13 text-secondary">Available datasets follow this scope and source. Changing scope clears unsupported selections.</p>}{marketNote && <p id={marketNoteId} className="mt-1 text-copy-13 text-secondary">{marketNote}</p>}</fieldset>
-    {needsTargets && <fieldset className="space-y-3"><legend className="mb-2 text-label-14">Targets</legend><p className="text-copy-13 text-secondary">{ranksMarkets ? 'Market rankings report the Google rank of one target: one of this project’s own domains.' : 'Domain comparison requires a domain including its subdomains. Exact hosts are supported only by compatible datasets.'}</p>
+    {needsTargets && <fieldset className="space-y-3"><legend className="mb-2 text-label-14">Targets</legend><p className="text-copy-13 text-secondary">{ranksMarkets ? 'Market rankings report the Google rank of one target: one of this project’s own domains.' : domainResearch ? 'Organic competitors and search gaps compare whole domains, including subdomains.' : 'Domain comparison requires a domain including its subdomains. Exact hosts are supported only by compatible datasets.'}</p>
       {targets.map((target, index) => <div key={index} className="grid items-end gap-3 sm:grid-cols-[1fr_13rem_auto]">
         <label className="space-y-1 text-label-14"><span className="sr-only">Target {index + 1}</span><input className={FIELD} value={target.value} placeholder="example.com" aria-label={`Target ${index + 1}`} onChange={event => updateTarget(index, { value: event.target.value })} required maxLength={253} /></label>
         <label className="space-y-1 text-label-14"><span className="sr-only">Target {index + 1} kind</span><select className={FIELD} aria-label={`Target ${index + 1} kind`} value={target.kind} onChange={event => updateTarget(index, { kind: event.target.value as SeoTarget['kind'], includeSubdomains: event.target.value === SeoTargetKinds.domain })}><option value={SeoTargetKinds.domain}>Domain + subdomains</option><option value={SeoTargetKinds.host}>Exact host</option></select></label>
@@ -882,8 +955,9 @@ function SeoProfileEditor({ projectName, context, profile, id, onClose, onSaved 
       </div>)}
       <Button type="button" variant="secondary" className="pointer-coarse:min-h-11" disabled={targets.length >= (ranksMarkets ? 1 : 20)} onClick={() => setTargets(previous => [...previous, { kind: SeoTargetKinds.domain, value: '', includeSubdomains: true }])}>Add target</Button>
     </fieldset>}
+    {needsGaps && <label className="block space-y-1.5 text-label-14"><span>Comparison domains</span><textarea className={`${FIELD} min-h-24`} value={competitors} onChange={event => setCompetitors(event.target.value)} placeholder="competitor.com" required /><span className="block text-copy-13 text-secondary">One domain per line, up to 5. Includes subdomains. Each is compared with every target in this profile.</span></label>}
     {selectedCapabilities.includes(SeoCapabilities['keyword-metrics']) && <label className="block space-y-1.5 text-label-14"><span>Searches</span><textarea className={`${FIELD} min-h-28`} value={keywords} onChange={event => setKeywords(event.target.value)} placeholder="One search per line" /><span className="block text-label-13 text-secondary">Up to 700 searches to measure, each at most 10 words and 80 characters.</span></label>}
-    <div className={`grid gap-4 ${needsRankedLimit ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}><label className="space-y-1.5 text-label-14"><span>Provider location code</span><input className={FIELD} type="number" min={1} step={1} required value={locationCode} onChange={event => setLocationCode(event.target.value)} /><span className="block text-label-13 text-secondary">{ranksMarkets ? 'Used only when the project has no markets or locations.' : 'The source’s location identifier.'}</span></label><label className="space-y-1.5 text-label-14"><span>Language code</span><input className={FIELD} required minLength={2} maxLength={10} value={languageCode} onChange={event => setLanguageCode(event.target.value)} /></label>{needsRankedLimit && <label className="space-y-1.5 text-label-14"><span>Ranked searches per target</span><input className={FIELD} type="number" min={1} max={1000} step={1} required value={limit} onChange={event => setLimit(event.target.value)} /></label>}</div>
+    <div className={`grid gap-4 ${needsRankedLimit ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}><label className="space-y-1.5 text-label-14"><span>Provider location code</span><input className={FIELD} type="number" min={1} step={1} required value={locationCode} onChange={event => setLocationCode(event.target.value)} /><span className="block text-label-13 text-secondary">{ranksMarkets ? 'Used only when the project has no markets or locations.' : 'The source’s location identifier.'}</span></label><label className="space-y-1.5 text-label-14"><span>Language code</span><input className={FIELD} required minLength={2} maxLength={10} value={languageCode} onChange={event => setLanguageCode(event.target.value)} /></label>{needsRankedLimit && <label className="space-y-1.5 text-label-14"><span>{domainResearch ? 'Result limit' : 'Ranked searches per target'}</span><input className={FIELD} type="number" min={1} max={1000} step={1} required value={limit} onChange={event => setLimit(event.target.value)} />{domainResearch && <span className="block text-copy-13 text-secondary">{needsGaps ? 'For each gap comparison, shared and missing searches each have this limit. Other datasets use it per target.' : 'Maximum rows per target and dataset.'}</span>}</label>}</div>
     {error && <p role="alert" className="text-copy-14 text-secondary">{error}</p>}
     <div className="flex flex-wrap gap-2"><Button type="submit" className="pointer-coarse:min-h-11" disabled={save.isPending || !source || !selectedCapabilities.length}>{save.isPending ? 'Saving…' : 'Save profile'}</Button><Button type="button" variant="ghost" className="pointer-coarse:min-h-11" onClick={onClose}>Cancel</Button></div>
   </form>

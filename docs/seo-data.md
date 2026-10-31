@@ -28,7 +28,7 @@ Amounts are integer microUSD: 1,000,000 equals one US dollar. These are example 
 
 The dashboard and Aero name a source by its connection `label`, never by the vendor behind it. Provider ids and vendor dataset prefixes stay in API, CLI and MCP provenance for operators; choose the label you want clients to read.
 
-The SEO tab and Aero call the datasets Searches you rank for (`ranked-keywords`), Search demand (`keyword-metrics`), Domain comparison (`domain-intelligence`) and Market rankings (`market-rankings`). A term people type into Google is a search there, never a keyword, so it does not read as one of the project's tracked queries. Wire names stay as they are.
+The SEO tab and Aero call the datasets Searches you rank for (`ranked-keywords`), Search demand (`keyword-metrics`), Domain comparison (`domain-intelligence`), Market rankings (`market-rankings`), Organic competitors (`competitor-discovery`) and Search gaps (`keyword-gaps`). A term people type into Google is a search there, never a keyword, so it does not read as one of the project's tracked queries. Wire names stay as they are.
 
 ## Profile and refresh
 
@@ -190,4 +190,44 @@ Only documented rejection permits retry, with one exception: a market-rankings s
 
 Operator receipt endpoints require a direct bearer key ID listed in host-only `CANONRY_OPERATOR_KEY_IDS`. Reconciliation also requires `seo.run`. Customer roles, wildcard scope alone, browser sessions, delegated tokens and project keys cannot grant operator authority. Operator tools are excluded from Aero; ordinary audit events contain safe identifiers only.
 
-Phase one does not synthesize visibility share, rank movement, keyword gaps, backlink coverage or SERP-feature opportunity scores. Those require their own data and comparable snapshots; market rankings store each refresh so rank movement can be compared later. Existing Search Console, backlinks and Site Health surfaces remain the sources for their current metrics.
+The SEO surface does not synthesize visibility share, rank movement, backlink coverage or SERP-feature opportunity scores. Those require their own data and comparable snapshots; market rankings store each refresh so rank movement can be compared later. Existing Search Console, backlinks and Site Health surfaces remain the sources for their current metrics.
+
+## Organic search competitors and gaps
+
+`competitor-discovery` finds domains that share organic ranking searches with each explicit Target. `keyword-gaps` compares each Target against one to five explicit `competitors`. Both are Google Labs database research at the profile's location and language, not live market rankings. Saving a profile never discovers competitors, starts a refresh or expands the tracked competitor list.
+
+```json
+{
+  "name": "US search competitors",
+  "connectionId": "search",
+  "capabilities": ["competitor-discovery", "keyword-gaps"],
+  "targets": [{"kind": "domain", "value": "example.com", "includeSubdomains": true}],
+  "competitors": [{"kind": "domain", "value": "competitor.com", "includeSubdomains": true}],
+  "keywords": [],
+  "locationCode": 2840,
+  "languageCode": "en",
+  "limit": 100,
+  "scope": {"kind": "project"}
+}
+```
+
+The provider cannot constrain these endpoints to exact hosts or Property footprints. Both Simple and Advanced projects support whole-domain research in project scope. For Advanced projects, include the current `expectedPlanRevision` in `scope`. Property, group and market selections show recovery guidance to select project scope; they never silently broaden a footprint. Each stored row retains its Target and source locale; the run retains its selected profile and frozen plan context.
+
+A discovery task returns bounded competitor rows with shared-search counts, average position, organic search count and estimated traffic where supplied. Gap refreshes reserve two tasks for each Target/competitor pair: shared searches and searches missing from the Target's provider database results. These disjoint populations are priced before admission under the existing host and project limits. Comparison domains, location, language, row limit and capability are part of execution identity. Adding a competitor changes the profile revision and invalidates an unaccepted refresh intent.
+
+The saved gap rows distinguish:
+
+- `shared`: both domains rank and the Target is level or ahead.
+- `outranked`: both domains rank and the competitor is ahead.
+- `missing`: the competitor ranks and the provider database supplies no Target rank. This does not prove absence from all Google results.
+
+The `kind=shared` read filter includes both `shared` and `outranked` rows. `missing` and `outranked` filters select that exact kind. A signed `rankGap` is Target position minus competitor position: positive means the competitor is ahead; it is null when the Target has no observed rank. Filtering precedes pagination. List totals count saved rows, not every ranking search in the provider's database. No competitive percentage pools branded and non-brand searches.
+
+```bash
+canonry seo competitors example --profile-id us-search-competitors --format json
+canonry seo keyword-gaps example --profile-id us-search-competitors --kind missing --format json
+```
+
+The matching stored GETs are `/projects/:name/seo/competitors` and `/projects/:name/seo/keyword-gaps`; both accept `profileId`, `runId`, `limit`, `offset` and `sort`, and gaps also accepts `kind`. Sorting applies to the full saved result after filtering and before pagination. Prefix a sort key with `-` for descending; missing metrics stay last in either direction. Omit `sort` to retain stored order. Competitors supports `domain`, `shared`, `position` and `traffic`; gaps supports `keyword`, `kind`, `target-rank`, `competitor-rank`, `rank-gap` and `volume`. These reads and their CLI/MCP equivalents never dispatch provider work. The prior completed or partial refresh remains available during new work, and older tasks without competitive datasets return empty arrays.
+
+Tracked-query market rankings remain a separate instrument. Each row now exposes `topCompetitor`, the best tracked rival, and a nullable signed `rankGap` from the same results page. Missing, partial, failed and unsearched states retain their existing meaning; no numeric gap is invented without both positions.

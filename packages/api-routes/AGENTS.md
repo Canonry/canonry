@@ -1025,3 +1025,17 @@ Advanced non-project domain metrics require exact host footprints; path/entity
 Properties can use explicit keyword metrics. Domain intelligence cannot substitute
 a broader domain for a Property. Saved evidence defaults to the latest completed
 or partial job for the selected profile, independently of the latest refresh state.
+
+Competitor discovery and keyword gaps are whole-domain project research for both
+Simple and Advanced projects. Neither provider endpoint can promise an exact-host,
+Property, group or market footprint; reject those scopes with project-scope recovery
+instead of widening them. The saved profile explicitly names up to five competitor
+root domains for gaps; each target/competitor pair reserves a shared and a missing
+task under the same immutable intent. Comparison domains, locale, capability and
+row limit are execution identity. `/seo/competitors` and `/seo/keyword-gaps` read
+only stored evidence. Gap `shared` includes `outranked`. Both competitive reads sort the full saved
+result before pagination, after gap filtering; use the shared contracts comparators.
+Omitted sort preserves stored order, and missing metrics stay last both ways. Missing describes the provider database, not an exhaustive Google
+absence; saved row totals never stand for provider-wide totals. Legacy task blobs
+without the new result arrays read as empty. Market-ranking comparisons use the
+shared `marketRankingRow` projection, including nullable best rival and rank gap.
