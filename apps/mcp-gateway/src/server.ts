@@ -19,6 +19,8 @@ interface PendingAuthorization extends UpstreamAuthorization { grantId?: string 
 interface GatewayIdentity { tenantId: string; userId: string; profileId: string }
 interface LoginState { uid: string; tenantId: string; verifier: string; nonce: string; discovery: Discovery; upstreamClientId: string }
 interface BrowserState { csrf: string; nonce: string }
+/** An accepted workspace choice. A resent copy of the same form gets the same handoff. */
+interface StartedLogin { csrf: string; nonce: string; selection: string; authorize?: string }
 const secret = () => randomBytes(32).toString('base64url')
 const fingerprint = (value: string) => createHash('sha256').update(value).digest('hex')
 const diagnosticCodes = new Set<UpstreamErrorCode>([
@@ -63,6 +65,9 @@ export function createGateway(config: GatewayConfig, secrets: { vaultKey: Buffer
   const resource = `${config.issuer}/mcp`
   const activeRefresh = new Map<string, Promise<Connection>>()
   const activeAuthorizations = new Set<string>()
+  // A workspace check still running for an interaction. Resolves to the error status the
+  // first submit showed, or undefined once its handoff is stored.
+  const startingLogins = new Map<string, Promise<number | undefined>>()
   const pending = new Set<Promise<unknown>>()
   const requestDiagnostics = new WeakMap<IncomingMessage, ErrorDiagnostic>()
   const requestTenants = new WeakMap<IncomingMessage, string>()
@@ -393,34 +398,63 @@ export function createGateway(config: GatewayConfig, secrets: { vaultKey: Buffer
           unavailable,
         }))
       }
-      if (!interactionMatch[2] && req.method === 'GET') { await showConsent(); return }
-      if (interactionMatch[2] === 'start' && req.method === 'POST') {
-        if (req.headers.origin !== config.issuer) throw new UpstreamError(403)
-        const form = new URLSearchParams(await readBody(req, config.maxBodyBytes))
-        const browser = store.take<BrowserState>('browser', uid)
-        if (!browser || browser.nonce !== cookie(req, cookieName) || form.get('csrf') !== browser.csrf) throw new UpstreamError(403)
-        if (form.get('approve') !== 'yes') { await provider.interactionFinished(req, res, { error: 'access_denied' }); return }
-        const selection = (form.get('tenant') ?? '').trim()
-        const matches = store.list<GatewayTenant>('tenant').filter(item => item.id === selection || new URL(item.value.origin).host.toLowerCase() === selection.toLowerCase())
-        const current = matches.length === 1 ? matches[0]?.value : undefined
-        if (!current?.enabled || !current.upstreamClientId) { await showConsent(400, true); return }
-        requestTenants.set(req, current.id)
-        let discovery: Discovery
-        try { discovery = await discoverTenant(current, config.requestTimeoutMs, network) }
-        catch (error) { recordRequestError(req, error); await showConsent(errorStatus(error), true); return }
-        const state = secret(), verifier = secret()
-        store.put('upstream-login', state, { uid, tenantId: current.id, verifier, nonce: browser.nonce, discovery, upstreamClientId: current.upstreamClientId } satisfies LoginState, 600)
-        const authorize = new URL(discovery.authorization_endpoint)
-        authorize.search = new URLSearchParams({ response_type: 'code', client_id: current.upstreamClientId, redirect_uri: `${action}/callback`, resource: current.resource, scope: 'read offline_access', state, code_challenge: createHash('sha256').update(verifier).digest('base64url'), code_challenge_method: 'S256' }).toString()
-        // Upstream redirect URI is fixed; interaction UID travels in durable state, not client registration.
-        authorize.searchParams.set('redirect_uri', `${config.issuer}/upstream/callback`)
+      const showHandoff = (target: string) => {
         // A new document prevents the original form's CSP from enumerating every workspace origin.
         res.writeHead(200, {
           'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store',
           'content-security-policy': "default-src 'none'; form-action 'none'; frame-ancestors 'none'; base-uri 'none'",
           'referrer-policy': 'no-referrer', 'x-content-type-options': 'nosniff',
         })
-        res.end(renderWorkspaceHandoff(authorize.toString())); return
+        res.end(renderWorkspaceHandoff(target))
+      }
+      if (!interactionMatch[2] && req.method === 'GET') { await showConsent(); return }
+      if (interactionMatch[2] === 'start' && req.method === 'POST') {
+        if (req.headers.origin !== config.issuer) throw new UpstreamError(403)
+        const form = new URLSearchParams(await readBody(req, config.maxBodyBytes))
+        const selection = (form.get('tenant') ?? '').trim()
+        const browser = store.take<BrowserState>('browser', uid)
+        if (!browser) {
+          // A double click sends the accepted form again. Only that browser and form match, and
+          // they get the first submit's outcome: no second workspace check or login state.
+          const started = store.get<StartedLogin>('started-login', uid)
+          if (!started || started.nonce !== cookie(req, cookieName) || form.get('csrf') !== started.csrf || form.get('approve') !== 'yes' || selection !== started.selection) throw new UpstreamError(403)
+          const failure = await startingLogins.get(uid)
+          const target = store.get<StartedLogin>('started-login', uid)?.authorize
+          if (target) { showHandoff(target); return }
+          if (failure !== undefined) { await showConsent(failure, true); return }
+          throw new UpstreamError(403)
+        }
+        if (browser.nonce !== cookie(req, cookieName) || form.get('csrf') !== browser.csrf) throw new UpstreamError(403)
+        if (form.get('approve') !== 'yes') { await provider.interactionFinished(req, res, { error: 'access_denied' }); return }
+        const matches = store.list<GatewayTenant>('tenant').filter(item => item.id === selection || new URL(item.value.origin).host.toLowerCase() === selection.toLowerCase())
+        const current = matches.length === 1 ? matches[0]?.value : undefined
+        if (!current?.enabled || !current.upstreamClientId) { await showConsent(400, true); return }
+        requestTenants.set(req, current.id)
+        const accepted = { csrf: browser.csrf, nonce: browser.nonce, selection }
+        store.put('started-login', uid, accepted satisfies StartedLogin, 600)
+        let settle: (failure: number | undefined) => void = () => undefined
+        startingLogins.set(uid, new Promise<number | undefined>(resolve => { settle = resolve }))
+        try {
+          let discovery: Discovery
+          try { discovery = await discoverTenant(current, config.requestTimeoutMs, network) }
+          catch (error) {
+            store.delete('started-login', uid)
+            recordRequestError(req, error)
+            settle(errorStatus(error))
+            await showConsent(errorStatus(error), true); return
+          }
+          const state = secret(), verifier = secret()
+          store.put('upstream-login', state, { uid, tenantId: current.id, verifier, nonce: browser.nonce, discovery, upstreamClientId: current.upstreamClientId } satisfies LoginState, 600)
+          const authorize = new URL(discovery.authorization_endpoint)
+          authorize.search = new URLSearchParams({ response_type: 'code', client_id: current.upstreamClientId, redirect_uri: `${action}/callback`, resource: current.resource, scope: 'read offline_access', state, code_challenge: createHash('sha256').update(verifier).digest('base64url'), code_challenge_method: 'S256' }).toString()
+          // Upstream redirect URI is fixed; interaction UID travels in durable state, not client registration.
+          authorize.searchParams.set('redirect_uri', `${config.issuer}/upstream/callback`)
+          store.put('started-login', uid, { ...accepted, authorize: authorize.toString() } satisfies StartedLogin, 600)
+          showHandoff(authorize.toString()); return
+        } finally {
+          settle(undefined)
+          startingLogins.delete(uid)
+        }
       }
       if (interactionMatch[2] === 'callback' && req.method === 'GET') {
         const state = store.take<LoginState>('upstream-login', url.searchParams.get('state') ?? '')

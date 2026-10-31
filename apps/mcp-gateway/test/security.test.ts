@@ -85,7 +85,7 @@ async function fixture(input: { clientName?: string; workspaceName?: string; wor
   const close = async () => {
     try { await gateway.close() } finally { rmSync(directory, { recursive: true, force: true }) }
   }
-  const built = { issuer, redirectUri: registeredRedirect, request, authorize, consent, cookies, close }
+  const built = { issuer, redirectUri: registeredRedirect, request, authorize, consent, cookies, close, server: gateway.server }
   running.push(built)
   return built
 }
@@ -242,14 +242,69 @@ describe('gateway browser authorization boundary', () => {
       expect(authorize.searchParams.get('resource')).toBe(`${workspaceOrigin}/api/v1/mcp`)
       expect(authorize.searchParams.get('code_challenge_method')).toBe('S256')
       expect(authorize.searchParams.get('state')).toBeTruthy()
-      const replay = await built.request(`${consent.path}/start`, {
-        method: 'POST', headers: { origin: built.issuer, 'content-type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({ csrf: consent.csrf, tenant: selection, approve: 'yes' }),
+      const resend = (form: Record<string, string>, cookie?: string) => built.request(`${consent.path}/start`, {
+        method: 'POST', headers: { origin: built.issuer, 'content-type': 'application/x-www-form-urlencoded', ...(cookie ? { cookie } : {}) },
+        body: new URLSearchParams({ csrf: consent.csrf, tenant: selection, approve: 'yes', ...form }),
       })
-      expect(replay.status).toBe(403)
-      await replay.body?.cancel()
+      // A double click sends the accepted form again: the same handoff, with no second workspace check.
+      const replay = await resend({})
+      expect(replay.status).toBe(200)
+      expect(JSDOM.fragment(await replay.text()).querySelector('a')?.getAttribute('href')).toBe(authorize.toString())
+      const otherBrowser = [...built.cookies].map(([name, value]) => `${name}=${name.startsWith('gateway_') ? 'other-browser' : value}`).join('; ')
+      const refusals: Array<[Record<string, string>, string | undefined]> = [
+        [{ csrf: 'forged' }, undefined], [{ tenant: 'synthetic-other' }, undefined], [{ approve: 'no' }, undefined], [{}, otherBrowser],
+      ]
+      for (const [form, cookie] of refusals) {
+        const refused = await resend(form, cookie)
+        expect(refused.status, JSON.stringify(form)).toBe(403)
+        await refused.body?.cancel()
+      }
     }
     expect(requests).toEqual(Array(2).fill(['/.well-known/oauth-protected-resource/api/v1/mcp/readonly', '/.well-known/oauth-authorization-server']).flat())
+  })
+
+  it('answers a double click during the workspace check with the first submit\'s handoff and one check', async () => {
+    const requests: string[] = []
+    let release: () => void = () => undefined
+    const held = new Promise<void>(resolve => { release = resolve })
+    let workspaceOrigin = ''
+    const upstream = createServer(async (req, res) => {
+      requests.push(req.url ?? '')
+      await held
+      const metadata = req.url?.startsWith('/.well-known/oauth-protected-resource')
+        ? { resource: `${workspaceOrigin}/api/v1/mcp`, authorization_servers: [workspaceOrigin] }
+        : { issuer: workspaceOrigin, authorization_endpoint: `${workspaceOrigin}/oauth/authorize`, token_endpoint: `${workspaceOrigin}/oauth/token`, revocation_endpoint: `${workspaceOrigin}/oauth/revoke` }
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(JSON.stringify(metadata))
+    })
+    await new Promise<void>(resolve => upstream.listen(0, '127.0.0.1', resolve))
+    const address = upstream.address()
+    if (!address || typeof address === 'string') throw new Error('Missing upstream listener')
+    workspaceOrigin = `http://127.0.0.1:${address.port}`
+    running.push({ close: () => new Promise<void>((resolve, reject) => upstream.close(error => error ? reject(error) : resolve())) })
+    const built = await fixture({ workspaceOrigin })
+    const consent = await built.consent()
+    let submits = 0
+    built.server.on('request', req => { if (req.method === 'POST' && req.url?.endsWith('/start')) submits += 1 })
+    const submit = () => built.request(`${consent.path}/start`, {
+      method: 'POST', headers: { origin: built.issuer, 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ csrf: consent.csrf, tenant: 'synthetic', approve: 'yes' }),
+    })
+    const first = submit()
+    await expect.poll(() => requests.length).toBe(1)
+    const second = submit()
+    await expect.poll(() => submits).toBe(2)
+    // Let the second submit read its form and wait on the first before the workspace answers.
+    await new Promise(resolve => setTimeout(resolve, 25))
+    release()
+    const handoffs = await Promise.all([first, second].map(async pending => {
+      const response = await pending
+      expect(response.status).toBe(200)
+      return JSDOM.fragment(await response.text()).querySelector('a')?.getAttribute('href')
+    }))
+    expect(handoffs[0]).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/oauth\/authorize\?/)
+    expect(handoffs[1]).toBe(handoffs[0])
+    expect(requests).toEqual(['/.well-known/oauth-protected-resource/api/v1/mcp/readonly', '/.well-known/oauth-authorization-server'])
   })
 
   it('serves only the fixed font asset with GET and HEAD', async () => {
