@@ -1971,6 +1971,12 @@
     @apply relative mt-2 mb-4 flex min-w-0 flex-nowrap items-stretch gap-x-1 border-b border-default;
   }
 
+  /* The tab bar already draws the line above a tab's first section; a divider
+     there drew a second one with an empty band between them. */
+  .project-subnav + .page-section-divider {
+    @apply mt-0 border-t-0 pt-0;
+  }
+
   .project-subnav-measure {
     @apply pointer-events-none invisible absolute inset-0 overflow-hidden;
   }
