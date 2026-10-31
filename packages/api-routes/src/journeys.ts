@@ -425,8 +425,9 @@ function laterVisits(visitor: VisitorRow, visits: readonly VisitRow[]): VisitRow
 }
 
 /**
- * The list's visits start at the first AI visit, so a visitor with many
- * earlier visits (one browser-only key can hold many) still shows it.
+ * The list's visits start at the first AI visit. Recording keeps visits only
+ * from an AI visit on, but older rows can remain from data stored under
+ * earlier rules, and the first AI visit must still lead the list.
  */
 function listVisits(visitor: VisitorRow, visits: readonly VisitRow[]): VisitRow[] {
   const first = firstAiVisit(visitor, visits)
