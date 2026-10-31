@@ -47,7 +47,7 @@ async function serverWithBatchPendingProject() {
     providers: { claude: { apiKey: 'sk-ant-test', batch: { enabled: true } } },
   }
   saveConfig(config)
-  const app = await createServer({ config, db, logger: false })
+  const app = await createServer({ config, configPath: path.join(tmpDir, 'config.yaml'), db, logger: false })
   const created = await app.inject({
     method: 'PUT',
     url: '/api/v1/projects/acme',

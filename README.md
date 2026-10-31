@@ -9,9 +9,7 @@ Canonry is an **agent-first (CLI, MCP, API), open-source AEO operating platform 
 
 **Self-hosted, using SQLite, with your own (BYOK) provider keys.** The web UI and your agent see the same evidence.
 
-**[DataForSEO integration](#seo-data-with-dataforseo):** Explore Google keyword metrics, organic rankings, and domain estimates through the dashboard, CLI, MCP, and API.
-
-[Live UI Demo](https://custom-demo.canonry.ai/projects/summit-roofing) · [Quick start](#quick-start) · [DataForSEO SEO](#seo-data-with-dataforseo) · [Evidence](#explore-the-evidence) · [Actions](#act-on-the-evidence) · [Integrations](#integrations) · [Docs](#documentation) · [Support](#support)
+[Live UI Demo](https://custom-demo.canonry.ai/projects/summit-roofing) · [Quick start](#quick-start) · [Evidence](#explore-the-evidence) · [Actions](#act-on-the-evidence) · [Integrations](#integrations) · [Docs](#documentation) · [Support](#support)
 
 <p align="center">
   <a href="https://raw.githubusercontent.com/Canonry/canonry/main/docs/images/measure-act.svg">
