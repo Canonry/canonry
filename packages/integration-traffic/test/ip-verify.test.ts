@@ -4,10 +4,12 @@ import amznSearchbotRaw from '../src/ip-ranges/amzn-searchbot.json' with { type:
 import amznUserRaw from '../src/ip-ranges/amzn-user.json' with { type: 'json' }
 import anthropicRaw from '../src/ip-ranges/anthropic.json' with { type: 'json' }
 import applebotRaw from '../src/ip-ranges/applebot.json' with { type: 'json' }
+import bingbotRaw from '../src/ip-ranges/bingbot.json' with { type: 'json' }
 import ccbotRaw from '../src/ip-ranges/ccbot.json' with { type: 'json' }
 import chatgptConnectorsRaw from '../src/ip-ranges/chatgpt-connectors.json' with { type: 'json' }
 import duckassistbotRaw from '../src/ip-ranges/duckassistbot.json' with { type: 'json' }
 import duckduckbotRaw from '../src/ip-ranges/duckduckbot.json' with { type: 'json' }
+import googleUserAgentsRaw from '../src/ip-ranges/google-user-triggered-agents.json' with { type: 'json' }
 import googleUserFetchersRaw from '../src/ip-ranges/google-user-triggered-fetchers.json' with { type: 'json' }
 import googlebotRaw from '../src/ip-ranges/googlebot.json' with { type: 'json' }
 import mistralAiIndexRaw from '../src/ip-ranges/mistral-ai-index.json' with { type: 'json' }
@@ -25,23 +27,11 @@ import {
   verifyIpForRule,
   verifyIpForRuleDecision,
 } from '../src/index.js'
+import { everyPublishedIp, firstPublishedIp, publishesIp, vendoredManifest } from './fixtures/vendored-ranges.js'
 
-const ANTHROPIC_MANIFEST = {
-  id: `${anthropicRaw._source}#${anthropicRaw.creationTime}#sha256:${ipRangeManifestContentHash(anthropicRaw)}`,
-  source: anthropicRaw._source,
-  version: anthropicRaw.creationTime,
-}
-
-interface TestManifest {
-  prefixes: Array<{ ipv4Prefix?: string; ipv6Prefix?: string }>
-}
-
-function firstPublishedIp(raw: TestManifest): string {
-  const first = raw.prefixes[0]
-  const prefix = first?.ipv4Prefix ?? first?.ipv6Prefix
-  if (!prefix) throw new Error('test manifest has no prefixes')
-  return prefix.split('/')[0]!
-}
+// Addresses and manifest identities come from the vendored snapshots, so the
+// weekly range refresh cannot break these tests (see fixtures/vendored-ranges.ts).
+const ANTHROPIC_MANIFEST = vendoredManifest(anthropicRaw)
 
 describe('parseIp', () => {
   it('parses IPv4 to a 32-bit BigInt', () => {
@@ -296,16 +286,13 @@ describe('ipInCidr', () => {
 })
 
 describe('verifyIpForRule', () => {
-  it('verifies a known Googlebot IPv4 inside a published prefix', () => {
-    // 192.178.4.0/27 is in the bundled googlebot.json (one of many
-    // crawler prefixes). Pick an IP inside that /27 to verify the
-    // match path works end-to-end against real publisher data.
-    expect(verifyIpForRule('192.178.4.5', 'googlebot')).toBe(true)
+  it('verifies a Googlebot IPv4 inside a published prefix', () => {
+    // Exercises the match path end-to-end against real publisher data.
+    expect(verifyIpForRule(firstPublishedIp(googlebotRaw, 4), 'googlebot')).toBe(true)
   })
 
-  it('verifies a known bingbot IPv4 inside a published prefix', () => {
-    // 157.55.39.0/24 is in the bundled bingbot.json.
-    expect(verifyIpForRule('157.55.39.10', 'bingbot')).toBe(true)
+  it('verifies a bingbot IPv4 inside a published prefix', () => {
+    expect(verifyIpForRule(firstPublishedIp(bingbotRaw, 4), 'bingbot')).toBe(true)
   })
 
   it('does not verify a random IP outside all Googlebot prefixes', () => {
@@ -313,49 +300,45 @@ describe('verifyIpForRule', () => {
     expect(verifyIpForRule('10.0.0.1', 'googlebot')).toBe(false)
   })
 
-  it('verifies ClaudeBot IPv4 against Anthropic\'s official crawler manifest', () => {
-    // The /22 remains on Anthropic's official list.
-    expect(verifyIpForRule('216.73.216.76', 'anthropic-claudebot')).toBe(true)
-    expect(verifyIpForRule('216.73.217.125', 'anthropic-claudebot')).toBe(true)
-    expect(verifyIpForRule('216.73.219.255', 'anthropic-claudebot')).toBe(true)
-    // These addresses exist only in the new publisher manifest, not the old
-    // bundled ARIN allocation snapshot.
-    expect(verifyIpForRule('34.162.230.222', 'anthropic-claudebot')).toBe(true)
-    expect(verifyIpForRule('40.124.101.49', 'anthropic-claudebot')).toBe(true)
-    expect(verifyIpForRule('20.64.57.223', 'anthropic-claudebot')).toBe(true)
+  it('verifies ClaudeBot against every prefix in Anthropic\'s official crawler manifest', () => {
+    for (const ip of everyPublishedIp(anthropicRaw)) {
+      expect(verifyIpForRule(ip, 'anthropic-claudebot'), ip).toBe(true)
+    }
   })
 
-  it('does not verify a random IP outside Anthropic prefixes', () => {
-    expect(verifyIpForRule('1.2.3.4', 'anthropic-claudebot')).toBe(false)
-    // Adjacent /22 outside the official manifest entry.
-    expect(verifyIpForRule('216.73.220.1', 'anthropic-claudebot')).toBe(false)
-    // The Claude Platform/API egress range is not in the crawler manifest.
-    expect(verifyIpForRule('160.79.104.5', 'anthropic-claudebot')).toBe(false)
-    expect(verifyIpForRule('160.79.111.254', 'anthropic-claudebot')).toBe(false)
-    // The old ARIN-derived bundle also included this IPv6 allocation, but
-    // Anthropic's official crawler manifest currently publishes IPv4 only.
-    expect(verifyIpForRule('2607:6bc0::1', 'anthropic-claudebot')).toBe(false)
-    // A historical AS-based source attributed this Mitel prefix to Anthropic.
-    expect(verifyIpForRule('209.249.57.10', 'anthropic-claudebot')).toBe(false)
+  it('does not verify an IP outside Anthropic prefixes', () => {
+    expect(verifyIpForRule('192.0.2.1', 'anthropic-claudebot')).toBe(false)
+  })
+
+  it('verifies Anthropic addresses only through the official crawler manifest', () => {
+    // Older sources attributed these to Anthropic: the Claude Platform/API
+    // egress range, the ARIN IPv6 allocation, and a Mitel prefix from an
+    // AS-based list. None of them is crawler origin unless Anthropic's own
+    // manifest publishes it, so verification must follow the manifest alone.
+    for (const ip of ['216.73.220.1', '160.79.104.5', '160.79.111.254', '2607:6bc0::1', '209.249.57.10']) {
+      expect(verifyIpForRule(ip, 'anthropic-claudebot'), ip).toBe(publishesIp(anthropicRaw, ip))
+    }
   })
 
   it('verifies Claude-User against the shared official Anthropic manifest', () => {
     // The publisher does not split ranges by Claude bot identity, so the same
     // official manifest is keyed to both classifier rules.
-    expect(verifyIpForRule('216.73.216.76', 'claude-user')).toBe(true)
-    expect(verifyIpForRule('34.162.230.222', 'claude-user')).toBe(true)
-    expect(verifyIpForRule('160.79.104.5', 'claude-user')).toBe(false)
-    expect(verifyIpForRule('2607:6bc0::1', 'claude-user')).toBe(false)
-    // Outside Anthropic's allocation — stays unverified.
-    expect(verifyIpForRule('1.2.3.4', 'claude-user')).toBe(false)
+    for (const ip of everyPublishedIp(anthropicRaw)) {
+      expect(verifyIpForRule(ip, 'claude-user'), ip).toBe(true)
+    }
+    for (const ip of ['160.79.104.5', '2607:6bc0::1']) {
+      expect(verifyIpForRule(ip, 'claude-user'), ip).toBe(publishesIp(anthropicRaw, ip))
+    }
+    // Outside every Anthropic prefix: stays unverified.
+    expect(verifyIpForRule('192.0.2.1', 'claude-user')).toBe(false)
   })
 
   it('returns the exact vendored manifest with verified and rejected decisions', () => {
-    expect(verifyIpForRuleDecision('34.162.230.222', 'anthropic-claudebot')).toEqual({
+    expect(verifyIpForRuleDecision(firstPublishedIp(anthropicRaw), 'anthropic-claudebot')).toEqual({
       verified: true,
       manifest: ANTHROPIC_MANIFEST,
     })
-    expect(verifyIpForRuleDecision('160.79.104.5', 'anthropic-claudebot')).toEqual({
+    expect(verifyIpForRuleDecision('192.0.2.1', 'anthropic-claudebot')).toEqual({
       verified: false,
       manifest: ANTHROPIC_MANIFEST,
     })
@@ -377,11 +360,10 @@ describe('verifyIpForRule', () => {
   it('verifies Google-Agent against Google\'s user-triggered-agents ranges', () => {
     // user-triggered-agents.json is Google's agentic-fetcher list; the
     // google-agent rule maps to it.
-    expect(verifyIpForRule('136.122.0.10', 'google-agent')).toBe(true)    // 136.122.0.0/16
-    expect(verifyIpForRule('136.121.16.5', 'google-agent')).toBe(true)    // 136.121.16.0/24
-    expect(verifyIpForRule('2001:4860:c::5', 'google-agent')).toBe(true)  // IPv6 2001:4860:c::/124
-    // Outside every published prefix — stays unverified.
-    expect(verifyIpForRule('1.2.3.4', 'google-agent')).toBe(false)
+    expect(verifyIpForRule(firstPublishedIp(googleUserAgentsRaw, 4), 'google-agent')).toBe(true)
+    expect(verifyIpForRule(firstPublishedIp(googleUserAgentsRaw, 6), 'google-agent')).toBe(true)
+    // Outside every published prefix: stays unverified.
+    expect(verifyIpForRule('192.0.2.1', 'google-agent')).toBe(false)
   })
 
   it.each([
@@ -419,17 +401,15 @@ describe('verifyIpForRule', () => {
   })
 
   it('handles IPv6 verification (Googlebot publishes both)', () => {
-    // 2001:4860:4801:10::/64 is in the bundled googlebot.json.
-    expect(verifyIpForRule('2001:4860:4801:10::1', 'googlebot')).toBe(true)
-    // 2001:4860:4801:: (without the :10 in the 4th group) is OUTSIDE
-    // every published /64 — the prefixes have specific 4th groups.
+    expect(verifyIpForRule(firstPublishedIp(googlebotRaw, 6), 'googlebot')).toBe(true)
+    // RFC 3849 documentation space: outside every published prefix.
     expect(verifyIpForRule('2001:db8::1', 'googlebot')).toBe(false)
   })
 
   it('also verifies via the existing classifier path (UA + IP both match)', () => {
     // Tests in analysis.test.ts cover the full classifyCrawler path —
     // this duplicates the IP check at the raw layer for confidence.
-    expect(verifyIpForRule('192.178.4.5', 'googlebot')).toBe(true)
+    expect(verifyIpForRule(firstPublishedIp(googlebotRaw, 4), 'googlebot')).toBe(true)
   })
 })
 
